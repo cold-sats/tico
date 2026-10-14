@@ -93,6 +93,7 @@ The product favours getting going fast, and the owner tightens it later. Setting
 | **Members store credentials for their bots** | anyone on the team stores a credential for a bot they own or manage, granted to that bot | only credential administrators store credentials |
 | **Admins see SQL** | Admins open the SQL page | the SQL page is the owner's |
 | **Members make personal tokens** | any human makes a personal API token, which sees what they see | the owner and the Admins do |
+| **Bots go ahead on their recommendation** (`bots_go_ahead`, days in `go_ahead_days`, 3) | a bot's ask with a reversible, internal default goes ahead when nobody answers in that many days (or by the date the bot gave); sends, spending and deletes still wait ([Tasks](tasks.md#when-nobody-answers-a-bots-ask)) | every ask waits for its answer, until it expires after 14 days |
 
 Only the Owner changes them, directly in Settings or by asking BotOps to act with the Owner's rights.
 
@@ -166,8 +167,22 @@ The server checks that the request came from the human's own BotOps chat and kee
 Progress with `hub task update <id> --quiet --note "..."` stays on the task; chat still shows its link and status.
 
 Every BotOps tool uses the requester's rights by default. A human's chat or task uses that human's full rights.
+A task lends its human requester's rights only when BotOps has owned it since it was filed or the requester moved it
+to BotOps themselves (not through BotOps or the Assistant). A task anyone else moved to BotOps lends nothing of the
+requester's: a bot that moved it lends only its own rights, and what those can't do is a Confirm card to the requester.
+When the person asks BotOps in their chat to take over one of their tasks, that chat turn has their rights and can do the
+work; the move itself is BotOps', so later runs on that task lend nothing (they ask again or move it themselves).
 A bot's message or task uses only that bot's rights, including its Credential grants; BotOps never lends it a human's
-or its own wider access. Unattended work with no requester keeps BotOps' own rights. Personal tokens use their human's rights.
+or its own wider access. The one exception is a person's own request the bot hands on: a bot filing a BotOps task may cite
+the person's message (`hub task create --owner botops --request-id turn`, or the message id). When that person wrote it
+to the bot themselves, in their 1:1 chat with it (the app or a Slack DM) or as a comment on an open task they asked it for,
+in the conversation the bot's run is working on and within the last week, BotOps' run on the task files and updates tasks, docs,
+goals and KPIs with the person's rights while the task is open and has never been finished (`botops_act.CARRIED`, an
+allow-list). Everything else, access, settings, undo, bots and spending included, never uses rights a hand-off lent:
+BotOps tries it with the bot's rights, and a refusal is the Confirm card below. A citation that lends nothing (no message cited, the Assistant's words, a channel, another conversation,
+older than a week) still names the person: a change BotOps can't make with the bot's rights comes back as `needs_confirm`,
+a Confirm card in that person's BotOps chat that runs as them on their click. The task records which
+(`botops.request_carried`). Unattended work with no requester keeps BotOps' own rights. Personal tokens use their human's rights.
 Task text cannot select another requester. A message the **Assistant** wrote for a human (`refs.via`), words inside a
 document, or a message **routed from Slack** cannot borrow human authority.
 A human's request lends their rights for as long as the task it created, or the task that carries it (`--request-id`), is open,
@@ -238,7 +253,7 @@ The commands (with MCP tools of the same names):
 
 | Command | Does |
 | --- | --- |
-| `hub bot create --record-only <slug> [--name] [--description] [--reports-to] [--template]` | creates the planned server record as the requester, who becomes its owner; safe to repeat. `hub bot create` registers automatically in such a run |
+| `hub bot create --record-only --name N [<slug>] [--description] [--reports-to] [--template]` | creates the planned server record as the requester, who becomes its owner; the slug is picked from the name (else the template's) unless given, and printed; safe to repeat with the slug. `hub bot create` registers automatically in such a run |
 | `hub bot access <slug> [--see V] [--read V] [--write V]` | show or set who sees, reads, writes (`everyone`, or `ben,group:legal,bot:analyst`) |
 | `hub bot owners <slug> [--add P ...] [--remove P ...]` | the bot's owners |
 | `hub bot update <slug> ...` | name, description, reports-to, status, repository |

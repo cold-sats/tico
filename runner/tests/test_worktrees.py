@@ -170,6 +170,19 @@ def test_disk_floor_paths_old_server_and_setup_failure(trees, monkeypatch):
             W.safe_path(workspace, path)
 
 
+def test_worktree_reports_carry_the_record_stamp_only_to_a_server_that_takes_it():
+    runner = Runner.__new__(Runner)
+    runner.client = mock.Mock()
+    runner.client.post.side_effect = [APIError('validation', 'worktrees.0.record_updated: Extra inputs are not permitted', 422),
+                                      {'ok': True}]
+    report = {'link_id': 'l1', 'state': 'present', 'record_updated': '2026-10-14T05:00:00.000000Z'}
+    body = {'worktrees': [report], 'readiness': {'schema_version': 1, 'worktrees': True}}
+    assert runner.report_heartbeat(body) == {'ok': True}
+    sent = runner.client.post.call_args_list[-1].args[1]
+    assert sent['worktrees'] == [{'link_id': 'l1', 'state': 'present'}]
+    assert report['record_updated'] and runner._reports_worktree_stamp is False
+
+
 def test_mixed_version_heartbeat_drops_worktree_fields():
     runner = Runner.__new__(Runner)
     runner.client = mock.Mock()

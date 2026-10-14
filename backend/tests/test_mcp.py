@@ -81,12 +81,16 @@ def test_tools_write_through_the_same_rules_as_http(api):
     err, out = call(api, "hub_message_send", {"to": "ops", "text": "Talking to myself"}, token=token)
     assert err and out["error"] == "self"
 
-    # Writing problems on an ask for a person are warnings: the task is made and the bot told how to improve.
+    # A person's task opens with a plain ask, or it is refused with the rule and an example the bot can act on.
     wordy = " ".join(["word"] * 150)
+    err, out = call(api, "hub_task_create", {"owner": "ana", "title": "The thing", "body": wordy}, token=token)
+    assert err and "Your ask to ana is 150 words" in json.dumps(out) and "Example:" in json.dumps(out)
+    # Other writing problems on it are warnings: the task is made and the bot told how to improve.
+    wordy = "Approve the thing? If yes, I'll ship it.\n\n" + wordy
     err, out = call(api, "hub_task_create", {"owner": "ana", "title": "The thing", "body": wordy, "dry_run": True}, token=token)
     assert not err and out["ok"] is True and any("verb" in w for w in out["warnings"])
     err, out = call(api, "hub_task_create", {"owner": "ana", "title": "The thing", "body": wordy}, token=token)
-    assert not err and out["task"]["owner"] == "human:ana" and any("150 words" in w for w in out["warnings"])
+    assert not err and out["task"]["owner"] == "human:ana" and any("words outside" in w for w in out["warnings"])
     wordy_task = out["task"]["id"]
     with api.app.state.store.read() as c:
         assert c.execute("SELECT count(*) FROM tasks WHERE requester='bot:ops'").fetchone()[0] == 1
@@ -248,3 +252,22 @@ def test_a_private_run_cannot_put_its_work_to_someone_outside_it(api):
     assert err and refused["error"] == "privacy", refused
     with api.app.state.store.read() as c:
         assert c.execute("SELECT count(*) FROM tasks WHERE title LIKE 'Move the design team%'").fetchone()[0] == 0
+
+
+def test_a_question_asked_from_a_run_on_the_bots_own_task_is_filed_under_it(api):
+    """One question, one card: no second top-level task just to ask. The bot's task stays the bot's."""
+    r = runner(api, "ana")
+    assign(api, r, "ops")
+    ready(api, r, ["ops"])
+    work = post(api, "tasks", {"owner": "ops", "title": "Assess the vendor agent", "body": "Is it worth a test?"})
+    attempt = claim(api, r)
+    asked = api.post("/api/v2/task-questions", json={"question": "Run the vendor trial once?", "on": "ana"},
+                     headers=headers(attempt["token"], "under-own-task"))
+    assert asked.status_code == 200, asked.text
+    made = asked.json()["task"]
+    with api.app.state.store.read() as c:
+        from backend import hubdb as H, task_relations as TR
+        assert TR.parent_of(c, made["id"]) == work["id"]
+        assert H.task(c, work["id"])["owner"] == "bot:ops"
+    cards = [i["id"] for i in get(api, "needs-you")["items"]]
+    assert made["id"] in cards and work["id"] not in cards

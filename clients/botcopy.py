@@ -446,8 +446,8 @@ def refusing(fn):
 
 
 def publish(api, slug):
-    """Give the new repository a home on GitHub when the team has connected it; else it stays on this computer, and the computer
-    pushes it on its own once the bot is placed (runner/git_credentials.py publish_history)."""
+    """Give the new repository a home on GitHub when the team has connected it; else it stays on this computer. Its first placement
+    is this computer (backend/built_on.py), whose runner then publishes the history (runner/git_credentials.py publish_history)."""
     from clients.tico import APIError
     try:
         made = api.post("github/repos", {"slug": slug, "empty": True})
@@ -467,13 +467,27 @@ def run_copy(api, person, args, workspace=None):
     with opened(root, original, person) as theirs:
         sha, tools = tools_at_head(root, original, theirs)
         body = {"with_memory": bool(args.get("with_memory")), "sha": sha, "tools": tools,
-                **{k: args[k] for k in ("slug", "computer") if args.get(k)},
+                **({"slug": args["slug"]} if args.get("slug") else {}),
                 **({"display_name": args["name"]} if args.get("name") else {})}
         made = person.post(f"bots/{original}/copy", body, key=args.get("operation_id"))
         if not isinstance(made, dict) or "slug" not in made:
             return made                              # a card waiting for the person's click, or whatever the server said
         built = build_copy(root, original, made["slug"], made.get("display_name") or "", bool(args.get("with_memory")), theirs)
-    return {**made, **built, **publish(api, made["slug"])}
+    published = publish(api, made["slug"])
+    return {**made, **built, **published, **place(person, made["slug"], args.get("computer"))}
+
+
+def place(person, slug, computer):
+    """`--computer`: placed only now, after the files are made. The copy route recorded this computer as the one holding the
+    history, so the server places it here and refuses another computer with the one to use until GitHub has it (backend/app.py
+    place_now `history_elsewhere`)."""
+    from clients.tico import APIError
+    if not computer:
+        return {}
+    try:
+        return {"placement": person.post(f"bots/{slug}/place", {"computer": computer})}
+    except APIError as exc:
+        return {"placement": {"placed": False, "problem": exc.detail}}
 
 
 @refusing

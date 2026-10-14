@@ -12,21 +12,21 @@ thing to read before they turn it on, and they do.
 
 ## 1. Read the task
 
-The task names the bot slug, the template it comes from, and the display name, and it carries the
+The task names the bot, the template it comes from, and, when the bot is already registered, its slug, and it carries the
 owner's reviewed instructions and the setup answers.
 
     hub task show <id>
 
-A task titled `Build a bot: <name>` carries a slug and a plain-language job
+A task titled `Build a bot: <name>` carries a name and a plain-language job
 instead of a template. Pick the closest template in the templates, and write `AGENT.md` for that job.
 
 If any of those is missing, choose it and go on (AGENT.md, Defaults, not questions):
 
-- **Slug:** the display name in lowercase, keeping only a–z and 0–9, with single hyphens between words and at most
-  30 characters ("Bleacher Report Manager" is `bleacher-report-manager`). Check `hub api GET bots?include_archived=true`; if it is taken, add a
-  short distinguishing word or a number. The slug is the repository name, the value of `name:` in
-  `bot.yaml`, and the label on every task the bot ever gets, so renaming it later is real work: choose
-  it predictably and name it in the report.
+- **Slug:** never ask anyone for one, and leave it out of `hub bot create`: Tico picks it from the name (else the
+  template's name), lowercase with hyphens ("Bleacher Report Manager" is `bleacher-report-manager`), adds -2, -3
+  when it is taken or reserved, and prints it. Use the printed slug from then on and name it in the report. Pass a
+  slug only when the bot is already registered: the task names one, or you registered it with `--record-only`
+  earlier in this run (build-me-a-bot step 1). Leaving it out then makes a second bot with -2.
 - **Display name:** the name they used; otherwise a short name for the job.
 - **Template:** the closest one to the job.
 - **Repository owner:** the GitHub organization they named, otherwise the connected one.
@@ -35,9 +35,9 @@ Name every choice you made in the task note, so the owner can correct it.
 
 ## 2. Create the repository
 
-    hub bot create <slug> --template <template> --name "<Display>"
+    hub bot create --template <template> --name "<Display>"        # add the slug when the bot is already registered (§1)
 
-That materialises `$HUB_WORKSPACE/bot-<slug>` from the template, fills the team's names
+That prints the slug it picked and materialises `$HUB_WORKSPACE/bot-<slug>` from the template, fills the team's names
 into the placeholders, writes `knowledge/company.md` from the setup answers, and seeds the
 template's `routines:` into Tico as the bot's first routines (the result lists their ids). When a
 human asked for the bot in chat, it also registers the bot with the server as them and makes
@@ -113,9 +113,10 @@ up some other way, create it with:
 
 Do not push it yourself: the bot publishes its own history. The bot's repository link (Settings, Bots) has to be `<org>/bot-<slug>`
 (a bare `bot-<slug>` also resolves to the connected organization). Its owner sets it there, or you set it
-for the human who asked in chat with `hub bot update <slug>` (it takes their rights); say so in the task note. On the bot's next turn Tico sets `origin` to that
-repository and publishes the history with the bot's own token, and never forces: if the repository
-already holds different history it stops and Health says so. You do not push other bots'
+for the human who asked in chat with `hub bot update <slug>` (it takes their rights); say so in the task note. The bot's
+first placement is your computer, where its history is: the runner there sets `origin` to that repository and
+publishes the history with the bot's own token, and never forces: if the repository already holds different
+history it stops and Health says so. Once GitHub has it, the bot can move to any computer. You do not push other bots'
 repositories. If `hub bot create` failed with `github_permission_missing`, a person must act: the app
 was not given permission to create repositories. Do not work around it or retry (AGENT.md rule 11). Finish
 steps 3 to 5 in the local repository anyway, then say plainly in the task note that the bot waits for its

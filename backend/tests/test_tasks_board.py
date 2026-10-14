@@ -86,14 +86,21 @@ def bot_token(api, slug="ops"):
 # ----------------------------------------------------------------------------- rank
 
 
-def test_completing_a_bot_requested_human_task_needs_a_result(api):
+def test_completing_a_bot_requested_human_task_needs_no_result_note(api):
     token = bot_token(api, "ops")
-    task = post(api, "tasks", {"owner": "ana", "title": "Decide the content hold",
+    tapped = post(api, "tasks", {"owner": "ana", "title": "Decide the content hold",
         "body": "Keep or change the hold?"}, token=token)
-    post(api, "tasks/" + task["id"], {"version": task["version"], "status": "done"}, expected=422)
-    done = post(api, "tasks/" + task["id"], {"version": task["version"], "status": "done",
+    done = post(api, "tasks/" + tapped["id"], {"version": tapped["version"], "status": "done"})
+    assert done["status"] == "done" and done["note"] == ""
+    noted = post(api, "tasks", {"owner": "ana", "title": "Decide the launch hold",
+        "body": "Keep or change the hold?"}, token=token)
+    done = post(api, "tasks/" + noted["id"], {"version": noted["version"], "status": "done",
         "note": "Keep the hold; no publication is approved."})
     assert done["status"] == "done" and done["note"] == "Keep the hold; no publication is approved."
+    with api.app.state.store.read() as c:
+        told = {r[0] for r in c.execute("SELECT body FROM messages WHERE to_actor='bot:ops'")}
+    assert {"Ana marked this done: Decide the content hold",
+            "Ana marked this done: Decide the launch hold\nKeep the hold; no publication is approved."} <= told, told
 
 
 def test_self_requested_completion_stays_done_until_explicit_close(api):
@@ -645,3 +652,33 @@ def test_task_flow_counts_status_changes_by_day_and_filters_by_owner(api):
     steps = get(api, "tasks/flow?type=" + H.GENERAL_TYPE)
     assert steps["steps"] and any(k.startswith("step:") for k in steps["totals"])
     get(api, "tasks/flow?days=0", expected=422)
+
+
+def test_a_steps_only_type_changes_status_only_by_a_step_move(api):
+    typ = post(api, 'task-types', {'name': 'Dev ticket', 'steps_only': True, 'bots': 'work', 'steps': [
+        {'name': 'Cant Replicate', 'status': 'declined'}, {'name': 'Backlog', 'status': 'open'},
+        {'name': 'On Deck', 'status': 'open'}, {'name': 'Done', 'status': 'closed'}]})['type']
+    assert typ['steps_only'] is True
+    ticket = post(api, 'tasks', {'owner': 'ops', 'title': 'Fix the guest message times', 'body': 'Please.',
+                                 'type': typ['id'], 'step': 'On Deck'})
+    path, ops = 'tasks/' + ticket['id'], bot_token(api, 'ops')
+    version = lambda: get(api, path)['task']['version']
+    # Closing, declining or reopening, by a person or by the bot on it, is refused.
+    for token, change in (('ana-test', {'close': True}), ('ana-test', {'status': 'declined'}),
+                          (ops, {'status': 'done', 'note': 'Fixed.'})):
+        assert post(api, path, {'version': version(), **change}, token=token, expected=422)['error']['code'] == 'kind'
+    # A working status still changes without a step: the bot's ask sets it waiting.
+    assert post(api, path + '/ask', {'text': 'Which page?'}, token=ops)
+    assert get(api, path)['task']['status'] == 'waiting'
+    # A bot refused Done on more tickets than the quarantine limit is not quarantined: each names its ticket.
+    for n in range(H.QUARANTINE_AT + 1):
+        other = post(api, 'tasks', {'owner': 'ops', 'title': f'Fix page {n}', 'body': 'Please.', 'type': typ['id']})
+        post(api, 'tasks/' + other['id'], {'version': other['version'], 'status': 'done'}, token=ops, expected=422)
+    post(api, path + '/comments', {'text': 'Still on it.'}, token=ops)
+    # A step move changes the status, Done included, and back out of it.
+    assert post(api, path, {'version': version(), 'step': 'Done'})['status'] == 'closed'
+    post(api, path, {'version': version(), 'status': 'open'}, expected=422)
+    assert post(api, path, {'version': version(), 'step': 'Backlog'})['status'] == 'open'
+    # Off, the type keeps the bare status changes.
+    post(api, 'task-types/' + typ['id'], {'steps_only': False})
+    assert post(api, path, {'version': version(), 'close': True})['status'] == 'closed'

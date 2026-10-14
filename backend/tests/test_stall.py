@@ -67,40 +67,38 @@ def capped(c, task):
               (H.shift(H.now(), hours=-1), task['id']))
 
 
-def test_botops_cannot_be_its_own_last_resort_and_sources_do_not_share_a_repair_task(api):
+def test_no_diagnostic_is_filed_about_a_diagnostic_or_for_a_person_and_the_stuck_task_says_why(api):
     with api.app.state.store.transaction() as c:
         c.execute("INSERT OR IGNORE INTO bots(slug,display_name,state) VALUES('botops','BotOps','active')")
-        first = H.task_create(c, 'bot:finance', 'Repair the mail registry', '', 'bot:botops')
-        second = H.task_create(c, H.KEEPER, 'Investigate a stuck repair', '', 'bot:botops')
-        for task in (first, second):
+        own = H.task_create(c, 'bot:finance', 'Repair the mail registry', '', 'bot:botops')
+        stuck = H.task_create(c, 'human:ben', 'Check the bank balance', '', 'bot:finance')
+        for task in (own, stuck):
             capped(c, task)
-        c.execute("UPDATE jobs SET state='completed' WHERE bot='botops'")
-        assert H.wake_stalled(c)['escalated'] == [first['id'], second['id']]
-        recoveries = [dict(r) for r in c.execute("SELECT * FROM tasks WHERE requester='keeper' AND id NOT IN (?,?)",
-                                               (first['id'], second['id']))]
-        assert len(recoveries) == 2
-        assert {r['owner'] for r in recoveries} == {H.human_actor(H.default_human(c))}
-        for task in (first, second):
-            event = c.execute("SELECT detail_json FROM events WHERE action='task.stall_escalated' AND target=?",
-                              (task['id'],)).fetchone()
-            detail = json.loads(event[0])
-            recovery = H.task(c, detail['recovery_task'])
-            assert task['id'] in recovery['body']
-            assert detail['owner'] == recovery['owner']
-        assert H.wake_stalled(c) == {'woke': [], 'escalated': [], 'checked': [], 'stuck': [], 'held': []}
-        assert not c.execute("SELECT 1 FROM jobs WHERE bot='botops' AND state='queued'").fetchone()
+        c.execute("UPDATE jobs SET state='completed'")
+        assert H.wake_stalled(c)['escalated'] == [own['id'], stuck['id']]
+        diagnostics = [dict(r) for r in c.execute("SELECT * FROM tasks WHERE requester='keeper'")]
+        # BotOps's own stuck work gets no diagnostic of its own; the finance task gets one, for BotOps.
+        assert [(d['owner'], stuck['id'] in d['body']) for d in diagnostics] == [('bot:botops', True)]
+        assert c.execute("SELECT count(*) FROM messages WHERE to_actor='bot:finance' "
+                         "AND body LIKE '%BotOps cannot diagnose itself%'").fetchone()[0] == 1
+        # The diagnostic sticks too: it closes with the cause, and nothing is filed about it.
+        capped(c, diagnostics[0])
+        c.execute("UPDATE jobs SET state='completed'")
+        assert H.wake_stalled(c)['escalated'] == [diagnostics[0]['id']]
+        closed = H.task(c, diagnostics[0]['id'])
+        assert closed['status'] == 'closed' and 'did not move after 3 wake-ups' in closed['note']
+        assert c.execute("SELECT count(*) FROM tasks WHERE requester='keeper'").fetchone()[0] == 1
+        # BotOps away: no person is handed a bot's repair; the task carries the cause for its requester.
+        c.execute("UPDATE bots SET state='paused' WHERE slug='botops'")
+        later = H.task_create(c, 'human:ben', 'Check the card balance', '', 'bot:finance')
+        capped(c, later)
+        c.execute("UPDATE jobs SET state='completed'")
+        assert H.wake_stalled(c)['escalated'] == [later['id']]
+        assert c.execute("SELECT count(*) FROM tasks WHERE requester='keeper'").fetchone()[0] == 1
+        assert c.execute("SELECT count(*) FROM messages WHERE to_actor='human:ben' AND body LIKE '%BotOps is paused%'"
+                         ).fetchone()[0] == 1
+        assert H.task(c, later['id'])['status'] == 'open'
 
-
-@pytest.mark.parametrize('state', ['paused'])
-def test_unavailable_botops_routes_stalled_work_to_a_human(api, state):
-    with api.app.state.store.transaction() as c:
-        if state:
-            c.execute("INSERT OR IGNORE INTO bots(slug,display_name,state) VALUES('botops','BotOps',?)", (state,))
-        task = H.task_create(c, 'human:ben', 'Check the bank balance', '', 'bot:finance')
-        capped(c, task)
-        c.execute("UPDATE jobs SET state='completed' WHERE bot='finance'")
-        assert H.wake_stalled(c)['escalated'] == [task['id']]
-        assert c.execute("SELECT owner FROM tasks WHERE requester='keeper'").fetchone()[0] == 'human:ben'
 
 
 

@@ -9,6 +9,7 @@ from croniter import croniter
 from . import goals as G
 from . import placement
 from .batch_work import isolated
+from .harnesses import SYNCED_SQL
 from .statuses import PARKED_SQL
 from .store import H, encode, sweep_idempotency, sweep_mail
 
@@ -28,6 +29,7 @@ class Scheduler:
         self.swept = None
         self.stranded = None
         self.still_wanted = None
+        self.asks_checked = None
         self.stall_checked = None
         self.goals_checked = None
         self.go_lives_checked = None
@@ -51,6 +53,9 @@ class Scheduler:
                              "AND s.event_name IS NULL "
                              "AND NOT EXISTS(SELECT 1 FROM bot_config bc WHERE bc.bot=s.bot "
                              "AND coalesce(json_extract(bc.config_json,'$.shared_from'),'')<>'') "
+                             # a bot synced in from another platform never sees a task (hubdb._takes_tasks)
+                             "AND NOT EXISTS(SELECT 1 FROM bot_config xc WHERE xc.bot=s.bot "
+                             "AND json_extract(xc.config_json,'$.harness') IN (" + SYNCED_SQL + ")) "
                              # a starter bot runs nothing on its own until it says its setup is done
                              "AND NOT EXISTS(SELECT 1 FROM bot_config pc WHERE pc.bot=s.bot "
                              "AND pc.onboarding_state IN " + PARKED_SQL + ")").fetchall()   # `on:` routines fire from routines.emit
@@ -80,7 +85,7 @@ class Scheduler:
                                            (row["id"], when)).fetchone()
                         if not exists:
                             from . import routines
-                            existing = routines.latest_task(c, row["id"])
+                            existing, skip = routines.latest_task(c, row["id"]), None
                             if existing:
                                 tid, outcome = existing["id"], "coalesced_into_existing_task"
                                 # An absorbed occurrence still wakes the owner, or an open task
@@ -92,13 +97,16 @@ class Scheduler:
                                           "absorbed into this open task; continue it or mark it done.",
                                           kind="notice", conversation_id=H.task(c, tid)["conversation_id"],
                                           refs={"task": tid, "wake": "occurrence"})
+                            elif skip := routines.no_input(c, self.store.settings, row, occurrence):
+                                tid, outcome = None, "skipped"
                             else:
                                 task = routines.open_task(c, self.execution.auth, row, row["title"],
                                                           row["playbook"] or routines.DEFAULT_TEXT, stamp(at))
                                 tid, outcome = task["id"], "created"
                                 created = tid
                             c.execute("INSERT INTO schedule_occurrences VALUES(?,?,?,?)", (row["id"], when, tid, outcome))
-                            H.event(c, H.KEEPER, "schedule.occurrence", row["id"], {"occurrence": when, "task": tid, "outcome": outcome})
+                            H.event(c, H.KEEPER, "schedule.occurrence", row["id"], {
+                                "occurrence": when, "task": tid, "outcome": outcome, **({"reason": skip} if skip else {})})
                         following = next_due(row["cron"], at, row["timezone"])
                         c.execute("UPDATE schedules SET last_fired=?,next_due=? WHERE id=?", (when, stamp(following), row["id"]))
                     if created:
@@ -193,6 +201,21 @@ class Scheduler:
             self.stranded = at
             with self.store.transaction() as c:
                 H.sweep_stranded(c, stamp(at))
+            # ...bot tasks waiting on a person with a plain ask become the bot's task blocked on one small subtask
+            # the person owns...
+            try:
+                from . import person_asks
+                with self.store.transaction() as c:
+                    person_asks.migrate(c)
+            except Exception as exc:
+                failures.append({"person_asks": type(exc).__name__})
+            # ...and bot tasks waiting on a person with no plain ask: their bot is asked once to restate it.
+            try:
+                from . import restate_asks
+                with self.store.transaction() as c:
+                    restate_asks.ask_restate(c)
+            except Exception as exc:
+                failures.append({"restate_asks": type(exc).__name__})
         if self.still_wanted is None or at - self.still_wanted >= timedelta(days=1):
             self.still_wanted = at
             # Once a day: a task idle for a week gets one "Still wanted?" to its person (backend/still_wanted.py).
@@ -202,4 +225,13 @@ class Scheduler:
                     still_wanted.ask_idle(c, stamp(at))
             except Exception as exc:
                 failures.append({"still_wanted": type(exc).__name__})
+        if self.asks_checked is None or at - self.asks_checked >= timedelta(hours=1):
+            self.asks_checked = at
+            # Every hour: a bot's ask past its deadline goes ahead on its default, or expires (backend/ask_deadlines.py).
+            try:
+                from . import ask_deadlines
+                with self.store.transaction() as c:
+                    ask_deadlines.sweep(c, stamp(at))
+            except Exception as exc:
+                failures.append({"ask_deadlines": type(exc).__name__})
         return {"fired": fired, "failures": failures}

@@ -244,3 +244,24 @@ def test_muse_links_as_one_bot_beside_dots(api):
     rows = {b["slug"]: b for b in get(api, "bots") if b["slug"] in ("dots", "muse")}
     assert rows["muse"]["harness"] == "muse" and rows["muse"]["agent"]["label"] == "Muse"
     assert rows["muse"]["reports_to"] == rows["dots"]["reports_to"] == "human:cara"
+
+
+def test_a_task_for_a_synced_bot_is_refused_with_what_to_do_instead(api):
+    sync(api, designer())
+    r = api.post("/api/v2/tasks", json={"owner": "grok-designer", "title": "Redo the logo", "body": "x"},
+                 headers=headers())
+    assert r.status_code == 422 and "only syncs its chat here" in r.text
+    task = post(api, "tasks", {"owner": "ops", "title": "Redo the logo", "body": "x"})
+    post(api, "tasks/" + task["id"], {"version": task["version"], "owner": "grok-designer"}, expected=422)
+    # Its routines would be tasks too: none can be set, and one left from before is passed over by an event.
+    from backend import routines
+    from backend.store import H
+    with api.app.state.store.transaction() as c:
+        try:
+            routines.create(c, "human:ana", "grok-designer", {"title": "Notes", "on": "meeting.ready"})
+            raise AssertionError("a synced bot was given a routine")
+        except H.Refused as exc:
+            assert exc.rule == "external-bot"
+        c.execute("INSERT INTO schedules(id,bot,event_name,title,playbook) VALUES('old','grok-designer','meeting.ready','Notes','x')")
+        assert routines.emit(c, "meeting.ready", "m1") == []
+

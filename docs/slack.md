@@ -20,6 +20,11 @@ Within a minute the Slack card on Tools and Settings > Health say **Connected**.
 the tokens belong to; to pin it in advance, set `SLACK_TEAM_ID` in `.env`. To change workspace, disconnect and
 paste the new tokens. Invite Tico to a channel with `/invite @Tico`.
 
+**An app created before a scope was added** (the latest is `files:read`, which lets bots open screenshots and other
+files people share in Slack): on the app's **App Manifest** page paste the current manifest over the old one, then
+**Install App > Reinstall to Workspace**, and paste the new Bot User OAuth Token in Tools > Slack. Until then the
+gateway's log names the missing scope, and a bot that tries to open a file is told the app needs `files:read`.
+
 ## Choose the channels bots use
 
 Tico, invited to a channel, stores what is said there. Which bots read it, and whether bots may post in it, is a

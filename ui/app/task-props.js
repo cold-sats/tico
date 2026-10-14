@@ -334,8 +334,16 @@ function taskPropsBind(d, task, change) {
     }});
     if (r.snooze) items.push(taskSnoozed(task) ? {text: 'Unsnooze', run: () => save('snooze', {unsnooze: true})}
       : {text: 'Snooze…', run: () => setTimeout(() => snoozeMenu(d, more, save))});
-    if (!r.live && r.reopen) items.push({text: 'Reopen', run: () => save('status', {status: 'open'})});
-    if (task.status !== 'closed' && (r.mover || r.party)) items.push({text: 'Close task', danger: true, run: () => save('status', {close: true})});
+    const stepsOnly = pipelineStepsOnly(task);
+    if (!r.live && r.reopen && !stepsOnly) items.push({text: 'Reopen', run: () => save('status', {status: 'open'})});
+    if (task.status !== 'closed' && (r.mover || r.party) && !stepsOnly) items.push({text: 'Close task', danger: true, run: () => save('status', {close: true})});
+    // Closing counts as finished work; a task made by mistake is deleted into the trash instead.
+    if (r.mover || task.requester === myActor()) items.push({text: 'Delete task', danger: true, run: async () => {
+      if (!window.confirm(`Delete "${task.title}"? It goes to the trash, from which it can be restored.`)) return;
+      try { await post(`/v2/tasks/${encodeURIComponent(task.id)}/delete`, {}); } catch (e) { toast(e.body?.error?.code === 'has_work' ? "This task has work on it, such as a bot's turn, an approval, a bot's file or a subtask, so it can't be deleted. Close it instead." : e.message, true); return; }
+      d.close(); toast('Deleted');
+      if (TASKS_ST) void tasksLoad(TASKS_ST);
+    }});
     propMenu(d, more, {label: 'Task', items: items.map(it => ({...it, html: `<span>${esc(it.text)}</span>`})), onPick: it => it.run()});
   };
 }

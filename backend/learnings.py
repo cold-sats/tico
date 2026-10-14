@@ -28,6 +28,7 @@ from clients import judge as J
 from . import models as M
 from . import providers
 from . import task_privacy as privacy
+from .harnesses import is_external
 from .judge import fallback_engine
 from .statuses import PARKED_SQL
 from .store import H, Problem
@@ -119,15 +120,22 @@ def unquoted(body):
 
 
 # ----------------------------------------------------------------------------- recipients
-def roster(c, settings):
-    """{slug: {name, profile}}: the active bots that learn, the Librarian among them."""
+def roster(c, settings, now=None):
+    """{slug: {name, profile}}: the active bots that learn, the Librarian among them.
+
+    A packet is work only a bot that runs can do. A bot on an external agent's platform never gets a
+    run here, and one that had no run in the last day would only stack nights up unread: neither gets one.
+    """
     skip = {*HELPERS, settings.assistant_bot}
+    since = utc(H.parse_ts(now or H.now()) - timedelta(hours=LOOKBACK_HOURS))
+    ran = {r[0] for r in c.execute("SELECT DISTINCT bot FROM attempts WHERE started>=?", (since,))}
     out = {}
-    for row in c.execute("SELECT b.slug,b.display_name,coalesce(bc.description,'') AS description FROM bots b "
+    for row in c.execute("SELECT b.slug,b.display_name,coalesce(bc.description,'') AS description,"
+                         "coalesce(bc.config_json,'{}') AS config_json FROM bots b "
                          "LEFT JOIN bot_config bc ON bc.bot=b.slug WHERE b.state='active' "
                          "AND coalesce(json_extract(bc.config_json,'$.shared_from'),'')='' "
                          "AND coalesce(bc.onboarding_state,'') NOT IN " + PARKED_SQL + " ORDER BY b.slug"):
-        if row["slug"] in skip:
+        if row["slug"] in skip or row["slug"] not in ran or is_external(H._json(row["config_json"], {}) or {}):
             continue
         name = row["display_name"] or row["slug"]
         profile = LIBRARIAN_PROFILE if row["slug"] == LIBRARIAN else (
@@ -354,6 +362,16 @@ def packet_body(slug, rows, team, run_id):
     return "\n".join(lines)
 
 
+def superseded(c, slug, night):
+    """A bot's earlier packets that no run has picked up yet close when a new night's arrives: unread nights
+    would otherwise pile up, and tonight's packet is the one worth reading."""
+    for row in c.execute("SELECT d.task_id FROM learning_deliveries d JOIN learning_runs r ON r.id=d.run_id "
+                         "JOIN tasks t ON t.id=d.task_id WHERE d.recipient=? AND r.night<? AND t.status='open'",
+                         (slug, night)).fetchall():
+        H.task_close(c, H.KEEPER, row[0], f"Replaced by the packet for {night}; this one was never picked up.",
+                     quiet=True)
+
+
 def dispatch(c, run_id, night, items, chosen, team, detail):
     """One task per recipient; the routed items, deliveries and cursors in the same transaction."""
     sent_to = {}
@@ -366,6 +384,7 @@ def dispatch(c, run_id, night, items, chosen, team, detail):
                                   + timedelta(hours=12)))
     delivered, refused = 0, {}
     for slug, rows in sorted(chosen.items()):
+        superseded(c, slug, night)
         c.execute("SAVEPOINT learning_delivery")
         try:
             task = H.task_create(c, H.KEEPER, title, packet_body(slug, rows, team, run_id), "bot:" + slug,
@@ -419,7 +438,7 @@ def run(store, run_id):
                 return
             night, now = row["night"], H.now()
             engine = engine_for(c, settings)
-            team = roster(c, settings)
+            team = roster(c, settings, now)
             if engine is not None:
                 items, dropped = collect(c, settings, now, team)
             c.execute("COMMIT")

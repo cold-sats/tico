@@ -9,7 +9,8 @@ import subprocess
 import pytest
 
 from backend.credentials import effective_grant
-from backend.tests.test_api import api, get, headers, post, restrict  # noqa: F401  (fixture)
+from backend import built_on
+from backend.tests.test_api import api, get, headers, post, restrict, runner  # noqa: F401  (fixture)
 from backend.tests.test_botops_parity import act
 from backend.tests.test_credential_sharing import jira, local
 from backend.tests.test_member_bots import botops, call, turn  # noqa: F401  (fixture)
@@ -99,6 +100,44 @@ def test_a_credential_the_original_holds_is_granted_only_by_a_credential_adminis
         assert not effective_grant(c, stored["id"], "bot:cara-scribe")
 
 
+def placed_on(api, slug):
+    with api.app.state.store.read() as c:
+        row = c.execute("SELECT runner_id FROM assignments WHERE bot=?", (slug,)).fetchone()
+        return row and row["runner_id"]
+
+
+def test_a_copy_named_onto_another_computer_is_not_stranded_there(api, botops, scribe):
+    """The copy's history is made in BotOps's workspace after the copy route answers: an older BotOps that still names
+    `--computer` in the route gets the copy recorded as built on BotOps's computer, and another computer refused."""
+    box = runner(api, label="Box")
+    attempt = turn(api, botops, text="Copy the scribe onto the box")
+    hub = Hub(api, attempt["token"])
+    made = hub.call("POST", "bots/scribe/copy", {"sha": SHA, "slug": "cara-scribe", "computer": box["runner_id"]}, delegate=True)
+    assert made["placement"]["placed"] is False and "Put it on Test Mac first" in made["placement"]["problem"], made
+    assert not placed_on(api, "cara-scribe")
+    with api.app.state.store.read() as c:
+        assert built_on.computer(c, "cara-scribe")["id"] == botops["runner_id"]
+    # Named onto BotOps's own computer, it goes there, which publishes it.
+    again = hub.call("POST", "bots/scribe/copy", {"sha": SHA, "slug": "cara-notes", "computer": botops["runner_id"]}, delegate=True)
+    assert again["placement"].get("placed") is not False and placed_on(api, "cara-notes") == botops["runner_id"], again
+    # A person's own call (not BotOps) records nothing: where the files are made is not known.
+    copy(api, {"slug": "cara-own", "computer": box["runner_id"]})
+    with api.app.state.store.read() as c:
+        assert not built_on.computer(c, "cara-own")
+
+
+def test_a_build_record_is_replaced_only_once_its_computer_is_removed(api, botops, scribe):
+    box = runner(api, label="Box")
+    copy(api, {"slug": "cara-scribe"})
+    with api.app.state.store.transaction() as c:
+        built_on.remember(c, "cara-scribe", botops["runner_id"])
+        built_on.remember(c, "cara-scribe", box["runner_id"])                     # the first record stands
+        assert built_on.computer(c, "cara-scribe")["id"] == botops["runner_id"]
+        c.execute("UPDATE runners SET revoked_at=? WHERE id=?", ("2026-10-14T00:00:00Z", botops["runner_id"]))
+        built_on.remember(c, "cara-scribe", box["runner_id"])                     # ...until its computer is removed
+        assert built_on.computer(c, "cara-scribe")["id"] == box["runner_id"]
+
+
 # ------------------------------------------------------------------ update from the original, and suggesting back
 class GitHub:
     """What the GitHub App is asked to do, recorded, for one repository."""
@@ -179,10 +218,17 @@ def test_the_tools_copy_update_and_share_a_skill_in_the_workspace_as_the_request
     def tool(tool_name, **args):
         return hubtools.BY_NAME[tool_name]["fn"](hub, args)
 
-    made = tool("hub_bot_copy", bot="scribe", slug="cara-scribe", name="Cara's Scribe")
+    box = runner(api, label="Box")
+    made = tool("hub_bot_copy", bot="scribe", slug="cara-scribe", name="Cara's Scribe", computer=box["runner_id"])
     assert made["slug"] == "cara-scribe" and made["copied_from"] == {"bot": "scribe", "sha": git(original, "rev-parse", "HEAD")}
     assert [n["needs"] for n in made["credentials"]["needs"]] == ["needs credential JIRA_BASIC_AUTH"]
     assert made["published"] is False and "Only the owner" in made["reason"]              # no GitHub here: it stays on this computer
+    # ...so it is not put on another computer that could never get it (it used to be, before the files were made)...
+    assert made["placement"]["placed"] is False and "Put it on Test Mac first" in made["placement"]["problem"], made
+    assert not placed_on(api, "cara-scribe")
+    # ...but named onto BotOps's own computer, the one that holds it, it goes there, GitHub or not.
+    mine = tool("hub_bot_copy", bot="scribe", slug="cara-mine", computer=botops["runner_id"])
+    assert mine["published"] is False and placed_on(api, "cara-mine") == botops["runner_id"], mine
     copy_dir = workspace / "bot-cara-scribe"
     assert git(copy_dir, "log", "--format=%s") == f"Copied from scribe at {made['from_sha'][:12]}"
     assert not (copy_dir / ".env").exists() and "private" not in (copy_dir / "state.md").read_text()

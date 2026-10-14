@@ -101,6 +101,80 @@ def test_a_deleted_task_comes_back_whole_and_keeps_its_number(api):
         assert restore_tasks(c, [ticket["id"]])["missing"] == [ticket["id"]]
 
 
+def test_a_task_with_attached_files_deletes_hides_them_and_restores_them(api):
+    api.app.state.store.settings.assistant_bot = "ops"      # a person's upload is filed under the assistant
+    ticket = post(api, "tasks", {"owner": "priya", "title": "Try the coworkers flow", "body": "x"}, token="ben-test")
+    attached = post(api, f"tasks/{ticket['id']}/files", {"name": "report.md", "text": "# Report"}, token="ben-test")
+    url = f"/api/v2/files/{attached['file_id']}"
+    assert api.get(url, headers=headers("priya-test")).content == b"# Report"
+    assert post(api, f"tasks/{ticket['id']}/delete", {}, token="ben-test") == {"deleted": ticket["id"]}
+    # While its task is in the trash nobody may open the file, not even who attached it.
+    for token in ("ben-test", "priya-test", "ana-test"):
+        assert api.get(url, headers=headers(token)).status_code == 404
+    post(api, f"tasks/{ticket['id']}/restore", {}, token="ben-test")
+    assert api.get(url, headers=headers("priya-test")).content == b"# Report"
+    assert [f["name"] for f in get(api, f"tasks/{ticket['id']}/files", token="ben-test")["files"]] == ["report.md"]
+
+
+def test_purging_a_deleted_task_reports_the_files_it_leaves_behind(api):
+    import json
+    from backend.task_delete import purge_trash
+    store = api.app.state.store
+    store.settings.assistant_bot = "ops"
+    wrong = post(api, "tasks", {"owner": "priya", "title": "Send the contract", "body": "x"}, token="ben-test")
+    attached = post(api, f"tasks/{wrong['id']}/files", {"name": "contract.md", "text": "# Wrong one"}, token="ben-test")
+    post(api, f"tasks/{wrong['id']}/delete", {}, token="ben-test")
+    with store.transaction() as c:
+        c.execute("UPDATE task_trash SET deleted_at='2020-01-01T00:00:00.000000Z'")
+        listed = purge_trash(c, 30)
+        assert listed["files_left"] == {"files": 1, "versions": 1, "bytes": len(b"# Wrong one"),
+                                        "ids": [attached["file_id"]], "attachments": []}
+        assert purge_trash(c, 30, apply=True)["files_left"] == listed["files_left"]
+        detail = c.execute("SELECT detail_json FROM events WHERE action='task.purged' AND target=?",
+                           (wrong["id"],)).fetchone()[0]
+        assert json.loads(detail)["files_left"] == [attached["file_id"]]
+    assert api.get(f"/api/v2/files/{attached['file_id']}", headers=headers("ben-test")).status_code == 404
+
+
+def test_a_file_attached_when_the_task_was_made_is_locked_in_the_trash_and_counted_by_the_purge(api):
+    from backend.task_delete import purge_trash
+    store = api.app.state.store
+    made = api.post("/api/v2/uploads/tasks", data={"owner": "priya", "title": "Sign the contract", "body": "x"},
+                    files={"files": ("contract.pdf", b"%PDF wrong one", "application/pdf")}, headers=headers("ben-test"))
+    assert made.status_code == 200, made.text
+    task, attachment = made.json()["task"], made.json()["task"]["attachments"][0]
+    for token in ("ben-test", "priya-test"):
+        assert api.get(attachment["url"], headers=headers(token)).content == b"%PDF wrong one"
+    post(api, f"tasks/{task['id']}/delete", {}, token="ben-test")
+    with store.transaction() as c:          # a task deleted before the table existed is found in its trash row
+        from backend.task_delete import ensure
+        c.execute("DELETE FROM task_trash_assets")
+        ensure(c)
+        assert [r[0] for r in c.execute("SELECT blob_id FROM task_trash_assets")] == [attachment["id"]]
+    # Not even its uploader opens it while the task is in the trash; a restore gives it back.
+    for token in ("ben-test", "priya-test"):
+        assert api.get(attachment["url"], headers=headers(token)).status_code in (403, 404)
+    post(api, f"tasks/{task['id']}/restore", {}, token="ben-test")
+    assert api.get(attachment["url"], headers=headers("priya-test")).content == b"%PDF wrong one"
+    post(api, f"tasks/{task['id']}/delete", {}, token="ben-test")
+    with store.transaction() as c:
+        c.execute("UPDATE task_trash SET deleted_at='2020-01-01T00:00:00.000000Z'")
+        left = purge_trash(c, 30, apply=True)["files_left"]
+    assert left == {"files": 1, "versions": 0, "bytes": len(b"%PDF wrong one"), "ids": [],
+                    "attachments": [attachment["id"]]}
+    assert api.get(attachment["url"], headers=headers("ben-test")).status_code in (403, 404)
+
+
+def test_a_task_file_a_bot_made_refuses_the_delete(api):
+    # The bot's turn is on a chat, not this task: its file alone is the work.
+    report = post(api, "tasks", {"owner": "priya", "title": "Draft the report", "body": "x", "private": False}, token="ben-test")
+    made = api.post("/api/v2/files/uploads", json={"name": "draft.md", "text": "# Draft", "task": report["id"]},
+                    headers=headers(bot_token(api)))
+    assert made.status_code == 200, made.text
+    r = api.post(f"/api/v2/tasks/{report['id']}/delete", json={}, headers=headers("ben-test"))
+    assert r.status_code == 409 and r.json()["error"]["code"] == "has_work"
+
+
 def test_a_bulk_delete_and_restore_keeps_links_inside_the_list(api):
     from backend.task_delete import restore_tasks
     store = api.app.state.store

@@ -59,6 +59,26 @@ ROOTS = "session_roots_v1"
 TASK_GOALS = "task_goals_v1"
 
 
+def bot_turns(capacity):
+    """How many of a computer's turns one bot may hold at once: half of them, at least one. A bot with many
+    task sessions would otherwise fill every turn and leave other bots' work (a review, a release) queued."""
+    return max(1, int(capacity or 1) // 2)
+
+
+def turn_share(c, runner_id, capacity):
+    """The turns one bot may hold on this computer: its share (bot_turns) when another active bot is assigned there,
+    every turn when it is alone, since then no one else's work can be waiting for them."""
+    bots = c.execute("SELECT count(*) FROM assignments a JOIN bots b ON b.slug=a.bot "
+                     "WHERE a.runner_id=? AND b.state='active'", (runner_id,)).fetchone()[0]
+    return bot_turns(capacity) if bots > 1 else int(capacity or 1)
+
+
+def turns_here(c, runner_id):
+    """{bot: turns it holds on this computer now}."""
+    return {r[0]: r[1] for r in c.execute("SELECT bot,count(*) FROM attempts WHERE runner_id=? "
+                                          "AND state IN ('leased','running') GROUP BY bot", (runner_id,))}
+
+
 def lanes_on(runner):
     return LANES in set(H._json(runner["capabilities_json"], []) or []) if runner else False
 
@@ -499,7 +519,7 @@ class Execution:
         restart = c.execute("SELECT restart_requested FROM runners WHERE id=?", (who.runner_id,)).fetchone()
         if restart and restart["restart_requested"]:
             c.execute("UPDATE runners SET restart_requested=NULL WHERE id=?", (who.runner_id,))
-        return {"server_time": H.now(), "assignments": self.assigned(c, who), "runtime_credential_source": True, "worktree_actions": worktree_actions,
+        return {"server_time": H.now(), "assignments": self.assigned(c, who), "runtime_credential_source": True, "worktree_record_stamp": True, "worktree_actions": worktree_actions,
                 **({"restart": True} if restart and restart["restart_requested"] else {})}
 
     def assigned(self, c, who):
@@ -583,6 +603,8 @@ class Execution:
                   "updated_by=excluded.updated_by",
                   (bot, body.runner_id, generation + 1, H.now(), who.actor))
         H.event(c, who.actor, "bot.assigned", bot, {"runner": body.runner_id, "generation": generation + 1})
+        from . import built_on
+        built_on.forget(c, bot)                   # placed: its computer reports the checkout from now on
         if old and old["runner_id"] != body.runner_id:
             forget_report(c, old["runner_id"], bot)
         return dict(c.execute("SELECT * FROM assignments WHERE bot=?", (bot,)).fetchone())
@@ -698,7 +720,15 @@ class Execution:
         busy = {(r["bot"], r["lane"]) for r in c.execute(
             "SELECT bot,lane FROM attempts WHERE state IN ('leased','running')")}
         busy_bots = {bot for bot, _ in busy} if not lanes else set()
-        busy |= {tuple(entry.split("|", 1)) for entry in (body.busy_lanes or ()) if "|" in entry}
+        mine = {tuple(entry.split("|", 1)) for entry in (body.busy_lanes or ()) if "|" in entry}
+        busy |= mine
+        # This computer's turns each bot holds: the server's leases, or the runner's own live workers when it
+        # counts more (a lapsed lease whose worker still runs). A bot at its share waits for one of them to
+        # finish, except for a person's own message, which is never held behind the bot's other work.
+        held = turns_here(c, runner["id"])
+        for bot in {bot for bot, _ in mine}:
+            held[bot] = max(held.get(bot, 0), sum(1 for b, _ in mine if b == bot))
+        share = turn_share(c, runner["id"], runner["capacity"])
         followed = {}
         ready = readiness_document(runner["readiness_json"])
         # Unconfirmed effects hold the interrupted conversation and task until review. Other
@@ -751,6 +781,7 @@ class Execution:
         if not bots:
             return None
         marks = ",".join("?" for _ in bots)
+        full = [bot for bot in bots if held.get(bot, 0) >= share]
         task_sql = queued_task_sql()
         # Readiness, spend and cooldown are checked once per bot, never once per queued job.
         # Keep human chat priority and interrupted-task/conversation fencing in the query.
@@ -758,6 +789,7 @@ class Execution:
             "SELECT j.*,a.generation FROM jobs j JOIN assignments a ON a.bot=j.bot "
             "JOIN messages m ON m.id=j.message_id JOIN conversations cv ON cv.id=m.conversation_id "
             f"WHERE j.state='queued' AND j.bot IN ({marks}) AND a.runner_id=? "
+            f"AND (m.from_actor LIKE 'human:%' OR j.bot NOT IN ({','.join('?' for _ in full)})) "
             "AND (m.from_actor LIKE 'human:%' OR NOT EXISTS(SELECT 1 FROM bot_config pc "
             "WHERE pc.bot=j.bot AND pc.onboarding_state IN " + PARKED_SQL + ")) "
             f"AND ((m.from_actor LIKE 'human:%' AND cv.kind='chat' AND {task_sql} IS NULL) "
@@ -766,8 +798,11 @@ class Execution:
             f"AND (({task_sql} IS NOT NULL AND "
             + H.MESSAGE_TASK_SQL.replace("m.", "um.").replace("cv.", "uc.") + f"={task_sql}) "
             f"OR ({task_sql} IS NULL AND cv.kind='chat' AND um.conversation_id=m.conversation_id)))) "
-            "ORDER BY CASE WHEN m.from_actor LIKE 'human:%' THEN 0 ELSE 1 END,j.created,j.id",
-            (*bots, who.runner_id))
+            # A person's chat first; then the bot holding the fewest turns here, so a freed turn goes to another
+            # bot's waiting job before the busy bot's next one; then the longest waiting.
+            "ORDER BY CASE WHEN m.from_actor LIKE 'human:%' THEN 0 ELSE 1 END,"
+            f"CASE j.bot {' '.join('WHEN ? THEN ?' for _ in bots)} ELSE 0 END,j.created,j.id",
+            (*bots, who.runner_id, *full, *(v for bot in bots for v in (bot, held.get(bot, 0)))))
         for row in candidates:
             message = H.message(c, row["message_id"])
             if not privacy.message_readable(c, "bot:" + row["bot"], message):
@@ -1824,7 +1859,10 @@ class Execution:
                     decided.append(self._decide(c, row, row['attempt_id'], 'dismiss', note, H.KEEPER,
                                                 action='job.auto_reconcile'))
                     continue
-                if c.execute("SELECT count(*) FROM attempts WHERE job_id=?", (row['id'],)).fetchone()[0] > 1:
+                # Only runs that started count: a claim that lapsed before its run began (a computer offline, the
+                # hub unreachable) says nothing about the request itself.
+                if c.execute("SELECT count(*) FROM attempts WHERE job_id=? AND started IS NOT NULL",
+                             (row['id'],)).fetchone()[0] > 1:
                     # Stopped twice the same way: not bad luck. Let it go and hand the cause to BotOps.
                     note = ("Dismissed automatically: this request stopped partway twice, so it is not retried "
                             "again. BotOps is looking into why.")

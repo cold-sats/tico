@@ -474,8 +474,11 @@ def tag_update(api, args):
 
 # ----------------------------------------------------------------------------- tasks
 @tool("hub_task_create", "File a task for a bot or a person. A task for a person is a decision "
-      "or a review: title says what you are asking, body under 120 words (a ticket on a custom type's "
-      "board is exempt; asks stay on General). `dry_run` reports the "
+      "or a review: title says what you are asking, body under 120 words, and the body's first paragraph is "
+      "the ask: one or two plain sentences saying what you need and what happens after, at most 40 words, with "
+      "no ids, hashes, file paths, s3:// links or tool names (refused otherwise), e.g. \"Approve the video tool "
+      "trial for Thursday? If yes, I'll send the invite.\" Details go below it (a ticket on a custom "
+      "type's board is exempt; asks stay on General). `dry_run` reports the "
       "checks a create would fail and writes nothing.",
       {"owner": _s("Who does it: a bot slug, a person id, or `me`"),
        "title": _s("Task title: General uses plain words without reference numbers or all-caps; custom types keep board references"),
@@ -484,7 +487,10 @@ def tag_update(api, args):
        "private": {"type": "boolean", "description": "Only requester and assignee may read; bot defaults also apply"},
        "parent": _s("Parent task id (or 8-character short id), when this is one part of a bigger task. Blocked on a "
                     "person's approval or input for your task? File it for them with your task as parent"),
-       "request_id": _s("BotOps continuation: originating human chat message id"),
+       "request_id": _s("A person's message this task carries: BotOps continuing its own chat, or another bot handing "
+                        "BotOps something a person asked it for (their message id, or `turn` for the one that "
+                        "started this run). BotOps then acts with that person's rights, or puts it to them as a "
+                        "Confirm card"),
        "type": _s("Task type id or name; defaults to General"),
        "step": _s("Step id or name within the type; sets its status"),
        "number": {"type": "integer", "minimum": 1,
@@ -636,10 +642,10 @@ def task_ask(api, args):
     return api.post(f"tasks/{args['id']}/ask", {"text": args["text"]}, key=_key(args))
 
 
-@tool("hub_task_question", "Put one decision to a person as its own task, in one call: a pick between 2 to 6 "
+@tool("hub_task_question", "Put one decision to a person as a small task, in one call: a pick between 2 to 6 "
       "options (an option may carry an image or file) or, with no options, Yes / No. The task is yours and waits on "
-      "them; their answer wakes you and you mark it done. One decision per task; write the question so it makes "
-      "sense on its own.",
+      "them; asked from a run on one of your tasks it is filed under that task. Their answer wakes you and you mark it "
+      "done. One decision per task; write the question so it makes sense on its own.",
       {"question": _s("The question, readable with no other context", maxLength=300),
        "on": _s("The person who decides: their id"),
        "options": {"type": "array", "minItems": 2, "maxItems": 6, "description": "The choices; omit for Yes / No",
@@ -651,7 +657,17 @@ def task_ask(api, args):
        "body": _s("What the decision is for; defaults to the question"),
        "parent": _s("Parent task id, when this decision is part of a bigger task"),
        "private": {"type": "boolean", "description": "Only you and the person may read it; they must already "
-                   "read the private task you are working on, and the parent"}},
+                   "read the private task you are working on, and the parent"},
+       "if_no_answer": {"type": "object", "additionalProperties": False, "required": ["do", "kind"],
+                        "description": "What you will do if they don't answer, e.g. do: \"Yes\" (an option) or a short "
+                        "plain sentence. A reversible, internal step goes ahead on its own after the team's days "
+                        "(default 3) or `by`; a send, spending or a delete waits for an answer. Unanswered asks expire "
+                        "after 14 days", "properties": {
+                            "do": _s("What you will do: one of the options, or one plain sentence", maxLength=300),
+                            "kind": {"type": "string", "enum": ["reversible", "send", "spend", "delete"],
+                                     "description": "What that step is: reversible and internal, or a send, spending "
+                                     "money or a delete"},
+                            "by": _s("ISO-8601 date-time with timezone: go ahead then instead of after the team's days")}}},
       required=("question", "on"), writes=True)
 def task_question(api, args):
     options = [dict(o) for o in args.get("options") or []]
@@ -672,6 +688,15 @@ def task_question(api, args):
     for field in ("title", "body", "parent", "private"):
         if args.get(field) is not None:
             body[field] = args[field]
+    default = args.get("if_no_answer")
+    if isinstance(default, str):                     # the CLI's --if-no-answer "..." --default-kind K [--by D]
+        if not args.get("default_kind"):
+            # Stated, never assumed: a forgotten kind on "send the reply to the vendor" would otherwise go ahead.
+            raise ValueError("Say what kind of step --if-no-answer is: --default-kind reversible, send, spend or delete")
+        default = {"do": default, "kind": args["default_kind"],
+                   **({"by": args["by"]} if args.get("by") else {})}
+    if default:
+        body["if_no_answer"] = default
     return api.post("task-questions", body, key=_key(args))
 
 
@@ -691,8 +716,11 @@ def task_question(api, args):
        "owner": _s("Hand the task to this bot or person"),
        "due": _s("ISO-8601 date-time with timezone"),
        "labels": {"type": "array", "items": {"type": "string"}, "description": "Replace the labels"},
-       "waiting_on": _s("With status waiting: the person it waits on (their id), so it shows in their Needs you; "
-                        "put exactly what they must do in the note. An empty string clears it"),
+       "waiting_on": _s("With status waiting: the person you need (their id). The note is your ask to them: one or two "
+                        "plain sentences saying what you need and what happens after, at most 40 words, no ids, hashes, "
+                        "file paths, s3:// links or tool names (refused otherwise), e.g. \"Approve the video tool trial "
+                        "for Thursday? If yes, I'll send the invite.\" It becomes one small task for them; this task "
+                        "stays yours, blocked on it, and opens again with their answer. An empty string clears it"),
        "roles": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}},
                  "description": "Who is on it by role, {role: [people or bots]}: each role named replaces that role's people, [] clears one, "
                                 "a role not named stays. A role is a short name the team chooses (developer, reviewer, qa); one person may hold several"},
@@ -740,6 +768,8 @@ TASK_STEPS = {"type": "array", "items": {"type": "object", "properties": {
     "position": {"type": "integer"}, "status": {"type": "string", "enum": list(TASK_STATUSES)}},
     "required": ["name", "status"], "additionalProperties": False}}
 NUMBERED = {"type": "boolean", "description": "Give each task created on or moved onto the type the team's next number"}
+STEPS_ONLY = {"type": "boolean", "description": "Its tasks change status only by moving to a step: closing, declining, "
+                                               "reopening or finishing one is refused"}
 
 
 @tool("hub_task_types", "Task types and their steps, in order. Status remains the task contract.",
@@ -754,9 +784,11 @@ TYPE_BOTS = {"type": "string", "enum": ["parties", "read", "work"],
 
 
 @tool("hub_task_type_create", "Create a task type and its steps (movers only).",
-      {"name": _s("Type name"), "steps": TASK_STEPS, "bots": TYPE_BOTS, "numbered": NUMBERED}, required=("name",), writes=True)
+      {"name": _s("Type name"), "steps": TASK_STEPS, "bots": TYPE_BOTS, "numbered": NUMBERED,
+       "steps_only": STEPS_ONLY}, required=("name",), writes=True)
 def task_type_create(api, args):
-    body = {"name": args["name"], "steps": args.get("steps") or [], "numbered": bool(args.get("numbered"))}
+    body = {"name": args["name"], "steps": args.get("steps") or [], "numbered": bool(args.get("numbered")),
+            "steps_only": bool(args.get("steps_only"))}
     if args.get("bots"):
         body["bots"] = args["bots"]
     return api.post("task-types", body, key=_key(args))
@@ -764,9 +796,9 @@ def task_type_create(api, args):
 
 @tool("hub_task_type_update", "Edit a task type (movers only). Steps replace the full list; keep retained ids. "
       "A step with tasks cannot be removed.", {"id": _s("Type id or name"), "name": _s("Type name"),
-      "steps": TASK_STEPS, "bots": TYPE_BOTS, "numbered": NUMBERED}, required=("id",), writes=True)
+      "steps": TASK_STEPS, "bots": TYPE_BOTS, "numbered": NUMBERED, "steps_only": STEPS_ONLY}, required=("id",), writes=True)
 def task_type_update(api, args):
-    return api.post("task-types/" + args["id"], {k: args[k] for k in ("name", "steps", "bots", "numbered") if k in args},
+    return api.post("task-types/" + args["id"], {k: args[k] for k in ("name", "steps", "bots", "numbered", "steps_only") if k in args},
                     key=_key(args))
 
 
@@ -816,7 +848,7 @@ def task_comment_delete(api, args):
 
 @tool("hub_task_delete", "Delete a task made by mistake, such as a duplicate: it goes to the trash and can be "
       "restored. Only a person signed in as themselves may: the task's requester, or someone who may move any "
-      "task. A task carrying work (a bot turn, a file, an approval, a subtask) is refused; close it instead.",
+      "task. A task carrying work (a bot turn, a bot's own file, an approval, a subtask) is refused; close it instead.",
       {"id": TASK_ID}, required=("id",), writes=True)
 def task_delete(api, args):
     return api.post(f"tasks/{args['id']}/delete", {}, key=_key(args))
@@ -1862,16 +1894,17 @@ def audience(value):
       "stays within their limit of active bots. Safe to repeat for a bot they already own. `hub bot create --template T` "
       "also builds its repository on this computer. Starters build on their assigned Computer; custom templates get "
       "a BotOps setup_task_id to watch with hub_task_show. Set build false for only the record; BotOps defaults to only the record.",
-      {"slug": _s("The new bot's slug, like jira-manager"), "name": _s("What people call it"),
+      {"slug": _s("Leave out: Tico picks it from the name. Only to keep a slug already chosen"),
+       "name": _s("What people call it; the template's name by default"),
        "description": _s("What it does"), "reports_to": _s("A bot slug, or human:<id>; the requester by default"),
        "template": _s("A template from hub_template_list, if it is built from one"),
        "build": {"type": "boolean", "description": "Build from the template (human default: true; BotOps: false)"},
        "instructions": _s("Reviewed Instructions overriding the template; requested description and limits still apply"),
        "title_prefix": _s("Prefix for a generated setup task's title"),
        "model": _s("`hermes` for a bot run by a Hermes profile (it gets a credential, not a computer); leave out for the Team default")},
-      required=("slug",), writes=True)
+      writes=True)
 def bot_register(api, args):
-    body = {"slug": args["slug"], "display_name": args.get("name") or "", "description": args.get("description") or "",
+    body = {**({"slug": args["slug"]} if args.get("slug") else {}), "display_name": args.get("name") or "", "description": args.get("description") or "",
             "reports_to": args.get("reports_to") or None, "template": args.get("template") or "",
             **{k: args[k] for k in ("instructions", "title_prefix") if k in args},
             **({"model": args["model"]} if args.get("model") else {}), **_for_person(api)}

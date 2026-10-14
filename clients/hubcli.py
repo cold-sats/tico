@@ -25,9 +25,15 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                     [--goal ID] [--dry-run] the checks a create would fail, nothing written
                     [--next-run]           for a bot: no wake; its next run carries the task
                                            blocked on a person? --owner <person> --parent <your task>
+                                           for a person, the body's first paragraph is the ask (as --note below)
     hub task ask <id> "<question>"
+    hub task update <id> --status waiting --on <person> --note "<plain ask>"
+                                           ask a person on your task: one small subtask for them, yours stays blocked
     hub task question "<question>" --on <person> [--option A=<file> --option B=<file>]
-                                           one decision as its own task, waiting on them; none for Yes / No
+                                           one decision under your task, waiting on them; none for Yes / No
+                    [--if-no-answer "Yes" --default-kind reversible|send|spend|delete] [--by D]
+                                           what you do if they don't answer: a reversible step goes ahead
+                                           after the team's days (3); asks expire after 14 days
     hub task comment <id> "<text>"         on the record with your name
     hub task comment-edit <id> <comment-id> "<text>"   change a comment you wrote; wakes nobody
     hub task comment-delete <id> <comment-id>          take back a comment you wrote
@@ -36,7 +42,9 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub task restore <id>                              put a deleted task back
     hub task update <id> --status doing|waiting|done|declined [--note "..."] [--goal ID|--goal ""]
                     [--title "..."]        rename it: checked as a new task's title would be
-                    [--on PERSON]          with --status waiting: the person it waits on (their Needs you)
+                    [--on PERSON]          with --status waiting: the person it waits on (their Needs you);
+                                           --note is then your ask to them, one or two plain sentences:
+                                           "Approve the video tool trial on Thursday? If yes, I'll send the invite."
     hub task close <id> [--note "..."]
     hub task snooze <id> --until DATE      set it aside until DATE: off the lists and quiet until then
     hub task unsnooze <id>                 bring a snoozed task back now
@@ -208,12 +216,13 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            ask the decision model typed questions about a state (questions/README.md);
                                            --questions-file q.json instead of --set; --list shows the sets
     hub template list                      the bot templates this company can pick from
-    hub bot create <slug> --template T [--name "Display"]
-                                           set a chosen bot up in the workspace (BotOps only); it also registers
+    hub bot create --template T [--name "Display"] [<slug>]
+                                           set a chosen bot up in the workspace (BotOps only); the slug is picked
+                                           from the name (else the template's) and printed. It also registers
                                            the bot with Tico as the requester when a person's message started the run,
                                            and asks for its empty <org>/bot-<slug> when GitHub is connected (exits
                                            non-zero when a person must first let BotOps create repositories)
-    hub bot create <slug> --record-only [--name N] [--description D] [--reports-to R] [--template T]
+    hub bot create --record-only --name N [<slug>] [--description D] [--reports-to R] [--template T]
                                            only register a new bot with Tico (planned), as the requester (BotOps)
     hub bot check <slug>                   what preflight would still refuse about that repository
     hub bot update <slug> [--reports-to R] [--display-name N] [--description D] [--status S]
@@ -444,6 +453,9 @@ def task_problems(actor, owner, title, body, type=None):
     elif H.is_human(target) and general and H.STYLE_LINT != "off":
         # writing problems: the create is accepted with these as warnings unless TICO_STYLE_LINT=refuse
         (problems if H.STYLE_LINT == "refuse" else warnings).extend(H.lint_human_item(body, title=title))
+    if H.is_bot(actor) and H.is_human(target) and general and title:
+        # the ask that opens a person's task is always refused when it is missing or unclear
+        problems += list(filter(None, [H.person_ask_refusal(target, H.person_ask_of_body(body, title), "assign")]))
     if H.is_bot(actor) and general:
         # plain-English titles: a warning this week, a refusal once TICO_TITLE_LINT=refuse
         problems += [f"{p} (title lint, {H.TITLE_LINT})" for p in H.lint_title(title)]
@@ -732,7 +744,9 @@ def parser():
                    help="for a bot: do not wake it; its next run, whatever starts it, carries this task")
     s.add_argument("--dry-run", dest="dry_run", action="store_true",
                    help="print the checks a create would fail and write nothing")
-    s.add_argument("--request-id", dest="request_id", help="BotOps continuation: the originating human chat message")
+    s.add_argument("--request-id", dest="request_id",
+                   help="the person's message this carries: handing BotOps something a person asked you for, their "
+                        "message id or `turn` (BotOps acts with their rights, or puts it to them as a Confirm card)")
     s.add_argument("--type", help="task type id or name; defaults to General")
     s.add_argument("--step", help="step id or name in the type")
     s.add_argument("--number", type=int, help="movers: keep an imported ticket's number")
@@ -740,11 +754,13 @@ def parser():
     types = task.add_parser("type", help="manage task types (movers only)").add_subparsers(dest="type_sub")
     bots_help = ("what every bot may do with the type's tasks: parties (only the bots on each task), "
                  "read (read and comment on all of them) or work (also change them)")
+    steps_only_help = "its tasks change status only by moving to a step, never by closing, declining, reopening or finishing"
     s = types.add_parser("create")
     s.add_argument("--name", required=True)
     s.add_argument("--steps-file", dest="steps_file")
     s.add_argument("--bots", choices=["parties", "read", "work"], help=bots_help)
     s.add_argument("--numbered", action="store_true", default=None, help="number each task on the type")
+    s.add_argument("--steps-only", dest="steps_only", action="store_true", default=None, help=steps_only_help)
     s.set_defaults(fn="task type create")
     s = types.add_parser("update")
     s.add_argument("id")
@@ -753,6 +769,8 @@ def parser():
     s.add_argument("--bots", choices=["parties", "read", "work"], help=bots_help)
     s.add_argument("--numbered", action=argparse.BooleanOptionalAction, default=None,
                    help="number each task created on or moved onto the type")
+    s.add_argument("--steps-only", dest="steps_only", action=argparse.BooleanOptionalAction, default=None,
+                   help=steps_only_help)
     s.set_defaults(fn="task type update")
     s = types.add_parser("delete")
     s.add_argument("id")
@@ -775,6 +793,12 @@ def parser():
     s.add_argument("--body")
     s.add_argument("--parent")
     s.add_argument("--private", action="store_true", default=None, help="only you and the person may read it")
+    s.add_argument("--if-no-answer", dest="if_no_answer",
+                   help="what you will do if they don't answer: an option (\"Yes\") or one plain sentence")
+    s.add_argument("--default-kind", dest="default_kind", choices=["reversible", "send", "spend", "delete"],
+                   help="what that step is, required with --if-no-answer; only reversible (internal, undoable) goes "
+                        "ahead on its own: a send, spending or a delete waits for an answer")
+    s.add_argument("--by", help="ISO-8601 date-time: go ahead then, instead of after the team's days (default 3)")
     s.set_defaults(fn="task question")
     s = task.add_parser("update")
     visibility = s.add_mutually_exclusive_group()
@@ -787,7 +811,9 @@ def parser():
     s.add_argument("--owner")
     s.add_argument("--due")
     s.add_argument("--on", dest="waiting_on",
-                   help="with --status waiting: the person it waits on, so it is in their Needs you; '' clears it")
+                   help="with --status waiting: the person it waits on, so it is in their Needs you; '' clears it. "
+                        "--note is then your ask to them: one or two plain sentences saying what you need and what "
+                        "happens after, with no ids, hashes, file paths or tool names")
     s.add_argument("--goal", help='the goal this task serves; "" takes it off')
     s.add_argument("--quiet", action="store_true", help="keep detailed notes on the task")
     s.add_argument("--type", help="task type id or name")
@@ -1448,8 +1474,8 @@ def parser():
     sub.add_parser("template", help="the bot templates this company can pick from").add_subparsers(dest="sub").add_parser(
         "list", help="the bot templates this company can pick from").set_defaults(fn="template list")
     bot = sub.add_parser("bot", help="build a bot from a template (BotOps), change it, place it, its status").add_subparsers(dest="sub")
-    s = bot.add_parser("create", help="build <slug> from a template in the workspace and register it; --record-only only registers")
-    s.add_argument("slug")
+    s = bot.add_parser("create", help="build a bot from a template in the workspace and register it; --record-only only registers")
+    s.add_argument("slug", nargs="?", help="leave out: Tico picks one from --name, else the template's name")
     s.add_argument("--template", help="a template from `hub template list`")
     s.add_argument("--record-only", dest="record_only", action="store_true",
                    help="only register the bot with Tico (planned), as the person who asked; build nothing")

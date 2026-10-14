@@ -502,10 +502,15 @@ def blob_readable(c, actor, bid, seen=None, memo=None):
             ids.add(row["scope"][5:])
         if row["attempt_id"]:
             ids.update(attempt_tasks(c, row["attempt_id"], memo))
+    linked = bool(ids)
     for row in c.execute("SELECT m.* FROM message_assets a JOIN messages m ON m.id=a.message_id "
                          "WHERE a.blob_id=?", (bid,)):
+        linked = True
         if not message_readable(c, actor, row):
             return False
+    # Attached to a task that was deleted, and to nothing else: its uploader may not open it either.
+    if not linked and c.execute("SELECT 1 FROM task_trash_assets WHERE blob_id=?", (bid,)).fetchone():
+        return False
     return readable(c, actor, ids)
 
 

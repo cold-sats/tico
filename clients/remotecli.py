@@ -285,6 +285,8 @@ def run(args, who=None):
                 body["bots"] = args.bots
             if args.numbered is not None:
                 body["numbered"] = args.numbered
+            if getattr(args, "steps_only", None) is not None:
+                body["steps_only"] = args.steps_only
             return post("task-types" + ("/" + args.id if args.type_sub == "update" else ""), body)
         if sub == "types":
             if args.delete:
@@ -642,24 +644,41 @@ def bots(client, args):
         problems = catalog.check(repo_dir(workspace, args.slug), args.slug)
         return {"ready": not problems, "problems": problems}
     if not args.template:
-        raise APIError("usage", "hub bot create <slug> --template T builds the bot; --record-only only registers it")
+        raise APIError("usage", "hub bot create --template T builds the bot; --record-only only registers it")
     record = onboarding(client)
-    chosen = (record.get("selected") or {}).get(args.slug) or {}
+    chosen = (record.get("selected") or {}).get(args.slug) or {} if args.slug else {}
     registered = register_for_requester(client, args, chosen)
-    path = catalog.materialize(args.template, args.slug, workspace, client.get("config"),
+    slug = args.slug or (registered or {}).get("slug") or local_slug(client, args, workspace)
+    path = catalog.materialize(args.template, slug, workspace, client.get("config"),
                                record.get("answers") or {},
                                display_name=args.name or chosen.get("display_name"),
                                instructions=chosen.get("instructions"))
-    result = {"path": str(path), "template": args.template, "slug": args.slug,
-              "committed": catalog.committed(path), "routines": seed_routines(client, args.slug, path),
+    result = {"path": str(path), "template": args.template, "slug": slug,
+              "committed": catalog.committed(path), "routines": seed_routines(client, slug, path),
               **({"registered": registered} if registered else {})}
-    result["github"] = github_repository(client, args.slug, path)
+    result["github"] = github_repository(client, slug, path)
     return result
 
 
+def local_slug(client, args, workspace):
+    """The slug for a bot built in a turn no person started, where the server did not pick one: from its name, else
+    the template's, skipping the server's bots and any repository already in the workspace."""
+    from clients import catalog
+    from clients.manifest import OLD_REPO_PREFIX, REPO_PREFIX
+    card = catalog.card(args.template) or {}
+    try:
+        known = {b.get("slug") or b.get("name") for b in client.get("bots", include_archived="1")}
+    except (APIError, AttributeError, TypeError):
+        known = set()
+    reserved = ("assistant", "botops", "librarian", "goal-manager", "coo")
+    return catalog.free_slug(args.name or card.get("name") or args.template, lambda slug: (
+        slug in known or slug in reserved
+        or any((workspace / (prefix + slug)).exists() for prefix in (REPO_PREFIX, OLD_REPO_PREFIX))))
+
+
 def github_repository(client, slug, path):
-    """Give the new bot its empty private `<org>/bot-<slug>` on GitHub; its runner publishes the local history into
-    it. No GitHub connected (or a rehearsal) leaves the bot on its computer, as before. When the GitHub App may not
+    """Give the new bot its empty private `<org>/bot-<slug>` on GitHub. The server records this computer as the one
+    holding the build, so the bot's first placement is here, and this computer's runner publishes the history into it. No GitHub connected (or a rehearsal) leaves the bot on its computer, as before. When the GitHub App may not
     create repositories, the build is not finished: the command fails (non-zero) and says a person must act. The
     server has put one Needs-you task in front of the owner and finishes the repository on its own once they do; the
     bot stays planned with its files here."""
@@ -685,7 +704,8 @@ def register_for_requester(client, args, chosen):
     person may not do (no create_bots, the limit) stops the build; a turn no person started (onboarding, a
     routine) registers nothing here, as before."""
     try:
-        return client.post("bots/register", {"slug": args.slug, "template": args.template, "on_behalf_of": "turn",
+        return client.post("bots/register", {**({"slug": args.slug} if args.slug else {}),
+                                             "template": args.template, "on_behalf_of": "turn",
                                              "display_name": args.name or chosen.get("display_name") or ""})
     except APIError as exc:
         if exc.code == "on_behalf_of":

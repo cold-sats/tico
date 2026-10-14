@@ -16,7 +16,7 @@ from . import models as M
 from . import changelog as CL
 from . import providers, runner_versions
 from . import personal_tokens, rooms, team_rules, turns
-from .execution import AWAKE_GAP, AWAKE_SETTLE, Execution
+from .execution import AWAKE_GAP, AWAKE_SETTLE, Execution, turn_share, turns_here
 from pathlib import Path
 
 from . import read_cache
@@ -466,6 +466,65 @@ def own_sign_in(c, bot, settings=None):
     return (verdict.get("problem") or "its model is not signed in") if verdict.get("sign_in") else ""
 
 
+def free_turn(c, bot, location):
+    """The computer a bot's queued work waits on for a free turn, or '': every turn there is taken, or this
+    bot already holds its share of them (execution.turn_share)."""
+    machine = location.get("machine") or {}
+    row = c.execute("SELECT capacity FROM runners WHERE id=?", (machine.get("runner_id"),)).fetchone()
+    if not row:
+        return ""
+    held = turns_here(c, machine["runner_id"])
+    full = (sum(held.values()) >= (row["capacity"] or 1)
+            or held.get(bot, 0) >= turn_share(c, machine["runner_id"], row["capacity"]))
+    return (machine.get("label") or "its computer") if full else ""
+
+
+def queued_label(c, bot, location, settings=None):
+    """(label, readiness_reason) for a bot's queued work: what it is waiting for, in a person's words."""
+    bot_state = H.bot(c, bot)["state"]
+    label, readiness_reason = "Saved — queued", ""
+    draining = c.execute("SELECT 1 FROM bot_control WHERE bot=? AND draining=1", (bot,)).fetchone()
+    # A drain is either Tico updating itself (the deploy finishes each
+    # bot's current run, then holds new ones until it is back) or a person pausing it.
+    if draining and deploy_draining(c, bot):
+        label = "Saved — Tico is updating; this starts when the update finishes"
+    elif draining:
+        label = "Saved — this bot is paused; this starts when it's resumed"
+    elif bot_state != "active":
+        label = "Saved — bot " + bot_state
+    elif not location["online"]:
+        label = "Saved — waiting for " + ((location["machine"] or {}).get("label") or "a registered computer")
+    elif not location["awake"]:
+        label = "Saved — waiting for " + ((location["machine"] or {}).get("label")
+                                          or "a registered computer") + " to stay awake"
+    elif not location["ready"]:
+        problems = (location.get("readiness") or {}).get("problems") or []
+        if any(str(p).startswith("No AI provider is chosen") for p in problems):
+            readiness_reason = "missing_provider"
+            label = "Saved — no AI provider is chosen"
+        elif (verdict := own_sign_in(c, bot, settings)):
+            # Only this bot's own model, on its own computer: a bot that waits on anything else keeps its own reason.
+            readiness_reason = "model_sign_in"
+            label = "Saved — " + verdict
+        else:
+            label = "Saved — " + str(problems[0]) if problems else "Saved — waiting for computer setup"
+    elif (computer := free_turn(c, bot, location)):
+        label = "Saved — waiting for a free turn on " + computer
+    return label, readiness_reason
+
+
+def task_wait(c, task_id, settings=None):
+    """What this task's queued run waits for ("Waiting for a free turn on Studio Mac"), or '' when none is queued."""
+    job = c.execute("SELECT j.bot FROM jobs j JOIN messages m ON m.id=j.message_id "
+                    "JOIN conversations cv ON cv.id=m.conversation_id "
+                    f"WHERE j.state='queued' AND {H.MESSAGE_TASK_SQL}=? ORDER BY j.created LIMIT 1", (task_id,)).fetchone()
+    if not job:
+        return ""
+    label = queued_label(c, job["bot"], machine(c, job["bot"]), settings)[0]
+    reason = label.removeprefix("Saved — ")
+    return "Queued" if reason == "queued" else reason[:1].upper() + reason[1:]
+
+
 def conversation_snapshot(c, cid, who=None, settings=None):
     page = privacy.page(c, who, cid) if who else message_page(c, cid)
     job = c.execute("SELECT j.*,a.state AS attempt_state,a.lease_until,a.stop_requested FROM jobs j JOIN messages m ON m.id=j.message_id "
@@ -484,7 +543,6 @@ def conversation_snapshot(c, cid, who=None, settings=None):
         elif state == "input":
             state = "running"
         location = machine(c, job["bot"])
-        bot_state = H.bot(c, job["bot"])["state"]
         label = {"queued": "Saved — queued", "leased": "Starting", "running": "Working",
                  "completed": "Complete", "cancelled": "Delivery dismissed", "uncertain": "Stopped — saved for later"}.get(state, state)
         if state == "cancelled" and job["stop_requested"]:
@@ -495,31 +553,7 @@ def conversation_snapshot(c, cid, who=None, settings=None):
             label = "Reply failed — your message is saved"
         readiness_reason = ""
         if state == "queued":
-            draining = c.execute("SELECT 1 FROM bot_control WHERE bot=? AND draining=1", (job["bot"],)).fetchone()
-            # A drain is either Tico updating itself (the deploy finishes each
-            # bot's current run, then holds new ones until it is back) or a person pausing it.
-            if draining and deploy_draining(c, job["bot"]):
-                label = "Saved — Tico is updating; this starts when the update finishes"
-            elif draining:
-                label = "Saved — this bot is paused; this starts when it's resumed"
-            elif bot_state != "active":
-                label = "Saved — bot " + bot_state
-            elif not location["online"]:
-                label = "Saved — waiting for " + ((location["machine"] or {}).get("label") or "a registered computer")
-            elif not location["awake"]:
-                label = "Saved — waiting for " + ((location["machine"] or {}).get("label")
-                                                  or "a registered computer") + " to stay awake"
-            elif not location["ready"]:
-                problems = (location.get("readiness") or {}).get("problems") or []
-                if any(str(p).startswith("No AI provider is chosen") for p in problems):
-                    readiness_reason = "missing_provider"
-                    label = "Saved — no AI provider is chosen"
-                elif (verdict := own_sign_in(c, job["bot"], settings)):
-                    # Only this bot's own model, on its own computer: a bot that waits on anything else keeps its own reason.
-                    readiness_reason = "model_sign_in"
-                    label = "Saved — " + verdict
-                else:
-                    label = "Saved — " + str(problems[0]) if problems else "Saved — waiting for computer setup"
+            label, readiness_reason = queued_label(c, job["bot"], location, settings)
         parts = []
         if state in ("leased", "running"):
             parts = turns.reply_parts([(e["kind"], json.loads(e["payload_json"]), e["created"]) for e in c.execute(
@@ -533,19 +567,49 @@ def conversation_snapshot(c, cid, who=None, settings=None):
     return {**page, "execution": execution, "goal": current(c, cid)}
 
 
-# What needs a person, in the order they work it. Bot requests rank above inbox items from mail, since helping the bots matters more. A request
-# from a bot about its own work comes first, the person's own tasks next, and what an inbox
-# bot lifted out of mail last; within a source the decisive kinds lead, oldest first.
-SOURCE_RANK = {"bot": 0, "self": 1, "mail": 2}
+# What needs a person, in the order they work it. Work that traces back to a person leads: a person asked for it,
+# or it hangs under a task a person asked for. Work bots made for themselves or each other follows, unless it is
+# pressing: due within a day or overdue, or waiting PRESSING_DAYS (DECISIVE_DAYS for an approval or a question,
+# which holds its bot up). Within a tier the decisive kinds lead, then the queue in rank order, oldest first.
+PRESSING_DAYS = 3
+DECISIVE_DAYS = 1
 # A bot's task set waiting on the person blocks that bot just as its question does.
 KIND_RANK = {"approval": 0, "question": 1, "ask": 1, "waiting": 1, "declined": 2, "task": 3, "report": 4}
+# A card whose bot has not yet said plainly what it needs (`ask_missing`) waits at the very bottom: there is nothing
+# for the person to do on it until the bot restates it (backend/restate_asks.py asks it to).
 
 
-def needs_source(actor):
-    actor = str(actor or "")
-    if actor.startswith("bot:"):
-        return "mail" if actor.endswith("-inbox") else "bot"
-    return "self"
+def person_origin(c, row, visible_sql, me=None):
+    """The person a task traces back to: its requester when that is a person, else the nearest ancestor's.
+    `visible_sql` is the reader's task rule (Auth.task_sql), so the walk stops at a task they may not open and
+    the order never says what it holds. `me`'s own to-do (they asked themselves) does not count: it would lift
+    their whole list over every bot. None for work bots made for themselves or each other."""
+    def readable(tid):
+        return c.execute(f"SELECT * FROM tasks WHERE id=? AND ({visible_sql})", (tid,)).fetchone()
+    if not row or not readable(row["id"]):
+        return None
+    if me and row.get("requester") == row.get("owner") == me:
+        return None
+    if H.is_human(row.get("requester")):
+        return row["requester"]
+    from .task_relations import ancestors
+    for tid in ancestors(c, row["id"]):
+        parent = readable(tid)
+        if not parent:
+            return None
+        if H.is_human(parent["requester"]):
+            return parent["requester"]
+    return None
+
+
+def pressing(it, now=None):
+    """A bot's item that may go ahead of a person's: due within a day or overdue, or waiting long enough."""
+    now = now or H.now()
+    due = it.get("due")
+    if due and str(due) <= H.shift(now, days=1):
+        return True
+    days = DECISIVE_DAYS if KIND_RANK.get(it.get("kind"), 9) <= 1 else PRESSING_DAYS
+    return bool(it.get("created")) and str(it["created"]) <= H.shift(now, days=-days)
 
 
 CHECKOUT_BEHIND_HOURS = 1
@@ -602,11 +666,28 @@ def checkout_issue(add, row, busy=0):
         restart_issue(add, row, busy)
 
 
-def needs_order(source_actor, kind, created, rank=None):
-    """Needs you is the person's queue: what blocks a bot
-    first (an approval, a question), then declined work, then their own tasks in rank order.
-    Who sent it no longer orders it; the rank does."""
-    return (KIND_RANK.get(kind, 9), rank if rank is not None else float("inf"), str(created or ""))
+def needs_order(kind, created, rank=None, person=None, urgent=False, ask_missing=False):
+    """Needs you is the person's queue. A card still waiting for its bot to say what it needs goes last, whatever
+    else it is; above that, what traces back to a person, or presses, first; then within that what blocks a bot
+    (an approval, a question), then declined work, then their own tasks in rank order."""
+    return (1 if ask_missing else 0, 0 if person or urgent else 1, KIND_RANK.get(kind, 9),
+            rank if rank is not None else float("inf"), str(created or ""))
+
+
+def person_ask(row, kind, me, ask):
+    """(the plain ask a bot put to `me` on this task, whether it is missing), read only, for the card to lead with
+    and to sort by. A task a bot set waiting on me asks in its waiting note, one given to me by a bot in its body's
+    first paragraph, each when it passes H.lint_person_ask. A waiting card has its ask missing when neither that
+    nor an open question to me asks; a task a person asked for, or a question card, never does."""
+    if kind == "waiting" and H.is_bot(row.get("owner")):
+        text = str(row.get("note") or "").strip()
+        if H.lint_person_ask(text):
+            return "", not (ask and ask.get("to_actor") == me)
+        return text, False
+    if row.get("owner") == me and H.is_bot(row.get("requester")):
+        text = H.person_ask_of_body(row.get("body"), row.get("title"))
+        return ("" if H.lint_person_ask(text) else text), False
+    return "", False
 
 
 def _clip(text, n=280):
@@ -706,7 +787,10 @@ def needs_items(c, auth, who, task_view, older=None):
     """The person's queue. A task there only for a question older than H.ASK_OLDER_DAYS goes to `older` instead
     (a list the caller passes), out of the queue and its count."""
     raw = H.needs_you(c, who.actor)
+    visible = auth.task_sql(c, who)
     H.hydrate_task_tags(c, raw["tasks"] + raw["waiting"] + raw["declined"])
+    from . import ask_deadlines, team_rules
+    rules = team_rules.load(c)
     items = []
     for kind in ("tasks", "waiting", "declined"):
         for row in raw[kind]:
@@ -716,10 +800,15 @@ def needs_items(c, auth, who, task_view, older=None):
                 continue
             open_asks = H.open_task_asks(c, row, actor=privacy.actor(who))
             ask = next((a for a in open_asks if a["to_actor"] == who.actor), None) or next(iter(open_asks), None)
+            if ask and (ask.get("refs") or {}).get("if_no_answer"):
+                ask["goes_ahead_at"] = ask_deadlines.deadline(ask, rules)     # when the bot's default goes ahead
             item = {**task_view(row),
                     "kind": kind if kind in ("declined", "waiting") else "question" if ask else "task",
                     "origin_actor": H.task_origin(c, row), "ask": ask, "open_asks": len(open_asks),
-                    "first_line": (row.get("body") or "").split("\n")[0]}
+                    "first_line": (row.get("body") or "").split("\n")[0],
+                    "from_person": (ask["from_actor"] if ask and H.is_human(ask["from_actor"])
+                                    else person_origin(c, row, visible, who.actor))}
+            item["person_ask"], item["ask_missing"] = person_ask(row, item["kind"], who.actor, ask)
             if (item["kind"] == "question" and row["owner"] != who.actor and H.ask_older(ask)
                     and not any(a["to_actor"] == who.actor and not H.ask_older(a) for a in open_asks)):
                 ask["older"] = True
@@ -735,7 +824,8 @@ def needs_items(c, auth, who, task_view, older=None):
         item = {"kind": "ask", "id": msg["id"], "message_id": msg["id"], "title": _clip(msg["body"], 160),
                 "first_line": (msg["body"] or "").split("\n")[0], "body": msg["body"], "requester": msg["from_actor"],
                 "origin_actor": msg["from_actor"], "conversation_id": msg["conversation_id"],
-                "created": msg["created"], "ask": ask}
+                "created": msg["created"], "ask": ask,
+                "from_person": msg["from_actor"] if H.is_human(msg["from_actor"]) else None}
         if H.ask_older(msg):
             ask["older"] = True
             if older is not None:
@@ -747,7 +837,8 @@ def needs_items(c, auth, who, task_view, older=None):
         if msg and msg["to_actor"] == who.actor and privacy.message_readable(c, privacy.actor(who), msg):
             item = {**row, "kind": "approval", "what": row["kind"],
                     "title": "Approve this " + row["kind"],
-                    "requester": row["requested_by"], "conversation_id": msg["conversation_id"]}
+                    "requester": row["requested_by"], "conversation_id": msg["conversation_id"],
+                    "from_person": person_origin(c, H.task(c, row["task_id"]) if row.get("task_id") else None, visible)}
             if row["kind"] == "send":
                 item["attachment_files"] = approval_files(c, auth, who, row.get("payload"))
             if row["kind"] == "support":
@@ -756,9 +847,11 @@ def needs_items(c, auth, who, task_view, older=None):
                 item["title"] = "Send this to Tico support?"
                 item["support"] = {"to": hq_url().split("://", 1)[-1].split("/", 1)[0]}
             items.append(item)
-    return sorted(items, key=lambda x: needs_order(
-        x["requester"] if x["kind"] == "approval" else (x.get("ask") or {}).get("from_actor") or x.get("origin_actor") or x.get("requester"),
-        x["kind"], x["created"], x.get("rank") if x["kind"] == "task" else None))
+    at = H.now()
+    for item in items:
+        item["pressing"] = pressing(item, at)
+    return sorted(items, key=lambda x: needs_order(x["kind"], x["created"], x.get("rank") if x["kind"] == "task" else None,
+                                                   x.get("from_person"), x["pressing"], bool(x.get("ask_missing"))))
 
 
 FLEET_CACHE_S = 15
@@ -1335,7 +1428,7 @@ def install_views(app, store, auth, mutate, task_view):
 
     @app.get("/api/v2/needs-you")
     def needs(request: Request, count: bool = False):
-        """`count=1` is the number alone: the desktop app's tray asks every 30 s and shows only
+        """`count=1` is the number alone: the desktop app asks every 30 s and shows only
         that, where the full list is over 100 KB."""
         who = request.state.identity
         human_only(who)

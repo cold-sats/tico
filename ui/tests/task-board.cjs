@@ -315,26 +315,19 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     await page.locator('#task-modal [data-modal-close]').click();
     await page.waitForFunction(() => TASK_CHAT === null);
 
-    // Finishing a request from a bot records a result; cancel leaves the task open.
+    // Finishing a request from a bot is one tap: nothing is asked. A comment typed but not sent goes with Done as the
+    // result, and leaves the box.
     await page.evaluate(() => taskModalShow(TASKS_ST.tasks.find(t => t.id === 'Approve the budget')));
+    await page.locator('#task-modal').getByRole('textbox', {name: 'Add a comment'}).fill('Keep the budget on hold.');
     // Done is a status like any other: the Status menu, then Done.
-    const finish = async () => {
-      await page.locator('#task-modal [data-prop="status"]').click();
-      await page.locator('#task-modal .prop-pop [data-prop-pick="done"]').click();
-    };
-    const beforeFinish = posted.length;
-    await finish();
-    await page.locator('dialog.task-outcome textarea').waitFor();
-    assert.equal(await page.locator('dialog.task-outcome .task-outcome-title').innerText(), 'Approve the budget', 'the prompt names the request');
-    await page.locator('dialog.task-outcome [data-cancel]').click();
-    assert.equal(posted.length, beforeFinish, 'cancel does not finish the request');
-    assert.equal(await page.locator('#task-modal').evaluate(el => el.open), true, 'the task stays open after cancel');
-    await finish();
-    await page.locator('dialog.task-outcome textarea').fill('Keep the budget on hold.');
-    await page.locator('dialog.task-outcome button[type="submit"]').click();
+    await page.locator('#task-modal [data-prop="status"]').click();
+    await page.locator('#task-modal .prop-pop [data-prop-pick="done"]').click();
     await page.locator('#task-body [data-task-key="tApprove the budget"]').waitFor({state:'detached'});
+    assert.equal(await page.locator('dialog.task-outcome').count(), 0, 'nothing asks what was decided');
     const resultPost = posted.find(x => x.path === '/api/v2/tasks/Approve%20the%20budget' && x.body.status === 'done');
     assert.equal(resultPost.body.note, 'Keep the budget on hold.');
+    assert.equal(await page.evaluate(() => TASK_DRAFTS.has('Approve the budget')), false, 'the comment went with Done, not left to send again');
+    assert.equal(posted.filter(x => x.path.endsWith('/comments') && x.body.text === 'Keep the budget on hold.').length, 0, 'not also sent as a comment');
 
     // Someone who may not move tasks (here the one who asked): no tag + and no Part of picker, but the comment box
     me = {...me, role: 'viewer', mover: false};

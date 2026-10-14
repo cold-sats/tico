@@ -20,7 +20,7 @@ import re
 from . import hubdb as H
 from .store import Problem
 from . import task_privacy as privacy
-from .views import needs_order
+from .views import needs_order, pressing
 
 KINDS = ("decide", "needs_info", "instruct", "rule", "skip", "later")
 DECISIONS = ("approve", "decline", "done", "close", "answer")
@@ -67,6 +67,11 @@ def _row(it, actor):
         row["status"] = it["status"]
     if it.get("rank") is not None:
         row["rank"] = it["rank"]
+    if it.get("person_ask"):
+        row["ask"] = it["person_ask"]
+    if it.get("ask_missing"):
+        # Nothing to decide yet: the bot has been asked to say plainly what it needs (backend/restate_asks.py).
+        row["ask_missing"] = True
     if (it.get("ask") or {}).get("body"):
         row["question"] = _clip(it["ask"]["body"], 1500)
     elif it.get("body"):
@@ -77,6 +82,10 @@ def _row(it, actor):
         row["note"] = _clip(it["note"], 300)
     if it.get("created"):
         row["created"] = it["created"]
+    if it.get("from_person"):
+        row["from_person"] = it["from_person"]
+    if it.get("pressing"):
+        row["pressing"] = True
     return row
 
 
@@ -119,10 +128,15 @@ def relevant(c, actor, items):
             kids = _children(c, it["id"], actor)
             if kids:
                 for kid in kids:
+                    # Its person, as needs-you has it: its own requester when a person (the viewer's own to-do counts
+                    # for nobody), else the parent's, which needs-you worked out under the reader's rule.
+                    own = kid["requester"] if H.is_human(kid["requester"]) else None
                     kid = {**kid, "kind": "task", "ask": H.unanswered_ask(c, kid, actor=actor), "origin_actor": H.task_origin(c, kid),
-                           "first_line": (kid.get("body") or "").split("\n")[0]}
+                           "first_line": (kid.get("body") or "").split("\n")[0],
+                           "from_person": None if own == actor else own or it.get("from_person")}
                     if kid["ask"]:
                         kid["kind"] = "question"
+                    kid["pressing"] = pressing(kid)
                     row = _row(kid, actor)
                     if row["key"] not in seen and row["key"] not in snoozed:
                         seen.add(row["key"]); out.append(row)
@@ -131,10 +145,9 @@ def relevant(c, actor, items):
         if row["key"] in seen or row["key"] in snoozed:
             continue
         seen.add(row["key"]); out.append(row)
-    # Decisive kinds first (an approval, a question), then the person's queue in its rank
-    # order (views.needs_order: what needs a person is what is assigned to them, in order).
-    out.sort(key=lambda r: needs_order(r.get("from"), r["kind"], r.get("created"),
-                                       r.get("rank") if r["kind"] == "task" else None))
+    # views.needs_order: what traces back to a person or presses first, then decisive kinds (an approval,
+    # a question), then the person's queue in its rank order.
+    out.sort(key=_rank)
     return out
 
 
@@ -150,13 +163,14 @@ def _name(c, actor):
 
 
 def _rank(row):
-    return needs_order(row.get("from"), row["kind"], row.get("created"),
-                       row.get("rank") if row["kind"] == "task" else None)
+    return needs_order(row["kind"], row.get("created"), row.get("rank") if row["kind"] == "task" else None,
+                       row.get("from_person"), row.get("pressing"), bool(row.get("ask_missing")))
 
 
 def lineup(c, person, rows):
     """Who needs the person, most important first: each group ranked by its most pressing item
-    (an approval, then a question, then the queue in rank order), more items breaking a tie.
+    (views.needs_order: a person's work or a pressing item, then an approval, a question, the queue in
+    rank order), more items breaking a tie.
     `awaiting` counts items the person already answered and whose bot has not replied yet."""
     groups = {}
     for row in rows:
@@ -383,11 +397,18 @@ def respond(c, actor, batch_id, kind, text="", n=None, decision=None, heard="", 
             raise Problem("decision", "Notes are not decided; instruct or skip", 422)
         if decision == "answer" and not text:
             raise Problem("decision", "An answer needs the text to send", 422)
-        if item["key"].startswith("task:") and decision in ("approve", "decline", "done", "close") and not text:
+        # Done is one tap: a note is optional. A yes, a no or a close still says why to the bot that asked.
+        if item["key"].startswith("task:") and decision in ("approve", "decline", "close") and not text:
             task = H.task(c, item["key"].split(":", 1)[1])
             if (task and H.is_human(task.get("owner")) and H.is_bot(task.get("requester"))
-                    and (decision == "done" or task["status"] not in ("done", "declined"))):
+                    and task["status"] not in ("done", "declined")):
                 raise Problem("decision", "Tell the requesting bot what you decided or completed", 422)
+        settles = decision in ("approve", "decline", "done", "close")
+        if settles and item["key"].startswith("task:") and item["kind"] != "waiting":
+            task = H.task(c, item["key"].split(":", 1)[1])
+            if task and H.steps_only(c, task):
+                raise Problem("decision", f"{item['title']} is finished only by moving it to a step on its board; "
+                              "instruct its bot or move it in Tico", 422)
         response["decision"] = decision
     elif kind in ("needs_info", "instruct", "rule") and not text:
         raise Problem("text", f"A {kind.replace('_', ' ')} response needs the text", 422)

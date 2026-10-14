@@ -7,10 +7,15 @@ with every message into `task_trash`, in one transaction. A chat room a task onl
 room, a person's room with it) is never moved: the task just stops pointing at it. Every read of
 `tasks` then simply no longer sees the task, and a restore puts the same rows back. A task that
 carries work is refused whole, so nothing anyone or any bot did is touched: a turn, a job, an
-approval, a file, a routine occurrence, a meeting delivery, a subtask or a blocked task outside the
-list. Its relations to other tasks (task_relations, from either end) go into the trash with it, and a
+approval, a bot's own file, a routine occurrence, a meeting delivery, a subtask or a blocked task
+outside the list. Files attached to the task or its comments are part of it, not work: their
+attachment rows go into the trash, a task file stays where it is (no one may open it while its task
+is gone, since its visibility is the task's) and its append-only activity stays as history. Its relations to other tasks (task_relations, from either end) go into the trash with it, and a
 restore puts back each one whose other task still exists. The audit log keeps one `task.deleted` (and `task.restored`, `task.purged`) event per task.
 Purging is offline and separate; a purged task keeps only its trash row's number, so no new task takes it.
+A file attached when the task was made (`task_assets`) leaves with the task like its other rows, but
+`task_trash_assets` remembers it, through a purge too, so its uploader cannot open it once nothing
+links it (task_privacy.blob_readable). A purge cannot remove a task's files, so it reports them.
 """
 
 import json
@@ -25,19 +30,30 @@ TRASH = """CREATE TABLE IF NOT EXISTS task_trash(
  task_id TEXT PRIMARY KEY, number INTEGER, title TEXT, requester TEXT, owner TEXT, status TEXT,
  private INTEGER NOT NULL DEFAULT 1, deleted_at TEXT NOT NULL, deleted_by TEXT NOT NULL,
  rows_json TEXT NOT NULL, purged_at TEXT)"""
+# The files attached when a deleted task was made, kept past a purge: no foreign key, the task is gone.
+TRASH_ASSETS = """CREATE TABLE IF NOT EXISTS task_trash_assets(
+ task_id TEXT NOT NULL, blob_id TEXT NOT NULL, PRIMARY KEY(task_id, blob_id))"""
 
 # Rows that only describe the task: kept with it in the trash.
 TASK_ROWS = ("task_events", "task_links", "task_tags", "task_delegations", "task_reminders",
-             "service_key_tasks", "task_roles")
+             "service_key_tasks", "task_roles", "task_assets")
 # Rows that are work done on the task: any one of them refuses the run.
-TASK_WORK = ("turns", "approvals", "task_assets", "bot_files", "bot_file_activity",
-             "bot_tool_requests", "meeting_deliveries", "schedule_occurrences", "watcher_items")
+TASK_WORK = ("turns", "approvals", "bot_tool_requests", "meeting_deliveries", "schedule_occurrences",
+             "watcher_items")
+# A file a person attached to the task itself (scope `task:<id>`) is not work; any other file touched on the task is.
+FILE_WORK = (("bot_files", "SELECT count(*) FROM bot_files WHERE task_id IN ({}) AND scope <> 'task:' || task_id"),
+             ("bot_file_activity", "SELECT count(*) FROM bot_file_activity a WHERE a.task_id IN ({}) AND NOT EXISTS "
+                                   "(SELECT 1 FROM bot_files f WHERE f.id=a.file_id AND f.scope='task:' || a.task_id)"),
+             # A task file a bot made (from a run, or as itself) is work even though it sits on the task.
+             ("bot_file_versions", "SELECT count(*) FROM bot_files f WHERE f.task_id IN ({}) AND f.scope='task:' || f.task_id "
+                                   "AND EXISTS (SELECT 1 FROM bot_file_versions v WHERE v.file_id=f.id "
+                                   "AND (v.attempt_id IS NOT NULL OR v.actor LIKE 'bot:%'))"))
 MESSAGE_WORK = ("turns", "jobs", "attempt_inputs", "approvals", "credential_requests",
-                "bot_transition_checkpoints", "batches", "message_assets")
+                "bot_transition_checkpoints", "batches")
 CONVERSATION_WORK = ("attempt_conversations", "session_epochs", "assistant_actions", "chat_goals",
                      "credential_requests", "bot_transition_checkpoints")
 # Delivery bookkeeping for the messages: kept with them.
-MESSAGE_ROWS = (("slack_posts", "message_id"), ("slack_digests", "message_id"), ("update_queue", "message_id"),
+MESSAGE_ROWS = (("message_assets", "message_id"), ("slack_posts", "message_id"), ("slack_digests", "message_id"), ("update_queue", "message_id"),
                 ("task_file_reviews", "comment_id"), ("task_file_reviews", "ask_message_id"))
 CONVERSATION_ROWS = (("slack_digests", "conversation_id"), ("slack_threads", "conversation_id"))
 # Rows that point at the task but belong to something else, by their key: restored only if still unset.
@@ -50,6 +66,13 @@ CORE = ("tasks", "conversations", "messages")
 
 def ensure(c):
     c.execute(TRASH)
+    c.execute(TRASH_ASSETS)
+    c.execute("CREATE INDEX IF NOT EXISTS task_trash_assets_blob ON task_trash_assets(blob_id)")
+    # A task deleted before this table existed has its attachments only in its trash row.
+    c.execute("INSERT OR IGNORE INTO task_trash_assets(task_id, blob_id) "
+              "SELECT t.task_id, json_extract(a.value, '$.blob_id') FROM task_trash t, "
+              "json_each(t.rows_json, '$.rows.task_assets') a "
+              "WHERE t.purged_at IS NULL AND json_extract(a.value, '$.blob_id') IS NOT NULL")
 
 
 def _columns(c, table):
@@ -149,6 +172,9 @@ def delete_tasks(c, ids, apply=False, actor=None):
     for table in TASK_WORK:
         if n := _count(c, table, "task_id", ids):
             refusals[f"{table}.task_id"] = n
+    for table, sql in FILE_WORK:
+        if _has(c, "bot_files", "task_id") and (n := sum(_column(c, sql, ids))):
+            refusals[f"{table}.task_id"] = n
     for table in MESSAGE_WORK:
         if n := _count(c, table, "message_id", messages):
             refusals[f"{table}.message_id"] = n
@@ -195,6 +221,9 @@ def delete_tasks(c, ids, apply=False, actor=None):
             _delete(c, table, column, msgs)
         for table, column in CONVERSATION_ROWS:
             _delete(c, table, column, convs)
+        if _has(c, "task_assets", "task_id"):
+            c.execute("INSERT OR IGNORE INTO task_trash_assets(task_id, blob_id) "
+                      "SELECT task_id, blob_id FROM task_assets WHERE task_id=?", (tid,))
         for table in TASK_ROWS:
             _delete(c, table, "task_id", [tid])
         c.execute("DELETE FROM task_relations WHERE from_task=? OR to_task=?", (tid, tid))
@@ -342,25 +371,54 @@ def restore_tasks(c, ids, actor=None):
             for value in keys:
                 c.execute(f"UPDATE {table} SET {column}=? WHERE {key}=? AND {column} IS NULL", (e["task_id"], value))
         c.execute("DELETE FROM task_trash WHERE task_id=?", (e["task_id"],))
+        c.execute("DELETE FROM task_trash_assets WHERE task_id=?", (e["task_id"],))
         H.event(c, actor, "task.restored", e["task_id"], {"title": e["title"], "deleted_by": e["deleted_by"],
                                                           "unlinked": unlinked.get(e["task_id"], [])})
     H.recount(c, [t for e in entries for t in (e["owner"], e["requester"])])
     return {"restored": [e["task_id"] for e in entries], "unlinked": unlinked, "skipped": skipped}
 
 
+def _files_left(c, tid):
+    """The files attached to a deleted task, which a purge leaves behind: their versions and activity
+    are append-only and their bytes may be shared with other files, so they stay, unreadable for good.
+    `ids` are task files (with their versions); `attachments` are the blobs attached when the task was
+    made that no counted version already holds."""
+    scope = "task:" + tid
+    ids, versions, size = [], 0, 0
+    if _has(c, "bot_files", "scope"):
+        ids = [r[0] for r in c.execute("SELECT id FROM bot_files WHERE scope=? ORDER BY id", (scope,))]
+        versions, size = c.execute("SELECT count(*), COALESCE(SUM(size),0) FROM bot_file_versions "
+                                   "WHERE file_id IN (SELECT id FROM bot_files WHERE scope=?)", (scope,)).fetchone()
+    attached = c.execute("SELECT b.id, b.size FROM task_trash_assets a JOIN blobs b ON b.id=a.blob_id "
+                         "WHERE a.task_id=? AND NOT EXISTS (SELECT 1 FROM bot_file_versions v JOIN bot_files f "
+                         "ON f.id=v.file_id WHERE f.scope=? AND v.blob_id=b.id) ORDER BY b.id",
+                         (tid, scope)).fetchall() if _has(c, "blobs", "size") else []
+    return {"ids": ids, "versions": versions, "attachments": [r[0] for r in attached],
+            "bytes": size + sum(r[1] for r in attached)}
+
+
 def purge_trash(c, older_than_days, apply=False, actor=None):
     """Remove for good what has been in the trash longer than `older_than_days`. Lists it unless apply.
-    The trash row stays as a bare tombstone (number, title, who and when) so its number is never reused."""
+    The trash row stays as a bare tombstone (number, title, who and when) so its number is never reused.
+    The report and each `task.purged` event name the task files left behind (`files_left`)."""
     ensure(c)
     cutoff = (datetime.now(timezone.utc) - timedelta(days=older_than_days)).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
     rows = [dict(r) for r in c.execute("SELECT task_id, title, deleted_at, deleted_by FROM task_trash "
                                        "WHERE purged_at IS NULL AND deleted_at < ? ORDER BY deleted_at", (cutoff,))]
-    report = {"tasks": len(rows), "older_than": cutoff, "applied": False}
+    left = {r["task_id"]: _files_left(c, r["task_id"]) for r in rows}
+    report = {"tasks": len(rows), "older_than": cutoff, "applied": False,
+              "files_left": {"files": sum(len(f["ids"]) + len(f["attachments"]) for f in left.values()),
+                             "versions": sum(f["versions"] for f in left.values()),
+                             "bytes": sum(f["bytes"] for f in left.values()),
+                             "ids": [i for f in left.values() for i in f["ids"]],
+                             "attachments": [i for f in left.values() for i in f["attachments"]]}}
     if not apply or not rows:
         return report
     now = H.now()
     for r in rows:
         c.execute("UPDATE task_trash SET rows_json='{}', purged_at=? WHERE task_id=?", (now, r["task_id"]))
-        H.event(c, actor or H.KEEPER, "task.purged", r["task_id"], {"title": r["title"], "deleted_at": r["deleted_at"]})
+        H.event(c, actor or H.KEEPER, "task.purged", r["task_id"], {"title": r["title"], "deleted_at": r["deleted_at"],
+                                                                    "files_left": left[r["task_id"]]["ids"],
+                                                                    "attachments_left": left[r["task_id"]]["attachments"]})
     report["applied"] = True
     return report

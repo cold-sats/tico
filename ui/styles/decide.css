@@ -29,6 +29,7 @@
 .dc-who .av{flex:none}
 .dc-who-text{flex:1;min-width:0}
 .dc-who-name{font-weight:600;font-size:var(--t-md);line-height:1.25}
+.dc-origin{font-weight:400;color:var(--muted);font-size:var(--t-sm)}
 .dc-who-sub{color:var(--muted);font-size:var(--t-sm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dc-who .pill{flex:none}
 /* a bot's face and name open its chat: the name reads as before until hovered or focused */
@@ -38,16 +39,24 @@
 .dc-who-face:focus-visible,.dc-who-link:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .dc-body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:16px;display:flex;flex-direction:column;gap:12px}
 .dc-q{margin:0;font-size:var(--t-xl);font-weight:650;line-height:var(--lh-tight);text-wrap:balance;overflow-wrap:anywhere}
-.dc-q.dc-title{font-size:var(--t-lg)}
 .dc-ctx{margin:0;color:var(--muted);font-size:var(--t-md)}
-.dc-msg{padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--bg);font-size:var(--t-md);line-height:var(--lh-read);overflow-wrap:anywhere}
+/* a task card: the plain ask first, large; the title second, smaller; everything else folded under Details */
+.dc-msg{font-size:var(--t-xl);font-weight:600;line-height:var(--lh-tight);text-wrap:pretty;overflow-wrap:anywhere}
 .dc-msg>:first-child{margin-top:0}.dc-msg>:last-child{margin-bottom:0}
-/* nothing said to the person: say so, and the way to ask; the owner's own status note folds away, muted */
+.dc-msg p{margin:0 0 .5em}
+.dc-title{margin:0;color:var(--muted);font-size:var(--t-md);font-weight:500;line-height:var(--lh-tight);overflow-wrap:anywhere}
+/* no plain ask yet: who it waits on to explain, and the way to ask */
+.dc-wait{margin:0;font-size:var(--t-xl);font-weight:600;line-height:var(--lh-tight);color:var(--muted)}
 .dc-blank{margin:0;color:var(--muted);font-size:var(--t-md);line-height:var(--lh-read)}
 .dc-ask{align-self:flex-start}
-.dc-latest{color:var(--muted);font-size:var(--t-sm)}
-.dc-latest summary{width:max-content;cursor:pointer;font-weight:500}
-.dc-latest p{margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:var(--lh-read)}
+.dc-details{color:var(--muted);font-size:var(--t-sm);border-top:1px solid var(--line);padding-top:10px}
+.dc-details summary{width:max-content;cursor:pointer;font-weight:500}
+.dc-details[open]>summary{margin-bottom:10px}
+.dc-details>*+*:not(summary){margin-top:10px}
+.dc-rest{color:var(--ink);font-size:var(--t-base);line-height:var(--lh-read);overflow-wrap:anywhere}
+.dc-rest>:first-child{margin-top:0}.dc-rest>:last-child{margin-bottom:0}
+.dc-latest b{font-weight:600}
+.dc-latest p{margin:4px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:var(--lh-read)}
 
 /* options: two pictures side by side, else numbered tiles */
 .dc-pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}

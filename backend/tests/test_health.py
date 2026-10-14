@@ -378,3 +378,123 @@ def test_a_repository_a_computer_could_not_copy_is_named_with_gits_reason(reques
     assert "acme/api" not in check["summary"]
     heartbeat(api, runner, seconds_ago=3600, runtimes=SIGNED_IN)          # an offline computer is reported elsewhere
     assert "repository_copies" not in health_of(api)[1]
+
+
+def _hosted(api, runner, bot, report):
+    import json
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE runners SET label='Team box', last_seen=?, readiness_json=? WHERE id=?",
+                  (H.now(), json.dumps({"schema_version": 1, "runtimes": SIGNED_IN, "bots": {bot: report}}), runner))
+        c.execute("INSERT INTO assignments(bot,runner_id,generation,updated,updated_by) VALUES(?,?,1,?,'t') "
+                  "ON CONFLICT(bot) DO NOTHING", (bot, runner, H.now()))
+
+
+def test_a_harness_deny_on_a_github_write_the_access_allows_is_named(environment):
+    """A bot that may open pull requests but whose Claude Code settings deny `gh pr create` stops at that step; a bot
+    that only reads keeps its denies, and the deny on its own repository is not counted."""
+    api = environment()
+    runner = enrolled(api)
+    add_bot(api, "monitor")
+    deny = "Claude Code settings deny: gh issue, gh pr create, git push"
+    tool = {"service": "github", "identity": "acme/app", "can": ["read", "write", "pull_requests"],
+            "scope": {"repo": "acme/app"}}
+    _hosted(api, runner, "monitor", {"ready": True, "runtime": "claude", "warnings": [deny], "tools": [tool]})
+    check = health_of(api)[1]["harness_denies"]
+    assert check["status"] == "warn" and check["label"] == "Harness permissions"
+    assert "monitor may write to acme/app" in check["summary"]
+    assert "gh pr create, gh issue create, gh issue comment, git push" in check["summary"]
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO humans(id,name,email) VALUES('sam','Sam','sam@example.com')")
+    assert "harness_denies" not in health_of(api, as_person(api, "sam"))[1]
+    _hosted(api, runner, "monitor", {"ready": True, "runtime": "claude", "warnings": [deny],
+                                     "tools": [dict(tool, can=["read"])]})
+    assert "harness_denies" not in health_of(api)[1]
+    _hosted(api, runner, "monitor", {"ready": True, "runtime": "claude", "warnings": [deny],
+                                     "tools": [dict(tool, identity="bot-monitor", scope={"repo": "bot-monitor"})]})
+    assert "harness_denies" not in health_of(api)[1]
+    # Denying merge and review to a bot that opens pull requests is a policy, not a leftover.
+    _hosted(api, runner, "monitor", {"ready": True, "runtime": "claude", "tools": [tool],
+                                     "warnings": ["Claude Code settings deny: gh pr merge, gh pr review, gh release create"]})
+    assert "harness_denies" not in health_of(api)[1]
+
+
+def test_a_read_only_reviewer_given_every_repository_keeps_its_denies(environment, monkeypatch):
+    """Every repository comes with write by default; a bot whose bot.yaml reads GitHub only is not flagged for it,
+    while a repository a person chose for it with write is."""
+    api = environment()
+    settings = api.app.state.store.settings
+    monkeypatch.setattr(settings, "github_owner", "acme")
+    runner = enrolled(api)
+    add_bot(api, "reviewer")
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO repositories(full_name,enabled,bot_repo) VALUES('acme/product',1,0)")
+        c.execute("INSERT INTO bot_config(bot,config_json,repo,operator) VALUES('reviewer',?,'bot-reviewer','ana') ON CONFLICT(bot) DO "
+                  "UPDATE SET config_json=excluded.config_json,repo=excluded.repo", ('{"repo_access_mode": "all"}',))
+    read = {"service": "github", "identity": "acme/docs", "can": ["read"], "scope": {"repo": "acme/docs"}}
+    deny = "Claude Code settings deny: gh pr comment, gh pr create, gh pr review"
+    _hosted(api, runner, "reviewer", {"ready": True, "runtime": "claude", "warnings": [deny], "tools": [read]})
+    from backend.bot_tools import listing
+    with api.app.state.store.read() as c:
+        assert any(t["identity"] == "acme/product" and "write" in t["can"] for t in listing(c, settings, "reviewer")["tools"])
+    assert "harness_denies" not in health_of(api)[1]
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET config_json=? WHERE bot='reviewer'", ('{"repo_access_mode": "chosen"}',))
+        c.execute("INSERT INTO bot_repo_access VALUES('reviewer','acme/product','write')")
+    summary = health_of(api)[1]["harness_denies"]["summary"]
+    assert "reviewer may write to acme/product" in summary and "gh pr create, gh pr comment" in summary
+
+
+def _listened(api, *, routed_days_ago, saved_days_ago, judged=None):
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO listen_items(id,source,native_id,url,content,content_hash,first_seen_at) "
+                  "VALUES('i1','reddit','1','https://example.com/1','a post','h1',?)",
+                  (H.shift(H.now(), days=-routed_days_ago - 1),))
+        c.execute("INSERT INTO intake_items(id,destination,item_id,judgment_id,created_at) VALUES('in1','leads','i1','j1',?)",
+                  (H.shift(H.now(), days=-routed_days_ago),))
+        c.execute("INSERT INTO listen_items(id,source,native_id,url,content,content_hash,first_seen_at) "
+                  "VALUES('i2','reddit','2','https://example.com/2','a later post','h2',?)",
+                  (H.shift(H.now(), days=-saved_days_ago),))
+        if judged:
+            c.execute("INSERT INTO listen_judgments(id,item_id,question_set,scores_json,judged_at) VALUES('j1','i1',?,'{}',?)",
+                      (judged, H.shift(H.now(), days=-routed_days_ago)))
+
+
+def test_listening_that_routed_before_but_lost_its_registry_file_is_bad(environment, monkeypatch):
+    """A server move that leaves listening.yaml behind keeps saving posts and sends them nowhere, silently."""
+    from backend import listening
+    monkeypatch.setattr(listening, "_warning_revisions", listening.OrderedDict())
+    api = environment()
+    settings = api.app.state.store.settings
+    (settings.registry_dir / "listening.yaml").unlink(missing_ok=True)
+    assert "listening" not in health_of(api)[1]                 # never routed: nothing was lost
+    _listened(api, routed_days_ago=14, saved_days_ago=2)
+    check = health_of(api)[1]["listening"]
+    assert check["status"] == "bad"
+    assert "listening.yaml is missing from the company registry" in check["summary"]
+    assert "1 post saved since went to no inbox" in check["summary"]
+    (settings.registry_dir / "listening.yaml").write_text("destinations: {}\n")
+    check = health_of(api)[1]["listening"]          # emptied on purpose is possible: a warning, not bad
+    assert check["status"] == "warn" and "has no valid destinations" in check["summary"]
+
+
+def test_listening_that_stopped_saving_posts_is_not_flagged(environment, monkeypatch):
+    from backend import listening
+    monkeypatch.setattr(listening, "_warning_revisions", listening.OrderedDict())
+    api = environment()
+    (api.app.state.store.settings.registry_dir / "listening.yaml").unlink(missing_ok=True)
+    _listened(api, routed_days_ago=60, saved_days_ago=40)
+    assert "listening" not in health_of(api)[1]
+
+
+def test_listening_scoring_with_the_shipped_questions_after_its_own_went_missing_is_named(environment, monkeypatch):
+    from backend import listening
+    monkeypatch.setattr(listening, "_warning_revisions", listening.OrderedDict())
+    api = environment()
+    settings = api.app.state.store.settings
+    (settings.registry_dir / "listening.yaml").write_text(
+        "destinations:\n  leads: {category: lead, threshold: 0.75, receiver: bot:ana}\n")
+    shipped = listening.question_set(settings)
+    _listened(api, routed_days_ago=3, saved_days_ago=1, judged=f"listening-item@{shipped['version'] + 4}")
+    check = health_of(api)[1]["listening"]
+    assert check["status"] == "warn" and f"({shipped['label']})" in check["summary"]
+    assert f"listening-item@{shipped['version'] + 4}" in check["summary"]

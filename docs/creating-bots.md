@@ -166,8 +166,8 @@ hold next month too.
 ## 2. Repository anatomy
 
 A template produces this layout already; `templates/employee-repo/` is the generic version
-of it. Copy it to `<workspace>/bot-<slug>` and fill it in. Slugs are lowercase,
-hyphenated and stable: the slug appears in the repository name, in `bot.yaml` and in the bot's
+of it. Copy it to `<workspace>/bot-<slug>` and fill it in. Tico picks the slug from the bot's
+name (lowercase, hyphenated, with -2, -3 when it is taken); nobody is asked for one. Slugs are stable: the slug appears in the repository name, in `bot.yaml` and in the bot's
 own paths, so renaming later is real work.
 
 | Path | What it is for |
@@ -669,7 +669,8 @@ their assigned Computer, like Add from template in the app; other templates queu
 `setup_task_id` to watch with `hub_task_show`. Generated tasks carry the human requester's rights.
 `description` preserves the requested scope and limits; `instructions` overrides the template Instructions,
 and `title_prefix` prefixes a generated setup task. New bots report to their requester unless `reports_to`
-is supplied. An archived slug is a collision: choose a fresh slug for a new bot; restore only when asked.
+is supplied. Leave `slug` out: Tico picks a free one from `name` (else the template's name), skipping archived and
+reserved slugs, and returns it. Restore an archived bot only when asked.
 Use `build: false` to register only the record,
 for example when building it yourself on a Computer. BotOps defaults to record-only registration.
 An empty model in Add from template also inherits the Team default; choose one in Settings > AI providers

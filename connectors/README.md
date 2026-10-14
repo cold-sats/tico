@@ -50,7 +50,8 @@ all, and which mailbox it may act as, is the `access:` block in its own `employe
    listed in the manifest. The manifest already carries the event subscriptions and Socket Mode;
    there are no slash commands and nothing to configure by hand.
    **If the app was created before a scope existed** (the DM scopes `users:read.email`, `im:*`,
-   `mpim:*` and the Messages tab; the gateway's `app_mentions:read` and `chat:write.customize`),
+   `mpim:*` and the Messages tab; the gateway's `app_mentions:read` and `chat:write.customize`;
+   `files:read`, which lets bots open screenshots and other files people share),
    paste the current manifest over the old one on **App Manifest**, then reinstall - Slack shows
    a yellow "reinstall your app" banner until you do, and the missing calls fail with
    `missing_scope` until the token is replaced with the new one.
@@ -151,6 +152,9 @@ printf '%s\n' "$BODY" | $HUB/connectors/slack.py dm --as doc-updater --to ana@ac
 
 # read what people sent the bot, then mark it seen so the next run only gets newer messages
 $HUB/connectors/slack.py inbox --since 24h --format md --mark
+
+# open a screenshot someone shared: the `[file F...]` line in inbox or history names it
+$HUB/connectors/slack.py file --as doc-updater --id F0123ABCD
 
 # answer in the thread of the message you just read (`reply` is an alias for `dm`)
 $HUB/connectors/slack.py reply --as doc-updater --to cara@acme.example \

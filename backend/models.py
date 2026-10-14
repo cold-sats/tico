@@ -182,6 +182,7 @@ class TaskTypeCreate(Contract):
     steps: list[TaskStepInput] = Field(default_factory=list)
     bots: TypeBots | None = None
     numbered: bool = False
+    steps_only: bool = False
 
 
 class TaskTypeUpdate(Contract):
@@ -189,6 +190,7 @@ class TaskTypeUpdate(Contract):
     steps: list[TaskStepInput] | None = None
     bots: TypeBots | None = None
     numbered: bool | None = None
+    steps_only: bool | None = None
 
 
 class QuestionOption(Contract):
@@ -201,6 +203,14 @@ class QuestionFile(Contract):
     """A picture or file shown with one option, sent with the question (backend/media.py task_question)."""
     name: Annotated[StrictStr, Field(min_length=1, max_length=200)]
     content_base64: Annotated[StrictStr, Field(min_length=1, max_length=14_000_000)]
+
+
+class IfNoAnswer(Contract):
+    """What the bot does if the person does not answer by `by` (backend/ask_deadlines.py). `kind` says what that step is:
+    only a `reversible` internal step goes ahead on its own; a send, a payment or a delete waits for an answer."""
+    do: Annotated[StrictStr, Field(min_length=1, max_length=300)]
+    kind: Literal["reversible", "send", "spend", "delete"]
+    by: Annotated[StrictStr, Field(max_length=40)] | None = None
 
 
 class QuestionChoice(Contract):
@@ -218,6 +228,7 @@ class TaskQuestion(Contract):
     body: Text | None = None
     parent: ID | None = None
     private: StrictBool | None = None
+    if_no_answer: IfNoAnswer | None = None
 
     @model_validator(mode="after")
     def unique_labels(self):
@@ -248,6 +259,7 @@ class ReviewQuestion(Contract):
 class ReviewAsk(Contract):
     questions: list[ReviewQuestion] = Field(min_length=1, max_length=4)
     who: Annotated[StrictStr, Field(min_length=1, max_length=200)] | None = None
+    if_no_answer: IfNoAnswer | None = None
 
     @model_validator(mode="after")
     def unique_questions(self):
@@ -880,6 +892,8 @@ class WorktreeStatus(Contract):
     last_commit: str | None = Field(default=None, max_length=100)
     size_mb: float = Field(default=0, ge=0)
     error: str | None = Field(default=None, max_length=300)
+    # The record's `updated` stamp this report was built from; a report older than the record is stale.
+    record_updated: str | None = Field(default=None, max_length=40)
 
 
 class Heartbeat(Contract):
@@ -990,8 +1004,9 @@ class BotAccess(Contract):
 
 
 class BotRegister(Contract):
-    """Register a bot with the server, planned, before BotOps builds its repository."""
-    slug: Slug
+    """Register a bot with the server, planned, before BotOps builds its repository. Left out, the slug is
+    picked from the name (or the template's name)."""
+    slug: Slug | None = None
     display_name: str = Field(default="", max_length=100)
     description: str = Field(default="", max_length=2000)
     reports_to: ID | None = None
@@ -1081,7 +1096,7 @@ class GroupUpdate(Contract):
 
 class BotDefinitionCreate(Contract):
     private_tasks_default: StrictBool = False
-    slug: Slug
+    slug: Slug | None = None                 # left out, picked from the display name
     display_name: str = Field(min_length=1, max_length=100)
     description: str = Field(default="", max_length=2000)
     reports_to: ID | None = None
@@ -1330,6 +1345,8 @@ class AccessRules(Contract):
     members_store_credentials: bool | None = None
     admin_sql: bool | None = None
     member_tokens: bool | None = None
+    bots_go_ahead: bool | None = None
+    go_ahead_days: Annotated[int, Field(strict=True, ge=1, le=14)] | None = None
 
 
 class AccessAllowUpdate(Contract):
