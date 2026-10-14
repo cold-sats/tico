@@ -153,3 +153,16 @@ def test_both_users_can_write_the_mail_database_the_connectors_job_created_and_n
     """)
     assert started.returncode == 0, started.stdout + started.stderr
     assert started.stdout.split() == ["664"] * 5 + ["644", "bot-ok", "super-ok"], started.stdout
+
+
+def test_the_bot_user_clones_and_fetches_the_mirror_the_supervisor_owns(volume):
+    # Git drops `-c safe.directory` for the upload-pack it starts for a file:// clone, so before the trust file the
+    # supervisor's mirror was "dubious ownership" to the bot user on every Linux computer (TK-ZBPQC6JB).
+    ran = docker("run", "--rm", "--user", "0", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", *CAPS,
+                 "-v", f"{volume}:/home/runner", "-v", f"{HERE / 'mirror_side.py'}:/mirror_side.py:ro",
+                 IMAGE, "python", "/mirror_side.py")
+    assert ran.returncode == 0, ran.stdout + ran.stderr
+    result = json.loads(ran.stdout.strip().splitlines()[-1])
+    assert result["flag_only"][0] != 0 and "dubious ownership" in result["flag_only"][1], result   # the check is real
+    assert result["clone"] == [0, ""] and result["fetch"] == [0, ""], result
+    assert result["commits"] == "2" and result["trust_file"] == "0o644", result
