@@ -376,6 +376,16 @@ class Rule4Unsolicited(HubCase):
         e = self.refused("unsolicited", H.say, self.conn, CMO, ANA, "Pick the launch date again, or tell me to hold.")
         self.assertIn("10", e.detail)
 
+    def test_an_answer_in_a_chat_a_new_task_notice_opened_is_not_unsolicited(self):
+        chat = H.open_conversation(self.conn, ANA, [ANA, CMO], kind="chat")["id"]
+        H.task_create(self.conn, ANA, "Draft the report", "Write a report", CMO, lint=False, conversation_id=chat)
+        H.say(self.conn, ANA, CMO, "What is 12 times 7?", conversation_id=chat)
+        first = self.conn.execute("SELECT from_actor FROM messages WHERE conversation_id=? ORDER BY created LIMIT 1",
+                                  (chat,)).fetchone()[0]
+        self.assertEqual(first, H.KEEPER, "the task's notice opened the chat")
+        reply = H.say(self.conn, CMO, ANA, "84.", conversation_id=chat)
+        self.assertNotIn("unsolicited", json.loads(reply["refs_json"]))
+
 # ----------------------------------------------------------------------------- rule 8
 class Rule8Counting(HubCase):
     def refuse_reach(self, n, actor=CMO):

@@ -37,7 +37,7 @@ Below, to "call" a tool means either way.
 4. **Each message, one at a time, oldest first.**
    - From a person: read it, and the conversation if it refers to something earlier
      (`hub_conversation_show` with `{"conversation":"<its conversation_id>"}`). Answer in that same
-     conversation with `hub_message_send` (`{"to":"<from_actor>","conversation_id":"<its conversation_id>","text":"..."}`),
+     conversation with `hub_message_send` (`{"to":"<from_actor>","conversation_id":"<its conversation_id>","in_reply_to":"<its id>","text":"..."}`),
      then call `hub_message_mark_read` with `{"message_id":"<its id>"}`. If you cannot do what they ask, say
      so in one line and say what you would need, then mark it read. Never leave a person without an answer.
    - A notice (`kind: notice`, an fyi): read it, mark it read, do not reply.
