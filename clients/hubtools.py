@@ -474,8 +474,11 @@ def tag_update(api, args):
 
 # ----------------------------------------------------------------------------- tasks
 @tool("hub_task_create", "File a task for a bot or a person. A task for a person is a decision "
-      "or a review: title says what you are asking, body under 120 words (a ticket on a custom type's "
-      "board is exempt; asks stay on General). `dry_run` reports the "
+      "or a review: title says what you are asking, body under 120 words, and the body's first paragraph is "
+      "the ask: one or two plain sentences saying what you need and what happens after, at most 40 words, with "
+      "no ids, hashes, file paths, s3:// links or tool names (refused otherwise), e.g. \"Approve the video tool "
+      "trial for Thursday? If yes, I'll send the invite.\" Details go below it (a ticket on a custom "
+      "type's board is exempt; asks stay on General). `dry_run` reports the "
       "checks a create would fail and writes nothing.",
       {"owner": _s("Who does it: a bot slug, a person id, or `me`"),
        "title": _s("Task title: General uses plain words without reference numbers or all-caps; custom types keep board references"),
@@ -673,8 +676,11 @@ def task_question(api, args):
        "owner": _s("Hand the task to this bot or person"),
        "due": _s("ISO-8601 date-time with timezone"),
        "labels": {"type": "array", "items": {"type": "string"}, "description": "Replace the labels"},
-       "waiting_on": _s("With status waiting: the person it waits on (their id), so it shows in their Needs you; "
-                        "put exactly what they must do in the note. An empty string clears it"),
+       "waiting_on": _s("With status waiting: the person it waits on (their id), so it shows in their Needs you. "
+                        "The note is then your ask to them: one or two plain sentences saying what you need and what "
+                        "happens after, at most 40 words, no ids, hashes, file paths, s3:// links or tool names "
+                        "(refused otherwise), e.g. \"Approve the video tool trial for Thursday? If yes, I'll send "
+                        "the invite.\" An empty string clears it"),
        "roles": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}},
                  "description": "Who is on it by role, {role: [people or bots]}: each role named replaces that role's people, [] clears one, "
                                 "a role not named stays. A role is a short name the team chooses (developer, reviewer, qa); one person may hold several"},

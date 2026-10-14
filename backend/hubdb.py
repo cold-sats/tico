@@ -1281,7 +1281,7 @@ def lint_waiting_note(note, person, asked=False):
 # with no plain ask costs the person more than the bot's retry costs the bot. Paths, links to stored objects and
 # tool or field names are the bot's own shorthand; an http(s) link is something a person can open, so it stays.
 LINT_ASK_WORDS = 40
-LINT_ASK_EXAMPLE = "Approve the Clueso test on Thursday? If yes, I'll send the invite."
+LINT_ASK_EXAMPLE = "Approve the video tool trial on Thursday? If yes, I'll send the invite."
 LINT_S3 = re.compile(r"\bs3://\S*", re.I)
 LINT_PATH = re.compile(r"(?<![\w:/.-])(?:~|\.{1,2})?/[\w.@-]+/[\w.@/-]*"                  # /Users/x, ~/x, ./x/y
                        r"|(?<![\w/.-])[\w.-]+(?:/[\w.-]+)+\.[A-Za-z][\w]{0,4}\b"              # reports/x.md

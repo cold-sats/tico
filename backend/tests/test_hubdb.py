@@ -674,12 +674,12 @@ class WaitingWithDependency(HubCase):
         self.refused('private', H.task_update, self.conn, CMO, secret['id'], status='waiting', waiting_on='ben')
 
     def test_a_bot_gives_a_person_a_plain_ask_or_is_refused(self):
-        plain = "Approve the Clueso test on Thursday? If yes, I'll send the invite."
+        plain = "Approve the video tool trial on Thursday? If yes, I'll send the invite."
         task = H.task_create(self.conn, CMO, 'Coordinate the external agent scenario', '', CMO, private=False)
         # No ask, or the bot's shorthand as the ask, is refused even with the style warnings off, saying what
         # failed, the rule and an example. Retrying it never quarantines the bot: it is a writing fix.
         with unittest.mock.patch.object(H, 'STYLE_LINT', 'off'):
-            for note, failed in [(None, 'is missing'), ('Waiting on Ana re db14c907 / reports/2026-10-14-clueso.md',
+            for note, failed in [(None, 'is missing'), ('Waiting on Ana re db14c907 / reports/2026-10-14-trial.md',
                                                         'has an id or hash: "db14c907"; has a file path')]:
                 for _ in range(H.QUARANTINE_AT + 2):
                     with self.assertRaises(H.Refused) as refused:
@@ -697,9 +697,9 @@ class WaitingWithDependency(HubCase):
         self.assertEqual(H.task_update(self.conn, CMO, asked['id'], status='waiting', waiting_on='ana')['waiting_on'], ANA)
         # A task given to a person opens its body with the ask; the rest of the body is details.
         with self.assertRaises(H.Refused) as refused:
-            H.task_create(self.conn, CMO, 'Approve the Clueso test', 'Approve the Clueso test\n\nSee reports/x.md', ANA)
+            H.task_create(self.conn, CMO, 'Approve the video tool trial', 'Approve the video tool trial\n\nSee reports/x.md', ANA)
         self.assertIn('first paragraph of the task body', refused.exception.detail)
-        made = H.task_create(self.conn, CMO, 'Approve the Clueso test', f'{plain}\n\nThe notes: reports/x.md', ANA)
+        made = H.task_create(self.conn, CMO, 'Approve the video tool trial', f'{plain}\n\nThe notes: reports/x.md', ANA)
         self.assertEqual(made['owner'], ANA)
 
     def test_a_waiting_note_flags_ids_and_hashes_not_amounts_dates_or_words(self):

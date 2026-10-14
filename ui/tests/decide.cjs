@@ -9,15 +9,15 @@ const {open} = require('./tasks-page.cjs');
 const NOW = Date.now(), at = minutes => new Date(NOW - minutes * 60000).toISOString();
 const NOTE = 'Engineering answer db14c907 resolves initial inquiry 8719e1a6: public example is independent static Larkspur. '
   + 'Docs task Doing; no sample edit/deploy or duplicate human question. <img src=x onerror="window.pwned=1">';
-const PLAIN = "Approve the Clueso test on Thursday? If yes, I'll send the invite.";
+const PLAIN = "Approve the video tool trial on Thursday? If yes, I'll send the invite.";
 const wait = (id, title, over = {}) => ({id, kind: 'waiting', title, body: '', owner: 'bot:writer', requester: 'bot:botops',
   status: 'waiting', waiting_on: 'human:ana', note: NOTE, version: 2, created: at(400), updated: at(360), ask: null, open_asks: 0,
   person_ask: '', ask_missing: false, ...over});
 const items = [
   wait('t-ask', 'Coordinate the external agent scenario in the example', {created: at(500),
     ask: {id: 'q-1', from_actor: 'bot:writer', to_actor: 'human:ana', body: 'Should the public example show the agent demo, or stay static?', created: at(300)}}),
-  wait('t-plain', 'Run the Clueso access test', {created: at(490), note: PLAIN, person_ask: PLAIN,
-    body: 'Run the Clueso access test\n\nThe test plan is in the shared folder.'}),
+  wait('t-plain', 'Run the video tool trial', {created: at(490), note: PLAIN, person_ask: PLAIN,
+    body: 'Run the video tool trial\n\nThe test plan is in the shared folder.'}),
   // set waiting before the rule, with no plain ask: listed first here, shown last
   wait('t-blank', 'Check the newsletter list', {created: at(480), ask_missing: true}),
   // a person asked: their name stays plain text, no link
@@ -80,7 +80,7 @@ const comments = {
     // The bot's plain yes/no ask leads, with Yes and No; the rest of the body is a detail. Yes answers the bot.
     c = await read('t-plain');
     assert.equal(c.lead, PLAIN);
-    assert.equal(c.title, 'Run the Clueso access test');
+    assert.equal(c.title, 'Run the video tool trial');
     assert.ok(c.details.text.includes('The test plan is in the shared folder.') && !c.details.text.includes('Latest note'));
     assert.deepEqual(c.buttons, ['no', 'yes']);
     await page.locator('.decide .dc-details summary').click();
