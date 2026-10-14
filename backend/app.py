@@ -4840,6 +4840,8 @@ def create_app(settings=None):
     install_support(app, store, settings, census)
     from .watchers import install as install_watchers
     install_watchers(app, store, auth, execution, mutate)
+    from .health_monitor import install as install_health_monitor
+    install_health_monitor(app, store, auth, mutate, onboarding, settings_admin, settings)
     from .route_renames import install as install_route_renames
     install_route_renames(app)           # after every route: the new spellings canonical, the old ones deprecated
 

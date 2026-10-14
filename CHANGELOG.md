@@ -9,6 +9,17 @@ All notable changes to Tico are recorded here. The format follows
 
 ### Added
 - **Needs you says what each card takes, and when.** Needs you is grouped by what an item takes, with a count per group: **Decide**, **Pay**, **Sign in or connect**, **Review and send**, **Do** (Group by **What it takes**, the new default; Asked by and the others are still in the menu). An approval says what it approves: "Send: '$200 for each rental owner you introduce' to Jennie Ooten", "Pay $1,200: LinkedIn ads", "Merge: 'Checkout redesign' (acme/web #412)". A person's task with a deadline shows it ("Due Wed", "Oct 22"), and one overdue or due within the week comes first, soonest first; a bot's own task's date is when it looks again, so it does not count. When a bot's ask says what it would do, the card's main button is **Do what you recommend** (R on Decide): one tap answers with that (picking its option if the ask has one) and the card leaves when the ask was the whole card; a side question on a task of yours is answered and the task stays yours (`POST /api/v2/needs-you/recommended`, with the card's version so a task that changed meanwhile is refused). A bot's task waiting on you for what a card below it already asks shows inside that card, with "+N" and the folded tasks under "Also waiting on this" (in Needs you, on Decide's card and in the walk-through); waits that are only siblings under one project keep their own cards. Overview shows how many items need you and how many went away on their own this week (expired, withdrawn, answered by your Assistant), and `GET /api/v2/needs-you` returns these as `need`, `due`, `recommend`, `folded` and `went_away`.
+- **Health Monitor, an optional built-in helper.** Off by default; one switch in Settings > Health turns it on. Once an
+  hour Tico checks the install with no model (computers on an older release, runner errors that point at a known
+  problem, turns stopped by a usage limit on a bot with no fallback model, bots stuck in setup, routines on paused bots,
+  queued work that does not start while its computer has room, failed task worktrees, a server busy while idle), and its
+  watcher checks the computer it runs on for processes busy two hours running. It wakes the Health Monitor only for
+  something new. A setup problem becomes a task for BotOps with the fix; a Tico bug becomes one support ticket per
+  signature, written from the check alone with the redacted diagnostics bundle (never a bot's or computer's name, task
+  or message text; a setup problem is never sent), and a "seen
+  again" message on that ticket when it comes back. The team rule "Health Monitor may file Tico bug reports without
+  asking" (on by default) skips the Needs you card. `hub health-monitor findings` and `hub health-monitor report`. See
+  [Health Monitor](docs/health-monitor.md).
 
 ## [0.3.45] - 2026-10-14
 

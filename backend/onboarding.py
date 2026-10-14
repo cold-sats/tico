@@ -634,6 +634,11 @@ class Onboarding:
                 pass
         return True
 
+    def turn_on_health_monitor(self, c, who):
+        """Settings > Health's switch: the optional Health Monitor (docs/health-monitor.md). Never added on its own."""
+        from .health_monitor import NAME, SLUG
+        return self._turn_on(c, who, SLUG, SLUG, NAME, "health_monitor.turned_on")
+
     def turn_on_goal_manager(self, c, who):
         """The same for the built-in Goal Manager (docs/goals-and-kpis.md)."""
         return self._turn_on(c, who, GOAL_MANAGER, GOAL_MANAGER, "Goal Manager", "goal_manager.turned_on")
