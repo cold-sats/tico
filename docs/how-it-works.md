@@ -277,7 +277,11 @@ pulls or clones any `reads:` sibling repos beside it.
 
 **A bot needs you.** It asks with `hub task ask` (the task goes `waiting`), requests an approval,
 files a task for you, or sets its own task waiting on you (`hub task update --status waiting --on
-<you> --note "<what you need to do>"`). All of these appear in **Needs you** at the top of **Tasks** with
+<you> --note "<what you need to do>"`). A bot's waiting note, or the first paragraph of a task it gives
+you, must say in one or two plain sentences what it needs and what happens after, with no ids, file
+paths or tool names; Tico refuses it otherwise. A task a bot set waiting on you before that rule, with
+no plain ask, sits at the bottom of Needs you as "Waiting for <bot> to explain" while the bot is asked,
+once, to restate it. All of these appear in **Needs you** at the top of **Tasks** with
 **Reply**, **Approve** / **Decline**, **Done** / **Close**. Needs you is your queue: approvals and
 questions first (each blocks a bot), then your own tasks in rank order. Tickets on a numbered type
 stay on their board and come to Needs you only with a question for you ([Tasks](tasks.md)). There
@@ -355,6 +359,21 @@ An ordinary bot-to-bot `hub message send` starts work but does not return the re
 final answer. Use `hub question ask` (`hub_question_ask` over MCP) when you need an answer.
 A bot receiving an ordinary message that asks for a reply sends that reply explicitly with
 `hub message send`. Humans' chat replies and ask-message answers are delivered automatically.
+
+A bot answers an ask with `hub question answer <message-id>` (`hub_question_answer`) only from a run
+that can see the ask's conversation: the discussion of a task it can read (one it owns, requested
+or is delegated), or a conversation its current turn was handed. The exception is an ask between
+the bot and a single person that is not on a task, whichever side asked: it is reachable from any
+of the bot's runs. From any other run the answer is refused with "This conversation
+is outside the current execution context", and the ask stays open. There are two ways on:
+
+1. Pass the information without resolving the ask: `hub message send <asking-bot> "<answer>"
+   --conversation <conversation-id>`, naming a conversation this run can see and the asking bot is
+   in, such as the current task's. The same visibility rule applies to `--conversation`, so the
+   ask's own conversation is refused here too. The original ask stays unanswered.
+2. Resolve the structured ask from a run whose context contains it (the turn it was delivered to,
+   or the task whose discussion holds it), or have the asker ask again where the answering bot can
+   answer, for example on a task that bot owns.
 
 Computer readiness covers only bots assigned to that Computer. Eligible bots are placement
 options, and their missing repositories do not count as readiness or Health failures there.

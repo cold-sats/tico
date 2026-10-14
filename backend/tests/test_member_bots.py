@@ -77,6 +77,27 @@ def test_a_member_registers_a_bot_through_botops_and_owns_it(api, botops):
     assert added.status_code == 200 and {o["id"] for o in added.json()["bot_owners"]} == {"cara", "ben"}
 
 
+def test_a_bot_made_with_only_a_name_gets_a_free_slug_from_it(api, botops):
+    attempt = turn(api, botops)
+    named = lambda name, **more: call(api, "post", "bots/register", attempt["token"],
+                                      {"display_name": name, "on_behalf_of": "turn", **more})
+    first = named("Head of Marketing")
+    assert first.status_code == 200, first.text
+    assert (first.json()["slug"], first.json()["display_name"]) == ("head-of-marketing", "Head of Marketing")
+    assert named("Head of Marketing").json()["slug"] == "head-of-marketing-2"
+    # Reserved and taken slugs get a suffix too; accents fold to ASCII and long names stay short.
+    assert named("BotOps").json()["slug"] == "botops-2"
+    assert named("Librarian").json()["slug"] == "librarian-2"
+    assert named("Café Ops").json()["slug"] == "cafe-ops"
+    assert len(named("Director of Revenue Operations and Customer Success Programs").json()["slug"]) <= 40
+    # An explicit slug is kept as given.
+    assert named("Anything", slug="jira-manager").json()["slug"] == "jira-manager"
+    # The Settings form sends no slug either.
+    made = call(api, "post", "bots", "ana-test", {"display_name": "Head of Marketing", "model": "hermes-profile",
+                                                  "effort": "as-configured", "harness": "hermes"})
+    assert made.status_code == 200 and made.json()["slug"] == "head-of-marketing-3", made.text
+
+
 def test_a_member_cannot_change_a_bot_that_is_not_hers_even_through_botops(api, botops):
     attempt = turn(api, botops)
     assert call(api, "post", "bots/ops/definition", "cara-test", {"display_name": "Mine", "expected_revision": 1}).status_code == 403
