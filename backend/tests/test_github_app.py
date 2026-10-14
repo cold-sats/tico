@@ -43,6 +43,7 @@ class FakeGitHub:
         self.list_status = 200
         self.created_repositories = set()
         self.create_response_message = ""
+        self.history = set()                     # repositories that hold commits; any other answers "empty"
         self.lose_next_product_create_response = False
 
     def __call__(self, request):
@@ -71,6 +72,11 @@ class FakeGitHub:
             if self.permissions is not None:
                 info["permissions"] = self.permissions
             return httpx.Response(200, json=info)
+        if path.startswith("/repos/") and path.endswith("/commits"):
+            name = path.split("/")[2] + "/" + path.split("/")[3]
+            if name in self.history:
+                return httpx.Response(200, json=[{"sha": "abc123"}])
+            return httpx.Response(409, json={"message": "Git Repository is empty."})
         if path.startswith("/repos/") and path.count("/") == 3:
             if request.method == "DELETE":
                 return httpx.Response(self.delete_status)
@@ -875,3 +881,63 @@ def test_without_github_app_key_a_pre_kms_secret_still_fails_and_no_key_file_is_
             state.github_app.private_key(c, state.github_app.row(c))
     assert state.github_app.webhook_secret() == ""
     assert not state.github_app.key_file().exists()
+
+
+# ------------------------------------------------------------------ a new bot's first placement follows its build
+def _box(api):
+    """A second computer, "box", that never held newbie."""
+    with api.app_state.store.transaction() as c:
+        cols = [r[1] for r in c.execute("PRAGMA table_info(runners)")]
+        values = {"id": "r2", "operator": "ana", "label": "box", "token_hash": "y", "created": H.now(), "created_by": "ana",
+                  "last_seen": H.now(), "hostname": "box", "version": "1", "state": "active"}
+        use = {k: v for k, v in values.items() if k in cols}
+        c.execute(f"INSERT INTO runners({','.join(use)}) VALUES({','.join('?' * len(use))})", tuple(use.values()))
+
+
+def _built_by_botops(api, gh):
+    """BotOps builds newbie in its workspace on "mac" (r1) and asks for its empty GitHub repository."""
+    connect(api, administration="true")
+    gh.permissions = {"administration": "write", "contents": "write", "metadata": "read"}
+    botops_turn(api)
+    _box(api)
+    made = api.post("/api/v2/github/repos", json={"slug": "newbie", "empty": True}, headers=auth("botops-test"))
+    assert made.status_code == 200, made.text
+    with api.app_state.store.read() as c:
+        assert c.execute("SELECT value_json FROM registry_metadata WHERE key='bot-built-on:newbie'").fetchone()
+
+
+def _go_live(api, **body):
+    return api.post("/api/v2/bots/newbie/go-live", json={"setup": False, **body},
+                    headers={**auth(), "Idempotency-Key": str(uuid.uuid4())})
+
+
+def _placed(api):
+    with api.app_state.store.read() as c:
+        row = c.execute("SELECT runner_id FROM assignments WHERE bot='newbie'").fetchone()
+        return row and row[0]
+
+
+def test_a_new_bot_goes_live_first_on_the_computer_that_built_it(api, gh):
+    """Only the building computer can publish a new bot's history, so another computer is refused while GitHub's
+    repository is empty, and a go-live without a computer goes there and waits for its report."""
+    _built_by_botops(api, gh)
+    refused = _go_live(api, computer="box")
+    assert refused.status_code == 409, refused.text
+    error = refused.json()["error"]
+    assert error["code"] == "history_elsewhere"
+    assert "built on mac" in error["detail"] and 'hub bot go-live newbie --computer "mac"' in error["detail"]
+    assert not _placed(api)
+    waiting = _go_live(api)
+    assert waiting.status_code == 202 and waiting.json()["computer"] == "mac", waiting.text
+    assert _placed(api) == "r1"
+    with api.app_state.store.read() as c:
+        assert not c.execute("SELECT 1 FROM registry_metadata WHERE key='bot-built-on:newbie'").fetchone()
+
+
+def test_a_new_bot_whose_history_is_on_github_goes_anywhere(api, gh):
+    _built_by_botops(api, gh)
+    gh.history.add("Acme/emp-newbie")
+    waiting = _go_live(api, computer="box")
+    assert waiting.status_code == 202 and waiting.json()["computer"] == "box", waiting.text
+    assert _placed(api) == "r2"
+

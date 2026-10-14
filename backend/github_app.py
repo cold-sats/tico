@@ -607,6 +607,21 @@ class GitHubApp:
         except Problem:
             return "unknown", None
 
+    def repository_history(self, repository):
+        """Whether GitHub's `repository` holds any commit: True, False (empty or missing), or None when it cannot
+        be learned. A repository `hub bot create` made is empty until the computer that built the bot publishes it."""
+        if not repository or not self.row():
+            return None
+        try:
+            wide, _ = self.mint(None, {"metadata": "read", "contents": "read"})
+            r = self._call("GET", f"/repos/{repository}/commits", params={"per_page": 1},
+                           headers={"Authorization": "Bearer " + wide})
+        except Problem:
+            return None
+        if r.status_code < 300:
+            return bool(r.json())
+        return False if r.status_code in (404, 409) else None      # 409: "Git Repository is empty"
+
     def create_repo(self, slug, template, empty=False):
         row = self.row()
         if not row:
@@ -1149,6 +1164,11 @@ def install_github_app(app, settings, store):
             raise Problem("github_repo", "An empty repository has no template; give one or the other", 422)
         if not SLUG.match(slug) or not re.match(r"^[\w.-]+/[\w.-]+$", template):
             raise Problem("github_repo", "Use a lowercase bot name (letters, digits, hyphens) and an owner/name template", 422)
+        if who.role == "bot" and who.runner_id:
+            # The build is in this turn's workspace: the bot's first placement goes there (backend/built_on.py).
+            from . import built_on
+            with store.transaction() as c:
+                built_on.remember(c, slug, who.runner_id)
         try:
             result = service.create_repo(slug, template, empty=body.empty)
         except Problem as problem:

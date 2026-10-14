@@ -1142,8 +1142,10 @@ class Runner:
         if last and last["key"] == key and time.monotonic() - last["at"] < FETCH_RETRY_S:
             return last["problem"]
         problem = ""
+        if (path / ".git").exists() and git_credentials.empty_clone(path):
+            git_credentials.discard_partial(path, True)        # an older runner's clone of the still-empty repository
         if (path / ".git").exists():
-            problem = f"{repository} is checked out here but has no AGENT.md"      # a clone of an empty repository
+            problem = f"{repository} is checked out here but has no AGENT.md"
         elif personal:
             detail = clone_shared(path, config)
             if not detail:
