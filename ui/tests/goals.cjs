@@ -92,7 +92,9 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
       if (p === '/api/v2/kpis/k-act' && !post) return json(detail);
       if (p === '/api/v2/kpis/k-retired' && !post) return json({...detail, kpi: archivedKpi, links: [], may_edit: archivedMayEdit});
       if (p === '/api/v2/kpis/k-retired/restore' && post) { archivedKpi.archived_at = null; return json({kpi: archivedKpi}); }
-      if (p === '/api/v2/kpis/k-retired/archive' && post) { archivedKpi.archived_at = new Date().toISOString(); return json({kpi: archivedKpi}); }
+      if (p === '/api/v2/kpis/k-retired/archive' && post) { archivedKpi.archived_at = new Date().toISOString();
+        // The reply lands while the test has moved on (back, closed, a link to another goal): it must not reopen the KPI.
+        await new Promise(r => setTimeout(r, 250)); return json({kpi: archivedKpi}); }
       if (/^\/api\/v2\/kpis\/[^/]+\/readings$/.test(p) && post) return json({reading: {id: 'r-new'}});
       const link = p.match(/^\/api\/v2\/goals\/([^/]+)\/kpis$/);
       if (link && post) { goals.find(g => g.id === link[1]).kpis.push(kpi('k-link', body.name, {freshness: 'missing', latest: null, status: 'gray'})); return json({kpi: {}}); }

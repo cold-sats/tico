@@ -237,7 +237,8 @@ function kpiEditForm(k) {
 
 function kpiPanelBind(dlg, d) {
   const k = d.kpi, body = dlg.querySelector('.kpi-body');
-  const again = async () => { await kpiOpen(k.id); if (typeof goalsRefresh === 'function') { await goalsRefresh(); if (GOALS_ST && $('#goal-body')) goalsRender(GOALS_ST); } };
+  // A reply can land after the person has left this KPI (back, closed, another goal): redraw it only while it shows.
+  const again = async () => { if (dlg.open && dlg.dataset.kpi === k.id) await kpiOpen(k.id); if (typeof goalsRefresh === 'function') { await goalsRefresh(); if (GOALS_ST && $('#goal-body')) goalsRender(GOALS_ST); } };
   dlg.querySelector('[data-kpi-close]').onclick = () => dlg.close();
   bindProposals(body, again);
   const inPanel = dlg.id === 'goal-panel' && GOALS_ST;
