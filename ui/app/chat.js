@@ -300,6 +300,23 @@ document.addEventListener('click', ev => {
   for (const el of document.querySelectorAll('.bubble.acts')) if (el !== bubble) el.classList.remove('acts');
   if (bubble && !keep && bubble.querySelector(':scope>.chat-message-actions')) bubble.classList.toggle('acts');
 });
+// A bot-owned task works in a room of its own. The main chat keeps one quiet row when it starts (refs.task_started)
+// and one per milestone (refs.task_report: blocked, done, declined, stuck); a tap opens the task's thread.
+function chatTaskMark(m) {
+  const refs = m.refs || {};
+  if (!refs.task || !(refs.task_started || refs.task_report)) return null;
+  const id = String(typeof refs.task === 'object' ? refs.task.id || '' : refs.task);
+  if (!id) return null;
+  const known = m.ref_tasks?.[id] || (typeof refs.task === 'object' ? refs.task : null);
+  const title = known?.title || (refs.task_started ? String(m.body || '').replace(/^Started task:\s*/i, '') : '') || 'Task';
+  return {id, title, state: refs.task_report ? String(refs.task_report) : 'started'};
+}
+function chatTaskRowHTML(m) {
+  const t = chatTaskMark(m);
+  return `<button type="button" class="chat-task-row" data-task-conversation="${esc(t.id)}" data-message="${esc(m.id || '')}" title="${esc(plainActors(m.body || ''))}">
+    <span class="ct-dot ${esc(t.state)}" aria-hidden="true"></span><span class="ct-title">${esc(chatLine(t.title, 90))}</span><span class="ct-state">· ${esc(t.state)}</span>${
+    m.created ? `<time class="chat-time" title="${esc(fmt(m.created))}">${esc(ago(m.created))}</time>` : ''}</button>`;
+}
 // Tico Live was retired; the lines it left in rooms (refs.live) read as plain messages.
 function v2MessageHTML(m) {
   // A Confirm card a bot left for you (BotOps: adding a person, a role, a shared credential): filled in from the action.
@@ -308,6 +325,7 @@ function v2MessageHTML(m) {
   if (m.refs?.action) return `<div class="conv-run chat" data-message="${esc(m.id)}"><div data-action-host="${esc(m.refs.action)}"><div class="asst-state">Loading the card…</div></div></div>`;
   // A met or stopped goal's notice from the server is the compact goal line (ui/app/chat-goal.js), not a Task line.
   if (m.refs?.chat_goal) return chatGoalNoticeHTML(m);
+  if (chatTaskMark(m)) return chatTaskRowHTML(m);
   const when = `<time class="chat-time" title="${esc(fmt(m.created))}">${esc(ago(m.created))}</time>`;
   // A task's note is its work log: chat names the task and keeps the note one click away.
   if (m.refs?.note) {
@@ -344,6 +362,8 @@ const chatNeedsYou = m => !!(m.refs?.action || m.refs?.credential_request)
 function chatSideKind(m, slug) {
   const from = String(m.from_actor || ''), refs = m.refs || {};
   if (m.elsewhere) return 'bots';                       // a conversation between bots, shown in this chat's timeline
+  // A task's start or milestone: its own row in time order (not folded with side traffic), never the conversation's last line.
+  if (chatTaskMark(m)) return 'task';
   if (actorPerson(from)) return '';
   if (chatNeedsYou(m) || refs.chat_goal) return '';
   if (refs.note) return 'note';
@@ -399,7 +419,8 @@ function v2MessagesHTML(messages, goalLine, slug = V2C?.slug) {
   const feed = [];
   messages.forEach((message, i) => {
     if (goalLine?.at === i) feed.push({html: goalLine.html});
-    feed.push({message, side: !!chatSideKind(message, slug)});
+    const kind = chatSideKind(message, slug);
+    feed.push({message, side: !!kind && kind !== 'task'});
   });
   if (goalLine?.at === messages.length) feed.push({html: goalLine.html});
   const lastMain = feed.findLastIndex(item => !item.side);
@@ -784,10 +805,7 @@ const taskConversationButton = task => `<button class="chat-btn" type="button" d
 document.addEventListener('click', async ev => {
   const button = ev.target.closest('[data-task-conversation]'); if (!button) return;
   ev.preventDefault(); ev.stopPropagation();
-  try {
-    const data = await get('/v2/tasks/' + encodeURIComponent(button.dataset.taskConversation));
-    void taskModalShow(data.task);
-  } catch (error) { toast(error.message, true); }
+  await taskThreadOpen(button.dataset.taskConversation);       // the task's own thread (ui/app/task-modal.js)
 });
 // Bots link a task as <hub>/tasks/<id>, an address the server does not serve, or as #/task/<id>,
 // which leaves the chat. Either opens the task pop-up in place.
