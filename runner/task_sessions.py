@@ -75,7 +75,10 @@ def ensure(main, path, task, turn_env=None):
         if path.exists() and any(path.iterdir()):
             return "", f"{path} already exists and is not a worktree; left as it is"
         _git(main, "worktree", "prune", env=env)
-        path.parent.mkdir(parents=True, exist_ok=True)
+        # `git worktree add` runs as the bot user, so the folder it adds the task in must be the bot's before it
+        # runs, including one an older runner made as the supervisor (every task then fell back to the checkout).
+        isolation.mkdir(path.parent, mode=0o755)
+        isolation.chown(path.parent)
         branch = BRANCH + task
         exists = _git(main, "show-ref", "--verify", "--quiet", "refs/heads/" + branch, env=env).returncode == 0
         added = _git(main, "worktree", "add", "--quiet", *((str(path), branch) if exists else ("-b", branch, str(path), tracked)),
@@ -87,7 +90,6 @@ def ensure(main, path, task, turn_env=None):
         # pushes from here as it does from its main checkout.
         if _git(main, "config", "--get", "push.default", env=env).returncode:
             _git(main, "config", "push.default", "upstream", env=env)
-        isolation.chown(path.parent)
         isolation.chown(path, recursive=True)
         return tracked, ""
     except (OSError, subprocess.SubprocessError) as exc:
