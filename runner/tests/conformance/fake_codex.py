@@ -1,13 +1,20 @@
 """A stand-in for the `codex` CLI, for the runner conformance suite (runner/tests/test_conformance.py):
-`--version`, `login status`, and `app-server` speaking the part of the JSON-RPC protocol runner/hosts/codex.py
-uses (scripts/journey-fake-codex.py, plus token usage). Every thread and turn request is appended to $FAKE_LOG. A
-prompt containing HANG streams one delta and then waits, once per $FAKE_LOG, until its parent goes away."""
+`--version`, `login status`, `app-server generate-json-schema` (the protocol files that say goals, compact and
+review are there), and `app-server` speaking the part of the JSON-RPC protocol runner/hosts/codex.py uses
+(scripts/journey-fake-codex.py, plus token usage, native goals and steering). Every thread, goal, steer and turn
+request is appended to $FAKE_LOG, with the turn's homes and granted variables.
+
+Scripted prompts: HANG streams one delta and then waits, once per $FAKE_LOG, until its parent goes away; LIMIT
+fails the turn with a usage limit; SLOW streams one delta and answers after $FAKE_SLOW seconds (2), or at once
+after a steer, whose text the answer then carries."""
 import json
 import os
+import queue
 import sys
+import threading
 import time
 
-GRANTED = ("ACME_API_KEY", "HUB_TOKEN", "HUB_API_URL", "HUB_BOT", "TICO_CRED_SOCKET")
+GRANTED = ("ACME_API_KEY", "HUB_TOKEN", "HUB_API_URL", "HUB_BOT", "TICO_CRED_SOCKET", "HOME", "CODEX_HOME")
 
 
 def send(message):
@@ -20,6 +27,25 @@ def record(entry):
         log.write(json.dumps(entry) + "\n")
 
 
+def schema(out):
+    os.makedirs(os.path.join(out, "v2"), exist_ok=True)
+    for name in ("ThreadGoalSetParams", "ThreadCompactStartParams", "ReviewStartParams", "TurnSteerParams"):
+        with open(os.path.join(out, "v2", name + ".json"), "w") as f:
+            f.write("{}")
+
+
+def finish(thread, turn, number, reply):
+    for chunk in (reply[:5], reply[5:]):
+        send({"method": "item/agentMessage/delta", "params": {"threadId": thread, "turnId": turn, "delta": chunk}})
+    send({"method": "item/completed", "params": {"threadId": thread, "turnId": turn,
+          "item": {"type": "agentMessage", "id": "m%d" % number, "text": reply, "phase": "final_answer"}}})
+    send({"method": "thread/tokenUsage/updated", "params": {"threadId": thread, "turnId": turn, "tokenUsage": {
+        "total": {"inputTokens": 7 * number, "cachedInputTokens": 3 * number, "outputTokens": 2 * number, "totalTokens": 9 * number},
+        "last": {"inputTokens": 7, "cachedInputTokens": 3, "outputTokens": 2, "totalTokens": 9}}}})
+    record({"harness": "codex", "method": "turn/completed", "thread": thread, "turn": turn, "at": time.time()})
+    send({"method": "turn/completed", "params": {"threadId": thread, "turn": {"id": turn, "status": "completed"}}})
+
+
 def main():
     if "--version" in sys.argv:
         print("codex-cli 99.0.0")
@@ -27,10 +53,33 @@ def main():
     if sys.argv[1:3] == ["login", "status"]:
         print("Logged in using ChatGPT")
         return
+    if sys.argv[1:3] == ["app-server", "generate-json-schema"]:
+        schema(sys.argv[sys.argv.index("--out") + 1])
+        return
     if sys.argv[1:2] != ["app-server"]:
         sys.exit(2)
+    lines = queue.Queue()
+
+    def read():
+        for line in sys.stdin:
+            lines.put(line)
+        lines.put(None)
+    threading.Thread(target=read, daemon=True).start()
     threads, turns, parent = 0, 0, os.getppid()
-    for line in sys.stdin:
+    goals = {}
+    slow = None          # (thread, turn, number, due) of the turn answering later
+    while True:
+        try:
+            line = lines.get(timeout=0.05)
+        except queue.Empty:
+            line = ""
+        if line is None:
+            return
+        if slow and time.monotonic() >= slow[3]:
+            finish(slow[0], slow[1], slow[2], "Acme reply.")
+            slow = None
+        if not line:
+            continue
         try:
             msg = json.loads(line)
         except ValueError:
@@ -38,17 +87,40 @@ def main():
         method, params, rid = msg.get("method"), msg.get("params") or {}, msg.get("id")
         if rid is None:
             continue
+        thread = params.get("threadId")
         if method in ("thread/start", "thread/resume"):
             threads += 1
-            thread = params.get("threadId") or "acme-thread-%d-%d" % (os.getpid(), threads)
+            thread = thread or "acme-thread-%d-%d" % (os.getpid(), threads)
             record({"harness": "codex", "method": method, "thread": thread})
             send({"id": rid, "result": {"thread": {"id": thread}}})
+        elif method == "thread/goal/set":
+            goal = {**goals.get(thread, {}), **{k: params[k] for k in ("objective", "status") if k in params}}
+            goals[thread] = goal
+            record({"harness": "codex", "method": method, "thread": thread, "goal": goal})
+            send({"id": rid, "result": {"goal": goal}})
+            send({"method": "thread/goal/updated", "params": {"threadId": thread, "goal": goal}})
+        elif method == "thread/goal/clear":
+            goals.pop(thread, None)
+            record({"harness": "codex", "method": method, "thread": thread})
+            send({"id": rid, "result": {}})
+            send({"method": "thread/goal/cleared", "params": {"threadId": thread}})
+        elif method == "thread/goal/get":
+            send({"id": rid, "result": {"goal": goals.get(thread)}})
+        elif method == "turn/steer":
+            text = " ".join(part.get("text", "") for part in params.get("input", []))
+            record({"harness": "codex", "method": method, "thread": thread, "steer": text})
+            if not slow or params.get("expectedTurnId") != slow[1]:
+                send({"id": rid, "error": {"code": -32600, "message": "no active turn to steer"}})
+                continue
+            send({"id": rid, "result": {"turnId": slow[1]}})
+            finish(slow[0], slow[1], slow[2], "Acme reply. Steered: " + text.strip().splitlines()[-1])
+            slow = None
         elif method == "turn/start":
             turns += 1
-            thread, turn = params["threadId"], "acme-turn-%d" % turns
+            turn = "acme-turn-%d-%d" % (os.getpid(), turns)
             text = " ".join(part.get("text", "") for part in params.get("input", []))
-            record({"harness": "codex", "method": method, "thread": thread, "prompt": text,
-                    "env": {k: os.environ.get(k) for k in GRANTED}})
+            record({"harness": "codex", "method": method, "thread": thread, "turn": turn, "prompt": text,
+                    "env": {k: os.environ.get(k) for k in GRANTED}, "at": time.time()})
             send({"id": rid, "result": {"turn": {"id": turn}}})
             send({"method": "turn/started", "params": {"threadId": thread, "turn": {"id": turn}}})
             marker = os.environ["FAKE_LOG"] + ".hung"
@@ -58,17 +130,18 @@ def main():
                 while os.getppid() == parent:
                     time.sleep(0.1)
                 return
+            if "LIMIT" in text:
+                send({"method": "turn/completed", "params": {"threadId": thread, "turn": {
+                    "id": turn, "status": "failed", "error": {"message": "You've hit your usage limit. Try again later."}}}})
+                continue
+            if "SLOW" in text:
+                send({"method": "item/agentMessage/delta", "params": {"threadId": thread, "turnId": turn, "delta": "Working on it"}})
+                slow = (thread, turn, turns, time.monotonic() + float(os.environ.get("FAKE_SLOW") or 2))
+                continue
             reply = "Acme reply."
             if os.environ.get("ACME_API_KEY"):
                 reply += " The key is " + os.environ["ACME_API_KEY"]
-            for chunk in (reply[:5], reply[5:]):
-                send({"method": "item/agentMessage/delta", "params": {"threadId": thread, "turnId": turn, "delta": chunk}})
-            send({"method": "item/completed", "params": {"threadId": thread, "turnId": turn,
-                  "item": {"type": "agentMessage", "id": "m%d" % turns, "text": reply, "phase": "final_answer"}}})
-            send({"method": "thread/tokenUsage/updated", "params": {"threadId": thread, "turnId": turn, "tokenUsage": {
-                "total": {"inputTokens": 7 * turns, "cachedInputTokens": 3 * turns, "outputTokens": 2 * turns, "totalTokens": 9 * turns},
-                "last": {"inputTokens": 7, "cachedInputTokens": 3, "outputTokens": 2, "totalTokens": 9}}}})
-            send({"method": "turn/completed", "params": {"threadId": thread, "turn": {"id": turn, "status": "completed"}}})
+            finish(thread, turn, turns, reply)
         else:
             send({"id": rid, "result": {}})
 

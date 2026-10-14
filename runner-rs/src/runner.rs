@@ -134,6 +134,11 @@ impl Runner {
         }
     }
 
+    /// The last `runners/assignments` answer.
+    pub fn assignments_seen(&self) -> Vec<Value> {
+        self.assignments.lock().unwrap().clone()
+    }
+
     pub fn bot_lock(&self, bot: &str) -> Arc<tokio::sync::Mutex<()>> {
         self.bot_locks.lock().unwrap().entry(bot.to_string()).or_default().clone()
     }
@@ -221,8 +226,7 @@ impl Runner {
         if full {
             let assignments = self.client.get("runners/assignments").await?;
             *self.assignments.lock().unwrap() = assignments.as_array().cloned().unwrap_or_default();
-            let grants = self.client.get("runner-credential-grants").await?;
-            crate::hosts::gemini::set_credential_names(&grants["bots"]);
+            crate::readiness_extra::fetch_grants(&self.client).await;
         }
         let assignments = self.assignments.lock().unwrap().clone();
         let mut by_bot: std::collections::BTreeMap<String, Value> = Default::default();
@@ -230,20 +234,30 @@ impl Runner {
             by_bot.insert(text_of(&entry["bot"]), entry.clone());
         }
         let candidates: Vec<Value> = by_bot.into_values().collect();
-        let runtimes = readiness::runtime_report(&self.sign_in, &self.client, &assignments).await;
+        let runtimes = readiness::runtime_report(&self.config, &self.sign_in, &self.client, &candidates).await;
         *self.runtime_rows.lock().unwrap() = runtimes.clone();
         let checks = readiness::preflight(&self.config, &candidates, &runtimes).await;
+        let notes = self.publish_notes.lock().unwrap().clone();
+        let hosted: Vec<String> = candidates.iter().filter(|e| text_of(&e["runner_id"]) == self.config.runner_id()).map(|e| text_of(&e["bot"])).collect();
         let published = self.published.lock().unwrap().clone();
         let (agent_instructions, versions) = readiness::changed_agent_instructions(&self.config, &assignments, &published);
-        let body = json!({
+        let mut body = json!({
             "version": RUNNER_VERSION,
             "platform": platform(),
-            "capabilities": ["session_roots_v1"],
+            "capabilities": crate::lanes::capabilities(),
             "capacity": self.capacity,
             "readiness": readiness::document(&runtimes, &checks, &self.state.directory),
             "mail_agent_instructions": {},
             "agent_instructions": agent_instructions,
         });
+        crate::readiness_extra::extend(&mut body["readiness"], &runtimes, &checks, &notes, &self.client, hosted).await;
+        if !crate::lanes::held_back("profiles") {
+            let rejected = |runtime: &str, name: &str| {
+                let profile = crate::profiles::select(&self.config.data, None, Some(name));
+                profile.is_some_and(|p| self.sign_in.rejection(runtime, Some(&p)).is_some())
+            };
+            body["profiles"] = json!(crate::profiles::report(&self.config.data, &rejected).await);
+        }
         let printed = steady(&body).to_string();
         let quiet = {
             let beat = self.beat.lock().unwrap();
@@ -253,7 +267,30 @@ impl Runner {
                 && beat.as_ref().is_some_and(|(p, at)| *p == printed && at.elapsed().as_secs_f64() < HEARTBEAT_LIVE_S)
         };
         if !quiet {
-            let beat = self.client.post("runners/heartbeat", &body, None).await?;
+            let mut tries = 0;
+            let beat = loop {
+                tries += 1;
+                match self.client.post("runners/heartbeat", &body, None).await {
+                    Err(e) if e.status == 422 && tries < 12 && crate::readiness_extra::refused(&e.detail, &body["readiness"]).is_some() => {
+                        // An older server refused an optional readiness field: it is left out for ten minutes.
+                        crate::lanes::hold_back(&crate::readiness_extra::refused(&e.detail, &body["readiness"]).unwrap_or_default());
+                        crate::readiness_extra::drop_held(&mut body);
+                    }
+                    Err(e) if e.status == 422 && tries < 12 => match crate::lanes::refused_field(&e.detail, &body) {
+                        // A server from before a capability or the profile report: only that goes, for ten minutes.
+                        Some(field) => {
+                            crate::lanes::hold_back(&field);
+                            if field == "profiles" {
+                                body.as_object_mut().unwrap().remove("profiles");
+                            } else if let Some(caps) = body["capabilities"].as_array_mut() {
+                                caps.retain(|c| c != field.as_str());
+                            }
+                        }
+                        None => return Err(e),
+                    },
+                    other => break other?,
+                }
+            };
             *self.beat.lock().unwrap() = Some((printed, Instant::now()));
             self.published.lock().unwrap().extend(versions);
             if beat["restart"] == true && !self.restart.swap(true, Ordering::SeqCst) {
@@ -301,17 +338,20 @@ impl Runner {
     }
 
     async fn claim_next(&self) -> Result<Value, ApiError> {
+        let live: Vec<String> = self.active.lock().unwrap().iter().cloned().collect();
         let busy: Vec<String> = {
-            let active = self.active.lock().unwrap().clone();
-            let mut bots: Vec<String> = active
-                .iter()
-                .filter_map(|aid| self.state_bot(aid))
-                .collect::<HashSet<_>>()
-                .into_iter()
-                .collect();
+            let mut bots: Vec<String> = live.iter().filter_map(|aid| self.state_bot(aid)).collect::<HashSet<_>>().into_iter().collect();
             bots.sort();
             bots
         };
+        if !crate::lanes::held_back("busy_lanes") {
+            // Lanes: a bot with a task turn running here can still take its other tasks' turns.
+            let lanes = crate::lanes::busy_lanes(&live, |aid| self.state_bot(aid));
+            match self.client.post("jobs/claim", &json!({"next_run": true, "busy_bots": [], "busy_lanes": lanes}), None).await {
+                Err(e) if e.status == 422 => crate::lanes::hold_back("busy_lanes"),
+                other => return other,
+            }
+        }
         self.client.post("jobs/claim", &json!({"next_run": true, "busy_bots": busy}), None).await
     }
 
@@ -457,6 +497,7 @@ impl Runner {
             }
             self.active.lock().unwrap().remove(&aid);
             self.attempt_bots.lock().unwrap().remove(&aid);
+            crate::lanes::forget(&aid);
             clock.next_claim = None; // capacity came free: look for the next job now
         }
         self.warm.prune(false).await;
@@ -468,13 +509,14 @@ impl Runner {
         if maintenance.is_none() {
             clock.wants(&self.events, "config", None);
             let full = clock.wants(&self.events, "sync", Some(15.0));
-            let forced = clock.wants(&self.events, "heartbeat", None);
+            let forced = clock.wants(&self.events, "heartbeat", None) | self.sign_in.take_dirty();
             if full || forced || clock.last_heartbeat.is_none_or(|t| t.elapsed().as_secs_f64() >= 15.0) {
                 let me = self.clone();
                 *maintenance = Some(tokio::spawn(async move { me.maintain(full, forced).await }));
                 clock.last_heartbeat = Some(Instant::now());
             }
         }
+        crate::relays::poll(self);
         if self.restart.load(Ordering::SeqCst) {
             return Ok(()); // a person asked for a restart: no new work, the running turns finish
         }
@@ -487,6 +529,7 @@ impl Runner {
                 mark("claimed", &aid);
                 self.active.lock().unwrap().insert(aid.clone());
                 self.attempt_bots.lock().unwrap().insert(aid.clone(), text_of(&attempt["bot"]));
+                crate::lanes::track(&attempt);
                 if let Err(e) = self.state.record(&attempt) {
                     log(&format!("Tico runner: could not save attempt {aid} ({e})"));
                 }

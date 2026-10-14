@@ -8,6 +8,7 @@ pub mod antigravity;
 pub mod claude;
 pub mod codex;
 pub mod gemini;
+mod native;
 
 use std::sync::OnceLock;
 

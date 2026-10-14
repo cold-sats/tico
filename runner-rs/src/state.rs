@@ -243,6 +243,17 @@ impl State {
             c.query_row("SELECT message FROM session_cursors WHERE thread=?", params![thread], |r| r.get(0)).optional()
         })
     }
+
+    /// What a thread was last given under `thread` in session_repo_rules (state.py repo_rules): the repo-rules
+    /// digest, or under `goal:<thread>` the task goal revision it holds (runner/goals.py task_goal_set).
+    pub fn repo_rules(&self, thread: &str, digest: Option<&str>) -> Result<Option<String>, String> {
+        self.with(|c| {
+            if let Some(d) = digest {
+                c.execute("INSERT OR REPLACE INTO session_repo_rules VALUES(?,?)", params![thread, d])?;
+            }
+            c.query_row("SELECT digest FROM session_repo_rules WHERE thread=?", params![thread], |r| r.get(0)).optional()
+        })
+    }
 }
 
 #[cfg(test)]

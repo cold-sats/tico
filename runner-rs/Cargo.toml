@@ -20,13 +20,13 @@ serde_json = { version = "1", features = ["preserve_order"] }
 clap = { version = "4", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
 uuid = { version = "1", features = ["v4"] }
 libc = "0.2"
+ring = "0.17"
 regex = { version = "1", default-features = false, features = ["std", "unicode-case", "unicode-perl", "perf"] }
 aho-corasick = "1"
 base64 = "0.22"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 toml = { version = "0.8", default-features = false, features = ["parse"] }
 url = "2"
-ring = "0.17"
 
 [dev-dependencies]
 

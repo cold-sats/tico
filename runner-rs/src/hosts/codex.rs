@@ -85,11 +85,12 @@ struct Shared {
 pub struct CodexHost(Arc<Shared>);
 
 impl CodexHost {
-    pub fn new(env: Env, tx: Events) -> CodexHost {
+    /// A host for a subscription profile: the servers silenced are the ones in that profile's config.toml.
+    pub fn on_home(env: Env, tx: Events, codex_home: Option<&str>) -> CodexHost {
         CodexHost(Arc::new(Shared {
             tx,
             env,
-            base_config: mcp_disable_config(None),
+            base_config: mcp_disable_config(codex_home),
             stdin: tokio::sync::Mutex::new(None),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicI64::new(0),
@@ -339,7 +340,18 @@ impl CodexHost {
                     self.emit(event("error", t, u, json!({"error": msg, "limit": is_limit(&msg)})));
                 }
             }
-            _ => {} // thread/started, hook/*, mcpServer/*, item/started, turn/plan, warnings, goals: nothing to do
+            "thread/goal/updated" => {
+                let goal = &p["goal"];
+                let status = crate::goals::codex_status(goal);
+                if ["active", "paused", "met", "stopped"].contains(&status.as_str()) {
+                    let note = goal["note"].as_str().filter(|n| !n.is_empty()).map(|n| json!(n)).unwrap_or_else(|| {
+                        if status == "stopped" { goal.get("status").cloned().unwrap_or(json!("")) } else { json!("") }
+                    });
+                    self.emit(event("goal", t, None, json!({"status": status, "objective": goal.get("objective").cloned().unwrap_or(Value::Null), "note": note})));
+                }
+            }
+            "thread/goal/cleared" => self.emit(event("goal", t, None, json!({"status": "cleared", "note": ""}))),
+            _ => {} // thread/started, hook/*, mcpServer/*, item/started, turn/plan, warnings: nothing to do
         }
     }
 
@@ -413,6 +425,62 @@ impl CodexHost {
             .map(|_| ())
     }
 
+    pub async fn start_goal(&self, thread_id: &str, action: &str, objective: &str, effort: Option<&str>) -> Result<String, HostError> {
+        let thread = json!({"threadId": thread_id});
+        match action {
+            "clear" => {
+                self.request("thread/goal/clear", thread, REQUEST_TIMEOUT).await?;
+                Ok(self.control_completed(thread_id))
+            }
+            "pause" => {
+                if self.request("thread/goal/set", json!({"threadId": thread_id, "status": "paused"}), REQUEST_TIMEOUT).await.is_err() {
+                    self.request("thread/goal/clear", thread, REQUEST_TIMEOUT).await?;
+                }
+                Ok(self.control_completed(thread_id))
+            }
+            _ => {
+                self.request("thread/goal/set", json!({"threadId": thread_id, "objective": objective, "status": "active"}), REQUEST_TIMEOUT).await?;
+                self.start_turn(thread_id, objective, effort).await
+            }
+        }
+    }
+
+    pub async fn start_goal_turn(&self, thread_id: &str, objective: &str, text: &str, effort: Option<&str>) -> Result<String, HostError> {
+        self.request("thread/goal/set", json!({"threadId": thread_id, "objective": objective, "status": "active"}), REQUEST_TIMEOUT).await?;
+        self.start_turn(thread_id, text, effort).await
+    }
+
+    /// A control call that runs no model turn still ends one, so the runner's loop finishes as for any turn.
+    fn control_completed(&self, thread_id: &str) -> String {
+        let turn = uuid::Uuid::new_v4().to_string();
+        self.emit(event("turn_completed", Some(thread_id), Some(&turn), json!({"status": "completed"})));
+        turn
+    }
+
+    /// `/compact` and `/review [instructions]` as the app server's own calls; anything else is a prompt.
+    pub async fn start_command(&self, thread_id: &str, text: &str, effort: Option<&str>) -> Result<String, HostError> {
+        let trimmed = text.trim();
+        let (name, args) = trimmed.split_once(' ').unwrap_or((trimmed, ""));
+        match name {
+            "/compact" => {
+                self.request("thread/compact/start", json!({"threadId": thread_id}), REQUEST_TIMEOUT).await?;
+                Ok(self.control_completed(thread_id))
+            }
+            "/review" => {
+                let target = if args.is_empty() { json!({"type": "uncommittedChanges"}) } else { json!({"type": "custom", "instructions": args}) };
+                let res = self.request("review/start", json!({"threadId": thread_id, "target": target}), REQUEST_TIMEOUT).await?;
+                let turn = res["turn"]["id"].as_str().filter(|t| !t.is_empty()).map(String::from).ok_or_else(|| failed("review/start returned no turn id"))?;
+                self.0.active_turn.lock().unwrap().insert(thread_id.into(), turn.clone());
+                Ok(turn)
+            }
+            _ => self.start_turn(thread_id, text, effort).await,
+        }
+    }
+
+    pub fn active_turn(&self, thread_id: &str) -> Option<String> {
+        self.0.active_turn.lock().unwrap().get(thread_id).cloned()
+    }
+
     pub async fn interrupt(&self, thread_id: &str, turn_id: &str) -> Result<(), HostError> {
         self.request("turn/interrupt", json!({"threadId": thread_id, "turnId": turn_id}), 30).await.map(|_| ())
     }
@@ -426,7 +494,7 @@ mod tests {
     async fn every_codex_fixture_gives_the_python_hosts_events() {
         for (path, expected) in crate::hosts::fixtures::cases("codex") {
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-            let host = CodexHost::new(Env::new(), tx);
+            let host = CodexHost::on_home(Env::new(), tx, None);
             for line in std::fs::read_to_string(&path).unwrap().lines().filter(|l| !l.trim().is_empty()) {
                 host.on_message(serde_json::from_str(line).unwrap()).await;
             }
