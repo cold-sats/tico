@@ -158,6 +158,9 @@ pub async fn runtime_report(sign: &SignIn, client: &Client, assignments: &[Value
 
 /// A bot's checkout: the configured repos entry, else `bot-<slug>` or the older `emp-<slug>` under projects_dir.
 pub fn local_path(config: &Config, bot: &str) -> PathBuf {
+    if let Some(p) = crate::sessions::shared_path(bot) {
+        return p; // a branch of a bot with branches works in the original's checkout
+    }
     if let Some(p) = config.repo_for(bot) {
         return p;
     }
@@ -183,9 +186,6 @@ pub fn unsupported(config: &Config, entry: &Value) -> Vec<String> {
     let harness = text_of(&c["harness"]);
     if !harness.is_empty() && harness != runtime {
         needs.push(format!("the {harness} harness"));
-    }
-    if crate::util::truthy(c.get("shared")) || crate::util::truthy(c.get("shared_from")) {
-        needs.push("shared bot checkouts".into());
     }
     if c["fallback"].is_object() && !text_of(&c["fallback"]["harness"]).is_empty() {
         needs.push("a fallback harness".into());
@@ -259,12 +259,12 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
         let bot = text_of(&entry["bot"]);
         let expected = &entry["config"];
         let runtime = text_of(&expected["runtime"]);
-        let path = local_path(config, &bot);
+        let path = crate::sessions::local_path(config, &bot, expected);
         let mut problems: Vec<String> = vec![];
         let mut warnings: Vec<String> = vec![];
         let repository_present = path.join("AGENT.md").is_file();
         if !repository_present {
-            problems.push("Missing bot repository or AGENT.md".into());
+            problems.push(crate::fetchrepo::problem(&bot).unwrap_or_else(|| "Missing bot repository or AGENT.md".into()));
         } else if let Ok(text) = std::fs::read(path.join("AGENT.md")) {
             let lines = text.split(|b| *b == b'\n').count() - usize::from(text.ends_with(b"\n"));
             if lines > 150 {
@@ -361,7 +361,7 @@ pub fn document(runtimes: &Map<String, Value>, checks: &[Map<String, Value>], st
         out.insert("warnings".into(), row.get("warnings").cloned().unwrap_or(json!([])));
         bots.insert(text_of(&row["bot"]), Value::Object(out));
     }
-    let mut doc = json!({"schema_version": 1, "runtimes": runtimes, "bots": bots});
+    let mut doc = json!({"schema_version": 1, "runtimes": runtimes, "bots": bots, "worktrees": true});
     if let Some((total, free)) = disk_usage(state_dir) {
         doc["disk"] = json!({"total_bytes": total, "free_bytes": free});
     }
@@ -376,12 +376,13 @@ pub fn disk_usage(path: &Path) -> Option<(u64, u64)> {
     if unsafe { libc::statvfs(c.as_ptr(), &mut s) } != 0 {
         return None;
     }
-    let frsize = s.f_frsize as u64;
+    let frsize = s.f_frsize;
     Some((s.f_blocks as u64 * frsize, s.f_bavail as u64 * frsize))
 }
 
 /// AGENT.md of each bot this computer hosts, once and then only when the file changes
 /// (`changed_agent_instructions`). Versions are (mtime ns, size); None for a missing file.
+#[allow(clippy::type_complexity)]
 pub fn changed_agent_instructions(
     config: &Config,
     assignments: &[Value],

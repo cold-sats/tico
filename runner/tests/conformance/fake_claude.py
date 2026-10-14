@@ -2,7 +2,8 @@
 
 `--version`, `--help` and `auth status --json` answer as Claude Code 2.1.296 does; `-p` speaks stream-json the way
 runner/hosts/claude.py reads it: each user message is replayed, then a text delta, the assistant message and a
-`result`. Every call is appended to $FAKE_LOG as one JSON line (argv, the prompt, the granted variables). A prompt
+`result`. Every call is appended to $FAKE_LOG as one JSON line (argv, the prompt, cwd, the granted variables); a
+prompt containing REMEMBER leaves a file in memory/. A prompt
 containing HANG streams one delta and then waits, once per $FAKE_LOG, until its parent goes away."""
 import json
 import os
@@ -20,6 +21,14 @@ def send(message):
 def record(entry):
     with open(os.environ["FAKE_LOG"], "a") as log:
         log.write(json.dumps(entry) + "\n")
+
+
+def remember(cwd, text):
+    """A prompt containing REMEMBER leaves a lesson uncommitted in memory/, as a bot does."""
+    if "REMEMBER" in text:
+        os.makedirs(os.path.join(cwd, "memory"), exist_ok=True)
+        with open(os.path.join(cwd, "memory", "lesson-%d.md" % os.getpid()), "w") as note:
+            note.write("Keep the product tests fast.\n")
 
 
 def flag(name):
@@ -46,7 +55,9 @@ def main():
         except ValueError:
             continue
         text = " ".join(part.get("text", "") for part in message["message"]["content"])
-        record({"harness": "claude", "argv": args, "prompt": text, "env": {k: os.environ.get(k) for k in GRANTED}})
+        record({"harness": "claude", "argv": args, "prompt": text, "cwd": os.getcwd(),
+                "env": {k: os.environ.get(k) for k in GRANTED}})
+        remember(os.getcwd(), text)
         send({**message, "isReplay": True})
         send({"type": "system", "subtype": "init", "session_id": session, "model": "claude-sonnet-5", "tools": []})
         send({"type": "stream_event", "event": {"type": "message_start", "message": {"id": "msg_1"}}, "parent_tool_use_id": None})

@@ -214,3 +214,72 @@ def test_a_runner_killed_mid_turn_files_the_turn_as_interrupted_when_it_restarts
     assert done["result"]["outcome"] == "interrupted"
     assert done["result"]["text"] == "Runner restarted during execution"
     assert msg["conversation_id"]
+
+
+def git(cwd, *args):
+    done = subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                           "-c", "init.defaultBranch=main", *args], cwd=cwd, capture_output=True, text=True,
+                          env={"PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", "HOME": str(cwd),
+                               "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"})
+    assert done.returncode == 0, done.stderr
+    return done.stdout.strip()
+
+
+def test_a_task_turn_works_in_its_own_worktree_with_the_tasks_repo_and_pushes_its_run(api, computer, tmp_path):
+    projects = tmp_path / "projects"
+    # The bot's repository tracks a local remote; the task's product checkout is a worktree of a base clone.
+    bot_remote = tmp_path / "remotes" / "bot-ops.git"
+    git(tmp_path, "init", "-q", "--bare", "-b", "main", str(bot_remote))
+    repo = projects / "bot-ops"
+    git(repo, "init", "-q", "-b", "main")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "Ops starts")
+    git(repo, "remote", "add", "origin", str(bot_remote))
+    git(repo, "push", "-q", "-u", "origin", "main")
+    product_remote = tmp_path / "remotes" / "product.git"
+    git(tmp_path, "init", "-q", "--bare", "-b", "main", str(product_remote))
+    seed = tmp_path / "product-seed"
+    git(tmp_path, "clone", "-q", str(product_remote), str(seed))
+    (seed / "AGENTS.md").write_text("Run the product tests before every commit.\n")
+    git(seed, "add", "-A")
+    git(seed, "commit", "-qm", "Product rules")
+    git(seed, "push", "-q", "origin", "main")
+    base = projects / "repos" / "org__product"
+    git(tmp_path, "clone", "-q", str(product_remote), str(base))
+    git(base, "remote", "set-url", "origin", "https://github.com/org/product.git")
+    git(base, "worktree", "add", "-q", "-b", "tico/feature", str(projects / "work" / "product"))
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET config_json=? WHERE bot='ops'",
+                  (encode({"name": "ops", "runtime": computer.harness, "model": MODELS[computer.harness],
+                           "status": "active", "session": "task"}),))
+    computer.start()
+
+    task = post(api, "tasks", {"owner": "ops", "title": "Build product", "body": "Please build the product."})
+    until(lambda: any(a["state"] == "completed" for a in computer.attempts()), "the task's first turn")
+    link = post(api, f"tasks/{task['id']}/worktrees/attach",
+                {"path": "work/product", "repo": "org/product", "branch": "tico/feature"})
+
+    def certified():
+        # Each config change is a full readiness pass, which inspects the computer's worktrees.
+        with api.app.state.store.transaction() as c:
+            c.execute("UPDATE bot_config SET config_json=json_set(config_json,'$.touched',?) WHERE bot='ops'",
+                      (time.monotonic(),))
+            row = c.execute("SELECT state, detail_json FROM task_links WHERE id=?", (link["link_id"],)).fetchone()
+        time.sleep(0.5)
+        return row["state"] == "present" and json.loads(row["detail_json"])["checkout_state"] == "ready"
+    until(certified, "the attached worktree reported ready", timeout=60)
+
+    post(api, f"tasks/{task['id']}/chat", {"text": "REMEMBER what the build taught you"})
+    second = until(lambda: next((a for a in computer.attempts()[1:] if a["state"] == "completed"), None),
+                   "the turn with the worktree")
+    call = computer.prompts()[-1]
+    session = projects / "sessions" / "bot-ops" / task["id"]
+    assert Path(call["cwd"]).resolve() == session.resolve()
+    assert "Repo rules for org/product: how to write code there" in call["prompt"]
+    assert "Run the product tests before every commit." in call["prompt"]
+    if computer.harness == "claude":
+        assert call["argv"][call["argv"].index("--add-dir") + 1] == str(projects / "work" / "product")
+    # The lesson the turn left is committed with its run and lands on the bot's remote.
+    trailer = f"Tico-Run: {second['id']}"
+    until(lambda: trailer in git(tmp_path, "--git-dir", str(bot_remote), "log", "--format=%B", "main"),
+          "the turn's memory pushed")

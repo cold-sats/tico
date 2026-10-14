@@ -44,7 +44,11 @@ pub struct Runner {
     pub attempt_bots: Mutex<HashMap<String, String>>,
     pub runtime_rows: Mutex<Map<String, Value>>,
     names: Mutex<Option<Value>>,
-    bot_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// Lane and checkout locks, live turns' lanes, the repositories this computer holds (sessions.rs).
+    pub lanes: Arc<crate::sessions::Lanes>,
+    pub worktrees: Arc<crate::worktrees::Worktrees>,
+    /// The server takes `record_updated` on worktree reports (its heartbeat reply said so).
+    worktree_stamp: AtomicBool,
     flush_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Attempts whose first streamed text has reached the server (one timing mark each).
     pub first_posted: Mutex<HashSet<String>>,
@@ -85,6 +89,9 @@ pub fn describe(e: &ApiError) -> String {
 impl Runner {
     pub fn new(config: Config, client: Client, state: State) -> Runner {
         let projects_dir = config.projects_dir();
+        let repositories = Arc::new(crate::repositories::Repositories::new(&projects_dir, &state.directory, client.clone()));
+        let _ = crate::repositories::MIRRORS.set(repositories.clone());
+        let worktrees = Arc::new(crate::worktrees::Worktrees::new(&projects_dir, client.clone()));
         let capacity = machine_capacity(config.data.get("capacity"));
         Runner {
             config,
@@ -102,7 +109,9 @@ impl Runner {
             attempt_bots: Mutex::new(HashMap::new()),
             runtime_rows: Mutex::new(Map::new()),
             names: Mutex::new(None),
-            bot_locks: Mutex::new(HashMap::new()),
+            lanes: Arc::new(crate::sessions::Lanes::new(repositories)),
+            worktrees,
+            worktree_stamp: AtomicBool::new(false),
             flush_locks: Mutex::new(HashMap::new()),
             first_posted: Mutex::new(HashSet::new()),
             assignments: Mutex::new(vec![]),
@@ -129,10 +138,6 @@ impl Runner {
             }
             Err(_) => crate::prompt::Names::from_config(None),
         }
-    }
-
-    pub fn bot_lock(&self, bot: &str) -> Arc<tokio::sync::Mutex<()>> {
-        self.bot_locks.lock().unwrap().entry(bot.to_string()).or_default().clone()
     }
 
     /// Send the attempt's unacknowledged events, 100 at a time, keyed on their seq range so a retry is one write.
@@ -215,6 +220,7 @@ impl Runner {
     /// Readiness and the heartbeat. `full` re-reads this computer's bots from the server; without it the last
     /// answer stands and the heartbeat goes only when `forced`, changed, or HEARTBEAT_LIVE_S has passed.
     pub async fn maintain(&self, full: bool, forced: bool) -> Result<(), ApiError> {
+        let repository_rows = if full { self.lanes.repositories.poll().await } else { None };
         if full {
             let assignments = self.client.get("runners/assignments").await?;
             *self.assignments.lock().unwrap() = assignments.as_array().cloned().unwrap_or_default();
@@ -225,6 +231,7 @@ impl Runner {
             by_bot.insert(text_of(&entry["bot"]), entry.clone());
         }
         let candidates: Vec<Value> = by_bot.into_values().collect();
+        self.fetch_missing(&assignments).await;
         let runtimes = readiness::runtime_report(&self.sign_in, &self.client, &assignments).await;
         *self.runtime_rows.lock().unwrap() = runtimes.clone();
         let checks = readiness::preflight(&self.config, &candidates, &runtimes).await;
@@ -233,13 +240,28 @@ impl Runner {
         let body = json!({
             "version": RUNNER_VERSION,
             "platform": platform(),
-            "capabilities": ["session_roots_v1"],
+            "capabilities": ["task_lanes_v2", "session_roots_v1"],
             "capacity": self.capacity,
             "readiness": readiness::document(&runtimes, &checks, &self.state.directory),
             "mail_agent_instructions": {},
             "agent_instructions": agent_instructions,
         });
+        let mut body = body;
+        let host: Arc<dyn crate::worktrees::Host> = self.lanes.clone();
+        let mut worktrees = if full { self.worktrees.poll(host.clone(), &[]) } else { self.worktrees.latest() };
+        if !self.worktree_stamp.load(Ordering::SeqCst) {
+            for r in &mut worktrees {
+                if let Some(m) = r.as_object_mut() {
+                    m.remove("record_updated");
+                }
+            }
+        }
+        body["worktrees"] = json!(worktrees);
+        // The repositories report rides only on full passes, which are always sent.
         let printed = steady(&body).to_string();
+        if let Some(rows) = repository_rows {
+            body["repositories"] = json!(rows);
+        }
         let quiet = {
             let beat = self.beat.lock().unwrap();
             !full
@@ -251,6 +273,11 @@ impl Runner {
             let beat = self.client.post("runners/heartbeat", &body, None).await?;
             *self.beat.lock().unwrap() = Some((printed, Instant::now()));
             self.published.lock().unwrap().extend(versions);
+            let actions = beat["worktree_actions"].as_array().cloned().unwrap_or_default();
+            if full || !actions.is_empty() {
+                self.worktrees.poll(host, &actions);
+            }
+            self.worktree_stamp.store(beat["worktree_record_stamp"] == true, Ordering::SeqCst);
             if beat["restart"] == true && !self.restart.swap(true, Ordering::SeqCst) {
                 log("Tico runner: restart requested; restarting when no turn is running");
             }
@@ -262,6 +289,7 @@ impl Runner {
         }
         let _ = std::fs::write(dir.join("runtimes.json"), Value::Object(runtimes).to_string());
         self.recover_output().await;
+        self.sweep_sessions(&assignments).await;
         Ok(())
     }
 
@@ -295,19 +323,24 @@ impl Runner {
         Ok(lines)
     }
 
+    /// Lease expiry does not mean this worker has stopped: every live worker's lane stays busy, and a bot whose
+    /// worktrees are being maintained gets nothing (service.py _claim_next).
     async fn claim_next(&self) -> Result<Value, ApiError> {
-        let busy: Vec<String> = {
-            let active = self.active.lock().unwrap().clone();
-            let mut bots: Vec<String> = active
-                .iter()
-                .filter_map(|aid| self.state_bot(aid))
-                .collect::<HashSet<_>>()
-                .into_iter()
-                .collect();
-            bots.sort();
-            bots
-        };
-        self.client.post("jobs/claim", &json!({"next_run": true, "busy_bots": busy}), None).await
+        let mut maintaining: Vec<String> = self.worktrees.maintaining.lock().unwrap().iter().cloned().collect();
+        maintaining.sort();
+        let lanes_ok = self.lanes.lanes_after.lock().unwrap().is_none_or(|t| Instant::now() >= t);
+        if lanes_ok {
+            let body = json!({"next_run": true, "busy_bots": maintaining, "busy_lanes": self.lanes.busy_lanes()});
+            match self.client.post("jobs/claim", &body, None).await {
+                Err(e) if e.status == 422 => *self.lanes.lanes_after.lock().unwrap() = Some(Instant::now() + Duration::from_secs(600)),
+                other => return other,
+            }
+        }
+        // A server from before lanes: a bot with a turn running here gets nothing more.
+        let active = self.active.lock().unwrap().clone();
+        let mut bots: Vec<String> = active.iter().filter_map(|aid| self.state_bot(aid)).chain(maintaining).collect::<HashSet<_>>().into_iter().collect();
+        bots.sort();
+        self.client.post("jobs/claim", &json!({"next_run": true, "busy_bots": bots}), None).await
     }
 
     fn state_bot(&self, aid: &str) -> Option<String> {
@@ -426,6 +459,9 @@ impl Runner {
         if let Some(m) = maintenance {
             m.abort();
         }
+        // Git the runner started for mirrors, checkouts and worktrees goes with it, credential helpers included.
+        crate::gitrun::stop_all();
+        self.worktrees.settle().await;
     }
 
     async fn tick(
@@ -451,6 +487,7 @@ impl Runner {
             }
             self.active.lock().unwrap().remove(&aid);
             self.attempt_bots.lock().unwrap().remove(&aid);
+            self.lanes.attempts.lock().unwrap().remove(&aid);
             clock.next_claim = None; // capacity came free: look for the next job now
         }
         if maintenance.as_ref().is_some_and(|m| m.is_finished()) {
@@ -480,6 +517,9 @@ impl Runner {
                 mark("claimed", &aid);
                 self.active.lock().unwrap().insert(aid.clone());
                 self.attempt_bots.lock().unwrap().insert(aid.clone(), text_of(&attempt["bot"]));
+                let lane = crate::sessions::turn_lane(&attempt);
+                let task = crate::sessions::task_of(&lane);
+                self.lanes.attempts.lock().unwrap().insert(aid.clone(), (text_of(&attempt["bot"]).trim_start_matches("bot:").to_string(), lane, task));
                 if let Err(e) = self.state.record(&attempt) {
                     log(&format!("Tico runner: could not save attempt {aid} ({e})"));
                 }

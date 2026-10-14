@@ -1,6 +1,7 @@
 """A stand-in for the `codex` CLI, for the runner conformance suite (runner/tests/test_conformance.py):
 `--version`, `login status`, and `app-server` speaking the part of the JSON-RPC protocol runner/hosts/codex.py
-uses (scripts/journey-fake-codex.py, plus token usage). Every thread and turn request is appended to $FAKE_LOG. A
+uses (scripts/journey-fake-codex.py, plus token usage). Every thread and turn request is appended to $FAKE_LOG, a
+turn with the thread's cwd; a prompt containing REMEMBER leaves a file in that cwd's memory/. A
 prompt containing HANG streams one delta and then waits, once per $FAKE_LOG, until its parent goes away."""
 import json
 import os
@@ -29,7 +30,7 @@ def main():
         return
     if sys.argv[1:2] != ["app-server"]:
         sys.exit(2)
-    threads, turns, parent = 0, 0, os.getppid()
+    threads, turns, parent, cwds = 0, 0, os.getppid(), {}
     for line in sys.stdin:
         try:
             msg = json.loads(line)
@@ -41,14 +42,20 @@ def main():
         if method in ("thread/start", "thread/resume"):
             threads += 1
             thread = params.get("threadId") or "acme-thread-%d-%d" % (os.getpid(), threads)
+            cwds[thread] = params.get("cwd")
             record({"harness": "codex", "method": method, "thread": thread})
             send({"id": rid, "result": {"thread": {"id": thread}}})
         elif method == "turn/start":
             turns += 1
             thread, turn = params["threadId"], "acme-turn-%d" % turns
             text = " ".join(part.get("text", "") for part in params.get("input", []))
-            record({"harness": "codex", "method": method, "thread": thread, "prompt": text,
+            record({"harness": "codex", "method": method, "thread": thread, "prompt": text, "cwd": cwds.get(thread),
                     "env": {k: os.environ.get(k) for k in GRANTED}})
+            if "REMEMBER" in text and cwds.get(thread):
+                # As a bot does: a lesson left uncommitted in memory/.
+                os.makedirs(os.path.join(cwds[thread], "memory"), exist_ok=True)
+                with open(os.path.join(cwds[thread], "memory", "lesson-%d.md" % turns), "w") as note:
+                    note.write("Keep the product tests fast.\n")
             send({"id": rid, "result": {"turn": {"id": turn}}})
             send({"method": "turn/started", "params": {"threadId": thread, "turn": {"id": turn}}})
             marker = os.environ["FAKE_LOG"] + ".hung"

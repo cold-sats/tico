@@ -243,6 +243,16 @@ impl State {
             c.query_row("SELECT message FROM session_cursors WHERE thread=?", params![thread], |r| r.get(0)).optional()
         })
     }
+
+    /// The hash of the repo rules a thread was last given, so they go again only to a fresh thread or on a change.
+    pub fn repo_rules(&self, thread: &str, digest: Option<&str>) -> Result<Option<String>, String> {
+        self.with(|c| {
+            if let Some(d) = digest {
+                c.execute("INSERT OR REPLACE INTO session_repo_rules VALUES(?,?)", params![thread, d])?;
+            }
+            c.query_row("SELECT digest FROM session_repo_rules WHERE thread=?", params![thread], |r| r.get(0)).optional()
+        })
+    }
 }
 
 #[cfg(test)]

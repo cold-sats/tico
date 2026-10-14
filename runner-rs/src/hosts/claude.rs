@@ -158,6 +158,7 @@ struct Shared {
 pub struct ClaudeHost(Arc<Shared>);
 
 fn cache() -> &'static Mutex<HashMap<(Vec<String>, &'static str), bool>> {
+    #[allow(clippy::type_complexity)]
     static C: OnceLock<Mutex<HashMap<(Vec<String>, &'static str), bool>>> = OnceLock::new();
     C.get_or_init(|| Mutex::new(HashMap::new()))
 }
@@ -259,9 +260,24 @@ impl ClaudeHost {
         if let Some(hub) = hub_mcp_server(&t.settings.env) {
             servers.insert("hub".into(), hub);
         }
+        if t.settings.shared {
+            argv.extend(["--setting-sources".into(), "project,local".into(), "--strict-mcp-config".into()]);
+            let project = std::fs::read_to_string(std::path::Path::new(&t.settings.cwd).join(".mcp.json"))
+                .ok()
+                .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+                .and_then(|v| v.get("mcpServers").and_then(Value::as_object).cloned())
+                .unwrap_or_default();
+            let mut merged = project;
+            merged.extend(servers);
+            servers = merged;
+        }
         if !servers.is_empty() {
             argv.push("--mcp-config".into());
             argv.push(py_dumps(&json!({"mcpServers": servers})));
+        }
+        // The task's worktrees in other repos (sessions.rs repo rules), each readable and writable by the session.
+        for directory in &t.settings.add_dirs {
+            argv.extend(["--add-dir".into(), directory.clone()]);
         }
         if let Some(m) = model_for(t.settings.model.as_deref()) {
             argv.extend(["--model".into(), m]);
@@ -298,7 +314,7 @@ impl ClaudeHost {
         if !t.settings.env.is_empty() {
             let mut env = t.settings.env.clone();
             // The login and the session files live under HOME; a trimmed environment must keep it.
-            if env.get("HOME").map_or(true, |h| h.is_empty()) {
+            if env.get("HOME").is_none_or(|h| h.is_empty()) {
                 if let Ok(home) = std::env::var("HOME") {
                     env.insert("HOME".into(), home);
                 }
@@ -665,7 +681,7 @@ impl ClaudeHost {
 
     pub fn interrupt(&self, _thread_id: &str, turn_id: &str) {
         let mut inner = self.inner();
-        if !inner.turn.as_ref().is_some_and(|(_, t)| t == turn_id) {
+        if inner.turn.as_ref().is_none_or(|(_, t)| t != turn_id) {
             return; // already over; nothing to stop
         }
         inner.interrupted.insert(turn_id.into());

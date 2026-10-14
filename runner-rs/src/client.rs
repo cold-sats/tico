@@ -179,6 +179,10 @@ impl Client {
         self.request(Method::POST, &format!("/api/v2/{path}"), Some(body), key.map(|k| k.to_string())).await
     }
 
+    pub async fn patch(&self, path: &str, body: &Value) -> Result<Value, ApiError> {
+        self.request(Method::PATCH, &format!("/api/v2/{path}"), Some(body), None).await
+    }
+
     pub async fn request(&self, method: Method, path: &str, body: Option<&Value>, key: Option<String>) -> Result<Value, ApiError> {
         if !path.starts_with("/api/v2/") {
             return Err(ApiError::new("protocol", "Use a versioned Tico API path", 0, false));

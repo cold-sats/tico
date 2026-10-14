@@ -117,13 +117,17 @@ pub struct Settings {
     #[allow(dead_code)] // the hub MCP server and Codex read the bot from the environment
     pub slug: String,
     pub compact_at: Value,
+    /// The task's worktrees in other repos the session may work in (Claude `--add-dir`; others ignore it).
+    pub add_dirs: Vec<String>,
+    /// A bot with branches: Claude reads only the project's settings and MCP servers (hosts/claude.py).
+    pub shared: bool,
 }
 
 const HUB_MCP_ENV: &[&str] = &["HUB_API_URL", "HUB_TOKEN", "HUB_BOT", "HUB_EMPLOYEE", "HUB_DIR"];
 
 /// The hub as a stdio MCP server for one turn (`hub_mcp_server`), or None outside a turn.
 pub fn hub_mcp_server(env: &Env) -> Option<Value> {
-    if env.get("HUB_API_URL").map_or(true, |v| v.is_empty()) || env.get("HUB_TOKEN").map_or(true, |v| v.is_empty()) {
+    if env.get("HUB_API_URL").is_none_or(|v| v.is_empty()) || env.get("HUB_TOKEN").is_none_or(|v| v.is_empty()) {
         return None;
     }
     let mut vars = Map::new();
