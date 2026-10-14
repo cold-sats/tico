@@ -394,6 +394,12 @@ def respond(c, actor, batch_id, kind, text="", n=None, decision=None, heard="", 
             if (task and H.is_human(task.get("owner")) and H.is_bot(task.get("requester"))
                     and task["status"] not in ("done", "declined")):
                 raise Problem("decision", "Tell the requesting bot what you decided or completed", 422)
+        settles = decision in ("approve", "decline", "done", "close")
+        if settles and item["key"].startswith("task:") and item["kind"] != "waiting":
+            task = H.task(c, item["key"].split(":", 1)[1])
+            if task and H.steps_only(c, task):
+                raise Problem("decision", f"{item['title']} is finished only by moving it to a step on its board; "
+                              "instruct its bot or move it in Tico", 422)
         response["decision"] = decision
     elif kind in ("needs_info", "instruct", "rule") and not text:
         raise Problem("text", f"A {kind.replace('_', ' ')} response needs the text", 422)
