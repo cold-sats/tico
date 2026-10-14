@@ -8,6 +8,10 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Muse Wonder and Muse Wonder Full** (`muse-wonder-1.0`, `muse-wonder-full-1.0`) in Muse Code's model list, effort low to
+  max, high by default.
+
+### Added
 - **A bot whose plan runs out keeps working on another provider.** When a turn hits a usage or spend limit and the bot
   names no fallback of its own, the runner runs that turn once on another of the company's providers that is signed in on the
   same computer (Codex when Claude is limited, and the reverse), with that provider's default model. A bot with its own fallback

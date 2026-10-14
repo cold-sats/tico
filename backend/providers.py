@@ -108,9 +108,14 @@ MODEL_CATALOG = tuple(attach_harnesses(row) for row in (
     # Cursor picks the model itself on `auto`; any other model it offers is named in the bot's config.
     {"id": "cursor-auto", "label": "cursor auto", "runtime": "cursor", "provider": "cursor",
      "recommended": True, "efforts": ("as-configured",), "default_effort": "as-configured"},
-    # Muse Code's own catalog (strings in the 1.4.7 binary; `muse model-profile show <id>` resolves it).
+    # Muse Code's catalog. Ids are what Meta's service accepts (a real `muse exec` turn per id, 1.4.8, 2026-10-14);
+    # `muse model-profile show` resolves any name, so it is no check.
     {"id": "muse-spark-1.3", "label": "muse spark 1.3", "runtime": "musecode", "provider": "meta",
      "recommended": True, "efforts": ("low", "medium", "high", "xhigh", "max"), "default_effort": "medium"},
+    {"id": "muse-wonder-1.0", "label": "muse wonder 1.0", "runtime": "musecode", "provider": "meta",
+     "efforts": ("low", "medium", "high", "xhigh", "max"), "default_effort": "high"},
+    {"id": "muse-wonder-full-1.0", "label": "muse wonder full 1.0", "runtime": "musecode", "provider": "meta",
+     "efforts": ("low", "medium", "high", "xhigh", "max"), "default_effort": "high"},
     # Models with no CLI of their own run on pi through OpenRouter (runner/hosts/pi.py maps each
     # id here to its OpenRouter id). The `openrouter` provider serves all of them.
     {"id": "deepseek-v4.1-flash", "label": "deepseek v4.1 flash", "runtime": "pi",

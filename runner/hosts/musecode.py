@@ -44,7 +44,7 @@ from .base import HUB_MCP_ENV, Host, HostError, hub_mcp_server, is_limit
 EXECUTABLE = "muse"
 # Catalog id -> the CLI's own model id. Anything else is passed through, so a model Meta adds works
 # without a change here.
-MODELS = {"muse-spark-1.3": "muse-spark-1.3"}
+MODELS = {m: m for m in ("muse-spark-1.3", "muse-wonder-1.0", "muse-wonder-full-1.0")}
 DEFAULT_MODEL = "muse-spark-1.3"
 EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra")
 DEFAULT_EFFORT = "medium"

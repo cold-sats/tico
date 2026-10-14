@@ -180,7 +180,7 @@ class Readiness(unittest.TestCase):
     def test_signed_out_is_missing_and_a_login_file_or_key_is_ready(self):
         row = self.runner.runtime_readiness("musecode", [])
         self.assertEqual((row["authenticated"], row["detail"]), ("missing", "Muse sign-in required (sign in from Tico) or META_API_KEY"))
-        self.assertEqual(row["models"], ["muse-spark-1.3"])
+        self.assertEqual(row["models"], ["muse-spark-1.3", "muse-wonder-1.0", "muse-wonder-full-1.0"])
         operator = self.home / ".config" / "muse" / "auth.json"      # the operator's own login is not the bots'
         operator.parent.mkdir(parents=True)
         operator.write_text("{}")
