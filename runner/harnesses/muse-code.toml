@@ -33,3 +33,7 @@ api_key_env = ["META_API_KEY"]
 [login]
 command = ["login"]
 terminal = true
+
+# The launcher updates itself on every run unless this is set; the runner updates the harness itself.
+[env]
+MUSE_NO_AUTO_UPDATE = "1"

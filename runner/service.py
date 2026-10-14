@@ -876,6 +876,17 @@ class Runner:
                           if row["bot"] == bot), None)
         return profiles.select(self.config, bot, requested)
 
+    def muse_config_home(self, profile=None):
+        """Muse Code's XDG_CONFIG_HOME for bot turns, sign-in and readiness: a subscription profile's own
+        folder, else the runner's. Never the operator's ~/.config, whose Muse MCP servers would load in every
+        bot turn (runner/hosts/musecode.py)."""
+        home = profile.home("musecode") if profile else None
+        if home:
+            return Path(home)
+        # `doctor` builds a Runner without __init__, so without host_state.
+        state = self.__dict__.get("host_state") or isolation.bot_state(self.state.directory)
+        return Path(state) / "musecode" / "config"
+
     def subscription_problem(self, name, signed_out=False, computer=None):
         label = (computer or self.config.get("label") or next((row.get("computer_label") for row in
                  getattr(self, "assignments_seen", []) if row.get("computer_label")), None) or "this computer")
@@ -1467,6 +1478,13 @@ class Runner:
         # the host process and the turn's shell commands get.
         if profile:
             env = profile.environment((attempt.get("config") or {}).get("runtime") or "", env)
+        bot_config = attempt.get("config") or {}
+        if "musecode" in (bot_config.get("runtime"), (configured_fallback(bot_config) or {}).get("runtime")):
+            # Muse reads META_API_KEY from its environment only. A key on this computer (the runner's environment,
+            # `_shared.env` or the company's) reports Muse ready, so it reaches the turn unless a grant set one.
+            name, key = self.headless_secret("musecode") if profile is None or profile.share_operator else ("", "")
+            if key and not env.get(name):
+                env[name] = key
         env.update({"HUB_API_URL": self.config["url"], "HUB_TOKEN": attempt["token"],
                     "HUB_BOT": attempt["bot"], "HUB_EMPLOYEE": attempt["bot"],
                     "HUB_TASK_ID": str((attempt.get("task") or {}).get("id") or ""), "HUB_DIR": str(ROOT),
@@ -1568,6 +1586,11 @@ class Runner:
                     except (subprocess.TimeoutExpired, OSError, ValueError, AttributeError):
                         pass
                 runtimes[runtime] = {"signed_in": False if self.rejection(runtime, name) else signed}
+            try:
+                signed = (self.muse_config_home(profile) / "muse" / "auth.json").is_file()
+            except OSError:
+                signed = None
+            runtimes["musecode"] = {"signed_in": False if self.rejection("musecode", name) else signed}
             result.append({"name": name, "runtimes": runtimes})
             if len(result) == 100:
                 break
@@ -1583,12 +1606,14 @@ class Runner:
         home = Path.home()
         files = [Path(os.environ.get("CODEX_HOME") or home / ".codex") / "auth.json", home / ".claude.json",
                  home / ".claude" / ".credentials.json", *sorted((Path(self.config["projects_dir"]) / "secrets").glob("*.env"))]
+        files.append(self.muse_config_home() / "muse" / "auth.json")
         selected = (profile if isinstance(profile, profiles.Profile) else
                     profiles.select(self.config, requested=profile) if profile else None)
         if selected:
             seen.append((str(selected.directory), selected.share_operator))
             files = [selected.directory / "codex" / "auth.json", selected.directory / "claude" / ".claude.json",
-                     selected.directory / "claude" / ".claude" / ".credentials.json"]
+                     selected.directory / "claude" / ".claude" / ".credentials.json",
+                     selected.directory / "musecode" / "muse" / "auth.json"]
         for path in files:
             try:
                 stat = path.stat()
@@ -1985,21 +2010,24 @@ class Runner:
         elif runtime == "musecode":
             # Muse Code keeps a Meta-account login in auth.json (`muse login`) and has no status command, so
             # the file's presence is the sign-in. Its contents are never read. META_API_KEY wins over it.
-            env = {**(env or os.environ), **MUSE_QUIET}
+            # Turns run on Tico's own Muse folder (muse_config_home), so that is where the login is looked for.
+            env = {**(env or os.environ), **MUSE_QUIET, "XDG_CONFIG_HOME": str(self.muse_config_home(profile))}
+            env.pop("MUSE_AUTH_PATH", None)
+            shared_key = profile is None or profile.share_operator
             if profile is None:
                 self.team_model_keys("musecode")
             try:
                 signed = muse_auth_file(env).is_file()
             except OSError:           # the bot user's 0700 config folder: not "signed out", and never a failed heartbeat
                 signed = None
-            if self.headless_login("musecode"):
+            if shared_key and self.headless_login("musecode"):
                 authenticated, detail = "ready", "Signed in with META_API_KEY"
             elif signed:
                 authenticated, detail = "ready", "Signed in with a Meta account"
             elif signed is None:
                 authenticated, detail = "failed", "Muse sign-in could not be checked (its config folder is not readable)"
             else:
-                authenticated, detail = "missing", "Muse login required (muse login) or META_API_KEY"
+                authenticated, detail = "missing", "Muse sign-in required (sign in from Tico) or META_API_KEY"
         elif runtime == "pi":
             relevant = [row for row in assignments if row.get("config", {}).get("runtime") == "pi"]
             missing = sorted(row["bot"] for row in relevant
@@ -2163,7 +2191,8 @@ class Runner:
             return CursorHost(bot=attempt["bot"])
         if runtime == "musecode":
             from .hosts.musecode import MuseCodeHost
-            return MuseCodeHost(bot=attempt["bot"], state_dir=self.host_state / "musecode")
+            return MuseCodeHost(bot=attempt["bot"], state_dir=self.host_state / "musecode",
+                                config_home=self.muse_config_home(profile))
         raise RuntimeError(NO_RUNTIME if not runtime else f"Unsupported local runtime: {runtime}")
 
     def prompt(self, attempt, after=None, *, resumed=False):
@@ -3335,8 +3364,10 @@ class Runner:
             self.assignments_seen = assignments
         else:
             repository_rows, assignments = None, self.assignments_seen
-        # Install on demand: what this computer's bots run on, plus what the owner turned on here.
-        self.tools.want(self.harness_runtimes(assignments, fetch=full))
+        # Install on demand: what this computer's bots run on, plus what the owner turned on here. Until one full read,
+        # assignments_seen is only the empty start value, so nothing is removed yet (harness_tools turned_off).
+        if full or self.tools.loaded:
+            self.want_harnesses(assignments, fetch=full)
         candidates = self.readiness_candidates(assignments)
         runtimes = self.runtime_report(candidates)
         self.runtime_rows = runtimes
@@ -3783,16 +3814,21 @@ class Runner:
             return ""
         return f"{manifest.name} is installing"
 
-    def harness_runtimes(self, assignments, fetch=True):
-        """The runtimes this computer installs a harness for: each assigned bot's, and its fallback's. A computer with
-        no bots yet takes the company's default, so it can be signed in before its first bot arrives."""
+    def harness_runtimes(self, assignments):
+        """The runtimes this computer's bots run on: each assigned bot's, and its fallback's."""
         found = set()
         for row in assignments or ():
             config = row.get("config") or {}
             found |= {config.get("runtime"), (configured_fallback(config) or {}).get("runtime")}
         found.discard(None)
         found.discard("")
-        return found or ({self.default_runtime(fetch)} - {""})
+        return found
+
+    def want_harnesses(self, assignments, fetch=True):
+        """Install what this computer's bots run on. A computer with no bots yet takes the company's default, so it
+        can be signed in before its first bot arrives; the owner's "off" for it here wins over that default."""
+        runtimes = self.harness_runtimes(assignments)
+        return self.tools.want(runtimes, default=() if runtimes else {self.default_runtime(fetch)} - {""})
 
     def default_runtime(self, fetch=True):
         """The company's default runtime, from the server; the last answer when it cannot be reached or was not

@@ -130,6 +130,16 @@ class RunnerHarnesses(unittest.TestCase):
         self.maintain(runner)
         self.assertEqual(runner.tools.wanted, {"codex"})
 
+    def test_off_wins_over_the_no_bot_default_but_never_over_a_bots_harness(self):
+        runner = self.runner(Client(providers=["openai"], choices={"codex": False}, default="codex"))
+        self.maintain(runner)
+        self.drain(runner)
+        self.assertEqual(runner.tools.wanted, set())
+        runner.client.assignments = [{"bot": "coo", "config": {"runtime": "codex"}}]
+        self.maintain(runner)
+        self.assertEqual(runner.tools.wanted, {"codex"})
+        self.assertFalse(runner.tools.turned_off("codex"))
+
     @pytest.mark.slow
     def test_an_update_waits_for_the_running_turn_then_goes_in_between_turns(self):
         runner = self.runner(Client(providers=["openai"]))
