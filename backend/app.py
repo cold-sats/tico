@@ -820,6 +820,8 @@ def create_app(settings=None):
                 value.update(routine_id=routine['schedule_id'])
             asks = H.open_task_asks(c, row, actor=privacy.actor(who))
             value.update({"origin_actor": H.task_origin(c, row), "ask": next(iter(asks), None), "open_asks": len(asks)})
+            if who is not None and visible_sql != "1":
+                value["from_person"] = views.person_origin(c, row, visible_sql, who.actor)
             from .task_review import task_covers
             value["cover"] = task_covers(c, [row["id"]]).get(row["id"])
             from .blobs import brief
@@ -931,6 +933,7 @@ def create_app(settings=None):
                 value["origin_actor"] = H.task_origin(c, row)
             else:
                 value["origin_actor"] = None
+            value["from_person"] = views.person_origin(c, row, visible_sql, who.actor)
             result.append(value)
         return result
 

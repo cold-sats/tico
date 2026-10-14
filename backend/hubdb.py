@@ -954,6 +954,8 @@ def migrate(conn, adopt_legacy=False):
     add_column(conn, "tasks", "snoozed_until", "TEXT")
     add_column(conn, "tasks", "snoozed_by", "TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS tasks_snoozed ON tasks(snoozed_until) WHERE snoozed_until IS NOT NULL")
+    # A type whose tasks change status only by moving between its steps (`_task_state`).
+    add_column(conn, "task_types", "steps_only", "INTEGER NOT NULL DEFAULT 0")
     # A person's open asks, read on every Needs-you load (loose_asks_to).
     conn.execute("CREATE INDEX IF NOT EXISTS messages_open_asks_to ON messages(to_actor, created) "
                  "WHERE kind='ask' AND answered_by IS NULL AND deleted_at IS NULL")
@@ -2242,6 +2244,7 @@ def type_get(conn, value):
                (value, value, value))
     if row:
         row["numbered"] = bool(row.get("numbered"))
+        row["steps_only"] = bool(row.get("steps_only"))
         row["steps"] = _rows(conn.execute("SELECT * FROM task_steps WHERE type_id=? ORDER BY position,id", (row["id"],)))
     return row
 
@@ -2251,6 +2254,7 @@ def type_list(conn):
     steps = _rows(conn.execute("SELECT * FROM task_steps ORDER BY position,id"))
     for row in rows:
         row["numbered"] = bool(row.get("numbered"))
+        row["steps_only"] = bool(row.get("steps_only"))
         row["steps"] = [step for step in steps if step["type_id"] == row["id"]]
     return rows
 
@@ -2461,20 +2465,20 @@ def _type_steps(conn, actor, type_id, steps):
                      "name=excluded.name,position=excluded.position,status=excluded.status", row)
 
 
-def type_create(conn, actor, name, steps=(), mover=None, bots=None, numbered=False):
+def type_create(conn, actor, name, steps=(), mover=None, bots=None, numbered=False, steps_only=False):
     _type_writer(conn, actor, mover)
     name = _type_name(conn, actor, name)
     bots = _type_bots(conn, actor, bots)
     ident, ts = new_id(), now()
-    conn.execute("INSERT INTO task_types(id,name,bots,numbered,created,updated) VALUES(?,?,?,?,?,?)",
-                 (ident, name, bots, int(bool(numbered)), ts, ts))
+    conn.execute("INSERT INTO task_types(id,name,bots,numbered,steps_only,created,updated) VALUES(?,?,?,?,?,?,?)",
+                 (ident, name, bots, int(bool(numbered)), int(bool(steps_only)), ts, ts))
     _type_steps(conn, actor, ident, steps)
     row = type_get(conn, ident)
     event(conn, actor, "task_type.create", ident, row)
     return row
 
 
-def type_update(conn, actor, type_id, name=None, steps=None, mover=None, bots=None, numbered=None):
+def type_update(conn, actor, type_id, name=None, steps=None, mover=None, bots=None, numbered=None, steps_only=None):
     _type_writer(conn, actor, mover)
     row = type_get(conn, type_id)
     if not row:
@@ -2486,6 +2490,8 @@ def type_update(conn, actor, type_id, name=None, steps=None, mover=None, bots=No
         conn.execute("UPDATE task_types SET name=? WHERE id=?", (name, row["id"]))
     if numbered is not None:
         conn.execute("UPDATE task_types SET numbered=? WHERE id=?", (int(bool(numbered)), row["id"]))
+    if steps_only is not None:
+        conn.execute("UPDATE task_types SET steps_only=? WHERE id=?", (int(bool(steps_only)), row["id"]))
     if steps is not None:
         _type_steps(conn, actor, row["id"], steps)
     if bots is not None:
@@ -2531,7 +2537,27 @@ def _task_state(conn, actor, row, status=None, type=None, step=None):
         chosen = next((s for s in typ["steps"] if s["status"] == effective), None)
     if effective not in TASK_STATUSES:
         refuse(conn, actor, "kind", f"A status is {'|'.join(TASK_STATUSES)}, not {effective}")
+    # On a steps-only type a task is finished or brought back only by a step move: a bare close, decline,
+    # done or reopen would land it in whichever step shares that status. Working statuses (an ask's
+    # waiting, a turn's doing) still change, as do filing onto the type and the keeper's own automation.
+    if (typ.get("steps_only") and step is None and actor != KEEPER and row.get("status")
+            and typ["id"] == (row.get("type_id") or GENERAL_TYPE) and effective != row["status"]
+            and not (effective in ACTIVE_STATUSES and row["status"] in ACTIVE_STATUSES)):
+        # Naming the task keeps a bot's refusals on different tickets distinct, so working a board is not
+        # counted as retrying one refused write (rule 8); a retry on the same task still is.
+        which = f"#{row['number']}" if row.get("number") else f'"{_clip(row.get("title") or "", 80)}"'
+        steps = ", ".join(s["name"] for s in typ["steps"])
+        refuse(conn, actor, "kind", f"{which} is a {typ['name']} task: it changes status only by moving it to a step "
+                                    f"({steps}), not by closing, declining, reopening or finishing it; move it, or delete it",
+               context={"what": f"task {row.get('id')}"})
     return typ["id"], chosen["id"] if chosen else None, effective
+
+
+def steps_only(conn, row):
+    """The step names of the task's type when it finishes and reopens its tasks only by a step move
+    (`_task_state`), else an empty list."""
+    typ = type_get(conn, row.get("type_id") or GENERAL_TYPE) or {}
+    return [s["name"] for s in typ["steps"]] if typ.get("steps_only") else []
 
 
 def _set_status(conn, actor, row, status=None, type=None, step=None, note=""):
@@ -4305,7 +4331,7 @@ def sweep_stranded(conn, at=None, grace_hours=STRANDED_GRACE_HOURS):
                 # Setting it open is what wakes the owner ("Open: <title>"); the note says why.
                 task_update(conn, KEEPER, row["id"], status="open",
                             note="Back to open: it was waiting, but no question, child task, blocker or "
-                                 "approval is outstanding. Continue it, ask, or mark it done or declined.")
+                                 "approval is outstanding. Continue it, ask, or finish it.")
                 moved.append((row["id"], "open"))
     return moved
 

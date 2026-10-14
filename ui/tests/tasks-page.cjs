@@ -709,9 +709,9 @@ async function properties(browser) {
   await menu.locator('[data-prop-pick="ready"]').click();
   await page.waitForFunction(() => document.querySelector('#task-peek [data-props-msg]')?.textContent === 'Changed elsewhere. Showing the latest.');
   assert.match(await props.locator('[data-prop="status"]').innerText(), /Doing/);
-  // The "…" menu holds Close (and Copy link, Add subtask).
+  // The "…" menu holds Close and Delete (and Copy link, Snooze).
   await peek.locator('[data-task-more]').click();
-  assert.deepEqual(await menu.locator('.tl-mi').allInnerTexts(), ['Open full', 'Copy link', 'Snooze…', 'Close task'], 'Add subtask is the rail\'s own field here');
+  assert.deepEqual(await menu.locator('.tl-mi').allInnerTexts(), ['Open full', 'Copy link', 'Snooze…', 'Close task', 'Delete task'], 'Add subtask is the rail\'s own field here');
   await menu.locator('.tl-mi', {hasText: 'Copy link'}).click();
   assert.match(await page.evaluate(() => window.copied), /#\/task\/t-checkout$/);
   // The full task: properties at the top of the side column, then Code, then Subtasks.

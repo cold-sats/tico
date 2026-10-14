@@ -90,6 +90,13 @@ about. Only the bot that owns the task names the person, and a private task can 
 Bot tasks that were waiting on a person before this rule are moved to it within the hour when their note is a plain
 ask; the rest stay last in the person's Needs you while their bot is asked once to restate the ask.
 
+Needs you, Decide and the Assistant's lineup put work that traces back to a person first: a
+person requested the task, or it sits under a task a person requested (only tasks the viewer may
+open count). A person's own to-do does not lift itself. A bot's own work follows unless it is due
+within a day, overdue, or has waited three days (one day for an approval or a question). A card
+still waiting for its bot to explain stays last. Decide shows "From <name>" on such a card; the
+item's `from_person` and `pressing` fields carry the same facts.
+
 A bot may do this for its own task, including a task it requested itself. The blocker must exist
 and be accessible; a finished blocker does not justify waiting. An unanswered question, an open
 child task, a pending approval or a person named with `--on` can also justify waiting. Finishing a blocker clears the dependency
@@ -176,9 +183,10 @@ the requester or an authorized human accepts the result or cancels the task. Clo
 work does not mark it Done. Both statuses appear in the **Done** view; the task history keeps
 the separate completion and closing events.
 
-A person finishes a bot's request in one tap: **Done** asks nothing. A comment typed in the
-task's comment box (or the note box on a Decide card) and not yet sent goes with Done as the
-outcome. Done on several selected tasks at once sends no comment: an unsent one stays in its
+A person finishes a bot's request in one tap: **Done** asks nothing. A comment typed in the box
+where you press Done (the task's comment box, the note box on a Decide card or the reply box on a
+Needs you card) and not yet sent goes with Done as the outcome; a card's Done never takes one left
+in the task window. Done on several selected tasks at once sends no comment: an unsent one stays in its
 task's box. The bot that asked is told either way, as *<name> marked this done: <title>*, with the
 comment on the next line when there is one. When a bot needs a specific answer it asks a yes/no
 or choice question instead.
@@ -231,6 +239,16 @@ The digits alone are not read as a number, since a cut-short id can look the sam
 
 Numbers range from 1 to 999999999; an exhausted sequence refuses a new number without creating a task.
 
+A mover can also make a custom type **steps only**: its tasks are finished or brought back only by
+moving to a step. Closing, declining, reopening or finishing one directly (`close`, or a `status`
+without a `step` that enters or leaves done, closed or declined) is refused (`422 kind`) for every
+person and bot, and the task window offers no Done, Close or Reopen on them. A task that should not
+be on the board is deleted instead. Working statuses still change without a step (a bot's ask sets
+waiting), and filing a task onto the type and the keeper's own automation are unaffected. Such tasks
+are not asked "Still wanted?", their goal asks the bot to move them to a step and a met goal does not finish them, and Needs you says to move them
+rather than marking them done or closed. Without it, a bare status lands the task in the first step
+with that status, which on a board is rarely the one anyone meant.
+
 A task also has a place within its step, `step_rank`, lower first, apart from `rank`, its place in
 its owner's queue. A task that enters a step, when it is created or its step, type or status
 changes, goes to the end of the step, or to the top when it is created with `top`. The people on
@@ -247,7 +265,7 @@ hub task update <task-id> --title "(B/F) Account page: improve the copy"
 hub task update <task-id> --status review
 hub task update <task-id> --type General
 hub task update <task-id> --step ""
-hub task type update "Dev ticket" --numbered
+hub task type update "Dev ticket" --numbered --steps-only
 hub task create --owner ben --title "(B/F) Fix the account page" --type "Dev ticket" --number 18945
 hub task show '#18945'
 hub task update '#18945' --step "On deck" --step-rank 2.5
@@ -257,7 +275,7 @@ hub task list --type "Dev ticket" --sort step
 `hub_task_types` lists types and ordered steps. `hub_task_create` and `hub_task_update` accept
 `type` and `step`, as ids or names, and `number`; `hub_task_update` also takes `step_rank` and `title`, and
 `hub_task_list` takes `type`, `step` and `sort`. Movers manage definitions with `hub_task_type_create`,
-`hub_task_type_update` and `hub_task_type_delete` (with `numbered`), or `hub task type create|update|delete`.
+`hub_task_type_update` and `hub_task_type_delete` (with `numbered` and `steps_only`), or `hub task type create|update|delete`.
 
 For example, put this JSON array in `steps.json`:
 
@@ -274,7 +292,7 @@ explicit positions are provided. Omitted steps are removed; new steps omit `id`.
 
 `GET/POST /api/v2/task-types` list and create types. `GET/POST /api/v2/task-types/{id}` read and
 update one. `DELETE /api/v2/task-types/{id}`, or `POST /api/v2/task-types/{id}/delete`, deletes an
-unused type. Create and update accept `numbered`; updates accept `name` and a replacement `steps`
+unused type. Create and update accept `numbered` and `steps_only`; updates accept `name` and a replacement `steps`
 array, retaining existing step ids. All writes use the existing Idempotency-Key contract. Task
 create and update accept `type`, `step` and `number`, and update accepts `step_rank` and `title`; task answers
 include `type_id`, `step_id`, a `type` object, a `step` object (null when unmapped), `number` and
