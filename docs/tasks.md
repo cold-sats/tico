@@ -91,10 +91,11 @@ Bot tasks that were waiting on a person before this rule are moved to it within 
 ask; the rest stay last in the person's Needs you while their bot is asked once to restate the ask.
 
 Needs you, Decide and the Assistant's lineup put work that traces back to a person first: a
-person requested the task, or it sits under a task a person requested (only tasks the viewer can
-read count). A bot's own work follows unless it is due within a day, overdue, or has waited three
-days. Decide shows "From <name>" on such a card; the item's `from_person` and `pressing` fields
-carry the same facts.
+person requested the task, or it sits under a task a person requested (only tasks the viewer may
+open count). A person's own to-do does not lift itself. A bot's own work follows unless it is due
+within a day, overdue, or has waited three days (one day for an approval or a question). A card
+still waiting for its bot to explain stays last. Decide shows "From <name>" on such a card; the
+item's `from_person` and `pressing` fields carry the same facts.
 
 A bot may do this for its own task, including a task it requested itself. The blocker must exist
 and be accessible; a finished blocker does not justify waiting. An unanswered question, an open
