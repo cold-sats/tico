@@ -12,6 +12,9 @@ All notable changes to Tico are recorded here. The format follows
 - **Attachments can be allowed for one mailbox.** `mailboxes.<address>.allow_attachments: true` in `registry/mail-policy.yaml` lets bots attach files to drafts from that mailbox only (Legal's, say) while `defaults.allow_attachments` stays off for the rest; `false` turns one off when the default is on. `mail draft discard <draft-id>` removes an unsent draft the bot made (the older `mail discard` still works). See [Mail](docs/mail.md).
 
 ### Changed
+- A bot's turn loads only the `hub` MCP server, its declared servers and its repository's `.mcp.json`: Claude Code bots on
+  the operator's own login no longer get the operator's personal servers or claude.ai connectors, and Grok skips the ones it
+  borrows from Claude and Cursor. `personal_mcp: true` in `bot.yaml` keeps them for the operator's own non-shared bot.
 - **Approvals nobody will act on leave Needs you.** An undecided approval is withdrawn (a new decision, `withdrawn`)
   when its task is closed, declined or marked done, when its bot asks again for the same thing (`hub approval request
   --supersedes <id>`, `supersedes_approval` on the API and `hub_approval_request`, or the same task and the same url,
