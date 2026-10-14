@@ -128,13 +128,15 @@ def relevant(c, actor, items):
             kids = _children(c, it["id"], actor)
             if kids:
                 for kid in kids:
-                    # Its person: its own requester, else the parent's, worked out under the reader's rule.
+                    # Its person, as needs-you has it: its own requester when a person (the viewer's own to-do counts
+                    # for nobody), else the parent's, which needs-you worked out under the reader's rule.
+                    own = kid["requester"] if H.is_human(kid["requester"]) else None
                     kid = {**kid, "kind": "task", "ask": H.unanswered_ask(c, kid, actor=actor), "origin_actor": H.task_origin(c, kid),
-                           "first_line": (kid.get("body") or "").split("\n")[0], "from_person": (kid["requester"] if H.is_human(kid["requester"]) and kid["requester"] != actor
-                                           else it.get("from_person"))}
-                    kid["pressing"] = pressing(kid)
+                           "first_line": (kid.get("body") or "").split("\n")[0],
+                           "from_person": None if own == actor else own or it.get("from_person")}
                     if kid["ask"]:
                         kid["kind"] = "question"
+                    kid["pressing"] = pressing(kid)
                     row = _row(kid, actor)
                     if row["key"] not in seen and row["key"] not in snoozed:
                         seen.add(row["key"]); out.append(row)
