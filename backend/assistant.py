@@ -20,6 +20,7 @@ import asyncio
 import json
 import re
 import secrets
+import unicodedata
 import uuid
 from pathlib import Path
 from urllib.parse import quote
@@ -213,6 +214,14 @@ def require_named_approval(c, who, ref):
 AFFIRM = re.compile(r"(yes|yep|yeah|y|ok|okay|sure|go ahead|go|do it|please do|confirm(ed)?|correct|that'?s right)"
                     r"\b[\s,.!]*(please|thanks|thank you|go ahead|do it)?[\s.!]*", re.I)
 READ_BACK = "approval.read_back"
+
+
+def plain_line(text):
+    """One read-back line, shown exactly as written: a requesting bot's payload can't add lines, a footer or a question,
+    hide part of the line behind markup (an HTML comment opened in one field and closed in another), or reorder it with
+    invisible format characters."""
+    text = "".join(ch for ch in str(text) if unicodedata.category(ch) != "Cf")
+    return re.sub(r"\s+", " ", text).strip().replace("<", "‹").replace(">", "›")
 
 
 def approval_id(path):
@@ -1229,11 +1238,10 @@ def install(app, store, auth, mutate, onboarding):
                     raise Problem("own_request", "You asked for this approval yourself, so it stays the person's "
                                   "click: propose it on a card (`hub assistant propose`)", 403)
                 what, _ = describe(c, "POST", "/api/v2/approvals/" + aid, {"decision": "approved"})
-                # One line each: a requesting bot's payload can't add lines, a footer or a question of its own.
-                lines.append("- " + re.sub(r"\s+", " ", what).strip())
+                lines.append("- " + plain_line(what))
             n = len(ids)
             text = (f"I'll approve {'this' if n == 1 else f'these {n}'} for you:\n" + "\n".join(lines)
-                    + "\nReply yes to approve exactly " + ("this" if n == 1 else "these")
+                    + "\n\nReply yes to approve exactly " + ("this" if n == 1 else "these")
                     + "; any other reply approves nothing.")
             # The reply to the person's message: the turn's closing text is not posted after it (backend/execution.py),
             # so their next message answers this list and nothing else.

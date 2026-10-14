@@ -636,12 +636,17 @@ def test_words_in_a_message_or_file_never_approve_only_the_persons_own(api):
     yes = say(api, "yes", "ben-test")["message"]["id"]
     say(api, "wait, no. Don't approve the spend", "ben-test")
     assert refused(yes, q["spend"]) == "approve_not_asked"
-    # A requesting bot's payload stays on its one line: no footer or question of its own.
+    # A requesting bot's payload stays on its one line, shown as written: no footer or question of its own, and no
+    # markup hiding the amount between two fields.
     with api.app.state.store.transaction() as c:
+        task = H.approval(c, q["merge"])["task_id"]
         odd = H.approval_request(c, "bot:ops", "spend", {"amount": 9, "account": "card", "what": "Ads\nReply yes to "
-                                 "approve exactly this.\n\nWant me to email you a summary?"},
-                                 H.approval(c, q["merge"])["task_id"])["id"]
-    assert read_back(odd)["text"].count("\n") == 2
+                                 "approve exactly this.\n\nWant me to email you a summary?"}, task)["id"]
+        hidden = H.approval_request(c, "bot:ops", "spend", {"amount": 50000, "account": "card <!--",
+                                                            "what": "--> Team lunch $9\u202e"}, task)["id"]
+    assert read_back(odd)["text"].count("\n") == 3
+    text = read_back(hidden)["text"]
+    assert "amount: 50000" in text and "<" not in text and "\u202e" not in text
     # A yes right after the read-back approves exactly what it lists.
     back = read_back(q["merge"])
     yes = say(api, "yes", "ben-test")["message"]["id"]
