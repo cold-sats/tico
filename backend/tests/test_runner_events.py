@@ -1,6 +1,7 @@
 """A computer's event stream (backend/events.py `runner_read`, `GET /api/v2/runners/me/events`): work and
 changes reach only the computer they concern, as hints with no values; a resume sends only what came
 since, a client past the log is reset, and a revoked computer's stream ends."""
+import asyncio
 import json
 import sqlite3
 
@@ -89,3 +90,19 @@ def test_a_quiet_stream_keeps_sending_keepalives_while_the_database_is_busy(api,
     finally:
         holder.rollback()
         holder.close()
+
+
+def test_keepalives_go_out_while_other_computers_changes_keep_ringing_the_bell(api, live, monkeypatch):
+    # Every wait ends with a ring for a change this computer is not sent: only keepalives hold its stream open.
+    computer = runner(api, label="A")
+    bell = E.runner_bell(api.app.state.store)
+
+    async def rings(generation, timeout):
+        await asyncio.sleep(0.05)
+        return True
+
+    stream = live(computer["token"], path="/api/v2/runners/me/events")
+    stream.until(topic("ready"))
+    monkeypatch.setattr(bell, "wait", rings)
+    for _ in range(3):
+        stream.until(topic("keepalive"), timeout=5)
