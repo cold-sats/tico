@@ -4,8 +4,10 @@
 //! delta {text}, message {text, final}, turn_completed {status}, turn_failed {error, limit, auth_retry},
 //! status {state}, tokens {input, output, total, usage{input, cached, output}}, rate_limits, error, diagnostic.
 
+pub mod antigravity;
 pub mod claude;
 pub mod codex;
+pub mod gemini;
 
 use std::sync::OnceLock;
 
@@ -123,7 +125,7 @@ const HUB_MCP_ENV: &[&str] = &["HUB_API_URL", "HUB_TOKEN", "HUB_BOT", "HUB_EMPLO
 
 /// The hub as a stdio MCP server for one turn (`hub_mcp_server`), or None outside a turn.
 pub fn hub_mcp_server(env: &Env) -> Option<Value> {
-    if env.get("HUB_API_URL").map_or(true, |v| v.is_empty()) || env.get("HUB_TOKEN").map_or(true, |v| v.is_empty()) {
+    if env.get("HUB_API_URL").is_none_or(|v| v.is_empty()) || env.get("HUB_TOKEN").is_none_or(|v| v.is_empty()) {
         return None;
     }
     let mut vars = Map::new();
@@ -210,11 +212,14 @@ pub fn return_code(status: &std::io::Result<std::process::ExitStatus>) -> i32 {
     }
 }
 
-/// The two runtimes this runner runs.
+/// The runtimes this runner runs.
 #[derive(Clone)]
 pub enum Host {
     Claude(claude::ClaudeHost),
     Codex(codex::CodexHost),
+    Gemini(gemini::GeminiHost),
+    /// The gemini runtime's Antigravity harness, kept warm between turns (crate::warm).
+    Antigravity(antigravity::AntigravityHost),
 }
 
 impl Host {
@@ -222,6 +227,11 @@ impl Host {
         match self {
             Host::Claude(h) => h.start().await,
             Host::Codex(h) => h.start().await,
+            Host::Gemini(h) => {
+                h.start();
+                Ok(())
+            }
+            Host::Antigravity(h) => h.start(),
         }
     }
 
@@ -229,6 +239,8 @@ impl Host {
         match self {
             Host::Claude(h) => h.stop().await,
             Host::Codex(h) => h.stop().await,
+            Host::Gemini(h) => h.stop().await,
+            Host::Antigravity(h) => h.stop().await,
         }
     }
 
@@ -236,6 +248,8 @@ impl Host {
         match self {
             Host::Claude(h) => h.alive(),
             Host::Codex(h) => h.alive(),
+            Host::Gemini(h) => h.alive(),
+            Host::Antigravity(h) => h.alive(),
         }
     }
 
@@ -243,6 +257,7 @@ impl Host {
         match self {
             Host::Claude(h) => h.supports_steer(),
             Host::Codex(_) => true,
+            Host::Gemini(_) | Host::Antigravity(_) => false,
         }
     }
 
@@ -250,6 +265,8 @@ impl Host {
         match self {
             Host::Claude(h) => Ok(h.start_thread(settings)),
             Host::Codex(h) => h.start_thread(bot, settings).await,
+            Host::Gemini(h) => Ok(h.start_thread(settings)),
+            Host::Antigravity(h) => Ok(h.start_thread(settings)),
         }
     }
 
@@ -257,6 +274,8 @@ impl Host {
         match self {
             Host::Claude(h) => Ok(h.resume_thread(thread_id, settings)),
             Host::Codex(h) => h.resume_thread(thread_id, settings).await,
+            Host::Gemini(h) => Ok(h.resume_thread(thread_id, settings)),
+            Host::Antigravity(h) => h.resume_thread(thread_id, settings),
         }
     }
 
@@ -264,6 +283,8 @@ impl Host {
         match self {
             Host::Claude(h) => h.start_turn(thread_id, text, effort),
             Host::Codex(h) => h.start_turn(thread_id, text, effort).await,
+            Host::Gemini(h) => h.start_turn(thread_id, text, effort),
+            Host::Antigravity(h) => h.start_turn(thread_id, text, effort),
         }
     }
 
@@ -271,6 +292,8 @@ impl Host {
         match self {
             Host::Claude(h) => h.steer(thread_id, turn_id, text),
             Host::Codex(h) => h.steer(thread_id, turn_id, text).await,
+            Host::Gemini(_) => Err(failed("Gemini runtime cannot steer a running turn")),
+            Host::Antigravity(h) => h.steer(),
         }
     }
 
@@ -281,13 +304,21 @@ impl Host {
                 Ok(())
             }
             Host::Codex(h) => h.interrupt(thread_id, turn_id).await,
+            Host::Gemini(h) => {
+                h.interrupt(turn_id);
+                Ok(())
+            }
+            Host::Antigravity(h) => {
+                h.interrupt().await;
+                Ok(())
+            }
         }
     }
 
     pub fn session_id(&self, thread_id: &str) -> String {
         match self {
             Host::Claude(h) => h.session_id(thread_id),
-            Host::Codex(_) => thread_id.to_string(),
+            Host::Codex(_) | Host::Gemini(_) | Host::Antigravity(_) => thread_id.to_string(),
         }
     }
 }

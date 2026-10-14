@@ -26,6 +26,7 @@ base64 = "0.22"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 toml = { version = "0.8", default-features = false, features = ["parse"] }
 url = "2"
+ring = "0.17"
 
 [dev-dependencies]
 

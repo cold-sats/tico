@@ -157,6 +157,7 @@ struct Shared {
 #[derive(Clone)]
 pub struct ClaudeHost(Arc<Shared>);
 
+#[allow(clippy::type_complexity)]
 fn cache() -> &'static Mutex<HashMap<(Vec<String>, &'static str), bool>> {
     static C: OnceLock<Mutex<HashMap<(Vec<String>, &'static str), bool>>> = OnceLock::new();
     C.get_or_init(|| Mutex::new(HashMap::new()))
@@ -298,7 +299,7 @@ impl ClaudeHost {
         if !t.settings.env.is_empty() {
             let mut env = t.settings.env.clone();
             // The login and the session files live under HOME; a trimmed environment must keep it.
-            if env.get("HOME").map_or(true, |h| h.is_empty()) {
+            if env.get("HOME").is_none_or(|h| h.is_empty()) {
                 if let Ok(home) = std::env::var("HOME") {
                     env.insert("HOME".into(), home);
                 }
@@ -665,7 +666,7 @@ impl ClaudeHost {
 
     pub fn interrupt(&self, _thread_id: &str, turn_id: &str) {
         let mut inner = self.inner();
-        if !inner.turn.as_ref().is_some_and(|(_, t)| t == turn_id) {
+        if inner.turn.as_ref().is_none_or(|(_, t)| t != turn_id) {
             return; // already over; nothing to stop
         }
         inner.interrupted.insert(turn_id.into());

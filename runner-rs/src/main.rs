@@ -18,6 +18,7 @@ mod safegit;
 mod signin;
 mod state;
 mod util;
+mod warm;
 
 use std::path::PathBuf;
 use std::sync::Arc;

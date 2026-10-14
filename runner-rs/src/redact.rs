@@ -79,7 +79,7 @@ struct Built {
 
 fn build(secrets: &[String]) -> Built {
     let mut vals: Vec<String> = values(secrets).into_iter().collect();
-    vals.sort_by(|a, b| b.len().cmp(&a.len()));
+    vals.sort_by_key(|b| std::cmp::Reverse(b.len()));
     let mut forms = BTreeSet::new();
     for v in &vals {
         forms.extend(variants(v));
@@ -452,6 +452,7 @@ pub fn for_turn(env: &[(String, String)], vault_values: &[String]) -> Option<Arc
     (!r.is_empty()).then(|| Arc::new(r))
 }
 
+#[allow(clippy::type_complexity)]
 fn active() -> &'static Mutex<Vec<(String, Arc<Redactor>)>> {
     static ACTIVE: OnceLock<Mutex<Vec<(String, Arc<Redactor>)>>> = OnceLock::new();
     ACTIVE.get_or_init(|| Mutex::new(Vec::new()))

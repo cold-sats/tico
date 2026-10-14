@@ -15,7 +15,7 @@ use tokio::sync::Notify;
 
 use crate::client::ApiError;
 use crate::env::{Env, EnvContext, Vault};
-use crate::hosts::{self, claude::ClaudeHost, codex::CodexHost, Host, HostError, Settings};
+use crate::hosts::{self, antigravity::AntigravityHost, claude::ClaudeHost, codex::CodexHost, gemini::GeminiHost, Host, HostError, Settings};
 use crate::redact::{self, Redactor};
 use crate::runner::{describe, Runner};
 use crate::util::{log, mark, text_of, truthy};
@@ -683,6 +683,9 @@ impl Runner {
         let renewer = tokio::spawn(self.clone().renew_loop(aid.clone(), flags.clone()));
         let streamer = tokio::spawn(self.clone().stream_loop(aid.clone(), wake.clone(), flags.clone()));
         let runtime = text_of(&config["runtime"]);
+        // Antigravity keeps one process per conversation between turns (crate::warm); its sessions are its own.
+        let persistent = runtime == "gemini" && config["harness"] == "antigravity";
+        let session_runtime = if persistent { format!("{runtime}:antigravity") } else { runtime.clone() };
         let conv = session_key(&attempt);
         let effort = Some(text_of(&config["reasoning_effort"])).filter(|e| !e.is_empty());
         let model = Some(text_of(&config["model"])).filter(|m| !m.is_empty());
@@ -726,7 +729,7 @@ impl Runner {
                 drove.reply = format!("This computer's runner does not run {what} yet; run it on the Python runner for this bot.");
                 // The server takes a result only for a started attempt. A control acts on the bot's current
                 // thread, so that is the thread named; nothing runs in it.
-                let thread_id = self.state.session(&bot, &conv, &runtime)?.unwrap_or_else(|| format!("unstarted-{aid}"));
+                let thread_id = self.state.session(&bot, &conv, &session_runtime)?.unwrap_or_else(|| format!("unstarted-{aid}"));
                 self.client.post(&format!("attempts/{aid}/started"), &json!({"thread_id": thread_id}), Some(&format!("started:{aid}"))).await?;
                 self.state.phase(&aid, "running")?;
                 self.diagnose(&aid, &drove.reply);
@@ -771,13 +774,21 @@ impl Runner {
             if attempt["worktrees"].as_array().is_some_and(|w| !w.is_empty()) {
                 self.diagnose(&aid, "This computer's runner does not join the task's set-up worktrees yet; the turn runs in the bot's checkout");
             }
-            let previous = self.state.session(&bot, &conv, &runtime)?;
+            let previous = self.state.session(&bot, &conv, &session_runtime)?;
             let minutes = config["max_run_minutes"].as_f64().or_else(|| text_of(&config["max_run_minutes"]).parse().ok()).unwrap_or(60.0);
             let limit = Instant::now() + Duration::from_secs_f64(60.0 * minutes);
             let (tx, mut rx) = unbounded_channel();
             let made = match runtime.as_str() {
                 "claude" => Host::Claude(ClaudeHost::new(&bot, vec!["claude".into()], tx)),
                 "codex" => Host::Codex(CodexHost::new(env.clone(), tx)),
+                "gemini" if persistent => {
+                    let make = |home: &Path, _: &Env| AntigravityHost::new(home, vec!["agy".into()], tx.clone());
+                    let (warm, turn_env) = self.warm.acquire(&attempt, &env, make).await.map_err(Fail::runtime)?;
+                    warm.attach(tx);
+                    env = turn_env;
+                    Host::Antigravity(warm)
+                }
+                "gemini" => Host::Gemini(GeminiHost::new(&bot, &self.state.directory.join("gemini").join(&bot), vec!["gemini".into()], tx)),
                 "" => return Err(Fail::runtime(crate::readiness::NO_RUNTIME)),
                 other => return Err(Fail::runtime(format!("Unsupported local runtime: {other}"))),
             };
@@ -802,7 +813,7 @@ impl Runner {
                 thread = Some(h.start_thread(&bot, &settings).await?);
             }
             let th = thread.clone().unwrap();
-            self.state.save_session(&bot, &conv, &runtime, &th)?;
+            self.state.save_session(&bot, &conv, &session_runtime, &th)?;
             if flags.lost.load(Ordering::SeqCst) || Instant::now() >= *flags.deadline.lock().unwrap() {
                 return Err(Fail::runtime("Lease expired while preparing runtime"));
             }
@@ -818,7 +829,7 @@ impl Runner {
             drove = self
                 .drive(&aid, h, &mut rx, &th, t, effort.as_deref(), limit, &flags, &wake, redactor.as_ref(), &mut meter, &mut carried, &mut auth_rejected)
                 .await?;
-            self.state.save_session(&bot, &conv, &runtime, &h.session_id(&th))?;
+            self.state.save_session(&bot, &conv, &session_runtime, &h.session_id(&th))?;
             Ok(())
         }
         .await;
@@ -856,7 +867,13 @@ impl Runner {
                     let _ = h.interrupt(th, t).await;
                 }
             }
-            h.stop().await;
+            if !persistent || drove.outcome != "completed" {
+                h.stop().await;
+            }
+            if let Host::Antigravity(warm) = h {
+                // Its token file is blanked; only a turn that completed leaves the process running.
+                self.warm.release(warm, drove.outcome == "completed").await;
+            }
         }
         if drove.outcome != "completed" && runtime == "codex" {
             if let Some(th) = &thread {

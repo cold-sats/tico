@@ -1,6 +1,6 @@
 //! What the heartbeat says about this computer (`runtime_readiness`, `preflight` and `readiness` in
 //! runner/service.py). Only the checks the chat path needs: runtime install, version, sign-in and models for
-//! Claude and Codex, and per bot its repository, AGENT.md and bot.yaml. The server gates claims on these rows.
+//! Claude, Codex and Gemini (the Gemini CLI, and `agy` for Antigravity bots), and per bot its repository, AGENT.md and bot.yaml. The server gates claims on these rows.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -15,7 +15,7 @@ use crate::util::text_of;
 
 pub const RUNTIMES: &[&str] = &["codex", "grok", "claude", "gemini", "pi", "cursor"];
 /// The runtimes this runner can drive; the rest report as not installed so no bot of theirs is sent here.
-pub const DRIVEN: &[&str] = &["claude", "codex"];
+pub const DRIVEN: &[&str] = &["claude", "codex", "gemini"];
 pub const CLAUDE_MODELS: &[&str] = &["claude-fable-5-1", "claude-opus-5", "claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5-20251001"];
 pub const NO_RUNTIME: &str = "No AI provider is chosen: the owner picks providers and a default model in Settings > AI providers";
 const CLAUDE_AUTH_TIMEOUT_S: u64 = 30;
@@ -94,6 +94,11 @@ pub async fn runtime_readiness(runtime: &str, sign: &SignIn, client: &Client, as
                         detail = "Codex sign-in check timed out".into();
                     }
                 }
+            } else if runtime == "gemini" {
+                // The Gemini CLI signs in with each bot's own GEMINI_API_KEY grant; Antigravity-only bots need none.
+                let (a, d) = crate::hosts::gemini::sign_in(assignments);
+                authenticated = a;
+                detail = d;
             } else {
                 let status = run(&[&p, "auth", "status", "--json"], CLAUDE_AUTH_TIMEOUT_S).await;
                 let parsed: Option<Value> = status.as_ref().and_then(|(_, out, _)| serde_json::from_str::<Value>(out).ok()).filter(|v| v.is_object());
@@ -130,6 +135,7 @@ pub async fn runtime_readiness(runtime: &str, sign: &SignIn, client: &Client, as
     let models: Vec<String> = match runtime {
         "codex" => codex_models(),
         "claude" => CLAUDE_MODELS.iter().map(|s| s.to_string()).collect(),
+        "gemini" => crate::hosts::gemini::MODELS.iter().map(|s| s.to_string()).collect(),
         _ => vec![],
     };
     // Harness commands (/compact, /clear, /model) and goals are not run here, so none is offered.
@@ -181,7 +187,7 @@ pub fn unsupported(config: &Config, entry: &Value) -> Vec<String> {
         needs.push(format!("the {runtime} runtime"));
     }
     let harness = text_of(&c["harness"]);
-    if !harness.is_empty() && harness != runtime {
+    if !harness.is_empty() && harness != runtime && !(runtime == "gemini" && harness == "antigravity") {
         needs.push(format!("the {harness} harness"));
     }
     if crate::util::truthy(c.get("shared")) || crate::util::truthy(c.get("shared_from")) {
@@ -278,6 +284,12 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
             problems.push("Unsupported runtime".into());
         } else if !DRIVEN.contains(&runtime.as_str()) {
             // Named below with the other features this runner lacks.
+        } else if runtime == "gemini" && expected["harness"] == "antigravity" {
+            // Antigravity has its own executable and Google sign-in, which a Gemini CLI key does not prove; the real
+            // turn checks the sign-in, as preflight makes no model call.
+            if executable("agy").is_none() {
+                problems.push("Antigravity CLI is not on PATH".into());
+            }
         } else if status["installed"] != true {
             problems.push("Runtime executable is not on PATH".into());
         } else if status["authenticated"] == "missing" || status["authenticated"] == "failed" {
@@ -376,12 +388,13 @@ pub fn disk_usage(path: &Path) -> Option<(u64, u64)> {
     if unsafe { libc::statvfs(c.as_ptr(), &mut s) } != 0 {
         return None;
     }
-    let frsize = s.f_frsize as u64;
+    let frsize = s.f_frsize;
     Some((s.f_blocks as u64 * frsize, s.f_bavail as u64 * frsize))
 }
 
 /// AGENT.md of each bot this computer hosts, once and then only when the file changes
 /// (`changed_agent_instructions`). Versions are (mtime ns, size); None for a missing file.
+#[allow(clippy::type_complexity)]
 pub fn changed_agent_instructions(
     config: &Config,
     assignments: &[Value],

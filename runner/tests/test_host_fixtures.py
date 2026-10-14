@@ -1,18 +1,21 @@
 """Harness wire formats both runner engines replay (runner/tests/fixtures/<harness>/*.jsonl).
 
 Each fixture is what the harness writes on stdout for one turn; `<name>.expected.json` is the events the
-Python host makes of it, with the per-run thread and turn ids left out for Claude. The Rust runner's host
+Python host makes of it, with the per-run thread and turn ids left out for Claude, Gemini and Antigravity. The Rust runner's host
 tests (runner-rs/src/hosts) replay the same files against the same expected events, so the two engines
 read a harness the same way. `python -m runner.tests.test_host_fixtures --write` refreshes the expected files.
 """
 
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
+from runner.hosts.antigravity import AntigravityHost
 from runner.hosts.claude import ClaudeHost
 from runner.hosts.codex import CodexHost
+from runner.hosts.gemini import GeminiHost
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -69,7 +72,38 @@ def codex_events(path):
     return host.drain()
 
 
-READERS = {"claude": claude_events, "codex": codex_events}
+def _ids_out(events):
+    return [{k: v for k, v in ev.items() if k not in ("thread_id", "turn_id")} for ev in events]
+
+
+def gemini_events(path):
+    """`gemini -p ""` for one turn: the fixture once the prompt is in, then exit 0."""
+    lines = [line for line in path.read_text().splitlines() if line.strip()]
+    with tempfile.TemporaryDirectory() as home:
+        host = GeminiHost(bot="acme", home=home, spawn=lambda argv, **kw: _Claude(lines))
+        host.start()
+        thread = host.start_thread("acme", {"cwd": "/tmp", "model": "gemini-3.8-flash", "effort": "low",
+                                            "env": {"GEMINI_API_KEY": "test-key", "PATH": "/bin"}})
+        host.start_turn(thread, "hello")
+        host._reader.join(timeout=5)
+        return _ids_out(host.drain())
+
+
+def antigravity_events(path):
+    """One `agy` turn: the fixture on stdout once the user line is written."""
+    lines = [line for line in path.read_text().splitlines() if line.strip()]
+    with tempfile.TemporaryDirectory() as home:
+        proc = _Claude(lines)
+        host = AntigravityHost(home, spawn=lambda argv, **kw: proc)
+        host.start()
+        thread = host.start_thread("acme", {"cwd": "/tmp", "model": "gemini-3.8-flash", "env": {}})
+        host.start_turn(thread, "hello")
+        proc.close()
+        host._reader.join(timeout=5)
+        return _ids_out(host.drain())
+
+
+READERS = {"claude": claude_events, "codex": codex_events, "gemini": gemini_events, "antigravity": antigravity_events}
 
 
 def cases():

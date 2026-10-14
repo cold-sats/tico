@@ -52,6 +52,8 @@ pub struct Runner {
     published: Mutex<HashMap<String, Option<(i128, u64)>>>,
     beat: Mutex<Option<(String, Instant)>>,
     restart: AtomicBool,
+    /// Persistent Antigravity processes kept between a conversation's turns.
+    pub warm: crate::warm::WarmSessions,
 }
 
 pub fn platform() -> &'static str {
@@ -89,7 +91,6 @@ impl Runner {
         Runner {
             config,
             client,
-            state,
             events: Events::new(),
             stop: AtomicBool::new(false),
             capacity,
@@ -109,6 +110,8 @@ impl Runner {
             published: Mutex::new(HashMap::new()),
             beat: Mutex::new(None),
             restart: AtomicBool::new(false),
+            warm: crate::warm::WarmSessions::new(state.directory.join("antigravity"), capacity.max(8)),
+            state,
         }
     }
 
@@ -218,6 +221,8 @@ impl Runner {
         if full {
             let assignments = self.client.get("runners/assignments").await?;
             *self.assignments.lock().unwrap() = assignments.as_array().cloned().unwrap_or_default();
+            let grants = self.client.get("runner-credential-grants").await?;
+            crate::hosts::gemini::set_credential_names(&grants["bots"]);
         }
         let assignments = self.assignments.lock().unwrap().clone();
         let mut by_bot: std::collections::BTreeMap<String, Value> = Default::default();
@@ -426,6 +431,7 @@ impl Runner {
         if let Some(m) = maintenance {
             m.abort();
         }
+        self.warm.prune(true).await;
     }
 
     async fn tick(
@@ -453,6 +459,7 @@ impl Runner {
             self.attempt_bots.lock().unwrap().remove(&aid);
             clock.next_claim = None; // capacity came free: look for the next job now
         }
+        self.warm.prune(false).await;
         if maintenance.as_ref().is_some_and(|m| m.is_finished()) {
             if let Ok(Err(e)) = maintenance.take().unwrap().await {
                 log(&format!("Tico runner: heartbeat failed ({}); will retry", describe(&e)));

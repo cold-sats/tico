@@ -1,6 +1,6 @@
 """One contract, two engines: `python -m runner run` and the Rust `tico-runner run` (runner-rs/), each run as a
-real process against a real listening API, with fake `claude` and `codex` executables first on PATH
-(runner/tests/conformance/). Every scenario runs on both engines and both harnesses, and checks the result
+real process against a real listening API, with fake `claude`, `codex`, `gemini` and `agy` executables first on
+PATH (runner/tests/conformance/). Every scenario runs on both engines and every harness, and checks the result
 through the server: the claim, the streamed events, the completion and its Idempotency-Keys, granted
 credentials and their redaction, session resume, and recovery after the runner is killed mid-turn.
 
@@ -26,7 +26,8 @@ pytestmark = pytest.mark.slow
 
 ROOT = Path(__file__).resolve().parents[2]
 FAKES = Path(__file__).resolve().parent / "conformance"
-MODELS = {"claude": "claude-sonnet-5", "codex": "gpt-5.5"}
+MODELS = {"claude": "claude-sonnet-5", "codex": "gpt-5.5", "gemini": "gemini-3.8-flash", "antigravity": "gemini-3.8-flash"}
+RUNTIMES = {"antigravity": "gemini"}
 SECRET = "acme-synthetic-fixture-4821"
 
 
@@ -55,18 +56,26 @@ class Computer:
         self.api, self.engine, self.harness, self.binary = api, engine, harness, binary
         self.registration = runner(api)
         assign(api, self.registration, "ops")
+        self.runtime = RUNTIMES.get(harness, harness)
         with api.app.state.store.transaction() as c:
             c.execute("UPDATE bot_config SET config_json=? WHERE bot='ops'",
-                      (encode({"name": "ops", "runtime": harness, "model": MODELS[harness], "status": "active"}),))
+                      (encode({"name": "ops", "runtime": self.runtime, "harness": harness, "model": MODELS[harness],
+                               "status": "active"}),))
+        if harness == "gemini":
+            # The Gemini CLI signs in with the bot's own key; readiness wants it granted.
+            from backend.tests.test_credentials import create, setup
+            setup(api)
+            key = create(api, name="Gemini", env="GEMINI_API_KEY", secret="gemini-synthetic-fixture-key-5531")
+            post(api, f"credentials/{key['id']}/grants", {"subject": "bot:ops"})
         repo = tmp_path / "projects" / "bot-ops"
         repo.mkdir(parents=True)
         (repo / "AGENT.md").write_text("# Ops\n\nAnswer the Acme team.\n")
-        (repo / "bot.yaml").write_text(f"name: ops\nruntime: {harness}\nmodel: {MODELS[harness]}\n")
+        (repo / "bot.yaml").write_text(f"name: ops\nruntime: {self.runtime}\nmodel: {MODELS[harness]}\n")
         home, bin_dir = tmp_path / "home", tmp_path / "bin"
         (home / ".codex").mkdir(parents=True)
         bin_dir.mkdir()
         self.log_path = tmp_path / "harness.jsonl"
-        for name in ("claude", "codex"):
+        for name in ("claude", "codex", "gemini", "agy"):
             wrapper = bin_dir / name
             wrapper.write_text(f"#!/bin/sh\nFAKE_LOG='{self.log_path}' exec '{sys.executable}' '{FAKES / f'fake_{name}.py'}' \"$@\"\n")
             wrapper.chmod(0o755)
@@ -141,7 +150,7 @@ def engine(request):
     return request.param
 
 
-@pytest.fixture(params=["claude", "codex"])
+@pytest.fixture(params=["claude", "codex", "gemini", "antigravity"])
 def harness(request):
     return request.param
 
@@ -170,24 +179,57 @@ def test_a_chat_turn_streams_completes_and_resumes_the_bot_thread(api, computer)
     assert "delta" in kinds and "message" in kinds
     assert {f"started:{attempt['id']}", f"complete:{attempt['id']}"} <= computer.keys()
     usage = attempt["result"].get("usage") or {}
-    assert usage.get("output_tokens") == 2 and usage.get("runtime") == computer.harness
+    assert usage.get("output_tokens") == 2 and usage.get("runtime") == computer.runtime
 
     # Another person's conversation continues the bot's one thread, told only what is new.
     second = post(api, "chat/ops", {"text": "A separate question from Ben"}, token="ben-test")
     until(lambda: reply_to(api, second["conversation_id"], "ben-test"), "the second reply")
     calls = computer.calls()
-    if computer.harness == "claude":
+    if computer.harness in ("claude", "gemini"):
         session = calls[0]["argv"][calls[0]["argv"].index("--session-id") + 1]
         assert calls[-1]["argv"][calls[-1]["argv"].index("--resume") + 1] == session
+    elif computer.harness == "antigravity":
+        # Another conversation is another warm scope: its own process and home, so a provider conversation of its own.
+        assert calls[-1]["pid"] != calls[0]["pid"] and all("--conversation" not in c["argv"] for c in calls)
+        assert calls[-1]["argv"][calls[-1]["argv"].index("--model") + 1] == "gemini-3.8-flash-low"
     else:
         starts = [c for c in calls if c.get("method") in ("thread/start", "thread/resume")]
         assert starts[-1] == {"harness": "codex", "method": "thread/resume", "thread": starts[0]["thread"]}
     assert "Please answer locally" not in computer.prompts()[-1]["prompt"]
 
 
+@pytest.mark.parametrize("harness", ["gemini", "antigravity"])
+def test_a_second_message_reuses_the_warm_process_or_resumes_the_session(api, computer):
+    computer.start()
+    first = post(api, "chat/ops", {"text": "reply with the word ok"})
+    until(lambda: reply_to(api, first["conversation_id"]), "the first reply")
+    second = post(api, "chat/ops", {"text": "and once more"})
+    assert second["conversation_id"] == first["conversation_id"]
+    until(lambda: len([m for m in get(api, f"conversations/{first['conversation_id']}/messages")
+                       if m["from_actor"] == "bot:ops"]) == 2, "the second reply")
+    calls = computer.prompts()
+    tokens = {a["id"]: a for a in computer.attempts()}
+    assert [a["result"]["outcome"] for a in tokens.values()] == ["completed", "completed"]
+    if computer.harness == "antigravity":
+        # One process for the conversation; each turn read its own attempt token from the lease file, which is blank
+        # between turns, and each turn's usage is its own share of the process's running total.
+        assert len({c["pid"] for c in calls}) == 1 and calls[0]["env"]["HUB_TOKEN"].startswith("tico-file:")
+        assert calls[0]["token"] and calls[1]["token"] and calls[0]["token"] != calls[1]["token"]
+        until(lambda: Path(calls[0]["env"]["HUB_TOKEN"][len("tico-file:"):]).read_text() == "", "the blanked token file")
+        assert [a["result"]["usage"]["output_tokens"] for a in tokens.values()] == [2, 2]
+        assert "reply with the word ok" not in calls[1]["prompt"] and "and once more" in calls[1]["prompt"]
+    else:
+        session = calls[0]["argv"][calls[0]["argv"].index("--session-id") + 1]
+        assert calls[1]["argv"][calls[1]["argv"].index("--resume") + 1] == session
+        assert calls[0]["env"]["GEMINI_API_KEY"] == "gemini-synthetic-fixture-key-5531"
+        settings = json.loads(Path(calls[0]["env"]["GEMINI_CLI_SYSTEM_SETTINGS_PATH"]).read_text())
+        assert settings["security"]["auth"]["selectedType"] == "gemini-api-key"
+
+
 def test_a_granted_credential_reaches_the_turn_and_never_the_transcript(api, computer):
     from backend.tests.test_credentials import create, setup
-    setup(api)
+    if computer.harness != "gemini":
+        setup(api)                      # the gemini Computer set the vault up for its key
     secret = create(api, name="Acme API", env="ACME_API_KEY", secret=SECRET)
     post(api, f"credentials/{secret['id']}/grants", {"subject": "bot:ops"})
     computer.start()
