@@ -74,10 +74,10 @@ answer, you are woken once on your task with their answer and it opens again; ac
 A task left waiting with only a note in chat reaches nobody.
 One question, one card. Don't file a separate task just to ask, and don't hand another bot a subtask that waits on
 the same person for the same thing: if the card this asks for is already open in the task's tree, your ask joins it.
-- Good: `--on ana --note "Run the vendor trial once with the key you sent? If yes, I'll add the results to the report."`
-  Ana gets one card with Yes and No; your task waits for their answer.
-- Bad: setting your whole task waiting on Ana with "Waiting on: your answer to the run-the-trial-or-stop
-  question", then filing a second "Run or stop?" task, then another bot's subtask that also waits on Ana. Ana gets
+- Good: `--on maya --note "Run the vendor trial once with the key you sent? If yes, I'll add the results to the report."`
+  Maya gets one card with Yes and No; your task waits for their answer.
+- Bad: setting your whole task waiting on Maya with "Waiting on: your answer to the run-the-trial-or-stop
+  question", then filing a second "Run or stop?" task, then another bot's subtask that also waits on Maya. Maya gets
   three cards for one question and answers twice.
 When you give a person a task (`hub task create --owner <person>`, or `--owner <person>` on an update), the first
 paragraph of its body is the ask and the rest is details.
