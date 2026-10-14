@@ -153,7 +153,7 @@ function decideRender(st, enter = false) {
   const from = c.type === 'approve' ? c.it.requester : c.type === 'pick' ? c.it.ask.from_actor
     : (c.it.waiting_on === myActor() || c.it.kind === 'waiting') && String(c.it.owner).startsWith('bot:') ? c.it.owner
     : c.it.requester || c.it.owner;
-  const decide = decideDecision(c), needsNote = decideNeedsNote(c);
+  const decide = decideDecision(c);
   const name = actorLabel(from) || 'Tico', chat = decideChatHref(from);
   // A bot's face and name open the bot, as the side rail does; the face is a second way in for the pointer, the name the one for keys.
   const face = chat ? `<a class="dc-who-face" href="${esc(chat)}" tabindex="-1" aria-hidden="true">${actorFace(from, 32)}</a>` : actorFace(from, 32);
@@ -163,7 +163,7 @@ function decideRender(st, enter = false) {
         <div class="dc-who-sub">${esc(decide ? plainActors(c.it.title || '') : decideMeta(c.it))}</div></div>
       <span class="pill ${decide ? 'needs' : ''}">${decide ? 'Decide' : 'Task'}</span></div>
     <div class="dc-body"></div>
-    <div class="dc-note"><textarea rows="1" maxlength="4000" aria-label="${decide ? 'Note' : 'Comment'}" placeholder="${needsNote ? 'What did you decide?' : decide ? 'Add a note' : 'Add a comment'}"></textarea>
+    <div class="dc-note"><textarea rows="1" maxlength="4000" aria-label="${decide ? 'Note' : 'Comment'}" placeholder="${decide ? 'Add a note' : 'Add a comment'}"></textarea>
       ${decide ? '' : `<button type="button" class="dc-send" data-dc="comment" aria-label="Send comment" title="Send comment" disabled>${ICON_SEND}</button>`}</div>
   </article>`;
   decidePaintBody(st);
@@ -288,7 +288,6 @@ async function decideLoad(st, c, again = false) {
 
 // ---- acting
 // Finishing a bot's request on a person's own task says what was decided (the server refuses Done without it).
-const decideNeedsNote = c => c.type === 'task' && String(c.it.owner || '').startsWith('human:') && String(c.it.requester || '').startsWith('bot:');
 const decideBot = c => actorLabel(c.type === 'pick' ? c.it.ask.from_actor : c.type === 'approve' ? c.it.requester
   : [c.it.owner, c.it.requester].find(a => String(a || '').startsWith('bot:')) || c.it.requester) || 'Tico';
 // What an action sends, as requests run in order when it commits, and what the toast says. Each request has its own
@@ -330,11 +329,6 @@ function decideAct(st, what, i, shown = st.shown) {
     return;
   }
   if (what === 'comment' && !note) { box?.focus(); return; }
-  if (what === 'done' && !note && decideNeedsNote(c)) {
-    box?.focus();
-    toast(`Say what you decided for ${decideBot(c)}`, true);
-    return;
-  }
   const write = decideWrite(c, what, i, note);
   void decideCommit(st);                       // the previous action goes now
   st.queue.shift();

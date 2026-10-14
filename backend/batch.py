@@ -383,10 +383,11 @@ def respond(c, actor, batch_id, kind, text="", n=None, decision=None, heard="", 
             raise Problem("decision", "Notes are not decided; instruct or skip", 422)
         if decision == "answer" and not text:
             raise Problem("decision", "An answer needs the text to send", 422)
-        if item["key"].startswith("task:") and decision in ("approve", "decline", "done", "close") and not text:
+        # Done is one tap: a note is optional. A yes, a no or a close still says why to the bot that asked.
+        if item["key"].startswith("task:") and decision in ("approve", "decline", "close") and not text:
             task = H.task(c, item["key"].split(":", 1)[1])
             if (task and H.is_human(task.get("owner")) and H.is_bot(task.get("requester"))
-                    and (decision == "done" or task["status"] not in ("done", "declined"))):
+                    and task["status"] not in ("done", "declined")):
                 raise Problem("decision", "Tell the requesting bot what you decided or completed", 422)
         response["decision"] = decision
     elif kind in ("needs_info", "instruct", "rule") and not text:

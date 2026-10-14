@@ -63,7 +63,7 @@ EACH ITEM (one at a time, never several at once)
     later                       — another day (until = an ISO date-time if they name one)
   One item can take more than one response, e.g. "approve it, and always do X" is decide +
   a rule. To respond to an earlier item, pass item = its number. On a task a bot requested,
-  approve, decline and done need text telling the bot what they decided.
+  approve and decline need text telling the bot what they decided; done needs none.
 - Call hub_needs_you_next and say "Got it. Next:" before the next item. Don't recap what they just
   said.
 - Nothing is applied yet. Never say something is approved, sent or done before commit.
