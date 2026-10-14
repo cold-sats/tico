@@ -17,7 +17,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            first; has_more says there is an older page, --before
                                            its next_before reads it. The run's prompt names it
     hub question ask <bot> [<bot>...] "<question>" --wait 60
-    hub question answer <message-id> "<text>" [--unknown "needs X"]
+    hub question answer <message-id> "<text>" [--unknown "needs X"] [--on-behalf-of turn]
     hub note create <bot> "<text>" [--text-file f]  a quiet note: wakes nobody; the bot's next run reads it
     hub note list [--to me|X] [--from me|X] [--since 24h|ISO] [--waiting]   notes, newest first
     hub note delete <id>                   take back a note no run has carried yet
@@ -73,8 +73,9 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            Assistant only: ask the person to confirm a side effect (an
                                            approval, anything outside the company, spend, settings,
                                            archive/delete, activating a bot); it runs only on their click.
-                                           Several task actions: ONE card, --path /api/v2/assistant/batch
+                                           Several actions: ONE card, --path /api/v2/assistant/batch
                                            --body '{"actions": [{"path": "/api/v2/tasks/<id>", "body": {...}}, ...]}'
+                                           (task actions, approval decisions, answers to bots' questions)
     hub replay show [--from ISO] [--to ISO] [--bot B|--person P|--team T]
                                            what happened in a window (default the last 24 hours), as you may see it
     hub goal list [--owner me|X] [--all]   what you are for: your goals in order, the chain above
@@ -119,6 +120,8 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            if the owner already said send in Tico, skip this and
                                            `mail send --approve <their-message-id>`
     hub approval show <id>
+    hub approval decline <id> [--note "why"] [--on-behalf-of turn]
+                                           a person declines one addressed to them (the Assistant: when they asked)
     hub listening save --file run.json     Listening: one sweep and the posts it saw (status ok|blocked|
                                            rate_limited|error; a post already saved is kept as it was)
     hub listening decide [--limit 20] [--item ID]
@@ -555,6 +558,7 @@ def parser():
     s.add_argument("message_id")
     s.add_argument("text", nargs="?", default="")
     s.add_argument("--unknown")
+    s.add_argument("--on-behalf-of", metavar="MESSAGE_ID", help=ASKED)
     s.set_defaults(fn="question answer")
 
     note = sub.add_parser("note", help="a quiet note for a bot: no run now, its next run reads it").add_subparsers(dest="sub")
@@ -1225,6 +1229,11 @@ def parser():
     s = appr.add_parser("show")
     s.add_argument("id")
     s.set_defaults(fn="approval show")
+    s = appr.add_parser("decline", help="decline an approval addressed to you, with a reason")
+    s.add_argument("id")
+    s.add_argument("--note", default="")
+    s.add_argument("--on-behalf-of", metavar="MESSAGE_ID", help=ASKED)
+    s.set_defaults(fn="approval decline")
 
     s = sub.add_parser("brief", help="alerts, who needs the person, what bots said since --since")
     s.add_argument("--since", help="an ISO date-time; default the last 12 hours")

@@ -105,19 +105,73 @@ def write_allowed(method, path, settings=None, body=b"", actor="", owns=None, di
 
 
 # ------------------------------------------------------------------ what the person asked for in their own chat
-# A task change, comment or link the person asked their Assistant for in their own Assistant chat runs without a card when
-# the turn cites that message (`X-Tico-On-Behalf-Of`: its id, or `turn` for the message that started the run). The server
-# checks the message, not the words: the person's own, typed in their own Assistant room, in the last INSTRUCTION_TTL_S.
-# The turn is the person, so their rights stay the ceiling. Approvals, spending, sending, running a task now and the
-# rest stay a click, and so does all of it when the owner's rule "Assistant acts without asking" is off.
+# A task change, comment or link, declining an approval or answering a bot's question, that the person asked their
+# Assistant for in their own Assistant chat runs without a card when the turn cites that message (`X-Tico-On-Behalf-Of`:
+# its id, or `turn` for the message that started the run). The server checks the message, not the words: the person's
+# own, typed in their own Assistant room, in the last INSTRUCTION_TTL_S. The turn is the person, so their rights stay the
+# ceiling: only an approval addressed to them, only a question asked of them. A decline is undone by asking again, so it
+# is a task action; approving (send, spend, publish, merge), running a task now and the rest stay a click, and so does all
+# of it when the owner's rule "Assistant acts without asking" is off.
 INSTRUCTION_TTL_S = 30 * 60
-_INSTRUCTED = [re.compile(p) for p in (r"/api/v2/tasks/[^/]+", r"/api/v2/tasks/[^/]+/(comments|links)")]
+_INSTRUCTED = [re.compile(p) for p in (r"/api/v2/tasks/[^/]+", r"/api/v2/tasks/[^/]+/(comments|links)",
+                                       r"/api/v2/messages/[^/]+/answer")]
+_DECIDING = re.compile(r"/api/v2/approvals/([^/]+)")
 
 
-def instructed_route(method, path):
+def _fields(body):
+    """A request body as a dict, whether it arrives as bytes or already parsed; anything else is empty."""
+    if isinstance(body, (bytes, str)):
+        try:
+            body = json.loads(body or b"{}")
+        except ValueError:
+            return {}
+    return body if isinstance(body, dict) else {}
+
+
+def instructed_route(method, path, body=None):
     path = normalize_path(path)
-    return (method == "POST" and bool(path) and path != "/api/v2/tasks/dry-run"
-            and any(p.fullmatch(path) for p in _INSTRUCTED))
+    if method != "POST" or not path or path == "/api/v2/tasks/dry-run":
+        return False
+    if _DECIDING.fullmatch(path):
+        return _fields(body).get("decision") == "declined"
+    return any(p.fullmatch(path) for p in _INSTRUCTED)
+
+
+# Approving is the person's own decision. The Assistant may put an approve on a card only when the person's message in
+# their chat names it; "clear my queue" or "close 50 of these" declines, dismisses and closes, and never approves.
+APPROVING = re.compile(r"\b(approv\w*|merge[sd]?|merging|publish\w*|send|sending|spend\w*|pay|paying)\b", re.I)
+
+
+def approvals_in(path, body):
+    """The approvals this operation (or bulk card) would approve."""
+    steps = body.get("actions") if path == BATCH_PATH and isinstance(body, dict) else [{"path": path, "body": body}]
+    return [m.group(1) for s in steps or [] if isinstance(s, dict)
+            and (m := _DECIDING.fullmatch(str(s.get("path") or ""))) and _fields(s.get("body")).get("decision") == "approved"]
+
+
+def require_addressed(c, who, path, body):
+    """403 unless every approval and question this operation (or bulk card) decides or answers was put to this person:
+    a card never lists, let alone decides, someone else's."""
+    steps = body.get("actions") if path == BATCH_PATH and isinstance(body, dict) else [{"path": path}]
+    for s in steps or []:
+        target = str(s.get("path") or "") if isinstance(s, dict) else ""
+        if (m := _DECIDING.fullmatch(target)):
+            message_id = (H.approval(c, m.group(1)) or {}).get("message_id")
+        elif (m := re.fullmatch(r"/api/v2/messages/([^/]+)/answer", target)):
+            message_id = m.group(1)
+        else:
+            continue
+        if (H.message(c, message_id) or {}).get("to_actor") != who.actor:
+            raise Problem("forbidden", "That approval or question is not addressed to you", 403)
+
+
+def require_named_approval(c, who, ref):
+    """403 unless the person's cited message (default: the one that started this run) asks to approve."""
+    cited = instruction(c, who, ref or "turn")["cited"]
+    if not APPROVING.search(str((H.message(c, cited) or {}).get("body") or "")):
+        raise Problem("approve_not_asked", "Approving is the person's own decision: their message must name it (approve, "
+                      "merge, publish, send, spend). Decline, answer or close what they asked for, and leave the "
+                      "approvals for them", 403)
 
 
 def instruction(c, who, ref):
@@ -202,6 +256,67 @@ def preview(text, limit=PREVIEW):
     return (text[:limit].rsplit(" ", 1)[0] or text[:limit]).rstrip(" ,;:.") + "…"
 
 
+def days_old(ts):
+    at, now = H.parse_ts(ts), H.parse_ts(H.now())
+    return max(0.0, (now - at).total_seconds() / 86400) if at and now else 0.0
+
+
+def age(ts):
+    """How long ago an item was asked, as the card says it."""
+    days = days_old(ts)
+    return "today" if days < 1 else "1 day old" if days < 2 else f"{int(days)} days old"
+
+
+def _kind(step):
+    """What one step of a card is, for counting and grouping: approvals, answers or task actions."""
+    path = str(step.get("path") or "")
+    return "approval" if _DECIDING.fullmatch(path) else "answer" if path.endswith("/answer") else "task"
+
+
+def batch_line(steps):
+    counts = {}
+    for s in steps:
+        counts[_kind(s)] = counts.get(_kind(s), 0) + 1
+    if set(counts) <= {"task"}:
+        return f"{len(steps)} task actions, on one Confirm"
+    names = {"approval": ("approval decision", "approval decisions"), "answer": ("answer", "answers"),
+             "task": ("task action", "task actions")}
+    return (f"{len(steps)} actions, on one Confirm: "
+            + ", ".join(f"{n} {names[k][n != 1]}" for k, n in counts.items()))
+
+
+AGE_BANDS = ((7, "under a week old"), (30, "1 to 4 weeks old"), (None, "over a month old"))
+
+
+def groups(c, steps):
+    """Card lines that sum a bulk card up by what it does and how old the items are ("Decline 11 publish approvals,
+    over a month old"), with the reason when the whole group shares one, above the line for every item."""
+    out = {}
+    for s in steps:
+        body, path, created = s.get("body") or {}, str(s.get("path") or ""), None
+        if (m := _DECIDING.fullmatch(path)):
+            row = H.approval(c, m.group(1)) or {}
+            verb = "Approve" if body.get("decision") == "approved" else "Decline"
+            noun, created = f"{row.get('kind') or ''} approval".strip(), row.get("created")
+        elif (m := re.fullmatch(r"/api/v2/messages/([^/]+)/answer", path)):
+            verb, noun, created = "Answer", "bot question", (H.message(c, m.group(1)) or {}).get("created")
+        else:
+            m = re.fullmatch(r"/api/v2/tasks/([^/]+)(?:/(comments|links))?", path)
+            sub = m.group(2) if m else None
+            verb = ({"comments": "Comment on", "links": "Link"}.get(sub) or ("Close" if body.get("close") else None)
+                    or {"done": "Mark done", "declined": "Decline"}.get(body.get("status"), "Change"))
+            noun, created = "task", (H.task(c, m.group(1)) or {}).get("created") if m else None
+        days = days_old(created)
+        band = next(label for limit, label in AGE_BANDS if limit is None or days < limit)
+        out.setdefault((verb, noun, band), []).append(str(body.get("note") or "").strip())
+    lines = []
+    for (verb, noun, band), notes in out.items():
+        shared = notes[0] if notes and all(n == notes[0] for n in notes) else ""
+        lines.append({"field": f"{verb} {len(notes)} {noun}{'s' if len(notes) != 1 else ''}, {band}",
+                      "new": f"reason: {preview(shared, 160)}" if shared else "each listed below", "group": True})
+    return lines
+
+
 def describe(c, method, path, body):
     """A one-line, server-derived description of what confirming would do (never the bot's words), and
     for a task update the exact field changes."""
@@ -231,13 +346,19 @@ def describe(c, method, path, body):
 
     def approval_line(aid):
         row = H.approval(c, aid)
-        verb = str(body.get("decision") or "decide").title()
+        verb = {"approved": "Approve", "declined": "Decline"}.get(body.get("decision"), "Decide")
         if not row:
             return f"{verb} approval {aid}"
         detail = "; ".join(f"{k}: {v}" for k, v in (row.get("payload") or {}).items() if k in
                            ("subject", "to", "what", "amount", "account", "url", "repo", "pr", "title"))[:240]
         return (f"{verb} the {row['kind']} approval requested by {who(row['requested_by'])}"
-                + (f" ({detail})" if detail else ""))
+                + (f" ({detail})" if detail else "") + f", {age(row['created'])}"
+                + (f"; reason: {preview(body['note'], 120)}" if body.get("note") else ""))
+
+    def answer_line(mid):
+        asked = H.message(c, mid) or {}
+        return (f"Answer {who(asked.get('from_actor'))}'s question “{preview(asked.get('body'), 80)}”"
+                + (f", {age(asked['created'])}" if asked.get("created") else "") + f": {preview(body.get('text'), 120)}")
     diff = []
     m = re.fullmatch(r"/api/v2/tasks/([^/]+)", path)
     if m and (t := H.task(c, m.group(1))):
@@ -247,7 +368,7 @@ def describe(c, method, path, body):
         return f"Change task “{t['title']}” ({len(diff)} field{'s' if len(diff) != 1 else ''})", diff
     rules = (
         (r"/api/v2/approvals/([^/]+)", lambda g: approval_line(g[0])),
-        (r"/api/v2/messages/[^/]+/answer", lambda g: "Answer a bot's question"),
+        (r"/api/v2/messages/([^/]+)/answer", lambda g: answer_line(g[0])),
         (r"/api/v2/tasks", lambda g: f"Create task “{body.get('title', '')}” for {who(body.get('owner'))}"),
         (r"/api/v2/tasks/([^/]+)/(comments|links|labels|run-now|ask)",
          lambda g: f"{g[1].replace('-', ' ').title()} on task “{(H.task(c, g[0]) or {}).get('title', g[0])}”"),
@@ -255,7 +376,7 @@ def describe(c, method, path, body):
         (r"/api/v2/chat/([^/]+)", lambda g: f"Send a message to {bot(g[0])}"),
         (r"/api/v2/notes", lambda g: f"Leave a note for {who(body.get('to'))}"),
         (r"/api/v2/updates/[^/]+/reply", lambda g: "Reply to a bot's update"),
-        (r"/api/v2/assistant/batch", lambda g: f"{len(body.get('actions') or [])} task actions, on one Confirm"),
+        (r"/api/v2/assistant/batch", lambda g: batch_line(body.get("actions") or [])),
         (r"/api/v2/bots", lambda g: f"Add bot “{body.get('display_name', '')}”"),
         (r"/api/v2/bots/([^/]+)/archive", lambda g: f"Archive bot {bot(g[0])}"),
         (r"/api/v2/bots/([^/]+)/definition", lambda g: f"Change settings of bot {bot(g[0])}: "
@@ -296,9 +417,10 @@ def describe(c, method, path, body):
 # Body fields a proposal may never carry: each has its own explicit confirm that a card's click does not replace.
 PERSON_ONLY_FIELDS = ("replace_lost_key",)
 
-# One card for a group of task actions ("close these 20 tasks"): `{"actions": [{method, path, body}, ...]}`, each a
-# task change, comment or link (`instructed_route`), never an approval or anything else. One click runs them in order,
-# each as the person through its own route, and a step that fails does not stop the rest.
+# One card for a group of Needs-you actions ("close these 20 tasks", "decline the old publish batches"):
+# `{"actions": [{method, path, body}, ...]}`, each a task change, comment or link, an approval decision or an answer to
+# a bot's question, never anything else. One click runs them in order, each as the person through its own route, and a
+# step that fails does not stop the rest.
 BATCH_PATH = "/api/v2/assistant/batch"
 MAX_BATCH = 100
 
@@ -313,9 +435,13 @@ def batch_steps(body):
         if not isinstance(step, dict) or set(step) - {"method", "path", "body"}:
             raise Problem("operation", "Each action is {method, path, body}", 422)
         method, path, sent = str(step.get("method") or "POST"), normalize_path(step.get("path")), step.get("body") or {}
-        if not isinstance(sent, dict) or not instructed_route(method, path) or any(f in sent for f in PERSON_ONLY_FIELDS):
-            raise Problem("operation", "A bulk card holds only task changes, comments and links "
-                          "(POST /api/v2/tasks/<id>, /comments, /links); propose anything else on its own", 422)
+        deciding = (isinstance(sent, dict) and bool(path and _DECIDING.fullmatch(path))
+                    and sent.get("decision") in ("approved", "declined"))
+        if (not isinstance(sent, dict) or not (instructed_route(method, path, sent) or (method == "POST" and deciding))
+                or any(f in sent for f in PERSON_ONLY_FIELDS)):
+            raise Problem("operation", "A bulk card holds only task changes, comments and links, approval decisions and "
+                          "answers to bots' questions (POST /api/v2/tasks/<id>, /comments, /links, /api/v2/approvals/<id>, "
+                          "/api/v2/messages/<id>/answer); propose anything else on its own", 422)
         out.append({"method": method, "path": path, "body": {k: v for k, v in sent.items() if k != "on_behalf_of"}})
     return out
 
@@ -343,7 +469,7 @@ def runnable(c, method, path, body):
     return body
 
 
-def create_proposal(c, settings, who, room, proposer, summary, method, path, body):
+def create_proposal(c, settings, who, room, proposer, summary, method, path, body, asked=None):
     """One pending action for `who` to confirm, and its card in `room`, written by the bot that proposed it.
 
     The Assistant proposes what its turn may not do on its own; BotOps proposes what a person asked it for
@@ -368,6 +494,9 @@ def create_proposal(c, settings, who, room, proposer, summary, method, path, bod
         body = {"actions": [{**s, "body": runnable(c, s["method"], s["path"], s["body"])} for s in batch_steps(body)]}
     else:
         body = runnable(c, method, path, body)
+    require_addressed(c, who, path, body)
+    if who.via == "assistant" and not who.confirmed and approvals_in(path, body):
+        require_named_approval(c, who, asked)
     same = c.execute("SELECT * FROM assistant_actions WHERE owner=? AND status='pending' AND method=? AND path=? "
                      "AND body_json=? AND proposer=?", (who.actor, method, path, json.dumps(body), proposer)).fetchone()
     if same:
@@ -376,7 +505,7 @@ def create_proposal(c, settings, who, room, proposer, summary, method, path, bod
     what, diff = describe(c, method, path, body)
     if path == BATCH_PATH:
         # One line per step: what it does to which task, and the fields it changes.
-        diff = []
+        diff = groups(c, body["actions"])
         for s in body["actions"]:
             line, changes = describe(c, s["method"], s["path"], s["body"])
             fields = changes or [{"field": k, "new": v} for k, v in s["body"].items()]
@@ -481,7 +610,7 @@ HELP = re.compile(r"^(help\b[:,\s]*|how (do|can|should|would|does|to)\b|how'?s? 
                   r"what does .* mean|where do i\b|can i\b.*\?|what'?s the difference)")
 BOT_TODAY = re.compile(r"\b(today|this morning|last 24|yesterday|lately|so far)\b|\bwhat (did|has|have|is|was)\b.*\b(do|done|doing|up to|work)")
 ACTION_WORDS = re.compile(r"\b(create|make|add|assign|ask|tell|send|approve|decline|reject|archive|delete|remove|"
-                          r"build|set up|schedule|publish|post|change|update|rename|close|cancel|remind)\b")
+                          r"build|set up|schedule|publish|post|change|update|rename|close|cancel|remind|clear|dismiss|answer)\b")
 
 
 def words(text):
@@ -500,7 +629,7 @@ def route(text, bots=()):
     # "for <team>," can be any word, a verb too ("for create, ..."), so the action check still applies.
     if (TASK_TYPE_INVENTORY.fullmatch(t) or TASK_TYPE_INVENTORY_ARE.fullmatch(t)) and not ACTION_WORDS.search(t):
         return "task_types", None
-    if WAITING.search(t):
+    if WAITING.search(t) and not ACTION_WORDS.search(t):     # "clear my queue" is work, not a question
         return "waiting", None
     named = next((b for b in bots if b["slug"] in t.split() or b["slug"].replace("-", " ") in t
                   or b["name"].casefold() in t), None)
@@ -959,7 +1088,8 @@ def install(app, store, auth, mutate, onboarding):
                               + " can propose: it is not on the list of routes a person confirms (never tokens, "
                               "sign-in, enrollment or this assistant)", 422)
             room = ensure_room(c, who.actor, settings.assistant_bot)
-            return create_proposal(c, settings, who, room, "assistant", body.summary, body.method, body.path, body.body)
+            return create_proposal(c, settings, who, room, "assistant", body.summary, body.method, body.path, body.body,
+                                   request.headers.get("x-tico-on-behalf-of"))
         return mutate(request, body, work)
 
     def expire(c):
