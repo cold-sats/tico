@@ -380,19 +380,6 @@ def is_shared(config):
     return bool(config.get("shared") or config.get("shared_from"))
 
 
-def personal_mcp(path, config, bot_operator, computer_operator):
-    """Whether a turn may also load this computer operator's own MCP servers (their ~/.claude.json, user
-    settings, plugins, claude.ai connectors): only when the bot's bot.yaml says `personal_mcp: true`, the bot is
-    the operator's own (the server's `operator` for it is this computer's) and it is not shared."""
-    if is_shared(config) or not computer_operator or str(bot_operator or "") != str(computer_operator):
-        return False
-    try:
-        declared = yaml.safe_load(manifest_path(path).read_text()) or {}
-    except (OSError, yaml.YAMLError):
-        return False
-    return isinstance(declared, dict) and declared.get("personal_mcp") is True
-
-
 def shared_checkout(config):
     """The checkout a branch of a bot with branches works in: the original repository's own name."""
     config = config or {}
@@ -1276,11 +1263,6 @@ class Runner:
         maintenance pass kept an idle computer busy."""
         candidates = {entry["bot"]: entry for entry in assignments if entry.get("state") != "archived"}
         return [candidates[bot] for bot in sorted(candidates)]
-
-    def personal_mcp(self, bot, path, config):
-        """bot.yaml `personal_mcp: true`, honoured for this computer operator's own non-shared bot only."""
-        entry = next((row for row in getattr(self, "assignments_seen", ()) if row.get("bot") == bot), None) or {}
-        return personal_mcp(path, config, entry.get("operator"), self.config.get("operator"))
 
     def assigned_here(self, entry):
         """Whether this Computer is the one that hosts this bot."""
@@ -2929,7 +2911,6 @@ class Runner:
                 settings = host_settings(execution_path, model=config.get("model"),
                                          effort=config.get("reasoning_effort"), env=env, slug=bot,
                                          shared=is_shared(config), compact_at=config.get("compact_at"),
-                                         personal_mcp=self.personal_mcp(bot, execution_path, config),
                                          add_dirs=[str(path) for _, path in worktree_dirs],
                                          mcp_servers=self.mcp_for_run(attempt, execution_path, env, config.get("runtime"),
                                                                       config.get("harness"), diagnose))
@@ -3055,8 +3036,7 @@ class Runner:
                     settings = host_settings(execution_path, model=hop["model"], shared=is_shared(config),
                                              effort=hop["reasoning_effort"], env=hop_env, slug=bot,
                                              compact_at=config.get("compact_at"),
-                                             personal_mcp=self.personal_mcp(bot, execution_path, config),
-                                             add_dirs=[str(path) for _, path in worktree_dirs],
+                                                 add_dirs=[str(path) for _, path in worktree_dirs],
                                              mcp_servers=self.mcp_for_run(attempt, execution_path, hop_env, hop["runtime"],
                                                                           hop["harness"], diagnose))
                     thread = host.start_thread(bot, settings)

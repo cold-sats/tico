@@ -478,7 +478,6 @@ borrows another bot's credential. To let it use one, the owner grants it (Tools 
 into the vault if needed and grants it as them ([credential-vault.md](credential-vault.md)).
 
 A run's MCP servers are `hub`, the `mcp:` tools above and the repository's `.mcp.json`; never the computer operator's own.
-`personal_mcp: true` (top level of `bot.yaml`) gives a Claude Code bot the operator's servers too, only when the bot is that operator's own and not shared.
 
 ### What humans see about a bot's tools
 

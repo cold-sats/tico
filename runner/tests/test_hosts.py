@@ -330,35 +330,19 @@ class ClaudeStreamJson(unittest.TestCase):
         self.assertEqual(proc.kwargs["env"]["ENABLE_CLAUDEAI_MCP_SERVERS"], "false")
         self.finish(host, proc)
 
-    def test_mcp_is_hub_declared_and_project_only_unless_the_operators_own_bot_opts_in(self):
-        from runner.service import personal_mcp
+    def test_mcp_is_hub_declared_and_project_only(self):
         with tempfile.TemporaryDirectory() as repo:
             Path(repo, ".mcp.json").write_text(json.dumps({"mcpServers": {"docs": {"command": "docs-server"}}}))
-            Path(repo, "bot.yaml").write_text("personal_mcp: true\n")
             env = {"HUB_EMPLOYEE": "cpo", "HUB_TOKEN": "t0k", "HUB_API_URL": "https://acme.example", "PATH": "/bin"}
-
-            def argv(**extra):
-                host = make_claude()
-                host.start_turn(host.start_thread("cpo", base.settings(repo, env=env, **extra)), "hi")
-                proc = ClaudeProcess.instances[-1]
-                host.stop()
-                return proc.argv, proc.kwargs["env"]
-
-            strict, strict_env = argv()
-            self.assertIn("--strict-mcp-config", strict)
-            self.assertNotIn("--setting-sources", strict)          # other user settings stay
-            self.assertEqual(sorted(json.loads(strict[strict.index("--mcp-config") + 1])["mcpServers"]), ["docs", "hub"])
-            self.assertEqual(strict_env["ENABLE_CLAUDEAI_MCP_SERVERS"], "false")
-            old, old_env = argv(personal_mcp=True)                 # the old argv: Claude adds the rest itself
-            self.assertNotIn("--strict-mcp-config", old)
-            self.assertEqual(list(json.loads(old[old.index("--mcp-config") + 1])["mcpServers"]), ["hub"])
-            self.assertNotIn("ENABLE_CLAUDEAI_MCP_SERVERS", old_env)
-            self.assertIn("--strict-mcp-config", argv(personal_mcp=True, shared=True)[0])
-            # The owner rule: the opt-in counts only for this computer operator's own, non-shared bot.
-            self.assertTrue(personal_mcp(repo, {}, "p-ana", "p-ana"))
-            self.assertFalse(personal_mcp(repo, {}, "p-sam", "p-ana"))
-            self.assertFalse(personal_mcp(repo, {}, None, None))
-            self.assertFalse(personal_mcp(repo, {"shared": True}, "p-ana", "p-ana"))
+            host = make_claude()
+            host.start_turn(host.start_thread("cpo", base.settings(repo, env=env)), "hi")
+            proc = ClaudeProcess.instances[-1]
+            host.stop()
+            self.assertIn("--strict-mcp-config", proc.argv)
+            self.assertNotIn("--setting-sources", proc.argv)          # other user settings stay
+            self.assertEqual(sorted(json.loads(proc.argv[proc.argv.index("--mcp-config") + 1])["mcpServers"]),
+                             ["docs", "hub"])
+            self.assertEqual(proc.kwargs["env"]["ENABLE_CLAUDEAI_MCP_SERVERS"], "false")
 
     def test_a_missing_saved_session_restarts_once_fresh_under_the_same_id(self):
         host = make_claude()

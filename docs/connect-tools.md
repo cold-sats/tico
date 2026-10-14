@@ -58,7 +58,6 @@ maintain the MCP connection, a REST skill with a supported API credential is an 
 A bot's turn gets the `hub` server, the servers its `bot.yaml` declares and its repository's own `.mcp.json` (Claude Code),
 not the computer operator's own (`~/.claude.json`, plugins, claude.ai connectors, `~/.codex/config.toml`). Grok still loads
 servers in the operator's `~/.grok/config.toml` and plugins; Cursor reads `~/.cursor/mcp.json`; Antigravity its user config.
-`personal_mcp: true` at the top of `bot.yaml` lets the operator's own non-shared Claude Code bot load theirs too.
 
 ### When the vendor's server needs OAuth
 
