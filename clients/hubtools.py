@@ -2511,11 +2511,14 @@ def support_send(api, args):
        "payload": {"type": "object", "description": "The exact action, as the approvals policy describes. "
                    "kind=send is to/cc/subject/body_sha256/mailbox. Skip this tool when the owner "
                    "already said send; use mail send --approve <their-message-id>."},
-       "task_id": _s("The task this action belongs to")},
+       "task_id": _s("The task this action belongs to"),
+       "supersedes_approval": _s("Your older undecided approval this replaces (a re-cut, a redraft); it is withdrawn. "
+                                 "One on the same task for the same url, recipient and subject, PR or spend is replaced anyway")},
       required=("kind", "payload"), writes=True)
 def approval_request(api, args):
     return api.post("approvals", {"kind": args["kind"], "payload": args["payload"],
-                                  "task_id": args.get("task_id")}, key=_key(args))
+                                  "task_id": args.get("task_id"),
+                                  "supersedes_approval": args.get("supersedes_approval")}, key=_key(args))
 
 
 @tool("hub_approval_show", "One approval and its decision.", {"id": _s("Approval id")}, required=("id",))

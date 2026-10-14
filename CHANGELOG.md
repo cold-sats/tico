@@ -14,10 +14,23 @@ All notable changes to Tico are recorded here. The format follows
   Archived bots are skipped, and the catalog is read again only when a card changes.
 
 ### Changed
+- **Approvals nobody will act on leave Needs you.** An undecided approval is withdrawn (a new decision, `withdrawn`)
+  when its task is closed, declined or marked done, when its bot asks again for the same thing (`hub approval request
+  --supersedes <id>`, `supersedes_approval` on the API and `hub_approval_request`, or the same task and the same url,
+  recipient and subject, pull request or spend), and after 14 days undecided. The bot hears once, without a run, and
+  may ask again. An hourly sweep also clears approvals and questions to people still open on tasks that ended earlier.
+  The Release Manager asks for a release by its release page, so a re-cut replaces the first ask. A task that has
+  ended takes no new approval.
 - **A bot at its worktree limit ends its turn and is woken when its worktree is ready.** When a bot's turn asks for a task worktree while the bot already holds 30, Tico records that the task waits for one and `hub task worktree add` says so and exits with status 3: the bot ends its turn instead of waiting, so its finished worktrees can free themselves. When a place frees, Tico reserves the worktree (checking access, owner and computer again), the bot's computer checks it out and runs setup while the bot is idle, and Tico wakes the task once, in its own session, naming the ready worktree; a failed checkout or setup wakes it once with the reason. Finishing the task, a new owner or stopping the turn ends the wait. The task and Health show "Waiting for a worktree" with its age. The limit is unchanged, nothing is removed to make room, and a computer from before this release gets the old answer. See [Task worktrees](docs/worktrees.md).
 
 ### Fixed
+- **Closing a bot's question card settles it.** When you close the small card a bot gave you instead of answering it, the bot's task no longer stays "Blocked on" you: it opens again with your note, and the bot hears it once.
 - **Slack file downloads cope with long or odd names and keep to a private folder.** `connectors/slack.py file` cuts a shared file's name to 200 bytes and drops control characters, so a long name or one with a NUL byte no longer crashes the download; a name the file system still refuses is a clear failure that saves nothing. The default folder is now the user's own `slack-files-<uid>` under the temp folder, made private, and one another local user owns (or a link) is refused. The `saved` line prints on one line. See [Slack](integrations/slack.md).
+- **BotOps can work a task another bot gave it.** On its own task BotOps now adds the task's worktree with its own repository access and files a question or subtask for a person without borrowing anyone's rights, whoever asked for the task. A person's comment on a task a bot asked BotOps for no longer stops the run: BotOps keeps that bot's rights, and what needs the person's comes to them as a Confirm card in their BotOps chat. A worktree refused for missing access says an owner or admin gives it in Settings > Repositories. See [Permissions](docs/permissions.md).
+- **Bots on a Docker runner work on several tasks at once again.** The folder a task's worktree goes in was made by
+  the runner's own user, so `git` (run as the bot user) couldn't add the worktree; every task turn fell back to the
+  bot's checkout and waited for the bot's other turns, so a quick chat waited behind a long task. The folder is now
+  the bot user's, including ones an older runner made.
 
 ## [0.3.43] - 2026-10-14
 
