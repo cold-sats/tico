@@ -29,7 +29,7 @@ that is already set up by `pair`.
 Skip this when the bot exists (`hub api GET bots`). Otherwise do not ask: name it after the profile, describe it from what
 they said, and have it report to them (AGENT.md, Defaults, not questions), then:
 
-    hub bot create <slug> --record-only --model hermes --name "<Name>" --description "<what it does>" --reports-to <bot or human:id>
+    hub bot create --record-only --model hermes --name "<Name>" --description "<what it does>" --reports-to <bot or human:id>
 
 `--model hermes` (`--model openclaw` for an OpenClaw profile) is what makes it an external bot: it gets a credential, not a computer. Approving its pairing activates a planned bot automatically.
 
