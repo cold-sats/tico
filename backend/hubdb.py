@@ -1290,7 +1290,8 @@ LINT_ASK_EXAMPLE = "Approve the video tool trial on Thursday? If yes, I'll send 
 LINT_S3 = re.compile(r"\bs3://\S*", re.I)
 LINT_PATH = re.compile(r"(?<![\w:/.-])(?:~|\.{1,2})?/[\w.@-]+/[\w.@/-]*"                  # /Users/x, ~/x, ./x/y
                        r"|(?<![\w/.-])[\w.-]+(?:/[\w.-]+)+\.[A-Za-z][\w]{0,4}\b"              # reports/x.md
-                       r"|\b[\w-]+\.(?:py|js|cjs|mjs|ts|tsx|md|json|ya?ml|toml|sh|sql|log|ipynb)\b", re.I)
+                       r"|\b(?!(?-i:[A-Z][\w-]*\.(?:js|ts))\b)[\w-]+\.(?:py|js|cjs|mjs|ts|tsx|md|json|ya?ml|toml|sh|sql|log|ipynb)\b",  # not Node.js
+                       re.I)
 LINT_TOOL = re.compile(r"\bhub\s+(?:task|message|question|approval|note|chat|doc|file|goal|kpi|bot|routine|update|tool|calendar|meeting|support|team|tag|human|group|conversation|whoami|sql)\b|(?<![\w-])--[a-z][\w-]*|\b[a-z][a-z0-9]*_[a-z0-9_]+\b|`[^`]+`")
 
 
