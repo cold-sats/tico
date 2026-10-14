@@ -234,4 +234,11 @@ class Scheduler:
                     ask_deadlines.sweep(c, stamp(at))
             except Exception as exc:
                 failures.append({"ask_deadlines": type(exc).__name__})
+            # ...and approvals and asks nobody will act on leave Needs you (backend/approval_expiry.py).
+            try:
+                from . import approval_expiry
+                with self.store.transaction() as c:
+                    approval_expiry.sweep(c, stamp(at))
+            except Exception as exc:
+                failures.append({"approval_expiry": type(exc).__name__})
         return {"fired": fired, "failures": failures}

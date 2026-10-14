@@ -175,6 +175,10 @@ def from_person(message):
 CHECKOUT_EVERY_S = 600
 # How often finished tasks' session checkouts are looked for between turns (Runner.sweep_sessions).
 SESSION_SWEEP_S = 600
+# How long a task turn that is not a person's waits for its worktree, retrying, before it runs in the bot's checkout:
+# in the checkout it would hold every chat with the bot behind it for its whole turn.
+WORKTREE_WAIT_S = 120
+WORKTREE_RETRY_S = 10
 
 # Keys whose values move on every report without anything having changed: left out when deciding
 # whether a heartbeat has news (runner/service.py `maintain`).
@@ -283,20 +287,26 @@ def self_update(root=None, running=None, run=subprocess.run):
     return bool(running and head and head != running), ""
 
 
+TURNS_PER_CPU = 5        # a turn mostly waits on its model provider, not on this computer's CPU
+TURNS_PER_GB = 3         # a model CLI and its tools take about 300 MB
+MAX_AUTO_TURNS = 64
+MAX_TURNS = 256          # the most the server accepts
+
+
 def machine_capacity(configured=None):
-    """How many turns this computer runs at once. A number in the config is kept as written; missing or "auto"
-    is sized to the machine, since a bot's task lanes now run side by side: a core and about 2 GB of memory per
-    turn, never below the 4 every runner had, and at most 16 so one large server does not take a whole team's queue."""
+    """How many turns this computer runs at once. A number in the config is kept as written (up to MAX_TURNS), so an
+    owner may go higher; missing or "auto" is sized to the machine: TURNS_PER_CPU per core, as memory allows (TURNS_PER_GB),
+    never below the 4 every runner had and at most MAX_AUTO_TURNS."""
     if configured not in (None, "", "auto"):
         try:
-            return max(1, int(configured))
+            return max(1, min(int(configured), MAX_TURNS))
         except (TypeError, ValueError):
             pass
     try:
-        memory_gb = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") // 2**30
+        memory_gb = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 2**30
     except (AttributeError, OSError, ValueError):
         memory_gb = 8
-    return max(4, min(os.cpu_count() or 4, memory_gb // 2, 16))
+    return max(4, min((os.cpu_count() or 1) * TURNS_PER_CPU, int(memory_gb * TURNS_PER_GB), MAX_AUTO_TURNS))
 
 
 def supervised():
@@ -424,7 +434,7 @@ def sync_shared(path, env=None, timeout=45):
     path = Path(path)
     if not (path / ".git").exists():
         return "the checkout is missing"
-    env = safe_git.environment(env)
+    env = safe_git.committing_environment(env)
     def git(*args, timeout=15):
         return isolation.run([*safe_git.prefix(path), "-C", str(path), *args], capture_output=True, text=True,
                               stdin=subprocess.DEVNULL, env=env, timeout=timeout)
@@ -545,7 +555,7 @@ def catch_up(path, env=None, timeout=45):
     was, and the conflicting files are named for a person. Runs only under the bot's own turn lock,
     since it moves the working tree."""
     path = Path(path)
-    env = safe_git.environment(env)
+    env = safe_git.committing_environment(env)
     def git(*args, timeout=15):
         return isolation.run([*safe_git.prefix(path), "-C", str(path), *args], capture_output=True, text=True,
                               stdin=subprocess.DEVNULL, env=env, timeout=timeout)
@@ -671,6 +681,7 @@ class Runner:
         self.attempt_lanes = {}              # attempt id -> (bot, lane, task id) while its turn may still be running
         self.session_git_locks = {}          # main checkout -> lock over adding, syncing and removing its task worktrees
         self.session_git_guard = threading.Lock()
+        self.person_waits = {}               # bot -> turns from a person waiting for its main checkout
         self.product_refreshed = set()       # the built-in bots whose product files were checked since this runner started
         self.goal_tries = {}                 # (bot, session key) -> [goal continuations since a person last wrote, the last reason given]
         self._weekly_usage = subscription_usage.Reports()
@@ -1247,8 +1258,10 @@ class Runner:
 
     @staticmethod
     def readiness_candidates(assignments, eligible=()):
-        """Only live assignments are readiness candidates; eligible rows are placement options."""
-        candidates = {entry["bot"]: entry for entry in assignments}
+        """Only live assignments are readiness candidates; eligible rows are placement options. An archived bot
+        keeps its assignment but is never set up or checked: its repository may be gone, and retrying it on every
+        maintenance pass kept an idle computer busy."""
+        candidates = {entry["bot"]: entry for entry in assignments if entry.get("state") != "archived"}
         return [candidates[bot] for bot in sorted(candidates)]
 
     def assigned_here(self, entry):
@@ -2018,7 +2031,9 @@ class Runner:
             kept = self.__dict__.get("catch_up_notes", {}).get(row["bot"])
             if kept:
                 bots[row["bot"]]["warnings"].append("Not brought up to GitHub's history: " + kept)
-        document = {"schema_version": 1, "runtimes": runtimes, "bots": bots, "worktrees": True}
+        document = {"schema_version": 1, "runtimes": runtimes, "bots": bots, "worktrees": True,
+                    # Prepares a worktree reserved for a waiting task while its bot is idle (runner/worktrees.py prepare).
+                    "worktree_waits": True}
         try:
             usage = shutil.disk_usage("/" if self.follower.kind == "docker" else self.state.directory)
             document["disk"] = {"total_bytes": usage.total, "free_bytes": usage.free}
@@ -2468,6 +2483,11 @@ class Runner:
                 return False
         return True
 
+    def person_waiting(self, bot):
+        """Whether a turn from a person is waiting for the bot's main checkout (Runner.execute)."""
+        with self.session_git_guard:
+            return self.__dict__.setdefault("person_waits", {}).get(bot, 0) > 0
+
     def session_git_lock(self, main):
         """One git step at a time on a checkout's task worktrees: adding, syncing, rebasing and removing them
         all write the repository they share."""
@@ -2582,13 +2602,42 @@ class Runner:
         session_task = self.task_session(attempt, config, lane)
         held = []                                   # the locks this turn holds, released last-first
 
+        # A person's turn goes first: every other turn waiting for the checkout lets it by, and a task turn skips
+        # its refresh of the checkout while one waits.
+        person = from_person(attempt.get("message"))
+
         def hold(lock):
             acquired = False
             while not acquired and not lost.is_set():
+                yields = lock is checkout_lock and not person
+                if yields and self.person_waiting(bot):
+                    lost.wait(0.2)
+                    continue
                 acquired = lock.acquire(timeout=1)
+                if acquired and yields and self.person_waiting(bot):
+                    lock.release()          # a person started waiting while this turn did
+                    acquired = False
             if not acquired:
                 raise RuntimeError('Attempt lease lost while waiting for worktree maintenance')
             held.append(lock)
+
+        def hold_checkout():
+            if not person:
+                return hold(checkout_lock)
+            with self.session_git_guard:
+                waits = self.__dict__.setdefault("person_waits", {})
+                waits[bot] = waits.get(bot, 0) + 1
+            try:
+                hold(checkout_lock)
+            finally:
+                with self.session_git_guard:
+                    waits[bot] -= 1
+
+        def try_checkout():
+            if self.person_waiting(bot) or not checkout_lock.acquire(blocking=False):
+                return False
+            held.append(checkout_lock)
+            return True
 
         checkout_lock = self.worktrees.bot_lock(bot)
         session_path, session_problem = None, ""
@@ -2596,10 +2645,10 @@ class Runner:
         try:
             try:
                 hold(self.worktrees.lane_lock(bot, lane))
-                if session_task and checkout_lock.acquire(blocking=False):
-                    held.append(checkout_lock)
-                elif not session_task:
-                    hold(checkout_lock)
+                if session_task:
+                    try_checkout()
+                else:
+                    hold_checkout()
                 main_path = self.local_path(bot, config)
                 selected_profile = self.turn_profile(attempt)
                 attempt["_subscription_profile"] = selected_profile
@@ -2639,20 +2688,39 @@ class Runner:
                     self.refresh_product_files(bot, config, execution_path, env if session_task else None)
                 if session_task:
                     session_path = task_sessions.path_for(self.config["projects_dir"], bot, session_task)
-                    if bot in self.__dict__.get("product_unpushed", ()):
-                        # The worktree would sync from an upstream without the refreshed product files.
-                        session_problem = "its refreshed product files are not pushed yet"
-                    else:
+
+                    def worktree():
+                        if bot in self.__dict__.get("product_unpushed", ()):
+                            # The worktree would sync from an upstream without the refreshed product files.
+                            return "", "its refreshed product files are not pushed yet"
                         with self.session_git_lock(main_path):
-                            tracked, session_problem = task_sessions.ensure(main_path, session_path, session_task, env)
-                            if not session_problem:
+                            tracked, problem = task_sessions.ensure(main_path, session_path, session_task, env)
+                            if not problem:
                                 attempt["branch_sync_problem"] = sync_shared(session_path, env)
+                        return tracked, problem
+                    tracked, session_problem = worktree()
+                    if session_problem and not person and session_problem not in task_sessions.LASTING:
+                        # In the checkout this turn would hold the bot's chats behind it for the whole turn, so it waits
+                        # for its worktree first, holding nothing a chat needs, and pushes the product files it waits on.
+                        log(f"Tico runner: {bot}: task {session_task} waits for its worktree ({session_problem})")
+                        if checkout_lock in held:
+                            held.remove(checkout_lock)
+                            checkout_lock.release()
+                        waited = time.monotonic() + WORKTREE_WAIT_S
+                        while session_problem and time.monotonic() < waited and not lost.wait(WORKTREE_RETRY_S):
+                            if bot in self.__dict__.get("product_unpushed", ()) and try_checkout():
+                                try:
+                                    self.refresh_product_files(bot, config, main_path, env)
+                                finally:
+                                    held.remove(checkout_lock)
+                                    checkout_lock.release()
+                            tracked, session_problem = worktree()
                     if session_problem:
                         # Without a worktree of its own the task's turn waits for the main checkout like any other.
                         log(f"Tico runner: {bot}: task {session_task} runs in the bot's checkout ({session_problem})")
                         session_path = None
                         if checkout_lock not in held:
-                            hold(checkout_lock)
+                            hold_checkout()
                             if is_shared(config):
                                 attempt["branch_sync_problem"] = sync_shared(execution_path, env)
                             else:
@@ -3339,7 +3407,7 @@ class Runner:
 
     def _report_heartbeat(self, body):
         readiness = body["readiness"]
-        optional = ("worktrees", "disk", "harnesses", "mail_key", "shared_env", "recent_errors", "container_exec", "github_auth", "browser_launch")
+        optional = ("worktree_waits", "worktrees", "disk", "harnesses", "mail_key", "shared_env", "recent_errors", "container_exec", "github_auth", "browser_launch")
         unsupported = self.__dict__.setdefault("_readiness_unsupported", {})
         for field, until in list(unsupported.items()):
             if time.monotonic() < until:
@@ -3390,6 +3458,11 @@ class Runner:
                     # A server from before task lanes knows the other capabilities; only the new one goes.
                     body["capabilities"].remove("task_lanes_v2")
                     self._task_lanes_after = time.monotonic() + 600
+                    continue
+                if exc.status == 422 and re.search(r"(?:^|[ ;])(?:body\.)?capacity:", detail) and (body.get("capacity") or 0) > 32:
+                    # A server from before larger capacities accepts at most 32 and never hands out more turns than
+                    # the runner reports, so after a rollback the runner keeps working at 32.
+                    body["capacity"] = 32
                     continue
                 root_fields = ("worktrees", "profiles", "repositories", "capabilities")
                 field = next((name for name in root_fields if name in body and re.search(
@@ -3460,7 +3533,7 @@ class Runner:
                               re.search(r"readiness\.(?:StructuredReadiness\.)?" + name + r"(?:[.: ;]|$)", detail)), None) if extra else None
                 generic = extra and "readiness." not in detail
                 if not field and generic:
-                    field = next((name for name in ("worktrees", "harnesses", "mail_key", "shared_env", "recent_errors", "container_exec", "github_auth", "browser_launch", "disk")
+                    field = next((name for name in ("worktree_waits", "worktrees", "harnesses", "mail_key", "shared_env", "recent_errors", "container_exec", "github_auth", "browser_launch", "disk")
                                   if name in readiness), None)
                 if field:
                     readiness.pop(field, None)

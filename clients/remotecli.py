@@ -530,7 +530,8 @@ def run(args, who=None):
             return post("approvals/" + args.id, {"decision": sub + "d", "note": args.note},
                         delegate=getattr(args, "on_behalf_of", None) or False)
         payload = json.loads(Path(args.payload_file).read_text() if args.payload_file else args.payload or "{}")
-        return post("approvals", {"kind": args.kind, "payload": payload, "task_id": args.task})
+        return post("approvals", {"kind": args.kind, "payload": payload, "task_id": args.task,
+                                  "supersedes_approval": getattr(args, "supersedes", None)})
     if fn.startswith("bot status"):
         if fn == "bot status set":
             bot = args.bot or actor.split(":", 1)[-1]
@@ -891,6 +892,10 @@ def sql_csv(result):
     return out.getvalue().rstrip("\n")
 
 
+# `hub task worktree add` at the bot's worktree limit: Tico recorded a wait and wakes the task; end the turn.
+WORKTREE_WAIT_EXIT = 3
+
+
 def main(args, who=None):
     try:
         result = run(args, who)
@@ -917,6 +922,11 @@ def main(args, who=None):
             print("hub: " + str(result["warning"]), file=sys.stderr)
         return 0
     except APIError as exc:
+        if exc.code == "worktree_limit" and isinstance(exc.extra.get("wait"), dict):
+            # Not a failure to retry: Tico holds this task's place and wakes it when the worktree is ready. The
+            # status is its own so a script or harness can tell "end the turn" from an error.
+            print(f"{exc.detail}")
+            return WORKTREE_WAIT_EXIT
         if exc.code == "repository_waiting_for_permission":
             # Nothing to retry and nothing for the caller to build: the owner's Needs you task holds the fix.
             print(f"{exc.detail}.")
