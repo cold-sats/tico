@@ -7,6 +7,12 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **An inbox bot may share a computer with other bots.** A separate computer for inbox bots is now a choice per computer:
+  `POST /api/v2/runners/<id>/inbox-only {"enabled": true}` (an owner, an admin, the computer's operator, or BotOps as one of
+  them) keeps it for inbox bots, and the server places no other bot there. Computers that held only inbox bots before this
+  release stay kept for them; `{"enabled": false}` releases one. Replaces `inbox-sharing`.
+
 ### Added
 - **A bot whose plan runs out keeps working on another provider.** When a turn hits a usage or spend limit and the bot
   names no fallback of its own, the runner runs that turn once on another of the company's providers that is signed in on the
