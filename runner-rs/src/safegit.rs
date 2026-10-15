@@ -126,9 +126,44 @@ pub fn environment(turn: &Env) -> Env {
     env
 }
 
+const IDENTITY: [&str; 4] = ["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"];
+
+/// `environment()` for a rebase, merge or commit the runner makes (safe_git.committing_environment): the bot's
+/// identity when the turn set one, else Tico's. A clean environment has none, and git then refuses ("unable to
+/// auto-detect email address"), leaving the bot's unpushed commits stuck behind its remote.
+pub fn committing_environment(turn: &Env) -> Env {
+    let mut env = environment(turn);
+    for key in IDENTITY {
+        if let Some(v) = turn.get(key).filter(|v| !v.is_empty()) {
+            env.insert(key.into(), v.clone());
+        }
+    }
+    let pick = |env: &Env, key: &str, other: &str, fallback: &str| {
+        env.get(key).filter(|v| !v.is_empty()).or_else(|| env.get(other).filter(|v| !v.is_empty())).cloned().unwrap_or_else(|| fallback.into())
+    };
+    let name = pick(&env, "GIT_COMMITTER_NAME", "GIT_AUTHOR_NAME", "Tico");
+    let email = pick(&env, "GIT_COMMITTER_EMAIL", "GIT_AUTHOR_EMAIL", "runner@bots.tico.invalid");
+    env.entry("GIT_COMMITTER_NAME".into()).or_insert_with(|| name.clone());
+    env.entry("GIT_COMMITTER_EMAIL".into()).or_insert_with(|| email.clone());
+    env.entry("GIT_AUTHOR_NAME".into()).or_insert(name);
+    env.entry("GIT_AUTHOR_EMAIL".into()).or_insert(email);
+    env
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn runner_commits_carry_the_bots_identity_else_ticos() {
+        let mut turn = Env::new();
+        let bare = committing_environment(&turn);
+        assert_eq!((bare["GIT_AUTHOR_NAME"].as_str(), bare["GIT_COMMITTER_EMAIL"].as_str()), ("Tico", "runner@bots.tico.invalid"));
+        turn.insert("GIT_AUTHOR_NAME".into(), "Coo".into());
+        turn.insert("GIT_AUTHOR_EMAIL".into(), "coo@bots.tico.invalid".into());
+        let bot = committing_environment(&turn);
+        assert_eq!((bot["GIT_COMMITTER_NAME"].as_str(), bot["GIT_COMMITTER_EMAIL"].as_str()), ("Coo", "coo@bots.tico.invalid"));
+    }
 
     #[test]
     fn runner_git_keeps_the_turns_helper_and_drops_everything_else() {

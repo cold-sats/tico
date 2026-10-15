@@ -1,0 +1,46 @@
+[
+ {
+  "kind": "status",
+  "state": "active"
+ },
+ {
+  "kind": "message",
+  "text": "Checking the files.",
+  "final": false
+ },
+ {
+  "kind": "tool",
+  "name": "readToolCall",
+  "tool": "readToolCall",
+  "phase": "tool_execution_start"
+ },
+ {
+  "kind": "message",
+  "text": "Acme reply.",
+  "final": false
+ },
+ {
+  "kind": "tokens",
+  "input": 14,
+  "output": 2,
+  "total": 16,
+  "usage": {
+   "input": 14,
+   "cached": 3,
+   "output": 2
+  }
+ },
+ {
+  "kind": "message",
+  "text": "Checking the files.Acme reply.",
+  "final": true
+ },
+ {
+  "kind": "turn_completed",
+  "status": "completed"
+ },
+ {
+  "kind": "status",
+  "state": "idle"
+ }
+]

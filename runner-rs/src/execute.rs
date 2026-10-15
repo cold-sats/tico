@@ -456,21 +456,23 @@ impl Runner {
     /// Posts the outbox as events land: at once for the first, then at most once per STREAM_WINDOW, so a
     /// burst of deltas is one request and a lone first delta waits for nothing.
     async fn stream_loop(self: Arc<Self>, aid: String, wake: Arc<Notify>, flags: Arc<Flags>) {
-        let mut last: Option<Instant> = None;
+        // The earliest the next post may go: STREAM_WINDOW after the last, or a second after a failed one.
+        let mut next: Option<Instant> = None;
         loop {
             wake.notified().await;
             if flags.done.load(Ordering::SeqCst) {
                 return;
             }
-            if let Some(at) = last {
-                let since = at.elapsed();
-                if since < STREAM_WINDOW {
-                    tokio::time::sleep(STREAM_WINDOW - since).await;
+            if let Some(at) = next {
+                let wait = at.saturating_duration_since(Instant::now());
+                if !wait.is_zero() {
+                    tokio::time::sleep(wait).await;
                 }
             }
-            last = Some(Instant::now());
-            // A failed post leaves the events in the outbox for the next one or the 1 s pass.
-            let _ = self.flush(&aid).await;
+            // A failed post leaves the events in the outbox for the next one or the drive loop's 1 s pass; it is
+            // tried again a second later, not on every event (service.py drive).
+            let ok = self.flush(&aid).await.is_ok();
+            next = Some(Instant::now() + if ok { STREAM_WINDOW } else { Duration::from_secs(1) });
         }
     }
 
@@ -590,6 +592,9 @@ impl Runner {
                 crate::hosts::musecode::config_home(profile),
                 tx,
             )),
+            "pi" => Host::Pi(crate::hosts::pi::PiHost::new(bot, vec![crate::harness_tools::executable_for("pi")], tx)),
+            "cursor" => Host::Cursor(crate::hosts::cursor::CursorHost::new(bot, vec![crate::harness_tools::executable_for("cursor")], tx)),
+            "grok" => Host::Grok(crate::hosts::grok::GrokHost::new(bot, &crate::harness_tools::executable_for("grok"), tx)),
             "" => return Err(Fail::runtime(crate::readiness::NO_RUNTIME)),
             other => return Err(Fail::runtime(format!("Unsupported local runtime: {other}"))),
         })
@@ -707,11 +712,12 @@ impl Runner {
             }
             crate::gitcred::apply(&mut env, &self.client, &self.tokens, &bot, socket_path.as_deref(), &self.state.directory).await;
             let hop_runtime = crate::fallback::configured(&config).map(|h| h.runtime);
-            if runtime == "musecode" || hop_runtime.as_deref() == Some("musecode") {
-                // Muse reads META_API_KEY from its environment only. A key on this computer (the runner's environment,
-                // `_shared.env` or the company's) reports Muse ready, so it reaches the turn unless a grant set one.
-                if selected.as_ref().is_none_or(|p| p.share_operator) {
-                    if let Some((name, key)) = self.sign_in.headless_secret("musecode") {
+            for keyed in ["musecode", "cursor"] {
+                // Muse reads META_API_KEY, Cursor CURSOR_API_KEY, from its environment only. A key on this computer
+                // (the runner's environment, `_shared.env` or the company's) reports it ready, so it reaches the turn
+                // unless a grant set one.
+                if (runtime == keyed || hop_runtime.as_deref() == Some(keyed)) && selected.as_ref().is_none_or(|p| p.share_operator) {
+                    if let Some((name, key)) = self.sign_in.headless_secret(keyed) {
                         if env.get(&name).is_none_or(|v| v.is_empty()) {
                             env.insert(name, key);
                         }
@@ -733,6 +739,8 @@ impl Runner {
                 conv = format!("{conv}:profile:{}:{}", p.name, p.binding());
             }
             if p.has_checkout() {
+                // A returning bot's old clone is caught up to GitHub once per placement (crate::placement).
+                crate::placement::catch_up(&bot, &attempt["generation"], &execution_path, &env).await;
                 // A checkout with no upstream yet: give its history a home first (service.py prepare_history), and
                 // run no turn on a copy that shares no history with GitHub's.
                 let (published, detail) = self.publish(&bot, &execution_path, &env).await;
@@ -798,6 +806,7 @@ impl Runner {
             attempt["_repo_rules_changed"] = json!(!digest.is_empty() && self.state.repo_rules(&th, None)?.as_deref() != Some(digest.as_str()));
             let names = self.names().await;
             let after = if resumed { self.state.cursor(&th, None)? } else { None };
+            attempt["_stale_playbook"] = json!(crate::playbook::note(&crate::readiness::local_path(&self.config, &bot), &attempt));
             let prompt = crate::prompt::prompt(&attempt, &names, after.as_deref(), resumed);
             let cold = runtime == "claude" && crate::profiles::claude_token_cold(selected.as_ref());
             let t = if cold {
@@ -842,8 +851,19 @@ impl Runner {
             }
         }
         let native_control = truthy(refs.get("command")) || goal.chat_goal.as_ref().is_some_and(|g| g["status"] == "active");
-        let hop = if unavailable && !native_control { crate::fallback::configured(&config) } else { None };
+        let mut hop = if unavailable && !native_control { crate::fallback::configured(&config) } else { None };
+        let hit_limit = drove.limited;
+        if hop.is_none() && hit_limit && !native_control && prepared {
+            // Out of quota with no fallback of its own: another provider signed in on this computer runs the turn
+            // once (Settings > AI providers can turn this off for the company).
+            let choices = self.default_fallbacks().await;
+            hop = crate::fallback::default_choice(&config, &choices, |rt| self.fallback_ready(rt, selected.as_ref()));
+        }
+        // Only a server that sent `fallback_models` knows the field (an older one refuses unknown fields).
+        let primary_limited = hop.as_ref().is_some_and(|h| h.default && hit_limit);
         if let (Some(hop), true, Some(base)) = (hop, prepared, base_env.clone()) {
+            uses.push(hop.runtime.clone());
+            crate::harness_tools::turn_runtimes(&aid, &uses);
             if let Some(th) = &thread {
                 let _ = self.state.forget_session(&bot, &conv, &runtime, th);
             }
@@ -867,7 +887,7 @@ impl Runner {
                 });
                 let hop_env = selected.as_ref().map_or_else(|| base.clone(), |p| p.environment(&hop.runtime, &base));
                 env = hop_env.clone();
-                self.diagnose(&aid, &format!("{primary} unavailable; running this turn on {}", hop.harness));
+                self.diagnose(&aid, &crate::fallback::diagnostic(&primary, &hop, hit_limit));
                 let (tx, mut rx) = unbounded_channel();
                 let h = host.insert(self.make_host(&bot, &hop.runtime, &hop_env, selected.as_ref(), tx)?);
                 h.start().await?;
@@ -903,7 +923,8 @@ impl Runner {
                 drove = self.drive(&d, &mut rx, t, segments.last_mut().unwrap(), &mut carried, &mut auth_rejected, &mut goal).await?;
                 turn = Some(drove.turn.clone());
                 let how = if drove.outcome == "completed" { String::new() } else { format!(" ({})", drove.outcome) };
-                log(&format!("Tico runner: {bot}: {primary} unavailable; ran the turn on {}{how}", hop.harness));
+                let why = if hit_limit { "hit its usage limit" } else { "unavailable" };
+                log(&format!("Tico runner: {bot}: {primary} {why}; ran the turn on {}{how}", hop.harness));
                 Ok(())
             }
             .await;
@@ -1036,6 +1057,9 @@ impl Runner {
         }
         if let Some(f) = &fallback {
             completion.insert("fallback".into(), json!(f));
+            if primary_limited {
+                completion.insert("primary_limited".into(), json!(true));
+            }
         }
         if let Some(u) = &subscription_unavailable {
             completion.insert("subscription_unavailable".into(), u.clone());
@@ -1180,7 +1204,7 @@ impl Runner {
         let detail = if cause.is_empty() { String::new() } else { format!(" ({cause})") };
         self.diagnose(aid, &format!("{}: {what}{detail}; inspect local runner", e.kind));
         if !OWN_INTERRUPT.iter().any(|p| e.text.contains(p)) {
-            log(&format!("Tico runner: {bot}: turn {aid} stopped: {}{}", e.kind, if cause.is_empty() { String::new() } else { format!(": {cause}") }));
+            crate::util::diagnostic(&format!("Tico runner: {bot}: turn {aid} stopped: {}{}", e.kind, if cause.is_empty() { String::new() } else { format!(": {cause}") }));
         }
     }
 }

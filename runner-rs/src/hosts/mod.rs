@@ -7,9 +7,13 @@
 pub mod antigravity;
 pub mod claude;
 pub mod codex;
+pub mod cursor;
 pub mod gemini;
+pub mod grok;
 mod native;
 pub mod musecode;
+mod oneshot;
+pub mod pi;
 
 use std::sync::OnceLock;
 
@@ -46,7 +50,7 @@ pub fn limit_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     R.get_or_init(|| {
         Regex::new(
-            r"(?i)hit your usage limit|usage limit|usage_limit_reached|rate limit(?:ed)?|no capacity available|model is at capacity|\boverloaded\b|resource_exhausted|\b(?:code|status|http) (?:429|503)\b",
+            r"(?i)hit your usage limit|usage limit|usage_limit_reached|rate limit(?:ed)?|spend(?:ing)? limit|monthly (?:usage |spend(?:ing)? )?limit|no capacity available|model is at capacity|\boverloaded\b|resource_exhausted|\b(?:code|status|http) (?:429|503)\b",
         )
         .unwrap()
     })
@@ -229,6 +233,9 @@ pub enum Host {
     /// The gemini runtime's Antigravity harness, kept warm between turns (crate::warm).
     Antigravity(antigravity::AntigravityHost),
     MuseCode(musecode::MuseCodeHost),
+    Pi(pi::PiHost),
+    Cursor(cursor::CursorHost),
+    Grok(grok::GrokHost),
 }
 
 impl Host {
@@ -245,6 +252,18 @@ impl Host {
                 h.start();
                 Ok(())
             }
+            Host::Pi(h) => {
+                h.start();
+                Ok(())
+            }
+            Host::Cursor(h) => {
+                h.start();
+                Ok(())
+            }
+            Host::Grok(h) => {
+                h.start();
+                Ok(())
+            }
         }
     }
 
@@ -255,6 +274,9 @@ impl Host {
             Host::Gemini(h) => h.stop().await,
             Host::Antigravity(h) => h.stop().await,
             Host::MuseCode(h) => h.stop().await,
+            Host::Pi(h) => h.stop().await,
+            Host::Cursor(h) => h.stop().await,
+            Host::Grok(h) => h.stop().await,
         }
     }
 
@@ -265,6 +287,9 @@ impl Host {
             Host::Gemini(h) => h.alive(),
             Host::Antigravity(h) => h.alive(),
             Host::MuseCode(h) => h.alive(),
+            Host::Pi(h) => h.alive(),
+            Host::Cursor(h) => h.alive(),
+            Host::Grok(h) => h.alive(),
         }
     }
 
@@ -273,7 +298,7 @@ impl Host {
             Host::Claude(h) => h.supports_steer(),
             Host::Codex(_) => true,
             Host::Gemini(_) | Host::Antigravity(_) => false,
-            Host::MuseCode(_) => false,
+            Host::MuseCode(_) | Host::Pi(_) | Host::Cursor(_) | Host::Grok(_) => false,
         }
     }
 
@@ -284,6 +309,9 @@ impl Host {
             Host::Gemini(h) => Ok(h.start_thread(settings)),
             Host::Antigravity(h) => Ok(h.start_thread(settings)),
             Host::MuseCode(h) => Ok(h.start_thread(settings)),
+            Host::Pi(h) => Ok(h.start_thread(settings)),
+            Host::Cursor(h) => h.start_thread(settings).await,
+            Host::Grok(h) => h.start_thread(bot, settings).await,
         }
     }
 
@@ -294,6 +322,9 @@ impl Host {
             Host::Gemini(h) => Ok(h.resume_thread(thread_id, settings)),
             Host::Antigravity(h) => h.resume_thread(thread_id, settings),
             Host::MuseCode(h) => Ok(h.resume_thread(thread_id, settings)),
+            Host::Pi(h) => Ok(h.resume_thread(thread_id, settings)),
+            Host::Cursor(h) => Ok(h.resume_thread(thread_id, settings)),
+            Host::Grok(h) => h.resume_thread(thread_id, settings).await,
         }
     }
 
@@ -304,6 +335,9 @@ impl Host {
             Host::Gemini(h) => h.start_turn(thread_id, text, effort),
             Host::Antigravity(h) => h.start_turn(thread_id, text, effort),
             Host::MuseCode(h) => h.start_turn(thread_id, text, effort),
+            Host::Pi(h) => h.start_turn(thread_id, text, effort),
+            Host::Cursor(h) => h.start_turn(thread_id, text, effort),
+            Host::Grok(h) => h.start_turn(thread_id, text).await,
         }
     }
 
@@ -314,6 +348,9 @@ impl Host {
             Host::Gemini(_) => Err(failed("Gemini runtime cannot steer a running turn")),
             Host::Antigravity(h) => h.steer(),
             Host::MuseCode(_) => Err(HostError::SteerRefused("Muse Code cannot steer a running turn".into())),
+            Host::Pi(_) => Err(failed("Pi runtime cannot steer a running turn")),
+            Host::Cursor(_) => Err(failed("Cursor runtime cannot steer a running turn")),
+            Host::Grok(_) => Err(failed("grok agent cannot steer a running turn")),
         }
     }
 
@@ -336,13 +373,22 @@ impl Host {
                 h.interrupt(thread_id, turn_id);
                 Ok(())
             }
+            Host::Pi(h) => {
+                h.interrupt(turn_id);
+                Ok(())
+            }
+            Host::Cursor(h) => {
+                h.interrupt(turn_id);
+                Ok(())
+            }
+            Host::Grok(h) => h.interrupt(thread_id).await,
         }
     }
 
     pub fn session_id(&self, thread_id: &str) -> String {
         match self {
             Host::Claude(h) => h.session_id(thread_id),
-            Host::Codex(_) | Host::Gemini(_) | Host::Antigravity(_) | Host::MuseCode(_) => thread_id.to_string(),
+            _ => thread_id.to_string(),
         }
     }
 }
@@ -381,6 +427,8 @@ mod tests {
         assert!(is_limit("You've hit your usage limit"));
         assert!(is_limit("HTTP 503 overloaded"));
         assert!(!is_limit("all good"));
+        assert!(is_limit("Claude AI monthly spend limit reached. Raise it in your account settings."));
+        assert!(!is_limit("Draft the monthly spend report"));
         assert!(is_auth_retryable("OAuth: failed to refresh OAuth token"));
         assert!(!is_auth_retryable("unexpected status 401 Unauthorized: Invalid API key"));
         assert!(is_auth_rejected("Invalid API key · Please run /login"));

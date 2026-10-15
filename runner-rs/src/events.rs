@@ -18,7 +18,8 @@ use crate::util::{log, mark};
 pub const BACKUP_POLL_S: f64 = 300.0;
 pub const RECONNECT_MAX_S: f64 = 60.0;
 pub const LEGACY_RETRY_S: f64 = 1800.0;
-pub const READ_TIMEOUT_S: u64 = 45;
+/// The server sends a keepalive every 15 s by default and at most every 50 s (backend/events.py).
+pub const READ_TIMEOUT_S: u64 = 90;
 pub const HEARTBEAT_LIVE_S: f64 = 60.0;
 pub const ALL: &[&str] = &["claim", "sync", "config", "heartbeat", "logins", "harness", "imports", "refresh"];
 

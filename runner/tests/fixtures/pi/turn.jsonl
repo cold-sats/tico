@@ -1,0 +1,20 @@
+{"type":"session","version":3,"id":"0b5c2f1e-3a4d-4e6f-8a9b-0c1d2e3f4a5b","timestamp":"2026-10-14T09:00:00.000Z","cwd":"/tmp"}
+{"type":"agent_start"}
+{"type":"turn_start"}
+{"type":"message_start","message":{"role":"user","content":[{"type":"text","text":"hello"}],"timestamp":1760400000000}}
+{"type":"message_end","message":{"role":"user","content":[{"type":"text","text":"hello"}],"timestamp":1760400000000}}
+{"type":"message_start","message":{"role":"assistant","content":[],"api":"openai-completions","provider":"openrouter","model":"moonshotai/kimi-k3","stopReason":"stop","timestamp":1760400001000}}
+{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"Checking"}],"api":"openai-completions","provider":"openrouter","model":"moonshotai/kimi-k3","stopReason":"stop","timestamp":1760400001000},"assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"Checking"}}
+{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"Checking."}],"api":"openai-completions","provider":"openrouter","model":"moonshotai/kimi-k3","stopReason":"stop","timestamp":1760400001000},"assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"."}}
+{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"Checking."}],"api":"openai-completions","provider":"openrouter","model":"moonshotai/kimi-k3","stopReason":"stop","timestamp":1760400001000},"assistantMessageEvent":{"type":"toolcall_end","contentIndex":1}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Checking."}],"api":"openai-completions","provider":"openrouter","model":"moonshotai/kimi-k3","stopReason":"toolUse","timestamp":1760400001000,"usage":{"input":120,"output":9,"cacheRead":40,"cacheWrite":0,"totalTokens":169,"cost":{"input":0.0001,"output":2e-05,"total":0.00012}}}}
+{"type":"tool_execution_start","toolCallId":"call_1","toolName":"bash","args":{"command":"cat AGENT.md"}}
+{"type":"tool_execution_end","toolCallId":"call_1","toolName":"bash","result":{"content":[{"type":"text","text":"# Ops"}]},"isError":false}
+{"type":"turn_end","message":{"role":"assistant","content":[{"type":"text","text":"Checking."}],"api":"openai-completions","provider":"openrouter","model":"moonshotai/kimi-k3","stopReason":"toolUse","timestamp":1760400001000,"usage":{"input":120,"output":9,"cacheRead":40,"cacheWrite":0,"totalTokens":169,"cost":{"input":0.0001,"output":2e-05,"total":0.00012}}},"toolResults":[]}
+{"type":"turn_start"}
+{"type":"message_start","message":{"role":"assistant","content":[],"api":"openai-completions","provider":"openrouter","model":"moonshotai/kimi-k3","stopReason":"stop","timestamp":1760400001000}}
+{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"Acme"}],"api":"openai-completions","provider":"openrouter","model":"moonshotai/kimi-k3","stopReason":"stop","timestamp":1760400001000},"assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"Acme"}}
+{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"Acme reply."}],"api":"openai-completions","provider":"openrouter","model":"moonshotai/kimi-k3","stopReason":"stop","timestamp":1760400001000},"assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":" reply."}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Acme reply."}],"api":"openai-completions","provider":"openrouter","model":"moonshotai/kimi-k3","stopReason":"stop","timestamp":1760400001000,"usage":{"input":30,"output":3,"cacheRead":150,"cacheWrite":8,"totalTokens":191}}}
+{"type":"turn_end","message":{"role":"assistant","content":[{"type":"text","text":"Acme reply."}],"api":"openai-completions","provider":"openrouter","model":"moonshotai/kimi-k3","stopReason":"stop","timestamp":1760400001000,"usage":{"input":30,"output":3,"cacheRead":150,"cacheWrite":8,"totalTokens":191}},"toolResults":[]}
+{"type":"agent_end","messages":[]}

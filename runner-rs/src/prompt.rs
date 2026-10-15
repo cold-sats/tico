@@ -104,6 +104,9 @@ pub fn prompt(attempt: &Value, names: &Names, after: Option<&str>, resumed: bool
     }
     if truthy(&attempt["routine"]) {
         lines.push("Scheduled routine: the assigned task's body is the routine's standing text, not a person's message. Do what it says for this occurrence.".into());
+        if truthy(&attempt["_stale_playbook"]) {
+            lines.push(s(&attempt["_stale_playbook"])); // an older copy of a playbook (crate::playbook)
+        }
     }
     if truthy(&attempt["task"]) {
         let full = &attempt["task"];

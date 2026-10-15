@@ -151,7 +151,7 @@ impl State {
             let seq: i64 = c.query_row("SELECT coalesce(max(seq),0) FROM events WHERE attempt_id=?", params![aid], |r| r.get(0))?;
             let done = json!({"outcome": "interrupted", "text": text, "last_seq": seq});
             c.execute(
-                "UPDATE attempts SET phase='uploading',completion=? WHERE id=? AND completion IS NULL",
+                "UPDATE attempts SET phase='uploading',completion=? WHERE id=? AND completion IS NULL AND phase NOT IN ('synced','historical')",
                 params![done.to_string(), aid],
             )
             .map(|_| ())

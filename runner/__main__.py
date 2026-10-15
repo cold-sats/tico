@@ -88,6 +88,7 @@ def main(argv=None):
     p.add_argument("--team")
     p.add_argument("--bot", action="append")
     sub.add_parser("run")
+    sub.add_parser("catalog", help="Set up or refresh built-in bots from the catalog (JSON on stdin; for the Rust runner)")
     sub.add_parser("connectors", help="Publish bounded app connector snapshots from this machine")
     sub.add_parser("connectors-doctor", help="Check local app connector prerequisites without provider calls")
     p = sub.add_parser("close-calls", help="Sync Close call and Notetaker transcripts from this machine")
@@ -158,6 +159,9 @@ def main(argv=None):
                           "note": "No Close call was made, and the key was not printed. Run the "
                                   "close-calls worker for an authenticated pull."}))
         return
+    if args.command == "catalog":
+        from . import catalog_job
+        return catalog_job.main(config, client)
     if args.command == "doctor":
         assignments = client.get("runners/assignments")
         eligible = client.get("runners/eligible")

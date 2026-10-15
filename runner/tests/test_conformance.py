@@ -1,6 +1,6 @@
 """One contract, two engines: `python -m runner run` and the Rust `tico-runner run` (runner-rs/), each run as a
-real process against a real listening API, with fake `claude`, `codex`, `gemini`, `agy` and `muse` executables first on
-PATH (runner/tests/conformance/). Every scenario runs on both engines and every harness, and checks the result
+real process against a real listening API, with fake `claude`, `codex`, `gemini`, `agy`, `muse`, `pi`, `cursor-agent` and `grok`
+executables first on PATH (runner/tests/conformance/). Every scenario runs on both engines and every harness, and checks the result
 through the server: the claim, the streamed events, the completion and its Idempotency-Keys, granted
 credentials and their redaction, session resume, and recovery after the runner is killed mid-turn.
 
@@ -27,7 +27,13 @@ pytestmark = pytest.mark.slow
 ROOT = Path(__file__).resolve().parents[2]
 FAKES = Path(__file__).resolve().parent / "conformance"
 MODELS = {"claude": "claude-sonnet-5", "codex": "gpt-5.5", "gemini": "gemini-3.8-flash", "antigravity": "gemini-3.8-flash",
-          "musecode": "muse-spark-1.3"}
+          "musecode": "muse-spark-1.3", "pi": "kimi-k3", "cursor": "cursor-auto", "grok": "grok-4.6"}
+# Each fake executable on PATH and the script behind it (runner/tests/conformance/fake_<name>.py).
+FAKE_PROGRAMS = {"claude": "claude", "codex": "codex", "gemini": "gemini", "agy": "agy", "muse": "muse", "pi": "pi",
+                 "cursor-agent": "cursor", "grok": "grok"}
+# The model key each harness signs in with, granted to the bot as the server does (readiness wants the grant).
+GRANTED_KEYS = {"gemini": ("Gemini", "GEMINI_API_KEY", "gemini-synthetic-fixture-key-5531"),
+                "pi": ("OpenRouter", "OPENROUTER_API_KEY", "openrouter-synthetic-fixture-key-7702")}
 RUNTIMES = {"antigravity": "gemini"}
 SECRET = "acme-synthetic-fixture-4821"
 
@@ -76,11 +82,12 @@ class Computer:
             c.execute("UPDATE bot_config SET config_json=? WHERE bot='ops'",
                       (encode({"name": "ops", "runtime": self.runtime, "harness": harness, "model": MODELS[harness],
                                "status": "active", **(bot or {})}),))
-        if harness == "gemini":
-            # The Gemini CLI signs in with the bot's own key; readiness wants it granted.
+        if harness in GRANTED_KEYS:
+            # The Gemini CLI and Pi sign in with the bot's own key; readiness wants it granted.
             from backend.tests.test_credentials import create, setup
             setup(api)
-            key = create(api, name="Gemini", env="GEMINI_API_KEY", secret="gemini-synthetic-fixture-key-5531")
+            name, variable, secret = GRANTED_KEYS[harness]
+            key = create(api, name=name, env=variable, secret=secret)
             post(api, f"credentials/{key['id']}/grants", {"subject": "bot:ops"})
         repo = tmp_path / "projects" / "bot-ops"
         repo.mkdir(parents=True)
@@ -100,11 +107,11 @@ class Computer:
         (home / ".codex").mkdir(parents=True)
         bin_dir.mkdir()
         self.log_path = tmp_path / "harness.jsonl"
-        for name in ("claude", "codex", "gemini", "agy", "muse"):
+        for name, script in FAKE_PROGRAMS.items():
             wrapper = bin_dir / name
             # A turn's environment keeps only process settings, so the fakes' own settings ride in the wrapper.
             fake = "".join(f"{k}='{v}' " for k, v in (env or {}).items() if k.startswith("FAKE_"))
-            wrapper.write_text(f"#!/bin/sh\n{fake}FAKE_LOG='{self.log_path}' exec '{sys.executable}' '{FAKES / f'fake_{name}.py'}' \"$@\"\n")
+            wrapper.write_text(f"#!/bin/sh\n{fake}FAKE_LOG='{self.log_path}' exec '{sys.executable}' '{FAKES / f'fake_{script}.py'}' \"$@\"\n")
             wrapper.chmod(0o755)
         self.config = tmp_path / "config" / "runner.json"
         self.config.parent.mkdir()
@@ -183,7 +190,7 @@ def engine(request):
     return request.param
 
 
-@pytest.fixture(params=["claude", "codex", "gemini", "antigravity", "musecode"])
+@pytest.fixture(params=["claude", "codex", "gemini", "antigravity", "musecode", "pi", "cursor", "grok"])
 def harness(request):
     return request.param
 
@@ -217,15 +224,17 @@ def test_a_chat_turn_streams_completes_and_resumes_the_bot_thread(api, computer)
     attempt = computer.attempts()[-1]
     assert attempt["state"] == "completed" and attempt["result"]["outcome"] == "completed"
     kinds = [e["kind"] for e in computer.events(attempt["id"])]
-    assert "delta" in kinds and "message" in kinds
+    # cursor-agent's stream-json has whole messages only; Grok Build reports no token usage.
+    assert "message" in kinds and ("delta" in kinds or computer.harness == "cursor")
     assert {f"started:{attempt['id']}", f"complete:{attempt['id']}"} <= computer.keys()
-    usage = attempt["result"].get("usage") or {}
-    assert usage.get("output_tokens") == 2 and usage.get("runtime") == computer.runtime
+    if computer.harness != "grok":
+        usage = attempt["result"].get("usage") or {}
+        assert usage.get("output_tokens") == 2 and usage.get("runtime") == computer.runtime
 
     # Another person's conversation continues the bot's one thread, told only what is new.
     second = post(api, "chat/ops", {"text": "A separate question from Ben"}, token="ben-test")
     until(lambda: reply_to(api, second["conversation_id"], "ben-test"), "the second reply")
-    calls = computer.prompts() if computer.harness == "claude" else computer.calls()
+    calls = computer.prompts() if computer.harness in ("claude", "pi", "cursor", "grok") else computer.calls()
     if computer.harness in ("claude", "gemini"):
         session = calls[0]["argv"][calls[0]["argv"].index("--session-id") + 1]
         assert calls[-1]["argv"][calls[-1]["argv"].index("--resume") + 1] == session
@@ -233,6 +242,18 @@ def test_a_chat_turn_streams_completes_and_resumes_the_bot_thread(api, computer)
         # Another conversation is another warm scope: its own process and home, so a provider conversation of its own.
         assert calls[-1]["pid"] != calls[0]["pid"] and all("--conversation" not in c["argv"] for c in calls)
         assert calls[-1]["argv"][calls[-1]["argv"].index("--model") + 1] == "gemini-3.8-flash-low"
+    elif computer.harness in ("pi", "cursor"):
+        # Pi's session id and Cursor's chat id are the thread: every turn names the first one.
+        option = "--session-id" if computer.harness == "pi" else "--resume"
+        assert len(calls) == 2 and len({call["argv"][call["argv"].index(option) + 1] for call in calls}) == 1
+        if computer.harness == "pi":
+            assert calls[0]["env"]["OPENROUTER_API_KEY"] == GRANTED_KEYS["pi"][2]
+            assert calls[0]["argv"][calls[0]["argv"].index("--model") + 1] == "moonshotai/kimi-k3"
+    elif computer.harness == "grok":
+        # The next turn loads the ACP session the first made; a tool permission Grok asks for is always allowed.
+        assert len(calls) == 2 and calls[0]["session"] == calls[1]["session"]
+        assert any(c.get("method") == "session/load" and c["session"] == calls[0]["session"] for c in computer.calls())
+        assert calls[0]["permission"] == {"outcome": "selected", "optionId": "always"}
     elif computer.harness == "musecode":
         # Every turn names the one Muse session Tico made for the thread; the launcher never updates itself.
         sessions = {call["argv"][call["argv"].index("--session-id") + 1] for call in calls}
@@ -274,8 +295,8 @@ def test_a_second_message_reuses_the_warm_process_or_resumes_the_session(api, co
 
 def test_a_granted_credential_reaches_the_turn_and_never_the_transcript(api, computer):
     from backend.tests.test_credentials import create, setup
-    if computer.harness != "gemini":
-        setup(api)                      # the gemini Computer set the vault up for its key
+    if computer.harness not in GRANTED_KEYS:
+        setup(api)                      # the gemini and pi Computers set the vault up for their keys
     secret = create(api, name="Acme API", env="ACME_API_KEY", secret=SECRET)
     post(api, f"credentials/{secret['id']}/grants", {"subject": "bot:ops"})
     computer.start()
@@ -292,9 +313,7 @@ def test_a_runner_killed_mid_turn_files_the_turn_as_interrupted_when_it_restarts
     computer.start()
     msg = post(api, "chat/ops", {"text": "Please HANG for a while"})
     # The first text reaches the server while the turn is still running.
-    attempt = until(lambda: next((a for a in computer.attempts() if a["state"] == "running"
-                                  and any(e["kind"] == "delta" for e in computer.events(a["id"]))), None),
-                    "the streamed first text")
+    attempt = until(lambda: running_with_text(computer), "the streamed first text")
     computer.kill()
     computer.start()
     done = until(lambda: next((a for a in computer.attempts() if a["id"] == attempt["id"] and a["result"]), None),
@@ -305,8 +324,9 @@ def test_a_runner_killed_mid_turn_files_the_turn_as_interrupted_when_it_restarts
 
 
 def running_with_text(computer):
+    # A delta, or for cursor-agent (whole messages only) a message.
     return next((a for a in computer.attempts() if a["state"] == "running"
-                 and any(e["kind"] == "delta" for e in computer.events(a["id"]))), None)
+                 and any(e["kind"] in ("delta", "message") for e in computer.events(a["id"]))), None)
 
 
 @pytest.mark.parametrize("harness", ["codex"])
@@ -342,7 +362,34 @@ def test_a_usage_limit_hops_the_turn_to_the_fallback_harness(api, computer):
     # A segment per harness that used tokens: the refused Codex turn used none.
     assert [part["runtime"] for part in result["usage"]["segments"]][-1:] == ["claude"]
     diagnostics = [e["payload"].get("text", "") for e in computer.events(computer.attempts()[-1]["id"]) if e["kind"] == "diagnostic"]
-    assert "codex unavailable; running this turn on claude" in diagnostics
+    assert "codex hit its usage limit; running this turn on claude" in diagnostics
+    assert not result.get("primary_limited")          # the bot's own fallback: an older server never sees the field
+
+
+# A bot out of quota that names no fallback runs the turn once on another provider signed in here (#504).
+@pytest.mark.parametrize("harness", ["codex"])
+@pytest.mark.parametrize("auto", [True, False])
+def test_a_usage_limit_with_no_fallback_set_runs_on_another_signed_in_provider(api, computer, auto):
+    from backend.store import H
+    view = get(api, "providers")
+    saved = api.put("/api/v2/providers", json={"enabled": ["openai", "anthropic"], "model": view["default"]["model"] or "",
+                                                "expected_revision": view["revision"], "auto_fallback": auto},
+                    headers={"Authorization": "Bearer ana-test", "Idempotency-Key": H.new_id()})
+    assert saved.status_code == 200, saved.text
+    computer.start()
+    msg = post(api, "chat/ops", {"text": "Please LIMIT yourself"})
+    result = until(lambda: (computer.attempts() or [{}])[-1].get("result"), "the completion")
+    diagnostics = [e["payload"].get("text", "") for e in computer.events(computer.attempts()[-1]["id"]) if e["kind"] == "diagnostic"]
+    if not auto:            # the owner turned it off: limited, as before
+        assert result.get("limited") and not result.get("fallback")
+        assert [p["harness"] for p in computer.prompts()] == ["codex"]
+        return
+    assert until(lambda: reply_to(api, msg["conversation_id"]), "the fallback's reply")["body"] == "Acme reply."
+    assert result["outcome"] == "completed" and result["fallback"] == "claude" and result["primary_limited"] is True
+    assert not result.get("limited")
+    assert [p["harness"] for p in computer.prompts()] == ["codex", "claude"]
+    assert any(d.startswith("codex hit its usage limit; running this turn on claude (no fallback set; another provider signed in here)")
+               for d in diagnostics), diagnostics
 
 
 # Steering and subscription profiles are Claude Code and Codex features (runner/profiles.py, steer in drive).
@@ -400,6 +447,22 @@ def test_two_tasks_of_one_bot_run_side_by_side_in_their_own_lanes(api, computer)
     starts = sorted(c["at"] for c in computer.calls() if c.get("method") == "turn/start")
     ends = sorted(c["at"] for c in computer.calls() if c.get("method") == "turn/completed")
     assert len(starts) == 2 and starts[1] < ends[0], (starts, ends)
+
+
+@pytest.mark.parametrize("harness", ["claude"])
+@pytest.mark.parametrize("setup", [{"bot": {"template": "botops"}, "git": True}])
+def test_a_built_in_bots_product_files_follow_the_release_before_its_turn(api, computer, tmp_path):
+    computer.start()
+    first = post(api, "chat/ops", {"text": "Please answer locally"})
+    until(lambda: reply_to(api, first["conversation_id"]), "the bot's reply")
+    repo = tmp_path / "projects" / "bot-ops"
+    stamp = json.loads((repo / ".tico-template.json").read_text())
+    assert stamp["template"] == "botops" and "AGENT.md" in stamp["files"]
+    agent = (repo / "AGENT.md").read_text()
+    assert agent != "# Ops\n\nAnswer the Acme team.\n" and "{{" not in agent.splitlines()[0]
+    # Committed in the checkout (the turn's own push carries it; this fixture's file remote takes no push).
+    log = subprocess.run(["git", "-C", str(repo), "log", "--format=%s", "main"], capture_output=True, text=True, check=True).stdout
+    assert log.startswith("Refresh ") and "from the botops template" in log, log
 
 
 def git(cwd, *args):
@@ -530,3 +593,15 @@ def test_python_m_runner_run_is_the_rust_runner_and_says_so_in_readiness(api, li
         assert "Tico runner 0" in machine.output.read_text() and "(rust) started" in machine.output.read_text()
     finally:
         machine.stop()
+
+
+@pytest.mark.parametrize("harness", ["grok"])
+def test_a_grok_turn_gets_only_its_declared_mcp_servers_never_the_operators(api, computer):
+    # Grok would load the operator's servers from ~/.claude.json, ~/.cursor/mcp.json and the xAI account: all off.
+    computer.start()
+    msg = post(api, "chat/ops", {"text": "Please answer locally"})
+    until(lambda: reply_to(api, msg["conversation_id"]), "the bot's reply")
+    env = computer.prompts()[-1]["env"]
+    assert {k: env[k] for k in ("GROK_CLAUDE_MCPS_ENABLED", "GROK_CURSOR_MCPS_ENABLED", "GROK_MANAGED_MCPS_ENABLED")} == \
+        {"GROK_CLAUDE_MCPS_ENABLED": "false", "GROK_CURSOR_MCPS_ENABLED": "false", "GROK_MANAGED_MCPS_ENABLED": "false"}
+    assert [c["mcpServers"] for c in computer.calls() if c.get("method") == "session/new"] == [[]]

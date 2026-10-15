@@ -277,6 +277,11 @@ pub async fn extend(doc: &mut Value, runtimes: &Map<String, Value>, checks: &[Ma
                     w.push(json!(format!("{PUBLISH_WARNING}{note}")));
                 }
             }
+            if let Some(kept) = crate::placement::kept(&bot) {
+                if let Some(w) = out.get_mut("warnings").and_then(|w| w.as_array_mut()) {
+                    w.push(json!(format!("{}{kept}", crate::placement::KEPT_WARNING)));
+                }
+            }
             if held_back("readiness.repo_commands") {
                 if let Some(builtins) = runtimes.get(&text_of(&row["runtime"])).map(|r| r["commands"].clone()) {
                     if out.contains_key("commands") {

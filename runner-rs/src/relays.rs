@@ -44,6 +44,13 @@ fn relays() -> &'static Relays {
     })
 }
 
+/// The stream said the company's providers changed (service.py `tick`): the default runtime is read again at once.
+static CONFIG_CHANGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn config_changed() {
+    CONFIG_CHANGED.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
 /// service.py `wants`: the stream asked for `channel`, it never ran, or its interval passed (`every` while the
 /// stream is down, BACKUP_POLL_S while it is up).
 fn wants(runner: &Runner, channel: &'static str, every: f64) -> bool {
@@ -126,9 +133,11 @@ pub fn poll(runner: &Arc<Runner>) {
             let result = async {
                 // Install on demand: what this computer's bots run on (primary and fallback), plus what the owner
                 // turned on here; a computer with no bots yet takes the company's default runtime.
-                if harness.default_at.is_none_or(|t| t.elapsed().as_secs_f64() >= 60.0) {
+                let changed = CONFIG_CHANGED.swap(false, std::sync::atomic::Ordering::SeqCst);
+                if changed || harness.default_at.is_none_or(|t| t.elapsed().as_secs_f64() >= 60.0) {
                     harness.default_at = Some(Instant::now());
                     if let Ok(c) = me.client.get("config").await {
+                        crate::fallback::remember(&c);
                         if let Some(value) = c["default_runtime"].as_str() {
                             harness.default_runtime = value.to_string();
                         }

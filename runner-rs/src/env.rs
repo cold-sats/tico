@@ -11,7 +11,7 @@ use regex::Regex;
 use serde_json::Value;
 
 use crate::client::Client;
-use crate::util::{log, text_of};
+use crate::util::text_of;
 
 pub type Env = BTreeMap<String, String>;
 
@@ -159,7 +159,7 @@ pub async fn environment_with(ctx: &EnvContext<'_>, attempt: &Value, vault: &mut
             if !key.is_empty() && reserved_credential(key) {
                 // A credential under one of Tico's own names would replace what the turn runs on.
                 let name = item["name"].as_str().filter(|n| !n.is_empty()).unwrap_or(key);
-                log(&format!(
+                crate::util::diagnostic(&format!(
                     "Tico runner: {bot}: left the credential {name} out of this turn: {key} is a reserved variable name"
                 ));
             }
