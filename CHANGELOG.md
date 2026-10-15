@@ -48,6 +48,9 @@ All notable changes to Tico are recorded here. The format follows
 - **The Python runner.** `"engine": "python"` in `runner.json` and `TICO_RUNNER_ENGINE` are ignored. `python -m runner run`
   and the runner's CLI commands start the Rust runner; a checkout and every update fetch its binary before the restart.
 
+### Fixed
+- Task session resume commands load the model CLI catalog on first opening, so copied commands use the correct resume syntax.
+
 ## [0.3.46] - 2026-10-15
 
 ### Changed
