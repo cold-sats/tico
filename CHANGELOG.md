@@ -14,6 +14,16 @@ All notable changes to Tico are recorded here. The format follows
   usage limit: the turn moves to a ready fallback harness, or the bot shows limited with its retry time and stops
   taking work until then (or until a person writes or presses Try now). Its status and Health say "API quota or
   billing limit" and point to the key's plan and billing rather than a subscription window.
+- Signing a new named subscription in on a Docker Computer works. The profile's folders were the supervisor's
+  (0700), but the sign-in runs as the separate bot user, so Codex stopped at once with "failed to read CODEX_HOME:
+  Permission denied" before showing a link, on the first try and every retry. Each runtime's home in a profile now
+  belongs to the bot user; the profile folder stays the supervisor's, traversable only (0711), so `profile.json`
+  stays private. A profile made before is repaired when its sign-in starts and when the runner starts, without
+  following a link or taking over a hardlinked file, and keeping each file's bytes and mode.
+- The worktrees manual says a refused cleanup stops: the server asks the computer again at most six times over about
+  two hours, then the link shows `cleanup_gave_up`. It says what a person does next: fix the cause the refusal names
+  (the bot's write access, or the kept files), then remove the link (again, if it was already removed). It
+  used to read as retrying forever.
 - Health no longer reports work held by a computer that is waiting to update as a Tico bug (`queue_idle`). A
   computer due an update stops taking new work after 20 minutes until its running turns finish; Health's Stuck list
   now says so ("Team box is holding new work to update to Tico 0.3.48: it starts once its running turn finishes"),
@@ -53,8 +63,12 @@ All notable changes to Tico are recorded here. The format follows
 - Installing or updating a harness that downloads a single binary (not a `.tar.gz`) no longer fails now and then
   with "Text file busy". The runner wrote the file itself, so another of its threads starting a process at that
   moment kept it open for writing when the install checked `--version`; a child `cp` now writes it, as `tar` does.
-- Explicitly removing a kept worktree retries exhausted cleanup on its original computer while preserving
-  unsaved work and waiting for the computer to confirm removal.
+- A deleted task worktree whose cleanup stopped retrying can be cleaned up again. Once the cause is fixed (the bot's
+  write access restored, kept files cleared), delete the worktree link again with `DELETE
+  /api/v2/tasks/{id}/links/{link_id}` (the app shows no remove button for a worktree that is still present: ask
+  BotOps, which sends it as you, or call the API yourself): its original computer gets a fresh set of cleanup
+  attempts once the bot is idle, with all of its usual save and safety checks, and a Rust runner on this release
+  skips its earlier wait once. Deleting it again used to change nothing, so the link and its folder stayed.
 - Bots can read a pull request's checks (`gh pr checks`, commit statuses and check runs) on private
   repositories: run tokens carry Checks and Commit statuses read whenever the installation has accepted them. An
   App created by hand without them needs **Checks** and **Commit statuses** set to Read-only and accepted on the
@@ -81,6 +95,11 @@ All notable changes to Tico are recorded here. The format follows
   with compatible AWS, cryptography, JWT and browser telemetry SDK updates.
 
 ### Added
+- Settings → Computers lists each AI tool on its own row: installed version, enabled, sign-in and the account it
+  is signed in to (`signed in as <email> · <plan>`), with one line per named profile and the weekly and 5-hour
+  windows as bars with the reading's age (#610). Tools without an account or usage source read "unavailable".
+  Accounts come from the tools' own status answers, never credential files, and are shown only to owners,
+  admins and the computer's operator; see PRIVACY.md.
 - An opt-in Rust relay for computer-screen WebSockets, with single-use tickets, leased permissions,
   bounded buffering and cancellation, and duplicate-safe audit reporting. Python remains the default;
   the explicit installation overlay and rollback are documented in docs/install.md.
