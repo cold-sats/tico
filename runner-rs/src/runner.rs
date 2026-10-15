@@ -55,7 +55,9 @@ pub struct Runner {
     assignments: Mutex<Vec<Value>>,
     published: Mutex<HashMap<String, Option<(i128, u64)>>>,
     beat: Mutex<Option<(String, Instant)>>,
-    restart: AtomicBool,
+    /// When a person asked for a restart (the Restart button): the runner exits once no turn runs, and claims
+    /// as usual for SELF_UPDATE_DRAIN_S before it stops claiming so that moment comes (service.py restart_forced).
+    restart: Mutex<Option<Instant>>,
     /// A restart was asked for on a runner nothing would start again: said once.
     restart_refused: AtomicBool,
     /// Persistent Antigravity processes kept between a conversation's turns.
@@ -122,7 +124,7 @@ impl Runner {
             assignments: Mutex::new(vec![]),
             published: Mutex::new(HashMap::new()),
             beat: Mutex::new(None),
-            restart: AtomicBool::new(false),
+            restart: Mutex::new(None),
             restart_refused: AtomicBool::new(false),
             warm: crate::warm::WarmSessions::new(state.directory.join("antigravity"), capacity.max(8)),
             state,
@@ -247,6 +249,8 @@ impl Runner {
         }
         let assignments = self.assignments.lock().unwrap().clone();
         let candidates = readiness_candidates(&assignments);
+        // A built-in bot is set up from the catalog first; any other (or one whose history is on GitHub) is fetched.
+        crate::product_files::bootstrap_missing(&self.config, &candidates).await;
         self.fetch_missing(&candidates).await;
         let runtimes = readiness::runtime_report(&self.config, &self.sign_in, &self.client, &candidates).await;
         *self.runtime_rows.lock().unwrap() = runtimes.clone();
@@ -337,10 +341,10 @@ impl Runner {
                 self.worktrees.poll(host, &actions);
             }
             self.worktree_stamp.store(beat["worktree_record_stamp"] == true, Ordering::SeqCst);
-            if beat["restart"] == true && !self.restart.load(Ordering::SeqCst) {
+            if beat["restart"] == true && self.restart.lock().unwrap().is_none() {
                 // Only a supervisor that starts the runner again may let it exit to restart.
                 if supervised() {
-                    self.restart.store(true, Ordering::SeqCst);
+                    *self.restart.lock().unwrap() = Some(Instant::now());
                     log("Tico runner: restart requested; restarting when no turn is running");
                 } else if !self.restart_refused.swap(true, Ordering::SeqCst) {
                     log("Tico runner: restart requested, but nothing would start this runner again; run `scripts/tico install` once, or restart it by hand");
@@ -426,6 +430,14 @@ fn readiness_candidates(assignments: &[Value]) -> Vec<Value> {
 fn supervised() -> bool {
     let var = |k: &str| std::env::var(k).unwrap_or_default();
     var("XPC_SERVICE_NAME").starts_with("team.tico") || var("TICO_SYSTEMD_UNIT").starts_with("tico-") || var("TICO_SUPERVISED") == "1"
+}
+
+/// A restart a person asked for keeps claiming this long, exiting the moment no turn runs; then it stops claiming.
+const RESTART_DRAIN_S: u64 = 20 * 60;
+
+/// Whether a restart asked for at `asked` has stopped this runner claiming (service.py SELF_UPDATE_DRAIN_S).
+fn drained(asked: Option<Instant>, now: Instant) -> bool {
+    asked.is_some_and(|at| now.saturating_duration_since(at) >= Duration::from_secs(RESTART_DRAIN_S))
 }
 
 /// A heartbeat refused for its capacity (`body.capacity: ...` in the 422 detail).
@@ -540,7 +552,7 @@ impl Runner {
                     (2f64.powi(failures.min(5) as i32)).min(30.0)
                 }
             };
-            if self.restart.load(Ordering::SeqCst) && workers.is_empty() {
+            if self.restart.lock().unwrap().is_some() && workers.is_empty() {
                 log("Tico runner: no turn running; exiting so the supervisor starts the runner again");
                 break;
             }
@@ -610,8 +622,8 @@ impl Runner {
             }
         }
         crate::relays::poll(self);
-        if self.restart.load(Ordering::SeqCst) {
-            return Ok(()); // a person asked for a restart: no new work, the running turns finish
+        if drained(*self.restart.lock().unwrap(), Instant::now()) {
+            return Ok(()); // asked for a restart a while ago: no new work, so the running turns finish
         }
         // Programs bots declare in `watchers:` (crate::watchers); a failure is logged and never stops the runner.
         let assignments = self.assignments.lock().unwrap().clone();
@@ -660,6 +672,14 @@ impl Runner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_requested_restart_keeps_claiming_for_twenty_minutes_then_stops() {
+        let asked = Instant::now();
+        assert!(!drained(None, asked));
+        assert!(!drained(Some(asked), asked + Duration::from_secs(RESTART_DRAIN_S - 1)));
+        assert!(drained(Some(asked), asked + Duration::from_secs(RESTART_DRAIN_S)));
+    }
 
     #[test]
     fn steady_drops_volatile_keys_and_sorts() {

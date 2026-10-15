@@ -38,6 +38,7 @@ mod op;
 mod perbot;
 mod placement;
 mod playbook;
+mod product_files;
 mod prompt;
 mod readiness;
 mod readiness_extra;

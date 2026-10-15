@@ -447,6 +447,22 @@ def test_two_tasks_of_one_bot_run_side_by_side_in_their_own_lanes(api, computer)
     assert len(starts) == 2 and starts[1] < ends[0], (starts, ends)
 
 
+@pytest.mark.parametrize("harness", ["claude"])
+@pytest.mark.parametrize("setup", [{"bot": {"template": "botops"}, "git": True}])
+def test_a_built_in_bots_product_files_follow_the_release_before_its_turn(api, computer, tmp_path):
+    computer.start()
+    first = post(api, "chat/ops", {"text": "Please answer locally"})
+    until(lambda: reply_to(api, first["conversation_id"]), "the bot's reply")
+    repo = tmp_path / "projects" / "bot-ops"
+    stamp = json.loads((repo / ".tico-template.json").read_text())
+    assert stamp["template"] == "botops" and "AGENT.md" in stamp["files"]
+    agent = (repo / "AGENT.md").read_text()
+    assert agent != "# Ops\n\nAnswer the Acme team.\n" and "{{" not in agent.splitlines()[0]
+    # Committed in the checkout (the turn's own push carries it; this fixture's file remote takes no push).
+    log = subprocess.run(["git", "-C", str(repo), "log", "--format=%s", "main"], capture_output=True, text=True, check=True).stdout
+    assert log.startswith("Refresh ") and "from the botops template" in log, log
+
+
 def git(cwd, *args):
     done = subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
                            "-c", "init.defaultBranch=main", *args], cwd=cwd, capture_output=True, text=True,

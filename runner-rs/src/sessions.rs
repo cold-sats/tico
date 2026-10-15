@@ -881,6 +881,14 @@ impl Runner {
             }
         }
         ensure_reads(&self.config.projects_dir(), path).await;
+        // A built-in bot's product files follow the release (crate::product_files); a task lane pushes them at once.
+        crate::product_files::refresh(&self.config, &place.bot, &attempt["config"], path).await;
+        if !place.task.is_empty() && crate::product_files::unpushed(&place.bot) {
+            let _git = self.lanes.git_lock(path).lock_owned().await;
+            if self.push_checkout(path, env).await {
+                crate::product_files::pushed(&place.bot);
+            }
+        }
     }
 
     /// A task lane's own worktree (else the main checkout, waited for), and the task's set-up worktrees and their
@@ -899,6 +907,15 @@ impl Runner {
                 while !problem.is_empty() && Instant::now() < until {
                     if !pause(Duration::from_secs(WORKTREE_RETRY_S), lost).await {
                         break;
+                    }
+                    if crate::product_files::unpushed(&place.bot) {
+                        // The product files it waits on: pushed when the checkout is free.
+                        if let Some(_checkout) = self.lanes.try_checkout(&place.bot) {
+                            let _git = self.lanes.git_lock(&place.main_path).lock_owned().await;
+                            if self.push_checkout(&place.main_path, env).await {
+                                crate::product_files::pushed(&place.bot);
+                            }
+                        }
                     }
                     (tracked, problem) = self.task_worktree(place, &session, attempt, env).await;
                 }
@@ -930,6 +947,10 @@ impl Runner {
 
     /// Add or reuse the task's worktree under the checkout's git lock and rebase it onto its upstream.
     async fn task_worktree(&self, place: &Place, session: &Path, attempt: &mut Value, env: &Env) -> (String, String) {
+        if crate::product_files::unpushed(&place.bot) {
+            // The worktree would sync from an upstream without the refreshed product files.
+            return (String::new(), "its refreshed product files are not pushed yet".into());
+        }
         let _git = self.lanes.git_lock(&place.main_path).lock_owned().await;
         let (tracked, problem) = ensure(&place.main_path, session, &place.task, env).await;
         if problem.is_empty() {
@@ -993,7 +1014,13 @@ impl Runner {
     /// the checkout's git lock, any other lane pushes its checkout; a closed task's clean worktree then goes.
     pub async fn finish_place(&self, place: &Place, attempt: &Value, env: &Env, skipped: &[String], secret: bool) -> bool {
         let aid = text_of(&attempt["id"]);
-        let Some(session) = &place.session_path else { return !secret && self.push_checkout(&place.main_path, env).await };
+        let Some(session) = &place.session_path else {
+            let pushed = !secret && self.push_checkout(&place.main_path, env).await;
+            if pushed {
+                crate::product_files::pushed(&place.bot);
+            }
+            return pushed;
+        };
         !secret && {
             let _git = self.lanes.git_lock(&place.main_path).lock_owned().await;
             let problem = finish(session, &aid, env, skipped).await;
