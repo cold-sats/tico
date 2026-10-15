@@ -20,6 +20,9 @@ All notable changes to Tico are recorded here. The format follows
   whether Tico listed it read-only or not at all for this run, and which repositories the run can write to.
 
 ### Fixed
+- A runner whose event stream drops now logs `event stream back after N s` when it reconnects, so a support
+  bundle shows the outage ended, and names why the stream ended: no data from the server within the read
+  timeout, or the connection and its cause, instead of calling every body error a `TimeoutError`.
 - Runtime and development Python locks share the same dependency pins. The desktop uses rustls 0.23.46,
   with compatible AWS, cryptography, JWT and browser telemetry SDK updates.
 
