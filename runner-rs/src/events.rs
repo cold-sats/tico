@@ -1,7 +1,8 @@
 //! The server's word on what changed for this computer (`runner/runner_events.py`): `GET runners/me/events`
 //! held open, each `runner` event naming the reads it covers. While the stream is down the runner polls as
 //! before; reconnects back off to RECONNECT_MAX_S and resume from the last event id. A server without the
-//! endpoint (404/405) is polled as before and asked again every LEGACY_RETRY_S.
+//! endpoint (404/405) is polled as before and asked again every LEGACY_RETRY_S. A stream that comes back after it
+//! was lost or unavailable says so, so a support bundle shows the outage ended.
 
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,7 +14,7 @@ use serde_json::Value;
 use tokio::sync::Notify;
 
 use crate::client::{bearer, http_client, quote_plus, Client, CLIENT_VERSION};
-use crate::util::{log, mark};
+use crate::util::{diagnostic, log, mark};
 
 pub const BACKUP_POLL_S: f64 = 300.0;
 pub const RECONNECT_MAX_S: f64 = 60.0;
@@ -55,6 +56,8 @@ pub struct Events {
     pending: Mutex<HashSet<&'static str>>,
     state: Mutex<Stream>,
     last_id: Mutex<Option<String>>,
+    /// When the stream was last said to be lost or unavailable, until it is said to be back.
+    down_since: Mutex<Option<Instant>>,
     pub release: Mutex<Option<Value>>,
     /// Woken whenever the server asks for something, so the loop acts on it at once.
     pub wake: Notify,
@@ -67,6 +70,7 @@ impl Events {
             pending: Mutex::new(HashSet::new()),
             state: Mutex::new(Stream::Down),
             last_id: Mutex::new(None),
+            down_since: Mutex::new(None),
             release: Mutex::new(None),
             wake: Notify::new(),
             stop: AtomicBool::new(false),
@@ -119,8 +123,10 @@ impl Events {
                 Err(Failure::Broken(why)) => {
                     if self.state() == Stream::Up {
                         log(&format!("Tico runner: event stream lost ({why}); polling until it is back"));
+                        *self.down_since.lock().unwrap() = Some(Instant::now());
                     } else if !said_down {
                         said_down = true;
+                        *self.down_since.lock().unwrap() = Some(Instant::now());
                         log(&format!("Tico runner: event stream unavailable ({}); polling", why.chars().take(120).collect::<String>()));
                     }
                     false
@@ -166,7 +172,7 @@ impl Events {
             let chunk = match body.next().await {
                 None => break,
                 Some(Ok(c)) => c,
-                Some(Err(e)) => return Err(Failure::Broken(format!("TimeoutError: {e}"))),
+                Some(Err(e)) => return Err(Failure::Broken(body_error(&e))),
             };
             buffer.extend_from_slice(&chunk);
             while let Some(at) = buffer.iter().position(|b| *b == b'\n') {
@@ -221,6 +227,9 @@ impl Events {
                 }
                 *self.release.lock().unwrap() = Some(release);
                 *self.state.lock().unwrap() = Stream::Up;
+                if let Some(since) = self.down_since.lock().unwrap().take() {
+                    diagnostic(&format!("Tico runner: event stream back after {} s; polling stops", since.elapsed().as_secs()));
+                }
                 self.wake.notify_one();
             }
             "runner" => {
@@ -243,6 +252,22 @@ impl Events {
     }
 }
 
+/// Why a stream's body ended early, in words: a read timeout is the server going quiet past READ_TIMEOUT_S
+/// (keepalives come every 15 s), anything else is the connection, named down to its cause.
+fn body_error(e: &reqwest::Error) -> String {
+    if e.is_timeout() {
+        return format!("TimeoutError: no data from the server for {READ_TIMEOUT_S} s");
+    }
+    let mut why = e.to_string();
+    let mut source = std::error::Error::source(e);
+    while let Some(cause) = source {
+        why.push_str(": ");
+        why.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    format!("ConnectionError: {why}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,5 +284,51 @@ mod tests {
         e.dispatch("runner", Some("8".into()), &serde_json::json!({"kind": "work"}), false);
         assert!(e.take("claim") && !e.take("sync"));
         assert_eq!(e.last_id.lock().unwrap().as_deref(), Some("8"));
+    }
+
+    #[test]
+    fn a_stream_back_after_an_outage_says_so_once() {
+        let e = Events::new();
+        e.dispatch("ready", None, &serde_json::json!({"seq": 1, "release": "v1"}), true);
+        let back = |lines: Vec<String>| lines.iter().filter(|l| l.contains("event stream back")).count();
+        let before = back(crate::util::recent_errors());
+        *e.down_since.lock().unwrap() = Some(Instant::now());
+        e.dispatch("ready", None, &serde_json::json!({"seq": 2, "release": "v1"}), true);
+        e.dispatch("ready", None, &serde_json::json!({"seq": 3, "release": "v1"}), true);
+        assert_eq!(back(crate::util::recent_errors()), before + 1);
+        assert!(e.down_since.lock().unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn a_quiet_body_reads_as_a_timeout_and_a_cut_one_as_the_connection() {
+        use tokio::io::AsyncWriteExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let at = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            for close in [false, true] {
+                let (mut sock, _) = listener.accept().await.unwrap();
+                let mut buf = [0u8; 1024];
+                let _ = tokio::io::AsyncReadExt::read(&mut sock, &mut buf).await;
+                sock.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: 100\r\n\r\n: keepalive\n\n").await.unwrap();
+                if close {
+                    drop(sock);
+                } else {
+                    tokio::spawn(async move { tokio::time::sleep(Duration::from_secs(5)).await; drop(sock) });
+                }
+            }
+        });
+        for expected in ["TimeoutError: no data", "ConnectionError: "] {
+            let http = http_client(Some(Duration::from_millis(300)));
+            let mut body = http.get(format!("http://{at}/")).send().await.unwrap().bytes_stream();
+            let err = loop {
+                match body.next().await {
+                    Some(Ok(_)) => continue,
+                    Some(Err(e)) => break e,
+                    None => panic!("the body ended without an error"),
+                }
+            };
+            let why = body_error(&err);
+            assert!(why.starts_with(expected), "{why}");
+        }
     }
 }

@@ -12,6 +12,9 @@ All notable changes to Tico are recorded here. The format follows
   retains the same public listener, and no longer offers a Python relay or an opt-in overlay.
 
 ### Fixed
+- A runner whose event stream drops now logs `event stream back after N s` when it reconnects, so a support
+  bundle shows the outage ended, and names why the stream ended: no data from the server within the read
+  timeout, or the connection and its cause, instead of calling every body error a `TimeoutError`.
 - Runtime and development Python locks share the same dependency pins. The desktop uses rustls 0.23.46,
   with compatible AWS, cryptography, JWT and browser telemetry SDK updates.
 
