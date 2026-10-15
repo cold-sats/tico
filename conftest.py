@@ -19,6 +19,13 @@ os.environ.update({"AWS_ACCESS_KEY_ID": "testing", "AWS_SECRET_ACCESS_KEY": "tes
 import pytest  # noqa: E402
 
 
+def pytest_addoption(parser):
+    parser.addoption("--api-database-snapshots", action="store_true",
+                     help="Reuse a worker-local schema snapshot for the shared API fixture")
+    parser.addoption("--fresh-api-databases", action="store_true",
+                     help="Build API fixture databases from empty paths (migration checks and benchmarks)")
+
+
 def pytest_configure(config):
     """A test path that does not exist is an error. Under -n (on by default here) xdist drops it without a word,
     and the run ends as "no tests ran", which a reader piping the output can take for a pass."""
@@ -35,3 +42,48 @@ def pytest_sessionfinish(session, exitstatus):
     if exitstatus == pytest.ExitCode.NO_TESTS_COLLECTED and not hasattr(session.config, "workerinput"):
         session.config.get_terminal_writer().line(
             "ERROR: no tests were collected; check the test paths and the -m / -k filters", red=True, bold=True)
+
+
+@pytest.fixture(scope="session")
+def api_database(tmp_path_factory, request):
+    """One initialized, fictional database per worker and invocation; never a cache across code changes.
+
+    SQLite's backup API includes committed WAL pages. Only schema, migration markers and the static
+    General task type exist here: no bot/person identity, credential, session or stored filesystem path.
+    Apps, stores, auth, pools, registry files and all mutable rows remain per-test. Migration tests that
+    construct a Store directly still start empty, and lifespan still runs initialize on each restored copy.
+    """
+    import sqlite3
+    from contextlib import closing
+    from backend.store import Store
+    from backend.tests.test_api import api_settings
+
+    if request.config.getoption("--fresh-api-databases") or not request.config.getoption("--api-database-snapshots"):
+        return None
+    settings = api_settings(tmp_path_factory.mktemp("api-schema"))
+    store = Store(settings)
+    store.initialize()
+    snapshot = settings.db_path.with_name("snapshot.db")
+    with closing(sqlite3.connect(settings.db_path)) as source:
+        tables = [row[0] for row in source.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+        allowed = {"cloud_migrations", "registry_metadata", "sqlite_sequence", "task_types", "task_steps"}
+        for table in tables:
+            # FTS5 has internal configuration rows but no user document before fixture seeding.
+            if table in allowed or "_fts_" in table:
+                continue
+            assert not source.execute('SELECT 1 FROM "' + table.replace('"', '""') + '" LIMIT 1').fetchone(), table
+        keys = {row[0] for row in source.execute("SELECT key FROM registry_metadata")}
+        assert keys <= {"access", "owner", "access_bot_limit", "bot_access", "docs_migrated",
+                        "credential-file-migration-v1", "credential-file-migration-v2-hub", "message_links.ready",
+                        "librarian_wording35", "librarian_wording36", "release-history",
+                        "repositories-access-migrated", "task_session_default"}
+        assert source.execute("SELECT id FROM task_types").fetchall() == [("general",)]
+        assert all(row[0].startswith("general-") for row in source.execute("SELECT id FROM task_steps"))
+        # Inspect the stored values directly; dumping every empty table and trigger dominates startup
+        # when many workers build their templates at once.
+        for table in allowed:
+            assert str(settings.db_path.parent) not in repr(source.execute(f'SELECT * FROM "{table}"').fetchall())
+        with closing(sqlite3.connect(snapshot.with_suffix(".building"))) as target:
+            source.backup(target)
+    snapshot.with_suffix(".building").replace(snapshot)
+    return snapshot

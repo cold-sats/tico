@@ -41,3 +41,44 @@ Orca created the independent worktree at the requested upstream main. Its create
 fast-forwarded the clean registered main checkout as part of its automatic base refresh. This was
 an unintended effect of the CLI; no manual application changes were made there, and subsequent
 application edits and build outputs stay within this task's worktree or dedicated temporary directory.
+
+## Test setup (#580)
+
+Current main already stubs disk capacity in both restore unit tests and explicitly rejects zero
+available space before restore begins. Both are covered by the passing operations tests; production
+capacity checking is unchanged. No duplicate fix is introduced.
+
+Profiling a representative API test found 1.99 s setup against 0.01 s body with profiling enabled.
+Cold create_app: 1.84 s including imports; route registration: 0.46 s; Store.initialize: 0.14 s.
+Warm, unprofiled app creation: 0.23 s. No application/route/handler closure is shared between tests.
+Database initialization remains significant enough to evaluate a worker-local snapshot.
+
+The new opt-in `--api-database-snapshots` fixture creates a template per worker and invocation,
+checks for absence of live rows, non-static generated IDs and stored temporary paths, and takes
+consistent copies through SQLite's backup API. Atomic template publication avoids incomplete
+reads. No template survives into another invocation or source revision. Each copy still runs normal
+initialization; direct migration/upgrade fixtures retain empty database paths. Static General type
+and step IDs are intentional schema seeds; no authentication secrets or person/bot IDs are copied.
+The fresh path remains the default because snapshots regress the measured high-worker selections.
+
+Three alternating fresh/snapshot samples per worker count, identical dependencies and test selection:
+
+| Tests | Workers | Fresh median | Snapshot median | Change |
+|---|---:|---:|---:|---:|
+| 13 API contracts | 2 | 4.307 s | 3.526 s | 18.1% faster |
+| 13 API contracts | 4 | 2.979 s | 2.574 s | 13.6% faster |
+| 13 API contracts | 6 | 2.662 s | 2.502 s | 6.0% faster |
+| 13 API contracts | auto (12) | 2.913 s | 3.066 s | 5.2% slower |
+| 84 relevant contracts | 4 | 11.595 s | 10.290 s | 11.3% faster |
+| 84 relevant contracts | auto (12) | 10.794 s | 12.227 s | 13.3% slower |
+
+Every sample passed the same selected tests. The broader set covers API, auth, credentials,
+backups, S3, operations, screen, upgrade, onboarding, display names, route renames and OpenAPI.
+An attempt to refine template guard overhead then encountered machine load above 90 and a full
+internal disk; its 52–62 s medians cannot be compared to the earlier conditions. Do not infer a
+whole-suite speedup or choose a global worker default from these data. Fresh state and coverage
+are preserved; the optimization is available for selections where the measured benefit justifies it.
+
+Validation: 27 API/privacy/operations tests and 24 screen/upgrade/onboarding/operations/client tests
+pass; the alternating broad comparison passes all 84 tests on every sample. The real-capacity
+integration behavior remains unchanged. No tests were removed or skipped for these measurements.

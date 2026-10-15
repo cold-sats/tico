@@ -34,6 +34,24 @@ them too when you change what they cover. To run less while you work: `python -m
 for one file, `node scripts/ui-tests.cjs <name>` for one browser script. If you touch `app/`, also run `cargo check`
 there.
 
+## Profiling API test setup
+
+Each API test creates a fresh app, store, authentication state, registry and database. For targeted
+runs with repeated API setup, `--api-database-snapshots` restores a worker-local schema snapshot with
+SQLite's backup API before normal lifespan initialization. It is opt-in: template construction can
+cost more than it saves for small selections at high worker counts. `--fresh-api-databases` forces
+empty database paths, and direct Store/migration fixtures always initialize from empty paths.
+
+Compare the same tests and dependencies with alternating fresh/snapshot runs:
+
+```bash
+python scripts/benchmark_test_setup.py --output /tmp/tico-setup-benchmark --workers 2 4 6 auto --rounds 3
+```
+
+Use a new output directory each time. The JSON and logs preserve every result, worker count,
+dependency hash, command and system load. A targeted worker-count result does not establish the
+best count for the whole suite; keep explicit `-n N` for a measured selection.
+
 ## Updating dependency locks
 
 Resolve runtime packages first, then development packages against those pins. This keeps tests on the

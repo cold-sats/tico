@@ -1,6 +1,8 @@
 """Exercise the network contract with separate humans and runners over real SQLite."""
 
 import uuid
+import sqlite3
+from contextlib import closing
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -14,17 +16,26 @@ from backend.execution import AWAKE_SETTLE
 from backend.store import H, encode
 
 
-@pytest.fixture
-def api(tmp_path):
+def api_settings(tmp_path):
     registry = tmp_path / "hub-registry"
     registry.mkdir()
     (registry / "hub-access.yaml").write_text(yaml.safe_dump({
         "owner": "ana@acme.example", "bot_admins": ["ben@acme.example"]}))
-    app = create_app(Settings(db_path=tmp_path / "hub.db", registry_dir=registry, test_identities={
+    return Settings(db_path=tmp_path / "hub.db", registry_dir=registry, test_identities={
         "ana-test": Identity("human:ana", "owner", "ana@acme.example"),
         "ben-test": Identity("human:ben", "human", "ben@acme.example"),
         "cara-test": Identity("human:cara", "human", "cara@acme.example"),
-    }))
+    })
+
+
+@pytest.fixture
+def api(tmp_path, api_database):
+    settings = api_settings(tmp_path)
+    if api_database is not None:
+        with closing(sqlite3.connect(api_database.as_uri() + "?mode=ro", uri=True)) as source:
+            with closing(sqlite3.connect(settings.db_path)) as target:
+                source.backup(target)
+    app = create_app(settings)
     with TestClient(app) as client:
         with app.state.store.transaction() as c:
             bots = {slug: {"name": slug, "runtime": "fake", "status": "active"}
