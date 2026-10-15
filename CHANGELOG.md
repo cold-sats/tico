@@ -8,6 +8,12 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- BotOps can register a remote MCP server for the person who asked when the server's header names its credential
+  as a placeholder (`Authorization: Bearer ${VAR}` for the entry's own `env`). The guard that keeps secrets out of
+  BotOps' requests refused every `Authorization` key, so the documented declaration failed with `secret_in_request`
+  before the tool's own checks ran. Only the tool routes' `mcp.headers` are read this way, and only `${VAR}` with
+  an optional `Bearer`, `Basic`, `Token` or `Bot`; a literal value, another variable, or a secret anywhere else in
+  the request is still refused.
 - A chat file a person shares to a task in a comment now shows in the task's activity as a file added, is
   recorded in the audit log, and gets its preview straight away, as an uploaded file does.
 - A message bot reads only its person's mailbox unless its `gmail` entry sets `org_read: true`, as the mail manual
