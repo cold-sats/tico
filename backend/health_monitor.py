@@ -7,7 +7,8 @@ report, turns stopped by a usage limit, bots held in setup, queued work that doe
 task worktrees that failed, the server's own CPU): it costs no model. Each finding has a key (what and where, on this
 install) and a signature (what, without where, the same on every install). A finding the last scan did not have opens
 one task for the Health Monitor, or wakes it on the task it already has, through the same path as a watcher's events
-(backend/watchers.py); a finding still there an hour later says nothing. The bot's own watcher, `software/health-scan`,
+(backend/watchers.py); a finding still there an hour later says nothing, and one that goes away and comes back
+within a day of its last wake counts but wakes nothing. The bot's own watcher, `software/health-scan`,
 looks at the computer it runs on (processes using CPU or memory while idle) the same way.
 
 A Tico bug goes to HQ as a support ticket with `report`: one ticket per signature, a message written here from the
@@ -38,7 +39,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS health_findings(
  key TEXT PRIMARY KEY, signature TEXT NOT NULL, check_id TEXT NOT NULL, kind TEXT NOT NULL, title TEXT NOT NULL,
  detail TEXT NOT NULL DEFAULT '', fix TEXT NOT NULL DEFAULT '', first_seen TEXT NOT NULL, last_seen TEXT NOT NULL,
- present INTEGER NOT NULL DEFAULT 1, occurrences INTEGER NOT NULL DEFAULT 1);
+ present INTEGER NOT NULL DEFAULT 1, occurrences INTEGER NOT NULL DEFAULT 1, last_woke TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS health_reports(
  signature TEXT PRIMARY KEY, ticket_id TEXT, approval_id TEXT, created TEXT NOT NULL, reported_occurrences INTEGER NOT NULL DEFAULT 1);
 """
@@ -47,6 +48,7 @@ REPORTS_PER_DAY = 5          # new tickets the monitor files in a day; a repeat 
 SERVER_CPU = 40.0            # the server's average CPU over an hour, in percent, while hardly anyone used it
 QUIET_REQUESTS = 600         # requests in that hour below which the server counts as idle
 REPEATED = 3                 # a runner error line seen this often in its last 50 is a pattern, not a blip
+REWAKE_HOURS = 24            # a finding back within this long of its last wake counts but wakes nothing
 # Error lines a runner reports (runner/outage.py RECENT, sent as `recent_errors`) that point at a known problem.
 LOG_PATTERNS = (
     ("worktree_fallback", BUG, re.compile(r"runs in the bot's checkout \(.*permission denied", re.I), 1,
@@ -277,7 +279,10 @@ def scan(c, auth, settings):
                   "present=1,occurrences=excluded.occurrences",
                   (item["key"], item["signature"], item["check_id"], item["kind"], item["title"], item["detail"],
                    item["fix"], now, now, occurrences))
+        if row and row["last_woke"] and row["last_woke"] > H.shift(now, hours=-REWAKE_HOURS):
+            continue                             # back within a day of its last wake: counted above, wakes nothing
         if deliver(c, auth, SLUG, _event(item, occurrences)):
+            c.execute("UPDATE health_findings SET last_woke=? WHERE key=?", (now, item["key"]))
             woke.append(item["key"])
     gone = [r["key"] for r in c.execute("SELECT key FROM health_findings WHERE present=1") if r["key"] not in keys]
     for key in gone:
