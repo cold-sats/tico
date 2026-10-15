@@ -173,7 +173,7 @@ bots produce for the team are published to Tico's private store and listed on th
 **A computer waits for work.** A runner holds one stream open, `GET /api/v2/runners/me/events`. When
 something changes for that computer (a job queued for one of its bots, its bots or their settings,
 the credentials or repositories they may use, a worktree to remove or restore, a sign-in, harness
-action, credential import or quota read someone asked it for, Restart), the server sends an event
+action, credential import or quota read someone asked it for, Restart, its screen opened in the app), the server sends an event
 naming what changed and never a value, and the runner re-reads only that. With nothing to say, the
 server sends a keepalive every 15 s, which also keeps the computer *online*. The runner reports its
 readiness (heartbeat) when it changes and at least once a minute, and re-reads everything once

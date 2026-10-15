@@ -56,6 +56,7 @@ from .settings_admin import SettingsAdmin, compact_at as compact_at_of, reposito
 from .readiness import absolute as absolute_link, can_run
 from . import fleet_check as fleet_check_module
 from .getting_started import _online_runners
+from .screen import listing as screen_listing
 from .credential_cards import install_credential_cards, scrub_attempt
 from .github import PATH as GITHUB_WEBHOOK_PATH
 from .store import H, P, Problem, Store, bot_readiness, encode, message_page, repo_url, task_message_page
@@ -3787,7 +3788,9 @@ def create_app(settings=None):
     def desired_runner_release(request: Request):
         with store.read() as c:
             execution.runner(c, request.state.identity)
-        return {**runner_versions.desired(), "features": {"task_files_multipart": True, "runner_commit": True}}
+        # `screen_v1`: this server takes the capability and `readiness.screen` (an older one refuses the heartbeat).
+        return {**runner_versions.desired(), "features": {"task_files_multipart": True, "runner_commit": True,
+                                                          "screen_v1": True}}
 
     @app.get("/api/v2/runners/assignments")
     def assigned(request: Request):
@@ -3930,7 +3933,9 @@ def create_app(settings=None):
             c.execute('DELETE FROM registry_metadata WHERE key=?', ('computer-repositories:' + rid,))
             H.event(c, who.actor, "runner.revoked", rid)
             return {"revoked": True}
-        return mutate(request, body, work)
+        result = mutate(request, body, work)
+        screen_sessions.close_where(rid, 4403, "computer removed")
+        return result
 
     def closed_computer(c, who, bot, runner_id):
         """An admin placing a member's bot on a computer that is neither the member's own nor open to members'
@@ -4065,7 +4070,7 @@ def create_app(settings=None):
             rows.append({"id": r["id"], "label": r["label"], "online": r["id"] in online,
                          "platform": r["platform"] or "", "operator": r["operator"],
                          "accepts_member_bots": bool(r["accepts_member_bots"]), "bots": bots,
-                         **views.computer_details(c, r, who, auth)})
+                         **screen_listing(r), **views.computer_details(c, r, who, auth)})
         return rows
 
     @app.get("/api/v2/computers")
@@ -4874,6 +4879,9 @@ def create_app(settings=None):
     install_watchers(app, store, auth, execution, mutate)
     from .health_monitor import install as install_health_monitor
     install_health_monitor(app, store, auth, mutate, onboarding, settings_admin, settings)
+    # A computer's screen in the app (backend/screen.py); its websockets go before the static mounts below.
+    from .screen import install as install_screen
+    screen_sessions = install_screen(app, store, auth, mutate, execution, settings)
     from .route_renames import install as install_route_renames
     install_route_renames(app)           # after every route: the new spellings canonical, the old ones deprecated
 
