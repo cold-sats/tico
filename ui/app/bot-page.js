@@ -249,7 +249,7 @@ async function pageBot(slug, tab) {
   <div class="bot-top" id="bot-top">
     <button class="bot-back-arrow" id="bot-back-arrow" type="button" aria-label="Back" title="Back">‹</button>
     <div class="bot-ident"><span data-tip-bot="${esc(slug)}" tabindex="0" role="img" aria-label="${esc(e.display_name || slug)} status">${avatar(slug, 36, stateOf(slug))}</span>
-      <div class="botid"><div class="bot-nameline"><h1${role ? ` title="${esc(role)}"` : ''}>${shownName(e)}${runtimeTag(e)}</h1><button type="button" class="bot-learn" id="bot-learn" aria-label="Learnings" title="Learnings" hidden><span class="nav-icon" aria-hidden="true">psychology</span><span class="bl-label">Learnings</span><span class="bl-n" hidden></span></button><span id="bot-tool-strip" hidden></span></div>
+      <div class="botid"><div class="bot-nameline"><h1${role ? ` title="${esc(role)}"` : ''}>${shownName(e)}${runtimeTag(e)}</h1><button type="button" class="bot-learn" id="bot-learn" aria-label="Learnings" title="Learnings" hidden><span class="nav-icon" aria-hidden="true">psychology</span><span class="bl-label">Learnings</span><span class="bl-n" hidden></span></button>${limited ? '' : botScreenLinkHTML(slug)}<span id="bot-tool-strip" hidden></span></div>
         <div class="meta" id="bot-branches"></div>
         <div class="meta" id="bot-alert">${limited ? '' : botAlertHTML(slug)}</div></div></div>
     <div class="bot-switch" id="btabs" role="tablist" aria-label="${esc(e.display_name || slug)}">
@@ -452,9 +452,9 @@ const BOT_TAB_ICONS = {chat: 'chat_bubble', tasks: 'task_alt', history: 'dynamic
 function placeBotHead() {
   const host = $('#bot-more-top'), top = $('#bot-top');
   if (!host || !top) return;
-  const [alert, learn, ...rest] = ['#bot-alert', '#bot-learn', '#bot-branches'].map(q => $(q));
-  if (BOT_PHONE.matches) { host.append(...[alert, learn, ...rest].filter(Boolean)); return; }
-  if (learn?.parentElement === host) $('#bot-tool-strip').before(learn);
+  const [alert, learn, screen, ...rest] = ['#bot-alert', '#bot-learn', '#bot-screen', '#bot-branches'].map(q => $(q));
+  if (BOT_PHONE.matches) { host.append(...[alert, learn, screen, ...rest].filter(Boolean)); return; }
+  for (const el of [learn, screen]) if (el?.parentElement === host) $('#bot-tool-strip').before(el);
   for (const el of [...rest, alert]) if (el?.parentElement === host) top.querySelector('.botid').append(el);
 }
 // The lists in More cut to their three newest rows on every width: [host, rows, keep the newest last]. Each
