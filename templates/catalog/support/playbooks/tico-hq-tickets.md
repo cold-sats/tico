@@ -38,7 +38,13 @@ Follow `playbooks/work-a-ticket.md` for the buckets and for `hub doc ask`. Also:
   install's Health Monitor, not a person: there is no one to reply to beyond a short "thanks, tracked". Every install sends
   the same signature for the same problem, so group by it: one engineering task per signature, titled with the signature,
   and each new ticket or "Seen again" message with that signature is a comment on that task (which install, the version,
-  how many times), never a second task. Keep the ticket ids on the task so the release that fixes it can close them.
+  how many times), never a second task. `software/hq-tickets list --signature hm-...` shows every ticket with one.
+  Keep the ticket ids on the task so the release that fixes it can close them.
+- **Health Monitor fix shipped:** when a release carrying the fix for a signature rolls out, close every open ticket with it
+  and reply to each company. (A ticket held as spam stays held: it never gets a reply.) Write one fixed-in reply (`reports/hq-hm-....md`: what was wrong, the release with the fix,
+  "update to ..."), then run `software/hq-tickets close-signature hm-... reports/hq-hm-....md` (it posts the reply on
+  every open ticket with that signature and closes each; a second run closes nothing new). If a ticket gave an email,
+  add the email-ready copy to the engineering task. Then finish that task.
 - **Question:** answer from the docs; a `covered: false` is a task to the Librarian.
 - **Feature request:** a line for the product owner, no promise.
 - **Security report:** a human at once, as a task; never quote the detail anywhere public and never in a reply.
