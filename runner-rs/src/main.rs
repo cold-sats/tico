@@ -393,6 +393,10 @@ async fn start(command: Command, config: config::Config) -> i32 {
         use tokio::signal::unix::{signal, SignalKind};
         let mut term = signal(SignalKind::terminate()).expect("SIGTERM handler");
         let mut int = signal(SignalKind::interrupt()).expect("SIGINT handler");
+        if runner::drains_on_stop() {
+            // SIGTERM: finish the running turns (Runner::shut_down); a second SIGTERM or a SIGINT stops at once.
+            tokio::select! { _ = term.recv() => stopper.shut_down(), _ = int.recv() => {} }
+        }
         tokio::select! { _ = term.recv() => {}, _ = int.recv() => {} }
         stopper.stop.store(true, std::sync::atomic::Ordering::SeqCst);
         stopper.events.wake.notify_one();
