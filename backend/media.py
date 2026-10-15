@@ -400,6 +400,40 @@ def write_upload(store, request, body, uploads, fn):
     return result
 
 
+def blob_for(c, auth, who, bid):
+    """The blob row if `who` may read it (its owner, or anyone who may see a message or task it
+    is attached to); refuses otherwise. Shared by the download and its metadata."""
+    row = c.execute("SELECT * FROM blobs WHERE id=?", (bid,)).fetchone()
+    if not row:
+        raise Problem("not_found", "File not found", 404)
+    from . import task_privacy as privacy
+    if not privacy.blob_readable(c, privacy.actor(who), bid):
+        raise Problem("not_found", "File not found", 404)
+    # Ownership of the company account is not ordinary access to another person's
+    # private Tico attachment. Shared-room and task access is derived from the linked
+    # object below, using the same authorization as its conversation or task.
+    allowed = who.role in ("owner", "human") and row["owner"] == who.actor
+    if not allowed and who.role in ("owner", "human", "bot"):
+        for linked in c.execute("SELECT m.* FROM message_assets a JOIN messages m ON m.id=a.message_id WHERE a.blob_id=?", (bid,)):
+            try:
+                auth.conversation(c, who, linked["conversation_id"])
+                privacy.require_message(c, who, dict(linked))
+                allowed = True
+                break
+            except Problem:
+                pass
+        for linked in c.execute("SELECT task_id FROM task_assets WHERE blob_id=?", (bid,)):
+            try:
+                auth.task(c, who, linked[0])
+                allowed = True
+                break
+            except Problem:
+                pass
+    if not allowed:
+        raise Problem("forbidden", "You cannot access this file", 403)
+    return row
+
+
 def install_media(app, store, auth, mutate, send_message, task_create):
     from . import task_privacy as privacy
     blobs = Blobs(store.settings)
@@ -820,39 +854,6 @@ def install_media(app, store, auth, mutate, send_message, task_create):
             return {"ok": True, "recoverable": True}
         return mutate(request, body, work)
 
-    def readable_blob(c, who, bid):
-        """The blob row if `who` may read it (its owner, or anyone who may see a message or task it
-        is attached to); refuses otherwise. Shared by the download and its metadata."""
-        row = c.execute("SELECT * FROM blobs WHERE id=?", (bid,)).fetchone()
-        if not row:
-            raise Problem("not_found", "File not found", 404)
-        from . import task_privacy as privacy
-        if not privacy.blob_readable(c, privacy.actor(who), bid):
-            raise Problem("not_found", "File not found", 404)
-        # Ownership of the company account is not ordinary access to another person's
-        # private Tico attachment. Shared-room and task access is derived from the linked
-        # object below, using the same authorization as its conversation or task.
-        allowed = who.role in ("owner", "human") and row["owner"] == who.actor
-        if not allowed and who.role in ("owner", "human", "bot"):
-            for linked in c.execute("SELECT m.* FROM message_assets a JOIN messages m ON m.id=a.message_id WHERE a.blob_id=?", (bid,)):
-                try:
-                    auth.conversation(c, who, linked["conversation_id"])
-                    privacy.require_message(c, who, dict(linked))
-                    allowed = True
-                    break
-                except Problem:
-                    pass
-            for linked in c.execute("SELECT task_id FROM task_assets WHERE blob_id=?", (bid,)):
-                try:
-                    auth.task(c, who, linked[0])
-                    allowed = True
-                    break
-                except Problem:
-                    pass
-        if not allowed:
-            raise Problem("forbidden", "You cannot access this file", 403)
-        return row
-
     @app.get("/api/v2/files/{bid}/meta")
     def file_meta(request: Request, bid: str, v: int | None = None):
         """Name, size and type without the bytes (the viewer decides a
@@ -868,13 +869,13 @@ def install_media(app, store, auth, mutate, send_message, task_create):
         if v not in (None, 1):
             raise Problem("not_found", "File version not found", 404)
         with store.read() as c:
-            row = readable_blob(c, request.state.identity, bid)
+            row = blob_for(c, auth, request.state.identity, bid)
             media = c.execute("SELECT * FROM blob_media WHERE blob_id=?", (bid,)).fetchone()
             return {"id": row["id"], "name": row["name"], "size": row["size"], "content_type": row["content_type"],
                     **({k: media[k] for k in ("width", "height", "duration_ms", "poster_blob_id", "thumb_blob_id", "media_state")} if media else {})}
 
     def resolve_blob(c, who, bid, v=None, derivative=None):
-        row = readable_blob(c, who, bid)
+        row = blob_for(c, auth, who, bid)
         version = c.execute("SELECT * FROM bot_file_versions WHERE blob_id=? AND (? IS NULL OR version=?)", (bid, v, v)).fetchone()
         if v is not None and not version and v != 1:
             raise Problem("not_found", "File version not found", 404)

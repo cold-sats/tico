@@ -374,6 +374,11 @@ def test_a_ready_setup_clears_a_failed_restore_and_the_health_monitor_follows(pr
     del beat['worktrees'][0]['error']
     post(api, 'runners/heartbeat', beat, 'runner-test')
     assert error(links[0]) is None and scanned() == ([], 0)
+    # A link left with the old error by an earlier release clears on the next scan, without a heartbeat or data edit.
+    with api.app_state.store.transaction() as c:
+        detail = json.loads(c.execute('SELECT detail_json FROM task_links WHERE id=?', (links[1]['link_id'],)).fetchone()[0])
+        c.execute('UPDATE task_links SET detail_json=? WHERE id=?', (json.dumps({**detail, 'error': failed}), links[1]['link_id']))
+    assert scanned() == ([], 0) and error(links[1]) == failed
 
 
 def test_a_heartbeat_built_before_checkout_finished_never_moves_it_back(prepared):

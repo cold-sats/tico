@@ -82,7 +82,13 @@ def run(args, who=None):
         if args.chosen is not None:
             body["chosen"] = [{"full_name": r.removesuffix(":read").removesuffix(":write"),
                                "access": "read" if r.endswith(":read") else "write"} for r in args.chosen]
-        return hubtools.bot_repos_set(client, body)
+        result = hubtools.bot_repos_set(client, body)
+        # Say what the change took away: a switch to own keeps the chosen rows, but they stop applying.
+        lost = [r["full_name"] + " (" + r["access"] + ")" for r in (result or {}).get("stopped") or []]
+        lost += ["repository creation"] if (result or {}).get("creation_stopped") else []
+        if lost:
+            print(f"{args.bot} no longer has: " + ", ".join(lost), file=sys.stderr)
+        return result
     if fn in ("tool list", "tool show", "tool query-search") and not (fn == "tool list" and args.bot):
         # Reads a runner credential may make outside a turn; /me would refuse a runner.
         return integrations(client, args)
@@ -347,7 +353,7 @@ def run(args, who=None):
         if sub == "comment":
             from clients.task_review import ask_from_args, attachment
             ask = ask_from_args(args)
-            references = []
+            references = list(getattr(args, "file", None) or [])
             for index, path in enumerate(getattr(args, "attach", None) or []):
                 made = post(f"tasks/{args.id}/files", attachment(path), suffix=f":attachment:{index}")
                 references.append(f"{made['file_id']}@{made['version']}")
