@@ -7,6 +7,10 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Image cleanup keeps future releases staged on the same Docker host.** After an update, the updater removes only
+  older unused release images, so another install or release check can still switch to its downloaded candidate.
+
 ### Added
 - **The flight recorder writes a local file that reads with the server stalled.** Stalls, slow requests and per-minute
   rows go first to `flight/flight.ndjson` beside the database (10 MB x 10, from a bounded queue that never blocks a
