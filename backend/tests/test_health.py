@@ -611,3 +611,22 @@ def test_listening_scoring_with_the_shipped_questions_after_its_own_went_missing
     check = health_of(api)[1]["listening"]
     assert check["status"] == "warn" and f"({shipped['label']})" in check["summary"]
     assert f"listening-item@{shipped['version'] + 4}" in check["summary"]
+
+
+def test_a_computer_on_the_python_runner_warns_with_why_and_the_heartbeat_takes_the_engine(environment):
+    import json
+    from backend.models import StructuredReadiness
+    report = StructuredReadiness.model_validate({"engine": {"name": "python", "note": "TICO_RUNNER_ENGINE=python"}})
+    assert report.model_dump()["engine"] == {"name": "python", "build": "", "note": "TICO_RUNNER_ENGINE=python"}
+    assert "engine" not in StructuredReadiness.model_validate({}).model_dump()
+    api = environment()
+    runner = enrolled(api)
+    for engine, warned in (({"name": "rust", "build": "0123456789abcdef"}, False),
+                           ({"name": "python", "note": "TICO_RUNNER_ENGINE=python"}, True)):
+        with api.app.state.store.transaction() as c:
+            c.execute("UPDATE runners SET label='Team box', last_seen=?, readiness_json=? WHERE id=?",
+                      (H.now(), json.dumps({"schema_version": 1, "runtimes": {}, "bots": {}, "engine": engine}), runner))
+        check = health_of(api)[1].get("engine:" + runner)
+        assert bool(check) == warned
+    assert check["status"] == "warn" and check["summary"] == (
+        "Team box runs the Python runner (TICO_RUNNER_ENGINE=python). It is removed in the next release.")

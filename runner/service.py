@@ -2135,6 +2135,8 @@ class Runner:
             document["harnesses"] = self.tools.report(runtimes)
         if RECENT:
             document["recent_errors"] = list(RECENT)      # a server before support diagnostics refuses it; maintain() retries without
+        from . import engine
+        document["engine"] = engine.report()              # Python, and why: Settings > Computers and Health show it
         return document
 
     def mail_agent_instructions(self, assignments):
@@ -3488,6 +3490,10 @@ class Runner:
         self._reports_credential_source = bool((beat or {}).get("runtime_credential_source"))
         self._reports_worktree_stamp = bool((beat or {}).get("worktree_record_stamp"))
         self.published_agent_instructions.update(instruction_versions)
+        from . import engine
+        if self.restart_due is None and supervised() and engine.switch_due():
+            log("Tico runner: the Rust runner is ready; restarting onto it when no turn is running")
+            self.restart_due = time.monotonic()
         if (beat or {}).get("restart") and self.restart_due is None:
             # A person pressed Restart: take main if that is safe, then restart once nothing runs.
             if supervised():
@@ -3510,7 +3516,7 @@ class Runner:
 
     def _report_heartbeat(self, body):
         readiness = body["readiness"]
-        optional = ("worktree_waits", "worktrees", "disk", "harnesses", "mail_key", "shared_env", "recent_errors", "container_exec", "github_auth", "browser_launch")
+        optional = ("engine", "worktree_waits", "worktrees", "disk", "harnesses", "mail_key", "shared_env", "recent_errors", "container_exec", "github_auth", "browser_launch")
         unsupported = self.__dict__.setdefault("_readiness_unsupported", {})
         for field, until in list(unsupported.items()):
             if time.monotonic() < until:
@@ -3643,7 +3649,7 @@ class Runner:
                               re.search(r"readiness\.(?:StructuredReadiness\.)?" + name + r"(?:[.: ;]|$)", detail)), None) if extra else None
                 generic = extra and "readiness." not in detail
                 if not field and generic:
-                    field = next((name for name in ("worktree_waits", "worktrees", "harnesses", "mail_key", "shared_env", "recent_errors", "container_exec", "github_auth", "browser_launch", "disk")
+                    field = next((name for name in ("engine", "worktree_waits", "worktrees", "harnesses", "mail_key", "shared_env", "recent_errors", "container_exec", "github_auth", "browser_launch", "disk")
                                   if name in readiness), None)
                 if field:
                     readiness.pop(field, None)

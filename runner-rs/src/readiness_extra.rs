@@ -17,7 +17,7 @@ pub const PUBLISH_WARNING: &str = "GitHub history not published: ";
 const DENIED_WARNING: &str = "Claude Code denies what AGENT.md asks for: ";
 const DENIES_WARNING: &str = "Claude Code settings deny: ";
 /// Readiness fields an older server may refuse; each is left out for ten minutes after a refusal.
-pub const OPTIONAL: &[&str] = &["worktrees", "harnesses", "mail_key", "shared_env", "recent_errors", "container_exec", "github_auth", "browser_launch", "disk"];
+pub const OPTIONAL: &[&str] = &["engine", "worktrees", "harnesses", "mail_key", "shared_env", "recent_errors", "container_exec", "github_auth", "browser_launch", "disk"];
 
 // ------------------------------------------------------------------------------------- credential grants
 
@@ -301,6 +301,7 @@ pub async fn extend(doc: &mut Value, runtimes: &Map<String, Value>, checks: &[Ma
     if let Some(h) = crate::harness_tools::report(runtimes).await {
         doc["harnesses"] = h;
     }
+    doc["engine"] = json!({"name": "rust", "build": crate::BUILD_ID}); // Settings > Computers shows the engine
     let recent = crate::util::recent_errors();
     if !recent.is_empty() {
         doc["recent_errors"] = json!(recent);

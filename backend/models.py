@@ -806,6 +806,13 @@ class ContainerExecReadiness(Contract):
     checked_at: str = Field(max_length=50)
 
 
+class EngineReadiness(Contract):
+    """Which runner engine the computer runs (runner/engine.py): the Rust runner and its build, or the Python one and why."""
+    name: Literal["rust", "python"]
+    build: str = Field(default="", max_length=64)
+    note: Annotated[str, BeforeValidator(lambda v: v[:300] if isinstance(v, str) else v), Field(max_length=300)] = ""
+
+
 class StructuredReadiness(Contract):
     worktrees: bool | None = None
     # Prepares a worktree reserved for a waiting task while its bot is idle (backend/worktree_waits.py).
@@ -821,6 +828,7 @@ class StructuredReadiness(Contract):
     # A bot's GitHub App token asked GitHub who it is, and Playwright's Chromium started (runner/tool_probes.py).
     github_auth: ContainerExecReadiness | None = None
     browser_launch: ContainerExecReadiness | None = None
+    engine: EngineReadiness | None = None
     # The runner's last WARN/ERROR-like log lines, for a support bundle a person chooses to send (backend/diagnostics.py).
     # Long lines are cut, never refused: a refused report would hide the computer (0.3.2 runners sent 301 characters).
     recent_errors: list[Annotated[str, BeforeValidator(lambda v: v[:300] if isinstance(v, str) else v),
@@ -831,7 +839,7 @@ class StructuredReadiness(Contract):
         data = handler(self)
         if data.get("disk") is None:
             data.pop("disk", None)
-        for field in ("container_exec", "github_auth", "browser_launch"):
+        for field in ("container_exec", "github_auth", "browser_launch", "engine"):
             if data.get(field) is None:
                 data.pop(field, None)
         if not data.get("recent_errors"):

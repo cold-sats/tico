@@ -120,8 +120,8 @@ def main(argv=None):
         return
     config = json.loads(args.config.read_text())
     if args.command == "run":
-        # One switch for Docker, launchd and systemd: `"engine": "rust"` or TICO_RUNNER_ENGINE=rust hands this
-        # process to the Rust runner before the lock is taken; any problem stays here (runner/engine.py).
+        # One switch for Docker, launchd and systemd: this process becomes the Rust runner before the lock is
+        # taken, unless `"engine": "python"` or TICO_RUNNER_ENGINE=python; any problem stays here (runner/engine.py).
         from . import engine
         engine.maybe_exec(config, list(sys.argv[1:] if argv is None else argv))
     if args.command == "profile":

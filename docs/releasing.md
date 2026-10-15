@@ -127,12 +127,15 @@ The workflow then:
 - runs `scripts/build_install_bundle.py`, which attaches the one-line installers: `install.sh` and the Windows
   `install-wsl.ps1` with the tag baked into them, `tico-bundle-vX.Y.Z.tar.gz` (`compose.yaml`, `.env.example`,
   `docker/runner.compose.yaml` and the `setup/` wizard) and `SHA256SUMS` over all three. `install.sh` checks the bundle against `SHA256SUMS` before it unpacks anything;
+- builds the Rust runner for checkouts, `tico-runner-{macos-arm64,macos-x86_64,linux-x86_64,linux-arm64}.gz` (Linux
+  static, musl) and `tico-runner-SHA256SUMS` over them, in parallel with the images. A Mac or Linux checkout on the tag
+  downloads its one ([updates](updates.md#the-runner-engine));
 - waits until `ghcr.io/ticoteam/{tico,tico-runner,tico-updater}:vX.Y.Z` exist (the Docker workflow builds them from the
   same tag, in about 2 minutes), so no release is published whose installer would fail on `docker compose pull`;
 - uses the `[X.Y.Z]` section of the changelog, unchanged, as the release notes, and fails if the
   section is missing or empty. A tag with a suffix such as `v0.2.0-rc.1` is marked a prerelease,
   which the update check ignores;
-- publishes the release with those four files and the notes. That is everything the installer, the server's update
+- publishes the release with those four files, the runner binaries and the notes. That is everything the installer, the server's update
   check and the updater read (`install.sh`, the bundle and `SHA256SUMS`), so the server rollout can start at once.
 
 Docker images are published by a separate workflow (on the same `v*` tag, plus a manual run) and set `TICO_VERSION` in the image, which is how the running app

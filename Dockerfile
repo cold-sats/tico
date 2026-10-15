@@ -83,7 +83,7 @@ RUN --mount=type=bind,from=venv,source=/opt/tico/.venv,target=/opt/tico/.venv \
     .venv/bin/python -c 'import backend.app, runner.service, clients.environments' \
     && .venv/bin/python -m compileall -q backend runner clients
 
-# The Rust runner (runner-rs/, opt-in per computer: runner/engine.py), built on the same Debian release as the runner image so it
+# The Rust runner (runner-rs/, the default engine: runner/engine.py), built on the same Debian release as the runner image so it
 # links against the same glibc. Only its sources are copied, so a change elsewhere reuses this layer.
 FROM rust:1.90-slim-bookworm@sha256:64232e656c058f4468e8d024e990acff04f0fd5a5c0a88a574dc37773d7325c9 AS runner-bin
 WORKDIR /src/runner-rs
@@ -107,7 +107,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && useradd --uid 10003 --gid ticorun --home-dir /home/runner --no-create-home --shell /bin/bash bot
 COPY --from=node /opt/node /opt/node
 COPY --from=gh /out/gh /usr/local/bin/gh
-# TICO_RUNNER_ENGINE=rust hands `python -m runner run` to this binary (TICO_RUNNER_BIN, runner/engine.py).
+# `python -m runner run` hands the process to this binary (TICO_RUNNER_BIN, runner/engine.py).
 COPY --from=runner-bin /out/tico-runner /usr/local/bin/tico-runner
 # node and npm are here for the runner's own installs of model CLIs (runner/harness_tools.py).
 RUN ln -s /opt/node/bin/node /opt/node/bin/npm /opt/node/bin/npx /usr/local/bin/

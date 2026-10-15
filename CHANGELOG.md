@@ -29,6 +29,14 @@ All notable changes to Tico are recorded here. The format follows
   [Health Monitor](docs/health-monitor.md).
 
 ### Changed
+- **Every computer runs the Rust runner.** `python -m runner run` (the launchd job, the systemd unit, the Docker image)
+  now hands the process to `tico-runner`. The Docker image ships it; a Mac or Linux checkout on a release downloads
+  that release's binary (new release files `tico-runner-<os>-<arch>.gz` and `tico-runner-SHA256SUMS`), and any other
+  checkout with cargo builds it in the background. The Rust runner now follows the server's release like the Python
+  one did (it reports its release and update state and updates through the same updater). A computer with no usable
+  binary, or with a bot on a model CLI the Rust runner does not drive yet, stays on Python, logs why, and Health warns;
+  it switches once the binary is there. Settings > Computers shows Rust or Python after the version. See
+  [Updates](docs/updates.md#the-runner-engine).
 - **The Health Monitor watches for a silent computer.** A computer that has not checked in for ten minutes while work is queued for its bots is a setup finding (`computer_silent`), handed to BotOps like the other setup checks and never reported as a Tico bug.
 - **A computer that stops checking in is no longer quiet.** Ten minutes without a word while work is queued for its bots, Health's Bots waiting check turns red and Overview's Stuck line says how long it has been silent; after thirty minutes the person who enrolled it (the company owner when nobody current did) gets it in Needs you, with how to bring it back. A computer offline for a moment is still a warning that clears itself.
 - **A bot left in setup for a day shows on Overview.** A bot still `needs_setup` a day after it was added holds its
@@ -38,6 +46,10 @@ All notable changes to Tico are recorded here. The format follows
   routine on as Start setup would have (`routine` in its answer). The person the "Finish setting up" reminder goes to
   gets one message about it, once per bot, unless that reminder is still open. Nothing finishes setup on its own.
 - **A bot can't ask a person a question on a task that has ended.** On a task that is closed, declined or done, a new question from a bot to a person (`hub task ask`, a task comment that asks, or a message sent as an ask) is refused with "reopen it or ask on an open task"; a done task still asks for acceptance with its review questions.
+
+### Deprecated
+- **The Python runner** is removed in the next release. Until then `"engine": "python"` in `runner.json` or
+  `TICO_RUNNER_ENGINE=python` keeps it on one computer.
 
 ### Fixed
 - **Pausing a bot pauses its routines.** Pausing a bot now closes the timed routine runs it had not started, with the note "Bot paused before this routine ran", so they don't pile up and all run at once on resume. A person's own tasks for the bot, a person's Run now, event (`on:`) runs (a meeting's notes are announced only once) and runs handed to another bot stay queued. Each routine keeps its own on/off switch, so resuming the bot brings back exactly the routines that were on. A bot still in setup gets no timed runs and Run now is refused until setup is done; its event runs wait for it. The routines list says "paused with the bot", and the API has a new `held_by_bot` field (`paused`, `needs_setup`, ...) that names what holds an enabled routine.
