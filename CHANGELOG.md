@@ -41,6 +41,9 @@ All notable changes to Tico are recorded here. The format follows
   (`hub task comment --file <id>@1`, or `attachments` over MCP and API) gives the task its own copy, and the task's
   bot can download it. Before, the bot was refused even though the file was linked in the comment. A bot, or a
   person who cannot open the file, is still refused, and the chat file keeps its own access.
+- A bot can no longer reopen a task its requester closed. A completion from a run that started before the close
+  used to move it back to Done, so the person had to accept the same work again. The task now stays closed;
+  the bot is told to add anything new as a comment. A person still reopens it; a requester bot only reopens its own close.
 - Installing or updating a harness that downloads a single binary (not a `.tar.gz`) no longer fails now and then
   with "Text file busy". The runner wrote the file itself, so another of its threads starting a process at that
   moment kept it open for writing when the install checked `--version`; a child `cp` now writes it, as `tar` does.
