@@ -8,6 +8,10 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- Health no longer reports work held by a computer that is waiting to update as a Tico bug (`queue_idle`). A
+  computer due an update stops taking new work after 20 minutes until its running turns finish; Health's Stuck list
+  now says so ("Team box is holding new work to update to Tico 0.3.48: it starts once its running turn finishes"),
+  and the Health Monitor names the held work on that computer's `runner_outdated` finding.
 - A Claude turn that hits its session or weekly limit now ends as limited within seconds and moves to the bot's
   fallback once, instead of holding the turn (and the computer's update) open with no model work. Claude could
   report the limit and then wait for more input without a final result.
