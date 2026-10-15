@@ -8,6 +8,10 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- Files attached in Safari or the macOS app (new-task attachments, a task's Files +, docs import, the team icon and
+  chat attachments) arrive complete. WebKit could send a file read from disk as an empty or cut-short body while
+  Tico's service worker controlled the page, so the server answered "Invalid request fields or attachments" or
+  "Send a complete multipart upload with a file field". Uploads now send a copy of the file's bytes.
 - Explicitly removing a kept worktree retries exhausted cleanup on its original computer while preserving
   unsaved work and waiting for the computer to confirm removal.
 - Bots can read a pull request's checks (`gh pr checks`, commit statuses and check runs) on private

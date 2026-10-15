@@ -116,9 +116,21 @@ const patch = (p, body={}, operationId) => window.TicoObservability
   ? window.TicoObservability.run(p, () => patchRequest(p, body, operationId)) : patchRequest(p, body, operationId);
 const put = (p, body={}, operationId) => window.TicoObservability
   ? window.TicoObservability.run(p, () => putRequest(p, body, operationId)) : putRequest(p, body, operationId);
+// WebKit (Safari and the macOS app's web view) can send a file read from disk as an empty or cut-short body
+// while a service worker controls the page, which ours does. The same bytes copied into memory send in full.
+async function memoryBody(body) {
+  if (body instanceof Blob) return new File([await body.arrayBuffer()], body.name || '', {type: body.type});
+  const copy = new FormData();
+  for (const [name, value] of body.entries()) {
+    if (value instanceof File) copy.append(name, new File([await value.arrayBuffer()], value.name, {type: value.type, lastModified: value.lastModified}));
+    else copy.append(name, value);
+  }
+  return copy;
+}
 // Keep multipart and binary retries stable across newly constructed bodies.
 const formRequestOnce = async (url, body) => {
   getForget();
+  body = await memoryBody(body);
   if (!S.me?.cloud) return fetch(url, {method:'POST', body});
   const fields = [];
   for (const [name, value] of body instanceof Blob ? [['file', body]] : body.entries()) {
