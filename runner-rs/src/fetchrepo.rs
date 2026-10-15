@@ -1,7 +1,8 @@
 //! A bot's own repository onto the computer it is assigned to (service.py fetch_repository, github_access and
 //! git_credentials.clone_repository / empty_clone / discard_partial): a bot placed on or moved to a computer that
 //! has never held it has no checkout, and nothing else puts one there. A failure is remembered for FETCH_RETRY_S,
-//! so every heartbeat is not a clone, and its cause is the bot's readiness problem.
+//! so every heartbeat is not a clone, and its cause is the bot's readiness problem. A checkout that exists only
+//! here gets its GitHub home at readiness time too, not only on a turn (service.py publish_unpublished).
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -14,6 +15,25 @@ use crate::runner::Runner;
 use crate::util::{log, text_of, truthy};
 
 pub const FETCH_RETRY_S: u64 = 120;
+/// How long a checkout whose history GitHub has not taken is left before the next readiness-time try.
+const PUBLISH_RETRY: Duration = Duration::from_secs(3600);
+/// One readiness-time publish every this long across all bots, so many unpublished checkouts spread their calls out.
+const PUBLISH_SPACING: Duration = Duration::from_secs(20);
+
+/// When each bot's history was last offered to GitHub at readiness, and when the next one may go.
+static PUBLISHED: std::sync::Mutex<Option<(std::collections::HashMap<String, Instant>, Option<Instant>)>> = std::sync::Mutex::new(None);
+
+/// Whether `bot` is due a readiness-time publish now; notes it as tried when it is.
+fn publish_due(bot: &str, now: Instant) -> bool {
+    let mut guard = PUBLISHED.lock().unwrap();
+    let (checked, next) = guard.get_or_insert_with(Default::default);
+    if checked.get(bot).is_some_and(|at| now.duration_since(*at) < PUBLISH_RETRY) || next.is_some_and(|n| now < n) {
+        return false;
+    }
+    checked.insert(bot.to_string(), now);
+    *next = Some(now + PUBLISH_SPACING);
+    true
+}
 
 type Note = (String, Instant, String);
 static NOTES: std::sync::Mutex<Option<std::collections::HashMap<String, Note>>> = std::sync::Mutex::new(None);
@@ -173,6 +193,43 @@ impl Runner {
         }
         NOTES.lock().unwrap().get_or_insert_with(Default::default).insert(bot.to_string(), (key, Instant::now(), problem.clone()));
         problem
+    }
+
+    /// Give each checkout here with no upstream its GitHub home before anyone moves the bot: one that exists only
+    /// here cannot be cloned by the computer that takes it over (service.py publish_unpublished). A checkout that
+    /// shares no history with GitHub's is not ready: a turn there would work without the bot's memory.
+    pub async fn publish_unpublished(&self, assignments: &[Value], checks: &mut [serde_json::Map<String, Value>]) {
+        let mine = self.config.runner_id();
+        for row in checks.iter_mut().filter(|r| r.get("published") == Some(&Value::Bool(false))) {
+            let bot = text_of(&row["bot"]);
+            let Some(entry) = assignments.iter().find(|e| text_of(&e["bot"]) == bot) else { continue };
+            let repository = text_of(&entry["repository"]);
+            let state = Some(text_of(&entry["state"])).filter(|s| !s.is_empty()).unwrap_or_else(|| "active".into());
+            let here = !mine.is_empty() && text_of(&entry["runner_id"]) == mine;
+            if here && !repository.is_empty() && state == "active" && publish_due(&bot, Instant::now()) {
+                match self.github_access(&bot, entry).await {
+                    Err(why) => {
+                        self.publish_notes.lock().unwrap().insert(bot.clone(), format!("{repository}: {why}").chars().take(300).collect());
+                    }
+                    // Without a GitHub App the machine's own git access is the person's: nothing is pushed for them.
+                    Ok(env) if env.contains_key(crate::gitcred::REPOSITORY_KEY) => {
+                        self.publish(&bot, Path::new(&text_of(&row["repository"])), &env).await;
+                    }
+                    Ok(_) => {}
+                }
+            }
+            let unrelated = self.publish_notes.lock().unwrap().get(&bot).cloned().unwrap_or_default();
+            if unrelated.contains("unrelated history") {
+                let path = text_of(&row["repository"]);
+                if let Some(problems) = row.get_mut("problems").and_then(|p| p.as_array_mut()) {
+                    problems.push(Value::String(format!(
+                        "This computer's copy of {bot} shares no history with GitHub ({unrelated}). Rename or move {path} out of the workspace \
+                         (nothing in it is deleted); the runner then clones the bot from GitHub, and anything wanted from the old copy can be copied back by hand"
+                    )));
+                }
+                row.insert("ready".into(), Value::Bool(false));
+            }
+        }
     }
 
     /// Before readiness: each bot assigned here without AGENT.md gets its repository fetched; the problem found

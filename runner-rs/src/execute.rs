@@ -550,7 +550,7 @@ impl Runner {
         servers
     }
 
-    async fn publish(&self, bot: &str, path: &Path, env: &Env) -> (&'static str, String) {
+    pub(crate) async fn publish(&self, bot: &str, path: &Path, env: &Env) -> (&'static str, String) {
         let repository = env.get(crate::gitcred::REPOSITORY_KEY).cloned().unwrap_or_default();
         if repository.is_empty() {
             return ("skipped", String::new());
