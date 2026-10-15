@@ -74,7 +74,8 @@ A copy of real data that must send nothing out takes `TICO_REHEARSAL=1` in `serv
 and `environment`, the environment id this registration belongs to. Without `capacity` (or with
 `"auto"`) the runner sizes how many turns it runs at once to the machine: 5 per CPU core, as memory allows (3 per
 GB), at least 4 and at most 64. Turns mostly wait on their model provider, so this is well above the core count. A
-number is kept (up to 256), so set `"capacity": 80` to go higher. Mode 0600 is
+number is kept (up to 256), so set `"capacity": 80` to go higher. The `"capacity": 4` that setups before October 14,
+2026 wrote becomes `"auto"` once (`capacity_auto` marks it done); set 4 again to keep it. Mode 0600 is
 enforced on every command. Profiles add three more keys:
 
 ```json
