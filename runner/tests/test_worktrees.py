@@ -509,6 +509,10 @@ def test_a_write_refusal_names_what_the_server_listed_for_the_run():
     with pytest.raises(ValueError, match='does not list org/product for this run'):
         W.metadata(client, 'org/product')
     assert W.metadata(client, 'ORG/bot-ops')['full_name'] == 'org/bot-ops'
+    client.get.return_value = {'configured': True, 'repositories': [
+        {'full_name': f'org/r{n:02}', 'access': 'write'} for n in range(12)]}
+    with pytest.raises(ValueError, match=r'writable here: org/r00, .*, org/r09 and 2 more\)$'):
+        W.metadata(client, 'org/docs')
 
 
 @pytest.mark.slow
