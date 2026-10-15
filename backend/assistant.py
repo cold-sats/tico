@@ -58,10 +58,11 @@ def ensure_schema(c):
 
 
 # ------------------------------------------------------------------ what the assistant may write directly
-# What an assistant turn may write on its own is what stays inside the team: its person's own tasks (create, or update
-# but not settle), tasks for bots, comments on tasks no other person is on, messages to bots, marking updates read,
-# quiet notes. A task or message for another person, run-now, spend, access, archive and the rest are proposals. The
-# owner's rule "Assistant acts without asking" off (backend/team_rules.py) narrows it to what only touches the person.
+# What an assistant turn may write on its own is what stays inside the team: creating a task (for its person, a bot or
+# another person), updating its person's own tasks but not settling them, comments on tasks no other person is on,
+# messages to bots, marking updates read, quiet notes. A message for another person, run-now, spend, access, archive
+# and the rest are proposals. The owner's rule "Assistant acts without asking" off (backend/team_rules.py) narrows it
+# to what only touches the person.
 _SETTLES = ("done", "closed", "declined")
 
 
@@ -100,7 +101,11 @@ def write_allowed(method, path, settings=None, body=b"", actor="", owns=None, di
     if not (creating or updating) or fields.get("close") or fields.get("status") in _SETTLES:
         return False
     if creating:
-        return _mine(actor, fields.get("owner")) or bool(direct and to_bot and to_bot(fields.get("owner")))
+        # A new task is reversible and the route still checks the owner and the plain-ask rules, so creating one
+        # for another person (named by their full actor id, as in `_mine`) runs directly, like one for a bot.
+        owner = str(fields.get("owner") or "").strip()
+        return _mine(actor, owner) or bool(direct and (owner.startswith("human:")
+                                                       or (to_bot and to_bot(owner))))
     if "owner" in fields and not _mine(actor, fields["owner"]):
         return False
     return bool(owns and owns(updating.group(1), False))

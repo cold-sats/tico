@@ -13,7 +13,7 @@ from .store import H
 
 KEY = "rules"
 DEFAULTS = {
-    "assistant_direct": True,       # the Assistant makes tasks for bots, comments and messages to bots without a card
+    "assistant_direct": True,       # the Assistant makes tasks (for a person or a bot), comments and messages to bots without a card
     "assistant_approvals": True,    # a person may let their own Assistant decide their approvals (backend/assistant.py)
     "botops_direct": True,          # BotOps sets AI providers and raises limits without a card
     "botops_manages_bots": True,    # BotOps, in its own runs, manages every bot that is not built in (Auth.botops_manages)

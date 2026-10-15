@@ -183,8 +183,7 @@ def test_direct_writes_stay_inside_the_team(api):
         botwork = H.task_create(c, "human:ben", "Plan the launch", "For ops.", "bot:ops")
     r, attempt = assistant_turn(api, "ben-test")
     token = attempt["token"]
-    # Nothing that reaches another person, or spends, or changes a task that is not theirs alone, runs directly.
-    post(api, "tasks", {"owner": "human:cara", "title": "Review the plan", "body": "Please."}, token=token, expected=403)
+    # Nothing that spends, messages another person, or changes a task that is not theirs alone, runs directly.
     post(api, "messages", {"to": "human:cara", "text": "Hello"}, token=token, expected=403)
     post(api, "messages", {"to": "cara", "text": "Hello"}, token=token, expected=403)                # a bare name may be a person
     post(api, f"tasks/{theirs['id']}/run-now", {}, token=token, expected=403)
@@ -193,6 +192,9 @@ def test_direct_writes_stay_inside_the_team(api):
     post(api, f"tasks/{theirs['id']}/comments", {"text": "Started"}, token=token, expected=403)   # Ana is on it: it tells her
     post(api, "notes", {"to": "ops", "text": "Remember the launch"}, token=token, expected=403)      # no unmarked notes
     post(api, "tasks", {"owner": "ben", "title": "Draft my week", "body": "Monday."}, token=token, expected=403)  # a bare name
+    # Creating a task for another person runs directly too (reversible, unlike settling one).
+    for_cara = post(api, "tasks", {"owner": "human:cara", "title": "Review the plan", "body": "Please."}, token=token)
+    assert for_cara["owner"] == "human:cara" and for_cara["requester"] == "human:ben"
     # A task for a bot, a comment on it and a message to a bot stay in the team: they run directly, as ben.
     made = post(api, "tasks", {"owner": "ops", "title": "Draft the launch post", "body": "For Oct 1."}, token=token)
     assert made["owner"] == "bot:ops" and made["requester"] == "human:ben"
@@ -207,6 +209,26 @@ def test_direct_writes_stay_inside_the_team(api):
         # What it wrote is marked, so BotOps ignores it.
         assert c.execute("SELECT count(*) FROM messages WHERE to_actor='bot:ops' AND refs_json LIKE '%\"via\": \"assistant\"%'"
                          ).fetchone()[0] >= 2
+
+
+def test_the_assistant_creates_a_task_for_another_person_without_a_card(api):
+    r, attempt = assistant_turn(api, "ben-test")
+    token = attempt["token"]
+    made = post(api, "tasks", {"owner": "human:cara", "title": "Review the plan", "body": "Please review the plan."},
+                token=token)
+    assert made["owner"] == "human:cara" and made["requester"] == "human:ben"
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM assistant_actions WHERE status='pending'").fetchone()[0] == 0
+        assert c.execute("SELECT via FROM task_events WHERE task_id=? ORDER BY ts LIMIT 1",
+                         (made["id"],)).fetchone()[0] == "assistant"
+    # The person is named by their full actor id, as for the person's own tasks: a bare name is not enough.
+    post(api, "tasks", {"owner": "cara", "title": "Review it again", "body": "Please."}, token=token, expected=403)
+    # The owner's "Assistant acts without asking" off puts the card back.
+    assert api.put("/api/v2/access/rules", json={"assistant_direct": False}, headers=headers()).status_code == 200
+    refused = post(api, "tasks", {"owner": "human:cara", "title": "Review the budget", "body": "Please."},
+                   token=token, expected=403)
+    assert refused["error"]["code"] == "confirm_required"
+    assert api.put("/api/v2/access/rules", json={"assistant_direct": True}, headers=headers()).status_code == 200
 
 
 def test_real_assistant_lease_keeps_actual_bot_private_boundaries_and_revocation(api):
