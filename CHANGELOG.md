@@ -12,6 +12,9 @@ All notable changes to Tico are recorded here. The format follows
   repositories: run tokens carry Checks and Commit statuses read whenever the installation has accepted them. An
   App created by hand without them needs **Checks** and **Commit statuses** set to Read-only and accepted on the
   installation.
+- A Docker runner whose updater sidecar is stopped no longer holds new work for an update it cannot start. It
+  used to stop claiming while any turn ran, so a person's message waited until every running turn on that
+  computer finished. It now reports the update as failed ("the updater did not answer") and keeps claiming.
 
 ### Changed
 - Computer-screen WebSockets use Rust exclusively. The standard server includes and supervises the relay,
