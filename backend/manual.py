@@ -40,10 +40,6 @@ def _words(text):
     return re.findall(r"\w+", str(text).casefold())
 
 
-def _page(path):
-    return page_text(path.stem, path.read_text(encoding="utf-8", errors="replace"))
-
-
 def page_text(name, text, title=None):
     provided_title = title
     title, sections, current, in_code = title or name.replace("-", " ").title(), [], {"heading": "", "anchor": "", "lines": []}, False
@@ -74,10 +70,12 @@ def pages():
     """{name: page} for the running release; rebuilt when the version or a file changes."""
     version = releases.version()
     files = sorted(DOCS_DIR.glob("*.md")) if DOCS_DIR.is_dir() else []
-    key = (version, str(DOCS_DIR), tuple((f.name, f.stat().st_mtime_ns) for f in files))
     with _lock:
+        # Coarse or preserved timestamps can hide edits; compare the same text snapshots we index.
+        sources = tuple((f.stem, f.read_text(encoding="utf-8", errors="replace")) for f in files)
+        key = (version, str(DOCS_DIR), sources)
         if _cache["key"] != key:
-            _cache.update(key=key, pages={f.stem: _page(f) for f in files})
+            _cache.update(key=key, pages={name: page_text(name, text) for name, text in sources})
         return _cache["pages"]
 
 
