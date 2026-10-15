@@ -2,12 +2,16 @@
 
     python -m backend.devcopy --from <database | s3://bucket/backups/<name>.sqlite> --to <path> [--days 30]
 
-The source is only read. The copy loses everything that would make it act: queued work, routines, watchers,
-runners and enrolments, bot, agent and human tokens and sessions, credentials, mail, Slack, GitHub App and Granola
-connections, usage alerts. History older than `--days` goes; tasks, docs, people and bots stay. The key files that
-sit beside a database (backup.KEY_FILES) are never copied, so a credential row missed here still opens nothing.
-Beside the copy go a `server.env` with TICO_REHEARSAL=1 (nothing runs on a timer, nothing leaves the server, and
-runners are refused), a fresh local sign-in token, and empty registry and attachment folders.
+The source is only read. Every table is classified: EMPTY (it queues work, schedules it, lets a machine or a person
+in, or reaches an outside service: emptied), HISTORY (cut to the last `--days`) or KEEP. A table in none of them, one
+added after this list, is emptied and named in the output: a new table is safe until someone decides about it.
+
+Runs stay for realism: finished attempts in the window keep their events, conversations and inputs (inputs are
+message links, no text, and decide who may see a run). Unfinished jobs and attempts go. The tokens on kept rows are
+replaced by values no token hashes to: bots, external agents, runners (also revoked) and attempts (lease ended).
+The key files that sit beside a database (backup.KEY_FILES) are never copied, so a credential row missed here still
+opens nothing. Beside the copy go a `server.env` with TICO_REHEARSAL=1 (nothing runs on a timer, nothing leaves the
+server, and runners are refused), a fresh local sign-in token, and empty registry and attachment folders.
 """
 import argparse
 import os
@@ -22,16 +26,15 @@ from pathlib import Path
 from . import backup
 from .hubdb import now, shift
 
-# Every table that queues work, schedules it, lets a machine or a person in, or holds a way to reach an
-# outside service. Emptied, never pruned: one surviving row is one thing the copy could do.
+# Emptied, never pruned: one surviving row is one thing the copy could do.
 EMPTY = (
     # queued work
-    "jobs", "job_recovery", "attempts", "attempt_inputs", "service_jobs", "doc_source_jobs", "update_queue",
-    "task_reminders", "calendar_actions", "meeting_deliveries", "worktree_waits", "idempotency",
+    "job_recovery", "service_jobs", "doc_source_jobs", "update_queue", "task_reminders", "calendar_actions",
+    "meeting_deliveries", "worktree_waits", "idempotency", "blob_media_retries", "github_product_repo_operations",
     # routines and watchers
     "schedules", "schedule_config", "schedule_occurrences", "watcher_runs", "watcher_items", "watcher_refs",
-    # runners and bot sessions
-    "runners", "enrollments", "assignments", "agent_pairings", "bot_sessions", "session_epochs", "model_logins",
+    # runner and bot sessions
+    "enrollments", "assignments", "agent_pairings", "bot_sessions", "session_epochs", "model_logins",
     "computer_profiles", "subscription_assignments", "runner_harness_actions", "runner_harness_choices",
     "runner_versions",
     # human sign-in and service keys
@@ -46,13 +49,56 @@ EMPTY = (
     "support_tickets",
     "usage_alerts",
 )
-# History kept for `--days`: {table: its time column}. Rows a kept row still points at stay.
-HISTORY = {"messages": "created", "events": "ts", "deltas": "ts", "attempt_events": "created",
+# Cut to `--days`, in this order: {table: its time column}. A row a kept row still points at stays.
+HISTORY = {"attempts": "created", "jobs": "created", "messages": "created", "events": "ts", "deltas": "ts",
            "bot_status_history": "since"}
+# Kept whole, except rows whose parent went (a pruned attempt's events). Tokens on runners are replaced.
+KEEP = frozenset((
+    "agents", "approvals", "archives", "assistant_actions", "attempt_conversations", "attempt_events",
+    "attempt_inputs", "backup_verified_blobs", "batches", "blob_locations", "blob_media", "blobs",
+    "bot_agent_instructions", "bot_config", "bot_control", "bot_file_activity", "bot_file_versions", "bot_files",
+    "bot_memory_documents", "bot_memory_seen", "bot_memory_updates", "bot_repo_access", "bot_status",
+    "bot_tool_requests", "bot_transition_checkpoints", "bot_transitions", "bots", "changes", "chat_goals",
+    "cloud_migrations", "connector_snapshots", "conversations", "doc_sources", "doc_versions", "docs",
+    "document_versions", "documents", "external_documents", "external_sections", "external_snapshot_docs",
+    "external_snapshots", "external_versions", "flight_db", "flight_events", "flight_process", "flight_requests",
+    "flight_slow", "flight_sql", "goal_checkins", "goal_events", "goal_kpis", "goal_proposals", "goals",
+    "health_findings", "health_reports", "humans", "import_refs", "intake_items", "kpi_definitions", "kpi_readings",
+    "kpis", "learning_cursors", "learning_deliveries", "learning_items", "learning_runs", "learnings", "linked_docs",
+    "listen_items", "listen_judgments", "listen_runs", "live_meeting_chat", "live_meeting_chat_routes",
+    "live_meeting_chunk_versions", "live_meeting_chunks", "live_meeting_events", "live_meeting_humans",
+    "live_meeting_turns", "live_meeting_windows", "live_meetings", "mail_agent_instructions", "mail_messages",
+    "main_pushes", "market_citations", "market_edges", "market_entities", "market_entity_keys", "market_events",
+    "market_evidence", "market_insights", "media_assets", "media_control", "meeting_brain", "meeting_comments",
+    "meeting_items", "meeting_versions", "meetings", "message_assets", "message_links", "message_links_dirty",
+    "message_links_seen", "notes", "preferences", "rate_limits", "recording_source_refs", "recording_transcripts",
+    "refusals", "registry_metadata", "repositories", "runners", "service_health", "settings_changes",
+    "slack_channels", "slack_digests", "slack_reads", "tags", "task_assets", "task_delegations", "task_events",
+    "task_file_reviews", "task_links", "task_relations", "task_roles", "task_steps", "task_tags", "task_trash",
+    "task_trash_assets", "task_types", "tasks", "turn_usage_segments", "turns", "update_archive_overrides",
+    "update_reads", "update_settings", "updates", "usage_limits",
+))
+# Work still to do: a job or attempt in any other state is finished and kept as history.
+# Rows that belong to their attempt: they go with it and never hold an old attempt back.
+OWNED = frozenset(("attempt_events", "attempt_conversations", "attempt_inputs"))
+OPEN_JOBS = ("queued", "leased", "running", "input", "uncertain")
+OPEN_ATTEMPTS = ("queued", "leased", "running", "input")
 
 
 def tables(c):
     return {row[0] for row in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+
+
+def data_tables(c):
+    """Every ordinary table: not SQLite's own, not a full-text index or its shadow tables (they follow their source)."""
+    virtual = [row[0] for row in c.execute("SELECT name FROM sqlite_master WHERE type='table' "
+                                           "AND sql LIKE 'CREATE VIRTUAL TABLE%'")]
+    return {t for t in tables(c) if not t.startswith("sqlite_")
+            and not any(t == v or t.startswith(v + "_") for v in virtual)}
+
+
+def unclassified(c):
+    return sorted(t for t in data_tables(c) if t not in KEEP and t not in HISTORY and t not in EMPTY)
 
 
 def quote(name):
@@ -60,9 +106,9 @@ def quote(name):
 
 
 def emptied(c):
-    """The tables this module empties that exist in `c` (Litestream's own included)."""
+    """The tables this module empties that exist in `c`: EMPTY and every unclassified one (Litestream's included)."""
     present = tables(c)
-    return [t for t in EMPTY if t in present] + sorted(t for t in present if t.startswith("_litestream"))
+    return [t for t in EMPTY if t in present] + unclassified(c)
 
 
 def children(c, parent):
@@ -159,15 +205,14 @@ def prune(c, days):
 
     for table in emptied(c):
         delete(table)
+    if "jobs" in present:
+        delete("jobs", "state IN (%s)" % ",".join("?" * len(OPEN_JOBS)), OPEN_JOBS)
+    if "attempts" in present:
+        delete("attempts", "finished IS NULL OR state IN (%s)" % ",".join("?" * len(OPEN_ATTEMPTS)), OPEN_ATTEMPTS)
     stamp = now()
-    if "bots" in present:
-        c.execute("UPDATE bots SET token_hash=NULL")
-    if "agents" in present:          # token_hash is NOT NULL UNIQUE: a value no token hashes to
-        c.execute("UPDATE agents SET token_hash='devcopy-revoked:'||bot, revoked_at=coalesce(revoked_at,?), "
-                  "revoked_by=coalesce(revoked_by,'devcopy')", (stamp,))
     if days:
         cutoff = shift(stamp, days=-days)
-        cleared = set(emptied(c))
+        cleared = set(emptied(c)) | OWNED
         for table, column in HISTORY.items():
             if table not in present:
                 continue
@@ -176,6 +221,16 @@ def prune(c, days):
                 f" AND {quote(key)} NOT IN (SELECT {quote(col)} FROM {quote(child)} WHERE {quote(col)} IS NOT NULL)"
                 for child, col, key in refs)
             delete(table, where, (cutoff,))
+    # Kept rows keep no way in: a value no token hashes to (the columns are NOT NULL UNIQUE where not nullable).
+    if "bots" in present:
+        c.execute("UPDATE bots SET token_hash=NULL")
+    if "agents" in present:
+        c.execute("UPDATE agents SET token_hash='devcopy-revoked:'||bot, revoked_at=coalesce(revoked_at,?), "
+                  "revoked_by=coalesce(revoked_by,'devcopy')", (stamp,))
+    if "runners" in present:
+        c.execute("UPDATE runners SET token_hash='devcopy-revoked:'||id, revoked_at=coalesce(revoked_at,?)", (stamp,))
+    if "attempts" in present:
+        c.execute("UPDATE attempts SET token_hash='devcopy-revoked:'||id, lease_until=coalesce(finished,created)")
     # A row that points at one just removed goes too (attempt_events of an attempt, oauth_grants of a token):
     # repeated until no foreign key is broken by what this run removed.
     touched, frontier = set(removed), set(removed)
@@ -198,7 +253,7 @@ def prune(c, days):
 
 
 def build(source, dest, days=30, force=False):
-    """Copy `source` (read-only) to `dest`, pruned. Returns {table: rows removed}."""
+    """Copy `source` (read-only) to `dest`, pruned. Returns ({table: rows removed}, [unclassified tables emptied])."""
     source, dest = Path(source).resolve(), Path(dest).resolve()
     if not source.is_file():
         raise SystemExit(f"devcopy: {source} is not a database file")
@@ -215,6 +270,7 @@ def build(source, dest, days=30, force=False):
             c.execute("BEGIN IMMEDIATE")
             for name, _ in triggers:
                 c.execute(f"DROP TRIGGER {quote(name)}")
+            loose = unclassified(c)
             removed = prune(c, days)
             for _, sql in triggers:
                 c.execute(sql)
@@ -233,7 +289,11 @@ def build(source, dest, days=30, force=False):
         left = [t for t in emptied(c) if c.execute(f"SELECT 1 FROM {quote(t)} LIMIT 1").fetchone()]
         if left:
             raise SystemExit("devcopy: tables not empty after pruning: " + ", ".join(left))
-    return removed
+        live = c.execute("SELECT count(*) FROM attempts WHERE token_hash NOT LIKE 'devcopy-revoked:%' "
+                         "OR finished IS NULL").fetchone()[0] if "attempts" in tables(c) else 0
+        if live:
+            raise SystemExit("devcopy: an unfinished or unrevoked attempt survived pruning")
+    return removed, loose
 
 
 def owner_email(path):
@@ -294,13 +354,15 @@ def main(argv=None):
         os.chmod(scratch, 0o700)
         source = (fetch_bundle(args.source, scratch, args.profile, args.region)
                   if args.source.startswith("s3://") else Path(args.source).expanduser())
-        removed = build(source, dest, days=args.days, force=args.force)
+        removed, loose = build(source, dest, days=args.days, force=args.force)
     email = args.owner_email or owner_email(dest)
     env, token, url = write_environment(dest, args.port, email)
     if not email:
         print(f"No owner found in the copy: set TICO_OWNER_EMAIL in {env} to someone on its roster.")
     for table, count in sorted(removed.items()):
         print(f"  {table}: {count} removed")
+    for table in loose:
+        print(f"Emptied {table}: not classified in backend/devcopy.py (KEEP, HISTORY or EMPTY); decide and add it.")
     print(f"Copy: {dest} ({dest.stat().st_size // 1024} KB, rehearsal mode, no key files)")
     print(f"Start it from this checkout:\n"
           f"  set -a; . {env}; set +a; python -m uvicorn backend.app:create_app --factory --host 127.0.0.1 "

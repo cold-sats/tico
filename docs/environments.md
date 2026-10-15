@@ -355,11 +355,14 @@ python -m backend.devcopy --from /path/to/hub.sqlite --to runtime/devcopy/hub.sq
 `s3://<bucket>/backups/<name>.sqlite` (`--profile`, `--region`); only the bundle's database is fetched. For a
 Litestream backup, `litestream restore -o <file>` first and pass that file. The copy:
 
-- has every table that could act emptied: queued work and attempts, routines, watchers, runners and enrolments,
+- has every table that could act emptied: queued work, routines, watchers, enrolments and computer assignments,
   bot sessions, human tokens, sign-in sessions, OAuth and service keys, credentials, mail, Slack, GitHub App,
-  Granola and meeting-bot connections, calendar actions, usage alerts, stored request replies
-  (`EMPTY` in `backend/devcopy.py`). Bot tokens are cleared and external agents revoked;
-- keeps tasks, docs, people and bots, and the last `--days` of messages and events (0 keeps all);
+  Granola and meeting-bot connections, calendar actions, usage alerts, stored request replies (`EMPTY` in
+  `backend/devcopy.py`). Every table is listed as `KEEP`, `HISTORY` or `EMPTY`; one in none of them (added later)
+  is emptied and named in the output;
+- keeps tasks, docs, people and bots, the last `--days` of messages and events (0 keeps all), and the finished runs
+  in that window with their steps, so run details and replay work. Unfinished jobs and runs are removed;
+- has no way in: bot tokens cleared, external agents and computers revoked, run tokens and leases ended;
 - never has the key files beside it (`credential.key`, `github-app.key`, `slack.key`), so nothing in it can be decrypted;
 - is mode 0600, with `server.env`, a fresh `local-owner.token` and empty `registry/` and `blobs/` beside it. Attachments
   are not copied.

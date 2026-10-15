@@ -1,8 +1,10 @@
 """`python -m backend.devcopy`: a dev server's copy of real data keeps the team's history but nothing that acts,
 and the rehearsal it starts in refuses every runner. Synthetic databases only; a real one is never a fixture."""
+import re
 import sqlite3
 import stat
 from contextlib import closing
+from pathlib import Path
 
 import pytest
 
@@ -25,14 +27,18 @@ def source_db(tmp_path):
         c.execute("INSERT INTO runners(id,label,operator,token_hash,created) VALUES('r1','mac','morgan','rh',?)", (now,))
         c.execute("INSERT INTO enrollments(code_hash,operator,expires) VALUES('ch','morgan',?)", (now,))
         c.execute("INSERT INTO conversations(id) VALUES('cv')")
-        for mid, at in (("old", OLD), ("new", now)):
+        for mid, at in (("old", OLD), ("new", now), ("ran", now), ("ran-long-ago", OLD)):
             c.execute("INSERT INTO messages(id,conversation_id,from_actor,to_actor,kind,body,created) "
                       "VALUES(?,'cv','human:morgan','bot:sales','ask','hi',?)", (mid, at))   # the trigger queues a job
-        aid = H.new_id()
-        c.execute("INSERT INTO attempts(id,job_id,bot,runner_id,generation,token_hash,state,lease_until,created) "
-                  "VALUES(?,'new','sales','r1',1,'at','running',?,?)", (aid, now, now))
-        c.execute("INSERT INTO attempt_events(attempt_id,seq,kind,payload_json,created) VALUES(?,1,'text','{}',?)",
-                  (aid, now))
+        c.execute("UPDATE jobs SET state='completed' WHERE id IN ('ran','ran-long-ago')")
+        # A run in progress, a finished run in the window, and a finished run from long ago.
+        for aid, job, state, at, finished in (("live", "new", "running", now, None), ("done", "ran", "completed", now, now),
+                                              ("gone", "ran-long-ago", "completed", OLD, OLD)):
+            c.execute("INSERT INTO attempts(id,job_id,bot,runner_id,generation,token_hash,state,lease_until,created,finished) "
+                      "VALUES(?,?,'sales','r1',1,?,?,?,?,?)", (aid, job, "hash-" + aid, state, now, at, finished))
+            c.execute("INSERT INTO attempt_events(attempt_id,seq,kind,payload_json,created) VALUES(?,1,'text','{}',?)",
+                      (aid, at))
+            c.execute("INSERT INTO attempt_inputs(attempt_id,message_id) VALUES(?,?)", (aid, job))
         c.execute("INSERT INTO human_tokens(id,human,label,token_hash,created,created_by) VALUES('t1','morgan','cli','th',?,'morgan')", (now,))
         c.execute("INSERT INTO credentials(id,name,kind,created,updated,updated_by) VALUES('k1','gh','token',?,?,'morgan')",
                   (now, now))
@@ -46,17 +52,24 @@ def test_a_dev_copy_keeps_history_empties_what_acts_and_refuses_runners(tmp_path
     source = source_db(tmp_path)
     before = source.read_bytes()
     dest = tmp_path / "copy" / "hub.sqlite"
-    removed = devcopy.build(source, dest, days=30)
+    removed, loose = devcopy.build(source, dest, days=30)
     devcopy.write_environment(dest, 8879, "morgan@acme.example")
     assert source.read_bytes() == before                                    # the source is only read
-    assert removed["jobs"] == 2 and removed["attempt_events"] == 1 and removed["messages"] == 1
+    assert loose == [] and removed["attempts"] == 2 and removed["attempt_events"] == 2 and removed["messages"] == 2
     assert stat.S_IMODE(dest.stat().st_mode) == 0o600
     assert not any((dest.parent / name).exists() for name in ("credential.key", "github-app.key", "slack.key"))
     with closing(sqlite3.connect(dest)) as c:
         for table in devcopy.emptied(c):
             assert c.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0, table
         assert c.execute("SELECT token_hash FROM bots").fetchall() == [(None,)]
-        assert c.execute("SELECT id FROM messages").fetchall() == [("new",)]
+        assert c.execute("SELECT id FROM messages ORDER BY id").fetchall() == [("new",), ("ran",)]
+        # The finished run stays, with its steps and inputs, and no way back in.
+        assert c.execute("SELECT id,token_hash,lease_until=finished FROM attempts").fetchall() == [
+            ("done", "devcopy-revoked:done", 1)]
+        assert c.execute("SELECT id,state FROM jobs").fetchall() == [("ran", "completed")]
+        assert c.execute("SELECT attempt_id FROM attempt_events").fetchall() == [("done",)]
+        assert c.execute("SELECT attempt_id FROM attempt_inputs").fetchall() == [("done",)]
+        assert c.execute("SELECT token_hash,revoked_at IS NOT NULL FROM runners").fetchall() == [("devcopy-revoked:r1", 1)]
         assert c.execute("PRAGMA foreign_key_check").fetchall() == []
         assert c.execute("SELECT count(*) FROM sqlite_master WHERE name='queue_bot_message'").fetchone()[0] == 1
     env = dict(line.split("=", 1) for line in (dest.parent / "server.env").read_text().splitlines()
@@ -83,3 +96,16 @@ def test_a_dev_copy_keeps_history_empties_what_acts_and_refuses_runners(tmp_path
         with pytest.raises(Problem) as refused:
             call(None)
         assert refused.value.code == "rehearsal"
+
+
+def test_every_table_is_classified(tmp_path):
+    """A new table fails here until someone decides whether a dev copy keeps it, cuts it to --days or empties it."""
+    store = Store(Settings(db_path=tmp_path / "hub.sqlite"))
+    store.initialize(seed_market=False)
+    with closing(sqlite3.connect(store.settings.db_path)) as c:
+        names = devcopy.data_tables(c)
+        virtual = {t for t in devcopy.tables(c) if t not in names}
+    for source in Path(devcopy.__file__).parent.glob("*.py"):         # tables a module creates when it starts
+        names |= set(re.findall(r"CREATE TABLE (?:IF NOT EXISTS )?([a-z_]+) ?\(", source.read_text())) - virtual
+    groups = (devcopy.KEEP, set(devcopy.HISTORY), set(devcopy.EMPTY))
+    assert {t: n for t in names if (n := sum(t in g for g in groups)) != 1} == {}
