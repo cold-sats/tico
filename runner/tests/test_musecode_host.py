@@ -126,6 +126,34 @@ class MuseCode(unittest.TestCase):
                                                     "status", "state")} for e in events(h) if e["kind"] != "tokens"]
         self.assertEqual(got, json.loads((fixtures / "real-tool.expected.json").read_text()))
 
+    def test_usage_and_model_come_from_the_session_log_the_turn_appended(self):
+        """`muse exec --json` (1.4.8) carries no token counts: they are `model_completed` records in the
+        session's durable log. Only this turn's run counts; the attribution copies and an earlier turn do not."""
+        fixtures = Path(__file__).parent / "fixtures" / "musecode"
+        lines = [json.loads(row) for row in (fixtures / "real-tool.jsonl").read_text().splitlines() if row.strip()]
+        sid = lines[0]["stream"]["id"]
+        home = Path(self.tmp.name) / "home"
+        log = home / ".local" / "share" / "muse" / "sessions" / "2026" / "10" / "14" / sid / "session.jsonl"
+        log.parent.mkdir(parents=True)
+        h, _ = self.host(lines)
+        real_spawn = h._spawn
+
+        def spawn(argv, **kwargs):
+            log.write_text((fixtures / "session-logs" / "real-tool.session.jsonl").read_text())   # the run writes it
+            return real_spawn(argv, **kwargs)
+        h._spawn = spawn
+        log.write_text("")                                       # the session existed before this turn
+        h.start_turn(h.resume_thread("coo", sid, {**self.settings, "env": {**self.settings["env"], "HOME": str(home)}}), "x")
+        tokens = [e for e in events(h) if e["kind"] == "tokens"]
+        self.assertEqual([(t["usage"], t["model"]) for t in tokens],
+                         [({"input": 37200, "cached": 24200, "output": 215}, "muse-spark-1.3")])
+        from runner.usage import Meter
+        meter = Meter()
+        meter.add(tokens[0])
+        self.assertEqual(meter.report("", "musecode", "subscription"),
+                         {"input_tokens": 13000, "cached_tokens": 24200, "output_tokens": 215, "model": "muse-spark-1.3",
+                          "runtime": "musecode", "billing": "subscription"})
+
     def test_the_operators_own_muse_servers_never_load(self):
         """Muse loads every server in $XDG_CONFIG_HOME/muse/settings.json and refuses `-c` on those names, so
         a turn runs on Tico's own Muse folder, and any servers in it are taken out first."""
