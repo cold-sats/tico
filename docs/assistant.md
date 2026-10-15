@@ -55,17 +55,17 @@ started in your own Assistant chat acts for you; its other work (Slack routing, 
 assistant's own. Every write it makes is recorded as yours **via assistant**: the audit `events` carry `"via":
 "assistant"`, task history rows and comments carry `via`, and the UI shows "<name> (via Assistant)".
 
-**Direct writes stay inside the team:** creating a task owned by you or by a bot (how it routes work and asks BotOps for a
-bot), updating a task that is yours alone (not finishing, declining or closing it, and not handing it to someone else),
-commenting on a task no other human is on, a message or chat to a bot, marking updates read. "Yours alone" means you own it
-and no bot is on it (owner, requester, origin or delegate). What it writes to a bot is marked "via assistant", so BotOps
-never takes it for your request. Owners are compared as full actor ids (`human:<id>`), never bare names, and a recipient
-that resolves to a human is not a bot. Everything else the server refuses (`403 confirm_required`) and the assistant must
-propose, including a task or message for another human, a note to a bot, a comment on a task another human is on, and
-running a task now. The owner may turn **Assistant acts without asking** off (Settings > Humans, or `PUT
-/api/v2/access/rules {"assistant_direct": false}`): then only your own tasks, and comments on tasks with no bot on them, are
-direct, and a task, message or comment involving a bot is a card again. An assistant run's credential works only while its
-lease is live.
+**Direct writes stay inside the team:** creating a task owned by you, by a bot or by another human (how it routes work,
+asks BotOps for a bot, or hands a person their part), updating a task that is yours alone (not finishing, declining or
+closing it, and not handing it to someone else), commenting on a task no other human is on, a message or chat to a bot,
+marking updates read. "Yours alone" means you own it and no bot is on it (owner, requester, origin or delegate). What it
+writes to a bot is marked "via assistant", so BotOps never takes it for your request. Owners are compared as full actor
+ids (`human:<id>`), never bare names, and a recipient that resolves to a human is not a bot. Everything else the server
+refuses (`403 confirm_required`) and the assistant must propose, including a message for another human, a note to a bot,
+a comment on a task another human is on, and running a task now. The owner may turn **Assistant acts without asking**
+off (Settings > Humans, or `PUT /api/v2/access/rules {"assistant_direct": false}`): then only your own tasks, and
+comments on tasks with no bot on them, are direct, and a task, message or comment involving a bot or another human is a
+card again. An assistant run's credential works only while its lease is live.
 
 **What you ask for in your chat, it does.** When you tell it to close, finish, decline, reopen, reassign, comment on or
 link a task ("close those three", "mark the launch done"), decline an approval put to you ("decline the old publish

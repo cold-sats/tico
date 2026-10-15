@@ -10,9 +10,12 @@ All notable changes to Tico are recorded here. The format follows
 ### Fixed
 - **The bot model picker no longer hides a harness whose provider is off.** It lists it greyed out with an
   AI-providers line to turn it on, so Muse Code and the Wonder models are one provider tick away instead of invisible.
+- **Image cleanup keeps future releases staged on the same Docker host.** After an update, the updater removes only
+  older unused release images, so another install or release check can still switch to its downloaded candidate.
 - **Subscription quota exhaustion is a usage limit, with its reset time.** The runner recognizes providers'
   `Subscription quota exhausted` and `rate_limit_error` responses and uses an available fallback. Without one,
   queued work waits until the provider's stated usage-window reset; a person can still use Try now after renewal.
+- Task session resume commands load the model CLI catalog on first opening, so copied commands use the correct resume syntax.
 
 ### Added
 - **The flight recorder writes a local file that reads with the server stalled.** Stalls, slow requests and per-minute
@@ -29,6 +32,10 @@ All notable changes to Tico are recorded here. The format follows
 - **`tico-runner enroll`, `adopt` and `doctor`.** The Rust runner registers a computer, moves bots to it and checks it
   itself; `python -m runner enroll|adopt|doctor|status|profile` run the same commands through it.
 ### Changed
+- **The Assistant creates a task for another person without a Confirm card.** Asking it to hand someone their part now
+  makes the task at once, as you, like a task for a bot; before, each one waited for your click on a card. Settling a
+  task, messaging another person and everything else keep their cards, and turning **Assistant acts without asking**
+  off (Settings > Humans) puts the card back. See [Assistant](docs/assistant.md).
 - **A bot on a model CLI the runner does not drive is a problem on that bot.** The computer starts and runs its other
   bots; before, the whole computer stayed on the Python runner.
 - **The Rust runner covers what only the Python one did.** It checks the container a bot needs, keeps dev servers on
@@ -54,9 +61,6 @@ All notable changes to Tico are recorded here. The format follows
 ### Removed
 - **The Python runner.** `"engine": "python"` in `runner.json` and `TICO_RUNNER_ENGINE` are ignored. `python -m runner run`
   and the runner's CLI commands start the Rust runner; a checkout and every update fetch its binary before the restart.
-
-### Fixed
-- Task session resume commands load the model CLI catalog on first opening, so copied commands use the correct resume syntax.
 
 ## [0.3.46] - 2026-10-15
 
