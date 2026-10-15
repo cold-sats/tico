@@ -8,6 +8,10 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- A worktree whose cleanup was refused no longer loses that error when its computer restarts. The restarted computer
+  no longer remembered the refusal, so the error vanished from Health and the cleanup was asked again early, before
+  its wait was over. The error now stays while cleanup is asked and is forgotten once the task reopens. A computer
+  also now reports a failure it finds in the tree ahead of the last failed action, which it used to report instead.
 - A task worktree whose restore or prepare failed no longer stays failed after its setup succeeds. Health and
   the Health Monitor kept reporting the old error (for example "Restore path already exists and is not a
   worktree") on a worktree acknowledged ready, so its finding never cleared. A ready acknowledgement now

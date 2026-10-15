@@ -259,6 +259,53 @@ def test_heartbeat_writes_only_changes_and_backs_off_a_refused_cleanup(prepared)
         assert json.loads(c.execute('SELECT detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()[0])['cleanup_gave_up']
 
 
+def test_a_refused_cleanup_keeps_its_error_across_a_computer_restart(prepared):
+    api, tid, _ = prepared
+    link = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}).json()
+    assert mark_ready(api, tid, link['link_id']).status_code == 200
+    refused = 'Worktree action failed; history kept. kept: ignored files'
+    report = {'link_id': link['link_id'], 'state': 'present', 'checkout_state': 'ready', 'branch': link['branch'],
+              'last_commit': 'abc'}
+    body = {'version': '0.3.2', 'platform': 'linux', 'readiness': {'schema_version': 1, 'bots': {}, 'worktrees': True},
+            'worktrees': [report]}
+
+    def detail():
+        with api.app_state.store.read() as c:
+            return json.loads(c.execute('SELECT detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()[0])
+    with api.app_state.store.transaction() as c:
+        c.execute("UPDATE tasks SET status='closed' WHERE id=?", (tid,))
+    assert post(api, 'runners/heartbeat', body, 'runner-test').json()['worktree_actions'][0]['action'] == 'remove'
+    report['error'] = refused
+    assert post(api, 'runners/heartbeat', body, 'runner-test').json()['worktree_actions'], 'the first refusal is asked again'
+    assert detail()['cleanup_attempts'] == 1
+    # The computer restarts and no longer remembers the refusal: the error and the wait before the next ask stay.
+    del report['error']
+    assert post(api, 'runners/heartbeat', body, 'runner-test').json()['worktree_actions'] == []
+    assert detail()['error'] == refused
+    with api.app_state.store.transaction() as c:
+        c.execute('UPDATE task_links SET detail_json=? WHERE id=?',
+                  (json.dumps({**detail(), 'cleanup_attempts': W.CLEANUP_TRIES, 'cleanup_retry_at': None}), link['link_id']))
+    assert post(api, 'runners/heartbeat', body, 'runner-test').json()['worktree_actions'] == []
+    assert detail()['error'] == refused and detail()['cleanup_gave_up'], 'a cleanup given up stays given up'
+    # Reopened, removal is no longer asked: the refusal is forgotten.
+    with api.app_state.store.transaction() as c:
+        c.execute("UPDATE tasks SET status='open' WHERE id=?", (tid,))
+    assert post(api, 'runners/heartbeat', body, 'runner-test').json()['worktree_actions'] == []
+    post(api, 'runners/heartbeat', body, 'runner-test')
+    assert not any(key in detail() for key in ('error', 'cleanup_requested', 'cleanup_attempts', 'cleanup_gave_up'))
+    # Closed again, a removal that succeeds clears the refusal it followed.
+    with api.app_state.store.transaction() as c:
+        c.execute("UPDATE tasks SET status='closed' WHERE id=?", (tid,))
+    report['error'] = refused
+    post(api, 'runners/heartbeat', body, 'runner-test')
+    post(api, 'runners/heartbeat', body, 'runner-test')
+    assert detail()['error'] == refused and detail()['cleanup_attempts'] == 1
+    del report['error']
+    report['state'] = 'removed'
+    post(api, 'runners/heartbeat', body, 'runner-test')
+    assert 'error' not in detail()
+
+
 def test_finished_pr_releases_an_open_tasks_worktree_and_the_limit_names_it(prepared):
     api, tid, _ = prepared
     link = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}, 'bot-test').json()
