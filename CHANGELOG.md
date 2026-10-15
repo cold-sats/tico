@@ -10,8 +10,6 @@ All notable changes to Tico are recorded here. The format follows
 ### Fixed
 - Explicitly removing a kept worktree retries exhausted cleanup on its original computer while preserving
   unsaved work and waiting for the computer to confirm removal.
-
-### Fixed
 - Bots can read a pull request's checks (`gh pr checks`, commit statuses and check runs) on private
   repositories: run tokens carry Checks and Commit statuses read whenever the installation has accepted them. An
   App created by hand without them needs **Checks** and **Commit statuses** set to Read-only and accepted on the
