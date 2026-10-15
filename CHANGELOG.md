@@ -7,6 +7,10 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Computer-screen WebSockets use Rust exclusively. The standard server includes and supervises the relay,
+  retains the same public listener, and no longer offers a Python relay or an opt-in overlay.
+
 ## [0.3.48] - 2026-10-15
 
 ### Fixed
