@@ -3,14 +3,16 @@ wakes it only for a finding the last scan did not have, a day of quiet when a fi
 Tico bug report per signature that carries the finding and the redacted diagnostics, never task text, with a message
 on the same ticket when it comes back."""
 
+import calendar
 import json
 import shutil
+import time
 from pathlib import Path
 
 import httpx
 import pytest
 
-from backend import health_monitor, support
+from backend import diagnostics, health_monitor, support
 from backend.auth import Identity
 from backend.store import H
 from backend.tests.test_goal_manager import BASE
@@ -133,6 +135,29 @@ def test_a_finding_wakes_it_once_is_filed_once_without_task_text_and_a_repeat_go
     runner_errors(api, runner, STREAM)
     assert scan(api) == [key]
     assert len(monitor_tasks(api)) == 1 and notices(api, task["id"]) == 1
+
+
+def test_event_stream_counts_drops_and_not_the_ones_a_server_restart_caused(environment, monkeypatch):
+    api, runner = built(environment)
+    api.post("/api/v2/health-monitor/turn-on", json={}, headers=signed_in())
+    monkeypatch.setattr(diagnostics.RING, "started", "2026-01-10T23:00:00Z")      # this process: far from the lines
+    with api.app.state.store.transaction() as c:                                     # an earlier start: the update
+        c.execute("INSERT INTO flight_events(ts,kind,detail_json) VALUES(?,?,'{}')",
+                  (calendar.timegm(time.strptime("2026-01-10T21:06:44Z", "%Y-%m-%dT%H:%M:%SZ")), "start"))
+    lost = "%s Tico runner: event stream lost (TimeoutError: error decoding response body); polling until it is back"
+    gone = "%s Tico runner: event stream unavailable (HTTP 502); polling"
+    two_drops_and_a_restart = [lost % "2026-01-10T19:42:10Z", lost % "2026-01-10T20:42:47Z", gone % "2026-01-10T20:42:48Z",
+                               lost % "2026-01-10T21:06:39Z", "2026-01-10T21:06:41Z Tico runner: hub unavailable (HTTP 502)"]
+    runner_errors(api, runner, two_drops_and_a_restart)
+    assert scan(api) == []                         # the 21:06 drop is the restart; "unavailable" is the same drop
+    runner_errors(api, runner, two_drops_and_a_restart + [lost % "2026-13-45T25:00:00Z"])
+    key = "event_stream:" + runner["runner_id"]
+    assert scan(api) == [key]                      # a line with an impossible date counts and stops nothing
+    monkeypatch.setattr(diagnostics.RING, "started", "2026-01-10T19:43:00Z")      # this process began at 19:43
+    runner_errors(api, runner, two_drops_and_a_restart + [lost % "2026-01-10T22:30:00Z"])
+    scan(api)
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT present FROM health_findings WHERE key=?", (key,)).fetchone()[0] == 0
 
 
 def test_with_the_rule_off_a_report_is_an_approval_and_nothing_leaves(environment, hq):

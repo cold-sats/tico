@@ -17,10 +17,12 @@ finding (never task or message text) and the redacted diagnostics bundle (backen
 person reads first. The ticket is the owner's: its replies show on the owner's Support page. A finding that comes back
 after its ticket was filed adds a message to that ticket instead of filing another.
 """
+import calendar
 import hashlib
 import json
 import logging
 import re
+import time
 
 from fastapi import Request
 from pydantic import Field
@@ -49,6 +51,10 @@ SERVER_CPU = 40.0            # the server's average CPU over an hour, in percent
 QUIET_REQUESTS = 600         # requests in that hour below which the server counts as idle
 REPEATED = 3                 # a runner error line seen this often in its last 50 is a pattern, not a blip
 REWAKE_HOURS = 24            # a finding back within this long of its last wake counts but wakes nothing
+# A server start (a deploy, an update, a restart) ends every runner's event stream: a drop from this long before a start
+# to this long after it is the restart, not the stream. The span allows for the old server stopping first and for clocks.
+RESTART_BEFORE, RESTART_AFTER = 300, 120
+STAMP = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d)?)Z")
 # Error lines a runner reports (runner/outage.py RECENT, sent as `recent_errors`) that point at a known problem.
 LOG_PATTERNS = (
     ("worktree_fallback", BUG, re.compile(r"runs in the bot's checkout \(.*permission denied", re.I), 1,
@@ -61,7 +67,8 @@ LOG_PATTERNS = (
     ("cannot_fetch", SETUP, re.compile(r"cannot fetch \S+ onto this computer", re.I), REPEATED,
      "A computer keeps failing to fetch a bot's repository",
      "BotOps: check the bot's repository exists and the GitHub App or credential that computer uses can read it."),
-    ("event_stream", BUG, re.compile(r"event stream (lost|unavailable)", re.I), REPEATED,
+    # One drop logs "lost" and then, once per runner process, "unavailable" as the reconnect fails: count the drops.
+    ("event_stream", BUG, re.compile(r"event stream lost", re.I), REPEATED,
      "A runner keeps losing its event stream to the server and falls back to polling",
      "Tico bug: the event stream should stay up between deploys."),
     ("readiness_403", BUG, re.compile(r"(readiness|heartbeat).{0,120}\b403\b", re.I), REPEATED,
@@ -163,15 +170,38 @@ def _runner_checks(c, settings):
                             f"{x['queued']} job(s) wait for {', '.join(x['bots'])}.",
                             f"Ask the person who runs {x['label']} to wake it and check Tico there "
                             "(`tico status`; `tico restart` starts it again), or move its bots to an online computer."))
-    for r in c.execute("SELECT id,label,readiness_json FROM runners WHERE revoked_at IS NULL"):
+    starts = None
+    for r in c.execute("SELECT id,label,readiness_json FROM runners WHERE revoked_at IS NULL").fetchall():
         lines = [str(x) for x in (readiness_document(r["readiness_json"]).get("recent_errors") or [])]
         for check_id, kind, pattern, least, title, fix in LOG_PATTERNS:
             hits = [line for line in lines if pattern.search(line)]
+            if check_id == "event_stream" and hits:
+                starts = _server_starts(c) if starts is None else starts
+                hits = [line for line in hits if not _near_start(line, starts)]
             if len(hits) >= least:
                 out.append(_finding(f"{check_id}:{r['id']}", check_id, kind, f"{title} ({r['label']})",
                                     f"{len(hits)} of the last {len(lines)} error lines from {r['label']} match. "
                                     "Latest: " + hits[-1][:280], fix))
     return out
+
+
+def _server_starts(c):
+    """When this server started, as epoch seconds: the flight recorder's start events, and this process."""
+    starts = [r[0] for r in c.execute("SELECT ts FROM flight_events WHERE kind='start'")]
+    return starts + [calendar.timegm(time.strptime(diagnostics.RING.started, "%Y-%m-%dT%H:%M:%SZ"))]
+
+
+def _near_start(line, starts):
+    """Whether a runner's error line was logged while the server was restarting. A line without a valid time is not."""
+    m = STAMP.match(line)
+    if not m:
+        return False
+    stamp = m.group(1)
+    try:
+        at = calendar.timegm(time.strptime(stamp, "%Y-%m-%dT%H:%M:%S" if stamp.count(":") == 2 else "%Y-%m-%dT%H:%M"))
+    except ValueError:              # a runner's line is its own text: a bad date must not stop the scan
+        return False
+    return any(start - RESTART_BEFORE <= at <= start + RESTART_AFTER for start in starts)
 
 
 def _bot_checks(c):
