@@ -600,8 +600,8 @@ allowed, take control. It is off until you turn it on on the computer itself:
   (`screen off` and `screen status` too; a running runner follows within seconds).
 
 Then choose **Screen** (Off, View or Control) for that computer in **Settings > Computers**. The runner runs a virtual
-display (`:99`, 1440x900) and gives bots `DISPLAY=:99`; nothing listens beyond loopback, and the server relays each
-session. Anyone allowed to open the screen sees everything on that display, including what a bot types into a page,
+display (`:99`, 1440x900) and gives bots `DISPLAY=:99`; its VNC servers listen on no network port (only on
+sockets in a directory bots cannot open), and the server relays each session. Anyone allowed to open the screen sees everything on that display, including what a bot types into a page,
 and with Control can use it. All bots on one computer share one display. A Mac reports "Linux only for now".
 
 ### Mac

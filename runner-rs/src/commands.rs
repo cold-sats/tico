@@ -123,7 +123,7 @@ pub async fn doctor(config: &Config, client: &Client) -> Result<(Value, bool), R
     }
     readiness["engine"] = json!({"name": "rust", "build": crate::BUILD_ID});
     let (screen_on, _) = crate::screen::lock(&config.path);
-    if let Some(screen) = crate::screen::report(screen_on, std::env::consts::OS, &crate::screen::missing_tools(), None) {
+    if let Some(screen) = crate::screen::report(screen_on, std::env::consts::OS, &crate::screen::missing_tools(), None, true) {
         readiness["screen"] = screen;
     }
     let repositories = crate::repositories::Repositories::new(&config.projects_dir(), &config.state_dir(), client.clone()).inspect().await;

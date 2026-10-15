@@ -2,10 +2,13 @@
 //! `control` mode drive, from the web app. Off unless this computer's owner turned it on here: `TICO_SCREEN=1`, or
 //! `tico-runner screen on` (runner.json `screen: true`). The hub keeps its own off/view/control setting on top.
 //!
-//! While on, on Linux, the runner supervises `Xvfb :99`, a window manager and two `x11vnc` on loopback: 5901 takes input,
-//! 5902 is view-only. A session the hub opens (the stream's `screen_open`, or the 30 s poll of
-//! `runners/me/screen/sessions` while on) is one websocket to the hub, with the runner's own token, piped to the
-//! port its `control` flag picks; the runner, not the browser, decides which. Bot turns get `DISPLAY=:99` while the
+//! While on, on Linux, the runner supervises `Xvfb :99`, a window manager and two `x11vnc`, one taking input and one
+//! view-only. Neither listens on TCP: each serves a unix socket in a fresh directory only the runner's user can enter,
+//! so no bot and no other VNC server can stand in for either. They run with that directory as HOME, a clean
+//! environment, and x11vnc's rc files, external commands and remote control off, so nothing a bot writes reaches
+//! them. A session the hub opens (the stream's `screen_open`, or the 10 s poll of `runners/me/screen/sessions`
+//! while on) is one websocket to the hub, with the runner's own token, piped to the socket its `control` flag picks
+//! while that x11vnc is the one this runner started and still runs; the runner, not the browser, decides which. Bot turns get `DISPLAY=:99` while the
 //! display is up, so headed browsers and computer use draw where people can see them.
 
 use std::collections::HashSet;
@@ -27,8 +30,21 @@ pub const CAPABILITY: &str = "screen_v1";
 pub const DISPLAY: &str = ":99";
 pub const WIDTH: u32 = 1440;
 pub const HEIGHT: u32 = 900;
-pub const CONTROL_PORT: u16 = 5901;
-pub const VIEW_PORT: u16 = 5902;
+/// The VNC endpoints, as sockets in the private directory.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Endpoint {
+    Control,
+    View,
+}
+
+impl Endpoint {
+    fn socket(self) -> &'static str {
+        match self {
+            Endpoint::Control => "control.sock",
+            Endpoint::View => "view.sock",
+        }
+    }
+}
 const TOOLS: &[&str] = &["Xvfb", "x11vnc"];
 /// Either window manager will do. matchbox (under 1 MB) is what the images and install.sh put in: it shows one
 /// window at a time, full screen, which suits a viewer; openbox costs about 120 MB more (imlib2, Python).
@@ -39,7 +55,8 @@ fn window_manager() -> Option<&'static str> {
     WINDOW_MANAGERS.iter().copied().find(|w| crate::env::which(w, &path).is_some())
 }
 const LOCK_EVERY: Duration = Duration::from_secs(5);
-const POLL_EVERY: Duration = Duration::from_secs(30);
+/// The hub fails a session no computer answered within 30 s; the stream's word is the fast path.
+const POLL_EVERY: Duration = Duration::from_secs(10);
 /// The hub ends a session at 60 minutes; this is the runner's own backstop.
 const SESSION_CAP: Duration = Duration::from_secs(61 * 60);
 /// How often a computer with its screen on asks whether the hub takes screens (a hub update can add it).
@@ -82,7 +99,7 @@ pub fn missing_tools() -> Vec<&'static str> {
 }
 
 /// The readiness `screen` field: None when off; available with its size, or not with a short reason.
-pub fn report(on: bool, os: &str, missing: &[&str], failure: Option<&str>) -> Option<Value> {
+pub fn report(on: bool, os: &str, missing: &[&str], failure: Option<&str>, vnc_up: bool) -> Option<Value> {
     if !on {
         return None;
     }
@@ -91,7 +108,7 @@ pub fn report(on: bool, os: &str, missing: &[&str], failure: Option<&str>) -> Op
     } else if !missing.is_empty() {
         Some(format!("Missing {}", missing.join(", ")))
     } else {
-        failure.map(String::from)
+        failure.map(String::from).or_else(|| (!vnc_up).then(|| "VNC is not running".to_string()))
     };
     Some(match reason {
         Some(r) => json!({"available": false, "reason": r}),
@@ -104,12 +121,12 @@ pub fn offers(report: Option<&Value>) -> bool {
     report.is_some_and(|r| r["available"] == true)
 }
 
-/// The local VNC port a hub session pipes to: input only when the hub said `control: true`.
-pub fn port_for(session: &Value) -> u16 {
+/// The VNC endpoint a hub session pipes to: input only when the hub said `control: true`.
+pub fn endpoint_for(session: &Value) -> Endpoint {
     if session["control"] == true {
-        CONTROL_PORT
+        Endpoint::Control
     } else {
-        VIEW_PORT
+        Endpoint::View
     }
 }
 
@@ -118,6 +135,11 @@ pub fn port_for(session: &Value) -> u16 {
 struct Shared {
     on: AtomicBool,
     up: AtomicBool,
+    /// Each x11vnc this runner started is running and serving its socket.
+    control_up: AtomicBool,
+    view_up: AtomicBool,
+    /// The private directory (0700, made fresh each time the display starts) holding the sockets and HOME.
+    dir: Mutex<Option<PathBuf>>,
     /// The hub takes `screen_v1` and readiness `screen` (`runners/desired` features): an older one refuses both.
     hub: AtomicBool,
     failure: Mutex<Option<String>>,
@@ -133,6 +155,9 @@ fn shared() -> &'static Shared {
     S.get_or_init(|| Shared {
         on: AtomicBool::new(false),
         up: AtomicBool::new(false),
+        control_up: AtomicBool::new(false),
+        view_up: AtomicBool::new(false),
+        dir: Mutex::new(None),
         hub: AtomicBool::new(false),
         failure: Mutex::new(None),
         missing: Mutex::new(vec![]),
@@ -149,7 +174,8 @@ pub fn readiness() -> Option<Value> {
         return None;
     }
     let failure = s.failure.lock().unwrap().clone();
-    report(s.on.load(Ordering::SeqCst), std::env::consts::OS, &s.missing.lock().unwrap(), failure.as_deref())
+    let vnc_up = s.control_up.load(Ordering::SeqCst) && s.view_up.load(Ordering::SeqCst);
+    report(s.on.load(Ordering::SeqCst), std::env::consts::OS, &s.missing.lock().unwrap(), failure.as_deref(), vnc_up)
 }
 
 /// `DISPLAY` for a bot turn while the virtual display is up.
@@ -167,6 +193,8 @@ pub fn heard() {
 struct Proc {
     name: &'static str,
     args: Vec<String>,
+    /// An x11vnc's endpoint: it serves only that socket in the private directory.
+    socket: Option<Endpoint>,
     child: Option<Child>,
     started: Option<Instant>,
     failures: u32,
@@ -175,7 +203,16 @@ struct Proc {
 
 impl Proc {
     fn new(name: &'static str, args: &[&str]) -> Proc {
-        Proc { name, args: args.iter().map(|a| a.to_string()).collect(), child: None, started: None, failures: 0, next: Instant::now() }
+        Proc { name, args: args.iter().map(|a| a.to_string()).collect(), socket: None, child: None, started: None, failures: 0, next: Instant::now() }
+    }
+
+    fn vnc(socket: Endpoint, args: &[&str]) -> Proc {
+        Proc { socket: Some(socket), ..Proc::new("x11vnc", args) }
+    }
+
+    /// Running, and (for an x11vnc) its socket is there.
+    fn serving(&mut self, dir: &Path) -> bool {
+        self.running() && self.socket.is_none_or(|e| dir.join(e.socket()).exists())
     }
 
     fn running(&mut self) -> bool {
@@ -196,12 +233,22 @@ impl Proc {
         }
     }
 
-    fn start(&mut self) {
+    fn start(&mut self, dir: &Path) {
         if Instant::now() < self.next {
             return;
         }
         let mut cmd = Command::new(self.name);
-        cmd.args(&self.args)
+        cmd.args(&self.args);
+        if let Some(endpoint) = self.socket {
+            let path = dir.join(endpoint.socket());
+            let _ = std::fs::remove_file(&path); // one a previous x11vnc of ours left
+            // `-rfbport 0` alone still leaves an IPv6 listener on 5900 on every interface.
+            cmd.args(["-rfbport", "0", "-rfbportv6", "-1", "-unixsock"]).arg(&path);
+        }
+        // Nothing of the runner's environment (its token, the bots' settings) and nothing a bot can write.
+        cmd.env_clear()
+            .env("PATH", std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin".into()))
+            .env("HOME", dir)
             .env("DISPLAY", DISPLAY)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
@@ -243,16 +290,27 @@ fn display_socket() -> PathBuf {
     PathBuf::from(format!("/tmp/.X11-unix/X{}", DISPLAY.trim_start_matches(':')))
 }
 
+/// x11vnc without its rc file, external commands, remote control (over X properties, which any X client can set)
+/// or name lookups. Access is the socket's directory.
+const VNC_ARGS: &[&str] = &["-display", DISPLAY, "-norc", "-nocmds", "-noremote", "-safer", "-nolookup", "-shared", "-forever", "-nopw", "-quiet"];
+
 fn children() -> Vec<Proc> {
     let size = format!("{WIDTH}x{HEIGHT}x24");
-    let control = CONTROL_PORT.to_string();
-    let view = VIEW_PORT.to_string();
+    let view: Vec<&str> = VNC_ARGS.iter().copied().chain(["-viewonly"]).collect();
     vec![
         Proc::new("Xvfb", &[DISPLAY, "-screen", "0", &size, "-nolisten", "tcp"]),
         Proc::new(window_manager().unwrap_or(WINDOW_MANAGERS[0]), &[]),
-        Proc::new("x11vnc", &["-display", DISPLAY, "-localhost", "-rfbport", &control, "-shared", "-forever", "-nopw", "-quiet"]),
-        Proc::new("x11vnc", &["-display", DISPLAY, "-localhost", "-rfbport", &view, "-viewonly", "-shared", "-forever", "-nopw", "-quiet"]),
+        Proc::vnc(Endpoint::Control, VNC_ARGS),
+        Proc::vnc(Endpoint::View, &view),
     ]
+}
+
+/// A new directory only this runner's user can enter: `/tmp/tico-screen-<random>`, 0700, never one that existed.
+fn private_dir() -> std::io::Result<PathBuf> {
+    use std::os::unix::fs::DirBuilderExt;
+    let dir = std::env::temp_dir().join(format!("tico-screen-{}", uuid::Uuid::new_v4().simple()));
+    std::fs::DirBuilder::new().mode(0o700).create(&dir)?;
+    Ok(dir)
 }
 
 static STOP: Notify = Notify::const_new();
@@ -313,13 +371,27 @@ pub fn start(config_path: PathBuf, client: Client) {
 
 async fn tick(procs: &mut [Proc]) {
     let s = shared();
+    let dir = s.dir.lock().unwrap().clone();
+    let dir = match dir {
+        Some(d) => d,
+        None => match private_dir() {
+            Ok(d) => {
+                *s.dir.lock().unwrap() = Some(d.clone());
+                d
+            }
+            Err(e) => {
+                *s.failure.lock().unwrap() = Some(format!("cannot make the screen's directory ({e})"));
+                return;
+            }
+        },
+    };
     let (xvfb, rest) = procs.split_first_mut().unwrap();
     if !xvfb.running() {
         s.up.store(false, Ordering::SeqCst);
         for p in rest.iter_mut() {
             p.stop().await; // they draw on a display that is gone
         }
-        xvfb.start();
+        xvfb.start(&dir);
         if xvfb.child.is_none() {
             note_xvfb(xvfb);
             return;
@@ -339,10 +411,23 @@ async fn tick(procs: &mut [Proc]) {
     }
     *s.failure.lock().unwrap() = None;
     s.up.store(true, Ordering::SeqCst);
+    let mut started = false;
     for p in rest.iter_mut() {
         if !p.running() {
-            p.start();
+            p.start(&dir);
+            started = true;
         }
+    }
+    // A new x11vnc serves its socket within moments; until both do, no session opens and readiness says why.
+    let deadline = Instant::now() + Duration::from_secs(if started { 5 } else { 0 });
+    loop {
+        let (control, view) = (rest[1].serving(&dir), rest[2].serving(&dir));
+        s.control_up.store(control, Ordering::SeqCst);
+        s.view_up.store(view, Ordering::SeqCst);
+        if (control && view) || Instant::now() >= deadline {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
 
@@ -353,9 +438,15 @@ fn note_xvfb(xvfb: &Proc) {
 }
 
 async fn stop_all(procs: &mut [Proc]) {
-    shared().up.store(false, Ordering::SeqCst);
+    let s = shared();
+    s.up.store(false, Ordering::SeqCst);
+    s.control_up.store(false, Ordering::SeqCst);
+    s.view_up.store(false, Ordering::SeqCst);
     for p in procs.iter_mut().rev() {
         p.stop().await;
+    }
+    if let Some(dir) = s.dir.lock().unwrap().take() {
+        let _ = std::fs::remove_dir_all(dir); // the one this runner made: its sockets and the children's HOME
     }
 }
 
@@ -405,9 +496,9 @@ async fn sessions(client: Client) {
                 continue;
             }
             let client = client.clone();
-            let port = port_for(&row);
+            let endpoint = endpoint_for(&row);
             tokio::spawn(async move {
-                if let Err(e) = bridge(&client, &id, port).await {
+                if let Err(e) = bridge(&client, &id, endpoint).await {
                     log(&format!("Tico runner: screen session {id} ended: {e}"));
                 }
                 shared().bridging.lock().unwrap().remove(&id);
@@ -429,9 +520,17 @@ pub fn ws_url(hub: &str, session_id: &str) -> Result<String, String> {
 }
 
 /// Pipe one hub session to the local VNC port until either side closes, the screen goes off or the cap passes.
-async fn bridge(client: &Client, session_id: &str, port: u16) -> Result<(), String> {
+async fn bridge(client: &Client, session_id: &str, endpoint: Endpoint) -> Result<(), String> {
     use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
-    let tcp = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.map_err(|e| format!("VNC port {port}: {e}"))?;
+    // Only to the x11vnc this runner started, while it runs: fail closed otherwise.
+    let s = shared();
+    let up = match endpoint {
+        Endpoint::Control => &s.control_up,
+        Endpoint::View => &s.view_up,
+    };
+    let dir = s.dir.lock().unwrap().clone();
+    let Some(dir) = dir.filter(|_| up.load(Ordering::SeqCst)) else { return Err(format!("{endpoint:?} VNC is not running")) };
+    let vnc = tokio::net::UnixStream::connect(dir.join(endpoint.socket())).await.map_err(|e| format!("{endpoint:?} VNC: {e}"))?;
     let token = bearer(&client.token).map_err(|e| e.detail)?;
     let mut request = ws_url(&client.url, session_id)?.into_client_request().map_err(|e| e.to_string())?;
     let headers = request.headers_mut();
@@ -442,7 +541,7 @@ async fn bridge(client: &Client, session_id: &str, port: u16) -> Result<(), Stri
         .map_err(|_| "the hub did not answer".to_string())?
         .map_err(|e| format!("websocket: {e}"))?;
     let (mut to_hub, mut from_hub) = ws.split();
-    let (mut vnc_in, mut vnc_out) = tcp.into_split();
+    let (mut vnc_in, mut vnc_out) = vnc.into_split();
     let mut on = shared().switch.subscribe();
     let cap = tokio::time::sleep(SESSION_CAP);
     tokio::pin!(cap);
@@ -496,23 +595,25 @@ mod tests {
 
     #[test]
     fn the_capability_is_offered_only_when_on_and_usable() {
-        assert_eq!(report(false, "linux", &[], None), None);
-        let up = report(true, "linux", &[], None);
+        assert_eq!(report(false, "linux", &[], None, true), None);
+        let up = report(true, "linux", &[], None, true);
         assert!(offers(up.as_ref()));
         assert_eq!(up.unwrap(), json!({"available": true, "width": 1440, "height": 900}));
-        let mac = report(true, "macos", &[], None);
+        let mac = report(true, "macos", &[], None, true);
         assert!(!offers(mac.as_ref()));
         assert_eq!(mac.unwrap()["reason"], "Linux only for now");
-        assert!(!offers(report(true, "linux", &["x11vnc"], None).as_ref()));
-        assert!(!offers(report(true, "linux", &[], Some("Xvfb :99 did not start")).as_ref()));
+        assert!(!offers(report(true, "linux", &["x11vnc"], None, true).as_ref()));
+        assert!(!offers(report(true, "linux", &[], Some("Xvfb :99 did not start"), true).as_ref()));
+        // Either x11vnc down (or one not ours on its endpoint): no capability, and readiness says so.
+        assert_eq!(report(true, "linux", &[], None, false).unwrap()["reason"], "VNC is not running");
     }
 
     #[test]
-    fn only_an_explicit_control_session_reaches_the_input_port() {
-        assert_eq!(port_for(&json!({"session_id": "a", "control": true})), CONTROL_PORT);
-        assert_eq!(port_for(&json!({"session_id": "a", "control": false})), VIEW_PORT);
-        assert_eq!(port_for(&json!({"session_id": "a", "control": "true"})), VIEW_PORT);
-        assert_eq!(port_for(&json!({"session_id": "a"})), VIEW_PORT);
+    fn only_an_explicit_control_session_reaches_the_input_endpoint() {
+        assert_eq!(endpoint_for(&json!({"session_id": "a", "control": true})), Endpoint::Control);
+        assert_eq!(endpoint_for(&json!({"session_id": "a", "control": false})), Endpoint::View);
+        assert_eq!(endpoint_for(&json!({"session_id": "a", "control": "true"})), Endpoint::View);
+        assert_eq!(endpoint_for(&json!({"session_id": "a"})), Endpoint::View);
         assert_eq!(ws_url("https://hub.acme.example", "s1").unwrap(), "wss://hub.acme.example/api/v2/runners/me/screen/s1/ws");
         assert_eq!(ws_url("http://127.0.0.1:8000/", "s1").unwrap(), "ws://127.0.0.1:8000/api/v2/runners/me/screen/s1/ws");
     }

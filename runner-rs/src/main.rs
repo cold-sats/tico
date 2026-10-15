@@ -169,7 +169,7 @@ fn screen_main(action: ScreenAction, config: &mut config::Config) -> i32 {
     let (on, source) = screen::lock(&config.path);
     let missing = if on { screen::missing_tools() } else { vec![] };
     let mut out = serde_json::json!({"screen": if on { "on" } else { "off" }, "set_by": source});
-    if let Some(report) = screen::report(on, std::env::consts::OS, &missing, None) {
+    if let Some(report) = screen::report(on, std::env::consts::OS, &missing, None, true) {
         out.as_object_mut().unwrap().extend(report.as_object().cloned().unwrap_or_default());
     }
     if source == "TICO_SCREEN" && !matches!(action, ScreenAction::Status) {
