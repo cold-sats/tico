@@ -114,8 +114,31 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
     await dialog.locator('[type=submit]').click();
     await page.waitForFunction(() => !document.querySelector('#bot-editor').open);
     assert.equal(writes.at(-1)[1].shared, true);
+    // A queued close also leaves a reopened Edit form subscribed to current settings.
+    const refreshed = await page.evaluate(async () => {
+      settingsEditBot('architect');
+      const editor = document.querySelector('#bot-editor');
+      const closed = new Promise(resolve => editor.addEventListener('close', resolve, {once: true}));
+      editor.close(); settingsEditBot('architect');
+      await closed;
+      const bot = S.emps.find(e => e.name === 'architect'), name = bot.display_name;
+      bot.display_name = 'Refreshed Architect';
+      document.dispatchEvent(new Event('tico:settings-loaded'));
+      const label = editor.querySelector('[data-edit-access]')?.getAttribute('aria-label');
+      bot.display_name = name;
+      return label;
+    });
+    assert.equal(refreshed, 'Change access for Refreshed Architect');
     // Adding a bot asks only for its name: the slug is under Advanced, follows the name, and is left to the server.
-    await page.evaluate(() => { settingsChoiceFromValue = () => ({harness: 'claude', model: 'm', effort: 'high'}); settingsEditBot(''); });
+    await page.evaluate(async () => {
+      settingsChoiceFromValue = () => ({harness: 'claude', model: 'm', effort: 'high'});
+      settingsEditBot('architect');
+      const editor = document.querySelector('#bot-editor');
+      const closed = new Promise(resolve => editor.addEventListener('close', resolve, {once: true}));
+      editor.close(); settingsEditBot(''); // Reopen before the queued close event from the previous form.
+      await closed;
+    });
+    assert.equal(await dialog.locator('[name=display_name]').count(), 1, 'a previous close cannot clear the reopened Add form');
     const slug = dialog.locator('[name=slug]');
     assert.equal(await slug.isVisible(), false);
     await dialog.locator('[name=display_name]').fill('Head of Marketing');

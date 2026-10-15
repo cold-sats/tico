@@ -118,7 +118,12 @@ function settingsEditBot(slug = '') {
     const refresh = () => { if (!dialog.open) return; if (touched) rev = (S.emps.find(row => row.name === slug) || e).revision; paint(); };
     paint();
     document.addEventListener('tico:settings-loaded', refresh);
-    dialog.addEventListener('close', () => document.removeEventListener('tico:settings-loaded', refresh), {once: true});
+    const cleanup = () => {
+      if (dialog.open && form.isConnected) return; // A previous opening's close event can arrive after this form opens.
+      document.removeEventListener('tico:settings-loaded', refresh);
+      dialog.removeEventListener('close', cleanup);
+    };
+    dialog.addEventListener('close', cleanup);
     rows.addEventListener('click', event => {
       touched = true;
       const access = event.target.closest('[data-edit-access]'), owners = event.target.closest('[data-edit-owners]'), botOwners = event.target.closest('[data-edit-bot-owners]');
@@ -225,7 +230,7 @@ function settingsEditBot(slug = '') {
       toast(editing ? `Updated ${form.elements.display_name.value}` : added?.note || `Added ${form.elements.display_name.value}`);
     } catch (error) { status.innerHTML = `<span class="err">${esc(error.message)}</span>`; submit.disabled = false; }
   };
-  dialog.onclose = () => { dialog.innerHTML = ''; };
+  dialog.onclose = () => { if (!dialog.open) dialog.innerHTML = ''; };
   dialog.showModal();
 }
 function settingsEditOwners(slug) {
