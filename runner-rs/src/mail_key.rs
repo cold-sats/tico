@@ -331,8 +331,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("tico-mint-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).unwrap();
         let script = dir.join("mail.sh");
-        std::fs::write(&script, "#!/bin/sh\n[ -z \"$HUB_TOKEN\" ] || exit 9\nprintf '{\"token\": \"ya29.%s-%s\", \"expiry\": \"soon\", \"key\": \"%s\"}' \"$3\" \"$5\" \"$GOOGLE_SA_KEY\"\n").unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::util::write_script(&script, "#!/bin/sh\n[ -z \"$HUB_TOKEN\" ] || exit 9\nprintf '{\"token\": \"ya29.%s-%s\", \"expiry\": \"soon\", \"key\": \"%s\"}' \"$3\" \"$5\" \"$GOOGLE_SA_KEY\"\n");
         let _ = MINT.set((script, dir.join(FILE)));
         let allowed: BTreeSet<String> = mailboxes(&json!({"mailboxes": ["Ana@Acme.example", "ben@acme.example"]}));
         assert_eq!(answer(&allowed, &json!({"service": "drive", "mailbox": "ana@acme.example"})).await, json!({"error": "no mail access"}));

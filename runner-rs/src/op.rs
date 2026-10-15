@@ -80,7 +80,6 @@ pub async fn resolve_with(env: &mut BTreeMap<String, String>, program: &str) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
 
     #[tokio::test]
     async fn references_resolve_once_each_and_a_failure_is_an_empty_value() {
@@ -88,15 +87,13 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let fake = dir.join("op");
         let calls = dir.join("calls");
-        std::fs::write(
+        crate::util::write_script(
             &fake,
-            format!(
+            &format!(
                 "#!/bin/sh\necho \"$3 $OP_SERVICE_ACCOUNT_TOKEN\" >> '{}'\ncase \"$3\" in\n  op://v/good/password) printf 'resolved-secret' ;;\n  *) echo \"[ERROR] item not found\" >&2; exit 1 ;;\nesac\n",
                 calls.display()
             ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
         let mut env: BTreeMap<String, String> = [
             ("A", "op://v/good/password"),
             ("B", "op://v/good/password"),

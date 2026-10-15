@@ -218,6 +218,19 @@ fn write_py(v: &Value, out: &mut String) {
     }
 }
 
+/// Writes `body` to `path` as an executable script for a test to run. A child `cp` writes the file, so this
+/// process never holds it open for writing: a thread forking at that moment would carry the descriptor into
+/// its child, and running the script would fail with ETXTBSY ("Text file busy") until that child execs.
+#[cfg(test)]
+pub fn write_script(path: &std::path::Path, body: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    let source = std::path::PathBuf::from(format!("{}.src", path.display()));
+    std::fs::write(&source, body).unwrap();
+    assert!(std::process::Command::new("cp").arg(&source).arg(path).status().unwrap().success());
+    std::fs::remove_file(&source).unwrap();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

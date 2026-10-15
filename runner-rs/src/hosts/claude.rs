@@ -806,14 +806,11 @@ mod tests {
 
     /// A `claude` that writes a fixture once the prompt arrives and exits when stdin closes, as Claude does.
     fn fake_claude(dir: &std::path::Path) -> String {
-        use std::os::unix::fs::PermissionsExt;
         let path = dir.join("claude");
-        std::fs::write(
+        crate::util::write_script(
             &path,
             "#!/bin/sh\ncase \"$1\" in --version) echo '2.1.296 (Claude Code)'; exit 0;; --help) echo '  --autocompact <tokens>'; exit 0;; esac\nIFS= read -r line\ncat \"$FIXTURE\"\ncat >/dev/null\n",
-        )
-        .unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
         path.display().to_string()
     }
 
