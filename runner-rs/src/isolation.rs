@@ -3,7 +3,7 @@
 //! checkout, a watcher, any runtime probe) as `TICO_RUNNER_BOT_UID` with no capabilities, through `setpriv`.
 //! Off wherever that variable is unset (a Mac is a trust group of one user).
 
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 pub const UID_ENV: &str = "TICO_RUNNER_BOT_UID";
@@ -135,25 +135,81 @@ pub fn turn_dir() -> PathBuf {
     base
 }
 
-/// Give the bot user anything under `paths` that root made (a login run with `docker exec`). Never follows
-/// symlinks.
+/// Give the bot user ordinary files/directories under `paths` that the supervisor made. Directory descriptors
+/// pin traversal; neither path components nor entries follow symlinks. Foreign hardlink aliases stay private.
 pub fn adopt(paths: &[PathBuf]) {
     let Some((uid, gid)) = identity() else { return };
-    fn walk(path: &Path, uid: u32, gid: u32) {
-        let Ok(meta) = std::fs::symlink_metadata(path) else { return };
-        if meta.uid() != uid {
-            let _ = lchown(path, uid, gid);
+    adopt_with(paths, uid, gid, &mut |_| {});
+}
+
+fn adopt_with(paths: &[PathBuf], uid: u32, gid: u32, before_directory: &mut impl FnMut(&std::ffi::CStr)) {
+    use std::ffi::{CStr, CString};
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::os::unix::ffi::OsStrExt;
+    use std::path::Component;
+
+    fn open_at(parent: i32, name: &CStr, flags: i32) -> Option<OwnedFd> {
+        // SAFETY: name is NUL-terminated; the returned descriptor has one owner and is close-on-exec.
+        let fd = unsafe { libc::openat(parent, name.as_ptr(), flags | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
+        (fd >= 0).then(|| unsafe { OwnedFd::from_raw_fd(fd) })
+    }
+    fn parent(path: &Path) -> Option<(OwnedFd, CString)> {
+        let start = CString::new(if path.is_absolute() { "/" } else { "." }).ok()?;
+        let mut fd = open_at(libc::AT_FDCWD, &start, libc::O_RDONLY | libc::O_DIRECTORY)?;
+        let parts: Vec<_> = path.components().filter(|p| !matches!(p, Component::RootDir | Component::CurDir)).collect();
+        for (index, part) in parts.iter().enumerate() {
+            let name = match part {
+                Component::Normal(s) => CString::new(s.as_bytes()).ok()?,
+                Component::ParentDir => CString::new("..").ok()?,
+                _ => return None,
+            };
+            if index + 1 == parts.len() { return Some((fd, name)); }
+            fd = open_at(fd.as_raw_fd(), &name, libc::O_RDONLY | libc::O_DIRECTORY)?;
         }
-        if meta.is_dir() {
-            if let Ok(entries) = std::fs::read_dir(path) {
-                for entry in entries.flatten() {
-                    walk(&entry.path(), uid, gid);
-                }
-            }
+        None // never interpret an empty path, / or . as an ownership-handoff root
+    }
+    struct Directory(*mut libc::DIR);
+    impl Drop for Directory {
+        fn drop(&mut self) { unsafe { libc::closedir(self.0); } }
+    }
+    fn walk(parent: i32, name: &CStr, uid: u32, gid: u32, before_directory: &mut impl FnMut(&CStr)) {
+        let mut info = std::mem::MaybeUninit::<libc::stat>::uninit();
+        // Classify without following a link or opening a special file. The opened inode is checked again below.
+        if unsafe { libc::fstatat(parent, name.as_ptr(), info.as_mut_ptr(), libc::AT_SYMLINK_NOFOLLOW) } != 0 { return; }
+        let kind = unsafe { info.assume_init() }.st_mode & libc::S_IFMT;
+        if kind != libc::S_IFDIR && kind != libc::S_IFREG { return; }
+        let flags = libc::O_RDONLY | libc::O_NONBLOCK | if kind == libc::S_IFDIR { libc::O_DIRECTORY } else { 0 };
+        let Some(fd) = open_at(parent, name, flags) else { return };
+        if unsafe { libc::fstat(fd.as_raw_fd(), info.as_mut_ptr()) } != 0 { return; }
+        let info = unsafe { info.assume_init() };
+        let kind = info.st_mode & libc::S_IFMT;
+        if kind != libc::S_IFDIR && kind != libc::S_IFREG { return; }
+        if kind == libc::S_IFREG && info.st_uid != uid && info.st_nlink != 1 { return; }
+        if info.st_uid != uid {
+            // Ownership changes the opened inode, never a name that the bot can replace between syscalls.
+            let _ = unsafe { libc::fchown(fd.as_raw_fd(), uid, gid) };
+        }
+        if kind != libc::S_IFDIR { return; }
+        before_directory(name);
+        // fdopendir owns its descriptor. Keep the original pinned for all openat calls and avoid leaking the
+        // enumeration descriptor into a concurrently spawned model process.
+        let duplicate = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 0) };
+        if duplicate < 0 { return; }
+        let stream = unsafe { libc::fdopendir(duplicate) };
+        if stream.is_null() { unsafe { libc::close(duplicate); } return; }
+        let stream = Directory(stream);
+        loop {
+            let entry = unsafe { libc::readdir(stream.0) };
+            if entry.is_null() { break; }
+            let name = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) }.to_owned();
+            if name.to_bytes() == b"." || name.to_bytes() == b".." { continue; }
+            walk(fd.as_raw_fd(), &name, uid, gid, before_directory);
         }
     }
     for path in paths {
-        walk(path, uid, gid);
+        if let Some((parent, name)) = parent(path) {
+            walk(parent.as_raw_fd(), &name, uid, gid, before_directory);
+        }
     }
 }
 
@@ -178,6 +234,92 @@ pub fn protect_state(directory: &Path) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    struct Fixture(PathBuf);
+    #[cfg(target_os = "linux")]
+    impl Fixture {
+        fn new() -> Self {
+            assert_eq!(unsafe { libc::geteuid() }, 0, "disposable supervisor fixture");
+            assert!(std::env::var_os("TICO_TEST_DISPOSABLE").is_some());
+            assert_eq!(identity(), Some((10003, 10002)));
+            let path = std::env::temp_dir().join(format!("tico-adopt-contract-{}", uuid::Uuid::new_v4().simple()));
+            std::fs::create_dir(&path).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            Self(path)
+        }
+    }
+    #[cfg(target_os = "linux")]
+    impl Drop for Fixture { fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); } }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "requires a disposable Linux two-user environment"]
+    fn adoption_pins_a_directory_when_the_bot_replaces_its_name() {
+        use std::os::unix::fs::MetadataExt;
+        let f = Fixture::new();
+        let root = f.0.join("managed");
+        let child = root.join("swap");
+        std::fs::create_dir_all(&child).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        lchown(&root, 10003, 10002).unwrap(); // the bot can replace a child's name
+        let original = child.join("ordinary");
+        std::fs::write(&original, "managed fixture").unwrap();
+        std::fs::set_permissions(&original, std::fs::Permissions::from_mode(0o640)).unwrap();
+        let outside = f.0.join("private");
+        std::fs::create_dir(&outside).unwrap();
+        std::fs::set_permissions(&outside, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let private = outside.join("control.json");
+        std::fs::write(&private, "supervisor fixture").unwrap();
+        std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let parked = root.join("parked");
+        let mut swapped = false;
+        adopt_with(&[root], 10003, 10002, &mut |name| {
+            if name.to_bytes() != b"swap" || swapped { return; }
+            swapped = true;
+            let result = std_command("/usr/bin/python3")
+                .args(["-c", "import os,sys; os.rename(sys.argv[1],sys.argv[2]); os.symlink(sys.argv[3],sys.argv[1])"])
+                .arg(&child).arg(&parked).arg(&outside).output().unwrap();
+            assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+        });
+        assert!(swapped);
+        assert_eq!(private.metadata().unwrap().uid(), 0, "an escaped target remains private");
+        assert_eq!(private.metadata().unwrap().permissions().mode() & 0o777, 0o600);
+        let adopted = parked.join("ordinary").metadata().unwrap();
+        assert_eq!((adopted.uid(), adopted.gid()), (10003, 10002), "the pinned original is handed off");
+        assert_eq!(adopted.permissions().mode() & 0o777, 0o640);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "requires a disposable Linux two-user environment"]
+    fn adoption_rejects_ancestor_links_aliases_and_special_files() {
+        use std::os::unix::fs::MetadataExt;
+        use std::os::unix::ffi::OsStrExt;
+        let f = Fixture::new();
+        let root = f.0.join("managed");
+        let outside = f.0.join("private");
+        std::fs::create_dir_all(outside.join("child")).unwrap();
+        std::fs::create_dir(&root).unwrap();
+        let private = outside.join("child/control.json");
+        std::fs::write(&private, "supervisor fixture").unwrap();
+        std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o600)).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("ancestor")).unwrap();
+        adopt(&[root.join("ancestor/child")]);
+        assert_eq!(private.metadata().unwrap().uid(), 0, "an intermediate symlink is never followed");
+        std::fs::hard_link(&private, root.join("alias")).unwrap();
+        let ordinary = root.join("ordinary");
+        std::fs::write(&ordinary, "managed fixture").unwrap();
+        std::fs::set_permissions(&ordinary, std::fs::Permissions::from_mode(0o640)).unwrap();
+        let fifo = root.join("fifo");
+        let name = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        adopt(&[root]);
+        assert_eq!(private.metadata().unwrap().uid(), 0, "a foreign hardlink alias grants nothing");
+        assert_eq!(fifo.metadata().unwrap().uid(), 0, "special files are skipped");
+        assert_eq!(ordinary.metadata().unwrap().uid(), 10003);
+        assert_eq!(ordinary.metadata().unwrap().permissions().mode() & 0o777, 0o640);
+    }
 
     #[test]
     fn off_without_a_bot_uid_and_for_the_supervisor_itself() {

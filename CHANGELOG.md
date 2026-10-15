@@ -7,6 +7,13 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- Muse Code, Gemini and Antigravity turns on an isolated Docker runner use the bot user with cleared
+  capabilities. Required prompt, CLI-state and revocable-token files remain usable without exposing the
+  runner's registration or private state; existing model sessions keep their locations.
+- Runner ownership handoffs preserve private state while preparing existing Git and model CLI files for
+  the bot user.
+
 ## [0.3.47] - 2026-10-15
 
 ### Fixed

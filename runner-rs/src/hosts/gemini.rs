@@ -220,11 +220,25 @@ impl GeminiHost {
         use std::io::Write;
         use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
         std::fs::create_dir_all(&self.0.home)?;
+        if !std::fs::symlink_metadata(&self.0.home)?.is_dir() {
+            return Err(std::io::Error::other("Gemini home must be a directory, not a symbolic link"));
+        }
+        if crate::isolation::enabled() {
+            // Keep existing CLI sessions in place; only this host-state branch is traversable.
+            if let Some(parent) = self.0.home.parent() {
+                if !std::fs::symlink_metadata(parent)?.is_dir() {
+                    return Err(std::io::Error::other("Gemini state parent must not be a symbolic link"));
+                }
+                std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o711))?;
+            }
+            crate::isolation::adopt(&[self.0.home.clone()]);
+        }
         std::fs::set_permissions(&self.0.home, std::fs::Permissions::from_mode(0o700))?;
         let tmp = self.0.home.join(format!("settings-{}.json", uuid::Uuid::new_v4().simple()));
         let written = (|| {
             let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?;
             f.write_all((serde_json::to_string_pretty(&settings_file(model, effort, servers)).unwrap() + "\n").as_bytes())?;
+            crate::isolation::chown_file(&f)?;
             std::fs::rename(&tmp, self.0.home.join("settings.json"))
         })();
         let _ = std::fs::remove_file(&tmp);
@@ -236,17 +250,22 @@ impl GeminiHost {
         let path = std::env::temp_dir().join(format!("tico-gemini-stderr-{}", uuid::Uuid::new_v4().simple()));
         let stderr = std::fs::OpenOptions::new().read(true).write(true).create_new(true).open(&path)?;
         let _ = std::fs::remove_file(&path);
+        let mut command = self.command(thread_id, t);
+        command.stderr(Stdio::from(stderr.try_clone()?));
+        Ok((command.spawn()?, stderr))
+    }
+
+    fn command(&self, thread_id: &str, t: &Thread) -> Command {
         let argv = self.argv(thread_id, t);
-        let mut command = Command::new(&argv[0]);
+        let mut command = crate::isolation::command(&argv[0]);
         command
             .args(&argv[1..])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::from(stderr.try_clone()?))
             .current_dir(&t.settings.cwd)
             .env_clear()
             .envs(self.env(&t.settings));
-        Ok((command.spawn()?, stderr))
+        command
     }
 
     pub fn start_turn(&self, thread_id: &str, text: &str, effort: Option<&str>) -> Result<String, HostError> {
@@ -478,6 +497,25 @@ pub fn error_text(result: Option<&Value>, rc: i32, stderr: &str) -> String {
 mod tests {
     use super::*;
     use tokio::sync::mpsc;
+
+    #[tokio::test]
+    async fn turn_launch_keeps_the_bot_identity_and_existing_cli_state() {
+        if !super::super::isolationtests::child("hosts::gemini::tests::turn_launch_keeps_the_bot_identity_and_existing_cli_state") { return; }
+        let f = super::super::isolationtests::Fixture::new();
+        let home = f.root.join("gemini/acme");
+        let host = GeminiHost::new("acme", &home, f.argv(), mpsc::unbounded_channel().0);
+        let thread = Thread { settings: f.settings(), started: true };
+        super::super::isolationtests::prefix(&host.command("thread", &thread), &host.argv("thread", &thread));
+        if !f.actual() { return; }
+        std::fs::create_dir_all(home.join(".gemini")).unwrap();
+        let session = home.join(".gemini/session.json");
+        std::fs::write(&session, "saved CLI session").unwrap();
+        std::os::unix::fs::symlink(&f.private, home.join("private-link")).unwrap();
+        host.prepare_home(DEFAULT_MODEL, None, &[]).unwrap();
+        f.run(host.command("thread", &thread), &[&session, &home.join("settings.json")], &[&session]).await;
+        use std::os::unix::fs::MetadataExt;
+        assert_eq!(home.parent().unwrap().metadata().unwrap().uid(), 0, "parent stays with supervisor");
+    }
 
     /// A `gemini` that logs its argv, then plays `$FIXTURE` once stdin closes, or, for a `--resume` of a session
     /// it was told is gone (`$GONE`), fails as the CLI does before it calls the model.

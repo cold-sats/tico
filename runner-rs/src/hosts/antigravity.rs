@@ -120,7 +120,12 @@ impl AntigravityHost {
     pub fn start(&self) -> Result<(), HostError> {
         use std::os::unix::fs::PermissionsExt;
         std::fs::create_dir_all(&self.0.home).map_err(|e| failed(format!("could not make the Antigravity home: {e}")))?;
-        let _ = std::fs::set_permissions(&self.0.home, std::fs::Permissions::from_mode(0o700));
+        if !std::fs::symlink_metadata(&self.0.home).map_err(|e| failed(e.to_string()))?.is_dir() {
+            return Err(failed("Antigravity home must not be a symbolic link"));
+        }
+        // agy reads the bot-owned lease-token here; its conversation record remains supervisor-only.
+        let mode = if crate::isolation::enabled() { 0o711 } else { 0o700 };
+        std::fs::set_permissions(&self.0.home, std::fs::Permissions::from_mode(mode)).map_err(|e| failed(e.to_string()))?;
         self.inner().up = true;
         Ok(())
     }
@@ -178,9 +183,9 @@ impl AntigravityHost {
         Ok(())
     }
 
-    fn spawn(&self, settings: &Settings, effort: Option<&str>, provider: Option<&str>) -> Result<(Proc, tokio::process::ChildStdout), HostError> {
+    fn command(&self, settings: &Settings, effort: Option<&str>, provider: Option<&str>) -> Result<Command, HostError> {
         let argv = argv(&self.0.cmd, settings, effort, provider)?;
-        let mut command = Command::new(&argv[0]);
+        let mut command = crate::isolation::command(&argv[0]);
         command.args(&argv[1..]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).current_dir(&settings.cwd);
         if !settings.env.is_empty() {
             command.env_clear().envs(&settings.env);
@@ -192,6 +197,11 @@ impl AntigravityHost {
                 Ok(())
             });
         }
+        Ok(command)
+    }
+
+    fn spawn(&self, settings: &Settings, effort: Option<&str>, provider: Option<&str>) -> Result<(Proc, tokio::process::ChildStdout), HostError> {
+        let mut command = self.command(settings, effort, provider)?;
         let mut child = command.spawn().map_err(|e| failed(format!("could not start agy: {e}")))?;
         log(&format!("antigravity: agy started pid {}", child.id().map_or("?".into(), |p| p.to_string())));
         let stdout = child.stdout.take().ok_or_else(|| failed("agy has no stdout"))?;
@@ -375,6 +385,37 @@ impl AntigravityHost {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn turn_launch_keeps_the_bot_identity_and_revocable_token_access() {
+        if !super::super::isolationtests::child("hosts::antigravity::tests::turn_launch_keeps_the_bot_identity_and_revocable_token_access") { return; }
+        let f = super::super::isolationtests::Fixture::new();
+        let mut settings = f.settings();
+        let make = |home: &Path, _: &crate::env::Env| AntigravityHost::new(home, f.argv(), mpsc::unbounded_channel().0);
+        let host = make(&f.root.join("warm/scope"), &settings.env);
+        super::super::isolationtests::prefix(&host.command(&settings, None, None).unwrap(), &argv(&f.argv(), &settings, None, None).unwrap());
+        if !f.actual() { return; }
+        let warm = crate::warm::WarmSessions::new(f.root.join("warm"), 1);
+        settings.env.insert("HUB_TOKEN".into(), "fixture attempt token".into());
+        let attempt = json!({"bot":"acme","conversation":{"id":"conversation"},"principal":"human:acme","config":{"harness":"antigravity"}});
+        let (host, env) = warm.acquire(&attempt, &settings.env, make).await.unwrap();
+        settings.env = env;
+        host.start().unwrap();
+        let thread = host.start_thread(&settings);
+        let provider = "6f9619ff-8b86-d011-b42d-00c04fc964ff";
+        host.remember(&mut host.inner(), provider).unwrap();
+        let record = host.path(&thread).unwrap();
+        settings.env.insert("TEST_PRIVATE".into(), record.display().to_string());
+        let token = PathBuf::from(settings.env["HUB_TOKEN"].strip_prefix("tico-file:").unwrap());
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        assert_eq!(token.metadata().unwrap().uid(), 10003);
+        assert_eq!(token.metadata().unwrap().permissions().mode() & 0o777, 0o600);
+        f.run(host.command(&settings, None, Some(provider)).unwrap(), &[&token], &[]).await;
+        assert_eq!(record.metadata().unwrap().uid(), 0, "conversation record stays supervisor-only");
+        warm.release(&host, true).await;
+        assert_eq!(std::fs::read_to_string(&token).unwrap(), "", "no live token between turns");
+        assert_eq!(token.metadata().unwrap().uid(), 10003);
+    }
 
     /// An `agy` that answers every stdin line with the fixture (`$FIXTURE`), or, with `$CUMULATIVE`, a result whose
     /// usage grows by the same amount each turn, and exits when stdin closes.

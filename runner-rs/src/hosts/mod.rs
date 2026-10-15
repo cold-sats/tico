@@ -14,6 +14,8 @@ mod native;
 pub mod musecode;
 mod oneshot;
 pub mod pi;
+#[cfg(test)]
+mod isolationtests;
 
 use std::sync::OnceLock;
 

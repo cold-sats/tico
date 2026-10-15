@@ -151,7 +151,10 @@ volume, so harnesses survive a restart or a new image. The directory is put last
   two failures in a row show in Health as "<computer>: browser does not start".
 - **Current Docker runner**: the supervisor `ticorun` (UID 10002) owns the tools directory, registration
   and runner state; bot code runs as `bot` (UID 10003) and cannot replace those files. Bots still share
-  their bot user, workspace and model logins. Start with the release's
+  their bot user, workspace and model logins. Every model host, including Muse Code, Gemini and Antigravity,
+  starts its CLI through the same UID/GID and capability-dropping helper. Muse prompts and Gemini's own
+  CLI state belong to the bot user. Antigravity's conversation records stay private to the supervisor;
+  its bot-readable token file has mode 0600 and is blanked between turns. Start with the release's
   [runner Compose file](../docker/runner.compose.yaml), which supplies the required user and capabilities.
 - **Native Mac/Linux and legacy containers without isolation**: bots share the runner's user and can
   replace a CLI or reach that user's runner state. See the isolation notes in

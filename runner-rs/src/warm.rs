@@ -77,15 +77,18 @@ pub fn fingerprint(env: &Env) -> String {
 pub fn write_token(path: &Path, token: &str) {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
-    let tmp = path.with_extension("tmp");
+    let tmp = path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4().simple()));
     let written = std::fs::OpenOptions::new()
         .write(true)
-        .create(true)
-        .truncate(true)
+        .create_new(true)
         .mode(0o600)
         .open(&tmp)
-        .and_then(|mut f| f.write_all(token.as_bytes()))
+        .and_then(|mut f| {
+            f.write_all(token.as_bytes())?;
+            crate::isolation::chown_file(&f)
+        })
         .and_then(|_| std::fs::rename(&tmp, path));
+    let _ = std::fs::remove_file(&tmp);
     if let Err(e) = written {
         crate::util::log(&format!("Tico runner: could not write a warm session's token file ({e})"));
     }
@@ -121,7 +124,19 @@ impl WarmSessions {
         {
             use std::os::unix::fs::PermissionsExt;
             std::fs::create_dir_all(&home).map_err(|e| format!("could not make the warm session home: {e}"))?;
-            let _ = std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700));
+            for path in [&self.directory, &home] {
+                if !std::fs::symlink_metadata(path).map_err(|e| e.to_string())?.is_dir() {
+                    return Err("Warm session directories must not be symbolic links".into());
+                }
+            }
+            let mode = if crate::isolation::enabled() { 0o711 } else { 0o700 };
+            // Only traversal to a known token path: neither directory is writable by the bot.
+            if crate::isolation::enabled() {
+                std::fs::set_permissions(&self.directory, std::fs::Permissions::from_mode(mode))
+                    .map_err(|e| format!("could not prepare the warm session parent: {e}"))?;
+            }
+            std::fs::set_permissions(&home, std::fs::Permissions::from_mode(mode))
+                .map_err(|e| format!("could not prepare the warm session home: {e}"))?;
         }
         let token_file = home.join("lease-token");
         let mut turn_env = env.clone();
