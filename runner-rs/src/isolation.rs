@@ -188,7 +188,7 @@ pub fn keep_supervisor_directory(path: &Path, mode: u32) -> std::io::Result<()> 
     if (info.st_uid, info.st_gid) != (uid, gid) && unsafe { libc::fchown(fd.as_raw_fd(), uid, gid) } != 0 {
         return Err(std::io::Error::last_os_error());
     }
-    if info.st_mode & 0o7777 != mode && unsafe { libc::fchmod(fd.as_raw_fd(), mode as libc::mode_t) } != 0 {
+    if u32::from(info.st_mode) & 0o7777 != mode && unsafe { libc::fchmod(fd.as_raw_fd(), mode as libc::mode_t) } != 0 {
         return Err(std::io::Error::last_os_error());
     }
     Ok(())
