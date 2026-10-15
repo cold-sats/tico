@@ -262,3 +262,92 @@ async fn an_attached_worktree_is_certified_then_saved_to_a_wip_branch_when_its_t
     let saved = sh(&tmp.0, &["--git-dir", bare.to_str().unwrap(), "show", &format!("{wip}:draft.txt")]);
     assert_eq!(saved, "half done");
 }
+
+/// A server that answers every request `{}` and records each request's method, path and JSON body.
+async fn recording_server() -> (crate::client::Client, std::sync::Arc<std::sync::Mutex<Vec<(String, Value)>>>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log = seen.clone();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut sock, _)) = listener.accept().await else { return };
+            let mut got = Vec::new();
+            let mut buf = vec![0u8; 65536];
+            let (head, body) = loop {
+                let n = sock.read(&mut buf).await.unwrap_or(0);
+                got.extend_from_slice(&buf[..n]);
+                let text = String::from_utf8_lossy(&got).to_string();
+                if let Some(end) = text.find("\r\n\r\n") {
+                    let length = text[..end].lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap())).unwrap_or(0);
+                    if got.len() >= end + 4 + length || n == 0 {
+                        break (text[..end].to_string(), text[end + 4..].to_string());
+                    }
+                } else if n == 0 {
+                    break (text, String::new());
+                }
+            };
+            let line = head.lines().next().unwrap_or("").split(' ').take(2).collect::<Vec<_>>().join(" ");
+            log.lock().unwrap().push((line, serde_json::from_str(&body).unwrap_or(Value::Null)));
+            let reply = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}";
+            let _ = sock.write_all(reply.as_bytes()).await;
+            let _ = sock.shutdown().await;
+        }
+    });
+    (crate::client::Client::new(&format!("http://127.0.0.1:{port}"), "t", 5, 0).unwrap(), seen)
+}
+
+#[tokio::test]
+async fn a_worktree_reserved_for_a_waiting_task_is_checked_out_set_up_and_reported_ready() {
+    let tmp = Tmp::new();
+    let (bare, _seed) = remote(&tmp.0, "product");
+    let workspace = tmp.0.join("ws");
+    let base = workspace.join("repos").join(crate::repositories::base_folder("org/product"));
+    std::fs::create_dir_all(base.parent().unwrap()).unwrap();
+    sh(&tmp.0, &["clone", "-q", bare.to_str().unwrap(), base.to_str().unwrap()]);
+    sh(&base, &["remote", "set-url", "origin", "https://github.com/org/product.git"]);
+    sh(&base, &["config", &format!("url.{}.insteadOf", bare.display()), "https://github.com/org/product.git"]);
+    let env = turn_env(&tmp.0, &[]);
+    let (client, seen) = recording_server().await;
+    let row = json!({
+        "id": "link-0002", "task_id": "task-0002", "path": "tasks/t2/product", "repo": "org/product",
+        "branch": "tico/waited", "owner": "bot:ops", "state": "pending",
+        "detail_json": json!({"checkout_state": "queued", "wait_id": "w1", "setup_pending": true}).to_string(),
+    });
+    // Setup runs in the new worktree without the turn's git identity or credentials.
+    let mut repo = serde_json::Map::new();
+    repo.insert("full_name".into(), json!("org/product"));
+    repo.insert("default_branch".into(), json!("main"));
+    repo.insert("setup_command".into(), json!("test -z \"$GIT_AUTHOR_NAME\" && echo ok > ../setup-ran"));
+
+    let proof = worktrees::prepare(&workspace, &row, &mut repo, &env, &client).await;
+    let (head, target, _) = proof.unwrap_or_else(|e| panic!("{}", e.text()));
+    let tree = workspace.join("tasks/t2/product");
+    assert_eq!(head, sh(&tree, &["rev-parse", "HEAD"]));
+    assert_eq!(target, "refs/remotes/origin/main");
+    assert_eq!(sh(&tree, &["symbolic-ref", "--short", "HEAD"]), "tico/waited");
+    assert!(workspace.join("tasks/t2/setup-ran").exists());
+    let states: Vec<String> = seen.lock().unwrap().iter().filter(|(l, _)| l == "PATCH /api/v2/tasks/task-0002/links/link-0002").map(|(_, b)| format!("{}/{}", b["state"].as_str().unwrap(), b["checkout_state"].as_str().unwrap())).collect();
+    assert_eq!(states, ["pending/initializing", "pending/checkout_ready", "pending/setup_running", "present/ready"]);
+
+    // The heartbeat's next report verifies the local proof and says present and ready.
+    let mut ready = row.clone();
+    ready["state"] = json!("present");
+    ready["detail_json"] = json!(json!({"checkout_state": "ready", "expected_head": head, "checkout_target": target,
+                                        "expected_base": seen.lock().unwrap().last().unwrap().1["expected_base"]}).to_string());
+    let report = worktrees::inspect(&workspace, &ready, &env, None).await;
+    assert_eq!((report["state"].as_str(), report.get("error")), (Some("present"), None), "{report}");
+
+    // A failed setup is recorded once and not run again: the server tells the task instead.
+    let failing = json!({
+        "id": "link-0003", "task_id": "task-0003", "path": "tasks/t3/product", "repo": "org/product",
+        "branch": "tico/failing", "owner": "bot:ops", "state": "pending",
+        "detail_json": json!({"checkout_state": "queued", "wait_id": "w2"}).to_string(),
+    });
+    repo.insert("setup_command".into(), json!("exit 3"));
+    let failed = worktrees::prepare(&workspace, &failing, &mut repo, &env, &client).await.unwrap_err().text();
+    assert!(failed.contains("setup failed (exit 3)"), "{failed}");
+    let last = seen.lock().unwrap().last().unwrap().1.clone();
+    assert_eq!((last["state"].as_str(), last["checkout_state"].as_str()), (Some("pending"), Some("setup_failed")));
+}

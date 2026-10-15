@@ -5,8 +5,10 @@
 //! A Docker runner asks its updater sidecar for the matching image. The heartbeat says where it stands (`release`,
 //! `kind`, `commit`, `update`), so Settings > Computers and Health see a Rust computer as they see a Python one.
 //!
-//! Not ported: following git main on a server that names no release (a development server), and the disk-space
-//! early retry; a failed update is tried again after six hours or on the server's next release, as before.
+//! A failed update is tried again after six hours, on the server's next release, or as soon as disk space frees
+//! after one that ran out of it. On a server that names no release (a development server) a supervised checkout
+//! follows origin/main instead (service.py checkout_status, self_update), and the heartbeat's `checkout` says how it
+//! stands against main (backend/models.py Checkout).
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -22,6 +24,9 @@ const STATUS_FILE: &str = "update-status.json";
 const RETRY_AFTER_S: f64 = 6.0 * 3600.0;
 const DRAIN_S: u64 = 20 * 60;
 const STALE_UPDATING_S: f64 = 15.0 * 60.0;
+const CHECKOUT_EVERY: Duration = Duration::from_secs(600);
+/// What a restart picks up: a merge touching nothing here needs none (service.py RUNNER_CODE, plus the Rust source).
+const RUNNER_CODE: &[&str] = &["runner/", "runner-rs/", "clients/"];
 const NO_SUPERVISOR: &str = "no supervisor would start this runner again after an update: run `scripts/tico install` once on this computer and it updates itself";
 
 /// A semantic version's sort key (release_update.py `key`), or None.
@@ -78,6 +83,86 @@ fn is_commit(s: &str) -> bool {
     (s.len() == 40 || s.len() == 64) && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
+/// An update that ran out of disk (release_update.py disk_space_error).
+fn disk_space_error(error: &str) -> bool {
+    let e = error.to_lowercase();
+    ["no space left", "not enough disk space", "disk full", "enospc"].iter().any(|w| e.contains(w))
+}
+
+fn disk_error_message(error: &str) -> String {
+    if disk_space_error(error) {
+        "Not enough disk space to update. Free space on this computer (Docker: `docker image prune -a`); the update retries when space frees.".into()
+    } else {
+        error.to_string()
+    }
+}
+
+/// `git -C root <args>` with the runner's whole environment and no prompt (service.py self_update's git):
+/// (exit code, stdout), or None when it did not run or ran past `timeout_s`.
+async fn git_in(root: &Path, args: &[&str], timeout_s: u64) -> Option<(i32, String)> {
+    let mut env: crate::env::Env = std::env::vars().collect();
+    env.insert("GIT_TERMINAL_PROMPT".into(), "0".into());
+    let mut argv = vec!["git".to_string(), "-C".into(), root.to_string_lossy().into_owned()];
+    argv.extend(args.iter().map(|a| a.to_string()));
+    let out = crate::gitrun::run(&argv, &env, None, timeout_s).await.ok()?;
+    Some((out.code, out.stdout.trim().to_string()))
+}
+
+/// How the checkout stands against origin/main (service.py checkout_status, #492): commits behind, commits ahead
+/// (someone committed here; it never fast-forwards), and whether HEAD moved past what this process runs. None
+/// when unknown.
+async fn checkout_status(root: &Path, running: &str) -> Option<Value> {
+    let ok = |r: Option<(i32, String)>| r.filter(|(c, _)| *c == 0).map(|(_, o)| o);
+    ok(git_in(root, &["fetch", "--quiet", "origin", "main"], 30).await)?;
+    let head = ok(git_in(root, &["rev-parse", "HEAD"], 30).await)?;
+    let counts = ok(git_in(root, &["rev-list", "--left-right", "--count", "HEAD...origin/main"], 30).await)?;
+    let n: Vec<u64> = counts.split_whitespace().filter_map(|n| n.parse().ok()).collect();
+    let [ahead, behind] = n[..] else { return None };
+    let running = if running.is_empty() { head.clone() } else { running.to_string() };
+    let now = crate::util::iso(&json!(epoch_s().floor()));
+    Some(json!({"head": head, "running": running, "ahead": ahead, "behind": behind, "checked_at": text_of(&now).replace("+00:00", "Z")}))
+}
+
+/// Whether the runner's own code differs between two commits; unknown counts as changed (service.py runner_code_changed).
+async fn runner_code_changed(root: &Path, old: &str, new: &str) -> bool {
+    if old.is_empty() || new.is_empty() || old == new {
+        return old != new;
+    }
+    match git_in(root, &["diff", "--name-only", old, new], 30).await {
+        Some((0, out)) => out.split_whitespace().any(|p| RUNNER_CODE.iter().any(|c| p.starts_with(c))),
+        _ => true,
+    }
+}
+
+/// Fast-forward the checkout to origin/main when that is safe (service.py self_update): (restart, note), restart
+/// when HEAD is now newer than what this process runs, the note saying why nothing was done.
+async fn self_update(root: &Path, running: &str) -> (bool, String) {
+    let out = |r: Option<(i32, String)>| r.map(|(_, o)| o).unwrap_or_default();
+    let branch = out(git_in(root, &["rev-parse", "--abbrev-ref", "HEAD"], 30).await);
+    if branch != "main" {
+        return (false, format!("checkout is on {}, not main", if branch.is_empty() { "an unknown branch" } else { &branch }));
+    }
+    if !out(git_in(root, &["status", "--porcelain", "--untracked-files=no"], 30).await).is_empty() {
+        return (false, "checkout has uncommitted changes".into());
+    }
+    let old = out(git_in(root, &["rev-parse", "HEAD"], 30).await);
+    if git_in(root, &["fetch", "--quiet", "origin", "main"], 60).await.is_none_or(|(c, _)| c != 0) {
+        return (false, "fetch failed".into());
+    }
+    let changed = out(git_in(root, &["diff", "--name-only", "HEAD", "origin/main"], 30).await);
+    if changed.split_whitespace().any(|p| p == "backend/requirements.txt") {
+        return (false, "backend/requirements.txt changed; a person runs pip install and scripts/tico update".into());
+    }
+    if !changed.is_empty() && git_in(root, &["merge", "--ff-only", "--quiet", "origin/main"], 60).await.is_none_or(|(c, _)| c != 0) {
+        return (false, "main does not fast-forward".into());
+    }
+    let head = out(git_in(root, &["rev-parse", "HEAD"], 30).await);
+    if head != old {
+        log(&format!("Tico runner: updated its checkout {}..{}; restarting when no turn is running", &old[..old.len().min(7)], &head[..head.len().min(7)]));
+    }
+    (!running.is_empty() && !head.is_empty() && head != running, String::new())
+}
+
 fn checkout_commit(root: &Path) -> String {
     Some(git(root, &["rev-parse", "HEAD"])).filter(|c| is_commit(c)).unwrap_or_default()
 }
@@ -112,6 +197,18 @@ pub fn record_revision(directory: &Path) {
         return;
     }
     let _ = std::fs::write(path, json!({"version": crate::runner::RUNNER_VERSION, "revision": revision, "started": epoch_s()}).to_string());
+}
+
+/// Record `head` as what this process runs, after a pull that changed nothing it runs (service.py adopt_revision).
+fn adopt_revision(directory: &Path, head: &str) {
+    let path = directory.join("runner-revision");
+    let mut data: Value = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(json!({}));
+    if !data.is_object() {
+        data = json!({});
+    }
+    data["version"] = json!(crate::runner::RUNNER_VERSION);
+    data["revision"] = json!(head);
+    let _ = std::fs::write(path, data.to_string());
 }
 
 fn read_status(directory: &Path) -> Value {
@@ -171,6 +268,15 @@ struct Inner {
     pending: Option<String>,
     pending_since: Option<Instant>,
     running: bool,
+    /// The last disk-full failure seen and the free bytes then: (marker, baseline) (release_update.py space_freed).
+    disk_failure: Option<(String, u64)>,
+    /// The commit this process runs; a pull that changes no runner code moves it without a restart.
+    revision: String,
+    checkout: Option<Value>,
+    checkout_at: Option<Instant>,
+    update_note: String,
+    /// The checkout moved to newer runner code: exit once no turn runs, never draining for it (service.py restart_due).
+    restart_due: bool,
 }
 
 pub struct Follower {
@@ -181,6 +287,8 @@ pub struct Follower {
     started: String,
     commit: String,
     pinned: bool,
+    /// Supervised, and neither `self_update: false` nor TICO_RUNNER_SELF_UPDATE=0 (service.py under_supervisor).
+    self_update: bool,
     sidecar: Sidecar,
     inner: Mutex<Inner>,
 }
@@ -199,16 +307,18 @@ pub fn init(config: &Map<String, Value>, directory: &Path) {
     let started = if kind == "docker" { String::new() } else { checkout_commit(&root) };
     let commit = Some(manifest_commit(&root)).filter(|c| !c.is_empty()).unwrap_or_else(|| started.clone());
     let release = current_release(&root);
+    let self_update = supervised() && config.get("self_update") != Some(&Value::Bool(false)) && env("TICO_RUNNER_SELF_UPDATE") != "0";
     let _ = SHARED.set(Follower {
         directory: directory.to_path_buf(),
         root,
         kind,
         release,
-        started,
         commit,
         pinned,
+        self_update,
         sidecar: Sidecar::from_env(),
-        inner: Mutex::new(Inner { state: "idle".into(), ..Default::default() }),
+        inner: Mutex::new(Inner { state: "idle".into(), revision: started.clone(), ..Default::default() }),
+        started,
     });
 }
 
@@ -238,6 +348,25 @@ impl Follower {
         self.decide().await;
     }
 
+    /// After an update that ran out of disk: whether space has freed since, so it is tried again at once
+    /// (release_update.py space_freed). The baseline is the status's `disk_free`, else the free space first seen.
+    fn space_freed(&self, status: &Value, error: &str) -> bool {
+        if !disk_space_error(error) {
+            return false;
+        }
+        let at = if self.kind == "docker" { PathBuf::from("/") } else { self.directory.clone() };
+        let Some((_, free)) = crate::readiness::disk_usage(&at) else { return false };
+        let to = Some(text_of(&status["to"])).filter(|t| !t.is_empty()).unwrap_or_else(|| text_of(&status["target"]));
+        let marker = format!("{to}\u{0}{error}\u{0}{}", status["at"]);
+        let mut s = self.inner.lock().unwrap();
+        let baseline = status["disk_free"].as_u64().unwrap_or_else(|| match &s.disk_failure {
+            Some((m, b)) if *m == marker => *b,
+            _ => free,
+        });
+        s.disk_failure = Some((marker, baseline));
+        free > baseline
+    }
+
     /// (state, error) of the last update to `want` when it should not be tried again yet.
     async fn outcome(&self, want: &str) -> Option<(String, String)> {
         if self.kind == "docker" {
@@ -247,7 +376,10 @@ impl Follower {
                 return None;
             }
             return match status["state"].as_str().unwrap_or_default() {
-                s @ ("rolled_back" | "failed") => Some((s.into(), text_of(&status["message"]))),
+                s @ ("rolled_back" | "failed") => {
+                    let error = text_of(&status["message"]);
+                    (!self.space_freed(&status, &error)).then(|| (s.into(), disk_error_message(&error)))
+                }
                 "pulling" | "restarting" => Some(("updating".into(), String::new())),
                 // The image came up but does not say it is `want`: never loop on pulling it again.
                 "healthy" => Some(("failed".into(), format!("updated to {want}, but this runner still reports {}", if self.release.is_empty() { "no release" } else { &self.release }))),
@@ -263,7 +395,10 @@ impl Follower {
         match status["state"].as_str().unwrap_or_default() {
             "updating" if age < STALE_UPDATING_S => Some(("updating".into(), String::new())),
             "updating" => Some(("failed".into(), "the update stopped without an outcome".into())),
-            s @ ("failed" | "rolled_back" | "blocked") if age < RETRY_AFTER_S => Some((s.into(), text_of(&status["error"]))),
+            s @ ("failed" | "rolled_back" | "blocked") if age < RETRY_AFTER_S => {
+                let error = text_of(&status["error"]);
+                (!self.space_freed(&status, &error)).then(|| (s.into(), disk_error_message(&error)))
+            }
             _ => None,
         }
     }
@@ -398,6 +533,9 @@ impl Follower {
     /// What a heartbeat adds; nothing for a server that does not name a release.
     pub fn fields(&self, body: &mut Value) {
         let s = self.inner.lock().unwrap();
+        if let Some(checkout) = s.checkout.as_ref().filter(|_| s.desired.as_deref().is_none_or(|d| d.is_empty())) {
+            body["checkout"] = checkout.clone();
+        }
         if s.desired.is_none() {
             return;
         }
@@ -407,6 +545,69 @@ impl Follower {
             body["commit"] = json!(self.commit);
         }
         body["update"] = json!({"state": s.state, "target": s.target, "error": s.error.chars().take(300).collect::<String>()});
+    }
+
+    /// True when the server names a release: this runner follows it, not main.
+    fn following(&self) -> bool {
+        self.inner.lock().unwrap().desired.as_deref().is_some_and(|d| !d.is_empty())
+    }
+
+    /// On a server that names no release, every CHECKOUT_EVERY: how the checkout stands against origin/main, and,
+    /// when supervised and only behind, fast-forward it and restart onto it once no turn runs; a pull that changes
+    /// no runner code is adopted without one (service.py maintain). `restarting`: a restart is already due.
+    pub async fn follow_main(&self, restarting: bool) {
+        if self.kind == "docker" || self.following() {
+            return;
+        }
+        let running = {
+            let mut s = self.inner.lock().unwrap();
+            if s.checkout_at.is_some_and(|t| t.elapsed() < CHECKOUT_EVERY) {
+                return;
+            }
+            s.checkout_at = Some(Instant::now());
+            s.revision.clone()
+        };
+        let mut checkout = checkout_status(&self.root, &running).await;
+        let restarting = restarting || self.restart_due();
+        let stands = checkout.clone().unwrap_or(json!({}));
+        let stale = stands["behind"].as_u64().unwrap_or(0) > 0 || stands["head"] != stands["running"];
+        if !restarting && self.self_update && stands["ahead"].as_u64().unwrap_or(0) == 0 && stale {
+            let (restart, note) = self_update(&self.root, &running).await;
+            let head = if restart { checkout_commit(&self.root) } else { String::new() };
+            if restart && !head.is_empty() && !runner_code_changed(&self.root, &running, &head).await {
+                // Nothing this process runs changed: it is already running the new code.
+                adopt_revision(&self.directory, &head);
+                if let Some(c) = checkout.as_mut() {
+                    c["running"] = json!(head);
+                }
+                log(&format!("Tico runner: {} changes nothing the runner runs; no restart", &head[..7]));
+                self.inner.lock().unwrap().revision = head;
+            } else if restart {
+                self.inner.lock().unwrap().restart_due = true;
+            } else if !note.is_empty() && note != self.inner.lock().unwrap().update_note {
+                log(&format!("Tico runner: not updating itself: {note}"));
+            }
+            self.inner.lock().unwrap().update_note = note;
+        }
+        let mut s = self.inner.lock().unwrap();
+        // Say why it is not updating, not only that it is behind: a dirty checkout can fall many commits behind.
+        if let Some(c) = checkout.as_mut().filter(|c| c["behind"].as_u64().unwrap_or(0) > 0 && !s.update_note.is_empty()) {
+            c["blocked"] = json!(s.update_note.chars().take(300).collect::<String>());
+        }
+        s.checkout = checkout;
+    }
+
+    /// The Restart button on a server that names no release: take main first when that is safe (service.py maintain).
+    pub async fn take_main(&self) {
+        if self.kind != "docker" && !self.following() {
+            let running = self.inner.lock().unwrap().revision.clone();
+            self_update(&self.root, &running).await;
+        }
+    }
+
+    /// The checkout moved to newer runner code: the loop exits once no turn runs, and the supervisor starts it again.
+    pub fn restart_due(&self) -> bool {
+        self.inner.lock().unwrap().restart_due
     }
 
     /// After a 422 that names `commit`: an older server, so it is not sent again.
@@ -441,6 +642,7 @@ mod tests {
             started: String::new(),
             commit: String::new(),
             pinned: false,
+            self_update: true,
             sidecar: Sidecar { url: String::new(), token_file: dir.join("t") },
             inner: Mutex::new(Inner { state: "idle".into(), desired: Some("0.3.45".into()), ..Default::default() }),
         };
@@ -457,6 +659,51 @@ mod tests {
         f.decide().await;
         assert_eq!(f.inner.lock().unwrap().state, "waiting");
         assert!(!f.blocks_claims(true).await); // a turn is running: keep claiming until the drain time
+
+        // Out of disk: it waits until space frees past what was free when it failed, then tries at once.
+        write_status(&dir, json!({"state": "failed", "target": "0.3.45", "error": "write: No space left on device", "at": epoch_s(), "disk_free": u64::MAX}));
+        f.decide().await;
+        assert_eq!(f.inner.lock().unwrap().state, "failed");
+        assert!(f.inner.lock().unwrap().error.starts_with("Not enough disk space to update."));
+        write_status(&dir, json!({"state": "failed", "target": "0.3.45", "error": "write: No space left on device", "at": epoch_s(), "disk_free": 0}));
+        f.decide().await;
+        assert_eq!(f.inner.lock().unwrap().state, "waiting");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn a_checkout_on_main_fast_forwards_and_a_merge_outside_runner_code_needs_no_restart() {
+        let dir = std::env::temp_dir().join(format!("tico-main-{}", uuid::Uuid::new_v4().simple()));
+        let (origin, here) = (dir.join("origin"), dir.join("here"));
+        let sh = |cwd: &Path, args: &[&str]| {
+            let ok = Command::new("git").args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main"]).args(args).current_dir(cwd).output().unwrap();
+            assert!(ok.status.success(), "{args:?}: {}", String::from_utf8_lossy(&ok.stderr));
+        };
+        std::fs::create_dir_all(origin.join("runner")).unwrap();
+        std::fs::write(origin.join("runner/a.py"), "1").unwrap();
+        sh(&origin, &["init", "-q"]);
+        sh(&origin, &["add", "."]);
+        sh(&origin, &["commit", "-qm", "one"]);
+        sh(&dir, &["clone", "-q", origin.to_str().unwrap(), "here"]);
+        let first = checkout_commit(&here);
+        let stands = checkout_status(&here, &first).await.unwrap();
+        assert_eq!((stands["ahead"].as_u64(), stands["behind"].as_u64()), (Some(0), Some(0)));
+        assert!(stands["checked_at"].as_str().unwrap().ends_with('Z'));
+
+        std::fs::write(origin.join("README.md"), "docs").unwrap();
+        sh(&origin, &["add", "."]);
+        sh(&origin, &["commit", "-qm", "docs"]);
+        assert_eq!(checkout_status(&here, &first).await.unwrap()["behind"], 1);
+        assert_eq!(self_update(&here, &first).await, (true, String::new()));
+        let head = checkout_commit(&here);
+        assert!(!runner_code_changed(&here, &first, &head).await);
+        std::fs::write(origin.join("runner/a.py"), "2").unwrap();
+        sh(&origin, &["commit", "-qam", "code"]);
+        sh(&here, &["fetch", "-q"]);
+        assert!(runner_code_changed(&here, &head, "origin/main").await);
+
+        std::fs::write(here.join("runner/a.py"), "dirty").unwrap();
+        assert_eq!(self_update(&here, &head).await.1, "checkout has uncommitted changes");
         let _ = std::fs::remove_dir_all(dir);
     }
 }

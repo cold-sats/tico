@@ -1,5 +1,6 @@
 //! The readiness rows beyond runtime sign-in and the checkout (service.py preflight and readiness): reserved-credential and Claude Code deny warnings, the GitHub
-//! sign-in and browser launch probes (runner/tool_probes.py), the harness report, recent errors, and the
+//! sign-in and browser launch probes (runner/tool_probes.py), the container start probe (runner/container_probe.py),
+//! the harness report, recent errors, and the
 //! fields an older server refused, held back for ten minutes.
 
 use std::collections::{BTreeSet, HashMap};
@@ -17,7 +18,7 @@ pub const PUBLISH_WARNING: &str = "GitHub history not published: ";
 const DENIED_WARNING: &str = "Claude Code denies what AGENT.md asks for: ";
 const DENIES_WARNING: &str = "Claude Code settings deny: ";
 /// Readiness fields an older server may refuse; each is left out for ten minutes after a refusal.
-pub const OPTIONAL: &[&str] = &["engine", "worktrees", "harnesses", "mail_key", "shared_env", "recent_errors", "container_exec", "github_auth", "browser_launch", "disk"];
+pub const OPTIONAL: &[&str] = &["engine", "worktree_waits", "worktrees", "harnesses", "mail_key", "shared_env", "recent_errors", "container_exec", "github_auth", "browser_launch", "disk"];
 
 // ------------------------------------------------------------------------------------- credential grants
 
@@ -146,8 +147,8 @@ impl Probe {
     }
 }
 
-fn probes() -> &'static (Arc<Probe>, Arc<Probe>) {
-    static P: OnceLock<(Arc<Probe>, Arc<Probe>)> = OnceLock::new();
+fn probes() -> &'static (Arc<Probe>, Arc<Probe>, Arc<Probe>) {
+    static P: OnceLock<(Arc<Probe>, Arc<Probe>, Arc<Probe>)> = OnceLock::new();
     P.get_or_init(Default::default)
 }
 
@@ -155,6 +156,102 @@ fn result(ok: bool, started: Instant, error: &str) -> Value {
     let now = crate::util::iso(&json!(crate::util::epoch_s().floor()));
     json!({"ok": ok, "seconds": (started.elapsed().as_secs_f64() * 10.0).round() / 10.0,
            "error": error.chars().take(300).collect::<String>(), "checked_at": text_of(&now)})
+}
+
+const CONTAINER_LIMIT: Duration = Duration::from_secs(20); // a cached image starts in well under this
+const DOCKER_ANSWER: Duration = Duration::from_secs(10); // listing images or containers
+const PROBE_LABEL: &str = "tico.probe=1";
+/// Images likely to have `true`, best first; any other local image is the fallback.
+const PREFERRED: &[&str] = &["ghcr.io/ticoteam/tico", "tico-runner", "busybox", "alpine", "debian", "ubuntu", "python"];
+
+enum Docker {
+    Done(std::process::Output),
+    Late(Duration),
+    Failed(String),
+}
+
+async fn docker(exe: &Path, args: &[&str], limit: Duration) -> Docker {
+    let mut cmd = tokio::process::Command::new(exe);
+    cmd.args(args).stdin(std::process::Stdio::null()).kill_on_drop(true);
+    match tokio::time::timeout(limit, cmd.output()).await {
+        Err(_) => Docker::Late(limit),
+        Ok(Err(e)) => Docker::Failed(e.to_string()),
+        Ok(Ok(out)) => Docker::Done(out),
+    }
+}
+
+/// The full ID of a local image to start (container_probe._image): an ID cannot be pulled if the image has gone.
+fn pick_image(listed: &str, wanted: Option<&str>) -> Option<String> {
+    let mut images: Vec<(String, String)> = vec![];
+    for line in listed.lines() {
+        let (ident, name) = line.trim().split_once(' ').unwrap_or((line.trim(), ""));
+        if !ident.is_empty() && !name.is_empty() && !name.contains("<none>") && !images.iter().any(|(n, _)| n == name) {
+            images.push((name.to_string(), ident.to_string()));
+        }
+    }
+    if let Some(w) = wanted.filter(|w| !w.is_empty()) {
+        return images.into_iter().find(|(n, _)| n == w).map(|(_, i)| i);
+    }
+    let best = PREFERRED.iter().find_map(|p| images.iter().find(|(n, _)| n.starts_with(p)));
+    best.or(images.first()).map(|(_, i)| i.clone())
+}
+
+/// Whether a throwaway container starts here from a local image, never pulling (container_probe.probe). None when
+/// there is no `docker`, no daemon running (not a stall) or no local image.
+async fn container() -> Option<Value> {
+    let exe = crate::env::which("docker", &std::env::var("PATH").unwrap_or_default())?;
+    let started = Instant::now();
+    let name = format!("tico-probe-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+    let late = |d: Duration| format!("docker did not answer within {} s", d.as_secs());
+    let listed = match docker(&exe, &["images", "--no-trunc", "--format", "{{.ID}} {{.Repository}}:{{.Tag}}"], DOCKER_ANSWER).await {
+        Docker::Done(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).into_owned(),
+        Docker::Done(_) => return None,
+        Docker::Late(d) => return Some(result(false, started, &late(d))),
+        Docker::Failed(e) => return Some(result(false, started, &e)),
+    };
+    let image = pick_image(&listed, std::env::var("TICO_RUNNER_PROBE_IMAGE").ok().as_deref())?;
+    // A wedged daemon leaves earlier probes in Created; clear them before adding another.
+    match docker(&exe, &["ps", "-aq", "--filter", &format!("label={PROBE_LABEL}")], DOCKER_ANSWER).await {
+        Docker::Done(out) => {
+            let old = String::from_utf8_lossy(&out.stdout).into_owned();
+            let ids: Vec<&str> = old.split_whitespace().collect();
+            if !ids.is_empty() {
+                let mut args = vec!["rm", "-fv"];
+                args.extend(ids);
+                if let Docker::Late(d) = docker(&exe, &args, CONTAINER_LIMIT).await {
+                    return Some(result(false, started, &late(d)));
+                }
+            }
+        }
+        Docker::Late(d) => return Some(result(false, started, &late(d))),
+        Docker::Failed(e) => return Some(result(false, started, &e)),
+    }
+    let run = ["run", "--rm", "--name", &name, "--label", PROBE_LABEL, "--network", "none", "--entrypoint", "true", &image];
+    let ran = match docker(&exe, &run, CONTAINER_LIMIT).await {
+        Docker::Done(out) => out,
+        Docker::Late(d) => {
+            // The CLI is gone but the container may still be starting; the next probe removes it if this cannot.
+            let exe = exe.clone();
+            tokio::spawn(async move { docker(&exe, &["rm", "-fv", &name], CONTAINER_LIMIT).await });
+            return Some(result(false, started, &format!("a container did not start within {} s", d.as_secs())));
+        }
+        Docker::Failed(e) => return Some(result(false, started, &e)),
+    };
+    container_outcome(ran.status.code().unwrap_or(-1), &String::from_utf8_lossy(&ran.stderr), &String::from_utf8_lossy(&ran.stdout))
+        .map(|(ok, error)| result(ok, started, &error))
+}
+
+/// (ok, error) for a finished `docker run`, or None when the image went away since it was listed.
+fn container_outcome(code: i32, stderr: &str, stdout: &str) -> Option<(bool, String)> {
+    // 126/127: the image has no `true`. The daemon still created and started the container, which is what this checks.
+    if [0, 126, 127].contains(&code) {
+        return Some((true, String::new()));
+    }
+    if stderr.to_lowercase().contains("no such image") {
+        return None; // nothing was checked, and nothing was pulled
+    }
+    let text = if stderr.trim().is_empty() { stdout } else { stderr };
+    Some((false, text.trim().lines().last().map(str::to_string).unwrap_or_else(|| format!("docker run exited {code}"))))
 }
 
 /// Whether a GitHub App token minted for a bot hosted here signs in (tool_probes.github).
@@ -295,8 +392,11 @@ pub async fn extend(doc: &mut Value, runtimes: &Map<String, Value>, checks: &[Ma
             }
         }
     }
-    let (gh, br) = probes();
+    let (gh, br, ct) = probes();
     let client = client.clone();
+    if let Some(v) = ct.report(container) {
+        doc["container_exec"] = v; // Health warns while containers do not start here
+    }
     if let Some(v) = gh.report(move || github(client.clone(), hosted.clone())) {
         doc["github_auth"] = v;
     }
@@ -362,6 +462,11 @@ pub fn refused(detail: &str, readiness: &Value) -> Option<String> {
     if !extra {
         return None;
     }
+    static REPO: OnceLock<regex::Regex> = OnceLock::new();
+    let repo = REPO.get_or_init(|| regex::Regex::new(r"readiness\.(?:StructuredReadiness\.)?bots\.[^. :;]+\.repository(?:[.: ;]|$)").unwrap());
+    if any("repository") && (!detail.contains("readiness.") || repo.is_match(detail)) {
+        return Some("readiness.bot_repository".into()); // the bot's local path, from before servers took it
+    }
     let present: Vec<&str> = OPTIONAL.iter().copied().filter(|f| readiness.get(*f).is_some()).collect();
     for field in &present {
         let r = regex::Regex::new(&format!(r"readiness\.(?:StructuredReadiness\.)?{field}(?:[.: ;]|$)")).ok()?;
@@ -398,7 +503,8 @@ pub fn drop_held(body: &mut Value) {
                 row.remove("commands");
             }
             if section == "bots" {
-                for (hold, keys) in [("tools", &["tools"][..]), ("mail_request", &["mail_request"][..]), ("bot_profiles", &["profile", "sign_in"][..])] {
+                let holds = [("tools", &["tools"][..]), ("mail_request", &["mail_request"][..]), ("bot_profiles", &["profile", "sign_in"][..]), ("bot_repository", &["repository"][..])];
+                for (hold, keys) in holds {
                     if crate::lanes::held_back(&format!("readiness.{hold}")) {
                         for k in keys {
                             row.remove(*k);
@@ -441,5 +547,25 @@ mod tests {
         assert_eq!(refused("readiness.recent_errors: Extra inputs are not permitted", &r).as_deref(), Some("readiness.recent_errors"));
         assert_eq!(refused("body: extra fields", &r).as_deref(), Some("readiness.recent_errors"));
         assert_eq!(refused("readiness.bots.a.tools.0.service: too long", &r).as_deref(), Some("readiness.tools"));
+        let r = json!({"recent_errors": ["x"], "bots": {"a": {"repository": "/w/a"}}});
+        assert_eq!(refused("readiness.bots.a.repository: Extra inputs are not permitted", &r).as_deref(), Some("readiness.bot_repository"));
+        assert_eq!(refused("readiness.recent_errors: Extra inputs are not permitted", &r).as_deref(), Some("readiness.recent_errors"));
+        // A server from before worktree waits refuses that field alone; `worktrees` is not mistaken for it.
+        let r = json!({"worktree_waits": true, "worktrees": true, "bots": {}});
+        assert_eq!(refused("readiness.worktree_waits: Extra inputs are not permitted", &r).as_deref(), Some("readiness.worktree_waits"));
+        assert_eq!(refused("readiness.worktrees: Extra inputs are not permitted", &r).as_deref(), Some("readiness.worktrees"));
+        assert_eq!(refused("body: extra fields", &r).as_deref(), Some("readiness.worktree_waits"));
+    }
+
+    #[test]
+    fn the_container_probe_starts_a_local_image_by_id() {
+        let listed = "sha256:aa python:3.12\nsha256:bb <none>:<none>\nsha256:cc busybox:latest\n";
+        assert_eq!(pick_image(listed, None).as_deref(), Some("sha256:cc"));
+        assert_eq!(pick_image(listed, Some("python:3.12")).as_deref(), Some("sha256:aa"));
+        assert_eq!(pick_image(listed, Some("gone:1")), None);
+        assert_eq!(pick_image("", None), None);
+        assert_eq!(container_outcome(127, "", ""), Some((true, String::new())));
+        assert_eq!(container_outcome(125, "Error: No such image: sha256:cc", ""), None);
+        assert_eq!(container_outcome(125, "pulling\ndocker: Error response from daemon: disk stalled\n", ""), Some((false, "docker: Error response from daemon: disk stalled".into())));
     }
 }
