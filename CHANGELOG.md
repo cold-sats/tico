@@ -8,6 +8,8 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- **The bot model picker no longer hides a harness whose provider is off.** It lists it greyed out with an
+  AI-providers line to turn it on, so Muse Code and the Wonder models are one provider tick away instead of invisible.
 - **Image cleanup keeps future releases staged on the same Docker host.** After an update, the updater removes only
   older unused release images, so another install or release check can still switch to its downloaded candidate.
 - **Subscription quota exhaustion is a usage limit, with its reset time.** The runner recognizes providers'

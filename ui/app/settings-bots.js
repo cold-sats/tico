@@ -41,6 +41,24 @@ function settingsAllChoices() {
         return {harness, model: model.id, effort, label, search, value: settingsChoiceValue(harness, model.id, effort)};
       })));
 }
+// Harness the team has no provider for: shown greyed out to whoever can turn it on, never silently
+// missing, so a shipped vendor arrives with its way in (Muse Code stayed invisible while Meta was off).
+// Only admins see them: anyone else gets no way in, just clutter.
+function settingsOffHarnesses(choices) {
+  const enabled = SETTINGS_DATA.enabledProviders || [];
+  if (!enabled.length || !settingsIsAdmin()) return [];
+  const have = new Set(choices.map(row => row.harness));
+  return (SETTINGS_DATA.harnesses || []).filter(row =>
+    !row.external && !have.has(row.id) && (SETTINGS_DATA.models || []).some(model =>
+      !model.deprecated && model.provider && !enabled.includes(model.provider) &&
+      (model.harnesses || [model.runtime]).includes(row.id)));
+}
+// One line naming what is off and where to turn it on; the AI providers page itself says only the owner can.
+function settingsOffNote(off) {
+  if (!off.length) return '';
+  const names = off.map(row => harnessWords(row.id)).join(', ');
+  return `<p class="settings-choice-block" data-choice-off><span>${esc(names)} ${off.length === 1 ? 'is' : 'are'} off — turn on ${off.length === 1 ? 'its' : 'their'} provider in AI providers</span> <a href="#/settings" data-off-providers>Open AI providers</a></p>`;
+}
 // What the bot's computer cannot run, as the server judges it (backend/readiness.py `can_run`, sent with
 // /v2/operations as `runnable`): {can_run: false, problem, short, computer, sign_in, move}. Not listed: not refused.
 function settingsRuntimeBlock(e, harness) {
@@ -68,6 +86,7 @@ async function settingsMoveForModel(button) {
 document.addEventListener('click', event => {
   const move = event.target.closest('[data-choice-move]');
   if (move) void settingsMoveForModel(move);
+  if (event.target.closest('[data-off-providers]')) settingsShow('providers');
 });
 // Keep the three choices local until Apply, so selecting a harness cannot start a transition.
 function settingsChoiceFields(current = '', disabled = false, none = false, label = 'Model settings') {
@@ -91,16 +110,21 @@ function settingsWireChoiceFields(fields, onChange = () => {}) {
   let picked = settingsChoiceFromValue(fields.dataset.current);
   const paint = () => {
     const harnesses = [...new Set(choices.map(row => row.harness))];
+    const off = settingsOffHarnesses(choices);
     harness.innerHTML = option('', fields.hasAttribute('data-allow-none') ? 'None' : 'Choose harness', !picked.harness)
       + (picked.harness && !harnesses.includes(picked.harness) ? option(picked.harness, settingsHarnessName(picked.harness) || picked.harness, true, true) : '')
       + harnesses.map(id => { const why = block(id);
         // Short, so a narrow select does not cut it off: "Claude Code (sign in)".
-        return option(id, why ? `${harnessWords(why.runtime)} (${why.short})` : settingsHarnessName(id) || id, id === picked.harness, !!why && id !== picked.harness); }).join('');
+        return option(id, why ? `${harnessWords(why.runtime)} (${why.short})` : settingsHarnessName(id) || id, id === picked.harness, !!why && id !== picked.harness); }).join('')
+      + off.filter(row => row.id !== picked.harness)
+        .map(row => option(row.id, `${harnessWords(row.id)} (off)`, false, true)).join('');
     harness.title = block(picked.harness)?.reason || '';
     // The reason and its Sign in / Move line only in the open bot editor: the table already marks the bot's row,
-    // and every bot on that computer would repeat it.
+    // and every bot on that computer would repeat it. The provider-off line shows wherever the picker is, since
+    // it is about the team, not the bot.
     const notes = fields.querySelector('[data-choice-blocks]');
-    if (notes) notes.innerHTML = bot && !readonly && fields.closest('#bot-editor') ? settingsBlockedNote(bot, harnesses) : '';
+    if (notes) notes.innerHTML = (bot && !readonly && fields.closest('#bot-editor') ? settingsBlockedNote(bot, harnesses) : '')
+      + (!readonly ? settingsOffNote(off) : '');
     const models = [...new Set(choices.filter(row => row.harness === picked.harness).map(row => row.model))];
     model.innerHTML = option('', 'Choose model', !picked.model, true)
       + (picked.model && !models.includes(picked.model) ? option(picked.model, `${settingsModelName(picked.model)} (current)`, true, true) : '')
