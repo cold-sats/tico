@@ -4,6 +4,11 @@
 #demo-banner{display:none}
 #stale-banner{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:3100;display:flex;align-items:center;gap:12px;max-width:calc(100vw - 32px);padding:10px 14px;background:var(--ink);color:var(--bg);border-radius:8px;font-size:var(--t-base);box-shadow:0 6px 20px rgba(0,0,0,.2)}
 #stale-banner[hidden]{display:none}
+#app-update{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:3100;display:flex;align-items:center;gap:12px;max-width:calc(100vw - 32px);padding:10px 14px;background:var(--ink);color:var(--bg);border-radius:8px;font-size:var(--t-base);box-shadow:0 6px 20px rgba(0,0,0,.2)}
+#app-update[hidden],#app-update [hidden]{display:none}
+#app-update a.primary{padding:5px 12px;border-radius:6px;text-decoration:none}
+#app-update .ghost{color:var(--bg);opacity:.75}
+#stale-banner:not([hidden])~#app-update{bottom:72px}
 #usage-notice{position:fixed;left:16px;bottom:16px;z-index:3000;display:flex;align-items:center;gap:12px;max-width:min(560px,calc(100vw - 32px));padding:10px 14px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;font-size:var(--t-sm);box-shadow:0 6px 20px rgba(0,0,0,.12)}
 #usage-notice[hidden]{display:none}
 /* Fixed over the bottom-left of every page, which is where a bot's composer sits: a click on the box must reach the box, so only the bar's own link and button take clicks. */
