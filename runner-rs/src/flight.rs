@@ -265,17 +265,17 @@ impl Writer {
             self.rotate();
         }
         if self.file.is_none() {
-            use std::os::unix::fs::OpenOptionsExt;
-            match OpenOptions::new().create(true).append(true).mode(0o600).open(self.dir.join(FILE)) {
-                Ok(f) => {
-                    self.size = f.metadata().map(|m| m.len()).unwrap_or(0);
-                    self.file = Some(f);
-                    if self.size > 0 && self.size + line.len() as u64 > self.max_bytes {
-                        self.rotate();
-                        return self.write(record);
-                    }
+            self.open();
+            if self.file.is_some() && self.size > 0 && self.size + line.len() as u64 > self.max_bytes {
+                // Left over from an earlier process: rotate and reopen once. If the rename failed and the file is
+                // still too big, drop this record rather than grow it or try again.
+                self.rotate();
+                self.open();
+                if self.size > 0 && self.size + line.len() as u64 > self.max_bytes {
+                    self.file = None;
+                    DROPPED.fetch_add(1, Ordering::Relaxed);
+                    return;
                 }
-                Err(_) => return,
             }
         }
         if let Some(f) = self.file.as_mut() {
@@ -284,6 +284,14 @@ impl Writer {
             } else {
                 self.file = None;
             }
+        }
+    }
+
+    fn open(&mut self) {
+        use std::os::unix::fs::OpenOptionsExt;
+        if let Ok(f) = OpenOptions::new().create(true).append(true).mode(0o600).open(self.dir.join(FILE)) {
+            self.size = f.metadata().map(|m| m.len()).unwrap_or(0);
+            self.file = Some(f);
         }
     }
 
@@ -433,6 +441,19 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("tico-flight-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn a_failed_rotation_drops_the_record() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp();
+        std::fs::write(dir.join(FILE), "x".repeat(300)).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500)).unwrap(); // renames fail
+        let mut w = Writer::new(&dir, 200);
+        w.write(&envelope("runner.git", Map::new()));
+        assert_eq!(std::fs::metadata(dir.join(FILE)).unwrap().len(), 300);
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
