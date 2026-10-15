@@ -109,3 +109,13 @@ def test_every_table_is_classified(tmp_path):
         names |= set(re.findall(r"CREATE TABLE (?:IF NOT EXISTS )?([a-z_]+) ?\(", source.read_text())) - virtual
     groups = (devcopy.KEEP, set(devcopy.HISTORY), set(devcopy.EMPTY))
     assert {t: n for t in names if (n := sum(t in g for g in groups)) != 1} == {}
+
+
+def test_server_env_sources_whole_with_spaces(tmp_path):
+    import subprocess
+    dest = tmp_path / "my copies" / "dev.sqlite"
+    dest.parent.mkdir()
+    env, _, _ = devcopy.write_environment(dest, 8879, "o@example.com")
+    out = subprocess.run(["sh", "-c", 'TICO_DB=/live.sqlite; set -a; . "$1"; set +a; printf %s "$TICO_DB"', "sh", str(env)],
+                         capture_output=True, text=True, check=True)
+    assert out.stdout == str(dest)

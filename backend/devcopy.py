@@ -16,6 +16,7 @@ server, and runners are refused), a fresh local sign-in token, and empty registr
 import argparse
 import os
 import secrets
+import shlex
 import sqlite3
 import subprocess
 import sys
@@ -330,7 +331,8 @@ def write_environment(dest, port, email):
     fd = os.open(env, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     with os.fdopen(fd, "w") as handle:
         handle.write("# A dev copy (python -m backend.devcopy): rehearsal mode, loopback only. No key files.\n")
-        handle.writelines(f"{key}={value}\n" for key, value in lines.items())
+        # Quoted only where needed, so `. server.env` keeps a path with spaces whole (dotenv reads the same quoting).
+        handle.writelines(f"{key}={shlex.quote(value)}\n" for key, value in lines.items())
     return env, token, url
 
 
@@ -365,9 +367,9 @@ def main(argv=None):
         print(f"Emptied {table}: not classified in backend/devcopy.py (KEEP, HISTORY or EMPTY); decide and add it.")
     print(f"Copy: {dest} ({dest.stat().st_size // 1024} KB, rehearsal mode, no key files)")
     print(f"Start it from this checkout:\n"
-          f"  set -a; . {env}; set +a; python -m uvicorn backend.app:create_app --factory --host 127.0.0.1 "
+          f"  set -a; . {shlex.quote(str(env))}; set +a; python -m uvicorn backend.app:create_app --factory --host 127.0.0.1 "
           f"--port {args.port}\n"
-          f"Sign in: {url}/api/v2/local-signin?token=$(cat {token})")
+          f"Sign in: {url}/api/v2/local-signin?token=$(cat {shlex.quote(str(token))})")
     return 0
 
 
