@@ -1,0 +1,35 @@
+[
+ {
+  "kind": "status",
+  "state": "active"
+ },
+ {
+  "kind": "message",
+  "text": "Reading the session limit handling.",
+  "final": false,
+  "item_id": "msg_1"
+ },
+ {
+  "kind": "rate_limits",
+  "used_percent": null,
+  "window_minutes": 300,
+  "resets_at": "2025-10-15T00:40:00+00:00",
+  "status": "rejected"
+ },
+ {
+  "kind": "message",
+  "text": "You've hit your session limit · resets 12:40am (UTC)",
+  "final": false,
+  "item_id": "msg_2"
+ },
+ {
+  "kind": "turn_failed",
+  "error": "You've hit your session limit · resets 12:40am (UTC)",
+  "limit": true,
+  "auth_retry": false
+ },
+ {
+  "kind": "status",
+  "state": "idle"
+ }
+]

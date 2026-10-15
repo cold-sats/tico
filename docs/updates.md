@@ -67,8 +67,8 @@ health check and automatic rollback described below.
   | State | Meaning |
   |---|---|
   | Up to date | on the server's release, or newer |
-  | Updating | switching now; it takes no new work meanwhile |
-  | Needs update | older than the server but still accepted. It updates when no run is going, or it says why it cannot (pinned, local changes, no updater, no supervisor) next to the last update error |
+  | Updating | switching now; it takes no new work until the update ends |
+  | Needs update | older than the server but still accepted. It updates as soon as no run is going ([how it waits](#a-mac-or-linux-checkout)), or it says why it cannot (pinned, local changes, no updater, no supervisor) next to the last update error |
   | Incompatible (bots paused) | older than the minimum. It takes no work, and says why, instead of failing runs. Its queued work waits and runs after it updates |
   | Release not reported | a computer that predates this, or a development build. It is never paused |
 
@@ -104,8 +104,10 @@ Free space on that volume to retry. Base clones absent from the computer's repos
 
 The runner is a git checkout. When the server's release is newer, the runner:
 
-1. stops taking new work and waits until no run is going (after 20 minutes it stops claiming so a long run
-   cannot hold the update back for ever; it never interrupts one);
+1. waits until no run is going, then updates. For the first 20 minutes it keeps taking new work as usual; after
+   that it takes no new work until every run that is going has ended, so a busy computer cannot hold the update
+   back for ever. It never interrupts a run. Work sent to it after those 20 minutes waits for the longest run still
+   going; Settings > Health shows the computer as Needs update meanwhile;
 2. starts a separate update process, which fetches the tag `vX.Y.Z` from `origin` (the public repository) and
    checks that it exists and is not a tag that moved, then checks out that commit (detached);
 3. re-runs the install step: `pip install -r backend/requirements.txt` when the release changed it, and gets the
@@ -235,8 +237,9 @@ still runs the side jobs (connectors, Close calls, meeting importers), the catal
 ## A Docker runner
 
 The runner computer's `docker/runner.compose.yaml` has an `updater` sidecar, the same image and code as the server's
-updater (`docker/updater.py`) in runner mode (`TICO_UPDATER_MODE=runner`). When no run is going, the runner
-asks it for the release its server names; it pulls `ghcr.io/ticoteam/tico-runner:vX.Y.Z`, replaces `runner.compose.yaml` with the release's copy (same checksum check, rolled back with the image), recreates the runner
+updater (`docker/updater.py`) in runner mode (`TICO_UPDATER_MODE=runner`). The runner waits until no run is going,
+the same way as a checkout (it keeps taking work for 20 minutes, then takes none until every run has
+ended, and never interrupts one), then asks the sidecar for the release its server names; it pulls `ghcr.io/ticoteam/tico-runner:vX.Y.Z`, replaces `runner.compose.yaml` with the release's copy (same checksum check, rolled back with the image), recreates the runner
 container, waits up to three minutes for the container's health check, and puts the old image back if it does not
 turn healthy. The runner then reports the outcome (`rolled_back`, `failed`) from the sidecar's `/status`, and does not
 ask for that release again unless the failure was disk space and space has since freed. A sidecar that does not answer, or refuses the call, cannot start an update, so the runner reports `failed` ("the updater did not answer", or "the updater answered" and the status code) and keeps taking work; it asks the sidecar again on its next check. The sign-in and the bots' repositories are in the `runner-home` volume and are kept.

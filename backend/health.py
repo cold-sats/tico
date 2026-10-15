@@ -403,6 +403,10 @@ def _waiting(c, online_ids):
     # A computer running as many turns as it takes holds the rest back on purpose: queued, not stuck.
     full = {r["id"] for r in c.execute("SELECT id,capacity FROM runners WHERE revoked_at IS NULL")
             if running.get(r["id"], 0) >= (r["capacity"] or 1)}
+    # A computer due an update keeps claiming for a while, then claims nothing until its running turns end and it
+    # updates (runner-rs follow.rs blocks_claims): its queued work waits on that, not on a Tico bug.
+    updating = {r["runner_id"]: r["update_target"] for r in c.execute(
+        "SELECT runner_id,update_target FROM runner_versions WHERE update_state IN ('waiting','updating')")}
     documents = {}      # one parse per computer, and only for bots with queued work: Health is polled by every tab
 
     def report_for(slug, where):
@@ -438,10 +442,11 @@ def _waiting(c, online_ids):
                 (oldest and oldest < cutoff) or (asked.get(slug) and asked[slug] < person_cutoff)):
             # A bot over its spend limit takes no new job on purpose (backend/usage_limits.py): say so, not "slow".
             idle = slug not in busy and where[0] not in full
-            reason = "limit" if idle and usage_limits.blocked(c, slug) else "slow"
+            reason = "limit" if idle and usage_limits.blocked(c, slug) else "updating" if where[0] in updating else "slow"
             slow.append({**row, "reason": reason if idle else "busy"})
             if idle:
-                stuck.append({**row, "reason": reason, "runner_id": where[0], "runtime": report.get("runtime") or ""})
+                stuck.append({**row, "reason": reason, "runner_id": where[0], "runtime": report.get("runtime") or ""}
+                             | ({"target": updating[where[0]], "running": running.get(where[0], 0)} if reason == "updating" else {}))
     return waiting, slow, stuck
 
 
@@ -546,6 +551,9 @@ def _stuck(c, rows, online_ids, who, full, auth=None):
         elif reason == "limit":
             text = "Over its spending limit"
             fix = _fix("Raise limit", "#/usage")
+        elif reason == "updating":
+            text = updating_words(row)
+            fix = _fix("Open Computers", "#/settings", "devices")
         else:
             text = f"Not started after {QUEUE_MINUTES} min"
             fix = _fix("Open Runs", "#/runs")
@@ -554,6 +562,15 @@ def _stuck(c, rows, online_ids, who, full, auth=None):
         out.append({key: row[key] for key in ("bot", "name", "queued", "oldest", "computer", "reason")}
                    | {"why": text[:240], "fix": fix if full else None})
     return out
+
+
+def updating_words(row):
+    """Why work waits on a computer that is updating: the update, and the running turns it waits for."""
+    to = f" to Tico {row['target']}" if row.get("target") else ""
+    if row.get("running"):
+        turns = "running turn finishes" if row["running"] == 1 else f"{row['running']} running turns finish"
+        return f"{row['computer']} is holding new work to update{to}: it starts once its {turns}"
+    return f"{row['computer']} is updating{to}"
 
 
 def _can(c, bot, runtime, runner, harness=""):
@@ -1224,7 +1241,8 @@ def view(c, who, settings, auth, github, config):
     blocking = [s for s in blocked if s["bot"] not in held and s["reason"] != "setup"]
     if blocking:
         # A count: each bot, its reason and its fix are listed once, under `stuck` (Health's Stuck list, Overview).
-        checks.append(_check("queue", "Stuck bots", "bad" if any(s["reason"] != "slow" for s in blocking) else "warn",
+        bad = any(s["reason"] not in ("slow", "updating") for s in blocking)
+        checks.append(_check("queue", "Stuck bots", "bad" if bad else "warn",
                              f"{_plural(len(blocking), 'bot')} with work that is not starting.", []))
     elif slow and all(s["reason"] == "busy" for s in slow):
         checks.append(_check("queue", "Work queueing", "info", "Queued behind other work"

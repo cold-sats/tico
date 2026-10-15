@@ -1,0 +1,4 @@
+{"type": "system", "subtype": "init", "session_id": "9d2e7a51-3c6b-4f0e-8a14-6b5e2c7d9f30", "model": "claude-opus-5-5", "tools": []}
+{"type": "assistant", "message": {"id": "msg_1", "model": "claude-opus-5-5", "role": "assistant", "content": [{"type": "text", "text": "Reading the session limit handling."}]}, "parent_tool_use_id": null, "session_id": "9d2e7a51-3c6b-4f0e-8a14-6b5e2c7d9f30"}
+{"type": "rate_limit_event", "rate_limit_info": {"status": "rejected", "rateLimitType": "five_hour", "resetsAt": 1760488800}}
+{"type": "assistant", "message": {"id": "msg_2", "model": "<synthetic>", "role": "assistant", "content": [{"type": "text", "text": "You've hit your session limit · resets 12:40am (UTC)"}]}, "parent_tool_use_id": null, "session_id": "9d2e7a51-3c6b-4f0e-8a14-6b5e2c7d9f30", "error": "rate_limit"}
