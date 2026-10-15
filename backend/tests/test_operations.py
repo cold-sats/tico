@@ -36,12 +36,17 @@ def test_failed_restore_check_does_not_advance_prior_success(api, tmp_path):
     from backend.tests.test_backup_bundle import ObjectStore
     s3, cw = ObjectStore(), Mock()
     backup(store, s3, cw, "bucket")
-    with patch("backend.operations.RESTORE_ROOT", tmp_path / "checks"):
+    with (patch("backend.operations.RESTORE_ROOT", tmp_path / "checks"),
+          patch("backend.operations.shutil.disk_usage", return_value=Mock(free=10 * 1024 ** 3)) as capacity):
         restore_check(store, s3, cw, "bucket")
         with store.read() as c:
             before = c.execute("SELECT last_success FROM service_health WHERE service='restore-check'").fetchone()[0]
         with patch("backend.operations.restore_bundle", side_effect=RuntimeError("corrupt")), pytest.raises(RuntimeError):
             restore_check(store, s3, cw, "bucket")
+        capacity.return_value.free = 0
+        with patch("backend.operations.restore_bundle") as restore, pytest.raises(RuntimeError, match="Not enough retained-volume capacity"):
+            restore_check(store, s3, cw, "bucket")
+        restore.assert_not_called()
     with store.read() as c:
         row = c.execute("SELECT * FROM service_health WHERE service='restore-check'").fetchone()
     assert row["last_success"] == before and row["last_error"] == "RuntimeError"
@@ -95,6 +100,7 @@ def test_the_scheduled_backup_carries_the_key_files_and_the_restore_check_reads_
     with store.read() as c:
         detail = json.loads(c.execute("SELECT detail_json FROM service_health WHERE service='backup'").fetchone()[0])
     assert detail["key_files"] == ["credential.key", "github-app.key"] and "\x02" not in json.dumps(detail)
-    with patch("backend.operations.RESTORE_ROOT", tmp_path / "checks"):
+    with (patch("backend.operations.RESTORE_ROOT", tmp_path / "checks"),
+          patch("backend.operations.shutil.disk_usage", return_value=Mock(free=10 * 1024 ** 3))):
         assert restore_check(store, s3, cw, "bucket")["verified"]
     assert not list((tmp_path / "checks").iterdir())            # the drill's copy, keys included, is removed
