@@ -158,6 +158,15 @@ def test_a_bot_requester_may_reopen_a_task_it_closed(api):
         with pytest.raises(H.Refused, match="stays closed"):
             H.task_update(c, "bot:ops", tid, status="done", note="Drafted again.")
         assert H.task_update(c, "bot:cpo", tid, status="open", note="One more pass, please.")["status"] == "open"
+        # A late note alone would replace the close note; a person's close is not the requester bot's to undo.
+        H.task_update(c, "bot:ops", tid, status="done", note="Drafted again.")
+        H.task_close(c, "human:ana", tid, note="Published.")
+        for who in ("bot:ops", "bot:cpo"):
+            with pytest.raises(H.Refused, match="ana closed this task"):
+                H.task_update(c, who, tid, note="Late note.")
+            with pytest.raises(H.Refused, match="stays closed"):
+                H.task_update(c, who, tid, status="open")
+        assert H.task(c, tid)["note"] == "Published."
 
 
 # ----------------------------------------------------------------------------- lanes

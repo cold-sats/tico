@@ -3896,6 +3896,15 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         _task_close_allowed(conn, actor, row, note)
     if waiting_on is not None:
         waiting_on = _waiting_person(conn, actor, row, waiting_on, status, owner, private)
+    # A close is the requester's or a person's decision; a bot's update that started before it (a late
+    # completion, or a late note over the close note) must not undo it. A person reopens a closed task;
+    # a requester bot reopens only what no person closed.
+    closer = row.get("closed_by") or row["requester"]
+    if (row["status"] == "closed" and is_bot(actor) and (actor != row["requester"] or is_human(closer))
+            and (status is not None and status != "closed" or note is not None and note != row.get("note"))):
+        refuse(conn, actor, "close",
+               f"{actor_id(closer)} closed this task, so it stays closed unless they reopen it; "
+               "add anything new as a comment (hub task comment)")
     if status is not None and not closing_step:
         if status not in TASK_STATUSES:
             refuse(conn, actor, "kind", f"a status is {'|'.join(TASK_STATUSES)}, not {status}")
@@ -3904,13 +3913,6 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         if actor == row["owner"] and not is_human(actor) and status not in OWNER_STATUSES:
             refuse(conn, actor, "close",
                    f"the owner may set {'|'.join(OWNER_STATUSES)}, not {status}")
-        # A close is the requester's decision; a bot's update that started before it (a late
-        # completion) must not undo it. A person or the requester reopens a closed task.
-        if (row["status"] == "closed" and status != "closed" and is_bot(actor)
-                and actor != row["requester"]):
-            refuse(conn, actor, "close",
-                   f"{actor_id(row.get('closed_by') or row['requester'])} closed this task, so it stays closed "
-                   "unless they reopen it; add anything new as a comment (hub task comment)")
         if status == "ready" and is_bot(actor):
             refuse(conn, actor, "close", "ready to ship is set when the pull request merges, not by the bot")
         # A bot parking a task it asked itself for has nobody to answer it unless it has filed
