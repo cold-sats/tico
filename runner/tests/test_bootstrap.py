@@ -114,6 +114,26 @@ class Bootstrap(unittest.TestCase):
         self.assertEqual(rows["helper"]["problems"], ["Missing bot repository or AGENT.md"])
         self.assertFalse((self.projects / "bot-helper").exists())
 
+
+def test_the_catalog_job_sets_a_bot_up_and_answers_on_stdout(tmp_path, monkeypatch):
+    import io
+    import json
+    from runner import catalog_job
+    monkeypatch.setenv("TICO_CATALOG_DIR", str(catalog(tmp_path / "catalog")))
+    projects = tmp_path / "Companies/Acme"
+    projects.mkdir(parents=True)
+    path = projects / "bot-coo"
+    request = {"bots": [{"bot": "coo", "entry": entry("coo", "assistant"), "path": str(path), "action": "bootstrap"},
+                        {"bot": "botops", "entry": entry("botops", "botops"), "path": str(projects / "bot-botops"),
+                         "action": "refresh"}]}
+    out = io.StringIO()
+    catalog_job.main({"projects_dir": str(projects)}, FakeClient(), io.StringIO(json.dumps(request)), out)
+    answer = json.loads(out.getvalue())
+    assert answer == {"coo": {"materialized": "materialized from catalog: assistant", "problem": ""},
+                      "botops": {"changed": []}}
+    assert "at Acme Ltd" in (path / "AGENT.md").read_text()
+
+
 if __name__ == "__main__":
     unittest.main()
 

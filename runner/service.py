@@ -23,6 +23,8 @@ from clients.tico import APIError, Client
 from . import container_probe, credential_socket, declared_access, files_publish, git_credentials, harness_tools, isolation, mail_key, op, profiles, tool_probes, usage
 from . import redact as redact_mod
 from . import goals, memory_history, repo_rules, repositories, runner_events, task_sessions, worktrees, safe_git, subscription_usage
+from .catalog_job import FETCH_RETRY_S, BotSetup
+from .freshness import checkout_head, supervised
 from .release_update import Follower
 from .login import POLL_S as LOGIN_POLL_S, Logins
 from .hosts.base import HostError, SteerRefused, is_auth_rejected, rejection_reason, settings as host_settings
@@ -31,6 +33,7 @@ from .hosts.musecode import MODELS as MUSE_HOST_MODELS, QUIET as MUSE_QUIET
 from .hosts.pi import MODELS as PI_HOST_MODELS
 from .outage import RECENT, Outage, describe, log
 from .state import BOT_THREAD, State, lane as turn_lane, session_key, session_task
+from .version import RUNNER_VERSION
 from .warm import WarmSessions
 from .watchers import PARKED_STATES, Watchers
 from .profiles import SubscriptionUnavailable
@@ -38,7 +41,6 @@ from .profiles import SubscriptionUnavailable
 ROOT = Path(__file__).resolve().parents[1]
 _UNSELECTED = object()
 
-RUNNER_VERSION = "0.5.4"
 RUNTIMES = ("codex", "grok", "claude", "gemini", "pi", "cursor", "musecode")
 # Claude Code has no local model catalog command, so readiness reports these ids.
 # Verified against Claude Code 2.1.212 with a one-word prompt each; claude-fable-5-1
@@ -77,15 +79,6 @@ SETUP_TURN = ("Setup: a human is setting you up, and you are parked until your s
               "is a question to ask, not a task to file. This message is not a request to do work, so give no status "
               "report, backlog or contract.")
 PROFILE_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-# What a turn calls the company, the application, and the assistant when the server is older
-# than GET /api/v2/config. Tico is the product's own name, which is the honest fallback for an
-# installation that has not been given one.
-DEFAULT_NAMES = {"company_name": "the company", "app_name": "Tico", "assistant_name": "Assistant",
-                 "assistant_bot": "coo"}
-# The two bots the runner sets up from the catalog itself, and the template each one comes from.
-# Everybody else is BotOps's to create in a turn (`hub bot create`); BotOps cannot create itself,
-# and the assistant is who the person talks to, so neither can wait for a bot that does not exist.
-BOOTSTRAP_TEMPLATES = {"coo": "assistant", "botops": "botops", "librarian": "librarian", "goal-manager": "goal-manager"}
 OWN_INTERRUPT = ("Lease expired", "Execution interrupted after stop")
 FALLBACK_RUNTIME = {"antigravity": "gemini", "gemini": "gemini", "codex": "codex",
                     "claude": "claude", "grok": "grok", "pi": "pi", "cursor": "cursor", "musecode": "musecode"}
@@ -144,7 +137,6 @@ def claude_denied(path):
     return sorted(command for command in named if any(command == p or command.startswith(p + " ") for p in prefixes))
 
 
-FETCH_RETRY_S = 120         # how long a repository that could not be cloned is left before the next try
 PUBLISH_RETRY_S = 3600      # the same for a checkout whose history GitHub has not taken yet
 NO_RUNTIME = ("No AI provider is chosen: the owner picks providers and a default model in "
               "Settings > AI providers")
@@ -282,16 +274,6 @@ def runner_code_changed(old, new, root=None, run=subprocess.run):
     return any(path.startswith(RUNNER_CODE) for path in done.stdout.split())
 
 
-def checkout_head(root=None, run=subprocess.run):
-    try:
-        done = run(["git", "-C", str(root or ROOT), "rev-parse", "HEAD"], capture_output=True, text=True,
-                   timeout=10, stdin=subprocess.DEVNULL)
-    except (OSError, subprocess.SubprocessError):
-        return ""
-    head = done.stdout.strip()
-    return head if not done.returncode and re.fullmatch(r"[0-9a-f]{40}", head) else ""
-
-
 def self_update(root=None, running=None, run=subprocess.run):
     """Fast-forward the runner's own checkout when that is safe. Returns (restart, note): restart
     is True when HEAD is newer than the code this process runs; note says why nothing was done."""
@@ -342,17 +324,6 @@ def machine_capacity(configured=None):
     except (AttributeError, OSError, ValueError):
         memory_gb = 8
     return max(4, min((os.cpu_count() or 1) * TURNS_PER_CPU, int(memory_gb * TURNS_PER_GB), MAX_AUTO_TURNS))
-
-
-def supervised():
-    """Only a supervisor that starts the runner again may let it exit to restart: launchd sets
-    XPC_SERVICE_NAME to the job's label, the systemd user unit `scripts/tico install` writes on Linux sets
-    TICO_SYSTEMD_UNIT (and Restart=always), and TICO_SUPERVISED=1 covers any other supervisor (the Docker
-    runner, runit)."""
-    env = os.environ
-    return bool(env.get("XPC_SERVICE_NAME", "").startswith("team.tico")
-                or env.get("TICO_SYSTEMD_UNIT", "").startswith("tico-")
-                or env.get("TICO_SUPERVISED") == "1")
 
 
 def under_supervisor(config=None):
@@ -720,10 +691,7 @@ NOTES_HEADER = ("Quiet notes left for you since your last run, each with the tim
                 "nothing and need no reply; use what bears on your work, and keep what you will need later:")
 
 
-class Runner:
-    # This installation's names, read from the server on the first turn. A class default so the
-    # preflight-only Runner (`doctor`, tests) built with __new__ has one as well.
-    _names = None
+class Runner(BotSetup):
     # The registration file, which git's credential helper reads to reach the hub for a fresh GitHub token.
     config_path = None
     # The harness installer (runner/harness_tools.py); None for the preflight-only Runner.
@@ -866,22 +834,6 @@ class Runner:
                     unpushed.discard(bot)
         return bot not in unpushed
 
-    def refresh_from_template(self, bot, config, path):
-        """The product files of a built-in bot's template that changed, written and committed in `path` (also
-        `python -m runner catalog`, for the Rust runner). A failure is a log line and an empty list."""
-        try:
-            from clients import catalog
-            template = self.bootstrap_template(bot, config, {row["template"]: row for row in catalog.cards()})
-            changed = (template and catalog.refresh(template, path, self.names(),
-                                                    display_name=(config or {}).get("display_name"))) or []
-            if changed:
-                isolation.chown(path, recursive=True)
-                log(f"Tico runner: {bot} took {len(changed)} updated file{'s' if len(changed) != 1 else ''} from the {template} template")
-            return changed
-        except Exception as exc:
-            log(f"Tico runner: could not refresh {bot} from its template ({type(exc).__name__})")
-            return []
-
     def refresh_workspace(self, bot, path, env=None, attempt=None):
         """Same checkout and same provider thread for chat and routines. Pull first so a
         commit this bot just pushed is on disk; then make sure `reads:` siblings are beside it.
@@ -1011,114 +963,6 @@ class Runner:
         self._profile_report_cache = None
         return entry
 
-    def names(self):
-        """This installation's own names, read from the server once and kept.
-
-        A bot is its company's employee, not the product: every name a turn reads has to come
-        from the environment it belongs to. A server without this endpoint, or one that cannot
-        be reached yet, keeps the product defaults and is asked again on the next turn.
-        """
-        if self._names:
-            return self._names
-        try:
-            config = self.client.get("config")
-            names = {key: str(config.get(key) or "").strip() or default
-                     for key, default in DEFAULT_NAMES.items()}
-        except Exception:
-            # An older server, an unreachable one, or a preflight Runner with no client: never
-            # fail a turn over a display name, and ask again rather than caching the fallback.
-            return dict(DEFAULT_NAMES)
-        self._names = names
-        return names
-
-    def onboarding(self):
-        """What the person answered while picking their bots, read with this machine's credential.
-
-        Never cached: onboarding is answered once, but it is answered after the runner is already
-        registered, so the record a bot is set up from has to be the current one. A server without
-        the endpoint, or one that cannot be reached, is an empty record — the bootstrap bots are
-        still set up, with the installation's names and no company page worth reading yet.
-        """
-        try:
-            record = self.client.get("onboarding")
-        except Exception:
-            return {}
-        return record if isinstance(record, dict) else {}
-
-    def bootstrap_template(self, bot, config, cards):
-        """The catalog template the runner may set this bot up from itself, or "".
-
-        Onboarding puts the chosen template in the bot's server-side config. The runner materializes
-        a card that says `bootstrap: true`, and a starter bot that first run created (its config says
-        `materialize: true`, which only onboarding writes): those are set up the moment they are
-        placed, not on first use. A registration made before the catalog existed carries no template,
-        so the assistant and BotOps are recognized by their own slugs as well.
-        """
-        named = str((config or {}).get("template") or "")
-        if named:
-            card = cards.get(named) or {}
-            return named if card.get("bootstrap") or (card and (config or {}).get("materialize") is True) else ""
-        template = BOOTSTRAP_TEMPLATES.get(bot, "")
-        return template if template in cards else ""
-
-    def history_on_github(self, bot, entry):
-        """`present`, `empty` or `unknown` for the bot's GitHub repository (`git_credentials.remote_history`), or
-        `none` when the server names no repository. An unknown answer is remembered for FETCH_RETRY_S."""
-        repository = str((entry or {}).get("repository") or "")
-        if not repository:
-            return "none"
-        notes = self.__dict__.setdefault("history_notes", {})
-        key = (repository, (entry or {}).get("generation"))
-        last = notes.get(bot)
-        if last and last[0] == key and time.monotonic() - last[1] < FETCH_RETRY_S:
-            return last[2]
-        env, problem = self.github_access(bot, entry)
-        state, detail = git_credentials.remote_history(repository, env) if env is not None else ("unknown", problem)
-        if state == "unknown":
-            notes[bot] = (key, time.monotonic(), state)
-            if not last or last[2] != state:
-                log(f"Tico runner: {bot}: could not tell whether {repository} holds its history ({detail})")
-        else:
-            notes.pop(bot, None)
-        return state
-
-    def bootstrap(self, bot, config, path, entry=None):
-        """Set a bootstrap bot, or a starter bot first run created, up from the catalog. Returns (note, problem).
-
-        Called from readiness, so a fresh installation is a working assistant and a working
-        BotOps without anyone copying a folder. An existing repository is never touched, and a
-        failure is a problem string on the readiness row rather than an exception: a bot that
-        cannot be set up must show as not ready, not stop the machine reporting the others.
-        """
-        from clients import catalog
-        try:
-            cards = {row["template"]: row for row in catalog.cards()}
-            template = self.bootstrap_template(bot, config, cards)
-        except Exception as exc:
-            return "", f"Could not read the bot catalog: {type(exc).__name__}: {exc}"[:500]
-        if not template:
-            return "", ""
-        # A template is only a bot's first copy. When GitHub already holds the bot's history (it ran on another
-        # computer, or is being moved here), that history is cloned instead (`fetch_repository`): a fresh template
-        # copy would run without the bot's memory and could never be published over it. A bot placed before
-        # (generation above 1) whose repository cannot be checked waits for the clone rather than starting afresh.
-        history = self.history_on_github(bot, entry)
-        if history == "present" or (history == "unknown" and int((entry or {}).get("generation") or 0) > 1):
-            return "", ""
-        try:
-            record = self.onboarding()
-            chosen = (record.get("selected") or {}).get(bot) or {}
-            catalog.materialize(template, bot, Path(self.config["projects_dir"]), self.names(),
-                                record.get("answers") or {},
-                                display_name=(config or {}).get("display_name") or chosen.get("display_name"),
-                                instructions=(config or {}).get("instructions") or chosen.get("instructions"))
-        except Exception as exc:
-            return "", (f"Setting {bot} up from the {template} catalog template failed: "
-                        f"{type(exc).__name__}: {exc}")[:500]
-        isolation.chown(path, recursive=True)     # made by the supervisor; the bot user works in it
-        log(f"Tico runner: {bot} materialized from the {template} catalog template at {path}")
-        return f"materialized from catalog: {template}", ""
-
     def push(self, path, env=None, catch_up_remote=True):
         """Best-effort. A push the remote refused as behind is brought up to date (`catch_up`) and
         pushed again; one that still fails (a real conflict, sign-in) is a person's job, said once an
@@ -1205,35 +1049,6 @@ class Runner:
             log(f"Tico runner: {bot}: kept this computer's copy as it is, not GitHub's latest ({detail})")
         else:
             notes.pop(bot, None)
-
-    def github_access(self, bot, entry=None):
-        """(environment, problem) for talking to this bot's GitHub repository. The environment carries the
-        bot's scoped token, or is the machine's own when no GitHub App is connected; the problem is a plain
-        sentence naming why the repository cannot be reached (the server's own words for a repository that is
-        not on GitHub yet) and then the environment is None."""
-        entry = entry or next((row for row in getattr(self, "assignments_seen", ()) if row["bot"] == bot), None)
-        try:
-            body = {"bot": bot}
-            if not self.__dict__.get("github_token_legacy_purpose", False):
-                body["purpose"] = "git"       # checkout work is not a new 45-minute turn
-            try:
-                granted = git_credentials.hub_token(self.client, body)
-            except APIError as exc:
-                if "purpose" not in body or not credential_socket._server_rejects_token_purpose(exc):
-                    raise
-                self.github_token_legacy_purpose = True
-                granted = git_credentials.hub_token(self.client, {"bot": bot})
-        except APIError as exc:
-            problem = git_credentials.token_problem(exc, str((entry or {}).get("repository") or ""))[:400]
-            return None, problem
-        except Exception as exc:
-            return None, f"the server did not answer ({type(exc).__name__})"
-        env = dict(os.environ)
-        if granted.get("configured") and granted.get("token"):
-            env.update(git_credentials.environment(granted["token"]))
-            if granted.get("repository"):
-                env[git_credentials.REPOSITORY_KEY] = str(granted["repository"])
-        return env, ""
 
     def github_bots(self):
         """The bots this computer runs whose turns get a GitHub App token: those hosted here."""

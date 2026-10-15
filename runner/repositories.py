@@ -387,8 +387,7 @@ class Repositories:
                 with self.lock:
                     self.rows[name].update(state='disk_low', error=f'Not enough disk to {"fetch" if exists else "clone"} {repo["full_name"]}: {usage.free / GB:.1f} GB free, needs {floor / GB:g} GB. Free space on {volume}')
                 return
-            from .service import Runner
-            clean = Runner.credential_environment(None, None)
+            clean = safe_git.process_environment()
             clean.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull,
                          GIT_TERMINAL_PROMPT='0')
             mirror = self.mirror_path(name)

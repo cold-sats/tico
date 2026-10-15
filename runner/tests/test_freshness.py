@@ -2,7 +2,6 @@
 import threading
 
 from runner import freshness
-from runner import service as runner_service
 from runner.importers import service as importers_service
 
 
@@ -41,8 +40,8 @@ def test_wait_returns_early_on_a_change_and_never_after_a_stop():
 
 def test_the_importers_loop_returns_when_the_checkout_moves(monkeypatch):
     heads = iter(["a" * 40] + ["b" * 40] * 20)
-    monkeypatch.setattr(runner_service, "checkout_head", lambda root=None, run=None: next(heads))
-    monkeypatch.setattr(runner_service, "supervised", lambda: True)
+    monkeypatch.setattr(freshness, "checkout_head", lambda root=None, run=None: next(heads))
+    monkeypatch.setattr(freshness, "process_supervised", lambda: True)
     monkeypatch.setattr(importers_service, "GRANULARITY", 0.01)
     service = object.__new__(importers_service.ImporterService)
     service.stop, ticks = threading.Event(), []

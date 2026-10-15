@@ -80,7 +80,7 @@ PY
 RUN chmod -R go-w,go+rX /opt/tico
 # The venv is only mounted here, so this stage's /opt/tico holds the source alone.
 RUN --mount=type=bind,from=venv,source=/opt/tico/.venv,target=/opt/tico/.venv \
-    .venv/bin/python -c 'import backend.app, runner.service, clients.environments' \
+    .venv/bin/python -c 'import backend.app, runner.connectors, runner.close_calls, runner.importers.service, clients.environments' \
     && .venv/bin/python -m compileall -q backend runner clients
 
 # The Rust runner (runner-rs/, the default engine: runner/engine.py), built on the same Debian release as the runner image so it

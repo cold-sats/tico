@@ -21,7 +21,7 @@ use crate::config::Config;
 use crate::fetchrepo::FETCH_RETRY_S;
 use crate::util::{log, text_of};
 
-/// Registrations from before the catalog carry no template: these slugs are their own (service.py BOOTSTRAP_TEMPLATES).
+/// Registrations from before the catalog carry no template: these slugs are their own (runner/catalog_job.py BOOTSTRAP_TEMPLATES).
 const BOOTSTRAP_SLUGS: &[&str] = &["coo", "botops", "librarian", "goal-manager"];
 const ASK_TIMEOUT: Duration = Duration::from_secs(300);
 

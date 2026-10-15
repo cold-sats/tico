@@ -12,7 +12,6 @@ from pathlib import Path
 
 from clients.tico import Client
 from . import importers, mail_key, profiles
-from .service import Runner
 
 
 def profile_command(parser, args, config):
@@ -167,6 +166,7 @@ def main(argv=None):
         eligible = client.get("runners/eligible")
         # Preflight doesn't need an outbox, threads, or a running service. It does read this
         # installation's names and its onboarding record, so it gets the same client.
+        from .service import Runner
         service = Runner.__new__(Runner)
         service.config = config
         service.client = client
@@ -223,6 +223,7 @@ def main(argv=None):
             from .importers.service import ImporterService
             service = ImporterService(config, state_dir, backfill_days=args.backfill_days, only=args.only)
         else:
+            from .service import Runner
             service = Runner(config, state_dir, config_path=args.config.resolve())
         for sig in (signal.SIGTERM, signal.SIGINT):
             signal.signal(sig, lambda *_: service.stop.set())

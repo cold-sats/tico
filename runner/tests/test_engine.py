@@ -8,7 +8,7 @@ import os
 import pytest
 
 from runner import engine
-from runner.service import RUNNER_VERSION
+from runner.version import RUNNER_VERSION
 
 
 def fake_binary(path, version, build_id):

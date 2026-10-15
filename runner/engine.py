@@ -29,7 +29,8 @@ import urllib.request
 import zlib
 from pathlib import Path
 
-from .service import RUNNER_VERSION, log
+from .outage import log
+from .version import RUNNER_VERSION
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD_TIMEOUT_S = 1800
