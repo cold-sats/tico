@@ -306,13 +306,19 @@ def operation_issues(c, who, auth):
             # A usage limit retries on its own; only a fresh one is worth a glance, an
             # old row is a leftover nobody cleared. Three in a row is the subscription
             # window spent; Settings still shows the retry time without interrupting chat.
-            from .execution import LIMIT_STRIKES, limit_cooldown, limit_streak
+            from .execution import LIMIT_COOLDOWN_LONG, LIMIT_STRIKES, limit_cooldown, limit_streak
             since = H.parse_ts(status.get("since"))
             cooldown = limit_cooldown(c, slug)
             if since and since > H.parse_ts(H.shift(H.now(), seconds=-max(3600, cooldown))):
                 config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (slug,)).fetchone()
                 runtime = providers.bot_choice(c, auth.settings, json.loads(config[0]) if config else {})[0] or "your"
-                if limit_streak(c, slug) >= LIMIT_STRIKES:
+                if cooldown > LIMIT_COOLDOWN_LONG:
+                    retry = H.shift(status["since"], seconds=cooldown)
+                    add("bot", bot["display_name"] + " needs attention",
+                        f"{runtime} subscription quota exhausted; queued work waits until {retry[:10]} "
+                        f"{retry[11:16]} UTC", bot=slug, severity="warning", needs_person=False,
+                        action="Wait for the subscription reset, or set a fallback harness in Settings → Bots.")
+                elif limit_streak(c, slug) >= LIMIT_STRIKES:
                     retry = H.shift(status["since"], seconds=cooldown)
                     add("bot", bot["display_name"] + " needs attention",
                         f"{runtime} usage limit three times in a row; queued work waits until {retry[11:16]} UTC, "

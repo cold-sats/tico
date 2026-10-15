@@ -1,6 +1,8 @@
 """A bot's task-keyed turns run side by side in their own lanes, only on a runner that runs lanes."""
 import json
 
+import pytest
+
 from backend.store import H
 from backend.tests.test_api import api, assign, claim, get, post, runner  # noqa: F401  (api is a fixture)
 
@@ -108,19 +110,33 @@ def test_a_finished_lane_leaves_the_bot_running_and_stop_names_the_turn(api):
     assert get(api, "bots/ops/execution-review")["jobs"] == []
 
 
-def test_a_usage_limit_in_one_lane_holds_the_bot_when_another_lane_finishes(api):
+@pytest.mark.parametrize("success_first", [False, True])
+def test_a_quota_reset_in_one_lane_holds_when_a_pre_limit_lane_finishes(api, monkeypatch, success_first):
+    from backend.execution import cooling_off
+
     machine = task_bot(api, lanes=True)
     new_task(api, "first"), new_task(api, "second")
     one, two = claim(api, machine), claim(api, machine)
     for attempt in (one, two):
         post(api, f"attempts/{attempt['id']}/started", {"thread_id": attempt["lane"]}, machine["token"])
-    post(api, f"attempts/{one['id']}/complete", {"outcome": "failed", "last_seq": 0, "limited": True,
-                                                 "text": "You've hit your usage limit."}, machine["token"])
-    post(api, f"attempts/{two['id']}/complete", {"outcome": "completed", "last_seq": 0, "text": "Done."},
-         machine["token"])
+    now = H.now()
+    reset = H.shift(now, days=4)[:19] + "Z"
+
+    def finish_other():
+        post(api, f"attempts/{two['id']}/complete", {"outcome": "completed", "last_seq": 0, "text": "Done."},
+             machine["token"])
+
+    if success_first:
+        finish_other()
+    post(api, f"attempts/{one['id']}/events", {"events": [{"seq": 1, "kind": "error", "payload": {
+        "error": f"Subscription quota exhausted. Your usage window resets at {reset}.", "limit": True}}]}, machine["token"])
+    post(api, f"attempts/{one['id']}/complete", {"outcome": "failed", "last_seq": 1, "limited": True}, machine["token"])
+    if not success_first:
+        finish_other()
+    monkeypatch.setattr(H, "now", lambda: H.shift(now, hours=3))
     with api.app.state.store.read() as c:
         assert H.status(c, "ops")["state"] == "limited"
-    assert claim(api, machine) is None, "the limited lane's job waits out the cooldown"
+        assert cooling_off(c, "ops"), "a pre-limit lane finishing cannot discard the provider's reset"
 
 
 def test_an_older_runner_advertising_retired_assignment_capabilities_still_heartbeats_and_claims(api):

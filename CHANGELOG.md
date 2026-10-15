@@ -7,6 +7,11 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Subscription quota exhaustion is a usage limit, with its reset time.** The runner recognizes providers'
+  `Subscription quota exhausted` and `rate_limit_error` responses and uses an available fallback. Without one,
+  queued work waits until the provider's stated usage-window reset; a person can still use Try now after renewal.
+
 ### Added
 - **The flight recorder writes a local file that reads with the server stalled.** Stalls, slow requests and per-minute
   rows go first to `flight/flight.ndjson` beside the database (10 MB x 10, from a bounded queue that never blocks a

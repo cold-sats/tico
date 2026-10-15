@@ -89,6 +89,10 @@ and the team's enabled providers; effort choices follow that model. For an exist
 all three and press **Apply** to use the existing confirmation and checkpoint transition. Changing
 a field alone does not switch the running bot. Cancel restores the saved selection.
 
+A subscription quota response is a usage limit. The runner uses its configured fallback, or another
+signed-in provider when automatic fallback is on. Without a fallback it keeps the work queued; an explicit
+usage-window reset holds it until that time. **Try now** still lifts the hold after a person renews the plan.
+
 The current OpenAI and Claude choices, reviewed 2026-10-03, are:
 
 | Harness | Model | Model ID | Released |
