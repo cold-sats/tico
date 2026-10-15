@@ -492,6 +492,11 @@ async function sideThreads(browser) {
   assert.equal(await big.locator('.cs-item').count(), 23);
   assert.equal(await big.locator('[data-bots-open]').count(), 0);
   assert.deepEqual(asked, ['1', '50', '50 before b1'], 'a preview reads one message; opening reads one page, then the page before it');
+  // Above a chat with older pages, an opened conversation still shows everything it loaded; an unopened one waits.
+  assert.deepEqual(await page.evaluate(() => v2WithBotTalk({nextBefore: 'x', botTalk: [
+    {id: 'opened', created: '2026-10-06T08:00:00Z', elsewhere: {id: 'c1', open: true}},
+    {id: 'waits', created: '2026-10-06T08:00:00Z', elsewhere: {id: 'c2', preview: true}}]},
+    [{id: 'own', created: '2026-10-06T09:00:00Z'}]).map(m => m.id)), ['opened', 'own']);
   if (process.env.TICO_SHOTS) {
     await big.locator('.cs-item[data-message="b2"]').scrollIntoViewIfNeeded();
     await page.screenshot({path: process.env.TICO_SHOTS + '/bot-talk-opened.png'});

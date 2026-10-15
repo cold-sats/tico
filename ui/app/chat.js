@@ -138,7 +138,7 @@ async function v2BotsOpen(state, cid) {
   const before = was.before ? `before=${encodeURIComponent(was.before)}&` : '';
   const d = await get(`/v2/conversations/${encodeURIComponent(cid)}/messages?${before}${CHAT_PAGE}`);
   if (V2C !== state) return;
-  const tag = m => ({...m, elsewhere: {kind: was.kind, subject: was.subject || '', id: cid}});
+  const tag = m => ({...m, elsewhere: {kind: was.kind, subject: was.subject || '', id: cid, open: true}});
   const kept = was.before ? mine.map(tag) : [];
   const page = [...(d.messages || []).filter(m => !kept.some(k => k.id === m.id)).map(tag), ...kept];
   if (d.has_more && d.next_before && page.length) page[0].elsewhere = {...page[0].elsewhere, preview: true, before: d.next_before};
@@ -500,10 +500,11 @@ function v2PendingHTML(state) {
     <span class="typing ${t.mode}" aria-hidden="true"><i></i><i></i><i></i></span>${t.word ? `<span class="thinking-word" aria-hidden="true">${esc(t.word)}</span>` : ''}${hint}</div>`;
 }
 // Bot-to-bot messages from this bot's other conversations (v2BotsLoad), in time order with the chat's own. Those older
-// than the loaded page wait until older messages are loaded, so they never pile up above the history.
+// than the loaded page wait until older messages are loaded, so they never pile up above the history; a conversation
+// the person opened shows all it has loaded, so its "Earlier messages" stays in reach.
 function v2WithBotTalk(state, messages) {
   const own = new Set(messages.map(m => m.id)), from = state.nextBefore ? Date.parse(messages[0]?.created || '') || 0 : 0;
-  const talk = (state.botTalk || []).filter(m => !own.has(m.id) && (Date.parse(m.created || '') || 0) >= from);
+  const talk = (state.botTalk || []).filter(m => !own.has(m.id) && (m.elsewhere?.open || (Date.parse(m.created || '') || 0) >= from));
   if (!talk.length) return messages;
   // Merged in, never re-sorted: the chat's own order stays exactly as the server gave it.
   const time = m => Date.parse(m.created || '') || 0, out = [];
