@@ -52,7 +52,7 @@ pub fn limit_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     R.get_or_init(|| {
         Regex::new(
-            r"(?i)hit your usage limit|usage limit|usage_limit_reached|subscription quota exhausted|rate[ _]limit(?:ed|_error)?|spend(?:ing)? limit|monthly (?:usage |spend(?:ing)? )?limit|no capacity available|model is at capacity|\boverloaded\b|resource_exhausted|\b(?:code|status|http) (?:429|503)\b",
+            r"(?i)hit your (?:usage|session|weekly) limit|usage limit|usage_limit_reached|subscription quota exhausted|rate[ _]limit(?:ed|_error)?|spend(?:ing)? limit|monthly (?:usage |spend(?:ing)? )?limit|no capacity available|model is at capacity|\boverloaded\b|resource_exhausted|\b(?:code|status|http) (?:429|503)\b",
         )
         .unwrap()
     })
@@ -427,6 +427,7 @@ mod tests {
     #[test]
     fn the_python_classifiers_agree() {
         assert!(is_limit("You've hit your usage limit"));
+        assert!(is_limit("You've hit your session limit · resets 12:40am (UTC)"));
         assert!(is_limit("HTTP 503 overloaded"));
         assert!(!is_limit("all good"));
         assert!(is_limit("Claude AI monthly spend limit reached. Raise it in your account settings."));

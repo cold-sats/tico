@@ -8,6 +8,9 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- A Claude turn that hits its session or weekly limit now ends as limited within seconds and moves to the bot's
+  fallback once, instead of holding the turn (and the computer's update) open with no model work. Claude could
+  report the limit and then wait for more input without a final result.
 - Explicitly removing a kept worktree retries exhausted cleanup on its original computer while preserving
   unsaved work and waiting for the computer to confirm removal.
 - Bots can read a pull request's checks (`gh pr checks`, commit statuses and check runs) on private
