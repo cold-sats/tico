@@ -217,11 +217,12 @@ def bot_owner_rows(c, registry, slug, people, configs, archived):
 
 def machine(c, bot):
     from .agents import presence
+    from .screen import listing as screen_listing
     external = presence(c, bot)
     if external:
         return external
     row = c.execute("SELECT a.runner_id,a.generation,r.label,r.operator,r.last_seen,r.revoked_at,r.readiness_json,"
-                    "r.platform,r.version,r.awake_since "
+                    "r.platform,r.version,r.awake_since,r.screen,r.capabilities_json "
                     "FROM assignments a JOIN runners r ON r.id=a.runner_id WHERE a.bot=?", (bot,)).fetchone()
     if not row:
         return {"online": False, "awake": False, "ready": False, "machine": None}
@@ -234,8 +235,8 @@ def machine(c, bot):
     detail = {k: v for k, v in bot_readiness(row["readiness_json"], bot).items() if k != "tools"}
     return {"online": online, "awake": awake, "ready": online and detail.get("ready") is True,
             "readiness": detail,
-            "machine": {k: row[k] for k in ("runner_id", "generation", "label", "operator", "last_seen",
-                                                      "platform", "version")}}
+            "machine": {**{k: row[k] for k in ("runner_id", "generation", "label", "operator", "last_seen",
+                                                         "platform", "version")}, **screen_listing(row)}}
 
 
 def deploy_draining(c, bot):

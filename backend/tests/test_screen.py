@@ -5,7 +5,7 @@ import pytest
 from starlette.websockets import WebSocketDisconnect
 
 from backend.events import runner_read
-from backend.tests.test_api import api, get, headers, post, runner  # noqa: F401  (the api fixture)
+from backend.tests.test_api import api, assign, get, headers, post, runner  # noqa: F401  (the api fixture)
 
 
 def offer(api, r):
@@ -17,12 +17,15 @@ def offer(api, r):
 def test_only_the_operator_or_an_admin_sets_or_opens_a_screen_and_only_once_the_computer_offers_one(api):
     r = runner(api)
     rid = r["runner_id"]
+    assign(api, r, "ops")
     assert post(api, f"computers/{rid}/screen", {"mode": "view"}, expected=409)["error"]["code"] == "screen_unavailable"
     offer(api, r)
     post(api, f"computers/{rid}/screen", {"mode": "view"}, token="cara-test", expected=403)
     assert post(api, f"computers/{rid}/screen", {"mode": "view"}) == {"screen": "view", "screen_available": True}
     row = next(m for m in get(api, "operations")["computers"] if m["id"] == rid)
     assert (row["screen"], row["screen_available"]) == ("view", True) and "capabilities_json" not in row
+    ops = next(e for e in api.get("/api/employees", headers=headers()).json() if e["name"] == "ops")
+    assert {"screen": "view", "screen_available": True}.items() <= ops["machine"].items()      # the bot page
 
     post(api, f"computers/{rid}/screen/sessions", {"control": False}, token="cara-test", expected=403)
     post(api, f"computers/{rid}/screen/sessions", {"control": True}, expected=403)          # view only
