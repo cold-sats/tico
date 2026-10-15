@@ -8,6 +8,12 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- A message bot reads only its person's mailbox unless its `gmail` entry sets `org_read: true`, as the mail manual
+  says. Being a person's `inbox_bot` used to add the mailboxes of everyone below that person too: in the mailboxes
+  its runs could ask the runner for a token for, in the routine's and bot page's mail sources, and in the mail
+  command. `org_read: false` or no `org_read` now keeps all three to the one mailbox. On a Docker runner with the
+  two-user layout, calendar tokens come from the same list, so a message bot reaches its reports' calendars only with
+  `org_read: true` too.
 - Settings > Computers no longer shows a named subscription's old account after it signs out and back in as
   someone else. A computer kept a Codex account it had read for up to 10 minutes, so the old email could show beside
   the new login; signing out now forgets it. An account reading that has missed its refresh now says when it was last
