@@ -14,7 +14,7 @@ more views show the current `learnings.md` and `decisions.md`.
 
 Git is the record; the history is a view of it. The server holds no checkout, so the computer
 running the bot reports memory commits after each completed run and every five minutes
-(`runner/memory_history.py`, `POST /api/v2/bots/{bot}/memory/report`). A report names commits by
+(`runner-rs/src/memory_history.rs`, `POST /api/v2/bots/{bot}/memory/report`). A report names commits by
 SHA, so a retry, an outage or two computers reporting the same repository never make duplicates.
 Only the computer the bot is assigned to may report for it.
 

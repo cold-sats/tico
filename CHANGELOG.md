@@ -13,13 +13,23 @@ All notable changes to Tico are recorded here. The format follows
   open ticket with that signature and closes each (`POST /v1/staff/tickets/by-signature/close`, or
   `software/hq-tickets close-signature hm-...`). Each company reads the reply on its Support page; a ticket with a
   reply-to email keeps it marked pending so the Support bot drafts the email.
+- **`tico-runner enroll`, `adopt` and `doctor`.** The Rust runner registers a computer, moves bots to it and checks it
+  itself; `python -m runner enroll|adopt|doctor|status|profile` run the same commands through it.
 ### Changed
+- **A bot on a model CLI the runner does not drive is a problem on that bot.** The computer starts and runs its other
+  bots; before, the whole computer stayed on the Python runner.
+- **The Rust runner covers what only the Python one did.** It checks the container a bot needs, keeps dev servers on
+  main, retries a run after freeing disk space, falls back to older servers' field names, publishes a bot's files when
+  readiness is reported, and waits for a task worktree another run holds.
 - **Tasks rows read how long each item has been open and quiet.** Every row in the Tasks section (Tasks page, bot page
   Tasks tab, person page Tasks card, Assistant) now shows its open duration (since created) and, when it has sat
   untouched, how long it has been quiet (since updated): `open 3d · quiet 60m`. A task that just moved reads only its
   open age; finished rows keep their single short age.
 - **The Health Monitor stays quiet when a finding flaps.** A finding that goes away and comes back within a day of its
   last wake only counts; it wakes the Health Monitor again after a day.
+### Removed
+- **The Python runner.** `"engine": "python"` in `runner.json` and `TICO_RUNNER_ENGINE` are ignored. `python -m runner run`
+  and the runner's CLI commands start the Rust runner; a checkout and every update fetch its binary before the restart.
 
 ## [0.3.46] - 2026-10-15
 

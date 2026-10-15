@@ -5,7 +5,7 @@ list price. It is not an invoice.
 
 ## Where the numbers come from
 
-The runner adds up the `tokens` events a run's runtime reports (`runner/usage.py`) and sends them with the run's result as
+The runner adds up the `tokens` events a run's runtime reports (`runner-rs/src/execute.rs`) and sends them with the run's result as
 `usage`: uncached input, cached input and output tokens, the model that ran, and how the run was billed. The server keeps them on the run
 (`turns.input_tokens`, `cached_tokens`, `output_tokens`, `model`, `provider`, `est_cost_usd`, `billing`; migration 12) and prices them
 from `providers.PRICES`, in USD per million tokens, dated by `providers.PRICES_AS_OF`. A cache write counts as input; batch, priority and
