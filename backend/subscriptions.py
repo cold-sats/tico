@@ -86,8 +86,9 @@ def effective(c, bot, ctx=None):
 
 
 def covers(config):
-    return (config.get('runtime') in ('codex', 'claude', 'grok', 'gemini')
-            and config.get('harness') != 'antigravity')
+    """Whether a subscription profile's own login runs this harness (its manifest's `subscription_profiles`)."""
+    from .harnesses import harness_caps
+    return bool(harness_caps(config.get('harness') or '', config.get('runtime') or '').get('subscription_profiles'))
 
 
 def refusal(c, runner_id, bot):

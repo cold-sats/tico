@@ -21,7 +21,7 @@ import json
 
 from fastapi import Request
 
-from clients import access_entry, mcp_servers
+from clients import access_entry, harness_manifests, mcp_servers
 from . import models as M
 from . import providers, routines
 from .harnesses import EXTERNAL_HARNESSES, resolve_harness
@@ -39,8 +39,9 @@ CREDENTIALS_NOTE = ("Store a needed Credential through Credentials or its chat c
 
 ONLINE_WITHIN_S = 60
 
-HARNESS_NAMES = {"codex": "Codex", "claude": "Claude Code", "gemini": "Gemini CLI", "antigravity": "Antigravity",
-                 "grok": "Grok Build", "pi": "pi", "cursor": "Cursor", "musecode": "Muse Code", "hermes": "Hermes", "openclaw": "OpenClaw", "grokbot": "Grok Bot", "dots": "Dots", "muse": "Muse"}
+# A CLI's name is its manifest's; external agents have none.
+HARNESS_NAMES = {**{h: row["name"] for h, row in harness_manifests.load().items()},
+                 "hermes": "Hermes", "openclaw": "OpenClaw", "grokbot": "Grok Bot", "dots": "Dots", "muse": "Muse"}
 PROVIDER_LOGOS = {"openai": "openai", "anthropic": "anthropic", "google": "google"}
 
 SERVICE_NAMES = {

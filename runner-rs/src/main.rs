@@ -122,8 +122,9 @@ fn profile_main(action: ProfileAction, config: &mut config::Config) -> i32 {
         ProfileAction::List => profiles::command(config, "list", None, false, None),
         ProfileAction::Assign { bot, name } => profiles::command(config, "assign", Some(&name), false, Some(&bot)),
         ProfileAction::Login { name, runtime } => {
-            if !profiles::RUNTIMES.contains(&runtime.as_str()) {
-                fail(&format!("argument runtime: invalid choice: '{runtime}' (choose from {})", profiles::RUNTIMES.join(", ")));
+            let choices = harness_tools::profile_runtimes();
+            if !choices.contains(&runtime) {
+                fail(&format!("argument runtime: invalid choice: '{runtime}' (choose from {})", choices.join(", ")));
             }
             let entry = config.data.get("profiles").and_then(|p| p.get(&name)).filter(|e| util::truthy(Some(e))).cloned();
             let Some(entry) = entry else { fail("No such profile on this registration; add it with `profile add`") };
@@ -132,18 +133,20 @@ fn profile_main(action: ProfileAction, config: &mut config::Config) -> i32 {
                 fail(&format!("Profile {name} shares the operator's own logins; sign in normally"));
             }
             let home = profile.home(&runtime).unwrap_or_default();
-            if runtime == "gemini" {
+            let command = profiles::login_command(&runtime).unwrap_or_default();
+            if command.is_empty() && harness_tools::caps(&runtime, "").api_keys == "bot" {
                 let secrets = config.projects_dir().join("secrets");
-                println!("Gemini CLI authenticates with an API key, not an interactive login: put GEMINI_API_KEY in {}/_shared.env or <bot>.env. This profile's Gemini sessions live in {}.", secrets.display(), home.display());
+                let key = harness_tools::api_key_env(&runtime).into_iter().next().unwrap_or_default();
+                let name = harness_tools::name_for(&runtime);
+                println!("{name} authenticates with an API key, not an interactive login: put {key} in {}/_shared.env or <bot>.env. This profile's {name} sessions live in {}.", secrets.display(), home.display());
                 return 0;
             }
-            let command = profiles::login_command(&runtime).unwrap_or(&[]);
-            if command.is_empty() || env::which(command[0], &std::env::var("PATH").unwrap_or_default()).is_none() {
-                fail(&format!("{} is not on PATH", command.first().unwrap_or(&runtime.as_str())));
+            if command.is_empty() || env::which(&command[0], &std::env::var("PATH").unwrap_or_default()).is_none() {
+                fail(&format!("{} is not on PATH", command.first().unwrap_or(&runtime)));
             }
             println!("Signing in to {runtime} for profile {name} in {}", home.display());
             // Interactive on purpose: the CLI owns the browser flow and prints its own instructions.
-            let status = std::process::Command::new(command[0])
+            let status = std::process::Command::new(&command[0])
                 .args(&command[1..])
                 .env_clear()
                 .envs(profile.environment(&runtime, &std::env::vars().collect()))

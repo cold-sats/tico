@@ -4,6 +4,8 @@
 (`antigravity` → `gemini`). Older configs that omit `harness` read as `harness = runtime`.
 """
 
+from clients import harness_manifests as manifests
+
 HARNESS_CATALOG = (
     {"id": "codex", "label": "Codex (OpenAI)", "runtime": "codex"},
     {"id": "claude", "label": "Claude Code (Anthropic)", "runtime": "claude"},
@@ -28,23 +30,20 @@ HARNESS_CATALOG = (
     {"id": "muse", "label": "muse", "runtime": "muse", "external": True},
 )
 HARNESS_BY_ID = {row["id"]: row for row in HARNESS_CATALOG}
+# Each CLI's short name and capabilities come from its manifest (runner/harnesses/*.toml); an external agent has
+# none, so every capability reads as unknown for it.
+HARNESS_CATALOG = tuple({**row, "name": (manifests.get(row["id"]) or {}).get("name", row["label"]),
+                         "capabilities": dict(manifests.caps(row["id"]))} for row in HARNESS_CATALOG)
 # External agents a person syncs in (backend/external_sync.py): they read only their own chat, never a task.
 SYNCED_HARNESSES = ("grokbot", "dots", "muse")
 SYNCED_SQL = ",".join(f"'{h}'" for h in SYNCED_HARNESSES)
 EXTERNAL_HARNESSES = tuple(row["id"] for row in HARNESS_CATALOG if row.get("external"))
 
 
-# Only these hosts emit a `tool` event per tool call (runner/hosts/gemini.py and
-# antigravity.py). claude, codex and grok stream text and never name a tool, so for those an
-# attempt with no `tool` event means the hub has no evidence either way -- not that the turn
-# kept its hands in its pockets.
-TOOL_REPORTING_HARNESSES = ("gemini", "antigravity")
-
-
 def reports_tool_calls(config, runtime=None):
-    """True when this bot's host tells the hub about each tool call, so that the absence of one
-    is a fact worth acting on."""
-    return resolve_harness(config, runtime) in TOOL_REPORTING_HARNESSES
+    """True when this bot's host tells the hub about each tool call (`tool_events`), so that the absence of one
+    is a fact worth acting on. A host that streams text and never names a tool leaves no evidence either way."""
+    return bool(manifests.caps(resolve_harness(config, runtime)).get("tool_events"))
 
 
 def is_external(config, runtime=None):
@@ -53,14 +52,33 @@ def is_external(config, runtime=None):
 
 
 def harnesses_for_runtime(runtime):
-    if runtime == "gemini":
-        return ("gemini", "antigravity")
-    return (runtime,) if runtime in HARNESS_BY_ID else ()
+    """Every harness that runs `runtime`: the CLI first, then its variants (Gemini's Antigravity)."""
+    return tuple(row["id"] for row in HARNESS_CATALOG if row["runtime"] == runtime)
 
 
 def runtime_of(harness):
     row = HARNESS_BY_ID.get(harness)
     return row["runtime"] if row else harness
+
+
+def harness_caps(harness, runtime=None):
+    """The capabilities of `harness`, else of `runtime`'s own CLI; empty when neither has a manifest."""
+    return manifests.caps(harness) or manifests.caps(runtime)
+
+
+def bot_key(config, runtime=None):
+    """The API key the bot must hold as its own Credential: the first key of its primary or fallback harness whose
+    keys belong to each bot (`api_keys = "bot"`, the Gemini CLI and pi), else ''. With `runtime`, only the
+    harnesses that run it count."""
+    config = config or {}
+    fallback = config.get("fallback") if isinstance(config.get("fallback"), dict) else {}
+    for harness in (resolve_harness(config), str(fallback.get("harness") or "")):
+        if runtime and runtime_of(harness) != runtime:
+            continue
+        caps = manifests.caps(harness)
+        if caps.get("api_keys") == "bot" and caps.get("api_key_env"):
+            return caps["api_key_env"][0]
+    return ""
 
 
 def resolve_harness(config, runtime=None):
@@ -73,14 +91,6 @@ def resolve_harness(config, runtime=None):
 
 def attach_harnesses(model):
     return {**model, "harnesses": harnesses_for_runtime(model["runtime"])}
-
-
-def uses_gemini_cli(config):
-    """True when this bot's primary or fallback harness is the Gemini CLI (API key)."""
-    if resolve_harness(config) == "gemini":
-        return True
-    fallback = (config or {}).get("fallback")
-    return isinstance(fallback, dict) and str(fallback.get("harness") or "") == "gemini"
 
 
 def normalize_fallback(value):
@@ -107,11 +117,12 @@ def backfill_config(config, slug=None, runtime=None):
     if harness and not config.get("runtime"):
         config["runtime"] = runtime_of(harness)
         changed = True
-    if slug == "coo" and resolve_harness(config) == "antigravity" and "fallback" not in config:
-        from .providers import recommended
+    # A bot on a runtime's second host (Antigravity) falls back to that runtime's own CLI.
+    if slug == "coo" and harness and runtime_of(harness) != harness and "fallback" not in config:
+        from .providers import PROVIDER_BY_RUNTIME, recommended
         config["fallback"] = {
-            "harness": "gemini",
-            "model": config.get("model") or recommended("google")["id"],
+            "harness": runtime_of(harness),
+            "model": config.get("model") or recommended(PROVIDER_BY_RUNTIME[runtime_of(harness)]["id"])["id"],
             "reasoning_effort": config.get("reasoning_effort") or config.get("effort") or "low",
         }
         changed = True

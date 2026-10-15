@@ -4,6 +4,8 @@ from typing import Literal
 
 from fastapi import Request
 
+from clients.harness_manifests import caps
+
 from . import hubdb as H, models as M
 from .repositories import metadata, save_metadata
 from .store import Problem
@@ -15,12 +17,12 @@ COOLDOWN = 60
 class Refresh(M.Contract):
     runner_id: M.ID
     profile: M.Slug
-    runtime: Literal['codex', 'claude', 'gemini', 'grok']
+    runtime: M.WeeklyRuntime
 
 
 class Report(M.Contract):
     profile: M.Slug
-    runtime: Literal['codex', 'claude', 'gemini', 'grok']
+    runtime: M.WeeklyRuntime
     state: Literal['succeeded', 'unavailable', 'failed']
     weekly: M.SubscriptionWeekly | None = None
 
@@ -75,7 +77,8 @@ def request_refresh(c, auth, who, body):
     value = {'id': H.new_id(), 'profile': body.profile, 'runtime': body.runtime,
              'state': 'requested', 'requested_at': now, 'updated_at': now,
              'expires_at': H.shift(now, seconds=LIFETIME), 'weekly': old.get('weekly')}
-    if body.runtime != 'codex':
+    # Only a runtime whose weekly usage can be read on demand (`weekly_usage = "refresh"`) is asked.
+    if caps(body.runtime).get('weekly_usage') != 'refresh':
         value['state'] = 'unavailable'
     elif state.get('signed_in') is False:
         raise Problem('signed_out', 'Sign in before refreshing this subscription', 409)

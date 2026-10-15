@@ -3,6 +3,7 @@
 id = "grok"
 name = "Grok Build"
 host = "grok"
+runtime = "grok"
 executable = "grok"
 providers = ["xai"]
 
@@ -20,3 +21,17 @@ policy = "latest"
 [auth]
 methods = ["subscription", "api-key"]
 api_key_env = ["XAI_API_KEY"]
+
+# What Tico does differently for this CLI (docs/harnesses.md, Capabilities).
+[capabilities]
+terminal_login = ["login"]
+subscription_profiles = true
+profile_home = "HOME"
+weekly_usage = "manual"
+mcp_transports = ["http", "sse"]
+resume_command = "grok --resume"
+model_list = "command"
+model_list_args = ["models"]
+
+[capabilities.sign_in_status]
+check = "none"

@@ -86,7 +86,7 @@ function providersNextHTML(view, owner) {
   const rows = machines.flatMap(machine => [...wanted].filter(runtime => machine.readiness?.runtimes?.[runtime]?.authenticated !== 'ready').map(runtime => {
     const online = machine.last_seen && Date.now() - new Date(machine.last_seen) < 60000;
     const ready = machine.readiness?.runtimes?.[runtime]?.installed;
-    return `<li>${esc(machine.label)} · ${esc(runtime)}${owner && online && ready && ['codex', 'claude'].includes(runtime)
+    return `<li>${esc(machine.label)} · ${esc(runtime)}${owner && online && ready && harnessCaps(runtime).browser_sign_in
       ? ` <button class="ghost" type="button" data-model-login data-runner="${esc(machine.id)}" data-runtime="${esc(runtime)}" data-machine="${esc(machine.label)}">Sign in</button>`
       : ' · <a href="#/settings" data-provider-computers>Open computer</a>'}</li>`;
   }));

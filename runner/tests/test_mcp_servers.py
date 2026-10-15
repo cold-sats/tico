@@ -207,7 +207,7 @@ class Readiness(unittest.TestCase):
     def test_a_harness_that_cannot_take_a_server_is_a_warning_naming_the_tool(self):
         warnings = self.report("cursor")["warnings"]
         self.assertEqual(len([w for w in warnings if "MCP server is not passed" in w]), 2)
-        self.assertTrue(any(w.startswith("jira:") and "Cursor cannot use it" in w for w in warnings))
+        self.assertTrue(any(w.startswith("jira:") and "Cursor Agent cannot use it" in w for w in warnings))
         codex = self.report("codex")["warnings"]                   # takes jira (http); not linear (sse)
         self.assertEqual([w.split(":")[0] for w in codex if "MCP" in w], ["linear"])
         self.assertTrue(any("takes http servers, not sse" in w for w in codex))

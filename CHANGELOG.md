@@ -14,6 +14,12 @@ All notable changes to Tico are recorded here. The format follows
   `software/hq-tickets close-signature hm-...`). Each company reads the reply on its Support page; a ticket with a
   reply-to email keeps it marked pending so the Support bot drafts the email.
 ### Changed
+- **Each model CLI's manifest says what it can do.** `runner/harnesses/*.toml` gain `runtime` and a `[capabilities]`
+  table (sign-in, keys, subscriptions, weekly usage, MCP, goals, resume command, and more; docs/harnesses.md), and
+  the server, Settings and the Rust runner read them instead of checking CLI names. `GET /v2/models` sends each
+  harness's `capabilities`. Antigravity is a variant in the Gemini CLI manifest. Muse Code now signs in from
+  Settings > AI providers and counts as a subscription, Muse Code bots get http MCP servers, and Health and MCP
+  notes use each CLI's own name (Grok Build, Cursor Agent, Gemini CLI). A test fails on any new check of a CLI's name.
 - **Tasks rows read how long each item has been open and quiet.** Every row in the Tasks section (Tasks page, bot page
   Tasks tab, person page Tasks card, Assistant) now shows its open duration (since created) and, when it has sat
   untouched, how long it has been quiet (since updated): `open 3d · quiet 60m`. A task that just moved reads only its
