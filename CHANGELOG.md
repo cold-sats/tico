@@ -14,9 +14,19 @@ All notable changes to Tico are recorded here. The format follows
   usage limit: the turn moves to a ready fallback harness, or the bot shows limited with its retry time and stops
   taking work until then (or until a person writes or presses Try now). Its status and Health say "API quota or
   billing limit" and point to the key's plan and billing rather than a subscription window.
+- Health no longer reports work held by a computer that is waiting to update as a Tico bug (`queue_idle`). A
+  computer due an update stops taking new work after 20 minutes until its running turns finish; Health's Stuck list
+  now says so ("Team box is holding new work to update to Tico 0.3.48: it starts once its running turn finishes"),
+  and the Health Monitor names the held work on that computer's `runner_outdated` finding.
+- A Claude turn that hits its session or weekly limit now ends as limited within seconds and moves to the bot's
+  fallback once, instead of holding the turn (and the computer's update) open with no model work. Claude could
+  report the limit and then wait for more input without a final result.
 - The Health Monitor no longer reports "A runner keeps losing its event stream" because the server restarted. A
   server start (a deploy or an update) ends every runner's stream at once, and each drop was counted twice. The check
   now counts each drop once and leaves out drops from 5 minutes before to 2 minutes after a server start.
+- The updates manual describes how a computer waits to update as the runner does it: it keeps taking work for 20
+  minutes, then takes none until every running turn ends, updates once idle and never interrupts a turn. A Docker
+  runner waits the same way. It said the runner stopped taking work at once, and gave a Docker runner no limit.
 - A task worktree whose restore or prepare failed no longer stays failed after its setup succeeds. Health and
   the Health Monitor kept reporting the old error (for example "Restore path already exists and is not a
   worktree") on a worktree acknowledged ready, so its finding never cleared. A ready acknowledgement now
@@ -37,6 +47,9 @@ All notable changes to Tico are recorded here. The format follows
   (`hub task comment --file <id>@1`, or `attachments` over MCP and API) gives the task its own copy, and the task's
   bot can download it. Before, the bot was refused even though the file was linked in the comment. A bot, or a
   person who cannot open the file, is still refused, and the chat file keeps its own access.
+- A bot can no longer reopen a task its requester closed. A completion from a run that started before the close
+  used to move it back to Done, so the person had to accept the same work again. The task now stays closed;
+  the bot is told to add anything new as a comment. A person still reopens it; a requester bot only reopens its own close.
 - Installing or updating a harness that downloads a single binary (not a `.tar.gz`) no longer fails now and then
   with "Text file busy". The runner wrote the file itself, so another of its threads starting a process at that
   moment kept it open for writing when the install checked `--version`; a child `cp` now writes it, as `tar` does.
@@ -49,6 +62,10 @@ All notable changes to Tico are recorded here. The format follows
 - A Docker runner whose updater sidecar is stopped no longer holds new work for an update it cannot start. It
   used to stop claiming while any turn ran, so a person's message waited until every running turn on that
   computer finished. It now reports the update as failed ("the updater did not answer") and keeps claiming.
+- On an isolated Docker runner, checkout proofs and per-task locks an older runner left in `tasks/.checkout-state`
+  and `tasks/.locks` as the supervisor are handed to the bot user on every heartbeat, so `hub task worktree add`
+  and `setup` no longer fail on them (for example "Worktree initialization marker cannot be read"). Files, modes
+  and contents stay, a held lock stays held, and a symlink or hard link in either folder changes nothing outside it.
 
 ### Changed
 - Computer-screen WebSockets use Rust exclusively. The standard server includes and supervises the relay,

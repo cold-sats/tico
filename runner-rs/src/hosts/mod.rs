@@ -52,7 +52,7 @@ pub fn limit_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     R.get_or_init(|| {
         Regex::new(
-            r"(?i)hit your usage limit|usage limit|usage_limit_reached|subscription quota exhausted|quota exceeded|exceeded your current quota|insufficient[_ ]quota|rate[ _]limit(?:ed|_error)?|spend(?:ing)? limit|monthly (?:usage |spend(?:ing)? )?limit|no capacity available|model is at capacity|\boverloaded\b|resource_exhausted|\b(?:code|status|http) (?:429|503)\b",
+            r"(?i)hit your (?:usage|session|weekly) limit|usage limit|usage_limit_reached|subscription quota exhausted|quota exceeded\. check your plan|exceeded your current quota|insufficient[_ ]quota|rate[ _]limit(?:ed|_error)?|spend(?:ing)? limit|monthly (?:usage |spend(?:ing)? )?limit|no capacity available|model is at capacity|\boverloaded\b|resource_exhausted|\b(?:code|status|http) (?:429|503)\b",
         )
         .unwrap()
     })
@@ -427,6 +427,7 @@ mod tests {
     #[test]
     fn the_python_classifiers_agree() {
         assert!(is_limit("You've hit your usage limit"));
+        assert!(is_limit("You've hit your session limit · resets 12:40am (UTC)"));
         assert!(is_limit("HTTP 503 overloaded"));
         assert!(!is_limit("all good"));
         assert!(is_limit("Claude AI monthly spend limit reached. Raise it in your account settings."));
@@ -438,6 +439,7 @@ mod tests {
         assert!(is_limit(r#"{"error":{"type":"insufficient_quota","code":"insufficient_quota"}}"#));
         assert!(!is_limit("Raise the storage quota for the team drive"));
         assert!(!is_limit("Quota: 40 of 100 seats used"));
+        assert!(!is_limit("write /tmp/out: Disk quota exceeded (os error 122)"));
         assert!(is_auth_retryable("OAuth: failed to refresh OAuth token"));
         assert!(!is_auth_retryable("unexpected status 401 Unauthorized: Invalid API key"));
         assert!(is_auth_rejected("Invalid API key · Please run /login"));
