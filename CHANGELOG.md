@@ -27,6 +27,8 @@ All notable changes to Tico are recorded here. The format follows
 - Reopening the bot editor before its previous close event keeps the new form and its settings refresh intact.
 - Browser model sign-in on an isolated runner uses the bot's OS identity for login and its final check,
   so a successful sign-in does not leave credentials readable only by the supervisor.
+- Runtime and development Python locks share the same dependency pins. The desktop uses rustls 0.23.46,
+  with compatible AWS, cryptography, JWT and browser telemetry SDK updates.
 - **The bot model picker no longer hides a harness whose provider is off.** It lists it greyed out with an
   AI-providers line to turn it on, so Muse Code and the Wonder models are one provider tick away instead of invisible.
 - **Image cleanup keeps future releases staged on the same Docker host.** After an update, the updater removes only

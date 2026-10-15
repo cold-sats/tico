@@ -1,3 +1,4 @@
+-c requirements.txt
 -r requirements.in
 pytest>=8,<10
 playwright>=1.50,<2

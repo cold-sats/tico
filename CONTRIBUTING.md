@@ -34,6 +34,22 @@ them too when you change what they cover. To run less while you work: `python -m
 for one file, `node scripts/ui-tests.cjs <name>` for one browser script. If you touch `app/`, also run `cargo check`
 there.
 
+## Updating dependency locks
+
+Resolve runtime packages first, then development packages against those pins. This keeps tests on the
+same shared dependencies as installations. Use the supported Python version for both commands:
+
+```bash
+uv pip compile backend/requirements.in --python-version 3.12 -o backend/requirements.txt
+uv pip compile backend/requirements-dev.in --python-version 3.12 -o backend/requirements-dev.txt
+```
+
+Upgrade a small compatible group with `--upgrade-package NAME` on the first command, then regenerate
+the development lock. Keep major migrations separate. After changing the browser SDK pins in
+`package.json`, run `npm run build:observability` and the real SDK privacy and retry tests in
+`node scripts/ui-tests.cjs telemetry`. The desktop GLib backport and its provenance checks are
+documented in `app/vendor/README.md`; retain them when updating Cargo locks.
+
 ## Developer Certificate of Origin
 
 Every commit in a pull request must be signed off, which says you wrote it or have the right to
