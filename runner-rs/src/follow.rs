@@ -387,7 +387,13 @@ impl Follower {
     /// (state, error) of the last update to `want` when it should not be tried again yet.
     async fn outcome(&self, want: &str) -> Option<(String, String)> {
         if self.kind == "docker" {
-            let status = self.sidecar.call(None).await.unwrap_or(json!({}));
+            // An updater that does not answer cannot start the update, so the update is not due: holding claims for
+            // it would leave new work waiting until every running turn ends, for as long as the updater is away.
+            let status = match self.sidecar.call(None).await {
+                Ok(status) => status,
+                Err(code) if code == "unreachable" => return Some(("failed".into(), "the updater did not answer".into())),
+                Err(code) => return Some(("failed".into(), format!("the updater answered {code}"))),
+            };
             let to = text_of(&status["to"]);
             if to.trim_start_matches('v') != want {
                 return None;
@@ -726,6 +732,34 @@ mod tests {
         write_status(&dir, json!({"state": "failed", "target": "0.3.45", "error": "write: No space left on device", "at": epoch_s(), "disk_free": 0}));
         f.decide().await;
         assert_eq!(f.inner.lock().unwrap().state, "waiting");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn a_docker_runner_whose_updater_does_not_answer_keeps_claiming() {
+        let dir = std::env::temp_dir().join(format!("tico-follow-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let drained = Instant::now().checked_sub(Duration::from_secs(DRAIN_S + 60));
+        let f = Follower {
+            directory: dir.clone(),
+            root: dir.clone(),
+            kind: "docker",
+            release: "0.3.46".into(),
+            started: String::new(),
+            commit: String::new(),
+            pinned: false,
+            self_update: true,
+            prepare: vec!["true".into()],
+            // Nothing listens on the discard port: the sidecar is stopped.
+            sidecar: Sidecar { url: "http://127.0.0.1:9".into(), token_file: dir.join("t") },
+            inner: Mutex::new(Inner { state: "waiting".into(), desired: Some("0.3.47".into()), pending_since: drained, ..Default::default() }),
+        };
+        f.decide().await;
+        let mut body = json!({});
+        f.fields(&mut body);
+        assert_eq!(body["update"], json!({"state": "failed", "target": "0.3.47", "error": "the updater did not answer"}));
+        assert!(!f.blocks_claims(true).await); // past the drain time, a turn running: still claims
+        assert!(!f.blocks_claims(false).await); // idle: claims rather than launching an update nobody can run
         let _ = std::fs::remove_dir_all(dir);
     }
 
