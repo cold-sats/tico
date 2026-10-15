@@ -114,6 +114,9 @@ async function taskModalShow(task, d = taskModal(), opts = {}) {
   // a property that has the focus now keeps it through the redraw (over the one a save asked for)
   const onProp = d.contains(document.activeElement) ? document.activeElement.dataset.prop : '';
   if (onProp) d.focusProp = onProp;
+  // Session copy commands need the CLI's manifest even when Tasks is the first page opened.
+  await loadHarnessRows();
+  if (d.drawSeq !== seq || d.taskOpening !== opening) return;
   d.innerHTML = hubModalHTML(task, taskItem(task), {peek, thread: d.classList.contains('thread')});
   taskModalBind(d, task);
   taskPropFocus(d);
