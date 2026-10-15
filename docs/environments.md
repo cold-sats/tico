@@ -343,6 +343,32 @@ target, or rotate it after a restore. To open a restored copy without it touchin
 scheduler, directory sync, release check or usage count, and no calls to GitHub, Slack or Tico HQ), add
 `TICO_REHEARSAL=1` to that environment's `server.env` first; the app then says "Rehearsal: nothing runs or leaves this server".
 
+## A dev server on a copy of real data
+
+To see slow lists, odd data and long names before a release, run a dev server on a pruned copy of a real install:
+
+```sh
+python -m backend.devcopy --from /path/to/hub.sqlite --to runtime/devcopy/hub.sqlite --days 30
+```
+
+`--from` is a database file (a live one is only read, never written) or a backup bundle,
+`s3://<bucket>/backups/<name>.sqlite` (`--profile`, `--region`); only the bundle's database is fetched. For a
+Litestream backup, `litestream restore -o <file>` first and pass that file. The copy:
+
+- has every table that could act emptied: queued work and attempts, routines, watchers, runners and enrolments,
+  bot sessions, human tokens, sign-in sessions, OAuth and service keys, credentials, mail, Slack, GitHub App,
+  Granola and meeting-bot connections, calendar actions, usage alerts, stored request replies
+  (`EMPTY` in `backend/devcopy.py`). Bot tokens are cleared and external agents revoked;
+- keeps tasks, docs, people and bots, and the last `--days` of messages and events (0 keeps all);
+- never has the key files beside it (`credential.key`, `github-app.key`, `slack.key`), so nothing in it can be decrypted;
+- is mode 0600, with `server.env`, a fresh `local-owner.token` and empty `registry/` and `blobs/` beside it. Attachments
+  are not copied.
+
+`server.env` sets `TICO_REHEARSAL=1` and a loopback URL, so nothing runs on a timer, nothing leaves the server, and
+runners are refused ([install.md](install.md#rehearse-a-migration)). The command prints how to start it and sign in.
+It refuses a destination that is the source, in use, already there (without `--force`), beside key files, or inside
+a git checkout that would track it: copies stay in gitignored folders such as `runtime/` and are never test fixtures.
+
 ## Removing an environment
 
 ```bash
