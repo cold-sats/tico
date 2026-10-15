@@ -201,7 +201,9 @@ Task text cannot select another requester. A message the **Assistant** wrote for
 document, or a message **routed from Slack** cannot borrow human authority.
 A human's request lends their rights for as long as the task it created, or the task that carries it (`--request-id`), is open,
 up to 30 days after they last spoke on it (filed it, sent the message it carries, or commented on it). Once a task is done,
-closed or declined, moving it back to open lends nothing again unless the requester reopened it themselves; they ask again.
+closed or declined, moving it back to open lends nothing again unless the requester reopened it themselves, and citing
+that task stays refused even after they reply. They ask again in their own words: the run their comment on it or their
+message in their BotOps chat starts has their rights without `on_behalf_of`.
 A chat message with no open task lends them for a week, and a new task filed from a message needs that message within the week.
 A comment the task's human requester writes on their open BotOps task, in their own words (not through the Assistant, Slack or
 routing), is them asking: the run it wakes has their rights. Anyone else's comment lends nothing.

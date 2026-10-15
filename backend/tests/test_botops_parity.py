@@ -817,8 +817,15 @@ def test_a_reopened_task_and_a_request_past_the_cap_lend_nothing(api, botops):
         H.task_update(c, "bot:botops", task_id, status="done", note="Done.")
         H.task_update(c, "bot:botops", task_id, status="doing", note="Again.")
     later = _wake(api, botops)
-    assert act(api, later, "GET", "credentials", ref=task_id).status_code == 403
+    refused = act(api, later, "GET", "credentials", ref=task_id)
+    assert refused.status_code == 403 and "send no on_behalf_of" in refused.text
     finish(api, botops, later)
+    # What the refusal says works: her own comment starts a run with her rights, while citing the task stays refused.
+    post(api, f"tasks/{task_id}/comments", {"text": "Confirmed, you have my permission."}, "ana-test")
+    hers = claim(api, botops, "botops")
+    assert act(api, hers, "GET", "credentials", ref=None).status_code == 200
+    assert act(api, hers, "GET", "credentials", ref=task_id).status_code == 403
+    finish(api, botops, hers)
 
     # Still open, never reopened, but she last spoke on it more than the cap ago.
     ben = turn(api, botops, person="ben-test", text="Put finance on GPT-6.1 Sol")

@@ -104,7 +104,11 @@ def lend_lapsed(c, task):
     for row in c.execute("SELECT * FROM task_events WHERE task_id=? AND field='status' AND old IN (?,?,?) "
                          "AND new NOT IN (?,?,?)", (task["id"], *TERMINAL, *TERMINAL)):
         if row["actor"] != requester or dict(row).get("via"):
-            return "That task was finished and has been reopened; ask the person again"
+            # Re-asking on the same task can't clear this: the reopening stays in its history. The person's own new
+            # words start a run with their rights anyway (a comment on the open task, or their BotOps chat).
+            return ("That task was finished and someone other than the person reopened it, so it never lends their rights "
+                    "again, even after they reply. Only a run their own comment on it or their message in their BotOps chat "
+                    "starts has their rights: in such a run, send no on_behalf_of; otherwise ask them there and end this run")
     spoke = []
     made = c.execute("SELECT actor,detail_json FROM events WHERE action='task.create' AND target=? ORDER BY ts,id LIMIT 1",
                      (task["id"],)).fetchone()
