@@ -32,6 +32,7 @@ All notable changes to Tico are recorded here. The format follows
 - **`tico-runner enroll`, `adopt` and `doctor`.** The Rust runner registers a computer, moves bots to it and checks it
   itself; `python -m runner enroll|adopt|doctor|status|profile` run the same commands through it.
 ### Changed
+- Computer tool installation controls are labeled separately from sign-in status, with explicit Enabled and Installed labels.
 - **The Assistant creates a task for another person without a Confirm card.** Asking it to hand someone their part now
   makes the task at once, as you, like a task for a bot; before, each one waited for your click on a card. Settling a
   task, messaging another person and everything else keep their cards, and turning **Assistant acts without asking**

@@ -285,8 +285,8 @@ function renderSettingsMachines() {
     const harnessChip = ([id, value]) => {
       const owner = S.me?.role === 'owner' && online && value.managed;
       const busy = value.state !== 'idle';
-      const text = `${value.name || id} ${value.installed ? (value.version || 'installed') : 'not installed'}${value.pinned ? ' · pinned' : ''}${value.update_available ? ` · ${value.latest || 'update'} available` : ''}${busy ? ` · ${value.state}` : ''}`;
-      const tone = value.state === 'failed' ? 'fail' : !value.installed || busy ? 'waiting' : value.update_available ? 'waiting' : 'ok';
+      const text = `${value.name || id} · ${value.installed ? `Installed${value.version ? ' ' + value.version : ''}` : 'Not installed'}${value.pinned ? ' · pinned' : ''}${value.update_available ? ` · ${value.latest || 'update'} available` : ''}${busy ? ` · ${value.state}` : ''}`;
+      const tone = value.state === 'failed' ? 'fail' : !value.installed || busy || value.update_available ? 'waiting' : '';
       const buttons = owner && value.installed && !busy ? [
         value.update_available ? harnessAction(id, 'update', 'Update') : '',
         value.pinned ? harnessAction(id, 'unpin', 'Resume updates') : (value.version ? harnessAction(id, 'pin', 'Pin to this version') : '')].join('') : '';
@@ -294,7 +294,7 @@ function renderSettingsMachines() {
       const needed = botRuntimes.has(value.runtime);
       const on = needed || (choices[id] ?? (value.wanted || value.installed));
       const toggle = S.me?.role === 'owner' && !machine.revoked_at
-        ? ` <label class="machine-harness-toggle"${needed ? ' title="Its bots use it"' : ''}><input type="checkbox" data-harness-choice="${esc(id)}" data-runner="${esc(machine.id)}"${on ? ' checked' : ''}${needed ? ' disabled' : ''}> On</label>` : '';
+        ? ` <label class="machine-harness-toggle"${needed ? ' title="Its bots use it"' : ''}><input type="checkbox" aria-label="Enable ${esc(value.name || id)} on ${esc(machine.label)}" data-harness-choice="${esc(id)}" data-runner="${esc(machine.id)}"${on ? ' checked' : ''}${needed ? ' disabled' : ''}> Enabled</label>` : '';
       return `<span class="machine-harness-item" data-harness-chip="${esc(id)}"><span class="pill ${tone}" title="${esc(title)}">${esc(text)}</span>${toggle}${buttons}</span>`;
     };
     // The owner sees every model CLI, to turn one on; everyone else what is there.
@@ -320,7 +320,7 @@ function renderSettingsMachines() {
     return `<tr class="machine-card"><td><strong>${esc(machine.label)}</strong><span class="settings-cell-note">${esc(machine.version || 'version not reported')}${machine.platform ? ` · ${esc(machine.platform)}` : ''}${engineLabel}</span>${window.runnerUpdateHtml?.(machine.update, machine.version) || ''}</td>
       <td data-label="Operator">${esc(settingsPersonName(machine.operator))}${!machine.revoked_at && machine.accepts_member_bots ? '<span class="settings-cell-note">Accepts members\' bots</span>' : ''}</td>
       <td data-label="Bots">${bots.length ? `<a href="#/settings" class="machine-bots" data-computer-bots="${esc(machine.id)}" title="${esc(botNames.join(', '))}"><strong>${bots.length} bot${bots.length === 1 ? '' : 's'}</strong><span class="settings-cell-note">${esc(botNames.join(', '))}</span></a>` : '<span class="muted">No bots</span>'}${failures ? `<span class="settings-cell-note err">${failures} not ready</span>` : ''}</td>
-      <td data-label="AI tools"><div class="machine-runtime" aria-label="AI tools on ${esc(machine.label)}">${tools || '<span class="muted">No AI tools reported</span>'}</div>${harnesses ? `<details data-machine-details="${esc(machine.id)}:tools"><summary>Model CLIs</summary><div class="machine-harnesses">${harnesses}</div></details>` : ''}</td>
+      <td data-label="AI tools"><div class="machine-runtime" aria-label="AI tools on ${esc(machine.label)}">${tools || '<span class="muted">No AI tools reported</span>'}</div>${harnesses ? `<details data-machine-details="${esc(machine.id)}:tools"><summary>Installation and updates</summary><p class="settings-cell-note">Enabled tools stay installed. Sign-in status is shown above.</p><div class="machine-harnesses">${harnesses}</div></details>` : ''}</td>
       <td data-label="Status"><span class="machine-status"><span class="dot ${status[0]}" aria-hidden="true"></span>${status[1]}${machine.last_seen ? `<span class="muted"> · ${esc(ago(machine.last_seen))}</span>` : ''}</span>${machineScreenHTML(machine)}</td>
       <td class="settings-row-actions"><div class="people-cell-more">${menu ? `<button class="people-more" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="More for ${esc(machine.label)}"><span class="nav-icon" aria-hidden="true">more_horiz</span></button><div class="people-menu" role="menu" hidden>${menu}</div>` : ''}</div></td></tr>`;
   }).join('');
