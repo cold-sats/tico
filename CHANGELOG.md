@@ -8,6 +8,9 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- Installing or updating a harness that downloads a single binary (not a `.tar.gz`) no longer fails now and then
+  with "Text file busy". The runner wrote the file itself, so another of its threads starting a process at that
+  moment kept it open for writing when the install checked `--version`; a child `cp` now writes it, as `tar` does.
 - Explicitly removing a kept worktree retries exhausted cleanup on its original computer while preserving
   unsaved work and waiting for the computer to confirm removal.
 - Bots can read a pull request's checks (`gh pr checks`, commit statuses and check runs) on private
