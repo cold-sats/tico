@@ -317,8 +317,8 @@ pub fn local_path(config: &Config, bot: &str) -> PathBuf {
     root.join(format!("bot-{bot}"))
 }
 
-/// What an assigned bot needs that this runner does not do yet, each named for the log and the bot's
-/// readiness problems. A bot with any of these stays on the Python runner.
+/// What an assigned bot needs that this runner does not run, each named in the bot's readiness problems: that
+/// bot is not ready here, and the runner runs the others.
 pub fn unsupported(entry: &Value) -> Vec<String> {
     let c = &entry["config"];
     let runtime = text_of(&c["runtime"]);
@@ -420,7 +420,7 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
             problems.push(signed_out(if profile_name.is_empty() { d } else { format!("{profile_name}: {d}") }));
         }
         for need in unsupported(entry) {
-            problems.push(format!("This computer's runner does not do {need} yet; run it on the Python runner for this bot"));
+            problems.push(format!("This computer's runner does not run {need}; choose another harness for this bot"));
         }
         let mut configuration_valid = RUNTIMES.contains(&runtime.as_str());
         let manifest = manifest_path(&path);

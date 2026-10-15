@@ -1,12 +1,13 @@
-//! `tico-runner`: the Tico local runner, the chat path of `python -m runner` (step 1 of
-//! _rust-runner-plan.md). Same registration file, state directory, lock and outbox, so a computer can switch
-//! between the two engines and back.
+//! `tico-runner`: the Tico local runner. `python -m runner run` execs it (runner/engine.py); it reads the
+//! registration file, state directory, lock and outbox the Python runner kept, and registers and checks this
+//! computer itself (`enroll`, `adopt`, `doctor`, crate::commands).
 
 // A turn's failure carries its whole report, and the caches key on tuples: both read better as they are.
 #![allow(clippy::result_large_err, clippy::type_complexity)]
 
 mod backlog;
 mod client;
+mod commands;
 mod config;
 mod credential_imports;
 mod credential_migration;
@@ -69,7 +70,7 @@ pub const BUILD_ID: &str = env!("TICO_BUILD_ID");
 #[derive(Parser)]
 #[command(name = "tico-runner", about = "Run this computer's Tico bots: the Rust runner", version = runner::RUNNER_VERSION)]
 struct Cli {
-    /// The registration file `python -m runner enroll` wrote.
+    /// The registration file `enroll` wrote.
     #[arg(long, global = true)]
     config: Option<PathBuf>,
     #[command(subcommand)]
@@ -78,10 +79,33 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Register this computer with a one-time enrollment code.
+    Enroll {
+        #[arg(long)]
+        url: String,
+        #[arg(long)]
+        code_file: PathBuf,
+        #[arg(long)]
+        label: String,
+        #[arg(long)]
+        projects: PathBuf,
+        /// Environment id this registration belongs to.
+        #[arg(long, default_value = "")]
+        environment: String,
+    },
     /// Claim and run this computer's turns until stopped.
     Run,
     /// Print this registration's assignments and eligible bots.
     Status,
+    /// Check assigned repositories and executables without running bots.
+    Doctor,
+    /// Move eligible bots to this computer.
+    Adopt {
+        #[arg(long)]
+        team: Option<String>,
+        #[arg(long)]
+        bot: Vec<String>,
+    },
     /// Subscription profiles: one provider login per directory.
     Profile {
         #[command(subcommand)]
@@ -162,7 +186,7 @@ fn profile_main(action: ProfileAction, config: &mut config::Config) -> i32 {
 }
 
 fn fail(message: &str) -> ! {
-    eprintln!("usage: tico-runner [--config CONFIG] {{run,status,profile}}\ntico-runner: error: {message}");
+    eprintln!("usage: tico-runner [--config CONFIG] {{enroll,run,status,doctor,adopt,profile}}\ntico-runner: error: {message}");
     std::process::exit(2)
 }
 
@@ -185,14 +209,31 @@ fn main() {
         std::process::exit(gitcred::git_credential_main(socket.clone()));
     }
     util::start_clock();
-    let path = cli.config.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".config/tico/runner.json"));
+    let path = cli.config.unwrap_or_else(commands::default_config);
+    if let Command::Enroll { url, code_file, label, projects, environment } = &cli.command {
+        // Before Config::load: enrolling is what writes it.
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("tokio runtime");
+        match rt.block_on(commands::enroll(&path, url, code_file, label, projects, environment)) {
+            Ok(out) => println!("{}", util::py_dumps(&out)),
+            Err((2, message)) => fail(&message),
+            Err((code, message)) => {
+                eprintln!("tico-runner: {message}");
+                std::process::exit(code);
+            }
+        }
+        std::process::exit(0);
+    }
     let mut config = config::Config::load(&path).unwrap_or_else(|e| fail(&e));
     if let Command::Profile { action } = cli.command {
         std::process::exit(profile_main(action, &mut config));
     }
-    if let Command::Run = cli.command {
-        // Puts the tools bin on PATH, so it runs before any thread reads the environment.
-        harness_tools::init(&config);
+    if let Command::Run | Command::Doctor = cli.command {
+        // Puts the tools bin on PATH, so it runs before any thread reads the environment. Doctor keeps its own
+        // harness state, as Python's did, so a check never rewrites the running runner's.
+        match cli.command {
+            Command::Doctor => harness_tools::init_at(&config, path.parent().unwrap_or(std::path::Path::new(".")).join("harnesses-doctor.json")),
+            _ => harness_tools::init(&config),
+        };
         hosts::musecode::set_state_dir(&config.state_dir());
     }
     let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().expect("tokio runtime");
@@ -201,6 +242,37 @@ fn main() {
 
 async fn start(command: Command, config: config::Config) -> i32 {
     let client = client::Client::new(&config.url(), &config.token(), 10, 1).unwrap_or_else(|e| fail(&e));
+    let refused = |(code, message): commands::Refusal| {
+        if code == 2 {
+            fail(&message);
+        }
+        eprintln!("tico-runner: {message}");
+        code
+    };
+    match &command {
+        Command::Adopt { team, bot } => {
+            // After a re-enrollment, the protected mail key follows this operator's previous registration once.
+            mail_key::carry_protected(&config);
+            return match commands::adopt(&config, &client, team.as_deref(), bot).await {
+                Ok(lines) => {
+                    lines.iter().for_each(|l| println!("{l}"));
+                    0
+                }
+                Err(r) => refused(r),
+            };
+        }
+        Command::Doctor => {
+            mail_key::carry_protected(&config);
+            return match commands::doctor(&config, &client).await {
+                Ok((out, ready)) => {
+                    println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+                    i32::from(!ready)
+                }
+                Err(r) => refused(r),
+            };
+        }
+        _ => {}
+    }
     if let Command::Status = command {
         let read = async { Ok::<_, client::ApiError>((client.get("runners/assignments").await?, client.get("runners/eligible").await?)) };
         return match read.await {
@@ -232,22 +304,6 @@ async fn start(command: Command, config: config::Config) -> i32 {
     }
     mail_key::init(&config); // an inbox bot's turn asks the credential socket for its mailbox's token
     let mut service = runner::Runner::new(config, client.clone(), state);
-    match service.refusals().await {
-        Ok(lines) if !lines.is_empty() => {
-            for line in &lines {
-                util::log(&format!("Tico runner: {line}; this runner does not do that yet"));
-            }
-            drop(_lock);
-            if let Some(why) = python_fallback(&lines.join("; ")) {
-                util::log(&format!("Tico runner: could not hand this computer to the Python runner ({why})"));
-            }
-            util::log("Tico runner: not starting: run this computer on the Python runner (python -m runner run) until those bots move or the Rust runner supports them");
-            return 3;
-        }
-        Ok(_) => {}
-        // An unreachable hub is not a reason to stay down: the loop retries, and readiness names any gap.
-        Err(e) => util::log(&format!("Tico runner: could not read this computer's bots ({}); starting anyway", runner::describe(&e))),
-    }
     match gitcred::CredentialSocket::serve(client.clone(), service.tokens.clone()) {
         Ok(socket) => service.socket = Some(socket),
         Err(e) => util::log(&format!("Tico runner: credential socket unavailable ({e}); turns use per-turn GitHub tokens")),
@@ -271,22 +327,6 @@ async fn start(command: Command, config: config::Config) -> i32 {
         let _ = task.await;
     }
     0
-}
-
-/// Started through `python -m runner run` (runner/engine.py): hand the process back to that Python runner,
-/// which stays on its own engine for this start and reports `needs` as why. Returns only on failure, with why;
-/// None when not started so.
-fn python_fallback(needs: &str) -> Option<String> {
-    use std::os::unix::process::CommandExt;
-    let argv: Vec<String> = serde_json::from_str(&std::env::var("TICO_RUNNER_PYTHON_ARGV").ok()?).ok()?;
-    let (program, args) = argv.split_first()?;
-    util::log("Tico runner: running this computer on the Python runner instead");
-    let err = std::process::Command::new(program)
-        .args(args)
-        .env("TICO_RUNNER_ENGINE_FALLBACK", format!("the Rust runner does not run this yet: {needs}"))
-        .env_remove("TICO_RUNNER_PYTHON_ARGV")
-        .exec();
-    Some(err.to_string())
 }
 
 #[cfg(test)]

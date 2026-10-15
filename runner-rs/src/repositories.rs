@@ -380,6 +380,22 @@ impl Repositories {
         self.rows.lock().unwrap().values().map(Self::report_row).collect()
     }
 
+    /// What `doctor` prints (repositories.py inspect): the server's current list with each one's saved status,
+    /// without cloning or cleanup; empty when the server cannot say.
+    pub async fn inspect(&self) -> Vec<Value> {
+        let Ok(reply) = self.client.get("runners/me/repositories").await else { return vec![] };
+        let Some(repos) = reply["repositories"].as_array() else { return vec![] };
+        let rows = self.rows.lock().unwrap();
+        repos
+            .iter()
+            .filter_map(|r| r["full_name"].as_str().filter(|n| valid_name(n)))
+            .map(|name| {
+                let row = rows.get(&name.to_lowercase()).cloned();
+                Self::report_row(&row.unwrap_or_else(|| json!({"full_name": name, "state": "cloning", "last_fetch": null, "size_mb": 0})))
+            })
+            .collect()
+    }
+
     fn update_row(&self, name: &str, f: impl FnOnce(&mut Map<String, Value>)) {
         if let Some(Value::Object(r)) = self.rows.lock().unwrap().get_mut(name) {
             f(r);
