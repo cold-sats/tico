@@ -3904,6 +3904,13 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         if actor == row["owner"] and not is_human(actor) and status not in OWNER_STATUSES:
             refuse(conn, actor, "close",
                    f"the owner may set {'|'.join(OWNER_STATUSES)}, not {status}")
+        # A close is the requester's decision; a bot's update that started before it (a late
+        # completion) must not undo it. A person or the requester reopens a closed task.
+        if (row["status"] == "closed" and status != "closed" and is_bot(actor)
+                and actor != row["requester"]):
+            refuse(conn, actor, "close",
+                   f"{actor_id(row.get('closed_by') or row['requester'])} closed this task, so it stays closed "
+                   "unless they reopen it; add anything new as a comment (hub task comment)")
         if status == "ready" and is_bot(actor):
             refuse(conn, actor, "close", "ready to ship is set when the pull request merges, not by the bot")
         # A bot parking a task it asked itself for has nobody to answer it unless it has filed

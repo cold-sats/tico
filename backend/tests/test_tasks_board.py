@@ -128,6 +128,38 @@ def test_self_requested_completion_stays_done_until_explicit_close(api):
     assert closed['done_at'] == done['done_at']
 
 
+def test_a_late_bot_completion_does_not_reopen_a_task_its_requester_closed(api):
+    token = bot_token(api, "ops")
+    task = post(api, "tasks", {"owner": "ops", "title": "Clean up the inbox", "body": "Archive the old threads."})
+    done = post(api, "tasks/" + task["id"], {"version": task["version"], "status": "done", "note": "Archived 40."},
+                token=token)
+    # The requester accepts it while the bot's next run, started before the close, is still working.
+    closed = post(api, "tasks/" + task["id"], {"version": done["version"], "close": True, "note": "Looks good."})
+    assert closed["status"] == "closed"
+    for status in ("done", "doing", "waiting", "review", "declined"):
+        late = api.post("/api/v2/tasks/" + task["id"], headers=headers(token),
+                        json={"version": closed["version"], "status": status, "note": "Archived 40, final."})
+        assert late.status_code >= 400 and "stays closed" in late.text, (status, late.text)
+    with api.app.state.store.transaction() as c, pytest.raises(H.Refused, match="stays closed"):
+        H.task_update(c, "bot:ops", task["id"], step="general-done")
+    after = get(api, "tasks/" + task["id"])["task"]
+    assert (after["status"], after["note"], after["closed_by"]) == ("closed", "Looks good.", "human:ana")
+    # What the bot has to add still lands, as a comment, and the requester can still reopen it.
+    post(api, f"tasks/{task['id']}/comments", {"text": "Archived 40, final."}, token=token)
+    reopened = post(api, "tasks/" + task["id"], {"version": after["version"], "status": "open"})
+    assert reopened["status"] == "open" and reopened["closed_at"] is None
+
+
+def test_a_bot_requester_may_reopen_a_task_it_closed(api):
+    with api.app.state.store.transaction() as c:
+        tid = H.task_create(c, "bot:cpo", "Draft the launch post", "Write the first draft.", "bot:ops")["id"]
+        H.task_update(c, "bot:ops", tid, status="done", note="Drafted.")
+        H.task_close(c, "bot:cpo", tid, note="Thanks.")
+        with pytest.raises(H.Refused, match="stays closed"):
+            H.task_update(c, "bot:ops", tid, status="done", note="Drafted again.")
+        assert H.task_update(c, "bot:cpo", tid, status="open", note="One more pass, please.")["status"] == "open"
+
+
 # ----------------------------------------------------------------------------- lanes
 
 
