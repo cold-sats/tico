@@ -7,6 +7,10 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- `hub task worktree add` and `setup` refusing a repository for missing write access now say whether Tico
+  listed it read-only or not at all for this run, and which repositories the run can write to.
+
 ## [0.3.48] - 2026-10-15
 
 ### Fixed

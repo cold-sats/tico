@@ -498,6 +498,19 @@ def test_the_setup_cli_marks_the_worktree_ready(trees):
     assert fields['expected_head'] and fields['checkout_target'] and len(fields['expected_base']) == 64
 
 
+def test_a_write_refusal_names_what_the_server_listed_for_the_run():
+    client = mock.Mock()
+    client.get.return_value = {'configured': True, 'repositories': [
+        {'full_name': 'org/docs', 'access': 'read'}, {'full_name': 'org/bot-ops', 'access': 'write'}]}
+    with pytest.raises(ValueError) as refused:
+        W.metadata(client, 'org/docs')
+    assert str(refused.value) == ('This bot needs write access to this repository: Tico lists org/docs as read-only '
+                                  'for this run (writable here: org/bot-ops)')
+    with pytest.raises(ValueError, match='does not list org/product for this run'):
+        W.metadata(client, 'org/product')
+    assert W.metadata(client, 'ORG/bot-ops')['full_name'] == 'org/bot-ops'
+
+
 @pytest.mark.slow
 def test_unlisted_managed_base_is_adopted_and_clone_failure_cleans_partial_folder(trees, monkeypatch):
     from runner.repositories import Repositories
