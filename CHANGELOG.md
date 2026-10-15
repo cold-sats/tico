@@ -7,6 +7,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.46] - 2026-10-15
+
 ### Changed
 - **An inbox bot may share a computer with other bots.** A separate computer for inbox bots is now a choice per computer:
   `POST /api/v2/runners/<id>/inbox-only {"enabled": true}` (an owner, an admin, the computer's operator, or BotOps as one of
