@@ -34,7 +34,7 @@ SYNCED_SQL = ",".join(f"'{h}'" for h in SYNCED_HARNESSES)
 EXTERNAL_HARNESSES = tuple(row["id"] for row in HARNESS_CATALOG if row.get("external"))
 
 
-# Only these hosts emit a `tool` event per tool call (runner/hosts/gemini.py and
+# Only these hosts emit a `tool` event per tool call (runner-rs/src/hosts/gemini.rs and
 # antigravity.py). claude, codex and grok stream text and never name a tool, so for those an
 # attempt with no `tool` event means the hub has no evidence either way -- not that the turn
 # kept its hands in its pockets.

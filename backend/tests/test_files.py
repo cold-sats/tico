@@ -1,4 +1,4 @@
-"""Files: visibility first (a private chat leaks nothing), versions, refusals, the runner outbox,
+"""Files: visibility first (a private chat leaks nothing), versions, refusals,
 S3 imports and link rules. See docs/files.md."""
 
 import os
@@ -6,11 +6,7 @@ import os
 import pytest
 
 from backend.tests.test_api import api, assign, claim, headers, post, ready, runner  # noqa: F401  (fixtures)
-from backend.tests.test_runner import live  # noqa: F401  (a real server on a port)
 from clients import bot_files as BF
-from clients.tico import APIError, Client
-from runner import files_publish
-from runner.state import State
 
 
 def turn(api, bot="ops", who="ben-test", machine=None):
@@ -44,7 +40,7 @@ def test_a_private_chats_file_is_invisible_to_everyone_else(api):
         assert page["total"] == 0 and page["files"] == []
         for path in ("", "/activity", "/versions", "/versions/1", "/meta"):
             assert api.get("/api/v2/files/" + fid + path, headers=headers(other)).status_code == 404, path
-        assert "plan" not in api.get(f"/api/v2/bots/ops/files?limit=100", headers=headers(other)).text
+        assert "plan" not in api.get("/api/v2/bots/ops/files?limit=100", headers=headers(other)).text
     # Promote is the owner's or a bot administrator's, explicit and audited; then everyone who sees the bot sees it.
     assert api.patch("/api/v2/files/" + fid, json={"promote": True}, headers=headers("cara-test")).status_code == 404
     assert api.patch("/api/v2/files/" + fid, json={"promote": True}, headers=headers(attempt["token"])).status_code == 403
@@ -91,138 +87,3 @@ def test_local_rules_refuse_traversal_links_env_and_oversize(tmp_path):
                 "reports/.env", "reports/huge.csv", "reports"):
         with pytest.raises(BF.Refused):
             BF.local_file(root, bad)
-
-
-@pytest.mark.slow
-def test_runner_upload_is_retried_after_a_restart_and_lands_once(api, live, tmp_path):
-    machine, attempt = turn(api)
-    checkout = tmp_path / "bot"
-    (checkout / "reports").mkdir(parents=True)
-    (checkout / "reports" / "weekly.md").write_text("# Weekly")
-
-    class Lossy(Client):
-        """Delivers the upload, then loses the reply: the runner cannot know it landed."""
-        lose = True
-
-        def request(self, *args, **kwargs):
-            reply = super().request(*args, **kwargs)
-            if Lossy.lose and "sync=failed" not in args[1]:
-                raise APIError("unavailable", "reply lost", retryable=True)
-            return reply
-
-    class Box:
-        pass
-    before = Box()
-    before.state, before.client = State(tmp_path / "state"), Client(live, machine["token"])
-    files_publish.Client = Lossy
-    try:
-        files_publish.after_turn(before, {"id": attempt["id"], "bot": "ops", "config": {}}, checkout)
-        with before.state.connect() as c:
-            assert c.execute("SELECT phase FROM file_outbox").fetchone()[0] == "pending"
-        Lossy.lose = False
-        after = Box()                                   # the runner restarted: a new process, the same disk
-        after.state, after.client = State(tmp_path / "state"), Client(live, machine["token"])
-        assert files_publish.drain(after) == 1
-        assert files_publish.drain(after) == 0
-    finally:
-        files_publish.Client = Client
-    page = listing(api)
-    assert page["total"] == 1 and page["files"][0]["version"] == 1 and page["files"][0]["synced"]
-    log = api.get(f"/api/v2/files/{page['files'][0]['id']}/activity", headers=headers("ben-test")).json()["activity"]
-    assert len(log) == 1
-
-
-def test_a_refused_file_is_logged_once_not_every_turn(tmp_path, monkeypatch):
-    import sqlite3
-    logged = []
-    monkeypatch.setattr(files_publish, "log", logged.append)
-
-    class State:
-        def connect(self):
-            return sqlite3.connect(tmp_path / "state.db")
-    (tmp_path / "reports").mkdir()
-    (tmp_path / "reports" / "create-ads.js").write_text("x")
-    for _ in range(3):
-        assert files_publish.prepare(State(), "designer", "a1", tmp_path, {}) == (0, 1)
-    assert len(logged) == 1 and ".js files are not published" in logged[0]
-
-
-def test_a_new_file_deep_in_a_full_folder_is_still_queued(tmp_path, monkeypatch):
-    import os
-    import sqlite3
-    monkeypatch.setattr(files_publish, "log", lambda *_: None)
-
-    class State:
-        def connect(self):
-            return sqlite3.connect(tmp_path / "state.db")
-    checkout = tmp_path / "checkout"
-    evidence = checkout / "reports" / "releases" / "evidence"
-    evidence.mkdir(parents=True)
-    for n in range(files_publish.MAX_PER_TURN * 5 + 50):
-        old = evidence / f"run-{n:03}.log"
-        old.write_text("x")
-        os.utime(old, (1_000_000, 1_000_000))
-    (checkout / "reports" / "candidates").mkdir()
-    (checkout / "reports" / "candidates" / "2026-10-14.md").write_text("# Candidate")
-    queued, refused = files_publish.prepare(State(), "release-manager", "a1", checkout, {})
-    assert queued == 1 and refused == files_publish.MAX_PER_TURN * 5 - 1
-    with State().connect() as c:
-        assert c.execute("SELECT rel FROM file_outbox").fetchall() == [("reports/candidates/2026-10-14.md",)]
-
-
-def test_an_unpublished_report_reaches_the_cut_in_a_fresh_checkout(tmp_path, monkeypatch):
-    import hashlib
-    import sqlite3
-    import subprocess
-    monkeypatch.setattr(files_publish, "log", lambda *_: None)
-
-    class State:
-        def connect(self):
-            return sqlite3.connect(tmp_path / "state.db")
-
-    def git(*args, cwd):
-        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args], cwd=cwd, check=True,
-                       capture_output=True)
-    origin = tmp_path / "origin"
-    (origin / "reports" / "candidates").mkdir(parents=True)
-    (origin / "reports" / "releases").mkdir()
-    (origin / "reports" / "candidates" / "backlog.md").write_text("# Never published")
-    git("init", "-q", cwd=origin)
-    git("add", ".", cwd=origin)
-    git("commit", "-qm", "backlog", cwd=origin)
-    published = []
-    for n in range(files_publish.MAX_PER_TURN * 5 + 100):
-        page = origin / "reports" / "releases" / f"{n:03}.md"
-        page.write_text(f"# Release {n}")
-        published.append(("release-manager", f"reports/releases/{n:03}.md", hashlib.sha256(page.read_bytes()).hexdigest()))
-    git("add", ".", cwd=origin)
-    git("commit", "-qm", "releases", cwd=origin)
-    with State().connect() as c:
-        c.executescript(files_publish.TABLES)
-        c.executemany("INSERT INTO file_published VALUES(?,?,?)", published)
-    checkout = tmp_path / "session"
-    git("clone", "-q", str(origin), str(checkout), cwd=tmp_path)
-    assert files_publish.prepare(State(), "release-manager", "a1", checkout, {}) == (1, 0)
-    with State().connect() as c:
-        assert c.execute("SELECT rel FROM file_outbox").fetchall() == [("reports/candidates/backlog.md",)]
-
-
-
-def test_a_file_refused_again_after_it_was_fixed_is_logged_again(tmp_path, monkeypatch):
-    import sqlite3
-    logged = []
-    monkeypatch.setattr(files_publish, "log", logged.append)
-
-    class State:
-        def connect(self):
-            return sqlite3.connect(tmp_path / "state.db")
-    (tmp_path / "reports").mkdir()
-    page = tmp_path / "reports" / "page.md"
-    page.write_text("")
-    assert files_publish.prepare(State(), "ops", "a1", tmp_path, {}) == (0, 1)
-    assert files_publish.prepare(State(), "ops", "a2", tmp_path, {}) == (0, 1)
-    page.write_text("# Page")
-    assert files_publish.prepare(State(), "ops", "a3", tmp_path, {}) == (1, 0)
-    page.write_text("")
-    assert files_publish.prepare(State(), "ops", "a4", tmp_path, {}) == (0, 1)
-    assert len(logged) == 2 and all("empty file" in line for line in logged)

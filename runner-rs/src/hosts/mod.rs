@@ -1,4 +1,4 @@
-//! The runtime hosts (`runner/hosts/base.py`): one runtime behind start/thread/turn/steer/interrupt calls and
+//! The runtime hosts: one runtime behind start/thread/turn/steer/interrupt calls and
 //! one event channel. Events are the Python host's dicts, as JSON, so the outbox rows match it field for field:
 //!
 //! delta {text}, message {text, final}, turn_completed {status}, turn_failed {error, limit, auth_retry},
@@ -395,7 +395,7 @@ impl Host {
 
 #[cfg(test)]
 pub mod fixtures {
-    //! runner/tests/fixtures/<harness>/*.jsonl, replayed here and by runner/tests/test_host_fixtures.py.
+    //! runner/tests/fixtures/<harness>/*.jsonl, replayed here.
     use std::path::PathBuf;
 
     use serde_json::Value;

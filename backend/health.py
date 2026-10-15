@@ -91,9 +91,9 @@ def _mail_key_exposed(c):
             if readiness_document(r["readiness_json"]).get("mail_key") == "exposed"]
 
 
-PUBLISH_WARNING = "GitHub history not published: "                     # runner/service.py PUBLISH_WARNING
-DENIED_WARNING = "Claude Code denies what AGENT.md asks for: "          # runner/service.py DENIED_WARNING
-DENIES_WARNING = "Claude Code settings deny: "                         # runner/service.py DENIES_WARNING
+PUBLISH_WARNING = "GitHub history not published: "                     # runner-rs/src/readiness_extra.rs
+DENIED_WARNING = "Claude Code denies what AGENT.md asks for: "          # runner-rs/src/readiness_extra.rs
+DENIES_WARNING = "Claude Code settings deny: "                         # runner-rs/src/readiness_extra.rs
 # GitHub writes a bot's access may allow: the command, and the `can` verbs (backend/bot_tools.py) that allow it.
 # Merging and reviewing are left out: denying them to a bot that opens pull requests is a policy (a person or
 # another bot merges; no bot approves its own work), not a leftover.
@@ -104,7 +104,7 @@ WRITE_VERBS = {"write", "pull_requests", "issues"}
 
 
 def _unpublished(c):
-    """Bots whose local history the runner could not give a GitHub repository (runner/service.py `publish`)."""
+    """Bots whose local history the runner could not give a GitHub repository (runner-rs/src/execute.rs `publish`)."""
     return _reported(c, PUBLISH_WARNING)
 
 
@@ -561,7 +561,7 @@ _TOKEN_CACHE = {}   # (database, threshold) -> (monotonic time, answer)
 
 def _token_heavy(c, threshold):
     """(bot, tokens) for bots whose uncached input tokens passed `threshold` in the last day. A run records
-    `input_tokens` without its cache reads (runner/usage.py), so cache reads, which are cheap, do not count.
+    `input_tokens` without its cache reads (runner-rs/src/execute.rs), so cache reads, which are cheap, do not count.
     Both halves filter on `turns.started` (indexed) before summing; the sum still visits every turn of the day
     (about 90 ms at 30,000 turns), so one answer serves every tab's Health poll for five minutes."""
     if not threshold or threshold <= 0:

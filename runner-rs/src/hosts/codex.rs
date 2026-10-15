@@ -1,4 +1,4 @@
-//! The Codex host (`runner/hosts/codex.py`): one `codex app-server` process over stdio, newline-delimited
+//! The Codex host: one `codex app-server` process over stdio, newline-delimited
 //! JSON-RPC 2.0. The bot's environment is both the process's own and, through `shell_environment_policy`,
 //! what each thread's shell commands see; the operator's own MCP servers are stubbed so they start nothing.
 

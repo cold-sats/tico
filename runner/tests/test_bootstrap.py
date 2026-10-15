@@ -1,17 +1,11 @@
-"""First run: the runner sets the two bootstrap bots up from the catalog itself.
-
-The assistant is who the person talks to and BotOps sets every other chosen bot up, so neither
-can wait for a bot that does not exist yet. Everybody else stays missing until BotOps has run
-`hub bot create` in a turn, which is what `HUB_WORKSPACE` is in a turn's environment for.
+"""First run: the runner sets the two bootstrap bots up from the catalog (`python -m runner catalog`,
+runner/catalog_job.py).
 
 No CLI and no network: the cloud is a fake client, and the catalog is a temporary directory.
 """
-import tempfile
-import unittest
 from pathlib import Path
 
 from clients.tico import APIError
-from runner.service import Runner
 
 CONFIG = {"company_name": "Acme Ltd", "app_name": "Acme OS", "assistant_name": "Ada",
           "assistant_bot": "coo"}
@@ -22,8 +16,6 @@ ONBOARDING = {"names": CONFIG,
               "selected": {"seo": {"template": "specialist", "display_name": "Sam",
                                    "instructions": "# Sam\n\n## Owns\n- the blog\n"}},
               "completed": True}
-RUNTIMES = {"codex": {"installed": True, "authenticated": "ready", "detail": "", "models": [],
-                      "version": "codex 1.0", "controls": []}}
 AGENT = """# {{bot_name}}
 
 You are {{bot_name}} at {{company_name}}; {{app_name}} is where the work lives.
@@ -77,44 +69,6 @@ def entry(bot, template=None, runner_id="r1", **config):
     return row
 
 
-class Bootstrap(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name)
-        self.projects = self.root / "Companies/Acme"
-        self.projects.mkdir(parents=True)
-        self.catalog = catalog(self.root / "catalog")
-        self.client = FakeClient()
-        self.runner = self.service()
-
-    def service(self, client=None):
-        runner = Runner.__new__(Runner)
-        runner.config = {"url": "https://acme.test", "token": "t", "runner_id": "r1",
-                         "projects_dir": str(self.projects)}
-        runner.client = client or self.client
-        runner._names = None
-        return runner
-
-    def rows(self, *entries):
-        import os
-        os.environ["TICO_CATALOG_DIR"] = str(self.catalog)
-        self.addCleanup(os.environ.pop, "TICO_CATALOG_DIR", None)
-        return {row["bot"]: row for row in self.runner.preflight(list(entries), RUNTIMES)}
-
-    def test_only_the_machine_a_bot_is_assigned_to_writes_its_repository(self):
-        rows = self.rows(entry("coo", "assistant", runner_id="another-mac"), entry("botops", "botops", runner_id=None))
-        self.assertEqual(rows["coo"]["problems"], ["Missing bot repository or AGENT.md"])
-        self.assertFalse((self.projects / "bot-coo").exists())
-        self.assertFalse((self.projects / "bot-botops").exists())
-        # A starter first run created says `materialize`: its computer sets it up the moment it is placed.
-        # A bot BotOps builds from the same template stays missing until BotOps has.
-        rows = self.rows(entry("seo", "specialist", materialize=True), entry("helper", "specialist"))
-        self.assertTrue((self.projects / "bot-seo" / "AGENT.md").is_file())
-        self.assertEqual(rows["helper"]["problems"], ["Missing bot repository or AGENT.md"])
-        self.assertFalse((self.projects / "bot-helper").exists())
-
-
 def test_the_catalog_job_sets_a_bot_up_and_answers_on_stdout(tmp_path, monkeypatch):
     import io
     import json
@@ -132,25 +86,6 @@ def test_the_catalog_job_sets_a_bot_up_and_answers_on_stdout(tmp_path, monkeypat
     assert answer == {"coo": {"materialized": "materialized from catalog: assistant", "problem": ""},
                       "botops": {"changed": []}}
     assert "at Acme Ltd" in (path / "AGENT.md").read_text()
-
-
-if __name__ == "__main__":
-    unittest.main()
-
-
-def test_readiness_candidates_only_include_assigned_bots():
-    assigned = [{"bot": "ops", "runner_id": "this-computer", "config": {"runtime": "fake"}}]
-    eligible = [{"bot": "support", "config": {"runtime": "fake"}},
-                {"bot": "archived", "state": "archived", "config": {}},
-                {"bot": "ops", "config": {"runtime": "other"}}]
-    assert Runner.readiness_candidates(assigned, eligible) == assigned
-    assert Runner.readiness_candidates([], eligible) == []
-
-
-def test_an_archived_assignment_is_not_set_up_or_checked():
-    live = {"bot": "ops", "runner_id": "this-computer", "state": "active", "config": {"runtime": "fake"}}
-    gone = {"bot": "qa-old", "runner_id": "this-computer", "state": "archived", "config": {"runtime": "fake"}}
-    assert Runner.readiness_candidates([gone, live]) == [live]
 
 
 def test_the_catalog_is_parsed_again_only_when_a_card_changes(tmp_path, monkeypatch):

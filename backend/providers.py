@@ -20,7 +20,7 @@ KEY = "providers"
 # What a bot's config says when it has no opinion and follows the company default.
 DEFAULT = "default"
 
-# `runtime` is the host a runner starts (runner/hosts/<runtime>.py); `harness` names the tool
+# `runtime` is the host a runner starts (runner-rs/src/hosts/<runtime>.rs); `harness` names the tool
 # manifest that installs it (runner/harnesses/<harness>.toml). `login` is what the person types
 # on the runner's machine to sign that runtime in. Providers with no CLI of their own share the
 # catch-all runtime (`catch_all`): pi, reached with an OpenRouter API key.
@@ -116,7 +116,7 @@ MODEL_CATALOG = tuple(attach_harnesses(row) for row in (
      "efforts": ("low", "medium", "high", "xhigh", "max"), "default_effort": "high"},
     {"id": "muse-wonder-full-1.0", "label": "muse wonder full 1.0", "runtime": "musecode", "provider": "meta",
      "efforts": ("low", "medium", "high", "xhigh", "max"), "default_effort": "high"},
-    # Models with no CLI of their own run on pi through OpenRouter (runner/hosts/pi.py maps each
+    # Models with no CLI of their own run on pi through OpenRouter (runner-rs/src/hosts/pi.rs maps each
     # id here to its OpenRouter id). The `openrouter` provider serves all of them.
     {"id": "deepseek-v4.1-flash", "label": "deepseek v4.1 flash", "runtime": "pi",
      "provider": "deepseek", "recommended": True,
@@ -400,7 +400,7 @@ def default_fallbacks(record):
     """What a runner may run a turn on when the bot's own subscription hits its limit and the bot names no
     fallback: one model per enabled provider's runtime, in the owner's order (the company default on its own
     runtime, else the provider's recommended model). The runner takes the first other runtime signed in on
-    its computer (runner/service.py `default_fallback`). Empty when the owner turned it off."""
+    its computer (runner-rs/src/fallback.rs). Empty when the owner turned it off."""
     if not record["auto_fallback"]:
         return []
     rows, seen = [], set()
@@ -482,7 +482,7 @@ def default_runtime(record):
 
 def runtimes_run_on(c, settings):
     """{runner id: runtimes} the bots on each computer run on, each bot's own and its fallback's: what that computer
-    installs for them (runner/service.py harness_runtimes), so the owner cannot turn one off there."""
+    installs for them (runner-rs/src/commands.rs harness_runtimes), so the owner cannot turn one off there."""
     from .shared_bots import follow
     record, found = load(c, settings), {}
     for row in c.execute("SELECT a.runner_id, a.bot, bc.config_json FROM assignments a "

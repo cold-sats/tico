@@ -100,7 +100,7 @@ def record(c, who, bot, report):
                   "ON CONFLICT(bot,sha) DO UPDATE SET "
                   "attempt_id=CASE WHEN bot_memory_updates.attempt_id='' THEN excluded.attempt_id ELSE bot_memory_updates.attempt_id END,"
                   "shared=max(bot_memory_updates.shared,excluded.shared),"
-                  # The diff arrives once the commit is in the shared repository (runner/memory_history.py).
+                  # The diff arrives once the commit is in the shared repository (runner-rs/src/memory_history.rs).
                   "diff=CASE WHEN bot_memory_updates.diff='' THEN excluded.diff ELSE bot_memory_updates.diff END,"
                   "truncated=CASE WHEN bot_memory_updates.diff='' THEN excluded.truncated ELSE bot_memory_updates.truncated END",
                   (bot, commit.sha, commit.subject, commit.author, committed, json.dumps(files),

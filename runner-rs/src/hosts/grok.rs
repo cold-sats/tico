@@ -1,4 +1,4 @@
-//! The Grok Build host (`runner/hosts/grok.py`): one `grok agent stdio` process per bot, speaking ACP (JSON-RPC 2.0
+//! The Grok Build host: one `grok agent stdio` process per bot, speaking ACP (JSON-RPC 2.0
 //! over stdio). Model and reasoning effort are options on `grok agent`, before the `stdio` subcommand:
 //!
 //!     grok agent -m grok-4.6 --reasoning-effort high --always-approve --no-leader stdio

@@ -109,21 +109,6 @@ def test_the_connectors_job_writes_group_writable_files_only_in_the_two_user_lay
     assert mail_umask() == {}
 
 
-def test_every_isolated_turn_is_pointed_at_the_socket_and_a_plain_runner_is_not():
-    from types import SimpleNamespace
-    from runner.service import Runner as Service
-    registered = []
-    socket = SimpleNamespace(path="/run/tico-runner/git-credential.sock",
-                             register=lambda token, bot, boxes: registered.append((token, bot, list(boxes))))
-    for boxes in ([], ["ana@acme.team"]):
-        env = {}
-        arm = Service.arm_credentials(SimpleNamespace(credentials=socket), env, {"token": "t", "mailboxes": boxes}, "bot")
-        assert arm == socket.path and env[C.SOCKET_ENV] == socket.path
-    assert registered == [("t", "bot", []), ("t", "bot", ["ana@acme.team"])]
-    env = {}
-    assert Service.arm_credentials(SimpleNamespace(credentials=None), env, {"token": "t"}, "bot") is None and env == {}
-
-
 def previous_registration(tmp_path):
     import json
     config = {"runner_id": "new", "operator": "ana", "url": "https://tico.example.com", "environment": "team"}

@@ -1,5 +1,5 @@
-//! `runner.json`: the registration Python's `runner enroll` wrote. Read as a JSON object and written back
-//! with every key it holds, known or not, so a switch back to the Python runner loses nothing.
+//! `runner.json`: the registration `tico-runner enroll` (or an older `python -m runner enroll`) wrote. Read as a
+//! JSON object and written back with every key it holds, known or not, so nothing another version wrote is lost.
 
 use std::fs;
 use std::io::Write;
@@ -83,7 +83,7 @@ const MAX_AUTO_TURNS: usize = 64;
 /// The most the server accepts.
 pub const MAX_TURNS: usize = 256;
 
-/// How many turns run at once (`runner/service.py` machine_capacity): a number as written, up to MAX_TURNS; missing
+/// How many turns run at once (machine_capacity): a number as written, up to MAX_TURNS; missing
 /// or "auto" is sized to the machine, TURNS_PER_CPU per core as memory allows (TURNS_PER_GB), 4 to MAX_AUTO_TURNS.
 pub fn machine_capacity(configured: Option<&Value>) -> usize {
     let set = match configured {

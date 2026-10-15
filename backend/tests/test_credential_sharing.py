@@ -15,7 +15,6 @@ from backend.tests.test_botops_parity import act, everything
 from backend.tests.test_credentials import FakeKMS
 from backend.tests.test_mcp import call as mcp
 from backend.tests.test_member_bots import botops, finish, turn  # noqa: F401  (fixture)
-from backend.tests.test_runner import live  # noqa: F401  (fixture)
 
 JIRA = "jira-basic-auth-synthetic-fixture-0123456789"
 
@@ -159,110 +158,87 @@ def test_botops_grants_a_bot_at_once_for_an_admin_and_refuses_a_member_without_a
 
 
 # ------------------------------------------------------------------ moving a bot's own secrets file into the vault
+def computer_reads(api, machine, values):
+    """What the computer does for each import it is asked for (runner-rs/src/credential_imports.rs): the value from
+    the bot's own secrets file, or why not."""
+    for item in get(api, "runner-credential-imports", machine["token"])["imports"]:
+        value = values.get(item["env"])
+        body = {"value": value} if value else {"error": f"{item['env']} is not in that bot's secrets file on this computer"}
+        post(api, f"runner-credential-imports/{item['id']}/report", body, machine["token"])
+
+
 def test_a_bots_own_secret_moves_into_the_vault_over_its_computer_and_is_then_shared_and_reaches_only_the_grantee(
-        api, botops, live, tmp_path, capsys):
-    from runner.service import Runner
+        api, botops):
     local(api)
     machine = runner(api, label="Jira Mac")
     assign(api, machine, "finance")
     assign(api, machine, "ops")
     ready(api, machine, ["finance", "ops"])
-    secrets = tmp_path / "secrets"
-    secrets.mkdir()
-    (secrets / "finance.env").write_text(f"# Jira\nJIRA_BASIC_AUTH={JIRA}\nOTHER_KEY=not-asked-for-synthetic\n")
-    (secrets / "ops.env").write_text("OPS_ONLY_KEY=ops-own-synthetic\n")
-    (secrets / "_shared.env").write_text("SHARED_KEY=shared-synthetic\n")
-    service = Runner({"url": live, "token": machine["token"], "projects_dir": str(tmp_path)}, tmp_path / "state",
-                     host_factory=lambda attempt, env: None)
-    try:
-        # Only a credential administrator asks, and never for a name the computer or Tico itself uses.
-        post(api, "credential-imports", {"env": "JIRA_BASIC_AUTH", "bot": "finance"}, "cara-test", expected=403)
-        post(api, "credential-imports", {"env": "HUB_TOKEN", "bot": "finance"}, "ana-test", expected=422)
-        post(api, "credential-imports", {"env": "JIRA_BASIC_AUTH", "bot": "doc-updater"}, "ana-test", expected=409)        # on no computer
-        token = post(api, "me/tokens", {"label": "QA credential admin"}, "ben-test")["token"]
-        err, requested = mcp(api, "hub_credential_import", {"env": "JIRA_BASIC_AUTH", "from_bot": "finance", "wait": 0}, token=token)
-        assert not err and requested["state"] == "waiting" and JIRA not in json.dumps(requested)
-        asked = post(api, "credential-imports", {"env": "JIRA_BASIC_AUTH", "bot": "finance"}, token)
-        assert asked["state"] == "requested" and JIRA not in json.dumps(asked)
-        assert post(api, "credential-imports", {"env": "JIRA_BASIC_AUTH", "bot": "finance"}, "ben-test")["id"] == asked["id"]
-        assert get(api, "runner-credential-imports", machine["token"])["imports"] == [{"id": asked["id"], "bot": "finance", "env": "JIRA_BASIC_AUTH"}]
-        other = runner(api, label="Another Mac")
-        assert get(api, "runner-credential-imports", other["token"])["imports"] == []       # the bot is not on that computer
-        post(api, f"runner-credential-imports/{asked['id']}/report", {"error": "x"}, other["token"], expected=404)
-        service.poll_credential_imports()
-        done = get(api, f"credential-imports/{asked['id']}", "ben-test")
-        assert done["state"] == "done" and done["credential_id"], done
-        get(api, f"credential-imports/{asked['id']}", "cara-test", expected=404)
-        # Stored encrypted for that bot alone, the file untouched, and the value nowhere it should not be.
-        assert JIRA not in everything(api) and JIRA not in json.dumps(get(api, "credentials"))
-        out = capsys.readouterr()
-        assert JIRA not in out.out + out.err
-        assert f"JIRA_BASIC_AUTH={JIRA}" in (secrets / "finance.env").read_text()
-        listing = get(api, "credentials")["credentials"]
-        assert [(c["name"], c["env"], [g["subject"] for g in c["grants"]]) for c in listing] == [("JIRA_BASIC_AUTH", "JIRA_BASIC_AUTH", ["bot:finance"])]
-        assert post(api, f"credentials/{done['credential_id']}/reveal", {})["value"] == JIRA
-        # A name that is not in that bot's own file (another bot's, or _shared.env's) is not found there.
-        for env in ("OPS_ONLY_KEY", "SHARED_KEY"):
-            missing = post(api, "credential-imports", {"env": env, "bot": "finance"}, "ana-test")
-            service._polled.pop("imports", None)
-            service.poll_credential_imports()
-            failed = get(api, f"credential-imports/{missing['id']}", "ana-test")
-            assert failed["state"] == "failed" and "secrets file" in failed["message"], failed
-        # Now BotOps, as Ana, gives it to ops; ops's run has it as its variable and finance's own file is what it was.
-        ana = turn(api, botops, person="ana-test", text="Grant ops the Jira credential finance has")
-        err, granted = mcp(api, "hub_credential_grant", {"credential": "JIRA_BASIC_AUTH", "to_bot": "ops"}, token=ana["token"])
-        assert not err, granted
-        finish(api, botops, ana)
-        post(api, "chat/ops", {"text": "Check Jira"})
-        ops_run = claim(api, machine, "ops")
-        assert ops_run["credential_vault"] is True
-        env = service.environment(ops_run)
-        assert env["JIRA_BASIC_AUTH"] == JIRA and "OPS_ONLY_KEY" not in env and "OTHER_KEY" not in env
-        assert service.vault_values[ops_run["id"]] == [JIRA]
-        # Only grants reach a run; old files are no longer a fallback.
-        assert "OPS_ONLY_KEY" not in service.credential_environment("ops", {})
-        assert "JIRA_BASIC_AUTH" not in service.credential_environment("ops", {})
-        assert "JIRA_BASIC_AUTH" not in service.credential_environment("doc-updater", {})
-        assert "JIRA_BASIC_AUTH" not in service.credential_environment("finance", {})
-    finally:
-        service.pool.shutdown()
+    # Only a credential administrator asks, and never for a name the computer or Tico itself uses.
+    post(api, "credential-imports", {"env": "JIRA_BASIC_AUTH", "bot": "finance"}, "cara-test", expected=403)
+    post(api, "credential-imports", {"env": "HUB_TOKEN", "bot": "finance"}, "ana-test", expected=422)
+    post(api, "credential-imports", {"env": "JIRA_BASIC_AUTH", "bot": "doc-updater"}, "ana-test", expected=409)        # on no computer
+    token = post(api, "me/tokens", {"label": "QA credential admin"}, "ben-test")["token"]
+    err, requested = mcp(api, "hub_credential_import", {"env": "JIRA_BASIC_AUTH", "from_bot": "finance", "wait": 0}, token=token)
+    assert not err and requested["state"] == "waiting" and JIRA not in json.dumps(requested)
+    asked = post(api, "credential-imports", {"env": "JIRA_BASIC_AUTH", "bot": "finance"}, token)
+    assert asked["state"] == "requested" and JIRA not in json.dumps(asked)
+    assert post(api, "credential-imports", {"env": "JIRA_BASIC_AUTH", "bot": "finance"}, "ben-test")["id"] == asked["id"]
+    assert get(api, "runner-credential-imports", machine["token"])["imports"] == [{"id": asked["id"], "bot": "finance", "env": "JIRA_BASIC_AUTH"}]
+    other = runner(api, label="Another Mac")
+    assert get(api, "runner-credential-imports", other["token"])["imports"] == []       # the bot is not on that computer
+    post(api, f"runner-credential-imports/{asked['id']}/report", {"error": "x"}, other["token"], expected=404)
+    computer_reads(api, machine, {"JIRA_BASIC_AUTH": JIRA})
+    done = get(api, f"credential-imports/{asked['id']}", "ben-test")
+    assert done["state"] == "done" and done["credential_id"], done
+    get(api, f"credential-imports/{asked['id']}", "cara-test", expected=404)
+    # Stored encrypted for that bot alone, and the value nowhere it should not be.
+    assert JIRA not in everything(api) and JIRA not in json.dumps(get(api, "credentials"))
+    listing = get(api, "credentials")["credentials"]
+    assert [(c["name"], c["env"], [g["subject"] for g in c["grants"]]) for c in listing] == [("JIRA_BASIC_AUTH", "JIRA_BASIC_AUTH", ["bot:finance"])]
+    assert post(api, f"credentials/{done['credential_id']}/reveal", {})["value"] == JIRA
+    # A name that is not in that bot's own file is a failure that says so.
+    missing = post(api, "credential-imports", {"env": "OPS_ONLY_KEY", "bot": "finance"}, "ana-test")
+    computer_reads(api, machine, {})
+    failed = get(api, f"credential-imports/{missing['id']}", "ana-test")
+    assert failed["state"] == "failed" and "secrets file" in failed["message"], failed
+    # Now BotOps, as Ana, gives it to ops; ops's run gets it as its variable.
+    ana = turn(api, botops, person="ana-test", text="Grant ops the Jira credential finance has")
+    err, granted = mcp(api, "hub_credential_grant", {"credential": "JIRA_BASIC_AUTH", "to_bot": "ops"}, token=ana["token"])
+    assert not err, granted
+    finish(api, botops, ana)
+    post(api, "chat/ops", {"text": "Check Jira"})
+    ops_run = claim(api, machine, "ops")
+    assert ops_run["credential_vault"] is True
+    granted = get(api, "credential-runtime", ops_run["token"])["credentials"]
+    assert [(c["env"], c["value"]) for c in granted] == [("JIRA_BASIC_AUTH", JIRA)]
 
 
 @pytest.mark.slow
-def test_the_import_tool_asks_as_the_requester_and_waits_for_the_computer(api, botops, live, tmp_path):
-    from runner.service import Runner
+def test_the_import_tool_asks_as_the_requester_and_waits_for_the_computer(api, botops):
     local(api)
     machine = runner(api, label="Jira Mac")
     assign(api, machine, "finance")
     ready(api, machine, ["finance"])
-    (tmp_path / "secrets").mkdir()
-    (tmp_path / "secrets" / "finance.env").write_text(f"JIRA_BASIC_AUTH={JIRA}\n")
-    service = Runner({"url": live, "token": machine["token"], "projects_dir": str(tmp_path)}, tmp_path / "state",
-                     host_factory=lambda attempt, env: None)
-    try:
-        ana = turn(api, botops, person="ana-test", text="Move finance's Jira credential into Credentials")
-        err, waiting = mcp(api, "hub_credential_import", {"env": "JIRA_BASIC_AUTH", "from_bot": "finance", "wait": 0}, token=ana["token"])
-        assert not err and waiting["state"] == "waiting" and JIRA not in json.dumps(waiting), waiting
-        service.poll_credential_imports()
-        listing = get(api, "credentials")["credentials"]
-        assert [g["subject"] for g in listing[0]["grants"]] == ["bot:finance"]
-        with api.app.state.store.read() as c:
-            event = c.execute("SELECT actor,detail_json FROM events WHERE action='credential.import_requested'").fetchone()
-            assert event["actor"] == "human:ana" and '"via": "botops"' in event["detail_json"]
-        # A variable that is not in the file is a plain failure the tool reports, not a wait.
-        (tmp_path / "secrets" / "finance.env").write_text("SOMETHING_ELSE=x\n")
-        service._polled.pop("imports", None)
-        err, still = mcp(api, "hub_credential_import", {"env": "MISSING_KEY", "from_bot": "finance", "wait": 0}, token=ana["token"])
-        assert not err and still["state"] == "waiting"
-        service.poll_credential_imports()
-        with api.app.state.store.read() as c:
-            failed = c.execute("SELECT state,message FROM credential_imports WHERE env='MISSING_KEY'").fetchone()
-        assert failed["state"] == "failed" and "not in that bot's secrets file" in failed["message"]
-        err, again = mcp(api, "hub_credential_import", {"env": "MISSING_KEY", "from_bot": "finance", "wait": 0}, token=ana["token"])
-        assert not err and again["state"] == "waiting"            # asking again is a new request, not a stale answer
-        assert JIRA not in everything(api)
-    finally:
-        service.pool.shutdown()
+    ana = turn(api, botops, person="ana-test", text="Move finance's Jira credential into Credentials")
+    err, waiting = mcp(api, "hub_credential_import", {"env": "JIRA_BASIC_AUTH", "from_bot": "finance", "wait": 0}, token=ana["token"])
+    assert not err and waiting["state"] == "waiting" and JIRA not in json.dumps(waiting), waiting
+    computer_reads(api, machine, {"JIRA_BASIC_AUTH": JIRA})
+    listing = get(api, "credentials")["credentials"]
+    assert [g["subject"] for g in listing[0]["grants"]] == ["bot:finance"]
+    with api.app.state.store.read() as c:
+        event = c.execute("SELECT actor,detail_json FROM events WHERE action='credential.import_requested'").fetchone()
+        assert event["actor"] == "human:ana" and '"via": "botops"' in event["detail_json"]
+    # A variable that is not in the file is a plain failure the tool reports, not a wait.
+    err, still = mcp(api, "hub_credential_import", {"env": "MISSING_KEY", "from_bot": "finance", "wait": 0}, token=ana["token"])
+    assert not err and still["state"] == "waiting"
+    computer_reads(api, machine, {})
+    with api.app.state.store.read() as c:
+        failed = c.execute("SELECT state,message FROM credential_imports WHERE env='MISSING_KEY'").fetchone()
+    assert failed["state"] == "failed" and "not in that bot's secrets file" in failed["message"]
+    err, again = mcp(api, "hub_credential_import", {"env": "MISSING_KEY", "from_bot": "finance", "wait": 0}, token=ana["token"])
+    assert not err and again["state"] == "waiting"            # asking again is a new request, not a stale answer
+    assert JIRA not in everything(api)
 
 
 # ------------------------------------------------------------------ readiness counts a vault grant

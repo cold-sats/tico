@@ -220,7 +220,7 @@ TRIGGERS = [
 # A runner used to ask a dozen endpoints on timers whether anything was new for it, and almost
 # every answer was no. The same log now carries `runner` rows: one per computer a write concerns,
 # its id as the subject, naming which of the computer's reads to repeat. A row carries a kind and
-# at most a bot slug, never a value (`GET /api/v2/runners/me/events`, runner/runner_events.py).
+# at most a bot slug, never a value (`GET /api/v2/runners/me/events`, runner-rs/src/events.rs).
 RUNNER_KINDS = ("work", "assignments", "credentials", "config", "repositories", "worktrees", "restart",
                 "logins", "harness_actions", "credential_imports", "subscription_refresh")
 _BOT_RUNNER = "SELECT runner_id AS rid FROM assignments WHERE bot={bot}"

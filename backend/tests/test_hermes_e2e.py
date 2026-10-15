@@ -22,7 +22,7 @@ import pytest
 from backend.tests.test_api import api, assign, claim, get, headers, post, ready, runner  # noqa: F401
 from backend.tests.test_botops_parity import act
 from backend.tests.test_member_bots import botops, turn  # noqa: F401
-from backend.tests.test_runner import live  # noqa: F401
+from backend.tests.live import live  # noqa: F401
 from clients import hermes_agent as H
 
 REAL_RUN, REAL_SLEEP, REAL_WHICH = subprocess.run, time.sleep, H.shutil.which

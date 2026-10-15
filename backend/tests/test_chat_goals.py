@@ -4,10 +4,6 @@ import pytest
 
 from backend.store import H, encode
 from backend.tests.test_api import api, assign, claim, get, post, ready, runner, restrict  # noqa: F401
-from backend.tests.test_runner import live  # noqa: F401
-from runner import goals
-from runner.hosts.fake import FakeHost
-from runner.service import Runner
 
 
 def setup(api, supported=True, runtime='codex'):
@@ -29,7 +25,16 @@ def action(api, cid, name='set', objective=None, **kwargs):
         **({'objective': objective} if objective is not None else {})}, **kwargs)
 
 
-def test_goal_roundtrip_from_real_http_runner_and_completion_notice(api, live, tmp_path):
+def goal_event(api, machine, attempt, status, note='', started=True):
+    """What the runner reports when the harness says the attempt's goal changed (runner-rs/src/goals.rs)."""
+    goal = attempt['chat_goal']
+    if started:
+        post(api, f"attempts/{attempt['id']}/started", {'thread_id': 'fake-thread'}, machine['token'])
+    payload = {'goal_id': goal['id'], 'revision': goal['updated_at'], 'status': status, 'note': note}
+    post(api, f"attempts/{attempt['id']}/events", {'events': [{'seq': 1, 'kind': 'goal', 'payload': payload}]}, machine['token'])
+
+
+def test_a_met_goal_leaves_one_notice_that_wakes_nobody(api):
     machine, cid = setup(api)
     goal = action(api, cid, objective='Produce the Acme summary')['goal']
     assert goal['status'] == 'active' and goal['set_by'] == 'human:ana'
@@ -38,32 +43,14 @@ def test_goal_roundtrip_from_real_http_runner_and_completion_notice(api, live, t
     assert [c['name'] for c in shown['commands'] if c['kind'] == 'harness'] == ['compact', 'docs:publish']   # its repo's own
     assert next(b for b in get(api, 'bots') if b['slug'] == 'ops')['goal_active'] is True
     assert get(api, f'conversations/{cid}/snapshot')['goal'] == goal
-
-    class GoalHost(FakeHost):
-        def start_goal(self, thread, action, objective, effort=None):
-            turn = super().start_goal(thread, action, objective, effort)
-            self.goal_met(thread)
-            return turn
-    hosts = []
-    def factory(*args):
-        host = GoalHost(replies=['The summary is ready.'])
-        hosts.append(host)
-        return host
-    service = Runner({'url': live, 'token': machine['token'], 'projects_dir': str(tmp_path)},
-                     tmp_path / 'runner', host_factory=factory, push=lambda *a, **k: None)
-    try:
-        service.execute(claim(api, machine))
-        met = get(api, f'conversations/{cid}/goal')['goal']
-        assert met['status'] == 'met' and met['ended_at'] and met['note'] == 'The condition holds.'
-        assert hosts[0].prompts[0][1] == '/goal ' + goals.native_objective('Produce the Acme summary')
-        messages = get(api, f'conversations/{cid}/messages')
-        notices = [m for m in messages if m['refs'].get('goal_status') == 'met']
-        assert len(notices) == 1 and notices[0]['body'].startswith('Goal met: ')
-        assert next(b for b in get(api, 'bots') if b['slug'] == 'ops')['goal_active'] is False
-        with api.app.state.store.read() as c:
-            assert not c.execute('SELECT 1 FROM jobs WHERE message_id=?', (notices[0]['id'],)).fetchone()
-    finally:
-        service.pool.shutdown()
+    goal_event(api, machine, claim(api, machine), 'met', 'The condition holds.')
+    met = get(api, f'conversations/{cid}/goal')['goal']
+    assert met['status'] == 'met' and met['ended_at'] and met['note'] == 'The condition holds.'
+    notices = [m for m in get(api, f'conversations/{cid}/messages') if m['refs'].get('goal_status') == 'met']
+    assert len(notices) == 1 and notices[0]['body'].startswith('Goal met: ')
+    assert next(b for b in get(api, 'bots') if b['slug'] == 'ops')['goal_active'] is False
+    with api.app.state.store.read() as c:
+        assert not c.execute('SELECT 1 FROM jobs WHERE message_id=?', (notices[0]['id'],)).fetchone()
 
 
 def test_pause_resume_edit_clear_and_command_payload(api):
@@ -141,101 +128,7 @@ def test_goal_migration_numbers_and_idempotency(api):
     assert hubdb.MIGRATIONS[15] == SCHEMA
 
 
-@pytest.mark.slow
-def test_superseded_leased_control_never_sets_the_old_native_goal(api, live, tmp_path):
-    machine, cid = setup(api)
-    action(api, cid, objective='Old Acme summary')
-    leased = claim(api, machine)
-    newer = action(api, cid, 'edit', 'New Acme summary')['goal']
-    host = FakeHost()
-    service = Runner({'url': live, 'token': machine['token'], 'projects_dir': str(tmp_path)},
-                     tmp_path / 'runner', host_factory=lambda *a: host, push=lambda *a, **k: None)
-    try:
-        service.execute(leased)
-        assert host.prompts == []
-        assert get(api, f'conversations/{cid}/goal')['goal'] == newer
-        assert claim(api, machine)['message']['body'] == '/goal New Acme summary'
-    finally:
-        service.pool.shutdown()
-
-
-def test_resume_no_goal_snapshot_does_not_cancel_new_goal(api, live, tmp_path):
-    """Reproduce cloud receipts: cleared resume snapshot, active set, work, met."""
-    machine, cid = setup(api)
-    goal = action(api, cid, objective='Produce the Acme summary')['goal']
-    class SnapshotHost(FakeHost):
-        def request(self, method, params):
-            assert method == 'thread/goal/get'
-            assert params == {'threadId': self.prompts[0][0]}
-            return {'goal': {'objective': goal['objective'], 'status': 'active'}}
-        def start_goal(self, thread, action, objective, effort=None):
-            self.emit('goal', thread, None, status='cleared', note='')
-            turn = super().start_goal(thread, action, objective, effort)
-            self.goal_met(thread)
-            return turn
-    service = Runner({'url': live, 'token': machine['token'], 'projects_dir': str(tmp_path)},
-                     tmp_path / 'runner', host_factory=lambda *args: SnapshotHost(replies=['Done.']),
-                     push=lambda *a, **k: None)
-    try:
-        service.execute(claim(api, machine))
-        actual = get(api, f'conversations/{cid}/goal')['goal']
-        assert actual['status'] == 'met'
-        notices = get(api, f'conversations/{cid}/messages')
-        assert not [m for m in notices if m['refs'].get('goal_status') == 'stopped']
-        assert len([m for m in notices if m['refs'].get('goal_status') == 'met']) == 1
-    finally:
-        service.pool.shutdown()
-
-
-def test_real_native_clear_still_stops_active_goal(api, live, tmp_path):
-    machine, cid = setup(api)
-    action(api, cid, objective='Acme summary')
-    class ClearHost(FakeHost):
-        def request(self, method, params):
-            assert method == 'thread/goal/get'
-            return {'goal': None}
-        def start_goal(self, thread, action, objective, effort=None):
-            self.emit('goal', thread, None, status='active', objective=objective)
-            self.emit('goal', thread, None, status='cleared', note='')
-            return self.start_turn(thread, objective, effort)
-    service = Runner({'url': live, 'token': machine['token'], 'projects_dir': str(tmp_path)},
-                     tmp_path / 'runner', host_factory=lambda *args: ClearHost(replies=['Stopped.']),
-                     push=lambda *a, **k: None)
-    try:
-        service.execute(claim(api, machine))
-        actual = get(api, f'conversations/{cid}/goal')['goal']
-        assert actual['status'] == 'stopped' and actual['note'] == 'The harness cleared the goal'
-    finally:
-        service.pool.shutdown()
-
-
-def test_a_clear_after_met_is_not_checked_again(api, live, tmp_path):
-    """Once the goal is met the run stops asking the harness, so a later clear is not read back as a second "met"."""
-    machine, cid = setup(api)
-    action(api, cid, objective='Acme summary')
-    asked = []
-    class MetThenClearHost(FakeHost):
-        def request(self, method, params):
-            asked.append(method)
-            return {'goal': {'objective': 'Acme summary', 'status': 'complete'}}
-        def start_goal(self, thread, action, objective, effort=None):
-            turn = super().start_goal(thread, action, objective, effort)
-            self.goal_met(thread)
-            self.emit('goal', thread, None, status='cleared', note='')
-            return turn
-    service = Runner({'url': live, 'token': machine['token'], 'projects_dir': str(tmp_path)},
-                     tmp_path / 'runner', host_factory=lambda *args: MetThenClearHost(replies=['Done.']),
-                     push=lambda *a, **k: None)
-    try:
-        service.execute(claim(api, machine))
-        assert asked == []
-        notices = get(api, f'conversations/{cid}/messages')
-        assert len([m for m in notices if m['refs'].get('goal_status') == 'met']) == 1
-    finally:
-        service.pool.shutdown()
-
-
-def test_a_task_goal_runs_natively_beside_the_task_prompt_and_meeting_it_marks_the_task_done(api, live, tmp_path):
+def test_a_task_goal_is_set_by_the_keeper_and_meeting_it_marks_the_task_done(api):
     machine = runner(api)
     assign(api, machine, 'ops')
     with api.app.state.store.transaction() as c:
@@ -250,23 +143,7 @@ def test_a_task_goal_runs_natively_beside_the_task_prompt_and_meeting_it_marks_t
     assert goal['status'] == 'active' and goal['set_by'] == 'keeper' and attempt['task']['goal']['goal_id'] == goal['id']
     assert goal['conversation_id'] == task['conversation_id'] and 'The summary is in Docs' in goal['objective']
 
-    class GoalHost(FakeHost):
-        def start_goal_turn(self, thread, objective, text, effort=None):
-            turn = super().start_goal_turn(thread, objective, text, effort)
-            self.goal_met(thread, 'The summary is in Docs.')
-            return turn
-    hosts = []
-    def factory(*args):
-        hosts.append(GoalHost(replies=['Published.']))
-        return hosts[-1]
-    service = Runner({'url': live, 'token': machine['token'], 'projects_dir': str(tmp_path)},
-                     tmp_path / 'runner', host_factory=factory, push=lambda *a, **k: None)
-    try:
-        service.execute(attempt)
-    finally:
-        service.pool.shutdown()
-    (thread, objective, text), = hosts[0].goal_turns
-    assert objective == goals.native_objective(goal['objective']) and 'Publish the Acme summary' in text
+    goal_event(api, machine, attempt, 'met', 'The summary is in Docs.')
     assert get(api, f"conversations/{task['conversation_id']}/goal")['goal']['status'] == 'met'
     done = get(api, 'tasks/' + task['id'])['task']
     assert done['status'] == 'done' and done['note'] == 'The summary is in Docs.'
@@ -283,22 +160,13 @@ def task_goal_world(api):
     return machine, post(api, 'tasks', {'owner': 'ops', 'title': 'Publish the Acme summary', 'body': 'For the board.'})
 
 
-def test_turning_a_task_goal_off_clears_it_natively_and_a_persons_goal_never_completes_the_task(api, live, tmp_path):
+def test_turning_a_task_goal_off_clears_it_natively_and_a_persons_goal_never_completes_the_task(api):
     from backend import chat_goals
     machine, task = task_goal_world(api)
     first = claim(api, machine)
     assert first['chat_goal']['status'] == 'active'
-    class PausingHost(FakeHost):         # Codex blocked on a person: the goal pauses and the turn ends
-        def start_goal_turn(self, thread, objective, text, effort=None):
-            turn = super().start_goal_turn(thread, objective, text, effort)
-            self.emit('goal', thread, None, status='paused', note='Waiting on: Ana')
-            return turn
-    service = Runner({'url': live, 'token': machine['token'], 'projects_dir': str(tmp_path)},
-                     tmp_path / 'runner', host_factory=lambda *a: PausingHost(replies=['Working on it.']), push=lambda *a, **k: None)
-    try:
-        service.execute(first)
-    finally:
-        service.pool.shutdown()
+    goal_event(api, machine, first, 'paused', 'Waiting on: Ana')      # Codex blocked on a person: the goal pauses
+    post(api, f"attempts/{first['id']}/complete", {'outcome': 'completed', 'last_seq': 1}, machine['token'])
     with api.app.state.store.transaction() as c:
         c.execute('UPDATE bot_config SET config_json=? WHERE bot=?', (encode({'runtime': 'codex'}), 'ops'))
         H.task_comment(c, 'human:ana', task['id'], 'Use the new numbers.')
@@ -317,41 +185,15 @@ def test_turning_a_task_goal_off_clears_it_natively_and_a_persons_goal_never_com
         assert H.task(c, task['id'])['status'] != 'done'
 
 
-def run_task_goal(api, live, tmp_path, machine, judged, reply, during=None):
-    class JudgedHost(FakeHost):
-        def start_goal_turn(self, thread, objective, text, effort=None):
-            turn = super().start_goal_turn(thread, objective, text, effort)
-            if during:
-                during()
-            self.goal_met(thread, judged)
-            return turn
-    service = Runner({'url': live, 'token': machine['token'], 'projects_dir': str(tmp_path)}, tmp_path / 'runner',
-                     host_factory=lambda *a: JudgedHost(replies=[reply]), push=lambda *a, **k: None)
-    try:
-        service.execute(claim(api, machine))
-    finally:
-        service.pool.shutdown()
-
-
-def test_a_done_tasks_goal_is_met_even_when_the_bot_signs_off_waiting(api, live, tmp_path):
+def test_a_done_tasks_goal_is_met_even_when_the_bot_signs_off_waiting(api):
     machine, task = task_goal_world(api)
-    def mark_done():                      # the bot marks its task done, then says what it waits on elsewhere
-        with api.app.state.store.transaction() as c:
-            H.task_update(c, 'bot:ops', task['id'], status='done', note='Published.')
-    run_task_goal(api, live, tmp_path, machine, 'The task is done.',
-                  'Published.\n\nWaiting on: Ana to "close" it.', during=mark_done)
+    attempt = claim(api, machine)
+    with api.app.state.store.transaction() as c:    # the bot marks its task done, then says what it waits on elsewhere
+        H.task_update(c, 'bot:ops', task['id'], status='done', note='Published.')
+    goal_event(api, machine, attempt, 'paused', 'Waiting on: Ana to "close" it.')
     goal = get(api, f"conversations/{task['conversation_id']}/goal")['goal']
     assert goal['status'] == 'met' and goal['note'] == 'Waiting on: Ana to "close" it.'
     assert get(api, 'tasks/' + task['id'])['task']['status'] == 'done'
-
-
-def test_an_open_tasks_goal_pauses_on_the_bots_whole_waiting_line(api, live, tmp_path):
-    machine, task = task_goal_world(api)
-    run_task_goal(api, live, tmp_path, machine, 'It says \\"Waiting on: Ana\'s \\"yes',
-                  'Drafted.\n\nWaiting on: Ana\'s "yes" on the draft.')
-    goal = get(api, f"conversations/{task['conversation_id']}/goal")['goal']
-    assert goal['status'] == 'paused' and goal['note'] == 'Waiting on: Ana\'s "yes" on the draft.'
-    assert get(api, 'tasks/' + task['id'])['task']['status'] not in ('done', 'closed')
 
 
 def test_a_persons_clear_of_a_task_goal_stands_while_task_goals_stay_on(api):

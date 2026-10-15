@@ -1,7 +1,7 @@
 """A stand-in for the Pi coding agent (`pi`), for the runner conformance suite (runner/tests/test_conformance.py).
 
 `--version` answers as pi 0.70.0. `--mode json -p` reads the prompt from stdin and writes the JSON lines
-runner/hosts/pi.py reads (runner/tests/fixtures/pi/turn.jsonl): `session`, two text deltas, the assistant
+runner-rs/src/hosts/pi.rs reads (runner/tests/fixtures/pi/turn.jsonl): `session`, two text deltas, the assistant
 message's end with its usage, `turn_end` and `agent_end`. Every call is appended to $FAKE_LOG as one JSON line
 (argv, the prompt, the granted variables). A prompt containing HANG streams one delta and then waits, once per
 $FAKE_LOG, until its parent goes away."""

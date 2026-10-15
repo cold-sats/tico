@@ -9,7 +9,7 @@ their own personal token. A bot, BotOps (in its own run or acting for a person) 
 
 No row means no person has decided yet: sending without approval is off (docs/mail.md, "Turning sending on").
 Each bot's computer reports what its bot.yaml asks (`mail_request` in the readiness report,
-runner/declared_access.py); Health raises an alert when it asks for more than a person approved, and a person may
+runner-rs/src/declared_access.rs); Health raises an alert when it asks for more than a person approved, and a person may
 take exactly that request with `from_request` once they have read it.
 """
 

@@ -215,7 +215,7 @@ async function enrollmentDownload(operator, label) {
 // One chip per AI tool on a computer: its version and whether it is signed in, from the computer's readiness
 // (`harnesses` per tool, `runtimes` per runtime; an older runner sends only `runtimes`). Only what its bots use (with no bot
 // yet, the team's default), plus anything installed anyway. Codex, Claude Code and Muse Code sign in from here: the computer runs
-// the login as the bot user and relays only the link and one-time code (backend/model_login.py, runner/login.py).
+// the login as the bot user and relays only the link and one-time code (backend/model_login.py, runner-rs/src/login.rs).
 // The others have no login the computer can relay, so the chip says what to run there.
 const MACHINE_SIGNIN = ['codex', 'claude', 'musecode'];
 const MACHINE_LOGIN_COMMANDS = {grok: 'grok login', cursor: 'cursor-agent login'};   // backend/providers.py `login`
@@ -262,7 +262,7 @@ function renderSettingsMachines() {
     const online = !machine.revoked_at && machine.last_seen && Date.now() - new Date(machine.last_seen) < 60000;
     const tools = machineToolsHtml(machine, online);
     // The model CLIs the computer runs: version, pin, and the owner's Update / Pin actions. The
-    // computer applies them between turns (backend/harness_actions.py, runner/harness_tools.py).
+    // computer applies them between turns (backend/harness_actions.py, runner-rs/src/harness_tools.rs).
     // It installs what its bots run on by itself; the owner turns any other one on or off here.
     const choices = machine.harness_choices || {};
     // What its bots run on, fallbacks included, stays on (the server refuses an off for it); an older server sends

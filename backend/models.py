@@ -632,7 +632,7 @@ class Enrollment(Contract):
 
 
 class SlashCommand(Contract):
-    # A bot's own Claude Code skills and commands may use "_" and ":" (runner/goals.py, repo_commands).
+    # A bot's own Claude Code skills and commands may use "_" and ":" (runner-rs/src/goals.rs, repo_commands).
     name: str = Field(pattern=r"^[a-z0-9][a-z0-9_:-]{0,63}$")
     args: str = Field(default="", max_length=100)
     help: str = Field(default="", max_length=300)
@@ -702,7 +702,7 @@ class RuntimeReadiness(GoalReadiness):
 
 class McpReport(Contract):
     """The `mcp:` block of a tool as the runner reports it: the address, the transport and headers that hold only
-    `${VAR}` placeholders (runner/declared_access.py). `status` is the runner's own cheap check of the server; it is
+    `${VAR}` placeholders (runner-rs/src/declared_access.rs). `status` is the runner's own cheap check of the server; it is
     `unchecked` until that has run, or when the credential it needs is not on the computer."""
     url: str = Field(min_length=1, max_length=500)
     transport: Literal["http", "sse"] = "http"
@@ -712,7 +712,7 @@ class McpReport(Contract):
 
 
 class ToolAccess(Contract):
-    """One `access:` entry of a bot's employee.yaml as the runner reports it (runner/declared_access.py):
+    """One `access:` entry of a bot's employee.yaml as the runner reports it (runner-rs/src/declared_access.rs):
     names and verbs, never a value. `credential` is whether the variable is on the runner's computer."""
     service: str = Field(min_length=1, max_length=100)
     identity: str = Field(default="", max_length=300)
@@ -753,7 +753,7 @@ class ToolUpdate(Contract):
 
 
 class MailRequest(Contract):
-    """What a bot's bot.yaml asks for its mail (runner/declared_access.py `mail_request`): a request only. The
+    """What a bot's bot.yaml asks for its mail (runner-rs/src/declared_access.rs `mail_request`): a request only. The
     server-held setting (backend/mail_settings.py) decides; Health says when the two differ."""
     outbound_send: bool = False
     forward_to: list[Annotated[str, Field(max_length=320)]] = Field(default_factory=list, max_length=20)
@@ -803,7 +803,7 @@ class DiskReadiness(Contract):
 
 
 class ContainerExecReadiness(Contract):
-    """A throwaway container start on the computer (runner/container_probe.py)."""
+    """A throwaway container start on the computer (runner-rs/src/readiness_extra.rs)."""
     ok: StrictBool
     seconds: float = Field(ge=0, le=3600, allow_inf_nan=False)
     error: Annotated[str, BeforeValidator(lambda v: v[:300] if isinstance(v, str) else v), Field(max_length=300)] = ""
@@ -829,7 +829,7 @@ class StructuredReadiness(Contract):
     mail_key: Literal["exposed"] | None = None      # the mail key is where bots can read it (runner/mail_key.py)
     shared_env: Literal[True] | None = None         # secrets/_shared.env holds keys every bot there receives
     container_exec: ContainerExecReadiness | None = None
-    # A bot's GitHub App token asked GitHub who it is, and Playwright's Chromium started (runner/tool_probes.py).
+    # A bot's GitHub App token asked GitHub who it is, and Playwright's Chromium started (runner-rs/src/readiness_extra.rs).
     github_auth: ContainerExecReadiness | None = None
     browser_launch: ContainerExecReadiness | None = None
     engine: EngineReadiness | None = None
@@ -933,7 +933,7 @@ class Heartbeat(Contract):
     # Changed AGENT.md files for assigned bots. The runner sends each file on first heartbeat
     # and when it changes; the server keeps the last published copy for Messaging.
     agent_instructions: dict[str, str] = Field(default_factory=dict, max_length=100)
-    # The runner's own checkout against origin/main (runner/service.py `checkout_status`), #492.
+    # The runner's own checkout against origin/main (runner-rs/src/follow.rs), #492.
     checkout: "Checkout | None" = None
     # Which release the runner is on and how its self-update stands (backend/runner_versions.py).
     release: str | None = Field(default=None, max_length=100)
@@ -955,7 +955,7 @@ class Checkout(Contract):
     ahead: int = Field(ge=0, le=100_000)
     behind: int = Field(ge=0, le=100_000)
     checked_at: str = Field(max_length=40)
-    # Why the runner is not updating itself (runner/service.py self_update's note), when it is behind.
+    # Why the runner is not updating itself (runner-rs/src/follow.rs), when it is behind.
     blocked: str | None = Field(default=None, max_length=300)
 
 

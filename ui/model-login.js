@@ -1,4 +1,4 @@
-/* Sign a model in on a computer from the browser (backend/model_login.py, runner/login.py).
+/* Sign a model in on a computer from the browser (backend/model_login.py, runner-rs/src/login.rs).
    The dialog shows what the model's own CLI prints: a link and a one-time code, or a link and a
    field for the code the sign-in page hands back. This page never sees the resulting credential;
    the CLI keeps it on the computer, and the chip flips when the computer reports it is ready. */
@@ -43,7 +43,7 @@
     setTimeout(look, 1500);
   }
 
-  // `profile` signs in one of the computer's subscriptions (runner/profiles.py) instead of its default login.
+  // `profile` signs in one of the computer's subscriptions (runner-rs/src/profiles.rs) instead of its default login.
   function open({runnerId, runtime, machine, profile = ''}) {
     const base = `/v2/computers/${encodeURIComponent(runnerId)}/logins`;
     const name = (RUNTIME_NAMES[runtime] || runtime) + (profile ? ` · ${profile}` : '');

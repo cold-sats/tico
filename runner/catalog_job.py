@@ -31,7 +31,7 @@ FETCH_RETRY_S = 120         # how long a repository that could not be cloned is 
 
 
 class BotSetup:
-    """The built-in bot set-up a computer does itself: Runner's (runner/service.py) and `catalog`'s. Needs `config`,
+    """The built-in bot set-up a computer does itself (`python -m runner catalog`, for the Rust runner). Needs `config`,
     `client` and, for github_access without an entry, `assignments_seen`."""
     # This installation's names, read from the server on the first turn. A class default so a Runner built
     # with __new__ (`doctor`, tests) has one as well.

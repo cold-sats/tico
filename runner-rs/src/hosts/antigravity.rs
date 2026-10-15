@@ -1,4 +1,4 @@
-//! The Antigravity host (`runner/hosts/antigravity.py`): one persistent `agy` per Hub conversation, kept warm
+//! The Antigravity host: one persistent `agy` per Hub conversation, kept warm
 //! between turns by crate::warm. Each turn is one stream-json user line on stdin; the provider's conversation id
 //! is saved beside the stable thread id (`<home>/<thread>.json`), so a cold start resumes it with
 //! `--conversation`. A failed or interrupted turn is never replayed. `agy` runs in a session of its own and is

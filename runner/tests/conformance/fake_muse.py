@@ -1,7 +1,7 @@
 """A stand-in for Meta's `muse` CLI (Muse Code), for the runner conformance suite (runner/tests/test_conformance.py).
 
 `--version` answers as Muse Code 1.4.7 does; `exec --json` reads `--prompt-file` and writes the JSONL events
-runner/hosts/musecode.py reads (the shapes recorded in runner/tests/fixtures/musecode/echo.jsonl): two text
+runner-rs/src/hosts/musecode.rs reads (the shapes recorded in runner/tests/fixtures/musecode/echo.jsonl): two text
 deltas, one model completion's usage and a completed terminal with the final text. Every call is appended to
 $FAKE_LOG as one JSON line (argv, the prompt, the granted variables). A prompt containing HANG streams one delta
 and then waits, once per $FAKE_LOG, until its parent goes away."""

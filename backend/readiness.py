@@ -25,7 +25,7 @@ from .harnesses import EXTERNAL_HARNESSES, resolve_harness, runtime_of
 from .store import H, readiness_document
 
 ONLINE_SECONDS = 60
-# The runtimes whose sign-in is a key each bot holds as a Credential grant (runner/service.py runtime_readiness).
+# The runtimes whose sign-in is a key each bot holds as a Credential grant (runner-rs/src/readiness.rs runtime_readiness).
 BOT_KEYS = {"gemini": "GEMINI_API_KEY", "pi": "OPENROUTER_API_KEY"}
 SIGNED_OUT = ("missing", "failed", "rejected")
 
@@ -100,7 +100,7 @@ def can_run(c, bot, runtime, runner=None, harness="", model=""):
     if readiness.get("schema_version") != 1 or harness == "antigravity":
         return verdict(None, label + " does not report its AI tools; update it to check")
     if not state.get("installed"):
-        # A computer installs a bot's harness when the bot is put there (runner/harness_tools.py), so a harness it
+        # A computer installs a bot's harness when the bot is put there (runner-rs/src/harness_tools.rs), so a harness it
         # can install is no reason to refuse the move or the model: it says so while it installs.
         tool = next((t for t in (readiness.get("harnesses") or {}).values()
                      if isinstance(t, dict) and t.get("runtime") == runtime), None)

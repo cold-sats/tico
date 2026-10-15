@@ -1,4 +1,4 @@
-//! The environment a turn runs in (`Runner.environment` in runner/service.py): the process's own settings,
+//! The environment a turn runs in (`Runner.environment` in the old Python runner): the process's own settings,
 //! the bot's live vault grants, and the hub variables, PATH and git identity Tico sets itself.
 
 use std::collections::{BTreeMap, BTreeSet};

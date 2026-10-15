@@ -1,4 +1,4 @@
-//! The Pi coding-agent host (`runner/hosts/pi.py`): one `pi --mode json -p` per turn, for the models with no CLI
+//! The Pi coding-agent host: one `pi --mode json -p` per turn, for the models with no CLI
 //! of their own, through OpenRouter. The session id is the thread id and the sessions live in the workspace:
 //!
 //!     pi --mode json -p --provider openrouter --model deepseek/deepseek-v4.1-flash --thinking low

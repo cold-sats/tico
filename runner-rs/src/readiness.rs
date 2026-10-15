@@ -1,5 +1,5 @@
 //! What the heartbeat says about this computer (`runtime_readiness`, `preflight` and `readiness` in
-//! runner/service.py). Only the checks the chat path needs: runtime install, version, sign-in and models for
+//! the old Python runner). Only the checks the chat path needs: runtime install, version, sign-in and models for
 //! Claude, Codex, Gemini (the Gemini CLI, and `agy` for Antigravity bots), Muse Code, Pi, Cursor and Grok Build, and per bot its repository, AGENT.md and bot.yaml. The server gates claims on these rows.
 
 use std::path::{Path, PathBuf};

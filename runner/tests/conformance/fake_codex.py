@@ -1,6 +1,6 @@
 """A stand-in for the `codex` CLI, for the runner conformance suite (runner/tests/test_conformance.py):
 `--version`, `login status`, `app-server generate-json-schema` (the protocol files that say goals, compact and
-review are there), and `app-server` speaking the part of the JSON-RPC protocol runner/hosts/codex.py uses
+review are there), and `app-server` speaking the part of the JSON-RPC protocol runner-rs/src/hosts/codex.rs uses
 (scripts/journey-fake-codex.py, plus token usage, native goals and steering). Every thread, goal, steer and turn
 request is appended to $FAKE_LOG, with the turn's homes, cwd and granted variables; a prompt containing
 REMEMBER leaves a file in that cwd's memory/.

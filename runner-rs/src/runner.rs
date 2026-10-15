@@ -1,4 +1,4 @@
-//! The run loop (`Runner.run`, `tick`, `maintain`, `recover_output` in runner/service.py): heartbeat with
+//! The run loop (`Runner.run`, `tick`, `maintain`, `recover_output` in the old Python runner): heartbeat with
 //! readiness, claims on the event stream's word, recovery of results a restart left behind, and one tokio
 //! task per turn (runner-rs/src/execute.rs).
 

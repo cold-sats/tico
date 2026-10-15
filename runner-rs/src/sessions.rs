@@ -1,5 +1,4 @@
-//! Lanes and task checkouts (runner/task_sessions.py, runner/repo_rules.py and the lane, shared-checkout and push
-//! parts of runner/service.py). A lane runs one turn at a time; a main-lane turn holds the bot's checkout for the
+//! Lanes and task checkouts. A lane runs one turn at a time; a main-lane turn holds the bot's checkout for the
 //! whole turn, a task lane works in its own worktree of that checkout at `sessions/bot-<slug>/<task>` on branch
 //! `tico-session/<task>` and takes the checkout only to refresh it. A turn ends by committing what it left in
 //! memory/ and knowledge/, stamping its commits `Tico-Run:` and rebasing them onto the upstream, so the push lands

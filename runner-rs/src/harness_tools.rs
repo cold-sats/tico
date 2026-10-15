@@ -1,4 +1,4 @@
-//! The model CLIs a runner uses, installed and kept current by the runner itself (runner/harness_tools.py).
+//! The model CLIs a runner uses, installed and kept current by the runner itself.
 //!
 //! Manifests are runner/harnesses/*.toml, read from the checkout (`crate::env::root()`), else the copies
 //! built into this binary. Installs go into the runner's own tools directory, never system-wide:
@@ -29,7 +29,7 @@ const METHODS: &[&str] = &["npm", "pip", "script", "binary"];
 const POLICIES: &[&str] = &["latest", "pinned"];
 const AUTH_METHODS: &[&str] = &["device-code", "subscription", "api-key"];
 const ACTIONS: &[&str] = &["update", "pin", "unpin"];
-/// The adapters runner/hosts/ has (a manifest's `host` must name one).
+/// The adapters hosts/mod.rs has (a manifest's `host` must name one).
 const HOSTS: &[&str] = &["antigravity", "claude", "codex", "cursor", "gemini", "grok", "musecode", "pi", "fake"];
 const VERSION_TIMEOUT_S: u64 = 60;
 pub const CHECK_EVERY_S: f64 = 24.0 * 3600.0;
@@ -156,7 +156,7 @@ pub fn parse(data: &toml::Table, source: &str) -> Result<Manifest, String> {
     let Some(name) = name else { return Err(format!("{at}: name is required")) };
     let host = data.get("host").and_then(|v| v.as_str()).unwrap_or("");
     if !name_re.is_match(host) || !HOSTS.contains(&host) {
-        return Err(format!("{at}: host '{host}' is not an adapter in runner/hosts/"));
+        return Err(format!("{at}: host '{host}' is not an adapter in runner-rs/src/hosts/"));
     }
     let executable = data.get("executable").and_then(|v| v.as_str()).filter(|s| full(&exe_re, s));
     let Some(executable) = executable else { return Err(format!("{at}: executable must be a bare file name")) };

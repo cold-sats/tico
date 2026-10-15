@@ -1,7 +1,7 @@
 """The computer a new bot's repository was built on, until the bot is first placed (backend/app.py place_now).
 
 BotOps builds a bot in its own workspace (`hub bot create`, `hub bot copy`), and only that computer's runner can
-publish the history to GitHub, and only once the bot is assigned to it (runner/service.py publish_unpublished).
+publish the history to GitHub, and only once the bot is assigned to it (runner-rs/src/execute.rs publish).
 A bot first placed anywhere else would wait for a repository GitHub never gets. So BotOps's GitHub call for the build
 records which computer made it, one `registry_metadata` row `bot-built-on:<bot>`, and the first placement goes
 there while GitHub does not hold the history. The row is removed when the bot is first assigned (execution.assign).

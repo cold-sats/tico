@@ -1,4 +1,4 @@
-//! The Muse Code host (`runner/hosts/musecode.py`): one `muse exec --json` process per turn (Meta's coding CLI).
+//! The Muse Code host: one `muse exec --json` process per turn (Meta's coding CLI).
 //!
 //! A thread is a Muse session whose id Tico makes (a UUID): every turn runs with `--session-id <id>`, and an id
 //! the CLI already has continues that session, so a restart resumes it. The prompt goes in a file the turn can

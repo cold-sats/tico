@@ -1,5 +1,5 @@
-//! `tico-runner`: the Tico local runner. `python -m runner run` execs it (runner/engine.py); it reads the
-//! registration file, state directory, lock and outbox the Python runner kept, and registers and checks this
+//! `tico-runner`: the Tico local runner. launchd and systemd units that start `python -m runner run` reach it through
+//! runner/engine.py. It keeps the registration file, state directory, lock and outbox, and registers and checks this
 //! computer itself (`enroll`, `adopt`, `doctor`, crate::commands).
 
 // A turn's failure carries its whole report, and the caches key on tuples: both read better as they are.

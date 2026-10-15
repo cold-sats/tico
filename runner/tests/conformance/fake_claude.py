@@ -1,7 +1,7 @@
 """A stand-in for the `claude` CLI, for the runner conformance suite (runner/tests/test_conformance.py).
 
 `--version`, `--help` and `auth status --json` answer as Claude Code 2.1.296 does; `-p` speaks stream-json the way
-runner/hosts/claude.py reads it: each user message is replayed, then a text delta, the assistant message and a
+runner-rs/src/hosts/claude.rs reads it: each user message is replayed, then a text delta, the assistant message and a
 `result`. Every call is appended to $FAKE_LOG as one JSON line (argv, the prompt, cwd, the granted variables and
 homes, when it started and finished); a prompt containing REMEMBER leaves a file in memory/. A prompt containing HANG
 streams one delta and then waits, once per $FAKE_LOG, until its parent goes away; SLOW streams one delta and answers

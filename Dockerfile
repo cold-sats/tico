@@ -83,14 +83,14 @@ RUN --mount=type=bind,from=venv,source=/opt/tico/.venv,target=/opt/tico/.venv \
     .venv/bin/python -c 'import backend.app, runner.connectors, runner.close_calls, runner.importers.service, clients.environments' \
     && .venv/bin/python -m compileall -q backend runner clients
 
-# The Rust runner (runner-rs/, the default engine: runner/engine.py), built on the same Debian release as the runner image so it
+# The Rust runner (runner-rs/), built on the same Debian release as the runner image so it
 # links against the same glibc. Only its sources are copied, so a change elsewhere reuses this layer.
 FROM rust:1.90-slim-bookworm@sha256:64232e656c058f4468e8d024e990acff04f0fd5a5c0a88a574dc37773d7325c9 AS runner-bin
 WORKDIR /src/runner-rs
 COPY runner-rs/Cargo.toml runner-rs/Cargo.lock runner-rs/build.rs ./
 COPY runner-rs/src ./src
 # The harness manifests are compiled in (harness_tools.rs BUILT_IN), from ../runner/harnesses, and are part of
-# the source fingerprint (build.rs) that runner/engine.py checks against /opt/tico.
+# the source fingerprint (build.rs, `tico-runner --build-id`).
 COPY runner/harnesses /src/runner/harnesses
 COPY LICENSE /src/LICENSE
 RUN cargo build --release --locked && install -D -m 0755 target/release/tico-runner /out/tico-runner
@@ -109,7 +109,7 @@ COPY --from=node /opt/node /opt/node
 COPY --from=gh /out/gh /usr/local/bin/gh
 # The runner (TICO_RUNNER_BIN): docker/runner-entrypoint.sh enrolls with it and execs it.
 COPY --from=runner-bin /out/tico-runner /usr/local/bin/tico-runner
-# node and npm are here for the runner's own installs of model CLIs (runner/harness_tools.py).
+# node and npm are here for the runner's own installs of model CLIs (runner-rs/src/harness_tools.rs).
 RUN ln -s /opt/node/bin/node /opt/node/bin/npm /opt/node/bin/npx /usr/local/bin/
 COPY docker/runner-entrypoint.sh /usr/local/bin/tico-runner-entrypoint
 COPY docker/gitconfig /etc/gitconfig

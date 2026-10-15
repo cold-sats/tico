@@ -182,9 +182,9 @@ as_user git config --global user.email >/dev/null 2>&1 || as_user git config --g
 export TICO_PROJECTS_DIR="${TICO_PROJECTS_DIR:-$HOME/workspace}"
 export TICO_MAIL_VENV="${TICO_MAIL_VENV:-${TICO_TOOLS_DIR:-$HOME/tools}/mail-venv}"
 export TICO_SUPERVISED=1 TICO_RUNNER_SELF_UPDATE=0
-# The runner also supervises the meeting-importer and Close jobs the hub assigns here (runner/sidejobs.py).
+# The runner also supervises the meeting-importer and Close jobs the hub assigns here (runner-rs/src/sidejobs.rs).
 export TICO_SIDE_JOBS="${TICO_SIDE_JOBS:-1}"
-# The image's Rust runner, run directly: no checkout here moves, so the shim (`python -m runner run`) has nothing
-# to choose. It finds the Python that runs `hub` and the side jobs through TICO_RUNNER_PYTHON.
+# The image's Rust runner, run directly: no checkout here moves, so there is nothing for the shim
+# (`python -m runner run`) to fetch. It finds the Python that runs `hub` and the side jobs through TICO_RUNNER_PYTHON.
 export TICO_ROOT="${TICO_ROOT:-/opt/tico}" TICO_RUNNER_PYTHON="${TICO_RUNNER_PYTHON:-$(command -v python)}"
 exec "$TICO_RUNNER_BIN" --config "$CONFIG" run

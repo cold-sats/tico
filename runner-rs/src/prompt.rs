@@ -1,4 +1,4 @@
-//! The turn's prompt (`Runner.prompt` in runner/service.py), line for line. Bot Desk reads the next-run and
+//! The turn's prompt (`Runner.prompt` in the old Python runner), line for line. Bot Desk reads the next-run and
 //! notes blocks back out of transcripts by their first lines, so those headers are byte-identical.
 
 use serde_json::{Map, Value};
