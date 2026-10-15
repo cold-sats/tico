@@ -4377,6 +4377,7 @@ def create_app(settings=None):
     # or BotOps's as the person who asked it.
     @app.post("/api/v2/agents/pairings", status_code=201)
     def agent_pairing_create(request: Request, body: M.AgentPairingCreate):
+        execution.refuse_in_rehearsal("Agent pairings")
         with store.transaction() as c:
             return agents.create_pairing(c, body, client_address(request))
 
@@ -4395,6 +4396,7 @@ def create_app(settings=None):
     def agent_pairing_approve(request: Request, body: M.AgentPairingApprove):
         who = request.state.identity
         personal_tokens.no_minting(who, "Approve a pairing")
+        execution.refuse_in_rehearsal("Agent pairings")
         return mutate(request, body, lambda c: agents.approve_pairing(c, who, settings_admin._manager, body.code, body.bot))
 
     @app.post("/api/v2/agents/pairings/decline")
