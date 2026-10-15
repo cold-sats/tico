@@ -8,6 +8,10 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- Settings > Computers no longer shows a named subscription's old account after it signs out and back in as
+  someone else. A computer kept a Codex account it had read for up to 10 minutes, so the old email could show beside
+  the new login; signing out now forgets it. An account reading that has missed its refresh now says when it was last
+  checked ("account last checked 25m ago"), and a turn's plan no longer counts as a fresh account read.
 - Health no longer reports work held by a computer that is waiting to update as a Tico bug (`queue_idle`). A
   computer due an update stops taking new work after 20 minutes until its running turns finish; Health's Stuck list
   now says so ("Team box is holding new work to update to Tico 0.3.48: it starts once its running turn finishes"),

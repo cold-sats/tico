@@ -80,7 +80,8 @@ pub fn from_app_server(reply: &Value) -> Option<Value> {
 }
 
 struct Known {
-    at: Instant,
+    /// When the account was last read; None when only a turn's plan is known, so a read is still due.
+    at: Option<Instant>,
     account: Value,
 }
 
@@ -101,15 +102,16 @@ pub fn remember(profile: &str, runtime: &str, account: Value) {
     if let Some(m) = account.as_object_mut() {
         m.insert("checked_at".into(), crate::util::iso(&json!(crate::util::epoch_s())));
     }
-    known().lock().unwrap().insert((profile.into(), runtime.into()), Known { at: Instant::now(), account });
+    known().lock().unwrap().insert((profile.into(), runtime.into()), Known { at: Some(Instant::now()), account });
 }
 
-/// A plan a turn reported (Codex `planType` on its rate limits): kept on the known account, or as the account.
+/// A plan a turn reported (Codex `planType` on its rate limits): kept on the known account, or as the account. It
+/// leaves the account's read time alone, so turns never make an email look freshly checked or put off its next read.
 pub fn remember_plan(profile: &str, runtime: &str, value: &Value) {
     let Some(p) = plan(value) else { return };
-    let mut account = account(profile, runtime).unwrap_or_else(|| json!({}));
-    account["plan"] = json!(p);
-    remember(profile, runtime, account);
+    let mut known = known().lock().unwrap();
+    let entry = known.entry((profile.into(), runtime.into())).or_insert_with(|| Known { at: None, account: json!({}) });
+    entry.account["plan"] = json!(p);
 }
 
 pub fn forget(profile: &str, runtime: &str) {
@@ -127,7 +129,7 @@ pub fn refresh_in_background(profile: &str, runtime: &str, env: Env) {
         return;
     }
     let key = (profile.to_string(), runtime.to_string());
-    if known().lock().unwrap().get(&key).is_some_and(|k| k.at.elapsed() < READ_EVERY) || !reading().lock().unwrap().insert(key.clone()) {
+    if known().lock().unwrap().get(&key).is_some_and(|k| k.at.is_some_and(|at| at.elapsed() < READ_EVERY)) || !reading().lock().unwrap().insert(key.clone()) {
         return;
     }
     let Ok(handle) = tokio::runtime::Handle::try_current() else {
@@ -211,5 +213,22 @@ mod tests {
         assert!(got["checked_at"].is_string());
         forget("acct-test", "codex");
         assert!(account("acct-test", "codex").is_none());
+    }
+
+    #[test]
+    fn a_turns_plan_never_counts_as_an_account_read() {
+        let key = ("plan-test".to_string(), "codex".to_string());
+        // Only a turn's plan known: a read is still due, and nothing says the account was checked.
+        remember_plan("plan-test", "codex", &json!("plus"));
+        assert!(known().lock().unwrap()[&key].at.is_none());
+        assert!(account("plan-test", "codex").unwrap()["checked_at"].is_null());
+        // A read, then a turn's plan: the read's time and stamp stay.
+        remember("plan-test", "codex", json!({"email": "dev@acme.example"}));
+        let (at, stamp) = { let k = known().lock().unwrap(); (k[&key].at, k[&key].account["checked_at"].clone()) };
+        remember_plan("plan-test", "codex", &json!("pro"));
+        let k = known().lock().unwrap();
+        assert_eq!((k[&key].at, k[&key].account["checked_at"].clone(), k[&key].account["plan"].clone()), (at, stamp, json!("pro")));
+        drop(k);
+        forget("plan-test", "codex");
     }
 }
