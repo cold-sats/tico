@@ -225,7 +225,8 @@ SELECT datetime(ts,'unixepoch'), detail_json FROM flight_events WHERE kind='stal
 
 The Rust runner keeps its own flight file, `flight.ndjson` in its state folder (`state-<runner id>/` next to the
 registration file, `~/.config/tico/` on a Mac, the runner user's home in Docker, which needs `--config ~/runner.json`), rotated at 10 MB with four older
-files (`.1` to `.4`). Each line is one JSON object with `ts` (ISO-8601 UTC) and `kind`: `runner.start` (version, build,
+files (`.1` to `.4`), in the server's record format (version 1): one JSON object per line with `v` (1), `ts` (Unix
+seconds, milliseconds as decimals) and `kind`, here always `runner.*`: `runner.start` (version, build,
 pid), `runner.turn` (attempt, bot, runtime, outcome, `total_ms`, and `phases`: milliseconds since the turn was claimed
 for `placed`, `harness_started`, `harness_spawned`, `first_output`, `first_delta_posted`, `finished`, `complete_posted`
 and `done`), `runner.heartbeat` (round trips of a second or more, and every failure), `runner.git` (git commands of two

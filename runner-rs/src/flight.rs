@@ -1,7 +1,7 @@
 //! The runner's flight file: where a turn's time went, slow heartbeats, slow git commands and a per-minute process
 //! sample, as rotating NDJSON in the state directory (`flight.ndjson`, then `.1` to `.4`, 10 MB each). One JSON
-//! object per line with `ts` (ISO-8601 UTC) and `kind` (`runner.*`), the envelope the server's own flight records use,
-//! so one reader takes both. A turn never waits on the disk: records go through a bounded queue to one writer thread,
+//! object per line with `v` (1), `ts` (Unix seconds, milliseconds as decimals) and `kind` (`runner.*`): the server's
+//! flight file envelope (`backend/flight_file.py`), so one reader takes both. A turn never waits on the disk: records go through a bounded queue to one writer thread,
 //! and a record that finds the queue full is dropped and counted in the next process sample.
 //!
 //! Records hold timings, counts, bot slugs, attempt ids and git verbs only: never prompts, replies, tokens, command
@@ -82,17 +82,26 @@ pub fn emit(kind: &str, fields: Map<String, Value>) {
 
 fn envelope(kind: &str, fields: Map<String, Value>) -> Map<String, Value> {
     let mut record = Map::new();
-    record.insert("ts".into(), json!(now_iso()));
+    record.insert("v".into(), json!(1));
+    record.insert("ts".into(), json!(now_ts()));
     record.insert("kind".into(), json!(kind));
     record.extend(fields);
     record
 }
 
-/// Now as `2026-10-14T12:00:00.123Z`.
-fn now_iso() -> String {
+/// Now as Unix seconds to the millisecond.
+fn now_ts() -> f64 {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
-    let secs = crate::util::text_of(&crate::util::iso(&json!(now.as_secs())));
-    format!("{}.{:03}Z", secs.trim_end_matches("+00:00"), now.subsec_millis())
+    now.as_millis() as f64 / 1000.0
+}
+
+/// A record's `ts`: Unix seconds; an ISO-8601 string is read too. 0 when missing.
+fn record_ts(record: &Value) -> f64 {
+    match &record["ts"] {
+        Value::Number(n) => n.as_f64().unwrap_or(0.0),
+        Value::String(t) => crate::util::parse_iso(t),
+        _ => 0.0,
+    }
 }
 
 /// A turn reached `name` (`util::mark` calls this for every mark). `claimed` opens the turn; a later mark for a
@@ -323,7 +332,7 @@ pub fn summary(dir: &Path, since_s: f64, now: f64) -> String {
         let Ok(f) = File::open(path) else { continue };
         for line in BufReader::new(f).lines().map_while(Result::ok) {
             let Ok(record) = serde_json::from_str::<Value>(&line) else { continue };
-            if crate::util::parse_iso(record["ts"].as_str().unwrap_or("")) < cutoff {
+            if record_ts(&record) < cutoff {
                 continue;
             }
             match record["kind"].as_str().unwrap_or("") {
@@ -350,7 +359,7 @@ pub fn summary(dir: &Path, since_s: f64, now: f64) -> String {
     }
     let secs = |ms: u64| format!("{:.1}s", ms as f64 / 1000.0);
     let n = |v: &Value| v.as_u64().unwrap_or(0);
-    let clock = |v: &Value| v["ts"].as_str().and_then(|t| t.get(11..19)).unwrap_or("").to_string();
+    let clock = |v: &Value| crate::util::text_of(&crate::util::iso(&json!(record_ts(v)))).get(11..19).unwrap_or("").to_string();
 
     say(&mut out, format!("\nTurns: {}", turns.len()));
     // Each step is the gap from the previous mark the turn reached, in the order turns pass them.
@@ -438,6 +447,8 @@ mod tests {
         assert!(kept.iter().all(|p| std::fs::metadata(p).unwrap().len() <= 200));
         let newest = std::fs::read_to_string(dir.join(FILE)).unwrap();
         assert!(newest.contains("\"ms\":39"), "{newest}");
+        let first: Value = serde_json::from_str(newest.lines().next().unwrap()).unwrap();
+        assert!(first["v"] == 1 && first["ts"].is_f64() && first["kind"] == "runner.git", "{first}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -445,13 +456,13 @@ mod tests {
     fn summary_lists_turn_phases_and_slow_calls_in_the_window() {
         let dir = temp();
         let lines = [
-            r#"{"ts":"2026-10-14T09:00:00.000Z","kind":"runner.turn","bot":"stale-bot","runtime":"codex","outcome":"completed","total_ms":1,"phases":{"claimed":0}}"#,
-            r#"{"ts":"2026-10-14T11:30:00.000Z","kind":"runner.turn","attempt":"a1","bot":"acme-seo","runtime":"claude","outcome":"completed","total_ms":84000,"phases":{"claimed":0,"placed":1200,"harness_started":1500,"first_output":6000,"finished":80000,"complete_posted":81000,"done":84000}}"#,
-            r#"{"ts":"2026-10-14T11:31:00.000Z","kind":"runner.heartbeat","ms":4200,"tries":1,"ok":true}"#,
-            r#"{"ts":"2026-10-14T11:32:00.000Z","kind":"runner.git","verb":"fetch","repo":"acme-seo","ms":9000,"code":0}"#,
-            r#"{"ts":"2026-10-14T11:33:00.000Z","kind":"runner.process","rss_bytes":52428800,"turns":1,"dropped":3}"#,
+            r#"{"v":1,"ts":1791968400.25,"kind":"runner.turn","bot":"stale-bot","runtime":"codex","outcome":"completed","total_ms":1,"phases":{"claimed":0}}"#,
+            r#"{"v":1,"ts":1791977400.25,"kind":"runner.turn","attempt":"a1","bot":"acme-seo","runtime":"claude","outcome":"completed","total_ms":84000,"phases":{"claimed":0,"placed":1200,"harness_started":1500,"first_output":6000,"finished":80000,"complete_posted":81000,"done":84000}}"#,
+            r#"{"v":1,"ts":1791977460.25,"kind":"runner.heartbeat","ms":4200,"tries":1,"ok":true}"#,
+            r#"{"v":1,"ts":1791977520.25,"kind":"runner.git","verb":"fetch","repo":"acme-seo","ms":9000,"code":0}"#,
+            r#"{"v":1,"ts":1791977580.25,"kind":"runner.process","rss_bytes":52428800,"turns":1,"dropped":3}"#,
             "not json",
-            r#"{"ts":"2026-10-14T11:34:00.000Z","kind":"server.request","ms":1}"#,
+            r#"{"v":1,"ts":1791977640.25,"kind":"server.request","ms":1}"#,
         ];
         std::fs::write(dir.join(FILE), lines.join("\n")).unwrap();
         let now = crate::util::parse_iso("2026-10-14T12:00:00Z");
