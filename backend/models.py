@@ -99,6 +99,10 @@ class TakeRecommendation(Contract):
     version: Annotated[int, Field(strict=True, ge=1)] | None = None     # the card's task version: a changed task is refused
 
 
+class ClarifyAsk(Contract):
+    ask: Annotated[StrictStr, Field(min_length=1, max_length=100)]     # the stale bot ask to send the clarify prompt to
+
+
 Lane = Literal["company", "product"]
 # A task's number: one sequence for the whole team, like one board's ticket numbers.
 TaskNumber = Annotated[int, Field(ge=1, le=999_999_999)]

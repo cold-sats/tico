@@ -230,6 +230,8 @@ STABLE = [
     ("/api/v2/messages/{mid}/answer", "post", "Needs you", "answerMessage", "Answer a question a bot asked", None),
     ("/api/v2/needs-you/recommended", "post", "Needs you", "takeRecommendation",
      "Do what the bot recommends: answer its ask with what it said it would do, and close the card", None),
+    ("/api/v2/needs-you/clarify", "post", "Needs you", "clarifyAsk",
+     "Ask the bot behind a stale question whether it still matters, in clearer words", None),
     ("/api/v2/approvals/{aid}", "get", "Needs you", "getApproval", "One approval request", None),
     ("/api/v2/approvals/{aid}", "post", "Needs you", "decideApproval", "Approve or reject", None),
     ("/api/v2/approvals/{aid}/undo", "post", "Needs you", "undoApproval",

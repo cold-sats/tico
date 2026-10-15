@@ -1064,6 +1064,8 @@ def needs_items(c, auth, who, task_view, older=None):
                 if older is not None:
                     older.append(item)
                 continue
+            if ask and ask.get("to_actor") == who.actor and H.ask_older(ask):
+                ask["stale"] = True      # its one-click Clarify (backend/clarify_asks.py) shows on the card
             items.append(item)
     for msg in H.loose_asks_to(c, who.actor):
         if not privacy.message_readable(c, privacy.actor(who), msg):

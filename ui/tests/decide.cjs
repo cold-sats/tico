@@ -16,6 +16,9 @@ const wait = (id, title, over = {}) => ({id, kind: 'waiting', title, body: '', o
 const items = [
   wait('t-ask', 'Coordinate the external agent scenario in the example', {created: at(500),
     ask: {id: 'q-1', from_actor: 'bot:writer', to_actor: 'human:ana', body: 'Should the public example show the agent demo, or stay static?', created: at(300)}}),
+  // a stale ask (unanswered past three days): the card carries one-click Clarify
+  wait('t-stale', 'Sync the external agent scenario', {created: at(5000), updated: at(5000),
+    ask: {id: 'q-stale', from_actor: 'bot:writer', to_actor: 'human:ana', body: 'Should the public example show the agent demo?', created: at(5000), stale: true}}),
   wait('t-plain', 'Run the video tool trial', {created: at(490), note: PLAIN, person_ask: PLAIN,
     body: 'Run the video tool trial\n\nThe test plan is in the shared folder.'}),
   // set waiting before the rule, with no plain ask: listed first here, shown last
@@ -33,7 +36,7 @@ const comments = {
   const browser = await chromium.launch({channel: process.env.TICO_BROWSER_CHANNEL ?? 'chrome', headless: true});
   try {
     const {page, errors} = await open(browser, {viewport: {width: 390, height: 844}, hash: '#/tasks'});
-    const sent = [];
+    const sent = [], clarified = [];
     await page.route('**/api/v2/needs-you*', route => route.fulfill({contentType: 'application/json', body: JSON.stringify({items})}));
     await page.route('**/api/v2/tasks/*/comments', route => {
       const id = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-2));
@@ -41,6 +44,10 @@ const comments = {
       return route.fulfill({contentType: 'application/json', body: JSON.stringify({comments: comments[id] || []})});
     });
     await page.route('**/api/v2/tasks/*/files', route => route.fulfill({contentType: 'application/json', body: '{"files":[]}'}));
+    await page.route('**/api/v2/needs-you/clarify', route => {
+      clarified.push(route.request().postDataJSON());
+      return route.fulfill({contentType: 'application/json', body: '{}'});
+    });
     await page.evaluate(async () => { await v2Refresh(); location.hash = DECIDE; });
     const card = page.locator('.decide .dc-card');
     const read = async id => {
@@ -53,7 +60,8 @@ const comments = {
           sizes: [first, second].map(x => parseFloat(getComputedStyle(x).fontSize)),
           details: details ? {open: details.open, text: details.textContent, last: body.lastElementChild === details} : null,
           buttons: [...document.querySelectorAll('.decide .dc-actions button')].map(b => b.dataset.dc),
-          ask: !!body.querySelector('[data-dc="ask"]')};
+          ask: !!body.querySelector('[data-dc="ask"]'),
+          clarify: body.querySelector('[data-dc="clarify"]')?.textContent.trim() || null};
       });
     };
     // DECIDE_SHOTS=<dir> saves each card for the owner.
@@ -76,8 +84,18 @@ const comments = {
         decideFromPerson({from_person: 'human:sam'}, 'human:sam'), decideFromPerson({}, 'bot:writer')],
     })), {order: ['task:overdue', 'task:for-sam', 'task:bot-made'], cue: ['From Sam', 'You asked', '', '']});
 
+    // A stale ask leads (oldest first) and carries one-click Clarify: one tap asks the bot whether it still
+    // matters, in clearer words.
+    let c = await read('t-stale');
+    assert.equal(c.lead, 'Should the public example show the agent demo?');
+    assert.equal(c.clarify, 'Ask Writer to clarify');
+    await page.locator('.decide .dc-body [data-dc="clarify"]').click();
+    assert.equal(await page.locator('.decide .dc-toast span').textContent(), 'Asked Writer to clarify');
+    await page.waitForFunction(() => !DEC.pending && !DEC_OUTBOX.size, null, {timeout: 8000});
+    assert.deepEqual(clarified, [{ask: 'q-stale'}]);
+
     // An open question to me leads, the title under it, smaller; the note folds under Details, closed.
-    let c = await read('t-ask');
+    c = await read('t-ask');
     assert.match(c.sub, /^Waiting on you · /);
     assert.equal(c.lead, 'Should the public example show the agent demo, or stay static?');
     assert.equal(c.leadClass, 'dc-msg md');
@@ -86,6 +104,7 @@ const comments = {
     assert.deepEqual({...c.details, text: undefined}, {open: false, last: true, text: undefined});
     assert.ok(c.details.text.includes('Latest note') && c.details.text.includes('db14c907'));
     assert.deepEqual(c.buttons, ['skip', 'done'], 'a question with "or" is not a yes or a no');
+    assert.equal(c.clarify, null, 'a fresh ask carries no Clarify');
     await shot('ask');
     await tap('skip');
 

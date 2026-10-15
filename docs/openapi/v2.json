@@ -9405,6 +9405,66 @@
         ]
       }
     },
+    "/api/v2/needs-you/clarify": {
+      "post": {
+        "summary": "Ask the bot behind a stale question whether it still matters, in clearer words",
+        "operationId": "clarifyAsk",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClarifyAsk"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Needs you"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
     "/api/v2/needs-you/recommended": {
       "post": {
         "summary": "Do what the bot recommends: answer its ask with what it said it would do, and close the card",
@@ -15168,6 +15228,22 @@
           "message"
         ],
         "additionalProperties": true
+      },
+      "ClarifyAsk": {
+        "properties": {
+          "ask": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Ask"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ask"
+        ],
+        "title": "ClarifyAsk"
       },
       "CommentResult": {
         "type": "object",

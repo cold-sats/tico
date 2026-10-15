@@ -217,8 +217,17 @@ function decidePaintBody(st) {
   if (!c || !body) return;
   // Other bots' tasks waiting on the person for the same thing are named on the card, as in Needs you.
   const html = (c.type === 'pick' ? decidePickHTML(st, c) : c.type === 'approve' ? decideApprovalHTML(c) : decideTaskHTML(st, c))
-    + (c.type === 'approve' ? '' : foldedHTML(c.it));
+    + (c.type === 'approve' ? '' : foldedHTML(c.it) + decideClarifyHTML(c));
   if (body.dataset.html !== html) body.innerHTML = body.dataset.html = html;
+}
+// A stale ask from a bot to me (the server marks it `stale` past three days unanswered): one tap asks the bot
+// whether it still matters, in clearer words (backend/clarify_asks.py).
+const decideStaleAsk = c => { const a = c?.it?.ask;
+  return !!a && String(a.from_actor || '').startsWith('bot:') && a.to_actor === myActor() && !!a.stale; };
+function decideClarifyHTML(c) {
+  if (!decideStaleAsk(c)) return '';
+  const bot = actorLabel(c.it.ask.from_actor) || 'the bot';
+  return `<button type="button" class="ghost dc-clarify" data-dc="clarify" title="Ask ${esc(bot)} whether this still matters, in clearer words">Ask ${esc(bot)} to clarify</button>`;
 }
 const decideTwo = c => c.type === 'pick' && c.q.options.length === 2;
 // Yes / No reads No, Yes like an approval: the affirmative on the right.
@@ -373,6 +382,10 @@ function decideWriteBody(c, what, i, note) {
     const writes = [{path: `/v2/tasks/${id}/answers`, body: {target, answers: {[q.id]: [o.label]}, ...(other ? {other: note} : {})}}];
     if (note && !other) writes.push({path: `/v2/tasks/${id}/comments`, body: {text: note}});
     return {writes, label: `Picked ${o.label} · sent to ${to}`};
+  }
+  if (what === 'clarify') {
+    const who = c.it.ask?.from_actor ? actorLabel(c.it.ask.from_actor) : to;
+    return {writes: [{path: '/v2/needs-you/clarify', body: {ask: c.it.ask.id}}], label: `Asked ${who} to clarify`};
   }
   if (what === 'recommend') {
     const rec = c.it.recommend;
