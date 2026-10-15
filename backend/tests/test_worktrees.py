@@ -327,6 +327,55 @@ def test_initializing_checkout_stays_pending_until_checkout_and_setup_complete(p
         assert json.loads(saved['detail_json'])['checkout_state'] == 'ready'
 
 
+def test_a_ready_setup_clears_a_failed_restore_and_the_health_monitor_follows(prepared, monkeypatch):
+    from backend import health_monitor, watchers
+    api, tid, _ = prepared
+    monkeypatch.setattr(health_monitor, 'active', lambda c: True)
+    monkeypatch.setattr(watchers, 'deliver', lambda *args: True)
+    with api.app_state.store.transaction() as c:
+        second = H.task_create(c, 'human:ana', 'More product', 'Implement more', 'bot:cmo')['id']
+    links = [post(api, f'tasks/{task}/worktrees', {'repo': 'Acme/product'}).json() for task in (tid, second)]
+    failed = 'Worktree action failed; history kept. Restore path already exists and is not a worktree'
+    beat = {'version': '0.3.46', 'platform': 'linux', 'readiness': {'schema_version': 1, 'worktrees': True},
+            'worktrees': [{'link_id': link['link_id'], 'state': 'missing', 'branch': None, 'error': failed}
+                          for link in links]}
+
+    def scanned():
+        with api.app_state.store.transaction() as c:
+            health_monitor.scan(c, api.app_state.auth, api.app_state.store.settings)
+            found = [f for f in health_monitor.findings(c, api.app_state.store.settings) if f['check_id'] == 'worktree_error']
+            present = c.execute("SELECT count(*) FROM health_findings WHERE check_id='worktree_error' AND present=1")
+            return found, present.fetchone()[0]
+
+    def error(link):
+        with api.app_state.store.read() as c:
+            row = c.execute('SELECT detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()
+            return json.loads(row[0]).get('error')
+    assert post(api, 'runners/heartbeat', beat, 'runner-test').status_code == 200
+    found, present = scanned()
+    assert len(found) == 1 and present == 1 and failed in found[0]['detail']
+    # The owner's setup succeeds on the first link; the computer still repeats its last restore error for it.
+    assert mark_ready(api, tid, links[0]['link_id']).status_code == 200
+    assert error(links[0]) is None and error(links[1]) == failed
+    beat['worktrees'][0].update(state='present', checkout_state='ready', branch=links[0]['branch'])
+    assert post(api, 'runners/heartbeat', beat, 'runner-test').status_code == 200
+    assert error(links[0]) is None and error(links[1]) == failed
+    found, present = scanned()
+    assert len(found) == 1 and present == 1, 'the second worktree is still failing'
+    # Once the second is set up too, the next scan clears the finding.
+    assert mark_ready(api, second, links[1]['link_id']).status_code == 200
+    beat['worktrees'][1].update(state='present', checkout_state='ready', branch=links[1]['branch'])
+    assert post(api, 'runners/heartbeat', beat, 'runner-test').status_code == 200
+    assert scanned() == ([], 0)
+    # A failure seen in the ready tree itself is current, and a report without one clears it.
+    beat['worktrees'][0]['error'] = 'Could not read its status: permission denied'
+    post(api, 'runners/heartbeat', beat, 'runner-test')
+    assert len(scanned()[0]) == 1
+    del beat['worktrees'][0]['error']
+    post(api, 'runners/heartbeat', beat, 'runner-test')
+    assert error(links[0]) is None and scanned() == ([], 0)
+
+
 def test_a_heartbeat_built_before_checkout_finished_never_moves_it_back(prepared):
     api, tid, _ = prepared
     link = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}).json()
