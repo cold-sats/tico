@@ -45,8 +45,9 @@ pub fn configured(config: &Value) -> Option<Hop> {
 /// Where a turn goes when the bot's own subscription hit its limit and it names no fallback (service.py
 /// default_fallback): the first of the company's providers (`choices`, GET /api/v2/config `fallback_models`) on
 /// another runtime `ready` says is signed in here. None when the bot named a fallback or turned it off
-/// (`fallback: {off: true}`), or no other runtime is ready.
-pub fn default_choice(config: &Value, choices: &[Value], ready: impl Fn(&str) -> bool) -> Option<Hop> {
+/// (`fallback: {off: true}`), or no other runtime is ready. A harness signed in by the bot's own key is
+/// skipped unless the turn's `env` carries that key.
+pub fn default_choice(config: &Value, choices: &[Value], env: &crate::env::Env, ready: impl Fn(&str) -> bool) -> Option<Hop> {
     let fallback = &config["fallback"];
     if fallback.is_object() && (crate::util::truthy(fallback.get("off")) || crate::util::truthy(fallback.get("harness"))) {
         return None;
@@ -58,10 +59,22 @@ pub fn default_choice(config: &Value, choices: &[Value], ready: impl Fn(&str) ->
             return None;
         }
         let harness = Some(text_of(&row["harness"])).filter(|h| !h.is_empty()).unwrap_or_else(|| runtime.clone());
+        if !bot_key(&harness).iter().all(|k| env.get(*k).is_some_and(|v| !v.trim().is_empty())) {
+            return None;
+        }
         let runtime = if harness == "antigravity" { "gemini".into() } else { runtime };
         let effort = Some(text_of(&config["reasoning_effort"])).filter(|e| !e.is_empty());
         Some(Hop { harness, runtime, model, reasoning_effort: effort, default: true })
     })
+}
+
+/// The key a harness signs in with from the bot's own grant, not a login on the computer.
+fn bot_key(harness: &str) -> &'static [&'static str] {
+    match harness {
+        "gemini" => &["GEMINI_API_KEY"],
+        "pi" => &["OPENROUTER_API_KEY"],
+        _ => &[],
+    }
 }
 
 /// The turn's note as it moves (service.py): why the primary stopped, and where the turn went.
@@ -144,17 +157,29 @@ mod tests {
     fn the_default_keeps_an_explicit_fallback_honours_off_and_skips_the_primary() {
         let choices = [json!({"runtime": "codex", "harness": "codex", "model": "gpt-test"}), json!({"runtime": "claude", "harness": "claude", "model": "claude-test"})];
         let config = json!({"runtime": "codex", "harness": "codex", "reasoning_effort": "high"});
-        let hop = default_choice(&config, &choices, |_| true).unwrap();
+        let none = crate::env::Env::new();
+        let hop = default_choice(&config, &choices, &none, |_| true).unwrap();
         assert_eq!(hop, Hop { harness: "claude".into(), runtime: "claude".into(), model: "claude-test".into(), reasoning_effort: Some("high".into()), default: true });
         let mut off = config.clone();
         off["fallback"] = json!({"off": true});
-        assert!(default_choice(&off, &choices, |_| true).is_none());
+        assert!(default_choice(&off, &choices, &none, |_| true).is_none());
         off["fallback"] = json!({"harness": "gemini", "model": "g"});
-        assert!(default_choice(&off, &choices, |_| true).is_none());
-        assert!(default_choice(&config, &choices, |r| r == "codex").is_none());
+        assert!(default_choice(&off, &choices, &none, |_| true).is_none());
+        assert!(default_choice(&config, &choices, &none, |r| r == "codex").is_none());
         assert_eq!(diagnostic("claude", &Hop { runtime: "codex".into(), harness: "codex".into(), ..hop.clone() }, true),
                    "claude hit its usage limit; running this turn on codex (no fallback set; another provider signed in here)");
         assert_eq!(diagnostic("codex", &configured(&json!({"fallback": {"harness": "claude", "model": "m"}})).unwrap(), false),
                    "codex unavailable; running this turn on claude");
+    }
+
+    #[test]
+    fn a_key_only_provider_is_skipped_unless_the_turn_carries_its_key() {
+        let choices = [json!({"runtime": "pi", "harness": "pi", "model": "p"}), json!({"runtime": "gemini", "harness": "antigravity", "model": "g"})];
+        let config = json!({"runtime": "claude", "harness": "claude"});
+        let mut env = crate::env::Env::new();
+        assert_eq!(default_choice(&config, &choices, &env, |_| true).unwrap().harness, "antigravity");
+        env.insert("OPENROUTER_API_KEY".into(), "or-key".into());
+        assert_eq!(default_choice(&config, &choices, &env, |_| true).unwrap().harness, "pi");
+        assert!(default_choice(&config, &[json!({"runtime": "gemini", "model": "g"})], &env, |_| true).is_none());
     }
 }

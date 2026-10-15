@@ -25,6 +25,7 @@ from fastapi import Request
 from pydantic import Field
 
 from . import diagnostics, team_rules
+from .auth import Identity
 from .models import Contract
 from .store import H, Problem
 
@@ -341,7 +342,11 @@ def report(c_factory, support, auth, settings, who, key):
     if filed and filed["ticket_id"]:
         if row["occurrences"] <= filed["reported_occurrences"]:
             return {"signature": row["signature"], "ticket": filed["ticket_id"], "again": True}
-        support.write(owner, filed["ticket_id"],
+        # The ticket is whoever filed it: the owner, or the person who approved it (Support.file_approved).
+        with store.read() as c:
+            holder = c.execute("SELECT actor FROM support_tickets WHERE id=?", (filed["ticket_id"],)).fetchone()
+        holder = Identity(holder["actor"], "human") if holder and holder["actor"] != owner.actor else owner
+        support.write(holder, filed["ticket_id"],
                       f"[Health Monitor] Seen again ({row['occurrences']} times), last at {row['last_seen'][:16]} UTC. "
                       f"Signature {row['signature']}.")
         with store.transaction() as c:

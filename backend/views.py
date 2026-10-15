@@ -815,7 +815,9 @@ def take_recommendation(c, auth, who, asked, version=None):
     finish = bool(task and task["owner"] == who.actor and _whole_card(c, task, asked, who.actor))
     if rec["option"] and task_id:
         question = asked["refs"]["questions"][0]
-        answer_task(c, auth, who, task_id, M.TaskAnswer(target={"comment": asked["id"]},
+        # A question on a file version is answered through its file and version.
+        target = asked["refs"].get("target") or {"comment": asked["id"]}
+        answer_task(c, auth, who, task_id, M.TaskAnswer(target=target,
                                                         answers={question["id"]: [rec["option"]]}), wake=True)
     else:
         H.answer(c, who.actor, asked["id"], text)
