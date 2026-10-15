@@ -41,11 +41,12 @@ function settingsAllChoices() {
         return {harness, model: model.id, effort, label, search, value: settingsChoiceValue(harness, model.id, effort)};
       })));
 }
-// Harness the team has no provider for: shown greyed out, never silently missing, so a shipped
-// vendor arrives with its way in (Muse Code stayed invisible while Meta was off).
+// Harness the team has no provider for: shown greyed out to whoever can turn it on, never silently
+// missing, so a shipped vendor arrives with its way in (Muse Code stayed invisible while Meta was off).
+// Only admins see them: anyone else gets no way in, just clutter.
 function settingsOffHarnesses(choices) {
   const enabled = SETTINGS_DATA.enabledProviders || [];
-  if (!enabled.length) return [];
+  if (!enabled.length || !settingsIsAdmin()) return [];
   const have = new Set(choices.map(row => row.harness));
   return (SETTINGS_DATA.harnesses || []).filter(row =>
     !row.external && !have.has(row.id) && (SETTINGS_DATA.models || []).some(model =>

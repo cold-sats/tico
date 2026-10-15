@@ -97,6 +97,15 @@ const {html, uiFile} = require('./support/page.cjs');
     assert.ok(models.includes('muse-spark-1.3'), 'Spark is listed under Muse Code');
     assert.ok(models.includes('muse-wonder-1.0'), 'Wonder is listed under Muse Code');
     assert.ok(models.includes('muse-wonder-full-1.0'), 'Wonder Full is listed under Muse Code');
+    // A member gets no way in, just the clean list: no off harness, no off line.
+    enabled = ['openai', 'anthropic'];
+    await page.evaluate(() => document.querySelector('#bot-editor').close());
+    await page.evaluate(() => { S.me.role = 'member'; return loadSettings(); });
+    await openAdd();
+    options = await harnessOptions();
+    assert.ok(!options.some(o => o.value === 'musecode'), 'members never see a provider-off harness');
+    assert.equal(await page.locator('[data-add-choice] [data-choice-off]').count(), 0, 'members get no off line');
+    await page.evaluate(() => { S.me.role = 'owner'; });
     assert.deepEqual(errors, []);
     console.log('ok');
   } finally { await browser.close(); }
