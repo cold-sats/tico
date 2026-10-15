@@ -7,6 +7,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.48] - 2026-10-15
+
 ### Fixed
 - Muse Code, Gemini and Antigravity turns on an isolated Docker runner use the bot user with cleared
   capabilities. Required prompt, CLI-state and revocable-token files remain usable without exposing the
@@ -2613,7 +2615,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.47...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.48...HEAD
+[0.3.48]: https://github.com/ticoteam/tico/compare/v0.3.47...v0.3.48
 [0.3.47]: https://github.com/ticoteam/tico/compare/v0.3.46...v0.3.47
 [0.3.21]: https://github.com/ticoteam/tico/compare/v0.3.20...v0.3.21
 [0.3.20]: https://github.com/ticoteam/tico/compare/v0.3.19...v0.3.20
