@@ -8,6 +8,9 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- The Health Monitor no longer reports "A runner keeps losing its event stream" because the server restarted. A
+  server start (a deploy or an update) ends every runner's stream at once, and each drop was counted twice. The check
+  now counts each drop once and leaves out drops from 5 minutes before to 2 minutes after a server start.
 - BotOps working for a person can no longer take repository access away from another bot. Setting a bot to own,
   dropping a chosen repository or turning write into read now puts a Confirm card in the person's BotOps chat
   that names what would stop, and nothing changes until they tap it; giving access still goes through at once.
