@@ -8,11 +8,18 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- Runtime and development Python locks share the same dependency pins. The desktop uses rustls 0.23.46,
+  with compatible AWS, cryptography, JWT and browser telemetry SDK updates.
 - Muse Code, Gemini and Antigravity turns on an isolated Docker runner use the bot user with cleared
   capabilities. Required prompt, CLI-state and revocable-token files remain usable without exposing the
   runner's registration or private state; existing model sessions keep their locations.
 - Runner ownership handoffs preserve private state while preparing existing Git and model CLI files for
   the bot user.
+
+### Added
+- An opt-in Rust relay for computer-screen WebSockets, with single-use tickets, leased permissions,
+  bounded buffering and cancellation, and duplicate-safe audit reporting. Python remains the default;
+  the explicit installation overlay and rollback are documented in docs/install.md.
 
 ## [0.3.47] - 2026-10-15
 
@@ -27,8 +34,6 @@ All notable changes to Tico are recorded here. The format follows
 - Reopening the bot editor before its previous close event keeps the new form and its settings refresh intact.
 - Browser model sign-in on an isolated runner uses the bot's OS identity for login and its final check,
   so a successful sign-in does not leave credentials readable only by the supervisor.
-- Runtime and development Python locks share the same dependency pins. The desktop uses rustls 0.23.46,
-  with compatible AWS, cryptography, JWT and browser telemetry SDK updates.
 - **The bot model picker no longer hides a harness whose provider is off.** It lists it greyed out with an
   AI-providers line to turn it on, so Muse Code and the Wonder models are one provider tick away instead of invisible.
 - **Image cleanup keeps future releases staged on the same Docker host.** After an update, the updater removes only

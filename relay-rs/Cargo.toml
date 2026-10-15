@@ -1,0 +1,22 @@
+[package]
+name = "tico-screen-relay"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.92"
+license-file = "../LICENSE"
+publish = false
+
+[dependencies]
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+uuid = { version = "1", features = ["v4"] }
+sha2 = "0.10"
+subtle = "2"
+
+[profile.release]
+lto = true
+strip = true

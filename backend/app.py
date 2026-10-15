@@ -107,6 +107,9 @@ def create_app(settings=None):
         from concurrent.futures import ThreadPoolExecutor
         asyncio.get_running_loop().set_default_executor(ThreadPoolExecutor(max_workers=64, thread_name_prefix="tico"))
         store.initialize()
+        if settings.screen_relay == "python":
+            from .screen_relay import reconcile_pilot
+            await asyncio.to_thread(reconcile_pilot, store)  # a rollback also closes abandoned pilot audit opens
         asyncio.get_running_loop().run_in_executor(None, auth.warm)   # Cloudflare's keys, before anyone signs in
         # A company from before the Librarian was built in gets it on update, once it can run it.
         try:
@@ -139,6 +142,10 @@ def create_app(settings=None):
         execution.grace_leases()
         telemetry.start()
         stop = asyncio.Event()
+        screen_relay_task = None
+        if getattr(screen_sessions, "remote", False):
+            await asyncio.to_thread(screen_sessions.start)
+            screen_relay_task = asyncio.create_task(screen_sessions.run(stop))
         from .timing import watch_loop
         timing_task = asyncio.create_task(watch_loop(app.state.timing, stop))
         recorder_thread = flight.Flight(recorder, store, settings) if recorder else None
@@ -213,6 +220,8 @@ def create_app(settings=None):
             yield
         finally:
             stop.set()
+            if screen_relay_task:
+                await screen_relay_task
             app.state.doc_sources.stop.set()
             copy_stop.set()
             app.state.file_metadata.stop.set()
@@ -367,6 +376,18 @@ def create_app(settings=None):
             if any(part in (".", "..") for part in request.url.path.split("/")):
                 raise Problem("not_found", "Not found", 404)
             if request.url.path == "/healthz":
+                return await call_next(request)
+            if request.url.path == "/_tico/screen/v1/authorize":
+                from .screen_relay import private_request
+                if not private_request(request, settings):
+                    raise Problem("forbidden", "Private relay key required", 403)
+                chunks, total = [], 0
+                async for chunk in request.stream():
+                    total += len(chunk)
+                    if total > 16384:
+                        raise Problem("too_large", "Relay authorization exceeds its limit", 413)
+                    chunks.append(chunk)
+                request._body = b"".join(chunks)
                 return await call_next(request)
             # Minting a loopback session is the one unauthenticated read: it carries its own
             # secret and is refused outright unless local sign-in is configured.

@@ -208,7 +208,12 @@ class Registry:
 def registry(store):
     existing = getattr(store, "screen_sessions", None)
     if existing is None:
-        existing = store.screen_sessions = Registry(store)
+        if store.settings.screen_relay == "rust":
+            from .screen_relay import RemoteRegistry
+            existing = RemoteRegistry(store)
+        else:
+            existing = Registry(store)
+        store.screen_sessions = existing
     return existing
 
 
@@ -298,6 +303,9 @@ def install(app, store, auth, mutate, execution, settings):
     from . import models as M
     from .views import human_only
     sessions = registry(store)
+    if getattr(sessions, "remote", False):
+        from .screen_relay import install_policy
+        install_policy(app, store, auth, execution, settings)
 
     def computer(c, rid):
         return c.execute("SELECT * FROM runners WHERE id=? AND revoked_at IS NULL", (rid,)).fetchone()
@@ -351,7 +359,9 @@ def install(app, store, auth, mutate, execution, settings):
             width, height = size(runner)
             session, ticket = sessions.admit(rid, who.actor, body.control, width, height, mode)
             admitted.append(session)
-            H.event(c, who.actor, "runner.screen_open", rid, {"session_id": session.id, "control": body.control})
+            H.event(c, who.actor, "runner.screen_open", rid,
+                    {"session_id": session.id, "control": body.control,
+                     **({"relay_lease": session.relay_lease} if getattr(sessions, "remote", False) else {})})
             # A `runner` change row is the runner's `screen_open` event (backend/events.py runner_read).
             c.execute("INSERT INTO changes(topic,kind,subject_id,ref,at) VALUES('runner','screen_open',?,?,?)",
                       (rid, session.id, H.now()))
@@ -359,7 +369,10 @@ def install(app, store, auth, mutate, execution, settings):
                     "ws_path": f"/api/v2/runners/{rid}/screen/ws?ticket={ticket}",
                     "width": width, "height": height}
         try:
-            return store.write(who, work)       # never `mutate`: its replay record would keep the ticket
+            result = store.write(who, work)     # never `mutate`: its replay record would keep the ticket
+            if getattr(sessions, "remote", False):
+                sessions.publish(admitted[0])  # prepared grants become visible only after the audit commit
+            return result
         except Exception:
             for session in admitted:            # the write failed after admission: close it, waking any socket
                 sessions.end(session, 1011, "could not open the screen")
@@ -377,6 +390,9 @@ def install(app, store, auth, mutate, execution, settings):
 
     @app.websocket("/api/v2/runners/{rid}/screen/ws")
     async def browser_socket(websocket: WebSocket, rid: str, ticket: str = ""):
+        if getattr(sessions, "remote", False):
+            await websocket.close(code=1013, reason="Route screen WebSockets to the configured Rust relay")
+            return
         # The ticket is the only credential; a page on another site never holds one, and its origin is refused too.
         origin = websocket.headers.get("origin")
         if origin and not settings.allows_origin(origin):
@@ -402,6 +418,9 @@ def install(app, store, auth, mutate, execution, settings):
 
     @app.websocket("/api/v2/runners/me/screen/{session_id}/ws")
     async def runner_socket(websocket: WebSocket, session_id: str):
+        if getattr(sessions, "remote", False):
+            await websocket.close(code=1013, reason="Route screen WebSockets to the configured Rust relay")
+            return
         path = websocket.url.path
 
         def identify():

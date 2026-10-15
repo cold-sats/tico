@@ -70,10 +70,12 @@ def test_compose_always_runs_cloudflared_with_that_config_and_the_server_is_what
     assert "compose.yaml" in build_install_bundle().bundle_names(ROOT)
 
 
-@pytest.mark.skipif(not shutil.which("docker") or subprocess.run(
-    ["docker", "image", "inspect", "cloudflare/cloudflared:2026.7.3"], capture_output=True).returncode != 0,
-    reason="the pinned cloudflared image is not on this machine")
+@pytest.mark.slow
 def test_cloudflared_itself_accepts_the_config_and_routes_the_domain_to_the_server(tmp_path):
+    # Availability checks belong to the opted-in integration test, not every collection on a shared host.
+    if not shutil.which("docker") or subprocess.run(
+            ["docker", "image", "inspect", "cloudflare/cloudflared:2026.7.3"], capture_output=True).returncode:
+        pytest.skip("the pinned cloudflared image is not on this machine")
     assert write_config(tmp_path, "tico.example.com").returncode == 0
     def cloudflared(*args):
         return subprocess.run(["docker", "run", "--rm", "-v", f"{tmp_path}:/tunnel:ro", "cloudflare/cloudflared:2026.7.3", "tunnel",
@@ -116,3 +118,11 @@ def test_the_server_and_setup_write_the_same_runner_hostname_route(tmp_path):
     written = yaml.safe_load((tmp_path / "cloudflared.yml").read_text())
     assert written == cloudflare.ingress_config("tico.example.com", "tico-runner.example.com")
     assert written["ingress"][1]["path"] == "^/(?:api/v2|download)(?:/.*)?$"
+    done = write_config(tmp_path, "tico.example.com", TICO_RUNNER_URL="https://tico-runner.example.com",
+                        TICO_TUNNEL_ORIGIN="http://screen-proxy:8080")
+    assert done.returncode == 0, done.stderr
+    pilot = yaml.safe_load((tmp_path / "cloudflared.yml").read_text())
+    assert [r["service"] for r in pilot["ingress"]] == [
+        "http://screen-proxy:8080", "http://screen-proxy:8080", "http_status:404"]
+    assert pilot["ingress"][1]["path"] == written["ingress"][1]["path"]
+    assert write_config(tmp_path, "tico.example.com", TICO_TUNNEL_ORIGIN="http://untrusted.example").returncode != 0
