@@ -533,7 +533,7 @@ impl Follower {
     /// What a heartbeat adds; nothing for a server that does not name a release.
     pub fn fields(&self, body: &mut Value) {
         let s = self.inner.lock().unwrap();
-        if let Some(checkout) = s.checkout.as_ref().filter(|_| !s.desired.as_deref().is_some_and(|d| !d.is_empty())) {
+        if let Some(checkout) = s.checkout.as_ref().filter(|_| s.desired.as_deref().is_none_or(|d| d.is_empty())) {
             body["checkout"] = checkout.clone();
         }
         if s.desired.is_none() {

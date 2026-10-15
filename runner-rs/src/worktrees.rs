@@ -1,8 +1,10 @@
 //! Computer-owned task worktrees (runner/worktrees.py): the heartbeat's report of each worktree the server
 //! tracks here, an attached checkout's local proof (`tasks/.checkout-state/<sha256(link)>.json`, the Python
 //! marker format), and the cleanup and restore actions a heartbeat reply asks for. Never removes a tree before
-//! preserving its history. Adding and setting up a worktree stay in the hub CLI (`hub worktree add`), which
-//! takes the same task lock (`tasks/.locks/<sha[:2]>`) and writes the same markers.
+//! preserving its history. Adding and setting up a worktree inside a turn stay in the hub CLI (`hub worktree
+//! add`), which takes the same task lock (`tasks/.locks/<sha[:2]>`) and writes the same markers; a worktree
+//! the server reserved for a waiting task (backend/worktree_waits.py) is checked out and set up here, while
+//! its bot is idle (`prepare`).
 
 use std::collections::{HashMap, HashSet};
 use std::os::unix::fs::OpenOptionsExt;
@@ -445,6 +447,286 @@ async fn record_restored(workspace: &Path, row: &Value, repo: &mut Map<String, V
     identity.insert("phase".into(), json!("restored"));
     write_marker(workspace, &identity)?;
     Ok((expected, target, expected_base))
+}
+
+/// What a reserved worktree is checked out and set up for (worktrees.prepare): the repository, whether it goes
+/// through the computer's own git, and the setup command the repository names.
+struct Checkout<'a> {
+    workspace: &'a Path,
+    repo: &'a str,
+    machine_git: bool,
+    branch: &'a str,
+    env: &'a Env,
+}
+
+/// `git status` records of a checkout, untracked files included (worktrees._porcelain_records).
+async fn porcelain_records(path: &Path, env: &Env) -> R<Vec<String>> {
+    let done = git(path, env, &["status", "--porcelain=v1", "-z", "--untracked-files=all"], false).await?;
+    if !done.ok() {
+        return Err(WtErr::msg("Could not verify checkout contents; left as they are"));
+    }
+    Ok(done.stdout.split('\0').filter(|r| !r.is_empty()).map(String::from).collect())
+}
+
+/// The task id a marker already records for this task, so a short id never rewrites it (_canonical_task_id).
+fn canonical_task(task: &str, marker: Option<&Map<String, Value>>) -> String {
+    match marker.map(|m| own(m, "task_id")) {
+        Some(recorded) if recorded == task || (task.len() >= 8 && recorded.starts_with(task)) => recorded,
+        _ => task.to_string(),
+    }
+}
+
+/// Accept only a complete clean materialization; never restore or overwrite its contents
+/// (_resume_interrupted_checkout).
+async fn resume_interrupted(path: &Path, c: &Checkout<'_>, expected_head: &str, expected_base: &str, identity: &Map<String, Value>) -> R<()> {
+    if !is_sha(expected_head) {
+        return Err(WtErr::msg("Interrupted checkout has no valid expected commit; left as it is"));
+    }
+    verify_worktree(path, c.workspace, c.repo, c.machine_git, c.branch, c.env, Some(expected_base), false).await?;
+    if git(path, c.env, &["rev-parse", "HEAD"], true).await?.stdout.trim() != expected_head {
+        return Err(WtErr::msg("Interrupted checkout moved from its recorded commit; left as it is"));
+    }
+    let marker = read_marker(c.workspace, &own(identity, "link_id"))?;
+    check_marker(marker.as_ref(), identity)?;
+    let mut marker = marker.unwrap();
+    let phase = own(&marker, "phase");
+    if phase != "materializing" && phase != "checkout_complete" {
+        return Err(WtErr::msg("Worktree is not in a resumable checkout phase; kept unchanged"));
+    }
+    if !porcelain_records(path, c.env).await?.is_empty() {
+        return Err(WtErr::msg("Checkout contents changed or are incomplete; kept worktree without restoring files"));
+    }
+    if phase == "materializing" {
+        marker.insert("phase".into(), json!("checkout_complete"));
+        write_marker(c.workspace, &marker)?;
+    }
+    Ok(())
+}
+
+/// The task branch when the base has it, else the default branch's remote head, and its commit.
+async fn checkout_target(base: &Path, branch: &str, default: &str, env: &Env) -> R<(String, String)> {
+    let local = format!("refs/heads/{branch}");
+    let target = if git(base, env, &["show-ref", "--verify", &local], false).await?.ok() { local } else { format!("refs/remotes/origin/{default}") };
+    let head = git(base, env, &["rev-parse", "--verify", &target], true).await?.stdout.trim().to_string();
+    Ok((target, head))
+}
+
+/// The link's checkout record on the server: pending with setup pending until it is present and ready.
+async fn patch_checkout(client: &Client, task: &str, link: &str, checkout_state: &str, proof: (&str, &str, &str)) -> R<()> {
+    let present = checkout_state == "ready";
+    let body = json!({"state": if present { "present" } else { "pending" }, "setup_pending": !present, "checkout_state": checkout_state,
+                      "expected_head": proof.0, "checkout_target": proof.1, "expected_base": proof.2});
+    client.patch(&format!("tasks/{task}/links/{link}"), &body).await.map_err(|e| WtErr::msg(e.detail))?;
+    Ok(())
+}
+
+/// Create a queued checkout, or resume an interrupted one, with its local proof written before and after
+/// `git worktree add` (_create_or_resume_checkout). Returns (expected_head, checkout_target, expected_base).
+async fn create_or_resume(path: &Path, c: &Checkout<'_>, base: &Path, default: &str, link: &Map<String, Value>, task: &str, client: &Client) -> R<(String, String, String)> {
+    let mut state = Some(own(link, "checkout_state")).filter(|s| !s.is_empty()).unwrap_or_else(|| "queued".into());
+    let fresh_queued = state == "queued";
+    let (mut expected, mut target, mut expected_base) = (own(link, "expected_head"), own(link, "checkout_target"), own(link, "expected_base"));
+    let branch = c.branch;
+    let actual_base = base_identity(&common_dir(base, c.env).await?);
+    let link_id = own(link, "link_id");
+    if state == "initializing" {
+        if expected.is_empty() || target.is_empty() || expected_base.is_empty() {
+            return Err(WtErr::msg("Initialization is missing its registered commit or base; kept worktree unchanged"));
+        }
+        if expected_base != actual_base {
+            return Err(WtErr::msg("Managed base clone changed since initialization; kept worktree unchanged"));
+        }
+        if target != format!("refs/heads/{branch}") && target != format!("refs/remotes/origin/{default}") {
+            return Err(WtErr::msg("Interrupted checkout target does not match its task; left as it is"));
+        }
+        let head = git(base, c.env, &["rev-parse", "--verify", &target], false).await?;
+        if !head.ok() || head.stdout.trim() != expected {
+            return Err(WtErr::msg("Task branch changed since checkout initialization; left as it is"));
+        }
+    } else if state == "queued" {
+        (target, expected) = checkout_target(base, branch, default, c.env).await?;
+        expected_base = actual_base;
+        patch_checkout(client, task, &link_id, "initializing", (&expected, &target, &expected_base)).await?;
+        state = "initializing".into();
+    } else {
+        return Err(WtErr::msg("Checkout is not in a resumable initialization state; leave it unchanged"));
+    }
+    let marker = read_marker(c.workspace, &link_id)?;
+    let identity = marker_identity(&link_id, &canonical_task(task, marker.as_ref()), &own(link, "path"), c.repo, branch, &expected, &target, &expected_base);
+    let with_phase = |m: &Map<String, Value>, phase: &str| {
+        let mut m = m.clone();
+        m.insert("phase".into(), json!(phase));
+        m
+    };
+    if path.exists() {
+        resume_interrupted(path, c, &expected, &expected_base, &identity).await?;
+    } else {
+        match marker {
+            Some(marker) => {
+                let registered = worktree_registered(base, path, c.env).await?;
+                if fresh_queued && !registered {
+                    // A new add can reuse a removed link only when its path is absent and Git no longer
+                    // registers it, with the same task, repository, branch and base.
+                    let stable: Map<String, Value> = identity.iter().filter(|(k, _)| ["link_id", "task_id", "path", "repo", "branch", "expected_base"].contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
+                    check_marker(Some(&marker), &stable)?;
+                    write_marker(c.workspace, &with_phase(&identity, "planned"))?;
+                } else {
+                    check_marker(Some(&marker), &identity)?;
+                    match own(&marker, "phase").as_str() {
+                        "materializing" if registered => return Err(WtErr::msg("Git still registers the missing interrupted worktree; preserved for bounded recovery")),
+                        "materializing" => write_marker(c.workspace, &with_phase(&marker, "planned"))?,
+                        "planned" if registered => return Err(WtErr::msg("Git registers a worktree without a materialized path; preserved for bounded recovery")),
+                        "planned" => {}
+                        _ => return Err(WtErr::msg("A previously materialized worktree is missing; preserved for bounded recovery")),
+                    }
+                }
+            }
+            None => {
+                if state != "initializing" || worktree_registered(base, path, c.env).await? {
+                    return Err(WtErr::msg("Worktree is missing without safe initialization proof; preserved for recovery"));
+                }
+                write_marker(c.workspace, &with_phase(&identity, "planned"))?;
+            }
+        }
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        write_marker(c.workspace, &with_phase(&identity, "materializing"))?;
+        let p = path.display().to_string();
+        if target == format!("refs/heads/{branch}") {
+            git(base, c.env, &["worktree", "add", &p, branch], true).await?;
+        } else {
+            git(base, c.env, &["worktree", "add", "--no-track", "-b", branch, &p, &target], true).await?;
+        }
+        resume_interrupted(path, c, &expected, &expected_base, &identity).await?;
+    }
+    patch_checkout(client, task, &link_id, "checkout_ready", (&expected, &target, &expected_base)).await?;
+    Ok((expected, target, expected_base))
+}
+
+/// What a setup command sees (worktrees.setup_environment): no credentials, only the toolchain basics.
+fn setup_environment(env: &Env) -> Env {
+    const KEYS: &[&str] = &["PATH", "HOME", "SHELL", "LANG", "TZ", "TMPDIR", "TMP", "TEMP", "VIRTUAL_ENV", "CONDA_PREFIX", "PYENV_ROOT", "CARGO_HOME", "RUSTUP_HOME", "GOPATH", "JAVA_HOME"];
+    env.iter().filter(|(k, _)| KEYS.contains(&k.as_str()) || k.starts_with("LC_")).map(|(k, v)| (k.clone(), v.clone())).collect()
+}
+
+/// Run the repository's setup command in a new worktree (worktrees.setup): as the bot user, its own process
+/// group, output discarded, at most ten minutes.
+async fn setup(path: &Path, command: &str, env: &Env) -> R<()> {
+    if command.is_empty() {
+        return Ok(());
+    }
+    let mut cmd = crate::isolation::command("/bin/sh");
+    cmd.arg("-c")
+        .arg(command)
+        .current_dir(path)
+        .env_clear()
+        .envs(setup_environment(env))
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .process_group(0)
+        .kill_on_drop(true);
+    let mut child = cmd.spawn()?;
+    let pid = child.id().map(|p| p as i32).unwrap_or(0);
+    match tokio::time::timeout(SETUP_TIMEOUT, child.wait()).await {
+        Ok(status) => {
+            let status = status?;
+            if !status.success() {
+                use std::os::unix::process::ExitStatusExt;
+                let code = status.code().unwrap_or_else(|| -status.signal().unwrap_or(1));
+                return Err(WtErr::msg(format!("Worktree created but setup failed (exit {code}); run setup again; setup has no credentials, so network authentication must be configured outside setup")));
+            }
+            Ok(())
+        }
+        Err(_) => {
+            if pid > 0 {
+                // SAFETY: a plain signal to the process group this runner started for setup.
+                unsafe { libc::killpg(pid, libc::SIGKILL) };
+            }
+            let _ = child.wait().await;
+            Err(WtErr::msg("Worktree setup timed out; run setup again"))
+        }
+    }
+}
+
+const SETUP_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// Run a checked-out worktree's setup once its checkout proof holds (_run_registered_setup), recording
+/// setup_running, then ready or setup_failed, locally and on the server.
+async fn run_registered_setup(path: &Path, c: &Checkout<'_>, setup_command: &str, link: &Map<String, Value>, task: &str, client: &Client) -> R<()> {
+    let link_id = Some(own(link, "link_id")).filter(|s| !s.is_empty()).unwrap_or_else(|| own(link, "id"));
+    let (state, expected, target, base) = (own(link, "checkout_state"), own(link, "expected_head"), own(link, "checkout_target"), own(link, "expected_base"));
+    if !["checkout_ready", "setup_failed", "setup_running"].contains(&state.as_str()) {
+        return Err(WtErr::msg("Legacy or unknown worktree initialization is unverified; setup was not run"));
+    }
+    if expected.is_empty() || target.is_empty() || base.is_empty() {
+        return Err(WtErr::msg("Worktree setup lacks recorded commit and base identity; kept unchanged"));
+    }
+    let marker = read_marker(c.workspace, &link_id)?;
+    let identity = marker_identity(&link_id, &canonical_task(task, marker.as_ref()), &own(link, "path"), c.repo, c.branch, &expected, &target, &base);
+    check_marker(marker.as_ref(), &identity)?;
+    let mut marker = marker.unwrap();
+    let phase = own(&marker, "phase");
+    if !["checkout_complete", "restored", "setup_failed", "setup_running", "ready"].contains(&phase.as_str()) {
+        return Err(WtErr::msg("Worktree setup has no completed checkout proof; kept unchanged"));
+    }
+    verify_worktree(path, c.workspace, c.repo, c.machine_git, c.branch, c.env, Some(&base), false).await?;
+    if git(path, c.env, &["rev-parse", "HEAD"], true).await?.stdout.trim() != expected {
+        return Err(WtErr::msg("Worktree moved from its recorded setup commit; kept unchanged"));
+    }
+    if state == "checkout_ready" && phase == "checkout_complete" && !porcelain_records(path, c.env).await?.is_empty() {
+        return Err(WtErr::msg("Checkout changed before setup; kept worktree without running setup"));
+    }
+    let proof = (expected.as_str(), target.as_str(), base.as_str());
+    if phase == "ready" && state == "setup_running" {
+        return patch_checkout(client, task, &link_id, "ready", proof).await;
+    }
+    marker.insert("phase".into(), json!("setup_running"));
+    write_marker(c.workspace, &marker)?;
+    patch_checkout(client, task, &link_id, "setup_running", proof).await?;
+    if let Err(e) = setup(path, setup_command, c.env).await {
+        marker.insert("phase".into(), json!("setup_failed"));
+        write_marker(c.workspace, &marker)?;
+        patch_checkout(client, task, &link_id, "setup_failed", proof).await?;
+        return Err(e);
+    }
+    marker.insert("phase".into(), json!("ready"));
+    write_marker(c.workspace, &marker)?;
+    patch_checkout(client, task, &link_id, "ready", proof).await
+}
+
+/// Check out and set up a worktree the server reserved for a waiting task (backend/worktree_waits.py,
+/// worktrees.prepare), as `hub task worktree add` does inside a turn, with the same records and proof: the bot
+/// is idle, and the server wakes its task once this reports the worktree present. `repo` is the repository
+/// row (`full_name`, `machine_git`, `setup_command`, `default_branch`). Returns the checkout proof.
+pub async fn prepare(workspace: &Path, row: &Value, repo: &mut Map<String, Value>, env: &Env, client: &Client) -> R<(String, String, String)> {
+    let task = text_of(&row["task_id"]);
+    let mut link = row.as_object().cloned().unwrap_or_default();
+    link.extend(detail(row));
+    link.insert("link_id".into(), row["id"].clone());
+    let _lock = locked(workspace, &text_of(&row["path"])).await?;
+    let branch = checked_branch(&text_of(&row["branch"])).await?;
+    let path = safe_path(workspace, &text_of(&row["path"]))?;
+    let name = own(repo, "full_name");
+    let c = Checkout { workspace, repo: &name, machine_git: crate::util::truthy(repo.get("machine_git")), branch: &branch, env };
+    let state = Some(own(&link, "checkout_state")).filter(|s| !s.is_empty()).unwrap_or_else(|| "queued".into());
+    if state == "queued" || state == "initializing" {
+        if path.exists() && state == "queued" {
+            return Err(WtErr::msg("Worktree path already exists without an initialization record; kept unchanged"));
+        }
+        disk_floor(workspace)?;
+        let (base, default) = repositories::worktree_base(workspace, repo, env).await?;
+        link.insert("checkout_state".into(), json!(state));
+        let (head, target, base_id) = create_or_resume(&path, &c, &base, &default, &link, &task, client).await?;
+        for (k, v) in [("checkout_state", "checkout_ready"), ("expected_head", head.as_str()), ("checkout_target", target.as_str()), ("expected_base", base_id.as_str())] {
+            link.insert(k.into(), json!(v));
+        }
+    } else if state != "checkout_ready" && state != "setup_running" {
+        return Err(WtErr::msg("Worktree is not waiting to be prepared; kept unchanged"));
+    }
+    run_registered_setup(&path, &c, &own(repo, "setup_command"), &link, &task, client).await?;
+    Ok((own(&link, "expected_head"), own(&link, "checkout_target"), own(&link, "expected_base")))
 }
 
 pub type SizeCache = HashMap<String, (Instant, f64, f64)>;
@@ -980,7 +1262,7 @@ impl Worktrees {
             let is_closed = closed(&row);
             let released = crate::util::truthy(action.get("release")) && crate::util::truthy(d.get("release_requested"));
             let kind = text_of(&action["action"]);
-            if (kind == "remove" && !(is_closed || released)) || (kind == "restore" && is_closed) {
+            if (kind == "remove" && !(is_closed || released)) || ((kind == "restore" || kind == "prepare") && is_closed) {
                 continue;
             }
             let owner = text_of(&row["owner"]);
@@ -1076,13 +1358,31 @@ impl Worktrees {
             }
         }
         action_row.insert("full_name".into(), json!(name));
-        if kind == "restore" && !name.is_empty() && !crate::util::truthy(repo.get("machine_git")) {
+        if (kind == "restore" || kind == "prepare") && !name.is_empty() && !crate::util::truthy(repo.get("machine_git")) {
             if let Some(repos) = host.repositories() {
                 // Unavailable: worktree_base reports the cached mirror's age instead.
                 if let Ok(refreshed) = repos.refresh_mirror(&name, &token).await {
                     action_row.insert("_mirror_refresh".into(), refreshed);
                 }
             }
+        }
+        if kind == "prepare" {
+            // A worktree reserved for a waiting task: checked out and set up here, which reports each step itself.
+            let mut base_repo = repo.clone();
+            base_repo.insert("full_name".into(), json!(name));
+            if let Some(refreshed) = action_row.get("_mirror_refresh") {
+                base_repo.insert("_mirror_refresh".into(), refreshed.clone());
+            }
+            let (head, target, base) = match prepare(&self.workspace, row, &mut base_repo, &env, &self.client).await {
+                Err(WtErr::Msg(_, Some(detail))) if crate::util::truthy(repo.get("machine_git")) => return Err(WtErr::msg(repositories::machine_error(&name, &detail, &Env::new()))),
+                other => other?,
+            };
+            // The report that follows is of the prepared worktree, not of the row read before it.
+            let mut d = detail(row);
+            for (k, v) in [("checkout_state", json!("ready")), ("setup_pending", json!(false)), ("expected_head", json!(head)), ("checkout_target", json!(target)), ("expected_base", json!(base))] {
+                d.insert(k.into(), v);
+            }
+            return Ok(("present".into(), Some(Value::Object(d).to_string())));
         }
         let vault = host.vault(&bot);
         let client = self.client.clone();

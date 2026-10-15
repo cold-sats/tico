@@ -520,7 +520,9 @@ pub fn document(runtimes: &Map<String, Value>, checks: &[Map<String, Value>], st
         out.insert("warnings".into(), row.get("warnings").cloned().unwrap_or(json!([])));
         bots.insert(text_of(&row["bot"]), Value::Object(out));
     }
-    let mut doc = json!({"schema_version": 1, "runtimes": runtimes, "bots": bots, "worktrees": true});
+    // `worktree_waits`: a worktree the server reserves for a waiting task is prepared here while its bot is
+    // idle (worktrees.rs prepare), so the server records a wait instead of refusing a task at its limit.
+    let mut doc = json!({"schema_version": 1, "runtimes": runtimes, "bots": bots, "worktrees": true, "worktree_waits": true});
     if let Some((total, free)) = disk_usage(state_dir) {
         doc["disk"] = json!({"total_bytes": total, "free_bytes": free});
     }

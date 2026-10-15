@@ -18,7 +18,7 @@ pub const PUBLISH_WARNING: &str = "GitHub history not published: ";
 const DENIED_WARNING: &str = "Claude Code denies what AGENT.md asks for: ";
 const DENIES_WARNING: &str = "Claude Code settings deny: ";
 /// Readiness fields an older server may refuse; each is left out for ten minutes after a refusal.
-pub const OPTIONAL: &[&str] = &["engine", "worktrees", "harnesses", "mail_key", "shared_env", "recent_errors", "container_exec", "github_auth", "browser_launch", "disk"];
+pub const OPTIONAL: &[&str] = &["engine", "worktree_waits", "worktrees", "harnesses", "mail_key", "shared_env", "recent_errors", "container_exec", "github_auth", "browser_launch", "disk"];
 
 // ------------------------------------------------------------------------------------- credential grants
 
@@ -550,6 +550,11 @@ mod tests {
         let r = json!({"recent_errors": ["x"], "bots": {"a": {"repository": "/w/a"}}});
         assert_eq!(refused("readiness.bots.a.repository: Extra inputs are not permitted", &r).as_deref(), Some("readiness.bot_repository"));
         assert_eq!(refused("readiness.recent_errors: Extra inputs are not permitted", &r).as_deref(), Some("readiness.recent_errors"));
+        // A server from before worktree waits refuses that field alone; `worktrees` is not mistaken for it.
+        let r = json!({"worktree_waits": true, "worktrees": true, "bots": {}});
+        assert_eq!(refused("readiness.worktree_waits: Extra inputs are not permitted", &r).as_deref(), Some("readiness.worktree_waits"));
+        assert_eq!(refused("readiness.worktrees: Extra inputs are not permitted", &r).as_deref(), Some("readiness.worktrees"));
+        assert_eq!(refused("body: extra fields", &r).as_deref(), Some("readiness.worktree_waits"));
     }
 
     #[test]
