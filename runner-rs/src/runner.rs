@@ -97,7 +97,10 @@ pub fn describe(e: &ApiError) -> String {
 }
 
 impl Runner {
-    pub fn new(config: Config, client: Client, state: State) -> Runner {
+    pub fn new(mut config: Config, client: Client, state: State) -> Runner {
+        if crate::config::retire_old_capacity(&mut config.data) {
+            if let Err(e) = config.save() { log(&format!("Tico runner: could not save runner.json ({e})")); }
+        }
         let projects_dir = config.projects_dir();
         let repositories = Arc::new(crate::repositories::Repositories::new(&projects_dir, &state.directory, client.clone()));
         let _ = crate::repositories::MIRRORS.set(repositories.clone());
