@@ -256,6 +256,14 @@ function machineToolsHtml(machine, online) {
     return `<span class="machine-runtime-item" data-machine-tool="${esc(name)}"><span class="pill ${tone}" title="${esc(value.detail || '')}">${esc(label)}</span>${action}${rejected}</span>`;
   }).join('');
 }
+// The row's sign that the screen is on: a link to it for whoever may open it.
+function machineScreenHTML(machine) {
+  if (!machine.screen || machine.screen === 'off' || machine.revoked_at) return '';
+  if (!machine.screen_available) return '<span class="settings-cell-note">Screen not available</span>';
+  const label = machine.screen === 'control' ? 'Screen · control' : 'Screen · view';
+  return screenMayOpen(machine) ? `<a class="machine-screen" href="${screenHref(machine.id)}"><span class="nav-icon" aria-hidden="true">computer</span>${label}</a>`
+    : `<span class="machine-screen"><span class="nav-icon" aria-hidden="true">computer</span>${label}</span>`;
+}
 function renderSettingsMachines() {
   const el = $('#set-machines'); if (!el) return;
   const expanded = new Set([...el.querySelectorAll('details[data-machine-details][open]')].map(node => node.dataset.machineDetails));
@@ -297,7 +305,13 @@ function renderSettingsMachines() {
     const status = machine.revoked_at ? ['failed', 'revoked'] : online ? ['ok', 'online'] : ['', 'offline'];
     // Rarely used actions sit in the row's ⋯ menu, so each computer stays one compact row.
     const admin = settingsIsAdmin(), mayRemove = !machine.revoked_at && (admin || machine.operator === S.me?.id);
+    // Screen (Off / View / Control): offered once the computer itself has a screen turned on (`screen_available`),
+    // and kept while a mode is set so it can be turned off again. The operator or a bot admin sets it.
+    const screen = machine.screen || 'off';
+    const screenChoice = screenMayOpen(machine) && (machine.screen_available || screen !== 'off')
+      ? `<div class="people-menu-check machine-screen-choice" data-computer-screen="${esc(machine.id)}"><span>Screen</span>${repoSegHTML(`screen-${machine.id}`, 'Screen', [['off', 'Off'], ['view', 'View'], ['control', 'Control']], screen, false, ' repo-seg-sm')}</div>` : '';
     const menu = [bots.length ? `<button type="button" role="menuitem" data-computer-bots="${esc(machine.id)}">Show bots</button>` : '',
+      screenChoice,
       !machine.revoked_at && admin ? `<label class="people-menu-check"><input type="checkbox" data-member-bots="${esc(machine.id)}" ${machine.accepts_member_bots ? 'checked' : ''}> Accepts members' bots</label>` : '',
       mayRemove ? `<button type="button" role="menuitem" class="danger-text" data-computer-remove="${esc(machine.id)}">Remove computer</button>` : ''].join('');
     // Which runner engine it runs (runner/engine.py); hovering says the build, or why it is on Python.
@@ -307,10 +321,24 @@ function renderSettingsMachines() {
       <td data-label="Operator">${esc(settingsPersonName(machine.operator))}${!machine.revoked_at && machine.accepts_member_bots ? '<span class="settings-cell-note">Accepts members\' bots</span>' : ''}</td>
       <td data-label="Bots">${bots.length ? `<a href="#/settings" class="machine-bots" data-computer-bots="${esc(machine.id)}" title="${esc(botNames.join(', '))}"><strong>${bots.length} bot${bots.length === 1 ? '' : 's'}</strong><span class="settings-cell-note">${esc(botNames.join(', '))}</span></a>` : '<span class="muted">No bots</span>'}${failures ? `<span class="settings-cell-note err">${failures} not ready</span>` : ''}</td>
       <td data-label="AI tools"><div class="machine-runtime" aria-label="AI tools on ${esc(machine.label)}">${tools || '<span class="muted">No AI tools reported</span>'}</div>${harnesses ? `<details data-machine-details="${esc(machine.id)}:tools"><summary>Model CLIs</summary><div class="machine-harnesses">${harnesses}</div></details>` : ''}</td>
-      <td data-label="Status"><span class="machine-status"><span class="dot ${status[0]}" aria-hidden="true"></span>${status[1]}${machine.last_seen ? `<span class="muted"> · ${esc(ago(machine.last_seen))}</span>` : ''}</span></td>
+      <td data-label="Status"><span class="machine-status"><span class="dot ${status[0]}" aria-hidden="true"></span>${status[1]}${machine.last_seen ? `<span class="muted"> · ${esc(ago(machine.last_seen))}</span>` : ''}</span>${machineScreenHTML(machine)}</td>
       <td class="settings-row-actions"><div class="people-cell-more">${menu ? `<button class="people-more" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="More for ${esc(machine.label)}"><span class="nav-icon" aria-hidden="true">more_horiz</span></button><div class="people-menu" role="menu" hidden>${menu}</div>` : ''}</div></td></tr>`;
   }).join('');
   el.onchange = async event => {
+    const screenBox = event.target.closest('[data-computer-screen]');
+    if (screenBox && event.target.type === 'radio') {
+      const id = screenBox.dataset.computerScreen, before = SETTINGS_DATA.machines.find(m => m.id === id)?.screen || 'off';
+      screenBox.querySelectorAll('input').forEach(input => { input.disabled = true; });
+      try {
+        await post(`/v2/computers/${encodeURIComponent(id)}/screen`, {mode: event.target.value});
+        toast(event.target.value === 'off' ? 'Screen off' : `Screen: ${event.target.value}`);
+        await loadSettings();
+      } catch (error) {
+        toast(error.message, true);
+        screenBox.querySelectorAll('input').forEach(input => { input.disabled = false; input.checked = input.value === before; });
+      }
+      return;
+    }
     const choice = event.target.closest('[data-harness-choice]');
     if (choice) {
       choice.disabled = true;
