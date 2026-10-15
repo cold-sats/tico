@@ -212,6 +212,7 @@ A harness is a manifest plus a host adapter.
    id = "acme-agent"            # lowercase letters, digits, hyphens
    name = "Acme Agent"
    host = "acme"                # runner-rs/src/hosts/acme.rs
+   runtime = "acme"             # what bot configs and the server call it (`claude` for claude-code.toml)
    executable = "acme"          # what the host runs, looked up on PATH
    providers = ["acme"]         # provider ids from backend/providers.py; one harness per provider
    # catch_all = true           # at most one harness; it serves providers with no CLI of their own
@@ -237,12 +238,56 @@ A harness is a manifest plus a host adapter.
    command = ["login", "--device-auth"]
    terminal = false             # true when the CLI insists on a terminal
    paste_code = false           # true when the sign-in page hands back a code to paste
+
+   [capabilities]               # what Tico does differently for this CLI; see Capabilities below
+   terminal_login = ["login"]
+   mcp_transports = ["http"]
    ```
 
 3. **Provider and models**: add the provider (with `runtime` and `harness`) and its models to `backend/providers.py`.
-   If the CLI signs in through the browser relay, add its runtime to `RUNTIMES` (and `PASTE_RUNTIMES`) in
-   `backend/model_login.py`; a test checks that this list matches the manifests.
 4. **Check**: `shipped_manifests_parse_and_claim_once` in `runner-rs/src/harness_tools.rs` validates every manifest
-   (file name, unique providers, install fields).
+   (file name, unique providers, install fields). `backend/tests/test_harness_capabilities.py` fails on a new
+   comparison with a CLI name outside the host adapters: add a capability instead.
 
 Loading fails loudly on a bad manifest, naming the file and the field.
+
+## Capabilities
+
+Code never asks which CLI a bot runs; it asks the manifest's `[capabilities]`. The server
+(`clients/harness_manifests.py`), the Rust runner (`runner-rs/src/harness_tools.rs`) and the web app (`harnesses[].capabilities`
+in `GET /api/v2/models`) read the same files. An absent key means its fallback below; a harness with no manifest (an
+external agent) has no capabilities, and the app treats each as unknown. A capability that is on and fails at runtime
+is a bug in its host, not a reason to compare names.
+
+Sign-in facts come from the tables that already hold them: `[login]` present means the browser relay (Settings >
+Computers), `paste_code` means it takes a pasted code, `auth.api_key_env` names the keys.
+
+| Capability | Means | Absent |
+|---|---|---|
+| `terminal_login` | What a person runs on the computer to sign in (after the executable) | No interactive sign-in; keys only |
+| `sign_in_status` | How readiness checks the sign-in: `check` = `command` (`args`, `ready`, `not_ready` text), `json` (`args`, `field`, `method_field`), `file` (the host's login file), `bot-key` (each bot's key grant) or `none`; `ready_detail`, `missing_detail`, `timeout_s` | `none`: reported as `unknown` |
+| `api_keys` | Who holds `auth.api_key_env`: `computer` (one key signs every bot in; the company can give it to every computer) or `bot` (each bot's own Credential, the first name) | Keys are not wired by Tico |
+| `api_key_login` | The command that turns a computer's key into a stored login (key on stdin) | The key in the environment is the sign-in |
+| `api_key_in_turn` | The computer's key is put in each turn's environment, which is the only place the CLI reads it, and wins over a stored login | Not put there |
+| `subscription_marker` | Text in the sign-in detail that means a plan, so turns bill as `subscription` | Every turn bills as `api` |
+| `subscription_profiles` | Runs on a named subscription's own login (`profile_home` is the variable pointed at the profile's folder; `profile_dirs` are made inside it) | Not covered by subscriptions |
+| `own_config_home` | Bot runs use a config folder of Tico's own, never the operator's | The operator's (or the profile's) home |
+| `weekly_usage` | `refresh` (turns report it, and it can be refreshed on demand), `turns`, or `manual` (only a person's reading) | No weekly usage |
+| `tool_events` | The host emits one `tool` event per tool call, so a run with none provably did nothing | No evidence either way |
+| `mcp_transports` / `mcp_unsupported` | The MCP transports a run takes; the reason shown when it takes none | No MCP servers, "it has no MCP support in Tico" |
+| `resume_after_interrupt` | An interrupted thread can be continued | `true`; `false` forgets it so a retry starts fresh |
+| `persistent_session` | One process per conversation is kept between turns | One process per turn |
+| `goal_runs_across_turns` | A native goal keeps the thread going after a turn completes, and a clear is reconciled | A goal ends with its turn |
+| `serial_cold_start` | An expired stored token is refreshed by the first turn; the others wait for it | Turns start together |
+| `compaction` | The bot's Compact at setting applies | Setting hidden |
+| `resume_command` | The local command that resumes a session (the id follows) | `<executable> --resume` |
+| `model_list` | `host`: the host adapter lists the models in readiness; `command`: the CLI lists them (`model_list_args`) | No model list |
+| `readiness` | The runner reports install and sign-in for it | `true`; `false` reports nothing, so checks say unknown |
+| `repo_permission_lint` | Readiness warns about permission rules in the bot's repository | No lint |
+| `repo_commands` | The bot's repository skills and commands are offered as chat commands | Built-in commands only |
+
+Goals, chat commands and controls stay probed: the runner reports them per installed version in its heartbeat.
+
+A runtime with a second host (Gemini's Antigravity) declares it as `[variants.<harness>]` in the runtime's manifest,
+with its own `name`, `host`, `executable` and capabilities. The runner never installs a variant.
+

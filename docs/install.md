@@ -904,8 +904,9 @@ restore reads the database, attachments and key files; rehearsal does not write 
 Restart the source from its original directory with `docker compose start server`. Remove the rehearsal when finished with
 `docker compose -f compose.yaml -f rehearsal.yaml down -v`; its external source backup volume is kept.
 
-Set `TICO_REHEARSAL=1` before the first start of the copy. Do not enrol runners against it or give it the production
-domain: a runner that connects would run bots against the copy's queue. Leave rehearsal by building a new server without
+Set `TICO_REHEARSAL=1` before the first start of the copy. A rehearsal refuses runners: enrolment codes, enrolment,
+heartbeats and job claims, and agent pairings, all answer `409 rehearsal`, so no bot runs against the copy's queue. Do not
+give it the production domain. Leave rehearsal by building a new server without
 the variable; a copy that ran in rehearsal was never backed up. An explicit `TICO_SCHEDULER=0` (without `TICO_REHEARSAL`)
 turns off only the scheduler and directory sync; unset, the server starts them.
 

@@ -1,6 +1,8 @@
 """The flight recorder (backend/flight.py): what it aggregates is right, only owners and admins read it, it forgets on
 schedule, it catches a stalled event loop in the act, and the start record holds no secret."""
 import json
+import sqlite3
+import threading
 import time
 from contextlib import contextmanager
 
@@ -9,7 +11,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from backend import code_hash, flight, releases
+from backend import code_hash, flight, flight_file, releases
 from backend.app import create_app
 from backend.auth import Identity
 from backend.config import Settings
@@ -55,6 +57,44 @@ def test_requests_and_sql_are_aggregated_per_minute_route_and_caller(store):
     assert shapes["SELECT * FROM tasks WHERE id='?'"] == 2 and not any("x1" in fp for fp in shapes)
     assert shapes[flight.fingerprint(many)] == 2 and rows_ms > 5
     assert process["requests"] == 21 and process["txns"] >= 1
+
+
+def test_a_stall_behind_the_write_lock_reaches_the_file_and_the_summary(store, capsys):
+    """The write lock is held elsewhere, a writer waits for it, the event loop stops waking: the stall is in the file
+    (class `lock`, with the waiting thread's stack) although the recorder's own table write could not get the lock,
+    and the summary reads it from the file alone."""
+    folder = store.settings.db_path.parent / "flight"
+    sampler = flight.Flight(store.recorder, store, store.settings, folder=folder, stall_s=0.05, db_wait=0.05)
+    sampler.file.start()
+    holder = sqlite3.connect(str(store.settings.db_path), isolation_level=None)
+    holder.execute("BEGIN IMMEDIATE")
+    def write():
+        with store.transaction():
+            pass
+    waiter = threading.Thread(target=write, name="tico-writer", daemon=True)
+    try:
+        waiter.start()
+        deadline = time.monotonic() + 5
+        while not store.recorder.waiting and time.monotonic() < deadline:
+            time.sleep(0.01)
+        sampler.step()
+        time.sleep(0.1)
+        store.recorder.beat = time.monotonic() - 1
+        stall = sampler.step()
+        assert stall["class"] == "lock" and stall["threads"]["busy"] and sampler.db_failed == 1
+        store.recorder.beat = time.monotonic()
+        sampler.step()
+        sampler.file.close()
+    finally:
+        holder.execute("ROLLBACK")
+        holder.close()
+        waiter.join(timeout=5)
+    out = flight_file.summary(folder, 600)
+    found = out["stalls"][0]
+    assert found["class"] == "lock" and not found["ongoing"] and found["usage"]["lock_ms"] > 0
+    assert any("tico-writer" == t["thread"] and any("begin" in f for f in t["stack"]) for t in found["threads"])
+    assert flight.main(["summary", "--since", "10m", "--dir", str(folder)]) == 0
+    assert "class=lock" in capsys.readouterr().out
 
 
 def test_a_full_buffer_counts_what_it_drops(monkeypatch):
@@ -140,8 +180,12 @@ def test_owners_admins_and_bots_read_the_metrics(tmp_path):
         assert get("ana-test", "/api/v2/health").status_code == 200
         rec = app.state.flight
         rec.drain()
+        taken = rec.take(int(time.time() // 60 * 60) - 120)
         with app.state.store.transaction() as c:
-            flight.write(c, rec.take(int(time.time() // 60 * 60) - 120))
+            flight.write(c, taken)
+        # A request's SQL time reaches its route's row through the threads it ran on (the file's per-route copy).
+        health = [r for r in taken["file"][1]["routes"] if r["route"] == "GET /api/v2/health"]
+        assert health and health[0]["sql_ms"] > 0 and health[0]["bytes_max"] > 0
         # The start event comes from the recorder's thread; on a busy machine it lands after the first requests.
         deadline = time.time() + 10
         while time.time() < deadline:

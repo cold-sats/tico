@@ -337,7 +337,15 @@ class Execution:
         self.readiness_reported = None
         self.served_at = None   # when this process last answered a runner (heartbeat, claim, attempt call)
 
+    def refuse_in_rehearsal(self, what="Runners"):
+        """A rehearsal (TICO_REHEARSAL=1) is a copy of real data: a computer that connected would run bots against its
+        queue, so no runner enrols, reports in or takes work there (docs/install.md, "Rehearse a migration")."""
+        if getattr(self.store.settings, "rehearsal", False):
+            raise Problem("rehearsal", what + " are off in a rehearsal: this server is a copy of real data and runs "
+                          "no bots", 409)
+
     def runner(self, c, who):
+        self.refuse_in_rehearsal()
         if who.role != "runner":
             raise Problem("identity", "A registered runner is required", 403)
         return c.execute("SELECT * FROM runners WHERE id=? AND revoked_at IS NULL",
@@ -377,6 +385,7 @@ class Execution:
         return not awake_since or awake_since <= H.shift(now, seconds=-AWAKE_SETTLE)
 
     def issue_enrollment(self, c, who, body):
+        self.refuse_in_rehearsal("Enrolments")
         if who.role not in ("owner", "human"):
             raise Problem("identity", "A person must enroll a machine", 403)
         operator = body.operator or H.actor_id(who.actor)
@@ -392,6 +401,7 @@ class Execution:
         return {"code": code, "expires": expires, "operator": operator}
 
     def enroll(self, body):
+        self.refuse_in_rehearsal("Enrolments")
         with self.store.transaction() as c:
             row = c.execute("SELECT * FROM enrollments WHERE code_hash=?", (digest(body.code),)).fetchone()
             if not row or row["expires"] <= H.now():

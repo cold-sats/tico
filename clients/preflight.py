@@ -23,6 +23,7 @@ import yaml
 if __package__ in (None, ""):                          # run as a script: python clients/preflight.py
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from clients import registry as REG  # noqa: E402
+from clients import harness_manifests  # noqa: E402
 from clients.manifest import manifest_path, repo_dir, routines_of, tools_of  # noqa: E402
 from clients.routines import MAX_CONTENT, validate_schedules  # noqa: E402
 from runner.op import OP_REF, resolve_op_refs  # noqa: E402
@@ -38,8 +39,6 @@ STALE = [
      "'Chief' as an actor"),
 ]
 STALE_MAX = 20                               # keep a messy repo from burying the rest of the report
-RUNTIME_BIN = {"codex": "codex", "claude": "claude", "gemini": "gemini", "grok": "grok",
-               "pi": "pi", "cursor": "cursor-agent", "musecode": "muse"}
 
 
 class Report:
@@ -337,13 +336,14 @@ def check_stale(r, d):
         r.warn(f"references: {len(hits) - STALE_MAX} more not listed")
 
 
-def grok_models():
-    """The model names `grok models` reports, or None if the call did not work.
+def listed_models(argv):
+    """The model names a CLI's model list (`model_list = "command"`, e.g. `grok models`) reports, or None if the call
+    did not work.
 
     The listing is one model a line: `  * grok-4.6 (default)`, `  - grok-4.5`.
     """
     try:
-        p = subprocess.run(["grok", "models"], capture_output=True, text=True, timeout=60)
+        p = subprocess.run(argv, capture_output=True, text=True, timeout=60)
     except (OSError, subprocess.SubprocessError):
         return None
     if p.returncode != 0:
@@ -365,26 +365,27 @@ def check_runtime(r, entry, defaults):
                "(Settings > AI providers)")
         r.ok(f"outbound_send requested in bot.yaml: {bool(e.get('outbound_send'))} (a person turns sending on in Tico)")
         return
-    # Grok Build takes low|medium|high: the higher Codex tiers map to high, and `low` and
-    # an unset effort both map to medium, which is never `low` by design.
-    model = REG.grok_model(e) if runtime == "grok" else e.get("model", "default")
-    effort = ((REG.grok_effort(e) or "default") if runtime == "grok"
-              else e.get("reasoning_effort", "default"))
+    # A CLI that reads the registry's model and effort its own way (Grok Build) translates them first.
+    model_for, effort_for = REG.CLI_SETTINGS.get(runtime, (None, None))
+    model = model_for(e) if model_for else e.get("model", "default")
+    effort = (effort_for(e) or "default") if effort_for else e.get("reasoning_effort", "default")
     r.ok(f"runtime: {runtime} model={model} "
          f"effort={effort} max_run_minutes={e.get('max_run_minutes', 60)}")
-    binary = RUNTIME_BIN.get(runtime)
+    harness = harness_manifests.get(runtime)
+    binary = harness["executable"] if harness else ""
     if not binary:
         r.fail(f"runtime: {runtime!r} is not a runtime the runner can start")
     elif shutil.which(binary):
         r.ok(f"runtime: `{binary}` on PATH at {shutil.which(binary)}")
-        if runtime == "grok":
-            names = grok_models()
+        if harness["capabilities"]["model_list"] == "command":
+            argv = [binary, *harness["model_list_args"]]
+            names = listed_models(argv)
             if names is None:
-                r.warn("runtime: `grok models` did not answer; could not check the model")
+                r.warn(f"runtime: `{' '.join(argv)}` did not answer; could not check the model")
             elif model in names:
-                r.ok(f"runtime: `grok models` offers {model}")
+                r.ok(f"runtime: `{' '.join(argv)}` offers {model}")
             else:
-                r.fail(f"runtime: `grok models` does not offer {model}")
+                r.fail(f"runtime: `{' '.join(argv)}` does not offer {model}")
     else:
         r.fail(f"runtime: `{binary}` is not on PATH")
     r.ok(f"outbound_send requested in bot.yaml: {bool(e.get('outbound_send'))} (a person turns sending on in Tico)")

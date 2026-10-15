@@ -7,6 +7,17 @@ from pydantic import AfterValidator, BeforeValidator, BaseModel, ConfigDict, Fie
 Text = Annotated[str, Field(min_length=1, max_length=200_000)]
 ID = Annotated[str, Field(min_length=1, max_length=200)]
 Slug = Annotated[str, Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$", max_length=80)]
+
+
+def _weekly_runtime(value):
+    from clients.harness_manifests import caps
+    if not caps(value).get("weekly_usage"):
+        raise ValueError("this runtime reports no weekly usage")
+    return value
+
+
+# A runtime whose subscription has a weekly allowance (its manifest's `weekly_usage`).
+WeeklyRuntime = Annotated[str, Field(max_length=40), AfterValidator(_weekly_runtime)]
 # A person chooses how work reaches the company from a fixed list. Both spellings are
 # accepted so the wizard may send either the answer or the catalog tag it maps to.
 WorkArrival = Literal["email", "slack", "crm", "tickets",
@@ -875,7 +886,7 @@ class SubscriptionNameEdit(Contract):
 class SubscriptionWeeklyEdit(Contract):
     runner_id: ID
     profile: Slug
-    runtime: Literal["codex", "claude", "gemini", "grok"]
+    runtime: WeeklyRuntime
     used_percent: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
     resets_at: str | None = Field(default=None, max_length=50)
 
@@ -1627,7 +1638,8 @@ class InboxOnly(Contract):
 
 
 class LoginStart(Contract):
-    runtime: Literal["codex", "claude"]
+    # Which runtimes the browser can sign in is the manifests' call (backend/model_login.py RUNTIMES).
+    runtime: Annotated[str, Field(pattern=r"^[a-z][a-z0-9-]*$", max_length=40)]
     profile: Annotated[str, Field(pattern=r"^(?:[a-z0-9]+(?:-[a-z0-9]+)*)?$", max_length=80)] = ""
 
 

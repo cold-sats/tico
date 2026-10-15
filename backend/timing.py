@@ -34,12 +34,12 @@ class Timing:
             self.inflight += 1
             self.peak = max(self.peak, self.inflight)
 
-    def end(self, route, auth_ms, total_ms, caller="anonymous", status=200, nbytes=0, actor=""):
+    def end(self, route, auth_ms, total_ms, caller="anonymous", status=200, nbytes=0, actor="", cost=None):
         with self.lock:
             self.inflight -= 1
             self.routes[route].append((auth_ms, total_ms))
         if self.recorder is not None:
-            self.recorder.request(route, caller, status, total_ms, nbytes, actor)
+            self.recorder.request(route, caller, status, total_ms, nbytes, actor, cost)
 
     def summary(self):
         with self.lock:

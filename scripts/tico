@@ -10,6 +10,7 @@
 #        scripts/tico -e ENV bot create SLUG --name "Display" [--template T]  a catalog template
 #                                                              or employee-repo (the default)
 #        scripts/tico -e ENV server install|uninstall|start|stop|restart|status|logs
+#        scripts/tico -e ENV server flight [summary --since 30m|stacks|memory]  the flight file (backend/flight.py)
 # -e ENV (or TICO_ENV) picks a company environment; without it this is the original (default) setup.
 set -euo pipefail
 
@@ -61,7 +62,7 @@ runner() {
 json_field() { "$PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$1" "$2"; }
 config_field() { json_field "$CONFIG" "$1"; }
 env_field() { json_field "$ENV_DIR/environment.json" "$1"; }
-usage() { sed -n '2,13p' "$SELF"; }
+usage() { sed -n '2,14p' "$SELF"; }
 UNIT_DIR="${TICO_SYSTEMD_USER_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user}"
 
 if [ -n "$ENV_SLUG" ]; then
@@ -589,6 +590,13 @@ PY
         [ "$IS_LINUX" = 1 ] || [ ! -f "$(plist api)" ] || log="$(plutil -extract StandardOutPath raw -o - "$(plist api)")"
         [ -f "$log" ] || { echo "no server log yet at $log"; exit 1; }
         tail -n "${3:-60}" "$log" ;;
+      flight)
+        # Reads the files beside the database, so it answers with the server stopped or stuck.
+        shift 2
+        db="$(sed -n 's/^TICO_DB=//p' "$ENV_DIR/server.env" | tail -n 1)"
+        [ -n "$db" ] || { echo "no TICO_DB in $ENV_DIR/server.env" >&2; exit 1; }
+        [ $# -gt 0 ] || set -- summary
+        cd "$HUB" && exec "$PYTHON" -m backend.flight "$@" --dir "$(dirname "$db")/flight" ;;
       *) usage; exit 1 ;;
     esac
     ;;

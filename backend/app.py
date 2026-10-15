@@ -142,6 +142,9 @@ def create_app(settings=None):
         recorder_thread = flight.Flight(recorder, store, settings) if recorder else None
         if recorder_thread:
             recorder_thread.start()
+            # SIGUSR1 (stacks) and SIGUSR2 (memory top 50) for `python -m backend.flight stacks|memory`.
+            from .flight_file import install_signals
+            install_signals(recorder_thread.folder, recorder_thread.file)
         async def schedule_loop():
             from .scheduler import Scheduler
             scheduler = Scheduler(store, execution)
@@ -627,6 +630,8 @@ def create_app(settings=None):
         started = time.perf_counter()
         request.state.auth_ms = 0.0
         app.state.timing.begin()
+        # This request's SQL time and write-lock wait, added to by the threads it runs on (backend/flight.py).
+        cost, cost_token = flight.request_started() if recorder is not None else (None, None)
         route = request.url.path
         response = None
         try:
@@ -644,7 +649,9 @@ def create_app(settings=None):
             size = response.headers.get("content-length") if response is not None else None
             app.state.timing.end(key, request.state.auth_ms, (time.perf_counter() - started) * 1000,
                                  flight.caller_kind(who), response.status_code if response is not None else 500,
-                                 int(size) if size and size.isdigit() else 0, getattr(who, "actor", "") or "")
+                                 int(size) if size and size.isdigit() else 0, getattr(who, "actor", "") or "", cost)
+            if cost_token is not None:
+                flight.request_finished(cost_token)
 
     async def display_names(request, response):
         """Stable v2 answers carry display names beside actor ids (backend/names.py)."""
@@ -1878,10 +1885,12 @@ def create_app(settings=None):
         return mutate(request, body, work)
 
     @app.get("/api/v2/conversations/{cid}/messages")
-    def messages(request: Request, cid: str, since: str | None = None, before: str | None = None):
+    def messages(request: Request, cid: str, since: str | None = None, before: str | None = None,
+                 limit: int | None = None, max_bytes: int | None = None):
         with store.read() as c:
             auth.conversation(c, request.state.identity, cid)
-            page = privacy.page(c, request.state.identity, cid, since=views.since_time(since), before=before)
+            page = privacy.page(c, request.state.identity, cid, since=views.since_time(since), before=before,
+                                **views.page_options(limit, max_bytes))
             turn_work.annotate(c, auth, request.state.identity, page["messages"])
             return {"conversation": H.conversation(c, cid), **page}
 
@@ -4368,6 +4377,7 @@ def create_app(settings=None):
     # or BotOps's as the person who asked it.
     @app.post("/api/v2/agents/pairings", status_code=201)
     def agent_pairing_create(request: Request, body: M.AgentPairingCreate):
+        execution.refuse_in_rehearsal("Agent pairings")
         with store.transaction() as c:
             return agents.create_pairing(c, body, client_address(request))
 
@@ -4386,6 +4396,7 @@ def create_app(settings=None):
     def agent_pairing_approve(request: Request, body: M.AgentPairingApprove):
         who = request.state.identity
         personal_tokens.no_minting(who, "Approve a pairing")
+        execution.refuse_in_rehearsal("Agent pairings")
         return mutate(request, body, lambda c: agents.approve_pairing(c, who, settings_admin._manager, body.code, body.bot))
 
     @app.post("/api/v2/agents/pairings/decline")
@@ -4735,6 +4746,7 @@ def create_app(settings=None):
     # One stream of live events for people's pages (backend/events.py).
     from .events import install as install_events, install_runner as install_runner_events
     install_events(app, store, auth, task_views, task_view)
+    app.state.task_view = task_view         # for the events' read in tests (backend/tests/test_payload_budgets.py)
     # And one for each computer, in place of its polls (runner-rs/src/events.rs).
     install_runner_events(app, store, execution)
 

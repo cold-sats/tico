@@ -284,6 +284,15 @@ ALLOWED = {
     "counts": {"bots": None, "people": None, "routines": None},
     "logs": {"server": None, "updater": None},
     "browser": [{"kind": None, "at": None, "file": None, "line": None, "column": None, "count": None}],
+    # The flight recorder's file, last 24 hours (backend/flight_file.py `bundle`): route templates, timings, sizes,
+    # stall classes and code locations (file:line function); no paths with ids, no values.
+    "flight": {"since": None, "drops": None, "stalls_total": None,
+               "routes": [{"route": None, "n": None, "errors": None, "total_ms": None, "p95": None, "max_ms": None,
+                           "sql_ms": None, "wait_ms": None, "avg_bytes": None, "bytes_max": None}],
+               "slow": [{"ts": None, "route": None, "ms": None, "status": None, "sql_ms": None, "wait_ms": None}],
+               "stalls": [{"ts": None, "seconds": None, "class": None, "usage": None, "threads": None}],
+               "hours": [{"ts": None, "cpu_max": None, "rss_max": None, "lag_max": None, "wait_max": None,
+                          "locked": None, "requests": None}]},
 }
 FEATURES = ("demo", "updater", "update_check", "usage_count", "backups", "github_app", "slack", "sign_in_proxy",
             "blob_storage", "scheduler", "observability", "assistant", "librarian")
@@ -475,6 +484,12 @@ def build(store, settings, auth, who, census, github=None, config=None):
                 "observability": bool(settings.sentry_dsn or settings.posthog_key),
                 "assistant": bool(assistant and assistant.get("state") == "active"),
                 "librarian": bool(librarian and librarian.get("state") == "active")}
+    from . import flight_file
+    try:
+        folder = flight_file.directory(settings.db_path)
+        flight = flight_file.bundle(folder) if folder.is_dir() else {}
+    except Exception:
+        flight = {}
     server_lines, capture = RING.snapshot()
     capture["truncated"] = max(0, len(server_lines) - LOG_LINES)
     bundle = {
@@ -497,6 +512,7 @@ def build(store, settings, auth, who, census, github=None, config=None):
         "features": features,
         "counts": {"bots": bots_total, "people": len(people.get("people") or []), "routines": routines},
         "logs": {"server": _lines(server_lines, LOG_LINES), "updater": _lines(updater.get("errors"), RUNNER_LINES)},
+        "flight": flight,
     }
     return fit(redactor.clean(allowed(bundle)))
 

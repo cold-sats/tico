@@ -1,5 +1,5 @@
 //! Headless model sign-in (the old Python runner's `headless_secret`, `team_model_keys`, `team_key_only`,
-//! `codex_key_login`): the API key or long-lived token that signs a runtime in without a browser, from this
+//! `codex_key_login`, here `key_login`): the API key or long-lived token that signs a runtime in without a browser, from this
 //! process's environment, `secrets/_shared.env`, or the key the company gave every computer, which the runner
 //! fetches into `secrets/_team_model.env` when this computer has none of its own.
 
@@ -17,7 +17,7 @@ use crate::util::{log, text_of};
 
 pub const TEAM_KEYS_FILE: &str = "_team_model.env";
 const TEAM_KEY_RETRY: Duration = Duration::from_secs(300);
-const CODEX_LOGIN_RETRY: Duration = Duration::from_secs(600);
+const KEY_LOGIN_RETRY: Duration = Duration::from_secs(600);
 /// How long a refused key or sign-in is trusted before one turn tries again (service.py REJECT_RECHECK_S).
 pub const REJECT_RECHECK: Duration = Duration::from_secs(300);
 
@@ -29,13 +29,13 @@ pub struct Rejection {
     pub reason: String,
 }
 
-pub fn headless_names(runtime: &str) -> &'static [&'static str] {
-    match runtime {
-        "claude" => &["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"],
-        "cursor" => &["CURSOR_API_KEY"],
-        "codex" => &["OPENAI_API_KEY"],
-        "musecode" => &["META_API_KEY"],
-        _ => &[],
+/// The keys that sign `runtime` in on this computer for every bot: its manifest's `auth.api_key_env` when the
+/// computer holds them (`api_keys = "computer"`). Keys each bot holds itself are never a computer's sign-in.
+pub fn headless_names(runtime: &str) -> Vec<String> {
+    if crate::harness_tools::caps(runtime, "").api_keys == "computer" {
+        crate::harness_tools::api_key_env(runtime)
+    } else {
+        vec![]
     }
 }
 
@@ -56,7 +56,7 @@ pub fn read_env(path: &Path) -> Env {
 pub struct SignIn {
     secrets: PathBuf,
     asked: Mutex<HashMap<String, Instant>>,
-    codex_tried: Mutex<HashMap<(String, u64), Instant>>,
+    key_tried: Mutex<HashMap<(String, u64), Instant>>,
     rejected: Mutex<HashMap<(String, String, String), Rejection>>,
     /// Set when a rejection is recorded or cleared: the loop sends a heartbeat at once.
     dirty: std::sync::atomic::AtomicBool,
@@ -64,7 +64,7 @@ pub struct SignIn {
 
 impl SignIn {
     pub fn new(projects_dir: &Path) -> SignIn {
-        SignIn { secrets: projects_dir.join("secrets"), asked: Mutex::new(HashMap::new()), codex_tried: Mutex::new(HashMap::new()), rejected: Mutex::new(HashMap::new()), dirty: Default::default() }
+        SignIn { secrets: projects_dir.join("secrets"), asked: Mutex::new(HashMap::new()), key_tried: Mutex::new(HashMap::new()), rejected: Mutex::new(HashMap::new()), dirty: Default::default() }
     }
 
     /// Changes when a key or sign-in might have (service.py credential_fingerprint); never holds a secret.
@@ -150,7 +150,7 @@ impl SignIn {
         let mut env = self.team();
         env.extend(self.hand());
         headless_names(runtime).iter().find_map(|n| {
-            env.get(*n).filter(|v| !v.is_empty()).map(|v| (n.to_string(), v.trim_matches(|c| c == '"' || c == '\'').to_string()))
+            env.get(n).filter(|v| !v.is_empty()).map(|v| (n.to_string(), v.trim_matches(|c| c == '"' || c == '\'').to_string()))
         })
     }
 
@@ -158,7 +158,7 @@ impl SignIn {
     pub fn team_key_only(&self, runtime: &str) -> bool {
         let (hand, team) = (self.hand(), self.team());
         let names = headless_names(runtime);
-        !names.iter().any(|n| hand.get(*n).is_some_and(|v| !v.is_empty())) && names.iter().any(|n| team.get(*n).is_some_and(|v| !v.is_empty()))
+        !names.iter().any(|n| hand.get(n).is_some_and(|v| !v.is_empty())) && names.iter().any(|n| team.get(n).is_some_and(|v| !v.is_empty()))
     }
 
     /// Take the company's model key when this computer has none of its own for `runtime`, at most every
@@ -171,7 +171,7 @@ impl SignIn {
         }
         let (hand, mut team) = (self.hand(), self.team());
         let refused = self.rejection(runtime, None).is_some();
-        if names.iter().any(|n| hand.get(*n).is_some_and(|v| !v.is_empty())) || (names.iter().any(|n| team.get(*n).is_some_and(|v| !v.is_empty())) && !refused) {
+        if names.iter().any(|n| hand.get(n).is_some_and(|v| !v.is_empty())) || (names.iter().any(|n| team.get(n).is_some_and(|v| !v.is_empty())) && !refused) {
             return false;
         }
         {
@@ -191,15 +191,15 @@ impl SignIn {
         let mut given = Env::new();
         for row in reply["credentials"].as_array().cloned().unwrap_or_default() {
             let (k, v) = (text_of(&row["env"]), text_of(&row["value"]).trim().to_string());
-            if names.contains(&k.as_str()) && !v.is_empty() && !v.contains(['\r', '\n', '\0']) {
+            if names.contains(&k) && !v.is_empty() && !v.contains(['\r', '\n', '\0']) {
                 given.insert(k, v);
             }
         }
         if given.is_empty() || given.iter().all(|(k, v)| team.get(k) == Some(v)) {
             return false;
         }
-        for n in names {
-            team.remove(*n);
+        for n in &names {
+            team.remove(n);
         }
         team.extend(given.clone());
         if self.write_team(&team).is_err() {
@@ -222,31 +222,38 @@ impl SignIn {
         std::fs::rename(&temp, &path)
     }
 
-    /// Sign Codex in with OPENAI_API_KEY (`codex login --with-api-key`, the key on stdin, never in arguments or
-    /// logs). A key that failed is not tried again for CODEX_LOGIN_RETRY unless the key or the home changes.
-    pub async fn codex_key_login(&self, executable: &Path) -> bool {
-        let Some((name, key)) = self.headless_secret("codex") else { return false };
-        let home = std::env::var("CODEX_HOME").unwrap_or_else(|_| format!("{}/.codex", std::env::var("HOME").unwrap_or_default()));
+    /// Turn the computer's key for `runtime` into a stored login with the manifest's `api_key_login` command (Codex:
+    /// `codex login --with-api-key`), the key on stdin, never in arguments or logs. A key that failed is not tried
+    /// again for KEY_LOGIN_RETRY unless the key or the CLI's home changes.
+    pub async fn key_login(&self, runtime: &str, executable: &Path) -> bool {
+        let args = crate::harness_tools::caps(runtime, "").api_key_login;
+        if args.is_empty() {
+            return false;
+        }
+        let Some((name, key)) = self.headless_secret(runtime) else { return false };
+        let label = crate::harness_tools::name_for(runtime);
+        let var = crate::harness_tools::caps(runtime, "").profile_home;
+        let home = format!("{runtime}:{}", if var.is_empty() { String::new() } else { std::env::var(&var).unwrap_or_default() });
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         key.hash(&mut hasher);
         let attempt = (home, hasher.finish());
         {
-            let mut tried = self.codex_tried.lock().unwrap();
-            if tried.get(&attempt).is_some_and(|at| at.elapsed() < CODEX_LOGIN_RETRY) {
+            let mut tried = self.key_tried.lock().unwrap();
+            if tried.get(&attempt).is_some_and(|at| at.elapsed() < KEY_LOGIN_RETRY) {
                 return false;
             }
             tried.insert(attempt, Instant::now());
         }
         use tokio::io::AsyncWriteExt;
         let child = crate::isolation::command(executable)
-            .args(["login", "--with-api-key"])
+            .args(&args)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true)
             .spawn();
         let Ok(mut child) = child else {
-            log(&format!("Codex sign-in with {name} did not run: OSError"));
+            log(&format!("{label} sign-in with {name} did not run: OSError"));
             return false;
         };
         if let Some(mut stdin) = child.stdin.take() {
@@ -255,7 +262,7 @@ impl SignIn {
         let done = match tokio::time::timeout(Duration::from_secs(30), child.wait_with_output()).await {
             Ok(Ok(out)) => out,
             _ => {
-                log(&format!("Codex sign-in with {name} did not run: TimeoutExpired"));
+                log(&format!("{label} sign-in with {name} did not run: TimeoutExpired"));
                 return false;
             }
         };
@@ -263,10 +270,10 @@ impl SignIn {
             let text = if done.stderr.is_empty() { done.stdout } else { done.stderr };
             let first = String::from_utf8_lossy(&text).trim().lines().next().unwrap_or_default().replace(&key, "***");
             let reason = crate::redact::scrub_credentials(&first, std::slice::from_ref(&key));
-            log(&format!("Codex sign-in with {name} failed (exit {}): {}", done.status.code().unwrap_or(-1), reason.chars().take(200).collect::<String>()));
+            log(&format!("{label} sign-in with {name} failed (exit {}): {}", done.status.code().unwrap_or(-1), reason.chars().take(200).collect::<String>()));
             return false;
         }
-        log(&format!("Codex signed in with {name}"));
+        log(&format!("{label} signed in with {name}"));
         true
     }
 }

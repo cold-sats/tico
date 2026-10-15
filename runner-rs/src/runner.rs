@@ -323,13 +323,14 @@ impl Runner {
         };
         if !quiet {
             let mut tries = 0;
+            let began = Instant::now();
             let beat = loop {
                 tries += 1;
                 let e = match self.client.post("runners/heartbeat", &body, None).await {
                     Err(e) if e.status == 422 && tries < 12 => e,
-                    other => break other?,
+                    other => break other,
                 };
-                // An older server refused something optional: only that goes, for ten minutes, in service.py's order.
+                // An older server refused something optional: only that goes, for ten minutes.
                 if let Some(field) = crate::lanes::refused_field(&e.detail, &body) {
                     crate::lanes::hold_back(&field);
                     crate::lanes::drop_held(&mut body);
@@ -348,9 +349,11 @@ impl Runner {
                     // A rollback to a server from before credential sources: the heartbeat keeps working.
                     self.credential_source.store(false, Ordering::SeqCst);
                 } else {
-                    return Err(e);
+                    break Err(e);
                 }
             };
+            crate::flight::heartbeat(began.elapsed().as_millis() as u64, tries, beat.as_ref().err());
+            let beat = beat?;
             *self.beat.lock().unwrap() = Some((printed, Instant::now()));
             self.published.lock().unwrap().extend(versions);
             let actions = beat["worktree_actions"].as_array().cloned().unwrap_or_default();

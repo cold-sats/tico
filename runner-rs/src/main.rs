@@ -17,6 +17,7 @@ mod events;
 mod drive;
 mod execute;
 mod fallback;
+mod flight;
 mod follow;
 mod fetchrepo;
 mod gitrun;
@@ -111,6 +112,11 @@ enum Command {
         #[command(subcommand)]
         action: ProfileAction,
     },
+    /// Read this computer's flight file (turn timings, slow heartbeats and git commands).
+    Flight {
+        #[command(subcommand)]
+        action: FlightAction,
+    },
     /// Git's credential helper for one turn (git runs it; not for people).
     GitCredential {
         #[arg(long)]
@@ -119,6 +125,19 @@ enum Command {
         bot: Option<String>,
         /// git's verb: only `get` answers.
         action: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum FlightAction {
+    /// Recent turns with their phase timings, the slowest phases, slow heartbeats and git commands.
+    Summary {
+        /// How far back: `90s`, `30m`, `1h`, `2d`.
+        #[arg(long, default_value = "1h")]
+        since: String,
+        /// The folder holding flight.ndjson (default: this registration's state folder).
+        #[arg(long)]
+        dir: Option<PathBuf>,
     },
 }
 
@@ -146,8 +165,9 @@ fn profile_main(action: ProfileAction, config: &mut config::Config) -> i32 {
         ProfileAction::List => profiles::command(config, "list", None, false, None),
         ProfileAction::Assign { bot, name } => profiles::command(config, "assign", Some(&name), false, Some(&bot)),
         ProfileAction::Login { name, runtime } => {
-            if !profiles::RUNTIMES.contains(&runtime.as_str()) {
-                fail(&format!("argument runtime: invalid choice: '{runtime}' (choose from {})", profiles::RUNTIMES.join(", ")));
+            let choices = harness_tools::profile_runtimes();
+            if !choices.contains(&runtime) {
+                fail(&format!("argument runtime: invalid choice: '{runtime}' (choose from {})", choices.join(", ")));
             }
             let entry = config.data.get("profiles").and_then(|p| p.get(&name)).filter(|e| util::truthy(Some(e))).cloned();
             let Some(entry) = entry else { fail("No such profile on this registration; add it with `profile add`") };
@@ -156,18 +176,20 @@ fn profile_main(action: ProfileAction, config: &mut config::Config) -> i32 {
                 fail(&format!("Profile {name} shares the operator's own logins; sign in normally"));
             }
             let home = profile.home(&runtime).unwrap_or_default();
-            if runtime == "gemini" {
+            let command = profiles::login_command(&runtime).unwrap_or_default();
+            if command.is_empty() && harness_tools::caps(&runtime, "").api_keys == "bot" {
                 let secrets = config.projects_dir().join("secrets");
-                println!("Gemini CLI authenticates with an API key, not an interactive login: put GEMINI_API_KEY in {}/_shared.env or <bot>.env. This profile's Gemini sessions live in {}.", secrets.display(), home.display());
+                let key = harness_tools::api_key_env(&runtime).into_iter().next().unwrap_or_default();
+                let name = harness_tools::name_for(&runtime);
+                println!("{name} authenticates with an API key, not an interactive login: put {key} in {}/_shared.env or <bot>.env. This profile's {name} sessions live in {}.", secrets.display(), home.display());
                 return 0;
             }
-            let command = profiles::login_command(&runtime).unwrap_or(&[]);
-            if command.is_empty() || env::which(command[0], &std::env::var("PATH").unwrap_or_default()).is_none() {
-                fail(&format!("{} is not on PATH", command.first().unwrap_or(&runtime.as_str())));
+            if command.is_empty() || env::which(&command[0], &std::env::var("PATH").unwrap_or_default()).is_none() {
+                fail(&format!("{} is not on PATH", command.first().unwrap_or(&runtime)));
             }
             println!("Signing in to {runtime} for profile {name} in {}", home.display());
             // Interactive on purpose: the CLI owns the browser flow and prints its own instructions.
-            let status = std::process::Command::new(command[0])
+            let status = std::process::Command::new(&command[0])
                 .args(&command[1..])
                 .env_clear()
                 .envs(profile.environment(&runtime, &std::env::vars().collect()))
@@ -185,8 +207,14 @@ fn profile_main(action: ProfileAction, config: &mut config::Config) -> i32 {
     }
 }
 
+fn flight_summary(dir: &std::path::Path, since: &str) -> i32 {
+    let Some(seconds) = flight::parse_since(since) else { fail(&format!("argument --since: not a duration: '{since}' (e.g. 30m, 1h, 2d)")) };
+    print!("{}", flight::summary(dir, seconds, util::epoch_s()));
+    0
+}
+
 fn fail(message: &str) -> ! {
-    eprintln!("usage: tico-runner [--config CONFIG] {{enroll,run,status,doctor,adopt,profile}}\ntico-runner: error: {message}");
+    eprintln!("usage: tico-runner [--config CONFIG] {{enroll,run,status,doctor,adopt,profile,flight}}\ntico-runner: error: {message}");
     std::process::exit(2)
 }
 
@@ -209,6 +237,9 @@ fn main() {
         std::process::exit(gitcred::git_credential_main(socket.clone()));
     }
     util::start_clock();
+    if let Command::Flight { action: FlightAction::Summary { since, dir: Some(dir) } } = &cli.command {
+        std::process::exit(flight_summary(dir, since));
+    }
     let path = cli.config.unwrap_or_else(commands::default_config);
     if let Command::Enroll { url, code_file, label, projects, environment } = &cli.command {
         // Before Config::load: enrolling is what writes it.
@@ -226,6 +257,9 @@ fn main() {
     let mut config = config::Config::load(&path).unwrap_or_else(|e| fail(&e));
     if let Command::Profile { action } = cli.command {
         std::process::exit(profile_main(action, &mut config));
+    }
+    if let Command::Flight { action: FlightAction::Summary { since, .. } } = &cli.command {
+        std::process::exit(flight_summary(&config.state_dir(), since));
     }
     if let Command::Run | Command::Doctor = cli.command {
         // Puts the tools bin on PATH, so it runs before any thread reads the environment. Doctor keeps its own
@@ -294,6 +328,7 @@ async fn start(command: Command, config: config::Config) -> i32 {
         fail(&format!("cannot create {}: {e}", state_dir.display()));
     }
     let _lock = lock::acquire(&state_dir.join("runner.lock")).unwrap_or_else(|e| fail(&e));
+    flight::init(&state_dir);
     let state = state::State::open(&state_dir).unwrap_or_else(|e| fail(&e));
     follow::record_revision(&state_dir);
     follow::init(&config.data, &state_dir);

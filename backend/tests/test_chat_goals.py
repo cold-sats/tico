@@ -95,7 +95,8 @@ def test_read_access_is_not_chat_access_and_other_rooms_stay_private(api):
 
 
 def test_old_runners_and_unsupported_harnesses(api):
-    machine, cid = setup(api, True, 'gemini')
+    # The computer's probe is the only word on goals: a CLI it found none in says so, whatever its name.
+    machine, cid = setup(api, False, 'gemini')
     assert get(api, f'conversations/{cid}/goal')['supported'] is False
     action(api, cid, objective='A summary', expected=409)
     ready(api, machine, ['ops'])

@@ -8,6 +8,17 @@
 // Teams come from the team's data; a name reads as its words (`customer-success` is Customer Success).
 const teamLabel = t => (S.orgGroups || []).find(g => g.id === t)?.name || String(t || '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 let SETTINGS_DATA = {people: [], machines: [], services: [], models: [], issues: [], history: {changes: [], transitions: []}};
+// Each model CLI's capabilities, from its manifest (GET /v2/models `harnesses`, runner/harnesses/*.toml): what the UI
+// asks instead of naming CLIs. Fetched once; until then, or if the fetch fails, every capability reads as unknown.
+let HARNESS_ROWS = [];
+let HARNESS_ROWS_LOADING = null;
+function loadHarnessRows() {
+  HARNESS_ROWS_LOADING ||= get('/v2/models').then(d => { HARNESS_ROWS = d?.harnesses || []; }, () => { HARNESS_ROWS_LOADING = null; });
+  return HARNESS_ROWS_LOADING;
+}
+const harnessRow = id => HARNESS_ROWS.find(row => row.id === id) || null;
+const harnessCaps = id => harnessRow(id)?.capabilities || {};
+const harnessesWith = test => HARNESS_ROWS.filter(row => row.capabilities && test(row.capabilities));
 const SETTINGS_TAB_KEY = 'tico.settings.tab';
 // Remembered per browser tab so a reload lands where the owner was, not back on Computers.
 let SETTINGS_TAB = (() => { try { return sessionStorage.getItem(SETTINGS_TAB_KEY) || 'devices'; } catch { return 'devices'; } })();
@@ -266,7 +277,8 @@ async function loadSettings() {
       S.me?.cloud ? get('/v2/models') : Promise.resolve({models: []}),
       get('/employees'),
       S.me?.cloud && S.me?.role === 'owner' ? get('/v2/settings/history') : Promise.resolve({changes: [], transitions: []}),
-      S.me?.cloud ? get('/v2/usage/limits').catch(() => null) : Promise.resolve(null)
+      S.me?.cloud ? get('/v2/usage/limits').catch(() => null) : Promise.resolve(null),
+      loadHarnessRows()
     ]);
     S.emps = namedRoster(employees);
     setPeople(people);

@@ -16,7 +16,7 @@ const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const {html, uiFile} = require('./support/page.cjs');
+const {html, uiFile, harnesses} = require('./support/page.cjs');
 const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 const SHOTS = process.env.SUBS_SHOTS || '';
 
@@ -99,7 +99,7 @@ async function open(browser, {viewport = {width: 1440, height: 900}, theme = 'da
     if (p === '/api/status') return json({cloud: true, active: [], queued: [], recent_runs: [], keeper_alive: true, health_issues: []});
     if (p === '/api/v2/status') return json({bots: []});
     if (p === '/api/v2/operations') return json({machines: as === 'owner' ? data.machines : data.machines.filter(m => m.operator === me.id), services: [], agents: []});
-    if (p === '/api/v2/models') return json({models: []});
+    if (p === '/api/v2/models') return json({models: [], harnesses});
     if (p === '/api/v2/settings/history') return json({changes: [], transitions: []});
     if ((p === '/api/v2/subscriptions' || p === '/api/v2/bots/builder/subscription') && old) return json({detail: 'Not Found'}, 404);
     if (p === '/api/v2/subscriptions' && method === 'GET') return json({profiles_by_computer: visible(), assignments: data.subs.assignments});

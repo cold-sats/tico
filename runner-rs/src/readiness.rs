@@ -14,10 +14,8 @@ use crate::profiles::{self, Profile};
 use crate::signin::{self, SignIn};
 use crate::util::text_of;
 
-pub const RUNTIMES: &[&str] = &["codex", "grok", "claude", "gemini", "pi", "cursor", "musecode"];
 pub const CLAUDE_MODELS: &[&str] = &["claude-fable-5-1", "claude-opus-5", "claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5-20251001"];
 pub const NO_RUNTIME: &str = "No AI provider is chosen: the owner picks providers and a default model in Settings > AI providers";
-const CLAUDE_AUTH_TIMEOUT_S: u64 = 30;
 
 /// `run` in `env` (a profile's homes) when given. Err(true) is a timeout, Err(false) a command that did not start.
 async fn run_env(argv: &[&str], timeout_s: u64, env: Option<&Env>) -> Result<(bool, String, String), bool> {
@@ -31,9 +29,7 @@ async fn run_env(argv: &[&str], timeout_s: u64, env: Option<&Env>) -> Result<(bo
 }
 
 fn executable(runtime: &str) -> Option<PathBuf> {
-    // Muse Code's program is `muse` (harness_tools.executable_for once its manifest ships).
-    let program = if runtime == "musecode" { crate::hosts::musecode::EXECUTABLE.to_string() } else { crate::harness_tools::executable_for(runtime) };
-    which(&program, &std::env::var("PATH").unwrap_or_default())
+    which(&crate::harness_tools::executable_for(runtime), &std::env::var("PATH").unwrap_or_default())
 }
 
 pub fn codex_models(home: Option<PathBuf>) -> Vec<String> {
@@ -56,168 +52,28 @@ pub fn codex_models(home: Option<PathBuf>) -> Vec<String> {
 /// One runtime's row: installed, signed in, version, models, controls, detail, goals, commands. With a
 /// profile, every check runs in that profile's home and no shared key signs it in.
 pub async fn runtime_readiness(runtime: &str, sign: &SignIn, client: &Client, assignments: &[Value], profile: Option<&Profile>) -> Map<String, Value> {
-    let exe = if RUNTIMES.contains(&runtime) { executable(runtime) } else { None };
+    let caps = crate::harness_tools::caps(runtime, "");
+    let exe = if crate::harness_tools::runtimes().iter().any(|r| r == runtime) { executable(runtime) } else { None };
     let env: Option<Env> = profile.map(|p| p.environment(runtime, &std::env::vars().collect()));
     let env = env.as_ref();
-    let authenticated: &str;
-    let detail: String;
     let mut version = String::new();
-    let timed_out = if profile.is_some() { "unknown" } else { "failed" };
-    match &exe {
-        None => {
-            authenticated = "missing";
-            detail = "Runtime executable is not on PATH".into();
-        }
+    let (authenticated, detail) = match &exe {
+        None => ("missing", "Runtime executable is not on PATH".to_string()),
         Some(path) => {
+            let state = sign_in_state(runtime, &caps, path, sign, client, assignments, profile, env).await;
+            // The version probe runs with the manifest's [env] (an auto-updater's off switch) and no colour codes.
+            let mut quiet = env.cloned().unwrap_or_else(crate::env::process_environment);
+            quiet.extend(crate::harness_tools::env_for(runtime));
+            quiet.insert("NO_COLOR".into(), "1".into());
             let p = path.to_string_lossy().to_string();
-            if runtime == "codex" {
-                let mut status = run_env(&[&p, "login", "status"], 8, env).await;
-                let signed = |s: &Result<(bool, String, String), bool>| s.as_ref().is_ok_and(|(ok, out, err)| *ok && format!("{out}\n{err}").to_lowercase().contains("logged in"));
-                // A box with an API key and no browser: sign in once, for the bots that use Codex, or with the
-                // key the company gave every computer. Never into a profile's own home.
-                if status.is_ok() && !signed(&status) && profile.is_none() {
-                    sign.team_model_keys(client, "codex").await;
-                    if sign.headless_secret("codex").is_some()
-                        && (sign.team_key_only("codex") || signin::assigned(assignments, "codex"))
-                        && sign.codex_key_login(path).await
-                    {
-                        status = run_env(&[&p, "login", "status"], 8, env).await;
-                    }
-                }
-                match status {
-                    Ok((ok, out, err)) => {
-                        let output = format!("{out}\n{err}").trim().to_lowercase();
-                        if ok && output.contains("logged in") {
-                            authenticated = "ready";
-                            detail = if output.contains("api key") { "Signed in with an API key" } else { "Signed in with ChatGPT" }.into();
-                        } else {
-                            authenticated = "missing";
-                            detail = "Codex login required".into();
-                        }
-                    }
-                    Err(true) => {
-                        authenticated = timed_out;
-                        detail = "Codex sign-in check timed out".into();
-                    }
-                    Err(false) => {
-                        authenticated = "failed";
-                        detail = "Codex sign-in could not be checked".into();
-                    }
-                }
-            } else if runtime == "gemini" {
-                // The Gemini CLI signs in with each bot's own GEMINI_API_KEY grant; Antigravity-only bots need none.
-                let (a, d) = crate::hosts::gemini::sign_in(assignments);
-                authenticated = a;
-                detail = d;
-            } else if runtime == "musecode" {
-                // Muse Code keeps a Meta-account login in auth.json (`muse login`) and has no status command, so the
-                // file's presence is the sign-in; its contents are never read. META_API_KEY wins over it.
-                // Turns run on Tico's own Muse folder (musecode::config_home), so that is where the login is looked for.
-                let shared_key = profile.is_none_or(|p| p.share_operator);
-                if profile.is_none() {
-                    sign.team_model_keys(client, "musecode").await;
-                }
-                let mut env: Env = std::env::vars().collect();
-                env.remove("MUSE_AUTH_PATH");
-                env.insert("XDG_CONFIG_HOME".into(), crate::hosts::musecode::config_home(profile).display().to_string());
-                let signed = crate::hosts::musecode::signed_in(&crate::hosts::musecode::auth_file(&env));
-                if shared_key && sign.headless_secret("musecode").is_some() {
-                    authenticated = "ready";
-                    detail = "Signed in with META_API_KEY".into();
-                } else if signed == Some(true) {
-                    authenticated = "ready";
-                    detail = "Signed in with a Meta account".into();
-                } else if signed.is_none() {
-                    authenticated = "failed";
-                    detail = "Muse sign-in could not be checked (its config folder is not readable)".into();
-                } else {
-                    authenticated = "missing";
-                    detail = "Muse sign-in required (sign in from Tico) or META_API_KEY".into();
-                }
-            } else if runtime == "pi" {
-                let (a, d) = crate::hosts::pi::sign_in(assignments);
-                authenticated = a;
-                detail = d;
-            } else if runtime == "cursor" {
-                // CURSOR_API_KEY signs cursor-agent in without a browser; else the login `cursor-agent login` made.
-                if profile.is_none() {
-                    sign.team_model_keys(client, "cursor").await;
-                }
-                if sign.headless_secret("cursor").is_some() {
-                    authenticated = "ready";
-                    detail = "Signed in with CURSOR_API_KEY".into();
-                } else {
-                    match run_env(&[&p, "status"], 15, env).await {
-                        Ok((ok, out, err)) => {
-                            let output = format!("{out}\n{err}").to_lowercase();
-                            if ok && output.contains("logged in") && !output.contains("not logged in") {
-                                authenticated = "ready";
-                                detail = "Signed in to Cursor".into();
-                            } else {
-                                authenticated = "missing";
-                                detail = "Cursor login required (cursor-agent login) or CURSOR_API_KEY".into();
-                            }
-                        }
-                        Err(true) => {
-                            authenticated = "failed";
-                            detail = "Cursor sign-in check timed out".into();
-                        }
-                        Err(false) => {
-                            authenticated = "failed";
-                            detail = "Cursor sign-in could not be checked".into();
-                        }
-                    }
-                }
-            } else if runtime == "grok" {
-                authenticated = "unknown";
-                detail = "Authentication cannot be checked without starting the runtime".into();
-            } else {
-                let status = run_env(&[&p, "auth", "status", "--json"], CLAUDE_AUTH_TIMEOUT_S, env).await;
-                let parsed: Option<Value> = status.as_ref().ok().and_then(|(_, out, _)| serde_json::from_str::<Value>(out).ok()).filter(|v| v.is_object());
-                if !parsed.as_ref().is_some_and(|s| s["loggedIn"] == true) && profile.is_none() {
-                    sign.team_model_keys(client, "claude").await;
-                }
-                // A key in the environment, `_shared.env` or the company's file signs the CLI in on a headless box
-                // even when `auth status` says otherwise; a profile has only its own login.
-                let token = if profile.is_none() { sign.headless_secret("claude").map(|(name, _)| name) } else { None };
-                if let Some(s) = parsed.as_ref().filter(|s| s["loggedIn"] == true) {
-                    authenticated = "ready";
-                    let method = text_of(&s["authMethod"]);
-                    detail = format!("Signed in with {}", if method.is_empty() { "Claude".into() } else { method });
-                } else if let Some(name) = token {
-                    authenticated = "ready";
-                    detail = format!("Signed in with {name}");
-                } else if status == Err(true) {
-                    authenticated = timed_out;
-                    detail = "Claude sign-in check timed out".into();
-                } else if parsed.is_none() {
-                    authenticated = "failed";
-                    detail = "Claude sign-in could not be checked".into();
-                } else {
-                    authenticated = "missing";
-                    detail = "Claude login required".into();
-                }
-            }
-            let quiet: Option<Env> = (runtime == "musecode").then(|| {
-                let mut e = env.cloned().unwrap_or_else(crate::env::process_environment);
-                e.extend(crate::hosts::musecode::QUIET.iter().map(|(k, v)| (k.to_string(), v.to_string())));
-                e
-            });
-            if let Ok((true, out, err)) = run_env(&[&p, "--version"], 5, quiet.as_ref().or(env)).await {
+            if let Ok((true, out, err)) = run_env(&[&p, "--version"], 5, Some(&quiet)).await {
                 let text = if out.trim().is_empty() { err } else { out };
                 version = text.trim().lines().next().unwrap_or_default().chars().take(100).collect();
             }
+            state
         }
-    }
-    let models: Vec<String> = match runtime {
-        "codex" => codex_models(profile.and_then(|p| p.home("codex"))),
-        "claude" => CLAUDE_MODELS.iter().map(|s| s.to_string()).collect(),
-        "gemini" => crate::hosts::gemini::MODELS.iter().map(|s| s.to_string()).collect(),
-        "musecode" => crate::hosts::musecode::MODELS.iter().map(|s| s.to_string()).collect(),
-        "pi" => crate::hosts::pi::model_names(),
-        "cursor" => crate::hosts::cursor::model_names(),
-        _ => vec![],
     };
+    let models: Vec<String> = if caps.model_list == "host" { crate::hosts::models(runtime, profile) } else { vec![] };
     let mut row = Map::new();
     row.insert("installed".into(), json!(exe.is_some()));
     row.insert("authenticated".into(), json!(authenticated));
@@ -227,6 +83,118 @@ pub async fn runtime_readiness(runtime: &str, sign: &SignIn, client: &Client, as
     row.insert("detail".into(), json!(detail));
     row.extend(crate::goals::capabilities(runtime, exe.as_deref(), &version).await);
     row
+}
+
+/// Whether `runtime`'s CLI at `path` is signed in, and how, by its manifest's `sign_in_status` and key capabilities.
+/// A computer key the CLI reads from each turn's environment (`api_key_in_turn`) wins over a stored login; a key the
+/// CLI turns into a login (`api_key_login`) is logged in with when the probe says signed out; any other computer key
+/// counts as the sign-in once the probe has said no. A profile is judged on its own login alone.
+#[allow(clippy::too_many_arguments)]
+async fn sign_in_state(
+    runtime: &str,
+    caps: &crate::harness_tools::Capabilities,
+    path: &Path,
+    sign: &SignIn,
+    client: &Client,
+    assignments: &[Value],
+    profile: Option<&Profile>,
+    env: Option<&Env>,
+) -> (&'static str, String) {
+    let status = &caps.sign_in_status;
+    let name = crate::harness_tools::name_for(runtime);
+    let missing = if status.missing_detail.is_empty() { format!("{name} login required") } else { status.missing_detail.clone() };
+    let timed_out = if profile.is_some() { "unknown" } else { "failed" };
+    let computer_key = caps.api_keys == "computer";
+    if computer_key && profile.is_none() && status.check != "command" && status.check != "json" {
+        sign.team_model_keys(client, runtime).await;
+    }
+    if caps.api_key_in_turn && profile.is_none_or(|p| p.share_operator) {
+        if profile.is_some() {
+            sign.team_model_keys(client, runtime).await;
+        }
+        if let Some((key, _)) = sign.headless_secret(runtime) {
+            return ("ready", format!("Signed in with {key}"));
+        }
+    }
+    let p = path.to_string_lossy().to_string();
+    let argv = |args: &[String]| -> Vec<String> { std::iter::once(p.clone()).chain(args.iter().cloned()).collect() };
+    let timeout = if status.timeout_s > 0 { status.timeout_s } else { 15 };
+    // Ok(Some(detail)) signed in; Ok(None) signed out; Err(true) timed out; Err(false) could not be checked.
+    let probe = || async {
+        let argv = argv(&status.args);
+        let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
+        match status.check.as_str() {
+            "command" => match run_env(&argv, timeout, env).await {
+                Ok((ok, out, err)) => {
+                    let output = format!("{out}\n{err}").trim().to_lowercase();
+                    let signed = ok && output.contains(&status.ready) && (status.not_ready.is_empty() || !output.contains(&status.not_ready));
+                    Ok(signed.then(|| if output.contains("api key") { "Signed in with an API key".to_string() } else { status.ready_detail.clone() }))
+                }
+                Err(e) => Err(e),
+            },
+            "json" => {
+                let ran = run_env(&argv, timeout, env).await;
+                match &ran {
+                    Err(true) => Err(true),
+                    _ => match ran.ok().and_then(|(_, out, _)| serde_json::from_str::<Value>(&out).ok()).filter(|v| v.is_object()) {
+                        None => Err(false),
+                        Some(s) if s[&status.field] == true => {
+                            let method = text_of(&s[&status.method_field]);
+                            Ok(Some(if method.is_empty() { status.ready_detail.clone() } else { format!("Signed in with {method}") }))
+                        }
+                        Some(_) => Ok(None),
+                    },
+                }
+            }
+            _ => Err(false),
+        }
+    };
+    match status.check.as_str() {
+        "bot-key" => return crate::hosts::bot_key_sign_in(runtime, assignments),
+        "none" => return ("unknown", "Authentication cannot be checked without starting the runtime".into()),
+        "file" => {
+            // The host's login file in the config folder its turns run with (its own one, when it keeps one).
+            let mut file_env: Env = std::env::vars().collect();
+            if caps.own_config_home {
+                crate::hosts::use_own_config_home(runtime, profile, &mut file_env);
+            }
+            return match crate::hosts::file_signed_in(runtime, &file_env) {
+                Some(true) => ("ready", status.ready_detail.clone()),
+                None => ("failed", format!("{name} sign-in could not be checked (its config folder is not readable)")),
+                Some(false) => ("missing", missing),
+            };
+        }
+        _ => {}
+    }
+    let mut result = probe().await;
+    if !matches!(result, Ok(Some(_))) && profile.is_none() && computer_key {
+        sign.team_model_keys(client, runtime).await;
+        // A box with an API key and no browser: sign in once, for the bots that use this runtime, or with the key the
+        // company gave every computer. Never into a profile's own home.
+        if result.is_ok()
+            && !caps.api_key_login.is_empty()
+            && sign.headless_secret(runtime).is_some()
+            && (sign.team_key_only(runtime) || signin::assigned(assignments, runtime))
+            && sign.key_login(runtime, path).await
+        {
+            result = probe().await;
+        }
+    }
+    if let Ok(Some(detail)) = result {
+        return ("ready", detail);
+    }
+    // A key in the environment, `_shared.env` or the company's file signs the CLI in on a headless box even when the
+    // status says otherwise; a profile has only its own login.
+    if computer_key && caps.api_key_login.is_empty() && profile.is_none() {
+        if let Some((key, _)) = sign.headless_secret(runtime) {
+            return ("ready", format!("Signed in with {key}"));
+        }
+    }
+    match result {
+        Err(true) => (timed_out, format!("{name} sign-in check timed out")),
+        Err(false) => ("failed", format!("{name} sign-in could not be checked")),
+        _ => ("missing", missing),
+    }
 }
 
 fn order(row: &Value) -> usize {
@@ -247,9 +215,8 @@ fn joined(rows: &Map<String, Value>) -> String {
 /// A sign-in the provider refused on a real turn shows as `rejected` until its credentials change.
 pub async fn runtime_report(config: &Config, sign: &SignIn, client: &Client, assignments: &[Value]) -> Map<String, Value> {
     let mut report = Map::new();
-    let mut names: Vec<&str> = RUNTIMES.to_vec();
-    names.sort();
-    for runtime in names {
+    for runtime in crate::harness_tools::runtimes() {
+        let runtime = runtime.as_str();
         let mut used: std::collections::BTreeMap<String, Option<Profile>> = Default::default();
         for entry in assignments {
             let requested = text_of(&entry["profile"]);
@@ -324,7 +291,7 @@ pub fn unsupported(entry: &Value) -> Vec<String> {
     let runtime = text_of(&c["runtime"]);
     let mut needs = vec![];
     let harness = text_of(&c["harness"]);
-    if !harness.is_empty() && harness != runtime && !(runtime == "gemini" && harness == "antigravity") {
+    if !harness.is_empty() && !crate::harness_tools::is_harness_of(&runtime, &harness) {
         needs.push(format!("the {harness} harness"));
     }
     needs
@@ -359,6 +326,8 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
         let bot = text_of(&entry["bot"]);
         let expected = &entry["config"];
         let runtime = text_of(&expected["runtime"]);
+        let caps = crate::harness_tools::caps_of(expected);
+        let known = crate::harness_tools::runtimes().contains(&runtime);
         let path = crate::sessions::local_path(config, &bot, expected);
         let requested = text_of(&entry["profile"]);
         let computer = text_of(&entry["computer_label"]);
@@ -382,7 +351,7 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
         if !repository_present {
             problems.push(crate::product_files::problem(&bot).or_else(|| crate::fetchrepo::problem(&bot)).unwrap_or_else(|| "Missing bot repository or AGENT.md".into()));
         } else {
-            if runtime == "claude" {
+            if caps.repo_permission_lint {
                 warnings.extend(crate::readiness_extra::deny_warnings(&path));
             }
             if let Ok(text) = std::fs::read(path.join("AGENT.md")) {
@@ -401,13 +370,15 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
         };
         if runtime.is_empty() {
             problems.push(NO_RUNTIME.into());
-        } else if !RUNTIMES.contains(&runtime.as_str()) {
+        } else if !known {
             problems.push("Unsupported runtime".into());
-        } else if runtime == "gemini" && expected["harness"] == "antigravity" {
-            // Antigravity has its own executable and Google sign-in, which a Gemini CLI key does not prove; the real
-            // turn checks the sign-in, as preflight makes no model call.
-            if executable("agy").is_none() {
-                problems.push("Antigravity CLI is not on PATH".into());
+        } else if !caps.readiness {
+            // A variant with its own executable and sign-in, which the runtime's row does not prove; the real turn
+            // checks the sign-in, as preflight makes no model call.
+            if let Some(v) = crate::harness_tools::variant(&runtime, &text_of(&expected["harness"])) {
+                if which(&v.executable, &std::env::var("PATH").unwrap_or_default()).is_none() {
+                    problems.push(format!("{} CLI is not on PATH", v.name));
+                }
             }
         } else if runtimes.get(&runtime).is_none_or(|r| r["installed"] != true) {
             let installing = crate::harness_tools::shared().and_then(|h| h.try_lock().ok()?.installing(&runtime));
@@ -422,7 +393,7 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
         for need in unsupported(entry) {
             problems.push(format!("This computer's runner does not run {need}; choose another harness for this bot"));
         }
-        let mut configuration_valid = RUNTIMES.contains(&runtime.as_str());
+        let mut configuration_valid = known;
         let manifest = manifest_path(&path);
         let (tools, mail_request): (Vec<Value>, Value) = (vec![], Value::Null);
         if repository_present && manifest.is_file() {
@@ -503,9 +474,10 @@ pub fn document(runtimes: &Map<String, Value>, checks: &[Map<String, Value>], st
                 out.insert(key.into(), v.clone());
             }
         }
-        // A Claude Code bot's own skills and commands run like /compact; a harness too old for commands offers none.
+        // A bot's own skills and commands run like /compact where the harness reads them from the repository; a
+        // harness too old for commands offers none.
         let builtins = capability["commands"].as_array().cloned().unwrap_or_default();
-        if row["runtime"] == "claude" && !builtins.is_empty() && row["repository_present"] == true && !text_of(&row["repository"]).is_empty() {
+        if crate::harness_tools::caps(&text_of(&row["runtime"]), "").repo_commands && !builtins.is_empty() && row["repository_present"] == true && !text_of(&row["repository"]).is_empty() {
             out.insert("commands".into(), json!(crate::goals::with_repo_commands(&builtins, Path::new(&text_of(&row["repository"])))));
         }
         if !row["published"].is_null() {
