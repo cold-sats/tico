@@ -44,6 +44,18 @@ def test_payloads_stay_under_their_budgets(api):
         # 1,000 long replies before it; a person's message would queue a run of its own.
         clone(c, "messages", {**first, "body": BODY, "from_actor": "bot:ops", "to_actor": "human:ana"}, 1000,
               created=lambda i: H.shift(first["created"], seconds=-i - 1))
+        # 60 bots at work, each with a status line as a busy team's are (focus, task, last result, counts).
+        bot = dict(c.execute("SELECT * FROM bots WHERE slug='ops'").fetchone())
+        c.executemany(f"INSERT INTO bots({','.join(bot)}) VALUES({','.join('?' * len(bot))})",
+                      [[f"bot-{i}" if k == "slug" else f"Bot {i}" if k == "display_name" else v for k, v in bot.items()]
+                       for i in range(53)])
+        c.executemany("INSERT OR REPLACE INTO bot_status(bot,state,focus,task_id,since,last_turn_at,last_result,next_due,"
+                      "open_tasks,needs_human,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                      [(slug, "running", "Drafting the weekly report for the launch review and checking the numbers",
+                        task["id"], H.now(), H.now(), "Filed the summary and asked finance to confirm the totals. " * 3,
+                        H.now(), 12, 1, H.now())
+                       for slug in [f"bot-{i}" for i in range(53)] + ["coo", "ops", "cpo", "product-design", "finance",
+                                                                       "inbox", "doc-updater"]])
         for seq in range(200):
             c.execute("INSERT INTO attempt_events(attempt_id,seq,kind,payload_json,created) VALUES(?,?,?,?,?)",
                       (attempt["id"], 1000 + seq, "tool" if seq % 2 else "message",
@@ -77,7 +89,8 @@ def test_payloads_stay_under_their_budgets(api):
     # this holds today's 580 KB from growing until the brief row is cut down.
     assert len(board.json()["tasks"]) == 500 and len(board.content) <= 600 * KB
     status = api.get("/api/v2/status", headers=headers())
-    assert len(status.content) <= 64 * KB
+    # 60 bots' status lines measure about 35 KB (under 600 B a bot); held just above that, inside the 64 KB budget.
+    assert len(status.json()["bots"]) == 60 and len(status.content) <= 40 * KB
 
     # Tool output is in no list (the whole Needs-you list above included).
     lists = [opened, board, status, api.get("/api/v2/conversations", headers=headers())]
