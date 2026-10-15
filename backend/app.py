@@ -3819,20 +3819,22 @@ def create_app(settings=None):
             return {"requested": True, "running": views.runner_busy(c, rid)}
         return mutate(request, body, work)
 
-    @app.post("/api/v2/runners/{rid}/inbox-sharing")
-    def inbox_sharing(request: Request, rid: str, body: M.InboxSharing):
-        """Let several inbox bots share this computer (they hold the same mail key anyway)."""
+    @app.post("/api/v2/runners/{rid}/inbox-only")
+    def inbox_only(request: Request, rid: str, body: M.InboxOnly):
+        """Keep this computer for inbox bots, or stop (backend/inbox_isolation.py)."""
         who = request.state.identity
         def work(c):
             runner = c.execute("SELECT * FROM runners WHERE id=? AND revoked_at IS NULL", (rid,)).fetchone()
             if not runner or not (auth.bot_admin(who) or who.role == "human" and who.actor == "human:" + runner["operator"]):
                 raise Problem("forbidden", "You cannot change this computer", 403)
-            if body.allowed and who.via == "botops" and not inbox_isolation.single_owner(c):
-                raise Problem("forbidden", "BotOps turns inbox sharing on only where one owner runs every computer and bot",
-                              403)
-            inbox_isolation.allow_shared(c, rid, body.allowed)
-            H.event(c, who.actor, "runner.inbox_sharing", rid, {"allowed": body.allowed})
-            return {"allowed": body.allowed}
+            people = views.roster(c)
+            if body.enabled and (others := [b for b in c.execute("SELECT bot FROM assignments WHERE runner_id=?", (rid,))
+                                           .fetchall() if not P.inbox_person(b[0], people)]):
+                raise Problem("inbox_isolation", "Move these bots to another computer first: "
+                              + ", ".join(b[0] for b in others), 409)
+            inbox_isolation.set_inbox_only(c, rid, body.enabled, people)
+            H.event(c, who.actor, "runner.inbox_only", rid, {"enabled": body.enabled})
+            return {"enabled": body.enabled}
         return mutate(request, body, work)
 
     @app.post("/api/v2/runners/{rid}/logins")

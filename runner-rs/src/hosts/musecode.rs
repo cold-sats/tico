@@ -3,8 +3,9 @@
 //! A thread is a Muse session whose id Tico makes (a UUID): every turn runs with `--session-id <id>`, and an id
 //! the CLI already has continues that session, so a restart resumes it. The prompt goes in a file the turn can
 //! read (the CLI takes no prompt on stdin). Events are one JSON object per line: `run.output.delta` streams text,
-//! `run.terminal.completed|failed|cancelled` ends the run with the final `text` or a `reason`, and token counts
-//! ride on per-completion usage objects. The hub and the bot's remote MCP servers are per-run
+//! `run.terminal.completed|failed|cancelled` ends the run with the final `text` or a `reason`. Token counts are not
+//! in that stream (Muse Code 1.4.8): they are `model_completed` records in the session's durable log, read after
+//! each turn (`session_usage`), with the model `run.model.configured` named. The hub and the bot's remote MCP servers are per-run
 //! `-c mcp_servers.<name>=...` settings whose secrets stay `${VAR}` in the environment. MUSE_NO_AUTO_UPDATE=1
 //! stops the launcher updating itself; the runner updates harnesses.
 
@@ -25,7 +26,7 @@ use crate::env::Env;
 use crate::util::{log, text_of, truthy};
 
 pub const EXECUTABLE: &str = "muse";
-pub const MODELS: &[&str] = &["muse-spark-1.3"];
+pub const MODELS: &[&str] = &["muse-spark-1.3", "muse-wonder-1.0", "muse-wonder-full-1.0"];
 pub const DEFAULT_MODEL: &str = "muse-spark-1.3";
 const EFFORTS: &[&str] = &["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
 const DEFAULT_EFFORT: &str = "medium";
@@ -103,6 +104,69 @@ pub fn usage_of(payload: &Value) -> Option<(i64, i64, i64)> {
         stack.extend(row.iter().filter(|(k, v)| *k != "cumulative" && v.is_object()).map(|(_, v)| v));
     }
     found
+}
+
+/// The session's durable log under Muse's data folder (`$XDG_DATA_HOME/muse/sessions/<yyyy>/<mm>/<dd>/<id>/`,
+/// `~/.local/share` without XDG_DATA_HOME), or None before its first turn wrote one.
+pub fn session_log(env: &Env, session_id: &str) -> Option<PathBuf> {
+    let data = match env.get("XDG_DATA_HOME").filter(|d| !d.is_empty()) {
+        Some(d) => PathBuf::from(d),
+        None => PathBuf::from(env.get("HOME").filter(|h| !h.is_empty())?).join(".local").join("share"),
+    };
+    if session_id.is_empty() || session_id.contains('/') {
+        return None;
+    }
+    let dirs = |p: &Path| -> Vec<PathBuf> {
+        let mut v: Vec<PathBuf> = std::fs::read_dir(p).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
+        v.sort();
+        v
+    };
+    let mut found = None;
+    for y in dirs(&data.join("muse").join("sessions")) {
+        for m in dirs(&y) {
+            for d in dirs(&m) {
+                let log = d.join(session_id).join("session.jsonl");
+                if log.is_file() {
+                    found = Some(log);
+                }
+            }
+        }
+    }
+    found
+}
+
+/// (input, cached, output, model) summed over the `model_completed` records of `run_id` (any run when None) from
+/// byte `offset` on, or None when there are none. Records that repeat the same counts (`goal_usage_attribution`)
+/// are not counted.
+pub fn session_usage(path: &Path, offset: u64, run_id: Option<&str>) -> Option<(i64, i64, i64, String)> {
+    let mut file = std::fs::File::open(path).ok()?;
+    let size = file.metadata().ok()?.len();
+    if offset > 0 && offset <= size {
+        file.seek(SeekFrom::Start(offset)).ok()?; // a log that shrank (rewritten) is read whole, by run id
+    }
+    let mut bytes = vec![];
+    file.read_to_end(&mut bytes).ok()?;
+    let (mut found, mut model): (Option<(i64, i64, i64)>, String) = (None, String::new());
+    for line in String::from_utf8_lossy(&bytes).lines().filter(|l| l.contains("model_completed")) {
+        let Ok(rec) = serde_json::from_str::<Value>(line) else { continue };
+        let (payload, event) = (&rec["payload"], &rec["payload"]["event"]);
+        if event["kind"] != "model_completed" || run_id.is_some_and(|r| payload["run_id"].as_str() != Some(r)) {
+            continue;
+        }
+        let empty = Map::new();
+        let u = event["usage"].as_object().unwrap_or(&empty);
+        let row = (
+            count(u, &["input_tokens", "inputTokens"]),
+            count(u, &["cache_read_tokens", "cacheReadTokens", "cached_tokens", "cachedTokens"]),
+            count(u, &["output_tokens", "outputTokens"]),
+        );
+        let (a, b, c) = found.unwrap_or_default();
+        found = Some((a + row.0, b + row.1, c + row.2));
+        if let Some(m) = event["model"].as_str().filter(|m| !m.is_empty()) {
+            model = m.into();
+        }
+    }
+    found.map(|(a, b, c)| (a, b, c, model))
 }
 
 fn placeholder_re() -> &'static Regex {
@@ -235,6 +299,10 @@ struct Turn {
     terminal: String,
     reason: String,
     usage: Option<(i64, i64, i64)>,
+    /// This turn's run id (`run_stream.id`), so only its records in the session log count.
+    run: String,
+    /// The model the run used (`run.model.configured`, else the session log's).
+    model: String,
 }
 
 #[derive(Default)]
@@ -367,7 +435,7 @@ impl MuseCodeHost {
 
     pub fn start_turn(&self, thread_id: &str, text: &str, effort: Option<&str>) -> Result<String, HostError> {
         let turn = uuid::Uuid::new_v4().to_string();
-        let (stdout, exited, stderr, prompt, pid) = {
+        let (stdout, exited, stderr, prompt, pid, env, offset) = {
             let mut inner = self.inner();
             if !inner.up {
                 return Err(failed("muse host is not running"));
@@ -377,6 +445,8 @@ impl MuseCodeHost {
             }
             let settings = inner.threads.get(thread_id).cloned().ok_or_else(|| failed(format!("unknown muse thread {thread_id}")))?;
             prepare_config(&self.0.config_home)?;
+            let env = self.env(&settings);
+            let offset = session_log(&env, thread_id).and_then(|p| std::fs::metadata(p).ok()).map_or(0, |m| m.len());
             let prompt = self.prompt_file(text).map_err(|e| failed(format!("could not start muse: {e}")))?;
             let spawned = (|| {
                 // stderr goes to an unlinked file: read back for the error text, never a pipe that could fill.
@@ -391,7 +461,7 @@ impl MuseCodeHost {
                     .stderr(Stdio::from(stderr.try_clone()?))
                     .current_dir(&settings.cwd)
                     .env_clear()
-                    .envs(self.env(&settings))
+                    .envs(&env)
                     .spawn()?;
                 Ok::<_, std::io::Error>((child, stderr))
             })();
@@ -407,26 +477,28 @@ impl MuseCodeHost {
             let (stopper, exited) = super::own(child);
             inner.stopper = Some(stopper);
             inner.turn = Some((thread_id.into(), turn.clone()));
-            (stdout, exited, stderr, prompt, pid)
+            (stdout, exited, stderr, prompt, pid, env, offset)
         };
         log(&format!("muse[{}]: turn started pid {}", self.0.bot, pid.map_or("?".into(), |p| p.to_string())));
         self.emit(event("status", Some(thread_id), None, json!({"state": "active"})));
         let host = self.clone();
         let (tid, t2) = (thread_id.to_string(), turn.clone());
-        let reader = tokio::spawn(async move { host.read_loop(stdout, exited, stderr, prompt, tid, t2).await });
+        let reader = tokio::spawn(async move { host.read_loop(stdout, exited, stderr, (prompt, env, offset), tid, t2).await });
         self.inner().reader = Some(reader);
         Ok(turn)
     }
 
+    /// `files`: the prompt file to remove, and the turn's environment and session-log size before it ran.
     async fn read_loop(
         &self,
         stdout: Option<ChildStdout>,
         exited: tokio::sync::oneshot::Receiver<std::io::Result<std::process::ExitStatus>>,
         mut stderr: std::fs::File,
-        prompt: PathBuf,
+        files: (PathBuf, Env, u64),
         tid: String,
         turn: String,
     ) {
+        let (prompt, env, offset) = files;
         let mut state = Turn::default();
         if let Some(stdout) = stdout {
             let mut lines = BufReader::new(stdout).lines();
@@ -441,6 +513,15 @@ impl MuseCodeHost {
             Err(_) => -1,
         };
         let _ = std::fs::remove_file(&prompt);
+        if state.usage.is_none() {
+            let run = Some(state.run.as_str()).filter(|r| !r.is_empty());
+            if let Some((a, b, c, model)) = session_log(&env, &tid).and_then(|p| session_usage(&p, offset, run)) {
+                state.usage = Some((a, b, c));
+                if !model.is_empty() {
+                    state.model = model;
+                }
+            }
+        }
         self.finish(&tid, &turn, rc, &stderr_tail(&mut stderr), state);
     }
 
@@ -455,6 +536,16 @@ impl MuseCodeHost {
         if let Some((a, b, c)) = usage_of(payload) {
             let (x, y, z) = state.usage.unwrap_or_default();
             state.usage = Some((x + a, y + b, z + c));
+        }
+        if state.run.is_empty() {
+            if let Some(id) = payload["run_stream"]["id"].as_str() {
+                state.run = id.into();
+            }
+        }
+        if kind == "run.model.configured" {
+            if let Some(m) = payload["model_id"].as_str().filter(|m| !m.is_empty()) {
+                state.model = m.into();
+            }
         }
         if kind == "run.output.delta" {
             if let Some(text) = payload["text"].as_str().filter(|t| !t.is_empty()) {
@@ -490,12 +581,11 @@ impl MuseCodeHost {
             inner.interrupted.contains(turn)
         };
         if let Some((inp, cached, out)) = state.usage {
-            self.emit(event(
-                "tokens",
-                Some(tid),
-                Some(turn),
-                json!({"input": inp, "output": out, "total": inp + out, "usage": {"input": inp, "cached": cached, "output": out}}),
-            ));
+            let mut body = json!({"input": inp, "output": out, "total": inp + out, "usage": {"input": inp, "cached": cached, "output": out}});
+            if !state.model.is_empty() {
+                body["model"] = json!(state.model);
+            }
+            self.emit(event("tokens", Some(tid), Some(turn), body));
         }
         if interrupted {
             self.emit(event("turn_completed", Some(tid), Some(turn), json!({"status": "interrupted"})));
@@ -599,6 +689,47 @@ mod tests {
         }
         // Every prompt file is gone once its turn ends.
         assert_eq!(std::fs::read_dir(dir.join("state")).unwrap().flatten().filter(|e| e.file_name() != "config").count(), 0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// `muse exec --json` (1.4.8) carries no token counts: they are `model_completed` records in the session's
+    /// durable log. Only this turn's run counts; the attribution copies and an earlier turn do not.
+    #[tokio::test]
+    async fn usage_and_model_come_from_the_session_log_the_turn_appended() {
+        let dir = temp("fake-muse");
+        let fixtures = crate::hosts::fixtures::dir("musecode");
+        let stream = fixtures.join("real-tool.jsonl");
+        let sid = serde_json::from_str::<Value>(std::fs::read_to_string(&stream).unwrap().lines().next().unwrap()).unwrap()["stream"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let log = dir.join("home/.local/share/muse/sessions/2026/10/14").join(&sid).join("session.jsonl");
+        std::fs::create_dir_all(log.parent().unwrap()).unwrap();
+        std::fs::write(&log, "").unwrap(); // the session existed before this turn
+        let cmd = script(&dir, "muse", "#!/bin/sh\ncat \"$SESSION\" > \"$LOG\"\ncat \"$FIXTURE\"\n");
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let host = MuseCodeHost::new("coo", vec![cmd], None, dir.join("state"), tx);
+        host.start();
+        let mut settings = Settings { cwd: dir.display().to_string(), ..Default::default() };
+        for (k, v) in [
+            ("PATH", "/usr/bin:/bin".to_string()),
+            ("HOME", dir.join("home").display().to_string()),
+            ("FIXTURE", stream.display().to_string()),
+            ("SESSION", fixtures.join("session-logs/real-tool.session.jsonl").display().to_string()),
+            ("LOG", log.display().to_string()),
+        ] {
+            settings.env.insert(k.into(), v);
+        }
+        let thread = host.resume_thread(&sid, &settings);
+        host.start_turn(&thread, "x", None).unwrap();
+        let tokens: Vec<Value> = until_idle(&mut rx, 10).await.into_iter().filter(|e| e["kind"] == "tokens").collect();
+        assert_eq!(tokens.len(), 1, "{tokens:?}");
+        assert_eq!(tokens[0]["usage"], json!({"input": 37200, "cached": 24200, "output": 215}));
+        assert_eq!(tokens[0]["model"], "muse-spark-1.3");
+        let mut meter = crate::execute::Meter::default();
+        meter.add(&tokens[0]);
+        let r = meter.report("", "musecode", "subscription").unwrap();
+        assert_eq!((r["input_tokens"].clone(), r["cached_tokens"].clone(), r["model"].clone()), (json!(13000), json!(24200), json!("muse-spark-1.3")));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -11,7 +11,7 @@ def test_which_routes_run_without_a_card_and_which_still_need_one():
     direct = [("POST", "runners/r1/restart", None), ("POST", "credentials/c1/grants/g1/revoke", None),
               ("PUT", "usage/limits/ops", None), ("PUT", "usage/limits", None), ("PUT", "providers", None),
               ("POST", "chat/ops", None), ("POST", "messages", {"to": "bot:ops"}), ("POST", "runners/r1/logins", None),
-              ("GET", "runners/r1/logins/l1", None), ("POST", "runners/r1/inbox-sharing", None),
+              ("GET", "runners/r1/logins/l1", None), ("POST", "runners/r1/inbox-only", None),
               ("PUT", "bots/ops/github-repos", None), ("POST", "bots/ops/archive", None),
               ("POST", "system/update", None), ("PUT", "access/rules", None)]
     cards = [("POST", "runners/r1/revoke", None), ("POST", "runners/r1/member-bots", None), ("PUT", "access/allow", None),
@@ -49,23 +49,12 @@ def test_botops_restarts_a_computer_and_starts_a_model_sign_in_without_a_card(ap
         assert row["actor"] == "human:ana" and '"via": "botops"' in row["detail_json"]
 
 
-def test_inbox_sharing_is_turned_on_by_botops_only_where_one_owner_runs_everything(api, botops):
-    from backend import inbox_isolation
-    ana = turn(api, botops, person="ana-test", text="Let the inbox bots share this computer")
-    path = f"runners/{botops['runner_id']}/inbox-sharing"
-    with api.app.state.store.transaction() as c:
-        c.execute("UPDATE bot_config SET operator='ana'")                    # one person runs every bot and computer
-        assert inbox_isolation.single_owner(c)
-    on = act(api, ana, "POST", path, {"allowed": True})
-    assert on.status_code == 200 and on.json() == {"allowed": True}, on.text
-    with api.app.state.store.transaction() as c:
-        c.execute("UPDATE bot_config SET operator='cara' WHERE bot='ops'")   # now someone else runs a bot
-        assert not inbox_isolation.single_owner(c)
-    refused = act(api, ana, "POST", path, {"allowed": True})
-    assert refused.status_code == 403 and "one owner" in refused.json()["error"]["detail"]
-    assert act(api, ana, "POST", path, {"allowed": False}).status_code == 200      # turning it off is always fine
-    # An admin by hand is as before.
-    assert call(api, "post", path, "ben-test", {"allowed": True}).status_code == 200
+def test_botops_keeps_a_computer_for_inbox_bots_as_the_person_who_asked(api, botops):
+    ana = turn(api, botops, person="ana-test", text="Stop keeping this computer for inbox bots")
+    path = f"runners/{botops['runner_id']}/inbox-only"
+    assert act(api, ana, "POST", path, {"enabled": False}).json() == {"enabled": False}
+    refused = act(api, ana, "POST", path, {"enabled": True})          # BotOps itself runs there
+    assert refused.status_code == 409 and "Move these bots" in refused.json()["error"]["detail"]
 
 
 def test_a_member_makes_a_personal_token_until_the_owner_says_otherwise(api):

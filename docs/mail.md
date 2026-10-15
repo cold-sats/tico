@@ -463,11 +463,11 @@ The key can act as any mailbox in the team, so bots must not be able to read it.
   `audit.jsonl` files in `workspace/runtime/mail` are group-writable so the bot's `mail.sh` and the job can both write them.
 - **A Mac, or Docker started the old way**: bots run as the same user as the runner and can read the key file, and Settings >
   Health says so ("Mail key"). Keep such a computer for the message bot alone.
-- A message bot and any other bot are never placed on the same computer (the server answers 409 `inbox_isolation`: add a computer
-  for the message bot; it can be on the same host, see [Add a second computer](install.md#linux-or-cloud-server-docker)). Several message bots may share one only if the owner allows it with
-  `POST /api/v2/computers/<id>/inbox-sharing {"allowed": true}`, since they would hold the same key anyway. Where one owner runs every
-  computer and bot, the refusal offers this and BotOps turns it on as the human who asked; anywhere else an owner or an admin does it
-  (a message bot still never shares a computer with another kind of bot).
+- A message bot may share a computer with other bots. To wall its mail key off, keep a computer for message bots alone
+  (it can be on the same host, see [Add a second computer](install.md#linux-or-cloud-server-docker)):
+  `POST /api/v2/computers/<id>/inbox-only {"enabled": true}`, by an owner, an admin, the computer's operator, or BotOps as one of them.
+  The server then places no other bot there (409 `inbox_isolation`); `{"enabled": false}` stops keeping it. Installs from before
+  this setting keep every computer that held only message bots kept for them.
 - Bots that are not message bots but declare `gmail` access do not get mail on an isolated runner.
 
 Instead of the key, the owner can set `TICO_PROCESSING_OPERATORS=<operator>` on the server: that owner's runners run

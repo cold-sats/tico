@@ -156,6 +156,39 @@ async fn a_shared_checkout_never_forces_and_says_which_files_conflict() {
     assert_eq!(sessions::sync_shared(&mine, &env).await, "it has uncommitted changes from an earlier turn");
 }
 
+/// BotOps, COO, Support and PR Reviewer on the Tico Team box: "Not possible to fast-forward" before each turn and a
+/// refused push after it, only logged, for hours. The turn's prompt now tells the bot to fix its own checkout.
+#[tokio::test]
+async fn a_bots_own_diverged_checkout_is_named_in_its_prompt() {
+    let tmp = Tmp::new();
+    let (bare, seed) = remote(&tmp.0, "emp-coo");
+    let mine = tmp.0.join("mine");
+    sh(&tmp.0, &["clone", "-q", bare.to_str().unwrap(), mine.to_str().unwrap()]);
+    let env = turn_env(&tmp.0, &[]);
+    std::fs::write(mine.join("AGENT.md"), "# Mine\n").unwrap();
+    sh(&mine, &["commit", "-qam", "my lesson"]);
+    commit_and_push(&seed, "AGENT.md", "# Theirs\n");
+    commit_and_push(&seed, "notes.md", "more\n");
+    let before = sh(&mine, &["rev-parse", "HEAD"]);
+
+    assert!(!execute::pull_repo(&mine, &env).await.is_empty());
+    let problem = sessions::divergence(&mine, &env).await;
+    assert_eq!(problem, "it has 1 commits `origin/main` doesn't, and `origin/main` has 2 it doesn't; conflicting files: AGENT.md");
+    assert_eq!(sh(&mine, &["rev-parse", "HEAD"]), before, "nothing moved");
+    let mut attempt = json!({"bot": "coo", "config": {}, "repo_sync_problem": sessions::own_sync_line(&mine, &problem)});
+    let mut lines = vec!["You are coo.".to_string()];
+    sessions::prompt_head(&attempt, &mut lines);
+    assert!(lines[0].starts_with(&format!("Before anything else: your repository `{}` has diverged", mine.display())), "{lines:?}");
+    assert!(lines[0].ends_with("keeping both sides' facts, and push."));
+    // A shared checkout says it its own way; an up-to-date one says nothing.
+    attempt["config"] = json!({"shared": true});
+    let mut lines = vec![];
+    sessions::prompt_head(&attempt, &mut lines);
+    assert!(!lines.iter().any(|l| l.contains("has diverged")));
+    sh(&mine, &["reset", "-q", "--hard", "origin/main"]);
+    assert_eq!(sessions::divergence(&mine, &env).await, "");
+}
+
 #[tokio::test]
 async fn fetching_a_bots_repository_clones_it_and_leaves_no_half_clone() {
     let tmp = Tmp::new();

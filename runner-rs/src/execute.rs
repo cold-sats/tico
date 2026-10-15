@@ -66,12 +66,14 @@ impl From<String> for Fail {
     }
 }
 
-/// What a turn spent (runner/usage.py Meter): the sum of each `tokens` event's `usage` increment.
+/// What a turn spent (runner/usage.py Meter): the sum of each `tokens` event's `usage` increment. A host that learns
+/// the model from its harness (Muse Code) puts it on the event; it names the run's model when the config does not.
 #[derive(Default)]
 pub(crate) struct Meter {
     input: i64,
     cached: i64,
     output: i64,
+    model: String,
 }
 
 pub(crate) fn count(v: &Value) -> i64 {
@@ -82,6 +84,9 @@ impl Meter {
     pub(crate) fn add(&mut self, event: &Value) {
         let u = &event["usage"];
         if u.is_object() {
+            if let Some(m) = event["model"].as_str().filter(|m| !m.is_empty()) {
+                self.model = m.into();
+            }
             self.input += count(&u["input"]);
             self.cached += count(&u["cached"]);
             self.output += count(&u["output"]);
@@ -93,6 +98,7 @@ impl Meter {
         if self.input == 0 && self.output == 0 {
             return None;
         }
+        let model = if (model.trim().is_empty() || model.trim() == "default") && !self.model.is_empty() { &self.model } else { model };
         let mut m = Map::new();
         m.insert("input_tokens".into(), json!(self.input - cached));
         m.insert("cached_tokens".into(), json!(cached));

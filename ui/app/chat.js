@@ -749,11 +749,18 @@ function v2ChatStream(state, loaded = false) {
         liveSoon('chat:' + cid, () => v2ChatSnapshot(state), CHAT_SOON_MS);
       }),
       // A run's output arrives step by step (hundreds a minute while it works): the snapshot reads again at most every
-      // 3 s for those, and not in a hidden tab. A run starting or ending reads at once.
+      // 0.4 s for the first 10 s of output, so a short reply streams, then every 3 s; never in a hidden tab. A run
+      // starting or ending reads at once.
       liveOn('runs', d => {
         if (!mine(d)) return;
-        if (d.output) liveThrottle('chat-output:' + cid, () => { if (V2C === state) void v2ChatSnapshot(state); }, 3000);
-        else liveSoon('chat:' + cid, () => v2ChatSnapshot(state), CHAT_SOON_MS);
+        if (d.output) {
+          const first = state.outputSince ||= Date.now();
+          liveThrottle('chat-output:' + cid, () => { if (V2C === state) void v2ChatSnapshot(state); },
+                       Date.now() - first < 10000 ? 400 : 3000);
+        } else {
+          state.outputSince = 0;
+          liveSoon('chat:' + cid, () => v2ChatSnapshot(state), CHAT_SOON_MS);
+        }
       }),
       liveOn('reset', () => { if (V2C === state) void v2ChatSnapshot(state); }),
       // A stream that stays down for a few seconds (not the moment it takes to reconnect) marks the reply as interrupted;

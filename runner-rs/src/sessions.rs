@@ -147,6 +147,8 @@ pub fn prompt_head(attempt: &Value, lines: &mut Vec<String>) {
         let mut head = shared_lines(&text_of(&attempt["bot"]), config, &problem);
         head.append(lines);
         *lines = head;
+    } else if truthy(attempt.get("repo_sync_problem")) {
+        lines.insert(0, text_of(&attempt["repo_sync_problem"]));
     }
     let session = &attempt["_session"];
     if session.is_object() {
@@ -468,6 +470,53 @@ pub async fn sync_shared(path: &Path, turn: &Env) -> String {
     }
 }
 
+/// How a checkout that could not fast-forward differs from its upstream (as `pull_repo` last fetched it), or ""
+/// when it has not diverged (service.py divergence). Read-only: `git merge-tree` names the conflicting files without
+/// touching the tree or the index (git 2.38+; older git names the files both sides changed).
+pub async fn divergence(path: &Path, turn: &Env) -> String {
+    let env = crate::safegit::environment(turn);
+    let found: Result<String, Fault> = async {
+        let up = g(path, &env, &["rev-parse", "--abbrev-ref", "@{u}"], 15).await?;
+        let counts = g(path, &env, &["rev-list", "--left-right", "--count", "HEAD...@{u}"], 15).await?;
+        let counts: Vec<&str> = counts.stdout.split_whitespace().collect();
+        if !up.ok() || counts.len() != 2 || counts.contains(&"0") {
+            return Ok(String::new());
+        }
+        let (up, ahead, behind) = (up.stdout.trim().to_string(), counts[0].to_string(), counts[1].to_string());
+        let merged = g(path, &env, &["merge-tree", "--write-tree", "--name-only", "--no-messages", "HEAD", "@{u}"], 15).await?;
+        let files: Vec<String> = if merged.code == 0 || merged.code == 1 {
+            merged.stdout.lines().skip(1).filter(|l| !l.trim().is_empty()).map(str::to_string).collect()
+        } else {
+            let base = g(path, &env, &["merge-base", "HEAD", "@{u}"], 15).await?.stdout.trim().to_string();
+            if base.is_empty() {
+                vec![]
+            } else {
+                let ours: HashSet<String> = g(path, &env, &["diff", "--name-only", &base, "HEAD"], 15).await?.stdout.split_whitespace().map(str::to_string).collect();
+                let theirs = g(path, &env, &["diff", "--name-only", &base, "@{u}"], 15).await?.stdout;
+                let mut both: Vec<String> = theirs.split_whitespace().filter(|f| ours.contains(*f)).map(str::to_string).collect();
+                both.sort();
+                both
+            }
+        };
+        let mut shown = files.iter().take(5).cloned().collect::<Vec<_>>().join(", ");
+        if files.len() > 5 {
+            shown.push_str(&format!(" and {} more", files.len() - 5));
+        }
+        let conflicts = if files.is_empty() { "no files conflict".to_string() } else { format!("conflicting files: {shown}") };
+        Ok(format!("it has {ahead} commits `{up}` doesn't, and `{up}` has {behind} it doesn't; {conflicts}"))
+    }
+    .await;
+    found.unwrap_or_default()
+}
+
+/// The prompt's first line for a bot's own checkout that has diverged from its remote (service.py own_sync_line).
+pub fn own_sync_line(path: &Path, problem: &str) -> String {
+    format!(
+        "Before anything else: your repository `{}` has diverged from its remote ({problem}). The runner only fast-forwards, so nothing you commit reaches GitHub until you fix it: commit or keep unfinished changes, rebase onto the remote branch (or merge it), resolve each conflict keeping both sides' facts, and push.",
+        path.display()
+    )
+}
+
 /// After a push refused as behind: put the unpushed commits on top of what the remote gained (merge when they
 /// hold a merge), or say why not. Never forces or drops a commit; a conflict is undone (service.py catch_up).
 pub async fn catch_up(path: &Path, turn: &Env) -> String {
@@ -752,6 +801,11 @@ impl Runner {
             if !error.is_empty() {
                 let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
                 log(&format!("Tico runner: {name} pull before {} turn failed ({error}); using the local tree", place.bot));
+                // Diverged from its remote (its push after an earlier turn failed too): the bot's to fix, told in the prompt.
+                let problem = divergence(path, env).await;
+                if !problem.is_empty() {
+                    attempt["repo_sync_problem"] = json!(own_sync_line(path, &problem));
+                }
             }
         }
         ensure_reads(&self.config.projects_dir(), path).await;
