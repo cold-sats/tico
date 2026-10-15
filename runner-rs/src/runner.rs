@@ -381,24 +381,6 @@ impl Runner {
 }
 
 impl Runner {
-    /// Assigned bots this runner cannot run, each with what it lacks. Read once at start: the runner then refuses
-    /// to start rather than leave those bots' work unclaimed.
-    pub async fn refusals(&self) -> Result<Vec<String>, ApiError> {
-        let assignments = self.client.get("runners/assignments").await?;
-        let mine = self.config.runner_id();
-        let mut lines = vec![];
-        for entry in assignments.as_array().cloned().unwrap_or_default() {
-            if text_of(&entry["runner_id"]) != mine {
-                continue;
-            }
-            let needs = readiness::unsupported(&entry);
-            if !needs.is_empty() {
-                lines.push(format!("{} needs {}", text_of(&entry["bot"]), needs.join(", ")));
-            }
-        }
-        Ok(lines)
-    }
-
     /// Lease expiry does not mean this worker has stopped: every live worker's lane stays busy, and a bot whose
     /// worktrees are being maintained gets nothing (service.py _claim_next).
     async fn claim_next(&self) -> Result<Value, ApiError> {
@@ -427,7 +409,7 @@ impl Runner {
 /// Only live assignments are readiness candidates, one per bot (service.py readiness_candidates). An archived bot
 /// keeps its assignment but is never set up or checked: its repository may be gone, and retrying it on every
 /// maintenance pass kept an idle computer busy.
-fn readiness_candidates(assignments: &[Value]) -> Vec<Value> {
+pub fn readiness_candidates(assignments: &[Value]) -> Vec<Value> {
     let mut by_bot: std::collections::BTreeMap<String, Value> = Default::default();
     for entry in assignments.iter().filter(|e| e["state"] != "archived") {
         by_bot.insert(text_of(&entry["bot"]), entry.clone());

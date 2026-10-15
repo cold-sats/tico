@@ -1100,9 +1100,15 @@ static TURNS: OnceLock<Mutex<HashMap<String, Vec<String>>>> = OnceLock::new();
 /// This runner's one installer, made on first use (with the tools bin put last on PATH). Call it before the
 /// tokio runtime starts threads when possible (main), so PATH is changed while nothing else reads it.
 pub fn init(config: &Config) -> Arc<Mutex<Harnesses>> {
+    init_at(config, config.state_dir().join("harnesses.json"))
+}
+
+/// `init` with its own state file: `doctor` keeps `harnesses-doctor.json`, as Python did, so a check never
+/// rewrites the running runner's.
+pub fn init_at(config: &Config, state_path: PathBuf) -> Arc<Mutex<Harnesses>> {
     SHARED
         .get_or_init(|| {
-            let h = Harnesses::new(tools_dir(config), config.state_dir().join("harnesses.json"), manifests().clone());
+            let h = Harnesses::new(tools_dir(config), state_path, manifests().clone());
             expose_path(&h.bin_dir());
             Arc::new(Mutex::new(h))
         })
