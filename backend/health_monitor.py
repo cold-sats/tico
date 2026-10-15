@@ -147,13 +147,22 @@ def _runner_checks(c, settings):
     out = []
     online = health._online_runners(c)
     computers = health._computers(c, online, settings)
+    # Work a computer holds while it waits to update is said here, on its update, never as a queue_idle Tico bug.
+    held = {}
+    for row in health._waiting(c, {r["id"] for r in online})[2]:
+        if row["reason"] == "updating":
+            held.setdefault(row["runner_id"], []).append(row)
     for machine in computers:
         update = machine["update"]
-        if machine["online"] and (update["state"] in ("needs_update", "incompatible") or update["error"]):
+        rows = held.get(machine["id"], [])
+        holds = (f" {health.updating_words(rows[0])}; it holds {sum(r['queued'] for r in rows)} queued job(s) for "
+                 + ", ".join(r["name"] for r in rows) + ".") if rows else ""
+        if machine["online"] and (update["state"] in ("needs_update", "incompatible") or update["error"] or rows):
             out.append(_finding("runner_outdated:" + machine["id"], "runner_outdated", SETUP,
                                 f"{machine['label']} runs an older Tico release ({update['release'] or 'unknown'})",
                                 f"Computer {machine['label']} reports release {update['release'] or 'unknown'}, state "
-                                f"{update['state']}" + (f"; last update error: {update['error']}" if update["error"] else "") + ".",
+                                f"{update['state']}" + (f"; last update error: {update['error']}" if update["error"] else "")
+                                + "." + holds,
                                 f"BotOps: update the runner on {machine['label']} (Settings > Computers, or "
                                 "`scripts/tico install` once on that computer so it updates itself)."))
     for x in health.silent_computers(c):
