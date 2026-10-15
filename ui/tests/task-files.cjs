@@ -3,7 +3,8 @@
 // with Other, Dismiss; the asker sees no buttons); the modal's poll bringing new files without breaking a playing
 // video or a half-filled answer; a reader's questions (no controls) and an older runner's plain answer; linked
 // images inline; board covers and the open-question dot; Pin to the sidebar; the task view preference and file
-// input on a local install; no sideways scroll at phone width. Every request is intercepted.
+// input on a local install; uploads (Files + and a new task) sending in-memory copies of every file; no sideways
+// scroll at phone width. Every request is intercepted.
 // TICO_SHOTS=<dir> saves screenshots (desktop and phone, dark and light).
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
@@ -32,12 +33,30 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
   const browser = await chromium.launch({channel: process.env.TICO_BROWSER_CHANNEL ?? 'chrome', headless: true});
   try {
     const page = await browser.newPage({viewport: {width: 1280, height: 900}, serviceWorkers: 'block'});
-    const errors = [], posted = [], requested = [];
+    const errors = [], posted = [], requested = [], uploadBodies = [];
     page.on('pageerror', e => errors.push(e.message));
     // The open task reads again when live events say it changed (taskChatLive); with window.fastPoll set, a change
     // arrives every 200ms.
     await page.addInitScript(() => {
       setInterval(() => { if (window.fastPoll && typeof taskChatLive === 'function' && TASK_CHAT) taskChatLive(TASK_CHAT); }, 200);
+    });
+    // Whether an upload sends its files as copies made in memory: WebKit can send a file read from disk as an empty
+    // body, so a request must never carry the picked or dropped file itself.
+    await page.addInitScript(() => {
+      const copies = new WeakSet();
+      window.sentFiles = [];
+      window.File = new Proxy(File, {construct(target, args) {
+        const file = Reflect.construct(target, args);
+        if ([...args[0] || []].some(part => part instanceof ArrayBuffer)) copies.add(file);
+        return file;
+      }});
+      const send = window.fetch;
+      window.fetch = (url, init = {}) => {
+        if (init.body instanceof FormData) for (const value of init.body.values()) {
+          if (value instanceof File) window.sentFiles.push({name: value.name, size: value.size, copied: copies.has(value)});
+        }
+        return send(url, init);
+      };
     });
     const now = Date.now(), at = mins => new Date(now - mins * 60000).toISOString();
     const me = {id: 'ana', name: 'Ana', email: 'ana@acme.example', role: 'owner', mover: true, cloud: false};
@@ -131,11 +150,16 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
         if (id === 'f-cut') return new Promise(() => {});        // a video that is still on its way: the poster shows
         return route.fulfill({contentType: 'application/octet-stream', body: 'not a real file'});
       }
+      if (p === '/api/v2/uploads/tasks' && req.method() === 'POST') {
+        uploadBodies.push(req.postDataBuffer() || Buffer.alloc(0));
+        return json({task: {...task, id: 't9', title: 'Brief'}});
+      }
       if (p === '/api/v2/tasks' && req.method() === 'GET') return json({tasks: [task, plain], next_offset: null});
       if (p === '/api/v2/tasks/t1/files' && req.method() === 'POST') {
-        const name = (req.postDataBuffer() || Buffer.alloc(0)).toString('latin1').match(/filename="([^"]+)"/)?.[1];
+        const raw = req.postDataBuffer() || Buffer.alloc(0), name = raw.toString('latin1').match(/filename="([^"]+)"/)?.[1];
+        uploadBodies.push(raw);
         posted.push({path: p, body: {file: name}});
-        files.push({id: 'f-up' + files.length, name, mime: 'image/png', current_version: 1, archived: false, versions: [version('f-up' + files.length, 1, {mime: 'image/png', by: 'human:ana'})]});
+        files.push({id: 'f-up' + files.length, name, mime: name.endsWith('.pdf') ? 'application/pdf' : 'image/png', current_version: 1, archived: false, versions: [version('f-up' + files.length, 1, {mime: name.endsWith('.pdf') ? 'application/pdf' : 'image/png', by: 'human:ana'})]});
         return json({file: {id: files.at(-1).id, name}, file_id: files.at(-1).id, version: 1});
       }
       if (p === '/api/v2/tasks/t1/files') return json({files});
@@ -230,6 +254,12 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
     });
     await modal.locator('.tf-tile .tf-name', {hasText: 'mockup.png'}).waitFor();
     assert.deepEqual(posted.at(-1), {path: '/api/v2/tasks/t1/files', body: {file: 'mockup.png'}});
+    // the + picks a file from disk: the request carries a full copy of it, not the picked file itself
+    await modal.locator('.task-files [data-tf-input]').setInputFiles({name: 'brief.pdf', mimeType: 'application/pdf', buffer: TEAL});
+    await modal.locator('.tf-tile .tf-name', {hasText: 'brief.pdf'}).waitFor();
+    assert.deepEqual(posted.at(-1), {path: '/api/v2/tasks/t1/files', body: {file: 'brief.pdf'}});
+    assert.ok(uploadBodies.at(-1).includes(TEAL), 'every byte of the picked file reaches the server');
+    assert.deepEqual(await page.evaluate(() => window.sentFiles.at(-1)), {name: 'brief.pdf', size: TEAL.length, copied: true});
     await modal.locator('.task-chat textarea').evaluate(box => {
       const dt = new DataTransfer();
       dt.items.add(new File(['shot'], 'image.png', {type: 'image/png'}));
@@ -451,7 +481,16 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
     assert.equal(held[0], 'brief.pdf');
     assert.match(held[1], /^screenshot-.*\.png$/);
     assert.match(await page.locator('#task-create-form .files').innerText(), /brief\.pdf.*screenshot-/s);
-    await page.locator('#task-create [data-modal-close]').click();
+    // creating it sends both as copies made in memory, every byte included
+    await page.locator('#task-create-form [name=title]').fill('Brief');
+    await page.locator('#task-create-form [name=body]').fill('See the brief.');
+    const sentBefore = await page.evaluate(() => window.sentFiles.length);
+    await page.locator('#task-create-form [type=submit]').click();
+    await page.waitForFunction(n => window.sentFiles.length >= n + 2, sentBefore);
+    assert.deepEqual(await page.evaluate(n => window.sentFiles.slice(n).map(f => [f.name.replace(/\d/g, ''), f.size, f.copied]), sentBefore),
+      [['brief.pdf', 3, true], ['screenshot--.png', 4, true]]);
+    assert.match(uploadBodies.at(-1).toString('latin1'), /filename="brief\.pdf"\r\nContent-Type: application\/pdf\r\n\r\npdf\r\n/);
+    await page.locator('#task-create').waitFor({state: 'hidden'});
     assert.deepEqual(errors, []);
     console.log(`PASS: files strip, viewer, versions, compare, asks, comment files, linked images, covers, pins, phone (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
   } finally { await browser.close(); }

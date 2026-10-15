@@ -8,6 +8,10 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- Files attached in Safari or the macOS app (new-task attachments, a task's Files +, docs import, the team icon and
+  chat attachments) arrive complete. WebKit could send a file read from disk as an empty or cut-short body while
+  Tico's service worker controlled the page, so the server answered "Invalid request fields or attachments" or
+  "Send a complete multipart upload with a file field". Uploads up to 100 MB now send a copy of the file's bytes.
 - A person can give a bot's task a file they already sent in a chat without uploading it again: a task comment
   (`hub task comment --file <id>@1`, or `attachments` over MCP and API) gives the task its own copy, and the task's
   bot can download it. Before, the bot was refused even though the file was linked in the comment. A bot, or a

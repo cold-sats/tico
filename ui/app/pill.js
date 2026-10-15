@@ -265,7 +265,7 @@ async function pillChat(P, text) {
     const fd = new FormData();
     fd.append('text', text);
     P.files.forEach(f => fd.append('files', f, f.name));
-    const res = await fetch(`${API}/employees/${encodeURIComponent(P.slug)}/chat`, {method: 'POST', body: fd});
+    const res = await fetch(`${API}/employees/${encodeURIComponent(P.slug)}/chat`, {method: 'POST', body: await memoryBody(fd)});
     const j = await res.json().catch(() => ({}));
     if (res.status === 409) { pillBusy(P, j, text); return; }
     if (!res.ok) throw new Error(j.error || res.statusText);
@@ -301,7 +301,7 @@ async function pillTask(P, text) {
     fd.append('slug', slug); fd.append('title', text.split('\n')[0].trim().slice(0, 80));
     fd.append('body', text); fd.append('priority', 'p2'); fd.append('type', 'task');
     P.files.forEach(f => fd.append('files', f, f.name));
-    const res = await fetch(`${API}/issues`, {method: 'POST', body: fd});
+    const res = await fetch(`${API}/issues`, {method: 'POST', body: await memoryBody(fd)});
     const j = await res.json().catch(() => ({})); if (!res.ok) throw new Error(j.error || res.statusText);
     if (CONV?.slug === slug) { CONV.pending.push({text, number: j.number, url: j.url}); CONV.sent = true; convRender(CONV); }
     pillClear(P); toast(`Queued as #${j.number}`);
