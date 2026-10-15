@@ -71,3 +71,16 @@ def test_a_bot_leaves_another_bot_a_note_and_sees_only_its_own(api):
     note(api, "Something only ana sent to coo.", to="coo")
     mine = get(api, "notes", token=attempt["token"])["notes"]
     assert [n["text"] for n in mine] == ["Ops check: all green."]
+
+
+def test_a_bot_that_only_runs_tasks_gets_its_notes_once(api):
+    # Every turn of a task-keyed bot on a lanes runner is in a task lane, so no main-lane turn ever comes.
+    from backend.tests.test_task_lanes import new_task, task_bot
+    r = task_bot(api, lanes=True)
+    n = note(api)
+    new_task(api, "first")
+    new_task(api, "second")
+    first, second = claim(api, r), claim(api, r)
+    assert first["lane"].startswith("task:") and second["lane"].startswith("task:")
+    assert [x["id"] for x in first["notes"]] == [n["id"]]
+    assert second["notes"] == []

@@ -1064,10 +1064,12 @@ class Execution:
         if recovery:
             msg = {**msg, 'body':msg['body'] + '\n\nOperator recovery instructions (' + recovery['actor'] + '):\n' + recovery['note']}
         # Next-run tasks ride along with whatever woke the bot: one run, one prompt, each task
-        # still its own task to mark done. Only a runner that puts them in its prompt gets them,
-        # and only in the main lane, so two lanes never carry the same task.
+        # still its own task to mark done. Only a runner that puts them in its prompt gets them.
+        # Any lane carries them: a bot whose turns are all tasks and routines never has a main-lane
+        # turn. The claim holds the write lock and `carried_by` marks each one taken, so two lanes
+        # never carry the same task.
         carried = []
-        if getattr(body, "next_run", False) and lane == sessions.MAIN_LANE:
+        if getattr(body, "next_run", False):
             if row["bot"] == "librarian":
                 from .docs import refresh_generated_docs
                 refresh_generated_docs(c)  # Also covers a Librarian enabled after the upgrade.
@@ -1090,7 +1092,7 @@ class Execution:
         # Quiet notes ride the same way: every note waiting for this bot, each with when it was
         # sent, so the run can tell yesterday's from this morning's.
         notes = []
-        if getattr(body, "next_run", False) and lane == sessions.MAIN_LANE:
+        if getattr(body, "next_run", False):
             for item in H.notes_waiting(c, row["bot"]):
                 c.execute("UPDATE notes SET carried_by=? WHERE id=?", (aid, item["id"]))
                 notes.append({"id": item["id"], "from": item["from_actor"], "sent": item["created"],
