@@ -5,7 +5,12 @@ before it, without installing profilers on the server. So the server keeps, per 
 caller kind (count, 5xx, p50/p95/max, bytes), process CPU, memory, threads, open files and event-loop lag, and the write
 transactions' lock waits and hold times; per hour: SQL time by query shape and database totals, with table sizes daily; and as
 events: each start (release, commit, dependency and settings hashes, whether the image is the published release) and
-each stall of the event loop with every thread's stack at that moment.
+each stall of the event loop with every thread's stack at that moment, the stall's class (cpu, memory, disk, lock or
+unknown) and the resource counters it was read from.
+
+Stalls, slow requests and the per-minute rows go first to a local NDJSON file beside the database
+(backend/flight_file.py), which `python -m backend.flight summary --since 30m` reads with the server stopped or stuck;
+the tables here are written after, with a short lock wait, for the Health page.
 
 The request path pays for two clock reads and a deque append (`Recorder.request`, `Recorder.query`); everything else
 (bucketing, fingerprinting SQL, writing) happens in one background thread (`Flight`), which writes once a minute in one
@@ -17,7 +22,9 @@ Retention: minutes for two days, then hours; requests, slow requests and process
 """
 import bisect
 import collections
+import contextvars
 import hashlib
+import itertools
 import json
 import logging
 import os
@@ -51,9 +58,10 @@ CREATE INDEX IF NOT EXISTS flight_events_kind ON flight_events(kind, ts);
 SLOW_MS = 1000                  # a request this slow is logged on its own
 SLOW_PER_MINUTE = 50
 SLOW_KEEP = 5000
-STALL_S = 2.0                   # the event loop late by this much: every thread's stack is taken
-STALL_GAP = 300                 # at most one capture this often
+STALL_S = 2.0                   # the event loop late by this much is a stall
+STACK_GAP = 60                  # every thread's stack with a stall, at most this often
 TICK = 0.25
+DB_WAIT = 2.0                   # seconds the recorder's own database writes wait for the write lock; the file has it all
 MINUTE_DAYS = 2                 # request minutes older than this become hours
 SHORT_DAYS = 14                 # requests, slow requests, process minutes
 LONG_DAYS = 90                  # SQL hours, database sizes, events
@@ -101,6 +109,51 @@ def _merge(into, hist):
         into[int(k)] = into.get(int(k), 0) + v
 
 
+# Per request: SQL milliseconds, write-lock wait milliseconds and statements, added to by the request's own threads. The
+# middleware sets a fresh list; threads the request runs on copy the context, so they add to the same list.
+_COST = contextvars.ContextVar("tico_flight_cost", default=None)
+_TOKENS = itertools.count()
+ACTIVE = None                   # the server's recorder, for write transactions on connections it did not open
+
+
+def request_started():
+    cost = [0.0, 0.0, 0]
+    return cost, _COST.set(cost)
+
+
+def request_finished(token):
+    _COST.reset(token)
+
+
+def begin(conn, recorder=None):
+    """`BEGIN IMMEDIATE`, timed for the flight recorder: how long the write lock took to get (counted while it is still
+    being waited for, so a stall can see it) and, when the returned `done` is called after COMMIT or ROLLBACK, how
+    long it was held."""
+    rec = recorder or getattr(conn, "recorder", None) or ACTIVE
+    if rec is None:
+        conn.execute("BEGIN IMMEDIATE")
+        return _nothing
+    token = next(_TOKENS)
+    started = time.monotonic()
+    rec.waiting[token] = started
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+    except sqlite3.OperationalError as exc:
+        rec.transaction((time.monotonic() - started) * 1000, 0.0, "locked" in str(exc))
+        raise
+    finally:
+        rec.waiting.pop(token, None)
+    held = time.monotonic()
+
+    def done():
+        rec.transaction((held - started) * 1000, (time.monotonic() - held) * 1000)
+    return done
+
+
+def _nothing():
+    pass
+
+
 def caller_kind(who):
     role = getattr(who, "role", "") if who is not None else ""
     return {"owner": "human", "human": "human", "bot": "bot", "runner": "runner", "service": "service"}.get(role, "anonymous")
@@ -117,13 +170,16 @@ class Recorder:
         self.sql = {}               # hour -> fingerprint -> [n, total, max, hist]
         self.beat = None            # monotonic time the event loop last woke
         self.loop_thread = None
-        self.last_stall = 0.0
         self.cpu = (time.monotonic(), time.process_time())
         self.dropped = 0
+        self.waiting = {}           # write-lock waits still going: token -> monotonic start
+        self.wait_total = 0.0       # write-lock wait finished since the start, ms
+        self.slow_file = []         # slow requests not yet in the file
 
     def _reset(self):
-        self.requests = {}          # (route, caller) -> [n, errors, bytes, total, max, hist]
+        self.requests = {}          # (route, caller) -> [n, errors, bytes, total, max, hist, bytes_max, sql, wait]
         self.slow = []
+        self.wait_sum = 0.0
         self.lag = {}
         self.lag_max = 0.0
         self.queries = 0
@@ -135,20 +191,29 @@ class Recorder:
 
     # The hot paths: one append each, safe from any thread. A full buffer (the background thread is not keeping up)
     # discards the oldest sample; `dropped` counts them, approximately, so the gap shows in the minute's row.
-    def request(self, route, caller, status, ms, nbytes=0, actor=""):
+    def request(self, route, caller, status, ms, nbytes=0, actor="", cost=None):
         if len(self.samples) >= BUFFER:
             self.dropped += 1
-        self.samples.append(("r", route, caller, status, ms, nbytes, actor))
+        sql_ms, wait_ms, queries = cost or (0.0, 0.0, 0)
+        self.samples.append(("r", route, caller, status, ms, nbytes, actor, sql_ms, wait_ms, queries))
 
     def query(self, sql, ms, locked=False):
         if len(self.samples) >= BUFFER:
             self.dropped += 1
         self.samples.append(("q", sql, ms, locked))
+        cost = _COST.get()
+        if cost is not None:
+            cost[0] += ms
+            cost[2] += 1
 
     def transaction(self, wait_ms, hold_ms, locked=False):
         if len(self.samples) >= BUFFER:
             self.dropped += 1
         self.samples.append(("t", wait_ms, hold_ms, locked))
+        self.wait_total += wait_ms
+        cost = _COST.get()
+        if cost is not None:
+            cost[1] += wait_ms
 
     def tick(self, lag_ms):
         """The event loop woke `lag_ms` late (backend/timing.py watch_loop)."""
@@ -192,21 +257,30 @@ class Recorder:
                     if locked:
                         self.locked += 1
                 elif kind == "r":
-                    _, route, caller, status, ms, nbytes, actor = s
+                    _, route, caller, status, ms, nbytes, actor, sql_ms, wait_ms, queries = s
                     row = self.requests.get((route, caller))
                     if row is None:
-                        row = self.requests[(route, caller)] = [0, 0, 0, 0.0, 0.0, {}]
+                        row = self.requests[(route, caller)] = [0, 0, 0, 0.0, 0.0, {}, 0, 0.0, 0.0]
                     row[0] += 1
                     row[1] += status >= 500
                     row[2] += nbytes or 0
                     row[3] += ms
                     row[4] = max(row[4], ms)
                     _add(row[5], ms)
+                    row[6] = max(row[6], nbytes or 0)
+                    row[7] += sql_ms
+                    row[8] += wait_ms
                     if ms >= SLOW_MS and len(self.slow) < SLOW_PER_MINUTE:
-                        self.slow.append((int(time.time()), route, caller, actor, round(ms, 1), nbytes or 0, status))
+                        slow = (int(time.time()), route, caller, actor, round(ms, 1), nbytes or 0, status)
+                        self.slow.append(slow)
+                        self.slow_file.append({"kind": "slow", "route": route, "caller": caller, "actor": actor,
+                                               "ms": slow[4], "bytes": slow[5], "status": status,
+                                               "sql_ms": round(sql_ms, 1), "wait_ms": round(wait_ms, 1),
+                                               "queries": queries})
                 elif kind == "t":
                     _, wait, hold, locked = s
                     self.txns += 1
+                    self.wait_sum += wait
                     self.wait_max = max(self.wait_max, wait)
                     self.hold_max = max(self.hold_max, hold)
                     _add(self.hold, hold)
@@ -215,20 +289,17 @@ class Recorder:
                     _add(self.lag, s[1])
                     self.lag_max = max(self.lag_max, s[1])
 
-    def stalled(self, now=None):
-        """The event loop has not woken for STALL_S past its half-second sleep: take every stack, at most every
-        STALL_GAP seconds. Returns the capture, or None."""
-        now = now if now is not None else time.monotonic()
-        if self.beat is None or now - self.beat < STALL_S + 0.5 or now - self.last_stall < STALL_GAP:
-            return None
-        self.last_stall = now
-        return {"stalled_s": round(now - self.beat, 1), "threads": stacks(self.loop_thread)}
+    def pop_slow(self):
+        with self.lock:
+            out, self.slow_file = self.slow_file, []
+        return out
 
     def take(self, minute):
         """The minute's rows, and the SQL hours, ready to write; the minute's counters start again."""
         with self.lock:
             requests, slow, lag, lag_max = self.requests, self.slow, self.lag, self.lag_max
             totals = (self.queries, self.sql_ms, self.txns, self.wait_max, self.hold_max, self.hold, self.locked)
+            wait_sum = self.wait_sum
             self._reset()
             dropped, self.dropped = self.dropped, 0
             sql = {hour: {fp: [r[0], r[1], r[2], dict(r[3])] for fp, r in shapes.items()}
@@ -246,6 +317,15 @@ class Recorder:
                 process["fds"], process["sockets"], quantile(lag, .95), round(lag_max, 1),
                 sum(r[0] for r in requests.values()), queries, round(sql_ms, 1), txns, round(wait_max, 1),
                 round(hold_max, 1), quantile(hold, .95), locked, dropped)
+        # The file's copy (backend/flight_file.py): the same numbers, with each route's largest answer, SQL time and
+        # write-lock wait, and the minute's total lock wait.
+        names = ("ts", "cpu", "rss", "threads", "fds", "sockets", "lag_p95", "lag_max", "requests", "queries", "sql_ms",
+                 "txns", "wait_max", "hold_max", "hold_p95", "locked", "dropped")
+        minute_record = {"kind": "minute", **dict(zip(names, proc)), "wait_ms": round(wait_sum, 1)}
+        routes_record = {"kind": "routes", "ts": minute, "span": 60, "routes": [
+            {"route": route, "caller": caller, "n": r[0], "errors": r[1], "bytes": r[2], "bytes_max": r[6],
+             "total_ms": round(r[3], 1), "p50": quantile(r[5], .5), "p95": quantile(r[5], .95), "max_ms": round(r[4], 1),
+             "sql_ms": round(r[7], 1), "wait_ms": round(r[8], 1)} for (route, caller), r in requests.items()]}
         sql_rows = []
         for hour, shapes in sql.items():
             ranked = sorted(shapes.items(), key=lambda kv: -kv[1][1])
@@ -258,7 +338,8 @@ class Recorder:
             kept = ranked[:SQL_TOP] + ([("(other)", other)] if other[0] else [])
             sql_rows += [(hour, fp, n, round(total, 1), quantile(hist, .95), round(peak, 2),
                           json.dumps(hist, separators=(",", ":"))) for fp, (n, total, peak, hist) in kept]
-        return {"requests": rows, "slow": slow, "process": proc, "sql": sql_rows}
+        return {"requests": rows, "slow": slow, "process": proc, "sql": sql_rows,
+                "file": [minute_record, routes_record] if requests else [minute_record]}
 
 
 def write(c, taken):
@@ -269,17 +350,8 @@ def write(c, taken):
 
 
 def process_stats():
-    out = {"rss": None, "threads": threading.active_count(), "fds": None, "sockets": None}
-    try:
-        with open("/proc/self/statm") as f:
-            out["rss"] = int(f.read().split()[1]) * os.sysconf("SC_PAGE_SIZE")
-    except (OSError, ValueError, IndexError):
-        try:
-            import resource         # peak, not current, where /proc is missing (macOS)
-            peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-            out["rss"] = peak if sys.platform == "darwin" else peak * 1024
-        except Exception:
-            pass
+    from .flight_file import rss_now
+    out = {"rss": rss_now(), "threads": threading.active_count(), "fds": None, "sockets": None}
     try:
         fds = os.listdir("/proc/self/fd")
         out["fds"] = len(fds)
@@ -291,7 +363,10 @@ def process_stats():
                 pass
         out["sockets"] = sockets
     except OSError:
-        pass
+        try:
+            out["fds"] = len(os.listdir("/dev/fd"))      # macOS: open files only, no socket count
+        except OSError:
+            pass
     return out
 
 
@@ -496,10 +571,14 @@ def start_event(settings, check=True):
             "provenance": provenance(settings, version) if check else "unknown"}
 
 
+def _event(c, kind, detail, now=None):
+    c.execute("INSERT INTO flight_events(ts,kind,detail_json) VALUES(?,?,?)",
+              (int(now or time.time()), kind, json.dumps(detail, separators=(",", ":"))))
+
+
 def record_event(store, kind, detail, now=None):
     with store.transaction() as c:
-        c.execute("INSERT INTO flight_events(ts,kind,detail_json) VALUES(?,?,?)",
-                  (int(now or time.time()), kind, json.dumps(detail, separators=(",", ":"))))
+        _event(c, kind, detail, now)
 
 
 def last_start(c):
@@ -588,30 +667,42 @@ def sweep(store, now=None):
 # ---------------------------------------------------------------------------- the background thread
 
 class Flight(threading.Thread):
-    """Drains the samples, watches for stalls, writes once a minute and sizes the database each hour."""
+    """Drains the samples, watches for stalls, writes once a minute and sizes the database each hour. Everything goes to
+    the flight file first (backend/flight_file.py, its own thread, never waiting); the tables after, each write waiting
+    at most DB_WAIT for the write lock, so a held lock costs the Health page a minute, not the recorder its watch."""
 
-    def __init__(self, recorder, store, settings):
+    def __init__(self, recorder, store, settings, folder=None, stall_s=STALL_S, stack_gap=STACK_GAP, tick=TICK,
+                 db_wait=DB_WAIT):
         super().__init__(name="tico-flight", daemon=True)
+        from . import flight_file
         self.recorder, self.store, self.settings = recorder, store, settings
         self.halt = threading.Event()
         self.db_every = 3600
         self.db_next = time.time() + 120          # not on the busy first minutes after a start
+        self.folder = folder if folder is not None else flight_file.directory(settings.db_path)
+        self.file = flight_file.Writer(self.folder)
+        self.usage = flight_file.Usage()
+        self.stall_s, self.stack_gap, self.tick_s, self.db_wait = stall_s, stack_gap, tick, db_wait
+        self.open_stall = None
+        self.last_stacks = float("-inf")
+        self.stalls = 0
+        self.db_failed = 0
 
     def run(self):
+        from . import releases
+        self.file.start()
+        self.file.put({"kind": "start", "pid": os.getpid(), "version": releases.version(),
+                       "commit": self.settings.release_commit, "python": sys.version.split()[0],
+                       "sqlite": sqlite3.sqlite_version, "platform": sys.platform})
         try:
-            record_event(self.store, "start", start_event(self.settings))
+            event = start_event(self.settings)
+            self.write_db(lambda c: _event(c, "start", event))
         except Exception as exc:
             LOG.warning("Flight recorder start event failed: %s", type(exc).__name__)
         minute = int(time.time() // 60 * 60)
-        while not self.halt.wait(TICK):
+        while not self.halt.wait(self.tick_s):
             try:
-                self.recorder.drain()
-                stall = self.recorder.stalled()
-                if stall:
-                    loop = next((t for t in stall["threads"]["busy"] if t["loop"]), None)
-                    LOG.warning("Event loop stalled %.1fs; loop thread at: %s", stall["stalled_s"],
-                                " < ".join(reversed(loop["stack"][-6:])) if loop else "unknown")
-                    record_event(self.store, "stall", stall)
+                self.step()
                 now = time.time()
                 if now >= minute + 60:
                     self.flush(minute)
@@ -625,14 +716,85 @@ class Flight(threading.Thread):
             self.flush(minute)
         except Exception:
             pass
+        self.file.close()
+
+    def step(self):
+        self.recorder.drain()
+        self.usage.sample(self.recorder.wait_total)
+        for record in self.recorder.pop_slow():
+            self.file.put(record)
+        return self.watch()
+
+    def watch(self, now=None):
+        """A stall is the event loop not waking for `stall_s` past its half-second sleep. Each one is a `stall` record
+        (with every thread's stack at most every `stack_gap` seconds) and, once the loop wakes, a `stall_end` with the
+        whole window's class. Returns the `stall` record when one starts."""
+        from .flight_file import classify
+        rec = self.recorder
+        beat = rec.beat
+        now = time.monotonic() if now is None else now
+        if self.open_stall is not None and beat != self.open_stall["beat"]:
+            opened, self.open_stall = self.open_stall, None
+            if beat is not None:
+                usage = self.usage.window(opened["beat"], list(rec.waiting.values()), now=beat)
+                if usage:
+                    self.file.put({"kind": "stall_end", "id": opened["id"], "seconds": round(beat - opened["beat"], 1),
+                                   "class": classify(usage), "usage": usage})
+        if beat is None or self.open_stall is not None or now - beat < self.stall_s + 0.5:
+            return None
+        self.stalls += 1
+        usage = self.usage.window(beat, list(rec.waiting.values()), now) or {}
+        record = {"kind": "stall", "id": f"{os.getpid()}-{self.stalls}", "seconds": round(now - beat, 1),
+                  "class": classify(usage) if usage else "unknown", "usage": usage}
+        if now - self.last_stacks >= self.stack_gap:
+            self.last_stacks = now
+            record["threads"] = stacks(rec.loop_thread)
+        self.file.put(record)
+        self.open_stall = {"beat": beat, "id": record["id"]}
+        loop = next((t for t in (record.get("threads") or {}).get("busy", []) if t["loop"]), None)
+        LOG.warning("Event loop stalled %.1fs (%s); loop thread at: %s", record["seconds"], record["class"],
+                    " < ".join(reversed(loop["stack"][-6:])) if loop else "unknown")
+        if "threads" in record:
+            detail = {"stalled_s": record["seconds"], "class": record["class"], "usage": usage,
+                      "threads": record["threads"]}
+            self.write_db(lambda c: _event(c, "stall", detail))
+        return record
+
+    def write_db(self, work):
+        """One short write transaction on a connection of the recorder's own, waiting at most `db_wait` for the lock.
+        False (and counted in the next minute's `db_failed`) when it could not."""
+        try:
+            c = sqlite3.connect(str(self.settings.db_path), timeout=self.db_wait, isolation_level=None)
+        except sqlite3.Error:
+            self.db_failed += 1
+            return False
+        try:
+            c.execute("BEGIN IMMEDIATE")
+            try:
+                work(c)
+                c.execute("COMMIT")
+            except Exception:
+                c.execute("ROLLBACK")
+                raise
+            return True
+        except sqlite3.Error as exc:
+            self.db_failed += 1
+            LOG.warning("Flight recorder table write skipped: %s", type(exc).__name__)
+            return False
+        finally:
+            c.close()
 
     def flush(self, minute):
         taken = self.recorder.take(minute)
-        with self.store.transaction() as c:
-            write(c, taken)
+        for record in taken["file"]:
+            if record["kind"] == "minute":
+                record.update(file_dropped=self.file.dropped, db_failed=self.db_failed)
+            self.file.put(record)
+        self.write_db(lambda c: write(c, taken))
 
     def size_db(self, now):
         started = time.monotonic()
+        self.db_next = now + self.db_every
         with self.store.read() as c:
             latest = c.execute("SELECT ts,detail_json FROM flight_db ORDER BY ts DESC LIMIT 1").fetchone()
         previous = json.loads(latest["detail_json"] or "{}") if latest else {}
@@ -645,10 +807,8 @@ class Flight(threading.Thread):
             detail["objects"] = previous.get("objects")
         took = time.monotonic() - started
         detail["seconds"] = round(took, 2)
-        with self.store.transaction() as c:
-            c.execute("INSERT OR REPLACE INTO flight_db VALUES(?,?,?,?,?)",
-                      (int(now // 3600 * 3600), size, wal, free, json.dumps(detail, separators=(",", ":"))))
-        self.db_next = now + self.db_every
+        row = (int(now // 3600 * 3600), size, wal, free, json.dumps(detail, separators=(",", ":")))
+        self.write_db(lambda c: c.execute("INSERT OR REPLACE INTO flight_db VALUES(?,?,?,?,?)", row))
 
     def stop(self):
         self.halt.set()
@@ -773,3 +933,95 @@ def install(app, store, auth):
             for row in out.get("slow") or []:
                 row.pop("actor", None)
         return out
+
+
+# ---------------------------------------------------------------------------- reading the file, server or no server
+
+def _since(text):
+    """`30m`, `2h`, `1d`, `90s`, or a number of minutes, in seconds."""
+    text = str(text).strip().lower()
+    units = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+    if text and text[-1] in units:
+        return float(text[:-1]) * units[text[-1]]
+    return float(text) * 60
+
+
+def _folder(given):
+    from pathlib import Path
+
+    from .flight_file import directory
+    if given:
+        return Path(given)
+    if os.environ.get("TICO_DB"):
+        return directory(os.environ["TICO_DB"])
+    # `docker compose exec` does not see the entrypoint's TICO_DB; the data volume is /data there.
+    data = Path(os.environ.get("TICO_DATA_DIR") or "/data")
+    return data / "flight"
+
+
+def _signal(folder, signum):
+    """Send `signum` to the server whose pid the recorder wrote, after checking the pid is a Tico server."""
+    import subprocess
+    try:
+        pid = int((folder / "server.pid").read_text().strip())
+    except (OSError, ValueError):
+        raise SystemExit(f"no server.pid in {folder}: is the server running with the flight recorder on?")
+    try:
+        command = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True,
+                                 timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        command = ""
+    if "backend" not in command and "uvicorn" not in command:
+        raise SystemExit(f"pid {pid} from {folder}/server.pid is not a running Tico server")
+    os.kill(pid, signum)
+    return pid
+
+
+def main(argv=None):
+    import argparse
+    import signal
+
+    from . import flight_file
+    parser = argparse.ArgumentParser(prog="python -m backend.flight",
+                                     description="Read the flight recorder's local file (works with the server stopped "
+                                                 "or stuck), or ask the server for its stacks or memory.")
+    sub = parser.add_subparsers(dest="command", required=True)
+    summary = sub.add_parser("summary", help="slow routes, stalls with their class and stacks, per-minute numbers")
+    summary.add_argument("--since", default="30m", help="how far back: 30m, 2h, 1d (default 30m)")
+    summary.add_argument("--json", action="store_true", help="the summary as JSON")
+    stacks_cmd = sub.add_parser("stacks", help="send SIGUSR1: the server writes every thread's stack, printed here")
+    memory = sub.add_parser("memory", help="send SIGUSR2: start tracemalloc, or (when on) write the top 50 sites")
+    for p in (summary, stacks_cmd, memory):
+        p.add_argument("--dir", help="the flight folder (default: beside $TICO_DB, else /data/flight)")
+    args = parser.parse_args(argv)
+    folder = _folder(args.dir)
+    if args.command == "summary":
+        if not folder.exists():
+            print(f"no flight folder at {folder} (pass --dir)", file=sys.stderr)
+            return 1
+        out = flight_file.summary(folder, _since(args.since))
+        print(json.dumps(out, indent=1) if args.json else flight_file.render(out))
+        return 0
+    if args.command == "stacks":
+        path = folder / flight_file.STACKS
+        with open(path, "a") as f:
+            f.write(time.strftime("--- %Y-%m-%dT%H:%M:%SZ, python -m backend.flight stacks\n", time.gmtime()))
+        before = path.stat().st_size
+        _signal(folder, signal.SIGUSR1)
+        for _ in range(30):
+            time.sleep(0.1)
+            if path.exists() and path.stat().st_size > before:
+                break
+        time.sleep(0.2)
+        with open(path, "rb") as f:
+            f.seek(before)
+            print(f.read().decode("utf-8", "replace"))
+        return 0
+    pid = _signal(folder, signal.SIGUSR2)
+    print(f"sent SIGUSR2 to {pid}: the first starts tracemalloc, the next writes {folder}/memory-<time>.txt "
+          "and stops it")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

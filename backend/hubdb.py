@@ -876,8 +876,9 @@ def migrate(conn, adopt_legacy=False):
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     if version == 0 and not adopt_legacy:
         _refuse_foreign(conn)
+    from .flight import begin
     for i in range(version, len(MIGRATIONS)):
-        conn.execute("BEGIN IMMEDIATE")
+        done = begin(conn)
         try:
             if i == 23:
                 migrate_task_privacy(conn)
@@ -890,6 +891,8 @@ def migrate(conn, adopt_legacy=False):
         except Exception:
             conn.execute("ROLLBACK")
             raise
+        finally:
+            done()
     ensure_market_reads(conn)
     # Cloud added explicit room scopes after the original local schema. Keep old local
     # databases usable without relying on SQLite's unsupported ADD COLUMN IF NOT EXISTS.

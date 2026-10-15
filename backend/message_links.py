@@ -147,13 +147,16 @@ def backfill(conn, batch=BATCH, span=SPAN):
 
 
 def _write(conn, work):
-    conn.execute("BEGIN IMMEDIATE")
+    from .flight import begin
+    done = begin(conn)
     try:
         work()
         conn.execute("COMMIT")
     except Exception:
         conn.execute("ROLLBACK")
         raise
+    finally:
+        done()
 
 
 def _fresh(conn):

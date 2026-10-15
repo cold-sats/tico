@@ -142,6 +142,9 @@ def create_app(settings=None):
         recorder_thread = flight.Flight(recorder, store, settings) if recorder else None
         if recorder_thread:
             recorder_thread.start()
+            # SIGUSR1 (stacks) and SIGUSR2 (memory top 50) for `python -m backend.flight stacks|memory`.
+            from .flight_file import install_signals
+            install_signals(recorder_thread.folder, recorder_thread.file)
         async def schedule_loop():
             from .scheduler import Scheduler
             scheduler = Scheduler(store, execution)
@@ -627,6 +630,8 @@ def create_app(settings=None):
         started = time.perf_counter()
         request.state.auth_ms = 0.0
         app.state.timing.begin()
+        # This request's SQL time and write-lock wait, added to by the threads it runs on (backend/flight.py).
+        cost, cost_token = flight.request_started() if recorder is not None else (None, None)
         route = request.url.path
         response = None
         try:
@@ -644,7 +649,9 @@ def create_app(settings=None):
             size = response.headers.get("content-length") if response is not None else None
             app.state.timing.end(key, request.state.auth_ms, (time.perf_counter() - started) * 1000,
                                  flight.caller_kind(who), response.status_code if response is not None else 500,
-                                 int(size) if size and size.isdigit() else 0, getattr(who, "actor", "") or "")
+                                 int(size) if size and size.isdigit() else 0, getattr(who, "actor", "") or "", cost)
+            if cost_token is not None:
+                flight.request_finished(cost_token)
 
     async def display_names(request, response):
         """Stable v2 answers carry display names beside actor ids (backend/names.py)."""

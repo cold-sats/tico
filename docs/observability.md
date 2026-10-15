@@ -183,7 +183,8 @@ Official SDK references consulted: [PostHog configuration](https://posthog.com/d
 Separate from the optional services above, every server keeps its own performance history in its database, so a slow
 or pinned server can be explained with one query and a release compared with the one before it. Nothing in it leaves
 the server. It is on unless `TICO_FLIGHT_RECORDER=0`; the request path pays for two clock reads and a queue append, and a
-background thread does the rest and writes once a minute in one short transaction (`backend/flight.py`).
+background thread does the rest and writes once a minute in one short transaction (`backend/flight.py`), after writing
+the same rows to a local file that can be read without the server (below).
 
 | Table | What | Kept |
 | --- | --- | --- |
@@ -192,7 +193,7 @@ background thread does the rest and writes once a minute in one short transactio
 | `flight_process` | Per minute: CPU (% of one core), memory, threads, open files and sockets, event-loop lag (p95, max), SQL statements and time, write transactions with the longest lock wait and hold, `database is locked` errors, and `dropped`: samples lost because the background thread fell behind (a gap in that minute's numbers). | 14 days |
 | `flight_sql` | Per hour, per statement shape (literals folded): count, total, p95 and max milliseconds, from the statement's start through its last row fetched (rows read by iterating, `fetchone`, `fetchmany` or `fetchall`; never the caller's own work between rows); the top 100 by time, the rest as `(other)`. | 90 days |
 | `flight_db` | Hourly: file, WAL and free bytes, row counts of the growing tables and their oldest row. Table/index sizes (when SQLite has `dbstat` aggregate mode) refresh at most once per 24 hours and are reused between scans, including across restarts. | 90 days |
-| `flight_events` | `start`: release, commit, Python, SQLite, a hash of the installed packages and of the non-secret settings (with a short hash per setting, so two starts show which changed; no values), and `provenance`: `modified` when the code on disk differs from the hash the image build stored in `release-manifest.json` (files copied over a release image), `mismatch` when the image was not built from its release tag's commit on GitHub, otherwise `match`, `unverified` or `unknown`. `stall`: the event loop late by two seconds or more, with every busy thread's stack (file, line, function; never values), at most once in five minutes. | 90 days |
+| `flight_events` | `start`: release, commit, Python, SQLite, a hash of the installed packages and of the non-secret settings (with a short hash per setting, so two starts show which changed; no values), and `provenance`: `modified` when the code on disk differs from the hash the image build stored in `release-manifest.json` (files copied over a release image), `mismatch` when the image was not built from its release tag's commit on GitHub, otherwise `match`, `unverified` or `unknown`. `stall`: the event loop late by two seconds or more, with its class and every busy thread's stack (file, line, function; never values), at most once a minute (every stall is in the file). | 90 days |
 
 Times are Unix seconds. A `modified` or `mismatch` start shows as **Release image** on the Health page. The integrity of the
 database is checked by the daily verified backup (`PRAGMA integrity_check`), not here.
@@ -220,3 +221,52 @@ WHERE ts > strftime('%s','now') - 3 * 3600 ORDER BY ts;
 -- Stalls and what the event loop was doing
 SELECT datetime(ts,'unixepoch'), detail_json FROM flight_events WHERE kind='stall' ORDER BY id DESC LIMIT 5;
 ```
+
+### The flight file
+
+The tables live in the database a stall is usually about, so everything is written first to an append-only file beside
+the database: `<folder of TICO_DB>/flight/flight.ndjson` (Docker: `/data/flight/`; a local install: its environment's
+folder), rotated at 10 MB with ten files kept, by its own thread from a bounded queue that never makes a request wait (a
+full queue drops the record and counts it). The tables are written after, each write waiting at most two seconds for the
+lock. `TICO_FLIGHT_RECORDER=0` turns off both. Read it with the server running, stopped or stuck:
+
+```bash
+python -m backend.flight summary --since 30m          # Docker: docker compose exec server python -m backend.flight summary
+scripts/tico -e ENV server flight summary --since 2h   # a local install
+```
+
+The summary shows server starts, stalls with their class and stacks, the slowest routes (count, total, p95, max, SQL time,
+lock wait, average and largest answer), slow requests, per-minute CPU, memory, loop lag, lock wait and hold, and drops;
+`--json` prints the same as JSON. The support bundle carries the last 24 hours of it (routes, slow requests, the latest
+stalls with stacks, hourly peaks), through the same allowlist and redactor as the rest of the bundle.
+
+**Stall class.** The recorder samples `getrusage` (CPU, page faults, context switches, block operations), `/proc/self/io`
+where there is one (Linux), resident memory and the write-lock wait four times a second, and a stall is classed from the
+change between the loop's last wake and now (`stall`) and again over the whole stall once the loop wakes (`stall_end`).
+The first rule that holds wins: `lock` when write-lock waits (finished, plus still waiting) cover half the window;
+`memory` at 50 or more major page faults or 512 MB more resident memory; `cpu` when the process used 80% of a core, or
+was switched out involuntarily over 200 times a second; `disk` at 50 MB read and written (or 2,000 block operations);
+otherwise `unknown` (`backend/flight_file.py` `RULES`).
+
+**Signals.** Send them to the pid in `flight/server.pid` (in Docker the first process is litestream, which passes on only
+SIGINT and SIGTERM), or let the command do it: `python -m backend.flight stacks` sends SIGUSR1, and the server appends every
+thread's stack to `flight/stacks.txt` (faulthandler: it works while the event loop is stuck); `python -m backend.flight
+memory` sends SIGUSR2, which starts tracemalloc, and the next one writes the top 50 allocation sites to
+`flight/memory-<time>.txt` (and a `memory` record) and stops it.
+
+**Record format** (version 1; the Rust runner's recorder writes the same shape). One JSON object per line, each with
+`v` (1), `ts` (Unix seconds, milliseconds as decimals) and `kind`:
+
+| `kind` | Fields |
+| --- | --- |
+| `start` | `pid`, `version`, `commit`, `python`, `sqlite`, `platform` |
+| `minute` | `ts` is the minute's start. `cpu` (% of one core), `rss` (bytes), `threads`, `fds`, `sockets`, `lag_p95`, `lag_max` (ms), `requests`, `queries`, `sql_ms`, `txns`, `wait_max`, `wait_ms` (write-lock wait, longest and total), `hold_max`, `hold_p95`, `locked` (`database is locked` errors), `dropped` (samples lost in memory), `file_dropped` (records lost to a full queue since the start), `db_failed` (table writes skipped since the start) |
+| `routes` | `ts` (the minute), `span` (60), `routes`: list of `route` (method and template), `caller`, `n`, `errors` (5xx), `bytes`, `bytes_max` (response bytes from Content-Length; 0 for streams), `total_ms`, `p50`, `p95`, `max_ms`, `sql_ms`, `wait_ms` |
+| `slow` | A request over one second: `route`, `caller`, `actor`, `ms`, `bytes`, `status`, `sql_ms`, `wait_ms`, `queries` (its own SQL and lock wait, from the threads it ran on) |
+| `stall` | `id`, `seconds` (since the loop last woke), `class`, `usage`, and `threads` (`busy`: `thread`, `loop`, `stack` innermost last; `idle`: a count) at most once a minute |
+| `stall_end` | `id` (the `stall`'s), `seconds` (between the loop's two wakes), `class`, `usage` over the whole stall |
+| `drops` | `n`: records the queue had no room for |
+| `memory` | `state`: `started`, or `dumped` with `traced`, `peak` (bytes) and `top` (`where`, `bytes`, `count`) |
+
+`usage` holds `window_ms`, `cpu_s`, `majflt`, `minflt`, `nivcsw`, `inblock`, `oublock`, `io_mb` (null without
+`/proc`), `rss_mb` (growth) and `lock_ms`. Readers skip unknown kinds and fields, and a line cut short by a crash.

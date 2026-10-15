@@ -8,6 +8,12 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **The flight recorder writes a local file that reads with the server stalled.** Stalls, slow requests and per-minute
+  rows go first to `flight/flight.ndjson` beside the database (10 MB x 10, from a bounded queue that never blocks a
+  request); `python -m backend.flight summary --since 30m` (or `scripts/tico -e ENV server flight`) reads only the files.
+  Each stall is classed cpu, memory, disk, lock or unknown from resource counters; slow requests carry their own SQL time
+  and write-lock wait, routes their largest answer; SIGUSR1 dumps every thread's stack and SIGUSR2 the top 50 memory
+  sites; the support bundle carries the last day's summary (docs/observability.md).
 - **A release that ships a Health Monitor fix closes its HQ tickets.** HQ keeps each ticket's Health Monitor signature,
   the staff list groups by it (`GET /v1/staff/tickets?signature=hm-...`), and one call replies the fixed-in text to every
   open ticket with that signature and closes each (`POST /v1/staff/tickets/by-signature/close`, or
