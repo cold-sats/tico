@@ -85,18 +85,22 @@ runner_host() {
 tunnel_config() {
   [ -n "${TICO_DOMAIN:-}" ] && [ -d "$TUNNEL_DIR" ] && [ -w "$TUNNEL_DIR" ] || return 0
   case "$TICO_DOMAIN" in *[!A-Za-z0-9.-]*|.*|*.|'') die "TICO_DOMAIN is not a plain hostname: $TICO_DOMAIN" ;; esac
-  local runner
+  local runner origin=${TICO_TUNNEL_ORIGIN:-http://server:8765}
+  case "$origin" in
+    http://server:8765|http://screen-proxy:8080) ;;
+    *) die "TICO_TUNNEL_ORIGIN must name the server or the opt-in screen proxy" ;;
+  esac
   runner=$(runner_host)
   {
     echo "ingress:"
     echo "  - hostname: $TICO_DOMAIN"
-    echo "    service: http://server:8765"
+    echo "    service: $origin"
     if [ -n "$runner" ]; then
       # A separate runner hostname has no sign-in page in front of it, so it serves only what runners and
       # external agents call: the API (which checks their tokens) and the runner download.
       echo "  - hostname: $runner"
       echo "    path: '^/(?:api/v2|download)(?:/.*)?\$'"
-      echo "    service: http://server:8765"
+      echo "    service: $origin"
     fi
     echo "  - service: http_status:404"
   } > "$TUNNEL_DIR/cloudflared.yml.new"

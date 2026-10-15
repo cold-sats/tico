@@ -94,7 +94,7 @@ including per-SDK enablement, key/host/DSN, environment and release, even for th
 Logout in another tab is observed at the next refresh. Retired PostHog instances discard retries
 and fence transport dispatch and late failure callbacks; teardown never flushes old events.
 Requests already sent before reset cannot be recalled. The transport fence uses private APIs
-from pinned PostHog 1.430.3, so SDK upgrades must pass the real retry regression tests.
+from pinned PostHog 1.438.11, so SDK upgrades must pass the real retry regression tests.
 Rotating the secret changes historical person continuity. Other apps sharing the project use their own identity
 contracts, so cross-app person joins are unavailable; compare app-level workflow aggregates.
 

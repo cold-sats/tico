@@ -6,8 +6,7 @@ export function connect(config, filters) {
   if (config.posthog_key && ['https://us.i.posthog.com', 'https://eu.i.posthog.com'].includes(config.posthog_host)) {
     try {
       analytics = new PostHog();
-      // Pinned PostHog 1.430.3: retries bypass before_send. Fence actual dispatch
-      // AND its callback, so failures arriving after reset cannot re-enqueue.
+      // PostHog's direct requests and retry dispatcher bypass before_send on retries.
       const send = analytics._send_request.bind(analytics);
       analytics._send_request = options => {
         if (!active) return;
@@ -26,6 +25,12 @@ export function connect(config, filters) {
         person_profiles: 'identified_only', ip: false, save_referrer: false, save_campaign_params: false,
         before_send: filters.posthog,
       });
+      // The pinned SDK's retry queue dispatches directly, bypassing _send_request. Fence both its
+      // entry and enqueue so a late failure cannot resurrect a retired instance's queue.
+      const retry = analytics._retryQueue;
+      const request = retry.retriableRequest.bind(retry), enqueue = retry._enqueue.bind(retry);
+      retry.retriableRequest = (...args) => { if (active) return request(...args); };
+      retry._enqueue = (...args) => { if (active) return enqueue(...args); };
     } catch (_) { analytics = null; }
   }
   if (config.sentry_dsn) {

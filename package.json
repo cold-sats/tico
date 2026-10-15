@@ -8,8 +8,8 @@
     "test:ui": "node scripts/ui-tests.cjs"
   },
   "dependencies": {
-    "@sentry/browser": "10.74.0",
-    "posthog-js": "1.430.3"
+    "@sentry/browser": "10.76.2",
+    "posthog-js": "1.438.11"
   },
   "devDependencies": {
     "esbuild": "0.28.2",
