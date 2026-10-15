@@ -28,6 +28,10 @@ def test_only_the_operator_or_an_admin_sets_or_opens_a_screen_and_only_once_the_
     assert {"screen": "view", "screen_available": True}.items() <= ops["machine"].items()      # the bot page
 
     post(api, f"computers/{rid}/screen/sessions", {"control": False}, token="cara-test", expected=403)
+    from backend.auth import Identity
+    api.app.state.store.settings.test_identities["ana-token"] = Identity("human:ana", "owner", "ana@acme.example",
+                                                                         via_token=True)
+    post(api, f"computers/{rid}/screen/sessions", {"control": False}, token="ana-token", expected=403)  # in person
     post(api, f"computers/{rid}/screen/sessions", {"control": True}, expected=403)          # view only
     opened = post(api, f"computers/{rid}/screen/sessions", {"control": False}, token="ben-test")   # an admin
     assert (opened["width"], opened["height"], opened["control"]) == (1280, 800, False)

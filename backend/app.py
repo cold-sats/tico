@@ -3934,7 +3934,7 @@ def create_app(settings=None):
             H.event(c, who.actor, "runner.revoked", rid)
             return {"revoked": True}
         result = mutate(request, body, work)
-        screen_sessions.close_where(rid, 4403, "computer removed")
+        screen_sessions.set_mode(rid, "off", "computer removed")
         return result
 
     def closed_computer(c, who, bot, runner_id):
