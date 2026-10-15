@@ -1,4 +1,4 @@
-// The bot page keeps Active, Updates, Files and Recurring paths, with empty sections hidden.
+// The bot page keeps Active, Updates, Files and Routines paths, with empty sections hidden.
 // Tools open from the bot header or More on desktop and phone; one theme exercises each path.
 // Fixtures only, no network. TICO_SCREENSHOT_DIR keeps screenshots of the page.
 const {chromium} = require('playwright');
@@ -103,7 +103,7 @@ const railOrder = page => page.evaluate(() => [...document.querySelectorAll('#pa
       await page.locator('#bot-latest:not([hidden])').waitFor();
       await page.locator('#bot-tool-strip .bts-stack .bts-icon').first().waitFor();
 
-      assert.deepEqual(await railOrder(page), ['Active', 'Updates', 'Files', 'Recurring'], scheme + ': Active leads');
+      assert.deepEqual(await railOrder(page), ['Active', 'Updates', 'Files', 'Routines'], scheme + ': Active leads');
       assert.equal(await page.locator('#pane-tasks .card').count(), 0, 'no cards in the rail');
       assert.equal(await page.locator('#main >> text=Latest update').count(), 0, 'no Latest update banner');
       assert.equal(await page.locator('#bot-history-btn').count(), 0, 'all updates is in the rail now');
@@ -117,7 +117,7 @@ const railOrder = page => page.evaluate(() => [...document.querySelectorAll('#pa
       assert.equal(await page.locator('#bot-files .bf-row').count(), 3);
       assert.equal(await page.locator('#bot-files .nav-icon').count(), 0, 'no icon before a name');
       assert.equal((await page.locator('#bot-files [data-bf-all]').innerText()).trim(), '+2');
-      // Recurring: the bot's routines, one line each.
+      // Routines: the bot's routines, one line each.
       assert.deepEqual(await page.locator('#bot-recurring .ttl').allInnerTexts(), ['Morning metrics digest', 'Friday launch review']);
       // Assigned to others opens while it waits on a person; Done stays folded.
       assert.equal(await page.locator('#bot-assigned').evaluate(el => el.open), true);
@@ -182,7 +182,7 @@ const railOrder = page => page.evaluate(() => [...document.querySelectorAll('#pa
       await context.close();
     }
 
-    // Nothing to show: no Updates, Files or Recurring section; Active still says so in one line.
+    // Nothing to show: no Updates, Files or Routines section; Active still says so in one line.
     {
       const saved = bots[0].schedules; bots[0].schedules = [];
       const {page, errors, context} = await open(browser, {width: 1280, height: 800}, {}, {updates: [], files: []});
@@ -212,7 +212,7 @@ const railOrder = page => page.evaluate(() => [...document.querySelectorAll('#pa
       await page.locator('#t-open .trow').first().waitFor();
       await page.locator('#bot-files .bf-row').first().waitFor();
       await page.locator('#bot-latest:not([hidden])').waitFor();
-      assert.deepEqual(await railOrder(page), ['Active', 'Updates', 'Files', 'Recurring']);
+      assert.deepEqual(await railOrder(page), ['Active', 'Updates', 'Files', 'Routines']);
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'no sideways scroll');
       if (shots) await page.screenshot({path: path.join(shots, `bot-page-phone-tasks-${scheme}.png`), fullPage: true});
       await page.evaluate(() => { location.hash = '#/bot/cmo/more'; });
@@ -288,6 +288,6 @@ const railOrder = page => page.evaluate(() => [...document.querySelectorAll('#pa
       assert.deepEqual(errors, [], 'escape banner errors');
       await context.close();
     }
-    console.log('bot page: Active, Updates, Files and Recurring; tools open under More; desktop and phone navigation; quarantine says why and when it resumes; Resume bot beside the warning and under More; Try now on a usage limit');
+    console.log('bot page: Active, Updates, Files and Routines; tools open under More; desktop and phone navigation; quarantine says why and when it resumes; Resume bot beside the warning and under More; Try now on a usage limit');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exit(1); });
