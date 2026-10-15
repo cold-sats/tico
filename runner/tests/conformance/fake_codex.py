@@ -109,7 +109,10 @@ def main():
         elif method == "thread/goal/get":
             send({"id": rid, "result": {"goal": goals.get(thread)}})
         elif method == "account/read":
-            record({"harness": "codex", "method": method, "params": params})
+            # Not logged: the runner reads it in the background on every computer with codex signed in.
+            if params.get("refreshToken") is not False:
+                send({"id": rid, "error": {"code": -32600, "message": "refreshToken must be false"}})
+                continue
             send({"id": rid, "result": {"account": {"type": "chatgpt", "email": "dev@acme.example", "planType": "pro"},
                                         "requiresOpenaiAuth": True}})
         elif method == "turn/steer":

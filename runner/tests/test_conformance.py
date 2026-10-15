@@ -438,8 +438,8 @@ def test_the_signed_in_account_reaches_readiness_without_anything_token_like(api
     got = until(account, "the account in readiness", timeout=40)
     got.pop("checked_at")
     if computer.runtime == "codex":
+        # The fake answers account/read only when asked without a token refresh.
         assert got == {"email": "dev@acme.example", "plan": "pro", "kind": "subscription"}
-        assert all(c["params"] == {"refreshToken": False} for c in computer.calls() if c.get("method") == "account/read")
     else:
         assert got == {"email": "ops@acme.example", "plan": "max", "org": "Acme Ltd"}
     with api.app.state.store.read() as c:

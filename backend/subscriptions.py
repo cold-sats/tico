@@ -10,7 +10,12 @@ from .subscription_identity import identity
 from .store import Problem, encode
 
 
-def weekly_snapshot(value):
+# The longest a window can run from its reading to its reset: the window itself, plus an allowance for clock
+# skew between the provider, the runner and this server. A reset further out is not that window's.
+WINDOWS = {'weekly': timedelta(days=8), 'five_hour': timedelta(hours=5, minutes=10)}
+
+
+def weekly_snapshot(value, window='weekly'):
     """Validate timestamps too; a broken report is unknown, never a fresh allowance."""
     if not value:
         return None
@@ -21,7 +26,7 @@ def weekly_snapshot(value):
             return None
         if value['resets_at']:
             reset = datetime.fromisoformat(value['resets_at'].replace('Z', '+00:00'))
-            if reset.tzinfo is None or reset <= reported or reset > reported + timedelta(days=8):
+            if reset.tzinfo is None or reset <= reported or reset > reported + WINDOWS[window]:
                 return None
         return value
     except (ValueError, TypeError, AttributeError):
@@ -53,7 +58,7 @@ def reported_runtimes(c, runner, profile, raw):
         if choices:
             value, source = max(choices, key=lambda row: datetime.fromisoformat(row[0]['reported_at'].replace('Z', '+00:00')))
             state['weekly'] = {**value, 'source': source}
-        five_hour = weekly_snapshot(state.get('five_hour'))
+        five_hour = weekly_snapshot(state.get('five_hour'), 'five_hour')
         state['five_hour'] = ({**five_hour, 'source': 'provider'} if five_hour and (
             not cutoff.get(runtime) or H.parse_ts(five_hour['reported_at']) >= H.parse_ts(cutoff[runtime])) else None)
         # An account names a login, so it goes with a sign-in that is not known to be gone.
@@ -148,8 +153,8 @@ def record(c, runner_id, profiles, readiness=None):
         for runtime, state in profile.runtimes.items():
             value = state.model_dump()
             for window in ('weekly', 'five_hour'):
-                latest = weekly_snapshot(value.get(window))
-                older = weekly_snapshot(previous.get(runtime, {}).get(window))
+                latest = weekly_snapshot(value.get(window), window)
+                older = weekly_snapshot(previous.get(runtime, {}).get(window), window)
                 values = [v for v in (latest, older) if v]
                 value[window] = max(values, key=lambda v: datetime.fromisoformat(v['reported_at'].replace('Z', '+00:00'))) if values else None
             if not value.get('account'):

@@ -110,7 +110,15 @@ def test_an_older_runner_reads_as_today(api):
     assert codex['signed_in'] is True and codex['weekly'] is None and codex['five_hour'] is None and 'account' not in codex
 
 
-def test_a_broken_window_reads_unknown_never_a_value(api):
+def test_a_window_longer_than_its_own_reads_unknown_never_a_value(api):
     r = runner(api, operator='cara')
-    beat(api, r, five_hour={'used_percent': 9, 'resets_at': iso(timedelta(days=30)), 'reported_at': iso()})
-    assert machine(api, r, 'cara-test')['profiles'][0]['runtimes']['codex']['five_hour'] is None
+    # A 5-hour reading whose reset is a week out passes the weekly rule but is no 5-hour window.
+    for reset in (timedelta(hours=5, minutes=11), timedelta(days=7), timedelta(days=30)):
+        beat(api, r, five_hour={'used_percent': 9, 'resets_at': iso(reset), 'reported_at': iso()})
+        codex = machine(api, r, 'cara-test')['profiles'][0]['runtimes']['codex']
+        assert codex['five_hour'] is None, reset
+        # The sign-in, account and weekly reading in the same report stay.
+        assert codex['signed_in'] is True and codex['account']['email'] == 'dev@acme.example'
+        assert codex['weekly']['used_percent'] == 38
+    beat(api, r, five_hour={'used_percent': 9, 'resets_at': iso(timedelta(hours=5, minutes=9)), 'reported_at': iso()})
+    assert machine(api, r, 'cara-test')['profiles'][0]['runtimes']['codex']['five_hour']['used_percent'] == 9
