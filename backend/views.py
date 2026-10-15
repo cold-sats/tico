@@ -17,7 +17,7 @@ from . import models as M
 from . import changelog as CL
 from . import providers, runner_versions
 from . import personal_tokens, rooms, team_rules, turns
-from .execution import AWAKE_GAP, AWAKE_SETTLE, Execution, turn_share, turns_here
+from .execution import AWAKE_GAP, AWAKE_SETTLE, Execution, turn_limit, turn_share, turns_here
 from pathlib import Path
 
 from . import read_cache
@@ -485,21 +485,26 @@ def own_sign_in(c, bot, settings=None):
     return (verdict.get("problem") or "its model is not signed in") if verdict.get("sign_in") else ""
 
 
-def free_turn(c, bot, location):
+def free_turn(c, bot, location, human=False):
     """The computer a bot's queued work waits on for a free turn, or '': every turn there is taken, or this
-    bot already holds its share of them (execution.turn_share)."""
+    bot already holds its share of them (execution.turn_share). A person's message is never held to the share."""
     machine = location.get("machine") or {}
     row = c.execute("SELECT capacity FROM runners WHERE id=?", (machine.get("runner_id"),)).fetchone()
     if not row:
         return ""
     held = turns_here(c, machine["runner_id"])
+    share = turn_share(c, machine["runner_id"], row["capacity"])
+    others = [r[0] for r in c.execute("SELECT DISTINCT j.bot FROM jobs j JOIN assignments a ON a.bot=j.bot "
+                                      "WHERE j.state='queued' AND a.runner_id=? AND j.bot!=?", (machine["runner_id"], bot))]
+    limit = turn_limit(share, row["capacity"], any(held.get(other, 0) < share for other in others))
     full = (sum(held.values()) >= (row["capacity"] or 1)
-            or held.get(bot, 0) >= turn_share(c, machine["runner_id"], row["capacity"]))
+            or not human and held.get(bot, 0) >= limit)
     return (machine.get("label") or "its computer") if full else ""
 
 
-def queued_label(c, bot, location, settings=None):
-    """(label, readiness_reason) for a bot's queued work: what it is waiting for, in a person's words."""
+def queued_label(c, bot, location, settings=None, human=False, behind=False):
+    """(label, readiness_reason) for a bot's queued work: what it is waiting for, in a person's words. `human`: a
+    person's message; `behind`: the bot is still answering earlier work in this same conversation."""
     bot_state = H.bot(c, bot)["state"]
     label, readiness_reason = "Saved — queued", ""
     draining = c.execute("SELECT 1 FROM bot_control WHERE bot=? AND draining=1", (bot,)).fetchone()
@@ -527,7 +532,9 @@ def queued_label(c, bot, location, settings=None):
             label = "Saved — " + verdict
         else:
             label = "Saved — " + str(problems[0]) if problems else "Saved — waiting for computer setup"
-    elif (computer := free_turn(c, bot, location)):
+    elif behind:
+        label = "Saved — read when the current reply finishes"
+    elif (computer := free_turn(c, bot, location, human)):
         label = "Saved — waiting for a free turn on " + computer
     return label, readiness_reason
 
@@ -595,7 +602,12 @@ def conversation_snapshot(c, cid, who=None, settings=None, page_args=None):
             label = "Reply failed — your message is saved"
         readiness_reason = ""
         if state == "queued":
-            label, readiness_reason = queued_label(c, job["bot"], location, settings)
+            message = H.message(c, job["message_id"]) or {}
+            behind = c.execute("SELECT 1 FROM jobs j JOIN messages m ON m.id=j.message_id JOIN attempts a ON a.id=j.attempt_id "
+                               "WHERE m.conversation_id=? AND j.bot=? AND a.state IN ('leased','running') LIMIT 1",
+                               (cid, job["bot"])).fetchone()
+            label, readiness_reason = queued_label(c, job["bot"], location, settings,
+                                                   human=H.is_human(message.get("from_actor") or ""), behind=bool(behind))
         parts = []
         if state in ("leased", "running"):
             parts = turns.reply_parts([(e["kind"], json.loads(e["payload_json"]), e["created"]) for e in c.execute(

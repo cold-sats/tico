@@ -219,3 +219,28 @@ def test_a_comment_in_the_room_a_task_moved_to_steers_the_turn_still_running_fro
         assert moved["conversation_id"] != room
         comment = H.task_comment(c, "human:ana", task["id"], "Use the new numbers.")
     assert [m["id"] for m in post(api, f"attempts/{active['id']}/inputs", {}, r["token"])["messages"]] == [comment["id"]]
+
+
+def test_a_task_botops_files_from_a_persons_chat_lends_their_rights_to_its_own_run(api, botops):
+    """HotMic, Oct 15: BotOps filed "Build a bot" citing `turn`; the task stored the literal and its own run, which starts
+    from the task notice, was refused bot registration."""
+    from backend.tests.test_member_bots import register
+    active = turn(api, botops, person="ana-test", text="Add a Software Engineer bot in engineering")
+    task = post(api, "tasks", {"owner": "botops", "title": "Build a bot: Software Engineer", "body": "Build it.",
+                               "request_id": "turn"}, active["token"])
+    with api.app.state.store.read() as c:
+        origin = c.execute("SELECT j.message_id FROM attempts a JOIN jobs j ON j.id=a.job_id WHERE a.id=?", (active["id"],)).fetchone()[0]
+        assert c.execute("SELECT request_id FROM tasks WHERE id=?", (task["id"],)).fetchone()[0] == origin
+    finish(api, botops, active)
+    made = register(api, claim(api, botops, "botops"), "software-engineer")
+    assert made.status_code == 200, made.text
+
+
+def test_a_persons_follow_up_in_their_botops_chat_joins_the_running_reply(api, botops):
+    active = turn(api, botops, person="ana-test", text="Add a Software Engineer bot")
+    post(api, f"attempts/{active['id']}/started", {"thread_id": "thread"}, botops["token"])
+    follow = post(api, "chat/botops", {"text": "Use Claude Opus 5.5, medium effort"}, token="ana-test")
+    snapshot = get(api, f"conversations/{follow['conversation_id']}/snapshot", "ana-test")
+    assert [m["id"] for m in post(api, f"attempts/{active['id']}/inputs", {}, botops["token"])["messages"]] == [follow["id"]]
+    # Until the run takes it, it says so, never "waiting for a free turn" on a computer with turns free.
+    assert snapshot["execution"]["label"] == "Saved — read when the current reply finishes"
