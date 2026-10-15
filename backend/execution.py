@@ -73,6 +73,12 @@ def turn_share(c, runner_id, capacity):
     return bot_turns(capacity) if bots > 1 else int(capacity or 1)
 
 
+def turn_limit(share, capacity, others_waiting):
+    """The turns one bot may hold now: its share while another bot's work waits for this computer; otherwise every
+    turn but one, kept free so new work from another bot starts at once. Turns left idle help no one."""
+    return share if others_waiting else max(share, int(capacity or 1) - 1)
+
+
 def turns_here(c, runner_id):
     """{bot: turns it holds on this computer now}."""
     return {r[0]: r[1] for r in c.execute("SELECT bot,count(*) FROM attempts WHERE runner_id=? "
@@ -796,7 +802,8 @@ class Execution:
         if not bots:
             return None
         marks = ",".join("?" for _ in bots)
-        full = [bot for bot in bots if held.get(bot, 0) >= share]
+        limit = turn_limit(share, runner["capacity"], any(held.get(bot, 0) < share for bot in bots))
+        full = [bot for bot in bots if held.get(bot, 0) >= limit]
         task_sql = queued_task_sql()
         # Readiness, spend and cooldown are checked once per bot, never once per queued job.
         # Keep human chat priority and interrupted-task/conversation fencing in the query.
@@ -1332,7 +1339,11 @@ class Execution:
                 task = H.task(c, task_id) if task_id else None
                 requester = task["requester"] if task else origin["from_actor"]
                 cancelled = bool(task and task["status"] == "closed" and refs.get("task") == task_id)
-                related = (row["in_reply_to"] == origin["message_id"] or refs.get("turn_id") == aid
+                # The person's next message in the chat this run answers is the same ask, carried on ("add it to
+                # engineering"): it joins the run rather than queueing behind it.
+                same_chat = (not task and row["conversation_id"] == origin_message["conversation_id"]
+                             and row["kind"] == "say" and not refs.get("task"))
+                related = (same_chat or row["in_reply_to"] == origin["message_id"] or refs.get("turn_id") == aid
                            or (task and task.get("request_id") and row["in_reply_to"] == task["request_id"])
                            or row["kind"] in ("answer", "steer") or refs.get("credential_saved"))
                 if (str(row["from_actor"]).startswith("human:") and (row["from_actor"] != requester or not related)

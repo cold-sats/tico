@@ -41,29 +41,27 @@ def test_task_lanes_run_side_by_side_and_each_lane_stays_serial(api):
     assert claim(api, machine)["lane"] == "task:" + third["id"]
 
 
-def test_one_bot_holds_half_the_turns_and_a_freed_turn_goes_to_the_bot_with_fewest(api):
+def test_a_bot_takes_idle_turns_keeps_one_free_and_a_freed_turn_goes_to_the_bot_with_fewest(api):
     machine = task_bot(api, lanes=True, capacity=4, others=("finance",))
-    new_task(api, "first"), new_task(api, "second")
-    third = new_task(api, "third")
-    one, two = claim(api, machine), claim(api, machine)
-    assert {one["bot"], two["bot"]} == {"ops"}
-    # Two of four turns are ops's share: its third task waits with two turns free, and says why.
+    tasks = [new_task(api, title) for title in ("first", "second", "third", "fourth")]
+    # Past its half while no other bot waits, but one turn stays free: the fourth task waits, and says why.
+    assert [claim(api, machine)["bot"] for _ in range(3)] == ["ops"] * 3
     assert claim(api, machine) is None
-    assert get(api, "tasks/" + third["id"])["waiting_for"] == "Waiting for a free turn on Test Mac"
-    # Another bot's work takes a free turn at once, even though ops's job is older.
+    assert get(api, "tasks/" + tasks[3]["id"])["waiting_for"] == "Waiting for a free turn on Test Mac"
+    # Another bot's work takes that free turn at once, even though ops's job is older.
     review = new_task(api, "review", owner="finance")
     assert claim(api, machine)["bot"] == "finance"
     assert get(api, "tasks/" + review["id"])["waiting_for"] == ""
+    post(api, "runners/heartbeat", {"version": "test", "platform": "test", "capacity": 8,
+                                    "readiness": {"ops": True, "finance": True}, "capabilities": ["task_lanes_v2"]},
+         token=machine["token"])
     # A person's own message to ops is never held behind its share.
     post(api, "chat/ops", {"text": "Quick question."})
     assert claim(api, machine)["lane"] == "main"
     # A freed turn goes to the bot holding the fewest, before ops's older queued task.
-    post(api, "runners/heartbeat", {"version": "test", "platform": "test", "capacity": 8,
-                                    "readiness": {"ops": True, "finance": True}, "capabilities": ["task_lanes_v2"]},
-         token=machine["token"])
     new_task(api, "release", owner="finance")
     assert claim(api, machine)["bot"] == "finance"
-    assert claim(api, machine)["lane"] == "task:" + third["id"]
+    assert claim(api, machine)["lane"] == "task:" + tasks[3]["id"]
 
 
 def test_a_bot_alone_on_its_computer_may_use_every_turn(api):

@@ -2641,6 +2641,10 @@ def create_app(settings=None):
         elif handoff and body.request_id:
             raise Problem("request_id", "Only a task for BotOps carries a person's request", 422)
         inherited_request = parent.get("request_id") if parent and H.is_human(who.actor) and who.actor == parent["requester"] else None
+        if request_id in ("turn", "default"):
+            # `turn` names the run's own request: store that message, which delegated_identity resolved, so the task's
+            # own run (whose turn is the task notice) still finds the person's words.
+            request_id = (H.DELEGATION.get() or {}).get("cited") or None
         if H.is_human(who.actor) and (request_id or inherited_request):
             c.execute("UPDATE tasks SET request_id=? WHERE id=?", (inherited_request or request_id, row["id"]))
         for url in body.links:
@@ -3302,6 +3306,12 @@ def create_app(settings=None):
                     person = auth.identity_for_actor(c, origin["actor"])
                     H.VIA.set("botops")
                     return acting_as(person, task_id)
+            if task and task.get("request_id") in ("turn", "default"):
+                # Tasks filed before the request was stored by id: the person's message the filing cited.
+                made = c.execute("SELECT detail_json FROM events WHERE action='task.create' AND target=? ORDER BY ts,id LIMIT 1",
+                                 (task_id,)).fetchone()
+                task = {**task, "request_id": ((H._json(made["detail_json"], {}) if made else {}).get("delegation")
+                                               or {}).get("cited")}
             if task and task.get("request_id") and task["owner"] == who.actor:
                 origin = H.message(c, task["request_id"])
                 made = c.execute("SELECT 1 FROM events WHERE action='task.create' AND target=? AND actor=? LIMIT 1",
