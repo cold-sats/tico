@@ -146,7 +146,7 @@ class Settings:
     session_absolute_seconds: int = 90 * 86400
     # How often a quiet event stream (a page's, a computer's) sends a keepalive (TICO_STREAM_KEEPALIVE_SECONDS,
     # 5 to 50): under the idle limits of the proxies in front (Cloudflare 100 s, a load balancer's 60 s) and well
-    # under the runner's read timeout (runner/runner_events.py READ_TIMEOUT_S). None keeps events.KEEPALIVE_SECONDS.
+    # under the runner's read timeout (runner-rs/src/events.rs READ_TIMEOUT_S). None keeps events.KEEPALIVE_SECONDS.
     stream_keepalive_seconds: int | None = None
     # Origins of browser apps allowed to call the API from another address (TICO_CORS_ORIGINS,
     # backend/cors.py): exact origins only, checked in __post_init__.

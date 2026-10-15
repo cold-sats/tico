@@ -7,7 +7,6 @@ set the switch, and Health says when a bot.yaml asks for more than a person appr
 from backend.tests.test_api import api, assign, claim, get, headers, post, runner, setup_attempt  # noqa: F401
 from backend.tests.test_botops_parity import _wake, act
 from backend.tests.test_member_bots import botops, finish, turn  # noqa: F401  (fixture)
-from runner import declared_access
 
 RUNTIMES = {"codex": {"installed": True, "authenticated": "ready"}}
 
@@ -23,9 +22,8 @@ def change(api, body, token="ana-test", bot="ops"):
 def report(api, machine, bot, manifest):
     row = {"ready": True, "runtime": "codex", "model": "gpt-6-luna", "repository_present": True,
            "configuration_valid": True, "problems": []}
-    asked = declared_access.mail_request(manifest)
-    if asked:
-        row["mail_request"] = asked
+    # What the runner reports for bot.yaml's mail keys (runner-rs/src/declared_access.rs mail_request).
+    row["mail_request"] = {"outbound_send": manifest.get("outbound_send") is True, "forward_to": manifest.get("forward_to", [])}
     r = api.post("/api/v2/runners/heartbeat", headers=headers(machine["token"]), json={
         "version": "test", "platform": "test", "readiness": {"schema_version": 1, "runtimes": RUNTIMES, "bots": {bot: row}}})
     assert r.status_code == 200, r.text
@@ -89,7 +87,7 @@ def test_a_manager_sees_the_alert_for_the_bots_they_manage_and_no_other(api):
     for bot in ("ops", "cpo"):
         rows[bot] = {"ready": True, "runtime": "codex", "model": "gpt-6-luna", "repository_present": True,
                      "configuration_valid": True, "problems": [],
-                     "mail_request": declared_access.mail_request({"outbound_send": True})}
+                     "mail_request": {"outbound_send": True, "forward_to": []}}
     r = api.post("/api/v2/runners/heartbeat", headers=headers(machine["token"]), json={
         "version": "test", "platform": "test", "readiness": {"schema_version": 1, "runtimes": RUNTIMES, "bots": rows}})
     assert r.status_code == 200, r.text

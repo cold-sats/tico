@@ -1,5 +1,5 @@
 //! What the heartbeat says about this computer (`runtime_readiness`, `preflight` and `readiness` in
-//! runner/service.py). Only the checks the chat path needs: runtime install, version, sign-in and models for
+//! the old Python runner). Only the checks the chat path needs: runtime install, version, sign-in and models for
 //! Claude, Codex, Gemini (the Gemini CLI, and `agy` for Antigravity bots), Muse Code, Pi, Cursor and Grok Build, and per bot its repository, AGENT.md and bot.yaml. The server gates claims on these rows.
 
 use std::path::{Path, PathBuf};
@@ -284,8 +284,8 @@ pub fn local_path(config: &Config, bot: &str) -> PathBuf {
     root.join(format!("bot-{bot}"))
 }
 
-/// What an assigned bot needs that this runner does not do yet, each named for the log and the bot's
-/// readiness problems. A bot with any of these stays on the Python runner.
+/// What an assigned bot needs that this runner does not run, each named in the bot's readiness problems: that
+/// bot is not ready here, and the runner runs the others.
 pub fn unsupported(entry: &Value) -> Vec<String> {
     let c = &entry["config"];
     let runtime = text_of(&c["runtime"]);
@@ -391,7 +391,7 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
             problems.push(signed_out(if profile_name.is_empty() { d } else { format!("{profile_name}: {d}") }));
         }
         for need in unsupported(entry) {
-            problems.push(format!("This computer's runner does not do {need} yet; run it on the Python runner for this bot"));
+            problems.push(format!("This computer's runner does not run {need}; choose another harness for this bot"));
         }
         let mut configuration_valid = known;
         let manifest = manifest_path(&path);
@@ -492,7 +492,9 @@ pub fn document(runtimes: &Map<String, Value>, checks: &[Map<String, Value>], st
         out.insert("warnings".into(), row.get("warnings").cloned().unwrap_or(json!([])));
         bots.insert(text_of(&row["bot"]), Value::Object(out));
     }
-    let mut doc = json!({"schema_version": 1, "runtimes": runtimes, "bots": bots, "worktrees": true});
+    // `worktree_waits`: a worktree the server reserves for a waiting task is prepared here while its bot is
+    // idle (worktrees.rs prepare), so the server records a wait instead of refusing a task at its limit.
+    let mut doc = json!({"schema_version": 1, "runtimes": runtimes, "bots": bots, "worktrees": true, "worktree_waits": true});
     if let Some((total, free)) = disk_usage(state_dir) {
         doc["disk"] = json!({"total_bytes": total, "free_bytes": free});
     }

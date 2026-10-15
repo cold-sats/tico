@@ -90,7 +90,7 @@ def can_run(c, bot, runtime, runner=None, harness="", model=""):
     if readiness.get("schema_version") != 1 or harness_caps(harness, runtime).get("readiness") is False:
         return verdict(None, label + " does not report its AI tools; update it to check")
     if not state.get("installed"):
-        # A computer installs a bot's harness when the bot is put there (runner/harness_tools.py), so a harness it
+        # A computer installs a bot's harness when the bot is put there (runner-rs/src/harness_tools.rs), so a harness it
         # can install is no reason to refuse the move or the model: it says so while it installs.
         tool = next((t for t in (readiness.get("harnesses") or {}).values()
                      if isinstance(t, dict) and t.get("runtime") == runtime), None)

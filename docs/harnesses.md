@@ -24,14 +24,14 @@ not go through the catch-all. Tico uses the npm package because it installs into
 checks the tarball's integrity hash; the script installs into `~/.grok`.
 
 `runtime: cursor` was retired in v0.1.0. It is back as an
-ordinary harness: `runner/hosts/cursor.py` runs `cursor-agent -p --output-format stream-json --force --trust` once per
+ordinary harness: `runner-rs/src/hosts/cursor.rs` runs `cursor-agent -p --output-format stream-json --force --trust` once per
 run, with the prompt on stdin and the chat made by `cursor-agent create-chat`, so a restart resumes it. Cursor picks
 the model itself on `auto` (`cursor-auto` in the model list); a bot's config may name any other model Cursor offers.
 Cursor's installer only ever installs the newest release, so this harness follows `latest` and cannot be pinned to an
 older version (Pin to this version pins the one installed).
 
 Muse Code is Meta's coding CLI (`muse`). Its runtime is `musecode`, because `muse` already names the Muse app synced
-in as an external agent. `runner/hosts/musecode.py` runs `muse exec --json --yolo` once per run with the prompt in a
+in as an external agent. `runner-rs/src/hosts/musecode.rs` runs `muse exec --json --yolo` once per run with the prompt in a
 file (the CLI takes no prompt on stdin) and `--session-id <uuid>`: Tico makes the id, the first run creates the
 session and every later run with the same id continues it, so a restart resumes it. The hub and a bot's remote MCP
 servers are set for that run only (`-c mcp_servers.<name>=...`), with secrets left as `${VAR}` in the run's
@@ -52,7 +52,7 @@ Meta's Llama models stay on pi through OpenRouter (`llama-4-maverick`, no longer
 Providers with no CLI of their own (DeepSeek, Kimi, Llama, Mistral, and whatever comes next) share one harness that
 takes an API key. Candidates:
 
-- **pi** (already a Tico host, `runner/hosts/pi.py`): one non-interactive process per run (`pi -p --mode json`), a
+- **pi** (already a Tico host, `runner-rs/src/hosts/pi.rs`): one non-interactive process per run (`pi -p --mode json`), a
   JSON event stream Tico already parses, resumable sessions, read/bash/edit/write/grep tools (the bot reaches Tico
   with the `hub` CLI over bash), no permission prompts, an npm package, and keys for many providers by environment
   variable. Tico reaches every model through OpenRouter, so one key covers all of them.
@@ -78,7 +78,7 @@ anything. Each computer installs only:
 A runner whose team has no provider yet installs nothing and still joins and goes online.
 
 A model with no CLI of its own has a row in `MODEL_CATALOG` with `runtime: "pi"` and an entry in
-`runner/hosts/pi.py` `MODELS` that gives its OpenRouter id (for example `kimi-k3` is `moonshotai/kimi-k3`). Enabling
+`runner-rs/src/hosts/pi.rs` `MODELS` that gives its OpenRouter id (for example `kimi-k3` is `moonshotai/kimi-k3`). Enabling
 the `openrouter` provider offers every such model; enabling one vendor offers that vendor's models only.
 
 ## Choosing a harness, model and effort
@@ -203,14 +203,15 @@ talking to a server from before this change drops the field instead of going off
 
 A harness is a manifest plus a host adapter.
 
-1. **Host adapter**: `runner/hosts/<host>.py`, a `Host` subclass (`runner/hosts/base.py`: `start_thread`, `start_turn`,
-   `interrupt`, and events through `emit`). Register it in `Runner.make_host` (`runner/service.py`).
+1. **Host adapter**: `runner-rs/src/hosts/<host>.rs` (`start_thread`, `start_turn`, `interrupt`, and events on the
+   host's channel). Add it to the `Host` enum in `runner-rs/src/hosts/mod.rs` and to `make_host` in
+   `runner-rs/src/execute.rs`.
 2. **Manifest**: `runner/harnesses/<id>.toml`. The file name is the id.
 
    ```toml
    id = "acme-agent"            # lowercase letters, digits, hyphens
    name = "Acme Agent"
-   host = "acme"                # runner/hosts/acme.py
+   host = "acme"                # runner-rs/src/hosts/acme.rs
    runtime = "acme"             # what bot configs and the server call it (`claude` for claude-code.toml)
    executable = "acme"          # what the host runs, looked up on PATH
    providers = ["acme"]         # provider ids from backend/providers.py; one harness per provider
@@ -244,9 +245,9 @@ A harness is a manifest plus a host adapter.
    ```
 
 3. **Provider and models**: add the provider (with `runtime` and `harness`) and its models to `backend/providers.py`.
-4. **Check**: `runner/tests/test_harness_tools.py` validates every manifest (file name, host adapter, unique
-   providers, install fields) and that the provider list and manifests agree. `backend/tests/test_harness_capabilities.py`
-   fails on a new comparison with a CLI name outside the host adapters: add a capability instead.
+4. **Check**: `shipped_manifests_parse_and_claim_once` in `runner-rs/src/harness_tools.rs` validates every manifest
+   (file name, unique providers, install fields). `backend/tests/test_harness_capabilities.py` fails on a new
+   comparison with a CLI name outside the host adapters: add a capability instead.
 
 Loading fails loudly on a bad manifest, naming the file and the field.
 

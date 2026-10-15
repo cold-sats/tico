@@ -1,4 +1,4 @@
-//! Headless model sign-in (runner/service.py `headless_secret`, `team_model_keys`, `team_key_only`,
+//! Headless model sign-in (the old Python runner's `headless_secret`, `team_model_keys`, `team_key_only`,
 //! `codex_key_login`, here `key_login`): the API key or long-lived token that signs a runtime in without a browser, from this
 //! process's environment, `secrets/_shared.env`, or the key the company gave every computer, which the runner
 //! fetches into `secrets/_team_model.env` when this computer has none of its own.

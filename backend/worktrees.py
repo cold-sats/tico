@@ -630,7 +630,7 @@ def install(app, store, auth, mutate):
 
     @app.post('/api/v2/runners/me/session-tasks')
     def session_tasks(request: Request, body: SessionTasks):
-        """The status of each task a bot's session checkout on this computer is kept for (runner/task_sessions.py),
+        """The status of each task a bot's session checkout on this computer is kept for (runner-rs/src/sessions.rs),
         so the computer can take away the checkouts of finished tasks between turns. Only a task this computer ran
         a turn of that bot in that task's lane is answered; any other is left out, and the computer keeps it."""
         who = request.state.identity

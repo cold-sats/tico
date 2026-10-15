@@ -108,7 +108,8 @@ The runner is a git checkout. When the server's release is newer, the runner:
    cannot hold the update back for ever; it never interrupts one);
 2. starts a separate update process, which fetches the tag `vX.Y.Z` from `origin` (the public repository) and
    checks that it exists and is not a tag that moved, then checks out that commit (detached);
-3. re-runs the install step: `pip install -r backend/requirements.txt` when the release changed it;
+3. re-runs the install step: `pip install -r backend/requirements.txt` when the release changed it, and gets the
+   release's runner binary ([The runner](#the-runner)); when that fails it goes back to the old commit;
 4. restarts the runner through its supervisor (launchd `KeepAlive` on a Mac; on Linux `systemctl --user restart` on
    the runner's systemd unit, which has `Restart=always`) and waits up to three minutes for the new process to report in;
 5. if it does not, checks the old commit out again, restores the old dependencies, restarts and reports
@@ -212,24 +213,24 @@ TICO_TAG=vX.Y.Z                         # the release running now
 
 and run `docker compose up -d`. From then on the updater moves `TICO_TAG`.
 
-## The runner engine
+## The runner
 
-Every computer runs the Rust runner (`tico-runner`, from `runner-rs/`). The launchd job, the systemd unit and the
-Docker image still start `python -m runner run`, which hands the process to the Rust binary at once:
+Every computer runs the Rust runner (`tico-runner`, from `runner-rs/`). The launchd job and the systemd unit start
+`python -m runner run`, which execs the binary; the Docker image runs the binary directly.
 
 - **Docker:** the image ships the binary (`/usr/local/bin/tico-runner`), built from the same tree.
 - **Mac or Linux checkout:** a checkout on a release tag downloads that release's `tico-runner-<os>-<arch>.gz` from
   GitHub, checked against the release's `tico-runner-SHA256SUMS`, into `runner-rs/target/dist/`. Any other checkout
-  with `cargo` on PATH builds it in the background (`cargo build --release`). An update to a new release downloads
-  the new binary when the runner restarts on it; a rollback finds the old one still there.
+  with `cargo` on PATH builds it (`cargo build --release`). `scripts/tico install` and every update get the binary
+  before the runner restarts (`python -m runner.engine prepare`); an update that cannot get it backs out and the
+  runner keeps running the old release.
 
-A binary is only run when it was built from this checkout's `runner-rs` sources. When there is none, it does not
-start, or a bot here uses a model CLI the Rust runner does not drive yet, the computer runs the Python runner instead,
-logs why, and Health says so ("runs the Python runner"). It switches to Rust by itself once the binary is there.
-Settings > Computers shows **Rust** or **Python** after the version.
+A binary is only run when it was built from this checkout's `runner-rs` sources. When there is none and none can be
+had, the runner does not start: it logs why and launchd or systemd tries again. A bot on a model CLI the runner does
+not drive is not ready, with the reason on that bot; the other bots on the computer run.
 
-The Python runner is deprecated and is removed in the next release. Until then `"engine": "python"` in `runner.json`,
-or `TICO_RUNNER_ENGINE=python` in the job's environment, keeps it.
+The Python runner is gone. `"engine": "python"` in `runner.json` and `TICO_RUNNER_ENGINE=python` are ignored. Python
+still runs the side jobs (connectors, Close calls, meeting importers), the catalog set-up and the update process.
 
 ## A Docker runner
 

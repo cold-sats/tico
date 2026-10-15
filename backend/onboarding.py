@@ -293,7 +293,7 @@ def config_view(c, settings, who=None):
     chosen = providers.load(c, settings)
     value["providers_configured"] = providers.configured(chosen)
     # The model a computer's sign-in is for; empty until a provider is chosen, so no sign-in is asked before then. A
-    # computer with no bots yet installs this one's harness (runner/service.py want_harnesses).
+    # computer with no bots yet installs this one's harness (runner-rs/src/commands.rs want_harnesses).
     value["default_runtime"] = providers.default_runtime(chosen)
     if who is not None:
         value["enabled_providers"] = list(chosen["enabled"])      # older runners install these providers' harnesses

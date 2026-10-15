@@ -119,7 +119,7 @@ def report(c, attempt, payload):
         task_goal_ended(c, goal, room["task_id"], status, note)
 
 
-# Room left in a task goal's objective for the runner's waiting clause (runner/goals.py native_objective).
+# Room left in a task goal's objective for the runner's waiting clause (runner-rs/src/goals.rs native_objective).
 TASK_GOAL_CHARS = 3500
 
 

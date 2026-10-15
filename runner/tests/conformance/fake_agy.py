@@ -1,7 +1,7 @@
 """A stand-in for the Antigravity `agy` CLI, for the runner conformance suite (runner/tests/test_conformance.py).
 
 `--version` answers as agy 1.3.5. With `--input-format stream-json` it is one persistent process that runs a turn
-for each user line on stdin, the way runner/hosts/antigravity.py reads it: `init` with the conversation id, text
+for each user line on stdin, the way runner-rs/src/hosts/antigravity.rs reads it: `init` with the conversation id, text
 deltas, then a `result` whose usage is the process's running total. Every turn is appended to $FAKE_LOG as one JSON
 line (argv, pid, the prompt, the granted variables and the token HUB_TOKEN's file held at that moment). A prompt
 containing HANG streams one delta and answers nothing more, once per $FAKE_LOG; the process exits when stdin closes."""

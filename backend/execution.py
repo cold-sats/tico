@@ -249,7 +249,7 @@ def _github_app(c):
 
 def bot_repository(c, settings, bot, rows=None, app=None):
     """`owner/name` of a bot's GitHub repository, resolved the way the token route resolves it, or "".
-    The runner clones and publishes this one (runner/service.py `fetch_repository`). `rows(slug)` (its
+    The runner clones and publishes this one (runner-rs/src/fetchrepo.rs). `rows(slug)` (its
     bot_config row with config_json and repo) and `app` ((the github_app row,)) when read already."""
     from .github_app import repo_of
     from .shared_bots import _json, declared, source_of
@@ -301,7 +301,7 @@ def forget_report(c, runner_id, bot):
         c.execute("UPDATE runners SET readiness_json=? WHERE id=?", (encode(document), runner_id))
 
 
-# The runner appends these after the bot's own words when it holds back a commit (runner/service.py).
+# The runner appends these after the bot's own words when it holds back a commit (runner-rs/src/execute.rs).
 # They are the runner's, not the bot's, so chat shows them as a warning beside the reply.
 RUNNER_NOTICE = re.compile(r"(not pushed: a commit made this turn contains a secret"
                            r"|left out of the commit: .+ \((?:contains a secret|too large to commit)\))")
@@ -1095,7 +1095,7 @@ class Execution:
                             "generation": row["generation"], "lease_until": until,
                             "lease_seconds": self.store.settings.lease_seconds, "token": token,
                             "message": msg, "conversation": conv, "task": task,
-                            # The task's set-up worktrees on this computer, added to its session (runner/service.py).
+                            # The task's set-up worktrees on this computer, added to its session (runner-rs/src/sessions.rs).
                             "worktrees": worktrees.attached(c, task["id"], who.runner_id, row["bot"]) if task else [],
                             "history": history, "config": config, "principal": principal}}
 

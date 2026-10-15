@@ -1,4 +1,4 @@
-//! The Gemini CLI host (`runner/hosts/gemini.py`): one headless `gemini -p ""` per turn, the prompt on stdin,
+//! The Gemini CLI host: one headless `gemini -p ""` per turn, the prompt on stdin,
 //! stream-json on stdout. The host picks the session id for a thread's first turn and resumes it after. A home of
 //! its own (`GEMINI_CLI_HOME`, settings.json rewritten before each turn) keeps the bot's sessions and API-key
 //! sign-in apart from the operator's own Gemini login.

@@ -1,4 +1,4 @@
-//! The model CLIs a runner uses, installed and kept current by the runner itself (runner/harness_tools.py).
+//! The model CLIs a runner uses, installed and kept current by the runner itself.
 //!
 //! Manifests are runner/harnesses/*.toml, read from the checkout (`crate::env::root()`), else the copies
 //! built into this binary. Installs go into the runner's own tools directory, never system-wide:
@@ -29,7 +29,7 @@ const METHODS: &[&str] = &["npm", "pip", "script", "binary"];
 const POLICIES: &[&str] = &["latest", "pinned"];
 const AUTH_METHODS: &[&str] = &["device-code", "subscription", "api-key"];
 const ACTIONS: &[&str] = &["update", "pin", "unpin"];
-/// The adapters runner/hosts/ has (a manifest's `host` must name one).
+/// The adapters hosts/mod.rs has (a manifest's `host` must name one).
 const HOSTS: &[&str] = &["antigravity", "claude", "codex", "cursor", "gemini", "grok", "musecode", "pi", "fake"];
 const VERSION_TIMEOUT_S: u64 = 60;
 pub const CHECK_EVERY_S: f64 = 24.0 * 3600.0;
@@ -248,7 +248,7 @@ pub fn parse(data: &toml::Table, source: &str) -> Result<Manifest, String> {
     let Some(name) = name else { return Err(format!("{at}: name is required")) };
     let host = data.get("host").and_then(|v| v.as_str()).unwrap_or("");
     if !name_re.is_match(host) || !HOSTS.contains(&host) {
-        return Err(format!("{at}: host '{host}' is not an adapter in runner/hosts/"));
+        return Err(format!("{at}: host '{host}' is not an adapter in runner-rs/src/hosts/"));
     }
     let executable = data.get("executable").and_then(|v| v.as_str()).filter(|s| full(&exe_re, s));
     let Some(executable) = executable else { return Err(format!("{at}: executable must be a bare file name")) };
@@ -378,7 +378,7 @@ pub fn parse(data: &toml::Table, source: &str) -> Result<Manifest, String> {
             return Err(format!("{vat}: the variant id must be lowercase letters, digits and hyphens"));
         }
         if !HOSTS.contains(&s("host").as_str()) {
-            return Err(format!("{vat}: host '{}' is not an adapter in runner/hosts/", s("host")));
+            return Err(format!("{vat}: host '{}' is not an adapter in runner-rs/src/hosts/", s("host")));
         }
         if !full(&exe_re, &s("executable")) {
             return Err(format!("{vat}: executable must be a bare file name"));
@@ -1357,9 +1357,15 @@ static TURNS: OnceLock<Mutex<HashMap<String, Vec<String>>>> = OnceLock::new();
 /// This runner's one installer, made on first use (with the tools bin put last on PATH). Call it before the
 /// tokio runtime starts threads when possible (main), so PATH is changed while nothing else reads it.
 pub fn init(config: &Config) -> Arc<Mutex<Harnesses>> {
+    init_at(config, config.state_dir().join("harnesses.json"))
+}
+
+/// `init` with its own state file: `doctor` keeps `harnesses-doctor.json`, as Python did, so a check never
+/// rewrites the running runner's.
+pub fn init_at(config: &Config, state_path: PathBuf) -> Arc<Mutex<Harnesses>> {
     SHARED
         .get_or_init(|| {
-            let h = Harnesses::new(tools_dir(config), config.state_dir().join("harnesses.json"), manifests().clone());
+            let h = Harnesses::new(tools_dir(config), state_path, manifests().clone());
             expose_path(&h.bin_dir());
             Arc::new(Mutex::new(h))
         })

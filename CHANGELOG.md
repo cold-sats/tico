@@ -19,7 +19,14 @@ All notable changes to Tico are recorded here. The format follows
   open ticket with that signature and closes each (`POST /v1/staff/tickets/by-signature/close`, or
   `software/hq-tickets close-signature hm-...`). Each company reads the reply on its Support page; a ticket with a
   reply-to email keeps it marked pending so the Support bot drafts the email.
+- **`tico-runner enroll`, `adopt` and `doctor`.** The Rust runner registers a computer, moves bots to it and checks it
+  itself; `python -m runner enroll|adopt|doctor|status|profile` run the same commands through it.
 ### Changed
+- **A bot on a model CLI the runner does not drive is a problem on that bot.** The computer starts and runs its other
+  bots; before, the whole computer stayed on the Python runner.
+- **The Rust runner covers what only the Python one did.** It checks the container a bot needs, keeps dev servers on
+  main, retries a run after freeing disk space, falls back to older servers' field names, publishes a bot's files when
+  readiness is reported, and waits for a task worktree another run holds.
 - **Each model CLI's manifest says what it can do.** `runner/harnesses/*.toml` gain `runtime` and a `[capabilities]`
   table (sign-in, keys, subscriptions, weekly usage, MCP, goals, resume command, and more; docs/harnesses.md), and
   the server, Settings and the Rust runner read them instead of checking CLI names. `GET /v2/models` sends each
@@ -37,6 +44,9 @@ All notable changes to Tico are recorded here. The format follows
   time; a page that does not ask still gets the list. A chat opens at its newest 50 messages and 160 KB, older pages on
   request; another bot's conversation shows its newest message until opened; a run's live reply in a snapshot is its
   newest 40 pieces. `backend/tests/test_payload_budgets.py` holds each to a byte budget.
+### Removed
+- **The Python runner.** `"engine": "python"` in `runner.json` and `TICO_RUNNER_ENGINE` are ignored. `python -m runner run`
+  and the runner's CLI commands start the Rust runner; a checkout and every update fetch its binary before the restart.
 
 ## [0.3.46] - 2026-10-15
 

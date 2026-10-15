@@ -40,7 +40,7 @@ def repository_present(c, bot):
     return bool(report.get("repository_present"))
 
 
-# Where a bot's conversation compacts, in tokens (runner/hosts/base.py DEFAULT_COMPACT_AT): the choices offered,
+# Where a bot's conversation compacts, in tokens (runner-rs/src/hosts/mod.rs DEFAULT_COMPACT_AT): the choices offered,
 # and what a bot that never chose one gets.
 COMPACT_AT = (150_000, 250_000, 400_000, 600_000, 1_000_000)
 DEFAULT_COMPACT_AT = 250_000

@@ -8,7 +8,6 @@ import zlib
 
 from backend.tests.test_api import api, assign, claim, headers, post, ready, runner  # noqa: F401
 from backend.tests.test_task_review import ask, get, task
-from runner.service import Runner
 
 
 def png(color):
@@ -130,6 +129,3 @@ def test_streamed_task_versions_review_and_next_wake(api, monkeypatch):
     assert question['ask'] == script['ask'] and question['answers'] == script['answers']
     next_turn = claim(api, machine, 'ops')
     assert next_turn['message']['refs']['answer'] == answer['answer']
-    prompt = Runner.__new__(Runner).prompt(next_turn)
-    assert json.loads(next(line[8:] for line in prompt.splitlines() if line.startswith('answer: '))) == answer['answer']
-    assert answer['comment']['body'] in prompt

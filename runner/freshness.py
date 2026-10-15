@@ -7,17 +7,44 @@ Each helper therefore records the checkout's revision at start and looks again a
 the loop exits with status 0 between jobs and the supervisor (launchd KeepAlive) starts it on the new code. Any new revision
 counts, not only changes under runner/: a helper loads more than that.
 """
+import os
+import re
+import subprocess
 import time
+from pathlib import Path
 
 from .outage import log
 
+ROOT = Path(__file__).resolve().parents[1]
 CHECK_EVERY_S = 60
+
+
+def checkout_head(root=None, run=subprocess.run):
+    try:
+        done = run(["git", "-C", str(root or ROOT), "rev-parse", "HEAD"], capture_output=True, text=True,
+                   timeout=10, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    head = done.stdout.strip()
+    return head if not done.returncode and re.fullmatch(r"[0-9a-f]{40}", head) else ""
+
+
+def supervised():
+    """Only a supervisor that starts the runner again may let it exit to restart: launchd sets
+    XPC_SERVICE_NAME to the job's label, the systemd user unit `scripts/tico install` writes on Linux sets
+    TICO_SYSTEMD_UNIT (and Restart=always), and TICO_SUPERVISED=1 covers any other supervisor (the Docker
+    runner, runit)."""
+    env = os.environ
+    return bool(env.get("XPC_SERVICE_NAME", "").startswith("team.tico")
+                or env.get("TICO_SYSTEMD_UNIT", "").startswith("tico-")
+                or env.get("TICO_SUPERVISED") == "1")
+
+
+process_supervised = supervised      # CodeWatch's `supervised` argument shadows the name
 
 
 class CodeWatch:
     def __init__(self, name, every=CHECK_EVERY_S, clock=time.monotonic, head=None, supervised=None, root=None, say=log):
-        from .service import ROOT, checkout_head
-        from .service import supervised as process_supervised
         self.name, self.every, self.clock, self.say = name, every, clock, say
         self.root = root or ROOT
         self.head = head or (lambda: checkout_head(self.root))

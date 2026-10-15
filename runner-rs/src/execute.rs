@@ -1,4 +1,4 @@
-//! One claimed turn (`Runner.execute` in runner/service.py): lanes, the subscription profile, environment and
+//! One claimed turn (`Runner.execute` in the old Python runner): lanes, the subscription profile, environment and
 //! credentials, the host, the drive loop (runner-rs/src/drive.rs), a fallback harness, and the result. Events
 //! stream to the server as they arrive: a flusher posts the outbox at most every STREAM_WINDOW, where Python
 //! posts it on a 1 s tick.
@@ -551,7 +551,7 @@ impl Runner {
         servers
     }
 
-    async fn publish(&self, bot: &str, path: &Path, env: &Env) -> (&'static str, String) {
+    pub(crate) async fn publish(&self, bot: &str, path: &Path, env: &Env) -> (&'static str, String) {
         let repository = env.get(crate::gitcred::REPOSITORY_KEY).cloned().unwrap_or_default();
         if repository.is_empty() {
             return ("skipped", String::new());

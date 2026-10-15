@@ -6,7 +6,7 @@ database, workspace, subscriptions, names and Mac app. Several can run on one Ma
 single-team setup described under [the legacy default](#the-legacy-default).
 
 The reference implementation is `clients/environments.py` (create, list, show, remove),
-`scripts/tico` (services and lifecycle) and `runner/profiles.py` (subscriptions). Start from the
+`scripts/tico` (services and lifecycle) and `runner-rs/src/profiles.rs` (subscriptions). Start from the
 quick start in the [README](../README.md); this page is the contract.
 
 ## The environment directory

@@ -1,6 +1,6 @@
 //! Built-in bots (the assistant, BotOps, Librarian, Goal Manager and the starters onboarding made) follow the
 //! catalog the release ships (service.py bootstrap and refresh_product_files). This binary carries no templates:
-//! the Python runner's own code does the work, as `python -m runner --config <path> catalog` (runner/catalog_job.py),
+//! the Python helper does the work, as `python -m runner --config <path> catalog` (runner/catalog_job.py),
 //! the way side jobs run (crate::sidejobs). A bot assigned here without a repository is set up from its template
 //! before its repository is fetched; once per start of this runner, before a built-in bot's turn, the product files
 //! its template changed are brought up and committed. A failure is a log line, never a failed turn.
@@ -21,7 +21,7 @@ use crate::config::Config;
 use crate::fetchrepo::FETCH_RETRY_S;
 use crate::util::{log, text_of};
 
-/// Registrations from before the catalog carry no template: these slugs are their own (service.py BOOTSTRAP_TEMPLATES).
+/// Registrations from before the catalog carry no template: these slugs are their own (runner/catalog_job.py BOOTSTRAP_TEMPLATES).
 const BOOTSTRAP_SLUGS: &[&str] = &["coo", "botops", "librarian", "goal-manager"];
 const ASK_TIMEOUT: Duration = Duration::from_secs(300);
 

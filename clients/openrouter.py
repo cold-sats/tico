@@ -1,6 +1,6 @@
 """Catalog model id -> OpenRouter model id, for every model Tico reaches through OpenRouter.
 
-One table for the pi runtime (runner/hosts/pi.py) and the server's decision model when it falls back to
+One table for the pi runtime (runner-rs/src/hosts/pi.rs) and the server's decision model when it falls back to
 OpenRouter (backend/judge.py), so both send OpenRouter the same id. Change the right-hand side to swap a
 model; the catalog id (backend/providers.py) stays.
 """

@@ -1,6 +1,6 @@
 """One `tools:` entry (older: `access:`) of a bot.yaml, as a schema (docs/creating-bots.md, "Access and credentials").
 
-Two callers share it. The runner (`runner/declared_access.py`) reads a bot's entries and reports the
+Two callers share it. The runner (`runner-rs/src/declared_access.rs`) reads a bot's entries and reports the
 fields listed here. The server (`backend/bot_tools.py`) checks an entry a person registers for a bot
 before it asks BotOps to write it into the bot's repository, so a request can only name what the
 runner would report back. An entry holds names and verbs, never a credential: `env` is the variable's
@@ -31,7 +31,7 @@ MAX_SCOPE = 20
 SERVICE_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,59}$")
 VERB_RE = re.compile(r"^[a-z][a-z_-]{0,39}$")
 ENV_RE = re.compile(r"^[A-Z_][A-Z0-9_]{0,99}$")
-# The names a bot's turn owns; a credential may not arrive under one (runner/service.py `environment`).
+# The names a bot's turn owns; a credential may not arrive under one (runner-rs/src/env.rs).
 # The HUB_ names the runner and the `hub` command set themselves. Other HUB_ names (a team's own HUB_BUCKET) are ordinary
 # variables a bot may be granted.
 RUNNER_HUB_ENV = {"HUB_TOKEN", "HUB_API_URL", "HUB_WORKSPACE", "HUB_EMPLOYEE", "HUB_OPERATION_ID", "HUB_BOT", "HUB_DIR",

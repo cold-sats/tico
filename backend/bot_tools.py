@@ -5,7 +5,7 @@ Three sources make the list, none of them a secret. The model and harness the bo
 its stored config and the company's provider choice. Its repository comes from the bot's record. The
 rest are the `tools:` entries (older: `access:`) of its bot.yaml (older: employee.yaml), which the runner reads from the bot's checkout
 and reports on every heartbeat with whether each credential is on its computer
-(runner/declared_access.py, `bots.<bot>.tools` in the readiness report). A runner from before that
+(runner-rs/src/declared_access.rs, `bots.<bot>.tools` in the readiness report). A runner from before that
 report yields the first two only. No value ever passes through here: env is a variable's name.
 
 A person who manages a bot (`Auth.bot_manager`) can also register, change or remove a tool. The server holds no bot repository,

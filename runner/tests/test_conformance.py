@@ -1,7 +1,6 @@
-"""One contract, two engines: `python -m runner run` and the Rust `tico-runner run` (runner-rs/), each run as a
-real process against a real listening API, with fake `claude`, `codex`, `gemini`, `agy`, `muse`, `pi`, `cursor-agent` and `grok`
-executables first on PATH (runner/tests/conformance/). Every scenario runs on both engines and every harness, and checks the result
-through the server: the claim, the streamed events, the completion and its Idempotency-Keys, granted
+"""The runner's contract: the Rust `tico-runner run` (runner-rs/), run as a real process against a real listening API,
+with fake `claude`, `codex`, `gemini`, `agy`, `muse`, `pi`, `cursor-agent` and `grok` executables first on PATH
+(runner/tests/conformance/). Every scenario runs on every harness, and checks the result through the server: the claim, the streamed events, the completion and its Idempotency-Keys, granted
 credentials and their redaction, session resume, and recovery after the runner is killed mid-turn.
 
 Slow: it builds the release binary once per session (cargo) and starts runner processes."""
@@ -19,8 +18,7 @@ import pytest
 
 from backend.store import encode
 from backend.tests.test_api import api, assign, get, post, runner, settled  # noqa: F401
-from backend.tests.test_runner import live  # noqa: F401
-from clients.tico import Client
+from backend.tests.live import live  # noqa: F401
 
 pytestmark = pytest.mark.slow
 
@@ -71,10 +69,10 @@ def until(check, what, timeout=30.0):
 
 
 class Computer:
-    """One registration, its workspace, and the engine process running it."""
+    """One registration, its workspace, and the runner process running it (`python -m runner run` with `shim`)."""
 
-    def __init__(self, api, live, tmp_path, engine, harness, binary, bot=None, registration=None, git=False, env=None):
-        self.api, self.engine, self.harness, self.binary = api, engine, harness, binary
+    def __init__(self, api, live, tmp_path, harness, binary, bot=None, registration=None, git=False, env=None, shim=False):
+        self.api, self.harness, self.binary, self.shim = api, harness, binary, shim
         self.registration = runner(api)
         assign(api, self.registration, "ops")
         self.runtime = RUNTIMES.get(harness, harness)
@@ -94,7 +92,7 @@ class Computer:
         (repo / "AGENT.md").write_text("# Ops\n\nAnswer the Acme team.\n")
         (repo / "bot.yaml").write_text(f"name: ops\nruntime: {self.runtime}\nmodel: {MODELS[harness]}\n")
         if git:
-            # A checkout with an upstream, so a task can have a worktree of its own (runner/task_sessions.py).
+            # A checkout with an upstream, so a task can have a worktree of its own (runner-rs/src/sessions.rs).
             origin = tmp_path / "origin.git"
             git_env = {**os.environ, "GIT_AUTHOR_NAME": "Acme", "GIT_AUTHOR_EMAIL": "ops@acme.invalid",
                        "GIT_COMMITTER_NAME": "Acme", "GIT_COMMITTER_EMAIL": "ops@acme.invalid"}
@@ -126,15 +124,15 @@ class Computer:
         self.env = {**keep, "HOME": str(home), "CODEX_HOME": str(home / ".codex"), "TICO_UPDATE_CHECK": "off",
                     "PATH": os.pathsep.join([str(bin_dir), str(Path(sys.executable).parent), "/usr/bin", "/bin",
                                              "/usr/sbin", "/sbin"]),
-                    # `python -m runner run` is the Rust runner by default (runner/engine.py); this arm is the Python one.
-                    **({"TICO_RUNNER_ENGINE": "python"} if engine == "python" else {}), **(env or {})}
+                    **(env or {})}
         self.output = tmp_path / "runner.log"
         self.process = None
 
     def start(self):
-        command = ([str(self.binary)] if self.engine == "rust" else [sys.executable, "-m", "runner"])
+        command = ([sys.executable, "-m", "runner", "--config", str(self.config), "run"] if self.shim
+                   else [str(self.binary), "--config", str(self.config), "run"])
         with self.output.open("a") as out:
-            self.process = subprocess.Popen(command + ["--config", str(self.config), "run"], cwd=ROOT, env=self.env,
+            self.process = subprocess.Popen(command, cwd=ROOT, env=self.env,
                                             stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
         until(lambda: self.readiness().get("ops", {}).get("ready") or self.died(), "the runner's first heartbeat")
         assert not self.died(), self.output.read_text()[-3000:]
@@ -185,11 +183,6 @@ class Computer:
             return {r[0] for r in c.execute("SELECT key FROM idempotency")}
 
 
-@pytest.fixture(params=["python", "rust"])
-def engine(request):
-    return request.param
-
-
 @pytest.fixture(params=["claude", "codex", "gemini", "antigravity", "musecode", "pi", "cursor", "grok"])
 def harness(request):
     return request.param
@@ -202,11 +195,8 @@ def setup():
 
 
 @pytest.fixture
-def computer(api, live, tmp_path, engine, harness, setup, request):
-    if harness == "musecode" and engine == "python" and not (ROOT / "runner" / "hosts" / "musecode.py").exists():
-        pytest.skip("the Python runner's Muse Code host is PR #508")
-    binary = request.getfixturevalue("rust_binary") if engine == "rust" else None
-    machine = Computer(api, live, tmp_path, engine, harness, binary, **setup)
+def computer(api, live, tmp_path, harness, setup, rust_binary):
+    machine = Computer(api, live, tmp_path, harness, rust_binary, **setup)
     yield machine
     machine.stop()
 
@@ -392,7 +382,7 @@ def test_a_usage_limit_with_no_fallback_set_runs_on_another_signed_in_provider(a
                for d in diagnostics), diagnostics
 
 
-# Steering and subscription profiles are Claude Code and Codex features (runner/profiles.py, steer in drive).
+# Steering and subscription profiles are Claude Code and Codex features (runner-rs/src/profiles.rs, steer in drive).
 @pytest.mark.parametrize("harness", ["claude", "codex"])
 @pytest.mark.parametrize("setup", [{"env": {"FAKE_SLOW": "8"}}])
 def test_a_message_sent_mid_turn_is_steered_into_it_once(api, computer):
@@ -419,9 +409,8 @@ def profiled(tmp_path):
 
 
 @pytest.mark.parametrize("harness", ["claude", "codex"])
-def test_a_bot_on_a_subscription_profile_runs_in_that_profiles_home(api, live, tmp_path, engine, harness, profiled, request):
-    binary = request.getfixturevalue("rust_binary") if engine == "rust" else None
-    machine = Computer(api, live, tmp_path, engine, harness, binary,
+def test_a_bot_on_a_subscription_profile_runs_in_that_profiles_home(api, live, tmp_path, harness, profiled, rust_binary):
+    machine = Computer(api, live, tmp_path, harness, rust_binary,
                        registration={"profiles": {"acme": {"dir": str(profiled)}}, "bot_profiles": {"ops": "acme"}})
     try:
         machine.start()
@@ -582,7 +571,7 @@ def test_a_completed_turn_publishes_the_bots_report_as_a_tico_file(api, computer
 def test_python_m_runner_run_is_the_rust_runner_and_says_so_in_readiness(api, live, tmp_path, rust_binary):
     """What launchd, systemd and the image start: `python -m runner run` with no engine setting execs the Rust runner,
     which reports its engine and build, and follows the server's release (it reports one)."""
-    machine = Computer(api, live, tmp_path, "default", "claude", None, env={"TICO_RUNNER_BIN": str(rust_binary)})
+    machine = Computer(api, live, tmp_path, "claude", rust_binary, shim=True, env={"TICO_RUNNER_BIN": str(rust_binary)})
     try:
         machine.start()
         with api.app.state.store.read() as c:

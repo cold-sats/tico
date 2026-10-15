@@ -1,6 +1,6 @@
 /* ui/app/subscriptions.js — Subscriptions: the named AI logins on each computer (Settings > AI providers), the one a
    group picks, a bot's own choice, and the line under a bot's model saying which one it will use.
-   The server stores stable connection IDs and display names; the logins stay on the computers (runner/profiles.py).
+   The server stores stable connection IDs and display names; the logins stay on the computers (runner-rs/src/profiles.rs).
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
@@ -56,7 +56,7 @@ function subsComputerLabel(c) {
   if (c && typeof c === 'object') return c.label || subsComputerLabel(c.runner_id);
   return SUBS?.computers.find(x => x.runner_id === c)?.label || (SETTINGS_DATA?.machines || []).find(m => m.id === c)?.label || c || '';
 }
-// Subscription names are lowercase words joined by hyphens (runner/profiles.py): "Acme Research" becomes acme-research.
+// Subscription names are lowercase words joined by hyphens (runner-rs/src/profiles.rs): "Acme Research" becomes acme-research.
 const subsSlug = name => String(name || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
 // Assignments are keyed by group id or bot slug.
 const subsAssigned = (scope, target) => (SUBS?.assignments || []).find(x => x.scope === scope && x.target === target)?.profile || '';

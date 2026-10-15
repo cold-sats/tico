@@ -20,7 +20,7 @@ from .store import H, Problem, encode
 
 CONTEXT = {'application': 'tico-credentials'}
 # A grant to every computer, present and future: a model API key or token that signs each computer's model CLI in
-# (runner/service.py `team_model_keys`). Never a bot's: a bot still gets only what is granted to it.
+# (runner-rs/src/signin.rs `team_model_keys`). Never a bot's: a bot still gets only what is granted to it.
 COMPUTERS = 'computers'
 FILE_MIGRATION = 'credential-file-migration-v1'
 # 0.2.30 reserved every HUB_ name, so a team's own HUB_ keys (HUB_BUCKET) were left out of v1. v2 adds only those.
@@ -34,7 +34,7 @@ def model_env(name, kind, env=''):
 
 def refuse_reserved(env, stored=''):
     """A credential arrives in a bot's turn under its variable; Tico's own and the computer's names are refused, since a
-    run given one would lose it (runner/service.py `environment`). One stored under such a name before the rule is
+    run given one would lose it (runner-rs/src/env.rs). One stored under such a name before the rule is
     saved, secret and all, once the same save renames its variable."""
     from clients.access_entry import RESERVED_ENV, RESERVED_PREFIXES
     if env and (env in RESERVED_ENV or env.startswith(RESERVED_PREFIXES)):

@@ -88,8 +88,3 @@ def test_a_repository_is_found_under_bot_or_emp_and_a_new_one_is_bot(tmp_path):
         assert "emp-old" in str(exc)                                             # never a second repository beside an existing one
     else:
         raise AssertionError("an existing emp-* repository was not respected")
-
-    from runner.service import Runner
-    runner = Runner.__new__(Runner)
-    runner.config = {"projects_dir": str(workspace)}
-    assert runner.local_path("old") == workspace / "emp-old" and runner.local_path("fresh") == workspace / "bot-fresh"

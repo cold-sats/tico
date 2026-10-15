@@ -541,7 +541,7 @@ The `.codex` folder in the volume belongs to `bot`, is group-writable and setgid
 readable by the runner's group, so a `codex login` you run yourself as `bot` works too.
 
 Check with **Settings > Bots**, or
-`docker exec '<container-name>' python -m runner --config /home/runner/runner.json doctor`.
+`docker exec '<container-name>' tico-runner --config /home/runner/runner.json doctor`.
 
 To write the compose setup by hand instead of using the installer, copy `docker/runner.compose.yaml` from the release
 to the computer, write a `.env` next to it with `TICO_URL=https://tico.example.com`, `TICO_CODE=<code>`,

@@ -18,7 +18,7 @@ from backend.file_delivery import byte_range
 from backend.store import Problem
 from backend.tests.test_api import api, headers, post  # noqa: F401
 from backend.tests.test_files import turn
-from backend.tests.test_runner import live  # noqa: F401
+from backend.tests.live import live  # noqa: F401
 from clients.tico import MultipartBody
 
 

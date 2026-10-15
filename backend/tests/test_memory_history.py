@@ -1,11 +1,6 @@
 """Learnings history: a computer reports memory commits; readers see them, a source only when they may read it."""
 
-import json
-import subprocess
-
 from backend.tests.test_api import api, assign, claim, headers, post, ready, runner  # noqa: F401  (fixtures)
-from runner import memory_history
-from runner.state import State
 
 SHA = "a" * 40
 
@@ -55,40 +50,3 @@ def test_only_the_assigned_computer_reports_and_runs_must_be_the_bots_own(api):
     post(api, "bots/ops/memory/report", {"commits": [commit("b" * 40, attempt="not-a-run")]}, machine["token"])
     rows = history(api, "ben-test")["updates"]
     assert [r["sha"] for r in rows] == ["b" * 40] and rows[0]["source"] is None
-
-
-def test_the_runner_reads_memory_commits_and_sends_a_diff_only_once_shared(tmp_path):
-    origin, root = tmp_path / "origin.git", tmp_path / "bot"
-    git = lambda *a, cwd=root: subprocess.run(["git", *a], cwd=cwd, check=True, capture_output=True, text=True)
-    subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True)
-    subprocess.run(["git", "clone", "-q", str(origin), str(root)], check=True, capture_output=True)
-    git("config", "user.email", "ops@acme.example"); git("config", "user.name", "ops")
-    (root / "AGENT.md").write_text("# ops\n"); git("add", "."); git("commit", "-qm", "Start")
-    (root / "memory").mkdir(); (root / "memory/learnings.md").write_text("- Check the live PR\n")
-    git("add", "."); git("commit", "-qm", "Learn to check the live PR", "-m", "Tico-Run: run-1")
-    git("push", "-qu", "origin", "HEAD")
-    (root / "memory/decisions.md").write_text("- Ship on Fridays\n")
-    git("add", "."); git("commit", "-qm", "Decide on Fridays")
-
-    class Fake:
-        sent = []
-        state = State(tmp_path / "state")
-        class client:
-            @staticmethod
-            def post(path, body, key=None):
-                Fake.sent.append(body)
-    assert memory_history.report(Fake, "ops", root) == 2
-    rows = {r["subject"]: r for r in Fake.sent[0]["commits"]}
-    assert rows["Learn to check the live PR"]["attempt"] == "run-1" and rows["Learn to check the live PR"]["diff"]
-    assert not rows["Decide on Fridays"]["shared"] and rows["Decide on Fridays"]["diff"] == ""
-    # Documents come from the shared repository: the unpushed decision and an uncommitted secret stay here.
-    (root / "memory/learnings.md").write_text("- Check the live PR\n- token sk-live-123\n")
-    assert Fake.sent[0]["documents"] == {"memory/learnings.md": "- Check the live PR\n"}
-    assert memory_history.report(Fake, "ops", root) == 0            # nothing new
-    git("checkout", "--", "memory/learnings.md")
-    git("push", "-q")
-    assert memory_history.report(Fake, "ops", root) == 1            # now shared, with its diff
-    assert Fake.sent[-1]["commits"][0]["diff"] and Fake.sent[-1]["commits"][0]["shared"]
-    assert Fake.sent[-1]["documents"] == {"memory/decisions.md": "- Ship on Fridays\n"}
-    assert "sk-live" not in json.dumps(Fake.sent)
-

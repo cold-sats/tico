@@ -21,7 +21,7 @@ on someone or something else, the bot says "Waiting on: <what>" and stops, and t
 Paused with that line. A reply, a task answer, a watcher or a routine wakes the bot; Resume
 starts the goal again. A goal the harness keeps sending back to work with no person writing in
 between (30 "not met" verdicts from Claude Code's judge, or 100 Codex continuation turns:
-`MAX_GOAL_TRIES` and `MAX_CODEX_GOAL_TRIES` in `runner/goals.py`) is paused and cleared in the
+`MAX_GOAL_TRIES` and `MAX_CODEX_GOAL_TRIES` in `runner-rs/src/goals.rs`) is paused and cleared in the
 harness, and the bot's reply ends with "Goal paused after N tries without progress: <last reason>".
 Codex's `blocked` status also shows as Paused.
 

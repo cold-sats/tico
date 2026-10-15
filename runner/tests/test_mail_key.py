@@ -109,21 +109,6 @@ def test_the_connectors_job_writes_group_writable_files_only_in_the_two_user_lay
     assert mail_umask() == {}
 
 
-def test_every_isolated_turn_is_pointed_at_the_socket_and_a_plain_runner_is_not():
-    from types import SimpleNamespace
-    from runner.service import Runner as Service
-    registered = []
-    socket = SimpleNamespace(path="/run/tico-runner/git-credential.sock",
-                             register=lambda token, bot, boxes: registered.append((token, bot, list(boxes))))
-    for boxes in ([], ["ana@acme.team"]):
-        env = {}
-        arm = Service.arm_credentials(SimpleNamespace(credentials=socket), env, {"token": "t", "mailboxes": boxes}, "bot")
-        assert arm == socket.path and env[C.SOCKET_ENV] == socket.path
-    assert registered == [("t", "bot", []), ("t", "bot", ["ana@acme.team"])]
-    env = {}
-    assert Service.arm_credentials(SimpleNamespace(credentials=None), env, {"token": "t"}, "bot") is None and env == {}
-
-
 def previous_registration(tmp_path):
     import json
     config = {"runner_id": "new", "operator": "ana", "url": "https://tico.example.com", "environment": "team"}
@@ -229,24 +214,3 @@ def test_reenrollment_never_imports_another_operators_key(tmp_path, monkeypatch,
         monkeypatch.setattr(Path, "lstat", different_volume)
     assert not mail_key.carry_protected(config, tmp_path / "runner.json")
     assert not (tmp_path / "state-new" / mail_key.FILE).exists()
-
-
-def test_enrollment_recovers_the_previous_registrations_protected_key(tmp_path, monkeypatch):
-    import json
-    from types import SimpleNamespace
-    from runner import __main__ as cli
-    config, old = previous_registration(tmp_path)
-    monkeypatch.setattr(cli, "Client", lambda *args: SimpleNamespace(post=lambda *args: {
-        "runner_id": "new", "operator": "ana", "token": "test-registration"}))
-    code = tmp_path / "code.json"
-    code.write_text(json.dumps({"code": "test-code"}))
-    cli.main(["--config", str(tmp_path / "runner.json"), "enroll", "--url", config["url"],
-              "--code-file", str(code), "--label", "Mail Computer", "--projects", str(tmp_path / "workspace"),
-              "--environment", "team"])
-    assert (tmp_path / "state-new" / mail_key.FILE).read_bytes() == old.read_bytes()
-    (tmp_path / "state-new" / mail_key.FILE).unlink()
-    monkeypatch.setattr(cli, "Client", lambda *args: SimpleNamespace(get=lambda *args: []))
-    cli.main(["--config", str(tmp_path / "runner.json"), "status"])
-    assert not (tmp_path / "state-new" / mail_key.FILE).exists() and old.exists()
-
-

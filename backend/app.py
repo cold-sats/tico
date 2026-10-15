@@ -4747,7 +4747,7 @@ def create_app(settings=None):
     from .events import install as install_events, install_runner as install_runner_events
     install_events(app, store, auth, task_views, task_view)
     app.state.task_view = task_view         # for the events' read in tests (backend/tests/test_payload_budgets.py)
-    # And one for each computer, in place of its polls (runner/runner_events.py).
+    # And one for each computer, in place of its polls (runner-rs/src/events.rs).
     install_runner_events(app, store, execution)
 
     from .views import install_views
