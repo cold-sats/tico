@@ -62,6 +62,9 @@ pub struct Runner {
     restart: Mutex<Option<Instant>>,
     /// A restart was asked for on a runner nothing would start again: said once.
     restart_refused: AtomicBool,
+    /// When the container was told to stop (`docker stop`, a host update): no new claims, the running turns
+    /// finish, then the runner exits; a turn still going after STOP_DRAIN_S is interrupted (fn shut_down).
+    shutdown: Mutex<Option<Instant>>,
     /// Persistent Antigravity processes kept between a conversation's turns.
     pub warm: crate::warm::WarmSessions,
     /// What each bot's bot.yaml adds: tools, MCP servers, watchers, memory history (crate::perbot).
@@ -129,6 +132,7 @@ impl Runner {
             beat: Mutex::new(None),
             restart: Mutex::new(None),
             restart_refused: AtomicBool::new(false),
+            shutdown: Mutex::new(None),
             warm: crate::warm::WarmSessions::new(state.directory.join("antigravity"), capacity.max(8)),
             state,
             perbot: crate::perbot::PerBot::default(),
@@ -137,6 +141,19 @@ impl Runner {
 
     pub fn stopping(&self) -> bool {
         self.stop.load(Ordering::SeqCst)
+    }
+
+    /// A stop that lets the running turns finish (a container's SIGTERM, whose grace is 15 minutes). A second
+    /// stop, or SIGINT, stops at once.
+    pub fn shut_down(&self) {
+        let mut at = self.shutdown.lock().unwrap();
+        if at.is_none() {
+            *at = Some(Instant::now());
+            log("Tico runner: stopping; taking no new work and letting the running turns finish");
+        } else {
+            self.stop.store(true, Ordering::SeqCst);
+        }
+        self.events.wake.notify_one();
     }
 
     /// GET config's names, kept once read; a failure keeps the defaults and asks again next turn.
@@ -445,6 +462,16 @@ fn supervised() -> bool {
 /// A restart a person asked for keeps claiming this long, exiting the moment no turn runs; then it stops claiming.
 const RESTART_DRAIN_S: u64 = 20 * 60;
 
+/// How long a stopping container's turns may run on; under compose's 15-minute stop_grace_period, so the runner
+/// interrupts them itself (and says so) before Docker kills it.
+const STOP_DRAIN_S: u64 = 14 * 60;
+
+/// Whether the platform's stop should drain rather than interrupt: a Docker runner, whose compose file gives it
+/// 15 minutes. A Mac app or launchd stop keeps stopping at once.
+pub fn drains_on_stop() -> bool {
+    std::env::var("TICO_RUNNER_KIND").as_deref() == Ok("docker") || std::env::var("TICO_STOP_DRAIN").as_deref() == Ok("1")
+}
+
 /// Whether a restart asked for at `asked` has stopped this runner claiming (service.py SELF_UPDATE_DRAIN_S).
 fn drained(asked: Option<Instant>, now: Instant) -> bool {
     asked.is_some_and(|at| now.saturating_duration_since(at) >= Duration::from_secs(RESTART_DRAIN_S))
@@ -571,6 +598,15 @@ impl Runner {
                     (2f64.powi(failures.min(5) as i32)).min(30.0)
                 }
             };
+            let shutdown = *self.shutdown.lock().unwrap();
+            if shutdown.is_some() && workers.is_empty() {
+                log("Tico runner: no turn running; stopping");
+                break;
+            }
+            if shutdown.is_some_and(|at| at.elapsed() >= Duration::from_secs(STOP_DRAIN_S)) {
+                log("Tico runner: turns still running at the stop deadline; interrupting them");
+                break;
+            }
             if self.restart.lock().unwrap().is_some() && workers.is_empty() {
                 log("Tico runner: no turn running; exiting so the supervisor starts the runner again");
                 break;
@@ -645,6 +681,9 @@ impl Runner {
             }
         }
         crate::relays::poll(self);
+        if self.shutdown.lock().unwrap().is_some() {
+            return Ok(()); // stopping: the running turns finish, nothing new starts
+        }
         if drained(*self.restart.lock().unwrap(), Instant::now()) {
             return Ok(()); // asked for a restart a while ago: no new work, so the running turns finish
         }
