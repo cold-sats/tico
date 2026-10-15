@@ -16,6 +16,7 @@ mod events;
 mod drive;
 mod execute;
 mod fallback;
+mod follow;
 mod fetchrepo;
 mod gitrun;
 #[cfg(test)]
@@ -222,6 +223,8 @@ async fn start(command: Command, config: config::Config) -> i32 {
     }
     let _lock = lock::acquire(&state_dir.join("runner.lock")).unwrap_or_else(|e| fail(&e));
     let state = state::State::open(&state_dir).unwrap_or_else(|e| fail(&e));
+    follow::record_revision(&state_dir);
+    follow::init(&config.data, &state_dir);
     if isolation::enabled() {
         // Sign-ins a person ran as root (`docker exec`) go to the bot user, who runs the harnesses.
         let home = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default());
@@ -235,7 +238,7 @@ async fn start(command: Command, config: config::Config) -> i32 {
                 util::log(&format!("Tico runner: {line}; this runner does not do that yet"));
             }
             drop(_lock);
-            if let Some(why) = python_fallback() {
+            if let Some(why) = python_fallback(&lines.join("; ")) {
                 util::log(&format!("Tico runner: could not hand this computer to the Python runner ({why})"));
             }
             util::log("Tico runner: not starting: run this computer on the Python runner (python -m runner run) until those bots move or the Rust runner supports them");
@@ -271,15 +274,16 @@ async fn start(command: Command, config: config::Config) -> i32 {
 }
 
 /// Started through `python -m runner run` (runner/engine.py): hand the process back to that Python runner,
-/// switched to its own engine for this start. Returns only on failure, with why; None when not started so.
-fn python_fallback() -> Option<String> {
+/// which stays on its own engine for this start and reports `needs` as why. Returns only on failure, with why;
+/// None when not started so.
+fn python_fallback(needs: &str) -> Option<String> {
     use std::os::unix::process::CommandExt;
     let argv: Vec<String> = serde_json::from_str(&std::env::var("TICO_RUNNER_PYTHON_ARGV").ok()?).ok()?;
     let (program, args) = argv.split_first()?;
     util::log("Tico runner: running this computer on the Python runner instead");
     let err = std::process::Command::new(program)
         .args(args)
-        .env("TICO_RUNNER_ENGINE", "python")
+        .env("TICO_RUNNER_ENGINE_FALLBACK", format!("the Rust runner does not run this yet: {needs}"))
         .env_remove("TICO_RUNNER_PYTHON_ARGV")
         .exec();
     Some(err.to_string())

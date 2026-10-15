@@ -125,7 +125,9 @@ class Computer:
         keep = {k: v for k, v in os.environ.items() if k in ("LANG", "LC_ALL", "TMPDIR", "USER", "LOGNAME")}
         self.env = {**keep, "HOME": str(home), "CODEX_HOME": str(home / ".codex"), "TICO_UPDATE_CHECK": "off",
                     "PATH": os.pathsep.join([str(bin_dir), str(Path(sys.executable).parent), "/usr/bin", "/bin",
-                                             "/usr/sbin", "/sbin"]), **(env or {})}
+                                             "/usr/sbin", "/sbin"]),
+                    # `python -m runner run` is the Rust runner by default (runner/engine.py); this arm is the Python one.
+                    **({"TICO_RUNNER_ENGINE": "python"} if engine == "python" else {}), **(env or {})}
         self.output = tmp_path / "runner.log"
         self.process = None
 
@@ -575,6 +577,22 @@ def test_a_completed_turn_publishes_the_bots_report_as_a_tico_file(api, computer
         with api.app.state.store.read() as c:
             return [tuple(r) for r in c.execute("SELECT title, kind FROM bot_files WHERE bot='ops'")]
     assert until(published, "the published file") == [("acme.md", "document")]
+
+
+def test_python_m_runner_run_is_the_rust_runner_and_says_so_in_readiness(api, live, tmp_path, rust_binary):
+    """What launchd, systemd and the image start: `python -m runner run` with no engine setting execs the Rust runner,
+    which reports its engine and build, and follows the server's release (it reports one)."""
+    machine = Computer(api, live, tmp_path, "default", "claude", None, env={"TICO_RUNNER_BIN": str(rust_binary)})
+    try:
+        machine.start()
+        with api.app.state.store.read() as c:
+            row = c.execute("SELECT readiness_json FROM runners WHERE id=?", (machine.registration["runner_id"],)).fetchone()
+        from runner.engine import source_id
+        reported = json.loads(row[0])["engine"]
+        assert (reported["name"], reported["build"]) == ("rust", source_id(ROOT))
+        assert "Tico runner 0" in machine.output.read_text() and "(rust) started" in machine.output.read_text()
+    finally:
+        machine.stop()
 
 
 @pytest.mark.parametrize("harness", ["grok"])

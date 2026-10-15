@@ -62,6 +62,7 @@ def _computers(c, runners_online, settings):
                      "disk": document.get("disk"),
                      "operator": r["operator"], "container_exec": document.get("container_exec"),
                      "github_auth": document.get("github_auth"), "browser_launch": document.get("browser_launch"),
+                     "engine": document.get("engine"),
                      # Only what the company or an assigned bot uses, or what is installed anyway: the
                      # other harnesses are not this computer's business, so they are not listed.
                      "runtimes": [{"name": n, "installed": bool(v.get("installed")),
@@ -1154,6 +1155,13 @@ def view(c, who, settings, auth, github, config):
                 checks.append(_check("container_exec:" + computer["id"], "Containers", "warn",
                                      f"{computer['label']} ({computer['operator']}): containers do not start "
                                      f"({container.get('error') or 'failed'}). Restart Docker there; bot container work stalls until then.",
+                                     [_fix("Open Computers", "#/settings", "devices")]))
+            engine = computer.get("engine") or {}
+            if computer["online"] and engine.get("name") == "python":
+                checks.append(_check("engine:" + computer["id"], "Runner", "warn",
+                                     f"{computer['label']} runs the Python runner"
+                                     + (f" ({engine['note']})" if engine.get("note") else "")
+                                     + ". It is removed in the next release.",
                                      [_fix("Open Computers", "#/settings", "devices")]))
             if computer["online"] and (computer.get("github_auth") or {}).get("ok") is False:
                 checks.append(_check("github_auth:" + computer["id"], "GitHub sign-in", "warn",

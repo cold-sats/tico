@@ -212,6 +212,25 @@ TICO_TAG=vX.Y.Z                         # the release running now
 
 and run `docker compose up -d`. From then on the updater moves `TICO_TAG`.
 
+## The runner engine
+
+Every computer runs the Rust runner (`tico-runner`, from `runner-rs/`). The launchd job, the systemd unit and the
+Docker image still start `python -m runner run`, which hands the process to the Rust binary at once:
+
+- **Docker:** the image ships the binary (`/usr/local/bin/tico-runner`), built from the same tree.
+- **Mac or Linux checkout:** a checkout on a release tag downloads that release's `tico-runner-<os>-<arch>.gz` from
+  GitHub, checked against the release's `tico-runner-SHA256SUMS`, into `runner-rs/target/dist/`. Any other checkout
+  with `cargo` on PATH builds it in the background (`cargo build --release`). An update to a new release downloads
+  the new binary when the runner restarts on it; a rollback finds the old one still there.
+
+A binary is only run when it was built from this checkout's `runner-rs` sources. When there is none, it does not
+start, or a bot here uses a model CLI the Rust runner does not drive yet, the computer runs the Python runner instead,
+logs why, and Health says so ("runs the Python runner"). It switches to Rust by itself once the binary is there.
+Settings > Computers shows **Rust** or **Python** after the version.
+
+The Python runner is deprecated and is removed in the next release. Until then `"engine": "python"` in `runner.json`,
+or `TICO_RUNNER_ENGINE=python` in the job's environment, keeps it.
+
 ## A Docker runner
 
 The runner computer's `docker/runner.compose.yaml` has an `updater` sidecar, the same image and code as the server's

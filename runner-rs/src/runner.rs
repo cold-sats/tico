@@ -274,6 +274,12 @@ impl Runner {
             "agent_instructions": agent_instructions,
         });
         crate::readiness_extra::extend(&mut body["readiness"], &runtimes, &checks, &notes, &self.client, hosted).await;
+        if let Some(follower) = crate::follow::shared() {
+            // The server's release (the stream's word, else asked), and where this runner stands on it.
+            let said = self.events.release.lock().unwrap().clone().filter(|r| !full && r.is_string()).map(|r| text_of(&r));
+            follower.poll(&self.client, said).await;
+            follower.fields(&mut body);
+        }
         if !crate::lanes::held_back("profiles") {
             let rejected = |runtime: &str, name: &str| {
                 let profile = crate::profiles::select(&self.config.data, None, Some(name));
@@ -312,6 +318,11 @@ impl Runner {
                         // An older server refused an optional readiness field: it is left out for ten minutes.
                         crate::lanes::hold_back(&crate::readiness_extra::refused(&e.detail, &body["readiness"]).unwrap_or_default());
                         crate::readiness_extra::drop_held(&mut body);
+                    }
+                    Err(e) if e.status == 422 && tries < 12 && body.get("commit").is_some() && e.detail.contains("body.commit") => {
+                        // A server rolled back since it said it takes the commit: it waits for `runners/desired` to say so again.
+                        body.as_object_mut().unwrap().remove("commit");
+                        crate::follow::shared().inspect(|f| f.drop_commit());
                     }
                     Err(e) if e.status == 422 && tries < 12 && capacity_refused(&e.detail) && body["capacity"].as_u64().unwrap_or(0) > 32 => {
                         // A server from before larger capacities accepts at most 32 and never hands out more turns
@@ -624,6 +635,11 @@ impl Runner {
         crate::relays::poll(self);
         if drained(*self.restart.lock().unwrap(), Instant::now()) {
             return Ok(()); // asked for a restart a while ago: no new work, so the running turns finish
+        }
+        if let Some(follower) = crate::follow::shared() {
+            if follower.blocks_claims(!workers.is_empty()).await {
+                return Ok(()); // an update is due or under way: the updater restarts this runner once nothing runs
+            }
         }
         // Programs bots declare in `watchers:` (crate::watchers); a failure is logged and never stops the runner.
         let assignments = self.assignments.lock().unwrap().clone();
