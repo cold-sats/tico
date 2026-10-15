@@ -268,6 +268,9 @@ impl Runner {
         if crate::mail_key::status(&self.config) == Some("exposed") {
             readiness_doc["mail_key"] = json!("exposed"); // Health warns while bots can read the company's mail key
         }
+        if let Some(screen) = crate::screen::readiness() {
+            readiness_doc["screen"] = screen; // only while turned on here (crate::screen)
+        }
         let mut body = json!({
             "version": RUNNER_VERSION,
             "platform": platform(),

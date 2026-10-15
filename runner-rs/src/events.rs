@@ -34,6 +34,7 @@ pub fn channels(kind: &str) -> &'static [&'static str] {
         "harness_actions" => &["harness"],
         "credential_imports" => &["imports"],
         "subscription_refresh" => &["refresh"],
+        "screen_open" => &[], // crate::screen polls its sessions at once
         _ => ALL,
     }
 }
@@ -227,9 +228,13 @@ impl Events {
                 if kind == "work" {
                     mark("heard", "-");
                 }
+                if kind == "screen_open" {
+                    crate::screen::heard();
+                }
                 self.ask(channels(kind));
             }
             "reset" => self.ask(ALL),
+            "screen_open" => crate::screen::heard(),
             _ => {}
         }
         if let Some(id) = ident.filter(|i| !i.is_empty()) {

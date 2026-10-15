@@ -61,7 +61,8 @@ pub fn hold_back(name: &str) {
 
 /// The capabilities this heartbeat advertises.
 pub fn capabilities() -> Vec<&'static str> {
-    CAPABILITIES.iter().copied().filter(|c| !held_back(c)).collect()
+    let screen = crate::screen::offers(crate::screen::readiness().as_ref()).then_some(crate::screen::CAPABILITY);
+    CAPABILITIES.iter().copied().chain(screen).filter(|c| !held_back(c)).collect()
 }
 
 /// Root-level heartbeat fields an older server may refuse; each is left out for ten minutes after a refusal.
@@ -88,7 +89,7 @@ pub fn refused_field(detail: &str, body: &Value) -> Option<String> {
     }
     let caps: Vec<String> = rows(body, "capabilities").map(text_of).collect();
     if detail.contains("capabilities") {
-        for name in ["task_goals_v1", "session_roots_v1", "task_lanes_v2"] {
+        for name in [crate::screen::CAPABILITY, "task_goals_v1", "session_roots_v1", "task_lanes_v2"] {
             if caps.iter().any(|c| c == name) {
                 return Some(name.into());
             }

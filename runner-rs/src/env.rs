@@ -235,6 +235,10 @@ pub async fn environment_with(ctx: &EnvContext<'_>, attempt: &Value, vault: &mut
     ] {
         env.insert(k.to_string(), v);
     }
+    // Headed browsers and computer use draw on the computer's screen, where people can watch (crate::screen).
+    if let Some(display) = crate::screen::display() {
+        env.insert("DISPLAY".into(), display.into());
+    }
     // A bot's commits carry the bot's name, never the person whose computer runs it.
     let name = attempt["config"]["display_name"].as_str().filter(|n| !n.is_empty()).unwrap_or(bot).to_string();
     for role in ["AUTHOR", "COMMITTER"] {

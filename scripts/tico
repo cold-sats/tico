@@ -7,6 +7,7 @@
 #        scripts/tico env create|list|show|remove ...          the companies on this Mac
 #        scripts/tico -e ENV enroll --code-file F --label L    register this Mac for one company
 #        scripts/tico -e ENV profile add|list|login|assign     the subscriptions its bots run on
+#        scripts/tico [-e ENV] screen on|off|status            offer this computer's screen to the web app (Linux)
 #        scripts/tico -e ENV bot create SLUG --name "Display" [--template T]  a catalog template
 #                                                              or employee-repo (the default)
 #        scripts/tico -e ENV server install|uninstall|start|stop|restart|status|logs
@@ -52,7 +53,7 @@ runner_bin() { engine path 2>/dev/null || { engine prepare >&2 && engine path; }
 # The runner's own commands go to the Rust runner; the side jobs and their doctors stay Python.
 runner() {
   case "$1" in
-    enroll|profile|status|doctor|adopt)
+    enroll|profile|status|doctor|adopt|screen)
       local bin
       bin="$(runner_bin)" || { echo "no Rust runner for this checkout (see above)" >&2; return 1; }
       (cd "$HUB" && TICO_ROOT="$HUB" TICO_RUNNER_PYTHON="$PYTHON" "$bin" --config "$CONFIG" "$@") ;;
@@ -62,7 +63,7 @@ runner() {
 json_field() { "$PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$1" "$2"; }
 config_field() { json_field "$CONFIG" "$1"; }
 env_field() { json_field "$ENV_DIR/environment.json" "$1"; }
-usage() { sed -n '2,14p' "$SELF"; }
+usage() { sed -n '2,15p' "$SELF"; }
 UNIT_DIR="${TICO_SYSTEMD_USER_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user}"
 
 if [ -n "$ENV_SLUG" ]; then
@@ -502,6 +503,11 @@ case "${1:-help}" in
     require_setup
     shift
     runner profile "$@"
+    ;;
+  screen)
+    require_setup
+    shift
+    runner screen "$@"
     ;;
   bot)
     require_environment bot
