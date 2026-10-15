@@ -812,7 +812,8 @@ def task_type_delete(api, args):
 @tool("hub_task_comment", "Leave a comment on a task: progress, a question for the people on it, "
       "a link to what you found. It is on the record with your name; it is not a chat.",
       {"id": TASK_ID, "text": _s("The comment"), "ask": ASK_SCHEMA,
-       "attachments": {"type": "array", "items": {"type": "string"}, "description": "File versions as file_id@version"},
+       "attachments": {"type": "array", "items": {"type": "string"}, "description": "File versions as file_id@version: on this task, or (a person) a chat file "
+                       "you can open as its id@1, which the comment shares to the task"},
        "on_behalf_of": ASKED},
       required=("id", "text"), writes=True)
 def task_comment(api, args):

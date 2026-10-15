@@ -347,7 +347,7 @@ def run(args, who=None):
         if sub == "comment":
             from clients.task_review import ask_from_args, attachment
             ask = ask_from_args(args)
-            references = []
+            references = list(getattr(args, "file", None) or [])
             for index, path in enumerate(getattr(args, "attach", None) or []):
                 made = post(f"tasks/{args.id}/files", attachment(path), suffix=f":attachment:{index}")
                 references.append(f"{made['file_id']}@{made['version']}")

@@ -831,6 +831,8 @@ def parser():
     s.add_argument("id")
     s.add_argument("text")
     s.add_argument("--attach", action="append", help="file to attach; repeat for more files")
+    s.add_argument("--file", action="append", metavar="ID@VERSION",
+                   help="a file already in Tico: one on this task, or (a person) a chat file you can open, as ID@1")
     choices = s.add_mutually_exclusive_group()
     choices.add_argument("--ask", help="JSON file containing structured questions")
     choices.add_argument("--choices", help="comma-separated option labels")
