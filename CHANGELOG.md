@@ -11,6 +11,9 @@ All notable changes to Tico are recorded here. The format follows
 - The Health Monitor no longer reports "A runner keeps losing its event stream" because the server restarted. A
   server start (a deploy or an update) ends every runner's stream at once, and each drop was counted twice. The check
   now counts each drop once and leaves out drops from 5 minutes before to 2 minutes after a server start.
+- The updates manual describes how a computer waits to update as the runner does it: it keeps taking work for 20
+  minutes, then takes none until every running turn ends, updates once idle and never interrupts a turn. A Docker
+  runner waits the same way. It said the runner stopped taking work at once, and gave a Docker runner no limit.
 - A task worktree whose restore or prepare failed no longer stays failed after its setup succeeds. Health and
   the Health Monitor kept reporting the old error (for example "Restore path already exists and is not a
   worktree") on a worktree acknowledged ready, so its finding never cleared. A ready acknowledgement now
