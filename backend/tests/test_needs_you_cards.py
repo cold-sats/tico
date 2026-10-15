@@ -1,6 +1,8 @@
 """Needs you cards say what they approve, lead with what is due, carry the group they belong in and the bot's
 recommendation, show one card per blocker, and the list says how many items went away on their own this week."""
 
+import json
+
 from backend import batch, views
 from backend import hubdb as H
 from backend.tests.test_api import api, get, post, setup_attempt  # noqa: F401
@@ -102,6 +104,22 @@ def test_do_what_you_recommend_answers_and_closes_the_card(api):
         assert said["body"] == "Yes, do what you recommend: Go with Apollo"
         assert not H.task(c, tool["id"])["waiting_on"]
     post(api, "needs-you/recommended", {"ask": asked["id"]}, expected=409)        # once
+
+
+def test_do_what_you_recommend_answers_a_question_on_a_file_version(api):
+    _, _, finance = setup_attempt(api, "finance")
+    plan = post(api, "tasks", {"title": "Review the payroll plan", "body": "x", "owner": "bot:finance"})
+    question = {"questions": [{"id": "verdict", "header": "Review", "question": "Ship it?", "other": False,
+                               "options": [{"label": "Approve"}, {"label": "Request changes"}]}], "who": "ana"}
+    made = post(api, f"tasks/{plan['id']}/files", {"name": "plan.md", "text": "# Plan", "ask": question},
+                token=finance["token"])
+    with api.app.state.store.transaction() as c:
+        ask_id = c.execute("SELECT ask_message_id FROM task_file_reviews WHERE file_id=?", (made["file_id"],)).fetchone()[0]
+        asked = H.message(c, ask_id)
+        c.execute("UPDATE messages SET refs_json=?, to_actor='human:ana' WHERE id=?",
+                  (json.dumps({**asked["refs"], "if_no_answer": {"do": "Approve", "kind": "reversible"}}), ask_id))
+    post(api, "needs-you/recommended", {"ask": ask_id})
+    assert get(api, f"tasks/{plan['id']}/answers")["answers"][0]["answers"] == {"verdict": ["Approve"]}
 
 
 def test_a_side_question_on_a_persons_task_is_answered_not_finished(api):

@@ -105,6 +105,15 @@ def test_choice_keeps_an_explicit_fallback_honours_off_and_skips_the_primary():
     assert default_fallback(config, CHOICES, lambda runtime, profile="": runtime == "codex") is None
 
 
+def test_a_key_only_provider_is_skipped_unless_the_turn_carries_its_key():
+    ready = lambda runtime, profile="": True
+    choices = [{"runtime": "pi", "harness": "pi", "model": "p"}, {"runtime": "gemini", "harness": "antigravity", "model": "g"}]
+    config = {"runtime": "claude", "harness": "claude"}
+    assert default_fallback(config, choices, ready)["harness"] == "antigravity"
+    assert default_fallback(config, choices, ready, env={"OPENROUTER_API_KEY": "or-key"})["harness"] == "pi"
+    assert default_fallback(config, [{"runtime": "gemini", "model": "g"}], ready, env={"OPENROUTER_API_KEY": "k"}) is None
+
+
 def test_a_bots_own_fallback_on_a_limit_sends_no_new_field_to_an_older_server(execution, monkeypatch):
     runner, client = execution
     work = claude_bot()

@@ -89,6 +89,8 @@ BOOTSTRAP_TEMPLATES = {"coo": "assistant", "botops": "botops", "librarian": "lib
 OWN_INTERRUPT = ("Lease expired", "Execution interrupted after stop")
 FALLBACK_RUNTIME = {"antigravity": "gemini", "gemini": "gemini", "codex": "codex",
                     "claude": "claude", "grok": "grok", "pi": "pi", "cursor": "cursor", "musecode": "musecode"}
+# The key a harness signs in with from the bot's own grant, not a login on the computer.
+BOT_KEY = {"gemini": ("GEMINI_API_KEY",), "pi": ("OPENROUTER_API_KEY",)}
 PI_MODELS = sorted(PI_HOST_MODELS)
 CURSOR_MODELS = sorted(CURSOR_HOST_MODELS)
 MUSE_MODELS = sorted(MUSE_HOST_MODELS)
@@ -163,12 +165,13 @@ def configured_fallback(config):
             or (config or {}).get("reasoning_effort")}
 
 
-def default_fallback(config, choices, ready, profile=""):
+def default_fallback(config, choices, ready, profile="", env=None):
     """Where a turn goes when the bot's own subscription hit its limit and it names no fallback:
     the first of the company's providers (`choices`, from GET /api/v2/config `fallback_models`)
     on another runtime that `ready(runtime, profile)` says is signed in here. None when the bot
     named a fallback (its own choice stands), turned it off (`fallback: {off: true}`), or no
-    other runtime is ready, so the turn is limited as before."""
+    other runtime is ready, so the turn is limited as before. A harness signed in by the bot's
+    own key is skipped unless the turn's `env` carries that key."""
     config = config or {}
     fallback = config.get("fallback")
     if isinstance(fallback, dict) and (fallback.get("off") or fallback.get("harness")):
@@ -178,6 +181,8 @@ def default_fallback(config, choices, ready, profile=""):
         if not runtime or not model or runtime == config.get("runtime") or not ready(runtime, profile):
             continue
         harness = str(row.get("harness") or runtime)
+        if not all(str((env or {}).get(key) or "").strip() for key in BOT_KEY.get(harness, ())):
+            continue
         return {"harness": harness, "runtime": FALLBACK_RUNTIME.get(harness, runtime), "model": model,
                 "reasoning_effort": config.get("reasoning_effort"), "default": True}
     return None
@@ -3163,7 +3168,7 @@ class Runner:
                 # Out of quota with no fallback of its own: another provider signed in on this computer
                 # runs the turn once (Settings > AI providers can turn this off for the company).
                 hop = default_fallback(config, self.default_fallbacks(), self.fallback_ready,
-                                       attempt.get("profile") or "")
+                                       attempt.get("profile") or "", base_env)
             # Only a server that sent `fallback_models` knows the field (an older one refuses unknown fields).
             hit_limit = limited
             primary_limited = bool(hop and limited and hop.get("default"))

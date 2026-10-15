@@ -136,6 +136,28 @@ def test_with_the_rule_off_a_report_is_an_approval_and_nothing_leaves(environmen
     assert hq.seen == []
 
 
+def test_a_repeat_goes_on_the_ticket_of_the_person_who_approved_it(environment, hq):
+    api, runner = built(environment)
+    api.post("/api/v2/health-monitor/turn-on", json={}, headers=signed_in())
+    api.put("/api/v2/access/rules", json={"health_monitor_reports": False}, headers=signed_in())
+    runner_errors(api, runner, STREAM)
+    scan(api)
+    url, bot = f"/api/v2/health-monitor/findings/event_stream:{runner['runner_id']}/report", as_monitor(api)
+    approval = api.post(url, json={}, headers=bot).json()["approval"]
+    as_person(api, "riley")
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE approvals SET decision='approved', decided_by='human:riley' WHERE id=?", (approval,))
+    api.app.state.support.file_approved(Identity("bot:" + health_monitor.SLUG, "bot"), approval)
+    runner_errors(api, runner, [])
+    scan(api)
+    runner_errors(api, runner, STREAM)
+    scan(api)
+    repeat = api.post(url, json={}, headers=bot)
+    assert repeat.status_code == 200 and repeat.json()["comment"], repeat.text
+    (ticket,) = hq.tickets.values()
+    assert [m["body"][:37] for m in ticket["messages"]] == ["[Health Monitor] Seen again (2 times)"]
+
+
 def test_a_setup_finding_naming_a_bot_is_never_reported_to_hq(environment, hq):
     api, runner = built(environment)
     api.post("/api/v2/health-monitor/turn-on", json={}, headers=signed_in())
