@@ -20,13 +20,13 @@ function settingsBotEditorRows(e) {
     <div class="sb-row"><span>Computer</span>${settingsMachineSelect(e)}<span></span></div>
     <div class="sb-row" data-bot-sub-row hidden><span>Subscription</span><select class="settings-inline-select" data-bot-sub="${esc(e.name)}" aria-label="Subscription for ${esc(e.display_name)}"></select><span></span></div>`}`;
 }
-// Where the bot's conversation compacts (backend/settings_admin.py COMPACT_AT). Only Claude Code and Codex take it,
-// and it saves on its own without a fresh session, like the computer.
+// Where the bot's conversation compacts (backend/settings_admin.py COMPACT_AT). Only a CLI whose manifest says
+// `compaction` takes it, and it saves on its own without a fresh session, like the computer.
 const SETTINGS_COMPACT_AT = [[150000, '150k'], [250000, '250k'], [400000, '400k'], [600000, '600k'], [1000000, '1M']];
 const SETTINGS_COMPACT_DEFAULT = 250000;
 function settingsCompactRow(e) {
-  const runtime = settingsHarness(e.harness)?.runtime || e.runtime || e.resolved_runtime;
-  if (runtime && !['claude', 'codex'].includes(runtime)) return '';
+  const harness = e.harness || e.runtime || e.resolved_runtime;
+  if (harness && !(settingsHarness(harness)?.capabilities || harnessCaps(harness)).compaction) return '';
   const current = Number(e.compact_at) || SETTINGS_COMPACT_DEFAULT;
   const options = SETTINGS_COMPACT_AT.some(([value]) => value === current) ? SETTINGS_COMPACT_AT : [...SETTINGS_COMPACT_AT, [current, `${Math.round(current / 1000)}k`]];
   return `<div class="sb-row sb-compact"><span>Compact at</span><select class="settings-inline-select" data-bot-compact="${esc(e.name)}" data-current="${current}" aria-label="Compact at for ${esc(e.display_name)}" ${settingsCanManageBot(e) ? '' : 'disabled'}>

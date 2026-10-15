@@ -15,6 +15,14 @@ if (bundled) {
   process.on('exit', () => { try { fs.rmSync(out, {recursive: true, force: true}); } catch {} });
 }
 exports.bundled = bundled;
+// The harness catalog GET /v2/models sends, with each CLI's capabilities read from runner/harnesses/*.toml, so a
+// test's mock answers what the server would.
+// Read on first use: most scripts never ask, and starting Python costs every one of them.
+let harnesses;
+Object.defineProperty(exports, 'harnesses', {enumerable: true, get: () => harnesses ||= JSON.parse(execFileSync(
+  process.env.TICO_PYTHON || 'python3',
+  ['-c', 'import json; from backend.harnesses import HARNESS_CATALOG; print(json.dumps(HARNESS_CATALOG))'],
+  {cwd: path.join(ui, '..')}).toString())});
 exports.html = fs.readFileSync(path.join(out || ui, 'index.html'), 'utf8');
 // A path under ui/ (what follows /tico/ui/ in a URL) to the file on disk; the bundles live in the temp folder.
 exports.uiFile = name => out && (name === 'app.bundle.js' || name === 'app.bundle.css') ? path.join(out, name) : path.join(ui, name);

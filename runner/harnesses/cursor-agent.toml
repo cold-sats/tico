@@ -4,6 +4,7 @@
 id = "cursor-agent"
 name = "Cursor Agent"
 host = "cursor"
+runtime = "cursor"
 executable = "cursor-agent"
 providers = ["cursor"]
 
@@ -27,3 +28,22 @@ policy = "latest"
 [auth]
 methods = ["subscription", "api-key"]
 api_key_env = ["CURSOR_API_KEY"]
+
+# What Tico does differently for this CLI (docs/harnesses.md, Capabilities).
+[capabilities]
+terminal_login = ["login"]
+api_keys = "computer"
+api_key_in_turn = true
+subscription_marker = "signed in"
+mcp_unsupported = "cursor-agent reads MCP servers only from ~/.cursor/mcp.json or the bot's .cursor/mcp.json, with no per-run setting, so a bot would also get the operator's own servers"
+resume_command = "cursor-agent --resume"
+model_list = "host"
+
+[capabilities.sign_in_status]
+check = "command"
+args = ["status"]
+ready = "logged in"
+not_ready = "not logged in"
+ready_detail = "Signed in to Cursor"
+missing_detail = "Cursor login required (cursor-agent login) or CURSOR_API_KEY"
+timeout_s = 15

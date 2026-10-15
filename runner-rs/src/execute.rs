@@ -117,11 +117,12 @@ pub fn billing_for(runtime: &str, detail: &str) -> &'static str {
     if !lower.starts_with("signed in") || key.is_match(detail) {
         return "api";
     }
-    match runtime {
-        "codex" if lower.contains("chatgpt") => "subscription",
-        "claude" | "cursor" => "subscription",
-        "musecode" if lower.contains("meta account") => "subscription",
-        _ => "api",
+    // A subscription login's status names it (`subscription_marker`); any other sign-in is billed per call.
+    let marker = crate::harness_tools::caps(runtime, "").subscription_marker;
+    if !marker.is_empty() && lower.contains(&marker) {
+        "subscription"
+    } else {
+        "api"
     }
 }
 
@@ -579,10 +580,7 @@ impl Runner {
     fn make_host(&self, bot: &str, runtime: &str, env: &Env, profile: Option<&Profile>, tx: hosts::Events) -> Result<Host, Fail> {
         Ok(match runtime {
             "claude" => Host::Claude(ClaudeHost::new(bot, vec![crate::harness_tools::executable_for("claude")], tx)),
-            "codex" => {
-                let home = profile.and_then(|p| p.home("codex")).map(|h| h.display().to_string());
-                Host::Codex(CodexHost::on_home(env.clone(), tx, home.as_deref()))
-            }
+            "codex" => Host::Codex(CodexHost::on_home(env.clone(), tx, profile.and_then(|p| p.home("codex")).map(|h| h.display().to_string()).as_deref())),
             "gemini" => Host::Gemini(GeminiHost::new(bot, &self.state.directory.join("gemini").join(bot), vec!["gemini".into()], tx)),
             "musecode" => Host::MuseCode(crate::hosts::musecode::MuseCodeHost::on_config(
                 bot,
@@ -650,9 +648,9 @@ impl Runner {
         let renewer = tokio::spawn(self.clone().renew_loop(aid.clone(), flags.clone()));
         let streamer = tokio::spawn(self.clone().stream_loop(aid.clone(), wake.clone(), flags.clone()));
         let runtime = text_of(&config["runtime"]);
-        // Antigravity keeps one process per conversation between turns (crate::warm); its sessions are its own.
-        let persistent = runtime == "gemini" && config["harness"] == "antigravity";
-        let session_runtime = if persistent { format!("{runtime}:antigravity") } else { runtime.clone() };
+        // A harness that keeps one process per conversation between turns (crate::warm) has sessions of its own.
+        let persistent = crate::harness_tools::caps_of(&config).persistent_session;
+        let session_runtime = if persistent { format!("{runtime}:{}", text_of(&config["harness"])) } else { runtime.clone() };
         let mut conv = key.clone();
         let effort = Some(text_of(&config["reasoning_effort"])).filter(|e| !e.is_empty());
         let model = Some(text_of(&config["model"])).filter(|m| !m.is_empty());
@@ -712,11 +710,11 @@ impl Runner {
             }
             crate::gitcred::apply(&mut env, &self.client, &self.tokens, &bot, socket_path.as_deref(), &self.state.directory).await;
             let hop_runtime = crate::fallback::configured(&config).map(|h| h.runtime);
-            for keyed in ["musecode", "cursor"] {
-                // Muse reads META_API_KEY, Cursor CURSOR_API_KEY, from its environment only. A key on this computer
-                // (the runner's environment, `_shared.env` or the company's) reports it ready, so it reaches the turn
-                // unless a grant set one.
-                if (runtime == keyed || hop_runtime.as_deref() == Some(keyed)) && selected.as_ref().is_none_or(|p| p.share_operator) {
+            for keyed in std::iter::once(runtime.as_str()).chain(hop_runtime.as_deref()) {
+                // A CLI that reads its key from the turn's environment only (`api_key_in_turn`): a key on this
+                // computer (the runner's environment, `_shared.env` or the company's) reports it ready, so it
+                // reaches the turn unless a grant set one.
+                if crate::harness_tools::caps(keyed, "").api_key_in_turn && selected.as_ref().is_none_or(|p| p.share_operator) {
                     if let Some((name, key)) = self.sign_in.headless_secret(keyed) {
                         if env.get(&name).is_none_or(|v| v.is_empty()) {
                             env.insert(name, key);
@@ -810,7 +808,7 @@ impl Runner {
             let after = if resumed { self.state.cursor(&th, None)? } else { None };
             attempt["_stale_playbook"] = json!(crate::playbook::note(&crate::readiness::local_path(&self.config, &bot), &attempt));
             let prompt = crate::prompt::prompt(&attempt, &names, after.as_deref(), resumed);
-            let cold = runtime == "claude" && crate::profiles::claude_token_cold(selected.as_ref());
+            let cold = crate::harness_tools::caps(&runtime, "").serial_cold_start && crate::hosts::token_cold(&runtime, selected.as_ref());
             let t = if cold {
                 // Held only until the sign-in this turn triggers has landed, not for the length of the turn: the
                 // others follow a few seconds behind, warm.
@@ -966,9 +964,10 @@ impl Runner {
                 self.warm.release(warm, drove.outcome == "completed").await;
             }
         }
-        if drove.outcome != "completed" && runtime == "codex" && !goal.controlled {
+        if drove.outcome != "completed" && !crate::harness_tools::caps(&runtime, "").resume_after_interrupt && !goal.controlled {
             if let Some(th) = &thread {
-                // The Codex app-server aborts the next turn on an interrupted thread at once: a retry starts fresh.
+                // A host that aborts the next turn on an interrupted thread at once (`resume_after_interrupt =
+                // false`): a retry starts fresh.
                 let _ = self.state.forget_session(&bot, &conv, &runtime, th);
             }
         }

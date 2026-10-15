@@ -15,15 +15,25 @@ use crate::signin::read_env;
 use crate::util::text_of;
 
 const TEAM_KEYS_FILE: &str = "_team_model.env";
-/// A sign-in key only: never a bot's credential (service.py LOGIN_ONLY).
-const LOGIN_ONLY: &[&str] = &["OPENAI_API_KEY"];
-const RUNTIME_KEYS: &[(&str, &[&str])] = &[
-    ("claude", &["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"]),
-    ("gemini", &["GEMINI_API_KEY", "GOOGLE_API_KEY"]),
-    ("cursor", &["CURSOR_API_KEY"]),
-    ("pi", &["OPENROUTER_API_KEY"]),
-    ("musecode", &["META_API_KEY"]),
-];
+/// A sign-in key only, never a bot's credential (service.py LOGIN_ONLY): the keys of runtimes whose CLI turns a key
+/// into its own login (`api_key_login`).
+fn login_only() -> Vec<String> {
+    crate::harness_tools::runtimes()
+        .into_iter()
+        .filter(|r| !crate::harness_tools::caps(r, "").api_key_login.is_empty())
+        .flat_map(|r| crate::harness_tools::api_key_env(&r))
+        .collect()
+}
+
+/// The keys a bot of `runtime` reads in its turns: the manifest's `api_key_env` where the runtime takes keys at all
+/// and does not turn them into a login.
+fn runtime_keys(runtime: &str) -> Vec<String> {
+    let caps = crate::harness_tools::caps(runtime, "");
+    if caps.api_keys.is_empty() || !caps.api_key_login.is_empty() {
+        return vec![];
+    }
+    crate::harness_tools::api_key_env(runtime)
+}
 
 /// The grants one bot keeps: what it could read before grants, minus names the runner sets itself.
 pub fn credentials_for(config: &Config, bot: &str, entry: &Value, process: &BTreeMap<String, String>) -> Vec<Value> {
@@ -47,8 +57,9 @@ pub fn credentials_for(config: &Config, bot: &str, entry: &Value, process: &BTre
     }
     // Every existing bot could read the computer's `_shared.env` before grants, and its scripts may use a key
     // without declaring it, so each one keeps them all. Only bots created from now on start with none.
+    let login_only = login_only();
     for (key, value) in &shared_file {
-        if !value.is_empty() && !LOGIN_ONLY.contains(&key.as_str()) && !has(&values, key) {
+        if !value.is_empty() && !login_only.contains(key) && !has(&values, key) {
             values.push((key.clone(), value.clone()));
         }
     }
@@ -57,9 +68,9 @@ pub fn credentials_for(config: &Config, bot: &str, entry: &Value, process: &BTre
         runtimes.push(hop.runtime);
     }
     for runtime in runtimes {
-        for key in RUNTIME_KEYS.iter().find(|(r, _)| *r == runtime).map(|(_, k)| *k).unwrap_or_default() {
-            if let Some(v) = shared.get(*key).filter(|v| !v.is_empty() && !has(&values, key)) {
-                values.push((key.to_string(), v.clone()));
+        for key in runtime_keys(&runtime) {
+            if let Some(v) = shared.get(&key).filter(|v| !v.is_empty() && !has(&values, &key)) {
+                values.push((key.clone(), v.clone()));
             }
         }
     }

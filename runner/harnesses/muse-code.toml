@@ -6,6 +6,7 @@
 id = "muse-code"
 name = "Muse Code"
 host = "musecode"
+runtime = "musecode"
 executable = "muse"
 providers = ["meta"]
 
@@ -37,3 +38,23 @@ terminal = true
 # The launcher updates itself on every run unless this is set; the runner updates the harness itself.
 [env]
 MUSE_NO_AUTO_UPDATE = "1"
+
+# What Tico does differently for this CLI (docs/harnesses.md, Capabilities).
+[capabilities]
+terminal_login = ["login"]
+api_keys = "computer"
+api_key_in_turn = true
+subscription_marker = "meta account"
+subscription_profiles = true
+profile_home = "XDG_CONFIG_HOME"
+# Muse loads every server in its own settings and cannot switch them off per run, so bot runs use Tico's own folder.
+own_config_home = true
+mcp_transports = ["http"]
+resume_command = "muse resume"
+model_list = "host"
+
+# Muse has no status command: the login file in its config folder is the sign-in.
+[capabilities.sign_in_status]
+check = "file"
+ready_detail = "Signed in with a Meta account"
+missing_detail = "Muse sign-in required (sign in from Tico) or META_API_KEY"

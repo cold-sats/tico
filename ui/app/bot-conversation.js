@@ -203,19 +203,10 @@ function sessionTurn(t, slug) {
     : `<div class="body">${esc(t.text || '')}</div>`;
   return `<div class="sess-turn ${esc(t.role)}">${when}<span class="who">${who}</span>${body}</div>`;
 }
+// The CLI's own resume command comes from its manifest (`resume_command`); a CLI without one gets `<name> --resume`.
 function botResumeCommand(runtime, sid, slug) {
   const r = String(runtime || '').toLowerCase();
-  let cmd;
-  if (r === 'codex') cmd = `codex resume ${sid}`;
-  else if (r === 'claude') cmd = `claude --resume ${sid}`;
-  else if (r === 'gemini') cmd = `gemini --resume ${sid}`;
-  else if (r === 'grok') cmd = `grok --resume ${sid}`;
-  else if (r === 'pi') cmd = `pi --resume ${sid}`;
-  else if (r === 'cursor') cmd = `cursor-agent --resume ${sid}`;
-  else if (r === 'musecode') cmd = `muse resume ${sid}`;
-  else if (r === 'antigravity') cmd = `antigravity --resume ${sid}`;
-  else cmd = `${r} --resume ${sid}`;
-  return `cd ~/tico-work/emp-${slug} && ${cmd}`;
+  return `cd ~/tico-work/emp-${slug} && ${harnessCaps(r).resume_command || `${r} --resume`} ${sid}`;
 }
 function sessionHead(d, slug) {
   const runs = (d.runs || []).map(r => r.issue ? `#${r.issue}` : 'chat');
@@ -258,8 +249,8 @@ async function sessionLoad(slug, pick) {
   head.textContent = 'Reading the session file…'; body.innerHTML = '';
   let d;
   try {
-    d = await get(pick ? `/sessions/${encodeURIComponent(pick.runtime)}/${encodeURIComponent(pick.sid)}`
-                       : `/employees/${slug}/session`);
+    [d] = await Promise.all([get(pick ? `/sessions/${encodeURIComponent(pick.runtime)}/${encodeURIComponent(pick.sid)}`
+                       : `/employees/${slug}/session`), loadHarnessRows()]);
   } catch (err) {
     if (!BOT || BOT.slug !== slug || !$('#sess-head')) return;
     head.innerHTML = `<span class="muted">${esc(err.message)}</span>`;

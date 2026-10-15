@@ -13,11 +13,14 @@ taken it, then dropped.
 import json
 import re
 
+from clients import harness_manifests as manifests
+
 from .store import H, Problem
 
-RUNTIMES = ("codex", "claude", "musecode")
-# Only the runtimes whose CLI asks for a code to be pasted back.
-PASTE_RUNTIMES = ("claude",)
+# The runtimes whose manifest has a [login] the runner can relay, and those whose CLI asks for a code to be pasted
+# back. A runner too old for one of them answers that browser sign-in is not available.
+RUNTIMES = manifests.with_capability("browser_sign_in")
+PASTE_RUNTIMES = manifests.with_capability("paste_code")
 LIFETIME = 15 * 60
 ACTIVE = ("requested", "starting", "waiting")
 TERMINAL = ("signed_in", "failed", "cancelled", "expired")

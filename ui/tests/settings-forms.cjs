@@ -4,7 +4,7 @@
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const {html, uiFile} = require('./support/page.cjs');
+const {html, uiFile, harnesses} = require('./support/page.cjs');
 (async () => {
   const browser = await chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
   try {
@@ -38,7 +38,7 @@ const {html, uiFile} = require('./support/page.cjs');
       if (p === '/api/v2/integrations') return json({integrations: []});
       if (p === '/api/v2/github/app') return json({connected: false});
       if (p === '/api/v2/operations') return json({machines: computers, services: []});
-      if (p === '/api/v2/models') return json({models: [{id: 'test-model', label: 'Test model', provider: 'openai', runtime: 'codex'}]});
+      if (p === '/api/v2/models') return json({models: [{id: 'test-model', label: 'Test model', provider: 'openai', runtime: 'codex'}], harnesses});
       if (p === '/api/v2/providers') {
         if (req.method() === 'PUT') { const body = req.postDataJSON(); writes.push({p, body}); providers = {...providers, enabled: body.enabled, default: {model: body.model, runtime: body.model ? 'codex' : ''}, revision: providers.revision + 1}; }
         return json(providers);

@@ -72,6 +72,9 @@ impl Runner {
         goal: &mut GoalRun,
     ) -> Result<Drove, Fail> {
         let (aid, host, thread) = (d.aid, d.host, d.thread);
+        // A host whose native goal keeps running across turns (`goal_runs_across_turns`): a completed turn is not
+        // the end of the run, and a clear it reports is checked against the goal.
+        let across_turns = crate::harness_tools::caps(d.runtime, "").goal_runs_across_turns;
         let redact = |v: &Value| d.redactor.map(|r| r.scrub_json(v)).unwrap_or_else(|| v.clone());
         let scrub = |t: &str| d.redactor.map(|r| r.scrub_text(t)).unwrap_or_else(|| t.to_string());
         let (mut reply, mut tokens, mut outcome) = (String::new(), json!({}), "interrupted".to_string());
@@ -170,7 +173,7 @@ impl Runner {
                     }
                     if let Some(g) = &chat_goal {
                         // Only while the goal still runs: a clear after "met" is not checked into a second "met".
-                        if d.runtime == "codex" && goal_running {
+                        if across_turns && goal_running {
                             event = host.reconcile_codex_clear(thread, event, &text_of(&g["objective"])).await?;
                         }
                         if truthy(event.get("objective")) {
@@ -228,7 +231,7 @@ impl Runner {
                 }
                 if kind == "turn_completed" {
                     outcome = if event["status"] == "interrupted" { "interrupted".into() } else { "completed".into() };
-                    complete = !(goal_running && d.runtime == "codex" && outcome == "completed");
+                    complete = !(goal_running && across_turns && outcome == "completed");
                 } else if kind == "turn_failed" || (kind == "error" && truthy(event.get("host_restart"))) {
                     outcome = "failed".into();
                     let error = text_of(&event["error"]);

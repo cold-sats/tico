@@ -117,7 +117,7 @@ def parse(data, source="", hosts_dir=HOSTS_DIR):
     if not isinstance(data, dict):
         raise ManifestError(f"{where}: not a table")
     known = {"id", "name", "host", "executable", "providers", "catch_all", "install", "version",
-             "update", "auth", "login", "env"}
+             "update", "auth", "login", "env", "runtime", "capabilities", "variants"}
     if set(data) - known:
         raise ManifestError(f"{where}: unknown field(s) {', '.join(sorted(set(data) - known))}")
     ident = data.get("id")

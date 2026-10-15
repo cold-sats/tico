@@ -65,7 +65,8 @@ def transport(provider):
     None for a provider with no API the server can call (Cursor)."""
     if provider in J.LLM_KEYS:
         return provider
-    return "openrouter" if (providers.PROVIDER_BY_ID.get(provider) or {}).get("runtime") == "pi" else None
+    runtime = (providers.PROVIDER_BY_ID.get(provider) or {}).get("runtime")
+    return "openrouter" if runtime and runtime == providers.CATCH_ALL_RUNTIME else None
 
 
 def fallback_engine(record, env=None):

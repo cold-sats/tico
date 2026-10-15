@@ -161,12 +161,13 @@ impl Refreshes {
         let name = text_of(&work["profile"]);
         // An isolated profile, captured once: never the global or default profile.
         let profile = (!name.is_empty()).then(|| crate::profiles::select(&config.data, None, Some(&name))).flatten();
-        let codex = text_of(&work["runtime"]) == "codex";
+        // Only a runtime whose weekly window a refresh can read (`weekly_usage = "refresh"`).
+        let refreshable = crate::harness_tools::caps(&text_of(&work["runtime"]), "").weekly_usage == "refresh";
         self.work = Some(work);
         let (slot, cancelled) = (self.result.clone(), self.cancelled.clone());
         self.worker = Some(tokio::spawn(async move {
             let result = match profile {
-                Some(p) if codex => read_codex(&p, &cancelled).await,
+                Some(p) if refreshable => read_codex(&p, &cancelled).await,
                 _ => json!({"state": "unavailable"}),
             };
             *slot.lock().unwrap() = Some(result);

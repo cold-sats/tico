@@ -241,25 +241,34 @@ fn signed_in(runtime: &str, exe: &str, env: &Env, headless: bool) -> (bool, Stri
             std::thread::sleep(Duration::from_millis(50));
         }
     };
-    if runtime == "codex" {
-        return match run(&["login", "status"], 8) {
-            Some((true, out)) if out.to_lowercase().contains("logged in") => {
-                (true, if out.to_lowercase().contains("api key") { "Signed in with an API key" } else { "Signed in with ChatGPT" }.into())
+    // The same status check readiness runs (the manifest's `sign_in_status`), in this sign-in's own homes.
+    let status = crate::harness_tools::caps(runtime, "").sign_in_status;
+    let args: Vec<&str> = status.args.iter().map(String::as_str).collect();
+    let timeout = if status.timeout_s > 0 { status.timeout_s } else { 15 };
+    match status.check.as_str() {
+        // A status command is the whole answer: a key the CLI turns into a login is not a sign-in until it has.
+        "command" => {
+            return match run(&args, timeout).map(|(ok, out)| (ok, out.to_lowercase())) {
+                Some((true, out)) if out.contains(&status.ready) && (status.not_ready.is_empty() || !out.contains(&status.not_ready)) => {
+                    (true, if out.contains("api key") { "Signed in with an API key".into() } else { status.ready_detail })
+                }
+                _ => (false, String::new()),
+            };
+        }
+        "json" => {
+            let parsed = run(&args, timeout).and_then(|(_, out)| serde_json::from_str::<Value>(out.lines().next().unwrap_or("")).ok().or_else(|| serde_json::from_str(out.trim()).ok()));
+            if let Some(s) = parsed.filter(|s| s[&status.field] == true) {
+                let method = text_of(&s[&status.method_field]);
+                return (true, if method.is_empty() { status.ready_detail } else { format!("Signed in with {method}") });
             }
-            _ => (false, String::new()),
-        };
-    }
-    if runtime == "musecode" {
-        // Muse has no status command: its login file in this sign-in's XDG_CONFIG_HOME is the sign-in, as readiness checks it.
-        return match crate::hosts::musecode::signed_in(&crate::hosts::musecode::auth_file(env)) {
-            Some(true) => (true, "Signed in with a Meta account".into()),
-            _ => (headless, String::new()),
-        };
-    }
-    let status = run(&["auth", "status", "--json"], 30).and_then(|(_, out)| serde_json::from_str::<Value>(out.lines().next().unwrap_or("")).ok().or_else(|| serde_json::from_str(out.trim()).ok()));
-    if let Some(s) = status.filter(|s| s["loggedIn"] == true) {
-        let method = text_of(&s["authMethod"]);
-        return (true, format!("Signed in with {}", if method.is_empty() { "Claude".into() } else { method }));
+        }
+        // No status command: the login file in this sign-in's config folder is the sign-in, as readiness checks it.
+        "file" => {
+            if crate::hosts::file_signed_in(runtime, env) == Some(true) {
+                return (true, status.ready_detail);
+            }
+        }
+        _ => {}
     }
     (headless, String::new())
 }
@@ -338,9 +347,9 @@ fn run_session(s: Arc<Session>, runner: Arc<Runner>, config: Config, lifetime: D
         Some(p) => p.environment(&s.runtime, &process),
         None => process,
     };
-    if s.runtime == "musecode" {
-        // Bot turns read Muse's login from Tico's own Muse folder, never the operator's.
-        env.insert("XDG_CONFIG_HOME".into(), crate::hosts::musecode::config_home(profile.as_ref()).display().to_string());
+    if crate::harness_tools::caps(&s.runtime, "").own_config_home {
+        // Bot turns read this host's login from Tico's own config folder, never the operator's.
+        crate::hosts::use_own_config_home(&s.runtime, profile.as_ref(), &mut env);
     }
     // The person opens the link on their own screen, not on this machine.
     env.insert("BROWSER".into(), "true".into());
@@ -471,8 +480,8 @@ impl Logins {
             s.finish("failed", &format!("Browser sign-in is not available for {}", s.runtime), runner, &default);
         } else if self.sessions.values().any(|o| o.live() && o.runtime == s.runtime && o.profile == s.profile) {
             s.finish("failed", &format!("Another sign-in is already running for {}", s.runtime), runner, &default);
-        } else if named.as_ref().is_some_and(|p| p.share_operator) && s.runtime != "musecode" {
-            // Muse bots never use the operator's Muse login, so a shared profile still signs in to Tico's own.
+        } else if named.as_ref().is_some_and(|p| p.share_operator) && !crate::harness_tools::caps(&s.runtime, "").own_config_home {
+            // A host with its own config folder never uses the operator's login, so a shared profile still signs in to Tico's own.
             s.finish("failed", &format!("Profile {} shares the operator's own logins; sign in normally", s.profile), runner, &default);
         } else {
             if !s.profile.is_empty() && named.is_none() {
