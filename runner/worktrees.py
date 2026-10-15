@@ -113,9 +113,14 @@ def metadata(client, name):
     if reply.get('configured') is False or not repos and reply.get('configured') is not True:
         git_repository.address(name)
         return {'full_name': name, 'machine_git': True}
-    repo = next((r for r in repos if r['full_name'].lower() == name.lower() and r.get('access') == 'write'), None)
-    if not repo:
-        raise ValueError('This bot needs write access to this repository')
+    repo = next((r for r in repos if r['full_name'].lower() == name.lower()), None)
+    if not repo or repo.get('access') != 'write':
+        # Say what the server listed for this run, so a mismatch with the bot's grant settings shows which side differs.
+        names = sorted(r['full_name'] for r in repos if r.get('access') == 'write')
+        writable = ', '.join(names[:10]) + (f' and {len(names) - 10} more' if len(names) > 10 else '') or 'none'
+        listed = f'lists {name} as read-only' if repo else f'does not list {name}'
+        raise ValueError(f'This bot needs write access to this repository: Tico {listed} for this run '
+                         f'(writable here: {writable})')
     return repo
 
 

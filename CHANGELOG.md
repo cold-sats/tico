@@ -10,6 +10,8 @@ All notable changes to Tico are recorded here. The format follows
 ### Changed
 - Computer-screen WebSockets use Rust exclusively. The standard server includes and supervises the relay,
   retains the same public listener, and no longer offers a Python relay or an opt-in overlay.
+- `hub task worktree add`, `setup` and `attach` refusing a repository for missing write access now say
+  whether Tico listed it read-only or not at all for this run, and which repositories the run can write to.
 
 ### Fixed
 - Runtime and development Python locks share the same dependency pins. The desktop uses rustls 0.23.46,
