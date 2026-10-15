@@ -14,6 +14,10 @@ All notable changes to Tico are recorded here. The format follows
   belongs to the bot user; the profile folder stays the supervisor's, traversable only (0711), so `profile.json`
   stays private. A profile made before is repaired when its sign-in starts and when the runner starts, without
   following a link or taking over a hardlinked file, and keeping each file's bytes and mode.
+- The worktrees manual says a refused cleanup stops: the server asks the computer again at most six times over about
+  two hours, then the link shows `cleanup_gave_up`. It says what a person does next: fix the cause the refusal names
+  (the bot's write access, or the kept files), then remove the link (again, if it was already removed). It
+  used to read as retrying forever.
 - Health no longer reports work held by a computer that is waiting to update as a Tico bug (`queue_idle`). A
   computer due an update stops taking new work after 20 minutes until its running turns finish; Health's Stuck list
   now says so ("Team box is holding new work to update to Tico 0.3.48: it starts once its running turn finishes"),
