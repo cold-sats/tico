@@ -213,32 +213,57 @@ mod tests {
         assert!(command.get_envs().any(|(k, v)| k == "CODEX_HOME" && v == Some(std::ffi::OsStr::new("/subscriptions/acme/codex"))));
     }
 
-    /// Root plays the supervisor, `TICO_RUNNER_BOT_UID=10003 TICO_RUNNER_BOT_GID=10002` the bot user.
+    /// Root plays the supervisor, `TICO_RUNNER_BOT_UID=10003 TICO_RUNNER_BOT_GID=10002` the bot user. The real
+    /// `read_app_server` finds a provider-free stand-in for codex first on PATH, which answers initialize and
+    /// account/read and records which user it ran as in the profile's bot-owned CODEX_HOME.
     #[cfg(target_os = "linux")]
     #[test]
     #[ignore = "requires a disposable Linux two-user environment"]
     fn isolated_the_account_reader_writes_in_a_bot_owned_codex_home() {
         use std::os::unix::fs::{chown, MetadataExt, PermissionsExt};
+        const CHILD: &str = "TICO_TEST_ACCOUNT_READER_HOME";
         assert_eq!(unsafe { libc::geteuid() }, 0, "disposable supervisor fixture");
         assert!(std::env::var_os("TICO_TEST_DISPOSABLE").is_some());
         assert_eq!(crate::isolation::identity(), Some((10003, 10002)));
-        let dir = std::env::temp_dir().join(format!("tico-account-contract-{}", uuid::Uuid::new_v4().simple()));
-        let home = dir.join("codex");
-        std::fs::create_dir_all(&home).unwrap();
-        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o711)).unwrap();
-        std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
-        chown(&home, Some(10003), Some(10002)).unwrap(); // a profile home after profiles::hand_to_bot
-        // A stand-in for codex: app-server writes in CODEX_HOME.
-        let exe = dir.join("codex-stand-in");
-        std::fs::write(&exe, "#!/bin/sh\nid -u > \"$CODEX_HOME/app-server-state\"\n").unwrap();
-        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let env: Env = [("CODEX_HOME".to_string(), home.display().to_string())].into_iter().collect();
-        let status = tokio::runtime::Runtime::new().unwrap().block_on(async { app_server(&exe, &env).status().await }).unwrap();
-        assert!(status.success());
+        let Some(dir) = std::env::var_os(CHILD).map(std::path::PathBuf::from) else {
+            let dir = std::env::temp_dir().join(format!("tico-account-contract-{}", uuid::Uuid::new_v4().simple()));
+            let (bin, home) = (dir.join("bin"), dir.join("profile/codex"));
+            std::fs::create_dir_all(&bin).unwrap();
+            std::fs::create_dir_all(&home).unwrap();
+            for (path, mode) in [(&dir, 0o755), (&bin, 0o755), (&dir.join("profile"), 0o711), (&home, 0o700)] {
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+            }
+            chown(&home, Some(10003), Some(10002)).unwrap(); // a profile home after profiles::hand_to_bot
+            let exe = bin.join(crate::harness_tools::executable_for("codex"));
+            std::fs::write(&exe, concat!(
+                "#!/bin/sh\n",
+                "[ \"$1\" = app-server ] || exit 2\n",
+                "read -r init; case \"$init\" in *'\"initialize\"'*) ;; *) exit 3;; esac\n",
+                "echo '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}'\n",
+                "read -r initialized\n",
+                "read -r account; case \"$account\" in *'\"account/read\"'*) ;; *) exit 4;; esac\n",
+                "id -u > \"$CODEX_HOME/app-server-state\" || exit 5\n",
+                "echo '{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"account\":{\"type\":\"chatgpt\",\"email\":\"ops@acme.example\",\"planType\":\"plus\"}}}'\n",
+            )).unwrap();
+            std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+            // A separate process puts the stand-in first on PATH without changing it for other tests.
+            let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+            let out = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "accounts::tests::isolated_the_account_reader_writes_in_a_bot_owned_codex_home", "--ignored", "--nocapture"])
+                .env(CHILD, &dir).env("PATH", path)
+                .output().unwrap();
+            let _ = std::fs::remove_dir_all(&dir);
+            assert!(out.status.success(), "{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+            return;
+        };
+        let home = dir.join("profile/codex");
+        let env: Env = [("CODEX_HOME".to_string(), home.display().to_string()), ("PATH".to_string(), "/usr/bin:/bin".to_string())]
+            .into_iter().collect();
+        let account = tokio::runtime::Runtime::new().unwrap().block_on(read_app_server("codex", &env));
+        assert_eq!(account, Some(json!({"email": "ops@acme.example", "plan": "plus", "kind": "subscription"})));
         let state = home.join("app-server-state");
-        assert_eq!(std::fs::read_to_string(&state).unwrap().trim(), "10003");
+        assert_eq!(std::fs::read_to_string(&state).unwrap().trim(), "10003", "the reader's child ran as the bot user");
         assert_eq!(std::fs::symlink_metadata(&state).unwrap().uid(), 10003, "the bot user can change it on its next turn");
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
