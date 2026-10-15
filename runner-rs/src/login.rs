@@ -221,11 +221,18 @@ fn profile_for(config: &Config, name: &str) -> Option<crate::profiles::Profile> 
     }
 }
 
+// Login and its verdict must use the same user as runtime readiness and bot turns, as well as the same home.
+fn model_command(exe: &str, args: &[&str], env: &Env) -> Command {
+    let mut command = crate::isolation::std_command(exe);
+    command.args(args).env_clear().envs(env);
+    command
+}
+
 /// Whether `runtime` is signed in with `env` (the profile's homes), as readiness checks it.
 fn signed_in(runtime: &str, exe: &str, env: &Env, headless: bool) -> (bool, String) {
     let run = |args: &[&str], secs: u64| -> Option<(bool, String)> {
-        let mut c = Command::new(exe);
-        c.args(args).env_clear().envs(env).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        let mut c = model_command(exe, args, env);
+        c.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
         let mut child = c.spawn().ok()?;
         let deadline = Instant::now() + Duration::from_secs(secs);
         loop {
@@ -274,8 +281,8 @@ fn signed_in(runtime: &str, exe: &str, env: &Env, headless: bool) -> (bool, Stri
 }
 
 fn spawn(exe: &str, argv: &[String], env: &Env, terminal: bool) -> std::io::Result<(Child, OwnedFd, Option<OwnedFd>)> {
-    let mut cmd = Command::new(exe);
-    cmd.args(argv).env_clear().envs(env);
+    let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
+    let mut cmd = model_command(exe, &argv, env);
     unsafe {
         cmd.pre_exec(|| {
             libc::setsid();
@@ -567,6 +574,32 @@ impl Logins {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn login_and_verdict_commands_use_the_bot_identity_and_profile_home() {
+        const CHILD: &str = "TICO_TEST_LOGIN_IDENTITY";
+        if std::env::var_os(CHILD).is_none() {
+            // A separate process keeps the configured isolation identity out of other parallel tests.
+            let uid = if unsafe { libc::geteuid() } == 10003 { 10004 } else { 10003 };
+            let out = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "login::tests::login_and_verdict_commands_use_the_bot_identity_and_profile_home", "--nocapture"])
+                .env(CHILD, "1").env(crate::isolation::UID_ENV, uid.to_string()).env(crate::isolation::GID_ENV, "10002")
+                .output().unwrap();
+            assert!(out.status.success(), "{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+            return;
+        }
+        let uid = std::env::var(crate::isolation::UID_ENV).unwrap();
+        let env: Env = [("HOME".into(), "/subscriptions/acme/claude".into())].into_iter().collect();
+        for args in [&["auth", "login", "--claudeai"][..], &["auth", "status", "--json"][..]] {
+            let command = model_command("claude", args, &env);
+            assert_eq!(command.get_program(), crate::isolation::SETPRIV);
+            let mut expected = vec![format!("--reuid={uid}"), "--regid=10002".into(), "--clear-groups".into(),
+                "--inh-caps=-all".into(), "--ambient-caps=-all".into(), "claude".into()];
+            expected.extend(args.iter().map(|s| s.to_string()));
+            assert_eq!(command.get_args().map(|a| a.to_string_lossy().into_owned()).collect::<Vec<_>>(), expected);
+            assert!(command.get_envs().any(|(key, value)| key == "HOME" && value == Some(std::ffi::OsStr::new("/subscriptions/acme/claude"))));
+        }
+    }
 
     #[test]
     fn a_muse_sign_in_is_its_login_file_not_a_status_command() {

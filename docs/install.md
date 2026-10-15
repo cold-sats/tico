@@ -934,7 +934,8 @@ At startup, the Computer catches up local teammate commits using each teammate's
 the same in-memory credential helper used after a task. If scoped access is unavailable, the commits stay local;
 a Computer without a connected GitHub App keeps its existing Git access.
 
-In **Settings > Computers**, **Remove computer** revokes its registration immediately. Its assigned bots remain visible;
+In **Settings > Computers**, revoked computers are hidden by default; **Show revoked computers** reveals their retained
+records. **Remove computer** revokes its registration immediately. Its assigned bots remain visible;
 use **Reassign in Bots** to choose another computer. The page shows how to stop the Docker runner from that computer's
 install directory; this keeps its repositories and sign-in. Re-register it with a new code if you want to use it again.
 

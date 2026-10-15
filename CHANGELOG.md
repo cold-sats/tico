@@ -8,6 +8,8 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- Browser model sign-in on an isolated runner uses the bot's OS identity for login and its final check,
+  so a successful sign-in does not leave credentials readable only by the supervisor.
 - **The bot model picker no longer hides a harness whose provider is off.** It lists it greyed out with an
   AI-providers line to turn it on, so Muse Code and the Wonder models are one provider tick away instead of invisible.
 - **Image cleanup keeps future releases staged on the same Docker host.** After an update, the updater removes only
@@ -33,6 +35,7 @@ All notable changes to Tico are recorded here. The format follows
   itself; `python -m runner enroll|adopt|doctor|status|profile` run the same commands through it.
 ### Changed
 - Computer tool installation controls are labeled separately from sign-in status, with explicit Enabled and Installed labels.
+- Revoked computers are hidden by default in Settings, with a control to show their retained records.
 - **The Assistant creates a task for another person without a Confirm card.** Asking it to hand someone their part now
   makes the task at once, as you, like a task for a bot; before, each one waited for your click on a card. Settling a
   task, messaging another person and everything else keep their cards, and turning **Assistant acts without asking**
