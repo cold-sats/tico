@@ -8,9 +8,12 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- **Image cleanup keeps future releases staged on the same Docker host.** After an update, the updater removes only
+  older unused release images, so another install or release check can still switch to its downloaded candidate.
 - **Subscription quota exhaustion is a usage limit, with its reset time.** The runner recognizes providers'
   `Subscription quota exhausted` and `rate_limit_error` responses and uses an available fallback. Without one,
   queued work waits until the provider's stated usage-window reset; a person can still use Try now after renewal.
+- Task session resume commands load the model CLI catalog on first opening, so copied commands use the correct resume syntax.
 
 ### Added
 - **The flight recorder writes a local file that reads with the server stalled.** Stalls, slow requests and per-minute
@@ -52,9 +55,6 @@ All notable changes to Tico are recorded here. The format follows
 ### Removed
 - **The Python runner.** `"engine": "python"` in `runner.json` and `TICO_RUNNER_ENGINE` are ignored. `python -m runner run`
   and the runner's CLI commands start the Rust runner; a checkout and every update fetch its binary before the restart.
-
-### Fixed
-- Task session resume commands load the model CLI catalog on first opening, so copied commands use the correct resume syntax.
 
 ## [0.3.46] - 2026-10-15
 

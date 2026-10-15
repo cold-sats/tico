@@ -624,9 +624,16 @@ def replace_self():
 
 def prune_images(keep, keep_ids=()):
     """After a healthy update, drop this service's and the updater's older release images (the new one and the one to
-    roll back to stay). Without this every release stays on disk until the host fills and an update fails. An image a
-    container still uses is refused by Docker and kept."""
+    roll back to stay). A newer release may be staged for another install on this Docker host, so it stays too.
+    Without pruning every old release stays on disk until the host fills and an update fails. An image a container
+    still uses is refused by Docker and kept."""
+    def core(tag):
+        found = re.fullmatch(r"v?([0-9]+)\.([0-9]+)\.([0-9]+)", tag)
+        return tuple(int(part) for part in found.groups()) if found else None
+
     keep = {str(k) for k in keep if k} | {"latest"}
+    versions = {version for tag in keep if (version := core(tag)) is not None}
+    newest = max(versions, default=None)
     keep_ids = {str(i) for i in keep_ids if i}
     for repo in (IMAGE, IMAGE.replace("tico-runner", "tico-updater") if MODE == "runner" else IMAGE + "-updater"):
         try:
@@ -635,7 +642,8 @@ def prune_images(keep, keep_ids=()):
         except (OSError, subprocess.SubprocessError):
             continue
         for tag in listed:
-            if tag in keep or tag == "<none>" or not re.fullmatch(r"v?\d+\.\d+\.\d+", tag):
+            version = core(tag)
+            if version is None or newest is None or version in versions or version > newest:
                 continue
             subprocess.run(["docker", "rmi", repo + ":" + tag], capture_output=True, check=False, timeout=120)
         # A release left untagged when `latest` (or a re-pulled tag) moved on: nothing would ever remove it.
