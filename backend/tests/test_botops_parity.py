@@ -818,7 +818,7 @@ def test_a_reopened_task_and_a_request_past_the_cap_lend_nothing(api, botops):
         H.task_update(c, "bot:botops", task_id, status="doing", note="Again.")
     later = _wake(api, botops)
     refused = act(api, later, "GET", "credentials", ref=task_id)
-    assert refused.status_code == 403 and "Drop on_behalf_of" in refused.text
+    assert refused.status_code == 403 and "send no on_behalf_of" in refused.text
     finish(api, botops, later)
     # What the refusal says works: her own comment starts a run with her rights, while citing the task stays refused.
     post(api, f"tasks/{task_id}/comments", {"text": "Confirmed, you have my permission."}, "ana-test")

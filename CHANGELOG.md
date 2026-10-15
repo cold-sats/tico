@@ -8,6 +8,9 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- **BotOps' refusal on a task someone else reopened says what works.** It no longer says "ask the person again"
+  (a reply on that task never lends their rights again); it says only a run their own comment or BotOps chat message
+  starts has their rights, with no `on_behalf_of`.
 - Reopening the bot editor before its previous close event keeps the new form and its settings refresh intact.
 - Browser model sign-in on an isolated runner uses the bot's OS identity for login and its final check,
   so a successful sign-in does not leave credentials readable only by the supervisor.
