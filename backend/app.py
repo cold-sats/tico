@@ -59,6 +59,7 @@ from .getting_started import _online_runners
 from .screen import listing as screen_listing
 from .credential_cards import install_credential_cards, scrub_attempt
 from .github import PATH as GITHUB_WEBHOOK_PATH
+from .triggers import PATH as TRIGGER_HOOK_PATH
 from .store import H, P, Problem, Store, bot_readiness, encode, message_page, repo_url, task_message_page
 
 
@@ -382,6 +383,9 @@ def create_app(settings=None):
                 return await call_next(request)
             # The repository webhook (backend/github.py) carries its own HMAC signature.
             if request.url.path == GITHUB_WEBHOOK_PATH and request.method == "POST":
+                return await call_next(request)
+            # A webhook trigger's address carries its own secret (backend/triggers.py).
+            if request.url.path.startswith(TRIGGER_HOOK_PATH) and request.method == "POST":
                 return await call_next(request)
             # An agent signing in to the MCP server over OAuth (backend/mcp_oauth.py): the metadata it reads first, and
             # the registration, token and revocation endpoints, which carry their own codes and secrets.
@@ -4833,6 +4837,8 @@ def create_app(settings=None):
     install_mcp(app, settings)
     from .github import install_github
     install_github(app, settings, store)
+    from . import triggers
+    triggers.install(app, settings, store, auth, mutate)
     # GitHub App per company: manifest setup, installation tokens for runners (docs/github-app.md).
     from .github_app import install_github_app
     install_github_app(app, settings, store)

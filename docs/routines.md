@@ -1,6 +1,6 @@
 # Routines
 
-A routine is a row in Tico: a bot, a time (or a Tico event), a title, and the text the bot is
+A routine is a row in Tico: a bot, a time (or a trigger), a title, and the text the bot is
 told. The server runs the clock. When a routine is due it opens a task for the bot with that
 text; a Mac claims the task after it wakes and passes readiness, and the bot takes it from there
 like any other task. Run now during another task queues a separate run for the routine's task; reading its
@@ -13,7 +13,10 @@ a compaction is the bot's runtime's business.
 Three doors, one table (`schedules`, `backend/routines.py`):
 
 - **The site.** Settings > Routines → *New routine*, or the Routines card on a bot's More tab.
-  Expand a routine's row for *Edit*, *Pause*/*Resume* and *Delete*.
+  Expand a routine's row for *Edit*, *Pause*/*Resume* and *Delete*. A routine in the Routines list on a
+  bot's page opens the same editor: its instruction, its schedule (every day, weekdays, a day of the
+  week or of the month at a time, or a cron), *Run now*, *Pause* and *Delete*. Someone who may not edit
+  it sees the same fields read-only.
 - **The `hub` CLI, from a bot's run.** A bot sets up its own; an owner's bot may not touch
   another's. BotOps seeds a new bot's first routines from its template (below).
 
@@ -49,6 +52,28 @@ on something happening in Tico (`on`), never both. Tico emits `meeting.ready` wh
 <meeting title>`; the body is the routine's text, then the event's facts, then the meeting's
 notes and transcript. Re-emitting the same event for the same subject does nothing. The event
 list is `clients/routines.py EVENTS`.
+
+## Triggers
+
+A trigger starts routines from outside Tico. Today a trigger is a webhook: Settings > Triggers →
+*Add webhook* gives an address, and anything that can send an HTTP POST (a payment service, a form,
+a deploy, a script) calls it. A routine picks it under *Runs: On a trigger* (`--on webhook.<id>` in
+`hub routine set`; `hub trigger list` shows the ids). Each call opens one task per listening routine:
+the routine's text, then the trigger's name, then the request body, fenced as data the bot did not write.
+
+- The address is `/api/v2/hooks/<id>/<secret>`; `POST /api/v2/hooks/<id>` with `Authorization:
+  Bearer <secret>` works too. Tico keeps only a hash of the secret, so the full address is shown once,
+  when the webhook is made or given *New secret*, which also stops the old address at once.
+- A wrong id or secret is 404. The body may be up to 256 KB; the task shows the first 20,000 characters.
+- A sender's `Idempotency-Key` (or `Webhook-Id`, `X-Request-Id`, `X-GitHub-Delivery`) makes a retry
+  open nothing new.
+- Each webhook takes 60 calls an hour; past that the sender gets 429 and retries later, so a noisy
+  sender cannot wake a bot without end.
+- Any person may add a webhook; the owner, the person who added it and BotOps may replace its secret or
+  delete it. A routine may name only a webhook that exists. Deleting one leaves its routines in place,
+  silent, until a webhook with the same id is added again.
+- The API: `GET /api/v2/triggers` (no secrets), `POST /api/v2/triggers` (`name`, optional `id`),
+  `POST /api/v2/triggers/<id>/rotate`, `POST /api/v2/triggers/<id>/delete`.
 
 ## What happens when one is due
 

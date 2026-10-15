@@ -15,7 +15,8 @@ const routinePaused = r => r.enabled === false || r.enabled === 0 ? ' <span clas
 const EVENT_WORDS = {'meeting.ready': 'when a meeting is imported', 'recording.ready': 'when a meeting is imported',
   'market.insight.urgent': 'when an urgent market insight comes in'};
 // An event with no words of its own still reads as words: "market.price.changed" is "when market price changed".
-const eventWords = on => EVENT_WORDS[on] || `when ${String(on).replace(/[._-]+/g, ' ').trim()}`;
+const eventWords = on => EVENT_WORDS[on] || (String(on).startsWith('webhook.') ? `on the ${(typeof ROUTINE_TRIGGERS !== 'undefined' && (ROUTINE_TRIGGERS || []).find(t => t.event === on)?.name) || on.slice(8).replace(/-/g, ' ')} webhook`
+  : `when ${String(on).replace(/[._-]+/g, ' ').trim()}`);
 const cadenceWords = r => r.on ? eventWords(r.on) : cronWords(r.cron);
 // A routine's time zone, short ("PDT"), and nothing when it is the viewer's own.
 const zoneWord = tz => {

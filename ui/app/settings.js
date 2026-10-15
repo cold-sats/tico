@@ -52,6 +52,7 @@ function pageSettings() {
       <button type="button" data-settings-tab="tasks" role="tab">Tasks</button>
       <details class="settings-more" id="settings-more"><summary>More</summary><div>
         <button type="button" data-settings-tab="recurring" role="tab">Routines</button>
+        <button type="button" data-settings-tab="triggers" role="tab">Triggers</button>
         <button type="button" data-settings-tab="health" role="tab">Health<span class="hl-alert" data-hl-alert hidden></span></button>
         ${S.me?.role === 'owner' ? '<button type="button" data-settings-tab="history" role="tab">History</button><button type="button" data-settings-tab="privacy" role="tab">Privacy</button>' : ''}
       </div></details>
@@ -82,6 +83,9 @@ function pageSettings() {
     </div>
     <div class="settings-pane" id="settings-recurring" role="tabpanel" hidden>
       <section class="card"><header><h2>Routines</h2></header><div id="set-recurring">${skelRows(3, {card: true, dot: false})}</div></section>
+    </div>
+    <div class="settings-pane" id="settings-triggers" role="tabpanel" hidden>
+      <section class="card"><header><h2>Triggers</h2></header><div id="set-triggers">${skelRows(2, {card: true, dot: false})}</div></section>
     </div>
     <div class="settings-pane" id="settings-assistant-pane" role="tabpanel" hidden>
       <section class="card"><header><h2>${esc(assistantName())}</h2></header>
@@ -150,7 +154,7 @@ function settingsShow(tab) {
   const access = {team: !!S.me?.cloud && owner, people: settingsIsAdmin(), history: owner, privacy: owner};
   SETTINGS_TAB = access[tab] !== false && tabs.some(button => button.dataset.settingsTab === tab) ? tab : 'devices';
   try { sessionStorage.setItem(SETTINGS_TAB_KEY, SETTINGS_TAB); } catch { /* private window: the tab is just not remembered */ }
-  if (['health', 'history', 'privacy', 'recurring'].includes(SETTINGS_TAB)) $('#settings-more').open = true;
+  if (['health', 'history', 'privacy', 'recurring', 'triggers'].includes(SETTINGS_TAB)) $('#settings-more').open = true;
   for (const name of ['assistant', 'chat', 'tasks']) {
     const pane = $(name === 'assistant' ? '#settings-assistant-pane' : '#settings-' + name);
     if (pane) pane.hidden = SETTINGS_TAB !== name;
@@ -183,6 +187,8 @@ function settingsShow(tab) {
   if (reposPane) { reposPane.hidden = SETTINGS_TAB !== 'repos'; if (SETTINGS_TAB === 'repos' && !formBusy(reposPane)) void renderSettingsRepos(); }
   const recurring = $('#settings-recurring');
   if (recurring) { recurring.hidden = SETTINGS_TAB !== 'recurring'; if (SETTINGS_TAB === 'recurring' && !formBusy(recurring)) renderSettingsRecurring(); }
+  const triggersPane = $('#settings-triggers');
+  if (triggersPane) { triggersPane.hidden = SETTINGS_TAB !== 'triggers'; if (SETTINGS_TAB === 'triggers' && !formBusy(triggersPane)) void renderSettingsTriggers(); }
 }
 // On a phone the tabs are one row that scrolls sideways (styles/settings.css); bring the current one into view.
 // Only the row scrolls: scrollIntoView would also move the page, which a refresh must not do.
