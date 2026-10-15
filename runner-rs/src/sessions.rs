@@ -955,11 +955,19 @@ impl Runner {
     /// Best-effort push; a push refused as behind is caught up and pushed again. One that still fails is a
     /// person's job, said once an hour per checkout (service.py push).
     pub async fn push_checkout(&self, path: &Path, env: &Env) -> bool {
+        self.push_checkout_as(path, env, true).await
+    }
+
+    /// `push_checkout`; `catch_up_remote` is off where a turn may be running in the checkout (push_backlog): that
+    /// push only reads the tree.
+    pub async fn push_checkout_as(&self, path: &Path, env: &Env, catch_up_remote: bool) -> bool {
         let (ahead, error) = {
             let _one = self.push_lock.lock().await;
             let (ahead, mut error) = crate::execute::push_repo(path, env).await;
             let mut ahead = ahead;
-            if error == "non-fast-forward" {
+            if error == "non-fast-forward" && !catch_up_remote {
+                error = "the remote has commits this checkout doesn't; it is rebased after the bot's next turn".into();
+            } else if error == "non-fast-forward" {
                 error = catch_up(path, env).await;
                 if error.is_empty() {
                     (ahead, error) = crate::execute::push_repo(path, env).await;

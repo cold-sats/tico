@@ -739,6 +739,8 @@ impl Runner {
                 conv = format!("{conv}:profile:{}:{}", p.name, p.binding());
             }
             if p.has_checkout() {
+                // A returning bot's old clone is caught up to GitHub once per placement (crate::placement).
+                crate::placement::catch_up(&bot, &attempt["generation"], &execution_path, &env).await;
                 // A checkout with no upstream yet: give its history a home first (service.py prepare_history), and
                 // run no turn on a copy that shares no history with GitHub's.
                 let (published, detail) = self.publish(&bot, &execution_path, &env).await;
@@ -804,6 +806,7 @@ impl Runner {
             attempt["_repo_rules_changed"] = json!(!digest.is_empty() && self.state.repo_rules(&th, None)?.as_deref() != Some(digest.as_str()));
             let names = self.names().await;
             let after = if resumed { self.state.cursor(&th, None)? } else { None };
+            attempt["_stale_playbook"] = json!(crate::playbook::note(&crate::readiness::local_path(&self.config, &bot), &attempt));
             let prompt = crate::prompt::prompt(&attempt, &names, after.as_deref(), resumed);
             let cold = runtime == "claude" && crate::profiles::claude_token_cold(selected.as_ref());
             let t = if cold {

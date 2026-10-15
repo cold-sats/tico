@@ -56,6 +56,8 @@ pub struct Runner {
     published: Mutex<HashMap<String, Option<(i128, u64)>>>,
     beat: Mutex<Option<(String, Instant)>>,
     restart: AtomicBool,
+    /// A restart was asked for on a runner nothing would start again: said once.
+    restart_refused: AtomicBool,
     /// Persistent Antigravity processes kept between a conversation's turns.
     pub warm: crate::warm::WarmSessions,
     /// What each bot's bot.yaml adds: tools, MCP servers, watchers, memory history (crate::perbot).
@@ -121,6 +123,7 @@ impl Runner {
             published: Mutex::new(HashMap::new()),
             beat: Mutex::new(None),
             restart: AtomicBool::new(false),
+            restart_refused: AtomicBool::new(false),
             warm: crate::warm::WarmSessions::new(state.directory.join("antigravity"), capacity.max(8)),
             state,
             perbot: crate::perbot::PerBot::default(),
@@ -236,6 +239,10 @@ impl Runner {
         if full {
             let assignments = self.client.get("runners/assignments").await?;
             *self.assignments.lock().unwrap() = assignments.as_array().cloned().unwrap_or_default();
+            // Before the grants are read: a bot from before grants keeps the legacy keys it could read.
+            if let Err(e) = crate::credential_migration::migrate(&self.config, &self.client, assignments.as_array().map(Vec::as_slice).unwrap_or_default()).await {
+                log(&format!("Tico runner: credential migration failed ({}); will retry", describe(&e)));
+            }
             crate::readiness_extra::fetch_grants(&self.client).await;
         }
         let assignments = self.assignments.lock().unwrap().clone();
@@ -330,8 +337,14 @@ impl Runner {
                 self.worktrees.poll(host, &actions);
             }
             self.worktree_stamp.store(beat["worktree_record_stamp"] == true, Ordering::SeqCst);
-            if beat["restart"] == true && !self.restart.swap(true, Ordering::SeqCst) {
-                log("Tico runner: restart requested; restarting when no turn is running");
+            if beat["restart"] == true && !self.restart.load(Ordering::SeqCst) {
+                // Only a supervisor that starts the runner again may let it exit to restart.
+                if supervised() {
+                    self.restart.store(true, Ordering::SeqCst);
+                    log("Tico runner: restart requested; restarting when no turn is running");
+                } else if !self.restart_refused.swap(true, Ordering::SeqCst) {
+                    log("Tico runner: restart requested, but nothing would start this runner again; run `scripts/tico install` once, or restart it by hand");
+                }
             }
         }
         let dir = &self.state.directory;
@@ -405,6 +418,14 @@ fn readiness_candidates(assignments: &[Value]) -> Vec<Value> {
         by_bot.insert(text_of(&entry["bot"]), entry.clone());
     }
     by_bot.into_values().collect()
+}
+
+/// Whether a supervisor starts the runner again when it exits (service.py supervised): launchd sets
+/// XPC_SERVICE_NAME to the job's label, the systemd user unit `scripts/tico install` writes sets TICO_SYSTEMD_UNIT,
+/// and TICO_SUPERVISED=1 covers any other supervisor (the Docker runner, runit).
+fn supervised() -> bool {
+    let var = |k: &str| std::env::var(k).unwrap_or_default();
+    var("XPC_SERVICE_NAME").starts_with("team.tico") || var("TICO_SYSTEMD_UNIT").starts_with("tico-") || var("TICO_SUPERVISED") == "1"
 }
 
 /// A heartbeat refused for its capacity (`body.capacity: ...` in the 422 detail).
@@ -488,6 +509,7 @@ impl Runner {
         let names = self.names().await;
         let _ = names;
         self.recover_output().await;
+        tokio::spawn(self.clone().push_backlog());
         tokio::spawn(self.events.clone().run(self.client.clone()));
         let mut clock = Clock {
             polled: HashMap::new(),
