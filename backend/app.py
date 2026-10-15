@@ -3648,6 +3648,7 @@ def create_app(settings=None):
         return {"proposed": True, "needs_confirm": True, **card,
                 "detail": "This needs " + ((H.human(c, H.actor_id(acting.actor)) or {}).get("name") or "the person")
                 + "'s own OK. A Confirm card is in their chat with BotOps; nothing has changed yet."}
+    app.state.botops_propose = propose_card      # a route outside this file asking for the card (backend/repositories.py)
 
     def risky(who):
         """A delegated identity that has not been confirmed: BotOps acting for a person, before their click."""
