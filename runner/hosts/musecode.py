@@ -14,6 +14,13 @@ other hosts run. The prompt goes in a file the turn can read: the CLI takes no p
 "payload_type": ..., "payload": {...}}`: `run.output.delta` streams text and `run.terminal.completed`,
 `.failed` or `.cancelled` ends the run with the final `text` or a `reason`. Anything else is skipped.
 
+Token usage is not in that stream (Muse Code 1.4.8 projects no usage record into `exec --json`). It is
+in the session's durable log, `$XDG_DATA_HOME/muse/sessions/<yyyy>/<mm>/<dd>/<session>/session.jsonl`
+(`~/.local/share` without XDG_DATA_HOME): one `runtime.session` record per model call whose
+`payload.event` is `{"kind": "model_completed", "usage": {"input_tokens", "output_tokens",
+"cached_tokens", ...}, "model"?}` under the run's `run_id`. After each turn the host reads the records
+that turn appended (`session_usage`) and reports them with the model `run.model.configured` named.
+
 The hub reaches the model as a stdio MCP server set for this run only (`-c mcp_servers.hub=...`). Muse
 takes a secret only as a whole-value `${VAR}` it reads from its own environment, so the hub's credential
 and each remote server's header are named, never put on the command line. The launcher updates itself
@@ -44,7 +51,7 @@ from .base import HUB_MCP_ENV, Host, HostError, hub_mcp_server, is_limit
 EXECUTABLE = "muse"
 # Catalog id -> the CLI's own model id. Anything else is passed through, so a model Meta adds works
 # without a change here.
-MODELS = {"muse-spark-1.3": "muse-spark-1.3"}
+MODELS = {m: m for m in ("muse-spark-1.3", "muse-wonder-1.0", "muse-wonder-full-1.0")}
 DEFAULT_MODEL = "muse-spark-1.3"
 EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra")
 DEFAULT_EFFORT = "medium"
@@ -103,6 +110,48 @@ def usage_of(payload):
             continue
         stack.extend(v for k, v in row.items() if k != "cumulative" and isinstance(v, dict))
     return found
+
+
+def session_log(env, session_id):
+    """The session's durable log under Muse's data folder, or None before its first turn wrote one."""
+    data = env.get("XDG_DATA_HOME") or (os.path.join(env["HOME"], ".local", "share") if env.get("HOME") else "")
+    if not data or not session_id:
+        return None
+    found = sorted(Path(data, "muse", "sessions").glob(f"*/*/*/{session_id}/session.jsonl"))
+    return found[-1] if found else None
+
+
+def session_usage(path, offset=0, run_id=None):
+    """(input, cached, output, model) summed over the `model_completed` records of `run_id` (any run when
+    None) from byte `offset` on, or None when there are none. Other records that carry token counts
+    (`goal_usage_attribution`) repeat the same tokens and are not counted."""
+    try:
+        with open(path, "rb") as log:
+            if offset and offset <= os.fstat(log.fileno()).st_size:
+                log.seek(offset)       # a log that shrank (rewritten) is read whole, by run id
+            rows = log.read().decode("utf-8", errors="replace").splitlines()
+    except (OSError, TypeError):
+        return None
+    found, model = None, ""
+    for text in rows:
+        if "model_completed" not in text:
+            continue
+        try:
+            payload = json.loads(text).get("payload") or {}
+        except (ValueError, AttributeError):
+            continue
+        event = payload.get("event") if isinstance(payload, dict) else None
+        if not isinstance(event, dict) or event.get("kind") != "model_completed":
+            continue
+        if run_id and payload.get("run_id") != run_id:
+            continue
+        usage = event.get("usage") if isinstance(event.get("usage"), dict) else {}
+        row = (_count(usage, "input_tokens", "inputTokens"),
+               _count(usage, "cache_read_tokens", "cacheReadTokens", "cached_tokens", "cachedTokens"),
+               _count(usage, "output_tokens", "outputTokens"))
+        found = tuple(a + b for a, b in zip(found, row)) if found else row
+        model = str(event.get("model") or model)
+    return found + (model,) if found else None
 
 
 def prepare_config(home):
@@ -265,12 +314,18 @@ class MuseCodeHost(Host):
                 raise HostError(f"unknown muse thread {thread_id}")
             turn = str(uuid.uuid4())
             prepare_config(self.config_home)
+            env = self.env(t["settings"])
+            log = session_log(env, thread_id)
+            try:
+                offset = log.stat().st_size if log else 0
+            except OSError:
+                offset = 0
             prompt = self._prompt_file(text)
             stderr = tempfile.TemporaryFile("w+", encoding="utf-8", errors="replace")
             try:
                 proc = self._spawn(self.argv(thread_id, t["settings"], prompt, effort), stdin=subprocess.DEVNULL,
                                    stdout=subprocess.PIPE, stderr=stderr, cwd=t["settings"]["cwd"],
-                                   env=self.env(t["settings"]), text=True, bufsize=1)
+                                   env=env, text=True, bufsize=1)
             except OSError as exc:
                 stderr.close()
                 prompt.unlink(missing_ok=True)
@@ -279,13 +334,14 @@ class MuseCodeHost(Host):
             self._turn = (thread_id, turn)
         self._log(f"muse[{self.bot}]: turn started pid {getattr(proc, 'pid', '?')}")
         self.emit("status", thread_id, None, state="active")
-        self._reader = threading.Thread(target=self._read_loop, args=(proc, thread_id, turn, stderr, prompt),
+        log = {"env": env, "offset": offset}
+        self._reader = threading.Thread(target=self._read_loop, args=(proc, thread_id, turn, stderr, prompt, log),
                                         daemon=True)
         self._reader.start()
         return turn
 
-    def _read_loop(self, proc, tid, turn, stderr, prompt):
-        state = {"reply": "", "streamed": "", "terminal": "", "reason": "", "usage": None}
+    def _read_loop(self, proc, tid, turn, stderr, prompt, log=None):
+        state = {"reply": "", "streamed": "", "terminal": "", "reason": "", "usage": None, "run": "", "model": ""}
         try:
             for line in proc.stdout:
                 try:
@@ -303,6 +359,11 @@ class MuseCodeHost(Host):
         except Exception:
             rc = -1
         prompt.unlink(missing_ok=True)
+        if log and not state["usage"]:
+            path = session_log(log["env"], tid)
+            counted = session_usage(path, log["offset"], state["run"] or None) if path else None
+            if counted:
+                state["usage"], state["model"] = counted[:3], counted[3] or state["model"]
         self._finish(tid, turn, rc, self._stderr_tail(stderr), state)
 
     def _stderr_tail(self, stderr):
@@ -336,6 +397,11 @@ class MuseCodeHost(Host):
         if found:
             seen = state["usage"] or (0, 0, 0)
             state["usage"] = tuple(a + b for a, b in zip(seen, found))
+        run = payload.get("run_stream") if isinstance(payload.get("run_stream"), dict) else {}
+        if not state.get("run") and run.get("id"):
+            state["run"] = str(run["id"])
+        if kind == "run.model.configured" and payload.get("model_id"):
+            state["model"] = str(payload["model_id"])
         if kind == "run.output.delta":
             text = payload.get("text")
             if isinstance(text, str) and text:
@@ -363,7 +429,8 @@ class MuseCodeHost(Host):
         if state["usage"]:
             inp, cached, out = state["usage"]
             self.emit("tokens", tid, turn, input=inp, output=out, total=inp + out,
-                      usage={"input": inp, "cached": cached, "output": out})
+                      usage={"input": inp, "cached": cached, "output": out},
+                      **({"model": state["model"]} if state.get("model") else {}))
         if interrupted:
             self.emit("turn_completed", tid, turn, status="interrupted")
         elif state["terminal"] == "completed" and rc == 0:

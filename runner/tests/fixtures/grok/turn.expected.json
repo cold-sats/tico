@@ -1,0 +1,42 @@
+[
+ {
+  "kind": "delta",
+  "text": "Reading the rules",
+  "delta_kind": "thought"
+ },
+ {
+  "kind": "delta",
+  "text": "Checking the files.",
+  "delta_kind": "text"
+ },
+ {
+  "kind": "tool",
+  "tool": "read",
+  "status": "started",
+  "item_id": "call-1"
+ },
+ {
+  "kind": "delta",
+  "text": "Acme ",
+  "delta_kind": "text"
+ },
+ {
+  "kind": "delta",
+  "text": "reply.",
+  "delta_kind": "text"
+ },
+ {
+  "kind": "message",
+  "text": "Acme reply.",
+  "final": true
+ },
+ {
+  "kind": "turn_completed",
+  "status": "completed",
+  "stop_reason": "end_turn"
+ },
+ {
+  "kind": "status",
+  "state": "idle"
+ }
+]

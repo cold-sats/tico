@@ -311,7 +311,6 @@ pub fn gemini_config(servers: &[Value]) -> Map<String, Value> {
 }
 
 /// ACP `mcpServers` for Grok's `session/new`: headers resolved, since ACP has no placeholders.
-#[allow(dead_code)] // the Grok host reads it
 pub fn grok_config(servers: &[Value], env: &Env) -> Vec<Value> {
     servers
         .iter()

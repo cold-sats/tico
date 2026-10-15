@@ -484,6 +484,34 @@ class Pushing(unittest.TestCase):
         self.assertEqual(self.head(self.origin, "main"), self.head(self.repo))
         self.assertTrue((self.repo / "elsewhere").exists() and (self.repo / "memory").exists())
 
+    def test_a_diverged_checkout_is_the_bots_to_fix_and_its_prompt_says_so(self):
+        # BotOps, COO, Support and PR Reviewer on the Tico Team box: "Not possible to fast-forward" before each
+        # turn and a refused push after it, only logged, for hours.
+        other = Path(self.tmp.name) / "other"
+        git(self.tmp.name, "clone", "-q", "-b", "main", str(self.origin), str(other), env=self.env)
+        (other / "memory").write_text("theirs")
+        self.commit("elsewhere", other)
+        git(other, "add", "memory", env=self.env)
+        git(other, "commit", "-q", "-m", "their memory", env=self.env)
+        git(other, "push", "-q", "origin", "main", env=self.env)
+        before = self.head(self.repo)
+        run = attempt()
+        with mock.patch.dict(os.environ, self.env), mock.patch("runner.service.log") as log:
+            self.runner.refresh_workspace("coo", self.repo, None, run)
+        self.assertIn("pull before coo turn failed", log.call_args[0][0])        # the log line stays
+        self.assertEqual(self.head(self.repo), before)                            # the runner touched nothing
+        problem = run["repo_sync_problem"]
+        self.assertIn(f"`{self.repo}` has diverged", problem)
+        self.assertIn("it has 1 commits `origin/main` doesn't, and `origin/main` has 2 it doesn't", problem)
+        self.assertIn("conflicting files: memory", problem)
+        self.assertIn("keeping both sides' facts, and push", problem)
+        self.assertTrue(self.runner.prompt(run).startswith("Before anything else: your repository"))
+        clean = attempt()
+        git(self.repo, "reset", "-q", "--hard", "origin/main", env=self.env)
+        with mock.patch.dict(os.environ, self.env), mock.patch("runner.service.log"):
+            self.runner.refresh_workspace("coo", self.repo, None, clean)
+        self.assertNotIn("repo_sync_problem", clean)
+
     def test_a_catch_up_without_any_git_identity_still_rebases(self):
         # emp-botops on the Tico Team box: the startup push ran with no identity, so the rebase died on
         # "unable to auto-detect email address" and the bot's memory commits stayed unpushed.

@@ -44,9 +44,9 @@ and repair the bots that do it.
    "<words>"`, then `hub doc read manual:<page>`. Cite it as `[Tico manual · Title](link)`.
    For Hermes or OpenClaw, say that it checks hourly by default (`--sync 15m` for faster checks)
    and that its profile's Gateway must be running for scheduled checks.
-6. Commands use the requester's rights directly. When two inbox bots must share a Computer and one
-   Owner runs everything, turn it on when requested:
-   `hub api POST runners/<id>/inbox-sharing '{"allowed": true}'`.
+6. Commands use the requester's rights directly. Inbox bots may share any Computer. A Computer kept
+   for inbox bots refuses other bots; to change that when asked:
+   `hub api POST runners/<id>/inbox-only '{"enabled": false}'` (or `true` to keep one for them).
 7. If a friendly tool is refused for permissions, retry the same action with `hub_api` before
    handing work back. Both use the requester's rights. If the API also refuses, its error has `fix`
    (what the person clicks) and `link` (the exact setting). Ask in one plain sentence plus that link:

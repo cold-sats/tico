@@ -1,0 +1,12 @@
+[
+ {
+  "kind": "delta",
+  "text": "Start",
+  "delta_kind": "text"
+ },
+ {
+  "kind": "turn_failed",
+  "error": "xAI API error (status 429): rate limit reached for grok-4.6",
+  "limit": true
+ }
+]

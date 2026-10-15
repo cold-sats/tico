@@ -66,12 +66,14 @@ impl From<String> for Fail {
     }
 }
 
-/// What a turn spent (runner/usage.py Meter): the sum of each `tokens` event's `usage` increment.
+/// What a turn spent (runner/usage.py Meter): the sum of each `tokens` event's `usage` increment. A host that learns
+/// the model from its harness (Muse Code) puts it on the event; it names the run's model when the config does not.
 #[derive(Default)]
 pub(crate) struct Meter {
     input: i64,
     cached: i64,
     output: i64,
+    model: String,
 }
 
 pub(crate) fn count(v: &Value) -> i64 {
@@ -82,6 +84,9 @@ impl Meter {
     pub(crate) fn add(&mut self, event: &Value) {
         let u = &event["usage"];
         if u.is_object() {
+            if let Some(m) = event["model"].as_str().filter(|m| !m.is_empty()) {
+                self.model = m.into();
+            }
             self.input += count(&u["input"]);
             self.cached += count(&u["cached"]);
             self.output += count(&u["output"]);
@@ -93,6 +98,7 @@ impl Meter {
         if self.input == 0 && self.output == 0 {
             return None;
         }
+        let model = if (model.trim().is_empty() || model.trim() == "default") && !self.model.is_empty() { &self.model } else { model };
         let mut m = Map::new();
         m.insert("input_tokens".into(), json!(self.input - cached));
         m.insert("cached_tokens".into(), json!(cached));
@@ -584,6 +590,9 @@ impl Runner {
                 crate::hosts::musecode::config_home(profile),
                 tx,
             )),
+            "pi" => Host::Pi(crate::hosts::pi::PiHost::new(bot, vec![crate::harness_tools::executable_for("pi")], tx)),
+            "cursor" => Host::Cursor(crate::hosts::cursor::CursorHost::new(bot, vec![crate::harness_tools::executable_for("cursor")], tx)),
+            "grok" => Host::Grok(crate::hosts::grok::GrokHost::new(bot, &crate::harness_tools::executable_for("grok"), tx)),
             "" => return Err(Fail::runtime(crate::readiness::NO_RUNTIME)),
             other => return Err(Fail::runtime(format!("Unsupported local runtime: {other}"))),
         })
@@ -701,11 +710,12 @@ impl Runner {
             }
             crate::gitcred::apply(&mut env, &self.client, &self.tokens, &bot, socket_path.as_deref(), &self.state.directory).await;
             let hop_runtime = crate::fallback::configured(&config).map(|h| h.runtime);
-            if runtime == "musecode" || hop_runtime.as_deref() == Some("musecode") {
-                // Muse reads META_API_KEY from its environment only. A key on this computer (the runner's environment,
-                // `_shared.env` or the company's) reports Muse ready, so it reaches the turn unless a grant set one.
-                if selected.as_ref().is_none_or(|p| p.share_operator) {
-                    if let Some((name, key)) = self.sign_in.headless_secret("musecode") {
+            for keyed in ["musecode", "cursor"] {
+                // Muse reads META_API_KEY, Cursor CURSOR_API_KEY, from its environment only. A key on this computer
+                // (the runner's environment, `_shared.env` or the company's) reports it ready, so it reaches the turn
+                // unless a grant set one.
+                if (runtime == keyed || hop_runtime.as_deref() == Some(keyed)) && selected.as_ref().is_none_or(|p| p.share_operator) {
+                    if let Some((name, key)) = self.sign_in.headless_secret(keyed) {
                         if env.get(&name).is_none_or(|v| v.is_empty()) {
                             env.insert(name, key);
                         }
