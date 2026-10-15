@@ -45,7 +45,19 @@ ENV_DIR=""
 ENROLL_HINT="scripts/setup-runner.sh"
 
 # `python -m` puts the working directory on the module path, so every call runs from the checkout.
-runner() { (cd "$HUB" && "$PYTHON" -m runner --config "$CONFIG" "$@"); }
+engine() { (cd "$HUB" && "$PYTHON" -m runner.engine "$@"); }
+# This checkout's Rust runner (tico-runner), downloaded or built first when there is none yet.
+runner_bin() { engine path 2>/dev/null || { engine prepare >&2 && engine path; }; }
+# The runner's own commands go to the Rust runner; the side jobs and their doctors stay Python.
+runner() {
+  case "$1" in
+    enroll|profile|status|doctor|adopt)
+      local bin
+      bin="$(runner_bin)" || { echo "no Rust runner for this checkout (see above)" >&2; return 1; }
+      (cd "$HUB" && TICO_ROOT="$HUB" TICO_RUNNER_PYTHON="$PYTHON" "$bin" --config "$CONFIG" "$@") ;;
+    *) (cd "$HUB" && "$PYTHON" -m runner --config "$CONFIG" "$@") ;;
+  esac
+}
 json_field() { "$PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$1" "$2"; }
 config_field() { json_field "$CONFIG" "$1"; }
 env_field() { json_field "$ENV_DIR/environment.json" "$1"; }
@@ -582,6 +594,10 @@ PY
     ;;
   install)
     require_setup
+    # The bot job execs the Rust runner: get it now, so a download or build that fails shows here.
+    if targets "${2:-all}" | grep -qx bot; then
+      engine prepare || { echo "the Rust runner is not ready; fix the above and run scripts/tico install again" >&2; exit 1; }
+    fi
     if [ "$IS_LINUX" = 1 ]; then mkdir -p "$LOG_DIR"; else mkdir -p "$AGENTS" "$LOG_DIR"; fi
     retire_processing
     while IFS= read -r kind; do install_one "$kind"; done < <(targets "${2:-all}")

@@ -150,6 +150,24 @@ def pip_install(root, old, new, run=subprocess.run):
     return "pip install failed: " + (done.stderr.strip().splitlines() or ["no output"])[-1]
 
 
+def prepare_binary(root, run=subprocess.run):
+    """The checkout's Rust runner, ready before the restart, so a release with none fails here and goes back. A new
+    process: this one still has the old code in memory. Returns an error or "". A tree from before the shim
+    (runner/engine.py without `prepare`) is left to get its own."""
+    if not (Path(root) / "runner" / "engine.py").is_file():
+        return ""
+    try:
+        done = run([sys.executable, "-m", "runner.engine", "prepare"], cwd=str(root), capture_output=True, text=True,
+                   timeout=2400, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"could not get the Rust runner ready ({type(exc).__name__})"
+    if not done.returncode:
+        return ""
+    if disk_space_error(done.stderr):
+        return disk_error_message(done.stderr)
+    return (done.stderr.strip().splitlines() or ["could not get the Rust runner ready"])[-1]
+
+
 def in_flight(directory):
     import sqlite3
     try:
@@ -324,10 +342,10 @@ def apply(root, version, directory, *, run=subprocess.run, lock_wait=LOCK_WAIT_S
     return result
 
 
-def update(root, version, directory, *, run=subprocess.run, install=pip_install, restart=None, healthy=None,
-           busy=None, clock=time.time, helpers=None, started=""):
-    """Move the checkout to release `version` and bring the runner back on it; undo that if it does not
-    come back. Once it is healthy, `helpers` restarts the helper jobs so they run the new code too (a rollback
+def update(root, version, directory, *, run=subprocess.run, install=pip_install, prepare=prepare_binary,
+           restart=None, healthy=None, busy=None, clock=time.time, helpers=None, started=""):
+    """Move the checkout to release `version`, get its Rust runner ready (`prepare`), and bring the runner back on
+    it; undo that if either fails or the runner does not come back. Once it is healthy, `helpers` restarts the helper jobs so they run the new code too (a rollback
     needs nothing: a helper that saw the new revision exits again when the old one returns).
     `started` is the commit the runner process started on. A checkout that is already on the release while the
     runner still runs other code (another runner sharing the checkout moved it, or a person did) only needs
@@ -383,7 +401,7 @@ def update(root, version, directory, *, run=subprocess.run, install=pip_install,
     if target == old:
         # Nothing to switch. The dependencies may still differ from the ones this runner started with (a runner with
         # its own interpreter); going back would only restart onto this same code, so a failure is reported as it is.
-        error = install(root, started, target)
+        error = install(root, started, target) or prepare(root)
         if error:
             return say("failed", error)
         since = clock()
@@ -409,7 +427,7 @@ def update(root, version, directory, *, run=subprocess.run, install=pip_install,
     switched = g("checkout", "--quiet", "--detach", target)
     if switched.returncode:
         return say("failed", switched.stderr if disk_space_error(switched.stderr) else f"could not switch to {tag}: local files are in the way")
-    error = install(root, old, target)
+    error = install(root, old, target) or prepare(root)
     if error:
         return back_out(error)
     since = clock()

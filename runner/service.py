@@ -2003,8 +2003,7 @@ class Runner(BotSetup):
             document["harnesses"] = self.tools.report(runtimes)
         if RECENT:
             document["recent_errors"] = list(RECENT)      # a server before support diagnostics refuses it; maintain() retries without
-        from . import engine
-        document["engine"] = engine.report()              # Python, and why: Settings > Computers and Health show it
+        document["engine"] = {"name": "python"}         # Health asks for an update: v0.3.47 has only the Rust runner
         return document
 
     def mail_agent_instructions(self, assignments):
@@ -3360,10 +3359,6 @@ class Runner(BotSetup):
         self._reports_credential_source = bool((beat or {}).get("runtime_credential_source"))
         self._reports_worktree_stamp = bool((beat or {}).get("worktree_record_stamp"))
         self.published_agent_instructions.update(instruction_versions)
-        from . import engine
-        if self.restart_due is None and supervised() and engine.switch_due():
-            log("Tico runner: the Rust runner is ready; restarting onto it when no turn is running")
-            self.restart_due = time.monotonic()
         if (beat or {}).get("restart") and self.restart_due is None:
             # A person pressed Restart: take main if that is safe, then restart once nothing runs.
             if supervised():

@@ -1,18 +1,17 @@
-"""The one switch between runner engines: `python -m runner run` hands the process to the Rust runner
-(runner-rs/), the default. `"engine": "python"` in runner.json or TICO_RUNNER_ENGINE=python keeps the Python runner
-(the environment wins); it is deprecated and goes in the next release.
+"""`python -m runner run` is a shim: it execs this checkout's Rust runner (runner-rs/). launchd plists and systemd
+units from every install start it, and the binary's path changes with the checkout, so no unit names the binary.
 
 The binary is $TICO_RUNNER_BIN (the Docker image's), else this checkout's runner-rs/target/release/tico-runner, else
 the one downloaded for this release (runner-rs/target/dist/<source id>/tico-runner), and only one whose `--version` is
 this checkout's RUNNER_VERSION and whose `--build-id` is this checkout's source fingerprint (`source_id`, stamped in by
-runner-rs/build.rs), so a checkout that moved on while the binary stayed put is never run. A checkout on a release tag
-downloads that release's binary from GitHub (checked against the release's tico-runner-SHA256SUMS); otherwise, with
-cargo on PATH, it is built in the background, behind a lock. Until then the Python runner carries on, says why in
-readiness (`engine`), and restarts onto the Rust runner once the binary is there (`switch_due`). A computer never
-goes down over the switch.
+runner-rs/build.rs), so a checkout that moved on while the binary stayed put is never run. Without one, a checkout on
+a release tag downloads that release's binary from GitHub (checked against the release's tico-runner-SHA256SUMS);
+otherwise, with cargo on PATH, it is built now, behind a lock. When neither works the shim says why and exits 75, so
+launchd or systemd starts it again. `"engine": "python"` in runner.json and TICO_RUNNER_ENGINE=python are ignored with
+a warning: there is no Python runner any more.
 
-The Rust runner gets TICO_RUNNER_PYTHON_ARGV: a computer it cannot run yet (a bot on a runtime it does not
-drive) execs back into this Python runner with TICO_RUNNER_ENGINE_FALLBACK saying why.
+`python -m runner.engine prepare` gets the binary ready (scripts/tico install, a release update) and exits non-zero
+with the reason when it cannot; `python -m runner.engine path` prints the ready binary's path.
 """
 
 import fcntl
@@ -29,7 +28,6 @@ import urllib.request
 import zlib
 from pathlib import Path
 
-from .outage import log
 from .version import RUNNER_VERSION
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,36 +36,20 @@ RELEASES = "https://github.com/ticoteam/tico/releases"
 SUMS = "tico-runner-SHA256SUMS"
 FETCH_TIMEOUT_S = 30
 MAX_BINARY_BYTES = 64 << 20
-FALLBACK = "TICO_RUNNER_ENGINE_FALLBACK"
-CHECK_EVERY_S = 300           # a Python runner waiting on the binary looks for it this often
-RETRY_EVERY_S = 3600          # and starts another download or build this often
-
-# What this process runs, for readiness (`engine`): a Python runner says why it is not on the Rust runner.
-STATUS = {"name": "python", "build": "", "note": ""}
-_WAIT = {"on": False, "checked": 0.0, "started": 0.0}
+RETRY_EXIT = 75               # EX_TEMPFAIL: the supervisor starts the shim again
 
 
-def report():
-    return {key: value for key, value in STATUS.items() if value}
+def log(line):
+    """To stderr: `doctor` and `enroll` print JSON on stdout, and a unit's stderr goes to the same log."""
+    print(time.strftime("%Y-%m-%d %H:%M:%S") + " " + line, file=sys.stderr, flush=True)
 
 
-def stay(note, waiting=False):
-    """Stay on the Python runner, saying why in the log and in readiness."""
-    STATUS.update(name="python", build="", note=note[:300])
-    _WAIT["on"] = waiting
-    log(f"Tico runner: {note}; running the Python runner")
-
-
-def wanted(config, env):
-    """(True, "") for the Rust runner, the default, or (False, why) for the Python one."""
-    if env.get(FALLBACK):
-        return False, str(env[FALLBACK])
-    choice = str(env.get("TICO_RUNNER_ENGINE") or "").strip().lower()
-    if choice:
-        return (True, "") if choice != "python" else (False, "TICO_RUNNER_ENGINE=python")
+def ignored(config, env):
+    """Warn once per start about a Python-engine setting left from an older release."""
+    if str(env.get("TICO_RUNNER_ENGINE") or "").strip().lower() == "python":
+        log("Tico runner: TICO_RUNNER_ENGINE=python is ignored; the Python runner was removed")
     if str((config or {}).get("engine") or "").strip().lower() == "python":
-        return False, '"engine": "python" in runner.json'
-    return True, ""
+        log('Tico runner: "engine": "python" in runner.json is ignored; the Python runner was removed')
 
 
 def _ask(binary, flag):
@@ -116,28 +98,29 @@ def current(binary, root):
     return ""
 
 
+
+
 def build(root, env):
-    """Build the checkout's release binary once; two runners wait on one build. True when it finished."""
+    """Build the checkout's release binary, waiting for it; two shims wait on one build. "" when it is built, else why."""
     cargo = shutil.which("cargo", path=env.get("PATH"))
     if not cargo:
-        return False
-    crate = root / "runner-rs"
+        return "cargo is not on PATH to build one"
+    crate = Path(root) / "runner-rs"
     (crate / "target").mkdir(parents=True, exist_ok=True)
     with open(crate / "target" / "tico-runner-build.lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         if not current(crate / "target" / "release" / "tico-runner", root):
-            return True                      # another runner built it while this one waited
+            return ""                        # another shim built it while this one waited
         log("Tico runner: building the Rust runner (cargo build --release); this takes a few minutes once")
         try:
             done = subprocess.run([cargo, "build", "--release", "--locked", "-q"], cwd=crate, env=env,
                                   stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=BUILD_TIMEOUT_S)
         except (OSError, subprocess.SubprocessError) as exc:
-            log(f"Tico runner: the Rust runner did not build ({exc})")
-            return False
+            return f"cargo build failed ({exc})"
         if done.returncode:
-            log("Tico runner: the Rust runner did not build: " + (done.stderr.strip().splitlines() or ["cargo failed"])[-1][:300])
-            return False
-        return True
+            return "cargo build failed: " + (done.stderr.strip().splitlines() or ["no output"])[-1][:300]
+        problem = current(crate / "target" / "release" / "tico-runner", root)
+        return f"the build does not fit this checkout ({problem})" if problem else ""
 
 
 def asset(system=sys.platform, machine=None):
@@ -173,13 +156,17 @@ def _get(url, limit):
 
 def fetch(root, env, release=None):
     """Download this release's binary, checked against the release's checksums, into `dist(root)`. Only a checkout on
-    a release tag has one to download. True when it is there and current."""
+    a release tag has one to download. "" when it is there and current, else why."""
     if release is None:
         from .release_update import checkout_release
         release = checkout_release(root)
     name = asset()
-    if not (release and name and source_id(root)):
-        return False
+    if not release:
+        return "this checkout is not on a release tag, so there is no release binary to download"
+    if not name:
+        return f"no release binary is built for {sys.platform} {platform.machine()}"
+    if not source_id(root):
+        return "this checkout has no runner-rs sources"
     base = f"{(env.get('TICO_RUNNER_RELEASES') or RELEASES).rstrip('/')}/download/v{release.lstrip('v')}/"
     target = dist(root)
     try:
@@ -197,109 +184,81 @@ def fetch(root, env, release=None):
         part.chmod(0o755)
         os.replace(part, target)
     except (OSError, ValueError, EOFError, zlib.error) as exc:
-        log(f"Tico runner: could not download the Rust runner for {release} ({exc})")
-        return False
+        return f"could not download the Rust runner for {release} ({exc})"
     problem = current(target, root)
     if problem:
-        log(f"Tico runner: the downloaded Rust runner does not fit this checkout ({problem})")
-        return False
+        return f"the downloaded Rust runner for {release} does not fit this checkout ({problem})"
     log(f"Tico runner: downloaded the Rust runner for {release}")
-    return True
+    return ""
 
 
 def prepare(root, env):
-    """Download, else build, this checkout's binary, once at a time. True when one is current."""
+    """A current binary for this checkout, downloading or building one if need be: (path, "") or (None, why)."""
+    binary = ready(env, root)
+    if binary:
+        return binary, ""
+    missing = current(candidates(env, root)[0], root)
     crate = Path(root) / "runner-rs"
     if not crate.is_dir():
-        return False
+        return None, f"no Rust runner here ({missing}) and no runner-rs sources to get one for"
     (crate / "target").mkdir(parents=True, exist_ok=True)
     with open(crate / "target" / "tico-runner-prepare.lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        return bool(ready(env, root) or fetch(root, env) or build(root, env))
+        binary = ready(env, root)          # another shim got it while this one waited
+        if binary:
+            return binary, ""
+        fetched = fetch(root, env)
+        if not fetched:
+            return dist(root), ""
+        built = build(root, env)
+        if not built:
+            return crate / "target" / "release" / "tico-runner", ""
+    return None, f"no Rust runner for this checkout ({missing}); {fetched}; {built}"
 
 
-def start_prepare(root, env):
-    """Start `prepare` in the background, so this start never waits minutes on cargo. True when one was started."""
-    if not (Path(root) / "runner-rs" / "src").is_dir():
-        return False
-    from .release_update import checkout_release
-    if not (shutil.which("cargo", path=env.get("PATH")) or checkout_release(root)):
-        return False
+def read_config(path):
     try:
-        subprocess.Popen([sys.executable, "-m", "runner.engine", "prepare"], cwd=str(root), stdin=subprocess.DEVNULL,
-                         env={k: v for k, v in env.items() if k != FALLBACK}, start_new_session=True)
-    except OSError as exc:
-        log(f"Tico runner: could not start building the Rust runner ({exc})")
-        return False
-    _WAIT["started"] = time.monotonic()
-    return True
+        data = json.loads(Path(path).read_text())
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
 
 
-def choose(config, env, root=ROOT, fetching=fetch, preparing=start_prepare):
-    """The Rust binary to exec, or None to stay in Python (with the reason logged and kept for readiness)."""
-    rust, why = wanted(config, env)
-    if not rust:
-        stay(why)
-        return None
-    problems = []
-    for binary in candidates(env, root):
-        problem = current(binary, root)
-        if not problem:
-            STATUS.update(name="rust", build=_ask(binary, "--build-id"), note="")
-            return binary
-        problems.append(problem)
-    if fetching(root, env):
-        STATUS.update(name="rust", build=source_id(root), note="")
-        return dist(root)
-    if preparing(root, env):
-        stay("the Rust runner is being built; this computer switches to it once it is ready", waiting=True)
-    else:
-        stay(f"no Rust runner here: {problems[0]}", waiting=True)
-    return None
-
-
-def switch_due(env=None, root=ROOT, clock=time.monotonic):
-    """True once a Python runner that was waiting on the binary can restart onto it. Looks every CHECK_EVERY_S, and
-    starts another download or build every RETRY_EVERY_S."""
-    if not _WAIT["on"] or clock() - _WAIT["checked"] < CHECK_EVERY_S:
-        return False
-    _WAIT["checked"] = clock()
+def exec_binary(argv, config_path=None, env=None, execv=os.execve, root=ROOT):
+    """Become the Rust runner with `argv` (its arguments, --config included). Never returns: when no binary can be
+    had it exits RETRY_EXIT, so launchd or systemd tries again shortly."""
     env = dict(os.environ if env is None else env)
-    if ready(env, root):
-        return True
-    if clock() - _WAIT["started"] >= RETRY_EVERY_S:
-        start_prepare(root, env)
-    return False
-
-
-def maybe_exec(config, argv, env=None, execv=os.execve):
-    """Hand this process to the Rust runner when it is chosen; return only when staying in Python."""
-    env = dict(os.environ if env is None else env)
-    os.environ.pop(FALLBACK, None)            # this start's word only: a later restart chooses again
-    try:
-        binary = choose(config, env)
-        if binary is None:
-            return
-        env.pop(FALLBACK, None)
-        env.setdefault("TICO_ROOT", str(ROOT))
-        env.setdefault("TICO_RUNNER_PYTHON", sys.executable)
-        env["TICO_RUNNER_PYTHON_ARGV"] = json.dumps([sys.executable, "-m", "runner", *argv])
-        log(f"Tico runner: running the Rust runner ({binary})")
-        execv(str(binary), [str(binary), *argv], env)
-    except Exception as exc:  # noqa: BLE001 - the switch never takes the computer down
-        stay(f"could not start the Rust runner ({exc})")
+    if config_path is not None:
+        ignored(read_config(config_path), env)
+    binary, why = prepare(root, env)
+    if binary is None:
+        log(f"Tico runner: cannot start: {why}. Trying again shortly.")
+        raise SystemExit(RETRY_EXIT)
+    env.setdefault("TICO_ROOT", str(root))
+    env.setdefault("TICO_RUNNER_PYTHON", sys.executable)
+    execv(str(binary), [str(binary), *argv], env)
+    raise SystemExit(RETRY_EXIT)            # only a stand-in execv returns
 
 
 def main(argv=None):
-    """`python -m runner.engine prepare`: get this checkout's Rust runner now (scripts/tico install, a background build)."""
+    """`python -m runner.engine prepare|path`: get this checkout's Rust runner now / print where it is."""
     args = sys.argv[1:] if argv is None else argv
-    if args != ["prepare"]:
-        print("usage: python -m runner.engine prepare", file=sys.stderr)
+    if args not in (["prepare"], ["path"]):
+        print("usage: python -m runner.engine prepare|path", file=sys.stderr)
         return 2
     env = dict(os.environ)
-    binary = ready(env, ROOT) if prepare(ROOT, env) else None
-    print(f"Rust runner ready: {binary}" if binary else
-          "No Rust runner for this checkout yet; the runner starts on Python and switches once one is built")
+    if args == ["path"]:
+        binary = ready(env, ROOT)
+        if not binary:
+            print(f"no Rust runner for this checkout ({current(candidates(env, ROOT)[0], ROOT)})", file=sys.stderr)
+            return 1
+        print(binary)
+        return 0
+    binary, why = prepare(ROOT, env)
+    if not binary:
+        print(f"Tico runner: no Rust runner for this checkout: {why}", file=sys.stderr)
+        return 1
+    print(f"Rust runner ready: {binary}")
     return 0
 
 

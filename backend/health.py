@@ -1159,9 +1159,8 @@ def view(c, who, settings, auth, github, config):
             engine = computer.get("engine") or {}
             if computer["online"] and engine.get("name") == "python":
                 checks.append(_check("engine:" + computer["id"], "Runner", "warn",
-                                     f"{computer['label']} runs the Python runner"
-                                     + (f" ({engine['note']})" if engine.get("note") else "")
-                                     + ". It is removed in the next release.",
+                                     f"{computer['label']} runs the Python runner, which Tico no longer ships. "
+                                     "Update this computer.",
                                      [_fix("Open Computers", "#/settings", "devices")]))
             if computer["online"] and (computer.get("github_auth") or {}).get("ok") is False:
                 checks.append(_check("github_auth:" + computer["id"], "GitHub sign-in", "warn",

@@ -45,9 +45,13 @@ def repos(tmp_path):
 
 
 class Calls:
-    def __init__(self, healthy=(True,), install_error=""):
-        self.restarts, self.installs, self.checks = 0, [], []
-        self.answers, self.install_error = list(healthy), install_error
+    def __init__(self, healthy=(True,), install_error="", prepare_error=""):
+        self.restarts, self.installs, self.checks, self.prepared = 0, [], [], []
+        self.answers, self.install_error, self.prepare_error = list(healthy), install_error, prepare_error
+
+    def prepare(self, root):
+        self.prepared.append(sh(root, "git", "rev-parse", "HEAD"))
+        return self.prepare_error
 
     def restart(self):
         self.restarts += 1
@@ -63,7 +67,8 @@ class Calls:
 
 def run_apply(checkout, state, version="0.2.0", calls=None, **kw):
     calls = calls or Calls()
-    result = ru.apply(checkout, version, state, install=calls.install, restart=calls.restart, healthy=calls.healthy, **kw)
+    result = ru.apply(checkout, version, state, install=calls.install, prepare=calls.prepare, restart=calls.restart,
+                      healthy=calls.healthy, **kw)
     return result, calls
 
 
@@ -77,7 +82,7 @@ def test_update_switches_to_the_servers_tag_not_main(repos):
     assert result["state"] == "healthy" and ru.checkout_release(checkout) == "0.2.0"
     assert head(checkout) == sh(public, "git", "rev-parse", "v0.2.0") != head(public)   # main moved on; the runner did not
     assert calls.restarts == 1 and calls.installs == [(sh(checkout, "git", "rev-parse", "v0.1.0"), head(checkout))]
-    assert calls.checks == [head(checkout)]
+    assert calls.checks == [head(checkout)] and calls.prepared == [head(checkout)]   # the new tree's binary, before the restart
     assert ru.read_status(state)["state"] == "healthy" and ru.read_status(state)["target"] == "0.2.0"
 
 
@@ -110,6 +115,28 @@ def test_rollback_when_the_new_release_does_not_come_back(repos):
     assert head(checkout) == before and sh(checkout, "git", "branch", "--show-current") == "main"
     assert calls.restarts == 2 and len(calls.installs) == 2       # forward, then the old dependencies back
     assert ru.read_status(state)["state"] == "rolled_back"
+
+
+def test_a_release_whose_rust_runner_cannot_be_had_goes_back_before_any_restart(repos):
+    public, checkout, state = repos
+    before = head(checkout)
+    result, calls = run_apply(checkout, state, calls=Calls(prepare_error="could not download the Rust runner for 0.2.0"))
+    assert result["state"] == "rolled_back" and result["error"].startswith("could not download the Rust runner")
+    assert head(checkout) == before and calls.restarts == 1 and calls.checks == [before]   # the restart is the way back
+
+
+def test_the_prepare_step_is_a_new_process_of_the_new_tree(tmp_path, monkeypatch):
+    seen = []
+
+    def run(cmd, **kw):
+        seen.append((cmd, kw["cwd"]))
+        return subprocess.CompletedProcess(cmd, 1, "", "Tico runner: no Rust runner for this checkout: cargo is not on PATH\n")
+    assert ru.prepare_binary(tmp_path, run=run) == "" and not seen      # a tree from before the shim gets its own
+    (tmp_path / "runner").mkdir()
+    (tmp_path / "runner" / "engine.py").write_text("")
+    monkeypatch.setattr(ru.sys, "executable", "/opt/env-python/bin/python3")
+    assert "cargo is not on PATH" in ru.prepare_binary(tmp_path, run=run)
+    assert seen == [(["/opt/env-python/bin/python3", "-m", "runner.engine", "prepare"], str(tmp_path))]
 
 
 # -- the runner's side -----------------------------------------------------------------------------

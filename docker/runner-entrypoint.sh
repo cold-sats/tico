@@ -122,7 +122,7 @@ enroll() {  # url code label
   jq -n --arg code "$code" '{code: $code}' > "$code_file"
   local attempt
   for attempt in 1 2 3 4 5 6; do
-    if python -m runner --config "$CONFIG" enroll --url "$url" --code-file "$code_file" --label "$label" \
+    if "$TICO_RUNNER_BIN" --config "$CONFIG" enroll --url "$url" --code-file "$code_file" --label "$label" \
          --projects "$HOME/workspace" ${environment:+--environment "$environment"} >/dev/null; then
       # A container never has a checkout to pull: updating means a new image.
       python - "$CONFIG" <<'PY'
@@ -184,7 +184,7 @@ export TICO_MAIL_VENV="${TICO_MAIL_VENV:-${TICO_TOOLS_DIR:-$HOME/tools}/mail-ven
 export TICO_SUPERVISED=1 TICO_RUNNER_SELF_UPDATE=0
 # The runner also supervises the meeting-importer and Close jobs the hub assigns here (runner/sidejobs.py).
 export TICO_SIDE_JOBS="${TICO_SIDE_JOBS:-1}"
-# `python -m runner run` hands the process to this image's Rust runner, $TICO_RUNNER_BIN (runner/engine.py); a
-# computer it cannot run yet comes back to the Python runner instead of stopping. TICO_RUNNER_ENGINE=python (or
-# "engine": "python" in runner.json) keeps the Python runner, deprecated, for one more release.
-exec python -m runner --config "$CONFIG" run
+# The image's Rust runner, run directly: no checkout here moves, so the shim (`python -m runner run`) has nothing
+# to choose. It finds the Python that runs `hub` and the side jobs through TICO_RUNNER_PYTHON.
+export TICO_ROOT="${TICO_ROOT:-/opt/tico}" TICO_RUNNER_PYTHON="${TICO_RUNNER_PYTHON:-$(command -v python)}"
+exec "$TICO_RUNNER_BIN" --config "$CONFIG" run

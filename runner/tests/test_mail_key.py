@@ -229,24 +229,3 @@ def test_reenrollment_never_imports_another_operators_key(tmp_path, monkeypatch,
         monkeypatch.setattr(Path, "lstat", different_volume)
     assert not mail_key.carry_protected(config, tmp_path / "runner.json")
     assert not (tmp_path / "state-new" / mail_key.FILE).exists()
-
-
-def test_enrollment_recovers_the_previous_registrations_protected_key(tmp_path, monkeypatch):
-    import json
-    from types import SimpleNamespace
-    from runner import __main__ as cli
-    config, old = previous_registration(tmp_path)
-    monkeypatch.setattr(cli, "Client", lambda *args: SimpleNamespace(post=lambda *args: {
-        "runner_id": "new", "operator": "ana", "token": "test-registration"}))
-    code = tmp_path / "code.json"
-    code.write_text(json.dumps({"code": "test-code"}))
-    cli.main(["--config", str(tmp_path / "runner.json"), "enroll", "--url", config["url"],
-              "--code-file", str(code), "--label", "Mail Computer", "--projects", str(tmp_path / "workspace"),
-              "--environment", "team"])
-    assert (tmp_path / "state-new" / mail_key.FILE).read_bytes() == old.read_bytes()
-    (tmp_path / "state-new" / mail_key.FILE).unlink()
-    monkeypatch.setattr(cli, "Client", lambda *args: SimpleNamespace(get=lambda *args: []))
-    cli.main(["--config", str(tmp_path / "runner.json"), "status"])
-    assert not (tmp_path / "state-new" / mail_key.FILE).exists() and old.exists()
-
-

@@ -613,7 +613,7 @@ def test_listening_scoring_with_the_shipped_questions_after_its_own_went_missing
     assert f"listening-item@{shipped['version'] + 4}" in check["summary"]
 
 
-def test_a_computer_on_the_python_runner_warns_with_why_and_the_heartbeat_takes_the_engine(environment):
+def test_a_computer_on_the_python_runner_is_told_to_update_and_the_heartbeat_takes_the_engine(environment):
     import json
     from backend.models import StructuredReadiness
     report = StructuredReadiness.model_validate({"engine": {"name": "python", "note": "TICO_RUNNER_ENGINE=python"}})
@@ -629,4 +629,4 @@ def test_a_computer_on_the_python_runner_warns_with_why_and_the_heartbeat_takes_
         check = health_of(api)[1].get("engine:" + runner)
         assert bool(check) == warned
     assert check["status"] == "warn" and check["summary"] == (
-        "Team box runs the Python runner (TICO_RUNNER_ENGINE=python). It is removed in the next release.")
+        "Team box runs the Python runner, which Tico no longer ships. Update this computer.")

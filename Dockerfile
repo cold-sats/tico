@@ -107,7 +107,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && useradd --uid 10003 --gid ticorun --home-dir /home/runner --no-create-home --shell /bin/bash bot
 COPY --from=node /opt/node /opt/node
 COPY --from=gh /out/gh /usr/local/bin/gh
-# `python -m runner run` hands the process to this binary (TICO_RUNNER_BIN, runner/engine.py).
+# The runner (TICO_RUNNER_BIN): docker/runner-entrypoint.sh enrolls with it and execs it.
 COPY --from=runner-bin /out/tico-runner /usr/local/bin/tico-runner
 # node and npm are here for the runner's own installs of model CLIs (runner/harness_tools.py).
 RUN ln -s /opt/node/bin/node /opt/node/bin/npm /opt/node/bin/npx /usr/local/bin/

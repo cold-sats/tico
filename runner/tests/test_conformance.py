@@ -36,6 +36,23 @@ GRANTED_KEYS = {"gemini": ("Gemini", "GEMINI_API_KEY", "gemini-synthetic-fixture
                 "pi": ("OpenRouter", "OPENROUTER_API_KEY", "openrouter-synthetic-fixture-key-7702")}
 RUNTIMES = {"antigravity": "gemini"}
 SECRET = "acme-synthetic-fixture-4821"
+# `python -m runner run` only execs the Rust runner now; the Python arm runs the old engine itself until it goes.
+PYTHON_ENGINE = """
+import json, signal, sys
+from pathlib import Path
+from runner import mail_key
+from runner.service import Runner
+path = Path(sys.argv[1]).resolve()
+config = json.loads(path.read_text())
+state = path.parent / ("state-" + config["runner_id"])
+config.setdefault("state_dir", str(state))
+mail_key.carry_protected(config, path)
+state.mkdir(mode=0o700, parents=True, exist_ok=True)
+service = Runner(config, state, config_path=path)
+for sig in (signal.SIGTERM, signal.SIGINT):
+    signal.signal(sig, lambda *_: service.stop.set())
+service.run()
+"""
 
 
 @pytest.fixture(scope="session")
@@ -126,15 +143,15 @@ class Computer:
         self.env = {**keep, "HOME": str(home), "CODEX_HOME": str(home / ".codex"), "TICO_UPDATE_CHECK": "off",
                     "PATH": os.pathsep.join([str(bin_dir), str(Path(sys.executable).parent), "/usr/bin", "/bin",
                                              "/usr/sbin", "/sbin"]),
-                    # `python -m runner run` is the Rust runner by default (runner/engine.py); this arm is the Python one.
-                    **({"TICO_RUNNER_ENGINE": "python"} if engine == "python" else {}), **(env or {})}
+                    **(env or {})}
         self.output = tmp_path / "runner.log"
         self.process = None
 
     def start(self):
-        command = ([str(self.binary)] if self.engine == "rust" else [sys.executable, "-m", "runner"])
+        command = ([str(self.binary), "--config", str(self.config), "run"] if self.engine == "rust"
+                   else [sys.executable, "-c", PYTHON_ENGINE, str(self.config)])
         with self.output.open("a") as out:
-            self.process = subprocess.Popen(command + ["--config", str(self.config), "run"], cwd=ROOT, env=self.env,
+            self.process = subprocess.Popen(command, cwd=ROOT, env=self.env,
                                             stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
         until(lambda: self.readiness().get("ops", {}).get("ready") or self.died(), "the runner's first heartbeat")
         assert not self.died(), self.output.read_text()[-3000:]
