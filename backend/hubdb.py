@@ -3132,6 +3132,10 @@ def task_unlink(conn, actor, task_id, link_id, mover=None):
         detail = json.loads(have.get('detail_json') or '{}')
         detail['delete_requested'] = True
         detail.pop('restore_on_reopen', None)
+        # Each authorized request also bypasses the computer's old backoff once, after its safety checks.
+        detail['cleanup_retry_generation'] = str(uuid.uuid4())
+        for key in ('cleanup_attempts', 'cleanup_retry_at', 'cleanup_gave_up'):
+            detail.pop(key, None)
         conn.execute('UPDATE task_links SET detail_json=?,updated=? WHERE id=?', (json.dumps(detail), now(), link_id))
         conn.execute("UPDATE tasks SET updated=? WHERE id=?", (now(), task_id))
         _task_event(conn, task_id, actor, 'link', have['url'], None, 'cleanup requested')
