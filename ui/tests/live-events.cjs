@@ -1,7 +1,7 @@
 // Live events (ui/app/live.js, GET /api/v2/events), offline: the fixture holds each stream open until the test sends
 // what changed, as the server does when a write commits.
 //  - the chat follows its conversation on the page's one stream and reads its snapshot once per change, not on a timer;
-//  - the Needs-you count beside a bot follows the `needs` topic;
+//  - the Needs-you count beside a bot follows the `needs` topic: the event names what changed, and only that is read;
 //  - the task board takes a task changed or created elsewhere from the event itself, without reading the list again;
 //  - each reconnect resumes from the last change number;
 //  - the 2-minute refresh asks only for the tasks changed since the list's cursor and applies them, and asks for the
@@ -20,7 +20,7 @@ const block = (seq, event, data) => `id: ${seq}\nevent: ${event}\ndata: ${JSON.s
 (async () => {
   const browser = await chromium.launch();
   const page = await browser.newPage({viewport: {width: 1300, height: 820}, serviceWorkers: 'block'});
-  const errors = [], streams = [], reads = {snapshot: 0, tasks: 0, active: 0, changed: [], labels: []};
+  const errors = [], streams = [], reads = {snapshot: 0, tasks: 0, active: 0, changed: [], labels: [], needs: []};
   page.on('pageerror', e => errors.push(e.message));
   let snapshot = {messages: [{id: 'm1', from_actor: 'human:ana', body: 'Draft the release notes', created: now}], execution: null};
   await page.route('**/*', route => {
@@ -54,7 +54,12 @@ const block = (seq, event, data) => `id: ${seq}\nevent: ${event}\ndata: ${JSON.s
       if (tag) return route.fulfill({status: 304, headers: {ETag: tag}, body: ''});
       return route.fulfill({contentType: 'application/json', headers: {ETag: 'W/"l1"'}, body: JSON.stringify({labels: ['launch'], tags: []})});
     }
-    if (p === '/api/v2/needs-you') return json({items: []});
+    if (p === '/api/v2/needs-you') {
+      reads.needs.push(url.search);
+      if (url.searchParams.get('ids') === 't9') return json({count: 1, version: 'v1', positions: {t9: 0}, items: [{id: 't9', kind: 'task',
+        title: 'Approve the notes', owner: 'human:ana', requester: 'bot:ops', status: 'open', created: now}]});
+      return json(url.searchParams.get('version') === 'v0' ? {count: 0, version: 'v0', unchanged: true} : {items: [], version: 'v0'});
+    }
     return json({});
   });
   // The newest stream the page holds that `match` accepts, answered with `blocks` (it then ends, and the page reconnects).
@@ -86,10 +91,12 @@ const block = (seq, event, data) => `id: ${seq}\nevent: ${event}\ndata: ${JSON.s
   assert.equal(reads.snapshot, opened + 1, 'one read for one change, and none on a timer');
 
   // Needs you: the count beside the bot follows the topic, and the reconnect resumes after change 11.
-  const second = await send(following, block(12, 'needs', {count: 1, items: [{id: 't9', kind: 'task', title: 'Approve the notes',
-    owner: 'human:ana', requester: 'bot:ops', status: 'open', created: now}]}));
+  const fullReads = reads.needs.filter(q => !q.includes('ids=')).length;
+  const second = await send(following, block(12, 'needs', {count: 1, version: 'v1', base: 'v0', changed: ['t9'], removed: []}));
   assert.equal(second.searchParams.get('after'), '11');
+  assert.equal(first.searchParams.get('needs'), 'changes');
   await page.locator('.cnt.needs', {hasText: '1'}).first().waitFor();
+  assert.equal(reads.needs.filter(q => !q.includes('ids=')).length, fullReads, 'only the changed item is read');
 
   // The task board: a task changed elsewhere is redrawn from the event; the list is not read again.
   await page.evaluate(() => { location.hash = '#/board'; });

@@ -7,7 +7,8 @@
 //  - outline: a prompt on a page not loaded yet is paged in and brought into view; the draft stays put.
 //  - activity fold: task and note cards in a row fold into one "N updates" row; older history loads only at the top.
 //  - side threads: the chat is the person and the bot; bot-to-bot talk, relays, notices and notes fold into one line
-//    per run, open in place, and never push the conversation's last message off the bottom.
+//    per run, open in place, and never push the conversation's last message off the bottom. Another bot's conversation
+//    comes as its newest message until it is opened.
 //  - stays at the bottom: new messages, streamed text and images keep the newest line in view; scrolled up, nothing
 //    moves and a "New reply" pill takes you down.
 const {chromium, webkit} = require('playwright');
@@ -436,9 +437,13 @@ async function sideThreads(browser) {
       ? [{id: 'c-ask', kind: 'ask', participants: ['bot:cmo', 'bot:seo'], subject: 'Respona access'}]
       : [{id: 'c-cmo', kind: 'chat', scope: 'personal', participants: ['human:ana', 'bot:cmo']}]});
     if (p === '/api/v2/conversations/c-cmo/snapshot' || p === '/api/v2/conversations/c-cmo/messages') return json(snapshot);
-    if (p === '/api/v2/conversations/c-ask/messages') return json({messages: talk});
+    if (p === '/api/v2/conversations/c-ask/messages') {
+      asked.push(url.searchParams.get('limit'));
+      return json(url.searchParams.get('limit') === '1' ? {messages: talk.slice(-1), has_more: true, next_before: 'b2'} : {messages: talk});
+    }
     return json({});
   });
+  const asked = [];
   await page.goto('https://tico-ui.test/#/bot/cmo/chat');
   await page.waitForFunction(() => V2C?.rendered && V2C.loaded && V2C.botTalk?.length);
 
@@ -451,8 +456,8 @@ async function sideThreads(browser) {
   const thread = page.locator('#conv-thread'), runs = thread.locator('details.chat-side');
   assert.equal(await page.locator('#conv-bots').count(), 0, 'no second strip for bot-to-bot talk');
   const big = runs.first(), summary = big.locator('> summary');
-  assert.equal(await big.getAttribute('data-side-count'), '22', 'the twenty side items and the bot-to-bot ask between them are one line');
-  assert.match(await summary.innerText(), /^22 updates\s*· tasks, Dots, Botops \+2\s/, 'how many, who (first three), when');
+  assert.equal(await big.getAttribute('data-side-count'), '21', 'the twenty side items and the bot-to-bot preview between them are one line');
+  assert.match(await summary.innerText(), /^21 updates\s*· tasks, Dots, Botops \+2\s/, 'how many, who (first three), when');
   assert.equal(await big.evaluate(el => el.open), false, 'it starts folded');
   const box = await summary.boundingBox();
   assert.ok(box.height < 34, `one compact line (${box.height}px)`);
@@ -464,13 +469,27 @@ async function sideThreads(browser) {
 
   await summary.tap();
   await page.waitForFunction(() => V2C.openFolds?.has('side:side-0'));
-  assert.equal(await big.locator('.cs-item').count(), 22);
+  assert.equal(await big.locator('.cs-item').count(), 21);
   const relay = big.locator('.cs-item[data-message="relay"]'), more = relay.locator('[data-cs-more]');
   assert.ok((await relay.locator('.cs-text').boundingBox()).height < 40, 'a long item shows two lines');
   await more.tap();
   await relay.locator('[data-cs-more]', {hasText: 'Show less'}).waitFor();
   assert.ok((await big.locator('.cs-item[data-message="relay"] .cs-text').boundingBox()).height > 100, 'show more opens the whole message');
-  assert.equal(await big.locator('.cs-item[data-message="b1"]').count(), 1, 'the ask between bots is in the line');
+  // The bots' conversation is its newest message until opened; then its newest page joins the line.
+  assert.equal(await big.locator('.cs-item[data-message="b1"]').count(), 0, 'only the newest message of the bots\' conversation');
+  if (process.env.TICO_SHOTS) {
+    await big.locator('.cs-item[data-message="b2"]').scrollIntoViewIfNeeded();
+    await page.screenshot({path: process.env.TICO_SHOTS + '/bot-talk-preview.png'});
+  }
+  await big.locator('.cs-item[data-message="b2"] [data-bots-open]').tap();
+  await big.locator('.cs-item[data-message="b1"]').waitFor();
+  assert.equal(await big.locator('.cs-item').count(), 22);
+  assert.equal(await big.locator('[data-bots-open]').count(), 0);
+  assert.deepEqual(asked, ['1', '50'], 'a preview reads one message; opening reads one page');
+  if (process.env.TICO_SHOTS) {
+    await big.locator('.cs-item[data-message="b2"]').scrollIntoViewIfNeeded();
+    await page.screenshot({path: process.env.TICO_SHOTS + '/bot-talk-opened.png'});
+  }
   await page.evaluate(() => v2ChatRender(V2C));
   assert.equal(await big.evaluate(el => el.open), true, 'a redraw keeps the line open');
 

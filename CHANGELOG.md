@@ -26,6 +26,11 @@ All notable changes to Tico are recorded here. The format follows
   open age; finished rows keep their single short age.
 - **The Health Monitor stays quiet when a finding flaps.** A finding that goes away and comes back within a day of its
   last wake only counts; it wakes the Health Monitor again after a day.
+- **The web app downloads much less.** A Needs-you change on the live stream names the items that changed
+  (`needs=changes`), and the page reads only those (`GET /api/v2/needs-you?ids=`), where it was the whole list each
+  time; a page that does not ask still gets the list. A chat opens at its newest 50 messages and 160 KB, older pages on
+  request; another bot's conversation shows its newest message until opened; a run's live reply in a snapshot is its
+  newest 40 pieces. `backend/tests/test_payload_budgets.py` holds each to a byte budget.
 
 ## [0.3.46] - 2026-10-15
 
