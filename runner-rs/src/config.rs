@@ -75,25 +75,36 @@ impl Config {
     }
 }
 
-/// How many turns run at once: a number as written, else sized to the machine
-/// (`runner/service.py` machine_capacity): a core and about 2 GB per turn, 4 to 16.
+/// A turn mostly waits on its model provider, not on this computer's CPU.
+const TURNS_PER_CPU: usize = 5;
+/// A model CLI and its tools take about 300 MB.
+const TURNS_PER_GB: f64 = 3.0;
+const MAX_AUTO_TURNS: usize = 64;
+/// The most the server accepts.
+pub const MAX_TURNS: usize = 256;
+
+/// How many turns run at once (`runner/service.py` machine_capacity): a number as written, up to MAX_TURNS; missing
+/// or "auto" is sized to the machine, TURNS_PER_CPU per core as memory allows (TURNS_PER_GB), 4 to MAX_AUTO_TURNS.
 pub fn machine_capacity(configured: Option<&Value>) -> usize {
-    match configured {
-        Some(Value::Number(n)) => return n.as_i64().map(|v| v.max(1) as usize).unwrap_or(4),
-        Some(Value::String(s)) if !s.is_empty() && s != "auto" => {
-            if let Ok(v) = s.trim().parse::<i64>() {
-                return v.max(1) as usize;
-            }
-        }
-        _ => {}
+    let set = match configured {
+        Some(Value::Number(n)) => n.as_i64().or_else(|| n.as_f64().map(|f| f as i64)),
+        Some(Value::String(s)) if !s.is_empty() && s != "auto" => s.trim().parse::<i64>().ok(),
+        _ => None,
+    };
+    if let Some(v) = set {
+        return v.clamp(1, MAX_TURNS as i64) as usize;
     }
-    let cpus = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+    let cpus = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
     let memory_gb = unsafe {
         let pages = libc::sysconf(libc::_SC_PHYS_PAGES);
         let size = libc::sysconf(libc::_SC_PAGESIZE);
-        if pages > 0 && size > 0 { (pages as u64 * size as u64) >> 30 } else { 8 }
-    } as usize;
-    4.max(cpus.min(memory_gb / 2).min(16))
+        if pages > 0 && size > 0 { pages as f64 * size as f64 / (1u64 << 30) as f64 } else { 8.0 }
+    };
+    sized(cpus, memory_gb)
+}
+
+fn sized(cpus: usize, memory_gb: f64) -> usize {
+    4.max((cpus * TURNS_PER_CPU).min((memory_gb * TURNS_PER_GB) as usize).min(MAX_AUTO_TURNS))
 }
 
 #[cfg(test)]
@@ -119,10 +130,12 @@ mod tests {
     }
 
     #[test]
-    fn capacity_is_the_configured_number_or_four_to_sixteen() {
+    fn capacity_is_five_turns_per_core_as_memory_allows_and_a_set_one_is_kept_to_256() {
         assert_eq!(machine_capacity(Some(&Value::from(2))), 2);
         assert_eq!(machine_capacity(Some(&Value::from("3"))), 3);
-        let auto = machine_capacity(Some(&Value::from("auto")));
-        assert!((4..=16).contains(&auto));
+        assert_eq!(machine_capacity(Some(&Value::from(80))), 80);
+        assert_eq!(machine_capacity(Some(&Value::from(1000))), 256);
+        assert_eq!((sized(2, 16.0), sized(2, 2.0), sized(1, 1.0), sized(64, 512.0)), (10, 6, 4, 64));
+        assert!(machine_capacity(Some(&Value::from("auto"))) >= 4);
     }
 }

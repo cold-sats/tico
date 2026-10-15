@@ -380,7 +380,7 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
         }
         let repository_present = path.join("AGENT.md").is_file();
         if !repository_present {
-            problems.push(crate::fetchrepo::problem(&bot).unwrap_or_else(|| "Missing bot repository or AGENT.md".into()));
+            problems.push(crate::product_files::problem(&bot).or_else(|| crate::fetchrepo::problem(&bot)).unwrap_or_else(|| "Missing bot repository or AGENT.md".into()));
         } else {
             if runtime == "claude" {
                 warnings.extend(crate::readiness_extra::deny_warnings(&path));

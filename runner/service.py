@@ -853,22 +853,29 @@ class Runner:
         unpushed = self.__dict__.setdefault("product_unpushed", set())
         if bot not in self.product_refreshed:
             self.product_refreshed.add(bot)
-            try:
-                from clients import catalog
-                template = self.bootstrap_template(bot, config, {row["template"]: row for row in catalog.cards()})
-                changed = template and catalog.refresh(template, path, self.names(),
-                                                       display_name=(config or {}).get("display_name"))
-                if changed:
-                    isolation.chown(path, recursive=True)
-                    log(f"Tico runner: {bot} took {len(changed)} updated file{'s' if len(changed) != 1 else ''} from the {template} template")
-                    unpushed.add(bot)
-            except Exception as exc:
-                log(f"Tico runner: could not refresh {bot} from its template ({type(exc).__name__})")
+            if self.refresh_from_template(bot, config, path):
+                unpushed.add(bot)
         if bot in unpushed and push_env is not None:
             with self.session_git_lock(path):
                 if self.push(path, push_env):
                     unpushed.discard(bot)
         return bot not in unpushed
+
+    def refresh_from_template(self, bot, config, path):
+        """The product files of a built-in bot's template that changed, written and committed in `path` (also
+        `python -m runner catalog`, for the Rust runner). A failure is a log line and an empty list."""
+        try:
+            from clients import catalog
+            template = self.bootstrap_template(bot, config, {row["template"]: row for row in catalog.cards()})
+            changed = (template and catalog.refresh(template, path, self.names(),
+                                                    display_name=(config or {}).get("display_name"))) or []
+            if changed:
+                isolation.chown(path, recursive=True)
+                log(f"Tico runner: {bot} took {len(changed)} updated file{'s' if len(changed) != 1 else ''} from the {template} template")
+            return changed
+        except Exception as exc:
+            log(f"Tico runner: could not refresh {bot} from its template ({type(exc).__name__})")
+            return []
 
     def refresh_workspace(self, bot, path, env=None, attempt=None):
         """Same checkout and same provider thread for chat and routines. Pull first so a

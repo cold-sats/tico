@@ -39,13 +39,23 @@ fn local_stamp() -> String {
 
 /// One log line on stdout, as `runner/outage.py` log prints it, with every running turn's secrets taken out.
 pub fn log(line: &str) {
+    say(line, false);
+}
+
+/// A log line that always joins the heartbeat's `recent_errors` (outage.py `log(..., diagnostic=True)`), for a
+/// line that reads as no trouble but is one Health and the support bundle should see.
+pub fn diagnostic(line: &str) {
+    say(line, true);
+}
+
+fn say(line: &str, diagnostic: bool) {
     let line = crate::redact::scrub_log(line);
     println!("{} {}", local_stamp(), line);
     static TROUBLE: OnceLock<regex::Regex> = OnceLock::new();
     let trouble = TROUBLE.get_or_init(|| {
         regex::Regex::new(r"(?i)error|fail|unavailable|refused|rejected|interrupted|cannot|could not|not updating|exception|limit").unwrap()
     });
-    if trouble.is_match(&line) {
+    if diagnostic || trouble.is_match(&line) {
         remember(&line);
     }
 }

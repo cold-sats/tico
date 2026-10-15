@@ -55,7 +55,11 @@ pub struct Runner {
     assignments: Mutex<Vec<Value>>,
     published: Mutex<HashMap<String, Option<(i128, u64)>>>,
     beat: Mutex<Option<(String, Instant)>>,
-    restart: AtomicBool,
+    /// When a person asked for a restart (the Restart button): the runner exits once no turn runs, and claims
+    /// as usual for SELF_UPDATE_DRAIN_S before it stops claiming so that moment comes (service.py restart_forced).
+    restart: Mutex<Option<Instant>>,
+    /// A restart was asked for on a runner nothing would start again: said once.
+    restart_refused: AtomicBool,
     /// Persistent Antigravity processes kept between a conversation's turns.
     pub warm: crate::warm::WarmSessions,
     /// What each bot's bot.yaml adds: tools, MCP servers, watchers, memory history (crate::perbot).
@@ -120,7 +124,8 @@ impl Runner {
             assignments: Mutex::new(vec![]),
             published: Mutex::new(HashMap::new()),
             beat: Mutex::new(None),
-            restart: AtomicBool::new(false),
+            restart: Mutex::new(None),
+            restart_refused: AtomicBool::new(false),
             warm: crate::warm::WarmSessions::new(state.directory.join("antigravity"), capacity.max(8)),
             state,
             perbot: crate::perbot::PerBot::default(),
@@ -236,15 +241,17 @@ impl Runner {
         if full {
             let assignments = self.client.get("runners/assignments").await?;
             *self.assignments.lock().unwrap() = assignments.as_array().cloned().unwrap_or_default();
+            // Before the grants are read: a bot from before grants keeps the legacy keys it could read.
+            if let Err(e) = crate::credential_migration::migrate(&self.config, &self.client, assignments.as_array().map(Vec::as_slice).unwrap_or_default()).await {
+                log(&format!("Tico runner: credential migration failed ({}); will retry", describe(&e)));
+            }
             crate::readiness_extra::fetch_grants(&self.client).await;
         }
         let assignments = self.assignments.lock().unwrap().clone();
-        let mut by_bot: std::collections::BTreeMap<String, Value> = Default::default();
-        for entry in &assignments {
-            by_bot.insert(text_of(&entry["bot"]), entry.clone());
-        }
-        let candidates: Vec<Value> = by_bot.into_values().collect();
-        self.fetch_missing(&assignments).await;
+        let candidates = readiness_candidates(&assignments);
+        // A built-in bot is set up from the catalog first; any other (or one whose history is on GitHub) is fetched.
+        crate::product_files::bootstrap_missing(&self.config, &candidates).await;
+        self.fetch_missing(&candidates).await;
         let runtimes = readiness::runtime_report(&self.config, &self.sign_in, &self.client, &candidates).await;
         *self.runtime_rows.lock().unwrap() = runtimes.clone();
         let mut checks = readiness::preflight(&self.config, &candidates, &runtimes).await;
@@ -306,6 +313,11 @@ impl Runner {
                         crate::lanes::hold_back(&crate::readiness_extra::refused(&e.detail, &body["readiness"]).unwrap_or_default());
                         crate::readiness_extra::drop_held(&mut body);
                     }
+                    Err(e) if e.status == 422 && tries < 12 && capacity_refused(&e.detail) && body["capacity"].as_u64().unwrap_or(0) > 32 => {
+                        // A server from before larger capacities accepts at most 32 and never hands out more turns
+                        // than the runner reports, so after a rollback the runner keeps working at 32.
+                        body["capacity"] = json!(32);
+                    }
                     Err(e) if e.status == 422 && tries < 12 => match crate::lanes::refused_field(&e.detail, &body) {
                         // A server from before a capability or the profile report: only that goes, for ten minutes.
                         Some(field) => {
@@ -324,12 +336,19 @@ impl Runner {
             *self.beat.lock().unwrap() = Some((printed, Instant::now()));
             self.published.lock().unwrap().extend(versions);
             let actions = beat["worktree_actions"].as_array().cloned().unwrap_or_default();
+            note_skipped_actions(beat["worktree_actions_skipped"].as_u64().unwrap_or(0));
             if full || !actions.is_empty() {
                 self.worktrees.poll(host, &actions);
             }
             self.worktree_stamp.store(beat["worktree_record_stamp"] == true, Ordering::SeqCst);
-            if beat["restart"] == true && !self.restart.swap(true, Ordering::SeqCst) {
-                log("Tico runner: restart requested; restarting when no turn is running");
+            if beat["restart"] == true && self.restart.lock().unwrap().is_none() {
+                // Only a supervisor that starts the runner again may let it exit to restart.
+                if supervised() {
+                    *self.restart.lock().unwrap() = Some(Instant::now());
+                    log("Tico runner: restart requested; restarting when no turn is running");
+                } else if !self.restart_refused.swap(true, Ordering::SeqCst) {
+                    log("Tico runner: restart requested, but nothing would start this runner again; run `scripts/tico install` once, or restart it by hand");
+                }
             }
         }
         let dir = &self.state.directory;
@@ -391,6 +410,48 @@ impl Runner {
 
     fn state_bot(&self, aid: &str) -> Option<String> {
         self.attempt_bots.lock().unwrap().get(aid).cloned()
+    }
+}
+
+/// Only live assignments are readiness candidates, one per bot (service.py readiness_candidates). An archived bot
+/// keeps its assignment but is never set up or checked: its repository may be gone, and retrying it on every
+/// maintenance pass kept an idle computer busy.
+fn readiness_candidates(assignments: &[Value]) -> Vec<Value> {
+    let mut by_bot: std::collections::BTreeMap<String, Value> = Default::default();
+    for entry in assignments.iter().filter(|e| e["state"] != "archived") {
+        by_bot.insert(text_of(&entry["bot"]), entry.clone());
+    }
+    by_bot.into_values().collect()
+}
+
+/// Whether a supervisor starts the runner again when it exits (service.py supervised): launchd sets
+/// XPC_SERVICE_NAME to the job's label, the systemd user unit `scripts/tico install` writes sets TICO_SYSTEMD_UNIT,
+/// and TICO_SUPERVISED=1 covers any other supervisor (the Docker runner, runit).
+fn supervised() -> bool {
+    let var = |k: &str| std::env::var(k).unwrap_or_default();
+    var("XPC_SERVICE_NAME").starts_with("team.tico") || var("TICO_SYSTEMD_UNIT").starts_with("tico-") || var("TICO_SUPERVISED") == "1"
+}
+
+/// A restart a person asked for keeps claiming this long, exiting the moment no turn runs; then it stops claiming.
+const RESTART_DRAIN_S: u64 = 20 * 60;
+
+/// Whether a restart asked for at `asked` has stopped this runner claiming (service.py SELF_UPDATE_DRAIN_S).
+fn drained(asked: Option<Instant>, now: Instant) -> bool {
+    asked.is_some_and(|at| now.saturating_duration_since(at) >= Duration::from_secs(RESTART_DRAIN_S))
+}
+
+/// A heartbeat refused for its capacity (`body.capacity: ...` in the 422 detail).
+fn capacity_refused(detail: &str) -> bool {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r"(?:^|[ ;])(?:body\.)?capacity:").unwrap()).is_match(detail)
+}
+
+/// The server leaves out worktree actions for tasks this computer's bots can no longer read; said when the count
+/// changes, not on every heartbeat.
+fn note_skipped_actions(skipped: u64) {
+    static LAST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    if LAST.swap(skipped, Ordering::SeqCst) != skipped && skipped > 0 {
+        log(&format!("Tico runner: readiness skipped {skipped} worktree action(s) for tasks this computer's bots can no longer read"));
     }
 }
 
@@ -460,6 +521,7 @@ impl Runner {
         let names = self.names().await;
         let _ = names;
         self.recover_output().await;
+        tokio::spawn(self.clone().push_backlog());
         tokio::spawn(self.events.clone().run(self.client.clone()));
         let mut clock = Clock {
             polled: HashMap::new(),
@@ -477,7 +539,7 @@ impl Runner {
             let delay = match self.tick(&mut clock, &mut workers, &mut maintenance, &mut paused_note).await {
                 Ok(()) => {
                     if failures > 0 {
-                        log("Tico runner: the hub answers again");
+                        crate::util::diagnostic("Tico runner: the hub answers again");
                     }
                     failures = 0;
                     0.25
@@ -490,7 +552,7 @@ impl Runner {
                     (2f64.powi(failures.min(5) as i32)).min(30.0)
                 }
             };
-            if self.restart.load(Ordering::SeqCst) && workers.is_empty() {
+            if self.restart.lock().unwrap().is_some() && workers.is_empty() {
                 log("Tico runner: no turn running; exiting so the supervisor starts the runner again");
                 break;
             }
@@ -545,8 +607,13 @@ impl Runner {
             }
         }
         if maintenance.is_none() {
-            clock.wants(&self.events, "config", None);
-            let full = clock.wants(&self.events, "sync", Some(15.0));
+            // The company's providers changed: a full pass now, and the default runtime a computer with no bots
+            // installs is read again at once (relays.rs).
+            let changed = clock.wants(&self.events, "config", None);
+            if changed {
+                crate::relays::config_changed();
+            }
+            let full = clock.wants(&self.events, "sync", Some(15.0)) || changed;
             let forced = clock.wants(&self.events, "heartbeat", None) | self.sign_in.take_dirty();
             if full || forced || clock.last_heartbeat.is_none_or(|t| t.elapsed().as_secs_f64() >= 15.0) {
                 let me = self.clone();
@@ -555,8 +622,8 @@ impl Runner {
             }
         }
         crate::relays::poll(self);
-        if self.restart.load(Ordering::SeqCst) {
-            return Ok(()); // a person asked for a restart: no new work, the running turns finish
+        if drained(*self.restart.lock().unwrap(), Instant::now()) {
+            return Ok(()); // asked for a restart a while ago: no new work, so the running turns finish
         }
         // Programs bots declare in `watchers:` (crate::watchers); a failure is logged and never stops the runner.
         let assignments = self.assignments.lock().unwrap().clone();
@@ -607,9 +674,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_requested_restart_keeps_claiming_for_twenty_minutes_then_stops() {
+        let asked = Instant::now();
+        assert!(!drained(None, asked));
+        assert!(!drained(Some(asked), asked + Duration::from_secs(RESTART_DRAIN_S - 1)));
+        assert!(drained(Some(asked), asked + Duration::from_secs(RESTART_DRAIN_S)));
+    }
+
+    #[test]
     fn steady_drops_volatile_keys_and_sorts() {
         let v = json!({"b": 1, "a": {"free_bytes": 5, "total_bytes": 9}, "at": 3});
         assert_eq!(steady(&v).to_string(), r#"{"a":{"total_bytes":9},"b":1}"#);
+    }
+
+    #[test]
+    fn archived_bots_are_not_readiness_candidates_and_a_capacity_refusal_is_recognised() {
+        let live = json!({"bot": "ops", "state": "active"});
+        let gone = json!({"bot": "qa-old", "state": "archived"});
+        assert_eq!(readiness_candidates(&[gone, live.clone()]), vec![live]);
+        assert!(capacity_refused("body.capacity: Input should be less than or equal to 32"));
+        assert!(!capacity_refused("body.readiness.capacity_note: bad"));
     }
 
     #[test]
