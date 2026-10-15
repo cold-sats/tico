@@ -652,9 +652,8 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("tico-watch-cmd-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(dir.join("software")).unwrap();
         std::fs::write(dir.join("software/w.py"), "print(1)\n").unwrap();
-        std::fs::write(dir.join("software/sh"), "#!/bin/sh\necho\n").unwrap();
+        crate::util::write_script(&dir.join("software/sh"), "#!/bin/sh\necho\n");
         std::fs::write(dir.join("software/plain"), "#!/usr/bin/env python3\n").unwrap();
-        std::fs::set_permissions(dir.join("software/sh"), std::fs::Permissions::from_mode(0o755)).unwrap();
         let argv = |s: &str| shlex_split(s).unwrap();
         let py = command(&dir, &argv("software/w.py a")).unwrap();
         assert_eq!(py[0], crate::env::python().display().to_string());
@@ -715,12 +714,10 @@ mod tests {
     async fn a_run_reports_events_without_secrets_and_a_refused_report_rolls_the_state_back() {
         let dir = std::env::temp_dir().join(format!("tico-watch-run-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(dir.join("bot/software")).unwrap();
-        std::fs::write(
-            dir.join("bot/software/w.sh"),
+        crate::util::write_script(
+            &dir.join("bot/software/w.sh"),
             "#!/bin/sh\n[ -z \"$HUB_TOKEN\" ] || echo HAS_TOKEN\necho seen > \"$TICO_WATCHER_STATE/cursor\"\necho \"key is $LINEAR_KEY\"\necho 'tico-event {\"op\": \"task\", \"key\": \"hq:1\", \"title\": \"New\"}' >&2\nexit 3\n",
-        )
-        .unwrap();
-        std::fs::set_permissions(dir.join("bot/software/w.sh"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
         let spec = parse(Some(&crate::manifest::parse("- {name: w, run: software/w.sh, every: 1m, timeout: 5s}").unwrap())).unwrap().remove(0);
         let watchers = Watchers::default();
         let key = ("ops".to_string(), "w".to_string());

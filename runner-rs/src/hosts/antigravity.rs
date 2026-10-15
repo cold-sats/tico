@@ -420,14 +420,11 @@ mod tests {
     /// An `agy` that answers every stdin line with the fixture (`$FIXTURE`), or, with `$CUMULATIVE`, a result whose
     /// usage grows by the same amount each turn, and exits when stdin closes.
     fn fake_agy(dir: &Path) -> String {
-        use std::os::unix::fs::PermissionsExt;
         let path = dir.join("agy");
-        std::fs::write(
+        crate::util::write_script(
             &path,
             "#!/bin/sh\necho \"$@\" >> \"$ARGS_LOG\"\nn=0\nwhile IFS= read -r line; do\n  n=$((n+1))\n  if [ -n \"$CUMULATIVE\" ]; then\n    echo '{\"event\": \"init\", \"conversation_id\": \"6f9619ff-8b86-d011-b42d-00c04fc964ff\"}'\n    echo \"{\\\"event\\\": \\\"result\\\", \\\"result\\\": {\\\"status\\\": \\\"SUCCESS\\\", \\\"response\\\": \\\"turn $n\\\", \\\"usage\\\": {\\\"input_tokens\\\": $((n*10)), \\\"output_tokens\\\": $((n*2)), \\\"cache_read_tokens\\\": $((n*4))}}}\"\n  else\n    cat \"$FIXTURE\"\n  fi\ndone\n",
-        )
-        .unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
         path.display().to_string()
     }
 
