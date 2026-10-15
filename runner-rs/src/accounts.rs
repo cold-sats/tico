@@ -151,10 +151,10 @@ pub fn without_keys(mut env: Env) -> Env {
     env
 }
 
-/// One `account/read` on a fresh `<executable> app-server` in `env`.
-pub async fn read_app_server(runtime: &str, env: &Env) -> Option<Value> {
-    let exe = crate::env::which(&crate::harness_tools::executable_for(runtime), &std::env::var("PATH").unwrap_or_default())?;
-    let mut cmd = tokio::process::Command::new(exe);
+/// `<exe> app-server` in `env`, as the bot user like sign-in and turns: it writes in the profile's CODEX_HOME,
+/// which is the bot user's under isolation.
+fn app_server(exe: &std::path::Path, env: &Env) -> tokio::process::Command {
+    let mut cmd = crate::isolation::command(exe);
     cmd.arg("app-server")
         .env_clear()
         .envs(env)
@@ -162,7 +162,13 @@ pub async fn read_app_server(runtime: &str, env: &Env) -> Option<Value> {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .kill_on_drop(true);
-    let mut child = cmd.spawn().ok()?;
+    cmd
+}
+
+/// One `account/read` on a fresh `<executable> app-server` in `env`.
+pub async fn read_app_server(runtime: &str, env: &Env) -> Option<Value> {
+    let exe = crate::env::which(&crate::harness_tools::executable_for(runtime), &std::env::var("PATH").unwrap_or_default())?;
+    let mut child = app_server(&exe, env).spawn().ok()?;
     let (mut stdin, stdout) = (child.stdin.take()?, child.stdout.take()?);
     let mut lines = BufReader::new(stdout).lines();
     let reply = async {
@@ -182,6 +188,58 @@ pub async fn read_app_server(runtime: &str, env: &Env) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_account_reader_runs_as_the_bot_user_in_the_profile_home() {
+        const CHILD: &str = "TICO_TEST_ACCOUNT_IDENTITY";
+        if std::env::var_os(CHILD).is_none() {
+            // A separate process keeps the configured isolation identity out of other parallel tests.
+            let uid = if unsafe { libc::geteuid() } == 10003 { 10004 } else { 10003 };
+            let out = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "accounts::tests::the_account_reader_runs_as_the_bot_user_in_the_profile_home", "--nocapture"])
+                .env(CHILD, "1").env(crate::isolation::UID_ENV, uid.to_string()).env(crate::isolation::GID_ENV, "10002")
+                .output().unwrap();
+            assert!(out.status.success(), "{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+            return;
+        }
+        let uid = std::env::var(crate::isolation::UID_ENV).unwrap();
+        let env: Env = [("CODEX_HOME".into(), "/subscriptions/acme/codex".into())].into_iter().collect();
+        let command = app_server(std::path::Path::new("/tools/codex"), &env);
+        let command = command.as_std();
+        assert_eq!(command.get_program(), crate::isolation::SETPRIV);
+        let args: Vec<String> = command.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+        assert_eq!(args, [format!("--reuid={uid}"), "--regid=10002".into(), "--clear-groups".into(), "--inh-caps=-all".into(),
+            "--ambient-caps=-all".into(), "/tools/codex".into(), "app-server".into()]);
+        assert!(command.get_envs().any(|(k, v)| k == "CODEX_HOME" && v == Some(std::ffi::OsStr::new("/subscriptions/acme/codex"))));
+    }
+
+    /// Root plays the supervisor, `TICO_RUNNER_BOT_UID=10003 TICO_RUNNER_BOT_GID=10002` the bot user.
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "requires a disposable Linux two-user environment"]
+    fn isolated_the_account_reader_writes_in_a_bot_owned_codex_home() {
+        use std::os::unix::fs::{chown, MetadataExt, PermissionsExt};
+        assert_eq!(unsafe { libc::geteuid() }, 0, "disposable supervisor fixture");
+        assert!(std::env::var_os("TICO_TEST_DISPOSABLE").is_some());
+        assert_eq!(crate::isolation::identity(), Some((10003, 10002)));
+        let dir = std::env::temp_dir().join(format!("tico-account-contract-{}", uuid::Uuid::new_v4().simple()));
+        let home = dir.join("codex");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o711)).unwrap();
+        std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
+        chown(&home, Some(10003), Some(10002)).unwrap(); // a profile home after profiles::hand_to_bot
+        // A stand-in for codex: app-server writes in CODEX_HOME.
+        let exe = dir.join("codex-stand-in");
+        std::fs::write(&exe, "#!/bin/sh\nid -u > \"$CODEX_HOME/app-server-state\"\n").unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let env: Env = [("CODEX_HOME".to_string(), home.display().to_string())].into_iter().collect();
+        let status = tokio::runtime::Runtime::new().unwrap().block_on(async { app_server(&exe, &env).status().await }).unwrap();
+        assert!(status.success());
+        let state = home.join("app-server-state");
+        assert_eq!(std::fs::read_to_string(&state).unwrap().trim(), "10003");
+        assert_eq!(std::fs::symlink_metadata(&state).unwrap().uid(), 10003, "the bot user can change it on its next turn");
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn only_the_allowed_fields_travel() {
