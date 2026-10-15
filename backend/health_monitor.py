@@ -192,12 +192,15 @@ def _server_starts(c):
 
 
 def _near_start(line, starts):
-    """Whether a runner's error line was logged while the server was restarting. A line without a time is not."""
+    """Whether a runner's error line was logged while the server was restarting. A line without a valid time is not."""
     m = STAMP.match(line)
     if not m:
         return False
     stamp = m.group(1)
-    at = calendar.timegm(time.strptime(stamp, "%Y-%m-%dT%H:%M:%S" if stamp.count(":") == 2 else "%Y-%m-%dT%H:%M"))
+    try:
+        at = calendar.timegm(time.strptime(stamp, "%Y-%m-%dT%H:%M:%S" if stamp.count(":") == 2 else "%Y-%m-%dT%H:%M"))
+    except ValueError:              # a runner's line is its own text: a bad date must not stop the scan
+        return False
     return any(start - RESTART_BEFORE <= at <= start + RESTART_AFTER for start in starts)
 
 
