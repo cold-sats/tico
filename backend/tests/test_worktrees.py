@@ -165,23 +165,43 @@ def test_no_app_accepts_computer_git_addresses_but_connected_app_keeps_grants(pr
     assert post(api, f'tasks/{tid}/worktrees', {'repo': 'https://git.example.com/a.git?token=example'}).status_code == 422
 
 
-def test_unlink_needs_move_rights_and_keeps_inventory_until_cleanup(prepared):
-    from backend import worktrees as W
+def test_unlink_retries_exhausted_cleanup_with_move_rights_and_keeps_work_until_removed(prepared):
     api, tid, _ = prepared
     link = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}).json()
+    assert mark_ready(api, tid, link['link_id']).status_code == 200
+    error = 'Worktree action failed; history kept. kept: ignored files'
     with api.app_state.store.transaction() as c:
-        c.execute("UPDATE task_links SET state='present',detail_json=? WHERE id=?",
-                  (json.dumps({'owner': 'bot:cmo', 'checkout_state': 'ready', 'setup_pending': False}), link['link_id']))
+        detail = json.loads(c.execute('SELECT detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()[0])
+        detail.update(cleanup_requested=True, cleanup_attempts=W.CLEANUP_TRIES, cleanup_gave_up=True,
+                      cleanup_retry_at=H.shift(H.now(), minutes=60), error=error)
+        c.execute('UPDATE task_links SET detail_json=? WHERE id=?', (json.dumps(detail), link['link_id']))
+        c.execute("UPDATE tasks SET status='closed' WHERE id=?", (tid,))
+    report = {'link_id': link['link_id'], 'state': 'present', 'checkout_state': 'ready',
+              'branch': link['branch'], 'ahead': 1, 'dirty_files': 1, 'error': error}
+    body = {'version': '0.3.2', 'platform': 'linux', 'readiness': {'schema_version': 1, 'worktrees': True},
+            'worktrees': [report]}
+    assert post(api, 'runners/heartbeat', body, 'runner-test').json()['worktree_actions'] == []
+    with api.app_state.store.transaction() as c:
         with pytest.raises(H.Refused):
             H.task_unlink(c, 'bot:cpo', tid, link['link_id'])
+        saved = json.loads(c.execute('SELECT detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()[0])
+        assert saved['cleanup_attempts'] == W.CLEANUP_TRIES and saved['cleanup_gave_up']
         H.task_unlink(c, 'human:ana', tid, link['link_id'], mover=True)
         H.task_update(c, 'human:ana', tid, owner='human:ana', mover=True)
         rows = W.inventory(c, 'r1')
         assert len(rows) == 1 and rows[0]['owner'] == 'bot:cmo'
-    body = {'version': '0.3.2', 'platform': 'linux', 'readiness': {'schema_version': 1, 'worktrees': True},
-            'worktrees': [{'link_id': link['link_id'], 'state': 'present', 'checkout_state': 'ready'}]}
-    assert post(api, 'runners/heartbeat', body, 'runner-test').json()['worktree_actions'][0]['action'] == 'remove'
-    body['worktrees'][0]['state'] = 'removed'
+        assert rows[0]['state'] == 'present' and rows[0]['path'] == link['path']
+        saved = json.loads(rows[0]['detail_json'])
+        assert not any(key in saved for key in ('cleanup_attempts', 'cleanup_retry_at', 'cleanup_gave_up'))
+        assert saved['delete_requested'] and saved['error'] == error, 'the last refusal is not reported as success'
+    actions = post(api, 'runners/heartbeat', body, 'runner-test').json()['worktree_actions']
+    assert len(actions) == 1 and actions[0]['action'] == 'remove' and actions[0]['owner'] == 'cmo'
+    # A fresh refusal keeps the files/link and resumes bounded retries; requesting removal does not bypass it.
+    assert post(api, 'runners/heartbeat', body, 'runner-test').json()['worktree_actions'] == []
+    with api.app_state.store.read() as c:
+        saved = c.execute('SELECT state,detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()
+        assert saved['state'] == 'present' and json.loads(saved['detail_json'])['error'] == error
+    report['state'] = 'removed'
     assert post(api, 'runners/heartbeat', body, 'runner-test').json()['worktree_actions'] == []
     with api.app_state.store.read() as c:
         assert not c.execute('SELECT 1 FROM task_links WHERE id=?', (link['link_id'],)).fetchone()
