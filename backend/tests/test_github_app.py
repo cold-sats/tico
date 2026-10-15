@@ -84,7 +84,8 @@ class FakeGitHub:
         if path.endswith("/access_tokens"):
             if self.refuse:
                 return httpx.Response(self.refuse[0], json={"message": self.refuse[1]})
-            if "actions" in body.get("permissions", {}) and "actions" not in (self.permissions or {}):
+            if any(name in body.get("permissions", {}) and name not in (self.permissions or {})
+                   for name in ("actions", "checks", "statuses")):
                 return httpx.Response(422, json={"message": "The permissions requested are not granted to this installation."})
             if body and any(name in self.missing for name in body.get("repositories", [])):
                 return httpx.Response(403 if self.forbidden else 422, json={"message": "Validation Failed"})
@@ -330,6 +331,31 @@ def test_turn_token_reads_workflow_runs_once_the_installation_allows_it(api, gh)
     assert turn_token(api).status_code == 200
     assert gh.of("/access_tokens")[-1][2]["permissions"]["actions"] == "read"
 
+
+
+def test_turn_token_reads_pull_request_checks_and_statuses(api, gh):
+    # `gh pr checks` reads check runs and commit statuses; a private repository refuses both without them.
+    assert {"checks", "statuses"} <= manifest(api)["manifest"]["default_permissions"].keys()
+    connect(api)
+    runner_token(api, "cpo")
+    gh.permissions = {"actions": "read", "checks": "read", "statuses": "read"}
+    assert turn_token(api).status_code == 200
+    asked = gh.of("/access_tokens")[-1][2]["permissions"]
+    assert asked == {"contents": "write", "pull_requests": "write", "issues": "write", "metadata": "read",
+                     "actions": "read", "checks": "read", "statuses": "read"}
+
+
+def test_turn_token_asks_only_for_the_reads_the_installation_accepted(api, gh):
+    connect(api)
+    runner_token(api, "cpo")
+    gh.permissions = {"checks": "read", "statuses": "write"}   # accepted the manifest before Actions was added
+    assert turn_token(api).status_code == 200
+    asked = gh.of("/access_tokens")[-1][2]["permissions"]
+    assert asked["checks"] == asked["statuses"] == "read" and "actions" not in asked
+    calls = len(gh.of("/access_tokens"))
+    api.app_state.github_app.cache.clear()
+    assert turn_token(api).status_code == 200
+    assert len(gh.of("/access_tokens")) == calls + 1        # remembered: no refused ask first
 
 def runner_token(api, bot):
     with api.app_state.store.transaction() as c:

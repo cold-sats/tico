@@ -50,10 +50,11 @@ REFRESH_MARGIN = TURN_START_REFRESH_MARGIN
 # What a bot's turn needs in its own repository, and nothing else.
 TURN_PERMISSIONS = {"contents": "write", "pull_requests": "write", "issues": "write", "metadata": "read"}
 READ_PERMISSIONS = {"contents": "read", "metadata": "read"}
-# Lets a bot read workflow runs (a deploy's result) in any repository it can read. GitHub refuses a token naming
-# a permission the installation has not accepted, so turns fall back to asking without it (mint_turn).
-ACTIONS_READ = {"actions": "read"}
-ACTIONS_RETRY = 6 * 3600   # until the installation webhook or Check permissions says it changed
+# What a bot reads beside its code in any repository it can reach: workflow runs (a deploy's result), check runs
+# and commit statuses (a pull request's checks; `gh pr checks` needs both). GitHub refuses a token naming a
+# permission the installation has not accepted, so turns narrow to the ones it has accepted (mint_turn).
+TURN_READS = {"actions": "read", "checks": "read", "statuses": "read"}
+READS_RETRY = 6 * 3600     # until the installation webhook or Check permissions says it changed
 CREATE_PERMISSIONS = {"administration": "write", "contents": "read"}
 PRODUCT_CREATE_PERMISSIONS = {"administration": "write", "metadata": "read"}
 ORG = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")
@@ -387,20 +388,23 @@ class GitHubApp:
         return allowed
 
     def mint_turn(self, repos, base, **kw):
-        """`mint_reachable` for a bot's turn: `base` plus Actions (read), or `base` alone when the installation
-        has not accepted Actions yet. That refusal is remembered, so an older installation costs one extra
-        request every few hours and a token served from the cache costs none."""
+        """`mint_reachable` for a bot's turn: `base` plus the TURN_READS the installation has accepted. A refusal
+        narrows the ask to what the installation reports it has, then to `base` alone, and is remembered, so an
+        older installation costs one or two extra requests every few hours and a token served from the cache none."""
         with self.lock:
-            skip = self.live.get("no-actions", 0) > time.time()
-        if not skip:
+            narrowed = self.live.get("turn-reads")
+        reads = narrowed[1] if narrowed and narrowed[0] > time.time() else TURN_READS
+        while True:
             try:
-                return self.mint_reachable(repos, {**base, **ACTIONS_READ}, **kw)
+                return self.mint_reachable(repos, {**base, **reads}, **kw)
             except Problem as problem:
-                if problem.code != "github_app_permissions":
+                if problem.code != "github_app_permissions" or not reads:
                     raise
-                with self.lock:
-                    self.live["no-actions"] = time.time() + ACTIONS_RETRY
-        return self.mint_reachable(repos, base, **kw)
+            granted = self.live_permissions(refresh=True) or {}
+            accepted = {name: level for name, level in reads.items() if granted.get(name) in ("read", "write")}
+            reads = accepted if accepted != reads else {}
+            with self.lock:
+                self.live["turn-reads"] = (time.time() + READS_RETRY, reads)
 
     def delete_repo(self, repository):
         row = self.row()
@@ -815,7 +819,7 @@ def _said(response):
 
 def manifest(settings, name, administration):
     public = settings.public_url
-    permissions = {**TURN_PERMISSIONS, **ACTIONS_READ, "checks": "read", "statuses": "read"}
+    permissions = {**TURN_PERMISSIONS, **TURN_READS}
     if administration:
         permissions["administration"] = "write"
     return {"name": name[:34], "url": public, "redirect_url": public + "/api/v2/github/app/callback",
@@ -940,7 +944,7 @@ def install_github_app(app, settings, store):
         any bot whose repository was waiting for them."""
         owner(request)
         from .repo_waits import resume
-        service.live.pop("no-actions", None)
+        service.live.pop("turn-reads", None)
         view = status_view(refresh=True)
         if view.get("connected"):
             view["resumed"] = resume(service)
