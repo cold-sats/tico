@@ -19,7 +19,7 @@ LIMIT_COOLDOWN = 1800        # seconds a bot waits after its runtime reported a 
 LIMIT_COOLDOWN_LONG = 7200   # after the third limit in a row: the subscription window is spent, not busy
 LIMIT_STRIKES = 3
 # An API key's own quota or billing refusal: the fix is the key's plan and billing, not waiting out a subscription window.
-BILLING_LIMIT_RE = re.compile(r"quota exceeded|exceeded your current quota|insufficient[_ ]quota", re.I)
+BILLING_LIMIT_RE = re.compile(r"quota exceeded\. check your plan|exceeded your current quota|insufficient[_ ]quota", re.I)
 # How long a server that stopped answering runners is forgiven: leases that lapse meanwhile
 # get grace instead of expiring, and a runner reporting in afterwards gets its attempt back.
 # A backup can starve a single small API worker for minutes: 90 s leases lapsed and healthy running turns were marked interrupted for review.

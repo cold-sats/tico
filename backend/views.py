@@ -316,8 +316,9 @@ def operation_issues(c, who, auth):
                 if billing_limit(c, slug):
                     retry = H.shift(status["since"], seconds=cooldown)
                     add("bot", bot["display_name"] + " needs attention",
-                        f"{runtime} API quota or billing limit; queued work waits until {retry[11:16]} UTC, "
-                        "check the API key's plan and billing", bot=slug, severity="warning", needs_person=False,
+                        f"{runtime} API quota or billing limit; queued work waits until {retry[:10]} {retry[11:16]} UTC, "
+                        "check the API key's plan and billing", bot=slug, needs_person=False,
+                        **({} if limit_streak(c, slug) >= LIMIT_STRIKES else {"severity": "warning"}),
                         action="Check the API key's plan and billing, or set a fallback harness in Settings → Bots.")
                 elif cooldown > LIMIT_COOLDOWN_LONG:
                     retry = H.shift(status["since"], seconds=cooldown)
