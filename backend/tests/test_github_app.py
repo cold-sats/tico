@@ -357,6 +357,15 @@ def test_turn_token_asks_only_for_the_reads_the_installation_accepted(api, gh):
     assert turn_token(api).status_code == 200
     assert len(gh.of("/access_tokens")) == calls + 1        # remembered: no refused ask first
 
+
+def test_turn_token_stops_when_github_refuses_even_the_base(api, gh):
+    connect(api)
+    runner_token(api, "cpo")
+    gh.permissions = {"actions": "read", "checks": "read", "statuses": "read"}
+    gh.refuse = (422, "The permissions requested are not granted to this installation.")
+    assert turn_token(api).status_code == 409
+    assert len(gh.of("/access_tokens")) == 2
+
 def runner_token(api, bot):
     with api.app_state.store.transaction() as c:
         if not c.execute("SELECT 1 FROM runners WHERE id='r1'").fetchone():

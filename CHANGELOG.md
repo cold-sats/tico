@@ -7,6 +7,12 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- Bots can read a pull request's checks (`gh pr checks`, commit statuses and check runs) on private
+  repositories: run tokens carry Checks and Commit statuses read whenever the installation has accepted them. An
+  App created by hand without them needs **Checks** and **Commit statuses** set to Read-only and accepted on the
+  installation.
+
 ### Changed
 - Computer-screen WebSockets use Rust exclusively. The standard server includes and supervises the relay,
   retains the same public listener, and no longer offers a Python relay or an opt-in overlay.
