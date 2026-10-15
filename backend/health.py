@@ -24,6 +24,7 @@ from .store import H, Problem, readiness_document
 from .views import roster
 
 QUEUE_MINUTES = 15          # work that has waited this long on a computer that is up is stuck
+PERSON_QUEUE_MINUTES = 2    # a person's own message, sooner: someone is sitting there waiting for the reply
 SILENT_MINUTES = 10         # a computer this quiet while work is queued for it has stopped, not blinked
 NEEDS_YOU_MINUTES = 30      # this quiet, its owner is asked to bring it back
 BACKUP_STALE_HOURS = 6      # the replica normally trails by seconds
@@ -382,8 +383,12 @@ def _waiting(c, online_ids):
     The third list is every bot with queued work that is not starting, with the computer's own
     reason (`_stuck`)."""
     cutoff = H.shift(H.now(), minutes=-QUEUE_MINUTES)
+    person_cutoff = H.shift(H.now(), minutes=-PERSON_QUEUE_MINUTES)
     queued = {r["bot"]: (r["n"], r["oldest"]) for r in c.execute(
         "SELECT bot, count(*) n, min(created) oldest FROM jobs WHERE state='queued' GROUP BY bot")}
+    asked = {r["bot"]: r["oldest"] for r in c.execute(
+        "SELECT j.bot, min(j.created) oldest FROM jobs j JOIN messages m ON m.id=j.message_id "
+        "WHERE j.state='queued' AND m.from_actor LIKE 'human:%' GROUP BY j.bot")}
     assigned = {r["bot"]: (r["runner_id"], r["label"], r["readiness_json"]) for r in c.execute(
         "SELECT a.bot, a.runner_id, r.label, r.readiness_json FROM assignments a JOIN runners r ON r.id=a.runner_id "
         "WHERE r.revoked_at IS NULL")}
@@ -429,7 +434,8 @@ def _waiting(c, online_ids):
                           "problem": str((report.get("problems") or ["Not ready"])[0])[:200]})
             if oldest and oldest < cutoff:
                 slow.append({**row, "reason": "slow"})
-        elif where and count and oldest and oldest < cutoff and slug not in parked:
+        elif where and count and slug not in parked and (
+                (oldest and oldest < cutoff) or (asked.get(slug) and asked[slug] < person_cutoff)):
             # A bot over its spend limit takes no new job on purpose (backend/usage_limits.py): say so, not "slow".
             idle = slug not in busy and where[0] not in full
             reason = "limit" if idle and usage_limits.blocked(c, slug) else "slow"

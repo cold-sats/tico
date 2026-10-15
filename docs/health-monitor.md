@@ -17,7 +17,7 @@ Once an hour, while it is on, the server checks the install in plain code (`back
 | `worktree_error` | setup | A task worktree failed on its computer |
 | `push_stuck` | setup | A runner reports a checkout with commits it cannot push (diverged) |
 | `cannot_fetch` | setup | A runner keeps failing to fetch a bot's repository |
-| `queue_idle` | tico-bug | Work queued 15 minutes or more on an online computer that has room and no limit |
+| `queue_idle` | tico-bug | Work queued 15 minutes or more (a person's message: 2 minutes) on an online computer that has room and no limit |
 | `worktree_fallback` | tico-bug | A task's turn ran in the bot's checkout because its worktree hit Permission denied |
 | `event_stream` | tico-bug | A runner keeps losing its event stream |
 | `readiness_403` | tico-bug | A runner's readiness report keeps being refused |

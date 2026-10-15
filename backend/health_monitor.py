@@ -74,7 +74,7 @@ MEANING = {
     "limited_no_fallback": "A bot's turns stopped on a usage limit and it has no fallback model.",
     "stuck_setup": "A bot has been in setup for over an hour while work waits for it.",
     "computer_silent": "A computer has not checked in for 10 minutes or more while work is queued for its bots.",
-    "queue_idle": "Work stayed queued 15 minutes or more on an online computer with room and no limit.",
+    "queue_idle": "Work stayed queued 15 minutes or more (a person's message: 2) on an online computer with room and no limit.",
     "worktree_error": "A task worktree failed on its computer.",
     "server_cpu": f"The server averaged {SERVER_CPU:g}% CPU or more for an hour with under {QUIET_REQUESTS} requests.",
     "local_busy": "A process or container on a computer running Tico was busy in two hourly checks in a row while idle.",
