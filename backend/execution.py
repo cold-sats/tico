@@ -206,9 +206,11 @@ def limit_streak(c, bot):
 def limit_cooldown(c, bot):
     """Seconds held after the last limit, including a provider's explicit reset window."""
     cooldown = LIMIT_COOLDOWN_LONG if limit_streak(c, bot) >= LIMIT_STRIKES else LIMIT_COOLDOWN
-    last = c.execute("SELECT id,finished,result_json FROM attempts WHERE bot=? AND finished IS NOT NULL "
-                     "ORDER BY created DESC LIMIT 1", (bot,)).fetchone()
-    if not last or not json.loads(last["result_json"] or "{}").get("limited"):
+    # Another lane begun before the limit can finish afterwards without lifting the bot's hold.
+    last = c.execute("SELECT id,finished FROM attempts WHERE bot=? AND state IN ('failed','interrupted') "
+                     "AND finished IS NOT NULL AND json_extract(result_json,'$.limited')=1 "
+                     "ORDER BY finished DESC LIMIT 1", (bot,)).fetchone()
+    if not last:
         return cooldown
     finished = H.parse_ts(last["finished"])
     if not finished:
