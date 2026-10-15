@@ -302,14 +302,11 @@ pub mod testing {
     /// `name` in `dir`: logs its argv to $ARGS_LOG and stdin to $ARGS_LOG.prompt, then prints $FIXTURE (or, for
     /// `create-chat`, a chat id) and exits $RC (0 by default).
     pub fn fake(dir: &Path, name: &str) -> String {
-        use std::os::unix::fs::PermissionsExt;
         let path = dir.join(name);
-        std::fs::write(
+        crate::util::write_script(
             &path,
             "#!/bin/sh\necho \"$@\" >> \"$ARGS_LOG\"\nif [ \"$1\" = create-chat ]; then echo 0b5c2f1e-3a4d-4e6f-8a9b-0c1d2e3f4a5b; exit 0; fi\ncat > \"$ARGS_LOG.prompt\"\ncat \"$FIXTURE\"\nexit ${RC:-0}\n",
-        )
-        .unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
         path.display().to_string()
     }
 

@@ -520,14 +520,11 @@ mod tests {
     /// A `gemini` that logs its argv, then plays `$FIXTURE` once stdin closes, or, for a `--resume` of a session
     /// it was told is gone (`$GONE`), fails as the CLI does before it calls the model.
     fn fake_gemini(dir: &Path) -> String {
-        use std::os::unix::fs::PermissionsExt;
         let path = dir.join("gemini");
-        std::fs::write(
+        crate::util::write_script(
             &path,
             "#!/bin/sh\necho \"$@\" >> \"$ARGS_LOG\"\ncat > \"$ARGS_LOG.prompt\"\ncase \" $* \" in *\" --resume $GONE \"*) echo \"Error resuming session: Invalid session identifier \\\"$GONE\\\".\" >&2; exit 1;; esac\ncat \"$FIXTURE\"\n",
-        )
-        .unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
         path.display().to_string()
     }
 
