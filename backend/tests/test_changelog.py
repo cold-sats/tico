@@ -17,6 +17,10 @@ ROOT = Path(__file__).resolve().parents[2]
 # Shipped notes corrected on purpose after their tag (a renamed bot, a moved docs anchor) are compared with the
 # commit that corrected them instead, so they stay guarded from then on.
 REVISED = {
+    "0.2.0": "af85539717e1a18b3c350a52068a60459cf3f0f6",
+    "0.2.1": "af85539717e1a18b3c350a52068a60459cf3f0f6",
+    "0.2.2": "af85539717e1a18b3c350a52068a60459cf3f0f6",
+    "0.2.4": "af85539717e1a18b3c350a52068a60459cf3f0f6",
     "0.2.13": "d1d4a7e2f8ae3af933f28af83a511cadd3bc96df",
     "0.2.15": "e6e2b8544f1d8548e4181932e60b6e0fcd3f4aa3",
     "0.3.24": "8d55fe27e343e06a5661cb7b074efba1b81c956c",
@@ -106,7 +110,7 @@ def released_edits(root):
     """
     git = lambda *args, **kw: subprocess.run(["git", "-C", str(root), *args], capture_output=True, **kw)
     text = (root / "CHANGELOG.md").read_text()
-    here = set(re.findall(r"^## \[(\d+\.\d+\.\d+)\]", text, re.M))
+    here = set(re.findall(r"^## \[?(\d+\.\d+\.\d+)\b", text, re.M))  # the oldest headings have no brackets
     tags = git("tag", "--list", "v[0-9]*").stdout.decode().split()
     refs = "".join(REVISED.get(t[1:], "refs/tags/" + t) + ":CHANGELOG.md\n" for t in tags)
     out = git("cat-file", "--batch", input=refs.encode()).stdout
