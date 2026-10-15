@@ -348,7 +348,9 @@ def heartbeat(c, who, reports, capable, default_org=""):
         if action and (action == 'remove' or row['repo'] and row['branch']):
             actions.append({'link_id': row['id'], 'action': action, 'branch': row['branch'], 'path': row['path'],
                             'task_id': row['task_id'], 'repo': row['repo'], 'owner': H.actor_id(row['owner']),
-                            'prs_finished': bool(prs) and finished, **({'release': True} if released else {})})
+                            'prs_finished': bool(prs) and finished, **({'release': True} if released else {}),
+                            **({'cleanup_retry_generation': detail['cleanup_retry_generation']}
+                               if action == 'remove' and detail.get('cleanup_retry_generation') else {})})
 
     return actions
 

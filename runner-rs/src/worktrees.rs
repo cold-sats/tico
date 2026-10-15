@@ -1215,6 +1215,8 @@ struct Inner {
     actions: Map<String, Value>,
     errors: HashMap<String, String>,
     retry: HashMap<String, (Instant, u32)>,
+    /// Explicit requests are consumed once and remain consumed across ordinary cleanup failures.
+    cleanup_retry_generations: HashMap<String, String>,
     stats: SizeCache,
 }
 
@@ -1271,15 +1273,22 @@ impl Worktrees {
         for action in &actions {
             let link = text_of(&action["link_id"]);
             let Some(index) = rows.iter().position(|r| text_of(&r["id"]) == link) else { continue };
-            if self.inner.lock().unwrap().retry.get(&link).is_some_and(|(at, _)| Instant::now() < *at) {
-                continue;
-            }
             let row = rows[index].clone();
             let d = detail(&row);
             let is_closed = closed(&row);
             let released = crate::util::truthy(action.get("release")) && crate::util::truthy(d.get("release_requested"));
             let kind = text_of(&action["action"]);
             if (kind == "remove" && !(is_closed || released)) || ((kind == "restore" || kind == "prepare") && is_closed) {
+                continue;
+            }
+            let generation = text_of(&action["cleanup_retry_generation"]);
+            if !generation.is_empty() && (kind != "remove" || !crate::util::truthy(d.get("delete_requested"))
+                    || d.get("cleanup_retry_generation").map(text_of).unwrap_or_default() != generation) {
+                continue; // A queued action cannot consume a different, newer explicit request.
+            }
+            let explicit_retry = !generation.is_empty()
+                && self.inner.lock().unwrap().cleanup_retry_generations.get(&link) != Some(&generation);
+            if !explicit_retry && self.inner.lock().unwrap().retry.get(&link).is_some_and(|(at, _)| Instant::now() < *at) {
                 continue;
             }
             let owner = text_of(&row["owner"]);
@@ -1289,6 +1298,11 @@ impl Worktrees {
             let Some(guards) = host.try_locks(&bot, &format!("task:{task}")) else { continue };
             if !host.idle(&bot, &task) {
                 continue;
+            }
+            if explicit_retry {
+                let mut inner = self.inner.lock().unwrap();
+                inner.retry.remove(&link);
+                inner.cleanup_retry_generations.insert(link.clone(), generation);
             }
             self.maintaining.lock().unwrap().insert(bot.clone());
             let mut action_row = Map::new();
@@ -1327,6 +1341,7 @@ impl Worktrees {
             }
             inner.stats.retain(|k, _| ids.contains(k));
             inner.retry.retain(|k, _| ids.contains(k));
+            inner.cleanup_retry_generations.retain(|k, _| ids.contains(k));
         }
         let mut stats = std::mem::take(&mut self.inner.lock().unwrap().stats);
         let env = crate::env::process_environment();
@@ -1466,6 +1481,94 @@ impl Worktrees {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn explicit_cleanup_retry_reaches_preservation_once_despite_local_backoff() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        struct Folder(PathBuf);
+        impl Drop for Folder {
+            fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+        }
+        struct RetryHost { idle: AtomicBool, locks_available: AtomicBool, attempts: AtomicUsize }
+        impl Host for RetryHost {
+            fn idle(&self, _: &str, _: &str) -> bool { self.idle.load(Ordering::SeqCst) }
+            fn try_locks(&self, _: &str, _: &str) -> Option<Box<dyn Send>> {
+                self.locks_available.load(Ordering::SeqCst).then(|| Box::new(()) as Box<dyn Send>)
+            }
+            fn vault(&self, _: &str) -> Vec<String> {
+                self.attempts.fetch_add(1, Ordering::SeqCst);
+                vec![]
+            }
+            fn retain_vault(&self, _: &HashSet<String>) {}
+            fn repositories(&self) -> Option<Arc<repositories::Repositories>> { None }
+        }
+        let root = std::env::temp_dir().join(format!("tico-cleanup-retry-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(root.join("tasks/task/product")).unwrap();
+        let folder = Folder(root.canonicalize().unwrap());
+        let wanted = folder.0.join("tasks/task/product/wanted.txt");
+        std::fs::write(&wanted, "unfinished work").unwrap();
+        let generation = uuid::Uuid::new_v4().to_string();
+        let row = Arc::new(Mutex::new(json!({
+            "id": "link", "task_id": "task", "path": "tasks/task/product", "repo": "", "branch": "task",
+            "owner": "bot:ops", "task_status": "closed", "bot_state": "active", "state": "present",
+            "detail_json": json!({"delete_requested": true, "cleanup_retry_generation": generation}).to_string()
+        })));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let served = row.clone();
+        let server = tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else { return };
+                let mut request = Vec::new();
+                let mut buffer = [0u8; 8192];
+                while !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                    let n = socket.read(&mut buffer).await.unwrap_or(0);
+                    if n == 0 { break; }
+                    request.extend_from_slice(&buffer[..n]);
+                    assert!(request.len() <= 65536);
+                }
+                let body = json!({"worktrees": [served.lock().unwrap().clone()]}).to_string();
+                let response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+                let _ = socket.write_all(response.as_bytes()).await;
+                let _ = socket.shutdown().await;
+            }
+        });
+        let manager = Arc::new(Worktrees::new(&folder.0, Client::new(&url, "fixture", 5, 0).unwrap()));
+        let host = Arc::new(RetryHost { idle: AtomicBool::new(true), locks_available: AtomicBool::new(true), attempts: AtomicUsize::new(0) });
+        manager.inner.lock().unwrap().retry.insert("link".into(), (Instant::now() + Duration::from_secs(21600), 8));
+        let legacy = json!({"link_id": "link", "action": "remove"});
+        manager.clone().sync(host.clone(), vec![legacy]).await;
+        assert_eq!(host.attempts.load(Ordering::SeqCst), 0, "ordinary heartbeats keep local backoff");
+        let action = json!({"link_id": "link", "action": "remove", "cleanup_retry_generation": generation});
+        manager.clone().sync(host.clone(), vec![action.clone()]).await;
+        assert_eq!(host.attempts.load(Ordering::SeqCst), 1, "a fresh explicit retry reaches the real preservation checks");
+        assert!(manager.latest()[0]["error"].as_str().unwrap().contains("Repository not identified; kept worktree"));
+        assert_eq!(std::fs::read_to_string(&wanted).unwrap(), "unfinished work");
+        manager.clone().sync(host.clone(), vec![action.clone()]).await;
+        assert_eq!(host.attempts.load(Ordering::SeqCst), 1, "the same generation cannot bypass new failure backoff");
+
+        let next = uuid::Uuid::new_v4().to_string();
+        row.lock().unwrap()["detail_json"] = json!(json!({"delete_requested": true, "cleanup_retry_generation": next}).to_string());
+        manager.clone().sync(host.clone(), vec![action]).await;
+        assert_eq!(host.attempts.load(Ordering::SeqCst), 1, "a stale queued generation cannot reset a newer request");
+        let next_action = json!({"link_id": "link", "action": "remove", "cleanup_retry_generation": next});
+        host.locks_available.store(false, Ordering::SeqCst);
+        manager.clone().sync(host.clone(), vec![next_action.clone()]).await;
+        assert_eq!(host.attempts.load(Ordering::SeqCst), 1, "a retry still waits for the checkout locks");
+        host.locks_available.store(true, Ordering::SeqCst);
+        host.idle.store(false, Ordering::SeqCst);
+        manager.clone().sync(host.clone(), vec![next_action.clone()]).await;
+        assert_eq!(host.attempts.load(Ordering::SeqCst), 1, "a retry still waits for the bot to be idle");
+        host.idle.store(true, Ordering::SeqCst);
+        manager.clone().sync(host.clone(), vec![next_action.clone()]).await;
+        assert_eq!(host.attempts.load(Ordering::SeqCst), 2, "the idle deferral did not consume the request");
+        manager.clone().sync(host.clone(), vec![next_action]).await;
+        assert_eq!(host.attempts.load(Ordering::SeqCst), 2);
+        assert_eq!(std::fs::read_to_string(&wanted).unwrap(), "unfinished work");
+        server.abort();
+    }
 
     #[test]
     fn worktree_paths_stay_inside_the_workspace_and_outside_repos() {

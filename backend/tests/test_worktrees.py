@@ -173,7 +173,7 @@ def test_unlink_retries_exhausted_cleanup_with_move_rights_and_keeps_work_until_
     with api.app_state.store.transaction() as c:
         detail = json.loads(c.execute('SELECT detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()[0])
         detail.update(cleanup_requested=True, cleanup_attempts=W.CLEANUP_TRIES, cleanup_gave_up=True,
-                      cleanup_retry_at=H.shift(H.now(), minutes=60), error=error)
+                      cleanup_retry_at=H.shift(H.now(), minutes=60), error=error, cleanup_retry_generation='previous-request')
         c.execute('UPDATE task_links SET detail_json=? WHERE id=?', (json.dumps(detail), link['link_id']))
         c.execute("UPDATE tasks SET status='closed' WHERE id=?", (tid,))
     report = {'link_id': link['link_id'], 'state': 'present', 'checkout_state': 'ready',
@@ -186,6 +186,7 @@ def test_unlink_retries_exhausted_cleanup_with_move_rights_and_keeps_work_until_
             H.task_unlink(c, 'bot:cpo', tid, link['link_id'])
         saved = json.loads(c.execute('SELECT detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()[0])
         assert saved['cleanup_attempts'] == W.CLEANUP_TRIES and saved['cleanup_gave_up']
+        assert saved['cleanup_retry_generation'] == 'previous-request'
         H.task_unlink(c, 'human:ana', tid, link['link_id'], mover=True)
         H.task_update(c, 'human:ana', tid, owner='human:ana', mover=True)
         rows = W.inventory(c, 'r1')
@@ -194,8 +195,11 @@ def test_unlink_retries_exhausted_cleanup_with_move_rights_and_keeps_work_until_
         saved = json.loads(rows[0]['detail_json'])
         assert not any(key in saved for key in ('cleanup_attempts', 'cleanup_retry_at', 'cleanup_gave_up'))
         assert saved['delete_requested'] and saved['error'] == error, 'the last refusal is not reported as success'
+        generation = saved['cleanup_retry_generation']
+        assert generation != 'previous-request' and uuid.UUID(generation)
     actions = post(api, 'runners/heartbeat', body, 'runner-test').json()['worktree_actions']
     assert len(actions) == 1 and actions[0]['action'] == 'remove' and actions[0]['owner'] == 'cmo'
+    assert actions[0]['cleanup_retry_generation'] == generation
     # A fresh refusal keeps the files/link and resumes bounded retries; requesting removal does not bypass it.
     assert post(api, 'runners/heartbeat', body, 'runner-test').json()['worktree_actions'] == []
     with api.app_state.store.read() as c:
