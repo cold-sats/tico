@@ -20901,12 +20901,7 @@
           },
           "runtime": {
             "type": "string",
-            "enum": [
-              "codex",
-              "claude",
-              "gemini",
-              "grok"
-            ],
+            "maxLength": 40,
             "title": "Runtime"
           }
         },
@@ -22081,12 +22076,7 @@
           },
           "runtime": {
             "type": "string",
-            "enum": [
-              "codex",
-              "claude",
-              "gemini",
-              "grok"
-            ],
+            "maxLength": 40,
             "title": "Runtime"
           },
           "used_percent": {
