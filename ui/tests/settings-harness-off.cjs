@@ -36,7 +36,8 @@ const {html, uiFile} = require('./support/page.cjs');
     };
     let enabled = ['openai', 'anthropic'];
     const bots = [{name: 'helper', display_name: 'Helper', status: 'active', operator: 'ana',
-      can_manage: true, users: [], bot_owners: [], revision: 1}];
+      can_manage: true, users: [], bot_owners: [], revision: 1, model: 'muse-spark-1.3', harness: 'musecode',
+      reasoning_effort: 'high'}];
     await page.route('**/*', route => {
       const req = route.request(), p = new URL(req.url()).pathname;
       const json = (body, status = 200) => route.fulfill({status, contentType: 'application/json', body: JSON.stringify(body)});
@@ -106,6 +107,21 @@ const {html, uiFile} = require('./support/page.cjs');
     assert.ok(!options.some(o => o.value === 'musecode'), 'members never see a provider-off harness');
     assert.equal(await page.locator('[data-add-choice] [data-choice-off]').count(), 0, 'members get no off line');
     await page.evaluate(() => { S.me.role = 'owner'; });
+    // A bot already on a switched-off harness keeps one row for it, not a current+off pair.
+    enabled = ['openai', 'anthropic'];
+    await page.evaluate(() => loadSettings());
+    const solo = await page.evaluate(() => {
+      document.querySelector('#bot-editor')?.close();
+      document.querySelector('#t')?.remove();
+      document.body.insertAdjacentHTML('beforeend',
+        `<div id="t">${settingsChoiceCombo(S.emps.find(e => e.name === 'helper'), 'model')}</div>`);
+      settingsWireCombos(document.querySelector('#t'));
+      return [...document.querySelectorAll('#t [data-choice-harness] option')]
+        .map(o => ({value: o.value, text: o.textContent, disabled: o.disabled, selected: o.selected}));
+    });
+    assert.equal(solo.filter(o => o.value === 'musecode').length, 1, 'one Muse Code row for a bot on it');
+    assert.deepEqual(solo.find(o => o.value === 'musecode'), {value: 'musecode', text: 'Muse Code (Meta)',
+      disabled: true, selected: true}, 'it keeps the current row selected');
     assert.deepEqual(errors, []);
     console.log('ok');
   } finally { await browser.close(); }

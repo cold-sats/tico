@@ -116,7 +116,8 @@ function settingsWireChoiceFields(fields, onChange = () => {}) {
       + harnesses.map(id => { const why = block(id);
         // Short, so a narrow select does not cut it off: "Claude Code (sign in)".
         return option(id, why ? `${harnessWords(why.runtime)} (${why.short})` : settingsHarnessName(id) || id, id === picked.harness, !!why && id !== picked.harness); }).join('')
-      + off.map(row => option(row.id, `${harnessWords(row.id)} (off)`, false, true)).join('');
+      + off.filter(row => row.id !== picked.harness)
+        .map(row => option(row.id, `${harnessWords(row.id)} (off)`, false, true)).join('');
     harness.title = block(picked.harness)?.reason || '';
     // The reason and its Sign in / Move line only in the open bot editor: the table already marks the bot's row,
     // and every bot on that computer would repeat it. The provider-off line shows wherever the picker is, since
