@@ -7,8 +7,8 @@
 //!
 //! A failed update is tried again after six hours, on the server's next release, or as soon as disk space frees
 //! after one that ran out of it. On a server that names no release (a development server) a supervised checkout
-//! follows origin/main instead (service.py checkout_status, self_update), and the heartbeat's `checkout` says how it
-//! stands against main (backend/models.py Checkout).
+//! follows origin/main instead (service.py checkout_status, self_update), restarting only once the new runner binary
+//! is prepared, and the heartbeat's `checkout` says how it stands against main (backend/models.py Checkout).
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -25,6 +25,8 @@ const RETRY_AFTER_S: f64 = 6.0 * 3600.0;
 const DRAIN_S: u64 = 20 * 60;
 const STALE_UPDATING_S: f64 = 15.0 * 60.0;
 const CHECKOUT_EVERY: Duration = Duration::from_secs(600);
+const PREPARE_LIMIT_S: u64 = 1800; // a cold cargo build (engine.py BUILD_TIMEOUT_S)
+const PREPARE_RETRY: Duration = Duration::from_secs(3600);
 /// What a restart picks up: a merge touching nothing here needs none (service.py RUNNER_CODE, plus the Rust source).
 const RUNNER_CODE: &[&str] = &["runner/", "runner-rs/", "clients/"];
 const NO_SUPERVISOR: &str = "no supervisor would start this runner again after an update: run `scripts/tico install` once on this computer and it updates itself";
@@ -228,6 +230,16 @@ fn write_status(directory: &Path, fields: Value) {
     }
 }
 
+/// What a fast-forward to main meant for this process (Follower::advance).
+enum Moved {
+    /// Nothing moved; why, when there is a reason.
+    Not(String),
+    /// Moved, and nothing the runner runs changed: the new head is what runs.
+    Adopted(String),
+    /// Moved onto new runner code whose binary is ready: restart once no turn runs.
+    Restart,
+}
+
 /// The updater sidecar next to a Docker runner (release_update.py `Sidecar`).
 struct Sidecar {
     url: String,
@@ -275,6 +287,8 @@ struct Inner {
     checkout: Option<Value>,
     checkout_at: Option<Instant>,
     update_note: String,
+    /// A main whose runner could not be prepared was backed out; main is not taken again before this.
+    prepare_after: Option<Instant>,
     /// The checkout moved to newer runner code: exit once no turn runs, never draining for it (service.py restart_due).
     restart_due: bool,
 }
@@ -289,6 +303,8 @@ pub struct Follower {
     pinned: bool,
     /// Supervised, and neither `self_update: false` nor TICO_RUNNER_SELF_UPDATE=0 (service.py under_supervisor).
     self_update: bool,
+    /// Gets the runner binary for the checkout as it now is (`python -m runner.engine prepare`); non-zero on failure.
+    prepare: Vec<String>,
     sidecar: Sidecar,
     inner: Mutex<Inner>,
 }
@@ -316,6 +332,7 @@ pub fn init(config: &Map<String, Value>, directory: &Path) {
         commit,
         pinned,
         self_update,
+        prepare: [crate::env::python().to_string_lossy().into_owned(), "-m".into(), "runner.engine".into(), "prepare".into()].into(),
         sidecar: Sidecar::from_env(),
         inner: Mutex::new(Inner { state: "idle".into(), revision: started.clone(), ..Default::default() }),
         started,
@@ -572,21 +589,24 @@ impl Follower {
         let stands = checkout.clone().unwrap_or(json!({}));
         let stale = stands["behind"].as_u64().unwrap_or(0) > 0 || stands["head"] != stands["running"];
         if !restarting && self.self_update && stands["ahead"].as_u64().unwrap_or(0) == 0 && stale {
-            let (restart, note) = self_update(&self.root, &running).await;
-            let head = if restart { checkout_commit(&self.root) } else { String::new() };
-            if restart && !head.is_empty() && !runner_code_changed(&self.root, &running, &head).await {
-                // Nothing this process runs changed: it is already running the new code.
-                adopt_revision(&self.directory, &head);
-                if let Some(c) = checkout.as_mut() {
-                    c["running"] = json!(head);
+            let note = match self.advance(&running).await {
+                Moved::Adopted(head) => {
+                    if let Some(c) = checkout.as_mut() {
+                        c["running"] = json!(head);
+                    }
+                    String::new()
                 }
-                log(&format!("Tico runner: {} changes nothing the runner runs; no restart", &head[..7]));
-                self.inner.lock().unwrap().revision = head;
-            } else if restart {
-                self.inner.lock().unwrap().restart_due = true;
-            } else if !note.is_empty() && note != self.inner.lock().unwrap().update_note {
-                log(&format!("Tico runner: not updating itself: {note}"));
-            }
+                Moved::Restart => {
+                    self.inner.lock().unwrap().restart_due = true;
+                    String::new()
+                }
+                Moved::Not(note) => {
+                    if !note.is_empty() && note != self.inner.lock().unwrap().update_note {
+                        log(&format!("Tico runner: not updating itself: {note}"));
+                    }
+                    note
+                }
+            };
             self.inner.lock().unwrap().update_note = note;
         }
         let mut s = self.inner.lock().unwrap();
@@ -601,8 +621,45 @@ impl Follower {
     pub async fn take_main(&self) {
         if self.kind != "docker" && !self.following() {
             let running = self.inner.lock().unwrap().revision.clone();
-            self_update(&self.root, &running).await;
+            self.advance(&running).await;
         }
+    }
+
+    /// Fast-forward to main and say what that means for this process. New runner code is only restarted onto once
+    /// its binary is ready: a computer on a downloaded release binary may have no cargo, and the shim would refuse the
+    /// old binary for the new checkout and never start. When it cannot be prepared the checkout goes back to `running`.
+    async fn advance(&self, running: &str) -> Moved {
+        if self.inner.lock().unwrap().prepare_after.is_some_and(|t| Instant::now() < t) {
+            return Moved::Not(self.inner.lock().unwrap().update_note.clone());
+        }
+        let (restart, note) = self_update(&self.root, running).await;
+        let head = if restart { checkout_commit(&self.root) } else { String::new() };
+        if !restart || head.is_empty() {
+            return Moved::Not(note);
+        }
+        if !runner_code_changed(&self.root, running, &head).await {
+            // Nothing this process runs changed: it is already running the new code.
+            adopt_revision(&self.directory, &head);
+            log(&format!("Tico runner: {} changes nothing the runner runs; no restart", &head[..7]));
+            self.inner.lock().unwrap().revision = head.clone();
+            return Moved::Adopted(head);
+        }
+        let mut env: crate::env::Env = std::env::vars().collect();
+        env.insert("TICO_ROOT".into(), self.root.to_string_lossy().into_owned());
+        let prepared = crate::gitrun::run(&self.prepare, &env, Some(&self.root), PREPARE_LIMIT_S).await;
+        if prepared.as_ref().is_ok_and(|o| o.ok()) {
+            return Moved::Restart;
+        }
+        let why = match prepared {
+            Ok(o) => o.stderr.trim().lines().chain(o.stdout.trim().lines()).last().unwrap_or("").to_string(),
+            Err(e) => e.to_string(),
+        };
+        let back = git_in(&self.root, &["reset", "--quiet", "--keep", running], 60).await.is_some_and(|(c, _)| c == 0);
+        log(&format!("Tico runner: could not prepare the runner for main {} ({why}); {}", &head[..7], if back { "kept the checkout on what runs now" } else { "and could not move the checkout back; see scripts/tico status" }));
+        self.inner.lock().unwrap().prepare_after = Some(Instant::now() + PREPARE_RETRY);
+        let note: String = format!("the runner for main could not be prepared (it needs cargo to build, or a release to download): {why}").chars().take(300).collect();
+        self.inner.lock().unwrap().update_note = note.clone();
+        Moved::Not(note)
     }
 
     /// The checkout moved to newer runner code: the loop exits once no turn runs, and the supervisor starts it again.
@@ -643,6 +700,7 @@ mod tests {
             commit: String::new(),
             pinned: false,
             self_update: true,
+            prepare: vec!["true".into()],
             sidecar: Sidecar { url: String::new(), token_file: dir.join("t") },
             inner: Mutex::new(Inner { state: "idle".into(), desired: Some("0.3.45".into()), ..Default::default() }),
         };
@@ -701,6 +759,28 @@ mod tests {
         sh(&origin, &["commit", "-qam", "code"]);
         sh(&here, &["fetch", "-q"]);
         assert!(runner_code_changed(&here, &head, "origin/main").await);
+
+        // New runner code whose binary cannot be prepared: the checkout goes back to what runs, and says why.
+        let f = Follower {
+            directory: dir.clone(),
+            root: here.clone(),
+            kind: "linux",
+            release: String::new(),
+            started: head.clone(),
+            commit: String::new(),
+            pinned: false,
+            self_update: true,
+            prepare: vec!["sh".into(), "-c".into(), "echo no cargo >&2; exit 1".into()],
+            sidecar: Sidecar { url: String::new(), token_file: dir.join("t") },
+            inner: Mutex::new(Inner { state: "idle".into(), desired: Some(String::new()), revision: head.clone(), ..Default::default() }),
+        };
+        assert!(matches!(f.advance(&head).await, Moved::Not(n) if n.ends_with("no cargo")));
+        assert_eq!(checkout_commit(&here), head);
+        assert!(matches!(f.advance(&head).await, Moved::Not(_)), "backed off: main is not taken again at once");
+        let f = Follower { prepare: vec!["true".into()], inner: Mutex::new(Inner { revision: head.clone(), ..Default::default() }), ..f };
+        assert!(matches!(f.advance(&head).await, Moved::Restart));
+        assert_ne!(checkout_commit(&here), head);
+        sh(&here, &["reset", "-q", "--hard", &head]);
 
         std::fs::write(here.join("runner/a.py"), "dirty").unwrap();
         assert_eq!(self_update(&here, &head).await.1, "checkout has uncommitted changes");
