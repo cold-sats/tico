@@ -17,6 +17,12 @@ It includes third-party software, kept under its own license:
       js-yaml 4.1.0, MIT License. Copyright (C) 2011-2015 Vitaly Puzrin.
       License text: ui/vendor/LICENSE-js-yaml and templates/employee-repo/ui/vendor/LICENSE-js-yaml
 
+  ui/vendor/novnc/
+      noVNC 1.7.0 (@novnc/novnc, the core/ modules RFB needs, unmodified), Mozilla Public License 2.0.
+      Copyright (C) 2022 The noVNC authors (ui/vendor/novnc/AUTHORS). core/crypto/des.js keeps its own
+      BSD-style notice in its header. Includes pako (ui/vendor/novnc/vendor/pako/), MIT License.
+      License text: licenses/MPL-2.0.txt, ui/vendor/novnc/LICENSE.txt and ui/vendor/novnc/vendor/pako/LICENSE
+
   ui/vendor/fonts/material-symbols-outlined.woff2 (a subset built by scripts/build-icon-font.py)
   ui/assets/bot-symbols/
       Material Symbols (Google), Apache License 2.0.

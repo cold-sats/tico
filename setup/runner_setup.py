@@ -30,9 +30,10 @@ def installer_url(tag: str) -> str:
     return f"https://github.com/ticoteam/tico/releases/download/{tag}/install.sh"
 
 
-def join_lines(tag: str, env_file: str, rejoin: bool = False) -> list[str]:
+def join_lines(tag: str, env_file: str, rejoin: bool = False, screen: bool = False) -> list[str]:
     """Starts the runner unless one is already there, through `install.sh --runner` (compose plus the
-    updater); a bare `docker run` would never follow the server's releases. The volume keeps logins and repositories."""
+    updater); a bare `docker run` would never follow the server's releases. The volume keeps logins and repositories.
+    `screen` turns this computer's screen on (install.sh --screen)."""
     c = contract.RUNNER_CONTAINER
     # A new code needs a fresh .env: the installer keeps the one it finds.
     replace = f"docker rm -f {c} >/dev/null 2>&1 || true; rm -f {contract.RUNNER_DIR}/.env; " if rejoin else ""
@@ -41,14 +42,15 @@ def join_lines(tag: str, env_file: str, rejoin: bool = False) -> list[str]:
         # The code leaves the disk once it is in the environment, so a failed install does not leave it behind.
         f"  {replace}set -a; . {env_file}; set +a; rm -f {env_file}",
         "  " + remote.fetch_and_run(installer_url(tag), f"--runner --dir {contract.RUNNER_DIR} "
-                                    '--url "$TICO_JOIN_URL" --code "$TICO_JOIN_CODE" --label "$TICO_JOIN_LABEL"'),
+                                    '--url "$TICO_JOIN_URL" --code "$TICO_JOIN_CODE" --label "$TICO_JOIN_LABEL"'
+                                    + (" --screen" if screen else "")),
         "fi",
         f"rm -f {env_file}",
     ]
 
 
 def bootstrap_script(*, os_family: str, tag: str, env_b64: str = "", env_param: tuple[str, str] | None = None,
-                     rejoin: bool = False) -> str:
+                     rejoin: bool = False, screen: bool = False) -> str:
     d, q = contract.RUNNER_DIR, shlex.quote
     L = ["#!/bin/bash", "set -eu", "exec > >(tee -a /var/log/tico-setup.log) 2>&1", "echo tico-setup runner: start $(date -u)"]
     L += remote.docker_install_lines(os_family, need_aws_cli=bool(env_param))
@@ -58,18 +60,19 @@ def bootstrap_script(*, os_family: str, tag: str, env_b64: str = "", env_param: 
         L += [f"aws ssm get-parameter --region {q(region)} --name {q(name)} --with-decryption --query Parameter.Value --output text > {d}/join.env"]
     else:
         L += [f"echo {env_b64} | base64 -d > {d}/join.env"]
-    L += join_lines(tag, f"{d}/join.env", rejoin) + [f"touch {d}/.bootstrapped", "echo tico-setup runner: done"]
+    L += join_lines(tag, f"{d}/join.env", rejoin, screen) + [f"touch {d}/.bootstrapped", "echo tico-setup runner: done"]
     return "\n".join(L) + "\n"
 
 
-def ssh_steps(sh: remote.Shell, *, url: str, code: str, label: str, tag: str, rejoin: bool, say, scrub) -> list[Step]:
+def ssh_steps(sh: remote.Shell, *, url: str, code: str, label: str, tag: str, rejoin: bool, say, scrub,
+              screen: bool = False) -> list[Step]:
     d = contract.RUNNER_DIR
     h = Host(sh, say, scrub)
 
     def join() -> None:
         h.ex(f"mkdir -p {d} && chmod 700 {d}", "Creating " + d)
         h.write_private(f"{d}/join.env", join_env(url, code, label).encode(), "Writing the join code")
-        script = "\n".join(["set -eu"] + join_lines(tag, f"{d}/join.env", rejoin))
+        script = "\n".join(["set -eu"] + join_lines(tag, f"{d}/join.env", rejoin, screen))
         h.ex(script, "Starting the runner container")
 
     return [Step("Connect over SSH and check sudo", h.connect), Step("Install Docker if missing", h.docker),
@@ -126,6 +129,7 @@ def run_runner(args, io: IO, deps: Deps) -> int:
     a.get("runner_label", "Name for this computer in Tico", flag="--label", default=(host_of(args.ssh_host or "linux").replace(".", "-")))
     label = s.runner_label
     s.runner_tag = args.runner_tag
+    screen = bool(getattr(args, "screen", False))
     if s.target == "ssh":
         a.get("ssh_host", "SSH destination (user@host)", flag="--ssh")
         s.ssh_port = int(args.ssh_port or 22)
@@ -165,14 +169,14 @@ def run_runner(args, io: IO, deps: Deps) -> int:
     shell: remote.Shell
     if s.target == "ssh":
         shell = deps.ssh_shell(s.ssh_host, s.ssh_port, s.ssh_identity)
-        steps = ssh_steps(shell, url=s.server_url, code="", label=label, tag=s.runner_tag, rejoin=args.rejoin, say=io.say, scrub=scrub)
+        steps = ssh_steps(shell, url=s.server_url, code="", label=label, tag=s.runner_tag, rejoin=args.rejoin, say=io.say, scrub=scrub, screen=screen)
         io.say("\nComputer")
         for i, step in enumerate(steps):
             io.say(f"  - {step.description}")
             try:
                 if i == 2:  # the code is minted only now: it expires in 15 minutes
                     steps = ssh_steps(shell, url=s.server_url, code=get_code(), label=label, tag=s.runner_tag,
-                                      rejoin=args.rejoin, say=io.say, scrub=scrub)
+                                      rejoin=args.rejoin, say=io.say, scrub=scrub, screen=screen)
                     step = steps[2]
                 step.run()
             except StepFailed as e:
@@ -188,7 +192,8 @@ def run_runner(args, io: IO, deps: Deps) -> int:
         else:
             d.put_env(join_env(s.server_url, get_code(), label))
         prep = d.prepare()
-        script = bootstrap_script(os_family=s.aws_os, tag=s.runner_tag, env_param=(d.param_name, s.aws_region), rejoin=args.rejoin)
+        script = bootstrap_script(os_family=s.aws_os, tag=s.runner_tag, env_param=(d.param_name, s.aws_region), rejoin=args.rejoin,
+                                  screen=screen)
         iid, _ = d.launch_or_reuse(prep, script)
         io.say("\nWaiting for the box to install Docker and start the runner (a few minutes) ...")
         if not d.wait_ready():
@@ -199,7 +204,7 @@ def run_runner(args, io: IO, deps: Deps) -> int:
                                       "aws_profile": s.aws_profile, "instance_id": iid, "name": plan.name})
     else:
         script = bootstrap_script(os_family="ubuntu", tag=s.runner_tag, env_b64=remote.env_b64(join_env(s.server_url, get_code(), label)),
-                                  rejoin=args.rejoin)
+                                  rejoin=args.rejoin, screen=screen)
         out = state.home() / "runners" / f"{awsmod.slug(label)}-install-command.txt"
         state.write_private(out, remote.paste_command(script) + "\n")
         io.say(f"\nThe command holds the one-time join code, so it is not printed. It is one line in {out} (mode 0600).")

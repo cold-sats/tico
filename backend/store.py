@@ -663,6 +663,8 @@ class Store:
                 H.add_column(c, "bot_config", "bot_owners_json", "TEXT")
                 H.add_column(c, "bot_config", "created_by", "TEXT")
                 H.add_column(c, "runners", "accepts_member_bots", "INTEGER NOT NULL DEFAULT 0")
+                # Who may open a computer's screen from the app: off, view or control (backend/screen.py).
+                H.add_column(c, "runners", "screen", "TEXT NOT NULL DEFAULT 'off'")
                 # A starter bot is `needs_onboarding` until it says its setup is done, then
                 # `onboarded`; NULL for every other bot (backend/onboarding.py).
                 H.add_column(c, "bot_config", "onboarding_state", "TEXT")

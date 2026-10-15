@@ -225,9 +225,10 @@ TRIGGERS = [
 # A runner used to ask a dozen endpoints on timers whether anything was new for it, and almost
 # every answer was no. The same log now carries `runner` rows: one per computer a write concerns,
 # its id as the subject, naming which of the computer's reads to repeat. A row carries a kind and
-# at most a bot slug, never a value (`GET /api/v2/runners/me/events`, runner-rs/src/events.rs).
+# at most a bot slug (or, for `screen_open`, the session's id), never a value (`GET /api/v2/runners/me/events`,
+# runner-rs/src/events.rs).
 RUNNER_KINDS = ("work", "assignments", "credentials", "config", "repositories", "worktrees", "restart",
-                "logins", "harness_actions", "credential_imports", "subscription_refresh")
+                "logins", "harness_actions", "credential_imports", "subscription_refresh", "screen_open")
 _BOT_RUNNER = "SELECT runner_id AS rid FROM assignments WHERE bot={bot}"
 # Credentials and repositories are rare company-wide changes: every computer re-reads its share.
 _ALL_RUNNERS = "SELECT id AS rid FROM runners WHERE revoked_at IS NULL"
@@ -1021,7 +1022,7 @@ def runner_read(c, runner_id, actor, after, limit=BATCH):
         floor = (first - 1) if first is not None else newest
         if after > newest or after < floor:
             return [], newest, True, False
-        rows = c.execute("SELECT seq,kind,bot FROM changes WHERE topic='runner' AND seq>? AND subject_id=? "
+        rows = c.execute("SELECT seq,kind,bot,ref FROM changes WHERE topic='runner' AND seq>? AND subject_id=? "
                          "AND (actor IS NOT ? OR kind='work') ORDER BY seq LIMIT ?",
                          (after, runner_id, actor, limit)).fetchall()
         more = len(rows) >= limit
@@ -1032,6 +1033,9 @@ def runner_read(c, runner_id, actor, after, limit=BATCH):
             entry["seq"] = row["seq"]
             if row["bot"] and row["bot"] not in entry["bots"]:
                 entry["bots"].append(row["bot"])
+            if row["kind"] == "screen_open" and row["ref"]:
+                # The newest session asked for; the runner reads every pending one (backend/screen.py).
+                entry["session_id"] = row["ref"]
         events = sorted(((entry["seq"], entry) for entry in kinds.values()), key=lambda item: item[0])
         return events, cursor, False, more
     finally:

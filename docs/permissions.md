@@ -156,6 +156,20 @@ created by a member has Instructions the Team has not reviewed, so it does not g
 
 A computer still hosts its owner's bots and the team owner's; taking members' bots adds members' bots, it does not move anyone else's.
 
+## A computer's screen
+
+A Linux computer can show its screen in the app, so people watch its bots work or take control. Two locks, both needed:
+
+- **On the computer**, its owner turns the screen on (`TICO_SCREEN=1` in Docker, or `tico-runner screen on`). Until then the
+  computer offers no screen and the hub refuses any mode but Off.
+- **Screen** in Settings > Computers: **Off** (the default), **View** or **Control**. The computer's operator or an admin sets it
+  (`POST /api/v2/computers/<id>/screen {"mode": "view"}`), or BotOps as one of them. Off closes open screens; View closes the
+  ones in control.
+
+Only the computer's operator and admins open the screen, in the app themselves: each opening is a one-minute, single-use
+ticket, at most three at once per computer, an hour at most each. Every opening and closing is in the audit log
+(`runner.screen_open`, `runner.screen_close` with who, view or control, and how long).
+
 ## BotOps uses the requester’s rights
 
 An owner should be able to say "build me a Jira bot, and add Sam" in chat with BotOps and have it done. BotOps therefore acts **as the

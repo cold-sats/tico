@@ -217,11 +217,12 @@ def bot_owner_rows(c, registry, slug, people, configs, archived):
 
 def machine(c, bot):
     from .agents import presence
+    from .screen import listing as screen_listing
     external = presence(c, bot)
     if external:
         return external
     row = c.execute("SELECT a.runner_id,a.generation,r.label,r.operator,r.last_seen,r.revoked_at,r.readiness_json,"
-                    "r.platform,r.version,r.awake_since "
+                    "r.platform,r.version,r.awake_since,r.screen,r.capabilities_json "
                     "FROM assignments a JOIN runners r ON r.id=a.runner_id WHERE a.bot=?", (bot,)).fetchone()
     if not row:
         return {"online": False, "awake": False, "ready": False, "machine": None}
@@ -234,8 +235,8 @@ def machine(c, bot):
     detail = {k: v for k, v in bot_readiness(row["readiness_json"], bot).items() if k != "tools"}
     return {"online": online, "awake": awake, "ready": online and detail.get("ready") is True,
             "readiness": detail,
-            "machine": {k: row[k] for k in ("runner_id", "generation", "label", "operator", "last_seen",
-                                                      "platform", "version")}}
+            "machine": {**{k: row[k] for k in ("runner_id", "generation", "label", "operator", "last_seen",
+                                                         "platform", "version")}, **screen_listing(row)}}
 
 
 def deploy_draining(c, bot):
@@ -1467,13 +1468,16 @@ def install_views(app, store, auth, mutate, task_view):
             default = {providers.default_runtime(providers.load(c, store.settings))} - {""}
             run_on = providers.runtimes_run_on(c, store.settings)
             for row in c.execute("SELECT id,label,operator,last_seen,revoked_at,platform,version,capacity,readiness_json,"
-                                 "accepts_member_bots FROM runners ORDER BY created"):
+                                 "accepts_member_bots,screen,capabilities_json FROM runners ORDER BY created"):
                 if not auth.bot_admin(who) and who.actor != "human:" + row["operator"]:
                     continue
                 bots = [a[0] for a in c.execute("SELECT bot FROM assignments WHERE runner_id=? ORDER BY bot", (row["id"],))]
                 value = dict(row)
                 value["release"] = runner_versions.view(fleet.get(row["id"])).get("release") or ""
                 value["accepts_member_bots"] = bool(row["accepts_member_bots"])
+                from .screen import listing as screen_listing
+                value.update(screen_listing(value))
+                value.pop("capabilities_json")
                 value["readiness"] = readiness_document(value.pop("readiness_json"))
                 from .repositories import metadata
                 value["repositories"] = metadata(c, "computer-repositories:" + row["id"]).get("repositories", "unknown")

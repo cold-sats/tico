@@ -38,10 +38,11 @@ def server_user_data(env: dict[str, str], *, version: str, server_ip: str = "", 
     return _fill(_template("tico-server.yaml", template_dir), values)
 
 
-def runner_user_data(*, url: str, code: str, label: str, version: str, allow_ssh: bool = False,
+def runner_user_data(*, url: str, code: str, label: str, version: str, allow_ssh: bool = False, screen: bool = False,
                      template_dir: Path | None = None) -> str:
     if not VERSION_RE.match(version):
         raise ValueError(f"version must be a release such as v1.2.3, not {version!r}")
     values = {"TICO_CLOUD_VERSION": version, "TICO_CLOUD_ALLOW_SSH": "1" if allow_ssh else "0",
-              "TICO_URL": url, "TICO_CODE": code, "TICO_RUNNER_LABEL": label}
+              "TICO_URL": url, "TICO_CODE": code, "TICO_RUNNER_LABEL": label,
+              "TICO_SCREEN": "1" if screen else "0"}
     return _fill(_template("tico-runner.yaml", template_dir), values)

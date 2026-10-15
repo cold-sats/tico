@@ -828,6 +828,14 @@ class EngineReadiness(Contract):
     note: Annotated[str, BeforeValidator(lambda v: v[:300] if isinstance(v, str) else v), Field(max_length=300)] = ""
 
 
+class ScreenReadiness(Contract):
+    """The computer's screen, when its owner turned it on there (backend/screen.py): its size, or why it cannot run."""
+    available: StrictBool
+    width: int | None = Field(default=None, ge=1, le=10000)
+    height: int | None = Field(default=None, ge=1, le=10000)
+    reason: Annotated[str, BeforeValidator(lambda v: v[:200] if isinstance(v, str) else v), Field(max_length=200)] = ""
+
+
 class StructuredReadiness(Contract):
     worktrees: bool | None = None
     # Prepares a worktree reserved for a waiting task while its bot is idle (backend/worktree_waits.py).
@@ -844,6 +852,7 @@ class StructuredReadiness(Contract):
     github_auth: ContainerExecReadiness | None = None
     browser_launch: ContainerExecReadiness | None = None
     engine: EngineReadiness | None = None
+    screen: ScreenReadiness | None = None
     # The runner's last WARN/ERROR-like log lines, for a support bundle a person chooses to send (backend/diagnostics.py).
     # Long lines are cut, never refused: a refused report would hide the computer (0.3.2 runners sent 301 characters).
     recent_errors: list[Annotated[str, BeforeValidator(lambda v: v[:300] if isinstance(v, str) else v),
@@ -854,7 +863,7 @@ class StructuredReadiness(Contract):
         data = handler(self)
         if data.get("disk") is None:
             data.pop("disk", None)
-        for field in ("container_exec", "github_auth", "browser_launch", "engine"):
+        for field in ("container_exec", "github_auth", "browser_launch", "engine", "screen"):
             if data.get(field) is None:
                 data.pop(field, None)
         if not data.get("recent_errors"):
@@ -935,7 +944,7 @@ class Heartbeat(Contract):
     platform: str = Field(max_length=100)
     capacity: int = Field(default=4, ge=1, le=256)
     # The assignment_* values name the retired temporary assignments (#420); an older runner still sends them.
-    capabilities: list[Literal["assignment_instances_v1", "assignment_cleanup_v1", "task_lanes_v1", "task_lanes_v2", "session_roots_v1", "task_goals_v1"]] = Field(default_factory=list, max_length=20)
+    capabilities: list[Literal["assignment_instances_v1", "assignment_cleanup_v1", "task_lanes_v1", "task_lanes_v2", "session_roots_v1", "task_goals_v1", "screen_v1"]] = Field(default_factory=list, max_length=20)
     # The bool map remains accepted during runner rollout. The server normalizes both
     # shapes before storing them, so every read path sees one structured document.
     readiness: StructuredReadiness | dict[str, bool] = Field(default_factory=dict)
@@ -1635,6 +1644,14 @@ class AssistantAction(Contract):
 
 class InboxOnly(Contract):
     enabled: bool
+
+
+class ScreenMode(Contract):
+    mode: Literal["off", "view", "control"]
+
+
+class ScreenSessionStart(Contract):
+    control: StrictBool = False
 
 
 class LoginStart(Contract):
