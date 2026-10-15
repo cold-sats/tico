@@ -249,6 +249,13 @@ fn signed_in(runtime: &str, exe: &str, env: &Env, headless: bool) -> (bool, Stri
             _ => (false, String::new()),
         };
     }
+    if runtime == "musecode" {
+        // Muse has no status command: its login file in this sign-in's XDG_CONFIG_HOME is the sign-in, as readiness checks it.
+        return match crate::hosts::musecode::signed_in(&crate::hosts::musecode::auth_file(env)) {
+            Some(true) => (true, "Signed in with a Meta account".into()),
+            _ => (headless, String::new()),
+        };
+    }
     let status = run(&["auth", "status", "--json"], 30).and_then(|(_, out)| serde_json::from_str::<Value>(out.lines().next().unwrap_or("")).ok().or_else(|| serde_json::from_str(out.trim()).ok()));
     if let Some(s) = status.filter(|s| s["loggedIn"] == true) {
         let method = text_of(&s["authMethod"]);
@@ -551,6 +558,19 @@ impl Logins {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_muse_sign_in_is_its_login_file_not_a_status_command() {
+        let dir = std::env::temp_dir().join(format!("muse-signin-{}", uuid::Uuid::new_v4().simple()));
+        let env: Env = [("XDG_CONFIG_HOME".to_string(), dir.display().to_string())].into_iter().collect();
+        // `muse` has no `auth status`; the executable is never run for it.
+        assert!(!signed_in("musecode", "/nonexistent/muse", &env, false).0);
+        std::fs::create_dir_all(dir.join("muse")).unwrap();
+        std::fs::write(dir.join("muse").join("auth.json"), "{}").unwrap();
+        let signed = signed_in("musecode", "/nonexistent/muse", &env, false);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(signed, (true, "Signed in with a Meta account".into()));
+    }
 
     #[test]
     fn device_code_and_link_are_read_and_secrets_scrubbed() {
