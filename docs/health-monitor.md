@@ -54,9 +54,12 @@ withdrawn approval clears the report, so the next `report` of that signature ask
 
 ## On the Tico team's side
 
-A ticket starting `[Health Monitor]` carries its signature. The Support bot groups tickets by signature: one engineering
+A ticket starting `[Health Monitor]` carries its signature. HQ keeps the signature with each ticket, so the staff list
+groups by it (`GET /v1/staff/tickets?signature=hm-...`). The Support bot groups tickets by signature: one engineering
 task per signature, and every other install's ticket or repeat is a comment on it
-(`templates/catalog/support/playbooks/tico-hq-tickets.md`).
+(`templates/catalog/support/playbooks/tico-hq-tickets.md`). When a release ships the fix, the team replies once to every
+open ticket with that signature and closes each (`POST /v1/staff/tickets/by-signature/close`, or
+`software/hq-tickets close-signature hm-...`); each company reads the reply on its Support page.
 
 ## Commands
 

@@ -334,3 +334,64 @@ def test_followup_diagnostics_stay_with_the_message_and_delete_with_the_ticket(c
     assert client.post(f"/v1/support/{tid}/messages", headers=mine, json={"message": "Bad", "diagnostics": {"format": 999}}).status_code == 422
     assert client.delete(f"/v1/support/{tid}", headers=mine).status_code == 200
     assert db.conn.execute("SELECT count(*) FROM ticket_replies WHERE ticket_id=?", (tid,)).fetchone()[0] == 0
+
+
+# ---------------------------------------------------------------------- Health Monitor signatures
+SIG = "hm-a1b2c3d4e5f6"
+OTHER = "hm-000000000000"
+HM_BODY = ("[Health Monitor] queue_idle: queued work does not start\n\nSignature: %s\nKind: tico-bug\nTico: 0.3.46\n"
+           "First seen: 2026-11-01T11:00 UTC; seen 3 time(s) in 2 place(s).")
+
+
+def test_a_health_monitor_signature_is_kept_and_the_staff_can_group_by_it(client):
+    first = file(client, HM_BODY % SIG).json()["ticket_id"]
+    second = file(client, HM_BODY % OTHER).json()["ticket_id"]
+    third = file(client, "A person's own words").json()["ticket_id"]
+    listed = {t["ticket_id"]: t for t in client.get("/v1/staff/tickets?status=all", headers=staff()).json()["tickets"]}
+    assert (listed[first]["signature"], listed[second]["signature"], listed[third]["signature"]) == (SIG, OTHER, "")
+    assert client.get("/v1/staff/tickets/" + first, headers=staff()).json()["signature"] == SIG
+    grouped = client.get("/v1/staff/tickets?status=all&signature=" + SIG, headers=staff()).json()["tickets"]
+    assert [t["ticket_id"] for t in grouped] == [first]
+    assert client.get("/v1/staff/tickets?signature=nope", headers=staff()).status_code == 422
+
+
+def test_a_release_closes_every_ticket_with_a_signature_and_replies_to_each(client):
+    one = file(client, HM_BODY % SIG, email="ana@acme.example").json()
+    two = file(client, HM_BODY % SIG).json()
+    file(client, HM_BODY % OTHER)
+    shut = file(client, HM_BODY % SIG).json()["ticket_id"]
+    client.post("/v1/staff/tickets/%s/status" % shut, headers=staff(), json={"status": "closed"})
+    fixed = "Fixed in Tico 0.3.47: queued work starts while its computer has room. Update to 0.3.47."
+    done = client.post("/v1/staff/tickets/by-signature/close", headers=staff(),
+                       json={"signature": SIG, "body": fixed})
+    assert done.status_code == 200
+    assert done.json() == {"signature": SIG,
+                           "closed": [{"ticket_id": one["ticket_id"], "reply_id": 1, "email_pending": True},
+                                      {"ticket_id": two["ticket_id"], "reply_id": 2, "email_pending": False}],
+                           "already_closed": 1}
+    for made in (one, two):
+        seen = client.get("/v1/support/" + made["ticket_id"], headers={"X-Ticket-Secret": made["secret"]}).json()
+        assert seen["status"] == "closed" and seen["messages"][0]["body"] == fixed
+    still_open = client.get("/v1/staff/tickets?status=open", headers=staff()).json()["tickets"]
+    assert len(still_open) == 1 and still_open[0]["signature"] == OTHER
+    open_left = client.get("/v1/staff/tickets?status=open&signature=" + OTHER, headers=staff()).json()["tickets"]
+    assert len(open_left) == 1
+    # Running it again closes nothing new.
+    again = client.post("/v1/staff/tickets/by-signature/close", headers=staff(),
+                        json={"signature": SIG, "body": fixed}).json()
+    assert again == {"signature": SIG, "closed": [], "already_closed": 3}
+    for bad in ({"signature": SIG}, {"signature": SIG, "body": fixed, "x": 1}, {"signature": "hm-xyz", "body": fixed},
+                {"signature": SIG, "body": ""}, {"signature": SIG, "body": "x" * 8001}):
+        assert client.post("/v1/staff/tickets/by-signature/close", headers=staff(), json=bad).status_code == 422
+    assert client.post("/v1/staff/tickets/by-signature/close", json={"signature": SIG, "body": fixed}).status_code == 401
+
+
+def test_an_older_database_backfills_signatures_once(tmp_path):
+    old = Database(tmp_path / "old.db")
+    old.conn.executescript("""CREATE TABLE tickets(ticket_id TEXT PRIMARY KEY, key_hash TEXT NOT NULL, created TEXT NOT NULL,
+        updated TEXT NOT NULL, closed TEXT, status TEXT NOT NULL DEFAULT 'open', body TEXT NOT NULL, email TEXT, install_id TEXT,
+        version TEXT, email_pending INTEGER NOT NULL DEFAULT 0);
+        INSERT INTO tickets(ticket_id,key_hash,created,updated,body) VALUES('TK-AAAAAAAA','h','t','t','%s');""" % (HM_BODY % SIG))
+    for _ in range(2):
+        Tickets(old)
+        assert old.conn.execute("SELECT signature FROM tickets").fetchone()[0] == SIG

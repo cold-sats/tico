@@ -85,10 +85,11 @@ staff key. Bodies are JSON, at most 16 KB (48 KB for staff), with strict fields;
 | `POST /v1/support/{id}/messages` | ticket secret | `{message}` from the human; reopens an answered ticket; `409` when closed or at 60 messages. |
 | `DELETE /v1/support/{id}` | ticket secret | The human deletes their ticket. |
 | `GET /v1/staff/stats` | staff key | `{by_version: {"0.2.24": 2, ...}, window_days: 7}`: installs heard from in the last 7 days on each exact release, with no suppression (the public `/v1/stats` still leaves out counts under 5). |
-| `GET /v1/staff/tickets?status=open\|answered\|closed\|all&since=<UTC time>&limit=` | staff key | Oldest activity first. `since` is `YYYY-MM-DDTHH:MM:SSZ` and matches `updated`, which moves when the human writes or the team replies. Each ticket has `body`, `email`, `version`, `install_id`, `email_pending`, `has_diagnostics` and `messages`. |
+| `GET /v1/staff/tickets?status=open\|answered\|closed\|all&since=<UTC time>&limit=` | staff key | Oldest activity first. `since` is `YYYY-MM-DDTHH:MM:SSZ` and matches `updated`, which moves when the human writes or the team replies. Each ticket has `body`, `email`, `version`, `install_id`, `email_pending`, `signature` (a Health Monitor `hm-...`, or empty), `has_diagnostics` and `messages`. `&signature=hm-...` lists only tickets with one signature, so the team works them together. |
 | `GET /v1/staff/tickets/{id}` | staff key | One ticket, with its `diagnostics` bundle when the human attached one (support.md, PRIVACY.md). No other route returns it. |
 | `POST /v1/staff/tickets/{id}/reply` | staff key | `{body}` (up to 8000 characters). Sets the ticket to `answered`; with an email on the ticket it is marked `email_pending`. HQ sends no email. `409` when closed. |
 | `POST /v1/staff/tickets/{id}/status` | staff key | `{status: "open"\|"answered"\|"closed", email_sent?: true}`. |
+| `POST /v1/staff/tickets/by-signature/close` | staff key | `{signature, body}`: when a release ships a Health Monitor fix, the same reply on every open or answered ticket with that signature, then each closed. A ticket with an email keeps `email_pending` (HQ sends no mail; the Support bot drafts it). Running it again closes nothing new. |
 | `DELETE /v1/staff/tickets/{id}` | staff key | Delete on request. The rows are overwritten in the file. |
 
 The staff key is `HQ_STAFF_KEY` (24+ characters; unset turns every staff route into `404`), sent as `Authorization: Bearer ...` and

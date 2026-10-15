@@ -9,6 +9,8 @@
     GET    /v1/staff/tickets/{id}          one ticket with its messages and diagnostics (HQ_STAFF_KEY)
     POST   /v1/staff/tickets/{id}/reply    a reply the person's app will fetch (HQ_STAFF_KEY)
     POST   /v1/staff/tickets/{id}/status   open, answered or closed            (HQ_STAFF_KEY)
+    POST   /v1/staff/tickets/by-signature/close   one reply on every open ticket with a Health Monitor
+        signature, then each closed: what a release that ships its fix calls (HQ_STAFF_KEY)
     DELETE /v1/staff/tickets/{id}          delete a ticket on request          (HQ_STAFF_KEY)
     GET    /v1/staff/tickets?status=held   tickets the judge called spam: kept quiet, never listed elsewhere (HQ_STAFF_KEY)
     POST   /v1/staff/tickets/{id}/verdict  correct a verdict (legit, spam, injection_risk, unchecked); legit releases a held one
@@ -52,6 +54,7 @@ MAX_JUDGED = 8000                 # characters of a GitHub thread or email sent 
 ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 
 TICKET_ID = re.compile(r"TK-[A-Z2-7]{8}")
+SIGNATURE = re.compile(r"hm-[0-9a-f]{12}")
 SECRET = re.compile(r"[A-Za-z0-9_-]{20,64}")
 # The same shapes hq/app.py accepts for a ping.
 INSTALL_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
@@ -66,7 +69,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS tickets(
  ticket_id TEXT PRIMARY KEY, key_hash TEXT NOT NULL, created TEXT NOT NULL, updated TEXT NOT NULL,
  closed TEXT, status TEXT NOT NULL DEFAULT 'open', body TEXT NOT NULL, email TEXT, install_id TEXT, version TEXT,
- email_pending INTEGER NOT NULL DEFAULT 0, diagnostics TEXT,
+ email_pending INTEGER NOT NULL DEFAULT 0, diagnostics TEXT, signature TEXT NOT NULL DEFAULT '',
  verdict TEXT NOT NULL DEFAULT 'unchecked', verdict_reason TEXT NOT NULL DEFAULT '', held INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS tickets_created ON tickets(created);
 CREATE TABLE IF NOT EXISTS ticket_verdicts(
@@ -89,6 +92,13 @@ def stamp(moment):
 
 def digest(value):
     return hashlib.sha256(str(value).encode()).hexdigest()
+
+
+def signature_of(message):
+    """The Health Monitor signature a ticket carries (`Signature: hm-...` in its body), or "": the same problem has
+    the same signature on every install, so the team groups and closes tickets by it."""
+    found = SIGNATURE.search(str(message or ""))
+    return found.group(0) if found else ""
 
 
 class Invalid(Exception):
@@ -169,6 +179,12 @@ class Tickets:
             have = {row[1] for row in db.conn.execute("PRAGMA table_info(tickets)")}
             if "diagnostics" not in have:
                 db.conn.execute("ALTER TABLE tickets ADD COLUMN diagnostics TEXT")
+            if "signature" not in have:
+                db.conn.execute("ALTER TABLE tickets ADD COLUMN signature TEXT NOT NULL DEFAULT ''")
+                for row in db.conn.execute("SELECT ticket_id, body FROM tickets WHERE signature=''"):
+                    found = signature_of(row["body"])
+                    if found:
+                        db.conn.execute("UPDATE tickets SET signature=? WHERE ticket_id=?", (found, row["ticket_id"]))
             for column, spec in (("verdict", "TEXT NOT NULL DEFAULT 'unchecked'"), ("verdict_reason", "TEXT NOT NULL DEFAULT ''"),
                                  ("held", "INTEGER NOT NULL DEFAULT 0")):
                 if column not in have:
@@ -199,9 +215,9 @@ class Tickets:
                     break
             self.db.conn.execute(
                 "INSERT INTO tickets(ticket_id,key_hash,created,updated,status,body,email,install_id,version,diagnostics,"
-                "verdict,verdict_reason,held) VALUES(?,?,?,?,'open',?,?,?,?,?,?,?,?)",
+                "signature,verdict,verdict_reason,held) VALUES(?,?,?,?,'open',?,?,?,?,?,?,?,?,?)",
                 (ticket_id, digest(secret), moment, moment, message, email, install_id, version, diagnostics,
-                 verdict, reason[:200], 1 if verdict == "spam" else 0))
+                 signature_of(message), verdict, reason[:200], 1 if verdict == "spam" else 0))
         return ticket_id, secret
 
     def _owned(self, ticket_id, secret):
@@ -267,15 +283,17 @@ class Tickets:
         view = {"ticket_id": row["ticket_id"], "status": row["status"], "created": row["created"],
                 "updated": row["updated"], "body": row["body"], "email": row["email"], "version": row["version"],
                 "install_id": row["install_id"], "email_pending": bool(row["email_pending"]),
+                "signature": row["signature"] or signature_of(row["body"]),
                 "has_diagnostics": bool(row["diagnostics"]), "messages": self._messages(row["ticket_id"], full=full),
                 "verdict": row["verdict"], "verdict_reason": row["verdict_reason"], "held": bool(row["held"])}
         if full and row["diagnostics"]:
             view["diagnostics"] = json.loads(row["diagnostics"])
         return view
 
-    def listing(self, status="", since="", limit=50):
+    def listing(self, status="", since="", limit=50, signature=""):
         """Oldest activity first, so a caller that remembers the last `updated` it saw misses nothing. A ticket appears
-        again whenever its person writes or the team replies."""
+        again whenever its person writes or the team replies. With `signature`, only tickets carrying that Health
+        Monitor signature, so the team works one signature's tickets together."""
         where, args = [], []
         # A ticket held as spam is in the held list and nowhere else, so the queue and the bot never see it.
         where.append("held=1" if status == "held" else "held=0")
@@ -285,6 +303,9 @@ class Tickets:
         if since:
             where.append("updated>?")
             args.append(since)
+        if signature:
+            where.append("signature=?")
+            args.append(signature)
         sql = "SELECT * FROM tickets" + (" WHERE " + " AND ".join(where) if where else "")
         with self.db.lock:
             rows = self.db.conn.execute(sql + " ORDER BY updated, ticket_id LIMIT ?", (*args, limit)).fetchall()
@@ -340,6 +361,29 @@ class Tickets:
             self.db.conn.execute("UPDATE tickets SET status=?, closed=?, email_pending=?, updated=? WHERE ticket_id=?",
                                  (status, closed, pending, moment, ticket_id))
         return {"ticket_id": ticket_id, "status": status, "email_pending": bool(pending)}
+
+    def close_signature(self, signature, body):
+        """When a release ships the fix for one Health Monitor signature: the same reply on every open or answered
+        ticket carrying it, then each closed. A ticket with an email address keeps it marked email pending: HQ sends
+        no mail, the Support bot drafts it. Returns each ticket closed, and how many already were."""
+        body = text(body, "body", MAX_REPLY)
+        moment = stamp(self.now())
+        with self.db.lock:
+            rows = self.db.conn.execute("SELECT * FROM tickets WHERE signature=? AND held=0", (signature,)).fetchall()
+            open_rows = [r for r in rows if r["status"] in ("open", "answered")]
+            closed, skipped = [], 0
+            for row in open_rows:
+                reply_id = self.db.conn.execute(
+                    "INSERT INTO ticket_replies(ticket_id,created,body,author) VALUES(?,?,?,'staff')",
+                    (row["ticket_id"], moment, body)).lastrowid
+                self.db.conn.execute("UPDATE tickets SET status='closed', closed=?, email_pending=?, updated=? "
+                                     "WHERE ticket_id=?",
+                                     (row["closed"] or moment, 1 if row["email"] else row["email_pending"], moment,
+                                      row["ticket_id"]))
+                closed.append({"ticket_id": row["ticket_id"], "reply_id": reply_id,
+                               "email_pending": bool(row["email"] or row["email_pending"])})
+            skipped = sum(1 for r in rows if r["status"] == "closed")
+        return {"signature": signature, "closed": closed, "already_closed": skipped}
 
 
 # ---------------------------------------------------------------------- the routes
@@ -472,10 +516,12 @@ def install(app, tickets, address, staff_key="", judge=None):
         params = request.query_params
         status, since = params.get("status", ""), params.get("since", "")
         limit = params.get("limit", "50")
+        signature = params.get("signature", "")
         if (status and status not in STATUSES + ("all", "held")) or (since and not MOMENT.fullmatch(since)) \
-                or not limit.isdigit() or not 1 <= int(limit) <= 200:
+                or not limit.isdigit() or not 1 <= int(limit) <= 200 \
+                or (signature and not SIGNATURE.fullmatch(signature)):
             return refuse("invalid", 422)
-        return no_store({"tickets": tickets.listing(status, since, int(limit))})
+        return no_store({"tickets": tickets.listing(status, since, int(limit), signature)})
 
     @app.get("/v1/staff/tickets/{ticket_id}")
     def staff_show(request: Request, ticket_id: str):
@@ -510,6 +556,26 @@ def install(app, tickets, address, staff_key="", judge=None):
         if done is None:
             return refuse("not_found", 404)
         return no_store(done) if done else refuse("closed", 409)
+
+    @app.post("/v1/staff/tickets/by-signature/close")
+    async def staff_close_signature(request: Request):
+        """A release shipped the fix for one Health Monitor signature: reply the same fixed-in text to every open or
+        answered ticket carrying it, and close each. Running it again closes nothing new."""
+        denied = staff_only(request)
+        if denied:
+            return denied
+        status, data = await read_json(request, MAX_STAFF_REQUEST)
+        if status != 200:
+            return refuse(data, status)
+        try:
+            if not isinstance(data, dict) or set(data) != {"signature", "body"}:
+                raise Invalid("fields")
+            if not isinstance(data["signature"], str) or not SIGNATURE.fullmatch(data["signature"]):
+                raise Invalid("signature")
+            done = tickets.close_signature(data["signature"], data["body"])
+        except Invalid as bad:
+            return refuse("invalid", 422, field=bad.field)
+        return no_store(done)
 
     @app.post("/v1/staff/tickets/{ticket_id}/status")
     async def staff_status(request: Request, ticket_id: str):

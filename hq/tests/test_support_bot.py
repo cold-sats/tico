@@ -235,6 +235,30 @@ def test_a_run_that_does_not_name_its_bot_keeps_the_draft(rig, hq, tmp_path):
     assert hq.get(f"/v1/support/{tid}", headers=mine).json()["messages"] == []
 
 
+def test_close_signature_replies_and_closes_every_ticket_with_it(rig, hq, tmp_path):
+    sig = "hm-a1b2c3d4e5f6"
+    body = "[Health Monitor] queue_idle: queued work does not start\n\nSignature: %s\nKind: tico-bug\n" % sig
+    one, mine = rig.file(body, email="ana@acme.example")
+    two, theirs = rig.file(body)
+    rig.file("A person's own words")
+    fixed = tmp_path / "fixed.md"
+    fixed.write_text("Fixed in Tico 0.3.47: queued work starts while its computer has room. Update to 0.3.47.\n")
+    code, text = rig.cli("list", "--signature", sig)
+    assert code == 0 and one in text and two in text and sig in text
+    code, text = rig.cli("close-signature", sig, str(fixed))
+    assert code == 0 and "closed 2 ticket(s)" in text and one in text and two in text
+    assert "email reply is pending" in text
+    for tid, secret in ((one, mine), (two, theirs)):
+        seen = hq.get(f"/v1/support/{tid}", headers=secret).json()
+        assert seen["status"] == "closed" and seen["messages"][0]["body"] == fixed.read_text().strip()
+    code, text = rig.cli("close-signature", sig, str(fixed))
+    assert code == 0 and "closed 0 ticket(s)" in text and "2 already closed" in text
+    code, text = rig.cli("close-signature", "hm-xyz", str(fixed))
+    assert code == 2
+    code, text = rig.cli("close-signature", sig, str(fixed), HUB_BOT="")
+    assert code == 1 and "HUB_BOT" in text
+
+
 @pytest.mark.parametrize("manifest", ["outbound_send: true\n", "outbound_send: false\n", "[invalid", None])
 def test_the_person_set_switch_posts_without_a_separate_approval_whatever_bot_yaml_says(rig, hq, tmp_path, manifest):
     if manifest is None:
