@@ -5,7 +5,7 @@ Three sources make the list, none of them a secret. The model and harness the bo
 its stored config and the company's provider choice. Its repository comes from the bot's record. The
 rest are the `tools:` entries (older: `access:`) of its bot.yaml (older: employee.yaml), which the runner reads from the bot's checkout
 and reports on every heartbeat with whether each credential is on its computer
-(runner/declared_access.py, `bots.<bot>.tools` in the readiness report). A runner from before that
+(runner-rs/src/declared_access.rs, `bots.<bot>.tools` in the readiness report). A runner from before that
 report yields the first two only. No value ever passes through here: env is a variable's name.
 
 A person who manages a bot (`Auth.bot_manager`) can also register, change or remove a tool. The server holds no bot repository,
@@ -21,7 +21,7 @@ import json
 
 from fastapi import Request
 
-from clients import access_entry, mcp_servers
+from clients import access_entry, harness_manifests, mcp_servers
 from . import models as M
 from . import providers, routines
 from .harnesses import EXTERNAL_HARNESSES, resolve_harness
@@ -39,8 +39,9 @@ CREDENTIALS_NOTE = ("Store a needed Credential through Credentials or its chat c
 
 ONLINE_WITHIN_S = 60
 
-HARNESS_NAMES = {"codex": "Codex", "claude": "Claude Code", "gemini": "Gemini CLI", "antigravity": "Antigravity",
-                 "grok": "Grok Build", "pi": "pi", "cursor": "Cursor", "musecode": "Muse Code", "hermes": "Hermes", "openclaw": "OpenClaw", "grokbot": "Grok Bot", "dots": "Dots", "muse": "Muse"}
+# A CLI's name is its manifest's; external agents have none.
+HARNESS_NAMES = {**{h: row["name"] for h, row in harness_manifests.load().items()},
+                 "hermes": "Hermes", "openclaw": "OpenClaw", "grokbot": "Grok Bot", "dots": "Dots", "muse": "Muse"}
 PROVIDER_LOGOS = {"openai": "openai", "anthropic": "anthropic", "google": "google"}
 
 SERVICE_NAMES = {

@@ -3,6 +3,7 @@ const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const {harnesses} = require('./support/page.cjs');
 (async () => {
   const browser = await chromium.launch({headless: true,
     channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
@@ -13,19 +14,19 @@ const path = require('node:path');
     for (const name of ['tokens', 'base', 'components', 'settings']) {
       await page.addStyleTag({content: fs.readFileSync(path.join(__dirname, `../styles/${name}.css`), 'utf8')});
     }
-    await page.evaluate(() => {
+    await page.addScriptTag({content: fs.readFileSync(path.join(__dirname, '../app/settings.js'), 'utf8')});
+    await page.evaluate(harnesses => {
       window.$ = s => document.querySelector(s);
       window.esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
       window.formBusy = el => [...el.querySelectorAll('input')].some(f => f === document.activeElement || f.value !== f.defaultValue); window.toast = () => {};
-      window.settingsIsAdmin = () => true;
-      window.S = {me: {id: 'ana', cloud: true}, orgGroups: [], emps: [{name: 'builder', machine: {runner_id: 'r1', operator: 'ana'}}]};
-      window.SETTINGS_DATA = {machines: [{id: 'r1', label: 'North', operator: 'ana'}, {id: 'r2', label: 'South', operator: 'ana'}]};
+      window.S = {me: {id: 'ana', role: 'owner', cloud: true}, orgGroups: [], emps: [{name: 'builder', machine: {runner_id: 'r1', operator: 'ana'}}]};
+      SETTINGS_DATA = {machines: [{id: 'r1', label: 'North', operator: 'ana'}, {id: 'r2', label: 'South', operator: 'ana'}]};
       window.fixture = {profiles_by_computer: ['r1','r2'].map((runner_id, i) => ({runner_id, label: ['North', 'South'][i], profiles: [
         {name: 'engineering', id: 'subscription:' + JSON.stringify([runner_id, 'engineering']), display_name: 'Engineering', runtimes: {codex: {signed_in: true}}}]})),
         assignments: [{scope: 'bot', target: 'builder', profile: 'engineering'}]};
       window.writes = [];
       window.post = async (url, body) => { writes.push({url, body}); };
-      window.get = async () => structuredClone(fixture);
+      window.get = async url => url === '/v2/models' ? {harnesses} : structuredClone(fixture);
       window.put = async (url, body) => {
         writes.push({url, body});
         if (url === '/v2/subscriptions/name') {
@@ -38,7 +39,7 @@ const path = require('node:path');
           return {};
         }
       };
-    });
+    }, harnesses);
     await page.addScriptTag({content: fs.readFileSync(path.join(__dirname, '../app/subscriptions.js'), 'utf8')});
     await page.evaluate(() => renderSettingsSubs(true));
     const north = page.locator('.subs-pc').first();
@@ -81,7 +82,7 @@ const path = require('node:path');
     await page.waitForFunction(() => document.querySelector('.subs-weekly')?.innerText.includes('42% used'));
     assert.deepEqual(await page.evaluate(() => writes.at(-1)), {url: '/v2/subscriptions/weekly', body: {
       runner_id: 'r1', profile: 'engineering', runtime: 'codex', used_percent: 42, resets_at: null}});
-    await page.evaluate(() => { settingsIsAdmin = () => false; S.me.id = 'viewer'; return renderSettingsSubs(true); });
+    await page.evaluate(() => { S.me.role = 'member'; S.me.id = 'viewer'; return renderSettingsSubs(true); });
     assert.equal(await page.locator('[data-subs-rename]').count(), 0, 'nonoperators cannot rename');
     assert.equal(await page.locator('.subs-controls').count(), 0, 'nonoperators get no manual write controls');
     assert.match(await north.locator('.subs-weekly').innerText(), /42% used/, 'usage remains visible');

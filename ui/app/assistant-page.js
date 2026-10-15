@@ -47,7 +47,7 @@ async function pageAssistant() {
     <section class="rail-sec bot-active" id="asst-active" aria-labelledby="asst-active-h" hidden><h2 class="rail-h" id="asst-active-h">Active</h2><div class="tpane"></div></section>
     <section class="rail-sec bot-latest" id="asst-latest" aria-label="Updates" hidden></section>
     <section class="rail-sec bot-files" id="asst-files" aria-label="Files" hidden></section>
-    <section class="rail-sec bot-recurring" id="asst-recurring" aria-label="Recurring" hidden></section>
+    <section class="rail-sec bot-recurring" id="asst-recurring" aria-label="Routines" hidden></section>
   </aside></div>`;
   void assistantRail(slug, load);
   let d;
@@ -108,6 +108,7 @@ async function assistantRail(slug, load) {
   if (e) {
     const rec = $('#asst-recurring');
     rec.innerHTML = botRecurringHTML(e, slug);
+    bindRecurringRail(rec);
     rec.hidden = !rec.innerHTML;
   }
   window.botFiles?.mount($('#asst-files'), {slug, get, esc, openFile: openFileLink});

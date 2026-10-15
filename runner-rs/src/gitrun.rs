@@ -80,6 +80,19 @@ pub fn stopping() -> bool {
 
 /// Run `argv` with exactly `env`, from `cwd` (else the empty hooks folder), for at most `timeout_s`.
 pub async fn run(argv: &[String], env: &Env, cwd: Option<&Path>, timeout_s: u64) -> Ran {
+    let began = std::time::Instant::now();
+    let ran = run_once(argv, env, cwd, timeout_s).await;
+    let fault = match &ran {
+        Ok(_) => None,
+        Err(Fault::Timeout(_)) => Some("timeout"),
+        Err(Fault::Stopped) => Some("stopped"),
+        Err(Fault::Io(_)) => Some("io"),
+    };
+    crate::flight::git(argv, began.elapsed().as_millis() as u64, ran.as_ref().ok().map(|o| o.code), fault);
+    ran
+}
+
+async fn run_once(argv: &[String], env: &Env, cwd: Option<&Path>, timeout_s: u64) -> Ran {
     if stopping() {
         return Err(Fault::Stopped);
     }

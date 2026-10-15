@@ -11,7 +11,6 @@ import pytest
 from clients.tico import APIError
 from runner import worktrees as W
 from runner.repositories import GB
-from runner.service import Runner
 
 
 def git(path, *args):
@@ -170,29 +169,6 @@ def test_disk_floor_paths_old_server_and_setup_failure(trees, monkeypatch):
             W.safe_path(workspace, path)
 
 
-def test_worktree_reports_carry_the_record_stamp_only_to_a_server_that_takes_it():
-    runner = Runner.__new__(Runner)
-    runner.client = mock.Mock()
-    runner.client.post.side_effect = [APIError('validation', 'worktrees.0.record_updated: Extra inputs are not permitted', 422),
-                                      {'ok': True}]
-    report = {'link_id': 'l1', 'state': 'present', 'record_updated': '2026-10-14T05:00:00.000000Z'}
-    body = {'worktrees': [report], 'readiness': {'schema_version': 1, 'worktrees': True}}
-    assert runner.report_heartbeat(body) == {'ok': True}
-    sent = runner.client.post.call_args_list[-1].args[1]
-    assert sent['worktrees'] == [{'link_id': 'l1', 'state': 'present'}]
-    assert report['record_updated'] and runner._reports_worktree_stamp is False
-
-
-def test_mixed_version_heartbeat_drops_worktree_fields():
-    runner = Runner.__new__(Runner)
-    runner.client = mock.Mock()
-    runner.client.post.side_effect = [APIError('validation', 'worktrees: Extra inputs', 422),
-                                    APIError('validation', 'readiness.worktrees: Extra inputs', 422), {'ok': True}]
-    body = {'worktrees': [], 'readiness': {'schema_version': 1, 'worktrees': True}}
-    assert runner.report_heartbeat(body) == {'ok': True}
-    assert 'worktrees' not in body and 'worktrees' not in body['readiness']
-
-
 @pytest.mark.slow
 def test_unselected_base_with_linked_worktree_is_not_deleted(trees):
     from runner.repositories import Repositories, REMOVE_AFTER
@@ -327,7 +303,7 @@ def test_git_hooks_fsmonitor_and_setup_never_receive_vault_environment(trees, mo
 
 
 @pytest.mark.slow
-def test_long_branch_does_not_break_heartbeat_and_4xx_retries_without_worktrees(trees):
+def test_a_long_branch_is_reported_without_the_branch(trees):
     workspace, base, remote, row, client = trees
     path = Path(W.command(client, 'add', 'org/product')['workspace_path'])
     git(path, 'switch', '-c', 'feature/' + 'x' * 220)
@@ -335,13 +311,6 @@ def test_long_branch_does_not_break_heartbeat_and_4xx_retries_without_worktrees(
     from backend.models import WorktreeStatus
     WorktreeStatus(**report)
     assert report['state'] == 'present' and report['branch'] is None and 'oversized' in report['error']
-    for status in (422,):
-        runner = Runner.__new__(Runner)
-        runner.client = mock.Mock()
-        runner.client.post.side_effect = [APIError('validation', 'worktrees.0.branch too long', status), {'ok': True}]
-        body = {'worktrees': [report], 'readiness': {'bots': {}}}
-        assert runner.report_heartbeat(body) == {'ok': True}
-        assert 'worktrees' not in body
 
 
 @pytest.mark.slow
@@ -515,20 +484,9 @@ def test_backoff_does_not_mint_more_tokens_and_alias_paths_are_refused(trees, mo
 
 
 @pytest.mark.slow
-def test_readiness_advertises_worktrees_and_setup_cli_runs_in_turn(trees):
+def test_the_setup_cli_marks_the_worktree_ready(trees):
     from clients.hubcli import parser
     workspace, base, remote, row, client = trees
-    runner = Runner.__new__(Runner)
-    runner.config = {}
-    runner.tools = None
-    runner._harness_after = 0
-    runner.runtime_report = lambda assignments: {'fake': {}}
-    runner.preflight = lambda assignments, runtimes: [{'bot': 'engineer', 'ready': True}]
-    assert runner.readiness([])['worktrees'] is True
-    prompt = runner.prompt({'bot': 'engineer', 'task': {'id': row['task_id'], 'requester': 'human:ana'},
-                            'message': {'id': 'm1', 'from_actor': 'human:ana', 'body': 'Work', 'refs': {}},
-                            'conversation': {'id': 'room', 'scope': 'personal', 'kind': 'chat', 'owner_actor': 'human:ana'}})
-    assert 'setup_pending=true' in prompt and 'hub task worktree setup <repo>' in prompt
     args = parser().parse_args(['task', 'worktree', 'setup', 'org/product'])
     assert args.fn == 'task worktree setup'
     W.command(client, 'add', 'org/product')
@@ -748,17 +706,6 @@ def test_snapshot_skipped_is_reported_and_branch_check_ignores_cwd(trees, monkey
     W.act(workspace, row, 'restore', os.environ.copy())
     assert row['snapshot_skipped'].endswith(W.wip_branch(row))
     assert (path / 'file').read_text() == 'rebased work'
-
-
-def test_unrelated_heartbeat_errors_keep_worktree_fields():
-    for status, detail in [(401, 'Invalid token'), (422, 'goals.0 invalid')]:
-        runner = Runner.__new__(Runner)
-        runner.client = mock.Mock()
-        runner.client.post.side_effect = APIError('validation', detail, status)
-        body = {'worktrees': [], 'readiness': {'bots': {}}}
-        with pytest.raises(APIError):
-            runner.report_heartbeat(body)
-        assert 'worktrees' in body
 
 
 @pytest.mark.slow

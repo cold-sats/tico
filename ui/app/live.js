@@ -12,7 +12,7 @@ const LIVE = {es: null, after: null, started: false, connected: false, opened: 0
               handlers: new Map(), conversations: new Map(), expiredToast: false};
 const liveAvailable = () => typeof EventSource !== 'undefined';
 const liveConnected = () => LIVE.connected;
-// `fn(data)` for each event of `topic` (one of LIVE_TOPICS, or `reset` and `status`); returns the unsubscribe.
+// `fn(data)` for each event of `topic` (one of LIVE_TOPICS, or `reset`, `status` and `needs-list`); returns the unsubscribe.
 function liveOn(topic, fn) {
   if (!LIVE.handlers.has(topic)) LIVE.handlers.set(topic, new Set());
   LIVE.handlers.get(topic).add(fn);
@@ -80,7 +80,8 @@ function liveUrl() {
   const conversations = [...LIVE.conversations.keys()];
   // Without a conversation on screen, no messages or runs: those are every room's, and only one is shown.
   const topics = conversations.length ? LIVE_TOPICS : LIVE_TOPICS.filter(t => t !== 'messages' && t !== 'runs');
-  const q = new URLSearchParams({topics: topics.join(',')});
+  // Needs you as changed ids against the list the page holds (v2NeedsChanged), not the whole list each time.
+  const q = new URLSearchParams({topics: topics.join(','), needs: 'changes'});
   if (LIVE.after != null) q.set('after', String(LIVE.after));
   if (conversations.length) q.set('conversation', conversations.join(','));
   return `${API}/v2/events?${q}`;
@@ -100,6 +101,8 @@ function liveEventsConnect() {
     if (!current()) return;
     const d = liveData(ev) || {};
     if (LIVE.after == null) LIVE.after = Number(d.seq) || 0;
+    // The list as this stream counts from: a held copy of another version (missed while away) is read again.
+    if (d.needs_version) liveEmit('needs', {version: d.needs_version});
     const was = LIVE.connected;
     LIVE.connected = true; LIVE.expiredToast = false;
     if (!was) liveEmit('status', {connected: true});

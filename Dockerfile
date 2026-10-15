@@ -80,17 +80,17 @@ PY
 RUN chmod -R go-w,go+rX /opt/tico
 # The venv is only mounted here, so this stage's /opt/tico holds the source alone.
 RUN --mount=type=bind,from=venv,source=/opt/tico/.venv,target=/opt/tico/.venv \
-    .venv/bin/python -c 'import backend.app, runner.service, clients.environments' \
+    .venv/bin/python -c 'import backend.app, runner.connectors, runner.close_calls, runner.importers.service, clients.environments' \
     && .venv/bin/python -m compileall -q backend runner clients
 
-# The Rust runner (runner-rs/, the default engine: runner/engine.py), built on the same Debian release as the runner image so it
+# The Rust runner (runner-rs/), built on the same Debian release as the runner image so it
 # links against the same glibc. Only its sources are copied, so a change elsewhere reuses this layer.
 FROM rust:1.90-slim-bookworm@sha256:64232e656c058f4468e8d024e990acff04f0fd5a5c0a88a574dc37773d7325c9 AS runner-bin
 WORKDIR /src/runner-rs
 COPY runner-rs/Cargo.toml runner-rs/Cargo.lock runner-rs/build.rs ./
 COPY runner-rs/src ./src
 # The harness manifests are compiled in (harness_tools.rs BUILT_IN), from ../runner/harnesses, and are part of
-# the source fingerprint (build.rs) that runner/engine.py checks against /opt/tico.
+# the source fingerprint (build.rs, `tico-runner --build-id`).
 COPY runner/harnesses /src/runner/harnesses
 COPY LICENSE /src/LICENSE
 RUN cargo build --release --locked && install -D -m 0755 target/release/tico-runner /out/tico-runner
@@ -101,15 +101,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libasound2 libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 libcairo2 libcups2 libdbus-1-3 libdrm2 libgbm1 \
       libglib2.0-0 libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 \
       libxfixes3 libxkbcommon0 libxrandr2 libfontconfig1 fonts-liberation \
+      xvfb x11vnc matchbox-window-manager \
+    && mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10002 ticorun \
     && useradd --uid 10002 --gid ticorun --home-dir /home/runner --no-create-home --shell /bin/bash ticorun \
     && useradd --uid 10003 --gid ticorun --home-dir /home/runner --no-create-home --shell /bin/bash bot
 COPY --from=node /opt/node /opt/node
 COPY --from=gh /out/gh /usr/local/bin/gh
-# `python -m runner run` hands the process to this binary (TICO_RUNNER_BIN, runner/engine.py).
+# The runner (TICO_RUNNER_BIN): docker/runner-entrypoint.sh enrolls with it and execs it.
 COPY --from=runner-bin /out/tico-runner /usr/local/bin/tico-runner
-# node and npm are here for the runner's own installs of model CLIs (runner/harness_tools.py).
+# node and npm are here for the runner's own installs of model CLIs (runner-rs/src/harness_tools.rs).
 RUN ln -s /opt/node/bin/node /opt/node/bin/npm /opt/node/bin/npx /usr/local/bin/
 COPY docker/runner-entrypoint.sh /usr/local/bin/tico-runner-entrypoint
 COPY docker/gitconfig /etc/gitconfig

@@ -7,7 +7,6 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from clients import sessions
-from clients.sessions import BOT_THREAD  # noqa: F401  (runner/service.py imports it from here)
 
 from . import isolation
 
@@ -192,7 +191,7 @@ class State:
             return row[0] if row else None
 
     def repo_rules(self, thread, digest=None):
-        """The hash of the repo rules a thread was last given (runner/repo_rules.py), so they are sent
+        """The hash of the repo rules a thread was last given (runner-rs/src/sessions.rs), so they are sent
         again only to a fresh thread or when they change."""
         with self.connect() as c:
             if digest is not None:

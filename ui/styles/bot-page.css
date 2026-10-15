@@ -100,9 +100,10 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
 .bot-latest .upd-body.open{max-height:none}
 .bot-latest .upd-body ul{padding-left:16px}.bot-latest .upd-body li{margin:1px 0}.bot-latest .upd-body p{margin:0 0 4px}
 .bot-latest .upd-body h1,.bot-latest .upd-body h2,.bot-latest .upd-body h3{font-size:var(--t-sm)}
-/* Recurring: one line a routine, its name, how often, and when it runs next. */
+/* Routines: one line a routine, its name, how often, and when it runs next. */
 .bot-recurring-list{list-style:none;margin:0;padding:0}
-.bot-recurring-list li{display:flex;align-items:baseline;gap:8px;min-height:24px;padding:3px 0;font-size:var(--t-base);line-height:18px}
+.bot-recurring-list li>button{display:flex;align-items:baseline;gap:8px;width:100%;min-height:24px;padding:3px 0;border:0;background:none;color:inherit;font:inherit;font-size:var(--t-base);line-height:18px;text-align:left;cursor:pointer}
+.bot-recurring-list li>button:hover .ttl{text-decoration:underline}
 .bot-recurring-list .ttl{flex:0 1 auto;max-width:62%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bot-recurring-list .when{flex:1 1 0;min-width:0;color:var(--muted);font-size:var(--t-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bot-recurring-list li.paused .ttl{color:var(--muted)}

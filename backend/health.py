@@ -24,6 +24,7 @@ from .store import H, Problem, readiness_document
 from .views import roster
 
 QUEUE_MINUTES = 15          # work that has waited this long on a computer that is up is stuck
+PERSON_QUEUE_MINUTES = 2    # a person's own message, sooner: someone is sitting there waiting for the reply
 SILENT_MINUTES = 10         # a computer this quiet while work is queued for it has stopped, not blinked
 NEEDS_YOU_MINUTES = 30      # this quiet, its owner is asked to bring it back
 BACKUP_STALE_HOURS = 6      # the replica normally trails by seconds
@@ -91,9 +92,9 @@ def _mail_key_exposed(c):
             if readiness_document(r["readiness_json"]).get("mail_key") == "exposed"]
 
 
-PUBLISH_WARNING = "GitHub history not published: "                     # runner/service.py PUBLISH_WARNING
-DENIED_WARNING = "Claude Code denies what AGENT.md asks for: "          # runner/service.py DENIED_WARNING
-DENIES_WARNING = "Claude Code settings deny: "                         # runner/service.py DENIES_WARNING
+PUBLISH_WARNING = "GitHub history not published: "                     # runner-rs/src/readiness_extra.rs
+DENIED_WARNING = "Claude Code denies what AGENT.md asks for: "          # runner-rs/src/readiness_extra.rs
+DENIES_WARNING = "Claude Code settings deny: "                         # runner-rs/src/readiness_extra.rs
 # GitHub writes a bot's access may allow: the command, and the `can` verbs (backend/bot_tools.py) that allow it.
 # Merging and reviewing are left out: denying them to a bot that opens pull requests is a policy (a person or
 # another bot merges; no bot approves its own work), not a leftover.
@@ -104,7 +105,7 @@ WRITE_VERBS = {"write", "pull_requests", "issues"}
 
 
 def _unpublished(c):
-    """Bots whose local history the runner could not give a GitHub repository (runner/service.py `publish`)."""
+    """Bots whose local history the runner could not give a GitHub repository (runner-rs/src/execute.rs `publish`)."""
     return _reported(c, PUBLISH_WARNING)
 
 
@@ -382,8 +383,12 @@ def _waiting(c, online_ids):
     The third list is every bot with queued work that is not starting, with the computer's own
     reason (`_stuck`)."""
     cutoff = H.shift(H.now(), minutes=-QUEUE_MINUTES)
+    person_cutoff = H.shift(H.now(), minutes=-PERSON_QUEUE_MINUTES)
     queued = {r["bot"]: (r["n"], r["oldest"]) for r in c.execute(
         "SELECT bot, count(*) n, min(created) oldest FROM jobs WHERE state='queued' GROUP BY bot")}
+    asked = {r["bot"]: r["oldest"] for r in c.execute(
+        "SELECT j.bot, min(j.created) oldest FROM jobs j JOIN messages m ON m.id=j.message_id "
+        "WHERE j.state='queued' AND m.from_actor LIKE 'human:%' GROUP BY j.bot")}
     assigned = {r["bot"]: (r["runner_id"], r["label"], r["readiness_json"]) for r in c.execute(
         "SELECT a.bot, a.runner_id, r.label, r.readiness_json FROM assignments a JOIN runners r ON r.id=a.runner_id "
         "WHERE r.revoked_at IS NULL")}
@@ -429,7 +434,8 @@ def _waiting(c, online_ids):
                           "problem": str((report.get("problems") or ["Not ready"])[0])[:200]})
             if oldest and oldest < cutoff:
                 slow.append({**row, "reason": "slow"})
-        elif where and count and oldest and oldest < cutoff and slug not in parked:
+        elif where and count and slug not in parked and (
+                (oldest and oldest < cutoff) or (asked.get(slug) and asked[slug] < person_cutoff)):
             # A bot over its spend limit takes no new job on purpose (backend/usage_limits.py): say so, not "slow".
             idle = slug not in busy and where[0] not in full
             reason = "limit" if idle and usage_limits.blocked(c, slug) else "slow"
@@ -561,7 +567,7 @@ _TOKEN_CACHE = {}   # (database, threshold) -> (monotonic time, answer)
 
 def _token_heavy(c, threshold):
     """(bot, tokens) for bots whose uncached input tokens passed `threshold` in the last day. A run records
-    `input_tokens` without its cache reads (runner/usage.py), so cache reads, which are cheap, do not count.
+    `input_tokens` without its cache reads (runner-rs/src/execute.rs), so cache reads, which are cheap, do not count.
     Both halves filter on `turns.started` (indexed) before summing; the sum still visits every turn of the day
     (about 90 ms at 30,000 turns), so one answer serves every tab's Health poll for five minutes."""
     if not threshold or threshold <= 0:
@@ -1159,9 +1165,8 @@ def view(c, who, settings, auth, github, config):
             engine = computer.get("engine") or {}
             if computer["online"] and engine.get("name") == "python":
                 checks.append(_check("engine:" + computer["id"], "Runner", "warn",
-                                     f"{computer['label']} runs the Python runner"
-                                     + (f" ({engine['note']})" if engine.get("note") else "")
-                                     + ". It is removed in the next release.",
+                                     f"{computer['label']} runs the Python runner, which Tico no longer ships. "
+                                     "Update this computer.",
                                      [_fix("Open Computers", "#/settings", "devices")]))
             if computer["online"] and (computer.get("github_auth") or {}).get("ok") is False:
                 checks.append(_check("github_auth:" + computer["id"], "GitHub sign-in", "warn",

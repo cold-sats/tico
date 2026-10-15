@@ -184,7 +184,7 @@ impl WarmSessions {
     }
 
     /// Stop every idle process of the `name` harness, before its executable is replaced on disk. For harness
-    /// installs (runner/harness_tools.py `on_switch`), which this runner does not do yet.
+    /// installs, which this runner does not do yet.
     #[allow(dead_code)]
     pub async fn close_runtime(&self, name: &str) {
         if name != crate::hosts::antigravity::NAME {

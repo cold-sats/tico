@@ -121,7 +121,8 @@ def ensure_schema(c):
             c.execute("INSERT INTO external_sections_fts(external_sections_fts) VALUES('rebuild')")
     except sqlite3.OperationalError:
         pass
-    c.execute('BEGIN IMMEDIATE')
+    from .flight import begin
+    done = begin(c)
     try:
         for row in c.execute('SELECT id FROM linked_docs WHERE archived=0').fetchall():
             sync_link(c, row['id'])
@@ -129,6 +130,8 @@ def ensure_schema(c):
     except Exception:
         c.rollback()
         raise
+    finally:
+        done()
 
 
 def identifier(source, path):

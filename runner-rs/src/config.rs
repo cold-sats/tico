@@ -1,5 +1,5 @@
-//! `runner.json`: the registration Python's `runner enroll` wrote. Read as a JSON object and written back
-//! with every key it holds, known or not, so a switch back to the Python runner loses nothing.
+//! `runner.json`: the registration `tico-runner enroll` (or an older `python -m runner enroll`) wrote. Read as a
+//! JSON object and written back with every key it holds, known or not, so nothing another version wrote is lost.
 
 use std::fs;
 use std::io::Write;
@@ -83,7 +83,21 @@ const MAX_AUTO_TURNS: usize = 64;
 /// The most the server accepts.
 pub const MAX_TURNS: usize = 256;
 
-/// How many turns run at once (`runner/service.py` machine_capacity): a number as written, up to MAX_TURNS; missing
+/// Setups before Oct 14, 2026 wrote `"capacity": 4` into runner.json, which kept those computers at 4 turns after
+/// sizing moved to 5 per core. That one value becomes "auto" once (`capacity_auto` marks it done), so a person who
+/// sets 4 again afterwards keeps it. Returns whether the file changed.
+pub fn retire_old_capacity(data: &mut Map<String, Value>) -> bool {
+    if data.contains_key("capacity_auto") {
+        return false;
+    }
+    if data.get("capacity").and_then(Value::as_i64) == Some(4) {
+        data.insert("capacity".into(), Value::from("auto"));
+    }
+    data.insert("capacity_auto".into(), Value::from(true));
+    true
+}
+
+/// How many turns run at once (machine_capacity): a number as written, up to MAX_TURNS; missing
 /// or "auto" is sized to the machine, TURNS_PER_CPU per core as memory allows (TURNS_PER_GB), 4 to MAX_AUTO_TURNS.
 pub fn machine_capacity(configured: Option<&Value>) -> usize {
     let set = match configured {
@@ -110,6 +124,19 @@ fn sized(cpus: usize, memory_gb: f64) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_old_setups_four_turns_become_auto_once_and_a_chosen_number_stays() {
+        let mut old: Map<String, Value> = serde_json::from_str(r#"{"capacity":4}"#).unwrap();
+        assert!(retire_old_capacity(&mut old));
+        assert_eq!(old["capacity"], "auto");
+        old.insert("capacity".into(), Value::from(4));
+        assert!(!retire_old_capacity(&mut old));
+        assert_eq!(old["capacity"], 4);
+        let mut chosen: Map<String, Value> = serde_json::from_str(r#"{"capacity":12}"#).unwrap();
+        assert!(retire_old_capacity(&mut chosen));
+        assert_eq!(chosen["capacity"], 12);
+    }
 
     #[test]
     fn unknown_keys_survive_a_round_trip_and_the_file_stays_private() {

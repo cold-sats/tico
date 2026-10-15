@@ -1,6 +1,6 @@
 /* ui/app/subscriptions.js — Subscriptions: the named AI logins on each computer (Settings > AI providers), the one a
    group picks, a bot's own choice, and the line under a bot's model saying which one it will use.
-   The server stores stable connection IDs and display names; the logins stay on the computers (runner/profiles.py).
+   The server stores stable connection IDs and display names; the logins stay on the computers (runner-rs/src/profiles.rs).
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
@@ -8,10 +8,12 @@
 // assignments: [{scope, target, profile}]}. An older server answers 404 and every part here stays away.
 let SUBS = null;
 let SUBS_REFRESH_TIMER = null;
-const SUBS_RUNTIMES = [['codex', 'Codex'], ['claude', 'Claude Code']];
-const SUBS_WEEKLY_NAMES = Object.fromEntries([...SUBS_RUNTIMES, ['gemini', 'Gemini CLI'], ['grok', 'Grok Build']]);
+// A subscription signs in from here to a CLI whose manifest has both `browser_sign_in` and `subscription_profiles`;
+// weekly usage shows for one with `weekly_usage`, and only `weekly_usage = "refresh"` can be asked to refresh.
+const subsRuntimes = () => harnessesWith(c => c.browser_sign_in && c.subscription_profiles).map(row => [row.id, row.name]);
+const subsWeeklyName = runtime => (harnessCaps(runtime).weekly_usage && harnessRow(runtime)?.name) || '';
 async function subsLoad() {
-  try { SUBS = subsNormal(await get('/v2/subscriptions')); }
+  try { [SUBS] = await Promise.all([get('/v2/subscriptions').then(subsNormal), loadHarnessRows()]); }
   catch { SUBS = null; }
   return SUBS;
 }
@@ -54,7 +56,7 @@ function subsComputerLabel(c) {
   if (c && typeof c === 'object') return c.label || subsComputerLabel(c.runner_id);
   return SUBS?.computers.find(x => x.runner_id === c)?.label || (SETTINGS_DATA?.machines || []).find(m => m.id === c)?.label || c || '';
 }
-// Subscription names are lowercase words joined by hyphens (runner/profiles.py): "Acme Research" becomes acme-research.
+// Subscription names are lowercase words joined by hyphens (runner-rs/src/profiles.rs): "Acme Research" becomes acme-research.
 const subsSlug = name => String(name || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
 // Assignments are keyed by group id or bot slug.
 const subsAssigned = (scope, target) => (SUBS?.assignments || []).find(x => x.scope === scope && x.target === target)?.profile || '';
@@ -99,7 +101,7 @@ const subsMaySignIn = c => settingsIsAdmin() || (SETTINGS_DATA?.machines || []).
 function subsRuntimeHTML(c, p) {
   const owner = subsMaySignIn(c);
   const reported = Object.keys(p.runtimes || {}).length;
-  const shown = reported ? SUBS_RUNTIMES.filter(([id]) => p.runtimes[id]) : SUBS_RUNTIMES;
+  const shown = reported ? subsRuntimes().filter(([id]) => p.runtimes[id]) : subsRuntimes();
   // Not known for any runtime: no state to show, but an owner can still sign it in.
   if (shown.every(([id]) => typeof p.runtimes?.[id]?.signed_in !== 'boolean') && reported) {
     return owner ? shown.map(([id, label]) => `<button class="ghost subs-signin" type="button" data-model-login data-runner="${esc(c.runner_id)}" data-runtime="${esc(id)}" data-profile="${esc(p.name)}" data-machine="${esc(c.label)}" aria-label="Sign in ${esc(p.name)} to ${esc(label)} on ${esc(c.label)}">Sign in to ${esc(label)}</button>`).join('') : '';
@@ -113,7 +115,7 @@ function subsRuntimeHTML(c, p) {
 }
 // Allowance is a provider percentage, not a token estimate. Never roll an old report forward.
 const subsWeeklyRuntimes = p => Object.entries(p.runtimes || {}).filter(([runtime, state]) =>
-  SUBS_WEEKLY_NAMES[runtime] && (state.signed_in === true || state.weekly || SUBS_RUNTIMES.some(([id]) => id === runtime)));
+  subsWeeklyName(runtime) && (state.signed_in === true || state.weekly || subsRuntimes().some(([id]) => id === runtime)));
 function subsWeeklyHTML(c, p) {
   return subsWeeklyRuntimes(p).map(([runtime, state]) => {
       const weekly = state.weekly, updated = Date.parse(weekly?.reported_at), reset = Date.parse(weekly?.resets_at);
@@ -127,11 +129,11 @@ function subsWeeklyHTML(c, p) {
       const refreshInfo = refresh ? `${refreshLabels[refresh.state] || 'Refresh unknown'}${refresh.updated_at ? ` · ${when(Date.parse(refresh.updated_at))}` : ''}` : '';
       const authInfo = state.signed_in === true ? 'Signed in' : state.signed_in === false ? 'Sign-in needed' : 'Sign-in unknown';
       const info = weekly ? `${weekly.source === 'manual' ? 'Manually recorded' : 'Provider reported'} ${Number.isFinite(updated) ? when(updated) : 'at an unknown time'}${Number.isFinite(reset) ? ` · resets ${when(reset)}` : ' · reset unknown'}${expired ? ' · previous week; refresh needed' : stale ? ' · may be out of date' : ''}` : 'No weekly report yet';
-      return `<div class="subs-weekly"><span>${esc(SUBS_WEEKLY_NAMES[runtime])} weekly: ${esc(value)}${weekly?.status === 'rejected' ? ' · limit reached' : ''}</span>
-        ${Number.isFinite(percent) ? `<progress max="100" value="${percent}" aria-label="${esc(SUBS_WEEKLY_NAMES[runtime])} last reported weekly usage"></progress>` : ''}
+      return `<div class="subs-weekly"><span>${esc(subsWeeklyName(runtime))} weekly: ${esc(value)}${weekly?.status === 'rejected' ? ' · limit reached' : ''}</span>
+        ${Number.isFinite(percent) ? `<progress max="100" value="${percent}" aria-label="${esc(subsWeeklyName(runtime))} last reported weekly usage"></progress>` : ''}
         <span class="muted subs-weekly-note">${esc(authInfo)} · ${esc(info)}</span>
         ${refreshInfo ? `<span class="muted subs-weekly-note" role="status">${esc(refreshInfo)}</span>` : ''}
-        ${runtime === 'codex' && subsMaySignIn(c) ? `<button type="button" class="ghost" data-subs-refresh data-runner="${esc(c.runner_id)}" data-profile="${esc(p.name)}" data-runtime="${esc(runtime)}"${refresh?.state === 'requested' || state.signed_in === false ? ' disabled' : ''}>Refresh weekly usage</button>` : '<span class="muted subs-weekly-note">Updates from supported runs or a manual provider reading; no background model turn.</span>'}
+        ${harnessCaps(runtime).weekly_usage === 'refresh' && subsMaySignIn(c) ? `<button type="button" class="ghost" data-subs-refresh data-runner="${esc(c.runner_id)}" data-profile="${esc(p.name)}" data-runtime="${esc(runtime)}"${refresh?.state === 'requested' || state.signed_in === false ? ' disabled' : ''}>Refresh weekly usage</button>` : '<span class="muted subs-weekly-note">Updates from supported runs or a manual provider reading; no background model turn.</span>'}
         </div>`;
     }).join('');
 }
@@ -141,7 +143,7 @@ function subsControlsHTML(c, p) {
     const percent = state.weekly?.used_percent, reset = Date.parse(state.weekly?.resets_at);
     const localReset = Number.isFinite(reset) ? new Date(reset - new Date(reset).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
     return `<form data-subs-weekly data-runner="${esc(c.runner_id)}" data-profile="${esc(p.name)}" data-runtime="${esc(runtime)}">
-      <strong>${esc(SUBS_WEEKLY_NAMES[runtime])} manual weekly report</strong>
+      <strong>${esc(subsWeeklyName(runtime))} manual weekly report</strong>
       <label>Used (%) <input type="number" name="percent" min="0" max="100" step="any" value="${Number.isFinite(percent) ? percent : ''}" placeholder="Unknown"></label>
       <label>Weekly reset (local time) <input type="datetime-local" name="reset" value="${localReset}"></label>
       <button class="ghost" type="submit">Save report</button><button class="ghost" type="button" data-subs-weekly-clear>Clear manual report</button>
@@ -214,7 +216,7 @@ async function renderSettingsSubs(force = false, loaded = false) {
   const add = owner && machines.length ? `<form class="subs-add" data-subs-add novalidate>
       <input name="profile" type="text" autocomplete="off" spellcheck="false" maxlength="80" required placeholder="New subscription" aria-label="New subscription name" aria-describedby="subs-add-msg">
       <select name="runner" aria-label="Computer">${machines.map(m => `<option value="${esc(m.id)}">${esc(m.label)}</option>`).join('')}</select>
-      <select name="runtime" aria-label="Sign in to">${SUBS_RUNTIMES.map(([id, label]) => `<option value="${id}">${label}</option>`).join('')}</select>
+      <select name="runtime" aria-label="Sign in to">${subsRuntimes().map(([id, label]) => `<option value="${esc(id)}">${esc(label)}</option>`).join('')}</select>
       <button class="ghost" type="submit">Sign in</button><span class="muted subs-add-msg" id="subs-add-msg" role="status"></span></form>` : '';
   if (!computers.length && !add) { card.hidden = true; return; }
   const openControls = new Set([...el.querySelectorAll('.subs-controls[open]')].map(subsControlsKey));

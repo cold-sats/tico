@@ -1,12 +1,10 @@
 """Task reviews retain the existing ask/answer protocol and legacy attachment path."""
-import json
 
 import pytest
 
 from backend.tests.test_api import api, assign, claim, headers, post, ready, restrict, runner  # noqa: F401
 from backend.store import H
 from clients.hubcli import parser
-from runner.service import Runner
 
 
 def task(api, title="Review the draft"):
@@ -82,7 +80,7 @@ def test_comments_answers_rights_validation_multiple_answers_and_needs_you(api):
     assert get(api, f"tasks/{tid}")["task"]["open_asks"] == 0
 
 
-def test_file_answer_wake_structured_and_plain_runner_path(api):
+def test_a_file_answer_wakes_the_bot_with_the_structured_answer(api):
     tid = task(api)
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE humans SET teams_json='[\"engineering\"]' WHERE id='ben'")
@@ -98,10 +96,6 @@ def test_file_answer_wake_structured_and_plain_runner_path(api):
         assert c.execute("SELECT 1 FROM jobs WHERE message_id=?", (msg["id"],)).fetchone()
         question = c.execute("SELECT ask_message_id FROM task_file_reviews WHERE file_id=?", (fid,)).fetchone()[0]
         assert H.answers_to(c, [question])[question]["refs"]["answer"] == answer["answer"]
-    prompt = Runner.__new__(Runner).prompt({"bot": "ops", "message": msg, "history": [], "conversation": {"id": "c"}})
-    assert json.loads(next(line[8:] for line in prompt.splitlines() if line.startswith("answer: "))) == answer["answer"]
-    assert prompt.count(json.dumps(msg["refs"]["answer"], ensure_ascii=False)) == 1
-    assert msg["body"] in prompt  # old runners still receive the same readable body
     assert get(api, f"tasks/{tid}/files")["files"][0]["versions"][0]["answers"] == [answer["answer"]]
     assert api.patch(f"/api/v2/files/{fid}/versions/1", json={"ask": ask("ben")}, headers=headers()).status_code == 422
 

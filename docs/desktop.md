@@ -33,6 +33,9 @@ The Dock icon's badge is how many things need you. **View → Search…** (⌘K)
 
 The app checks for signed updates automatically, installs them and relaunches. Generic builds
 use the public GitHub release manifest; your server's web interface updates with the server.
+It checks hourly and from **Tico > Check for Updates…**. When your server offers a newer app than the
+one running, a bar at the top says so with an **Update** button; if the install fails, the bar shows
+the reason and a download link. Settings shows the server version and the app version.
 Your team may also offer its own app.
 
 ## Optional per-environment builds

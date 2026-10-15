@@ -20,13 +20,6 @@ pub struct Hop {
     pub default: bool,
 }
 
-fn runtime_of(harness: &str) -> String {
-    match harness {
-        "antigravity" => "gemini".into(),
-        other => other.into(),
-    }
-}
-
 /// The bot's fallback, or None to fail: both a harness and a model are required.
 pub fn configured(config: &Value) -> Option<Hop> {
     let fallback = config.get("fallback").filter(|f| f.is_object())?;
@@ -39,7 +32,7 @@ pub fn configured(config: &Value) -> Option<Hop> {
         .into_iter()
         .map(text_of)
         .find(|e| !e.is_empty());
-    Some(Hop { runtime: runtime_of(&harness), harness, model, reasoning_effort: effort, default: false })
+    Some(Hop { runtime: crate::harness_tools::runtime_of(&harness), harness, model, reasoning_effort: effort, default: false })
 }
 
 /// Where a turn goes when the bot's own subscription hit its limit and it names no fallback (service.py
@@ -59,22 +52,23 @@ pub fn default_choice(config: &Value, choices: &[Value], env: &crate::env::Env, 
             return None;
         }
         let harness = Some(text_of(&row["harness"])).filter(|h| !h.is_empty()).unwrap_or_else(|| runtime.clone());
-        if !bot_key(&harness).iter().all(|k| env.get(*k).is_some_and(|v| !v.trim().is_empty())) {
+        if !bot_key(&harness).iter().all(|k| env.get(k).is_some_and(|v| !v.trim().is_empty())) {
             return None;
         }
-        let runtime = if harness == "antigravity" { "gemini".into() } else { runtime };
+        let runtime = crate::harness_tools::runtime_of(&harness);
         let effort = Some(text_of(&config["reasoning_effort"])).filter(|e| !e.is_empty());
         Some(Hop { harness, runtime, model, reasoning_effort: effort, default: true })
     })
 }
 
-/// The key a harness signs in with from the bot's own grant, not a login on the computer.
-fn bot_key(harness: &str) -> &'static [&'static str] {
-    match harness {
-        "gemini" => &["GEMINI_API_KEY"],
-        "pi" => &["OPENROUTER_API_KEY"],
-        _ => &[],
+/// The key a harness signs in with from the bot's own grant (`api_keys = "bot"`, its preferred `api_key_env`), not a
+/// login on the computer.
+fn bot_key(harness: &str) -> Vec<String> {
+    let runtime = crate::harness_tools::runtime_of(harness);
+    if crate::harness_tools::caps(&runtime, harness).api_keys != "bot" {
+        return vec![];
     }
+    crate::harness_tools::api_key_env(&runtime).into_iter().take(1).collect()
 }
 
 /// The turn's note as it moves (service.py): why the primary stopped, and where the turn went.
@@ -110,7 +104,7 @@ impl Runner {
     /// Whether `runtime` can take a turn here now (service.py fallback_ready): installed, signed in (on `profile`
     /// when the turn runs on one), not refused, and not turned off here by the owner. Read from the last readiness
     /// report, never probed mid-turn. A runtime signed in only by a key in the environment is left out: a turn's
-    /// environment carries only its own runtime's keys. Codex turns a key into a login, so it needs none.
+    /// environment carries only its own runtime's keys. A runtime that turns a key into a login needs none.
     pub fn fallback_ready(&self, runtime: &str, profile: Option<&crate::profiles::Profile>) -> bool {
         if crate::harness_tools::shared().is_some_and(|t| t.lock().unwrap().chosen_off(runtime)) {
             return false; // the owner's "off" here holds even while a copy on PATH still answers
@@ -125,7 +119,7 @@ impl Runner {
         crate::util::truthy(row.get("installed"))
             && row["authenticated"] == "ready"
             && self.sign_in.rejection(runtime, profile).is_none()
-            && (runtime == "codex" || self.sign_in.headless_secret(runtime).is_none())
+            && (!crate::harness_tools::caps(runtime, "").api_key_login.is_empty() || self.sign_in.headless_secret(runtime).is_none())
     }
 }
 

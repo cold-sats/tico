@@ -1,13 +1,9 @@
-"""Keeps a runner on the release its server runs (docs/updates.md).
+"""Moves a checkout to the release its server runs (docs/updates.md).
 
-The server names its release (`GET runners/desired`); GitHub is never asked. A runner on a git
-checkout (Mac, Linux) moves to that release's tag when no turn is running, and a Docker runner asks its
-updater sidecar (docker/updater.py in runner mode) for the matching image. Nothing here discards local
-work: a checkout with changes is left alone and the reason goes to Health.
-
-A checkout update runs as a separate process (`python -m runner.release_update`). It has to outlive
-the runner it restarts, and it is the one thing that can put the old code back when the new code
-does not come up.
+The Rust runner decides when (runner-rs/src/follow.rs) and starts this as a separate process
+(`python -m runner.release_update`). It has to outlive the runner it restarts, and it is the one thing
+that can put the old code back when the new code does not come up. Nothing here discards local work:
+a checkout with changes is left alone and the reason goes to Health.
 """
 import argparse
 import fcntl
@@ -19,23 +15,16 @@ import shutil
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$")
 STATUS_FILE = "update-status.json"
-RETRY_AFTER_S = 6 * 3600     # after a failed or refused update, until the server's release changes
 HEALTH_S = 180
-DRAIN_S = 20 * 60            # a long turn may not hold the update back for ever: after this, stop claiming
-STALE_UPDATING_S = 15 * 60   # an update that has said "updating" this long without an outcome died
-LOCK_WAIT_S = 10 * 60        # for another environment's update of the same checkout; under STALE_UPDATING_S
+LOCK_WAIT_S = 10 * 60        # for another environment's update of the same checkout; under follow.rs STALE_UPDATING_S
 LOCK_FILE = "tico-update.lock"
 KINDS = ("mac", "linux", "docker")
 HELPERS = ("connectors", "close-calls", "importers")   # scripts/tico installs these as launchd jobs (systemd user units on Linux) beside the bot job
-NO_SUPERVISOR = ("no supervisor would start this runner again after an update: run `scripts/tico install` "
-                 "once on this computer and it updates itself")
 
 
 def key(value):
@@ -46,12 +35,6 @@ def key(value):
     major, minor, patch, pre = match.groups()
     order = (1,) if not pre else (0, *((0, int(p)) if p.isdigit() else (1, p) for p in pre.split(".")))
     return int(major), int(minor), int(patch), order
-
-
-def behind(have, want):
-    """Whether `have` should move to `want`: an untagged or unknown release always should."""
-    wanted = key(want)
-    return bool(wanted and (key(have) is None or key(have) < wanted))
 
 
 def kind(env=os.environ, exists=os.path.exists):
@@ -75,32 +58,6 @@ def checkout_release(root=ROOT, run=subprocess.run):
         return ""
     tag = done.stdout.strip().lstrip("v")
     return tag if not done.returncode and key(tag) else ""
-
-
-def checkout_commit(root=ROOT, run=subprocess.run):
-    """The commit HEAD names, or "" when git cannot say."""
-    try:
-        done = git(root, "rev-parse", "HEAD", run=run, timeout=10)
-    except (OSError, subprocess.SubprocessError):
-        return ""
-    commit = done.stdout.strip()
-    return commit if not done.returncode and re.fullmatch(r"[0-9a-f]{40,64}", commit) else ""
-
-
-def manifest_commit(root=ROOT):
-    """The commit an image was built from (release-manifest.json beside the code), or "" without one."""
-    try:
-        commit = str(json.loads((Path(root) / "release-manifest.json").read_text()).get("commit") or "")
-    except (OSError, ValueError, AttributeError):
-        return ""
-    return commit if re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", commit) else ""
-
-
-def current_release(env=os.environ, root=ROOT, run=subprocess.run):
-    if kind(env) == "docker":
-        value = env.get("TICO_VERSION", "").strip().lstrip("v")   # the image sets it; `latest` and `dev` are no release
-        return value if key(value) else ""
-    return checkout_release(root, run)
 
 
 # -- the outcome of the last checkout update, for the next heartbeat ------------------------------
@@ -148,6 +105,24 @@ def pip_install(root, old, new, run=subprocess.run):
     if disk_space_error(done.stderr):
         return disk_error_message(done.stderr)
     return "pip install failed: " + (done.stderr.strip().splitlines() or ["no output"])[-1]
+
+
+def prepare_binary(root, run=subprocess.run):
+    """The checkout's Rust runner, ready before the restart, so a release with none fails here and goes back. A new
+    process: this one still has the old code in memory. Returns an error or "". A tree from before the shim
+    (runner/engine.py without `prepare`) is left to get its own."""
+    if not (Path(root) / "runner" / "engine.py").is_file():
+        return ""
+    try:
+        done = run([sys.executable, "-m", "runner.engine", "prepare"], cwd=str(root), capture_output=True, text=True,
+                   timeout=2400, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"could not get the Rust runner ready ({type(exc).__name__})"
+    if not done.returncode:
+        return ""
+    if disk_space_error(done.stderr):
+        return disk_error_message(done.stderr)
+    return (done.stderr.strip().splitlines() or ["could not get the Rust runner ready"])[-1]
 
 
 def in_flight(directory):
@@ -324,10 +299,10 @@ def apply(root, version, directory, *, run=subprocess.run, lock_wait=LOCK_WAIT_S
     return result
 
 
-def update(root, version, directory, *, run=subprocess.run, install=pip_install, restart=None, healthy=None,
-           busy=None, clock=time.time, helpers=None, started=""):
-    """Move the checkout to release `version` and bring the runner back on it; undo that if it does not
-    come back. Once it is healthy, `helpers` restarts the helper jobs so they run the new code too (a rollback
+def update(root, version, directory, *, run=subprocess.run, install=pip_install, prepare=prepare_binary,
+           restart=None, healthy=None, busy=None, clock=time.time, helpers=None, started=""):
+    """Move the checkout to release `version`, get its Rust runner ready (`prepare`), and bring the runner back on
+    it; undo that if either fails or the runner does not come back. Once it is healthy, `helpers` restarts the helper jobs so they run the new code too (a rollback
     needs nothing: a helper that saw the new revision exits again when the old one returns).
     `started` is the commit the runner process started on. A checkout that is already on the release while the
     runner still runs other code (another runner sharing the checkout moved it, or a person did) only needs
@@ -383,7 +358,7 @@ def update(root, version, directory, *, run=subprocess.run, install=pip_install,
     if target == old:
         # Nothing to switch. The dependencies may still differ from the ones this runner started with (a runner with
         # its own interpreter); going back would only restart onto this same code, so a failure is reported as it is.
-        error = install(root, started, target)
+        error = install(root, started, target) or prepare(root)
         if error:
             return say("failed", error)
         since = clock()
@@ -409,7 +384,7 @@ def update(root, version, directory, *, run=subprocess.run, install=pip_install,
     switched = g("checkout", "--quiet", "--detach", target)
     if switched.returncode:
         return say("failed", switched.stderr if disk_space_error(switched.stderr) else f"could not switch to {tag}: local files are in the way")
-    error = install(root, old, target)
+    error = install(root, old, target) or prepare(root)
     if error:
         return back_out(error)
     since = clock()
@@ -419,29 +394,6 @@ def update(root, version, directory, *, run=subprocess.run, install=pip_install,
     result = say("healthy")
     restarted_helpers()
     return result
-
-
-def spawn(root, version, directory, pid, started="", env=os.environ, run=subprocess.run):
-    """Start the update as its own process, so it survives the runner it restarts. Under systemd the runner's unit
-    kills every process in its cgroup when it restarts, so the update is started as a transient unit of its own."""
-    unit = systemd_unit(env)
-    if unit:
-        log = str(Path(directory) / "update.log")
-        keep = {name: env[name] for name in ("PATH", "HOME", "TICO_SUPERVISED", "TICO_RUNNER_KIND") if env.get(name)}
-        keep["TICO_SYSTEMD_UNIT"] = unit
-        command = ["systemd-run", "--user", "--quiet", "--collect", f"--unit=tico-update-{pid}", f"--working-directory={root}",
-                   *(f"--setenv={name}={value}" for name, value in keep.items()),
-                   "-p", f"StandardOutput=append:{log}", "-p", f"StandardError=append:{log}",
-                   sys.executable, "-m", "runner.release_update", "--root", str(root), "--version", version,
-                   "--state-dir", str(directory), "--pid", str(pid), "--started", started]
-        done = run(command, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
-        if done.returncode:
-            raise OSError("systemd-run exited " + str(done.returncode))
-        return done
-    log = open(Path(directory) / "update.log", "ab")
-    return subprocess.Popen([sys.executable, "-m", "runner.release_update", "--root", str(root), "--version", version,
-                             "--state-dir", str(directory), "--pid", str(pid), "--started", started], cwd=str(root), stdin=subprocess.DEVNULL,
-                            stdout=log, stderr=log, start_new_session=True)
 
 
 def main(argv=None):
@@ -462,201 +414,6 @@ def main(argv=None):
                    helpers=helpers, started=args.started)
     print(json.dumps(result))
     return 0 if result["state"] == "healthy" else 1
-
-
-# -- the runner's side: decide, hold off, report ---------------------------------------------------
-
-class Follower:
-    """Decides whether this runner should update, and what to tell the server. One per runner process."""
-
-    def __init__(self, config, directory, client, *, root=ROOT, env=os.environ, supervised=lambda: True,
-                 run=subprocess.run, launch=spawn, sidecar=None, clock=time.monotonic, wall=time.time):
-        self.config, self.directory, self.client, self.root = config or {}, Path(directory), client, root
-        self.env, self.supervised, self.run, self._launch = env, supervised, run, launch
-        self.sidecar = sidecar or Sidecar(env)
-        self.clock, self.wall = clock, wall
-        self.kind = kind(env)
-        self.desired = None          # None: the server does not know this (an older server); "" a build with no release
-        # What this process runs is what it started on, not what the checkout names now: runners of several
-        # company environments may share one checkout, and the first to update moves it under the others.
-        self.release = current_release(env, root, run)
-        self.started = "" if self.kind == "docker" else checkout_commit(root, run)
-        self.commit = manifest_commit(root) or self.started
-        self.features = {}           # what the server said it accepts, from its last `runners/desired` answer
-        self.state, self.error, self.target = "idle", "", ""
-        self.pending = None          # a release to move to as soon as nothing runs
-        self.pending_since = None
-        self.running = False         # an update is under way; nothing may be claimed
-
-    @property
-    def following(self):
-        """True when the server names a release: this runner follows it, and not main."""
-        return bool(self.desired)
-
-    def pinned(self):
-        if self.config.get("pinned") or self.env.get("TICO_RUNNER_PINNED") == "1":
-            return True
-        # A checkout with `self_update: false` was set up to stay where it is. A container always has that
-        # flag (it cannot pull); for it, the updater sidecar is the way.
-        return self.kind != "docker" and (self.config.get("self_update") is False
-                                          or self.env.get("TICO_RUNNER_SELF_UPDATE") == "0")
-
-    def poll(self, desired=None):
-        """`desired`: the release the server's event stream named, so it need not be asked."""
-        from clients.tico import APIError
-        try:
-            if desired is None:
-                answer = self.client.get("runners/desired") or {}
-                self.features = answer.get("features") or {}
-                desired = answer.get("version")
-            self.desired = str(desired or "")
-        except APIError as exc:
-            if exc.status not in (404, 405):
-                return                   # a blip: keep what we knew
-            self.desired = None          # a server from before this existed: nothing is sent it, main is followed
-        except Exception:
-            return
-        self.decide()
-
-    def space_freed(self, status, error):
-        if not disk_space_error(error):
-            return False
-        try:
-            free = shutil.disk_usage("/" if self.kind == "docker" else self.directory).free
-        except OSError:
-            return False
-        marker = (status.get("to") or status.get("target"), error, status.get("at"))
-        previous = getattr(self, "_disk_failure", None)
-        baseline = status.get("disk_free")
-        if not isinstance(baseline, int) or baseline < 0:
-            baseline = previous[1] if previous and previous[0] == marker else free
-        self._disk_failure = (marker, baseline)
-        return free > baseline
-
-    def outcome(self, want):
-        """(state, error) of the last update to `want` when it should not be tried again yet."""
-        if self.kind == "docker":
-            status = self.sidecar.status() or {}
-            state = {"rolled_back": "rolled_back", "failed": "failed"}.get(status.get("state"))
-            if state and str(status.get("to") or "").lstrip("v") == want:
-                error = str(status.get("message") or "")
-                return None if self.space_freed(status, error) else (state, disk_error_message(error))
-            if status.get("state") in ("pulling", "restarting") and str(status.get("to") or "").lstrip("v") == want:
-                return "updating", ""
-            if status.get("state") == "healthy" and str(status.get("to") or "").lstrip("v") == want:
-                # The image came up but does not say it is `want`: never loop on pulling it again.
-                return "failed", f"updated to {want}, but this runner still reports {self.release or 'no release'}"
-            return None
-        status = read_status(self.directory)
-        if status.get("target") != want:
-            return None
-        age = self.wall() - float(status.get("at") or 0)
-        if status.get("state") == "updating":
-            return ("updating", "") if age < STALE_UPDATING_S else ("failed", "the update stopped without an outcome")
-        if status.get("state") in ("failed", "rolled_back", "blocked") and age < RETRY_AFTER_S:
-            error = str(status.get("error") or "")
-            return None if self.space_freed(status, error) else (status["state"], disk_error_message(error))
-        return None
-
-    def no_updater_hint(self, want):
-        # A compose runner only lacks the updater when it was taken out; a bare `docker run` has none
-        # and can only get one by being moved onto the compose file, which the installer does.
-        if self.env.get("TICO_RUNNER_COMPOSE") == "1":
-            return "no updater is set up; run docker compose pull && docker compose up -d on this box"
-        return ("no updater is set up; move this runner onto the compose file that has one: on this box run "
-                f"curl -fsSL https://github.com/ticoteam/tico/releases/download/v{want}/install.sh -o install.sh && sh install.sh --runner "
-                "--url <your Tico address> --code <new code from Settings > Computers > Add computer> --label <name>")
-
-    def decide(self):
-        want = self.desired or ""
-        self.target, self.pending, self.error = want, None, ""
-        self.running = False
-        if not want or not behind(self.release, want):
-            self.state = "idle"
-            self.pending_since = None
-            return
-        if self.pinned():
-            self.state, self.error = "pinned", f"pinned to this release; the server runs {want}"
-        elif self.kind != "docker" and not self.supervised():
-            self.state, self.error = "blocked", NO_SUPERVISOR
-        elif self.kind == "docker" and not self.sidecar.configured():
-            self.state, self.error = "blocked", self.no_updater_hint(want)
-        elif (last := self.outcome(want)):
-            self.state, self.error = last
-            self.running = self.state == "updating"
-        else:
-            self.pending, self.state = want, "waiting"
-            if self.pending_since is None:
-                self.pending_since = self.clock()
-            return
-        self.pending_since = None
-
-    def blocks_claims(self, active):
-        """True while an update is due or under way. Starts it once nothing is running."""
-        if self.running:
-            return True
-        if not self.pending:
-            return False
-        if not active:
-            self.launch()
-            return True
-        return self.clock() - self.pending_since >= DRAIN_S
-
-    def launch(self):
-        want = self.pending
-        try:
-            if self.kind == "docker":
-                self.sidecar.start(want)
-            else:
-                self._launch(self.root, want, self.directory, os.getpid(), self.started)
-        except urllib.error.HTTPError as exc:
-            if exc.code != 409:      # 409: the updater is already on it
-                return self.launch_failed(want, f"the updater answered {exc.code}")
-        except Exception as exc:     # the runner keeps working; Health says why it did not update
-            return self.launch_failed(want, type(exc).__name__)
-        self.state, self.pending, self.running = "updating", None, True
-
-    def launch_failed(self, want, why):
-        self.state, self.error, self.pending = "failed", f"could not start the update: {why}", None
-        write_status(self.directory, state="failed", target=want, error=self.error, at=self.wall())
-
-    def fields(self):
-        """What a heartbeat adds. Nothing for a server that would refuse unknown fields."""
-        if self.desired is None:
-            return {}
-        return {"release": self.release or "dev", "kind": self.kind,
-                **({"commit": self.commit} if self.features.get("runner_commit") else {}),
-                "update": {"state": self.state, "target": self.target, "error": self.error[:300]}}
-
-
-class Sidecar:
-    """The updater sidecar next to a Docker runner: the only container that holds the Docker socket."""
-
-    def __init__(self, env=os.environ):
-        self.url = env.get("TICO_UPDATER_URL", "").rstrip("/")
-        self.token_file = env.get("TICO_UPDATER_TOKEN_FILE", "/control/updater-token")
-
-    def configured(self):
-        return bool(self.url)
-
-    def call(self, method, path, body=None):
-        try:
-            token = Path(self.token_file).read_text().strip()
-        except OSError:
-            token = ""
-        request = urllib.request.Request(self.url + path, method=method, data=json.dumps(body).encode() if body is not None else None,
-                                         headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
-        with urllib.request.urlopen(request, timeout=10) as reply:
-            return json.loads(reply.read() or b"{}")
-
-    def status(self):
-        try:
-            return self.call("GET", "/status") if self.url else None
-        except (OSError, ValueError):
-            return None
-
-    def start(self, version):
-        return self.call("POST", "/update", {"version": version})
 
 
 if __name__ == "__main__":

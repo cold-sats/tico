@@ -1,7 +1,7 @@
 """A stand-in for Grok Build's `grok agent stdio`, for the runner conformance suite (runner/tests/test_conformance.py).
 
 `--version` answers as grok 1.0.25. `agent ... stdio` speaks ACP (JSON-RPC 2.0, one message per line) the way
-runner/hosts/grok.py drives it: `initialize`, `session/new` and `session/load` (of a session this home made),
+runner-rs/src/hosts/grok.rs drives it: `initialize`, `session/new` and `session/load` (of a session this home made),
 and `session/prompt`, which first asks the client's permission for a tool (as Grok does for a few calls even with
 --always-approve), then streams two message chunks and answers with its stopReason. Every session call and turn is
 appended to $FAKE_LOG as one JSON line (argv, the prompt, the granted variables, the permission chosen). A prompt

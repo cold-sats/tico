@@ -12,7 +12,12 @@ signed-in person as they commit, filtered to what that person may read:
 - `messages`: a message as a conversation page shows it, a deleted one, or a chat goal change.
 - `runs`: a bot run's output step, or its state moving (queued, started, finished).
 - `bots`: a bot's status line, as `GET /api/v2/status` shows it.
-- `needs`: the viewer's own Needs-you list, whole, when anything on it may have moved.
+- `needs`: the viewer's own Needs-you list, whole, when anything on it may have moved. A page that asks
+  `needs=changes` is sent its `count`, `version`, and the ids `changed` and `removed` since `base` instead (both
+  null when more than NEEDS_CHANGES_MAX moved: read the list whole), and reads only those items
+  (`GET /api/v2/needs-you?ids=`). The stream keeps the marks of the list it last described, from its start; a page
+  whose held version is not `base` reads the list whole. Without `needs=changes` a page gets the whole list, as
+  before, so an older page keeps working.
 
 `after` (or the browser's `Last-Event-ID`) resumes from the last change number seen, so a
 reconnect misses nothing; a client further behind than the log keeps (24 h) is sent `reset` and
@@ -220,9 +225,10 @@ TRIGGERS = [
 # A runner used to ask a dozen endpoints on timers whether anything was new for it, and almost
 # every answer was no. The same log now carries `runner` rows: one per computer a write concerns,
 # its id as the subject, naming which of the computer's reads to repeat. A row carries a kind and
-# at most a bot slug, never a value (`GET /api/v2/runners/me/events`, runner/runner_events.py).
+# at most a bot slug (or, for `screen_open`, the session's id), never a value (`GET /api/v2/runners/me/events`,
+# runner-rs/src/events.rs).
 RUNNER_KINDS = ("work", "assignments", "credentials", "config", "repositories", "worktrees", "restart",
-                "logins", "harness_actions", "credential_imports", "subscription_refresh")
+                "logins", "harness_actions", "credential_imports", "subscription_refresh", "screen_open")
 _BOT_RUNNER = "SELECT runner_id AS rid FROM assignments WHERE bot={bot}"
 # Credentials and repositories are rare company-wide changes: every computer re-reads its share.
 _ALL_RUNNERS = "SELECT id AS rid FROM runners WHERE revoked_at IS NULL"
@@ -772,17 +778,39 @@ def _bots(view, rows):
     return out
 
 
-def _needs_list(view, rows, task_view):
-    from .views import needs_items, went_away
+NEEDS_CHANGES_MAX = 100   # ids named in one `needs` event; more than this reads the list whole (views.NEEDS_IDS_MAX)
+
+
+def needs_baseline(c, auth, who, task_view):
+    """What a `needs=changes` stream describes its first change against: the list's marks as the stream starts."""
+    from .views import needs_items, needs_marks
+    marks, version = needs_marks(needs_items(c, auth, who, task_view))
+    return {"marks": marks, "version": version}
+
+
+def _needs_list(view, rows, task_view, held=None):
+    from .views import needs_items, needs_marks, went_away
     items = needs_items(view.c, view.auth, view.who, task_view)
-    return [(rows[-1], {"count": len(items), "items": items, "went_away": went_away(view.c, view.who.actor)})]
+    away = went_away(view.c, view.who.actor)
+    if held is None:
+        return [(rows[-1], {"count": len(items), "items": items, "went_away": away})]
+    marks, version = needs_marks(items)
+    before = held.get("marks") or {}
+    changed = [k for k, mark in marks.items() if before.get(k) != mark]
+    removed = [k for k in before if k not in marks]
+    many = len(changed) + len(removed) > NEEDS_CHANGES_MAX
+    entry = {"count": len(items), "version": version, "base": held.get("version"),
+             "changed": None if many else changed, "removed": None if many else removed, "went_away": away}
+    held.update(marks=marks, version=version)
+    return [(rows[-1], entry)]
 
 
 def read(c, auth, who, after, *, topics=TOPICS, conversations=(), bots=(), task_views=None, task_view=None,
-         limit=BATCH):
+         limit=BATCH, needs_held=None):
     """What `who` may be sent after change `after`: (events, cursor, reset, more). Each event is
     (seq, topic, data). `cursor` moves past every row read, sent or not, so a resume starts after
-    what this viewer could not see. `more` when a full batch was read and more waits."""
+    what this viewer could not see. `more` when a full batch was read and more waits. `needs_held`
+    (needs_baseline) sends Needs you as changed ids against it, and moves it on."""
     c.execute("BEGIN")                  # one snapshot: the bounds and the rows agree
     try:
         newest = latest(c)
@@ -820,7 +848,7 @@ def read(c, auth, who, after, *, topics=TOPICS, conversations=(), bots=(), task_
         if by_topic.get("bots"):
             picked += [("bots", r, e) for r, e in _bots(view, by_topic["bots"])]
         if by_topic.get("needs"):
-            picked += [("needs", r, e) for r, e in _needs_list(view, by_topic["needs"], task_view)]
+            picked += [("needs", r, e) for r, e in _needs_list(view, by_topic["needs"], task_view, needs_held)]
         events = []
         for topic, row, entry in sorted(picked, key=lambda item: item[1]["seq"]):
             actor = None if view.hidden_actor(row["actor"]) else row["actor"]
@@ -875,7 +903,7 @@ def install(app, store, auth, task_views, task_view):
 
     @app.get("/api/v2/events")
     async def events(request: Request, topics: str | None = None, after: int | None = None,
-                     conversation: str | None = None, bot: str | None = None):
+                     conversation: str | None = None, bot: str | None = None, needs: str | None = None):
         """Server-sent events for people's pages: see the module docstring."""
         who = request.state.identity
         auth.domain(who)
@@ -891,8 +919,14 @@ def install(app, store, auth, task_views, task_view):
         if resume.isdigit():
             after = int(resume)
 
+        if needs not in (None, "", "list", "changes"):
+            raise Problem("validation", "needs is list or changes", 422)
+        held = {} if needs == "changes" and "needs" in wanted else None
+
         def start():
             with store.read() as c:
+                if held is not None:
+                    held.update(needs_baseline(c, auth, who, task_view))
                 return latest(c)
 
         def check():
@@ -902,7 +936,7 @@ def install(app, store, auth, task_views, task_view):
             auth.authenticate(request.headers)
             with store.read() as c:
                 return read(c, auth, who, cursor, topics=wanted, conversations=conversations, bots=bots,
-                            task_views=task_views, task_view=task_view)
+                            task_views=task_views, task_view=task_view, needs_held=held)
 
         now_seq = await asyncio.to_thread(start)
         doorbell.observe(now_seq)
@@ -914,7 +948,8 @@ def install(app, store, auth, task_views, task_view):
             every, beat = keepalive_seconds(store), Beat(check)
             try:
                 yield "retry: 1000\n\n"
-                yield _frame(None, "ready", {"seq": now_seq, "after": cursor, "topics": list(wanted)})
+                yield _frame(None, "ready", {"seq": now_seq, "after": cursor, "topics": list(wanted),
+                                             **({"needs_version": held["version"]} if held else {})})
                 deadline = time.monotonic() + LIFETIME_SECONDS
                 quiet_since = time.monotonic()
                 due = True                       # the first read catches up from `after`
@@ -987,7 +1022,7 @@ def runner_read(c, runner_id, actor, after, limit=BATCH):
         floor = (first - 1) if first is not None else newest
         if after > newest or after < floor:
             return [], newest, True, False
-        rows = c.execute("SELECT seq,kind,bot FROM changes WHERE topic='runner' AND seq>? AND subject_id=? "
+        rows = c.execute("SELECT seq,kind,bot,ref FROM changes WHERE topic='runner' AND seq>? AND subject_id=? "
                          "AND (actor IS NOT ? OR kind='work') ORDER BY seq LIMIT ?",
                          (after, runner_id, actor, limit)).fetchall()
         more = len(rows) >= limit
@@ -998,6 +1033,9 @@ def runner_read(c, runner_id, actor, after, limit=BATCH):
             entry["seq"] = row["seq"]
             if row["bot"] and row["bot"] not in entry["bots"]:
                 entry["bots"].append(row["bot"])
+            if row["kind"] == "screen_open" and row["ref"]:
+                # The newest session asked for; the runner reads every pending one (backend/screen.py).
+                entry["session_id"] = row["ref"]
         events = sorted(((entry["seq"], entry) for entry in kinds.values()), key=lambda item: item[0])
         return events, cursor, False, more
     finally:

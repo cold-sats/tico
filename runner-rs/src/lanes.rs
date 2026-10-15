@@ -61,25 +61,79 @@ pub fn hold_back(name: &str) {
 
 /// The capabilities this heartbeat advertises.
 pub fn capabilities() -> Vec<&'static str> {
-    CAPABILITIES.iter().copied().filter(|c| !held_back(c)).collect()
+    let screen = crate::screen::offers(crate::screen::readiness().as_ref()).then_some(crate::screen::CAPABILITY);
+    CAPABILITIES.iter().copied().chain(screen).filter(|c| !held_back(c)).collect()
 }
 
-/// What to leave out after a heartbeat's 422 (service.py maintain): the newest refused capability, else the
-/// `profiles` report, else nothing (the refusal stands).
+/// Root-level heartbeat fields an older server may refuse; each is left out for ten minutes after a refusal.
+const ROOT_FIELDS: &[&str] = &["worktrees", "profiles", "repositories"];
+
+fn rows<'a>(body: &'a Value, key: &str) -> impl Iterator<Item = &'a Value> {
+    body[key].as_array().into_iter().flatten()
+}
+
+fn has_weekly(body: &Value) -> bool {
+    rows(body, "profiles").any(|p| p["runtimes"].as_object().is_some_and(|r| r.values().any(|s| s.get("weekly").is_some())))
+}
+
+/// What to leave out after a heartbeat's 422 (service.py _report_heartbeat), as a hold name: only `weekly` of the
+/// profile report, the worktree reports' `record_updated` stamp, the newest refused capability, else a root field
+/// the detail names (or, for a bare "extra" with no path, the first one present). None: the refusal stands.
 pub fn refused_field(detail: &str, body: &Value) -> Option<String> {
-    let caps: Vec<String> = body["capabilities"].as_array().into_iter().flatten().map(text_of).collect();
+    let extra = detail.to_lowercase().contains("extra");
+    if extra && detail.contains("weekly") && has_weekly(body) {
+        return Some("profiles.weekly".into()); // older servers keep receiving the sign-in report
+    }
+    if extra && detail.contains("record_updated") && rows(body, "worktrees").any(|r| r.get("record_updated").is_some()) {
+        return Some("worktrees.record_updated".into()); // every worktree report still goes, unstamped
+    }
+    let caps: Vec<String> = rows(body, "capabilities").map(text_of).collect();
     if detail.contains("capabilities") {
-        for name in ["task_goals_v1", "session_roots_v1", "task_lanes_v2"] {
+        for name in [crate::screen::CAPABILITY, "task_goals_v1", "session_roots_v1", "task_lanes_v2"] {
             if caps.iter().any(|c| c == name) {
                 return Some(name.into());
             }
         }
     }
-    let extra = detail.to_lowercase().contains("extra");
-    if body.get("profiles").is_some() && (detail.contains("profiles") || (extra && detail.contains("weekly"))) {
-        return Some("profiles".into());
+    let present = ROOT_FIELDS.iter().filter(|f| body.get(**f).is_some());
+    for field in present.clone() {
+        if regex::Regex::new(&format!(r"(?:^|[ ;])(?:body\.)?{field}(?:[.: ;]|$)")).ok()?.is_match(detail) {
+            return Some(field.to_string());
+        }
+    }
+    static PATH: OnceLock<regex::Regex> = OnceLock::new();
+    if extra && !PATH.get_or_init(|| regex::Regex::new(r"body\.|readiness\.").unwrap()).is_match(detail) {
+        return present.clone().next().map(|f| f.to_string());
     }
     None
+}
+
+/// Take what a server refused in the last ten minutes out of a heartbeat body about to be sent.
+pub fn drop_held(body: &mut Value) {
+    if let Some(caps) = body["capabilities"].as_array_mut() {
+        caps.retain(|c| !held_back(&text_of(c)));
+    }
+    for (hold, list, path) in [("profiles.weekly", "profiles", "runtimes"), ("worktrees.record_updated", "worktrees", "")] {
+        if !held_back(hold) {
+            continue;
+        }
+        let key = hold.split('.').nth(1).unwrap();
+        for row in body[list].as_array_mut().into_iter().flatten() {
+            let targets: Vec<&mut Value> = if path.is_empty() { vec![row] } else { row[path].as_object_mut().into_iter().flat_map(|m| m.values_mut()).collect() };
+            for t in targets {
+                if let Some(m) = t.as_object_mut() {
+                    m.remove(key);
+                }
+            }
+        }
+    }
+    if let Some(b) = body.as_object_mut() {
+        for field in ROOT_FIELDS {
+            if held_back(field) {
+                b.remove(*field);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -99,5 +153,23 @@ mod tests {
         forget("a1");
         forget("a2");
         assert_eq!(refused_field("body.capabilities: bad", &json!({"capabilities": ["task_lanes_v2", "task_goals_v1"]})).as_deref(), Some("task_goals_v1"));
+    }
+
+    #[test]
+    fn an_older_server_loses_only_the_field_it_refuses() {
+        let mut body = json!({"profiles": [{"runtimes": {"codex": {"ok": true, "weekly": {"used_percent": 3}}}}],
+                              "worktrees": [{"link_id": "l", "record_updated": "t"}], "repositories": [], "readiness": {}});
+        let weekly = "body.profiles.0.runtimes.codex.weekly: Extra inputs are not permitted";
+        assert_eq!(refused_field(weekly, &body).as_deref(), Some("profiles.weekly"));
+        assert_eq!(refused_field("body.worktrees.0.record_updated: Extra inputs", &body).as_deref(), Some("worktrees.record_updated"));
+        assert_eq!(refused_field("body.repositories: Extra inputs are not permitted", &body).as_deref(), Some("repositories"));
+        assert_eq!(refused_field("extra fields not permitted", &body).as_deref(), Some("worktrees"));
+        assert_eq!(refused_field("body.readiness.worktrees: Extra inputs", &body), None);
+        hold_back("profiles.weekly");
+        hold_back("repositories");
+        drop_held(&mut body);
+        assert_eq!(body["profiles"][0]["runtimes"]["codex"], json!({"ok": true}));
+        assert!(body.get("repositories").is_none() && body["worktrees"][0].get("record_updated").is_some());
+        dropped().lock().unwrap().retain(|k, _| k != "profiles.weekly" && k != "repositories");
     }
 }

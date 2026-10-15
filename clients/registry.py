@@ -88,3 +88,8 @@ def grok_effort(emp):
     """Validated `--reasoning-effort` for this Grok 4.6 employee."""
     return GROK_EFFORTS.get(str(emp.get("reasoning_effort") or "").strip().lower(),
                             GROK_DEFAULT_EFFORT)
+
+
+# The runtimes whose registry model and effort mean something else to their CLI: (model, effort) for an employee. An
+# adapter table, like the runner's host factory; every other runtime takes the registry's values as they are.
+CLI_SETTINGS = {"grok": (grok_model, grok_effort)}

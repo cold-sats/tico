@@ -1,4 +1,4 @@
-//! The Claude Code host (`runner/hosts/claude.py`): one `claude -p` process per turn, one Claude session per
+//! The Claude Code host: one `claude -p` process per turn, one Claude session per
 //! bot thread. The prompt goes in on stdin as a stream-json user message and stdin stays open for steers;
 //! `--replay-user-messages` echoes each message as Claude reads it, so a `result` ends the runner's turn only
 //! when no steer is unread, and then stdin closes and the process exits.

@@ -182,10 +182,11 @@ DO = _routes(
     ("POST", r"slack/channels"), ("POST", r"slack/channels/(remove|import)"),
     ("POST", rf"credentials/{_S}/grants"), ("POST", rf"credentials/{_S}/grants/{_S}/revoke"),
     ("DELETE", rf"credentials/{_S}"),
-    # Computers: a restart, a model sign-in (its code is pasted in the app, never here), inbox sharing where one owner runs
+    # Computers: a restart, a model sign-in (its code is pasted in the app, never here), who may open its screen (opening
+    # one is the person's own, in the app), inbox sharing where one owner runs
     # everything (the route says where). Limits are spending: lowering one is always direct; raising one, and the providers,
     # are direct unless the owner's rule says otherwise (TIGHTENED).
-    ("POST", rf"(runners|computers)/{_S}/(restart|inbox-only|logins)"), ("POST", rf"(runners|computers)/{_S}/logins/{_S}/cancel"),
+    ("POST", rf"(runners|computers)/{_S}/(restart|inbox-only|logins|screen)"), ("POST", rf"(runners|computers)/{_S}/logins/{_S}/cancel"),
     ("PUT", r"providers"), ("PUT", r"usage/limits"), ("PUT", rf"usage/limits/{_S}"),
     # A message or chat to a bot stays in the team; a message to a person is a card (`classify`).
     ("POST", rf"chat/{_S}"),

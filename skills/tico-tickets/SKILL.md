@@ -56,7 +56,8 @@ Loop until nothing is left that you can move:
    counts, tool parity). Do not run the full suite for a merge: it runs once, right before a release
    (docs/releasing.md). GitHub Actions only builds and publishes; it does not run tests. Compare a local
    failure against main before calling it yours.
-4. **PR**: title in plain words; body **What / Why / How it was checked**, and `Closes #<n>`.
+4. **PR**: title in plain words; body **What / Why / Surfaces / How it was checked**, and `Closes #<n>`.
+   **Surfaces** lists which entries of CLAUDE.md's "Hit every surface" applied and what was done for each.
 5. **Merge** when CI is green and a maintainer has approved. Contributors open the pull request and
    stop there; maintainers merge with `gh pr merge --merge`. How a merged change reaches a
    running Tico is the owner's business.

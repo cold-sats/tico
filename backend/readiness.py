@@ -5,7 +5,7 @@
 
 `runner` is a computer id (default: the computer the bot is on). The answer is judged from that computer's last
 heartbeat **for this bot**: its own subscription profile's sign-in when it has one, its own API-key Credential for the
-runtimes that take a key per bot (Gemini CLI, Pi), and otherwise the computer's shared sign-in for that runtime. Another
+harnesses that take a key per bot (`api_keys = "bot"`: Gemini CLI, pi), and otherwise the computer's shared sign-in for that runtime. Another
 bot's missing key or another profile's sign-in never decides it.
 
     can_run      True, False, or None when nothing says (offline, an older computer, not checked yet, not applicable)
@@ -21,12 +21,10 @@ Callers refuse only on can_run False; None never blocks.
 """
 import json
 
-from .harnesses import EXTERNAL_HARNESSES, resolve_harness, runtime_of
+from .harnesses import EXTERNAL_HARNESSES, bot_key, harness_caps, resolve_harness, runtime_of
 from .store import H, readiness_document
 
 ONLINE_SECONDS = 60
-# The runtimes whose sign-in is a key each bot holds as a Credential grant (runner/service.py runtime_readiness).
-BOT_KEYS = {"gemini": "GEMINI_API_KEY", "pi": "OPENROUTER_API_KEY"}
 SIGNED_OUT = ("missing", "failed", "rejected")
 
 
@@ -49,15 +47,6 @@ def _held(c, bot):
     held = granted(c, "bot:" + bot)
     return {r["env"] for r in c.execute("SELECT id,env FROM credentials WHERE ciphertext IS NOT NULL AND env!=''")
             if r["id"] in held}
-
-
-def _uses_key(runtime, harness, config):
-    if runtime == "pi":
-        return True
-    if runtime != "gemini":
-        return False
-    fallback = config.get("fallback")
-    return (harness or "gemini") == "gemini" or isinstance(fallback, dict) and fallback.get("harness") == "gemini"
 
 
 def can_run(c, bot, runtime, runner=None, harness="", model=""):
@@ -97,10 +86,11 @@ def can_run(c, bot, runtime, runner=None, harness="", model=""):
 
     if not online:
         return verdict(None, label + " is offline, so it has not checked " + str(runtime))
-    if readiness.get("schema_version") != 1 or harness == "antigravity":
+    # A harness the runner does not report on (`readiness = false`, Antigravity) has no row to judge.
+    if readiness.get("schema_version") != 1 or harness_caps(harness, runtime).get("readiness") is False:
         return verdict(None, label + " does not report its AI tools; update it to check")
     if not state.get("installed"):
-        # A computer installs a bot's harness when the bot is put there (runner/harness_tools.py), so a harness it
+        # A computer installs a bot's harness when the bot is put there (runner-rs/src/harness_tools.rs), so a harness it
         # can install is no reason to refuse the move or the model: it says so while it installs.
         tool = next((t for t in (readiness.get("harnesses") or {}).values()
                      if isinstance(t, dict) and t.get("runtime") == runtime), None)
@@ -112,8 +102,10 @@ def can_run(c, bot, runtime, runner=None, harness="", model=""):
             return verdict(None, (tool.get("name") or str(runtime)) + " is installing on " + label)
         return verdict(False, str(runtime) + " is not installed on " + label,
                        "Install " + str(runtime) + " on " + label + ", or choose a model it already runs")
-    if _uses_key(runtime, harness or config.get("harness") or "", config):
-        name = BOT_KEYS[runtime]
+    # A harness whose key each bot holds (`api_keys = "bot"`): the bot's own grant is its sign-in.
+    own = harness or config.get("harness") or runtime
+    name = bot_key({**config, "harness": own if runtime_of(own) == runtime else runtime}, runtime)
+    if name:
         if name not in _held(c, bot):
             return verdict(False, "This bot has no " + name + " Credential", "Give the bot the " + name +
                            " Credential in Credentials", "#/credentials")

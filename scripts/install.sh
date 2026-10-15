@@ -62,6 +62,7 @@ RUNNER_CODE=
 RUNNER_LABEL=
 RUNNER_NAME=
 SERVER_NETWORK=
+SCREEN=
 DIR_GIVEN=${TICO_INSTALL_DIR:+1}
 
 say() { printf '%s\n' "$*"; }
@@ -91,6 +92,8 @@ Usage: install.sh [options] [-- tico-setup flags]
                      (/opt/tico-runner-<name>), containers, volume and updater; the label defaults to NAME
   --server-network N with --runner on the server's own computer: join its Docker network N (usually tico_default) and
                      use --url http://server:8765, so the runner never goes through Cloudflare Access
+  --screen           with --runner: offer this computer's screen to the web app (TICO_SCREEN=1 in .env; the
+                     server's Screen setting still decides who may open it)
   --help, -h         this text
 
 Run it again any time: with an existing .env it upgrades to --version or repairs and restarts, and leaves
@@ -119,6 +122,7 @@ while [ $# -gt 0 ]; do
     --name=*) RUNNER_NAME=${1#--name=}; shift ;;
     --server-network) [ $# -ge 2 ] || { usage >&2; die 2 "--server-network needs a value"; }; SERVER_NETWORK=$2; shift 2 ;;
     --server-network=*) SERVER_NETWORK=${1#--server-network=}; shift ;;
+    --screen) SCREEN=1; shift ;;
     --yes|-y) YES=1; shift ;;
     --tunnel) TUNNEL=1; shift ;;
     --local) LOCAL=1; shift ;;
@@ -141,6 +145,7 @@ done
 RUNNER_SLUG=
 RUNNER_PROJECT=tico-runner
 [ -z "$RUNNER_NAME" ] || [ -n "$RUNNER" ] || die 2 "--name goes with --runner."
+[ -z "$SCREEN" ] || [ -n "$RUNNER" ] || die 2 "--screen goes with --runner."
 if [ -n "$RUNNER_NAME" ]; then
   RUNNER_SLUG=$(printf '%s' "$RUNNER_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9][^a-z0-9]*/-/g; s/^-//; s/-$//' | cut -c1-32 | sed 's/-$//')
   printf '%s' "$RUNNER_SLUG" | grep -Eq '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$' || die 2 "--name needs letters or digits, such as --name mail."
@@ -550,6 +555,11 @@ run_runner() {
   else
     work_env=$(mktemp)
     runner_env
+  fi
+  if [ -n "$SCREEN" ]; then
+    # The runner image has the display and VNC programs; the runner starts them while TICO_SCREEN is 1.
+    as_root sh -c "umask 077; { grep -v '^TICO_SCREEN=' '$DIR/.env' || true; echo TICO_SCREEN=1; } > '$DIR/.env.new' && mv '$DIR/.env.new' '$DIR/.env'"
+    say "Screen on: TICO_SCREEN=1 in $DIR/.env (set it to 0 to turn it off)."
   fi
   # The bare container has the name compose wants; the volume it used stays.
   if [ -z "$RUNNER_SLUG" ] && as_root docker container inspect tico-runner >/dev/null 2>&1 \

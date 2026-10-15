@@ -1,4 +1,4 @@
-//! The model CLIs a runner uses, installed and kept current by the runner itself (runner/harness_tools.py).
+//! The model CLIs a runner uses, installed and kept current by the runner itself.
 //!
 //! Manifests are runner/harnesses/*.toml, read from the checkout (`crate::env::root()`), else the copies
 //! built into this binary. Installs go into the runner's own tools directory, never system-wide:
@@ -29,7 +29,7 @@ const METHODS: &[&str] = &["npm", "pip", "script", "binary"];
 const POLICIES: &[&str] = &["latest", "pinned"];
 const AUTH_METHODS: &[&str] = &["device-code", "subscription", "api-key"];
 const ACTIONS: &[&str] = &["update", "pin", "unpin"];
-/// The adapters runner/hosts/ has (a manifest's `host` must name one).
+/// The adapters hosts/mod.rs has (a manifest's `host` must name one).
 const HOSTS: &[&str] = &["antigravity", "claude", "codex", "cursor", "gemini", "grok", "musecode", "pi", "fake"];
 const VERSION_TIMEOUT_S: u64 = 60;
 pub const CHECK_EVERY_S: f64 = 24.0 * 3600.0;
@@ -55,8 +55,99 @@ fn re(p: &str) -> Regex {
 pub struct Login {
     pub command: Vec<String>,
     pub terminal: bool,
-    #[allow(dead_code)] // the server decides the paste box; kept for the manifest's shape
-    pub paste_code: bool,
+}
+
+/// How readiness tells whether a CLI is signed in (`[capabilities.sign_in_status]`, docs/harnesses.md).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SignInStatus {
+    /// none | command | json | file | bot-key
+    pub check: String,
+    pub args: Vec<String>,
+    /// Lower-case text in the command's output that means signed in, and text that overrides it.
+    pub ready: String,
+    pub not_ready: String,
+    /// The JSON field that is true when signed in, and the one naming the method.
+    pub field: String,
+    pub method_field: String,
+    pub ready_detail: String,
+    pub missing_detail: String,
+    pub timeout_s: u64,
+}
+
+/// What Tico does differently for one CLI (`[capabilities]`). `Default` is every documented fallback, which is
+/// also what a runtime with no manifest gets.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Capabilities {
+    pub terminal_login: Vec<String>,
+    /// "" | computer | bot
+    pub api_keys: String,
+    pub api_key_login: Vec<String>,
+    pub api_key_in_turn: bool,
+    pub subscription_marker: String,
+    pub subscription_profiles: bool,
+    pub profile_home: String,
+    pub profile_dirs: Vec<String>,
+    pub own_config_home: bool,
+    /// "" | refresh | turns | manual
+    pub weekly_usage: String,
+    pub tool_events: bool,
+    pub mcp_transports: Vec<String>,
+    pub mcp_unsupported: String,
+    pub resume_after_interrupt: bool,
+    pub persistent_session: bool,
+    pub goal_runs_across_turns: bool,
+    pub serial_cold_start: bool,
+    pub compaction: bool,
+    pub resume_command: String,
+    /// "" | host | command
+    pub model_list: String,
+    pub model_list_args: Vec<String>,
+    pub readiness: bool,
+    pub repo_permission_lint: bool,
+    pub repo_commands: bool,
+    pub sign_in_status: SignInStatus,
+}
+
+impl Default for Capabilities {
+    fn default() -> Self {
+        Capabilities {
+            terminal_login: vec![],
+            api_keys: String::new(),
+            api_key_login: vec![],
+            api_key_in_turn: false,
+            subscription_marker: String::new(),
+            subscription_profiles: false,
+            profile_home: String::new(),
+            profile_dirs: vec![],
+            own_config_home: false,
+            weekly_usage: String::new(),
+            tool_events: false,
+            mcp_transports: vec![],
+            mcp_unsupported: String::new(),
+            resume_after_interrupt: true,
+            persistent_session: false,
+            goal_runs_across_turns: false,
+            serial_cold_start: false,
+            compaction: false,
+            resume_command: String::new(),
+            model_list: String::new(),
+            model_list_args: vec![],
+            readiness: true,
+            repo_permission_lint: false,
+            repo_commands: false,
+            sign_in_status: SignInStatus { check: "none".into(), ..Default::default() },
+        }
+    }
+}
+
+/// A second host for a runtime (`[variants.<harness>]`, Gemini's Antigravity): never installed by the runner.
+#[derive(Clone, Debug)]
+pub struct Variant {
+    pub id: String,
+    pub name: String,
+    pub host: String,
+    pub executable: String,
+    pub capabilities: Capabilities,
 }
 
 #[derive(Clone, Debug)]
@@ -72,11 +163,12 @@ pub struct Manifest {
     pub version_pattern: String,
     pub policy: String,
     pub pin: String,
-    #[allow(dead_code)]
-    pub auth_methods: Vec<String>,
-    #[allow(dead_code)]
     pub api_key_env: Vec<String>,
     pub login: Option<Login>,
+    /// What bot configs and the server call this harness (`claude` for claude-code.toml).
+    pub runtime: String,
+    pub capabilities: Capabilities,
+    pub variants: Vec<Variant>,
     /// Variables every command the runner runs with this harness sets (version probes, logins), e.g. an
     /// auto-updater's off switch. Sorted by name.
     pub env: Vec<(String, String)>,
@@ -140,7 +232,7 @@ fn groups(pattern: &str) -> Result<usize, String> {
 /// A validated Manifest from a parsed TOML document (harness_tools.parse).
 pub fn parse(data: &toml::Table, source: &str) -> Result<Manifest, String> {
     let mut at = if source.is_empty() { "manifest".to_string() } else { source.to_string() };
-    let known = ["id", "name", "host", "executable", "providers", "catch_all", "install", "version", "update", "auth", "login", "env"];
+    let known = ["id", "name", "host", "executable", "providers", "catch_all", "install", "version", "update", "auth", "login", "env", "runtime", "capabilities", "variants"];
     let mut extra: Vec<&String> = data.keys().filter(|k| !known.contains(&k.as_str())).collect();
     if !extra.is_empty() {
         extra.sort();
@@ -156,7 +248,7 @@ pub fn parse(data: &toml::Table, source: &str) -> Result<Manifest, String> {
     let Some(name) = name else { return Err(format!("{at}: name is required")) };
     let host = data.get("host").and_then(|v| v.as_str()).unwrap_or("");
     if !name_re.is_match(host) || !HOSTS.contains(&host) {
-        return Err(format!("{at}: host '{host}' is not an adapter in runner/hosts/"));
+        return Err(format!("{at}: host '{host}' is not an adapter in runner-rs/src/hosts/"));
     }
     let executable = data.get("executable").and_then(|v| v.as_str()).filter(|s| full(&exe_re, s));
     let Some(executable) = executable else { return Err(format!("{at}: executable must be a bare file name")) };
@@ -257,7 +349,7 @@ pub fn parse(data: &toml::Table, source: &str) -> Result<Manifest, String> {
             return Err(format!("{at}: login is for device-code or subscription sign-in"));
         }
         let flag = |k: &str| raw.get(k).and_then(|v| v.as_bool()).unwrap_or(false);
-        Some(Login { command, terminal: flag("terminal"), paste_code: flag("paste_code") })
+        Some(Login { command, terminal: flag("terminal") })
     } else if methods.iter().any(|m| m == "device-code") {
         return Err(format!("{at}: device-code sign-in needs a [login] command for the browser relay"));
     } else {
@@ -271,6 +363,33 @@ pub fn parse(data: &toml::Table, source: &str) -> Result<Manifest, String> {
         }
     }
     env.sort();
+    let runtime = match data.get("runtime") {
+        None => host.to_string(),
+        Some(toml::Value::String(r)) if name_re.is_match(r) => r.clone(),
+        Some(_) => return Err(format!("{at}: runtime must be lowercase letters, digits and hyphens")),
+    };
+    let capabilities = parse_capabilities(data.get("capabilities"), &at)?;
+    let mut variants = vec![];
+    for (vid, raw) in table(data, "variants", &at)?.iter() {
+        let vat = format!("{at} variant {vid}");
+        let Some(raw) = raw.as_table() else { return Err(format!("{at}: [variants.{vid}] must be a table")) };
+        let s = |k: &str| raw.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+        if !name_re.is_match(vid) {
+            return Err(format!("{vat}: the variant id must be lowercase letters, digits and hyphens"));
+        }
+        if !HOSTS.contains(&s("host").as_str()) {
+            return Err(format!("{vat}: host '{}' is not an adapter in runner-rs/src/hosts/", s("host")));
+        }
+        if !full(&exe_re, &s("executable")) {
+            return Err(format!("{vat}: executable must be a bare file name"));
+        }
+        let unknown: Vec<&String> = raw.keys().filter(|k| !["name", "host", "executable", "capabilities"].contains(&k.as_str())).collect();
+        if !unknown.is_empty() {
+            return Err(format!("{vat}: unknown field(s) {}", unknown.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")));
+        }
+        let name = if s("name").trim().is_empty() { vid.clone() } else { s("name").trim().to_string() };
+        variants.push(Variant { id: vid.clone(), name, host: s("host"), executable: s("executable"), capabilities: parse_capabilities(raw.get("capabilities"), &vat)? });
+    }
     Ok(Manifest {
         id: ident.into(),
         name: name.into(),
@@ -283,11 +402,89 @@ pub fn parse(data: &toml::Table, source: &str) -> Result<Manifest, String> {
         version_pattern: pattern,
         policy,
         pin,
-        auth_methods: methods,
         api_key_env: keys,
         login,
+        runtime,
+        capabilities,
+        variants,
         env,
     })
+}
+
+/// A `[capabilities]` table: every key known and of its type (clients/harness_manifests.py FIELDS), absent keys at
+/// their fallback.
+fn parse_capabilities(raw: Option<&toml::Value>, at: &str) -> Result<Capabilities, String> {
+    let mut c = Capabilities::default();
+    let Some(raw) = raw else { return Ok(c) };
+    let Some(raw) = raw.as_table() else { return Err(format!("{at}: [capabilities] must be a table")) };
+    let bad = |k: &str, kind: &str| format!("{at}: capabilities.{k} must be a {kind}");
+    let text = |k: &str, v: &toml::Value| v.as_str().map(String::from).ok_or_else(|| bad(k, "str"));
+    let flag = |k: &str, v: &toml::Value| v.as_bool().ok_or_else(|| bad(k, "bool"));
+    let list = |k: &str, v: &toml::Value| strings(Some(v), &format!("capabilities.{k}"), at, None, 0, &[]).map_err(|_| bad(k, "list"));
+    let choice = |k: &str, v: &toml::Value, choices: &[&str]| -> Result<String, String> {
+        let s = text(k, v)?;
+        if s.is_empty() || choices.contains(&s.as_str()) { Ok(s) } else { Err(format!("{at}: capabilities.{k} is one of {}", choices.join(", "))) }
+    };
+    for (k, v) in raw {
+        match k.as_str() {
+            "terminal_login" => c.terminal_login = list(k, v)?,
+            "api_keys" => c.api_keys = choice(k, v, &["computer", "bot"])?,
+            "api_key_login" => c.api_key_login = list(k, v)?,
+            "api_key_in_turn" => c.api_key_in_turn = flag(k, v)?,
+            "subscription_marker" => c.subscription_marker = text(k, v)?,
+            "subscription_profiles" => c.subscription_profiles = flag(k, v)?,
+            "profile_home" => c.profile_home = text(k, v)?,
+            "profile_dirs" => c.profile_dirs = list(k, v)?,
+            "own_config_home" => c.own_config_home = flag(k, v)?,
+            "weekly_usage" => c.weekly_usage = choice(k, v, &["refresh", "turns", "manual"])?,
+            "tool_events" => c.tool_events = flag(k, v)?,
+            "mcp_transports" => {
+                c.mcp_transports = list(k, v)?;
+                if c.mcp_transports.iter().any(|t| t != "http" && t != "sse") {
+                    return Err(format!("{at}: capabilities.mcp_transports are http and sse"));
+                }
+            }
+            "mcp_unsupported" => c.mcp_unsupported = text(k, v)?,
+            "resume_after_interrupt" => c.resume_after_interrupt = flag(k, v)?,
+            "persistent_session" => c.persistent_session = flag(k, v)?,
+            "goal_runs_across_turns" => c.goal_runs_across_turns = flag(k, v)?,
+            "serial_cold_start" => c.serial_cold_start = flag(k, v)?,
+            "compaction" => c.compaction = flag(k, v)?,
+            "resume_command" => c.resume_command = text(k, v)?,
+            "model_list" => c.model_list = choice(k, v, &["host", "command"])?,
+            "model_list_args" => c.model_list_args = list(k, v)?,
+            "readiness" => c.readiness = flag(k, v)?,
+            "repo_permission_lint" => c.repo_permission_lint = flag(k, v)?,
+            "repo_commands" => c.repo_commands = flag(k, v)?,
+            "sign_in_status" => c.sign_in_status = sign_in_status(v, at)?,
+            other => return Err(format!("{at}: unknown capability {other}")),
+        }
+    }
+    Ok(c)
+}
+
+fn sign_in_status(v: &toml::Value, at: &str) -> Result<SignInStatus, String> {
+    let Some(t) = v.as_table() else { return Err(format!("{at}: capabilities.sign_in_status must be a dict")) };
+    let mut s = SignInStatus { check: "none".into(), ..Default::default() };
+    for (k, v) in t {
+        let text = || v.as_str().map(String::from).ok_or_else(|| format!("{at}: capabilities.sign_in_status.{k} must be a string"));
+        match k.as_str() {
+            "check" => s.check = text()?,
+            "args" => s.args = strings(Some(v), "capabilities.sign_in_status.args", at, None, 0, &[])?,
+            "ready" => s.ready = text()?.to_lowercase(),
+            "not_ready" => s.not_ready = text()?.to_lowercase(),
+            "field" => s.field = text()?,
+            "method_field" => s.method_field = text()?,
+            "ready_detail" => s.ready_detail = text()?,
+            "missing_detail" => s.missing_detail = text()?,
+            "timeout_s" => s.timeout_s = v.as_integer().filter(|n| *n > 0).ok_or_else(|| format!("{at}: capabilities.sign_in_status.timeout_s must be a positive number"))? as u64,
+            other => return Err(format!("{at}: unknown sign_in_status field {other}")),
+        }
+    }
+    if !["none", "command", "json", "file", "bot-key"].contains(&s.check.as_str()) {
+        return Err(format!("{at}: capabilities.sign_in_status.check is one of none, command, json, file, bot-key"));
+    }
+    Ok(s)
 }
 
 /// Every manifest, by id, from `files` as (file name, text). Two may not claim a provider, host or executable.
@@ -308,6 +505,12 @@ pub fn load_from(files: &[(String, String)]) -> Result<BTreeMap<String, Manifest
         let mut pairs: Vec<(&str, &String)> = m.providers.iter().map(|p| ("provider", p)).collect();
         pairs.push(("host", &m.host));
         pairs.push(("executable", &m.executable));
+        pairs.push(("runtime", &m.runtime));
+        for v in &m.variants {
+            pairs.push(("host", &v.host));
+            pairs.push(("executable", &v.executable));
+            pairs.push(("harness", &v.id));
+        }
         for (kind, value) in pairs {
             if let Some(other) = claimed.insert((kind.into(), value.clone()), m.id.clone()) {
                 return Err(format!("{}: {kind} {value} is already claimed by {other}", m.id));
@@ -363,6 +566,60 @@ pub fn env_for(runtime: &str) -> Vec<(String, String)> {
 
 pub fn login_command(runtime: &str) -> Option<Login> {
     manifests().values().find(|m| m.host == runtime).and_then(|m| m.login.clone())
+}
+
+fn manifest_for(runtime: &str) -> Option<&'static Manifest> {
+    manifests().values().find(|m| m.runtime == runtime)
+}
+
+/// The capabilities of `harness` on `runtime`: the variant `harness` names, else the runtime's own manifest, else
+/// every fallback (a runtime with no manifest).
+pub fn caps(runtime: &str, harness: &str) -> Capabilities {
+    let Some(m) = manifest_for(runtime) else { return Capabilities::default() };
+    m.variants.iter().find(|v| v.id == harness).map(|v| v.capabilities.clone()).unwrap_or_else(|| m.capabilities.clone())
+}
+
+/// The capabilities of what a bot config runs (its `runtime` and `harness`).
+pub fn caps_of(config: &Value) -> Capabilities {
+    caps(&text_of(&config["runtime"]), &text_of(&config["harness"]))
+}
+
+/// Every runtime a manifest names, sorted.
+pub fn runtimes() -> Vec<String> {
+    let mut out: Vec<String> = manifests().values().map(|m| m.runtime.clone()).collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// The runtimes a subscription profile can sign in to its own login (`subscription_profiles`).
+pub fn profile_runtimes() -> Vec<String> {
+    runtimes().into_iter().filter(|r| caps(r, "").subscription_profiles).collect()
+}
+
+/// A person's name for the runtime's CLI (`Codex`, `Claude Code`), or the runtime itself.
+pub fn name_for(runtime: &str) -> String {
+    manifest_for(runtime).map(|m| m.name.clone()).unwrap_or_else(|| runtime.to_string())
+}
+
+/// The variable names that sign `runtime` in (`auth.api_key_env`), most preferred first.
+pub fn api_key_env(runtime: &str) -> Vec<String> {
+    manifest_for(runtime).map(|m| m.api_key_env.clone()).unwrap_or_default()
+}
+
+/// Whether `harness` runs bots of `runtime`: the runtime's own manifest, or one of its variants.
+pub fn is_harness_of(runtime: &str, harness: &str) -> bool {
+    manifest_for(runtime).is_some_and(|m| harness == m.runtime || m.variants.iter().any(|v| v.id == harness))
+}
+
+/// The runtime a harness id runs on: a variant's parent runtime, else the id itself.
+pub fn runtime_of(harness: &str) -> String {
+    manifests().values().find(|m| m.variants.iter().any(|v| v.id == harness)).map(|m| m.runtime.clone()).unwrap_or_else(|| harness.to_string())
+}
+
+/// A variant's executable and name, for checks of a host the runner does not install.
+pub fn variant(runtime: &str, harness: &str) -> Option<Variant> {
+    manifest_for(runtime)?.variants.iter().find(|v| v.id == harness).cloned()
 }
 
 /// Where this runner's tools live: TICO_TOOLS_DIR, the registration's `tools_dir`, else beside runner.json.
@@ -1100,9 +1357,15 @@ static TURNS: OnceLock<Mutex<HashMap<String, Vec<String>>>> = OnceLock::new();
 /// This runner's one installer, made on first use (with the tools bin put last on PATH). Call it before the
 /// tokio runtime starts threads when possible (main), so PATH is changed while nothing else reads it.
 pub fn init(config: &Config) -> Arc<Mutex<Harnesses>> {
+    init_at(config, config.state_dir().join("harnesses.json"))
+}
+
+/// `init` with its own state file: `doctor` keeps `harnesses-doctor.json`, as Python did, so a check never
+/// rewrites the running runner's.
+pub fn init_at(config: &Config, state_path: PathBuf) -> Arc<Mutex<Harnesses>> {
     SHARED
         .get_or_init(|| {
-            let h = Harnesses::new(tools_dir(config), config.state_dir().join("harnesses.json"), manifests().clone());
+            let h = Harnesses::new(tools_dir(config), state_path, manifests().clone());
             expose_path(&h.bin_dir());
             Arc::new(Mutex::new(h))
         })
@@ -1217,7 +1480,20 @@ mod tests {
         assert_eq!((claude.host.as_str(), claude.method(), claude.bin_relative().as_str()), ("claude", "npm", "node_modules/.bin/claude"));
         let login = claude.login.as_ref().unwrap();
         assert_eq!(login.command, vec!["auth", "login", "--claudeai"]);
-        assert!(login.terminal && login.paste_code);
+        assert!(login.terminal);
+        let caps = &claude.capabilities;
+        assert_eq!((claude.runtime.as_str(), caps.api_keys.as_str(), caps.profile_home.as_str()), ("claude", "computer", "HOME"));
+        assert_eq!((caps.sign_in_status.check.as_str(), caps.sign_in_status.field.as_str(), caps.sign_in_status.timeout_s), ("json", "loggedIn", 30));
+        assert!(caps.compaction && caps.repo_commands && caps.resume_after_interrupt && !caps.persistent_session);
+        assert!(!all["codex"].capabilities.resume_after_interrupt && all["codex"].capabilities.goal_runs_across_turns);
+        let gemini = &all["gemini-cli"];
+        assert_eq!(gemini.variants.len(), 1);
+        let agy = &gemini.variants[0];
+        assert_eq!((agy.id.as_str(), agy.host.as_str(), agy.executable.as_str()), ("antigravity", "antigravity", "agy"));
+        assert!(agy.capabilities.persistent_session && !agy.capabilities.readiness && agy.capabilities.mcp_transports.is_empty());
+        let typo = BUILT_IN[0].1.replace("compaction = true", "compactoin = true");
+        let data: toml::Table = toml::from_str(&typo).unwrap();
+        assert!(parse(&data, "claude-code.toml").unwrap_err().contains("unknown capability compactoin"));
         assert_eq!(all["cursor-agent"].bin_relative(), ".local/bin/cursor-agent");
         assert_eq!(all["muse-code"].env, vec![("MUSE_NO_AUTO_UPDATE".to_string(), "1".to_string())]);
         assert!(all["pi"].catch_all);

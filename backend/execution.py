@@ -73,6 +73,12 @@ def turn_share(c, runner_id, capacity):
     return bot_turns(capacity) if bots > 1 else int(capacity or 1)
 
 
+def turn_limit(share, capacity, others_waiting):
+    """The turns one bot may hold now: its share while another bot's work waits for this computer; otherwise every
+    turn but one, kept free so new work from another bot starts at once. Turns left idle help no one."""
+    return share if others_waiting else max(share, int(capacity or 1) - 1)
+
+
 def turns_here(c, runner_id):
     """{bot: turns it holds on this computer now}."""
     return {r[0]: r[1] for r in c.execute("SELECT bot,count(*) FROM attempts WHERE runner_id=? "
@@ -198,8 +204,25 @@ def limit_streak(c, bot):
 
 
 def limit_cooldown(c, bot):
-    """Seconds a limited bot waits before its next claim; longer once the limits keep coming."""
-    return LIMIT_COOLDOWN_LONG if limit_streak(c, bot) >= LIMIT_STRIKES else LIMIT_COOLDOWN
+    """Seconds held after the last limit, including a provider's explicit reset window."""
+    cooldown = LIMIT_COOLDOWN_LONG if limit_streak(c, bot) >= LIMIT_STRIKES else LIMIT_COOLDOWN
+    # Another lane begun before the limit can finish afterwards without lifting the bot's hold.
+    last = c.execute("SELECT id,finished FROM attempts WHERE bot=? AND state IN ('failed','interrupted') "
+                     "AND finished IS NOT NULL AND json_extract(result_json,'$.limited')=1 "
+                     "ORDER BY finished DESC LIMIT 1", (bot,)).fetchone()
+    if not last:
+        return cooldown
+    finished = H.parse_ts(last["finished"])
+    if not finished:
+        return cooldown
+    for row in c.execute("SELECT payload_json FROM attempt_events WHERE attempt_id=? AND kind='error' "
+                         "ORDER BY seq DESC LIMIT 8", (last["id"],)):
+        error = str(json.loads(row["payload_json"]).get("error") or "")
+        match = re.search(r"usage window resets at (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)", error, re.I)
+        reset = H.parse_ts(match[1]) if match else None
+        if reset:
+            cooldown = max(cooldown, int((reset - finished).total_seconds()) + 1)
+    return cooldown
 
 
 def person_wrote_since(c, bot, since):
@@ -249,7 +272,7 @@ def _github_app(c):
 
 def bot_repository(c, settings, bot, rows=None, app=None):
     """`owner/name` of a bot's GitHub repository, resolved the way the token route resolves it, or "".
-    The runner clones and publishes this one (runner/service.py `fetch_repository`). `rows(slug)` (its
+    The runner clones and publishes this one (runner-rs/src/fetchrepo.rs). `rows(slug)` (its
     bot_config row with config_json and repo) and `app` ((the github_app row,)) when read already."""
     from .github_app import repo_of
     from .shared_bots import _json, declared, source_of
@@ -301,7 +324,7 @@ def forget_report(c, runner_id, bot):
         c.execute("UPDATE runners SET readiness_json=? WHERE id=?", (encode(document), runner_id))
 
 
-# The runner appends these after the bot's own words when it holds back a commit (runner/service.py).
+# The runner appends these after the bot's own words when it holds back a commit (runner-rs/src/execute.rs).
 # They are the runner's, not the bot's, so chat shows them as a warning beside the reply.
 RUNNER_NOTICE = re.compile(r"(not pushed: a commit made this turn contains a secret"
                            r"|left out of the commit: .+ \((?:contains a secret|too large to commit)\))")
@@ -337,7 +360,15 @@ class Execution:
         self.readiness_reported = None
         self.served_at = None   # when this process last answered a runner (heartbeat, claim, attempt call)
 
+    def refuse_in_rehearsal(self, what="Runners"):
+        """A rehearsal (TICO_REHEARSAL=1) is a copy of real data: a computer that connected would run bots against its
+        queue, so no runner enrols, reports in or takes work there (docs/install.md, "Rehearse a migration")."""
+        if getattr(self.store.settings, "rehearsal", False):
+            raise Problem("rehearsal", what + " are off in a rehearsal: this server is a copy of real data and runs "
+                          "no bots", 409)
+
     def runner(self, c, who):
+        self.refuse_in_rehearsal()
         if who.role != "runner":
             raise Problem("identity", "A registered runner is required", 403)
         return c.execute("SELECT * FROM runners WHERE id=? AND revoked_at IS NULL",
@@ -377,6 +408,7 @@ class Execution:
         return not awake_since or awake_since <= H.shift(now, seconds=-AWAKE_SETTLE)
 
     def issue_enrollment(self, c, who, body):
+        self.refuse_in_rehearsal("Enrolments")
         if who.role not in ("owner", "human"):
             raise Problem("identity", "A person must enroll a machine", 403)
         operator = body.operator or H.actor_id(who.actor)
@@ -392,6 +424,7 @@ class Execution:
         return {"code": code, "expires": expires, "operator": operator}
 
     def enroll(self, body):
+        self.refuse_in_rehearsal("Enrolments")
         with self.store.transaction() as c:
             row = c.execute("SELECT * FROM enrollments WHERE code_hash=?", (digest(body.code),)).fetchone()
             if not row or row["expires"] <= H.now():
@@ -786,7 +819,8 @@ class Execution:
         if not bots:
             return None
         marks = ",".join("?" for _ in bots)
-        full = [bot for bot in bots if held.get(bot, 0) >= share]
+        limit = turn_limit(share, runner["capacity"], any(held.get(bot, 0) < share for bot in bots))
+        full = [bot for bot in bots if held.get(bot, 0) >= limit]
         task_sql = queued_task_sql()
         # Readiness, spend and cooldown are checked once per bot, never once per queued job.
         # Keep human chat priority and interrupted-task/conversation fencing in the query.
@@ -1085,7 +1119,7 @@ class Execution:
                             "generation": row["generation"], "lease_until": until,
                             "lease_seconds": self.store.settings.lease_seconds, "token": token,
                             "message": msg, "conversation": conv, "task": task,
-                            # The task's set-up worktrees on this computer, added to its session (runner/service.py).
+                            # The task's set-up worktrees on this computer, added to its session (runner-rs/src/sessions.rs).
                             "worktrees": worktrees.attached(c, task["id"], who.runner_id, row["bot"]) if task else [],
                             "history": history, "config": config, "principal": principal}}
 
@@ -1322,7 +1356,11 @@ class Execution:
                 task = H.task(c, task_id) if task_id else None
                 requester = task["requester"] if task else origin["from_actor"]
                 cancelled = bool(task and task["status"] == "closed" and refs.get("task") == task_id)
-                related = (row["in_reply_to"] == origin["message_id"] or refs.get("turn_id") == aid
+                # The person's next message in the chat this run answers is the same ask, carried on ("add it to
+                # engineering"): it joins the run rather than queueing behind it.
+                same_chat = (not task and row["conversation_id"] == origin_message["conversation_id"]
+                             and row["kind"] == "say" and not refs.get("task"))
+                related = (same_chat or row["in_reply_to"] == origin["message_id"] or refs.get("turn_id") == aid
                            or (task and task.get("request_id") and row["in_reply_to"] == task["request_id"])
                            or row["kind"] in ("answer", "steer") or refs.get("credential_saved"))
                 if (str(row["from_actor"]).startswith("human:") and (row["from_actor"] != requester or not related)
@@ -1631,9 +1669,9 @@ class Execution:
         elif limited:
             streak = limit_streak(c, row["bot"])
             hit = H.now()
-            retry = H.shift(hit, seconds=LIMIT_COOLDOWN_LONG if streak >= LIMIT_STRIKES else LIMIT_COOLDOWN)
+            retry = H.shift(hit, seconds=limit_cooldown(c, row["bot"]))
             focus = (f"{runtime} usage limit at {hit[11:16]}" + (", third in a row" if streak >= LIMIT_STRIKES else "")
-                     + f"; retrying after {retry[11:16]} UTC")
+                     + f"; retrying after {retry[:10]} {retry[11:16]} UTC")
             H.status_set(c, H.KEEPER, row["bot"], state="limited", focus=focus)
             # Every limit restarts the cooldown; status_set keeps `since` while the state stays the same.
             c.execute("UPDATE bot_status SET since=? WHERE bot=?", (hit, row["bot"]))

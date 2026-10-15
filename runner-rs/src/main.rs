@@ -1,12 +1,13 @@
-//! `tico-runner`: the Tico local runner, the chat path of `python -m runner` (step 1 of
-//! _rust-runner-plan.md). Same registration file, state directory, lock and outbox, so a computer can switch
-//! between the two engines and back.
+//! `tico-runner`: the Tico local runner. launchd and systemd units that start `python -m runner run` reach it through
+//! runner/engine.py. It keeps the registration file, state directory, lock and outbox, and registers and checks this
+//! computer itself (`enroll`, `adopt`, `doctor`, crate::commands).
 
 // A turn's failure carries its whole report, and the caches key on tuples: both read better as they are.
 #![allow(clippy::result_large_err, clippy::type_complexity)]
 
 mod backlog;
 mod client;
+mod commands;
 mod config;
 mod credential_imports;
 mod credential_migration;
@@ -16,6 +17,7 @@ mod events;
 mod drive;
 mod execute;
 mod fallback;
+mod flight;
 mod follow;
 mod fetchrepo;
 mod gitrun;
@@ -50,6 +52,7 @@ mod worktrees;
 mod runner;
 mod sessions;
 mod safegit;
+mod screen;
 mod sidejobs;
 mod signin;
 mod state;
@@ -69,7 +72,7 @@ pub const BUILD_ID: &str = env!("TICO_BUILD_ID");
 #[derive(Parser)]
 #[command(name = "tico-runner", about = "Run this computer's Tico bots: the Rust runner", version = runner::RUNNER_VERSION)]
 struct Cli {
-    /// The registration file `python -m runner enroll` wrote.
+    /// The registration file `enroll` wrote.
     #[arg(long, global = true)]
     config: Option<PathBuf>,
     #[command(subcommand)]
@@ -78,14 +81,47 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Register this computer with a one-time enrollment code.
+    Enroll {
+        #[arg(long)]
+        url: String,
+        #[arg(long)]
+        code_file: PathBuf,
+        #[arg(long)]
+        label: String,
+        #[arg(long)]
+        projects: PathBuf,
+        /// Environment id this registration belongs to.
+        #[arg(long, default_value = "")]
+        environment: String,
+    },
     /// Claim and run this computer's turns until stopped.
     Run,
     /// Print this registration's assignments and eligible bots.
     Status,
+    /// Check assigned repositories and executables without running bots.
+    Doctor,
+    /// Move eligible bots to this computer.
+    Adopt {
+        #[arg(long)]
+        team: Option<String>,
+        #[arg(long)]
+        bot: Vec<String>,
+    },
     /// Subscription profiles: one provider login per directory.
     Profile {
         #[command(subcommand)]
         action: ProfileAction,
+    },
+    /// Read this computer's flight file (turn timings, slow heartbeats and git commands).
+    Flight {
+        #[command(subcommand)]
+        action: FlightAction,
+    },
+    /// This computer's screen for the web app (Linux): on, off, or where it stands. Off unless turned on here.
+    Screen {
+        #[command(subcommand)]
+        action: ScreenAction,
     },
     /// Git's credential helper for one turn (git runs it; not for people).
     GitCredential {
@@ -96,6 +132,54 @@ enum Command {
         /// git's verb: only `get` answers.
         action: Option<String>,
     },
+}
+
+#[derive(Subcommand)]
+enum FlightAction {
+    /// Recent turns with their phase timings, the slowest phases, slow heartbeats and git commands.
+    Summary {
+        /// How far back: `90s`, `30m`, `1h`, `2d`.
+        #[arg(long, default_value = "1h")]
+        since: String,
+        /// The folder holding flight.ndjson (default: this registration's state folder).
+        #[arg(long)]
+        dir: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ScreenAction {
+    /// Offer a screen people can open from the web app (the hub's setting still decides who sees it).
+    On,
+    /// Stop the screen and close any open session.
+    Off,
+    /// Print whether it is on, what says so, and whether it can run here.
+    Status,
+}
+
+/// `screen on|off|status`: the local lock in runner.json; a running runner follows it within seconds.
+fn screen_main(action: ScreenAction, config: &mut config::Config) -> i32 {
+    if let ScreenAction::On | ScreenAction::Off = action {
+        let on = matches!(action, ScreenAction::On);
+        config.data.insert("screen".into(), serde_json::Value::Bool(on));
+        if let Err(e) = config.save() {
+            fail(&e);
+        }
+    }
+    let (on, source) = screen::lock(&config.path);
+    let missing = if on { screen::missing_tools() } else { vec![] };
+    let mut out = serde_json::json!({"screen": if on { "on" } else { "off" }, "set_by": source});
+    if let Some(report) = screen::report(on, std::env::consts::OS, &missing, None, true) {
+        out.as_object_mut().unwrap().extend(report.as_object().cloned().unwrap_or_default());
+    }
+    if source == "TICO_SCREEN" && !matches!(action, ScreenAction::Status) {
+        out["note"] = serde_json::json!("TICO_SCREEN is set and wins over this setting");
+    }
+    if !missing.is_empty() && std::env::consts::OS == "linux" {
+        out["note"] = serde_json::json!("Install xvfb x11vnc openbox (install.sh --screen does)");
+    }
+    println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+    0
 }
 
 #[derive(Subcommand)]
@@ -122,8 +206,9 @@ fn profile_main(action: ProfileAction, config: &mut config::Config) -> i32 {
         ProfileAction::List => profiles::command(config, "list", None, false, None),
         ProfileAction::Assign { bot, name } => profiles::command(config, "assign", Some(&name), false, Some(&bot)),
         ProfileAction::Login { name, runtime } => {
-            if !profiles::RUNTIMES.contains(&runtime.as_str()) {
-                fail(&format!("argument runtime: invalid choice: '{runtime}' (choose from {})", profiles::RUNTIMES.join(", ")));
+            let choices = harness_tools::profile_runtimes();
+            if !choices.contains(&runtime) {
+                fail(&format!("argument runtime: invalid choice: '{runtime}' (choose from {})", choices.join(", ")));
             }
             let entry = config.data.get("profiles").and_then(|p| p.get(&name)).filter(|e| util::truthy(Some(e))).cloned();
             let Some(entry) = entry else { fail("No such profile on this registration; add it with `profile add`") };
@@ -132,18 +217,20 @@ fn profile_main(action: ProfileAction, config: &mut config::Config) -> i32 {
                 fail(&format!("Profile {name} shares the operator's own logins; sign in normally"));
             }
             let home = profile.home(&runtime).unwrap_or_default();
-            if runtime == "gemini" {
+            let command = profiles::login_command(&runtime).unwrap_or_default();
+            if command.is_empty() && harness_tools::caps(&runtime, "").api_keys == "bot" {
                 let secrets = config.projects_dir().join("secrets");
-                println!("Gemini CLI authenticates with an API key, not an interactive login: put GEMINI_API_KEY in {}/_shared.env or <bot>.env. This profile's Gemini sessions live in {}.", secrets.display(), home.display());
+                let key = harness_tools::api_key_env(&runtime).into_iter().next().unwrap_or_default();
+                let name = harness_tools::name_for(&runtime);
+                println!("{name} authenticates with an API key, not an interactive login: put {key} in {}/_shared.env or <bot>.env. This profile's {name} sessions live in {}.", secrets.display(), home.display());
                 return 0;
             }
-            let command = profiles::login_command(&runtime).unwrap_or(&[]);
-            if command.is_empty() || env::which(command[0], &std::env::var("PATH").unwrap_or_default()).is_none() {
-                fail(&format!("{} is not on PATH", command.first().unwrap_or(&runtime.as_str())));
+            if command.is_empty() || env::which(&command[0], &std::env::var("PATH").unwrap_or_default()).is_none() {
+                fail(&format!("{} is not on PATH", command.first().unwrap_or(&runtime)));
             }
             println!("Signing in to {runtime} for profile {name} in {}", home.display());
             // Interactive on purpose: the CLI owns the browser flow and prints its own instructions.
-            let status = std::process::Command::new(command[0])
+            let status = std::process::Command::new(&command[0])
                 .args(&command[1..])
                 .env_clear()
                 .envs(profile.environment(&runtime, &std::env::vars().collect()))
@@ -161,8 +248,14 @@ fn profile_main(action: ProfileAction, config: &mut config::Config) -> i32 {
     }
 }
 
+fn flight_summary(dir: &std::path::Path, since: &str) -> i32 {
+    let Some(seconds) = flight::parse_since(since) else { fail(&format!("argument --since: not a duration: '{since}' (e.g. 30m, 1h, 2d)")) };
+    print!("{}", flight::summary(dir, seconds, util::epoch_s()));
+    0
+}
+
 fn fail(message: &str) -> ! {
-    eprintln!("usage: tico-runner [--config CONFIG] {{run,status,profile}}\ntico-runner: error: {message}");
+    eprintln!("usage: tico-runner [--config CONFIG] {{enroll,run,status,doctor,adopt,profile,flight,screen}}\ntico-runner: error: {message}");
     std::process::exit(2)
 }
 
@@ -185,14 +278,40 @@ fn main() {
         std::process::exit(gitcred::git_credential_main(socket.clone()));
     }
     util::start_clock();
-    let path = cli.config.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".config/tico/runner.json"));
+    if let Command::Flight { action: FlightAction::Summary { since, dir: Some(dir) } } = &cli.command {
+        std::process::exit(flight_summary(dir, since));
+    }
+    let path = cli.config.unwrap_or_else(commands::default_config);
+    if let Command::Enroll { url, code_file, label, projects, environment } = &cli.command {
+        // Before Config::load: enrolling is what writes it.
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("tokio runtime");
+        match rt.block_on(commands::enroll(&path, url, code_file, label, projects, environment)) {
+            Ok(out) => println!("{}", util::py_dumps(&out)),
+            Err((2, message)) => fail(&message),
+            Err((code, message)) => {
+                eprintln!("tico-runner: {message}");
+                std::process::exit(code);
+            }
+        }
+        std::process::exit(0);
+    }
     let mut config = config::Config::load(&path).unwrap_or_else(|e| fail(&e));
     if let Command::Profile { action } = cli.command {
         std::process::exit(profile_main(action, &mut config));
     }
-    if let Command::Run = cli.command {
-        // Puts the tools bin on PATH, so it runs before any thread reads the environment.
-        harness_tools::init(&config);
+    if let Command::Screen { action } = cli.command {
+        std::process::exit(screen_main(action, &mut config));
+    }
+    if let Command::Flight { action: FlightAction::Summary { since, .. } } = &cli.command {
+        std::process::exit(flight_summary(&config.state_dir(), since));
+    }
+    if let Command::Run | Command::Doctor = cli.command {
+        // Puts the tools bin on PATH, so it runs before any thread reads the environment. Doctor keeps its own
+        // harness state, as Python's did, so a check never rewrites the running runner's.
+        match cli.command {
+            Command::Doctor => harness_tools::init_at(&config, path.parent().unwrap_or(std::path::Path::new(".")).join("harnesses-doctor.json")),
+            _ => harness_tools::init(&config),
+        };
         hosts::musecode::set_state_dir(&config.state_dir());
     }
     let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().expect("tokio runtime");
@@ -201,6 +320,37 @@ fn main() {
 
 async fn start(command: Command, config: config::Config) -> i32 {
     let client = client::Client::new(&config.url(), &config.token(), 10, 1).unwrap_or_else(|e| fail(&e));
+    let refused = |(code, message): commands::Refusal| {
+        if code == 2 {
+            fail(&message);
+        }
+        eprintln!("tico-runner: {message}");
+        code
+    };
+    match &command {
+        Command::Adopt { team, bot } => {
+            // After a re-enrollment, the protected mail key follows this operator's previous registration once.
+            mail_key::carry_protected(&config);
+            return match commands::adopt(&config, &client, team.as_deref(), bot).await {
+                Ok(lines) => {
+                    lines.iter().for_each(|l| println!("{l}"));
+                    0
+                }
+                Err(r) => refused(r),
+            };
+        }
+        Command::Doctor => {
+            mail_key::carry_protected(&config);
+            return match commands::doctor(&config, &client).await {
+                Ok((out, ready)) => {
+                    println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+                    i32::from(!ready)
+                }
+                Err(r) => refused(r),
+            };
+        }
+        _ => {}
+    }
     if let Command::Status = command {
         let read = async { Ok::<_, client::ApiError>((client.get("runners/assignments").await?, client.get("runners/eligible").await?)) };
         return match read.await {
@@ -222,6 +372,7 @@ async fn start(command: Command, config: config::Config) -> i32 {
         fail(&format!("cannot create {}: {e}", state_dir.display()));
     }
     let _lock = lock::acquire(&state_dir.join("runner.lock")).unwrap_or_else(|e| fail(&e));
+    flight::init(&state_dir);
     let state = state::State::open(&state_dir).unwrap_or_else(|e| fail(&e));
     follow::record_revision(&state_dir);
     follow::init(&config.data, &state_dir);
@@ -232,22 +383,6 @@ async fn start(command: Command, config: config::Config) -> i32 {
     }
     mail_key::init(&config); // an inbox bot's turn asks the credential socket for its mailbox's token
     let mut service = runner::Runner::new(config, client.clone(), state);
-    match service.refusals().await {
-        Ok(lines) if !lines.is_empty() => {
-            for line in &lines {
-                util::log(&format!("Tico runner: {line}; this runner does not do that yet"));
-            }
-            drop(_lock);
-            if let Some(why) = python_fallback(&lines.join("; ")) {
-                util::log(&format!("Tico runner: could not hand this computer to the Python runner ({why})"));
-            }
-            util::log("Tico runner: not starting: run this computer on the Python runner (python -m runner run) until those bots move or the Rust runner supports them");
-            return 3;
-        }
-        Ok(_) => {}
-        // An unreachable hub is not a reason to stay down: the loop retries, and readiness names any gap.
-        Err(e) => util::log(&format!("Tico runner: could not read this computer's bots ({}); starting anyway", runner::describe(&e))),
-    }
     match gitcred::CredentialSocket::serve(client.clone(), service.tokens.clone()) {
         Ok(socket) => service.socket = Some(socket),
         Err(e) => util::log(&format!("Tico runner: credential socket unavailable ({e}); turns use per-turn GitHub tokens")),
@@ -258,6 +393,10 @@ async fn start(command: Command, config: config::Config) -> i32 {
         use tokio::signal::unix::{signal, SignalKind};
         let mut term = signal(SignalKind::terminate()).expect("SIGTERM handler");
         let mut int = signal(SignalKind::interrupt()).expect("SIGINT handler");
+        if runner::drains_on_stop() {
+            // SIGTERM: finish the running turns (Runner::shut_down); a second SIGTERM or a SIGINT stops at once.
+            tokio::select! { _ = term.recv() => stopper.shut_down(), _ = int.recv() => {} }
+        }
         tokio::select! { _ = term.recv() => {}, _ = int.recv() => {} }
         stopper.stop.store(true, std::sync::atomic::Ordering::SeqCst);
         stopper.events.wake.notify_one();
@@ -265,28 +404,14 @@ async fn start(command: Command, config: config::Config) -> i32 {
     util::log(&format!("Tico runner {} (rust) started for {}", runner::RUNNER_VERSION, service.config.runner_id()));
     // No launchd here (TICO_SIDE_JOBS=1): the runner also supervises importers, close-calls and connectors.
     let side = sidejobs::start(&service.config);
+    screen::start(service.config.path.clone(), client.clone());
     service.run().await;
+    screen::shutdown().await;
     if let Some((task, stop)) = side {
         stop.notify_one();
         let _ = task.await;
     }
     0
-}
-
-/// Started through `python -m runner run` (runner/engine.py): hand the process back to that Python runner,
-/// which stays on its own engine for this start and reports `needs` as why. Returns only on failure, with why;
-/// None when not started so.
-fn python_fallback(needs: &str) -> Option<String> {
-    use std::os::unix::process::CommandExt;
-    let argv: Vec<String> = serde_json::from_str(&std::env::var("TICO_RUNNER_PYTHON_ARGV").ok()?).ok()?;
-    let (program, args) = argv.split_first()?;
-    util::log("Tico runner: running this computer on the Python runner instead");
-    let err = std::process::Command::new(program)
-        .args(args)
-        .env("TICO_RUNNER_ENGINE_FALLBACK", format!("the Rust runner does not run this yet: {needs}"))
-        .env_remove("TICO_RUNNER_PYTHON_ARGV")
-        .exec();
-    Some(err.to_string())
 }
 
 #[cfg(test)]

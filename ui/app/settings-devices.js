@@ -180,15 +180,17 @@ function dockerRunnerCommands(code, label, runtime, kind = 'linux') {
   const network = String(S.config?.server_network || 'tico_default').replace(/[^a-zA-Z0-9_.-]/g, '');
   const name = runnerName(code);
   const container = `tico-runner-${name}`;
+  const login = harnessCaps(runtime).container_login;
   return [
     [local ? 'Set up the runner on this computer (installs Docker if it is missing; keeps itself on this server\'s release)'
            : kind === 'mac' ? 'Set up the runner on that Mac (Docker Desktop must be running; keeps itself on this server\'s release)'
            : 'Set up the runner on the server (installs Docker if it is missing; keeps itself on this server\'s release)',
      `curl -fsSL ${installer} -o install.sh && sh install.sh --runner --name ${name} ${join}${local ? ` --server-network ${network}` : ''} --code '${code}' --label ${quoted}`],
-    // Signing in to a model comes only once a provider is chosen; before that there is no model to name.
-    // `claude auth login` signs the CLI in; `claude setup-token` would only print a token. As `bot`, the user turns run as.
-    runtime ? ['Sign the bots in to a model, once: Sign in on Settings > Computers, or run this (the runner installs the model CLI first; give it a minute)',
-     `docker exec -it -u bot ${container} ${runtime === 'claude' ? 'claude auth login' : 'codex login --device-auth'}`] : null,
+    // Signing in to a model comes only once a provider is chosen; before that there is no model to name, and a CLI
+    // that signs in with a key has no login to run. `container_login` is the manifest's login for a terminal with no
+    // browser. As `bot`, the user turns run as.
+    login ? ['Sign the bots in to a model, once: Sign in on Settings > Computers, or run this (the runner installs the model CLI first; give it a minute)',
+     `docker exec -it -u bot ${container} ${login}`] : null,
     ['Or with plain Docker instead of the line above. It has no updater, so it will not follow the server\'s releases',
      `docker run -d --name ${container} --restart unless-stopped${local ? ` --network ${network}` : ''} -v ${container}_runner-home:/home/runner ghcr.io/ticoteam/tico-runner:${tag || 'latest'} join ${join} --code '${code}' --label ${quoted}`],
   ];
@@ -214,16 +216,14 @@ async function enrollmentDownload(operator, label) {
 }
 // One chip per AI tool on a computer: its version and whether it is signed in, from the computer's readiness
 // (`harnesses` per tool, `runtimes` per runtime; an older runner sends only `runtimes`). Only what its bots use (with no bot
-// yet, the team's default), plus anything installed anyway. Codex, Claude Code and Muse Code sign in from here: the computer runs
-// the login as the bot user and relays only the link and one-time code (backend/model_login.py, runner/login.py).
-// The others have no login the computer can relay, so the chip says what to run there.
-const MACHINE_SIGNIN = ['codex', 'claude', 'musecode'];
-const MACHINE_LOGIN_COMMANDS = {grok: 'grok login', cursor: 'cursor-agent login'};   // backend/providers.py `login`
-const MACHINE_KEY_ONLY = ['gemini', 'pi'];
+// yet, the team's default), plus anything installed anyway. A CLI whose manifest has `browser_sign_in` signs in from here:
+// the computer runs the login as the bot user and relays only the link and one-time code (backend/model_login.py,
+// runner-rs/src/login.rs). One with only a `terminal_login` gets that command to run there; one whose keys belong to
+// each bot (`api_keys = "bot"`) gets a link to Credentials.
 // The server's rule (model_login._operator): the owner, an admin, or the person whose computer it is.
 const machineCanSignIn = machine => settingsIsAdmin() || (!!S.me?.id && machine.operator === S.me.id);
 function machineLoginCommand(machine, name) {
-  const command = MACHINE_LOGIN_COMMANDS[name];
+  const command = harnessCaps(name).terminal_login;
   return command && machine.update?.kind === 'docker' ? `docker exec -it -u bot <container> ${command}` : command;
 }
 function machineToolsHtml(machine, online) {
@@ -245,15 +245,24 @@ function machineToolsHtml(machine, online) {
     let action = '';
     if (manage && installed && auth !== 'ready') {
       const command = machineLoginCommand(machine, name);
-      if (MACHINE_SIGNIN.includes(name)) action = online
+      const caps = harnessCaps(name);
+      if (caps.browser_sign_in) action = online
         ? ` <button class="ghost machine-signin" type="button" data-model-login data-runner="${esc(machine.id)}" data-runtime="${esc(name)}" data-machine="${esc(machine.label)}">Sign in</button>` : '';
       else if (command) action = ` <span class="machine-login-command" title="Run on the computer${command.includes('<container>') ? '; docker ps shows the container name' : ''}"><code>${esc(command)}</code><button class="ghost machine-signin" type="button" data-machine-copy-login="${esc(command)}">Copy</button></span>`;
-      else if (MACHINE_KEY_ONLY.includes(name)) action = ' <a class="machine-signin-link" href="#/credentials">Add key</a>';
+      else if (caps.api_keys === 'bot') action = ' <a class="machine-signin-link" href="#/credentials">Add key</a>';
     }
     const rejected = auth === 'rejected'
       ? `<span class="err machine-rejected" data-rejected="${esc(name)}">${value.rejected_at ? esc(ago(value.rejected_at)) + '. ' : ''}${value.rejected_reason ? esc(value.rejected_reason) + '. ' : ''}${hlCredentialFix(value.credential_source)}. It takes no work that needs ${esc(name)} until then.</span>` : '';
     return `<span class="machine-runtime-item" data-machine-tool="${esc(name)}"><span class="pill ${tone}" title="${esc(value.detail || '')}">${esc(label)}</span>${action}${rejected}</span>`;
   }).join('');
+}
+// The row's sign that the screen is on: a link to it for whoever may open it.
+function machineScreenHTML(machine) {
+  if (!machine.screen || machine.screen === 'off' || machine.revoked_at) return '';
+  if (!machine.screen_available) return '<span class="settings-cell-note">Screen not available</span>';
+  const label = machine.screen === 'control' ? 'Screen · control' : 'Screen · view';
+  return screenMayOpen(machine) ? `<a class="machine-screen" href="${screenHref(machine.id)}"><span class="nav-icon" aria-hidden="true">computer</span>${label}</a>`
+    : `<span class="machine-screen"><span class="nav-icon" aria-hidden="true">computer</span>${label}</span>`;
 }
 function renderSettingsMachines() {
   const el = $('#set-machines'); if (!el) return;
@@ -262,7 +271,7 @@ function renderSettingsMachines() {
     const online = !machine.revoked_at && machine.last_seen && Date.now() - new Date(machine.last_seen) < 60000;
     const tools = machineToolsHtml(machine, online);
     // The model CLIs the computer runs: version, pin, and the owner's Update / Pin actions. The
-    // computer applies them between turns (backend/harness_actions.py, runner/harness_tools.py).
+    // computer applies them between turns (backend/harness_actions.py, runner-rs/src/harness_tools.rs).
     // It installs what its bots run on by itself; the owner turns any other one on or off here.
     const choices = machine.harness_choices || {};
     // What its bots run on, fallbacks included, stays on (the server refuses an off for it); an older server sends
@@ -296,7 +305,13 @@ function renderSettingsMachines() {
     const status = machine.revoked_at ? ['failed', 'revoked'] : online ? ['ok', 'online'] : ['', 'offline'];
     // Rarely used actions sit in the row's ⋯ menu, so each computer stays one compact row.
     const admin = settingsIsAdmin(), mayRemove = !machine.revoked_at && (admin || machine.operator === S.me?.id);
+    // Screen (Off / View / Control): offered once the computer itself has a screen turned on (`screen_available`),
+    // and kept while a mode is set so it can be turned off again. The operator or a bot admin sets it.
+    const screen = machine.screen || 'off';
+    const screenChoice = screenMayOpen(machine) && (machine.screen_available || screen !== 'off')
+      ? `<div class="people-menu-check machine-screen-choice" data-computer-screen="${esc(machine.id)}"><span>Screen</span>${repoSegHTML(`screen-${machine.id}`, 'Screen', [['off', 'Off'], ['view', 'View'], ['control', 'Control']], screen, false, ' repo-seg-sm')}</div>` : '';
     const menu = [bots.length ? `<button type="button" role="menuitem" data-computer-bots="${esc(machine.id)}">Show bots</button>` : '',
+      screenChoice,
       !machine.revoked_at && admin ? `<label class="people-menu-check"><input type="checkbox" data-member-bots="${esc(machine.id)}" ${machine.accepts_member_bots ? 'checked' : ''}> Accepts members' bots</label>` : '',
       mayRemove ? `<button type="button" role="menuitem" class="danger-text" data-computer-remove="${esc(machine.id)}">Remove computer</button>` : ''].join('');
     // Which runner engine it runs (runner/engine.py); hovering says the build, or why it is on Python.
@@ -306,10 +321,24 @@ function renderSettingsMachines() {
       <td data-label="Operator">${esc(settingsPersonName(machine.operator))}${!machine.revoked_at && machine.accepts_member_bots ? '<span class="settings-cell-note">Accepts members\' bots</span>' : ''}</td>
       <td data-label="Bots">${bots.length ? `<a href="#/settings" class="machine-bots" data-computer-bots="${esc(machine.id)}" title="${esc(botNames.join(', '))}"><strong>${bots.length} bot${bots.length === 1 ? '' : 's'}</strong><span class="settings-cell-note">${esc(botNames.join(', '))}</span></a>` : '<span class="muted">No bots</span>'}${failures ? `<span class="settings-cell-note err">${failures} not ready</span>` : ''}</td>
       <td data-label="AI tools"><div class="machine-runtime" aria-label="AI tools on ${esc(machine.label)}">${tools || '<span class="muted">No AI tools reported</span>'}</div>${harnesses ? `<details data-machine-details="${esc(machine.id)}:tools"><summary>Model CLIs</summary><div class="machine-harnesses">${harnesses}</div></details>` : ''}</td>
-      <td data-label="Status"><span class="machine-status"><span class="dot ${status[0]}" aria-hidden="true"></span>${status[1]}${machine.last_seen ? `<span class="muted"> · ${esc(ago(machine.last_seen))}</span>` : ''}</span></td>
+      <td data-label="Status"><span class="machine-status"><span class="dot ${status[0]}" aria-hidden="true"></span>${status[1]}${machine.last_seen ? `<span class="muted"> · ${esc(ago(machine.last_seen))}</span>` : ''}</span>${machineScreenHTML(machine)}</td>
       <td class="settings-row-actions"><div class="people-cell-more">${menu ? `<button class="people-more" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="More for ${esc(machine.label)}"><span class="nav-icon" aria-hidden="true">more_horiz</span></button><div class="people-menu" role="menu" hidden>${menu}</div>` : ''}</div></td></tr>`;
   }).join('');
   el.onchange = async event => {
+    const screenBox = event.target.closest('[data-computer-screen]');
+    if (screenBox && event.target.type === 'radio') {
+      const id = screenBox.dataset.computerScreen, before = SETTINGS_DATA.machines.find(m => m.id === id)?.screen || 'off';
+      screenBox.querySelectorAll('input').forEach(input => { input.disabled = true; });
+      try {
+        await post(`/v2/computers/${encodeURIComponent(id)}/screen`, {mode: event.target.value});
+        toast(event.target.value === 'off' ? 'Screen off' : `Screen: ${event.target.value}`);
+        await loadSettings();
+      } catch (error) {
+        toast(error.message, true);
+        screenBox.querySelectorAll('input').forEach(input => { input.disabled = false; input.checked = input.value === before; });
+      }
+      return;
+    }
     const choice = event.target.closest('[data-harness-choice]');
     if (choice) {
       choice.disabled = true;
@@ -427,7 +456,7 @@ function settingsSetupPrompt(slug) {
   return `Help me update the ${appName()} bot setup.\n\nCurrent cloud state:\n${rows.join('\n')}\n\nAsk me what I want to change, then use the formal owner-admin API. Do not edit the production SQLite database directly. Bot definitions in the ${appName()} backend are authoritative after the one-time bootstrap: create a bot with POST /api/v2/bots and update its name, description, hierarchy, status, repository, or room type with POST /api/v2/bots/{bot}/definition. No ${appName()} application deploy or registry publish is required. Provision the bot's repository on any computer that will run it, and verify computer readiness. Preserve tasks and conversation history. Change a bot's model, reasoning effort, or registered computer through POST /api/v2/bots/{bot}/transitions so ${appName()} checkpoints every current session before applying it. If the transition is blocked because the old computer is unavailable, explain what continuity will be lost and ask me before calling apply-without-checkpoint. Use revision and assignment-generation checks. Humans are still managed separately from bot definitions.`;
 }
 function settingsEnrollmentPrompt(operator, filename) {
-  return `Set up a ${appName()} local runner for ${settingsPersonName(operator)} using the downloaded ${filename} enrollment file. Work from the Tico checkout on the target Mac. Locate the human's bot repositories, run scripts/setup-runner.sh "$HOME/Downloads/${filename}", then run runtime/runner-venv/bin/python -m runner doctor and resolve every repository, runtime login (Codex or Claude), model, or configuration-readiness problem. Never print or commit the enrollment code or runner token and never open an inbound port. Do not install the private processing or connector workers. Registration must not assign bots; when the computer is ready, tell me to return to ${appName()} Settings and choose it for each intended bot so existing sessions are checkpointed before the move.`;
+  return `Set up a ${appName()} local runner for ${settingsPersonName(operator)} using the downloaded ${filename} enrollment file. Work from the Tico checkout on the target Mac. Locate the human's bot repositories, run scripts/setup-runner.sh "$HOME/Downloads/${filename}", then run scripts/tico doctor and resolve every repository, runtime login (Codex or Claude), model, or configuration-readiness problem. Never print or commit the enrollment code or runner token and never open an inbound port. Do not install the private processing or connector workers. Registration must not assign bots; when the computer is ready, tell me to return to ${appName()} Settings and choose it for each intended bot so existing sessions are checkpointed before the move.`;
 }
 function settingsCopyPrompt(slug) {
   void copyText(settingsSetupPrompt(slug)).then(() => toast(`${slug ? settingsBotName(slug) + ' ' : ''}setup prompt copied`)).catch(() => toast('Could not copy the setup prompt', true));

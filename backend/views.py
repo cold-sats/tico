@@ -1,5 +1,6 @@
 """Existing frontend read models over cloud records. Never import the local hub server."""
 
+import hashlib
 import json
 import os
 import re
@@ -16,7 +17,7 @@ from . import models as M
 from . import changelog as CL
 from . import providers, runner_versions
 from . import personal_tokens, rooms, team_rules, turns
-from .execution import AWAKE_GAP, AWAKE_SETTLE, Execution, turn_share, turns_here
+from .execution import AWAKE_GAP, AWAKE_SETTLE, Execution, turn_limit, turn_share, turns_here
 from pathlib import Path
 
 from . import read_cache
@@ -216,11 +217,12 @@ def bot_owner_rows(c, registry, slug, people, configs, archived):
 
 def machine(c, bot):
     from .agents import presence
+    from .screen import listing as screen_listing
     external = presence(c, bot)
     if external:
         return external
     row = c.execute("SELECT a.runner_id,a.generation,r.label,r.operator,r.last_seen,r.revoked_at,r.readiness_json,"
-                    "r.platform,r.version,r.awake_since "
+                    "r.platform,r.version,r.awake_since,r.screen,r.capabilities_json "
                     "FROM assignments a JOIN runners r ON r.id=a.runner_id WHERE a.bot=?", (bot,)).fetchone()
     if not row:
         return {"online": False, "awake": False, "ready": False, "machine": None}
@@ -233,8 +235,8 @@ def machine(c, bot):
     detail = {k: v for k, v in bot_readiness(row["readiness_json"], bot).items() if k != "tools"}
     return {"online": online, "awake": awake, "ready": online and detail.get("ready") is True,
             "readiness": detail,
-            "machine": {k: row[k] for k in ("runner_id", "generation", "label", "operator", "last_seen",
-                                                      "platform", "version")}}
+            "machine": {**{k: row[k] for k in ("runner_id", "generation", "label", "operator", "last_seen",
+                                                         "platform", "version")}, **screen_listing(row)}}
 
 
 def deploy_draining(c, bot):
@@ -304,13 +306,19 @@ def operation_issues(c, who, auth):
             # A usage limit retries on its own; only a fresh one is worth a glance, an
             # old row is a leftover nobody cleared. Three in a row is the subscription
             # window spent; Settings still shows the retry time without interrupting chat.
-            from .execution import LIMIT_STRIKES, limit_cooldown, limit_streak
+            from .execution import LIMIT_COOLDOWN_LONG, LIMIT_STRIKES, limit_cooldown, limit_streak
             since = H.parse_ts(status.get("since"))
             cooldown = limit_cooldown(c, slug)
             if since and since > H.parse_ts(H.shift(H.now(), seconds=-max(3600, cooldown))):
                 config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (slug,)).fetchone()
                 runtime = providers.bot_choice(c, auth.settings, json.loads(config[0]) if config else {})[0] or "your"
-                if limit_streak(c, slug) >= LIMIT_STRIKES:
+                if cooldown > LIMIT_COOLDOWN_LONG:
+                    retry = H.shift(status["since"], seconds=cooldown)
+                    add("bot", bot["display_name"] + " needs attention",
+                        f"{runtime} subscription quota exhausted; queued work waits until {retry[:10]} "
+                        f"{retry[11:16]} UTC", bot=slug, severity="warning", needs_person=False,
+                        action="Wait for the subscription reset, or set a fallback harness in Settings → Bots.")
+                elif limit_streak(c, slug) >= LIMIT_STRIKES:
                     retry = H.shift(status["since"], seconds=cooldown)
                     add("bot", bot["display_name"] + " needs attention",
                         f"{runtime} usage limit three times in a row; queued work waits until {retry[11:16]} UTC, "
@@ -483,21 +491,26 @@ def own_sign_in(c, bot, settings=None):
     return (verdict.get("problem") or "its model is not signed in") if verdict.get("sign_in") else ""
 
 
-def free_turn(c, bot, location):
+def free_turn(c, bot, location, human=False):
     """The computer a bot's queued work waits on for a free turn, or '': every turn there is taken, or this
-    bot already holds its share of them (execution.turn_share)."""
+    bot already holds its share of them (execution.turn_share). A person's message is never held to the share."""
     machine = location.get("machine") or {}
     row = c.execute("SELECT capacity FROM runners WHERE id=?", (machine.get("runner_id"),)).fetchone()
     if not row:
         return ""
     held = turns_here(c, machine["runner_id"])
+    share = turn_share(c, machine["runner_id"], row["capacity"])
+    others = [r[0] for r in c.execute("SELECT DISTINCT j.bot FROM jobs j JOIN assignments a ON a.bot=j.bot "
+                                      "WHERE j.state='queued' AND a.runner_id=? AND j.bot!=?", (machine["runner_id"], bot))]
+    limit = turn_limit(share, row["capacity"], any(held.get(other, 0) < share for other in others))
     full = (sum(held.values()) >= (row["capacity"] or 1)
-            or held.get(bot, 0) >= turn_share(c, machine["runner_id"], row["capacity"]))
+            or not human and held.get(bot, 0) >= limit)
     return (machine.get("label") or "its computer") if full else ""
 
 
-def queued_label(c, bot, location, settings=None):
-    """(label, readiness_reason) for a bot's queued work: what it is waiting for, in a person's words."""
+def queued_label(c, bot, location, settings=None, human=False, behind=False):
+    """(label, readiness_reason) for a bot's queued work: what it is waiting for, in a person's words. `human`: a
+    person's message; `behind`: the bot is still answering earlier work in this same conversation."""
     bot_state = H.bot(c, bot)["state"]
     label, readiness_reason = "Saved — queued", ""
     draining = c.execute("SELECT 1 FROM bot_control WHERE bot=? AND draining=1", (bot,)).fetchone()
@@ -525,7 +538,9 @@ def queued_label(c, bot, location, settings=None):
             label = "Saved — " + verdict
         else:
             label = "Saved — " + str(problems[0]) if problems else "Saved — waiting for computer setup"
-    elif (computer := free_turn(c, bot, location)):
+    elif behind:
+        label = "Saved — read when the current reply finishes"
+    elif (computer := free_turn(c, bot, location, human)):
         label = "Saved — waiting for a free turn on " + computer
     return label, readiness_reason
 
@@ -542,8 +557,31 @@ def task_wait(c, task_id, settings=None):
     return "Queued" if reason == "queued" else reason[:1].upper() + reason[1:]
 
 
-def conversation_snapshot(c, cid, who=None, settings=None):
-    page = privacy.page(c, who, cid) if who else message_page(c, cid)
+# A run's live reply in a snapshot: its newest pieces, each cut to a length. A long run has hundreds of steps and the
+# snapshot is read again as it works; the finished reply arrives as a message.
+LIVE_PARTS_MAX = 40
+LIVE_PART_CHARS = 8000
+
+
+def page_options(limit=None, max_bytes=None):
+    """A conversation page's `limit` (1 to 200, default 200) and `max_bytes` (at least 16 KB, at most 1 MB, default
+    none) from a request: the web app opens a chat at 50 messages and 160 KB; other callers keep the old page."""
+    out = {"limit": max(1, min(int(limit), 200)) if limit else 200}
+    if max_bytes:
+        out["max_bytes"] = max(16_384, min(int(max_bytes), 1 << 20))
+    return out
+
+
+def live_parts(parts):
+    """The newest LIVE_PARTS_MAX pieces of a run's reply, each at most LIVE_PART_CHARS (its end kept: the newest text),
+    and how many earlier pieces were left out."""
+    kept = parts[-LIVE_PARTS_MAX:]
+    cut = [p if len(p["text"]) <= LIVE_PART_CHARS else {**p, "text": "…" + p["text"][-LIVE_PART_CHARS:]} for p in kept]
+    return cut, len(parts) - len(kept)
+
+
+def conversation_snapshot(c, cid, who=None, settings=None, page_args=None):
+    page = privacy.page(c, who, cid, **(page_args or {})) if who else message_page(c, cid)
     job = c.execute("SELECT j.*,a.state AS attempt_state,a.lease_until,a.stop_requested FROM jobs j JOIN messages m ON m.id=j.message_id "
                     "LEFT JOIN attempts a ON a.id=j.attempt_id WHERE m.conversation_id=? "
                     "AND coalesce(json_extract(m.refs_json,'$.maintenance'),'')!='checkpoint' "
@@ -570,14 +608,22 @@ def conversation_snapshot(c, cid, who=None, settings=None):
             label = "Reply failed — your message is saved"
         readiness_reason = ""
         if state == "queued":
-            label, readiness_reason = queued_label(c, job["bot"], location, settings)
+            message = H.message(c, job["message_id"]) or {}
+            behind = c.execute("SELECT 1 FROM jobs j JOIN messages m ON m.id=j.message_id JOIN attempts a ON a.id=j.attempt_id "
+                               "WHERE m.conversation_id=? AND j.bot=? AND a.state IN ('leased','running') LIMIT 1",
+                               (cid, job["bot"])).fetchone()
+            label, readiness_reason = queued_label(c, job["bot"], location, settings,
+                                                   human=H.is_human(message.get("from_actor") or ""), behind=bool(behind))
         parts = []
         if state in ("leased", "running"):
             parts = turns.reply_parts([(e["kind"], json.loads(e["payload_json"]), e["created"]) for e in c.execute(
                 "SELECT kind,payload_json,created FROM attempt_events WHERE attempt_id=? ORDER BY seq", (job["attempt_id"],))])
+        parts, omitted = live_parts(parts)
         execution = {"job_id": job["id"], "message_id": job["message_id"], "bot": job["bot"],
                      "attempt_id": job["attempt_id"], "state": state, "label": label,
                      "text": "\n\n".join(p["text"] for p in parts if p["kind"] != "tool"), "parts": parts, **location}
+        if omitted:
+            execution["parts_omitted"] = omitted
         if readiness_reason:
             execution["readiness_reason"] = readiness_reason
     from .chat_goals import current
@@ -1109,12 +1155,29 @@ def needs_items(c, auth, who, task_view, older=None):
     for item in items:
         item["pressing"] = pressing(item, at)
         item["need"] = need_of(item)
-    return sorted(items, key=lambda x: needs_order(x["kind"], x["created"], x.get("rank") if x["kind"] == "task" else None,
-                                                   x.get("from_person"), x["pressing"], bool(x.get("ask_missing")),
-                                                   deadline(x)))
+    return sorted(items, key=needs_key)
+
+
+def needs_key(x):
+    """An item's place in the queue (needs_order), from the item as needs_items builds it."""
+    return needs_order(x["kind"], x["created"], x.get("rank") if x["kind"] == "task" else None,
+                       x.get("from_person"), x["pressing"], bool(x.get("ask_missing")), deadline(x))
+
+
+def needs_marks(items):
+    """({id: fingerprint}, version) of a Needs-you list as needs_items orders it. A fingerprint covers the item and its
+    place in the order, so an item whose mark is unchanged kept its content and its order against the others: a page
+    that holds the list mends it from the changed ids alone (the live `needs` event, `GET /api/v2/needs-you?ids=`)."""
+    marks = {}
+    for x in items:
+        marks[str(x["id"])] = hashlib.sha1((json.dumps(x, sort_keys=True, default=str) + repr(needs_key(x)))
+                                           .encode()).hexdigest()[:12]
+    version = hashlib.sha1("|".join(f"{k}:{v}" for k, v in marks.items()).encode()).hexdigest()[:16]
+    return marks, version
 
 
 FLEET_CACHE_S = 15
+NEEDS_IDS_MAX = 100     # the most a live `needs` event names; more changed than that reads the list whole
 _FLEET_CACHE = {}
 
 
@@ -1423,13 +1486,16 @@ def install_views(app, store, auth, mutate, task_view):
             default = {providers.default_runtime(providers.load(c, store.settings))} - {""}
             run_on = providers.runtimes_run_on(c, store.settings)
             for row in c.execute("SELECT id,label,operator,last_seen,revoked_at,platform,version,capacity,readiness_json,"
-                                 "accepts_member_bots FROM runners ORDER BY created"):
+                                 "accepts_member_bots,screen,capabilities_json FROM runners ORDER BY created"):
                 if not auth.bot_admin(who) and who.actor != "human:" + row["operator"]:
                     continue
                 bots = [a[0] for a in c.execute("SELECT bot FROM assignments WHERE runner_id=? ORDER BY bot", (row["id"],))]
                 value = dict(row)
                 value["release"] = runner_versions.view(fleet.get(row["id"])).get("release") or ""
                 value["accepts_member_bots"] = bool(row["accepts_member_bots"])
+                from .screen import listing as screen_listing
+                value.update(screen_listing(value))
+                value.pop("capabilities_json")
                 value["readiness"] = readiness_document(value.pop("readiness_json"))
                 from .repositories import metadata
                 value["repositories"] = metadata(c, "computer-repositories:" + row["id"]).get("repositories", "unknown")
@@ -1694,16 +1760,31 @@ def install_views(app, store, auth, mutate, task_view):
                     "bots": recent_bots(c, auth, who, since, limit, needs_items(c, auth, who, task_view))}
 
     @app.get("/api/v2/needs-you")
-    def needs(request: Request, count: bool = False):
+    def needs(request: Request, count: bool = False, ids: str | None = None, version: str | None = None):
         """`count=1` is the number alone: the desktop app asks every 30 s and shows only
-        that, where the full list is over 100 KB."""
+        that, where the full list is over 100 KB. The list's `version` changes whenever an item or its place does:
+        `version=<the one held>` answers `unchanged` with no items when it still holds, and `ids=a,b` sends only those
+        items, with each one's place in the whole list (`positions`), to mend a held copy after a live `needs` event."""
         who = request.state.identity
         human_only(who)
         with store.read() as c:
             older = []
             items = needs_items(c, auth, who, task_view, older)
-            return ({"actor": who.actor, "count": len(items)} if count
-                    else {"actor": who.actor, "items": items, "older": older, "went_away": went_away(c, who.actor)})
+            if count:
+                return {"actor": who.actor, "count": len(items)}
+            current = needs_marks(items)[1]
+            if version and version == current:
+                return {"actor": who.actor, "count": len(items), "version": current, "unchanged": True,
+                        "went_away": went_away(c, who.actor)}
+            if ids is not None:
+                wanted = {part.strip() for part in ids.split(",") if part.strip()}
+                if len(wanted) > NEEDS_IDS_MAX:
+                    raise Problem("validation", f"At most {NEEDS_IDS_MAX} ids", 422)
+                positions = {str(x["id"]): n for n, x in enumerate(items) if str(x["id"]) in wanted}
+                return {"actor": who.actor, "count": len(items), "version": current, "positions": positions,
+                        "items": [x for x in items if str(x["id"]) in positions]}
+            return {"actor": who.actor, "items": items, "older": older, "went_away": went_away(c, who.actor),
+                    "version": current}
 
     @app.get("/api/v2/tico/fleet")
     def tico_fleet(request: Request):
@@ -1796,10 +1877,10 @@ def install_views(app, store, auth, mutate, task_view):
         return mutate(request, body, work)
 
     @app.get("/api/v2/conversations/{cid}/snapshot")
-    def snapshot(request: Request, cid: str):
+    def snapshot(request: Request, cid: str, limit: int | None = None, max_bytes: int | None = None):
         with store.read() as c:
             auth.conversation(c, request.state.identity, cid)
-            snap = conversation_snapshot(c, cid, request.state.identity, auth.settings)
+            snap = conversation_snapshot(c, cid, request.state.identity, auth.settings, page_options(limit, max_bytes))
             turns.annotate(c, auth, request.state.identity, snap["messages"])
             return snap
 

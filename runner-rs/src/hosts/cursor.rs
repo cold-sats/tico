@@ -1,4 +1,4 @@
-//! The Cursor agent host (`runner/hosts/cursor.py`): one `cursor-agent -p --output-format stream-json` per turn. A
+//! The Cursor agent host: one `cursor-agent -p --output-format stream-json` per turn. A
 //! thread is a chat made with `cursor-agent create-chat`, whose id is the thread id, so a restart resumes it:
 //!
 //!     cursor-agent -p --output-format stream-json --force --trust --model auto --workspace <repo> --resume <chat id>

@@ -59,6 +59,7 @@ function applyConfig(config) {
   renderNewVersion();
   window.renderChangelogNotice?.();
   noticeUpdatedServer();
+  void renderAppUpdate();
   renderUsageNotice();
   return S.config;
 }

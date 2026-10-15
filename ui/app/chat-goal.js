@@ -22,7 +22,7 @@ function chatGoalModeStore(slug, on) {
 const goalPinned = g => !!g && (g.status === 'active' || g.status === 'paused');
 const goalEnded = g => !!g && (g.status === 'met' || g.status === 'stopped');
 
-// An empty chat has no conversation to ask yet. A Codex or Claude bot on a Tico computer offers the goal when what its
+// An empty chat has no conversation to ask yet. A bot on a Tico computer offers the goal when what its
 // computer reported says goals work there (as backend/chat_goals.py reads it: the bot's own readiness, then the
 // runtime's, then a harness on that runtime), or when it said nothing; the server, asked once the first goal makes
 // the conversation, has the final word (chatGoalRoom).
@@ -30,7 +30,6 @@ function chatGoalGuess(slug) {
   const bot = (S.emps || []).find(e => e.name === slug);
   if (!bot || slug === assistantBot() || !isKeeper(slug) || bot.agent || !bot.machine) return false;
   const runtime = String(bot.resolved_runtime || bot.runtime || '');
-  if (!['codex', 'claude'].includes(runtime)) return false;
   if (typeof bot.readiness?.goals === 'boolean') return bot.readiness.goals;
   let report = null;
   try { report = (SETTINGS_DATA?.machines || []).find(m => m.id === bot.machine.runner_id)?.readiness; } catch { report = null; }

@@ -1,4 +1,4 @@
-//! The turn's prompt (`Runner.prompt` in runner/service.py), line for line. Bot Desk reads the next-run and
+//! The turn's prompt (`Runner.prompt` in the old Python runner), line for line. Bot Desk reads the next-run and
 //! notes blocks back out of transcripts by their first lines, so those headers are byte-identical.
 
 use serde_json::{Map, Value};
@@ -220,23 +220,16 @@ fn py_str(v: &Value) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
-    use std::process::Command;
 
-    /// The Python runner's prompt for the same attempt, through `Runner.prompt` with fixed names.
-    fn python_prompt(attempt: &Value, after: Option<&str>, resumed: bool) -> String {
-        let script = "import sys,json\nsys.path.insert(0,sys.argv[1])\nfrom runner.service import Runner\nr=Runner.__new__(Runner)\nr._names={'company_name':'Acme','app_name':'Tico','assistant_name':'Assistant','assistant_bot':'coo'}\na=json.loads(sys.argv[2])\nsys.stdout.write(r.prompt(a, after=json.loads(sys.argv[3]), resumed=sys.argv[4]=='1'))";
-        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-        let out = Command::new("python3")
-            .args(["-c", script])
-            .arg(repo)
-            .arg(attempt.to_string())
-            .arg(json!(after).to_string())
-            .arg(if resumed { "1" } else { "0" })
-            .env("TICO_UPDATE_CHECK", "off")
-            .output()
-            .unwrap();
-        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-        String::from_utf8(out.stdout).unwrap()
+    /// What the Python runner's `Runner.prompt` wrote for each case below (names Acme/Tico), kept since that runner is gone.
+    fn python_prompt(id: &str) -> &'static str {
+        match id {
+            "a1" => include_str!("testdata/prompt-a1.txt"),
+            "a2" => include_str!("testdata/prompt-a2.txt"),
+            "a3" => include_str!("testdata/prompt-a3.txt"),
+            "a4" => include_str!("testdata/prompt-a4.txt"),
+            other => panic!("no golden prompt for {other}"),
+        }
     }
 
     #[test]
@@ -262,7 +255,8 @@ mod tests {
                     "message": {"id": "m5", "body": "/compact", "refs": {"command": "compact"}}, "history": []}), None, false),
         ];
         for (attempt, after, resumed) in cases {
-            assert_eq!(prompt(&attempt, &names, after, resumed), python_prompt(&attempt, after, resumed), "{}", attempt["id"]);
+            let id = attempt["id"].as_str().unwrap();
+            assert_eq!(prompt(&attempt, &names, after, resumed), python_prompt(id), "{id}");
         }
     }
 }

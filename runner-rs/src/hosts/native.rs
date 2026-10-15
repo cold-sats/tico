@@ -1,5 +1,5 @@
 //! Native goals and harness commands on a host (`start_goal`, `start_goal_turn`, `start_command`, `poll_goal`,
-//! `active_turn` in runner/hosts/*.py). Kept apart from `Host`'s core calls so new hosts add a line here only
+//! `active_turn`). Kept apart from `Host`'s core calls so new hosts add a line here only
 //! when they take goals or commands.
 
 use serde_json::{json, Value};

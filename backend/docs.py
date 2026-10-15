@@ -168,7 +168,8 @@ def ensure_schema(c, settings=None):
         c.execute(FTS)
     except sqlite3.OperationalError:
         pass
-    c.execute("BEGIN IMMEDIATE")
+    from .flight import begin
+    done = begin(c)
     try:
         if has_fts(c):
             live = c.execute("SELECT COUNT(*) FROM docs WHERE archived=0").fetchone()[0]
@@ -180,6 +181,8 @@ def ensure_schema(c, settings=None):
     except Exception:
         c.rollback()
         raise
+    finally:
+        done()
 
 
 def source_url(source):

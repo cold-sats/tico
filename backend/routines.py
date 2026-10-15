@@ -50,6 +50,13 @@ def validate(fields):
     return validate_schedules([entry])[0]
 
 
+def require_trigger(c, event):
+    """A routine may listen for a webhook only while its trigger exists (backend/triggers.py)."""
+    from . import triggers
+    if event and event.startswith(triggers.EVENT) and not triggers.exists(c, event):
+        raise ValueError(f"No trigger {event[len(triggers.EVENT):]}; add it in Settings > Triggers first")
+
+
 def row(c, sid):
     found = c.execute("SELECT s.*,coalesce(sc.timezone,?) AS timezone,coalesce(sc.enabled,1) AS enabled "
                       "FROM schedules s LEFT JOIN schedule_config sc ON sc.schedule_id=s.id WHERE s.id=?",
@@ -62,6 +69,7 @@ def create(c, actor, bot, fields, *, key=None, at=None):
     again updates it in place (a bot that sets up its own routines every turn makes one)."""
     at = _clock(at)
     entry = validate(fields)
+    require_trigger(c, entry["on"])
     H._takes_tasks(c, actor, "bot:" + bot)        # every run of a routine is a task
     if key is not None:
         existing = c.execute("SELECT id FROM schedules WHERE bot=? AND routine_key=?", (bot, key)).fetchone()
@@ -98,6 +106,8 @@ def update(c, actor, sid, changes, *, at=None, restore=False):
     elif changes.get("on"):
         merged["cron"] = ""
     entry = validate(merged)
+    if (entry["on"] or None) != current["event_name"]:
+        require_trigger(c, entry["on"])
     now = stamp(at)
     event = entry["on"] or None
     cadence_changed = (entry["cron"] != (current["cron"] or "") or event != current["event_name"]

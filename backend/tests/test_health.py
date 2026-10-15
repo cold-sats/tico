@@ -613,7 +613,7 @@ def test_listening_scoring_with_the_shipped_questions_after_its_own_went_missing
     assert f"listening-item@{shipped['version'] + 4}" in check["summary"]
 
 
-def test_a_computer_on_the_python_runner_warns_with_why_and_the_heartbeat_takes_the_engine(environment):
+def test_a_computer_on_the_python_runner_is_told_to_update_and_the_heartbeat_takes_the_engine(environment):
     import json
     from backend.models import StructuredReadiness
     report = StructuredReadiness.model_validate({"engine": {"name": "python", "note": "TICO_RUNNER_ENGINE=python"}})
@@ -629,4 +629,26 @@ def test_a_computer_on_the_python_runner_warns_with_why_and_the_heartbeat_takes_
         check = health_of(api)[1].get("engine:" + runner)
         assert bool(check) == warned
     assert check["status"] == "warn" and check["summary"] == (
-        "Team box runs the Python runner (TICO_RUNNER_ENGINE=python). It is removed in the next release.")
+        "Team box runs the Python runner, which Tico no longer ships. Update this computer.")
+
+
+def test_a_persons_message_waiting_two_minutes_on_a_computer_with_room_is_stuck(environment):
+    """Someone is sitting there waiting for the reply: two minutes, not the fifteen other queued work gets."""
+    from backend import health
+    api = environment()
+    runner = enrolled(api)
+    heartbeat(api, runner)
+    add_bot(api, "ops")
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO assignments(bot,runner_id,generation,updated,updated_by) VALUES('ops',?,1,?,'t')",
+                  (runner, H.now()))
+        owner = "human:" + c.execute("SELECT id FROM humans ORDER BY id LIMIT 1").fetchone()[0]
+        chat = H.open_conversation(c, owner, [owner, "bot:ops"], kind="chat")
+        H._write_message(c, owner, "bot:ops", "hello?", chat, "say", {}, None, None)
+        online = {r["id"] for r in health._online_runners(c)}
+        assert health._waiting(c, online)[1] == []                    # just sent
+        c.execute("UPDATE jobs SET created=? WHERE bot='ops'", (H.shift(H.now(), minutes=-3),))
+        [row] = health._waiting(c, online)[1]
+        assert row["bot"] == "ops" and row["reason"] == "slow"
+        c.execute("UPDATE messages SET from_actor='bot:helper' WHERE conversation_id=?", (chat["id"],))
+        assert health._waiting(c, online)[1] == []                    # a bot's request gets the usual fifteen

@@ -1,5 +1,5 @@
-//! The process side of the hosts that run one harness process per turn and read its JSON lines (Pi, Cursor;
-//! `PiHost` / `CursorHost` in runner/hosts/pi.py and cursor.py share it line for line): the prompt goes in on
+//! The process side of the hosts that run one harness process per turn and read its JSON lines (Pi, Cursor):
+//! the prompt goes in on
 //! stdin, stderr to an unlinked file read back for the error text, one turn at a time, interrupt and stop by
 //! signal. What a harness's lines mean is its `Wire`.
 

@@ -1,4 +1,4 @@
-//! The Muse Code host (`runner/hosts/musecode.py`): one `muse exec --json` process per turn (Meta's coding CLI).
+//! The Muse Code host: one `muse exec --json` process per turn (Meta's coding CLI).
 //!
 //! A thread is a Muse session whose id Tico makes (a UUID): every turn runs with `--session-id <id>`, and an id
 //! the CLI already has continues that session, so a restart resumes it. The prompt goes in a file the turn can
@@ -25,7 +25,6 @@ use super::{event, failed, hub_mcp_server, is_limit, Events, HostError, Settings
 use crate::env::Env;
 use crate::util::{log, text_of, truthy};
 
-pub const EXECUTABLE: &str = "muse";
 pub const MODELS: &[&str] = &["muse-spark-1.3", "muse-wonder-1.0", "muse-wonder-full-1.0"];
 pub const DEFAULT_MODEL: &str = "muse-spark-1.3";
 const EFFORTS: &[&str] = &["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];

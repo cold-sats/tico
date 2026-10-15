@@ -56,8 +56,10 @@ from .settings_admin import SettingsAdmin, compact_at as compact_at_of, reposito
 from .readiness import absolute as absolute_link, can_run
 from . import fleet_check as fleet_check_module
 from .getting_started import _online_runners
+from .screen import listing as screen_listing
 from .credential_cards import install_credential_cards, scrub_attempt
 from .github import PATH as GITHUB_WEBHOOK_PATH
+from .triggers import PATH as TRIGGER_HOOK_PATH
 from .store import H, P, Problem, Store, bot_readiness, encode, message_page, repo_url, task_message_page
 
 
@@ -142,6 +144,9 @@ def create_app(settings=None):
         recorder_thread = flight.Flight(recorder, store, settings) if recorder else None
         if recorder_thread:
             recorder_thread.start()
+            # SIGUSR1 (stacks) and SIGUSR2 (memory top 50) for `python -m backend.flight stacks|memory`.
+            from .flight_file import install_signals
+            install_signals(recorder_thread.folder, recorder_thread.file)
         async def schedule_loop():
             from .scheduler import Scheduler
             scheduler = Scheduler(store, execution)
@@ -378,6 +383,9 @@ def create_app(settings=None):
                 return await call_next(request)
             # The repository webhook (backend/github.py) carries its own HMAC signature.
             if request.url.path == GITHUB_WEBHOOK_PATH and request.method == "POST":
+                return await call_next(request)
+            # A webhook trigger's address carries its own secret (backend/triggers.py).
+            if request.url.path.startswith(TRIGGER_HOOK_PATH) and request.method == "POST":
                 return await call_next(request)
             # An agent signing in to the MCP server over OAuth (backend/mcp_oauth.py): the metadata it reads first, and
             # the registration, token and revocation endpoints, which carry their own codes and secrets.
@@ -627,6 +635,8 @@ def create_app(settings=None):
         started = time.perf_counter()
         request.state.auth_ms = 0.0
         app.state.timing.begin()
+        # This request's SQL time and write-lock wait, added to by the threads it runs on (backend/flight.py).
+        cost, cost_token = flight.request_started() if recorder is not None else (None, None)
         route = request.url.path
         response = None
         try:
@@ -644,7 +654,9 @@ def create_app(settings=None):
             size = response.headers.get("content-length") if response is not None else None
             app.state.timing.end(key, request.state.auth_ms, (time.perf_counter() - started) * 1000,
                                  flight.caller_kind(who), response.status_code if response is not None else 500,
-                                 int(size) if size and size.isdigit() else 0, getattr(who, "actor", "") or "")
+                                 int(size) if size and size.isdigit() else 0, getattr(who, "actor", "") or "", cost)
+            if cost_token is not None:
+                flight.request_finished(cost_token)
 
     async def display_names(request, response):
         """Stable v2 answers carry display names beside actor ids (backend/names.py)."""
@@ -1878,10 +1890,12 @@ def create_app(settings=None):
         return mutate(request, body, work)
 
     @app.get("/api/v2/conversations/{cid}/messages")
-    def messages(request: Request, cid: str, since: str | None = None, before: str | None = None):
+    def messages(request: Request, cid: str, since: str | None = None, before: str | None = None,
+                 limit: int | None = None, max_bytes: int | None = None):
         with store.read() as c:
             auth.conversation(c, request.state.identity, cid)
-            page = privacy.page(c, request.state.identity, cid, since=views.since_time(since), before=before)
+            page = privacy.page(c, request.state.identity, cid, since=views.since_time(since), before=before,
+                                **views.page_options(limit, max_bytes))
             turn_work.annotate(c, auth, request.state.identity, page["messages"])
             return {"conversation": H.conversation(c, cid), **page}
 
@@ -2631,6 +2645,10 @@ def create_app(settings=None):
         elif handoff and body.request_id:
             raise Problem("request_id", "Only a task for BotOps carries a person's request", 422)
         inherited_request = parent.get("request_id") if parent and H.is_human(who.actor) and who.actor == parent["requester"] else None
+        if request_id in ("turn", "default"):
+            # `turn` names the run's own request: store that message, which delegated_identity resolved, so the task's
+            # own run (whose turn is the task notice) still finds the person's words.
+            request_id = (H.DELEGATION.get() or {}).get("cited") or None
         if H.is_human(who.actor) and (request_id or inherited_request):
             c.execute("UPDATE tasks SET request_id=? WHERE id=?", (inherited_request or request_id, row["id"]))
         for url in body.links:
@@ -3292,6 +3310,12 @@ def create_app(settings=None):
                     person = auth.identity_for_actor(c, origin["actor"])
                     H.VIA.set("botops")
                     return acting_as(person, task_id)
+            if task and task.get("request_id") in ("turn", "default"):
+                # Tasks filed before the request was stored by id: the person's message the filing cited.
+                made = c.execute("SELECT detail_json FROM events WHERE action='task.create' AND target=? ORDER BY ts,id LIMIT 1",
+                                 (task_id,)).fetchone()
+                task = {**task, "request_id": ((H._json(made["detail_json"], {}) if made else {}).get("delegation")
+                                               or {}).get("cited")}
             if task and task.get("request_id") and task["owner"] == who.actor:
                 origin = H.message(c, task["request_id"])
                 made = c.execute("SELECT 1 FROM events WHERE action='task.create' AND target=? AND actor=? LIMIT 1",
@@ -3778,7 +3802,9 @@ def create_app(settings=None):
     def desired_runner_release(request: Request):
         with store.read() as c:
             execution.runner(c, request.state.identity)
-        return {**runner_versions.desired(), "features": {"task_files_multipart": True, "runner_commit": True}}
+        # `screen_v1`: this server takes the capability and `readiness.screen` (an older one refuses the heartbeat).
+        return {**runner_versions.desired(), "features": {"task_files_multipart": True, "runner_commit": True,
+                                                          "screen_v1": True}}
 
     @app.get("/api/v2/runners/assignments")
     def assigned(request: Request):
@@ -3921,7 +3947,9 @@ def create_app(settings=None):
             c.execute('DELETE FROM registry_metadata WHERE key=?', ('computer-repositories:' + rid,))
             H.event(c, who.actor, "runner.revoked", rid)
             return {"revoked": True}
-        return mutate(request, body, work)
+        result = mutate(request, body, work)
+        screen_sessions.set_mode(rid, "off", "computer removed")
+        return result
 
     def closed_computer(c, who, bot, runner_id):
         """An admin placing a member's bot on a computer that is neither the member's own nor open to members'
@@ -4056,7 +4084,7 @@ def create_app(settings=None):
             rows.append({"id": r["id"], "label": r["label"], "online": r["id"] in online,
                          "platform": r["platform"] or "", "operator": r["operator"],
                          "accepts_member_bots": bool(r["accepts_member_bots"]), "bots": bots,
-                         **views.computer_details(c, r, who, auth)})
+                         **screen_listing(r), **views.computer_details(c, r, who, auth)})
         return rows
 
     @app.get("/api/v2/computers")
@@ -4368,6 +4396,7 @@ def create_app(settings=None):
     # or BotOps's as the person who asked it.
     @app.post("/api/v2/agents/pairings", status_code=201)
     def agent_pairing_create(request: Request, body: M.AgentPairingCreate):
+        execution.refuse_in_rehearsal("Agent pairings")
         with store.transaction() as c:
             return agents.create_pairing(c, body, client_address(request))
 
@@ -4386,6 +4415,7 @@ def create_app(settings=None):
     def agent_pairing_approve(request: Request, body: M.AgentPairingApprove):
         who = request.state.identity
         personal_tokens.no_minting(who, "Approve a pairing")
+        execution.refuse_in_rehearsal("Agent pairings")
         return mutate(request, body, lambda c: agents.approve_pairing(c, who, settings_admin._manager, body.code, body.bot))
 
     @app.post("/api/v2/agents/pairings/decline")
@@ -4735,7 +4765,8 @@ def create_app(settings=None):
     # One stream of live events for people's pages (backend/events.py).
     from .events import install as install_events, install_runner as install_runner_events
     install_events(app, store, auth, task_views, task_view)
-    # And one for each computer, in place of its polls (runner/runner_events.py).
+    app.state.task_view = task_view         # for the events' read in tests (backend/tests/test_payload_budgets.py)
+    # And one for each computer, in place of its polls (runner-rs/src/events.rs).
     install_runner_events(app, store, execution)
 
     from .views import install_views
@@ -4806,6 +4837,8 @@ def create_app(settings=None):
     install_mcp(app, settings)
     from .github import install_github
     install_github(app, settings, store)
+    from . import triggers
+    triggers.install(app, settings, store, auth, mutate)
     # GitHub App per company: manifest setup, installation tokens for runners (docs/github-app.md).
     from .github_app import install_github_app
     install_github_app(app, settings, store)
@@ -4862,6 +4895,9 @@ def create_app(settings=None):
     install_watchers(app, store, auth, execution, mutate)
     from .health_monitor import install as install_health_monitor
     install_health_monitor(app, store, auth, mutate, onboarding, settings_admin, settings)
+    # A computer's screen in the app (backend/screen.py); its websockets go before the static mounts below.
+    from .screen import install as install_screen
+    screen_sessions = install_screen(app, store, auth, mutate, execution, settings)
     from .route_renames import install as install_route_renames
     install_route_renames(app)           # after every route: the new spellings canonical, the old ones deprecated
 

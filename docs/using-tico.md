@@ -20,7 +20,7 @@ phone). All four are managed in **Settings > Bots**; they stay out of the team c
 **What is on a bot's page?**
 Its name, the mark for the harness it runs on, up to three tool icons and its goal across the top, the chat below,
 and a rail down the right: **Active** tasks first, then its latest **Updates** (all of them behind the small icon),
-**Files** and **Recurring** routines, with **Assigned to others** and **Done** folded at the foot. A section with
+**Files** and **Routines** (a row opens the routine to read or edit), with **Assigned to others** and **Done** folded at the foot. A section with
 nothing in it is left out. **More** holds its setup, Tools, goals, access, routines and runs. On a phone, Chat and
 Tasks are one tab each.
 

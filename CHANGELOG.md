@@ -10,20 +10,53 @@ All notable changes to Tico are recorded here. The format follows
 ### Fixed
 - **The bot model picker no longer hides a harness whose provider is off.** It lists it greyed out with an
   AI-providers line to turn it on, so Muse Code and the Wonder models are one provider tick away instead of invisible.
+- **Subscription quota exhaustion is a usage limit, with its reset time.** The runner recognizes providers'
+  `Subscription quota exhausted` and `rate_limit_error` responses and uses an available fallback. Without one,
+  queued work waits until the provider's stated usage-window reset; a person can still use Try now after renewal.
 
 ### Added
+- **The flight recorder writes a local file that reads with the server stalled.** Stalls, slow requests and per-minute
+  rows go first to `flight/flight.ndjson` beside the database (10 MB x 10, from a bounded queue that never blocks a
+  request); `python -m backend.flight summary --since 30m` (or `scripts/tico -e ENV server flight`) reads only the files.
+  Each stall is classed cpu, memory, disk, lock or unknown from resource counters; slow requests carry their own SQL time
+  and write-lock wait, routes their largest answer; SIGUSR1 dumps every thread's stack and SIGUSR2 the top 50 memory
+  sites; the support bundle carries the last day's summary (docs/observability.md).
 - **A release that ships a Health Monitor fix closes its HQ tickets.** HQ keeps each ticket's Health Monitor signature,
   the staff list groups by it (`GET /v1/staff/tickets?signature=hm-...`), and one call replies the fixed-in text to every
   open ticket with that signature and closes each (`POST /v1/staff/tickets/by-signature/close`, or
   `software/hq-tickets close-signature hm-...`). Each company reads the reply on its Support page; a ticket with a
   reply-to email keeps it marked pending so the Support bot drafts the email.
+- **`tico-runner enroll`, `adopt` and `doctor`.** The Rust runner registers a computer, moves bots to it and checks it
+  itself; `python -m runner enroll|adopt|doctor|status|profile` run the same commands through it.
 ### Changed
+- **A bot on a model CLI the runner does not drive is a problem on that bot.** The computer starts and runs its other
+  bots; before, the whole computer stayed on the Python runner.
+- **The Rust runner covers what only the Python one did.** It checks the container a bot needs, keeps dev servers on
+  main, retries a run after freeing disk space, falls back to older servers' field names, publishes a bot's files when
+  readiness is reported, and waits for a task worktree another run holds.
+- **Each model CLI's manifest says what it can do.** `runner/harnesses/*.toml` gain `runtime` and a `[capabilities]`
+  table (sign-in, keys, subscriptions, weekly usage, MCP, goals, resume command, and more; docs/harnesses.md), and
+  the server, Settings and the Rust runner read them instead of checking CLI names. `GET /v2/models` sends each
+  harness's `capabilities`. Antigravity is a variant in the Gemini CLI manifest. Muse Code now signs in from
+  Settings > AI providers and counts as a subscription, Muse Code bots get http MCP servers, and Health and MCP
+  notes use each CLI's own name (Grok Build, Cursor Agent, Gemini CLI). A test fails on any new check of a CLI's name.
 - **Tasks rows read how long each item has been open and quiet.** Every row in the Tasks section (Tasks page, bot page
   Tasks tab, person page Tasks card, Assistant) now shows its open duration (since created) and, when it has sat
   untouched, how long it has been quiet (since updated): `open 3d · quiet 60m`. A task that just moved reads only its
   open age; finished rows keep their single short age.
 - **The Health Monitor stays quiet when a finding flaps.** A finding that goes away and comes back within a day of its
   last wake only counts; it wakes the Health Monitor again after a day.
+- **The web app downloads much less.** A Needs-you change on the live stream names the items that changed
+  (`needs=changes`), and the page reads only those (`GET /api/v2/needs-you?ids=`), where it was the whole list each
+  time; a page that does not ask still gets the list. A chat opens at its newest 50 messages and 160 KB, older pages on
+  request; another bot's conversation shows its newest message until opened; a run's live reply in a snapshot is its
+  newest 40 pieces. `backend/tests/test_payload_budgets.py` holds each to a byte budget.
+### Removed
+- **The Python runner.** `"engine": "python"` in `runner.json` and `TICO_RUNNER_ENGINE` are ignored. `python -m runner run`
+  and the runner's CLI commands start the Rust runner; a checkout and every update fetch its binary before the restart.
+
+### Fixed
+- Task session resume commands load the model CLI catalog on first opening, so copied commands use the correct resume syntax.
 
 ## [0.3.46] - 2026-10-15
 

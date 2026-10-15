@@ -1788,7 +1788,7 @@ def routine_list(api, args):
        "title": _s("What the task is called"),
        "text": _s("What the bot is told each time", default=""),
        "cron": _s("Five-field cron, e.g. `0 7 * * 1-5`"),
-       "on": _s("A Tico event instead of a time: `recording.ready`"),
+       "on": _s("A Tico event instead of a time: `meeting.ready`, or `webhook.<id>` for a trigger in hub_trigger_list"),
        "timezone": _s("IANA zone for the cron; America/Los_Angeles by default"),
        "enabled": {"type": "boolean", "default": True},
        "bot": _s("Set it on another bot you operate; yourself by default")},
@@ -1821,6 +1821,13 @@ def routine_update(api, args):
             raise ValueError("No routine " + ident + ". Routines: " + ", ".join(str(r.get("key") or r.get("id")) for r in rows))
         ident = row["id"]
     return who.post(f"routines/{ident}", body, key=_key(args))["routine"]
+
+
+@tool("hub_trigger_list", "The webhook triggers people made in Settings > Triggers: each one's `event` "
+      "(`webhook.<id>`) is what a routine's `on` names to run whenever something posts to it.", {})
+def trigger_list(api, args):
+    return [{k: t.get(k) for k in ("id", "name", "event", "last_received", "received_24h", "routines")}
+            for t in api.get("triggers")["triggers"]]
 
 
 @tool("hub_routine_delete", "Delete a routine. Its history stays; an occurrence nobody has "

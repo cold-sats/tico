@@ -1,7 +1,6 @@
-"""A runner follows its server's release: the checkout update against a temp repository, and the runner's decisions."""
+"""A checkout follows its server's release: the update process (python -m runner.release_update) against a temp repository."""
 import fcntl
 import subprocess
-import sys
 import threading
 import time
 
@@ -45,9 +44,13 @@ def repos(tmp_path):
 
 
 class Calls:
-    def __init__(self, healthy=(True,), install_error=""):
-        self.restarts, self.installs, self.checks = 0, [], []
-        self.answers, self.install_error = list(healthy), install_error
+    def __init__(self, healthy=(True,), install_error="", prepare_error=""):
+        self.restarts, self.installs, self.checks, self.prepared = 0, [], [], []
+        self.answers, self.install_error, self.prepare_error = list(healthy), install_error, prepare_error
+
+    def prepare(self, root):
+        self.prepared.append(sh(root, "git", "rev-parse", "HEAD"))
+        return self.prepare_error
 
     def restart(self):
         self.restarts += 1
@@ -63,7 +66,8 @@ class Calls:
 
 def run_apply(checkout, state, version="0.2.0", calls=None, **kw):
     calls = calls or Calls()
-    result = ru.apply(checkout, version, state, install=calls.install, restart=calls.restart, healthy=calls.healthy, **kw)
+    result = ru.apply(checkout, version, state, install=calls.install, prepare=calls.prepare, restart=calls.restart,
+                      healthy=calls.healthy, **kw)
     return result, calls
 
 
@@ -77,7 +81,7 @@ def test_update_switches_to_the_servers_tag_not_main(repos):
     assert result["state"] == "healthy" and ru.checkout_release(checkout) == "0.2.0"
     assert head(checkout) == sh(public, "git", "rev-parse", "v0.2.0") != head(public)   # main moved on; the runner did not
     assert calls.restarts == 1 and calls.installs == [(sh(checkout, "git", "rev-parse", "v0.1.0"), head(checkout))]
-    assert calls.checks == [head(checkout)]
+    assert calls.checks == [head(checkout)] and calls.prepared == [head(checkout)]   # the new tree's binary, before the restart
     assert ru.read_status(state)["state"] == "healthy" and ru.read_status(state)["target"] == "0.2.0"
 
 
@@ -112,112 +116,29 @@ def test_rollback_when_the_new_release_does_not_come_back(repos):
     assert ru.read_status(state)["state"] == "rolled_back"
 
 
-# -- the runner's side -----------------------------------------------------------------------------
-
-class Server:
-    def __init__(self, version="0.2.0", features=None):
-        self.version, self.error, self.features = version, None, features or {}
-
-    def get(self, path):
-        assert path == "runners/desired"
-        if self.error:
-            raise self.error
-        return {"version": self.version, "min_runner": "0.1.0", "features": self.features}
-
-
-class Clock:
-    t = 0.0
-
-    def __call__(self):
-        return self.t
-
-
-def follower(checkout, state, server=None, config=None, env=None, launched=None, supervised=True, **kw):
-    launched = [] if launched is None else launched
-    f = ru.Follower(config or {}, state, server or Server(), root=checkout, env={"TICO_RUNNER_KIND": "linux", **(env or {})},
-                    supervised=lambda: supervised, launch=lambda *a: launched.append(a), clock=Clock(), wall=Clock(), **kw)
-    f.poll()
-    return f, launched
-
-
-def test_a_behind_runner_waits_for_quiet_then_starts_one_update(repos):
+def test_a_release_whose_rust_runner_cannot_be_had_goes_back_before_any_restart(repos):
     public, checkout, state = repos
-    f, launched = follower(checkout, state)
-    assert (f.pending, f.state, f.release) == ("0.2.0", "waiting", "0.1.0")
-    assert f.blocks_claims(active=True) is False and launched == []      # a turn is running: keep working
-    assert f.blocks_claims(active=False) is True and len(launched) == 1  # quiet: go, and claim nothing meanwhile
-    assert launched[0][1] == "0.2.0" and f.state == "updating"
-    assert f.blocks_claims(active=False) is True and len(launched) == 1
-    assert f.fields() == {"release": "0.1.0", "kind": f.kind, "update": {"state": "updating", "target": "0.2.0", "error": ""}}
+    before = head(checkout)
+    result, calls = run_apply(checkout, state, calls=Calls(prepare_error="could not download the Rust runner for 0.2.0"))
+    assert result["state"] == "rolled_back" and result["error"].startswith("could not download the Rust runner")
+    assert head(checkout) == before and calls.restarts == 1 and calls.checks == [before]   # the restart is the way back
 
 
-def test_the_commit_goes_to_a_server_that_accepts_it_and_an_image_names_its_own(repos):
-    public, checkout, state = repos
-    head = sh(checkout, "git", "rev-parse", "HEAD")
-    assert "commit" not in follower(checkout, state)[0].fields()          # an older server would refuse the field
-    assert follower(checkout, state, Server(features={"runner_commit": True}))[0].fields()["commit"] == head
-    (checkout / "release-manifest.json").write_text('{"commit": "%s"}' % ("b" * 40))
-    assert follower(checkout, state, Server(features={"runner_commit": True}))[0].fields()["commit"] == "b" * 40
+def test_the_prepare_step_is_a_new_process_of_the_new_tree(tmp_path, monkeypatch):
+    seen = []
 
-
-@pytest.mark.slow
-def test_a_refused_update_is_reported_and_not_retried_until_the_release_changes(repos):
-    public, checkout, state = repos
-    ru.write_status(state, state="blocked", target="0.2.0", error="the checkout has 2 changed files", at=0.0)
-    server = Server()
-    f, launched = follower(checkout, state, server)
-    assert (f.state, f.error, f.pending) == ("blocked", "the checkout has 2 changed files", None)
-    assert not f.blocks_claims(False) and launched == []
-    server.version = "0.3.0"
-    f.poll()
-    assert f.pending == "0.3.0"                                          # a new release is a new attempt
-    f.wall.t = ru.RETRY_AFTER_S + 1
-    server.version = "0.2.0"
-    f.poll()
-    assert f.pending == "0.2.0"                                          # and so is enough time
-
-
-class Sidecar:
-    def __init__(self, status=None, url="http://updater:8080"):
-        self.url, self._status, self.started = url, status, []
-
-    def configured(self):
-        return bool(self.url)
-
-    def status(self):
-        return self._status
-
-    def start(self, version):
-        self.started.append(version)
-
-
-DOCKER = {"TICO_RUNNER_KIND": "docker", "TICO_VERSION": "v0.1.0"}
-
-
-@pytest.mark.slow
-def test_a_docker_runner_asks_its_sidecar_when_quiet(repos):
-    public, checkout, state = repos
-    sidecar = Sidecar()
-    f, _ = follower(checkout, state, env=DOCKER, sidecar=sidecar, config={"self_update": False})
-    assert f.kind == "docker" and f.release == "0.1.0" and f.pending == "0.2.0"
-    assert f.blocks_claims(active=False) and sidecar.started == ["0.2.0"]
+    def run(cmd, **kw):
+        seen.append((cmd, kw["cwd"]))
+        return subprocess.CompletedProcess(cmd, 1, "", "Tico runner: no Rust runner for this checkout: cargo is not on PATH\n")
+    assert ru.prepare_binary(tmp_path, run=run) == "" and not seen      # a tree from before the shim gets its own
+    (tmp_path / "runner").mkdir()
+    (tmp_path / "runner" / "engine.py").write_text("")
+    monkeypatch.setattr(ru.sys, "executable", "/opt/env-python/bin/python3")
+    assert "cargo is not on PATH" in ru.prepare_binary(tmp_path, run=run)
+    assert seen == [(["/opt/env-python/bin/python3", "-m", "runner.engine", "prepare"], str(tmp_path))]
 
 
 # -- runners that share one checkout -------------------------------------------------------------
-
-def test_a_runner_whose_shared_checkout_was_moved_under_it_still_updates(repos):
-    public, checkout, state = repos
-    started = head(checkout)
-    f, launched = follower(checkout, state)
-    other = state.parent / "other"
-    other.mkdir()
-    run_apply(checkout, other)                       # another environment's runner, on the same checkout, updated first
-    assert ru.checkout_release(checkout) == "0.2.0"
-    f.poll()
-    assert (f.release, f.state, f.pending) == ("0.1.0", "waiting", "0.2.0")      # what this process runs, not the checkout
-    assert f.fields()["release"] == "0.1.0"
-    assert f.blocks_claims(active=False) and launched[0][1] == "0.2.0" and launched[0][4] == started
-
 
 def test_a_checkout_already_on_the_release_restarts_a_runner_that_started_on_other_code(repos):
     public, checkout, state = repos
@@ -267,17 +188,6 @@ def test_a_runner_already_on_the_release_is_not_restarted(repos):
     for started in (head(checkout), ""):                                            # "": a runner from before --started
         result, calls = run_apply(checkout, state, started=started)
         assert result["state"] == "healthy" and calls.restarts == 0 and calls.checks == []
-
-
-def test_the_update_process_is_told_the_commit_the_runner_started_on(tmp_path):
-    calls = []
-
-    def run(cmd, **kw):
-        calls.append(cmd)
-        return subprocess.CompletedProcess(cmd, 0, "", "")
-    ru.spawn("/srv/tico", "0.2.0", tmp_path, 4242, "a" * 40, env=SYSTEMD, run=run)
-    assert calls[0][calls[0].index("--started") + 1] == "a" * 40
-    assert calls[0][calls[0].index("-m") - 1] == sys.executable     # the runner's interpreter runs the update and its pip
 
 
 def hold(checkout):
@@ -401,62 +311,3 @@ def test_only_installed_helper_units_are_restarted_through_systemctl(tmp_path):
     (units / "tico-acme-close-calls.service").write_text("[Service]\n")
     assert ru.restart_helpers_systemd({"TICO_SYSTEMD_UNIT": "tico-acme-bot.service"}, Systemctl(), unit_dir=units,
                                       say=lambda line: None) == ["close-calls"]
-
-
-def test_under_systemd_the_update_starts_as_a_unit_of_its_own(tmp_path):
-    calls = []
-
-    def run(cmd, **kw):
-        calls.append(cmd)
-        return subprocess.CompletedProcess(cmd, 0, "", "")
-    ru.spawn("/srv/tico", "0.2.0", tmp_path, 4242, env=SYSTEMD, run=run)
-    cmd = calls[0]
-    assert cmd[:3] == ["systemd-run", "--user", "--quiet"] and "--unit=tico-update-4242" in cmd   # not in the runner's cgroup
-    assert "--setenv=TICO_SYSTEMD_UNIT=tico-bot.service" in cmd and "--working-directory=/srv/tico" in cmd
-    assert cmd[cmd.index("-m") + 1] == "runner.release_update" and cmd[cmd.index("--pid") + 1] == "4242"
-    with pytest.raises(OSError):
-        ru.spawn("/srv/tico", "0.2.0", tmp_path, 1, env=SYSTEMD, run=lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, "", ""))
-
-
-@pytest.mark.slow
-@pytest.mark.parametrize("docker", [True])
-def test_a_disk_failure_retries_as_soon_as_space_frees(repos, monkeypatch, docker):
-    from types import SimpleNamespace
-    _, checkout, state = repos
-    free = [100]
-    monkeypatch.setattr(ru.shutil, "disk_usage", lambda path: SimpleNamespace(free=free[0]))
-    error = "no space left on device"
-    sidecar = Sidecar({"state": "failed", "to": "v0.2.0", "message": error, "disk_free": 100})
-    if not docker:
-        ru.write_status(state, state="failed", target="0.2.0", error=error, at=0, disk_free=100)
-    f, _ = follower(checkout, state, env=DOCKER if docker else None, sidecar=sidecar)
-    assert f.state == "failed" and f.pending is None
-    assert "Not enough disk space" in f.error
-    f.poll()
-    assert f.pending is None
-    free[0] = 200
-    f.poll()
-    assert f.pending == "0.2.0"
-
-
-def test_a_rolled_back_server_refusing_the_commit_still_gets_the_rest():
-    from clients.tico import APIError
-    from runner.service import Runner
-
-    class Client:
-        def __init__(self):
-            self.bodies = []
-
-        def post(self, path, body):
-            self.bodies.append(dict(body, readiness=dict(body["readiness"])))
-            if "commit" in body:
-                raise APIError("validation", "body.commit: Extra inputs are not permitted", status=422)
-            return {}
-
-    runner = Runner.__new__(Runner)
-    runner.client = Client()
-    body = {"version": "t", "platform": "t", "capabilities": [], "commit": "a" * 40,
-            "readiness": {"bots": {}, "runtimes": {}, "worktrees": [], "disk": {}, "harnesses": {}}}
-    runner._report_heartbeat(body)
-    assert len(runner.client.bodies) == 2 and "commit" not in runner.client.bodies[-1]
-    assert set(runner.client.bodies[-1]["readiness"]) == {"bots", "runtimes", "worktrees", "disk", "harnesses"}

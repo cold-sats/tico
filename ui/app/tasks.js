@@ -19,7 +19,7 @@ const STATUS_WORD = {open: 'Open', doing: 'Doing', waiting: 'Waiting', review: '
                      done: 'Done', closed: 'Closed', declined: 'Declined'};
 const BOARD_COLS = [...COMPANY_COLS, ['done', 'Done', 'Finished in the last 7 days']];   // legacy name, kept for the routine rows
 // The view tabs: labelled, with counts. The keys are the routes' and the saved preference's.
-const TASK_VIEWS = [['foryou', 'Needs you'], ['list', 'Open'], ['board', 'Board'], ['recurring', 'Recurring'], ['snoozed', 'Snoozed'], ['done', 'Done']];
+const TASK_VIEWS = [['foryou', 'Needs you'], ['list', 'Open'], ['board', 'Board'], ['recurring', 'Routines'], ['snoozed', 'Snoozed'], ['done', 'Done']];
 const DONE_CAP = 20;                // The Done list shows 20 at a time
 const ACTIVE_TASK_STATUSES = 'open,doing,waiting,review,ready,declined';
 let TASKS_ST = null;

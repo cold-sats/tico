@@ -124,8 +124,9 @@ function botGoalRender(slug, g, count) {
   const a = el.querySelector('[data-goal-open]');
   a.onclick = ev => { if (ev.metaKey || ev.ctrlKey || ev.shiftKey) return; ev.preventDefault(); openGoal(a.dataset.goalOpen); };
 }
-// The Recurring section of the bot's right rail: each routine on one line, its name and how often, and when
-// it runs next. No routines, no section. Editing stays in the Routines card under More.
+// The Routines section of the bot's right rail: each routine on one line, its name and how often, and when
+// it runs next. No routines, no section. A row opens the routine: its instruction and schedule, editable by
+// whoever may edit it (ui/app/recurring.js).
 function botRecurringHTML(e, slug) {
   const live = S.status?.schedules || [];
   const rows = (e.schedules || live.filter(r => (r.employee || r.bot) === slug)).map(s => {
@@ -138,17 +139,29 @@ function botRecurringHTML(e, slug) {
   const next = r => paused(r) ? '<span class="muted" title="kept, not running">paused</span>'
     : r.held_by_bot ? '<span class="muted" title="fires again when the bot resumes">paused with the bot</span>'
     : !r.active ? '<span class="muted">not armed</span>'
-    : r.on ? '<span class="muted">on event</span>'
+    : r.on ? '<span class="muted">on trigger</span>'
     : r.next ? `<span class="tnum" title="${esc(fmt(r.next))}">${esc(until(r.next))}</span>` : '';
-  return `<h2 class="rail-h">Recurring</h2>
-    <ul class="bot-recurring-list">${rows.map(r => `<li class="${paused(r) ? 'paused' : ''}" data-routine="${esc(r.id || r.title)}" title="${esc(r.title + ' · ' + words(r))}">
+  return `<h2 class="rail-h">Routines</h2>
+    <ul class="bot-recurring-list">${rows.map(r => `<li class="${paused(r) ? 'paused' : ''}"><button type="button" data-routine="${esc(r.id || '')}" data-bot="${esc(slug)}" title="${esc(r.title + ' · ' + words(r))}">
         <span class="ttl">${esc(r.title)}</span><span class="when">${esc(words(r))}</span>
-        <span class="bot-recurring-next">${next(r)}</span></li>`).join('')}</ul>`;
+        <span class="bot-recurring-next">${next(r)}</span></button></li>`).join('')}</ul>`;
+}
+// One handler for the rail on the bot page and the Assistant's page.
+function bindRecurringRail(host) {
+  if (!host || host.dataset.railBound) return;
+  host.dataset.railBound = '1';
+  host.addEventListener('click', async ev => {
+    const b = ev.target.closest('[data-routine]'); if (!b || !b.dataset.routine) return;
+    const id = b.dataset.routine, bot = b.dataset.bot;
+    const r = routineById(id) || ((await get(`/v2/bots/${encodeURIComponent(bot)}/routines`).catch(() => ({}))).routines || []).find(x => x.id === id);
+    if (r) routineEditorOpen({...r, employee: bot});
+  });
 }
 function botRecurringPaint(e, slug) {
   const host = $('#bot-recurring'); if (!host || !e) return;
   host.innerHTML = botRecurringHTML(e, slug);
   host.hidden = !host.innerHTML;
+  bindRecurringRail(host);
 }
 // Beside the bot's name only when something is wrong (#514): crashed, quarantined, rate limited,
 // blocked, a failed last run, or an agent that is offline while work waits for it. Idle says nothing.
@@ -249,7 +262,7 @@ async function pageBot(slug, tab) {
   <div class="bot-top" id="bot-top">
     <button class="bot-back-arrow" id="bot-back-arrow" type="button" aria-label="Back" title="Back">‹</button>
     <div class="bot-ident"><span data-tip-bot="${esc(slug)}" tabindex="0" role="img" aria-label="${esc(e.display_name || slug)} status">${avatar(slug, 36, stateOf(slug))}</span>
-      <div class="botid"><div class="bot-nameline"><h1${role ? ` title="${esc(role)}"` : ''}>${shownName(e)}${runtimeTag(e)}</h1><button type="button" class="bot-learn" id="bot-learn" aria-label="Learnings" title="Learnings" hidden><span class="nav-icon" aria-hidden="true">psychology</span><span class="bl-label">Learnings</span><span class="bl-n" hidden></span></button><span id="bot-tool-strip" hidden></span></div>
+      <div class="botid"><div class="bot-nameline"><h1${role ? ` title="${esc(role)}"` : ''}>${shownName(e)}${runtimeTag(e)}</h1><button type="button" class="bot-learn" id="bot-learn" aria-label="Learnings" title="Learnings" hidden><span class="nav-icon" aria-hidden="true">psychology</span><span class="bl-label">Learnings</span><span class="bl-n" hidden></span></button>${limited ? '' : botScreenLinkHTML(slug)}<span id="bot-tool-strip" hidden></span></div>
         <div class="meta" id="bot-branches"></div>
         <div class="meta" id="bot-alert">${limited ? '' : botAlertHTML(slug)}</div></div></div>
     <div class="bot-switch" id="btabs" role="tablist" aria-label="${esc(e.display_name || slug)}">
@@ -283,7 +296,7 @@ async function pageBot(slug, tab) {
     </section>
     ${limited ? '' : `<section class="rail-sec bot-latest" id="bot-latest" aria-label="Updates" hidden></section>
     <section class="rail-sec bot-files" id="bot-files" aria-label="Files" hidden></section>
-    <section class="rail-sec bot-recurring" id="bot-recurring" aria-label="Recurring" hidden></section>`}
+    <section class="rail-sec bot-recurring" id="bot-recurring" aria-label="Routines" hidden></section>`}
     <details class="rail-sec rail-fold" id="bot-assigned" hidden><summary class="rail-h">Assigned to others <span class="cnt" id="cnt-assigned"></span></summary>
       <div id="t-assigned" class="tpane"></div></details>
     <details class="rail-sec rail-fold bot-done"><summary class="rail-h">Done <span class="cnt" id="cnt-done"></span></summary><div id="t-done" class="tpane"><div class="rail-empty">Loading…</div></div></details>
@@ -452,9 +465,9 @@ const BOT_TAB_ICONS = {chat: 'chat_bubble', tasks: 'task_alt', history: 'dynamic
 function placeBotHead() {
   const host = $('#bot-more-top'), top = $('#bot-top');
   if (!host || !top) return;
-  const [alert, learn, ...rest] = ['#bot-alert', '#bot-learn', '#bot-branches'].map(q => $(q));
-  if (BOT_PHONE.matches) { host.append(...[alert, learn, ...rest].filter(Boolean)); return; }
-  if (learn?.parentElement === host) $('#bot-tool-strip').before(learn);
+  const [alert, learn, screen, ...rest] = ['#bot-alert', '#bot-learn', '#bot-screen', '#bot-branches'].map(q => $(q));
+  if (BOT_PHONE.matches) { host.append(...[alert, learn, screen, ...rest].filter(Boolean)); return; }
+  for (const el of [learn, screen]) if (el?.parentElement === host) $('#bot-tool-strip').before(el);
   for (const el of [...rest, alert]) if (el?.parentElement === host) top.querySelector('.botid').append(el);
 }
 // The lists in More cut to their three newest rows on every width: [host, rows, keep the newest last]. Each

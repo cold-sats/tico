@@ -1,4 +1,4 @@
-//! The run loop (`Runner.run`, `tick`, `maintain`, `recover_output` in runner/service.py): heartbeat with
+//! The run loop (`Runner.run`, `tick`, `maintain`, `recover_output` in the old Python runner): heartbeat with
 //! readiness, claims on the event stream's word, recovery of results a restart left behind, and one tokio
 //! task per turn (runner-rs/src/execute.rs).
 
@@ -49,6 +49,8 @@ pub struct Runner {
     pub worktrees: Arc<crate::worktrees::Worktrees>,
     /// The server takes `record_updated` on worktree reports (its heartbeat reply said so).
     worktree_stamp: AtomicBool,
+    /// The server takes runtimes' `credential_source` (its heartbeat reply said so); until then it is left out.
+    credential_source: AtomicBool,
     flush_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Attempts whose first streamed text has reached the server (one timing mark each).
     pub first_posted: Mutex<HashSet<String>>,
@@ -60,6 +62,9 @@ pub struct Runner {
     restart: Mutex<Option<Instant>>,
     /// A restart was asked for on a runner nothing would start again: said once.
     restart_refused: AtomicBool,
+    /// When the container was told to stop (`docker stop`, a host update): no new claims, the running turns
+    /// finish, then the runner exits; a turn still going after STOP_DRAIN_S is interrupted (fn shut_down).
+    shutdown: Mutex<Option<Instant>>,
     /// Persistent Antigravity processes kept between a conversation's turns.
     pub warm: crate::warm::WarmSessions,
     /// What each bot's bot.yaml adds: tools, MCP servers, watchers, memory history (crate::perbot).
@@ -95,7 +100,10 @@ pub fn describe(e: &ApiError) -> String {
 }
 
 impl Runner {
-    pub fn new(config: Config, client: Client, state: State) -> Runner {
+    pub fn new(mut config: Config, client: Client, state: State) -> Runner {
+        if crate::config::retire_old_capacity(&mut config.data) {
+            if let Err(e) = config.save() { log(&format!("Tico runner: could not save runner.json ({e})")); }
+        }
         let projects_dir = config.projects_dir();
         let repositories = Arc::new(crate::repositories::Repositories::new(&projects_dir, &state.directory, client.clone()));
         let _ = crate::repositories::MIRRORS.set(repositories.clone());
@@ -119,6 +127,7 @@ impl Runner {
             lanes: Arc::new(crate::sessions::Lanes::new(repositories)),
             worktrees,
             worktree_stamp: AtomicBool::new(false),
+            credential_source: AtomicBool::new(false),
             flush_locks: Mutex::new(HashMap::new()),
             first_posted: Mutex::new(HashSet::new()),
             assignments: Mutex::new(vec![]),
@@ -126,6 +135,7 @@ impl Runner {
             beat: Mutex::new(None),
             restart: Mutex::new(None),
             restart_refused: AtomicBool::new(false),
+            shutdown: Mutex::new(None),
             warm: crate::warm::WarmSessions::new(state.directory.join("antigravity"), capacity.max(8)),
             state,
             perbot: crate::perbot::PerBot::default(),
@@ -134,6 +144,19 @@ impl Runner {
 
     pub fn stopping(&self) -> bool {
         self.stop.load(Ordering::SeqCst)
+    }
+
+    /// A stop that lets the running turns finish (a container's SIGTERM, whose grace is 15 minutes). A second
+    /// stop, or SIGINT, stops at once.
+    pub fn shut_down(&self) {
+        let mut at = self.shutdown.lock().unwrap();
+        if at.is_none() {
+            *at = Some(Instant::now());
+            log("Tico runner: stopping; taking no new work and letting the running turns finish");
+        } else {
+            self.stop.store(true, Ordering::SeqCst);
+        }
+        self.events.wake.notify_one();
     }
 
     /// GET config's names, kept once read; a failure keeps the defaults and asks again next turn.
@@ -256,6 +279,7 @@ impl Runner {
         *self.runtime_rows.lock().unwrap() = runtimes.clone();
         let mut checks = readiness::preflight(&self.config, &candidates, &runtimes).await;
         self.perbot.decorate(&self.config, &mut checks, &candidates);
+        self.publish_unpublished(&candidates, &mut checks).await;
         let notes = self.publish_notes.lock().unwrap().clone();
         let hosted: Vec<String> = candidates.iter().filter(|e| text_of(&e["runner_id"]) == self.config.runner_id()).map(|e| text_of(&e["bot"])).collect();
         let published = self.published.lock().unwrap().clone();
@@ -263,6 +287,9 @@ impl Runner {
         let mut readiness_doc = readiness::document(&runtimes, &checks, &self.state.directory);
         if crate::mail_key::status(&self.config) == Some("exposed") {
             readiness_doc["mail_key"] = json!("exposed"); // Health warns while bots can read the company's mail key
+        }
+        if let Some(screen) = crate::screen::readiness() {
+            readiness_doc["screen"] = screen; // only while turned on here (crate::screen)
         }
         let mut body = json!({
             "version": RUNNER_VERSION,
@@ -278,6 +305,8 @@ impl Runner {
             // The server's release (the stream's word, else asked), and where this runner stands on it.
             let said = self.events.release.lock().unwrap().clone().filter(|r| !full && r.is_string()).map(|r| text_of(&r));
             follower.poll(&self.client, said).await;
+            let restarting = self.restart.lock().unwrap().is_some();
+            follower.follow_main(restarting).await;
             follower.fields(&mut body);
         }
         if !crate::lanes::held_back("profiles") {
@@ -297,11 +326,17 @@ impl Runner {
             }
         }
         body["worktrees"] = json!(worktrees);
+        if !self.credential_source.load(Ordering::SeqCst) {
+            strip_credential_source(&mut body);
+        }
         // The repositories report rides only on full passes, which are always sent.
         let printed = steady(&body).to_string();
         if let Some(rows) = repository_rows {
             body["repositories"] = json!(rows);
         }
+        // What an older server refused in the last ten minutes stays out (service.py _report_heartbeat).
+        crate::lanes::drop_held(&mut body);
+        crate::readiness_extra::drop_held(&mut body);
         let quiet = {
             let beat = self.beat.lock().unwrap();
             !full
@@ -311,39 +346,37 @@ impl Runner {
         };
         if !quiet {
             let mut tries = 0;
+            let began = Instant::now();
             let beat = loop {
                 tries += 1;
-                match self.client.post("runners/heartbeat", &body, None).await {
-                    Err(e) if e.status == 422 && tries < 12 && crate::readiness_extra::refused(&e.detail, &body["readiness"]).is_some() => {
-                        // An older server refused an optional readiness field: it is left out for ten minutes.
-                        crate::lanes::hold_back(&crate::readiness_extra::refused(&e.detail, &body["readiness"]).unwrap_or_default());
-                        crate::readiness_extra::drop_held(&mut body);
-                    }
-                    Err(e) if e.status == 422 && tries < 12 && body.get("commit").is_some() && e.detail.contains("body.commit") => {
-                        // A server rolled back since it said it takes the commit: it waits for `runners/desired` to say so again.
-                        body.as_object_mut().unwrap().remove("commit");
-                        crate::follow::shared().inspect(|f| f.drop_commit());
-                    }
-                    Err(e) if e.status == 422 && tries < 12 && capacity_refused(&e.detail) && body["capacity"].as_u64().unwrap_or(0) > 32 => {
-                        // A server from before larger capacities accepts at most 32 and never hands out more turns
-                        // than the runner reports, so after a rollback the runner keeps working at 32.
-                        body["capacity"] = json!(32);
-                    }
-                    Err(e) if e.status == 422 && tries < 12 => match crate::lanes::refused_field(&e.detail, &body) {
-                        // A server from before a capability or the profile report: only that goes, for ten minutes.
-                        Some(field) => {
-                            crate::lanes::hold_back(&field);
-                            if field == "profiles" {
-                                body.as_object_mut().unwrap().remove("profiles");
-                            } else if let Some(caps) = body["capabilities"].as_array_mut() {
-                                caps.retain(|c| c != field.as_str());
-                            }
-                        }
-                        None => return Err(e),
-                    },
-                    other => break other?,
+                let e = match self.client.post("runners/heartbeat", &body, None).await {
+                    Err(e) if e.status == 422 && tries < 12 => e,
+                    other => break other,
+                };
+                // An older server refused something optional: only that goes, for ten minutes.
+                if let Some(field) = crate::lanes::refused_field(&e.detail, &body) {
+                    crate::lanes::hold_back(&field);
+                    crate::lanes::drop_held(&mut body);
+                } else if body.get("commit").is_some() && e.detail.contains("body.commit") {
+                    // A server rolled back since it said it takes the commit: it waits for `runners/desired` to say so again.
+                    body.as_object_mut().unwrap().remove("commit");
+                    crate::follow::shared().inspect(|f| f.drop_commit());
+                } else if capacity_refused(&e.detail) && body["capacity"].as_u64().unwrap_or(0) > 32 {
+                    // A server from before larger capacities accepts at most 32 and never hands out more turns
+                    // than the runner reports, so after a rollback the runner keeps working at 32.
+                    body["capacity"] = json!(32);
+                } else if let Some(hold) = crate::readiness_extra::refused(&e.detail, &body["readiness"]) {
+                    crate::lanes::hold_back(&hold);
+                    crate::readiness_extra::drop_held(&mut body);
+                } else if strip_credential_source(&mut body) {
+                    // A rollback to a server from before credential sources: the heartbeat keeps working.
+                    self.credential_source.store(false, Ordering::SeqCst);
+                } else {
+                    break Err(e);
                 }
             };
+            crate::flight::heartbeat(began.elapsed().as_millis() as u64, tries, beat.as_ref().err());
+            let beat = beat?;
             *self.beat.lock().unwrap() = Some((printed, Instant::now()));
             self.published.lock().unwrap().extend(versions);
             let actions = beat["worktree_actions"].as_array().cloned().unwrap_or_default();
@@ -352,9 +385,13 @@ impl Runner {
                 self.worktrees.poll(host, &actions);
             }
             self.worktree_stamp.store(beat["worktree_record_stamp"] == true, Ordering::SeqCst);
+            self.credential_source.store(beat["runtime_credential_source"] == true, Ordering::SeqCst);
             if beat["restart"] == true && self.restart.lock().unwrap().is_none() {
-                // Only a supervisor that starts the runner again may let it exit to restart.
+                // Only a supervisor that starts the runner again may let it exit to restart; take main first if safe.
                 if supervised() {
+                    if let Some(follower) = crate::follow::shared() {
+                        follower.take_main().await;
+                    }
                     *self.restart.lock().unwrap() = Some(Instant::now());
                     log("Tico runner: restart requested; restarting when no turn is running");
                 } else if !self.restart_refused.swap(true, Ordering::SeqCst) {
@@ -381,24 +418,6 @@ impl Runner {
 }
 
 impl Runner {
-    /// Assigned bots this runner cannot run, each with what it lacks. Read once at start: the runner then refuses
-    /// to start rather than leave those bots' work unclaimed.
-    pub async fn refusals(&self) -> Result<Vec<String>, ApiError> {
-        let assignments = self.client.get("runners/assignments").await?;
-        let mine = self.config.runner_id();
-        let mut lines = vec![];
-        for entry in assignments.as_array().cloned().unwrap_or_default() {
-            if text_of(&entry["runner_id"]) != mine {
-                continue;
-            }
-            let needs = readiness::unsupported(&entry);
-            if !needs.is_empty() {
-                lines.push(format!("{} needs {}", text_of(&entry["bot"]), needs.join(", ")));
-            }
-        }
-        Ok(lines)
-    }
-
     /// Lease expiry does not mean this worker has stopped: every live worker's lane stays busy, and a bot whose
     /// worktrees are being maintained gets nothing (service.py _claim_next).
     async fn claim_next(&self) -> Result<Value, ApiError> {
@@ -427,7 +446,7 @@ impl Runner {
 /// Only live assignments are readiness candidates, one per bot (service.py readiness_candidates). An archived bot
 /// keeps its assignment but is never set up or checked: its repository may be gone, and retrying it on every
 /// maintenance pass kept an idle computer busy.
-fn readiness_candidates(assignments: &[Value]) -> Vec<Value> {
+pub fn readiness_candidates(assignments: &[Value]) -> Vec<Value> {
     let mut by_bot: std::collections::BTreeMap<String, Value> = Default::default();
     for entry in assignments.iter().filter(|e| e["state"] != "archived") {
         by_bot.insert(text_of(&entry["bot"]), entry.clone());
@@ -446,9 +465,28 @@ fn supervised() -> bool {
 /// A restart a person asked for keeps claiming this long, exiting the moment no turn runs; then it stops claiming.
 const RESTART_DRAIN_S: u64 = 20 * 60;
 
+/// How long a stopping container's turns may run on; under compose's 15-minute stop_grace_period, so the runner
+/// interrupts them itself (and says so) before Docker kills it.
+const STOP_DRAIN_S: u64 = 14 * 60;
+
+/// Whether the platform's stop should drain rather than interrupt: a Docker runner, whose compose file gives it
+/// 15 minutes. A Mac app or launchd stop keeps stopping at once.
+pub fn drains_on_stop() -> bool {
+    std::env::var("TICO_RUNNER_KIND").as_deref() == Ok("docker") || std::env::var("TICO_STOP_DRAIN").as_deref() == Ok("1")
+}
+
 /// Whether a restart asked for at `asked` has stopped this runner claiming (service.py SELF_UPDATE_DRAIN_S).
 fn drained(asked: Option<Instant>, now: Instant) -> bool {
     asked.is_some_and(|at| now.saturating_duration_since(at) >= Duration::from_secs(RESTART_DRAIN_S))
+}
+
+/// Take `credential_source` out of every runtime row; whether there was any (service.py maintain).
+fn strip_credential_source(body: &mut Value) -> bool {
+    let mut any = false;
+    for row in body["readiness"]["runtimes"].as_object_mut().into_iter().flat_map(|m| m.values_mut()).filter_map(|v| v.as_object_mut()) {
+        any |= row.remove("credential_source").is_some();
+    }
+    any
 }
 
 /// A heartbeat refused for its capacity (`body.capacity: ...` in the 422 detail).
@@ -563,8 +601,21 @@ impl Runner {
                     (2f64.powi(failures.min(5) as i32)).min(30.0)
                 }
             };
+            let shutdown = *self.shutdown.lock().unwrap();
+            if shutdown.is_some() && workers.is_empty() {
+                log("Tico runner: no turn running; stopping");
+                break;
+            }
+            if shutdown.is_some_and(|at| at.elapsed() >= Duration::from_secs(STOP_DRAIN_S)) {
+                log("Tico runner: turns still running at the stop deadline; interrupting them");
+                break;
+            }
             if self.restart.lock().unwrap().is_some() && workers.is_empty() {
                 log("Tico runner: no turn running; exiting so the supervisor starts the runner again");
+                break;
+            }
+            if crate::follow::shared().is_some_and(|f| f.restart_due()) && workers.is_empty() {
+                log("Tico runner: no turn running; exiting so the supervisor starts the updated runner");
                 break;
             }
             // The stream's word (a `work` event) wakes the loop at once instead of at the next quarter second.
@@ -633,6 +684,9 @@ impl Runner {
             }
         }
         crate::relays::poll(self);
+        if self.shutdown.lock().unwrap().is_some() {
+            return Ok(()); // stopping: the running turns finish, nothing new starts
+        }
         if drained(*self.restart.lock().unwrap(), Instant::now()) {
             return Ok(()); // asked for a restart a while ago: no new work, so the running turns finish
         }
@@ -710,6 +764,12 @@ mod tests {
         assert_eq!(readiness_candidates(&[gone, live.clone()]), vec![live]);
         assert!(capacity_refused("body.capacity: Input should be less than or equal to 32"));
         assert!(!capacity_refused("body.readiness.capacity_note: bad"));
+    }
+
+    #[test]
+    fn credential_source_is_stripped_from_every_runtime() {
+        let mut body = json!({"readiness": {"runtimes": {"codex": {"ok": true, "credential_source": "team"}}}});
+        assert!(strip_credential_source(&mut body) && !strip_credential_source(&mut body));
     }
 
     #[test]

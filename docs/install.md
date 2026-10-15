@@ -541,7 +541,7 @@ The `.codex` folder in the volume belongs to `bot`, is group-writable and setgid
 readable by the runner's group, so a `codex login` you run yourself as `bot` works too.
 
 Check with **Settings > Bots**, or
-`docker exec '<container-name>' python -m runner --config /home/runner/runner.json doctor`.
+`docker exec '<container-name>' tico-runner --config /home/runner/runner.json doctor`.
 
 To write the compose setup by hand instead of using the installer, copy `docker/runner.compose.yaml` from the release
 to the computer, write a `.env` next to it with `TICO_URL=https://tico.example.com`, `TICO_CODE=<code>`,
@@ -587,6 +587,22 @@ With the compose file the runner also updates itself to the release its server r
 The runner container is not a sandbox between bots: all bots on one runner run as the same user. It cannot see
 the server or its data (they are on other computers), and bots cannot reach a Docker socket. On AWS, keep the
 instance metadata hop limit at 1 for runner computers too.
+
+### Screen
+
+A Linux runner can offer its screen to the web app, so people can watch bots work in a headed browser and, if
+allowed, take control. It is off until you turn it on on the computer itself:
+
+- Docker: `install.sh --runner --screen` (or `tico setup runner --screen`, or `TICO_SCREEN=1` in the cloud-init
+  inputs) puts `TICO_SCREEN=1` in the runner's `.env`; add that line by hand and run `docker compose up -d` to turn it
+  on later, or set it to `0` to turn it off.
+- A Linux checkout: `sudo apt-get install xvfb x11vnc matchbox-window-manager`, then `scripts/tico screen on`
+  (`screen off` and `screen status` too; a running runner follows within seconds).
+
+Then choose **Screen** (Off, View or Control) for that computer in **Settings > Computers**. The runner runs a virtual
+display (`:99`, 1440x900) and gives bots `DISPLAY=:99`; its VNC servers listen on no network port (only on
+sockets in a directory bots cannot open), and the server relays each session. Anyone allowed to open the screen sees everything on that display, including what a bot types into a page,
+and with Control can use it. All bots on one computer share one display. A Mac reports "Linux only for now".
 
 ### Mac
 
@@ -904,8 +920,9 @@ restore reads the database, attachments and key files; rehearsal does not write 
 Restart the source from its original directory with `docker compose start server`. Remove the rehearsal when finished with
 `docker compose -f compose.yaml -f rehearsal.yaml down -v`; its external source backup volume is kept.
 
-Set `TICO_REHEARSAL=1` before the first start of the copy. Do not enrol runners against it or give it the production
-domain: a runner that connects would run bots against the copy's queue. Leave rehearsal by building a new server without
+Set `TICO_REHEARSAL=1` before the first start of the copy. A rehearsal refuses runners: enrolment codes, enrolment,
+heartbeats and job claims, and agent pairings, all answer `409 rehearsal`, so no bot runs against the copy's queue. Do not
+give it the production domain. Leave rehearsal by building a new server without
 the variable; a copy that ran in rehearsal was never backed up. An explicit `TICO_SCHEDULER=0` (without `TICO_REHEARSAL`)
 turns off only the scheduler and directory sync; unset, the server starts them.
 
