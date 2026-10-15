@@ -129,6 +129,7 @@ pub fn poll(runner: &Arc<Runner>) {
                 if harness.default_at.is_none_or(|t| t.elapsed().as_secs_f64() >= 60.0) {
                     harness.default_at = Some(Instant::now());
                     if let Ok(c) = me.client.get("config").await {
+                        crate::fallback::remember(&c);
                         if let Some(value) = c["default_runtime"].as_str() {
                             harness.default_runtime = value.to_string();
                         }

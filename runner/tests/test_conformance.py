@@ -340,7 +340,34 @@ def test_a_usage_limit_hops_the_turn_to_the_fallback_harness(api, computer):
     # A segment per harness that used tokens: the refused Codex turn used none.
     assert [part["runtime"] for part in result["usage"]["segments"]][-1:] == ["claude"]
     diagnostics = [e["payload"].get("text", "") for e in computer.events(computer.attempts()[-1]["id"]) if e["kind"] == "diagnostic"]
-    assert "codex unavailable; running this turn on claude" in diagnostics
+    assert "codex hit its usage limit; running this turn on claude" in diagnostics
+    assert not result.get("primary_limited")          # the bot's own fallback: an older server never sees the field
+
+
+# A bot out of quota that names no fallback runs the turn once on another provider signed in here (#504).
+@pytest.mark.parametrize("harness", ["codex"])
+@pytest.mark.parametrize("auto", [True, False])
+def test_a_usage_limit_with_no_fallback_set_runs_on_another_signed_in_provider(api, computer, auto):
+    from backend.store import H
+    view = get(api, "providers")
+    saved = api.put("/api/v2/providers", json={"enabled": ["openai", "anthropic"], "model": view["default"]["model"] or "",
+                                                "expected_revision": view["revision"], "auto_fallback": auto},
+                    headers={"Authorization": "Bearer ana-test", "Idempotency-Key": H.new_id()})
+    assert saved.status_code == 200, saved.text
+    computer.start()
+    msg = post(api, "chat/ops", {"text": "Please LIMIT yourself"})
+    result = until(lambda: (computer.attempts() or [{}])[-1].get("result"), "the completion")
+    diagnostics = [e["payload"].get("text", "") for e in computer.events(computer.attempts()[-1]["id"]) if e["kind"] == "diagnostic"]
+    if not auto:            # the owner turned it off: limited, as before
+        assert result.get("limited") and not result.get("fallback")
+        assert [p["harness"] for p in computer.prompts()] == ["codex"]
+        return
+    assert until(lambda: reply_to(api, msg["conversation_id"]), "the fallback's reply")["body"] == "Acme reply."
+    assert result["outcome"] == "completed" and result["fallback"] == "claude" and result["primary_limited"] is True
+    assert not result.get("limited")
+    assert [p["harness"] for p in computer.prompts()] == ["codex", "claude"]
+    assert any(d.startswith("codex hit its usage limit; running this turn on claude (no fallback set; another provider signed in here)")
+               for d in diagnostics), diagnostics
 
 
 # Steering and subscription profiles are Claude Code and Codex features (runner/profiles.py, steer in drive).
