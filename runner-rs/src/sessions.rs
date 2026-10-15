@@ -254,7 +254,7 @@ pub fn rules_block(dirs: &[(String, PathBuf)]) -> (String, String) {
 // ----------------------------------------------------------------------------- git in task checkouts
 
 async fn g(path: &Path, env: &Env, args: &[&str], timeout: u64) -> Result<Out, Fault> {
-    gitrun::git(path, env, args, timeout).await
+    gitrun::git_as_bot(path, env, args, timeout).await
 }
 
 fn fault_name(f: &Fault) -> String {
@@ -288,21 +288,28 @@ pub async fn upstream(main: &Path, env: &Env) -> Result<String, Fault> {
 /// Make or reuse the task's worktree: (upstream ref, problem). A problem means the turn runs in the main checkout.
 pub async fn ensure(main: &Path, path: &Path, task: &str, turn: &Env) -> (String, String) {
     let env = crate::safegit::environment(turn);
-    if !main.join(".git").exists() {
+    if !main.join(".git").symlink_metadata().is_ok_and(|m| m.is_dir()) {
         return (String::new(), MISSING.into());
     }
     let made: Result<(String, String), Fault> = async {
+        let common = gitrun::git(main, &env, &["rev-parse", "--path-format=absolute", "--git-common-dir"], 15).await?.stdout.trim().to_string();
+        if Path::new(&common).canonicalize().ok() != main.join(".git").canonicalize().ok() {
+            return Ok((String::new(), "the bot's checkout shares Git metadata outside its own repository; left as it is".into()));
+        }
+        // A previous supervisor turn may have left refs, indexes or worktree registrations behind.
+        // Only this repository's real .git directory is adopted, never a mirror or an external gitdir.
+        crate::isolation::adopt(&[main.join(".git")]);
         let tracked = upstream(main, &env).await?;
         if tracked.is_empty() {
             return Ok((String::new(), NO_UPSTREAM.into()));
         }
-        let common = g(main, &env, &["rev-parse", "--path-format=absolute", "--git-common-dir"], 15).await?.stdout.trim().to_string();
         if path.join(".git").exists() {
             let mine = g(path, &env, &["rev-parse", "--path-format=absolute", "--git-common-dir"], 15).await?.stdout.trim().to_string();
             let same = !common.is_empty() && Path::new(&mine).canonicalize().ok() == Path::new(&common).canonicalize().ok();
             if !same {
                 return Ok((String::new(), format!("{} is not a worktree of the bot's checkout; left as it is", path.display())));
             }
+            crate::isolation::adopt(&[path.to_path_buf()]);
             return Ok((tracked, String::new()));
         }
         if path.exists() && std::fs::read_dir(path).map(|mut d| d.next().is_some()).unwrap_or(true) {
@@ -576,7 +583,7 @@ pub async fn clone_shared(path: &Path, config: &Value, turn: &Env) -> String {
     let env = crate::safegit::environment(turn);
     let fresh = !path.exists() || std::fs::read_dir(path).map(|mut d| d.next().is_none()).unwrap_or(false);
     let p = path.display().to_string();
-    let problem = match gitrun::bare(&env, &["clone", "--quiet", &url, &p], 120).await {
+    let problem = match gitrun::bare_as_bot(&env, &["clone", "--quiet", &url, &p], 120).await {
         Ok(o) if o.ok() => return String::new(),
         Ok(o) => Some(crate::redact::git_failure(&o.stderr, &crate::redact::env_secrets(&env), 240)).filter(|t| !t.is_empty()).unwrap_or_else(|| format!("exit {}", o.code)),
         Err(Fault::Timeout(_)) => "git clone timed out after 120 seconds; a large repository or a slow network needs longer".into(),
@@ -656,7 +663,7 @@ pub async fn ensure_reads(workspace: &Path, path: &Path) {
         }
         let leaf = sibling.file_name().unwrap_or_default().to_string_lossy().to_string();
         let machine = crate::safegit::machine_environment(&crate::env::process_environment());
-        let done = gitrun::bare(&machine, &["clone", "--quiet", &format!("{origin}/{leaf}.git"), &sibling.display().to_string()], 60).await;
+        let done = gitrun::bare_as_bot(&machine, &["clone", "--quiet", &format!("{origin}/{leaf}.git"), &sibling.display().to_string()], 60).await;
         if !done.is_ok_and(|o| o.ok()) {
             log(&format!("Tico runner: could not clone {leaf}, which {} reads", path.file_name().unwrap_or_default().to_string_lossy()));
         }

@@ -80,8 +80,17 @@ pub fn stopping() -> bool {
 
 /// Run `argv` with exactly `env`, from `cwd` (else the empty hooks folder), for at most `timeout_s`.
 pub async fn run(argv: &[String], env: &Env, cwd: Option<&Path>, timeout_s: u64) -> Ran {
+    run_as(argv, env, cwd, timeout_s, false).await
+}
+
+/// Checkout commands run as the bot; authenticated mirrors and updater commands keep the supervisor.
+pub async fn run_as_bot(argv: &[String], env: &Env, cwd: Option<&Path>, timeout_s: u64) -> Ran {
+    run_as(argv, env, cwd, timeout_s, true).await
+}
+
+async fn run_as(argv: &[String], env: &Env, cwd: Option<&Path>, timeout_s: u64, bot: bool) -> Ran {
     let began = std::time::Instant::now();
-    let ran = run_once(argv, env, cwd, timeout_s).await;
+    let ran = run_once(argv, env, cwd, timeout_s, bot).await;
     let fault = match &ran {
         Ok(_) => None,
         Err(Fault::Timeout(_)) => Some("timeout"),
@@ -92,11 +101,11 @@ pub async fn run(argv: &[String], env: &Env, cwd: Option<&Path>, timeout_s: u64)
     ran
 }
 
-async fn run_once(argv: &[String], env: &Env, cwd: Option<&Path>, timeout_s: u64) -> Ran {
+async fn run_once(argv: &[String], env: &Env, cwd: Option<&Path>, timeout_s: u64, bot: bool) -> Ran {
     if stopping() {
         return Err(Fault::Stopped);
     }
-    let mut cmd = tokio::process::Command::new(&argv[0]);
+    let mut cmd = if bot { crate::isolation::command(&argv[0]) } else { tokio::process::Command::new(&argv[0]) };
     cmd.args(&argv[1..])
         .env_clear()
         .envs(env)
@@ -148,12 +157,26 @@ pub async fn git(path: &Path, env: &Env, args: &[&str], timeout_s: u64) -> Ran {
     run(&argv, env, None, timeout_s).await
 }
 
+pub async fn git_as_bot(path: &Path, env: &Env, args: &[&str], timeout_s: u64) -> Ran {
+    let mut argv = vec!["git".to_string()];
+    argv.extend(crate::safegit::args(path));
+    argv.extend(args.iter().map(|a| a.to_string()));
+    run_as_bot(&argv, env, None, timeout_s).await
+}
+
 /// Git outside any checkout with the safegit prefix (safe_git.PREFIX): clones, `check-ref-format`.
 pub async fn bare(env: &Env, args: &[&str], timeout_s: u64) -> Ran {
     let mut argv = vec!["git".to_string()];
     argv.extend(crate::safegit::prefix());
     argv.extend(args.iter().map(|a| a.to_string()));
     run(&argv, env, None, timeout_s).await
+}
+
+pub async fn bare_as_bot(env: &Env, args: &[&str], timeout_s: u64) -> Ran {
+    let mut argv = vec!["git".to_string()];
+    argv.extend(crate::safegit::prefix());
+    argv.extend(args.iter().map(|a| a.to_string()));
+    run_as_bot(&argv, env, None, timeout_s).await
 }
 
 pub fn sha256_hex(data: &[u8]) -> String {

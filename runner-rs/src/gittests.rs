@@ -82,6 +82,106 @@ fn commit_and_push(seed: &Path, file: &str, text: &str) {
     sh(seed, &["push", "-q", "origin", "HEAD:main"]);
 }
 
+// Run these permission contracts only in a disposable Linux container, as root with
+// TICO_RUNNER_BOT_UID=10003 TICO_RUNNER_BOT_GID=10002. They never touch an installed runner.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+#[ignore = "requires a disposable Linux two-user environment"]
+async fn isolated_workspace_git_reuses_restored_metadata_and_creates_new_metadata_as_the_bot() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    assert_eq!(unsafe { libc::geteuid() }, 0);
+    assert_eq!(crate::isolation::identity(), Some((10003, 10002)));
+    let tmp = Tmp::new();
+    let (bare, _) = remote(&tmp.0, "bot-ops");
+    let projects = tmp.0.join("projects");
+    std::fs::create_dir_all(&projects).unwrap();
+    let main = projects.join("bot-ops");
+    sh(&projects, &["clone", "--no-hardlinks", "-q", bare.to_str().unwrap(), main.to_str().unwrap()]);
+    let old = sessions::path_for(&projects, "ops", "old");
+    std::fs::create_dir_all(old.parent().unwrap()).unwrap();
+    sh(&main, &["worktree", "add", "-q", "-b", "tico-session/old", old.to_str().unwrap(), "origin/main"]);
+    sh(&old, &["branch", "--set-upstream-to=origin/main"]);
+    sh(&old, &["fetch", "-q"]);
+    let old_fetch = main.join(".git/worktrees/old/FETCH_HEAD");
+    assert_eq!(old_fetch.metadata().unwrap().uid(), 0, "restored supervisor-owned metadata");
+
+    let private = tmp.0.join("runner.json");
+    std::fs::write(&private, "private fixture").unwrap();
+    std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o600)).unwrap();
+    std::os::unix::fs::symlink(&private, main.join(".git/private-link")).unwrap();
+    // This local remote stands in for GitHub; local upload-pack must run as its owner.
+    crate::isolation::adopt(&[bare.clone()]);
+    let mirror = tmp.0.join("mirror.git");
+    std::fs::create_dir(&mirror).unwrap();
+    let env = turn_env(&tmp.0, &[]);
+    assert_eq!(sessions::ensure(&main, &old, "old", &env).await, ("origin/main".into(), "".into()));
+    assert_eq!(old_fetch.metadata().unwrap().uid(), 10003);
+    assert_eq!(old.metadata().unwrap().uid(), 10003, "the existing-return path adopts the checkout too");
+    assert_eq!(sessions::sync_shared(&old, &env).await, "");
+    assert_eq!(old_fetch.metadata().unwrap().uid(), 10003, "fetch does not recreate supervisor metadata");
+
+    let new = sessions::path_for(&projects, "ops", "new");
+    assert_eq!(sessions::ensure(&main, &new, "new", &env).await.1, "");
+    let write = crate::gitrun::run_as_bot(&["/bin/sh".into(), "-c".into(), "mkdir memory && printf lesson > memory/lesson.md".into()], &env, Some(&new), 10).await.unwrap();
+    assert!(write.ok(), "{}", write.stderr);
+    assert_eq!(sessions::finish(&new, "run", &env, &[]).await, "");
+    for file in ["worktrees/new/index", "worktrees/new/FETCH_HEAD", "logs/refs/heads/tico-session/new"] {
+        assert_eq!(main.join(".git").join(file).metadata().unwrap().uid(), 10003, "{file}");
+    }
+    assert_eq!(private.metadata().unwrap().uid(), 0, "adoption never follows a symlink into private state");
+    let denied = crate::gitrun::run_as_bot(&["cat".into(), private.display().to_string()], &env, None, 10).await.unwrap();
+    assert!(!denied.ok(), "the supervisor's registration remains private");
+    let mirror_stamp = mirror.join("supervisor-stamp");
+    let command = vec!["touch".into(), mirror_stamp.display().to_string()];
+    assert!(crate::gitrun::run(&command, &env, None, 10).await.unwrap().ok());
+    assert_eq!(mirror_stamp.metadata().unwrap().uid(), 0, "mirror commands keep the supervisor identity");
+    let foreign = projects.join("foreign");
+    std::fs::create_dir(&foreign).unwrap();
+    std::os::unix::fs::symlink(&mirror, foreign.join(".git")).unwrap();
+    assert!(!sessions::ensure(&foreign, &tmp.0.join("outside"), "foreign", &env).await.1.is_empty());
+    assert_eq!(mirror.metadata().unwrap().uid(), 0, "an external gitdir is never adopted");
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+#[ignore = "requires a disposable Linux two-user environment"]
+async fn isolated_workspace_locks_and_checkout_proofs_are_bot_owned_without_replacing_lock_inodes() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    assert_eq!(unsafe { libc::geteuid() }, 0);
+    assert_eq!(crate::isolation::identity(), Some((10003, 10002)));
+    let tmp = Tmp::new();
+    let folder = tmp.0.join("tasks/.locks");
+    std::fs::create_dir_all(&folder).unwrap();
+    let key = &crate::gitrun::sha256_hex(b"task")[..2];
+    let lock = folder.join(key);
+    std::fs::write(&lock, "").unwrap();
+    std::fs::set_permissions(&lock, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let inode = lock.metadata().unwrap().ino();
+    let held = worktrees::locked(&tmp.0, "task").await.unwrap();
+    assert_eq!(lock.metadata().unwrap().uid(), 10003);
+    assert_eq!(lock.metadata().unwrap().ino(), inode);
+    assert_eq!(lock.metadata().unwrap().mode() & 0o777, 0o644, "the inode changes owner, not mode");
+    let env = turn_env(&tmp.0, &[]);
+    let argv = vec!["flock".into(), "-n".into(), lock.display().to_string(), "true".into()];
+    assert!(!crate::gitrun::run_as_bot(&argv, &env, None, 10).await.unwrap().ok(), "the bot opens the same locked inode");
+    drop(held);
+    assert!(crate::gitrun::run_as_bot(&argv, &env, None, 10).await.unwrap().ok());
+    drop(worktrees::locked(&tmp.0, "fresh-task").await.unwrap());
+    assert_eq!(folder.join(&crate::gitrun::sha256_hex(b"fresh-task")[..2]).metadata().unwrap().uid(), 10003);
+
+    let proof = json!({"schema":1,"link_id":"link","phase":"ready"}).as_object().unwrap().clone();
+    worktrees::write_marker(&tmp.0, &proof).unwrap();
+    let marker = tmp.0.join("tasks/.checkout-state").join(format!("{}.json", crate::gitrun::sha256_hex(b"link")));
+    assert_eq!(marker.metadata().unwrap().uid(), 10003);
+    assert_eq!(marker.metadata().unwrap().mode() & 0o777, 0o600);
+    assert!(crate::gitrun::run_as_bot(&["cat".into(), marker.display().to_string()], &env, None, 10).await.unwrap().ok());
+    let private = tmp.0.join("private");
+    std::fs::write(&private, "private").unwrap();
+    std::os::unix::fs::symlink(&private, folder.join(&crate::gitrun::sha256_hex(b"malicious")[..2])).unwrap();
+    assert!(worktrees::locked(&tmp.0, "malicious").await.is_err());
+    assert_eq!(private.metadata().unwrap().uid(), 0, "a lock symlink never changes private ownership");
+}
+
 #[tokio::test]
 async fn a_task_lane_commits_its_memory_stamps_its_run_and_lands_beside_the_other_lanes() {
     let tmp = Tmp::new();
