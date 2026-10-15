@@ -317,8 +317,8 @@ pub async fn ensure(main: &Path, path: &Path, task: &str, turn: &Env) -> (String
         }
         g(main, &env, &["worktree", "prune"], 15).await?;
         if let Some(parent) = path.parent() {
-            // `git worktree add` runs as the bot user, so the folder it adds the task in must be the bot's before it
-            // runs, including one an older runner made as the supervisor (every task then fell back to the checkout).
+            // The bot user works in the task's folder, so the folder it lands in is the bot's, including one an older
+            // runner made as the supervisor (every task then fell back to the checkout).
             if crate::isolation::mkdir(parent, 0o755).is_err() {
                 return Ok((String::new(), "OSError".into()));
             }
@@ -338,7 +338,10 @@ pub async fn ensure(main: &Path, path: &Path, task: &str, turn: &Env) -> (String
         if !g(main, &env, &["config", "--get", "push.default"], 15).await?.ok() {
             g(main, &env, &["config", "push.default", "upstream"], 15).await?;
         }
-        crate::isolation::adopt(&[path.to_path_buf()]);
+        // Runner git runs as the supervisor with umask 022, so `worktree add` leaves the task's admin folder
+        // (.git/worktrees/<task>) and its new branch ref read-only to the bot user, whose commits and fetches then
+        // fail on index.lock and FETCH_HEAD. Hand the checkout's git folder to the bot, as worktrees.rs does.
+        crate::isolation::adopt(&[path.to_path_buf(), PathBuf::from(&common)]);
         Ok((tracked, String::new()))
     }
     .await;
