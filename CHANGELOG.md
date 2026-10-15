@@ -12,6 +12,10 @@ All notable changes to Tico are recorded here. The format follows
   someone else. A computer kept a Codex account it had read for up to 10 minutes, so the old email could show beside
   the new login; signing out now forgets it. An account reading that has missed its refresh now says when it was last
   checked ("account last checked 25m ago"), and a turn's plan no longer counts as a fresh account read.
+- A worktree whose cleanup was refused no longer loses that error when its computer restarts. The restarted computer
+  no longer remembered the refusal, so the error vanished from Health and the cleanup was asked again early, before
+  its wait was over. The error now stays while cleanup is asked and is forgotten once the task reopens. A computer
+  also now reports a failure it finds in the tree ahead of the last failed action, which it used to report instead.
 - A bot whose API key runs out of quota now waits instead of retrying every few seconds. Codex's "Quota exceeded.
   Check your plan and billing details." and the API's `insufficient_quota` were treated as ordinary failures, so
   the bot retried each job three times in 1 to 3 seconds and never showed it was limited. They now count as a
