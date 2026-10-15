@@ -141,7 +141,7 @@ button.linkish.tl-clear:hover{color:var(--ink)}
 .tl-asker{display:inline-flex;margin-right:-3px;position:relative;z-index:1}
 .tl-asker .av{box-shadow:0 0 0 2px var(--bg)}
 .tl-face{display:inline-flex}
-.tl-age{flex:none;width:42px;text-align:right;font-size:var(--t-sm);color:var(--muted);white-space:nowrap}
+.tl-age{flex:none;min-width:42px;text-align:right;font-size:var(--t-sm);color:var(--muted);white-space:nowrap}
 .tl-failed{flex:none;display:grid;place-items:center;width:16px;height:16px;border-radius:50%;background:var(--fail);color:var(--bg);font-size:var(--t-xs);font-weight:700}
 .tl-empty{padding:32px 0;color:var(--muted);text-align:center;font-size:var(--t-base)}
 .tl-more{display:block;margin:12px auto 0}

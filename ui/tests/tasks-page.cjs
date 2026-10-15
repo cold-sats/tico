@@ -932,6 +932,26 @@ async function donePagination(browser) {
   console.log('Done pagination through filtered empty pages: ok');
 }
 
+async function ages(browser) {
+  // Every open row reads how long its task has been open (since created) and, when it has
+  // sat untouched, how long it has been quiet (since updated). A task that just moved
+  // reads only its open age, so it never looks stale.
+  const base = {...fixtures().find(x => x.id === 't-copy')};
+  const extraTasks = [
+    {...base, id: 't-stale', title: 'Stale vendor contract', created: at(60 * 30), updated: at(65)},
+    {...base, id: 't-fresh', title: 'Fresh vendor contract', created: at(60 * 30), updated: new Date().toISOString()},
+    {...base, id: 't-untouched', title: 'Untouched vendor contract', created: at(150), updated: at(150)},
+  ];
+  const {page, errors} = await open(browser, {hash: '#/tasks', extraTasks});
+  const age = key => page.locator(`[data-task-key="${key}"] .tl-age`);
+  assert.equal(await age('tt-stale').innerText(), 'open 1d · quiet 1h', 'a long-quiet item reads as stale');
+  assert.match(await age('tt-stale').getAttribute('title'), /^Open .* · Updated /);
+  assert.equal(await age('tt-fresh').innerText(), 'open 1d', 'a just-moved item shows only its open age');
+  assert.equal(await age('tt-untouched').innerText(), 'open 3h', 'an untouched item reads its open age once');
+  assert.deepEqual(errors, []);
+  await page.close();
+  console.log('open/quiet ages: ok');
+}
 async function polling(browser) {
   // The 30-second poll reloads the list: a changed row redraws, the others stay the same nodes, the focus and the
   // scroll stay put, and an open peek shows the newer task.
@@ -1234,7 +1254,7 @@ if (require.main === module) (async () => {
   const browser = await chromium.launch({channel: process.env.TICO_BROWSER_CHANNEL ?? 'chrome', headless: true});
   try {
     const only = process.env.TASKS_ONLY ? process.env.TASKS_ONLY.split(',') : null;
-    for (const [name, run] of Object.entries({listAndTabs, typeSelection, filters, carriedOver, peekAndKeys, properties, snoozing, bulk, views, waitingOnYou, donePagination, polling, phone, recheckSaves, recheckLists, recheckPhone, recheckFinal}))
+    for (const [name, run] of Object.entries({listAndTabs, typeSelection, filters, carriedOver, peekAndKeys, properties, snoozing, bulk, views, waitingOnYou, donePagination, ages, polling, phone, recheckSaves, recheckLists, recheckPhone, recheckFinal}))
       if (!only || only.includes(name)) await run(browser);
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exit(1); });

@@ -161,6 +161,21 @@ function ageShort(iso) {
   if (s < 86400 * 7) return `${Math.round(s / 86400)}d`;
   return new Date(t).toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
 }
+// A row reads how long its task has been open (since created) and, when it has sat
+// untouched for a meaningfully shorter time, how long it has been quiet (since updated):
+// "open 3d · quiet 60m". A task that just moved reads only its open age, so it never
+// looks stale; one never touched since creation reads the same.
+function taskOpenQuiet(t) {
+  const open = ageShort(t?.created), quiet = ageShort(t?.updated);
+  if (!open) return quiet;
+  if (!quiet || quiet === 'now' || quiet === open) return `open ${open}`;
+  return `open ${open} · quiet ${quiet}`;
+}
+// The exact dates behind taskOpenQuiet, for a row's tooltip.
+function taskOpenQuietTitle(t) {
+  return [t?.created ? `Open ${fmt(t.created)}` : '',
+    t?.updated || t?.created ? `Updated ${fmt(t.updated || t.created)}` : ''].filter(Boolean).join(' · ');
+}
 // Subtask progress: "1/3" beside a ring that fills as they finish (children_summary from the server, else parts).
 function taskSubProgress(t) {
   const s = t?.children_summary;
