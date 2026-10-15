@@ -8,6 +8,7 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- The built-in manual refreshes changed pages even when a filesystem or editing tool preserves their timestamps.
 - **BotOps' refusal on a task someone else reopened says what works.** It no longer says "ask the person again"
   (a reply on that task never lends their rights again); it says only a run their own comment or BotOps chat message
   starts has their rights, with no `on_behalf_of`.

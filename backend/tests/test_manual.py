@@ -1,5 +1,6 @@
 """The Tico manual: this release's docs, searchable, read-only and apart from the company's docs (docs/docs.md)."""
 
+import os
 from pathlib import Path
 
 from backend import manual
@@ -26,13 +27,20 @@ def test_the_manual_is_read_only_and_never_mixed_with_company_docs(api):
 
 
 def test_the_manual_is_rebuilt_when_the_release_or_a_file_changes(monkeypatch, tmp_path):
-    (tmp_path / "widgets.md").write_text("# Widgets\n\n## Polishing\n\nUse the polish command on a widget.\n")
+    widgets = tmp_path / "widgets.md"
+    widgets.write_text("# Widgets\n\n## Polishing\n\nUse the polish command on a widget.\n")
     monkeypatch.setattr(manual, "DOCS_DIR", tmp_path)
     monkeypatch.setenv("TICO_VERSION", "1.0.0")
     first = manual.search("polish widget")[0]
     assert first["version"] == "1.0.0" and first["url"].endswith("/v1.0.0/docs/widgets.md#polishing") and first["path"] == "docs/widgets.md"
     monkeypatch.setenv("TICO_VERSION", "1.0.1")
     assert manual.search("polish widget")[0]["url"].startswith("https://github.com/ticoteam/tico/blob/v1.0.1/")
-    (tmp_path / "widgets.md").write_text("# Widgets\n\n## Buffing\n\nBuff the widget with wax.\n")
+    before = widgets.stat()
+    updated = "# Widgets\n\n## Buffing\n\nUse the buff wax command on a widget.\n"
+    widgets.write_text(updated)
+    # Coarse timestamps and tools that preserve mtime must not hide even an equal-size edit.
+    os.utime(widgets, ns=(before.st_atime_ns, before.st_mtime_ns))
+    assert widgets.stat().st_size == before.st_size and widgets.stat().st_mtime_ns == before.st_mtime_ns
     assert manual.search("polish") == [] and manual.search("buff wax")[0]["title"] == "Widgets > Buffing"
+    assert manual.read("widgets")["body"] == updated
 
