@@ -119,8 +119,25 @@ def test_person_forwards_a_chat_file_to_a_bot_task_and_only_readers_gain_it(api)
     assert api.get(attachment['url'], headers=headers(attempt['token'])).status_code == 403
     comment = post(api, f'tasks/{tid}/comments', {'text': 'The export', 'attachments': [ref]}, 'ben-test')['comment']
     forwarded = comment['refs']['attachments'][0]
-    assert (forwarded['id'], forwarded['name'], forwarded['version']) == (attachment['id'], attachment['name'], 1)
+    assert forwarded['id'] != attachment['id'] and forwarded['name'] == attachment['name']
     downloaded = api.get(forwarded['url'], headers=headers(attempt['token']))
     assert downloaded.status_code == 200 and downloaded.content == b'Chat bytes'
+    # The task got a copy: the chat file itself is still closed to the task's bot.
+    assert api.get(attachment['url'], headers=headers(attempt['token'])).status_code == 403
+    again = post(api, f'tasks/{tid}/comments', {'text': 'Again', 'attachments': [ref]}, 'ben-test')['comment']
+    assert again['refs']['attachments'][0]['ref'] == forwarded['ref']
     # Sharing it is the point: whoever reads the task now opens it through the task.
     assert api.get(forwarded['url'], headers=headers('ana-test')).status_code == 200
+
+
+def test_sharing_a_chat_file_into_a_private_task_leaves_the_chat_file_readable(api):
+    chat = upload(api, 'chat/ops', {'text': 'Source export'}, 'ben-test', data=b'Chat bytes')
+    attachment = chat['message']['refs']['attachments'][0]
+    machine = runner(api)
+    assign(api, machine, 'ops')
+    ready(api, machine, ['ops'])
+    attempt = claim(api, machine, 'ops')
+    assert attempt['conversation']['id'] == chat['conversation']['id']
+    tid = post(api, 'tasks', {'owner': 'cpo', 'title': 'Private', 'body': 'Read it.', 'private': True}, 'ben-test')['id']
+    post(api, f'tasks/{tid}/comments', {'text': 'The export', 'attachments': [attachment['id'] + '@1']}, 'ben-test')
+    assert api.get(attachment['url'], headers=headers(attempt['token'])).status_code == 200

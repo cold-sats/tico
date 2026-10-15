@@ -48,23 +48,33 @@ def file_version(c, task_id, fid, number):
     raise Problem("not_found", "File version not found on this task", 404)
 
 
-def comment_file(c, auth, who, task_id, fid, number):
-    """A file a comment attaches. A person may also attach a chat file they can open (`<id>@1`): it joins the task
-    as a legacy attachment, so the task's readers open it through the task. Its other links still apply to
-    every reader, so a file from a private chat or task stays closed to whoever cannot see that too."""
+def comment_file(c, auth, files, who, task_id, fid, number):
+    """The (file id, version) a comment attaches. A person may also attach a chat file they can open (`<id>@1`):
+    the task gets its own copy of the same bytes through the task-file service, so the task's readers open it
+    through the task, and the chat file's own access and lifetime stay as they were."""
     try:
-        return file_version(c, task_id, fid, number)
+        return fid, file_version(c, task_id, fid, number)
     except Problem:
         if number != 1 or who.role not in ("owner", "human") or \
                 c.execute("SELECT 1 FROM bot_file_versions WHERE blob_id=?", (fid,)).fetchone():
             raise
+    from .blobs import register
     from .media import blob_for
     try:
-        blob_for(c, auth, who, fid)
+        source = blob_for(c, auth, who, fid)
     except Problem:
         raise Problem("not_found", "File version not found on this task", 404) from None
-    c.execute("INSERT OR IGNORE INTO task_assets VALUES(?,?)", (task_id, fid))
-    return file_version(c, task_id, fid, number)
+    # Sharing the same file again points at the copy already on the task.
+    same = c.execute("SELECT v.file_id,v.version FROM bot_file_versions v JOIN bot_files f ON f.id=v.file_id "
+                     "WHERE f.task_id=? AND f.archived=0 AND v.digest=? AND v.name=? ORDER BY v.version DESC LIMIT 1",
+                     (task_id, source["digest"], source["name"])).fetchone()
+    if same:
+        return same["file_id"], file_version(c, task_id, same["file_id"], same["version"])
+    item = register(c, who, source["digest"], source["size"], source["name"], source["content_type"])
+    copy = files.publish_task_deliverable(c, who, task_id, item, source["digest"])
+    c.execute("INSERT INTO task_assets VALUES(?,?)", (task_id, item["id"]))
+    current = c.execute("SELECT current_version FROM bot_files WHERE id=?", (copy,)).fetchone()[0]
+    return copy, file_version(c, task_id, copy, current)
 
 
 def check_ask(c, task_id, ask, auth, who):

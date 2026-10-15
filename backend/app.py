@@ -2818,7 +2818,8 @@ def create_app(settings=None):
             attached = []
             for reference in body.attachments:
                 fid, number = reference.rsplit("@", 1)
-                version = comment_file(c, auth, who, task_id, fid, int(number))
+                fid, version = comment_file(c, auth, app.state.files, who, task_id, fid, int(number))
+                number, reference = version["version"], f"{fid}@{version['version']}"
                 attached.append({"id": fid, "file_id": fid, "version": int(number), "ref": reference,
                                  "name": version["name"], "size": version["size"], "content_type": version["mime"],
                                  "url": f"/api/v2/files/{fid}?v={number}"})
@@ -2834,7 +2835,7 @@ def create_app(settings=None):
             else:
                 wake = H.comment_wakes(c, who.actor, row, body.text, mover=moves)
             msg = H.task_comment(c, who.actor, task_id, body.text, wake=wake, ask=ask,
-                                 extra_refs={"attachments": attached, "files": body.attachments} if attached else None)
+                                 extra_refs={"attachments": attached, "files": [a["ref"] for a in attached]} if attached else None)
             for person in people:
                 H.task_comment(c, who.actor, task_id, body.text, wake=False, ask=H.mention_ask(body.text, person))
             for item in attached:

@@ -9,10 +9,9 @@ All notable changes to Tico are recorded here. The format follows
 
 ### Fixed
 - A person can give a bot's task a file they already sent in a chat without uploading it again: a task comment
-  (`hub task comment --file <id>@1`, or `attachments` over MCP and API) puts the chat file on the task, and the
-  task's bot can download it. Before, the bot was refused even though the file was linked in the comment. A bot,
-  or a person who cannot open the file, is still refused, and a file from a private chat or task stays closed to
-  anyone who cannot see that chat or task.
+  (`hub task comment --file <id>@1`, or `attachments` over MCP and API) gives the task its own copy, and the task's
+  bot can download it. Before, the bot was refused even though the file was linked in the comment. A bot, or a
+  person who cannot open the file, is still refused, and the chat file keeps its own access.
 - Bots can read a pull request's checks (`gh pr checks`, commit statuses and check runs) on private
   repositories: run tokens carry Checks and Commit statuses read whenever the installation has accepted them. An
   App created by hand without them needs **Checks** and **Commit statuses** set to Read-only and accepted on the
