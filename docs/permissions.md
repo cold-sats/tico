@@ -212,6 +212,9 @@ what they can't do comes to the person who commented as a Confirm card in their 
 On its own task BotOps never needs anyone's rights to add the task's worktree (the bot's own repository access decides; an
 owner or admin gives it in Settings > Repositories) or to file a question or subtask for a person under it; that ask grants
 nothing by itself.
+With a person's rights BotOps may give another bot repository access at once, but never take any away: setting a bot to
+own, dropping a chosen repository or turning write into read comes to that person as a Confirm card naming the grants that
+would stop. The same change made in Settings > Repositories (or `hub bot repos`) says which grants stopped applying.
 A message cited by id (`on_behalf_of`) must be the requester's own, in their own chat with BotOps rather than a room another human
 spoke in, and it must be the same human whose message started the run. Someone who has left lends nothing.
 

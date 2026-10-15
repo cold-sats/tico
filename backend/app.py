@@ -2812,13 +2812,14 @@ def create_app(settings=None):
         def work(c):
             task_id = auth.resolve_task(c, who, tid)
             row = auth.task(c, who, task_id)
-            from .task_review import comment_rights, check_ask, file_version
+            from .task_review import comment_rights, check_ask, comment_file
             comment_rights(c, auth, who, task_id)
             ask = check_ask(c, task_id, body.ask, auth, who)
             attached = []
             for reference in body.attachments:
                 fid, number = reference.rsplit("@", 1)
-                version = file_version(c, task_id, fid, int(number))
+                fid, version = comment_file(c, auth, app.state.files, who, task_id, fid, int(number))
+                number, reference = version["version"], f"{fid}@{version['version']}"
                 attached.append({"id": fid, "file_id": fid, "version": int(number), "ref": reference,
                                  "name": version["name"], "size": version["size"], "content_type": version["mime"],
                                  "url": f"/api/v2/files/{fid}?v={number}"})
@@ -2834,7 +2835,7 @@ def create_app(settings=None):
             else:
                 wake = H.comment_wakes(c, who.actor, row, body.text, mover=moves)
             msg = H.task_comment(c, who.actor, task_id, body.text, wake=wake, ask=ask,
-                                 extra_refs={"attachments": attached, "files": body.attachments} if attached else None)
+                                 extra_refs={"attachments": attached, "files": [a["ref"] for a in attached]} if attached else None)
             for person in people:
                 H.task_comment(c, who.actor, task_id, body.text, wake=False, ask=H.mention_ask(body.text, person))
             for item in attached:
@@ -3647,6 +3648,7 @@ def create_app(settings=None):
         return {"proposed": True, "needs_confirm": True, **card,
                 "detail": "This needs " + ((H.human(c, H.actor_id(acting.actor)) or {}).get("name") or "the person")
                 + "'s own OK. A Confirm card is in their chat with BotOps; nothing has changed yet."}
+    app.state.botops_propose = propose_card      # a route outside this file asking for the card (backend/repositories.py)
 
     def risky(who):
         """A delegated identity that has not been confirmed: BotOps acting for a person, before their click."""

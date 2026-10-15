@@ -223,8 +223,27 @@ def set_access(c, bot, body, org, actor, legacy=False, team_list=False):
         save_metadata(c, 'repository-creation-grants', grants)
     after = access(c, bot, org)
     save_extra_repos(c, bot, [r['full_name'] for r in after['chosen'] if r['access'] == 'write'] if body.mode == 'chosen' else [])
-    H.event(c, actor, 'bot.repos_changed', bot, {'before': before, 'after': after})
-    return after
+    lost = stopped(before, after)
+    H.event(c, actor, 'bot.repos_changed', bot, {'before': before, 'after': after, **lost})
+    return {**after, **lost}
+
+
+def stopped(before, after):
+    """What a change takes away, said on its reply and in its audit event: `stopped`, the grants that applied before
+    and no longer do (a repository gone, or write turned to read), and `creation_stopped` when repository creation
+    was taken away. A switch to own keeps the chosen rows, but they stop applying."""
+    kept = {(r['full_name'].lower(), r['access']) for r in after['effective']}
+    out = {'stopped': [{'full_name': r['full_name'], 'access': r['access']} for r in before['effective']
+                       if (r['full_name'].lower(), r['access']) not in kept]}
+    if before['create_repositories'] and not after['create_repositories']:
+        out['creation_stopped'] = True
+    return out
+
+
+def describe_stopped(result):
+    """`Acme/product (write), repository creation` for a reply or a card."""
+    parts = [r['full_name'] + ' (' + r['access'] + ')' for r in result.get('stopped') or []]
+    return ', '.join(parts + (['repository creation'] if result.get('creation_stopped') else []))
 
 
 def sync(service):
@@ -526,7 +545,27 @@ def install(app, store, service):
             raise Problem('forbidden', 'Only the Owner changes Built-in bots', 403)
         with store.transaction() as c:
             row = service.row(c)
-            return set_access(c, bot, body, row['org'] if row else store.settings.github_owner, who.actor, team_list=True)
+            org = row['org'] if row else store.settings.github_owner
+            if not who.task_actor or who.task_actor == 'bot:' + bot:
+                return set_access(c, bot, body, org, who.actor, team_list=True)
+            # A bot's turn acting for a person (BotOps, the Assistant) may give another bot access with their rights, but
+            # taking any away is the person's own call: BotOps once set two bots to own, and their product repositories
+            # stopped applying with nobody asked.
+            c.execute('SAVEPOINT repo_narrowing')
+            result = set_access(c, bot, body, org, who.actor, team_list=True)
+            if not result['stopped'] and not result.get('creation_stopped'):
+                c.execute('RELEASE repo_narrowing')
+                return result
+            c.execute('ROLLBACK TO repo_narrowing')
+            c.execute('RELEASE repo_narrowing')
+            name = (H.bot(c, bot) or {}).get('display_name') or bot
+            lost = describe_stopped(result)
+            propose = getattr(app.state, 'botops_propose', None)
+            if who.via == 'botops' and propose:
+                return propose(c, who, 'PUT', '/api/v2/bots/' + bot + '/repositories', body.model_dump(exclude_none=True),
+                               ("Set " + name + "'s repository access to " + body.mode + ". This stops: " + lost)[:300])
+            raise Problem('forbidden', 'This takes ' + lost + ' away from ' + name + '; a person who manages it makes '
+                          'that change in Settings > Repositories', 403)
 
     def computer(request):
         who = request.state.identity
@@ -540,12 +579,14 @@ def install(app, store, service):
     @app.get('/api/v2/runners/me/repositories')
     def computer_get(request: Request):
         who = request.state.identity
-        if who.role != 'bot':
+        # A bot's turn acting for a person (BotOps, the Assistant) is still that bot's turn: its own repositories.
+        actor = who.actor if who.role == 'bot' else who.task_actor if str(who.task_actor).startswith('bot:') else ''
+        if not actor:
             return computer(request)
         with store.read() as c:
             validate_identity(c, who)
             row = service.row(c)
-            bot = H.actor_id(who.actor)
+            bot = H.actor_id(actor)
             grants = access(c, bot, row['org'] if row else store.settings.github_owner)['effective']
             result = []
             for grant in grants:
