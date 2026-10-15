@@ -24,12 +24,14 @@ ring = "0.17"
 regex = { version = "1", default-features = false, features = ["std", "unicode-case", "unicode-perl", "perf"] }
 aho-corasick = "1"
 base64 = "0.22"
-futures-util = { version = "0.3", default-features = false, features = ["std"] }
+futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
 toml = { version = "0.8", default-features = false, features = ["parse"] }
 url = "2"
 yaml-rust2 = { version = "0.10", default-features = false }
 sha2 = "0.10"
 hex = "0.4"
+# The computer screen bridge (crate::screen): the hub websocket over the same rustls and webpki roots reqwest uses.
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 
 [dev-dependencies]
 

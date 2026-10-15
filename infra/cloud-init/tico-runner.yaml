@@ -15,6 +15,8 @@ write_files:
       TICO_URL=https://tico.example.com
       TICO_CODE=
       TICO_RUNNER_LABEL=cloud-runner
+      # 1 offers this computer's screen to the web app (Settings > Computers > Screen decides who may open it)
+      TICO_SCREEN=0
       # --- inputs end ---
 
   # Bots run here and must not read the provider's metadata service (it serves this file's values).
@@ -51,6 +53,7 @@ write_files:
       [ -f "$IN" ] || { say "no inputs found"; exit 1; }
       version=$(val TICO_CLOUD_VERSION); url=$(val TICO_URL); code=$(val TICO_CODE); label=$(val TICO_RUNNER_LABEL)
       allow_ssh=$(val TICO_CLOUD_ALLOW_SSH)
+      screen=(); [ "$(val TICO_SCREEN)" = 1 ] && screen=(--screen)
       [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ && "$version" != v0.0.0 ]] || { say "TICO_CLOUD_VERSION must be a release such as v1.2.3"; exit 1; }
       [[ "$url" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]] || { say "TICO_URL must look like https://tico.example.com"; exit 1; }
       [[ "$code" =~ ^[A-Za-z0-9_-]+$ ]] || { say "TICO_CODE is missing or has odd characters"; exit 1; }
@@ -71,7 +74,7 @@ write_files:
         sleep 10
       done
       [ -s "$installer" ] || { say "could not download install.sh for $version"; exit 1; }
-      sh "$installer" --runner --url "$url" --code "$code" --label "$label"
+      sh "$installer" --runner --url "$url" --code "$code" --label "$label" "${screen[@]}"
       rm -f "$installer"
       systemctl enable --now tico-block-metadata.service >/dev/null
       say "runner started"

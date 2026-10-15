@@ -52,6 +52,7 @@ mod worktrees;
 mod runner;
 mod sessions;
 mod safegit;
+mod screen;
 mod sidejobs;
 mod signin;
 mod state;
@@ -117,6 +118,11 @@ enum Command {
         #[command(subcommand)]
         action: FlightAction,
     },
+    /// This computer's screen for the web app (Linux): on, off, or where it stands. Off unless turned on here.
+    Screen {
+        #[command(subcommand)]
+        action: ScreenAction,
+    },
     /// Git's credential helper for one turn (git runs it; not for people).
     GitCredential {
         #[arg(long)]
@@ -139,6 +145,41 @@ enum FlightAction {
         #[arg(long)]
         dir: Option<PathBuf>,
     },
+}
+
+#[derive(Subcommand)]
+enum ScreenAction {
+    /// Offer a screen people can open from the web app (the hub's setting still decides who sees it).
+    On,
+    /// Stop the screen and close any open session.
+    Off,
+    /// Print whether it is on, what says so, and whether it can run here.
+    Status,
+}
+
+/// `screen on|off|status`: the local lock in runner.json; a running runner follows it within seconds.
+fn screen_main(action: ScreenAction, config: &mut config::Config) -> i32 {
+    if let ScreenAction::On | ScreenAction::Off = action {
+        let on = matches!(action, ScreenAction::On);
+        config.data.insert("screen".into(), serde_json::Value::Bool(on));
+        if let Err(e) = config.save() {
+            fail(&e);
+        }
+    }
+    let (on, source) = screen::lock(&config.path);
+    let missing = if on { screen::missing_tools() } else { vec![] };
+    let mut out = serde_json::json!({"screen": if on { "on" } else { "off" }, "set_by": source});
+    if let Some(report) = screen::report(on, std::env::consts::OS, &missing, None) {
+        out.as_object_mut().unwrap().extend(report.as_object().cloned().unwrap_or_default());
+    }
+    if source == "TICO_SCREEN" && !matches!(action, ScreenAction::Status) {
+        out["note"] = serde_json::json!("TICO_SCREEN is set and wins over this setting");
+    }
+    if !missing.is_empty() && std::env::consts::OS == "linux" {
+        out["note"] = serde_json::json!("Install xvfb x11vnc openbox (install.sh --screen does)");
+    }
+    println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+    0
 }
 
 #[derive(Subcommand)]
@@ -214,7 +255,7 @@ fn flight_summary(dir: &std::path::Path, since: &str) -> i32 {
 }
 
 fn fail(message: &str) -> ! {
-    eprintln!("usage: tico-runner [--config CONFIG] {{enroll,run,status,doctor,adopt,profile,flight}}\ntico-runner: error: {message}");
+    eprintln!("usage: tico-runner [--config CONFIG] {{enroll,run,status,doctor,adopt,profile,flight,screen}}\ntico-runner: error: {message}");
     std::process::exit(2)
 }
 
@@ -257,6 +298,9 @@ fn main() {
     let mut config = config::Config::load(&path).unwrap_or_else(|e| fail(&e));
     if let Command::Profile { action } = cli.command {
         std::process::exit(profile_main(action, &mut config));
+    }
+    if let Command::Screen { action } = cli.command {
+        std::process::exit(screen_main(action, &mut config));
     }
     if let Command::Flight { action: FlightAction::Summary { since, .. } } = &cli.command {
         std::process::exit(flight_summary(&config.state_dir(), since));
@@ -356,7 +400,9 @@ async fn start(command: Command, config: config::Config) -> i32 {
     util::log(&format!("Tico runner {} (rust) started for {}", runner::RUNNER_VERSION, service.config.runner_id()));
     // No launchd here (TICO_SIDE_JOBS=1): the runner also supervises importers, close-calls and connectors.
     let side = sidejobs::start(&service.config);
+    screen::start(service.config.path.clone(), client.clone());
     service.run().await;
+    screen::shutdown().await;
     if let Some((task, stop)) = side {
         stop.notify_one();
         let _ = task.await;
