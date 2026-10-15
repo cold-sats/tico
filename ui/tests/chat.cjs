@@ -419,7 +419,8 @@ async function sideThreads(browser) {
     say('late-2', 'keeper', 'bot:cmo', 'Done: census', 44, {kind: 'notice', refs: {task: 't1'}}),
   ];
   const snapshot = {messages, next_before: null, execution: null, goal: null};
-  const talk = [{id: 'b1', conversation_id: 'c-ask', kind: 'ask', from_actor: 'bot:cmo', to_actor: 'bot:seo', body: 'Can SEO read Respona?', created: at(30), refs: {}},
+  const talk = [{id: 'b0', conversation_id: 'c-ask', kind: 'ask', from_actor: 'bot:cmo', to_actor: 'bot:seo', body: 'Who has Respona?', created: at(29), refs: {}},
+                {id: 'b1', conversation_id: 'c-ask', kind: 'ask', from_actor: 'bot:cmo', to_actor: 'bot:seo', body: 'Can SEO read Respona?', created: at(30), refs: {}},
                 {id: 'b2', conversation_id: 'c-ask', kind: 'answer', from_actor: 'bot:seo', to_actor: 'bot:cmo', body: 'Yes, read-only.', created: at(31), refs: {}}];
   const bots = ['cmo', 'dots', 'botops', 'seo'].map(name => ({name, display_name: name === 'cmo' ? 'CMO' : name[0].toUpperCase() + name.slice(1), host: 'keeper', status: 'active', can_chat: true, schedules: []}));
   await page.route('**/*', route => {
@@ -438,8 +439,9 @@ async function sideThreads(browser) {
       : [{id: 'c-cmo', kind: 'chat', scope: 'personal', participants: ['human:ana', 'bot:cmo']}]});
     if (p === '/api/v2/conversations/c-cmo/snapshot' || p === '/api/v2/conversations/c-cmo/messages') return json(snapshot);
     if (p === '/api/v2/conversations/c-ask/messages') {
-      asked.push(url.searchParams.get('limit'));
-      return json(url.searchParams.get('limit') === '1' ? {messages: talk.slice(-1), has_more: true, next_before: 'b2'} : {messages: talk});
+      asked.push(url.searchParams.get('limit') + (url.searchParams.get('before') ? ' before ' + url.searchParams.get('before') : ''));
+      if (url.searchParams.get('limit') === '1') return json({messages: talk.slice(-1), has_more: true, next_before: 'b2'});
+      return json(url.searchParams.get('before') === 'b1' ? {messages: talk.slice(0, 1)} : {messages: talk.slice(1), has_more: true, next_before: 'b1'});
     }
     return json({});
   });
@@ -484,8 +486,12 @@ async function sideThreads(browser) {
   await big.locator('.cs-item[data-message="b2"] [data-bots-open]').tap();
   await big.locator('.cs-item[data-message="b1"]').waitFor();
   assert.equal(await big.locator('.cs-item').count(), 22);
+  assert.equal(await big.locator('[data-bots-open]').count(), 1, 'more before the page: one "Earlier messages", on its oldest');
+  await big.locator('.cs-item[data-message="b1"] [data-bots-open]').tap();
+  await big.locator('.cs-item[data-message="b0"]').waitFor();
+  assert.equal(await big.locator('.cs-item').count(), 23);
   assert.equal(await big.locator('[data-bots-open]').count(), 0);
-  assert.deepEqual(asked, ['1', '50'], 'a preview reads one message; opening reads one page');
+  assert.deepEqual(asked, ['1', '50', '50 before b1'], 'a preview reads one message; opening reads one page, then the page before it');
   if (process.env.TICO_SHOTS) {
     await big.locator('.cs-item[data-message="b2"]').scrollIntoViewIfNeeded();
     await page.screenshot({path: process.env.TICO_SHOTS + '/bot-talk-opened.png'});

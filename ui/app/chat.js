@@ -130,13 +130,19 @@ async function v2BotsLoad(state) {
     elsewhere: {kind: c.kind, subject: c.subject || '', id: c.id, preview: !!bodies[n].has_more}})));
   if (state.botTalk.length) v2ChatRender(state);
 }
-// A bot-to-bot conversation shown as its newest message: its newest page in place of the preview.
+// A bot-to-bot conversation shown as its newest message: its newest page in place of the preview, then each
+// "Earlier messages" loads the page before the oldest one shown (its cursor rides on that message).
 async function v2BotsOpen(state, cid) {
-  const d = await get(`/v2/conversations/${encodeURIComponent(cid)}/messages?${CHAT_PAGE}`);
+  const mine = (state.botTalk || []).filter(m => m.elsewhere?.id === cid);
+  const was = mine.find(m => m.elsewhere?.before)?.elsewhere || mine[0]?.elsewhere || {};
+  const before = was.before ? `before=${encodeURIComponent(was.before)}&` : '';
+  const d = await get(`/v2/conversations/${encodeURIComponent(cid)}/messages?${before}${CHAT_PAGE}`);
   if (V2C !== state) return;
-  const was = (state.botTalk || []).find(m => m.elsewhere?.id === cid)?.elsewhere || {};
-  state.botTalk = [...(state.botTalk || []).filter(m => m.elsewhere?.id !== cid),
-    ...(d.messages || []).map(m => ({...m, elsewhere: {kind: was.kind, subject: was.subject || '', id: cid}}))];
+  const tag = m => ({...m, elsewhere: {kind: was.kind, subject: was.subject || '', id: cid}});
+  const kept = was.before ? mine.map(tag) : [];
+  const page = [...(d.messages || []).filter(m => !kept.some(k => k.id === m.id)).map(tag), ...kept];
+  if (d.has_more && d.next_before && page.length) page[0].elsewhere = {...page[0].elsewhere, preview: true, before: d.next_before};
+  state.botTalk = [...(state.botTalk || []).filter(m => m.elsewhere?.id !== cid), ...page];
   v2ChatRender(state);
 }
 async function v2ChatMessages(state) {
