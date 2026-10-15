@@ -8,6 +8,12 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- A bot whose API key runs out of quota now waits instead of retrying every few seconds. Codex's "Quota exceeded.
+  Check your plan and billing details." and the API's `insufficient_quota` were treated as ordinary failures, so
+  the bot retried each job three times in 1 to 3 seconds and never showed it was limited. They now count as a
+  usage limit: the turn moves to a ready fallback harness, or the bot shows limited with its retry time and stops
+  taking work until then (or until a person writes or presses Try now). Its status and Health say "API quota or
+  billing limit" and point to the key's plan and billing rather than a subscription window.
 - The Health Monitor no longer reports "A runner keeps losing its event stream" because the server restarted. A
   server start (a deploy or an update) ends every runner's stream at once, and each drop was counted twice. The check
   now counts each drop once and leaves out drops from 5 minutes before to 2 minutes after a server start.
