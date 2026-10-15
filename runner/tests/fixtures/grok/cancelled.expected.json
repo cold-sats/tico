@@ -1,0 +1,16 @@
+[
+ {
+  "kind": "delta",
+  "text": "Working",
+  "delta_kind": "text"
+ },
+ {
+  "kind": "turn_completed",
+  "status": "interrupted",
+  "stop_reason": "cancelled"
+ },
+ {
+  "kind": "status",
+  "state": "idle"
+ }
+]

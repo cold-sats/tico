@@ -1,0 +1,83 @@
+[
+ {
+  "kind": "status",
+  "state": "active"
+ },
+ {
+  "kind": "delta",
+  "text": "Checking",
+  "delta_kind": "text"
+ },
+ {
+  "kind": "delta",
+  "text": ".",
+  "delta_kind": "text"
+ },
+ {
+  "kind": "tokens",
+  "input": 120,
+  "output": 9,
+  "total": 169,
+  "usage": {
+   "input": 160,
+   "cached": 40,
+   "output": 9
+  }
+ },
+ {
+  "kind": "message",
+  "text": "Checking.",
+  "final": false
+ },
+ {
+  "kind": "tool",
+  "name": "bash",
+  "tool": "bash",
+  "phase": "tool_execution_start"
+ },
+ {
+  "kind": "tool",
+  "name": "bash",
+  "tool": "bash",
+  "phase": "tool_execution_end"
+ },
+ {
+  "kind": "delta",
+  "text": "Acme",
+  "delta_kind": "text"
+ },
+ {
+  "kind": "delta",
+  "text": " reply.",
+  "delta_kind": "text"
+ },
+ {
+  "kind": "tokens",
+  "input": 30,
+  "output": 3,
+  "total": 191,
+  "usage": {
+   "input": 188,
+   "cached": 150,
+   "output": 3
+  }
+ },
+ {
+  "kind": "message",
+  "text": "Acme reply.",
+  "final": false
+ },
+ {
+  "kind": "message",
+  "text": "Acme reply.",
+  "final": true
+ },
+ {
+  "kind": "turn_completed",
+  "status": "completed"
+ },
+ {
+  "kind": "status",
+  "state": "idle"
+ }
+]

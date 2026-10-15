@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"sess-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Start"}}}}
+{"jsonrpc":"2.0","id":3,"error":{"code":-32603,"message":"xAI API error (status 429): rate limit reached for grok-4.6"}}

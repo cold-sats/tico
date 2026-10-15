@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","apiKeySource":"env","cwd":"/tmp","session_id":"0b5c2f1e-3a4d-4e6f-8a9b-0c1d2e3f4a5b","model":"Auto","permissionMode":"default"}
+{"type":"result","subtype":"error","duration_ms":300,"is_error":true,"result":"You've hit your usage limit for this billing cycle","session_id":"0b5c2f1e-3a4d-4e6f-8a9b-0c1d2e3f4a5b","request_id":"req_2"}

@@ -1,0 +1,15 @@
+[
+ {
+  "kind": "status",
+  "state": "active"
+ },
+ {
+  "kind": "turn_failed",
+  "error": "You've hit your usage limit for this billing cycle",
+  "limit": true
+ },
+ {
+  "kind": "status",
+  "state": "idle"
+ }
+]
