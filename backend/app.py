@@ -1878,10 +1878,12 @@ def create_app(settings=None):
         return mutate(request, body, work)
 
     @app.get("/api/v2/conversations/{cid}/messages")
-    def messages(request: Request, cid: str, since: str | None = None, before: str | None = None):
+    def messages(request: Request, cid: str, since: str | None = None, before: str | None = None,
+                 limit: int | None = None, max_bytes: int | None = None):
         with store.read() as c:
             auth.conversation(c, request.state.identity, cid)
-            page = privacy.page(c, request.state.identity, cid, since=views.since_time(since), before=before)
+            page = privacy.page(c, request.state.identity, cid, since=views.since_time(since), before=before,
+                                **views.page_options(limit, max_bytes))
             turn_work.annotate(c, auth, request.state.identity, page["messages"])
             return {"conversation": H.conversation(c, cid), **page}
 
@@ -4735,6 +4737,7 @@ def create_app(settings=None):
     # One stream of live events for people's pages (backend/events.py).
     from .events import install as install_events, install_runner as install_runner_events
     install_events(app, store, auth, task_views, task_view)
+    app.state.task_view = task_view         # for the events' read in tests (backend/tests/test_payload_budgets.py)
     # And one for each computer, in place of its polls (runner/runner_events.py).
     install_runner_events(app, store, execution)
 

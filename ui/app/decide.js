@@ -108,7 +108,7 @@ function pageDecide() {
   const keys = ev => decideKey(st, ev);
   document.addEventListener('keydown', keys);
   st.off.push(() => document.removeEventListener('keydown', keys));
-  if (typeof liveOn === 'function') st.off.push(liveOn('needs', d => { if (DEC === st) decideRefresh(st, d.items || []); }));
+  if (typeof liveOn === 'function') st.off.push(liveOn('needs-list', items => { if (DEC === st) decideRefresh(st, items); }));
   decideSync(st, S.v2?.needs || []);
   decideRender(st);
   void v2Refresh().then(() => { if (DEC === st) decideRefresh(st, S.v2.needs || []); });

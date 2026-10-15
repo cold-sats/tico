@@ -90,16 +90,17 @@ function liveWire() {
       botAlertDraw();
     }, 200);
   });
-  liveOn('needs', d => {
-    S.v2.needs = d.items || [];
-    if (d.went_away) S.v2.wentAway = d.went_away;
+  // Needs you comes as the ids that changed; the list is mended from them (v2NeedsChanged), then `needs-list` says so.
+  liveOn('needs', d => void v2NeedsChanged(d).then(moved => {
+    if (!moved) return;
+    liveEmit('needs-list', S.v2.needs || []);
     liveSoon('needs', () => {
       renderTree();
       if (OVERVIEW_PAGE) overviewNeedsDraw();
       if (TASKS_ST && isTasksRoute(S.route)) tasksRender(TASKS_ST);
       if (BOT && isKeeper(BOT.slug) && BOT.tab === 'chat' && !BOT.split) void loadBotChatTasks(BOT.slug);
     }, 200);
-  });
+  }).catch(() => {}));
   // Away longer than the server keeps: read everything once.
   liveOn('reset', () => { if (TASKS_ST) TASKS_ST.since = null; liveSoon('refresh', () => refresh(true), 100); });
   liveStart();

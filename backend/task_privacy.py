@@ -171,8 +171,9 @@ def require_message(c, who, message):
     return message
 
 
-def page(c, who, cid, *, before=None, since=None, limit=200, task_id=None):
-    """Paginate visible rows, so hidden rows cannot leak cursors or counts."""
+def page(c, who, cid, *, before=None, since=None, limit=200, task_id=None, max_bytes=None):
+    """Paginate visible rows, so hidden rows cannot leak cursors or counts. `max_bytes` also ends the page once
+    its messages come to that many bytes as JSON (the newest message is always sent); the rest pages back."""
     snapshot(c)
     clauses, args = ["conversation_id=?"], [cid]
     if before:
@@ -194,7 +195,7 @@ def page(c, who, cid, *, before=None, since=None, limit=200, task_id=None):
             clauses[0] = "+conversation_id=?"
             clauses.append("id IN (SELECT value FROM json_each(?))")
             args.append(json.dumps(sorted(ids)))
-    visible, reader = [], actor(who)
+    visible, reader, size, full = [], actor(who), 0, False
     for row in c.execute("SELECT * FROM messages WHERE " + " AND ".join(clauses) + " ORDER BY rowid DESC", args):
         # message_readable's own steps, with the row's tasks worked out once: a task's page skips another
         # task's message before its privacy check, so a read costs the room once, not twice.
@@ -209,10 +210,16 @@ def page(c, who, cid, *, before=None, since=None, limit=200, task_id=None):
                 continue
         except Problem:
             continue
-        visible.append({**stored, "refs": H._json(row["refs_json"], {}) or {}})
+        message = {**stored, "refs": H._json(row["refs_json"], {}) or {}}
+        if max_bytes and len(visible) < limit:
+            size += len(json.dumps(message, default=str).encode())
+            if visible and size > max_bytes:
+                full = True
+                break
+        visible.append(message)
         if len(visible) > limit:
             break
-    more = len(visible) > limit
+    more = full or len(visible) > limit
     messages = list(reversed(visible[:limit]))
     return {"messages": messages, "has_more": more,
             "next_before": messages[0]["id"] if more and messages else None}

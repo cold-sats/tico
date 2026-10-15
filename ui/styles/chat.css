@@ -71,6 +71,7 @@
 .cs-item.open .cs-text{color:var(--ink)}
 .cs-more{padding:2px 0;font-size:var(--t-sm);color:var(--muted);text-decoration:underline;background:none;border:0;cursor:pointer;min-height:28px}
 .cs-more:hover{color:var(--ink)}
+.cs-more+.cs-more{margin-left:12px}
 .conv-bots-one{margin:8px 0 12px;padding:8px 10px;border:1px solid var(--line);border-radius:10px}
 .conv-bots-one .bubble{margin:6px 0;max-width:100%}
 /* a long-lived thread is tall: scroll it inside the card so the rest of the bot page stays reachable */

@@ -1,5 +1,6 @@
 """Existing frontend read models over cloud records. Never import the local hub server."""
 
+import hashlib
 import json
 import os
 import re
@@ -542,8 +543,31 @@ def task_wait(c, task_id, settings=None):
     return "Queued" if reason == "queued" else reason[:1].upper() + reason[1:]
 
 
-def conversation_snapshot(c, cid, who=None, settings=None):
-    page = privacy.page(c, who, cid) if who else message_page(c, cid)
+# A run's live reply in a snapshot: its newest pieces, each cut to a length. A long run has hundreds of steps and the
+# snapshot is read again as it works; the finished reply arrives as a message.
+LIVE_PARTS_MAX = 40
+LIVE_PART_CHARS = 8000
+
+
+def page_options(limit=None, max_bytes=None):
+    """A conversation page's `limit` (1 to 200, default 200) and `max_bytes` (at least 16 KB, at most 1 MB, default
+    none) from a request: the web app opens a chat at 50 messages and 160 KB; other callers keep the old page."""
+    out = {"limit": max(1, min(int(limit), 200)) if limit else 200}
+    if max_bytes:
+        out["max_bytes"] = max(16_384, min(int(max_bytes), 1 << 20))
+    return out
+
+
+def live_parts(parts):
+    """The newest LIVE_PARTS_MAX pieces of a run's reply, each at most LIVE_PART_CHARS (its end kept: the newest text),
+    and how many earlier pieces were left out."""
+    kept = parts[-LIVE_PARTS_MAX:]
+    cut = [p if len(p["text"]) <= LIVE_PART_CHARS else {**p, "text": "…" + p["text"][-LIVE_PART_CHARS:]} for p in kept]
+    return cut, len(parts) - len(kept)
+
+
+def conversation_snapshot(c, cid, who=None, settings=None, page_args=None):
+    page = privacy.page(c, who, cid, **(page_args or {})) if who else message_page(c, cid)
     job = c.execute("SELECT j.*,a.state AS attempt_state,a.lease_until,a.stop_requested FROM jobs j JOIN messages m ON m.id=j.message_id "
                     "LEFT JOIN attempts a ON a.id=j.attempt_id WHERE m.conversation_id=? "
                     "AND coalesce(json_extract(m.refs_json,'$.maintenance'),'')!='checkpoint' "
@@ -575,9 +599,12 @@ def conversation_snapshot(c, cid, who=None, settings=None):
         if state in ("leased", "running"):
             parts = turns.reply_parts([(e["kind"], json.loads(e["payload_json"]), e["created"]) for e in c.execute(
                 "SELECT kind,payload_json,created FROM attempt_events WHERE attempt_id=? ORDER BY seq", (job["attempt_id"],))])
+        parts, omitted = live_parts(parts)
         execution = {"job_id": job["id"], "message_id": job["message_id"], "bot": job["bot"],
                      "attempt_id": job["attempt_id"], "state": state, "label": label,
                      "text": "\n\n".join(p["text"] for p in parts if p["kind"] != "tool"), "parts": parts, **location}
+        if omitted:
+            execution["parts_omitted"] = omitted
         if readiness_reason:
             execution["readiness_reason"] = readiness_reason
     from .chat_goals import current
@@ -1109,12 +1136,29 @@ def needs_items(c, auth, who, task_view, older=None):
     for item in items:
         item["pressing"] = pressing(item, at)
         item["need"] = need_of(item)
-    return sorted(items, key=lambda x: needs_order(x["kind"], x["created"], x.get("rank") if x["kind"] == "task" else None,
-                                                   x.get("from_person"), x["pressing"], bool(x.get("ask_missing")),
-                                                   deadline(x)))
+    return sorted(items, key=needs_key)
+
+
+def needs_key(x):
+    """An item's place in the queue (needs_order), from the item as needs_items builds it."""
+    return needs_order(x["kind"], x["created"], x.get("rank") if x["kind"] == "task" else None,
+                       x.get("from_person"), x["pressing"], bool(x.get("ask_missing")), deadline(x))
+
+
+def needs_marks(items):
+    """({id: fingerprint}, version) of a Needs-you list as needs_items orders it. A fingerprint covers the item and its
+    place in the order, so an item whose mark is unchanged kept its content and its order against the others: a page
+    that holds the list mends it from the changed ids alone (the live `needs` event, `GET /api/v2/needs-you?ids=`)."""
+    marks = {}
+    for x in items:
+        marks[str(x["id"])] = hashlib.sha1((json.dumps(x, sort_keys=True, default=str) + repr(needs_key(x)))
+                                           .encode()).hexdigest()[:12]
+    version = hashlib.sha1("|".join(f"{k}:{v}" for k, v in marks.items()).encode()).hexdigest()[:16]
+    return marks, version
 
 
 FLEET_CACHE_S = 15
+NEEDS_IDS_MAX = 100     # the most a live `needs` event names; more changed than that reads the list whole
 _FLEET_CACHE = {}
 
 
@@ -1694,16 +1738,31 @@ def install_views(app, store, auth, mutate, task_view):
                     "bots": recent_bots(c, auth, who, since, limit, needs_items(c, auth, who, task_view))}
 
     @app.get("/api/v2/needs-you")
-    def needs(request: Request, count: bool = False):
+    def needs(request: Request, count: bool = False, ids: str | None = None, version: str | None = None):
         """`count=1` is the number alone: the desktop app asks every 30 s and shows only
-        that, where the full list is over 100 KB."""
+        that, where the full list is over 100 KB. The list's `version` changes whenever an item or its place does:
+        `version=<the one held>` answers `unchanged` with no items when it still holds, and `ids=a,b` sends only those
+        items, with each one's place in the whole list (`positions`), to mend a held copy after a live `needs` event."""
         who = request.state.identity
         human_only(who)
         with store.read() as c:
             older = []
             items = needs_items(c, auth, who, task_view, older)
-            return ({"actor": who.actor, "count": len(items)} if count
-                    else {"actor": who.actor, "items": items, "older": older, "went_away": went_away(c, who.actor)})
+            if count:
+                return {"actor": who.actor, "count": len(items)}
+            current = needs_marks(items)[1]
+            if version and version == current:
+                return {"actor": who.actor, "count": len(items), "version": current, "unchanged": True,
+                        "went_away": went_away(c, who.actor)}
+            if ids is not None:
+                wanted = {part.strip() for part in ids.split(",") if part.strip()}
+                if len(wanted) > NEEDS_IDS_MAX:
+                    raise Problem("validation", f"At most {NEEDS_IDS_MAX} ids", 422)
+                positions = {str(x["id"]): n for n, x in enumerate(items) if str(x["id"]) in wanted}
+                return {"actor": who.actor, "count": len(items), "version": current, "positions": positions,
+                        "items": [x for x in items if str(x["id"]) in positions]}
+            return {"actor": who.actor, "items": items, "older": older, "went_away": went_away(c, who.actor),
+                    "version": current}
 
     @app.get("/api/v2/tico/fleet")
     def tico_fleet(request: Request):
@@ -1796,10 +1855,10 @@ def install_views(app, store, auth, mutate, task_view):
         return mutate(request, body, work)
 
     @app.get("/api/v2/conversations/{cid}/snapshot")
-    def snapshot(request: Request, cid: str):
+    def snapshot(request: Request, cid: str, limit: int | None = None, max_bytes: int | None = None):
         with store.read() as c:
             auth.conversation(c, request.state.identity, cid)
-            snap = conversation_snapshot(c, cid, request.state.identity, auth.settings)
+            snap = conversation_snapshot(c, cid, request.state.identity, auth.settings, page_options(limit, max_bytes))
             turns.annotate(c, auth, request.state.identity, snap["messages"])
             return snap
 
