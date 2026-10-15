@@ -631,7 +631,8 @@ impl ClaudeHost {
             }
             "rate_limit_event" => {
                 let info = &msg["rate_limit_info"];
-                if info["status"] == "rejected" {
+                // Rejected with overage in use: extra usage pays and the model keeps working.
+                if info["status"] == "rejected" && info["isUsingOverage"] != true {
                     let mut inner = self.inner();
                     inner.limited.insert(turn.into());
                     if let Some(p) = inner.pipe.as_mut() {
@@ -753,7 +754,8 @@ impl ClaudeHost {
         let mut inner = self.inner();
         let running = inner.turn.as_ref().is_some_and(|(t, u)| t == thread_id && u == turn_id);
         match inner.pipe.as_mut() {
-            Some(p) if running && p.open => {
+            // Not once Claude reported a limit: the turn is ending, so the input goes to the next one.
+            Some(p) if running && p.open && p.limit_at.is_none() => {
                 let mid = uuid::Uuid::new_v4().to_string();
                 p.unread.insert(mid.clone());
                 p.order.push(mid.clone());
@@ -916,6 +918,57 @@ mod tests {
         assert!(!env.contains_key("CLAUDE_CODE_DISABLE_AUTO_MEMORY"));
         assert_eq!(turn_env(&Settings { shared: true, ..settings })["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Runs one turn on a `claude` that writes `first`, waits a second, writes `then`, and exits when stdin closes.
+    async fn limit_turn(first: &str, then: &str, steer_after_first: bool) -> (Vec<Value>, Option<bool>) {
+        let dir = std::env::temp_dir().join(format!("claude-limit-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("first.jsonl"), first).unwrap();
+        std::fs::write(dir.join("then.jsonl"), then).unwrap();
+        let path = dir.join("claude");
+        crate::util::write_script(
+            &path,
+            "#!/bin/sh\ncase \"$1\" in --version) echo '2.1.296 (Claude Code)'; exit 0;; --help) echo '  --autocompact <tokens>'; exit 0;; esac\nIFS= read -r line\ncat first.jsonl\nsleep 1\ncat then.jsonl\ncat >/dev/null\n",
+        );
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let host = ClaudeHost::new("acme", vec![path.display().to_string()], tx);
+        host.start().await.unwrap();
+        let mut settings = Settings { cwd: dir.display().to_string(), ..Default::default() };
+        settings.env.insert("PATH".into(), "/usr/bin:/bin".into());
+        let thread = host.start_thread(&settings);
+        let turn = host.start_turn(&thread, "hello", None).unwrap();
+        let (mut got, mut steered) = (vec![], None);
+        while let Ok(Some(ev)) = tokio::time::timeout(Duration::from_secs(10), rx.recv()).await {
+            if steer_after_first && steered.is_none() && ev["kind"] == "message" {
+                steered = Some(host.steer(&thread, &turn, "one more thing").is_ok());
+            }
+            let idle = ev["kind"] == "status" && ev["state"] == "idle";
+            got.push(ev);
+            if idle {
+                break;
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+        (got, steered)
+    }
+
+    #[tokio::test]
+    async fn a_steer_after_a_limit_notice_waits_for_the_next_turn() {
+        let notice = r#"{"type": "assistant", "message": {"id": "m", "model": "<synthetic>", "content": [{"type": "text", "text": "You've hit your session limit · resets 12:40am (UTC)"}]}, "error": "rate_limit"}"#;
+        let (got, steered) = limit_turn(&format!("{notice}\n"), "", true).await;
+        assert_eq!(steered, Some(false));
+        let failed = got.iter().find(|e| e["kind"] == "turn_failed").unwrap();
+        assert_eq!(failed["limit"], true);
+    }
+
+    #[tokio::test]
+    async fn a_limit_paid_by_overage_keeps_the_turn_running() {
+        let overage = r#"{"type": "rate_limit_event", "rate_limit_info": {"status": "rejected", "isUsingOverage": true, "rateLimitType": "five_hour", "resetsAt": 1760488800}}"#;
+        let result = r#"{"type": "result", "subtype": "success", "is_error": false, "result": "done", "usage": {"input_tokens": 1, "output_tokens": 1}}"#;
+        let (got, _) = limit_turn(&format!("{overage}\n"), &format!("{result}\n"), false).await;
+        assert!(got.iter().any(|e| e["kind"] == "turn_completed"), "{got:?}");
+        assert!(!got.iter().any(|e| e["kind"] == "turn_failed"), "{got:?}");
     }
 
     #[test]
