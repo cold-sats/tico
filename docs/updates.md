@@ -239,7 +239,7 @@ updater (`docker/updater.py`) in runner mode (`TICO_UPDATER_MODE=runner`). When 
 asks it for the release its server names; it pulls `ghcr.io/ticoteam/tico-runner:vX.Y.Z`, replaces `runner.compose.yaml` with the release's copy (same checksum check, rolled back with the image), recreates the runner
 container, waits up to three minutes for the container's health check, and puts the old image back if it does not
 turn healthy. The runner then reports the outcome (`rolled_back`, `failed`) from the sidecar's `/status`, and does not
-ask for that release again unless the failure was disk space and space has since freed. A sidecar that does not answer (stopped, or refusing the token) cannot start an update, so the runner reports `failed` with "the updater did not answer" and keeps taking work; it asks the sidecar again on its next check. The sign-in and the bots' repositories are in the `runner-home` volume and are kept.
+ask for that release again unless the failure was disk space and space has since freed. A sidecar that does not answer, or refuses the call, cannot start an update, so the runner reports `failed` ("the updater did not answer", or "the updater answered" and the status code) and keeps taking work; it asks the sidecar again on its next check. The sign-in and the bots' repositories are in the `runner-home` volume and are kept.
 
 The Docker socket is mounted into the `updater` service only, never into the runner. The two share a `runner-control`
 volume that holds a token the updater writes and the runner reads; the sidecar answers on the compose network and
