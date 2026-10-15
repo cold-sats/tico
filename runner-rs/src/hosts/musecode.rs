@@ -252,7 +252,16 @@ pub fn config_home(profile: Option<&crate::profiles::Profile>) -> PathBuf {
 /// Make `home` (XDG_CONFIG_HOME) ready for a bot turn: `muse/` exists and its settings name no MCP servers, so
 /// none but this run's own load. The folder is Tico's own, never a person's.
 pub fn prepare_config(home: &Path) -> Result<PathBuf, HostError> {
+    for path in [home.to_path_buf(), home.join("muse")] {
+        match std::fs::symlink_metadata(path) {
+            Ok(m) if !m.is_dir() => return Err(failed("Muse config directories must not be symbolic links")),
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(failed(e.to_string())),
+            _ => {}
+        }
+    }
     let directory = crate::isolation::mkdir(&home.join("muse"), 0o700).map_err(|e| failed(format!("Muse settings folder: {e}")))?;
+    // Only this login's Muse home, not the profile directory or the runner's private state.
+    crate::isolation::adopt(&[home.to_path_buf()]);
     let path = directory.join("settings.json");
     let stored = match std::fs::read_to_string(&path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(directory),
@@ -421,15 +430,24 @@ impl MuseCodeHost {
     }
 
     fn prompt_file(&self, text: &str) -> std::io::Result<PathBuf> {
-        use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&self.0.state_dir)?;
+        use std::os::unix::fs::OpenOptionsExt;
+        crate::isolation::mkdir(&self.0.state_dir, 0o700)?;
+        crate::isolation::chown(&self.0.state_dir);
         let path = self.0.state_dir.join(format!("prompt-{}.md", uuid::Uuid::new_v4().simple()));
         let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path)?;
-        if let Err(e) = f.write_all(text.as_bytes()) {
+        if let Err(e) = f.write_all(text.as_bytes()).and_then(|_| crate::isolation::chown_file(&f)) {
             let _ = std::fs::remove_file(&path);
             return Err(e);
         }
         Ok(path)
+    }
+
+    fn command(&self, thread_id: &str, settings: &Settings, prompt: &Path, effort: Option<&str>) -> Command {
+        let argv = self.argv(thread_id, settings, prompt, effort);
+        let mut command = crate::isolation::command(&argv[0]);
+        command.args(&argv[1..]).stdin(Stdio::null()).stdout(Stdio::piped())
+            .current_dir(&settings.cwd).env_clear().envs(self.env(settings));
+        command
     }
 
     pub fn start_turn(&self, thread_id: &str, text: &str, effort: Option<&str>) -> Result<String, HostError> {
@@ -452,15 +470,8 @@ impl MuseCodeHost {
                 let path = std::env::temp_dir().join(format!("tico-muse-stderr-{}", uuid::Uuid::new_v4().simple()));
                 let stderr = std::fs::OpenOptions::new().read(true).write(true).create_new(true).open(&path)?;
                 let _ = std::fs::remove_file(&path);
-                let argv = self.argv(thread_id, &settings, &prompt, effort);
-                let child = Command::new(&argv[0])
-                    .args(&argv[1..])
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::piped())
+                let child = self.command(thread_id, &settings, &prompt, effort)
                     .stderr(Stdio::from(stderr.try_clone()?))
-                    .current_dir(&settings.cwd)
-                    .env_clear()
-                    .envs(&env)
                     .spawn()?;
                 Ok::<_, std::io::Error>((child, stderr))
             })();
@@ -640,6 +651,25 @@ fn stderr_tail(file: &mut std::fs::File) -> String {
 mod tests {
     use super::*;
     use tokio::sync::mpsc;
+
+    #[tokio::test]
+    async fn turn_launch_keeps_the_bot_identity_and_prompt_access() {
+        if !super::super::isolationtests::child("hosts::musecode::tests::turn_launch_keeps_the_bot_identity_and_prompt_access") { return; }
+        let f = super::super::isolationtests::Fixture::new();
+        let host = MuseCodeHost::new("acme", f.argv(), Some("echo".into()), f.root.join("muse"), mpsc::unbounded_channel().0);
+        let settings = f.settings();
+        let prompt = f.root.join("muse/prompt.md");
+        super::super::isolationtests::prefix(&host.command("thread", &settings, &prompt, None), &host.argv("thread", &settings, &prompt, None));
+        if !f.actual() { return; }
+        prepare_config(&host.0.config_home).unwrap();
+        let auth = host.0.config_home.join("muse/auth.json");
+        std::fs::write(&auth, "fixture login").unwrap();
+        prepare_config(&host.0.config_home).unwrap();
+        let prompt = host.prompt_file("fixture prompt").unwrap();
+        f.run(host.command("thread", &settings, &prompt, None), &[&prompt, &auth], &[&auth]).await;
+        use std::os::unix::fs::MetadataExt;
+        assert_eq!(prompt.metadata().unwrap().uid(), 10003);
+    }
 
     fn script(dir: &Path, name: &str, body: &str) -> String {
         use std::os::unix::fs::PermissionsExt;
