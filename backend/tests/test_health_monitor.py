@@ -1,6 +1,7 @@
 """The Health Monitor (backend/health_monitor.py, docs/health-monitor.md): off until the owner turns it on, a scan that
-wakes it only for a finding the last scan did not have, and one Tico bug report per signature that carries the finding
-and the redacted diagnostics, never task text, with a message on the same ticket when it comes back."""
+wakes it only for a finding the last scan did not have, a day of quiet when a finding comes straight back, and one
+Tico bug report per signature that carries the finding and the redacted diagnostics, never task text, with a message
+on the same ticket when it comes back."""
 
 import json
 import shutil
@@ -116,12 +117,22 @@ def test_a_finding_wakes_it_once_is_filed_once_without_task_text_and_a_repeat_go
     runner_errors(api, runner, [])
     scan(api)                                                             # gone
     runner_errors(api, runner, STREAM)
-    assert scan(api) == [key]                                             # back: the same task is woken
-    assert len(monitor_tasks(api)) == 1 and notices(api, task["id"]) == 1
+    assert scan(api) == []                                                # back within a day: counted, wakes nothing
+    assert len(monitor_tasks(api)) == 1 and notices(api, task["id"]) == 0
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT occurrences FROM health_findings WHERE key=?", (key,)).fetchone()[0] == 2
     repeat = api.post(f"/api/v2/health-monitor/findings/{key}/report", json={}, headers=bot).json()
     assert repeat["comment"] and len(hq.tickets) == 1
     (ticket,) = hq.tickets.values()
     assert [m["body"][:37] for m in ticket["messages"]] == ["[Health Monitor] Seen again (2 times)"]
+    with api.app.state.store.transaction() as c:                          # a day after its last wake it wakes again
+        c.execute("UPDATE health_findings SET last_woke=?, present=0 WHERE key=?",
+                  (H.shift(H.now(), hours=-25), key))
+    runner_errors(api, runner, [])
+    scan(api)
+    runner_errors(api, runner, STREAM)
+    assert scan(api) == [key]
+    assert len(monitor_tasks(api)) == 1 and notices(api, task["id"]) == 1
 
 
 def test_with_the_rule_off_a_report_is_an_approval_and_nothing_leaves(environment, hq):

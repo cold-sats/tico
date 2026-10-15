@@ -13,6 +13,9 @@ All notable changes to Tico are recorded here. The format follows
   open ticket with that signature and closes each (`POST /v1/staff/tickets/by-signature/close`, or
   `software/hq-tickets close-signature hm-...`). Each company reads the reply on its Support page; a ticket with a
   reply-to email keeps it marked pending so the Support bot drafts the email.
+### Changed
+- **The Health Monitor stays quiet when a finding flaps.** A finding that goes away and comes back within a day of its
+  last wake only counts; it wakes the Health Monitor again after a day.
 
 ## [0.3.46] - 2026-10-15
 

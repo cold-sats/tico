@@ -645,6 +645,8 @@ class Store:
             c.executescript(_watchers.SCHEMA)
             from . import health_monitor as _health_monitor
             c.executescript(_health_monitor.SCHEMA)
+            # When a finding last woke the Health Monitor: a return within a day counts but wakes nothing.
+            H.add_column(c, "health_findings", "last_woke", "TEXT NOT NULL DEFAULT ''")
             from . import slack_channels as _slack_channels
             c.executescript(_slack_channels.SCHEMA)
             from . import flight as _flight

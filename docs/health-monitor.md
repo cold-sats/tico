@@ -30,7 +30,8 @@ model CLIs that run turns.
 
 Each finding has a **key** (what and where, on this install) and a **signature** (`hm-` and 12 hex digits: what, without
 where, the same on every install). A finding the last scan did not have opens a task for the Health Monitor, or wakes it on
-the task it has; a finding still there an hour later says nothing; one that goes away and comes back wakes it again.
+the task it has; a finding still there an hour later says nothing; one that goes away and comes back wakes it again,
+unless it is back within a day of its last wake, in which case it only counts.
 
 ## What it does with a finding
 
