@@ -1,0 +1,9 @@
+{"type":"system","subtype":"init","apiKeySource":"login","cwd":"/tmp","session_id":"0b5c2f1e-3a4d-4e6f-8a9b-0c1d2e3f4a5b","model":"Auto","permissionMode":"default"}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hello"}]},"session_id":"0b5c2f1e-3a4d-4e6f-8a9b-0c1d2e3f4a5b"}
+{"type":"thinking","subtype":"delta","text":"Looking at the repo","session_id":"0b5c2f1e-3a4d-4e6f-8a9b-0c1d2e3f4a5b","timestamp_ms":1760400000100}
+{"type":"thinking","subtype":"completed","session_id":"0b5c2f1e-3a4d-4e6f-8a9b-0c1d2e3f4a5b","timestamp_ms":1760400000200}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Checking the files."}]},"session_id":"0b5c2f1e-3a4d-4e6f-8a9b-0c1d2e3f4a5b"}
+{"type":"tool_call","subtype":"started","call_id":"toolu_1","tool_call":{"readToolCall":{"args":{"path":"AGENT.md"}}},"session_id":"0b5c2f1e-3a4d-4e6f-8a9b-0c1d2e3f4a5b"}
+{"type":"tool_call","subtype":"completed","call_id":"toolu_1","tool_call":{"readToolCall":{"args":{"path":"AGENT.md"},"result":{"success":{"content":"# Ops"}}}},"session_id":"0b5c2f1e-3a4d-4e6f-8a9b-0c1d2e3f4a5b"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Acme reply."}]},"session_id":"0b5c2f1e-3a4d-4e6f-8a9b-0c1d2e3f4a5b"}
+{"type":"result","subtype":"success","duration_ms":2100,"duration_api_ms":2100,"is_error":false,"result":"Checking the files.Acme reply.","session_id":"0b5c2f1e-3a4d-4e6f-8a9b-0c1d2e3f4a5b","request_id":"req_1","usage":{"inputTokens":10,"outputTokens":2,"cacheReadTokens":3,"cacheWriteTokens":1}}

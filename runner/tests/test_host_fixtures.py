@@ -1,7 +1,7 @@
 """Harness wire formats both runner engines replay (runner/tests/fixtures/<harness>/*.jsonl).
 
 Each fixture is what the harness writes on stdout for one turn; `<name>.expected.json` is the events the
-Python host makes of it, with the per-run thread and turn ids left out for Claude, Gemini, Antigravity and Muse Code. The Rust runner's host
+Python host makes of it, with the per-run thread and turn ids left out for Claude, Gemini, Antigravity, Muse Code, Pi, Cursor and Grok Build. The Rust runner's host
 tests (runner-rs/src/hosts) replay the same files against the same expected events, so the two engines
 read a harness the same way. `python -m runner.tests.test_host_fixtures --write` refreshes the expected files.
 """
@@ -15,7 +15,10 @@ from pathlib import Path
 from runner.hosts.antigravity import AntigravityHost
 from runner.hosts.claude import ClaudeHost
 from runner.hosts.codex import CodexHost
+from runner.hosts.cursor import CursorHost
 from runner.hosts.gemini import GeminiHost
+from runner.hosts.grok import GrokHost
+from runner.hosts.pi import PiHost
 
 try:
     from runner.hosts.musecode import MuseCodeHost   # PR #508; without it the Muse Code fixtures are the Rust host's only
@@ -139,6 +142,70 @@ def musecode_events(path):
 
 if MuseCodeHost is not None:
     READERS["musecode"] = musecode_events
+
+
+class _OneShot:
+    """A one-turn harness process (Pi, Cursor): stdin taken and closed, the fixture on stdout, then exit `rc`."""
+
+    def __init__(self, lines, rc=0):
+        self.stdout, self.pid, self.rc = iter([line + "\n" for line in lines]), 4245, rc
+        self.stdin = self
+
+    def write(self, text):
+        pass
+
+    def close(self):
+        pass
+
+    def wait(self, timeout=None):
+        return self.rc
+
+    def terminate(self):
+        pass
+
+    kill = terminate
+
+
+def pi_events(path):
+    """One `pi --mode json -p` turn; a fixture named `error` exits 1."""
+    lines = [line for line in path.read_text().splitlines() if line.strip()]
+    with tempfile.TemporaryDirectory() as workspace:
+        host = PiHost(bot="acme", spawn=lambda argv, **kw: _OneShot(lines, 1 if path.stem == "error" else 0))
+        host.start()
+        thread = host.start_thread("acme", {"cwd": workspace, "model": "kimi-k3", "env": {"HUB_WORKSPACE": workspace}})
+        host.start_turn(thread, "hello")
+        host._reader.join(timeout=5)
+        return _ids_out(host.drain())
+
+
+def cursor_events(path):
+    """One `cursor-agent -p` turn on a chat `create-chat` made."""
+    import subprocess
+    lines = [line for line in path.read_text().splitlines() if line.strip()]
+    chat = subprocess.CompletedProcess([], 0, stdout="0b5c2f1e-3a4d-4e6f-8a9b-0c1d2e3f4a5b\n", stderr="")
+    host = CursorHost(bot="acme", spawn=lambda argv, **kw: _OneShot(lines), run=lambda *a, **k: chat)
+    host.start()
+    thread = host.start_thread("acme", {"cwd": "/tmp", "env": {"PATH": "/usr/bin:/bin"}})
+    host.start_turn(thread, "hello")
+    host._reader.join(timeout=5)
+    return _ids_out(host.drain())
+
+
+def grok_events(path):
+    """The agent's side of one ACP turn on session `sess-1`, whose `session/prompt` was request 3."""
+    import threading
+    host = GrokHost(bot="acme")
+    host._turn["sess-1"] = "turn-1"
+    host._reply["turn-1"] = ""
+    host._pending[3] = {"event": threading.Event(),
+                        "callback": lambda result, error: host._finish("sess-1", "turn-1", result, error)}
+    for line in path.read_text().splitlines():
+        if line.strip():
+            host._on_message(json.loads(line))
+    return _ids_out(host.drain())
+
+
+READERS.update(pi=pi_events, cursor=cursor_events, grok=grok_events)
 
 
 def cases():

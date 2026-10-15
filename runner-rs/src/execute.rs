@@ -590,6 +590,9 @@ impl Runner {
                 crate::hosts::musecode::config_home(profile),
                 tx,
             )),
+            "pi" => Host::Pi(crate::hosts::pi::PiHost::new(bot, vec![crate::harness_tools::executable_for("pi")], tx)),
+            "cursor" => Host::Cursor(crate::hosts::cursor::CursorHost::new(bot, vec![crate::harness_tools::executable_for("cursor")], tx)),
+            "grok" => Host::Grok(crate::hosts::grok::GrokHost::new(bot, &crate::harness_tools::executable_for("grok"), tx)),
             "" => return Err(Fail::runtime(crate::readiness::NO_RUNTIME)),
             other => return Err(Fail::runtime(format!("Unsupported local runtime: {other}"))),
         })
@@ -707,11 +710,12 @@ impl Runner {
             }
             crate::gitcred::apply(&mut env, &self.client, &self.tokens, &bot, socket_path.as_deref(), &self.state.directory).await;
             let hop_runtime = crate::fallback::configured(&config).map(|h| h.runtime);
-            if runtime == "musecode" || hop_runtime.as_deref() == Some("musecode") {
-                // Muse reads META_API_KEY from its environment only. A key on this computer (the runner's environment,
-                // `_shared.env` or the company's) reports Muse ready, so it reaches the turn unless a grant set one.
-                if selected.as_ref().is_none_or(|p| p.share_operator) {
-                    if let Some((name, key)) = self.sign_in.headless_secret("musecode") {
+            for keyed in ["musecode", "cursor"] {
+                // Muse reads META_API_KEY, Cursor CURSOR_API_KEY, from its environment only. A key on this computer
+                // (the runner's environment, `_shared.env` or the company's) reports it ready, so it reaches the turn
+                // unless a grant set one.
+                if (runtime == keyed || hop_runtime.as_deref() == Some(keyed)) && selected.as_ref().is_none_or(|p| p.share_operator) {
+                    if let Some((name, key)) = self.sign_in.headless_secret(keyed) {
                         if env.get(&name).is_none_or(|v| v.is_empty()) {
                             env.insert(name, key);
                         }
