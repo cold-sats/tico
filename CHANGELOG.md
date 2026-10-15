@@ -12,6 +12,9 @@ All notable changes to Tico are recorded here. The format follows
   computer due an update stops taking new work after 20 minutes until its running turns finish; Health's Stuck list
   now says so ("Team box is holding new work to update to Tico 0.3.48: it starts once its running turn finishes"),
   and the Health Monitor names the held work on that computer's `runner_outdated` finding.
+- The Health Monitor no longer reports "A runner keeps losing its event stream" because the server restarted. A
+  server start (a deploy or an update) ends every runner's stream at once, and each drop was counted twice. The check
+  now counts each drop once and leaves out drops from 5 minutes before to 2 minutes after a server start.
 - A task worktree whose restore or prepare failed no longer stays failed after its setup succeeds. Health and
   the Health Monitor kept reporting the old error (for example "Restore path already exists and is not a
   worktree") on a worktree acknowledged ready, so its finding never cleared. A ready acknowledgement now
