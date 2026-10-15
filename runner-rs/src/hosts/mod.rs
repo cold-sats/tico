@@ -50,7 +50,7 @@ pub fn limit_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     R.get_or_init(|| {
         Regex::new(
-            r"(?i)hit your usage limit|usage limit|usage_limit_reached|rate limit(?:ed)?|spend(?:ing)? limit|monthly (?:usage |spend(?:ing)? )?limit|no capacity available|model is at capacity|\boverloaded\b|resource_exhausted|\b(?:code|status|http) (?:429|503)\b",
+            r"(?i)hit your usage limit|usage limit|usage_limit_reached|subscription quota exhausted|rate[ _]limit(?:ed|_error)?|spend(?:ing)? limit|monthly (?:usage |spend(?:ing)? )?limit|no capacity available|model is at capacity|\boverloaded\b|resource_exhausted|\b(?:code|status|http) (?:429|503)\b",
         )
         .unwrap()
     })
@@ -428,6 +428,7 @@ mod tests {
         assert!(is_limit("HTTP 503 overloaded"));
         assert!(!is_limit("all good"));
         assert!(is_limit("Claude AI monthly spend limit reached. Raise it in your account settings."));
+        assert!(is_limit("API error 429: Subscription quota exhausted. Your usage window resets at 2026-10-19T00:00:00Z. (rate_limit_error)"));
         assert!(!is_limit("Draft the monthly spend report"));
         assert!(is_auth_retryable("OAuth: failed to refresh OAuth token"));
         assert!(!is_auth_retryable("unexpected status 401 Unauthorized: Invalid API key"));

@@ -204,8 +204,25 @@ def limit_streak(c, bot):
 
 
 def limit_cooldown(c, bot):
-    """Seconds a limited bot waits before its next claim; longer once the limits keep coming."""
-    return LIMIT_COOLDOWN_LONG if limit_streak(c, bot) >= LIMIT_STRIKES else LIMIT_COOLDOWN
+    """Seconds held after the last limit, including a provider's explicit reset window."""
+    cooldown = LIMIT_COOLDOWN_LONG if limit_streak(c, bot) >= LIMIT_STRIKES else LIMIT_COOLDOWN
+    # Another lane begun before the limit can finish afterwards without lifting the bot's hold.
+    last = c.execute("SELECT id,finished FROM attempts WHERE bot=? AND state IN ('failed','interrupted') "
+                     "AND finished IS NOT NULL AND json_extract(result_json,'$.limited')=1 "
+                     "ORDER BY finished DESC LIMIT 1", (bot,)).fetchone()
+    if not last:
+        return cooldown
+    finished = H.parse_ts(last["finished"])
+    if not finished:
+        return cooldown
+    for row in c.execute("SELECT payload_json FROM attempt_events WHERE attempt_id=? AND kind='error' "
+                         "ORDER BY seq DESC LIMIT 8", (last["id"],)):
+        error = str(json.loads(row["payload_json"]).get("error") or "")
+        match = re.search(r"usage window resets at (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)", error, re.I)
+        reset = H.parse_ts(match[1]) if match else None
+        if reset:
+            cooldown = max(cooldown, int((reset - finished).total_seconds()) + 1)
+    return cooldown
 
 
 def person_wrote_since(c, bot, since):
@@ -1652,9 +1669,9 @@ class Execution:
         elif limited:
             streak = limit_streak(c, row["bot"])
             hit = H.now()
-            retry = H.shift(hit, seconds=LIMIT_COOLDOWN_LONG if streak >= LIMIT_STRIKES else LIMIT_COOLDOWN)
+            retry = H.shift(hit, seconds=limit_cooldown(c, row["bot"]))
             focus = (f"{runtime} usage limit at {hit[11:16]}" + (", third in a row" if streak >= LIMIT_STRIKES else "")
-                     + f"; retrying after {retry[11:16]} UTC")
+                     + f"; retrying after {retry[:10]} {retry[11:16]} UTC")
             H.status_set(c, H.KEEPER, row["bot"], state="limited", focus=focus)
             # Every limit restarts the cooldown; status_set keeps `since` while the state stays the same.
             c.execute("UPDATE bot_status SET since=? WHERE bot=?", (hit, row["bot"]))

@@ -56,6 +56,34 @@ def limited_turn(api, machine, attempt):
                 {'outcome':'failed','last_seq':0,'limited':True,'text':"You've hit your usage limit."}, machine['token'])
 
 
+def test_subscription_quota_holds_until_the_provider_reset_and_try_now_can_lift_it(api, monkeypatch):
+    from backend.execution import cooling_off
+    from backend.store import H
+    machine, message, attempt = setup_attempt(api)
+    now = H.now()
+    reset = H.shift(now, days=4)[:19] + "Z"
+    post(api, f"attempts/{attempt['id']}/started", {"thread_id": "quota"}, machine["token"])
+    post(api, f"attempts/{attempt['id']}/events", {"events": [{"seq": 1, "kind": "error", "payload": {
+        "error": f"Subscription quota exhausted. Your usage window resets at {reset}. (rate_limit_error)",
+        "limit": True}}]}, machine["token"])
+    post(api, f"attempts/{attempt['id']}/complete", {
+        "outcome": "failed", "last_seq": 1, "limited": True, "text": ""}, machine["token"])
+    monkeypatch.setattr(H, "now", lambda: H.shift(now, hours=3))
+    ready(api, machine, ["ops"])
+    assert claim(api, machine) is None
+    with api.app.state.store.read() as c:
+        assert cooling_off(c, "ops")
+        assert reset[:10] in H.status(c, "ops")["focus"]
+    monkeypatch.setattr(H, "now", lambda: H.shift(reset, seconds=2))
+    with api.app.state.store.read() as c:
+        assert not cooling_off(c, "ops")
+    monkeypatch.setattr(H, "now", lambda: H.shift(now, hours=3))
+    ready(api, machine, ["ops"])
+    post(api, "bots/ops/limit/retry", {})
+    with api.app.state.store.read() as c:
+        assert not cooling_off(c, "ops")
+
+
 def test_usage_limited_turn_requeues_and_cools_off_longer_after_a_third_strike(api):
     from backend.store import H
     machine, message, attempt = setup_attempt(api)
