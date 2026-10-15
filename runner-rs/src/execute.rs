@@ -750,6 +750,7 @@ impl Runner {
                 self.refresh_checkout(p, &mut attempt, &env).await;
             }
             conv.push_str(self.place_turn(p, &mut attempt, &env, &flags.lost).await.map_err(Fail::runtime)?);
+            mark("placed", &aid);
             execution_path = p.execution_path.clone();
             memory_before = redact::head(&execution_path);
             if redactor.is_some() {
@@ -772,6 +773,7 @@ impl Runner {
             };
             let h = host.insert(made);
             h.start().await?;
+            mark("harness_started", &aid);
             let settings = Settings {
                 cwd: execution_path.display().to_string(),
                 model: model.clone(),
@@ -1068,6 +1070,7 @@ impl Runner {
         if let Some((rt, reason)) = auth_rejected.as_ref().filter(|_| drove.outcome == "failed") {
             completion.insert("auth_rejected".into(), json!({"runtime": rt, "reason": hosts::rejection_reason(reason)}));
         }
+        mark("finished", &aid);
         let settled: Result<(), String> = async {
             let completion = self.state.finish(&aid, &completion)?;
             let sent: Result<(), ApiError> = async {
@@ -1133,6 +1136,7 @@ impl Runner {
         renewer.abort();
         streamer.abort();
         self.forget_flush(&aid);
+        crate::flight::turn_end(&aid, &bot, &ran_on, &drove.outcome, settled.is_ok());
         settled
     }
 
