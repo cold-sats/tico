@@ -25,6 +25,25 @@ RESTORE_PROGRESS = ('attached_pending', 'initializing', 'checkout_ready', 'setup
 CHECKOUT_PROGRESS = {'queued': 0, 'attached_pending': 0, 'initializing': 1, 'checkout_ready': 2,
                      'setup_running': 3, 'setup_failed': 3, 'ready': 4}
 IDENTITY = ('expected_head', 'checkout_target', 'expected_base')
+# A computer reports each failed worktree action (restore, prepare, remove) with this prefix until that action succeeds.
+ACTION_FAILED = 'Worktree action failed;'
+REMOVAL = ('cleanup_requested', 'release_requested', 'delete_requested')
+
+
+def ready(state, detail):
+    """The computer's acknowledgement that checkout and setup finished, naming what it checked out."""
+    return (state == 'present' and detail.get('checkout_state') == 'ready' and not detail.get('setup_pending')
+            and all(detail.get(key) for key in IDENTITY))
+
+
+def current_error(state, detail):
+    """The worktree's failure still in force. A failed restore or prepare is over once the worktree is set up and
+    acknowledged ready, though a computer keeps repeating its last action error until another action succeeds; a
+    refused removal stays while removal is asked, and a failure seen when inspecting the tree is always current."""
+    error = str(detail.get('error') or '')
+    if error.startswith(ACTION_FAILED) and ready(state, detail) and not any(detail.get(key) for key in REMOVAL):
+        return ''
+    return error
 
 
 def stale_checkout_report(detail, reported_state):
@@ -266,6 +285,8 @@ def heartbeat(c, who, reports, capable, default_org=""):
                                      exclude={'link_id', 'state', 'branch', 'checkout_state', 'record_updated',
                                               *(IDENTITY if stale else ())})
         detail.update(reported)
+        if report.error is None:
+            detail.pop('error', None)           # every report carries the computer's current error, if any
         legacy_present = (report.state == 'present' and report.checkout_state == 'legacy_present'
                           and not detail.get('setup_pending')
                           and (row['state'] == 'present' and detail.get('checkout_state') in (None, 'legacy_present')
@@ -287,6 +308,8 @@ def heartbeat(c, who, reports, capable, default_org=""):
                  'pending' if row['state'] == 'pending' and report.state == 'present' and report.checkout_state not in ('ready', 'legacy_present') else
                  'pending' if row['state'] == 'pending' and row['repo'] and report.state == 'missing' else report.state)
         detail['current_branch'] = report.branch
+        if not current_error(state, detail):
+            detail.pop('error', None)
         branch = report.branch if report.state == 'present' and row['branch'] is None else None
         # Every heartbeat reports every worktree; only a difference is written. A write is a task change that every
         # open board follows (backend/events.py), and a computer retrying a failed cleanup reports every few seconds.
@@ -582,6 +605,8 @@ def install(app, store, auth, mutate):
             for key in ('snapshot_skipped', 'restore_source'):
                 if getattr(body, key) is not None:
                     detail[key] = getattr(body, key)
+            if not current_error(body.state or link['state'], detail):
+                detail.pop('error', None)       # a successful setup supersedes the failed action before it
             fields = body.model_dump(exclude_none=True, exclude={'cleanup', 'setup_pending', 'checkout_state', 'expected_head', 'checkout_target', 'expected_base', 'skipped_files', 'snapshot_skipped', 'restore_source'})
             now = detail['record_changed'] = H.now()
             fields['detail_json'] = json.dumps(detail)

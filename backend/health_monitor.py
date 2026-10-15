@@ -236,11 +236,11 @@ def _bot_checks(c):
                                 f"{row['queued']} job(s) for {row['name']} queued since {str(row['oldest'])[:16]} UTC on "
                                 f"{row['computer']}, which is online, not full and not limited.",
                                 BUG_FIX["queue_idle"]))
-    from .worktrees import supported
+    from .worktrees import current_error, supported
     if supported(c):
-        for r in c.execute("SELECT t.owner,l.detail_json FROM task_links l JOIN tasks t ON t.id=l.task_id "
+        for r in c.execute("SELECT t.owner,l.state,l.detail_json FROM task_links l JOIN tasks t ON t.id=l.task_id "
                            "WHERE l.kind='worktree' AND l.state<>'removed'"):
-            error = str(json.loads(r["detail_json"] or "{}").get("error") or "")
+            error = current_error(r["state"], json.loads(r["detail_json"] or "{}"))
             if error:
                 bot = H.actor_id(r["owner"])
                 digest = hashlib.sha256(error.encode()).hexdigest()[:8]
