@@ -7,6 +7,10 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **The Health Monitor stays quiet when a finding flaps.** A finding that goes away and comes back within a day of its
+  last wake only counts; it wakes the Health Monitor again after a day.
+
 ## [0.3.46] - 2026-10-15
 
 ### Changed
