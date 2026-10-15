@@ -15,6 +15,14 @@ All notable changes to Tico are recorded here. The format follows
   list the grants that stop applying (a switch to own keeps the chosen rows, but they no longer apply).
 - BotOps (and the Assistant) can read their own repositories during a turn for a person: `runners/me/repositories`
   answered "A registered runner is required".
+- Files attached in Safari or the macOS app (new-task attachments, a task's Files +, docs import, the team icon and
+  chat attachments) arrive complete. WebKit could send a file read from disk as an empty or cut-short body while
+  Tico's service worker controlled the page, so the server answered "Invalid request fields or attachments" or
+  "Send a complete multipart upload with a file field". Uploads up to 100 MB now send a copy of the file's bytes.
+- A person can give a bot's task a file they already sent in a chat without uploading it again: a task comment
+  (`hub task comment --file <id>@1`, or `attachments` over MCP and API) gives the task its own copy, and the task's
+  bot can download it. Before, the bot was refused even though the file was linked in the comment. A bot, or a
+  person who cannot open the file, is still refused, and the chat file keeps its own access.
 - Installing or updating a harness that downloads a single binary (not a `.tar.gz`) no longer fails now and then
   with "Text file busy". The runner wrote the file itself, so another of its threads starting a process at that
   moment kept it open for writing when the install checked `--version`; a child `cp` now writes it, as `tar` does.
