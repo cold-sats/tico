@@ -8,6 +8,13 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- BotOps working for a person can no longer take repository access away from another bot. Setting a bot to own,
+  dropping a chosen repository or turning write into read now puts a Confirm card in the person's BotOps chat
+  that names what would stop, and nothing changes until they tap it; giving access still goes through at once.
+  A person changing it in Settings is told the same: the reply, its audit event and `hub bot repos --own/--all`
+  list the grants that stop applying (a switch to own keeps the chosen rows, but they no longer apply).
+- BotOps (and the Assistant) can read their own repositories during a turn for a person: `runners/me/repositories`
+  answered "A registered runner is required".
 - Files attached in Safari or the macOS app (new-task attachments, a task's Files +, docs import, the team icon and
   chat attachments) arrive complete. WebKit could send a file read from disk as an empty or cut-short body while
   Tico's service worker controlled the page, so the server answered "Invalid request fields or attachments" or
