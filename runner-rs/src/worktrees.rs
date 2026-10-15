@@ -589,7 +589,8 @@ async fn create_or_resume(path: &Path, c: &Checkout<'_>, base: &Path, default: &
             }
         }
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+            // The bot user works in the worktree, so the folder it lands in is the bot's (sessions.rs does the same).
+            crate::isolation::mkdir(parent, 0o755)?;
         }
         write_marker(c.workspace, &with_phase(&identity, "materializing"))?;
         let p = path.display().to_string();
@@ -671,7 +672,7 @@ async fn run_registered_setup(path: &Path, c: &Checkout<'_>, setup_command: &str
     if !["checkout_complete", "restored", "setup_failed", "setup_running", "ready"].contains(&phase.as_str()) {
         return Err(WtErr::msg("Worktree setup has no completed checkout proof; kept unchanged"));
     }
-    verify_worktree(path, c.workspace, c.repo, c.machine_git, c.branch, c.env, Some(&base), false).await?;
+    let base_clone = verify_worktree(path, c.workspace, c.repo, c.machine_git, c.branch, c.env, Some(&base), false).await?;
     if git(path, c.env, &["rev-parse", "HEAD"], true).await?.stdout.trim() != expected {
         return Err(WtErr::msg("Worktree moved from its recorded setup commit; kept unchanged"));
     }
@@ -682,6 +683,9 @@ async fn run_registered_setup(path: &Path, c: &Checkout<'_>, setup_command: &str
     if phase == "ready" && state == "setup_running" {
         return patch_checkout(client, task, &link_id, "ready", proof).await;
     }
+    // The supervisor checked it out; setup and the bot's turns run as the bot user, who must be able to write the
+    // worktree and the base clone its index, refs and objects live in (placement.rs adopts a checkout the same way).
+    crate::isolation::adopt(&[path.to_path_buf(), base_clone]);
     marker.insert("phase".into(), json!("setup_running"));
     write_marker(c.workspace, &marker)?;
     patch_checkout(client, task, &link_id, "setup_running", proof).await?;
@@ -1130,7 +1134,7 @@ where
         row.insert("restore_source".into(), w);
     }
     git(&base, env, &["worktree", "prune", "--expire", "now"], true).await?;
-    std::fs::create_dir_all(path.parent().unwrap())?;
+    crate::isolation::mkdir(path.parent().unwrap(), 0o755)?;
     let local = git(&base, env, &["show-ref", "--verify", &format!("refs/heads/{branch}")], false).await?.ok();
     let task = own(row, "task_id");
     let found: R<(Option<String>, Option<String>)> = async {
@@ -1167,6 +1171,8 @@ where
     } else {
         git(&base, env, &["worktree", "add", "--no-track", "-b", &branch, &p, &start], true).await?;
     }
+    // Restored by the supervisor for the bot user to work in, as a prepared worktree is.
+    crate::isolation::adopt(&[path.clone(), base.clone()]);
     Ok("present")
 }
 
