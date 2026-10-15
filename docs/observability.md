@@ -220,3 +220,17 @@ WHERE ts > strftime('%s','now') - 3 * 3600 ORDER BY ts;
 -- Stalls and what the event loop was doing
 SELECT datetime(ts,'unixepoch'), detail_json FROM flight_events WHERE kind='stall' ORDER BY id DESC LIMIT 5;
 ```
+
+## The runner's flight file
+
+The Rust runner keeps its own flight file, `flight.ndjson` in its state folder (`state-<runner id>/` next to the
+registration file, `~/.config/tico/` on a Mac, the runner user's home in Docker, which needs `--config ~/runner.json`), rotated at 10 MB with four older
+files (`.1` to `.4`). Each line is one JSON object with `ts` (ISO-8601 UTC) and `kind`: `runner.start` (version, build,
+pid), `runner.turn` (attempt, bot, runtime, outcome, `total_ms`, and `phases`: milliseconds since the turn was claimed
+for `placed`, `harness_started`, `harness_spawned`, `first_output`, `first_delta_posted`, `finished`, `complete_posted`
+and `done`), `runner.heartbeat` (round trips of a second or more, and every failure), `runner.git` (git commands of two
+seconds or more and every timeout: verb, checkout folder name, milliseconds, exit code; never arguments) and
+`runner.process` once a minute (resident memory, CPU time, finished children's CPU, open turns, and `dropped`: records
+lost because the writer fell behind). Turns never wait on the disk. `TICO_FLIGHT_RECORDER=0` turns it off.
+`tico-runner flight summary --since 1h` (or `--dir <folder>` for a copied state folder) prints recent turns with their
+phase timings, the slowest phases, slow heartbeats and slow git commands.

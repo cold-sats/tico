@@ -16,6 +16,7 @@ mod events;
 mod drive;
 mod execute;
 mod fallback;
+mod flight;
 mod follow;
 mod fetchrepo;
 mod gitrun;
@@ -87,6 +88,11 @@ enum Command {
         #[command(subcommand)]
         action: ProfileAction,
     },
+    /// Read this computer's flight file (turn timings, slow heartbeats and git commands).
+    Flight {
+        #[command(subcommand)]
+        action: FlightAction,
+    },
     /// Git's credential helper for one turn (git runs it; not for people).
     GitCredential {
         #[arg(long)]
@@ -95,6 +101,19 @@ enum Command {
         bot: Option<String>,
         /// git's verb: only `get` answers.
         action: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum FlightAction {
+    /// Recent turns with their phase timings, the slowest phases, slow heartbeats and git commands.
+    Summary {
+        /// How far back: `90s`, `30m`, `1h`, `2d`.
+        #[arg(long, default_value = "1h")]
+        since: String,
+        /// The folder holding flight.ndjson (default: this registration's state folder).
+        #[arg(long)]
+        dir: Option<PathBuf>,
     },
 }
 
@@ -161,8 +180,14 @@ fn profile_main(action: ProfileAction, config: &mut config::Config) -> i32 {
     }
 }
 
+fn flight_summary(dir: &std::path::Path, since: &str) -> i32 {
+    let Some(seconds) = flight::parse_since(since) else { fail(&format!("argument --since: not a duration: '{since}' (e.g. 30m, 1h, 2d)")) };
+    print!("{}", flight::summary(dir, seconds, util::epoch_s()));
+    0
+}
+
 fn fail(message: &str) -> ! {
-    eprintln!("usage: tico-runner [--config CONFIG] {{run,status,profile}}\ntico-runner: error: {message}");
+    eprintln!("usage: tico-runner [--config CONFIG] {{run,status,profile,flight}}\ntico-runner: error: {message}");
     std::process::exit(2)
 }
 
@@ -185,10 +210,16 @@ fn main() {
         std::process::exit(gitcred::git_credential_main(socket.clone()));
     }
     util::start_clock();
+    if let Command::Flight { action: FlightAction::Summary { since, dir: Some(dir) } } = &cli.command {
+        std::process::exit(flight_summary(dir, since));
+    }
     let path = cli.config.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".config/tico/runner.json"));
     let mut config = config::Config::load(&path).unwrap_or_else(|e| fail(&e));
     if let Command::Profile { action } = cli.command {
         std::process::exit(profile_main(action, &mut config));
+    }
+    if let Command::Flight { action: FlightAction::Summary { since, .. } } = &cli.command {
+        std::process::exit(flight_summary(&config.state_dir(), since));
     }
     if let Command::Run = cli.command {
         // Puts the tools bin on PATH, so it runs before any thread reads the environment.
@@ -222,6 +253,7 @@ async fn start(command: Command, config: config::Config) -> i32 {
         fail(&format!("cannot create {}: {e}", state_dir.display()));
     }
     let _lock = lock::acquire(&state_dir.join("runner.lock")).unwrap_or_else(|e| fail(&e));
+    flight::init(&state_dir);
     let state = state::State::open(&state_dir).unwrap_or_else(|e| fail(&e));
     follow::record_revision(&state_dir);
     follow::init(&config.data, &state_dir);
