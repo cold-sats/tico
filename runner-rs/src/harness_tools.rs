@@ -1341,12 +1341,23 @@ fn install(m: &Manifest, version: &str, dest: &Path) -> Result<(), String> {
                 let _ = std::fs::remove_dir_all(&unpack);
                 let _ = std::fs::remove_file(&archive);
             } else {
-                std::fs::write(&exe, &body).map_err(|e| e.to_string())?;
+                place_download(&exe, &body)?;
             }
             std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
         }
     }
     Ok(())
+}
+
+/// Put a downloaded binary at `exe` through a child `cp`, the way the tar path's child `tar` does. Written here, the
+/// file is open for writing in this process, and a fork by any other runner thread holds that fd until its exec;
+/// the `--version` check would then fail with "Text file busy" (ETXTBSY).
+fn place_download(exe: &Path, body: &[u8]) -> Result<(), String> {
+    let download = PathBuf::from(format!("{}.download", exe.display()));
+    std::fs::write(&download, body).map_err(|e| e.to_string())?;
+    let copied = exec(&["cp".into(), download.display().to_string(), exe.display().to_string()], &[]);
+    let _ = std::fs::remove_file(&download);
+    copied.map(|_| ())
 }
 
 // ---------------------------------------------------------------------------------------------- shared state
@@ -1467,6 +1478,41 @@ impl Relay {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Writes a download and runs it 200 times while three threads keep forking, counting the runs that fail.
+    fn racing_forks(place: fn(&Path, &[u8]) -> Result<(), String>) -> usize {
+        let dir = std::env::temp_dir().join(format!("tico-harness-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let forkers: Vec<_> = (0..3)
+            .map(|_| {
+                let stop = stop.clone();
+                std::thread::spawn(move || {
+                    while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                        let _ = Command::new("/bin/true").status();
+                    }
+                })
+            })
+            .collect();
+        let mut failed = 0;
+        for i in 0..200 {
+            let exe = dir.join(format!("tool{i}"));
+            place(&exe, b"#!/bin/sh\necho tool 1.2.3\n").unwrap();
+            std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+            if !matches!(run(exe.as_os_str(), &[], &[], 10), Ok((0, _))) {
+                failed += 1;
+            }
+        }
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        forkers.into_iter().for_each(|t| t.join().unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+        failed
+    }
+
+    #[test]
+    fn a_downloaded_binary_runs_while_other_threads_fork() {
+        assert_eq!(racing_forks(place_download), 0);
+    }
 
     fn built_in() -> BTreeMap<String, Manifest> {
         load_from(&BUILT_IN.iter().map(|(n, t)| (n.to_string(), t.to_string())).collect::<Vec<_>>()).unwrap()
