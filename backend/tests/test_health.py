@@ -652,3 +652,44 @@ def test_a_persons_message_waiting_two_minutes_on_a_computer_with_room_is_stuck(
         assert row["bot"] == "ops" and row["reason"] == "slow"
         c.execute("UPDATE messages SET from_actor='bot:helper' WHERE conversation_id=?", (chat["id"],))
         assert health._waiting(c, online)[1] == []                    # a bot's request gets the usual fifteen
+
+
+def test_work_a_computer_holds_while_it_waits_to_update_is_the_update_not_a_tico_bug(environment):
+    """Past its drain a computer due an update claims nothing while any turn runs: its queued work waits on that."""
+    from backend import health, health_monitor
+    api = environment()
+    runner = enrolled(api)
+    heartbeat(api, runner)
+    add_bot(api, "ops")
+    add_bot(api, "dev")
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE runners SET label='Team box' WHERE id=?", (runner,))
+        for bot in ("ops", "dev"):
+            c.execute("INSERT INTO assignments(bot,runner_id,generation,updated,updated_by) VALUES(?,?,1,?,'t')",
+                      (bot, runner, H.now()))
+        owner = "human:" + c.execute("SELECT id FROM humans ORDER BY id LIMIT 1").fetchone()[0]
+        for bot in ("ops", "dev"):
+            chat = H.open_conversation(c, owner, [owner, "bot:" + bot], kind="chat")
+            H._write_message(c, owner, "bot:" + bot, "hello?", chat, "say", {}, None, None)
+        job = c.execute("SELECT id FROM jobs WHERE bot='dev'").fetchone()["id"]
+        c.execute("UPDATE jobs SET state='leased' WHERE id=?", (job,))
+        c.execute("INSERT INTO attempts(id,job_id,bot,runner_id,generation,token_hash,state,lease_until,created) "
+                  "VALUES('a-dev',?,'dev',?,1,'x','running',?,?)", (job, runner, H.shift(H.now(), hours=1), H.now()))
+        c.execute("UPDATE jobs SET created=? WHERE bot='ops'", (H.shift(H.now(), minutes=-30),))
+        online = {r["id"] for r in health._online_runners(c)}
+        [row] = health._waiting(c, online)[2]
+        assert row["bot"] == "ops" and row["reason"] == "slow"         # nothing says it is updating: a bug
+        c.execute("INSERT INTO runner_versions(runner_id,release,kind,update_state,update_target,reported) "
+                  "VALUES(?,'0.3.46','docker','waiting','0.3.48',?)", (runner, H.now()))
+        [row] = health._waiting(c, online)[2]
+        assert row["reason"] == "updating" and row["running"] == 1 and row["target"] == "0.3.48"
+        found = {f["check_id"]: f for f in health_monitor.findings(c, api.app.state.store.settings)}
+    assert "queue_idle" not in found
+    held = found["runner_outdated"]
+    assert held["kind"] == health_monitor.SETUP
+    assert ("Team box is holding new work to update to Tico 0.3.48: it starts once its running turn finishes; "
+            "it holds 1 queued job(s) for ops.") in held["detail"]
+    body, checks = health_of(api)
+    [stuck] = body["stuck"]
+    assert stuck["reason"] == "updating" and stuck["why"].startswith("Team box is holding new work to update")
+    assert checks["queue"]["status"] == "warn"

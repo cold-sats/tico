@@ -27,6 +27,8 @@ const STOP_TIMEOUT: Duration = Duration::from_secs(10);
 const STDERR_TAIL: usize = 2000;
 /// How long a turn waits, after a `result`, with a steer unread and nothing at all on stdout.
 pub const STEER_READ_TIMEOUT_S: u64 = 120;
+/// How long a turn waits for Claude's `result` after Claude reported a usage limit and did no further model work.
+const LIMIT_SETTLE: Duration = if cfg!(test) { Duration::from_millis(500) } else { Duration::from_secs(20) };
 const STEER_MIN_VERSION: (u64, u64, u64) = (2, 1, 296);
 const AUTOCOMPACT_BUFFER: i64 = 33_000;
 const AUTOCOMPACT_RANGE: (i64, i64) = (100_000, 1_000_000);
@@ -108,6 +110,9 @@ struct Pipe {
     cost: f64,
     awaiting: Option<Instant>,
     timed_out: bool,
+    /// Claude reported a usage limit: unless model work follows, the turn ends here, `result` or not.
+    limit_at: Option<Instant>,
+    limit_text: Option<String>,
     stopper: super::Stopper,
 }
 
@@ -375,6 +380,8 @@ impl ClaudeHost {
             cost: 0.0,
             awaiting: None,
             timed_out: false,
+            limit_at: None,
+            limit_text: None,
             stopper,
         });
     }
@@ -391,7 +398,7 @@ impl ClaudeHost {
             if let Some(stdout) = stdout {
                 let mut lines = BufReader::new(stdout).lines();
                 loop {
-                    let deadline = self.inner().pipe.as_ref().and_then(|p| p.awaiting);
+                    let deadline = self.inner().pipe.as_ref().and_then(|p| p.awaiting.into_iter().chain(p.limit_at).min());
                     let next = match deadline {
                         Some(d) => tokio::select! {
                             l = lines.next_line() => Some(l),
@@ -403,6 +410,15 @@ impl ClaudeHost {
                         None => {
                             let mut inner = self.inner();
                             if let Some(p) = inner.pipe.as_mut() {
+                                if p.limit_at.is_some_and(|at| at <= Instant::now()) {
+                                    // A limit with no `result` behind it: stdin stays open for steers, so Claude
+                                    // can wait there with no model work at all. End the turn as limited.
+                                    p.limit_at = None;
+                                    p.awaiting = None;
+                                    p.close();
+                                    p.stopper.terminate(STOP_TIMEOUT);
+                                    continue;
+                                }
                                 if p.awaiting.is_some() && p.open && !p.unread.is_empty() {
                                     p.awaiting = None;
                                     p.timed_out = true;
@@ -438,15 +454,16 @@ impl ClaudeHost {
                     }
                 }
             }
-            let (unread, steered, timed_out) = {
+            let (unread, steered, timed_out, limit_text) = {
                 let mut inner = self.inner();
                 match inner.pipe.as_mut() {
                     Some(p) => {
                         p.close();
                         p.awaiting = None;
-                        (p.unread.iter().any(|m| *m != p.first), p.steered, p.timed_out)
+                        p.limit_at = None;
+                        (p.unread.iter().any(|m| *m != p.first), p.steered, p.timed_out, p.limit_text.take())
                     }
-                    None => (false, false, false),
+                    None => (false, false, false, None),
                 }
             };
             let rc = match exited.await {
@@ -456,6 +473,8 @@ impl ClaudeHost {
             let clean = result.as_ref().is_some_and(|r| !crate::util::truthy(r.get("is_error"))) && rc == 0;
             let failure = if timed_out {
                 Some(format!("Claude did not read a follow-up message within {STEER_READ_TIMEOUT_S} s; it was not applied"))
+            } else if let Some(text) = limit_text.filter(|_| result.is_none()) {
+                Some(text)
             } else if unread && clean {
                 Some("Claude exited before reading a follow-up message; it was not applied".to_string())
             } else {
@@ -560,6 +579,9 @@ impl ClaudeHost {
         }
         match msg["type"].as_str().unwrap_or_default() {
             "stream_event" => {
+                if let Some(p) = self.inner().pipe.as_mut() {
+                    p.limit_at = None;
+                }
                 let ev = &msg["event"];
                 let delta = &ev["delta"];
                 if ev["type"] == "content_block_delta" && delta["type"] == "text_delta" {
@@ -578,7 +600,19 @@ impl ClaudeHost {
                     .map(|c| c["text"].as_str().unwrap_or_default())
                     .collect();
                 let id = m.get("id").cloned().unwrap_or(Value::Null);
+                let limit = limit_notice(msg, &text);
                 let mut inner = self.inner();
+                if limit {
+                    inner.limited.insert(turn.into());
+                }
+                if let Some(p) = inner.pipe.as_mut() {
+                    if limit {
+                        p.limit_at = Some(Instant::now() + LIMIT_SETTLE);
+                        p.limit_text = Some(text.trim().to_string()).filter(|t| !t.is_empty()).or(p.limit_text.take());
+                    } else {
+                        p.limit_at = None; // the model is working: whatever limit came first did not stop it
+                    }
+                }
                 if !text.is_empty() && inner.last_message.get(turn) != Some(&(id.clone(), text.clone())) {
                     inner.last_message.insert(turn.into(), (id.clone(), text.clone()));
                     inner.reply.insert(turn.into(), text.clone());
@@ -597,8 +631,14 @@ impl ClaudeHost {
             }
             "rate_limit_event" => {
                 let info = &msg["rate_limit_info"];
-                if info["status"] == "rejected" {
-                    self.inner().limited.insert(turn.into());
+                // Rejected with overage in use: extra usage pays and the model keeps working.
+                if info["status"] == "rejected" && info["isUsingOverage"] != true {
+                    let mut inner = self.inner();
+                    inner.limited.insert(turn.into());
+                    if let Some(p) = inner.pipe.as_mut() {
+                        p.limit_at.get_or_insert(Instant::now() + LIMIT_SETTLE);
+                        p.limit_text.get_or_insert_with(|| "Claude usage limit reached".into());
+                    }
                 }
                 let window = match info["rateLimitType"].as_str() {
                     Some("five_hour") => json!(300),
@@ -714,7 +754,8 @@ impl ClaudeHost {
         let mut inner = self.inner();
         let running = inner.turn.as_ref().is_some_and(|(t, u)| t == thread_id && u == turn_id);
         match inner.pipe.as_mut() {
-            Some(p) if running && p.open => {
+            // Not once Claude reported a limit: the turn is ending, so the input goes to the next one.
+            Some(p) if running && p.open && p.limit_at.is_none() => {
                 let mid = uuid::Uuid::new_v4().to_string();
                 p.unread.insert(mid.clone());
                 p.order.push(mid.clone());
@@ -737,6 +778,13 @@ impl ClaudeHost {
             p.stopper.terminate(STOP_TIMEOUT);
         }
     }
+}
+
+/// Claude Code's own notice that the subscription is out of usage: an assistant message it writes itself
+/// (`error`, or the `<synthetic>` model), never the bot's words about limits.
+fn limit_notice(msg: &Value, text: &str) -> bool {
+    let error = msg["error"].as_str().unwrap_or_default();
+    matches!(error, "rate_limit" | "billing_error") || ((!error.is_empty() || msg["message"]["model"] == "<synthetic>") && is_limit(text))
 }
 
 fn session_of(thread_id: &str, t: &Thread) -> String {
@@ -870,6 +918,66 @@ mod tests {
         assert!(!env.contains_key("CLAUDE_CODE_DISABLE_AUTO_MEMORY"));
         assert_eq!(turn_env(&Settings { shared: true, ..settings })["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Runs one turn on a `claude` that writes `first`, waits a second, writes `then`, and exits when stdin closes.
+    async fn limit_turn(first: &str, then: &str, steer_after_first: bool) -> (Vec<Value>, Option<bool>) {
+        let dir = std::env::temp_dir().join(format!("claude-limit-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("first.jsonl"), first).unwrap();
+        std::fs::write(dir.join("then.jsonl"), then).unwrap();
+        let path = dir.join("claude");
+        crate::util::write_script(
+            &path,
+            "#!/bin/sh\ncase \"$1\" in --version) echo '2.1.296 (Claude Code)'; exit 0;; --help) echo '  --autocompact <tokens>'; exit 0;; esac\nIFS= read -r line\ncat first.jsonl\nsleep 1\ncat then.jsonl\ncat >/dev/null\n",
+        );
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let host = ClaudeHost::new("acme", vec![path.display().to_string()], tx);
+        host.start().await.unwrap();
+        let mut settings = Settings { cwd: dir.display().to_string(), ..Default::default() };
+        settings.env.insert("PATH".into(), "/usr/bin:/bin".into());
+        let thread = host.start_thread(&settings);
+        let turn = host.start_turn(&thread, "hello", None).unwrap();
+        let (mut got, mut steered) = (vec![], None);
+        while let Ok(Some(ev)) = tokio::time::timeout(Duration::from_secs(10), rx.recv()).await {
+            if steer_after_first && steered.is_none() && ev["kind"] == "message" {
+                steered = Some(host.steer(&thread, &turn, "one more thing").is_ok());
+            }
+            let idle = ev["kind"] == "status" && ev["state"] == "idle";
+            got.push(ev);
+            if idle {
+                break;
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+        (got, steered)
+    }
+
+    #[tokio::test]
+    async fn a_steer_after_a_limit_notice_waits_for_the_next_turn() {
+        let notice = r#"{"type": "assistant", "message": {"id": "m", "model": "<synthetic>", "content": [{"type": "text", "text": "You've hit your session limit · resets 12:40am (UTC)"}]}, "error": "rate_limit"}"#;
+        let (got, steered) = limit_turn(&format!("{notice}\n"), "", true).await;
+        assert_eq!(steered, Some(false));
+        let failed = got.iter().find(|e| e["kind"] == "turn_failed").unwrap();
+        assert_eq!(failed["limit"], true);
+    }
+
+    #[tokio::test]
+    async fn a_limit_paid_by_overage_keeps_the_turn_running() {
+        let overage = r#"{"type": "rate_limit_event", "rate_limit_info": {"status": "rejected", "isUsingOverage": true, "rateLimitType": "five_hour", "resetsAt": 1760488800}}"#;
+        let result = r#"{"type": "result", "subtype": "success", "is_error": false, "result": "done", "usage": {"input_tokens": 1, "output_tokens": 1}}"#;
+        let (got, _) = limit_turn(&format!("{overage}\n"), &format!("{result}\n"), false).await;
+        assert!(got.iter().any(|e| e["kind"] == "turn_completed"), "{got:?}");
+        assert!(!got.iter().any(|e| e["kind"] == "turn_failed"), "{got:?}");
+    }
+
+    #[test]
+    fn only_claudes_own_notice_is_a_limit() {
+        let text = "You've hit your session limit · resets 12:40am (UTC)";
+        assert!(limit_notice(&json!({"error": "rate_limit", "message": {"model": "claude-opus-5-5"}}), text));
+        assert!(limit_notice(&json!({"message": {"model": "<synthetic>"}}), text));
+        assert!(!limit_notice(&json!({"message": {"model": "claude-opus-5-5"}}), text));
+        assert!(!limit_notice(&json!({"message": {"model": "<synthetic>"}}), "No response requested."));
     }
 
     #[test]

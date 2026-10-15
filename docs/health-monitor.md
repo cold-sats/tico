@@ -10,16 +10,16 @@ Once an hour, while it is on, the server checks the install in plain code (`back
 
 | Check | Kind | What it means |
 |---|---|---|
-| `runner_outdated` | setup | An online computer is on an older release, cannot work with this one, or failed to update |
+| `runner_outdated` | setup | An online computer is on an older release, cannot work with this one, or failed to update; or it holds queued work until its running turns finish so it can update (the finding names that work) |
 | `computer_silent` | setup | A computer has not checked in for 10 minutes or more while work is queued for its bots |
 | `limited_no_fallback` | setup | A bot's turns stopped on a subscription or spend limit in the last day and it has no fallback model |
 | `stuck_setup` | setup | A bot has been in setup over an hour while work waits for it |
 | `worktree_error` | setup | A task worktree failed on its computer |
 | `push_stuck` | setup | A runner reports a checkout with commits it cannot push (diverged) |
 | `cannot_fetch` | setup | A runner keeps failing to fetch a bot's repository |
-| `queue_idle` | tico-bug | Work queued 15 minutes or more (a person's message: 2 minutes) on an online computer that has room and no limit |
+| `queue_idle` | tico-bug | Work queued 15 minutes or more (a person's message: 2 minutes) on an online computer that has room, no limit and no update waiting |
 | `worktree_fallback` | tico-bug | A task's turn ran in the bot's checkout because its worktree hit Permission denied |
-| `event_stream` | tico-bug | A runner keeps losing its event stream |
+| `event_stream` | tico-bug | A runner lost its event stream three times in its last 50 error lines, not counting drops from 5 minutes before a server start (a deploy, an update, a restart) to 2 minutes after |
 | `readiness_403` | tico-bug | A runner's readiness report keeps being refused |
 | `server_cpu` | tico-bug | The server averaged 40% CPU or more for an hour while hardly used |
 
