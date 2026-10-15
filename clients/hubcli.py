@@ -170,6 +170,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                     [--timezone Z] [--enable|--disable] [--bot X]
                                            --enable / --disable turn it on or off; another bot's, as the requester (BotOps)
     hub routine delete <id>
+    hub trigger list                       webhooks people made; a routine runs --on webhook.<id>
     hub bot status set "<focus>" [--state waiting_human|blocked|...] [--task ID] [--bot X]
     hub bot status list [--team marketing]
     hub bot status history <bot> [--since 7d]
@@ -1237,7 +1238,7 @@ def parser():
     s.add_argument("key", help="a stable name, letters, digits, dots, dashes or underscores")
     s.add_argument("--title", required=True)
     s.add_argument("--cron", help="five fields, in --timezone (America/Los_Angeles by default)")
-    s.add_argument("--on", help="a Tico event instead of a time: meeting.ready")
+    s.add_argument("--on", help="a Tico event instead of a time: meeting.ready, or webhook.<id> (hub trigger list)")
     s.add_argument("--text", default="", help="what the bot is told each time")
     s.add_argument("--text-file", dest="text_file")
     s.add_argument("--timezone")
@@ -1263,6 +1264,10 @@ def parser():
     s = routine.add_parser("run", help="run a scheduled routine now")
     s.add_argument("id")
     s.set_defaults(fn="routine run")
+
+    trigger = sub.add_parser("trigger", help="webhooks that start routines (Settings > Triggers)").add_subparsers(dest="sub")
+    s = trigger.add_parser("list")
+    s.set_defaults(fn="trigger list")
 
     appr = sub.add_parser("approval").add_subparsers(dest="sub")
     s = appr.add_parser("request",

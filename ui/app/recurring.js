@@ -20,7 +20,7 @@ function routineItems(state) {
 function routineNextHTML(r) {
   return r.held_by_bot ? '<span class="pill">paused with the bot</span>'
     : !r.active ? '<span class="pill">not armed</span>'
-    : r.on ? '<span class="pill">on event</span>'
+    : r.on ? '<span class="pill">on trigger</span>'
     : `<strong>${esc(until(r.next))}</strong><span class="muted">${esc(fmt(r.next))}</span>`;
 }
 function routineLastHTML(r) {
@@ -100,10 +100,35 @@ function routineById(id) {
   const rows = (TASKS_ST && TASKS_ST.routines) || S.status?.schedules || [];
   return rows.find(r => r.id === id) || (S.emps || []).flatMap(e => (e.schedules || []).map(s => ({...s, employee: e.name}))).find(r => r.id === id) || null;
 }
-// The routine editor: one dialog for a new routine on a bot and for editing one. What it saves
-// is the hub's row; the bot reads the task the row opens when it is due (backend/routines.py).
+// The routine editor: one dialog for a new routine on a bot, for editing one and, for someone who may not
+// edit it, for reading what it says. What it saves is the hub's row; the bot reads the task the row opens
+// when it is due (backend/routines.py). A schedule is picked as words (every day, weekdays, a weekday, a
+// day of the month, at a time) and saved as a cron; anything else stays a cron to type.
 const ROUTINE_EVENTS = [['meeting.ready', 'When a meeting is imported'],
   ['recording.ready', 'When a meeting is imported (legacy)'], ['market.insight.urgent', 'When a market insight is urgent']];
+let ROUTINE_TRIGGERS = null;     // Settings > Triggers (GET /v2/triggers), loaded when the editor or that tab opens
+async function routineTriggersLoad() {
+  try { ROUTINE_TRIGGERS = (await get('/v2/triggers')).triggers || []; } catch { ROUTINE_TRIGGERS = ROUTINE_TRIGGERS || []; }
+  return ROUTINE_TRIGGERS;
+}
+const WEEKDAYS = [['1', 'Monday'], ['2', 'Tuesday'], ['3', 'Wednesday'], ['4', 'Thursday'], ['5', 'Friday'], ['6', 'Saturday'], ['0', 'Sunday']];
+// "30 9 * * 1" → {repeat: 'weekly', day: '1', time: '09:30'}; a cron the words cannot say is 'custom'.
+function cronPick(cron) {
+  const f = String(cron || '').trim().split(/\s+/);
+  const num = (v, max) => /^\d{1,2}$/.test(v) && +v <= max;
+  if (f.length !== 5 || !num(f[0], 59) || !num(f[1], 23) || f[3] !== '*') return {repeat: 'custom'};
+  const time = `${String(f[1]).padStart(2, '0')}:${String(f[0]).padStart(2, '0')}`;
+  if (f[2] === '*' && f[4] === '*') return {repeat: 'daily', time};
+  if (f[2] === '*' && f[4] === '1-5') return {repeat: 'weekdays', time};
+  if (f[2] === '*' && /^[0-7]$/.test(f[4])) return {repeat: 'weekly', time, day: f[4] === '7' ? '0' : f[4]};
+  if (num(f[2], 31) && +f[2] >= 1 && f[4] === '*') return {repeat: 'monthly', time, date: f[2]};
+  return {repeat: 'custom'};
+}
+function cronOf(pick) {
+  const [h, m] = String(pick.time || '09:00').split(':').map(n => String(+n || 0));
+  return {daily: `${m} ${h} * * *`, weekdays: `${m} ${h} * * 1-5`, weekly: `${m} ${h} * * ${pick.day || '1'}`,
+    monthly: `${m} ${h} ${pick.date || '1'} * *`}[pick.repeat] || String(pick.cron || '').trim();
+}
 function routineEditorOpen(r = null, bot = '') {
   let dialog = $('#routine-editor');
   if (!dialog) {
@@ -112,36 +137,79 @@ function routineEditorOpen(r = null, bot = '') {
     document.body.appendChild(dialog);
   }
   const editing = !!r, slug = editing ? (r.employee || r.bot) : bot;
+  const may = !editing || routineMayEdit(r), off = may ? '' : 'disabled';
   const mine = (S.emps || []).filter(e => e.status !== 'archived' && routineMayEdit({bot: e.name}));
   const kind = editing && r.on ? 'event' : 'cron';
-  const events = r?.on && !ROUTINE_EVENTS.some(([value]) => value === r.on)
-    ? [...ROUTINE_EVENTS, [r.on, r.on]] : ROUTINE_EVENTS;
-  dialog.innerHTML = `<form><div class="tmodal-head"><h2 id="routine-editor-title">${editing ? 'Edit routine' : 'New routine'}</h2><span class="spacer"></span><button class="ghost" type="button" data-routine-close aria-label="Close">✕</button></div>
+  const pick = kind === 'cron' ? cronPick(editing ? r.cron : '0 9 * * 1-5') : cronPick('0 9 * * 1-5');
+  const paused = editing && (r.enabled === false || r.enabled === 0);
+  const opt = (v, w, cur) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(w)}</option>`;
+  dialog.innerHTML = `<form><div class="tmodal-head"><h2 id="routine-editor-title">${!editing ? 'New routine' : may ? 'Edit routine' : 'Routine'}</h2><span class="spacer"></span><button class="ghost" type="button" data-routine-close aria-label="Close">✕</button></div>
     <div class="bot-editor-body">
       <div class="bot-editor-grid">
-        <label>Bot<select name="bot" ${editing ? 'disabled' : ''} required>${(editing ? [S.emps.find(e => e.name === slug) || {name: slug}] : mine).map(e => `<option value="${esc(e.name)}" ${e.name === slug ? 'selected' : ''}>${esc(botDisplayName(e.name))}</option>`).join('')}</select></label>
-        <label>Title<input name="title" type="text" value="${esc(r?.title || '')}" maxlength="300" required autocomplete="off"></label>
-        <label>Runs<select name="kind"><option value="cron" ${kind === 'cron' ? 'selected' : ''}>On a schedule</option><option value="event" ${kind === 'event' ? 'selected' : ''}>When something happens</option></select></label>
-        <label data-routine-cron ${kind === 'cron' ? '' : 'hidden'}>Cron<input name="cron" type="text" autocomplete="off" spellcheck="false" value="${esc(r?.cron || '0 7 * * 1-5')}" placeholder="0 7 * * 1-5" maxlength="100"></label>
-        <label data-routine-event ${kind === 'event' ? '' : 'hidden'}>Event<select name="on">${events.map(([v, w]) => `<option value="${esc(v)}" ${r?.on === v ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></label>
-        <label data-routine-tz ${kind === 'cron' ? '' : 'hidden'}>Timezone<input name="timezone" type="text" autocomplete="off" spellcheck="false" value="${esc(r?.timezone || 'America/Los_Angeles')}" maxlength="100"></label>
-        <label class="bot-editor-wide">Instruction<textarea name="text" maxlength="100000" placeholder="Go through the messages and…">${esc(r?.text || '')}</textarea></label>
+        <label>Bot<select name="bot" ${editing ? 'disabled' : ''} required>${(editing ? [S.emps.find(e => e.name === slug) || {name: slug}] : mine).map(e => opt(e.name, botDisplayName(e.name), slug)).join('')}</select></label>
+        <label>Title<input name="title" type="text" value="${esc(r?.title || '')}" maxlength="300" required autocomplete="off" ${off}></label>
+        <label>Runs<select name="kind" ${off}>${opt('cron', 'On a schedule', kind)}${opt('event', 'On a trigger', kind)}</select></label>
+        <label data-routine-cron>Repeat<select name="repeat" ${off}>${[['daily', 'Every day'], ['weekdays', 'Weekdays'], ['weekly', 'Every week'], ['monthly', 'Every month'], ['custom', 'Custom (cron)']].map(([v, w]) => opt(v, w, pick.repeat)).join('')}</select></label>
+        <label data-routine-pick="weekly">On<select name="day" ${off}>${WEEKDAYS.map(([v, w]) => opt(v, w, pick.day || '1')).join('')}</select></label>
+        <label data-routine-pick="monthly">Day of the month<input name="date" type="number" min="1" max="31" value="${esc(pick.date || '1')}" ${off}></label>
+        <label data-routine-pick="daily weekdays weekly monthly">At<input name="time" type="time" value="${esc(pick.time || '09:00')}" ${off}></label>
+        <label data-routine-pick="custom">Cron<input name="cron" type="text" autocomplete="off" spellcheck="false" value="${esc(r?.cron || '0 9 * * 1-5')}" placeholder="0 9 * * 1-5" maxlength="100" ${off}></label>
+        <label data-routine-cron>Timezone<input name="timezone" type="text" autocomplete="off" spellcheck="false" value="${esc(r?.timezone || 'America/Los_Angeles')}" maxlength="100" ${off}></label>
+        <label data-routine-event>Trigger<select name="on" ${off}></select></label>
+        <p class="settings-cell-note bot-editor-wide" data-routine-event>Webhooks are added in <a href="#/triggers" data-routine-close>Settings › Triggers</a>.</p>
+        <label class="bot-editor-wide">Instruction<textarea name="text" maxlength="100000" placeholder="Go through the messages and…" ${off}>${esc(r?.text || '')}</textarea></label>
       </div>
-      <div class="row" style="margin-top:16px"><button class="primary" type="submit">${editing ? 'Save routine' : 'Add routine'}</button><button class="ghost" type="button" data-routine-close>Cancel</button><span class="muted" data-routine-status></span></div></div></form>`;
+      <div class="row" style="margin-top:16px">${may ? `<button class="primary" type="submit">${editing ? 'Save routine' : 'Add routine'}</button>` : ''}<button class="ghost" type="button" data-routine-close>${may ? 'Cancel' : 'Close'}</button>
+        <span class="muted" data-routine-status></span>
+        ${editing && may ? `<span class="spacer"></span>${kind === 'cron' && !paused ? '<button class="ghost" type="button" data-routine-do="run">Run now</button>' : ''}
+          <button class="ghost" type="button" data-routine-do="toggle">${paused ? 'Resume' : 'Pause'}</button>
+          <button class="ghost" type="button" data-routine-do="delete">Delete</button>` : ''}</div></div></form>`;
   const form = dialog.querySelector('form'), status = dialog.querySelector('[data-routine-status]');
-  dialog.querySelectorAll('[data-routine-close]').forEach(b => b.onclick = () => dialog.close());
-  const showKind = () => {
-    const isCron = form.elements.kind.value === 'cron';
-    dialog.querySelector('[data-routine-cron]').hidden = !isCron;
-    dialog.querySelector('[data-routine-tz]').hidden = !isCron;
-    dialog.querySelector('[data-routine-event]').hidden = isCron;
+  dialog.querySelectorAll('[data-routine-close]').forEach(b => b.addEventListener('click', () => dialog.close()));
+  const fillTriggers = list => {
+    const webhooks = (list || []).map(t => [t.event, t.name]);
+    const known = [...webhooks, ...ROUTINE_EVENTS].some(([v]) => v === r?.on);
+    form.elements.on.innerHTML = (webhooks.length ? `<optgroup label="Webhooks">${webhooks.map(([v, w]) => opt(v, w, r?.on)).join('')}</optgroup>` : '')
+      + `<optgroup label="In Tico">${ROUTINE_EVENTS.map(([v, w]) => opt(v, w, r?.on)).join('')}</optgroup>`
+      + (r?.on && !known ? `<optgroup label="Removed">${opt(r.on, r.on, r.on)}</optgroup>` : '');
   };
-  form.elements.kind.onchange = showKind;
+  fillTriggers(ROUTINE_TRIGGERS);
+  routineTriggersLoad().then(list => { if (dialog.open) fillTriggers(list); });
+  const show = () => {
+    const isCron = form.elements.kind.value === 'cron', repeat = form.elements.repeat.value;
+    dialog.querySelectorAll('[data-routine-cron]').forEach(el => { el.hidden = !isCron; });
+    dialog.querySelectorAll('[data-routine-event]').forEach(el => { el.hidden = isCron; });
+    dialog.querySelectorAll('[data-routine-pick]').forEach(el => { el.hidden = !isCron || !el.dataset.routinePick.split(' ').includes(repeat); });
+  };
+  form.elements.kind.onchange = form.elements.repeat.onchange = () => {
+    // Switching to Custom starts from the schedule the words were showing.
+    if (form.elements.repeat.value === 'custom' && cronPick(form.elements.cron.value).repeat !== 'custom') {
+      form.elements.cron.value = cronOf({repeat: cronPick(form.elements.cron.value).repeat, ...pickOf()});
+    }
+    show();
+  };
+  const pickOf = () => ({repeat: form.elements.repeat.value, day: form.elements.day.value, date: form.elements.date.value,
+    time: form.elements.time.value, cron: form.elements.cron.value});
+  show();
+  dialog.querySelectorAll('[data-routine-do]').forEach(b => b.onclick = async () => {
+    const what = b.dataset.routineDo;
+    if (what === 'delete' && !window.confirm(`Delete "${r.title}"? Its history stays; it will not run again.`)) return;
+    status.textContent = what === 'run' ? 'Starting…' : 'Saving…';
+    try {
+      if (what === 'run') await post(`/v2/routines/${encodeURIComponent(r.id)}/run`, {});
+      if (what === 'toggle') await post(`/v2/routines/${encodeURIComponent(r.id)}`, {enabled: paused});
+      if (what === 'delete') await post(`/v2/routines/${encodeURIComponent(r.id)}/delete`, {});
+      dialog.close();
+      if (what === 'run') toast('Routine started');
+      routineChanged();
+    } catch (e) { status.textContent = e.message; }
+  });
   form.onsubmit = async ev => {
     ev.preventDefault();
+    if (!may) return;
     const isCron = form.elements.kind.value === 'cron';
     const body = {title: form.elements.title.value.trim(), text: form.elements.text.value,
-                  cron: isCron ? form.elements.cron.value.trim() : '', on: isCron ? '' : form.elements.on.value,
+                  cron: isCron ? cronOf(pickOf()) : '', on: isCron ? '' : form.elements.on.value,
                   timezone: isCron ? form.elements.timezone.value.trim() : ''};
     status.textContent = 'Saving…';
     try {

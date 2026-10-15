@@ -479,3 +479,15 @@ fieldset.brepo[hidden]{display:none}
 .settings-more[open]{flex-basis:100%}
 .assistant-decisions{list-style:none;margin:0;padding:0}.assistant-decisions li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 0;border-top:1px solid var(--line)}.assistant-decisions li .settings-cell-note{display:block;margin:2px 0 0}
 .settings-version{margin:0;color:var(--muted);font-size:var(--t-xs)}
+
+/* Settings > Triggers (ui/app/settings-triggers.js) */
+.trigger-new{margin-bottom:12px}.trigger-new input{flex:1 1 220px;min-width:0}
+.trigger-secret{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:12px}
+.trigger-secret p{margin:0 0 6px}.trigger-secret .row{flex-wrap:nowrap}
+.trigger-url{flex:1 1 auto;min-width:0;overflow-wrap:anywhere;user-select:all}
+.trigger-list{list-style:none;margin:0;padding:0}
+.trigger-list li{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) auto;gap:12px;align-items:start;padding:10px 0;border-bottom:1px solid var(--line)}
+.trigger-list li:last-child{border-bottom:0}
+.trigger-main{display:flex;flex-direction:column;gap:2px;min-width:0}.trigger-main code{overflow-wrap:anywhere}
+.trigger-actions{display:flex;gap:6px;white-space:nowrap}
+@media (max-width:640px){.trigger-list li{grid-template-columns:1fr}.trigger-actions{justify-content:flex-start}}

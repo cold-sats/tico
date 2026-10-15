@@ -33,7 +33,7 @@ EMPTY = (
     "job_recovery", "service_jobs", "doc_source_jobs", "update_queue", "task_reminders", "calendar_actions",
     "meeting_deliveries", "worktree_waits", "idempotency", "blob_media_retries", "github_product_repo_operations",
     # routines and watchers
-    "schedules", "schedule_config", "schedule_occurrences", "watcher_runs", "watcher_items", "watcher_refs",
+    "schedules", "schedule_config", "schedule_occurrences", "triggers", "trigger_deliveries", "watcher_runs", "watcher_items", "watcher_refs",
     # runner and bot sessions
     "enrollments", "assignments", "agent_pairings", "bot_sessions", "session_epochs", "model_logins",
     "computer_profiles", "subscription_assignments", "runner_harness_actions", "runner_harness_choices",
