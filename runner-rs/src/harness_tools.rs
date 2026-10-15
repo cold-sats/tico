@@ -625,6 +625,12 @@ impl Harnesses {
         self.wanted.clone()
     }
 
+    /// The owner turned `runtime`'s harness off on this computer, whatever is still on PATH (a default fallback
+    /// never goes there).
+    pub fn chosen_off(&self, runtime: &str) -> bool {
+        self.harness_for_runtime(runtime).is_some_and(|m| self.choices.get(&m.id) == Some(&false))
+    }
+
     /// Off on this computer: the owner said so and none of its bots runs on it. Never before the bots have been
     /// read: a saved "off" must not remove what a bot needs while the server is still being asked.
     fn turned_off(&self, id: &str) -> bool {

@@ -427,6 +427,8 @@ mod tests {
         assert!(is_limit("You've hit your usage limit"));
         assert!(is_limit("HTTP 503 overloaded"));
         assert!(!is_limit("all good"));
+        assert!(is_limit("Claude AI monthly spend limit reached. Raise it in your account settings."));
+        assert!(!is_limit("Draft the monthly spend report"));
         assert!(is_auth_retryable("OAuth: failed to refresh OAuth token"));
         assert!(!is_auth_retryable("unexpected status 401 Unauthorized: Invalid API key"));
         assert!(is_auth_rejected("Invalid API key · Please run /login"));

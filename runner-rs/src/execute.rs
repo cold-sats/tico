@@ -846,8 +846,19 @@ impl Runner {
             }
         }
         let native_control = truthy(refs.get("command")) || goal.chat_goal.as_ref().is_some_and(|g| g["status"] == "active");
-        let hop = if unavailable && !native_control { crate::fallback::configured(&config) } else { None };
+        let mut hop = if unavailable && !native_control { crate::fallback::configured(&config) } else { None };
+        let hit_limit = drove.limited;
+        if hop.is_none() && hit_limit && !native_control && prepared {
+            // Out of quota with no fallback of its own: another provider signed in on this computer runs the turn
+            // once (Settings > AI providers can turn this off for the company).
+            let choices = self.default_fallbacks().await;
+            hop = crate::fallback::default_choice(&config, &choices, |rt| self.fallback_ready(rt, selected.as_ref()));
+        }
+        // Only a server that sent `fallback_models` knows the field (an older one refuses unknown fields).
+        let primary_limited = hop.as_ref().is_some_and(|h| h.default && hit_limit);
         if let (Some(hop), true, Some(base)) = (hop, prepared, base_env.clone()) {
+            uses.push(hop.runtime.clone());
+            crate::harness_tools::turn_runtimes(&aid, &uses);
             if let Some(th) = &thread {
                 let _ = self.state.forget_session(&bot, &conv, &runtime, th);
             }
@@ -871,7 +882,7 @@ impl Runner {
                 });
                 let hop_env = selected.as_ref().map_or_else(|| base.clone(), |p| p.environment(&hop.runtime, &base));
                 env = hop_env.clone();
-                self.diagnose(&aid, &format!("{primary} unavailable; running this turn on {}", hop.harness));
+                self.diagnose(&aid, &crate::fallback::diagnostic(&primary, &hop, hit_limit));
                 let (tx, mut rx) = unbounded_channel();
                 let h = host.insert(self.make_host(&bot, &hop.runtime, &hop_env, selected.as_ref(), tx)?);
                 h.start().await?;
@@ -907,7 +918,8 @@ impl Runner {
                 drove = self.drive(&d, &mut rx, t, segments.last_mut().unwrap(), &mut carried, &mut auth_rejected, &mut goal).await?;
                 turn = Some(drove.turn.clone());
                 let how = if drove.outcome == "completed" { String::new() } else { format!(" ({})", drove.outcome) };
-                log(&format!("Tico runner: {bot}: {primary} unavailable; ran the turn on {}{how}", hop.harness));
+                let why = if hit_limit { "hit its usage limit" } else { "unavailable" };
+                log(&format!("Tico runner: {bot}: {primary} {why}; ran the turn on {}{how}", hop.harness));
                 Ok(())
             }
             .await;
@@ -1040,6 +1052,9 @@ impl Runner {
         }
         if let Some(f) = &fallback {
             completion.insert("fallback".into(), json!(f));
+            if primary_limited {
+                completion.insert("primary_limited".into(), json!(true));
+            }
         }
         if let Some(u) = &subscription_unavailable {
             completion.insert("subscription_unavailable".into(), u.clone());
