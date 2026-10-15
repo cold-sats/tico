@@ -26,6 +26,14 @@ pub const CLOSED: &[&str] = &["done", "closed", "declined"];
 pub const SESSION_SWEEP_S: u64 = 600;
 const RULES_CAP: usize = 16 * 1024;
 const MEMORY_FOLDERS: &[&str] = &["memory", "knowledge"];
+/// Problems no wait clears: the bot has no checkout, or one with no upstream for a worktree to share. A task's turn
+/// then runs in the main checkout; any other problem is worth waiting out first (WORKTREE_WAIT_S).
+pub const MISSING: &str = "the bot's checkout is missing";
+pub const NO_UPSTREAM: &str = "the bot's checkout has no upstream to share between tasks";
+/// How long a task turn that is not a person's waits for its worktree, retrying, before it runs in the bot's
+/// checkout: in the checkout it would hold every chat with the bot behind it for its whole turn.
+const WORKTREE_WAIT_S: u64 = 120;
+const WORKTREE_RETRY_S: u64 = 10;
 
 fn slug_ok(name: &str) -> bool {
     static SLUG: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
@@ -271,20 +279,6 @@ pub fn git_reason(out: &Out) -> String {
     crate::redact::scrub_credentials(&first.chars().take(160).collect::<String>(), &[])
 }
 
-/// Rebasing and the memory commit need an identity; the turn's is the bot's.
-fn committer(turn: &Env) -> Env {
-    let mut env = crate::safegit::environment(turn);
-    for role in ["AUTHOR", "COMMITTER"] {
-        for part in ["NAME", "EMAIL"] {
-            let key = format!("GIT_{role}_{part}");
-            if let Some(v) = turn.get(&key).filter(|v| !v.is_empty()) {
-                env.insert(key, v.clone());
-            }
-        }
-    }
-    env
-}
-
 /// The main checkout's upstream as a remote-tracking ref (`origin/main`), or "".
 pub async fn upstream(main: &Path, env: &Env) -> Result<String, Fault> {
     let done = g(main, env, &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], 15).await?;
@@ -296,12 +290,12 @@ pub async fn upstream(main: &Path, env: &Env) -> Result<String, Fault> {
 pub async fn ensure(main: &Path, path: &Path, task: &str, turn: &Env) -> (String, String) {
     let env = crate::safegit::environment(turn);
     if !main.join(".git").exists() {
-        return (String::new(), "the bot's checkout is missing".into());
+        return (String::new(), MISSING.into());
     }
     let made: Result<(String, String), Fault> = async {
         let tracked = upstream(main, &env).await?;
         if tracked.is_empty() {
-            return Ok((String::new(), "the bot's checkout has no upstream to share between tasks".into()));
+            return Ok((String::new(), NO_UPSTREAM.into()));
         }
         let common = g(main, &env, &["rev-parse", "--path-format=absolute", "--git-common-dir"], 15).await?.stdout.trim().to_string();
         if path.join(".git").exists() {
@@ -317,9 +311,12 @@ pub async fn ensure(main: &Path, path: &Path, task: &str, turn: &Env) -> (String
         }
         g(main, &env, &["worktree", "prune"], 15).await?;
         if let Some(parent) = path.parent() {
-            if std::fs::create_dir_all(parent).is_err() {
+            // `git worktree add` runs as the bot user, so the folder it adds the task in must be the bot's before it
+            // runs, including one an older runner made as the supervisor (every task then fell back to the checkout).
+            if crate::isolation::mkdir(parent, 0o755).is_err() {
                 return Ok((String::new(), "OSError".into()));
             }
+            crate::isolation::chown(parent);
         }
         let branch = format!("{BRANCH}{task}");
         let exists = g(main, &env, &["show-ref", "--verify", "--quiet", &format!("refs/heads/{branch}")], 15).await?.ok();
@@ -335,6 +332,7 @@ pub async fn ensure(main: &Path, path: &Path, task: &str, turn: &Env) -> (String
         if !g(main, &env, &["config", "--get", "push.default"], 15).await?.ok() {
             g(main, &env, &["config", "push.default", "upstream"], 15).await?;
         }
+        crate::isolation::adopt(&[path.to_path_buf()]);
         Ok((tracked, String::new()))
     }
     .await;
@@ -344,7 +342,7 @@ pub async fn ensure(main: &Path, path: &Path, task: &str, turn: &Env) -> (String
 /// After a completed turn: commit memory/ and knowledge/ (not `skip`), stamp this lane's unpushed commits with
 /// the run and rebase them onto the upstream. "" or the problem; on a problem the commits stay for the next turn.
 pub async fn finish(path: &Path, aid: &str, turn: &Env, skip: &[String]) -> String {
-    let env = committer(turn);
+    let env = crate::safegit::committing_environment(turn);
     let timeout = 45;
     let done: Result<String, Fault> = async {
         let folders: Vec<&str> = MEMORY_FOLDERS.iter().copied().filter(|f| path.join(f).is_dir()).collect();
@@ -435,7 +433,7 @@ pub async fn sync_shared(path: &Path, turn: &Env) -> String {
     if !path.join(".git").exists() {
         return "the checkout is missing".into();
     }
-    let env = crate::safegit::environment(turn);
+    let env = crate::safegit::committing_environment(turn);
     let done: Result<String, Fault> = async {
         let dirty = g(path, &env, &["status", "--porcelain"], 15).await?;
         if !dirty.ok() {
@@ -520,7 +518,7 @@ pub fn own_sync_line(path: &Path, problem: &str) -> String {
 /// After a push refused as behind: put the unpushed commits on top of what the remote gained (merge when they
 /// hold a merge), or say why not. Never forces or drops a commit; a conflict is undone (service.py catch_up).
 pub async fn catch_up(path: &Path, turn: &Env) -> String {
-    let env = crate::safegit::environment(turn);
+    let env = crate::safegit::committing_environment(turn);
     let mut step = "rebase";
     let done: Result<String, Fault> = async {
         let dirty = g(path, &env, &["status", "--porcelain", "--untracked-files=no"], 15).await?;
@@ -680,6 +678,23 @@ pub struct Lanes {
     pub repositories: Arc<Repositories>,
     push_warned: Mutex<HashMap<String, Instant>>,
     swept_after: Mutex<Option<Instant>>,
+    /// bot -> turns from a person waiting for its main checkout.
+    person_waits: Arc<Mutex<HashMap<String, usize>>>,
+}
+
+/// A person's turn counted as waiting for the bot's checkout until it is dropped.
+struct PersonWait(Arc<Mutex<HashMap<String, usize>>>, String);
+
+impl Drop for PersonWait {
+    fn drop(&mut self) {
+        let mut waits = self.0.lock().unwrap();
+        if let Some(n) = waits.get_mut(&self.1) {
+            *n -= 1;
+            if *n == 0 {
+                waits.remove(&self.1);
+            }
+        }
+    }
 }
 
 impl Lanes {
@@ -692,7 +707,48 @@ impl Lanes {
             repositories,
             push_warned: Mutex::new(HashMap::new()),
             swept_after: Mutex::new(None),
+            person_waits: Default::default(),
         }
+    }
+
+    /// Whether a turn from a person is waiting for the bot's main checkout.
+    pub fn person_waiting(&self, bot: &str) -> bool {
+        self.person_waits.lock().unwrap().get(bot.trim_start_matches("bot:")).is_some_and(|n| *n > 0)
+    }
+
+    /// The bot's checkout for a turn. A person's turn goes first: it counts as waiting while it waits, and every
+    /// other turn waiting for the checkout lets it by, giving the checkout back if a person started waiting meanwhile.
+    async fn hold_checkout(&self, bot: &str, person: bool, lost: &AtomicBool) -> Result<OwnedMutexGuard<()>, String> {
+        let lock = self.checkout(bot);
+        if person {
+            let key = bot.trim_start_matches("bot:").to_string();
+            *self.person_waits.lock().unwrap().entry(key.clone()).or_default() += 1;
+            let _waiting = PersonWait(self.person_waits.clone(), key);
+            return hold(lock, lost).await;
+        }
+        loop {
+            if lost.load(Ordering::SeqCst) {
+                return Err("Attempt lease lost while waiting for worktree maintenance".into());
+            }
+            if self.person_waiting(bot) {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                continue;
+            }
+            if let Ok(g) = tokio::time::timeout(Duration::from_secs(1), lock.clone().lock_owned()).await {
+                if !self.person_waiting(bot) {
+                    return Ok(g);
+                }
+                // a person started waiting while this turn did: the guard goes back
+            }
+        }
+    }
+
+    /// The checkout if it is free and no person waits for it (a task turn's refresh).
+    fn try_checkout(&self, bot: &str) -> Option<OwnedMutexGuard<()>> {
+        if self.person_waiting(bot) {
+            return None;
+        }
+        self.checkout(bot).try_lock_owned().ok()
     }
 
     /// The bot's main checkout: a main-lane turn holds it for the whole turn, a task-lane turn only to refresh it.
@@ -759,6 +815,18 @@ async fn hold(lock: Lock, lost: &AtomicBool) -> Result<OwnedMutexGuard<()>, Stri
     }
 }
 
+/// Wait `span` unless the turn's lease is lost first; false when it was.
+async fn pause(span: Duration, lost: &AtomicBool) -> bool {
+    let until = Instant::now() + span;
+    while Instant::now() < until {
+        if lost.load(Ordering::SeqCst) {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(250).min(until.saturating_duration_since(Instant::now()))).await;
+    }
+    !lost.load(Ordering::SeqCst)
+}
+
 /// Where a turn runs and the locks it holds while it does.
 pub struct Place {
     pub bot: String,
@@ -768,6 +836,8 @@ pub struct Place {
     pub execution_path: PathBuf,
     pub add_dirs: Vec<String>,
     pub rules_digest: String,
+    /// The turn is a person's: it goes first for the checkout and never waits for its worktree.
+    person: bool,
     _lane: OwnedMutexGuard<()>,
     checkout: Option<OwnedMutexGuard<()>>,
 }
@@ -784,10 +854,12 @@ impl Runner {
         let bot = text_of(&attempt["bot"]);
         let lane = turn_lane(attempt);
         let task = if slug_ok(&bot) { task_of(&lane) } else { String::new() };
+        let person = crate::drive::from_person(&attempt["message"]);
         let lane_guard = hold(self.lanes.lane(&bot, &lane), lost).await?;
-        let checkout = if task.is_empty() { Some(hold(self.lanes.checkout(&bot), lost).await?) } else { self.lanes.checkout(&bot).try_lock_owned().ok() };
+        // A task turn skips its refresh of the checkout while a person waits for it.
+        let checkout = if task.is_empty() { Some(self.lanes.hold_checkout(&bot, person, lost).await?) } else { self.lanes.try_checkout(&bot) };
         let main_path = local_path(&self.config, &bot, &attempt["config"]);
-        Ok(Place { bot, task, execution_path: main_path.clone(), main_path, session_path: None, add_dirs: vec![], rules_digest: String::new(), _lane: lane_guard, checkout })
+        Ok(Place { bot, task, execution_path: main_path.clone(), main_path, session_path: None, add_dirs: vec![], rules_digest: String::new(), person, _lane: lane_guard, checkout })
     }
 
     /// Bring the checkout up to date before the turn: a shared one is rebased (its problem goes to the prompt),
@@ -817,19 +889,25 @@ impl Runner {
         let mut suffix = "";
         if !place.task.is_empty() {
             let session = path_for(&self.config.projects_dir(), &place.bot, &place.task);
-            let (tracked, problem) = {
-                let _git = self.lanes.git_lock(&place.main_path).lock_owned().await;
-                let (tracked, problem) = ensure(&place.main_path, &session, &place.task, env).await;
-                if problem.is_empty() {
-                    attempt["branch_sync_problem"] = json!(sync_shared(&session, env).await);
+            let (mut tracked, mut problem) = self.task_worktree(place, &session, attempt, env).await;
+            if !problem.is_empty() && !place.person && problem != MISSING && problem != NO_UPSTREAM {
+                // In the checkout this turn would hold the bot's chats behind it for the whole turn, so it waits for
+                // its worktree first, holding nothing a chat needs.
+                log(&format!("Tico runner: {}: task {} waits for its worktree ({problem})", place.bot, place.task));
+                place.checkout = None;
+                let until = Instant::now() + Duration::from_secs(WORKTREE_WAIT_S);
+                while !problem.is_empty() && Instant::now() < until {
+                    if !pause(Duration::from_secs(WORKTREE_RETRY_S), lost).await {
+                        break;
+                    }
+                    (tracked, problem) = self.task_worktree(place, &session, attempt, env).await;
                 }
-                (tracked, problem)
-            };
+            }
             if !problem.is_empty() {
                 // Without a worktree of its own the task's turn waits for the main checkout like any other.
-                log(&format!("Tico runner: {}: task {} runs in the bot's checkout ({problem})", place.bot, place.task));
+                crate::util::diagnostic(&format!("Tico runner: {}: task {} runs in the bot's checkout ({problem})", place.bot, place.task));
                 if place.checkout.is_none() {
-                    place.checkout = Some(hold(self.lanes.checkout(&place.bot), lost).await?);
+                    place.checkout = Some(self.lanes.hold_checkout(&place.bot, place.person, lost).await?);
                     self.refresh_checkout(place, attempt, env).await;
                 }
             } else {
@@ -848,6 +926,16 @@ impl Runner {
         place.rules_digest = digest;
         place.add_dirs = dirs.iter().map(|(_, p)| p.display().to_string()).collect();
         Ok(suffix)
+    }
+
+    /// Add or reuse the task's worktree under the checkout's git lock and rebase it onto its upstream.
+    async fn task_worktree(&self, place: &Place, session: &Path, attempt: &mut Value, env: &Env) -> (String, String) {
+        let _git = self.lanes.git_lock(&place.main_path).lock_owned().await;
+        let (tracked, problem) = ensure(&place.main_path, session, &place.task, env).await;
+        if problem.is_empty() {
+            attempt["branch_sync_problem"] = json!(sync_shared(session, env).await);
+        }
+        (tracked, problem)
     }
 
     /// Whether the task a turn's session is keyed on is finished, read with the turn's own token.
@@ -990,6 +1078,35 @@ impl Runner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_persons_turn_gets_the_checkout_before_a_routine_waiting_for_it() {
+        let dir = std::env::temp_dir().join(format!("tico-lanes-{}", uuid::Uuid::new_v4().simple()));
+        let client = crate::client::Client::new("http://127.0.0.1:9", "t", 1, 0).unwrap();
+        let lanes = Arc::new(Lanes::new(Arc::new(Repositories::new(&dir, &dir, client))));
+        let lost = Arc::new(AtomicBool::new(false));
+        let running = lanes.checkout("coo").try_lock_owned().unwrap(); // a main-lane turn holds it
+        let order = Arc::new(Mutex::new(vec![]));
+        let wait = |who: &'static str, person: bool| {
+            let (lanes, lost, order) = (lanes.clone(), lost.clone(), order.clone());
+            tokio::spawn(async move {
+                let held = lanes.hold_checkout("coo", person, &lost).await.unwrap();
+                order.lock().unwrap().push(who);
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                drop(held);
+            })
+        };
+        let routine = wait("routine", false);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let person = wait("person", true);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(lanes.person_waiting("bot:coo") && lanes.try_checkout("coo").is_none());
+        drop(running);
+        let _ = tokio::join!(routine, person);
+        assert_eq!(*order.lock().unwrap(), vec!["person", "routine"]);
+        assert!(!lanes.person_waiting("coo"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn lanes_and_reads_follow_the_python_runner() {
