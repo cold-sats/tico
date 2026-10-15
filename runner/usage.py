@@ -3,7 +3,9 @@
 Every host emits `tokens` events; a `usage` field on one is an increment to add: `{"input", "cached",
 "output"}`, where `input` counts every prompt token including the `cached` ones. A host emits each
 token once (Codex reports running totals, so its host subtracts; see `runner/hosts/codex.py`). The
-meter here sums the increments of one turn and reports uncached input, cached input and output.
+meter here sums the increments of one turn and reports uncached input, cached input and output. A host
+that learns the model from its harness (Muse Code) puts it on the event as `model`; it names the run's
+model when the bot's config does not.
 """
 
 import re
@@ -19,12 +21,15 @@ def _count(value):
 class Meter:
     def __init__(self):
         self.input = self.cached = self.output = 0
+        self.model = ""
 
     def add(self, event):
         """Add a `tokens` event's increment; events without one (older hosts) add nothing."""
         usage = event.get("usage") if isinstance(event, dict) else None
         if not isinstance(usage, dict):
             return
+        if event.get("model"):
+            self.model = str(event["model"])
         self.input += _count(usage.get("input"))
         self.cached += _count(usage.get("cached"))
         self.output += _count(usage.get("output"))
@@ -34,6 +39,8 @@ class Meter:
         cached = min(self.cached, self.input)
         if not (self.input or self.output):
             return None
+        if not model or str(model).strip() == "default":
+            model = self.model or model
         return {"input_tokens": self.input - cached, "cached_tokens": cached, "output_tokens": self.output,
                 "model": str(model or "")[:120], "runtime": str(runtime or "")[:60], "billing": billing}
 

@@ -404,6 +404,42 @@ def pull_repo(path, env=None, timeout=45):
     return git_reason(pulled)
 
 
+def divergence(path, env=None):
+    """How a checkout that could not fast-forward differs from its upstream (as `pull_repo` last fetched it),
+    or "" when it has not diverged. Read-only: the conflicting files come from `git merge-tree`, which touches
+    neither the tree nor the index (git 2.38+; older git names the files both sides changed)."""
+    path = Path(path)
+    env = safe_git.environment(env)
+    def git(*args):
+        return isolation.run([*safe_git.prefix(path), "-C", str(path), *args], capture_output=True, text=True,
+                              stdin=subprocess.DEVNULL, env=env, timeout=15)
+    try:
+        upstream = git("rev-parse", "--abbrev-ref", "@{u}")
+        counts = git("rev-list", "--left-right", "--count", "HEAD...@{u}").stdout.split()
+        if upstream.returncode != 0 or len(counts) != 2 or "0" in counts:
+            return ""
+        up, (ahead, behind) = upstream.stdout.strip(), counts
+        merged = git("merge-tree", "--write-tree", "--name-only", "--no-messages", "HEAD", "@{u}")
+        if merged.returncode in (0, 1):
+            files = [row for row in merged.stdout.splitlines()[1:] if row.strip()]
+        else:
+            base = git("merge-base", "HEAD", "@{u}").stdout.strip()
+            changed = [set(git("diff", "--name-only", base, side).stdout.split()) for side in ("HEAD", "@{u}")]
+            files = sorted(changed[0] & changed[1]) if base else []
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    shown = ", ".join(files[:5]) + (f" and {len(files) - 5} more" if len(files) > 5 else "")
+    return (f"it has {ahead} commits `{up}` doesn't, and `{up}` has {behind} it doesn't; "
+            + (f"conflicting files: {shown}" if files else "no files conflict"))
+
+
+def own_sync_line(path, problem):
+    """The prompt's first line for a bot's own checkout that has diverged from its remote."""
+    return (f"Before anything else: your repository `{path}` has diverged from its remote ({problem}). The runner only "
+            "fast-forwards, so nothing you commit reaches GitHub until you fix it: commit or keep unfinished changes, "
+            "rebase onto the remote branch (or merge it), resolve each conflict keeping both sides' facts, and push.")
+
+
 def is_shared(config):
     """An original that allows branches, or a branch that shares its repository."""
     config = config or {}
@@ -834,12 +870,17 @@ class Runner:
                     unpushed.discard(bot)
         return bot not in unpushed
 
-    def refresh_workspace(self, bot, path, env=None):
+    def refresh_workspace(self, bot, path, env=None, attempt=None):
         """Same checkout and same provider thread for chat and routines. Pull first so a
-        commit this bot just pushed is on disk; then make sure `reads:` siblings are beside it."""
+        commit this bot just pushed is on disk; then make sure `reads:` siblings are beside it.
+        A checkout that diverged from its remote (its push after an earlier turn failed too) is the
+        bot's to fix: the turn's prompt says so (`repo_sync_problem`)."""
         error = pull_repo(path, env)
         if error:
             log(f"Tico runner: {path.name} pull before {bot} turn failed ({error}); using the local tree")
+            problem = divergence(path, env)
+            if problem and attempt is not None:
+                attempt["repo_sync_problem"] = own_sync_line(path, problem)
         self.ensure_reads(path)
 
     def ensure_reads(self, path):
@@ -2258,6 +2299,8 @@ class Runner:
         ]
         if is_shared(attempt.get("config")):
             lines = self.shared_lines(attempt["bot"], attempt["config"], attempt.get("branch_sync_problem", "")) + lines
+        elif attempt.get("repo_sync_problem"):
+            lines = [attempt["repo_sync_problem"]] + lines
         session = attempt.get("_session")
         if session:
             lines.append(f"This task has its own checkout of your repository, `{session['path']}` on branch "
@@ -2768,7 +2811,7 @@ class Runner:
                         attempt["branch_sync_problem"] = sync_shared(execution_path, env)
                         self.ensure_reads(execution_path)
                     else:
-                        self.refresh_workspace(bot, execution_path, env)
+                        self.refresh_workspace(bot, execution_path, env, attempt)
                     self.refresh_product_files(bot, config, execution_path, env if session_task else None)
                 if session_task:
                     session_path = task_sessions.path_for(self.config["projects_dir"], bot, session_task)
@@ -2808,7 +2851,7 @@ class Runner:
                             if is_shared(config):
                                 attempt["branch_sync_problem"] = sync_shared(execution_path, env)
                             else:
-                                self.refresh_workspace(bot, execution_path, env)
+                                self.refresh_workspace(bot, execution_path, env, attempt)
                     else:
                         if checkout_lock in held:
                             held.remove(checkout_lock)

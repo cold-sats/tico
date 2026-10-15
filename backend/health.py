@@ -1263,12 +1263,11 @@ def view(c, who, settings, auth, github, config):
                              [_fix("Open Runs", "#/runs")]))
     if full and (mixed := inbox_isolation.violations(c, roster(c))):
         checks.append(_check("inbox", "Inbox bots", "warn",
-                             "An inbox bot shares a computer with " + "; ".join(
-                                 f"{v['label']}: {', '.join(v['inbox'])} beside "
-                                 + ", ".join(v["others"] or ["another inbox bot"]) for v in mixed[:3])
-                             + ". Its mail key can open every mailbox, so any bot there could read it. "
-                             "Add a computer for the inbox bot and move it there.",
-                             [_fix("Add a computer", "#/settings", "devices")]))
+                             "A computer kept for inbox bots also runs " + "; ".join(
+                                 f"{v['label']}: {', '.join(v['others'])}" for v in mixed[:3])
+                             + ". The inbox bots' mail key can open every mailbox, so those bots could read it. "
+                             "Move them to another computer.",
+                             [_fix("Open Computers", "#/settings", "devices")]))
     beside = _member_bots_beside_shared_keys(c) if full else []
     if beside:
         checks.append(_check("member_bots", "Members' bots", "warn",

@@ -112,8 +112,10 @@ Cursor Agent and Grok Build already have runner adapters and appear when their p
 Cursor currently offers Auto; its effort field says **Managed by harness** because the CLI has no
 separate effort switch. Before adding named Cursor models, confirm their exact identifiers with
 [`cursor-agent --list-models`](https://cursor.com/docs/cli/reference/parameters) on the relevant account.
-Muse Code offers Muse Spark 1.3 (`muse-spark-1.3`, effort low to max, medium by default), the only public model
-the Muse Code 1.4.7 CLI names (checked 2026-10-14); `muse-spark-1.2` exists but is older.
+Muse Code offers Muse Spark 1.3 (`muse-spark-1.3`, effort low to max, medium by default), Muse Wonder
+(`muse-wonder-1.0`) and Muse Wonder Full (`muse-wonder-full-1.0`), both high by default. These are the ids Meta's
+service accepts (checked with Muse Code 1.4.8 on 2026-10-14); `muse-wonder` and `muse-wonder-full` without the version
+are refused.
 Grok Build retains its catalog model and supported efforts through the
 [existing CLI integration](https://docs.x.ai/build/overview). Selecting a harness does not enable
 its provider, grant credentials or guarantee model access on a computer.

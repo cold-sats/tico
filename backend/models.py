@@ -1618,8 +1618,8 @@ class AssistantAction(Contract):
     body: dict = Field(default_factory=dict)
 
 
-class InboxSharing(Contract):
-    allowed: bool
+class InboxOnly(Contract):
+    enabled: bool
 
 
 class LoginStart(Contract):
