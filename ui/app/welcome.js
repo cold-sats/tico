@@ -51,6 +51,7 @@ async function onbLoad(state) {
     if (ONB !== state) return;
     state.providers = providers && Array.isArray(providers.providers) ? providers : null;
     state.models = models.models || [];
+    if (models.harnesses) HARNESS_ROWS = models.harnesses;
     state.steps = onbStepList(!!state.providers && !state.providers.configured);
     if ((roster.people || []).length) SETTINGS_DATA.people = roster.people;
     state.catalog = catalogState(catalogCards(catalog));

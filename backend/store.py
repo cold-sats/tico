@@ -5,7 +5,6 @@ import json
 import os
 import sqlite3
 import threading
-import time
 from contextlib import contextmanager
 
 import yaml
@@ -595,8 +594,9 @@ class Store:
         self.recorder = recorder
         self.factory = sqlite3.Connection
         if recorder is not None:
-            from .flight import connection_class
-            self.factory = connection_class(recorder)
+            from . import flight
+            self.factory = flight.connection_class(recorder)
+            flight.ACTIVE = recorder        # times write transactions on connections opened outside the Store
         # Reads reuse their connections (`read`): a new one parses the whole schema before its first statement,
         # which on a large install cost more than most reads themselves.
         self.pooled = _pooled(self.factory)
@@ -1321,13 +1321,8 @@ class Store:
                     raise
                 return
             # The flight recorder: how long the write lock took to get, and how long it was held.
-            started = time.perf_counter()
-            try:
-                c.execute("BEGIN IMMEDIATE")
-            except sqlite3.OperationalError as exc:
-                self.recorder.transaction((time.perf_counter() - started) * 1000, 0.0, "locked" in str(exc))
-                raise
-            held = time.perf_counter()
+            from .flight import begin
+            done = begin(c, self.recorder)
             try:
                 yield c
                 message_links.refresh_dirty(c)
@@ -1336,7 +1331,7 @@ class Store:
                 c.rollback()
                 raise
             finally:
-                self.recorder.transaction((held - started) * 1000, (time.perf_counter() - held) * 1000)
+                done()
 
     def seed_goals(self, c):
         """`registry/goals.yaml`, once per goal (backend/goals.py `seed`): the first draft of the

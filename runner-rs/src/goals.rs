@@ -5,7 +5,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
 
 use regex::Regex;
 use serde_json::{json, Map, Value};
@@ -162,38 +161,7 @@ pub async fn capabilities(runtime: &str, executable: Option<&Path>, version: &st
     if let Some(m) = capability_cache().lock().unwrap().get(&key) {
         return m.clone();
     }
-    let (mut supported, mut commands) = (false, vec![]);
-    if runtime == "claude" {
-        supported = crate::hosts::claude::version_tuple(version).is_some_and(|v| v >= (2, 1, 212));
-        if supported {
-            commands = vec![
-                command("compact", "Compact this conversation", "[instructions]"),
-                command("clear", "Clear the harness conversation", ""),
-                command("model", "Change the harness model", "[model]"),
-            ];
-        }
-    } else if runtime == "codex" {
-        // The installed protocol, rather than a version guess, determines native goal support.
-        let dir = std::env::temp_dir().join(format!("tico-goal-schema-{}", uuid::Uuid::new_v4().simple()));
-        if std::fs::create_dir_all(&dir).is_ok() {
-            let mut cmd = tokio::process::Command::new(exe);
-            cmd.args(["app-server", "generate-json-schema", "--experimental", "--out"]).arg(&dir);
-            cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).kill_on_drop(true);
-            if let Ok(Ok(status)) = tokio::time::timeout(Duration::from_secs(10), cmd.status()).await {
-                if status.success() {
-                    let schema = dir.join("v2");
-                    supported = schema.join("ThreadGoalSetParams.json").exists();
-                    if schema.join("ThreadCompactStartParams.json").exists() {
-                        commands.push(command("compact", "Compact this conversation", ""));
-                    }
-                    if schema.join("ReviewStartParams.json").exists() {
-                        commands.push(command("review", "Review changes", "[instructions]"));
-                    }
-                }
-            }
-            let _ = std::fs::remove_dir_all(&dir);
-        }
-    }
+    let (supported, commands) = crate::hosts::probe_goals(runtime, exe, version).await;
     let mut m = Map::new();
     m.insert("goals".into(), json!(supported));
     m.insert("commands".into(), json!(commands));

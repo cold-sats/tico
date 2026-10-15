@@ -109,8 +109,11 @@ async function v2ChatFind(state) {
 }
 // What this bot asked, answered, or was handed by other bots (asks and task conversations), so a person sees the COO
 // check with the CMO from either page. They are side traffic in the chat (chatSideKind): each message joins the
-// folded line where its time falls. The owner-only route answers 403 for anyone else, and nothing is added.
+// folded line where its time falls. Each conversation comes as its newest message until it is opened
+// (v2BotsOpen). The owner-only route answers 403 for anyone else, and nothing is added.
 const BOTS_SHOWN = 5;
+// A chat opens at its newest 50 messages, at most 160 KB of them; older pages load on request (v2ChatOlder).
+const CHAT_PAGE = 'limit=50&max_bytes=163840';
 async function v2BotsLoad(state) {
   if (V2C !== state) return;
   const list = await v2Get(`/v2/conversations?bot=${encodeURIComponent(state.slug)}`);
@@ -121,15 +124,31 @@ async function v2BotsLoad(state) {
       && (c.participants || []).some(p => p !== me && String(p).startsWith('bot:')))
     .slice(0, BOTS_SHOWN);
   if (!convs.length) return;
-  const bodies = await Promise.all(convs.map(c => v2Get(`/v2/conversations/${encodeURIComponent(c.id)}/messages`)));
+  const bodies = await Promise.all(convs.map(c => v2Get(`/v2/conversations/${encodeURIComponent(c.id)}/messages?limit=1`)));
   if (V2C !== state) return;
-  state.botTalk = convs.flatMap((c, n) => (bodies[n]?.messages || []).map(m => ({...m, elsewhere: {kind: c.kind, subject: c.subject || ''}})));
+  state.botTalk = convs.flatMap((c, n) => (bodies[n]?.messages || []).map(m => ({...m,
+    elsewhere: {kind: c.kind, subject: c.subject || '', id: c.id, preview: !!bodies[n].has_more}})));
   if (state.botTalk.length) v2ChatRender(state);
+}
+// A bot-to-bot conversation shown as its newest message: its newest page in place of the preview, then each
+// "Earlier messages" loads the page before the oldest one shown (its cursor rides on that message).
+async function v2BotsOpen(state, cid) {
+  const mine = (state.botTalk || []).filter(m => m.elsewhere?.id === cid);
+  const was = mine.find(m => m.elsewhere?.before)?.elsewhere || mine[0]?.elsewhere || {};
+  const before = was.before ? `before=${encodeURIComponent(was.before)}&` : '';
+  const d = await get(`/v2/conversations/${encodeURIComponent(cid)}/messages?${before}${CHAT_PAGE}`);
+  if (V2C !== state) return;
+  const tag = m => ({...m, elsewhere: {kind: was.kind, subject: was.subject || '', id: cid}});
+  const kept = was.before ? mine.map(tag) : [];
+  const page = [...(d.messages || []).filter(m => !kept.some(k => k.id === m.id)).map(tag), ...kept];
+  if (d.has_more && d.next_before && page.length) page[0].elsewhere = {...page[0].elsewhere, preview: true, before: d.next_before};
+  state.botTalk = [...(state.botTalk || []).filter(m => m.elsewhere?.id !== cid), ...page];
+  v2ChatRender(state);
 }
 async function v2ChatMessages(state) {
   if (!state.conv) return false;
   const sent = state.mine.length;
-  const d = await v2Get(`/v2/conversations/${encodeURIComponent(state.conv.id)}/${S.me?.cloud ? 'snapshot' : 'messages'}`);
+  const d = await v2Get(`/v2/conversations/${encodeURIComponent(state.conv.id)}/${S.me?.cloud ? 'snapshot' : 'messages'}?${CHAT_PAGE}`);
   if (V2C !== state || !d) return false;
   // A message sent while this was loading is newer than the copy that came back: keep it, and leave the
   // live turn to the stream (this copy has not seen it start).
@@ -402,7 +421,8 @@ function chatSideItemHTML(m) {
   return `<div class="cs-item${open ? ' open' : ''}" data-message="${esc(m.id || '')}">
     <div class="cs-head"><b>${esc(chatSideHead(m))}</b>${when}</div>
     <div class="cs-text md${open ? '' : ' clamp'}">${safeMd(text, {shortLinks: true})}</div>${open && S.me?.cloud ? chatAttachmentsHTML(m.refs?.attachments || []) : ''}
-    ${long ? `<button type="button" class="link cs-more" data-cs-more="${esc(m.id || '')}" aria-expanded="${open}">${open ? 'Show less' : 'Show more'}</button>` : ''}</div>`;
+    ${long ? `<button type="button" class="link cs-more" data-cs-more="${esc(m.id || '')}" aria-expanded="${open}">${open ? 'Show less' : 'Show more'}</button>` : ''}${
+      m.elsewhere?.preview ? `<button type="button" class="link cs-more" data-bots-open="${esc(m.elsewhere.id)}">Earlier messages</button>` : ''}</div>`;
 }
 // A run of side items is one muted line: one item reads as itself, more as "12 updates · Dots, BotOps, tasks · 2h".
 function chatSideHTML(messages, slug) {
@@ -521,6 +541,12 @@ function v2ChatRender(state) {
       if (fold) { state.openFolds ||= new Set(); state.openFolds[ev.target.open ? 'add' : 'delete'](fold); }
     }, true);
     thread.addEventListener('click', ev => {
+      const conv = ev.target.closest('[data-bots-open]');
+      if (conv && V2C === state) {
+        conv.disabled = true;
+        void v2BotsOpen(state, conv.dataset.botsOpen).catch(error => { conv.disabled = false; toast(error.message, true); });
+        return;
+      }
       const more = ev.target.closest('[data-cs-more]');
       if (more && V2C === state) {
         state.openSide ||= new Set();
@@ -611,7 +637,7 @@ function v2OlderUpdate(state) {
 }
 // One page further back; the outline's jump reuses it. False when the chat changed meanwhile.
 async function v2ChatOlder(state) {
-  const d = await get(`/v2/conversations/${encodeURIComponent(state.conv.id)}/messages?before=${encodeURIComponent(state.nextBefore)}`);
+  const d = await get(`/v2/conversations/${encodeURIComponent(state.conv.id)}/messages?before=${encodeURIComponent(state.nextBefore)}&${CHAT_PAGE}`);
   if (V2C !== state) return false;
   state.messages = [...d.messages, ...state.messages.filter(m => !d.messages.some(x => x.id === m.id))]; state.nextBefore = d.next_before;
   state.older = state.messages.filter(m => !state.latestIds?.has(m.id));
@@ -713,7 +739,7 @@ async function v2ChatSnapshot(state) {
   if (state.reading) { state.readAgain = true; return; }
   state.reading = true;
   try {
-    const d = await v2Get(`/v2/conversations/${encodeURIComponent(state.conv.id)}/snapshot`);
+    const d = await v2Get(`/v2/conversations/${encodeURIComponent(state.conv.id)}/snapshot?${CHAT_PAGE}`);
     if (V2C === state && d) v2ChatApply(state, d);
   } finally {
     state.reading = false;

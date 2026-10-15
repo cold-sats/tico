@@ -2,6 +2,7 @@
 id = "claude-code"
 name = "Claude Code"
 host = "claude"
+runtime = "claude"
 executable = "claude"
 providers = ["anthropic"]
 
@@ -24,3 +25,30 @@ api_key_env = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"]
 command = ["auth", "login", "--claudeai"]
 terminal = true
 paste_code = true
+
+# What Tico does differently for this CLI (docs/harnesses.md, Capabilities).
+[capabilities]
+terminal_login = ["auth", "login"]
+api_keys = "computer"
+subscription_marker = "signed in"
+subscription_profiles = true
+profile_home = "HOME"
+profile_dirs = [".claude"]
+weekly_usage = "turns"
+mcp_transports = ["http", "sse"]
+# An expired stored token is refreshed by the first turn, so turns wait for one to land before the rest start.
+serial_cold_start = true
+compaction = true
+resume_command = "claude --resume"
+model_list = "host"
+repo_permission_lint = true
+repo_commands = true
+
+[capabilities.sign_in_status]
+check = "json"
+args = ["auth", "status", "--json"]
+field = "loggedIn"
+method_field = "authMethod"
+ready_detail = "Signed in with Claude"
+missing_detail = "Claude login required"
+timeout_s = 30

@@ -437,3 +437,99 @@ mod tests {
         assert_eq!(compact_at(&json!(0)), DEFAULT_COMPACT_AT);
     }
 }
+
+// Per-host answers behind a capability: generic code reads the manifest's capability and asks here, so the adapters
+// stay the one place that knows a CLI by name.
+
+/// Native goals and built-in commands of one installed harness (goals.capabilities): Claude Code by version, Codex by
+/// the protocol its app-server describes; every other host has none.
+pub async fn probe_goals(runtime: &str, exe: &std::path::Path, version: &str) -> (bool, Vec<Value>) {
+    let (mut supported, mut commands) = (false, vec![]);
+    match runtime {
+        "claude" => {
+            supported = crate::hosts::claude::version_tuple(version).is_some_and(|v| v >= (2, 1, 212));
+            if supported {
+                commands = vec![
+                    crate::goals::command("compact", "Compact this conversation", "[instructions]"),
+                    crate::goals::command("clear", "Clear the harness conversation", ""),
+                    crate::goals::command("model", "Change the harness model", "[model]"),
+                ];
+            }
+        }
+        "codex" => {
+            // The installed protocol, rather than a version guess, determines native goal support.
+            let dir = std::env::temp_dir().join(format!("tico-goal-schema-{}", uuid::Uuid::new_v4().simple()));
+            if std::fs::create_dir_all(&dir).is_ok() {
+                let mut cmd = tokio::process::Command::new(exe);
+                cmd.args(["app-server", "generate-json-schema", "--experimental", "--out"]).arg(&dir);
+                cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).kill_on_drop(true);
+                if let Ok(Ok(status)) = tokio::time::timeout(std::time::Duration::from_secs(10), cmd.status()).await {
+                    if status.success() {
+                        let schema = dir.join("v2");
+                        supported = schema.join("ThreadGoalSetParams.json").exists();
+                        if schema.join("ThreadCompactStartParams.json").exists() {
+                            commands.push(crate::goals::command("compact", "Compact this conversation", ""));
+                        }
+                        if schema.join("ReviewStartParams.json").exists() {
+                            commands.push(crate::goals::command("review", "Review changes", "[instructions]"));
+                        }
+                    }
+                }
+                let _ = std::fs::remove_dir_all(&dir);
+            }
+        }
+        _ => {}
+    }
+    (supported, commands)
+}
+
+/// `sign_in_status.check = "bot-key"`: every bot that runs this host holds its key grant.
+pub fn bot_key_sign_in(runtime: &str, assignments: &[Value]) -> (&'static str, String) {
+    match runtime {
+        "gemini" => gemini::sign_in(assignments),
+        "pi" => pi::sign_in(assignments),
+        _ => ("unknown", "This harness's key cannot be checked".into()),
+    }
+}
+
+/// Points `env` at the host's own config folder (`own_config_home`), so a login or status check sees the login its
+/// turns use rather than the operator's. False for a host without one.
+pub fn use_own_config_home(runtime: &str, profile: Option<&crate::profiles::Profile>, env: &mut Env) -> bool {
+    match runtime {
+        "musecode" => {
+            env.remove("MUSE_AUTH_PATH");
+            env.insert("XDG_CONFIG_HOME".into(), musecode::config_home(profile).display().to_string());
+            true
+        }
+        _ => false,
+    }
+}
+
+/// `sign_in_status.check = "file"`: whether the host's login file is there in `env` (None: not readable).
+pub fn file_signed_in(runtime: &str, env: &Env) -> Option<bool> {
+    match runtime {
+        "musecode" => musecode::signed_in(&musecode::auth_file(env)),
+        _ => None,
+    }
+}
+
+/// `model_list = "host"`: the models the host offers (for a profile's own login where that matters).
+pub fn models(runtime: &str, profile: Option<&crate::profiles::Profile>) -> Vec<String> {
+    match runtime {
+        "codex" => crate::readiness::codex_models(profile.and_then(|p| p.home("codex"))),
+        "claude" => crate::readiness::CLAUDE_MODELS.iter().map(|s| s.to_string()).collect(),
+        "gemini" => gemini::MODELS.iter().map(|s| s.to_string()).collect(),
+        "musecode" => musecode::MODELS.iter().map(|s| s.to_string()).collect(),
+        "pi" => pi::model_names(),
+        "cursor" => cursor::model_names(),
+        _ => vec![],
+    }
+}
+
+/// Whether a host's stored token has expired (`serial_cold_start`), so the first turn refreshes it.
+pub fn token_cold(runtime: &str, profile: Option<&crate::profiles::Profile>) -> bool {
+    match runtime {
+        "claude" => crate::profiles::claude_token_cold(profile),
+        _ => false,
+    }
+}

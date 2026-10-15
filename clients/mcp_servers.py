@@ -23,28 +23,29 @@ import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
 
+from . import harness_manifests
 from .access_entry import EntryError, PLACEHOLDER, clean_mcp, placeholders
 
-# What each harness can take. `transports` are the MCP transports it speaks; `why` is what a person reads
-# when it cannot. A harness missing here is one Tico does not start (Hermes and OpenClaw run elsewhere).
-SUPPORT = {
-    "claude": {"name": "Claude Code", "transports": ("http", "sse")},
-    "codex": {"name": "Codex", "transports": ("http",)},
-    "gemini": {"name": "Gemini CLI", "transports": ("http", "sse")},
-    "grok": {"name": "Grok Build", "transports": ("http", "sse")},
-    "antigravity": {"name": "Antigravity", "why": "it reads MCP servers only from a config file in the operator's home, which Tico "
-                                                   "does not touch (the operator's own servers would reach every bot)"},
-    "cursor": {"name": "Cursor", "why": "cursor-agent reads MCP servers only from ~/.cursor/mcp.json or the bot's "
-                                        ".cursor/mcp.json, with no per-run setting, so a bot would also get the operator's own servers"},
-    "pi": {"name": "pi", "why": "pi has no MCP support"},
-    "musecode": {"name": "Muse Code", "transports": ("http",)},
-}
 REACH_TIMEOUT_S = 4
 
 
 def harness_key(runtime, harness=""):
-    """The SUPPORT key for a bot's runtime (and, for Gemini's second harness, its harness)."""
-    return "antigravity" if str(harness or "") == "antigravity" else str(runtime or "")
+    """The harness whose manifest says what MCP a bot's runs take: its own harness when that runs its runtime (Gemini's
+    Antigravity), else the runtime's CLI."""
+    row = harness_manifests.get(harness)
+    return str(harness) if row and row["runtime"] == str(runtime or "") else str(runtime or "")
+
+
+def support(runtime, harness=""):
+    """{name, transports, why} for a harness, from its manifest's `mcp_transports` and `mcp_unsupported`. A harness with
+    no manifest is one Tico does not start (Hermes and OpenClaw run elsewhere)."""
+    row = harness_manifests.get(harness_key(runtime, harness))
+    if not row:
+        return {"name": str(runtime or "This harness"), "transports": (), "why": "it has no MCP support in Tico"}
+    caps = row["capabilities"]
+    transports = tuple(caps["mcp_transports"])
+    return {"name": row["name"], "transports": transports,
+            "why": caps["mcp_unsupported"] or ("" if transports else "it has no MCP support in Tico")}
 
 
 def server_name(service):
@@ -105,8 +106,8 @@ def expand(text, env):
 
 def unsupported(servers, runtime, harness=""):
     """The servers this harness cannot take, as [(server, why)]; [] when it takes them all."""
-    row = SUPPORT.get(harness_key(runtime, harness)) or {"name": str(runtime or "This harness"), "why": "it has no MCP support in Tico"}
-    allowed = row.get("transports") or ()
+    row = support(runtime, harness)
+    allowed = row["transports"]
     out = []
     for server in servers:
         if server["transport"] not in allowed:

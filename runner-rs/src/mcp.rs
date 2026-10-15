@@ -229,31 +229,31 @@ pub fn servers_for_run(tools: &Value, env: &Env) -> (Vec<Value>, Vec<String>) {
     (servers, problems)
 }
 
-/// The SUPPORT key for a bot's runtime (and, for Gemini's second harness, its harness).
-pub fn harness_key(runtime: &str, harness: &str) -> String {
-    if harness == "antigravity" { "antigravity".into() } else { runtime.into() }
-}
-
-/// (name, transports, why) for a harness (mcp_servers.SUPPORT).
-fn support(key: &str, runtime: &str) -> (String, &'static [&'static str], String) {
-    match key {
-        "claude" => ("Claude Code".into(), &["http", "sse"], String::new()),
-        "codex" => ("Codex".into(), &["http"], String::new()),
-        "gemini" => ("Gemini CLI".into(), &["http", "sse"], String::new()),
-        "grok" => ("Grok Build".into(), &["http", "sse"], String::new()),
-        "antigravity" => ("Antigravity".into(), &[], "it reads MCP servers only from a config file in the operator's home, which Tico does not touch (the operator's own servers would reach every bot)".into()),
-        "cursor" => ("Cursor".into(), &[], "cursor-agent reads MCP servers only from ~/.cursor/mcp.json or the bot's .cursor/mcp.json, with no per-run setting, so a bot would also get the operator's own servers".into()),
-        "pi" => ("pi".into(), &[], "pi has no MCP support".into()),
-        _ => (if runtime.is_empty() { "This harness".into() } else { runtime.into() }, &[], "it has no MCP support in Tico".into()),
-    }
+/// (name, transports, why) for a harness (mcp_servers.SUPPORT): its manifest's `mcp_transports` and
+/// `mcp_unsupported`, named as its variant or manifest names it.
+fn support(runtime: &str, harness: &str) -> (String, Vec<String>, String) {
+    let caps = crate::harness_tools::caps(runtime, harness);
+    let name = match crate::harness_tools::variant(runtime, harness) {
+        Some(v) => v.name,
+        None if runtime.is_empty() => "This harness".into(),
+        None => crate::harness_tools::name_for(runtime),
+    };
+    let why = if !caps.mcp_unsupported.is_empty() {
+        caps.mcp_unsupported
+    } else if caps.mcp_transports.is_empty() {
+        "it has no MCP support in Tico".into()
+    } else {
+        String::new()
+    };
+    (name, caps.mcp_transports, why)
 }
 
 /// The servers this harness cannot take, as [(server, why)].
 pub fn unsupported(servers: &[Value], runtime: &str, harness: &str) -> Vec<(Value, String)> {
-    let (name, allowed, why) = support(&harness_key(runtime, harness), runtime);
+    let (name, allowed, why) = support(runtime, harness);
     servers
         .iter()
-        .filter(|s| !allowed.contains(&text_of(&s["transport"]).as_str()))
+        .filter(|s| !allowed.contains(&text_of(&s["transport"])))
         .map(|s| {
             let reason = if why.is_empty() { format!("it takes {} servers, not {}", allowed.join(" and "), text_of(&s["transport"])) } else { why.clone() };
             (s.clone(), format!("{name} cannot use it: {reason}"))
@@ -262,8 +262,8 @@ pub fn unsupported(servers: &[Value], runtime: &str, harness: &str) -> Vec<(Valu
 }
 
 pub fn supported(servers: &[Value], runtime: &str, harness: &str) -> Vec<Value> {
-    let (_, allowed, _) = support(&harness_key(runtime, harness), runtime);
-    servers.iter().filter(|s| allowed.contains(&text_of(&s["transport"]).as_str())).cloned().collect()
+    let (_, allowed, _) = support(runtime, harness);
+    servers.iter().filter(|s| allowed.contains(&text_of(&s["transport"]))).cloned().collect()
 }
 
 /// Readiness warnings for one bot: each MCP server its harness cannot pass. Needs no credential.
@@ -498,7 +498,7 @@ mod tests {
         assert_eq!(codex.len(), 1);
         assert_eq!(codex[0].1, "Codex cannot use it: it takes http servers, not sse");
         assert_eq!(supported(&servers, "gemini", "antigravity").len(), 0);
-        assert!(unsupported(&servers, "pi", "")[0].1.contains("pi has no MCP support"));
+        assert!(unsupported(&servers, "pi", "")[0].1.ends_with("cannot use it: it has no MCP support"));
         let warnings = warnings_for(&tools(), "codex", "");
         assert_eq!(warnings, ["docs: its MCP server is not passed to the bot's runs. Codex cannot use it: it takes http servers, not sse"]);
         let claude = claude_config(&servers);

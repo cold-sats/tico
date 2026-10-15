@@ -29,6 +29,31 @@ against a dev install with a real model, on demand only; `backend/tests/test_bot
 Tests stay at zero failures. An intermittent test is fixed quickly or deleted; never rerun it until it passes, and
 never ship around a known failure. If a test may fail, it shouldn't exist.
 
+## Hit every surface
+The commonest defect in Tico is a change that works where it was tested and is missing everywhere else. Before
+calling a change done, walk this list and say in the PR which entries applied:
+- **Clients**: the web app at desktop and phone widths, the Tauri app, Slack, the `hub` CLI and the MCP tool table
+  (`clients/hubtools.py`), API v2 and `docs/openapi`.
+- **Runners**: the Rust runner, on a Mac and in the Docker image. The Python runner is deprecated; leave it alone.
+- **Harnesses**: every harness, through the capabilities in its `runner/harnesses/*.toml`, never by comparing names.
+  A capability is on only when the harness really does it; unknown is reported as unknown.
+- **Who acts**: a human, a bot, BotOps acting for a human, and an external agent over MCP.
+- **Reverse states**: a way in needs a way out and a way to see it. Snooze needs unsnooze, close needs reopen,
+  grant needs revoke.
+- **Docs**: change the page the change makes wrong; do not add a page per feature.
+
+## Ways to hurt yourself
+1. **Killing by pattern.** Never `pkill -f` or kill a PID found by matching a name or path: bot runs, runners and
+   other worktrees' servers share this computer. Kill only a PID you started.
+2. **Writing to a live install.** Never start a server against a live install's database or open it read-write,
+   and never work in a bot's live checkout the runner uses. For real data, make a copy with `python -m backend.devcopy`;
+   it starts in rehearsal mode, which sends nothing and refuses runners.
+3. **Unbounded lists.** A list endpoint is paged and byte-capped, and tool output never goes in a list or an event.
+   `backend/tests/test_payload_budgets.py` holds the limits.
+
+When the server is slow or stuck, read `python -m backend.flight summary --since 30m` before guessing: it reads the
+flight file, not the database.
+
 ## Conventions
 - Keep real team names, human names, domains, buckets and credentials out of the repository. Examples use
   the fictional team Acme (`acme.example`).

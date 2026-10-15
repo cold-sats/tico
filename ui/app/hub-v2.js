@@ -77,13 +77,47 @@ const unsigned = body => String(body || '').replace(/\n*_?— [^\s_]+@[^\s_]+ vi
 async function v2Get(path) { try { return await get(path); } catch { return null; } }
 
 async function v2Refresh() {
-  const [st, needs] = await Promise.all([v2Get('/v2/status'), v2Get('/v2/needs-you')]);
+  const [st, needs] = await Promise.all([v2Get('/v2/status'), v2NeedsRead()]);
   S.v2.on = !!st;
   if (st) S.v2.status = Object.fromEntries((st.bots || []).map(b => [b.bot, b]));
   // when Tico is updating itself, say so at the top of the sidebar
   if (st) { const el = $('#side-update'); if (el) el.hidden = !st.updating; }
-  if (needs) { S.v2.needs = needs.items || []; S.v2.wentAway = needs.went_away || null; }
   if (needs && typeof OVERVIEW_PAGE !== 'undefined' && OVERVIEW_PAGE) overviewNeedsDraw();
+}
+// Needs you as the page holds it: the list and its version. A read names the version held; an unchanged list comes
+// back without its items.
+async function v2NeedsRead() {
+  const held = S.v2.needsVersion;
+  const needs = await v2Get('/v2/needs-you' + (held ? `?version=${encodeURIComponent(held)}` : ''));
+  if (!needs) return null;
+  if (!needs.unchanged) { S.v2.needs = needs.items || []; S.v2.needsVersion = needs.version || null; }
+  S.v2.wentAway = needs.went_away || null;
+  return needs;
+}
+// A live `needs` event (live.js asks for changes, not the list): mend the held list from the ids that changed, or read
+// it whole when the event was counted from another version than the one held. One at a time, in order. Resolves true
+// when the list may have moved.
+let NEEDS_MEND = Promise.resolve(false);
+const v2NeedsChanged = d => (NEEDS_MEND = NEEDS_MEND.catch(() => false).then(() => v2NeedsMend(d)));
+async function v2NeedsMend(d) {
+  if (d.went_away) S.v2.wentAway = d.went_away;
+  if (Array.isArray(d.items)) { S.v2.needs = d.items; S.v2.needsVersion = null; return true; }   // a server without changes
+  const held = S.v2.needsVersion;
+  if (!d.version || d.version === held) return false;
+  const whole = async () => { await v2NeedsRead(); return true; };
+  if (!held || d.base !== held || !Array.isArray(d.changed) || !Array.isArray(d.removed)) return whole();
+  const out = new Set([...d.changed, ...d.removed].map(String));
+  const items = (S.v2.needs || []).filter(it => !out.has(String(it.id)));
+  if (d.changed.length) {
+    const r = await v2Get(`/v2/needs-you?ids=${encodeURIComponent(d.changed.join(','))}`);
+    if (!r || r.version !== d.version) return whole();
+    // Unchanged items kept their order against each other, so each changed one goes back at its place, first place first.
+    for (const it of (r.items || []).slice().sort((a, b) => r.positions[String(a.id)] - r.positions[String(b.id)]))
+      items.splice(r.positions[String(it.id)], 0, it);
+  }
+  if (items.length !== d.count) return whole();
+  S.v2.needs = items; S.v2.needsVersion = d.version;
+  return true;
 }
 // One line above the composer when the bot cannot answer right now: its status says so, or
 // its Mac has been offline for ten minutes. Messages still save and run when it is back; this

@@ -53,7 +53,10 @@ EVENTS_DESCRIPTION = (
     "- `runs`: `attempt_id`, `conversation_id`, `bot`, and either `output` (one step of the run: `kind`, `payload`) or "
     "`state` (`job_id`, and the job's or attempt's state).\n"
     "- `bots`: `bot` and `status` (as `GET /api/v2/status` lists it).\n"
-    "- `needs`: the viewer's own Needs-you `count` and `items` (as `GET /api/v2/needs-you`), whenever anything on it may have moved.\n"
+    "- `needs`: the viewer's own Needs-you `count` and `items` (as `GET /api/v2/needs-you`), whenever anything on it may have moved. "
+    "With `needs=changes`: `count`, `version`, and the ids `changed` and `removed` since `base` (null when more than 100 "
+    "moved: read the list whole); read the changed items with `GET /api/v2/needs-you?ids=`, and the whole list when the "
+    "version held is not `base`. `ready` then carries `needs_version`.\n"
     "Also `event: ready` (`seq`: where the log stands), `event: cursor` (the change number to resume from, past changes "
     "the viewer may not see), `event: reset` (the client was further behind than the log keeps, 24 hours: read in full), "
     "`event: expired` (sign-in no longer valid; sign in and reconnect), and a `: keepalive` comment every 15 seconds. "
@@ -146,11 +149,13 @@ STABLE = [
      "The caller's conversations; chat_with=<bot> for that bot's chat", "ConversationList"),
     ("/api/v2/conversations", "post", "Conversations", "createConversation", "Open a conversation", None),
     ("/api/v2/conversations/{cid}/messages", "get", "Conversations", "listMessages",
-     "The newest messages (up to 200); before=<message id> pages back, since=<timestamp> only newer", "MessagePage"),
+     "The newest messages (up to 200, or limit=); before=<message id> pages back, since=<timestamp> only newer, "
+     "max_bytes= ends the page at that many bytes of messages", "MessagePage"),
     ("/api/v2/conversations/{cid}/messages", "post", "Conversations", "replyInConversation",
      "Send a message in a conversation", "MessageResult"),
     ("/api/v2/conversations/{cid}/snapshot", "get", "Conversations", "getConversationSnapshot",
-     "The newest messages and the bot's current run, in one read", "Snapshot"),
+     "The newest messages and the bot's current run (its newest 40 reply pieces), in one read; limit= and max_bytes= "
+     "as for the messages", "Snapshot"),
     ("/api/v2/chat/{bot}", "post", "Conversations", "chatWithBot", "Send a message to a bot (opens the chat if needed)", "ChatResult"),
     ("/api/v2/chat/{bot}/new", "post", "Conversations", "startNewChat", "Archive the current personal chat and start fresh", None),
     ("/api/v2/conversations/{cid}/goal", "get", "Conversations", "getChatGoal", "Read the pinned goal and commands", "ChatGoalResult"),
@@ -224,9 +229,11 @@ STABLE = [
      "Ask the bots again for a past day's update in the current shape: the owner", None),
     ("/api/v2/events", "get", "Live events", "streamEvents",
      "Server-sent events: tasks, messages, runs, bots and Needs you as they change. topics=<comma list> (default all), "
-     "after=<change number> resumes, conversation=<ids> narrows messages and runs, bot=<slugs> narrows runs and bots", None),
+     "after=<change number> resumes, conversation=<ids> narrows messages and runs, bot=<slugs> narrows runs and bots, "
+     "needs=changes sends Needs you as changed ids", None),
     ("/api/v2/needs-you", "get", "Needs you", "getNeedsYou",
-     "What waits on the caller; count=true for the number alone", "NeedsYou"),
+     "What waits on the caller, with its `version`; count=true for the number alone, version=<held> answers "
+     "`unchanged` without items while it holds, ids=<comma list> only those items and their `positions`", "NeedsYou"),
     ("/api/v2/messages/{mid}/answer", "post", "Needs you", "answerMessage", "Answer a question a bot asked", None),
     ("/api/v2/needs-you/recommended", "post", "Needs you", "takeRecommendation",
      "Do what the bot recommends: answer its ask with what it said it would do, and close the card", None),

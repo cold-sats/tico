@@ -311,6 +311,7 @@ impl Runner {
         };
         if !quiet {
             let mut tries = 0;
+            let began = Instant::now();
             let beat = loop {
                 tries += 1;
                 match self.client.post("runners/heartbeat", &body, None).await {
@@ -339,11 +340,13 @@ impl Runner {
                                 caps.retain(|c| c != field.as_str());
                             }
                         }
-                        None => return Err(e),
+                        None => break Err(e),
                     },
-                    other => break other?,
+                    other => break other,
                 }
             };
+            crate::flight::heartbeat(began.elapsed().as_millis() as u64, tries, beat.as_ref().err());
+            let beat = beat?;
             *self.beat.lock().unwrap() = Some((printed, Instant::now()));
             self.published.lock().unwrap().extend(versions);
             let actions = beat["worktree_actions"].as_array().cloned().unwrap_or_default();

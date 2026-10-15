@@ -13,28 +13,18 @@ use crate::config::Config;
 use crate::env::Env;
 use crate::util::{text_of, truthy};
 
-pub const RUNTIMES: &[&str] = &["codex", "claude", "gemini", "grok", "musecode"];
 /// Worst first: a runner row reports the profile that needs attention, not the healthy one.
 pub const SIGN_IN_ORDER: &[&str] = &["failed", "missing", "unknown", "ready"];
 
-pub fn home_var(runtime: &str) -> Option<&'static str> {
-    match runtime {
-        "codex" => Some("CODEX_HOME"),
-        "claude" | "grok" => Some("HOME"),
-        // Muse Code keeps its login and settings in $XDG_CONFIG_HOME/muse.
-        "musecode" => Some("XDG_CONFIG_HOME"),
-        _ => None,
-    }
+/// The variable that points `runtime` at a profile's own login folder (`profile_home`), when it has one.
+pub fn home_var(runtime: &str) -> Option<String> {
+    Some(crate::harness_tools::caps(runtime, "").profile_home).filter(|v| !v.is_empty())
 }
 
-pub fn login_command(runtime: &str) -> Option<&'static [&'static str]> {
-    match runtime {
-        "codex" => Some(&["codex", "login"]),
-        "claude" => Some(&["claude", "auth", "login"]),
-        "grok" => Some(&["grok", "login"]),
-        "musecode" => Some(&["muse", "login"]),
-        _ => None,
-    }
+/// The command a person runs in a terminal to sign `runtime` in (its executable and `terminal_login`), when it has one.
+pub fn login_command(runtime: &str) -> Option<Vec<String>> {
+    let args = crate::harness_tools::caps(runtime, "").terminal_login;
+    (!args.is_empty()).then(|| std::iter::once(crate::harness_tools::executable_for(runtime)).chain(args).collect())
 }
 
 pub fn valid_name(name: &str) -> bool {
@@ -57,7 +47,7 @@ impl Unavailable {
 }
 
 pub fn covers(config: &Value) -> bool {
-    RUNTIMES.contains(&text_of(&config["runtime"]).as_str()) && config["harness"] != "antigravity"
+    crate::harness_tools::caps_of(config).subscription_profiles
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -89,7 +79,7 @@ impl Profile {
     pub fn environment(&self, runtime: &str, env: &Env) -> Env {
         let mut env = env.clone();
         if let (Some(home), Some(var)) = (self.home(runtime), home_var(runtime)) {
-            env.insert(var.into(), home.display().to_string());
+            env.insert(var, home.display().to_string());
         }
         env
     }
@@ -223,13 +213,15 @@ pub fn create(root: &Path, name: &str, share_operator: bool) -> Result<Value, St
     write_new(&folder.join("profile.json"), meta.as_bytes())?;
     if !share_operator {
         let gitconfig = PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".gitconfig");
-        for runtime in RUNTIMES {
-            let home = folder.join(runtime);
+        for runtime in crate::harness_tools::profile_runtimes() {
+            let caps = crate::harness_tools::caps(&runtime, "");
+            let home = folder.join(&runtime);
             directory(&home, 0o700)?;
-            if *runtime == "claude" {
-                directory(&home.join(".claude"), 0o700)?;
+            for dir in &caps.profile_dirs {
+                directory(&home.join(dir), 0o700)?;
             }
-            if (*runtime == "claude" || *runtime == "grok") && gitconfig.is_file() {
+            // A CLI whose profile home is HOME would otherwise lose the operator's git identity.
+            if caps.profile_home == "HOME" && gitconfig.is_file() {
                 write_new(&home.join(".gitconfig"), &std::fs::read(&gitconfig).map_err(err)?)?;
             }
         }
@@ -320,7 +312,9 @@ fn weekly() -> &'static Mutex<HashMap<(String, String), Value>> {
 }
 
 pub fn remember_weekly(profile: &str, runtime: &str, event: &Value) {
-    if profile.is_empty() || !["codex", "claude"].contains(&runtime) || event["window_minutes"] != 10080 {
+    // Only a runtime whose turns or refresh report a weekly window has one to keep.
+    let weekly_usage = crate::harness_tools::caps(runtime, "").weekly_usage;
+    if profile.is_empty() || !["refresh", "turns"].contains(&weekly_usage.as_str()) || event["window_minutes"] != 10080 {
         return;
     }
     let percent = &event["used_percent"];
@@ -361,7 +355,7 @@ pub fn reported_sign_in(profile: &str, runtime: &str) -> Option<Value> {
     rows.iter().find(|r| r["name"] == profile).map(|r| r["runtimes"][runtime]["signed_in"].clone())
 }
 
-/// The heartbeat's `profiles` list (service.py profile_report): each profile's Codex and Claude sign-in, probed
+/// The heartbeat's `profiles` list (service.py profile_report): each profile's sign-in where its CLI can say, probed
 /// within ten seconds for the whole report and kept a minute, with the weekly allowance attached.
 pub async fn report(config: &Map<String, Value>, rejected: &(dyn Fn(&str, &str) -> bool + Sync)) -> Vec<Value> {
     let fresh = report_cache().lock().unwrap().as_ref().filter(|c| c.at.elapsed() < Duration::from_secs(60)).map(|c| c.rows.clone());
@@ -378,38 +372,46 @@ pub async fn report(config: &Map<String, Value>, rejected: &(dyn Fn(&str, &str) 
                 }
                 let profile = Profile::new(&name, &text_of(&entry["dir"]), truthy(entry.get("share_operator")));
                 let mut runtimes = Map::new();
-                for runtime in RUNTIMES {
-                    runtimes.insert(runtime.to_string(), json!({"signed_in": null}));
+                // Every key a runtime signs in with leaves the probe's environment, so only the profile's own login counts.
+                let mut clean = crate::env::process_environment();
+                for k in crate::harness_tools::runtimes().iter().flat_map(|r| crate::harness_tools::api_key_env(r)).chain(["ANTHROPIC_AUTH_TOKEN".to_string()]) {
+                    clean.remove(&k);
                 }
-                for runtime in ["codex", "claude"] {
+                for runtime in crate::harness_tools::profile_runtimes() {
+                    let runtime = runtime.as_str();
+                    let status = crate::harness_tools::caps(runtime, "").sign_in_status;
                     let mut signed = Value::Null;
                     let budget = deadline.saturating_duration_since(Instant::now());
-                    let exe = crate::env::which(runtime, &std::env::var("PATH").unwrap_or_default());
-                    if let (Some(exe), false) = (exe, budget.is_zero()) {
-                        let mut env = profile.environment(runtime, &crate::env::process_environment());
-                        for k in ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY"] {
-                            env.remove(k);
+                    let exe = crate::env::which(&crate::harness_tools::executable_for(runtime), &std::env::var("PATH").unwrap_or_default());
+                    match status.check.as_str() {
+                        "command" | "json" => {
+                            if let (Some(exe), false) = (exe, budget.is_zero()) {
+                                let env = profile.environment(runtime, &clean);
+                                let mut cmd = tokio::process::Command::new(exe);
+                                cmd.args(&status.args).env_clear().envs(&env).stdin(std::process::Stdio::null()).kill_on_drop(true);
+                                if let Ok(Ok(out)) = tokio::time::timeout(budget.min(Duration::from_secs(3)), cmd.output()).await {
+                                    let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr)).to_lowercase();
+                                    signed = if status.check == "command" {
+                                        json!(out.status.success() && text.contains(&status.ready) && (status.not_ready.is_empty() || !text.contains(&status.not_ready)))
+                                    } else {
+                                        serde_json::from_slice::<Value>(&out.stdout).ok().filter(|v| v.is_object()).map_or(Value::Null, |v| json!(v[&status.field] == true))
+                                    };
+                                }
+                            }
                         }
-                        let args: &[&str] = if runtime == "codex" { &["login", "status"] } else { &["auth", "status", "--json"] };
-                        let mut cmd = tokio::process::Command::new(exe);
-                        cmd.args(args).env_clear().envs(&env).stdin(std::process::Stdio::null()).kill_on_drop(true);
-                        if let Ok(Ok(out)) = tokio::time::timeout(budget.min(Duration::from_secs(3)), cmd.output()).await {
-                            let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr)).to_lowercase();
-                            signed = if runtime == "codex" {
-                                json!(out.status.success() && text.contains("logged in"))
-                            } else {
-                                serde_json::from_slice::<Value>(&out.stdout).ok().filter(|v| v.is_object()).map_or(Value::Null, |v| json!(v["loggedIn"] == true))
-                            };
+                        // The login file in the folder this profile's turns use.
+                        "file" => {
+                            let mut env = profile.environment(runtime, &clean);
+                            crate::hosts::use_own_config_home(runtime, Some(&profile), &mut env);
+                            signed = crate::hosts::file_signed_in(runtime, &env).map_or(Value::Null, |s| json!(s));
                         }
+                        _ => {}
                     }
                     if rejected(runtime, &name) {
                         signed = json!(false);
                     }
                     runtimes.insert(runtime.into(), json!({"signed_in": signed}));
                 }
-                let muse = crate::hosts::musecode::signed_in(&crate::hosts::musecode::config_home(Some(&profile)).join("muse").join("auth.json"));
-                let signed = if rejected("musecode", &name) { Some(false) } else { muse };
-                runtimes.insert("musecode".into(), json!({"signed_in": signed}));
                 rows.push(json!({"name": name, "runtimes": runtimes}));
                 if rows.len() == 100 {
                     break;

@@ -2,6 +2,7 @@
 id = "codex"
 name = "Codex"
 host = "codex"
+runtime = "codex"
 executable = "codex"
 providers = ["openai"]
 
@@ -23,3 +24,28 @@ api_key_env = ["OPENAI_API_KEY"]
 [login]
 command = ["login", "--device-auth"]
 terminal = false
+
+# What Tico does differently for this CLI (docs/harnesses.md, Capabilities).
+[capabilities]
+terminal_login = ["login"]
+api_keys = "computer"
+api_key_login = ["login", "--with-api-key"]
+subscription_marker = "chatgpt"
+subscription_profiles = true
+profile_home = "CODEX_HOME"
+weekly_usage = "refresh"
+mcp_transports = ["http"]
+# The app-server aborts the next turn on an interrupted thread at once, so a retry starts a fresh one.
+resume_after_interrupt = false
+goal_runs_across_turns = true
+compaction = true
+resume_command = "codex resume"
+model_list = "host"
+
+[capabilities.sign_in_status]
+check = "command"
+args = ["login", "status"]
+ready = "logged in"
+ready_detail = "Signed in with ChatGPT"
+missing_detail = "Codex login required"
+timeout_s = 8

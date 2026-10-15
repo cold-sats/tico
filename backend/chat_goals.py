@@ -48,7 +48,8 @@ def capabilities(c, auth, conv):
         if "goals" not in detail:
             detail = next((row for row in report.get("harnesses", {}).values()
                            if row.get("runtime") == runtime), {})
-    supported = runtime in ("codex", "claude") and detail.get("goals") is True
+    # Goals are probed per installed version and reported on the heartbeat; only that report says yes.
+    supported = detail.get("goals") is True
     commands = [*TICO_COMMANDS, *[{key: value for key, value in command.items() if value is not None}
                                 for command in detail.get("commands", [])
                                 if command.get("kind") == "harness" and command.get("name") not in

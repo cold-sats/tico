@@ -88,6 +88,7 @@ pub fn timings_on() -> bool {
 
 /// A structured timing line: `timing mark=<name> attempt=<id> mono_ms=<n> wall_ms=<n>`.
 pub fn mark(name: &str, attempt: &str) {
+    crate::flight::phase(name, attempt);
     if timings_on() {
         let wall = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
         log(&format!("Tico runner: timing mark={name} attempt={attempt} mono_ms={} wall_ms={wall}", mono_ms()));

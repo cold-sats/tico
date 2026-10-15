@@ -180,15 +180,17 @@ function dockerRunnerCommands(code, label, runtime, kind = 'linux') {
   const network = String(S.config?.server_network || 'tico_default').replace(/[^a-zA-Z0-9_.-]/g, '');
   const name = runnerName(code);
   const container = `tico-runner-${name}`;
+  const login = harnessCaps(runtime).container_login;
   return [
     [local ? 'Set up the runner on this computer (installs Docker if it is missing; keeps itself on this server\'s release)'
            : kind === 'mac' ? 'Set up the runner on that Mac (Docker Desktop must be running; keeps itself on this server\'s release)'
            : 'Set up the runner on the server (installs Docker if it is missing; keeps itself on this server\'s release)',
      `curl -fsSL ${installer} -o install.sh && sh install.sh --runner --name ${name} ${join}${local ? ` --server-network ${network}` : ''} --code '${code}' --label ${quoted}`],
-    // Signing in to a model comes only once a provider is chosen; before that there is no model to name.
-    // `claude auth login` signs the CLI in; `claude setup-token` would only print a token. As `bot`, the user turns run as.
-    runtime ? ['Sign the bots in to a model, once: Sign in on Settings > Computers, or run this (the runner installs the model CLI first; give it a minute)',
-     `docker exec -it -u bot ${container} ${runtime === 'claude' ? 'claude auth login' : 'codex login --device-auth'}`] : null,
+    // Signing in to a model comes only once a provider is chosen; before that there is no model to name, and a CLI
+    // that signs in with a key has no login to run. `container_login` is the manifest's login for a terminal with no
+    // browser. As `bot`, the user turns run as.
+    login ? ['Sign the bots in to a model, once: Sign in on Settings > Computers, or run this (the runner installs the model CLI first; give it a minute)',
+     `docker exec -it -u bot ${container} ${login}`] : null,
     ['Or with plain Docker instead of the line above. It has no updater, so it will not follow the server\'s releases',
      `docker run -d --name ${container} --restart unless-stopped${local ? ` --network ${network}` : ''} -v ${container}_runner-home:/home/runner ghcr.io/ticoteam/tico-runner:${tag || 'latest'} join ${join} --code '${code}' --label ${quoted}`],
   ];
@@ -214,16 +216,14 @@ async function enrollmentDownload(operator, label) {
 }
 // One chip per AI tool on a computer: its version and whether it is signed in, from the computer's readiness
 // (`harnesses` per tool, `runtimes` per runtime; an older runner sends only `runtimes`). Only what its bots use (with no bot
-// yet, the team's default), plus anything installed anyway. Codex, Claude Code and Muse Code sign in from here: the computer runs
-// the login as the bot user and relays only the link and one-time code (backend/model_login.py, runner/login.py).
-// The others have no login the computer can relay, so the chip says what to run there.
-const MACHINE_SIGNIN = ['codex', 'claude', 'musecode'];
-const MACHINE_LOGIN_COMMANDS = {grok: 'grok login', cursor: 'cursor-agent login'};   // backend/providers.py `login`
-const MACHINE_KEY_ONLY = ['gemini', 'pi'];
+// yet, the team's default), plus anything installed anyway. A CLI whose manifest has `browser_sign_in` signs in from here:
+// the computer runs the login as the bot user and relays only the link and one-time code (backend/model_login.py,
+// runner-rs/src/login.rs). One with only a `terminal_login` gets that command to run there; one whose keys belong to
+// each bot (`api_keys = "bot"`) gets a link to Credentials.
 // The server's rule (model_login._operator): the owner, an admin, or the person whose computer it is.
 const machineCanSignIn = machine => settingsIsAdmin() || (!!S.me?.id && machine.operator === S.me.id);
 function machineLoginCommand(machine, name) {
-  const command = MACHINE_LOGIN_COMMANDS[name];
+  const command = harnessCaps(name).terminal_login;
   return command && machine.update?.kind === 'docker' ? `docker exec -it -u bot <container> ${command}` : command;
 }
 function machineToolsHtml(machine, online) {
@@ -245,10 +245,11 @@ function machineToolsHtml(machine, online) {
     let action = '';
     if (manage && installed && auth !== 'ready') {
       const command = machineLoginCommand(machine, name);
-      if (MACHINE_SIGNIN.includes(name)) action = online
+      const caps = harnessCaps(name);
+      if (caps.browser_sign_in) action = online
         ? ` <button class="ghost machine-signin" type="button" data-model-login data-runner="${esc(machine.id)}" data-runtime="${esc(name)}" data-machine="${esc(machine.label)}">Sign in</button>` : '';
       else if (command) action = ` <span class="machine-login-command" title="Run on the computer${command.includes('<container>') ? '; docker ps shows the container name' : ''}"><code>${esc(command)}</code><button class="ghost machine-signin" type="button" data-machine-copy-login="${esc(command)}">Copy</button></span>`;
-      else if (MACHINE_KEY_ONLY.includes(name)) action = ' <a class="machine-signin-link" href="#/credentials">Add key</a>';
+      else if (caps.api_keys === 'bot') action = ' <a class="machine-signin-link" href="#/credentials">Add key</a>';
     }
     const rejected = auth === 'rejected'
       ? `<span class="err machine-rejected" data-rejected="${esc(name)}">${value.rejected_at ? esc(ago(value.rejected_at)) + '. ' : ''}${value.rejected_reason ? esc(value.rejected_reason) + '. ' : ''}${hlCredentialFix(value.credential_source)}. It takes no work that needs ${esc(name)} until then.</span>` : '';
