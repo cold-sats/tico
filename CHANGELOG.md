@@ -11,6 +11,11 @@ All notable changes to Tico are recorded here. The format follows
 - A Claude turn that hits its session or weekly limit now ends as limited within seconds and moves to the bot's
   fallback once, instead of holding the turn (and the computer's update) open with no model work. Claude could
   report the limit and then wait for more input without a final result.
+- A task worktree whose restore or prepare failed no longer stays failed after its setup succeeds. Health and
+  the Health Monitor kept reporting the old error (for example "Restore path already exists and is not a
+  worktree") on a worktree acknowledged ready, so its finding never cleared. A ready acknowledgement now
+  supersedes the failed action, and a computer's report without an error clears the one it reported before;
+  a refused cleanup and a failure seen in the tree itself still show.
 - BotOps working for a person can no longer take repository access away from another bot. Setting a bot to own,
   dropping a chosen repository or turning write into read now puts a Confirm card in the person's BotOps chat
   that names what would stop, and nothing changes until they tap it; giving access still goes through at once.
