@@ -12,6 +12,12 @@ All notable changes to Tico are recorded here. The format follows
   no longer remembered the refusal, so the error vanished from Health and the cleanup was asked again early, before
   its wait was over. The error now stays while cleanup is asked and is forgotten once the task reopens. A computer
   also now reports a failure it finds in the tree ahead of the last failed action, which it used to report instead.
+- A bot whose API key runs out of quota now waits instead of retrying every few seconds. Codex's "Quota exceeded.
+  Check your plan and billing details." and the API's `insufficient_quota` were treated as ordinary failures, so
+  the bot retried each job three times in 1 to 3 seconds and never showed it was limited. They now count as a
+  usage limit: the turn moves to a ready fallback harness, or the bot shows limited with its retry time and stops
+  taking work until then (or until a person writes or presses Try now). Its status and Health say "API quota or
+  billing limit" and point to the key's plan and billing rather than a subscription window.
 - Signing a new named subscription in on a Docker Computer works. The profile's folders were the supervisor's
   (0700), but the sign-in runs as the separate bot user, so Codex stopped at once with "failed to read CODEX_HOME:
   Permission denied" before showing a link, on the first try and every retry. Each runtime's home in a profile now
