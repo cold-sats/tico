@@ -100,3 +100,27 @@ def test_chat_and_task_attachments_survive_full_backup_restore(api, tmp_path):
         recovered = get(restored, 'tasks/' + task['task']['id'])['task']
         assert recovered['attachments'] == task['task']['attachments']
         assert restored.get(recovered['attachments'][0]['url'], headers=headers()).content == b'Task bytes'
+
+
+def test_person_forwards_a_chat_file_to_a_bot_task_and_only_readers_gain_it(api):
+    chat = upload(api, 'chat/product-design', {'text': 'Source export'}, 'ben-test', data=b'Chat bytes')
+    attachment = chat['message']['refs']['attachments'][0]
+    tid = post(api, 'tasks', {'owner': 'ops', 'title': 'Use the export', 'body': 'Read it.'}, 'ben-test')['id']
+    machine = runner(api)
+    assign(api, machine, 'ops')
+    ready(api, machine, ['ops'])
+    attempt = claim(api, machine, 'ops')
+    assert api.get(attachment['url'], headers=headers(attempt['token'])).status_code == 403
+    ref = attachment['id'] + '@1'
+    # A person who cannot open the file, and a bot, cannot attach it by its id.
+    assert api.get(attachment['url'], headers=headers('ana-test')).status_code == 403
+    post(api, f'tasks/{tid}/comments', {'text': 'Here', 'attachments': [ref]}, 'ana-test', expected=404)
+    post(api, f'tasks/{tid}/comments', {'text': 'Here', 'attachments': [ref]}, attempt['token'], expected=404)
+    assert api.get(attachment['url'], headers=headers(attempt['token'])).status_code == 403
+    comment = post(api, f'tasks/{tid}/comments', {'text': 'The export', 'attachments': [ref]}, 'ben-test')['comment']
+    forwarded = comment['refs']['attachments'][0]
+    assert (forwarded['id'], forwarded['name'], forwarded['version']) == (attachment['id'], attachment['name'], 1)
+    downloaded = api.get(forwarded['url'], headers=headers(attempt['token']))
+    assert downloaded.status_code == 200 and downloaded.content == b'Chat bytes'
+    # Sharing it is the point: whoever reads the task now opens it through the task.
+    assert api.get(forwarded['url'], headers=headers('ana-test')).status_code == 200

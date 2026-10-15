@@ -2812,13 +2812,13 @@ def create_app(settings=None):
         def work(c):
             task_id = auth.resolve_task(c, who, tid)
             row = auth.task(c, who, task_id)
-            from .task_review import comment_rights, check_ask, file_version
+            from .task_review import comment_rights, check_ask, comment_file
             comment_rights(c, auth, who, task_id)
             ask = check_ask(c, task_id, body.ask, auth, who)
             attached = []
             for reference in body.attachments:
                 fid, number = reference.rsplit("@", 1)
-                version = file_version(c, task_id, fid, int(number))
+                version = comment_file(c, auth, who, task_id, fid, int(number))
                 attached.append({"id": fid, "file_id": fid, "version": int(number), "ref": reference,
                                  "name": version["name"], "size": version["size"], "content_type": version["mime"],
                                  "url": f"/api/v2/files/{fid}?v={number}"})

@@ -533,6 +533,12 @@ one question (`id: verdict`) with the given options and an Other text answer. MC
 `hub_task_attach` and `hub_task_comment` accept `ask`; attach also accepts `note`. Comment's
 `attachments` contains references such as `file-id@2`. `hub_task_answers` lists recorded answers.
 
+To give a bot's task a file that is already in Tico, such as one sent in a chat, a person comments with its
+reference instead of uploading it again: `hub task comment <task-id> "The export" --file <file-id>@1`. A chat
+file goes onto the task when the person can open it. From then on, anyone who can read the task can open it,
+as long as they can also see any private chat or task the file came from. A bot, or a person who cannot open
+the file, gets `File version not found on this task` and attaches a copy with `--attach` instead.
+
 ```json
 {"questions":[{"id":"verdict","header":"Review","question":"Is this ready?",
  "options":[{"label":"Approve"},{"label":"Request changes","description":"Say what to change"}],

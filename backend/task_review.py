@@ -48,6 +48,25 @@ def file_version(c, task_id, fid, number):
     raise Problem("not_found", "File version not found on this task", 404)
 
 
+def comment_file(c, auth, who, task_id, fid, number):
+    """A file a comment attaches. A person may also attach a chat file they can open (`<id>@1`): it joins the task
+    as a legacy attachment, so the task's readers open it through the task. Its other links still apply to
+    every reader, so a file from a private chat or task stays closed to whoever cannot see that too."""
+    try:
+        return file_version(c, task_id, fid, number)
+    except Problem:
+        if number != 1 or who.role not in ("owner", "human") or \
+                c.execute("SELECT 1 FROM bot_file_versions WHERE blob_id=?", (fid,)).fetchone():
+            raise
+    from .media import blob_for
+    try:
+        blob_for(c, auth, who, fid)
+    except Problem:
+        raise Problem("not_found", "File version not found on this task", 404) from None
+    c.execute("INSERT OR IGNORE INTO task_assets VALUES(?,?)", (task_id, fid))
+    return file_version(c, task_id, fid, number)
+
+
 def check_ask(c, task_id, ask, auth, who):
     if not ask:
         return None
