@@ -551,9 +551,11 @@ there the tool shows "Credential missing on <computer>".
 Levers set in **Settings → Bots**, not in the repository:
 
 - **Harness**: which CLI performs the run (`openai` / Codex, `claude`, `gemini`, `antigravity`,
-  `grok`). **Model**: the latest model in that family (Sol, Astra, Grok 4.6, Gemini Flash,
+  `grok`, `cursor` / Cursor Agent, `musecode` / Muse Code, `pi`). **Model**: the latest model in that family (Sol, Astra, Grok 4.6, Gemini Flash,
   Claude Opus 5, Claude Fable 5.1). Search the picker: `grok` shows `grok/grok 4.6` at every
-  effort; `sol` shows `openai/gpt 5.6 sol`.
+  effort; `sol` shows `openai/gpt 5.6 sol`. The same levers set the built-in BotOps bot: it may
+  run on any harness and model here, limited in practice to the providers the company enabled
+  and what its computer is signed in to.
 - **Reasoning effort**: how hard it thinks. The main cost control, and the one to reach for first.
 - **Fallback**: one optional harness/model if the primary is unavailable (billing, capacity,
   the runtime refused). **None (fail)** is the default. The hop starts a fresh session. OpenRouter
