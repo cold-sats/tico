@@ -80,7 +80,8 @@ pub fn from_app_server(reply: &Value) -> Option<Value> {
 }
 
 struct Known {
-    at: Instant,
+    /// When the account was last read; None when only a turn's plan is known, so a read is still due.
+    at: Option<Instant>,
     account: Value,
 }
 
@@ -95,45 +96,67 @@ fn reading() -> &'static Mutex<HashSet<(String, String)>> {
     R.get_or_init(Default::default)
 }
 
+/// When an `account/read` last started per (profile, runtime), answered or not, so one that keeps failing is retried
+/// every READ_EVERY instead of on every report.
+fn tried() -> &'static Mutex<HashMap<(String, String), Instant>> {
+    static T: OnceLock<Mutex<HashMap<(String, String), Instant>>> = OnceLock::new();
+    T.get_or_init(Default::default)
+}
+
 /// Keep `account` as what `profile` is signed in to for `runtime`, stamped now.
 pub fn remember(profile: &str, runtime: &str, account: Value) {
     let mut account = account;
     if let Some(m) = account.as_object_mut() {
         m.insert("checked_at".into(), crate::util::iso(&json!(crate::util::epoch_s())));
     }
-    known().lock().unwrap().insert((profile.into(), runtime.into()), Known { at: Instant::now(), account });
+    known().lock().unwrap().insert((profile.into(), runtime.into()), Known { at: Some(Instant::now()), account });
 }
 
-/// A plan a turn reported (Codex `planType` on its rate limits): kept on the known account, or as the account.
+/// A plan a turn reported (Codex `planType` on its rate limits): kept on the known account, or as the account. It
+/// leaves the account's read time alone, so turns never make an email look freshly checked or put off its next read.
 pub fn remember_plan(profile: &str, runtime: &str, value: &Value) {
     let Some(p) = plan(value) else { return };
-    let mut account = account(profile, runtime).unwrap_or_else(|| json!({}));
-    account["plan"] = json!(p);
-    remember(profile, runtime, account);
+    let mut known = known().lock().unwrap();
+    let entry = known.entry((profile.into(), runtime.into())).or_insert_with(|| Known { at: None, account: json!({}) });
+    entry.account["plan"] = json!(p);
 }
 
+/// A signed-out login: its account and the time of its last read go, so the next sign-in is read at once.
 pub fn forget(profile: &str, runtime: &str) {
-    known().lock().unwrap().remove(&(profile.to_string(), runtime.to_string()));
+    let key = (profile.to_string(), runtime.to_string());
+    known().lock().unwrap().remove(&key);
+    tried().lock().unwrap().remove(&key);
 }
 
 pub fn account(profile: &str, runtime: &str) -> Option<Value> {
     known().lock().unwrap().get(&(profile.to_string(), runtime.to_string())).map(|k| k.account.clone())
 }
 
-/// For an `app-server` runtime: start a background `account/read` in `env` when the last one is older than
-/// READ_EVERY, so a heartbeat never waits on it. The answer is picked up by the next report.
+/// Whether a read of `key` may start now: none running, and none read or tried within READ_EVERY. A yes marks it
+/// running and tried.
+fn claim_read(key: &(String, String)) -> bool {
+    let fresh = |at: &Instant| at.elapsed() < READ_EVERY;
+    if known().lock().unwrap().get(key).is_some_and(|k| k.at.as_ref().is_some_and(fresh)) || tried().lock().unwrap().get(key).is_some_and(fresh) {
+        return false;
+    }
+    if !reading().lock().unwrap().insert(key.clone()) {
+        return false;
+    }
+    tried().lock().unwrap().insert(key.clone(), Instant::now());
+    true
+}
+
+/// For an `app-server` runtime: start a background `account/read` in `env` when the last one, answered or not, is
+/// older than READ_EVERY, so a heartbeat never waits on it. The answer is picked up by the next report.
 pub fn refresh_in_background(profile: &str, runtime: &str, env: Env) {
     if crate::harness_tools::caps(runtime, "").account != "app-server" {
         return;
     }
+    let Ok(handle) = tokio::runtime::Handle::try_current() else { return };
     let key = (profile.to_string(), runtime.to_string());
-    if known().lock().unwrap().get(&key).is_some_and(|k| k.at.elapsed() < READ_EVERY) || !reading().lock().unwrap().insert(key.clone()) {
+    if !claim_read(&key) {
         return;
     }
-    let Ok(handle) = tokio::runtime::Handle::try_current() else {
-        reading().lock().unwrap().remove(&key);
-        return;
-    };
     let runtime = runtime.to_string();
     handle.spawn(async move {
         if let Some(account) = read_app_server(&runtime, &env).await {
@@ -211,5 +234,45 @@ mod tests {
         assert!(got["checked_at"].is_string());
         forget("acct-test", "codex");
         assert!(account("acct-test", "codex").is_none());
+    }
+
+    #[test]
+    fn a_turns_plan_never_counts_as_an_account_read() {
+        let key = ("plan-test".to_string(), "codex".to_string());
+        // Only a turn's plan known: a read is still due, and nothing says the account was checked.
+        remember_plan("plan-test", "codex", &json!("plus"));
+        assert!(known().lock().unwrap()[&key].at.is_none());
+        assert!(account("plan-test", "codex").unwrap()["checked_at"].is_null());
+        // A read, then a turn's plan: the read's time and stamp stay.
+        remember("plan-test", "codex", json!({"email": "dev@acme.example"}));
+        let (at, stamp) = { let k = known().lock().unwrap(); (k[&key].at, k[&key].account["checked_at"].clone()) };
+        remember_plan("plan-test", "codex", &json!("pro"));
+        let k = known().lock().unwrap();
+        assert_eq!((k[&key].at, k[&key].account["checked_at"].clone(), k[&key].account["plan"].clone()), (at, stamp, json!("pro")));
+        drop(k);
+        forget("plan-test", "codex");
+    }
+
+    #[test]
+    fn a_failed_read_waits_its_turn() {
+        let key = ("retry-test".to_string(), "codex".to_string());
+        // A turn's plan only (no account read yet), then a read that answers nothing: no second read within READ_EVERY.
+        remember_plan("retry-test", "codex", &json!("plus"));
+        assert!(claim_read(&key), "the first read starts");
+        assert!(!claim_read(&key), "never two at once");
+        reading().lock().unwrap().remove(&key);
+        assert!(!claim_read(&key), "a failed read is not retried on the next report");
+        assert!(known().lock().unwrap()[&key].at.is_none(), "still no account read");
+        // Once READ_EVERY has passed it is tried again (where the clock reaches back that far).
+        if let Some(earlier) = Instant::now().checked_sub(READ_EVERY) {
+            tried().lock().unwrap().insert(key.clone(), earlier);
+            assert!(claim_read(&key));
+            reading().lock().unwrap().remove(&key);
+        }
+        // Signing out clears the wait, so the next sign-in is read at once.
+        forget("retry-test", "codex");
+        assert!(claim_read(&key));
+        reading().lock().unwrap().remove(&key);
+        forget("retry-test", "codex");
     }
 }

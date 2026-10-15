@@ -8,6 +8,10 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- Settings > Computers no longer shows a named subscription's old account after it signs out and back in as
+  someone else. A computer kept a Codex account it had read for up to 10 minutes, so the old email could show beside
+  the new login; signing out now forgets it. An account reading that has missed its refresh now says when it was last
+  checked ("account last checked 25m ago"), and a turn's plan no longer counts as a fresh account read.
 - A worktree whose cleanup was refused no longer loses that error when its computer restarts. The restarted computer
   no longer remembered the refusal, so the error vanished from Health and the cleanup was asked again early, before
   its wait was over. The error now stays while cleanup is asked and is forgotten once the task reopens. A computer
