@@ -118,26 +118,34 @@ const put = (p, body={}, operationId) => window.TicoObservability
   ? window.TicoObservability.run(p, () => putRequest(p, body, operationId)) : putRequest(p, body, operationId);
 // WebKit (Safari and the macOS app's web view) can send a file read from disk as an empty or cut-short body
 // while a service worker controls the page, which ours does. The same bytes copied into memory send in full.
-async function memoryBody(body) {
-  if (body instanceof Blob) return new File([await body.arrayBuffer()], body.name || '', {type: body.type});
-  const copy = new FormData();
-  for (const [name, value] of body.entries()) {
-    if (value instanceof File) copy.append(name, new File([await value.arrayBuffer()], value.name, {type: value.type, lastModified: value.lastModified}));
-    else copy.append(name, value);
-  }
-  return copy;
+// Above the cap a file goes as picked, so a large video never sits in the page twice over.
+const UPLOAD_COPY_MAX = 100_000_000;
+const hexDigest = buffer => Array.from(new Uint8Array(buffer), b => b.toString(16).padStart(2, '0')).join('');
+async function memoryBody(body, digests) {
+  const copy = async file => {
+    if (file.size > UPLOAD_COPY_MAX) return file;
+    const bytes = await file.arrayBuffer();
+    const made = new File([bytes], file.name || '', {type: file.type, lastModified: file.lastModified});
+    // One read serves both the copy and the retry signature's digest.
+    if (digests) digests.set(made, hexDigest(await crypto.subtle.digest('SHA-256', bytes)));
+    return made;
+  };
+  if (body instanceof Blob) return copy(body);
+  const copied = new FormData();
+  for (const [name, value] of body.entries()) copied.append(name, value instanceof File ? await copy(value) : value);
+  return copied;
 }
 // Keep multipart and binary retries stable across newly constructed bodies.
 const formRequestOnce = async (url, body) => {
   getForget();
-  body = await memoryBody(body);
-  if (!S.me?.cloud) return fetch(url, {method:'POST', body});
+  const digests = S.me?.cloud ? new Map() : null;
+  body = await memoryBody(body, digests);
+  if (!digests) return fetch(url, {method:'POST', body});
   const fields = [];
   for (const [name, value] of body instanceof Blob ? [['file', body]] : body.entries()) {
     if (value instanceof Blob) {
-      const digest = await crypto.subtle.digest('SHA-256', await value.arrayBuffer());
-      fields.push([name, value.name || '', value.type, value.size,
-        Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('')]);
+      const digest = digests.get(value) ?? hexDigest(await crypto.subtle.digest('SHA-256', await value.arrayBuffer()));
+      fields.push([name, value.name || '', value.type, value.size, digest]);
     } else fields.push([name, value]);
   }
   const signature = url + '\n' + JSON.stringify(fields), key = pendingWrites.get(signature) || newRequestId();
