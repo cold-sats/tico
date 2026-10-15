@@ -8,6 +8,10 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Changed
+- **Tasks rows read how long each item has been open and quiet.** Every row in the Tasks section (Tasks page, bot page
+  Tasks tab, person page Tasks card, Assistant) now shows its open duration (since created) and, when it has sat
+  untouched, how long it has been quiet (since updated): `open 3d · quiet 60m`. A task that just moved reads only its
+  open age; finished rows keep their single short age.
 - **An inbox bot may share a computer with other bots.** A separate computer for inbox bots is now a choice per computer:
   `POST /api/v2/runners/<id>/inbox-only {"enabled": true}` (an owner, an admin, the computer's operator, or BotOps as one of
   them) keeps it for inbox bots, and the server places no other bot there. Computers that held only inbox bots before this
