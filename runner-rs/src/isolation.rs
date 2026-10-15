@@ -92,6 +92,18 @@ pub fn chown(path: &Path) {
     }
 }
 
+/// Hand the opened inode over without replacing a lock or following a swapped path.
+pub fn chown_file(file: &std::fs::File) -> std::io::Result<()> {
+    use std::os::fd::AsRawFd;
+    if let Some((uid, gid)) = identity() {
+        // SAFETY: fchown on a descriptor this process owns; the file's mode is preserved.
+        if unsafe { libc::fchown(file.as_raw_fd(), uid, gid) } != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+    Ok(())
+}
+
 /// `mkdir -p` where every directory it creates belongs to the bot user when isolation is on.
 pub fn mkdir(path: &Path, mode: u32) -> std::io::Result<PathBuf> {
     let missing: Vec<PathBuf> = path.ancestors().take_while(|p| !p.as_os_str().is_empty() && !p.exists()).map(Path::to_path_buf).collect();

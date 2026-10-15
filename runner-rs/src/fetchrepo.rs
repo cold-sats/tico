@@ -87,7 +87,7 @@ pub async fn clone_repository(path: &Path, repository: &str, env: &Env, url: Opt
     let fresh = !path.exists() || empty_dir(path);
     let env = crate::safegit::environment(env);
     let wanted = url.map(str::to_string).unwrap_or_else(|| format!("https://github.com/{repository}.git"));
-    let done = match gitrun::bare(&env, &["clone", "--quiet", &wanted, &path.display().to_string()], 180).await {
+    let done = match gitrun::bare_as_bot(&env, &["clone", "--quiet", &wanted, &path.display().to_string()], 180).await {
         Ok(o) => o,
         Err(Fault::Timeout(t)) => {
             discard_partial(path, fresh);

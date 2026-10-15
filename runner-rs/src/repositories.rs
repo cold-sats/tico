@@ -299,6 +299,13 @@ async fn run(prefix: &[String], args: &[&str], env: &Env, timeout: u64) -> Resul
     Ok(gitrun::run(&argv, env, None, timeout).await?)
 }
 
+async fn run_as_bot(prefix: &[String], args: &[&str], env: &Env, timeout: u64) -> Result<Out, Fail> {
+    let mut argv = hooks_args();
+    argv.extend(prefix.iter().cloned());
+    argv.extend(args.iter().map(|a| a.to_string()));
+    Ok(gitrun::run_as_bot(&argv, env, None, timeout).await?)
+}
+
 /// The runner's repositories, for the credential socket's mirror refresh.
 pub static MIRRORS: std::sync::OnceLock<Arc<Repositories>> = std::sync::OnceLock::new();
 
@@ -704,6 +711,10 @@ impl Repositories {
                 r.insert("adopted".into(), json!(true));
             });
         }
+        if exists {
+            // This validated base clone is shared with bot worktrees; authenticated mirrors stay private.
+            crate::isolation::adopt(&[path.clone()]);
+        }
         let volumes = [
             if self.root.exists() { self.root.clone() } else { self.root.parent().unwrap_or(&self.root).to_path_buf() },
             if self.mirrors.exists() { self.mirrors.clone() } else { self.state_file.parent().unwrap_or(&self.mirrors).to_path_buf() },
@@ -784,7 +795,8 @@ impl Repositories {
         let mirror_uri = file_uri(&mirror);
         let path_s = path.display().to_string();
         if !exists {
-            std::fs::create_dir_all(&self.root)?;
+            crate::isolation::mkdir(&self.root, 0o755)?;
+            crate::isolation::chown(&self.root);
             *created = true;
             self.update_row(name, |r| {
                 r.insert("state".into(), json!("cloning"));
@@ -793,14 +805,14 @@ impl Repositories {
             });
             let _ = self.save();
             let clone_args = ["clone", "--quiet", "--single-branch", "--no-hardlinks", "--origin", "tico-mirror", "--branch", &branch, "--", &mirror_uri, &path_s];
-            let mut done = run(&local, &clone_args, &trusted, timeout).await?;
+            let mut done = run_as_bot(&local, &clone_args, &trusted, timeout).await?;
             if !done.ok() && !done.stderr.contains("already exists") {
                 // The mirror itself can be what is broken while GitHub is fine: rebuild it once and clone again.
                 let first = git_error("Cloning the local mirror", &full, &done, &clean);
                 discard_failed_clone(&path, true).await;
                 self.discard_mirror(name)?;
                 self.fill_mirror(name, &mirror, &prefix, &branch, &url, &full, &clean, &env, timeout, now, false).await?;
-                done = run(&local, &clone_args, &trusted, timeout).await?;
+                done = run_as_bot(&local, &clone_args, &trusted, timeout).await?;
                 if !done.ok() {
                     let again = redact::git_failure(&done.stderr, &redact::env_secrets(&clean), 200);
                     let again = if again.is_empty() { format!("exit {}", done.code) } else { again };
@@ -812,7 +824,7 @@ impl Repositories {
                 *created = false;
                 return Err(msg(git_error("Cloning the local mirror", &full, &done, &clean)));
             }
-        } else if !run(&local, &["-C", &path_s, "rev-parse", "--git-dir"], &clean, 10).await?.ok() {
+        } else if !run_as_bot(&local, &["-C", &path_s, "rev-parse", "--git-dir"], &clean, 10).await?.ok() {
             return Err(msg("Base clone is not a working Git repository; repair it without deleting local work"));
         }
         let mut settings: Vec<(String, String)> =
@@ -829,18 +841,18 @@ impl Repositories {
             ]);
         }
         for (key, value) in &settings {
-            if !run(&local, &["-C", &path_s, "config", "--local", "--replace-all", key, value], &clean, 10).await?.ok() {
+            if !run_as_bot(&local, &["-C", &path_s, "config", "--local", "--replace-all", key, value], &clean, 10).await?.ok() {
                 return Err(msg("Could not configure base clone mirror; check its Git config and permissions"));
             }
         }
         let fetch_args_owned = [format!("+refs/heads/{branch}:refs/remotes/origin/{branch}"), format!("+refs/heads/{branch}:refs/remotes/tico-mirror/{branch}")];
         let fetch_args = ["-C", &path_s, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--", &mirror_uri, &fetch_args_owned[0], &fetch_args_owned[1]];
-        let mut done = run(&local, &fetch_args, &trusted, timeout).await?;
+        let mut done = run_as_bot(&local, &fetch_args, &trusted, timeout).await?;
         if !done.ok() {
             let first = git_error(&format!("Git {} from the local mirror", if exists { "fetch" } else { "clone" }), &full, &done, &clean);
             self.discard_mirror(name)?;
             self.fill_mirror(name, &mirror, &prefix, &branch, &url, &full, &clean, &env, timeout, now, false).await?;
-            done = run(&local, &fetch_args, &trusted, timeout).await?;
+            done = run_as_bot(&local, &fetch_args, &trusted, timeout).await?;
             if !done.ok() {
                 let again = redact::git_failure(&done.stderr, &redact::env_secrets(&clean), 200);
                 let again = if again.is_empty() { format!("exit {}", done.code) } else { again };
@@ -848,7 +860,7 @@ impl Repositories {
             }
         }
         let head = format!("refs/remotes/origin/{branch}");
-        if !run(&local, &["-C", &path_s, "symbolic-ref", "refs/remotes/origin/HEAD", &head], &clean, 10).await?.ok() {
+        if !run_as_bot(&local, &["-C", &path_s, "symbolic-ref", "refs/remotes/origin/HEAD", &head], &clean, 10).await?.ok() {
             return Err(msg("Could not record base default branch; check permissions"));
         }
         mark_managed(&path, if adopted { Some(&full) } else { None }, adopted).map_err(msg)?;
@@ -1043,7 +1055,11 @@ pub async fn worktree_base(workspace: &Path, repo: &mut Map<String, Value>, env:
     }
     let root = workspace.join("repos");
     let path = root.join(base_folder(&name));
-    std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+    if is_symlink(&root) {
+        return Err("Base clone points outside repos".into());
+    }
+    crate::isolation::mkdir(&root, 0o755).map_err(|e| e.to_string())?;
+    crate::isolation::chown(&root);
     let parent_ok = path.parent().and_then(|p| p.canonicalize().ok()) == root.canonicalize().ok();
     if is_symlink(&root) || is_symlink(&path) || !parent_ok {
         return Err("Base clone points outside repos".into());
@@ -1052,7 +1068,7 @@ pub async fn worktree_base(workspace: &Path, repo: &mut Map<String, Value>, env:
         let path = path.clone();
         async move {
             let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-            gitrun::git(&path, &env, &refs, timeout).await
+            gitrun::git_as_bot(&path, &env, &refs, timeout).await
         }
     };
     let s = |v: &[&str]| v.iter().map(|a| a.to_string()).collect::<Vec<String>>();
@@ -1067,6 +1083,7 @@ pub async fn worktree_base(workspace: &Path, repo: &mut Map<String, Value>, env:
         if !ok {
             return Err("Base clone remote does not match this repository".into());
         }
+        crate::isolation::adopt(&[path.clone()]);
     } else {
         let mut direct: Vec<String> = crate::safegit::prefix();
         direct.extend(
@@ -1191,7 +1208,7 @@ async fn clone_into(name: &str, path: &Path, command: &[String], url: &str, env:
     let mut argv = vec!["git".to_string()];
     argv.extend(command.iter().cloned());
     argv.extend(["--".into(), url.into(), path.display().to_string()]);
-    match gitrun::run(&argv, env, None, CLONE_TIMEOUT).await {
+    match gitrun::run_as_bot(&argv, env, None, CLONE_TIMEOUT).await {
         Err(f) => {
             discard_failed_clone(path, true).await;
             Some(match f {
@@ -1302,7 +1319,9 @@ pub fn mark_managed(path: &Path, name: Option<&str>, adopted: bool) -> Result<()
     if is_symlink(&marker) {
         return Err("Could not mark managed base clone; check permissions".into());
     }
-    std::fs::write(&marker, marker_text).map_err(|_| "Could not mark managed base clone; check permissions".to_string())
+    std::fs::write(&marker, marker_text).map_err(|_| "Could not mark managed base clone; check permissions".to_string())?;
+    crate::isolation::chown(&marker);
+    Ok(())
 }
 
 /// Why a base clone must stay (`kept: ...`), or None when nothing in it would be lost (repositories.base_kept).

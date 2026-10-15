@@ -148,7 +148,7 @@ pub async fn git(path: &Path, env: &Env, args: &[&str], check: bool) -> R<Out> {
     if args.len() >= 2 && args[0] == "worktree" && args[1] == "prune" && is_symlink(&path.join(".git").join("worktrees")) {
         return Err(WtErr::msg("Worktree registrations point outside the base clone; left as they are"));
     }
-    let done = gitrun::git(path, &crate::safegit::environment(env), args, 120).await.map_err(|f| match f {
+    let done = gitrun::git_as_bot(path, &crate::safegit::environment(env), args, 120).await.map_err(|f| match f {
         Fault::Timeout(_) => WtErr::Os("TimeoutExpired".into()),
         Fault::Stopped => WtErr::msg(gitrun::STOPPED),
         Fault::Io(e) => WtErr::Os(format!("OSError ({e})")),
@@ -164,10 +164,17 @@ pub async fn git(path: &Path, env: &Env, args: &[&str], check: bool) -> R<Out> {
 pub struct TaskLock(#[allow(dead_code)] std::fs::File);
 
 pub async fn locked(workspace: &Path, task: &str) -> R<TaskLock> {
-    let folder = workspace.join("tasks").join(".locks");
-    std::fs::create_dir_all(&folder)?;
+    let tasks = workspace.join("tasks");
+    let folder = tasks.join(".locks");
+    if is_symlink(&tasks) || is_symlink(&folder) {
+        return Err(WtErr::msg("Worktree locks point through a symlink; left as they are"));
+    }
+    crate::isolation::mkdir(&folder, 0o755)?;
+    crate::isolation::chown(&tasks);
+    crate::isolation::chown(&folder);
     let name = &gitrun::sha256_hex(task.as_bytes())[..2];
-    let file = std::fs::OpenOptions::new().create(true).append(true).open(folder.join(name))?;
+    let file = std::fs::OpenOptions::new().create(true).append(true).custom_flags(libc::O_NOFOLLOW).open(folder.join(name))?;
+    crate::isolation::chown_file(&file)?;
     let file = tokio::task::spawn_blocking(move || {
         use std::os::fd::AsRawFd;
         // SAFETY: flock on a file this process holds open.
@@ -220,7 +227,8 @@ fn marker_path(workspace: &Path, link_id: &str, create: bool) -> R<Option<PathBu
         return Err(WtErr::msg("Worktree initialization state points through a symlink; left as it is"));
     }
     if create {
-        std::fs::create_dir_all(&folder)?;
+        crate::isolation::mkdir(&folder, 0o700)?;
+        crate::isolation::chown(&folder);
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o700));
     }
@@ -261,6 +269,7 @@ pub fn write_marker(workspace: &Path, value: &Map<String, Value>) -> R<()> {
     let written = (|| -> std::io::Result<()> {
         use std::io::Write;
         let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).custom_flags(libc::O_NOFOLLOW).open(&temp)?;
+        crate::isolation::chown_file(&f)?;
         f.write_all(gitrun::compact_sorted(&Value::Object(value.clone())).as_bytes())?;
         f.flush()?;
         f.sync_all()?;
@@ -1127,6 +1136,8 @@ where
         if inspect(workspace, &probe, env, None).await["state"] != "present" {
             return Err(WtErr::msg("Restore path already exists and is not a worktree"));
         }
+        let base = verify_worktree(&path, workspace, &repo, crate::util::truthy(row.get("machine_git")), &branch, env, None, false).await?;
+        crate::isolation::adopt(&[path.clone(), base]);
         return Ok("present");
     }
     let (base, default) = repositories::worktree_base(workspace, row, env).await?;
