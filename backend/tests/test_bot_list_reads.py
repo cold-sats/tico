@@ -202,7 +202,7 @@ def test_hot_reads_do_not_grow_with_bots(tmp_path, monkeypatch):
     measured = []
     for name, extra in (("few", []), ("many", [f"b{i:02d}" for i in range(23)])):
         (tmp_path / name).mkdir()
-        install = T.api.__wrapped__(tmp_path / name)
+        install = T.api.__wrapped__(tmp_path / name, None)
         try:
             measured.append(costs(next(install), extra))
         finally:

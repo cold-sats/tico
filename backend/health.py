@@ -1067,15 +1067,15 @@ def view(c, who, settings, auth, github, config):
     if full and (denies := _harness_denies_check(c, settings)):
         checks.append(denies)
     if full:
-        from .worktrees import supported
+        from .worktrees import current_error, supported
         if supported(c):
             usage, errors = {}, []
             for row in c.execute("SELECT t.owner,l.state,l.detail_json FROM task_links l JOIN tasks t ON t.id=l.task_id WHERE l.kind='worktree' AND l.state<>'removed'"):
                 detail = json.loads(row['detail_json'] or '{}')
                 bot = H.actor_id(row['owner'])
                 usage[bot] = usage.get(bot, 0) + detail.get('size_mb', 0)
-                if detail.get('error'):
-                    errors.append(bot + ': ' + detail['error'])
+                if error := current_error(row['state'], detail):
+                    errors.append(bot + ': ' + error)
             if usage:
                 checks.append(_check('worktrees', 'Task worktrees', 'warn' if errors else 'ok',
                                      '; '.join(errors[:3]) if errors else '; '.join(f'{bot}: {size:g} MB' for bot, size in sorted(usage.items())),
