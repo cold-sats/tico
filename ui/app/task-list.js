@@ -482,6 +482,7 @@ function tasksMenu(state, anchor, html, bind, toggle = true) {
   if (!pop) return;
   if (toggle && pop.matches(':popover-open') && state.menuAnchor === anchor) { pop.hidePopover(); return; }
   state.menuAnchor = anchor;
+  state.menuField = '';
   pop.innerHTML = html;
   pop.onclick = pop.onchange = null;
   bind?.(pop);
@@ -529,6 +530,12 @@ function tasksFilterMenu(state, field, anchor, toggle = true) {
       tasksMenuPlace(pop, state.menuAnchor);
     };
   }, toggle);
+  state.menuField = field;
+}
+// A value menu opened before its values loaded shows them once they arrive.
+function tasksFilterMenuLoaded(state) {
+  const pop = $('#task-filter-pop');
+  if (state.menuField && pop?.matches(':popover-open') && pop.querySelector('.tl-menu-none')) tasksFilterMenu(state, state.menuField, state.menuAnchor, false);
 }
 function tasksFieldMenu(state, anchor) {
   const fields = TASK_FILTER_FIELDS;
