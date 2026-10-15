@@ -249,7 +249,7 @@ fn build_window(app: &App) -> tauri::Result<()> {
         .user_agent(USER_AGENT)
         .devtools(true)
         .visible(false)
-        .initialization_script(BRIDGE_SCRIPT)
+        .initialization_script(&bridge_script(app))
         // Anything that is not the hub opens in the default browser. Cloudflare's provider
         // choice is itself a clicked link: the whole authentication redirect chain stays in this
         // web view so the resulting CF_Authorization cookie belongs to the app, not the browser.
@@ -318,9 +318,15 @@ const BRIDGE_SCRIPT: &str = r#"
   window.ticoNative = name => ({postMessage: body => invoke('bridge', {name, body: body === undefined ? null : body})});
   // What this build's bridge answers beyond the first three, so a page never posts into a
   // shell too old to hear it.
-  window.ticoNativeFeatures = ['openWindow'];
+  window.ticoNativeFeatures = ['openWindow', 'checkForUpdates'];
 })();
 "#;
+
+/// The bridge plus this shell's version, which Settings shows beside the server's.
+fn bridge_script(app: &App) -> String {
+    let version = serde_json::to_string(&app.package_info().version.to_string()).unwrap_or_else(|_| "\"\"".into());
+    format!("{BRIDGE_SCRIPT}window.ticoNativeVersion = {version};\n")
+}
 
 fn main_window(app: &App) -> Option<WebviewWindow> {
     app.get_webview_window("main")
@@ -531,6 +537,8 @@ fn bridge(app: App, window: WebviewWindow, name: String, body: Option<Value>) {
                 open_meeting_window(&app, id);
             }
         }
+        // The page's "App update" bar: check the feed now instead of at the next six-hourly check.
+        "checkForUpdates" => update_now(&app),
         _ => {}
     }
 }
@@ -553,6 +561,7 @@ fn build_menu(app: &App) -> tauri::Result<()> {
     let name = config::app_name();
     let app_menu = Submenu::new(app, &name, true)?;
     app_menu.append(&PredefinedMenuItem::about(app, Some(&format!("About {name}")), None)?)?;
+    app_menu.append(&MenuItem::with_id(app, "updates", "Check for Updates…", true, None::<&str>)?)?;
     if config::is_generic() {
         app_menu.append(&MenuItem::with_id(app, "server", "Change server…", true, None::<&str>)?)?;
     }
@@ -583,6 +592,7 @@ fn menu_event(app: &App, id: &str) {
         "server" if config::is_generic() => { let _ = build_server_window(app); }
         "search" => open_search(app),
         "reload" => reload(app),
+        "updates" => update_now(app),
         _ => {}
     }
 }
@@ -615,13 +625,13 @@ mod badge_tests {
 // ----------------------------------------------------------------------------- updates
 // The page comes from the hub, so the site changes with no app update at all. The shell itself
 // changes rarely; when it does, the generic app fetches a signed GitHub release, installs
-// it and relaunches automatically. Per-environment builds retain their hub updater.
+// it and relaunches automatically. Per-environment builds retain their hub updater. Checked hourly.
 fn start_updates(app: App) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_secs(20)).await;
         loop {
             check_for_update(&app).await;
-            tokio::time::sleep(Duration::from_secs(6 * 60 * 60)).await;
+            tokio::time::sleep(Duration::from_secs(60 * 60)).await;
         }
     });
 }
@@ -637,7 +647,30 @@ fn configure_company_updater(
     })
 }
 
+/// Checks now, from the menu or the page; a check already running is not doubled.
+fn update_now(app: &App) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move { check_for_update(&app).await });
+}
+
+static CHECKING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 async fn check_for_update(app: &App) {
+    use std::sync::atomic::Ordering;
+    if CHECKING.swap(true, Ordering::SeqCst) { return; }
+    check_for_update_once(app).await;
+    CHECKING.store(false, Ordering::SeqCst);
+}
+
+/// Tells the page how a check went (`window.ticoAppUpdate` in ui/app/notices.js), so a failed update is
+/// shown with its reason instead of only reaching the log.
+fn report_update(app: &App, state: &str, detail: &str) {
+    if state == "failed" { log::warn!("update: {detail}"); }
+    let body = serde_json::json!({"state": state, "detail": detail});
+    eval(app, &format!("window.ticoAppUpdate && window.ticoAppUpdate({body})"));
+}
+
+async fn check_for_update_once(app: &App) {
     use tauri_plugin_updater::UpdaterExt;
     let selected = connection(app);
     if !config::is_generic() && selected.as_ref().map(|c| c.is_local()).unwrap_or(true) { return; }
@@ -645,15 +678,15 @@ async fn check_for_update(app: &App) {
     let company_policy = if config::is_generic() { None } else {
         let Some(connection) = selected.as_ref() else { return };
         if connection.hub.scheme() != "https" {
-            log::warn!("company updater requires an HTTPS hub origin");
+            report_update(app, "failed", "the update feed needs an HTTPS server address");
             return;
         }
         let configured = app.config().plugins.0.get("updater").and_then(|p| p.get("endpoints"))
             .and_then(Value::as_array).and_then(|a| a.first()).and_then(Value::as_str);
         let endpoint = match hub::company_update_endpoint(&connection.hub, configured) {
             Ok(endpoint) if endpoint.scheme() == "https" => endpoint,
-            Ok(_) => { log::warn!("company updater requires an HTTPS feed"); return; }
-            Err(_) => { log::warn!("company updater feed is invalid"); return; }
+            Ok(_) => { report_update(app, "failed", "the update feed is not HTTPS"); return; }
+            Err(_) => { report_update(app, "failed", "the update feed address is invalid"); return; }
         };
         let cookie = if hub::same_origin(&connection.hub, &endpoint) {
             Client::new(connection.clone()).cookie_header(app, &endpoint)
@@ -671,22 +704,23 @@ async fn check_for_update(app: &App) {
     };
     let updater = match updater_result {
         Ok(updater) => updater,
-        Err(e) => { log::debug!("updater unavailable: {e}"); return; }
+        Err(e) => { report_update(app, "failed", &format!("updater unavailable: {e}")); return; }
     };
     let update = match updater.check().await {
         Ok(Some(update)) => update,
-        Ok(None) => return,
-        Err(e) => { log::debug!("update check: {e}"); return; }
+        Ok(None) => { report_update(app, "current", ""); return; }
+        Err(e) => { report_update(app, "failed", &format!("could not read the update feed: {e}")); return; }
     };
     if let Some(policy) = company_policy.as_ref() {
         if update.download_url.scheme() != "https" || !policy.allows_download(&update.download_url) {
-            log::warn!("company updater artifact is outside the allowed update origin");
+            report_update(app, "failed", "the update file is outside the allowed address");
             return;
         }
     }
     log::info!("update {} available; installing", update.version);
+    report_update(app, "installing", &update.version);
     if let Err(e) = update.download_and_install(|_, _| {}, || {}).await {
-        log::warn!("update failed: {e}");
+        report_update(app, "failed", &format!("install failed: {e}"));
         return;
     }
     app.restart();

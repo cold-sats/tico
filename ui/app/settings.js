@@ -38,7 +38,7 @@ function pageSettings() {
   // it would snap back to the default tab and drop whatever is half typed in a form.
   const built = $('#settings-tabs');
   if (built && built.dataset.role === (S.me?.role || '')) { settingsShow(SETTINGS_TAB); loadSettings(); return; }
-  $('#main').innerHTML = `<div class="meeting-head"><div><h1>Settings</h1></div>${settingsThemeHTML()}</div>
+  $('#main').innerHTML = `<div class="meeting-head"><div><h1>Settings</h1>${settingsVersionHTML()}</div>${settingsThemeHTML()}</div>
     <div id="settings-issues"></div>
     <div class="tabs settings-tabs" id="settings-tabs" data-role="${esc(S.me?.role || '')}" role="tablist" aria-label="Settings">
       ${S.me?.cloud && S.me?.role === 'owner' ? '<button type="button" data-settings-tab="team" role="tab">Team</button>' : ''}
@@ -118,6 +118,12 @@ function pageSettings() {
   $('#settings-more').addEventListener('toggle', event => { if (event.target.open) settingsTabIntoView(event.target.lastElementChild); });
   settingsShow(SETTINGS_TAB);
   loadSettings();
+}
+// The server's version, and the desktop app's own when the page runs inside it (app/src/main.rs bridge_script).
+function settingsVersionHTML() {
+  const parts = [S.config.version && `Version ${esc(nvVersion(S.config.version))}`,
+    window.ticoNativeVersion && `App ${esc(nvVersion(window.ticoNativeVersion))}`].filter(Boolean);
+  return parts.length ? `<p class="settings-version" id="settings-version">${parts.join(' · ')}</p>` : '';
 }
 // Theme: this browser's choice (ui/theme.js); dark when none is saved.
 const SETTINGS_THEMES = [['dark', 'Dark'], ['light', 'Light'], ['system', 'System']];

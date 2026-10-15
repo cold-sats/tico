@@ -22,6 +22,78 @@ function noticeUpdatedServer() {
   bar.hidden = v === LOADED_VERSION && !(build && PAGE_BUILD && build !== PAGE_BUILD);
 }
 document.addEventListener('click', ev => { if (ev.target.closest('#stale-reload')) location.reload(); });
+// The desktop app itself. Its own updater fails silently (a feed behind a sign-in, no build published, a
+// shell too old to report anything), so the page compares the app's version (window.ticoNativeVersion,
+// app/src/main.rs bridge_script) with the server's published build and says so. An app without a version
+// predates that and is out of date by definition. Checked at most hourly; Later hides it for this page.
+const verParts = v => String(v).split(/[-+]/)[0].split('.').map(n => parseInt(n, 10) || 0);
+function verLess(a, b) {
+  const x = verParts(a), y = verParts(b);
+  for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0);
+  return false;
+}
+let appUpdateAt = 0, appUpdateOff = false, appUpdateBusy = false, appUpdateLink = '';
+async function renderAppUpdate() {
+  const bar = $('#app-update'), os = visitorOS();
+  if (!bar || !os || appUpdateOff || appUpdateBusy || !document.body.classList.contains('native') || Date.now() - appUpdateAt < 3600e3) return;
+  appUpdateAt = Date.now();
+  let d = null;
+  try { const r = await fetch('/api/download/' + os, {credentials: 'same-origin'}); d = r.ok ? await r.json() : null; } catch {}
+  if (!d?.available || !d.version || appUpdateOff) return;
+  const mine = window.ticoNativeVersion;
+  if (mine && !verLess(mine, d.version)) { bar.hidden = true; return; }
+  // A link to this same host would open inside the app; only another host (runner, GitHub) opens the browser.
+  appUpdateLink = '';
+  try { const u = new URL(d.url, location.href); if (u.protocol === 'https:' && u.host !== location.host) appUpdateLink = u.href; } catch {}
+  const can = !!mine && (window.ticoNativeFeatures || []).includes('checkForUpdates');
+  $('#app-update-text').textContent = can ? `App ${nvVersion(d.version)} is ready ·`
+    : appUpdateLink ? 'This app is out of date ·' : `This app is out of date. Get ${nvVersion(d.version)} from ${location.host} in a browser.`;
+  $('#app-update-go').hidden = !can;
+  const dl = $('#app-update-dl');
+  dl.hidden = can || !appUpdateLink;
+  if (appUpdateLink) dl.href = appUpdateLink;
+  bar.hidden = false;
+}
+document.addEventListener('click', ev => {
+  if (ev.target.closest('#app-update-later')) { appUpdateOff = true; $('#app-update').hidden = true; return; }
+  if (!ev.target.closest('#app-update-go') || appUpdateBusy) return;
+  appUpdateBusy = true;
+  nativeHandler('checkForUpdates')?.postMessage();
+  $('#app-update-go').hidden = true;
+  $('#app-update-text').textContent = 'Updating · the app restarts when it is done';
+  // The shell reports each step (window.ticoAppUpdate); no word in two minutes is treated as a failure.
+  clearTimeout(appUpdateTimer);
+  appUpdateTimer = setTimeout(() => appUpdateFailed(''), 120e3);
+});
+let appUpdateTimer = 0;
+function appUpdateFailed(detail) {
+  clearTimeout(appUpdateTimer);
+  appUpdateBusy = false;
+  const why = detail ? ` (${detail})` : '';
+  $('#app-update-text').textContent = appUpdateLink ? `The update did not install${why} ·`
+    : `The update did not install${why}. Get the new app from ${location.host} in a browser.`;
+  $('#app-update-go').hidden = true;
+  const dl = $('#app-update-dl');
+  dl.hidden = !appUpdateLink;
+  if (appUpdateLink) dl.href = appUpdateLink;
+  $('#app-update').hidden = false;
+}
+// Called by the shell after every check (app/src/main.rs report_update), whether the page or the timer asked.
+window.ticoAppUpdate = ({state, detail} = {}) => {
+  if (state === 'installing') {
+    clearTimeout(appUpdateTimer);
+    appUpdateTimer = setTimeout(() => appUpdateFailed(''), 300e3);
+    appUpdateBusy = true;
+    $('#app-update-go').hidden = $('#app-update-dl').hidden = true;
+    $('#app-update-text').textContent = `Installing ${nvVersion(detail)} · the app restarts when it is done`;
+    $('#app-update').hidden = false;
+  } else if (state === 'failed' && (appUpdateBusy || !$('#app-update').hidden)) {
+    appUpdateFailed(detail);
+  } else if (state === 'current' && appUpdateBusy) {
+    // The page saw a newer build than the app's own feed offers: the feed is behind.
+    appUpdateFailed('the update feed does not have it yet');
+  }
+};
 // The anonymous usage count (PRIVACY.md): the owner sees this once, and nothing is counted before they have.
 let usageNoticeShown = false;
 function renderUsageNotice() {
