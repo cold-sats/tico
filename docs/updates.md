@@ -67,7 +67,7 @@ health check and automatic rollback described below.
   | State | Meaning |
   |---|---|
   | Up to date | on the server's release, or newer |
-  | Updating | switching now; it takes no new work until it is back on the new release |
+  | Updating | switching now; it takes no new work until the update ends |
   | Needs update | older than the server but still accepted. It updates as soon as no run is going ([how it waits](#a-mac-or-linux-checkout)), or it says why it cannot (pinned, local changes, no updater, no supervisor) next to the last update error |
   | Incompatible (bots paused) | older than the minimum. It takes no work, and says why, instead of failing runs. Its queued work waits and runs after it updates |
   | Release not reported | a computer that predates this, or a development build. It is never paused |
@@ -237,8 +237,8 @@ still runs the side jobs (connectors, Close calls, meeting importers), the catal
 ## A Docker runner
 
 The runner computer's `docker/runner.compose.yaml` has an `updater` sidecar, the same image and code as the server's
-updater (`docker/updater.py`) in runner mode (`TICO_UPDATER_MODE=runner`). The runner waits for a moment when no
-run is going the same way as a checkout (it keeps taking work for 20 minutes, then takes none until every run has
+updater (`docker/updater.py`) in runner mode (`TICO_UPDATER_MODE=runner`). The runner waits until no run is going,
+the same way as a checkout (it keeps taking work for 20 minutes, then takes none until every run has
 ended, and never interrupts one), then asks the sidecar for the release its server names; it pulls `ghcr.io/ticoteam/tico-runner:vX.Y.Z`, replaces `runner.compose.yaml` with the release's copy (same checksum check, rolled back with the image), recreates the runner
 container, waits up to three minutes for the container's health check, and puts the old image back if it does not
 turn healthy. The runner then reports the outcome (`rolled_back`, `failed`) from the sidecar's `/status`, and does not
