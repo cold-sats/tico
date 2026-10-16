@@ -26,7 +26,9 @@ All notable changes to Tico are recorded here. The format follows
 ### Fixed
 - Subtasks a bot files for itself under its own task start in their own sessions and run side by side, up to the
   bot's turn limit, instead of one after another in the parent's lane. A subtask a person or another bot files under
-  the bot's task still continues the parent's session. See [Sessions](docs/sessions.md#subtasks).
+  the bot's task still continues the parent's session, and a bot finishing its last self-filed subtask wakes the
+  parent. A self-filed subtask already open starts its next turn without the parent's checkpoint or worktree, so its
+  description should carry what the bot needs. See [Sessions](docs/sessions.md#subtasks).
 
 ## [0.3.50] - 2026-10-16
 
