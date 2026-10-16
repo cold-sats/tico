@@ -18,6 +18,10 @@ All notable changes to Tico are recorded here. The format follows
   BotOps scorers and the case's checks, and the report lists wins and regressions. Unsigned cases, ones still
   holding a common key or token shape or an email address, and a server that holds the original tasks are refused.
   Run at release preparation, not per pull request.
+- A task's Runs section shows where the work left off (its checkpoint, with who and when), every try with its outcome
+  and what followed it (run again automatically or by a person, resumed, dismissed, or waiting for a person), the
+  subagents each try started with their model, duration and result, and the shells and monitors a Claude run left
+  running in the background.
 - Each computer's Performance page (Settings > Computers > ⋯ > Performance): CPU and memory over the last day, 7 days
   or 14 days, overloads with the bots that were running and the busiest processes, and a Health warning after one.
   On by default; its operator or an admin turns it off or deletes the history. Support diagnostics can include it.
@@ -65,6 +69,10 @@ All notable changes to Tico are recorded here. The format follows
   stores and logs no token. The grant on the computer keeps no secret.
 
 ### Fixed
+- A company's desktop app installs its updates again. The server signed the update download for S3 in an older
+  form (SigV2) that the app refuses to follow, so every company app stayed on the version it was installed with.
+  Downloads are now signed with SigV4 for the bucket's own region. An app already installed picks up the update at
+  its next check, with no reinstall.
 - Subtasks a bot files for itself under its own task start in their own sessions and run side by side, up to the
   bot's turn limit, instead of one after another in the parent's lane. A subtask a person or another bot files under
   the bot's task still continues the parent's session, and a bot finishing its last self-filed subtask wakes the

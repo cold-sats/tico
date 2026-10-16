@@ -231,7 +231,9 @@ class Downloads:
         key = f"{self.prefix}{version}/{name}"
         try:
             _, s3 = self.read_s3("head_object", Bucket=self.bucket, Key=key)
-            return s3.generate_presigned_url("get_object", Params={"Bucket": self.bucket, "Key": key}, ExpiresIn=600)
+            if self._s3 is not None:
+                return s3.generate_presigned_url("get_object", Params={"Bucket": self.bucket, "Key": key}, ExpiresIn=600)
+            return self._s3_source.presign_get(s3, self.bucket, key, 600)
         except Exception:
             return None
 

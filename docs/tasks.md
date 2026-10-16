@@ -135,6 +135,15 @@ out. When a turn on the task starts a fresh session (no saved thread to resume),
 with where the task stood after its last turn. A reply that drew on a private task the task's
 readers cannot read is not kept as a checkpoint.
 
+The task's **Runs** section (`GET /api/v2/tasks/{id}/run-view`) shows that checkpoint ("Where it left off") with its
+author and time, then the task's last 20 attempts, newest first. Each try says its outcome, why it failed or lost its
+lease, and what followed it: run again automatically or by a person, resumed or dismissed with the decision's note, or
+waiting for a person. Under it are the subagents the try started, as a tree with each one's type, model, duration and
+result, and the shells and monitors it ran in the background; one still running is also listed at the top while the
+run is live. Background work is reported by Claude runs; other harnesses show none. Only the file or program a call
+touches is shown, never its arguments. An attempt is left out unless you can read its bot, the conversation it
+answered and every private task it carried; an automatic decision shows the hub's own words, never what the run saved.
+
 Waiting work is not starved: a bot's queued jobs are claimed oldest first (a person's chat message
 still goes ahead), so a newer task never jumps one that has been waiting. Task ranks stay as people
 set them.

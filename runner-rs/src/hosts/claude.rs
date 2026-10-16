@@ -34,6 +34,8 @@ const AUTOCOMPACT_BUFFER: i64 = 33_000;
 const AUTOCOMPACT_RANGE: (i64, i64) = (100_000, 1_000_000);
 /// The tools that start a subagent: `Agent`, called `Task` by older Claude Code.
 const AGENT_TOOLS: &[&str] = &["Agent", "Task"];
+/// The tools whose every call keeps running in the background.
+const BACKGROUND_TOOLS: &[&str] = &["Monitor"];
 pub const RESTORING: &str = "Saved provider session is unavailable; restoring this conversation's context.";
 
 pub fn version_tuple(text: &str) -> Option<(u64, u64, u64)> {
@@ -164,7 +166,7 @@ struct ToolCall {
     parent: Option<String>,
     /// For a subagent's start: what the hub is told about it.
     subagent: Option<Value>,
-    /// A backgrounded subagent's call returns at once; it ends with its `task_notification`.
+    /// A backgrounded call (a subagent, a shell or a monitor) returns at once; it ends with its `task_notification`.
     background: bool,
     ended: bool,
 }
@@ -690,8 +692,9 @@ impl ClaudeHost {
         false
     }
 
-    /// `tool` events from one stream-json line: a call starting (`tool_use`), ending (`tool_result`), or a
-    /// backgrounded subagent finishing (`task_notification`). A subagent's start and end carry `subagent`.
+    /// `tool` events from one stream-json line: a call starting (`tool_use`), moving to the background
+    /// (`task_started`), ending (`tool_result`), or a backgrounded call finishing (`task_notification`). A subagent's
+    /// start and end carry `subagent`; a background call's carry `background`.
     fn on_tools(&self, msg: &Value, tid: &str, turn: &str) {
         let parent = msg["parent_tool_use_id"].as_str().filter(|p| !p.is_empty());
         let blocks = || msg["message"]["content"].as_array().into_iter().flatten();
@@ -708,8 +711,19 @@ impl ClaudeHost {
                 }
             }
             ("system", "task_started") if msg["is_backgrounded"] == true => {
-                if let Some(call) = self.inner().tools.get_mut(msg["tool_use_id"].as_str().unwrap_or_default()) {
-                    call.background = true;
+                let id = msg["tool_use_id"].as_str().unwrap_or_default();
+                let moved = match self.inner().tools.get_mut(id) {
+                    Some(call) if !call.background && !call.ended => {
+                        call.background = true;
+                        Some(call.clone())
+                    }
+                    _ => None,
+                };
+                // A call that did not ask for the background at its start was moved there while it ran.
+                if let Some(call) = moved {
+                    let fields = json!({"tool": call.name, "status": "backgrounded", "item_id": id, "parent_id": call.parent,
+                                        "background": true});
+                    self.emit(event("tool", Some(tid), Some(turn), fields));
                 }
             }
             ("system", "task_notification") => {
@@ -728,6 +742,7 @@ impl ClaudeHost {
         let id = block["id"].as_str().unwrap_or_default();
         let name = block["name"].as_str().filter(|n| !n.is_empty()).unwrap_or("tool");
         let input = &block["input"];
+        let background = input.get("run_in_background") == Some(&Value::Bool(true)) || BACKGROUND_TOOLS.contains(&name);
         let subagent = AGENT_TOOLS.contains(&name).then(|| {
             json!({"id": id, "parent_id": parent, "type": input.get("subagent_type").cloned().unwrap_or(Value::Null),
                    "model": input.get("model").cloned().unwrap_or(Value::Null), "status": "started"})
@@ -737,7 +752,7 @@ impl ClaudeHost {
             if id.is_empty() || inner.tools.contains_key(id) {
                 return; // Claude repeats an assistant message as it grows; a call starts once
             }
-            let call = ToolCall { name: name.into(), parent: parent.map(String::from), subagent: subagent.clone(), background: false, ended: false };
+            let call = ToolCall { name: name.into(), parent: parent.map(String::from), subagent: subagent.clone(), background, ended: false };
             inner.tools.insert(id.into(), call);
         }
         // A tool server's arguments are its own: a `path` or `command` there can carry anything.
@@ -746,6 +761,9 @@ impl ClaudeHost {
         if let Some(s) = subagent {
             fields["subagent"] = s;
         }
+        if background {
+            fields["background"] = json!(true);
+        }
         self.emit(event("tool", Some(tid), Some(turn), fields));
     }
 
@@ -753,7 +771,7 @@ impl ClaudeHost {
         let call = {
             let mut inner = self.inner();
             match inner.tools.get_mut(id) {
-                Some(c) if !c.ended && (notified || !(c.background && c.subagent.is_some())) => {
+                Some(c) if !c.ended && (notified || !c.background) => {
                     c.ended = true;
                     c.clone()
                 }
@@ -761,6 +779,9 @@ impl ClaudeHost {
             }
         };
         let mut fields = json!({"tool": call.name, "status": status, "item_id": id, "parent_id": call.parent});
+        if call.background {
+            fields["background"] = json!(true);
+        }
         if let Some(mut s) = call.subagent {
             s["status"] = json!(status);
             for key in ["tool_uses", "duration_ms"] {

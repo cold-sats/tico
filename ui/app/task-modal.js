@@ -157,6 +157,7 @@ async function taskModalShow(task, d = taskModal(), opts = {}) {
   void taskRailLoad(d, full, detail);
   void taskChatLoad(task.id, d, detail);
   void tfLoad(d, task.id);
+  void taskRunsLoad(d, task.id);
   if (typing) { const box = $('.task-chat textarea', d); box?.focus(); box?.setSelectionRange(box.value.length, box.value.length); }
 }
 // A task's own thread: the full modal showing only its header and its conversation, so what is typed there is plainly
@@ -626,6 +627,7 @@ function hubModalHTML(t, it, opts = {}) {
         ${links.length ? `<div class="tlinks">${links.map(l => `<span class="tlink ${esc(l.kind)} ${esc(l.state || '')}"><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title || l.url)}</a>${l.state && l.state !== 'open' ? ` · ${esc(l.state)}` : ''}${mover ? `<button type="button" class="x" data-drop-link="${esc(l.id)}" aria-label="Remove link">×</button>` : ''}</span>`).join('')}</div>` : ''}
         <form class="inline task-link-add" data-modal-link hidden><input type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://…" aria-label="Add a link"></form></section>
       ${taskSessionsHTML(t)}
+      <section class="tsec task-runs" data-task-runs aria-label="Runs" hidden></section>
       ${t.relations ? taskRelHTML(t) : ''}
       <section class="tsec task-files" data-task-files aria-label="Files" hidden></section>
       </div>
