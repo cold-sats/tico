@@ -66,6 +66,22 @@ def of(c, task_id, bot):
     return H.check_model(c, task_id, bot)
 
 
+def handed(c, attempt_id, task_id, check):
+    """Remember that the claim handed this attempt out on the check's model, for its completion."""
+    from .repositories import save_metadata
+    save_metadata(c, "check-attempt:" + attempt_id, {"task_id": task_id, **dict(check)})
+
+
+def handed_out(c, attempt_id):
+    """(task id, check) the claim handed this attempt out on, or (None, None); forgotten once read."""
+    from .repositories import metadata
+    found = metadata(c, "check-attempt:" + attempt_id)
+    if not found:
+        return None, None
+    c.execute("DELETE FROM registry_metadata WHERE key=?", ("check-attempt:" + attempt_id,))
+    return found.pop("task_id"), found
+
+
 def hold(c, task_id, runtime, until):
     """A usage limit on the check's model holds that check alone until `until`; the bot's own work goes on."""
     from .repositories import save_metadata

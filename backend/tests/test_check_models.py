@@ -140,7 +140,7 @@ def check_filed(api, title="Review PR 701 on Grok"):
 
 
 def test_a_limit_on_the_check_model_holds_the_check_alone_and_the_bot_keeps_working(api, monkeypatch):
-    from backend.execution import cooling_off
+    from backend.execution import cooling_off, last_limit, limit_streak
     machine, parent, sub = check_filed(api)
     check = claim(api, machine)
     assert check["task"]["id"] == sub["id"]
@@ -155,6 +155,7 @@ def test_a_limit_on_the_check_model_holds_the_check_alone_and_the_bot_keeps_work
         status = H.status(c, "ops")
         assert status["state"] != "limited" and not cooling_off(c, "ops"), "Grok's limit is not the bot's"
         assert "grok usage limit on a check" in status["focus"] and "claude" not in status["focus"]
+        assert limit_streak(c, "ops") == 0 and last_limit(c, "ops") is None, "a check's limits are not the bot's"
     person = post(api, "tasks", {"owner": "ops", "title": "Answer the customer", "body": "Reply to the import question."})
     other = claim(api, machine)
     assert other["task"]["id"] == person["id"] and other["config"]["runtime"] == "claude"
@@ -185,3 +186,19 @@ def test_work_under_a_check_continues_the_checks_session_not_the_parents(api):
                                 "relations": [{"task": sub["id"], "kind": "parent"}]})
     with api.app.state.store.read() as c:
         assert H.session_root(c, "ops", below["id"]) == sub["id"]
+
+
+def test_a_check_handed_to_another_bot_mid_turn_still_completes_as_the_check(api):
+    from backend.execution import cooling_off
+    machine, parent, sub = check_filed(api)
+    check = claim(api, machine)
+    assert check["task"]["id"] == sub["id"]
+    post(api, f"attempts/{check['id']}/started", {"thread_id": "grok-handoff"}, machine["token"])
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET owner='bot:coo' WHERE id=?", (sub["id"],))
+    post(api, f"attempts/{check['id']}/complete", {"outcome": "failed", "last_seq": 0, "limited": True, "text": ""},
+         machine["token"])
+    with api.app.state.store.read() as c:
+        assert H.status(c, "ops")["state"] != "limited" and not cooling_off(c, "ops")
+        assert "grok usage limit on a check" in H.status(c, "ops")["focus"]
+        assert not c.execute("SELECT 1 FROM registry_metadata WHERE key LIKE 'check-attempt:%'").fetchone()

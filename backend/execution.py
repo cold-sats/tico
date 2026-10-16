@@ -1090,6 +1090,8 @@ class Execution:
                   (aid, row["id"], row["bot"], who.runner_id, row["generation"], digest(token), until, H.now(), lane))
         c.execute("UPDATE jobs SET state='leased',attempt_id=? WHERE id=?", (aid, row["id"]))
         c.execute("INSERT OR IGNORE INTO attempt_conversations VALUES(?,?)", (aid, conv["id"]))
+        if check:
+            check_models.handed(c, aid, task["id"], check)
         # A bot that names no runtime or model runs on the company default, resolved here the way
         # runners/assignments resolves it: the runner starts exactly what this says.
         config = providers.fill(providers.load(c, self.store.settings), followed)
@@ -1624,8 +1626,8 @@ class Execution:
                     "run": {"job_id": row["job_id"], "attempt_id": aid}, "answers": handled}
             c.execute("UPDATE messages SET refs_json=? WHERE id=?", (encode(refs), reply["id"]))
         # A turn on a check subtask ran on the check's model, not the bot's (backend/check_models.py).
-        check_task = H.message_task_id(msg, conv)
-        check = check_models.of(c, check_task, row["bot"])
+        # Decided by what the claim handed out: a check handed to another bot mid-turn still ran on the check's model.
+        check_task, check = check_models.handed_out(c, aid)
         c.execute("UPDATE attempts SET state=?,finished=?,final_text=?,result_json=? WHERE id=?",
                   (body.outcome, H.now(), body.text,
                    encode({**body.model_dump(), **({"check": check["runtime"]} if check else {})}), aid))

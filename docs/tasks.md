@@ -448,7 +448,8 @@ hub task child <parent-id> --check-model codex:gpt-6.1-sol --title "Check the mi
   parent's.
 - Known limits: readiness is read per computer, not per subscription profile; a check model cannot be removed;
   a provider disabled after filing still runs; a computer that stays signed out of the check's runtime leaves the
-  subtask waiting with no notice.
+  subtask waiting with no notice; a check held by its model's limit waits for the reset even when a person comments
+  on it or presses Try now.
 
 Every task a bot owns has its own room (a `kind: task` conversation), even one filed from a chat: its comments,
 notices, notes and replies go there, and the chat it was filed from gets one quiet line, "Started task: <title>"
