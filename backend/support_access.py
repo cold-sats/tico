@@ -78,8 +78,9 @@ PERSONAL = re.compile(r"/api/v2/(?:tasks/[^/]+/chat|assistant|calendar/upcoming)
 # The one path form the gate reads: no empty, dot or percent-encoded segment, so the gate and the router read the same
 # address.
 PLAIN_PATH = re.compile(r"/api/v2(?:/[A-Za-z0-9_~@+=:-][A-Za-z0-9._~@+=:-]*)+")
-# The app tier reads what an admin reads, except a run's raw provider stream, which may hold what the secret scrub missed.
-APP_READS_REFUSED = re.compile(r"/api/v2/attempts/[^/]+/capture")
+# The app tier reads what an admin reads, except a run's raw provider stream, which may hold what the secret scrub missed,
+# and a model sign-in's link and code: whoever enters the code first chooses the account the computer runs on.
+APP_READS_REFUSED = re.compile(r"/api/v2/(?:attempts/[^/]+/capture|runners/[^/]+/logins(?:/.*)?)")
 # The app tier's only writes: setup. A bot's model, fallback and context size; a computer's runner restart; and asking
 # a computer to read its subscriptions' allowance again. No model sign-in (its code would let support choose the
 # account a computer runs on), approvals, messages, tasks, runs, publishing, spending, people, access or credentials.

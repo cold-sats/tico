@@ -167,6 +167,10 @@ def test_app_access_reads_and_changes_setup_and_nothing_else(environment, hq):
     for path in (f"/api/v2/runners/{computer['runner_id']}/logins", f"/api/v2/runners/{computer['runner_id']}/harness-actions"):
         r = api.post(path, json={"harness": "codex"}, headers=token)
         assert r.status_code == 403 and r.json()["error"]["code"] == "support_access", (path, r.text)
+    # Nor read the link and code of a sign-in the person starts during the session.
+    for path in (f"/api/v2/runners/{computer['runner_id']}/logins/lgn_1", f"/api/v2/runners/{computer['runner_id']}/logins"):
+        r = api.get(path, headers=token)
+        assert r.status_code == 403 and r.json()["error"]["code"] == "support_access", (path, r.text)
     r = api.post(f"/api/v2/runners/{computer['runner_id']}/restart", json={}, headers=token)
     assert r.status_code < 300, r.text
     with api.app.state.store.read() as c:
@@ -200,9 +204,21 @@ def test_full_access_keeps_the_owners_lasting_changes_and_neither_tier_opens_a_p
     for method, path in (("GET", "/api/v2/assistant"), ("GET", "/api/v2/tasks/t1/chat"), ("GET", "/api/v2/calendar/upcoming")):
         r = api.request(method, path, headers=full_token)
         assert r.status_code == 403 and r.json()["error"]["code"] == "support_access", (path, r.text)
-    # The owner's reach, as decided for the full level: a webhook it makes is its owner's call, not refused here.
-    r = api.post("/api/v2/triggers", json={}, headers=full_token)
-    assert not (r.status_code == 403 and r.json()["error"]["code"] == "support_access"), r.text
+    # The owner's reach, as decided for the full level: a webhook it makes, or a computer's model sign-in, is its owner's
+    # call, not refused here.
+    computer = machine(api)
+    for path in ("/api/v2/triggers", f"/api/v2/runners/{computer['runner_id']}/logins"):
+        r = api.post(path, json={}, headers=full_token)
+        assert not (r.status_code == 403 and r.json()["error"]["code"] == "support_access"), (path, r.text)
+
+
+@pytest.mark.parametrize("path", ["/api/v2/me%2Ftokens", "/api/v2/support%2Faccess", "/api/v2/me/tokens%3F",
+                                  "/api/v2/support/access%3Fx", "/api/v2/%73upport/access", "/api/v2/health%3F"])
+def test_an_encoded_address_is_refused_as_sent(environment, hq, path):
+    api = environment()
+    token = bearer(start(api, tier="full").json())
+    r = api.get(path, headers=token)
+    assert r.status_code == 403 and r.json()["error"]["code"] == "support_access", (path, r.status_code, r.text)
 
 
 @pytest.mark.parametrize("path", ["/api/v2//support/access", "/api/v2/./me/tokens", "/api/v2/x/../me/tokens",

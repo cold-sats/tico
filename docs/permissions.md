@@ -184,12 +184,13 @@ against the session again.
 
 - **App only** (`support: app`) reads as an Admin does, except a run's raw provider stream, and writes only the setup routes
   `backend/support_access.py` lists (`APP_WRITES`): a bot's model, fallback and context size; a computer's restart; a
-  subscription allowance read (no model sign-in: its code would let support choose the account a computer runs on). Everything else, approvals, messages, tasks, runs, people, access and
+  subscription allowance read (no model sign-in, and no reading of one's link and code: whoever enters the code first chooses the account a computer
+  runs on). Everything else, approvals, messages, tasks, runs, people, access and
   credentials included, is refused `403 support_access`.
 - **Full access** (`support: full`) has the Owner's rights.
-- Neither makes or sees personal tokens, service keys, agent or SCIM credentials or credential values, signs in or out,
+- Neither makes or sees personal tokens, service keys, agent or SCIM credentials or credential values, signs a person in or out of Tico,
   enrols a computer, transfers ownership, or reaches the support-access routes. Full access otherwise changes what the
-  Owner may, including what outlasts the session (webhooks, credentials, the GitHub App, Slack's tokens, directory sync). It counts as a token, so nothing that needs a
+  Owner may, including what outlasts the session (webhooks, credentials, the GitHub App, Slack's tokens, directory sync, a computer's model sign-in). It counts as a token, so nothing that needs a
   person at their own browser accepts it.
 
 ## A computer's performance

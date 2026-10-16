@@ -125,13 +125,13 @@ start it, it always starts from one of your own open requests, and it ends on it
 2. Choose what support may do:
    - **App only**: what an admin sees (settings, Health, computers, bots, tasks and run history), and changes to setup only: a
      bot's model, fallback and context size; a computer's runner restart; asking a computer to read its subscriptions'
-     allowance again. Support cannot start a model sign-in (its code would let support choose the account a computer runs
-     on), see a credential's value or a raw run stream, approve anything for you, send a message, start or run a task or
+     allowance again. Support cannot start a model sign-in or read the link and code of one you start (whoever enters the
+     code first chooses the account a computer runs on), see a credential's value or a raw run stream, approve anything for you, send a message, start or run a task or
      bot, publish, spend, or change people, access or credentials.
    - **Full access** (the owner only): what the owner can do in Tico. Even then support cannot make or see personal tokens,
-     service keys or credential values, sign anyone in or out, hand the install to someone else, or change these sessions.
-     What it changes the owner's way can outlast Stop, such as a webhook, a credential, the GitHub App, Slack's tokens or
-     directory sync, and it reads what the owner reads, mail and raw run streams included: give it only when you want
+     service keys or credential values, sign a person in or out of Tico, hand the install to someone else, or change these sessions.
+     What it changes the owner's way can outlast Stop, such as a webhook, a credential, the GitHub App, Slack's tokens,
+     directory sync or a computer's model sign-in (which account its AI tool runs on), and it reads what the owner reads, mail and raw run streams included: give it only when you want
      support to have that.
 3. Choose how long: 1 hour, 4 hours, 24 hours (the default), 7 days, or any number of hours up to 30 days. Press **Start**.
 
