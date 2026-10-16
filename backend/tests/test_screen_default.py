@@ -38,10 +38,10 @@ def test_a_new_computer_offering_its_screen_starts_at_view_and_a_persons_choice_
 def test_a_choice_made_before_the_first_offer_stands(api):
     r = runner(api)
     rid = r["runner_id"]
+    heartbeat(api, r, False)
+    post(api, f"computers/{rid}/screen", {"mode": "off"})     # Off is the one mode a computer with no screen takes
     heartbeat(api, r, True)
-    post(api, f"computers/{rid}/screen", {"mode": "control"})
-    restart(api, r)
-    assert mode(api, rid) == "control"
+    assert mode(api, rid) == "off"
 
 
 def test_a_computer_from_before_the_default_keeps_its_screen_off_through_restarts(api):
