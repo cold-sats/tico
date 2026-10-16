@@ -89,3 +89,19 @@ def test_the_cli_says_what_a_mode_change_took_away(monkeypatch, capsys):
     args = Namespace(cmd="bot", fn="bot repos", bot="ops", all=False, own=True, chosen=None)
     assert remotecli.run(args)["mode"] == "own"
     assert capsys.readouterr().err.strip() == "ops no longer has: Acme/product (write), repository creation"
+
+
+def test_only_an_owner_or_admin_lets_a_bot_run_workflows(api, botops, repos):
+    flag = {"full_name": "Acme/product", "access": "write", "run_workflows": True}
+    ana = turn(api, botops, person="ana-test", text="Let ops start the release check")
+    refused = act(api, ana, "PUT", "bots/ops/repositories", {"mode": "chosen", "chosen": [flag]})
+    assert refused.status_code == 403 and "Owner or admin" in refused.text
+    assert effective(api) == [{"full_name": "Acme/product", "access": "write"}]
+    assert put(api, "bots/ops/repositories", {"mode": "chosen", "chosen": [flag]}, token="ana-test")["effective"] == [flag]
+    # BotOps adding a grant leaves the setting as it is; it cannot clear it either.
+    added = act(api, ana, "PUT", "bots/ops/repositories", {"mode": "chosen", "chosen": [
+        {"full_name": "Acme/product", "access": "write"}, {"full_name": "Acme/docs", "access": "read"}]})
+    assert added.status_code == 200, added.text
+    assert flag in effective(api)
+    cleared = act(api, ana, "PUT", "bots/ops/repositories", {"mode": "chosen", "chosen": [{**flag, "run_workflows": False}]})
+    assert cleared.status_code == 403 and flag in effective(api)
