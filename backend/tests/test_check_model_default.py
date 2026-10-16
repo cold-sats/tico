@@ -112,7 +112,7 @@ def test_a_review_for_a_bot_set_to_review_on_the_check_model_runs_there_and_says
     with api.app.state.store.read() as c:
         notices = [r[0] for r in c.execute("SELECT body FROM messages WHERE to_actor='bot:ops' AND kind='notice' "
                                            "AND body LIKE '%Review PR 701%'")]
-    assert len(notices) == 1 and "Review on grok-4.6 done" in notices[0], notices
+    assert len(notices) == 1 and "Review done (ran on grok-4.6)" in notices[0], notices
     review_model("own")
     after = post(api, "tasks", {"owner": "cpo", "title": "Review PR 702", "body": "https://github.com/ticoteam/tico/pull/702",
                                 "relations": [{"task": parent["id"], "kind": "parent"}]})
