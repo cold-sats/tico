@@ -35,8 +35,19 @@ def clip(text, limit):
     return text if len(text) <= limit else text[:limit - 1] + "…"
 
 
+def subagent_kind(p):
+    """A subagent's type ("general-purpose") from a tool event that starts or ends one, else None. Only the type
+    is read: its description and prompt are the call's arguments."""
+    agent = p.get("subagent")
+    if not isinstance(agent, dict):
+        return None
+    words = " ".join(re.sub(r"[^A-Za-z0-9_-]+", " ", str(agent.get("type") or "")).split())
+    return words[:TOOL_LABEL_CHARS] or "agent"
+
+
 def build_steps(rows):
-    """One line per thing the turn did, from its attempt events: (kind, payload, created)."""
+    """One line per thing the turn did, from its attempt events: (kind, payload, created). A subagent is a
+    `subagent` step; a call a subagent made is `nested`."""
     steps, calls, thinking = [], {}, None
     final = next((str(p.get("text") or "") for kind, p, _ in reversed(rows) if kind == "message" and p.get("final")), "")
     for kind, p, at in rows:
@@ -51,10 +62,19 @@ def build_steps(rows):
             name = str(p.get("tool") or p.get("name") or "tool")
             status = str(p.get("status") or p.get("state") or p.get("phase") or "").lower()
             key = p.get("item_id") or name
+            agent = subagent_kind(p)
             if key in calls and status not in TOOL_START:
-                calls.pop(key)["text"] = "" if status in TOOL_QUIET else status
+                step = calls.pop(key)
+                outcome = "" if status in TOOL_QUIET else status
+                step["text"] = f"{agent} · {outcome}" if agent and outcome else agent or outcome
                 continue
-            step = {"kind": "tool", "tool": name, "text": "" if status in TOOL_QUIET | TOOL_START else status, "at": at}
+            text = "" if status in TOOL_QUIET | TOOL_START else status
+            if agent:
+                step = {"kind": "subagent", "tool": "subagent", "text": f"{agent} · {text}" if text else agent, "at": at}
+            else:
+                step = {"kind": "tool", "tool": name, "text": text, "at": at}
+            if p.get("parent_id"):
+                step["nested"] = True
             steps.append(step)
             if status in TOOL_START:
                 calls[key] = step
@@ -112,8 +132,8 @@ def reply_parts(rows):
         elif kind == "tool":
             status = str(payload.get("status") or payload.get("state") or payload.get("phase") or "").lower()
             key = payload.get("item_id")
-            if status in TOOL_ENDED or (key and key in called):
-                continue
+            if status in TOOL_ENDED or (key and key in called) or payload.get("parent_id"):
+                continue  # a subagent's own calls are its work, not the reply's
             called.add(key)
             typing = None
             parts.append({"kind": "tool", "text": tool_label(payload), "at": at})

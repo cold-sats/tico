@@ -21,6 +21,11 @@ All notable changes to Tico are recorded here. The format follows
 - Each computer's Performance page (Settings > Computers > ⋯ > Performance): CPU and memory over the last day, 7 days
   or 14 days, overloads with the bots that were running and the busiest processes, and a Health warning after one.
   On by default; its operator or an admin turns it off or deletes the history. Support diagnostics can include it.
+- A Claude or Codex run's steps now list its tool calls and its subagents. A subagent shows by its type, with the
+  calls it made indented under it. A call is recorded only by the file it touches or the program it runs, and a tool
+  server's call by its name alone; neither a subagent's prompt nor any call's arguments leave the computer. When such
+  a run stops partway without having called a tool, it now resumes plainly instead of being told to check what it
+  already did, because these runs report every call. Runs from an older runner, or that fell back to another provider, keep the cautious resume.
 - Signed webhooks: a trigger in Settings > Triggers can require an HMAC-SHA256 signature of the body (GitHub's
   `X-Hub-Signature-256` or a generic `X-Signature`) under its own signing secret; a call with a bad or missing
   signature is refused with 401 and logged. Each trigger shows its recent calls, accepted and refused.

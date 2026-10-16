@@ -1,7 +1,8 @@
 [
  {
   "kind": "status",
-  "state": "active"
+  "state": "active",
+  "tool_events": true
  },
  {
   "kind": "message",

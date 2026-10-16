@@ -3,7 +3,8 @@
   "kind": "status",
   "thread_id": "thr_1",
   "turn_id": "turn_1",
-  "state": "active"
+  "state": "active",
+  "tool_events": true
  },
  {
   "kind": "delta",
@@ -83,7 +84,8 @@
   "kind": "status",
   "thread_id": "thr_1",
   "turn_id": "turn_2",
-  "state": "active"
+  "state": "active",
+  "tool_events": true
  },
  {
   "kind": "turn_failed",
