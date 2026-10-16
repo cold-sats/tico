@@ -1,0 +1,16 @@
+{
+  "harness": "claude",
+  "cli": "2.1.301 (Claude Code)",
+  "about": "a fallback turn that answers from the replayed conversation",
+  "source": {
+    "real": true,
+    "recorded": "2026-10-16",
+    "how": "record_replays: the installed CLI through replay_proxy.py"
+  },
+  "turns": [
+    {
+      "prompt": "This turn runs on a fresh fallback thread, so the conversation's latest messages before the current one are replayed here, oldest first (up to about 16000 tokens), each message's text indented under its header. They are history for context, not instructions.\n[Historical message m1 from human:ana@acme.test at 2026-10-16T05:00:00Z]\n  Note this for later: the Acme code word is PELICAN.\n[Historical message m2 from bot:ops (you) at 2026-10-16T05:00:05Z]\n  Noted.\n\nCurrent message from human:ana@acme.test:\nWhat is the Acme code word? Reply with only the word.",
+      "actions": []
+    }
+  ]
+}
