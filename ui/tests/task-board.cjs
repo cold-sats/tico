@@ -275,7 +275,7 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     assert.equal(await page.locator('#task-modal .tcomment', {hasText: 'Use the September numbers.'}).locator('[title^="Edited"]').count(), 1);
     assert.match(await page.locator('#task-modal .task-comments').innerText(), /deleted a comment/);
     assert.doesNotMatch(await page.locator('#task-modal .task-comments').innerText(), /changed comment|edited a comment/);
-    assert.equal(await page.getByRole('heading', {name: 'Comments'}).count(), 1);
+    assert.equal(await page.getByRole('heading', {name: 'Conversation'}).count(), 1);
     assert.equal(await page.locator('#task-modal button[data-prop="status"]').count(), 1, 'a mover can change the status');
     assert.equal(await page.locator('#task-modal select').count(), 0, 'properties, not a form of selects');
     assert.equal(await page.locator('#task-modal [data-modal-lane]').count(), 0, 'no lane control');
@@ -302,10 +302,10 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     await page.locator('#task-modal .tdesc a[href="/api/v2/files/doc"]').click();
     await page.locator('#task-modal .tf-tile[data-tf-file="doc"][aria-expanded="true"]').waitFor();
     await page.getByText(/Script one.*Approve the storyboard/s).waitFor();
-    await page.getByRole('textbox', {name: 'Add a comment'}).fill('Add the promo line.');
-    await page.getByRole('button', {name: 'Comment', exact: true}).click();
+    await page.locator('#task-modal').getByRole('textbox', {name: 'Message'}).fill('Add the promo line.');
+    await page.locator('#task-modal').getByRole('button', {name: 'Send', exact: true}).click();
     await page.locator('#task-modal .task-comments .tcomment', {hasText: 'Add the promo line.'}).waitFor();
-    assert.deepEqual(posted.at(-1), {path: '/api/v2/tasks/Draft%20the%20newsletter/comments', body: {text: 'Add the promo line.'}});
+    assert.deepEqual(posted.at(-1), {path: '/api/v2/tasks/Draft%20the%20newsletter/comments', body: {text: 'Add the promo line.', public: false}});
     assert.equal(await page.locator('#task-modal').getByText(/Send to/).count(), 0, 'no chat framing');
     if (screenshotDir) await page.screenshot({path: path.join(screenshotDir, 'task-modal-comments.png')});
     // a tag added from the properties posts the new tag set with the version
@@ -322,7 +322,7 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     // Finishing a request from a bot is one tap: nothing is asked. A comment typed but not sent goes with Done as the
     // result, and leaves the box.
     await page.evaluate(() => taskModalShow(TASKS_ST.tasks.find(t => t.id === 'Approve the budget')));
-    await page.locator('#task-modal').getByRole('textbox', {name: 'Add a comment'}).fill('Keep the budget on hold.');
+    await page.locator('#task-modal').getByRole('textbox', {name: 'Message'}).fill('Keep the budget on hold.');
     // Done is a status like any other: the Status menu, then Done.
     await page.locator('#task-modal [data-prop="status"]').click();
     await page.locator('#task-modal .prop-pop [data-prop-pick="done"]').click();
@@ -343,7 +343,7 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     await page.locator('#task-modal [data-task-props]').waitFor();
     assert.equal(await page.locator('#task-modal [data-prop="tags"], #task-modal [data-prop="parent"]').count(), 0);
     assert.equal(await page.locator('#task-modal [data-prop-row="parent"] .prop-v.ro').count(), 1, 'shown, read-only');
-    assert.equal(await page.getByRole('textbox', {name: 'Add a comment'}).count(), 1);
+    assert.equal(await page.locator('#task-modal').getByRole('textbox', {name: 'Message'}).count(), 1);
     await page.locator('#task-modal [data-modal-close]').click();
     tasks.find(t => t.id === 'Approve the budget').status = 'open';
     await page.evaluate(() => tasksLoad(TASKS_ST));

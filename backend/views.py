@@ -606,10 +606,17 @@ def live_parts(parts):
 
 def conversation_snapshot(c, cid, who=None, settings=None, page_args=None):
     page = privacy.page(c, who, cid, **(page_args or {})) if who else message_page(c, cid)
+    from .chat_goals import current
+    return {**page, "execution": conversation_execution(c, cid, who, settings), "goal": current(c, cid)}
+
+
+def conversation_execution(c, cid, who=None, settings=None, bot=None):
+    """The newest run in this conversation as the chat shows it while it works: its state, a label and its reply so
+    far, or None. `bot` keeps to that bot's runs (a task's page follows its owner's session)."""
     job = c.execute("SELECT j.*,a.state AS attempt_state,a.lease_until,a.stop_requested FROM jobs j JOIN messages m ON m.id=j.message_id "
                     "LEFT JOIN attempts a ON a.id=j.attempt_id WHERE m.conversation_id=? "
                     "AND coalesce(json_extract(m.refs_json,'$.maintenance'),'')!='checkpoint' "
-                    "ORDER BY m.rowid DESC LIMIT 1", (cid,)).fetchone()
+                    + ("AND j.bot=? " if bot else "") + "ORDER BY m.rowid DESC LIMIT 1", (cid, bot) if bot else (cid,)).fetchone()
     execution = None
     if job and who and (not privacy.message_readable(c, privacy.actor(who), H.message(c, job["message_id"]))
                         or job["attempt_id"] and not privacy.attempt_readable(c, privacy.actor(who), job["attempt_id"])):
@@ -650,8 +657,7 @@ def conversation_snapshot(c, cid, who=None, settings=None, page_args=None):
             execution["parts_omitted"] = omitted
         if readiness_reason:
             execution["readiness_reason"] = readiness_reason
-    from .chat_goals import current
-    return {**page, "execution": execution, "goal": current(c, cid)}
+    return execution
 
 
 # What needs a person, in the order they work it. Work that traces back to a person leads: a person asked for it,

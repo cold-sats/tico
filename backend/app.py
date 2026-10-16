@@ -2572,7 +2572,7 @@ def create_app(settings=None):
                                                    + auth.task_sql(c, who) + ") ORDER BY (rank IS NULL), rank, created",
                                                    (tid,)))]
             from .task_review import comment_rights
-            from .views import task_wait
+            from .views import conversation_execution, task_wait
             try:
                 comment_rights(c, auth, who, tid)
                 can_comment = True
@@ -2582,7 +2582,12 @@ def create_app(settings=None):
                     "events": [e for e in H.task_history(c, tid) if privacy.content_readable(c, privacy.actor(who), e)],
                     "can_comment": can_comment,
                     "children": children,
-                    "comments": H.task_comments(c, tid, actor=privacy.actor(request.state.identity)),
+                    # The task page reads as its session's chat: each bot reply carries the run behind it (`run`,
+                    # the steps one click away) and `execution` is the owner's run while it works.
+                    "comments": turn_work.annotate(c, auth, who, H.task_comments(c, tid, actor=privacy.actor(who))),
+                    "execution": conversation_execution(c, row["conversation_id"], who, settings,
+                                                        bot=row["owner"].removeprefix("bot:") if str(row["owner"]).startswith("bot:") else None)
+                                 if row["conversation_id"] else None,
                     "mover": mover(c, request.state.identity),
                     "waiting_for": task_wait(c, tid, settings),
                     "runs": task_runs(c, who, tid),

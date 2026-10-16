@@ -209,7 +209,7 @@ work does not mark it Done. Both statuses appear in the **Done** view; the task 
 the separate completion and closing events.
 
 A person finishes a bot's request in one tap: **Done** asks nothing. A comment typed in the box
-where you press Done (the task's comment box, the note box on a Decide card or the reply box on a
+where you press Done (the task's message box, the note box on a Decide card or the reply box on a
 Needs you card) and not yet sent goes with Done as the outcome; a card's Done never takes one left
 in the task window. Done on several selected tasks at once sends no comment: an unsent one stays in its
 task's box. The bot that asked is told either way, as *<name> marked this done: <title>*, with the
@@ -483,6 +483,16 @@ under it, or `waiting --on <person>`), `done.`, `declined.` or `stuck.`, with th
 or checkpoint. These start no run; the main session reads them the next time something wakes it. The same state is
 not reported twice in a row, and a private task is reported only in a room whose every reader may read it, otherwise
 not at all. A runner from before lanes (`task_lanes_v2`) still reads the whole room.
+
+The task's page shows that room as a chat with the task's session, under **Conversation**, in place of a list of
+comments. The bot's updates and replies are messages, and each reply opens to the steps of the run behind it. What
+people say shows on the right under their names, as in a bot's chat with several people; your own line has no name.
+Changes to status, type, owner and the like are one-line markers between the messages. While the owner's run works, a
+**Working…** line shows its newest step and opens to the steps so far. Whoever manages the bot gets **Stop** beside
+it, the same stop as in the bot's chat (`POST /v2/bots/{slug}/stop`). The box at the foot is the chat's composer, and
+what you type there is a comment: it wakes the bot as before. `GET /v2/tasks/{id}` carries this view: each bot reply in
+`comments` has its `run`, and `execution` is the owner's newest run in the room, shaped as in a conversation snapshot.
+`hub task comment`, `hub_task_comment` and `POST /v2/tasks/{id}/comments` are unchanged.
 
 Tico spot-checks running work. A bot's open or doing task whose own session ran in the last day (or runs now) and
 that has made no progress for 30 minutes (no checkpoint, comment, status change, message from its bot or finished
