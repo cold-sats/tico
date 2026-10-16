@@ -164,6 +164,27 @@ pub fn event(kind: &str, thread: Option<&str>, turn: Option<&str>, fields: Value
     Value::Object(ev)
 }
 
+/// The longest input summary a `tool` event carries. The drive loop scrubs it with the rest of the event.
+pub const TOOL_SUMMARY_CHARS: usize = 120;
+
+/// One line saying what a tool call acts on: the first of its usual target fields (or else its first text
+/// field), clipped.
+pub fn tool_summary(input: &Value) -> String {
+    const KEYS: &[&str] = &["command", "file_path", "path", "pattern", "url", "query", "description", "skill", "prompt"];
+    let text = |v: &Value| v.as_str().filter(|s| !s.trim().is_empty()).map(String::from);
+    let raw = match input {
+        Value::String(s) => s.clone(),
+        Value::Object(m) => KEYS.iter().find_map(|k| m.get(*k).and_then(text)).or_else(|| m.values().find_map(text)).unwrap_or_default(),
+        _ => String::new(),
+    };
+    let line = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    if line.chars().count() <= TOOL_SUMMARY_CHARS {
+        line
+    } else {
+        format!("{}…", line.chars().take(TOOL_SUMMARY_CHARS - 1).collect::<String>())
+    }
+}
+
 /// A way to stop a child process that only one task owns and reaps (`own`). Signals go through that task, so
 /// neither SIGTERM nor the later SIGKILL can reach a pid the system has already handed to another process.
 #[derive(Clone)]

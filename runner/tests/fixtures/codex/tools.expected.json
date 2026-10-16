@@ -1,0 +1,162 @@
+[
+ {
+  "kind": "status",
+  "thread_id": "thr_1",
+  "turn_id": "turn_1",
+  "state": "active",
+  "tool_events": true
+ },
+ {
+  "kind": "tool",
+  "thread_id": "thr_1",
+  "turn_id": "turn_1",
+  "tool": "shell",
+  "status": "started",
+  "item_id": "c1",
+  "parent_id": null,
+  "summary": "cat note.txt"
+ },
+ {
+  "kind": "tool",
+  "thread_id": "thr_1",
+  "turn_id": "turn_1",
+  "tool": "shell",
+  "status": "completed",
+  "item_id": "c1",
+  "parent_id": null
+ },
+ {
+  "kind": "tool",
+  "thread_id": "thr_1",
+  "turn_id": "turn_1",
+  "tool": "mcp__hub__hub_task_show",
+  "status": "started",
+  "item_id": "m1",
+  "parent_id": null,
+  "summary": "acme-1"
+ },
+ {
+  "kind": "tool",
+  "thread_id": "thr_1",
+  "turn_id": "turn_1",
+  "tool": "mcp__hub__hub_task_show",
+  "status": "failed",
+  "item_id": "m1",
+  "parent_id": null
+ },
+ {
+  "kind": "tool",
+  "thread_id": "thr_1",
+  "turn_id": "turn_1",
+  "tool": "apply_patch",
+  "status": "started",
+  "item_id": "f1",
+  "parent_id": null,
+  "summary": "notes/a.md notes/b.md"
+ },
+ {
+  "kind": "tool",
+  "thread_id": "thr_1",
+  "turn_id": "turn_1",
+  "tool": "apply_patch",
+  "status": "declined",
+  "item_id": "f1",
+  "parent_id": null
+ },
+ {
+  "kind": "tool",
+  "thread_id": "thr_1",
+  "turn_id": "turn_1",
+  "tool": "spawnAgent",
+  "status": "started",
+  "item_id": "s1",
+  "parent_id": null,
+  "summary": "Count the words in note.txt"
+ },
+ {
+  "kind": "tool",
+  "thread_id": "thr_1",
+  "turn_id": "turn_1",
+  "tool": "spawnAgent",
+  "status": "completed",
+  "item_id": "s1",
+  "parent_id": null
+ },
+ {
+  "kind": "tool",
+  "thread_id": "thr_1",
+  "turn_id": "turn_1",
+  "tool": "subagent",
+  "status": "started",
+  "item_id": "agent:thr_child",
+  "parent_id": null,
+  "subagent": {
+   "id": "thr_child",
+   "parent_id": null,
+   "type": "/root/counter",
+   "description": null,
+   "model": "gpt-5.5-mini",
+   "status": "started"
+  }
+ },
+ {
+  "kind": "tool",
+  "thread_id": "thr_1",
+  "turn_id": "turn_1",
+  "tool": "shell",
+  "status": "started",
+  "item_id": "c2",
+  "parent_id": "thr_child",
+  "summary": "wc -w note.txt"
+ },
+ {
+  "kind": "tool",
+  "thread_id": "thr_1",
+  "turn_id": "turn_1",
+  "tool": "shell",
+  "status": "completed",
+  "item_id": "c2",
+  "parent_id": "thr_child"
+ },
+ {
+  "kind": "tool",
+  "thread_id": "thr_1",
+  "turn_id": "turn_1",
+  "tool": "subagent",
+  "status": "completed",
+  "item_id": "agent:thr_child",
+  "parent_id": null,
+  "subagent": {
+   "id": "thr_child",
+   "parent_id": null,
+   "type": "/root/counter",
+   "description": null,
+   "model": "gpt-5.5-mini",
+   "status": "completed"
+  }
+ },
+ {
+  "kind": "tool",
+  "thread_id": "thr_1",
+  "turn_id": "turn_1",
+  "tool": "futureTool",
+  "status": "started",
+  "item_id": "x1",
+  "parent_id": null,
+  "summary": ""
+ },
+ {
+  "kind": "message",
+  "thread_id": "thr_1",
+  "turn_id": "turn_1",
+  "text": "One word.",
+  "final": true,
+  "item_id": "msg_1"
+ },
+ {
+  "kind": "turn_completed",
+  "thread_id": "thr_1",
+  "turn_id": "turn_1",
+  "status": "completed"
+ }
+]

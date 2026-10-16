@@ -13,9 +13,9 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::ChildStdin;
 use tokio::sync::oneshot;
 
-use super::{event, failed, hub_mcp_server, is_limit, Events, HostError, Settings};
+use super::{event, failed, hub_mcp_server, is_limit, tool_summary, Events, HostError, Settings};
 use crate::env::Env;
-use crate::util::{iso, log, py_dumps};
+use crate::util::{iso, log, py_dumps, text_of};
 
 const REQUEST_TIMEOUT: u64 = 120;
 const START_TIMEOUT: u64 = 60;
@@ -24,6 +24,31 @@ const ENV_SKIP: &[&str] = &[
 ];
 const ENV_MAX_VALUE: usize = 8000;
 const NOOP_COMMAND: &str = "/usr/bin/true";
+/// Thread items that are not tool calls. Any other item type, including one added later, is reported as a tool,
+/// because an unreported call would let a stopped run look safe to repeat.
+const NOT_TOOLS: &[&str] = &[
+    "userMessage", "hookPrompt", "agentMessage", "functionCallOutput", "plan", "reasoning", "subAgentActivity",
+    "enteredReviewMode", "exitedReviewMode", "contextCompaction", "sleep",
+];
+
+/// A tool item's name and a one-line summary of what it acts on.
+fn tool_of(item: &Value) -> (String, String) {
+    let kind = item["type"].as_str().unwrap_or_default();
+    let named = |key: &str| item[key].as_str().filter(|t| !t.is_empty()).unwrap_or(kind).to_string();
+    match kind {
+        "commandExecution" => ("shell".into(), tool_summary(&item["command"])),
+        "fileChange" => {
+            let paths: Vec<&str> = item["changes"].as_array().into_iter().flatten().filter_map(|c| c["path"].as_str()).collect();
+            ("apply_patch".into(), tool_summary(&json!(paths.join(" "))))
+        }
+        "mcpToolCall" => (format!("mcp__{}__{}", text_of(&item["server"]), text_of(&item["tool"])), tool_summary(&item["arguments"])),
+        "dynamicToolCall" => (named("tool"), tool_summary(&item["arguments"])),
+        "collabAgentToolCall" => (named("tool"), tool_summary(&item["prompt"])),
+        "webSearch" => ("web_search".into(), tool_summary(&item["query"])),
+        "imageView" => ("view_image".into(), tool_summary(&item["path"])),
+        _ => (kind.to_string(), String::new()),
+    }
+}
 
 /// The `set` table for `shell_environment_policy`: the bot's environment, trimmed.
 pub fn env_for_config(env: &Env) -> Map<String, Value> {
@@ -79,6 +104,10 @@ struct Shared {
     active_turn: Mutex<HashMap<String, String>>,
     done_turns: Mutex<HashSet<String>>,
     token_seen: Mutex<HashMap<String, [i64; 3]>>,
+    /// A subagent's thread to the thread that started it: its tool calls are reported on the parent's turn.
+    children: Mutex<HashMap<String, String>>,
+    /// Tool events already sent, by item id and status: a start or end is reported once.
+    tools_sent: Mutex<HashSet<String>>,
 }
 
 #[derive(Clone)]
@@ -100,6 +129,8 @@ impl CodexHost {
             active_turn: Mutex::new(HashMap::new()),
             done_turns: Mutex::new(HashSet::new()),
             token_seen: Mutex::new(HashMap::new()),
+            children: Mutex::new(HashMap::new()),
+            tools_sent: Mutex::new(HashSet::new()),
         }))
     }
 
@@ -251,13 +282,19 @@ impl CodexHost {
                 let started = p["turn"]["id"].as_str().map(String::from);
                 if let (Some(tid), Some(s)) = (&tid, &started) {
                     self.0.active_turn.lock().unwrap().insert(tid.clone(), s.clone());
+                    if !self.0.children.lock().unwrap().contains_key(tid) {
+                        self.0.tools_sent.lock().unwrap().clear();
+                    }
                 }
-                self.emit(event("status", t, started.as_deref(), json!({"state": "active"})));
+                // `tool_events`: this run reports every tool call, so a run with none provably called none.
+                self.emit(event("status", t, started.as_deref(), json!({"state": "active", "tool_events": true})));
             }
             "item/agentMessage/delta" => {
                 self.emit(event("delta", t, u, json!({"text": p["delta"].as_str().unwrap_or_default()})));
             }
+            "item/started" => self.on_item(false, p),
             "item/completed" => {
+                self.on_item(true, p);
                 let item = &p["item"];
                 if item["type"] == "agentMessage" {
                     self.emit(event(
@@ -351,8 +388,75 @@ impl CodexHost {
                 }
             }
             "thread/goal/cleared" => self.emit(event("goal", t, None, json!({"status": "cleared", "note": ""}))),
-            _ => {} // thread/started, hook/*, mcpServer/*, item/started, turn/plan, warnings: nothing to do
+            _ => {} // thread/started, hook/*, mcpServer/*, turn/plan, warnings: nothing to do
         }
+    }
+
+    /// `tool` events for an item starting or completing. A subagent's own items are reported on the turn of
+    /// the thread that started it, with `parent_id` naming the subagent's thread.
+    fn on_item(&self, done: bool, p: &Value) {
+        let item = &p["item"];
+        let kind = item["type"].as_str().unwrap_or_default();
+        let tid = text_of(&p["threadId"]);
+        let parent_thread = self.0.children.lock().unwrap().get(&tid).cloned();
+        let (thread, sub) = match &parent_thread {
+            Some(parent) => (parent.clone(), Some(tid.clone())),
+            None => (tid.clone(), None),
+        };
+        let turn = match &sub {
+            Some(_) => self.0.active_turn.lock().unwrap().get(&thread).cloned(),
+            None => p["turnId"].as_str().map(String::from),
+        };
+        let (t, u) = (Some(thread.as_str()).filter(|t| !t.is_empty()), turn.as_deref());
+        let mut adopt = |child: &str| {
+            if !child.is_empty() && child != thread {
+                self.0.children.lock().unwrap().insert(child.to_string(), thread.clone());
+            }
+        };
+        if kind == "collabAgentToolCall" {
+            item["receiverThreadIds"].as_array().into_iter().flatten().filter_map(Value::as_str).for_each(&mut adopt);
+        }
+        if kind == "subAgentActivity" {
+            let child = text_of(&item["agentThreadId"]);
+            adopt(&child);
+            let status = match item["kind"].as_str().unwrap_or_default() {
+                "started" => "started",
+                "completed" => "completed",
+                "interrupted" => "interrupted",
+                _ => return,
+            };
+            if !self.0.tools_sent.lock().unwrap().insert(format!("agent:{child}:{status}")) {
+                return;
+            }
+            let subagent = json!({"id": child, "parent_id": sub, "type": item.get("agentPath").cloned().unwrap_or(Value::Null),
+                                  "description": Value::Null, "model": item.get("model").cloned().unwrap_or(Value::Null), "status": status});
+            self.emit(event("tool", t, u, json!({"tool": "subagent", "status": status, "item_id": format!("agent:{child}"),
+                                                 "parent_id": sub, "subagent": subagent})));
+            return;
+        }
+        if kind.is_empty() || NOT_TOOLS.contains(&kind) {
+            return;
+        }
+        let id = text_of(&item["id"]);
+        let status = if !done {
+            "started"
+        } else {
+            match item["status"].as_str().unwrap_or_default() {
+                "failed" => "failed",
+                "declined" => "declined",
+                "interrupted" => "interrupted",
+                _ => "completed",
+            }
+        };
+        if !self.0.tools_sent.lock().unwrap().insert(format!("{id}:{status}")) {
+            return;
+        }
+        let (name, summary) = tool_of(item);
+        let mut fields = json!({"tool": name, "status": status, "item_id": id, "parent_id": sub});
+        if !done {
+            fields["summary"] = json!(summary);
+        }
+        self.emit(event("tool", t, u, fields));
     }
 
     /// The tokens one report adds: the first in this process counts `last`, later ones what the total grew by.

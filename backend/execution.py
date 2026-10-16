@@ -193,6 +193,16 @@ def queued_task_sql():
     return "coalesce(" + ",".join(refs) + f",nullif(trim(cv.task_id,{whitespace}),''))"
 
 
+def reports_tools(c, attempt_id, config):
+    """True when an attempt's silence about tools proves it called none: its harness always reports tool calls,
+    or the run itself said it does (a `status` event with `tool_events`, sent by Claude and Codex runners that
+    report each call; an older runner of the same harness does not, and its silence proves nothing)."""
+    if reports_tool_calls(config, config.get('runtime')):
+        return True
+    return c.execute("SELECT 1 FROM attempt_events WHERE attempt_id=? AND kind='status' "
+                     "AND json_extract(payload_json,'$.tool_events') LIMIT 1", (attempt_id,)).fetchone() is not None
+
+
 def limit_streak(c, bot):
     """How many of the bot's latest finished attempts in a row ended on a usage limit (capped
     at LIMIT_STRIKES; a lapsed lease or any other outcome ends the run)."""
@@ -1913,8 +1923,8 @@ class Execution:
           nothing left to deliver, and rows that held bots were often this.
         - **Resume** when the attempt recorded no tool call and consumed no approval: it read,
           it thought, it was cut off. Running it again repeats nothing. This needs a host that
-          reports its tool calls; on claude and codex no `tool` event is ever sent, so silence
-          there is not evidence and the run waits for a person.
+          reports its tool calls (`reports_tools`); a run from a host that does not is silent
+          either way, so it waits for a person.
 
         A run that used tools stays for a person, because the hub cannot see what a tool did on
         the Mac. The runner's own `restore` gets the first STALL_MAX to reclaim a run that is
@@ -1967,7 +1977,7 @@ class Execution:
                 window = (row['started'] or row['created'], row['finished'] or H.now())
                 consumed = c.execute("SELECT count(*) FROM approvals WHERE requested_by=? AND consumed_at IS NOT NULL "
                                      "AND consumed_at BETWEEN ? AND ?", ('bot:' + row['bot'], *window)).fetchone()[0]
-                if reports_tool_calls(declared, declared.get('runtime')) and not tools and not consumed:
+                if reports_tools(c, row['attempt_id'], declared) and not tools and not consumed:
                     note = ("Resumed automatically: the interrupted run recorded no tool call and consumed no "
                             "approval before it stopped, so running it again repeats nothing.")
                 else:
