@@ -293,6 +293,7 @@
       accept(await call('GET', '/support/tickets'));
       if (!page.isConnected) return;
       if (!state.enabled) {
+        page.querySelector('[data-help-support]')?.remove();
         const off = document.createElement('p'); off.className = 'support-off'; off.setAttribute('data-support-off', '');
         off.textContent = 'Contact support is turned off on this Tico server, so requests cannot be sent from here.';
         const actions = page.querySelector('.help-actions');

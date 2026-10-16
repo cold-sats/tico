@@ -93,6 +93,8 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
     assert.ok(laid.rail.left >= laid.page.right - 1, 'Support is the right rail on a wide screen');
     assert.equal(laid.docsShown, false);
     assert.equal(laid.jump, 0);
+    // The overview stays short (about a quarter of the 2,180 characters it once was); the rest is in the docs.
+    assert.ok((await page.locator('#help-page').innerText()).replace(/\s+/g, ' ').length < 650, 'Help overview stays short');
     const form = page.locator('[data-compose]'), box = form.locator('[name=message]');
     const requests = page.locator('[data-requests] .support-item'), help = page.locator('#help-open');
     // No requests yet: a friendly prompt with the composer, no list.
@@ -284,6 +286,7 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
     v = await visit({enabled: false});
     await v.page.waitForSelector('#help-page [data-support-off]');
     assert.match(await v.page.locator('[data-support-off]').innerText(), /turned off/);
+    assert.equal(await v.page.locator('[data-help-support]').count(), 0, 'no pointer to a Support that is off');
     assert.equal(await v.page.locator('#support-rail').count(), 0);
     assert.ok(!v.calls.some(c => c.startsWith('POST')));
     assert.deepEqual(v.errors, []);
