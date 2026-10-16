@@ -92,9 +92,10 @@ Shipped (or Declined). Gather related requesters and public comments on the exis
 problem and draft the spec, public title and public summary separately from internal working notes.
 Never put contact details, internal discussions, attachments or bot work in public text. Propose
 graduation with `hub task question` as a Decide card for the owner or Head of Product; do not decide it
-yourself. After approval, move the roadmap task to Approved and create Engineering tasks as its children,
-routed through Head of Engineering. The server moves it to Building while engineering children are open
-and Shipped when the last is finished; requesters stay on the roadmap task.
+yourself. After approval, move the roadmap task to Approved and create Engineering (or the existing
+Dev tickets type) tasks as its children, routed through Head of Engineering. The server moves it to Building while engineering children are open
+and Shipped when the last is finished and at least one shipped. All declined children return it to
+Approved; with no Engineering children, its manual step stays unchanged. Requesters stay on the roadmap task.
 
 Suggest which requesters a person should follow up with and draft their messages. Never send roadmap
 follow-ups automatically. Sending requires the outbound send switch and a person's explicit request.
