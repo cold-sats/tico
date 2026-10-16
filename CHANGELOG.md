@@ -46,6 +46,16 @@ All notable changes to Tico are recorded here. The format follows
   public `/v1/stats` adds `first_result` (installs that reached a first result) and `first_result_median_days` (the
   median days from first seen to it, over installs that sent the flag from the start; shown from 5 such installs).
   PRIVACY.md lists the field.
+- **Reach Tico support from anywhere** ([support.md](docs/support.md#reach-us-from-anywhere)). **Talk to us** in the
+  sidebar and on the phone's tab bar opens a new Support request, and empty Tasks, Updates and Runs pages and the
+  screen after Create say "Stuck or curious? A person at Tico reads every message." **Report this** on every error
+  toast, failed run, red Health line and stuck bot opens a request with that problem attached as a redacted `report`
+  section of the diagnostics, shown before sending. **Setup check** in Help runs `tico-setup doctor`'s HTTPS, health,
+  sign-in and runner-hostname checks from the server plus Health's failing lines, with a plain fix for each, and can
+  attach the result to a request. When the installer or `tico-setup doctor` fails at a terminal, it asks "Send this to
+  Tico support? [y/N]" and on yes sends the redacted failing checks as a `setup` request, then prints a link where
+  replies show up (a new HQ page, `/support/<ticket>`; the secret stays after the `#`). `--no-support` or
+  `TICO_SUPPORT=off` turns the question off. The Support Agent template now checks HQ tickets every minute.
 - A bot waiting on a linked pull request can end its turn instead of polling: `hub task link <task> <pr url>
   --wake-once` (or `wake_once` on `hub_task_link`) wakes the task once, in its conversation, when the PR's checks
   finish (pass or fail), it is approved or gets changes requested, or a release ships it (or it merges in a

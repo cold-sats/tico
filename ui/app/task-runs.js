@@ -36,6 +36,12 @@ function runShellHTML(s) {
   return `<li><span class="mono">${esc(s.tool)}${s.summary ? ' · ' + esc(s.summary) : ''}</span> <span class="muted">${esc(s.running
     ? 'running · started ' + ago(s.started) : s.status || 'ended')}</span></li>`;
 }
+// A failed try offers Report this: Support opens with the run and its reason attached (ui/support.js).
+function runReportHTML(a) {
+  if (!['failed', 'expired'].includes(a.state) || !window.supportOn?.() || !window.reportThisHTML) return '';
+  return `<p class="truns-report">${window.reportThisHTML({kind: 'run', title: `${a.bot ? a.bot + ' run ' : 'Run '}${runStateWord(a)}${a.reason ? ': ' + a.reason : ''}`,
+    detail: a.reason || '', ref: a.run || '', group: 'run:' + (a.state || '') + ':' + String(a.reason || '').replace(/\d+/g, '#').slice(0, 80)})}</p>`;
+}
 function runAttemptHTML(a, open) {
   const model = ranOn(a.ran_on);
   const took = a.took_s != null ? durationWords(a.took_s) : a.started ? 'for ' + ago(a.started).replace(/ ago$/, '') : '';
@@ -47,7 +53,7 @@ function runAttemptHTML(a, open) {
   const shells = (a.background || []).length ? `<div class="truns-sub"><div class="lbl">Background</div><ul class="truns-list">${a.background.map(runShellHTML).join('')}</ul></div>` : '';
   return `<details class="truns-try${a.state === 'running' || a.state === 'leased' ? ' live' : ''}"${open ? ' open' : ''} data-run="${esc(a.run)}">
     <summary><span>${esc(head)}</span><span class="muted tnum" title="${esc(fmt(a.started || a.created))}">${esc(ago(a.started || a.created))}</span></summary>
-    ${a.reason ? `<p class="truns-reason">${esc(a.reason)}</p>` : ''}${lease ? `<ul class="truns-list truns-lease">${lease}</ul>` : ''}${nxt}
+    ${a.reason ? `<p class="truns-reason">${esc(a.reason)}</p>` : ''}${runReportHTML(a)}${lease ? `<ul class="truns-list truns-lease">${lease}</ul>` : ''}${nxt}
     ${runAgentsHTML(a.subagents || [], model)}${shells}
     ${(a.subagents || []).length || shells || nxt || a.reason ? '' : '<p class="muted truns-empty">No subagents or background work.</p>'}</details>`;
 }

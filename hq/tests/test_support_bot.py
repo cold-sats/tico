@@ -281,3 +281,19 @@ def test_the_person_set_switch_posts_without_a_separate_approval_whatever_bot_ya
     code, text = rig.cli("reply", tid, str(reply))
     assert code == 0 and "posted reply" in text and tid in text
     assert hq.get(f"/v1/support/{tid}", headers=mine).json()["messages"][0]["body"] == reply.read_text().strip()
+
+
+def test_a_setup_ticket_reaches_the_bot_on_the_same_path_marked_as_setup(rig, hq):
+    rig.file("Setup failed: tico setup doctor\n[FAIL] DNS: [company-domain] does not resolve", kind="setup")
+    (task,) = rig.watch()
+    assert task["op"] == "task" and task["title"] == "Support (setup): Setup failed: tico setup doctor"
+    assert "a setup request from the installer" in task["body"] and "request's page the installer linked" in task["body"]
+    # An HQ from before the kind field has it as the first line of the text instead.
+    rig.file("Kind: setup\nSetup failed: install.sh (exit 6)")
+    (task,) = rig.watch()
+    assert task["title"] == "Support (setup): Setup failed: install.sh (exit 6)"
+    # "Want help setting up?" in the app is a setup request too, but its person reads the reply in the app.
+    rig.file("I'd like help setting up Tico.\n\n- Computer online: no", kind="setup")
+    (task,) = rig.watch()
+    assert task["title"] == "Support (setup): I'd like help setting up Tico."
+    assert "a setup request from the installer" not in task["body"] and "in the person's app only" in task["body"]

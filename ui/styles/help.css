@@ -90,4 +90,16 @@
   #main.help-layout .help-docs-first{display:block;margin:10px 2px 16px;font-size:var(--t-base)}
 }
 @media(max-width:760px){.support-write textarea,.support-json{font-size:16px}}
+/* Talk to us and Report this (ui/support.js): a quiet line on empty screens, a link beside what failed. */
+.talk-line{margin:10px 0 0;color:var(--muted);font-size:var(--t-sm)}
+.report-this{font-size:var(--t-sm)}
+.truns-report{margin:4px 0 0}
+.support-report{margin:6px 0 0;font-size:var(--t-sm);color:var(--muted)}
+.support-report strong{color:var(--ink)}
+/* Setup check in Help: the same rows as Health. */
+.help-setup-result:empty{display:none}
+.help-setup-result{margin-top:10px}
+.help-setup-list{list-style:none;margin:8px 0;padding:0;display:grid;gap:6px}
+.help-setup-head{font-weight:600;margin:0}
+.help-setup-fix{color:var(--ink);font-size:var(--t-sm)}
 .help-known-issues ul{margin:0;padding-left:20px;line-height:1.5}.help-ki-none{margin:0 2px;color:var(--muted)}.help-ki-fixed{color:var(--muted);font-size:var(--t-sm)}

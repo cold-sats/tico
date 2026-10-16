@@ -99,11 +99,32 @@ class AppShell(Contract):
     mac: bool = False           # the Mac app, which is Beta until it is signed (backend/beta.py)
 
 
+class CheckRow(Contract):
+    """One Setup check row (backend/setup_check.py)."""
+    name: str = Field(min_length=1, max_length=120)
+    status: Literal["ok", "bad", "warn", "info"]
+    detail: str = Field(default="", max_length=600)
+    fix: str = Field(default="", max_length=1200)
+    source: Literal["doctor", "health"] = "doctor"
+
+
+class Report(Contract):
+    """What a person reports with Report this (an error toast, a failed run, a red Health line, a stuck bot) or from
+    Help's Setup check. `group` names the error the same way each time, so the same problem reads as one."""
+    kind: Literal["toast", "run", "health", "stuck", "setup_check"]
+    title: str = Field(default="", max_length=200)
+    detail: str = Field(default="", max_length=2000)
+    ref: str = Field(default="", max_length=120)        # the run, Health check or bot it is about
+    group: str = Field(default="", max_length=120)
+    checks: list[CheckRow] = Field(default_factory=list, max_length=40)
+
+
 class DiagnosticsCapture(Contract):
     browser: list[BrowserFailure] = Field(default_factory=list, max_length=20)
     app: AppShell | None = None
     # The computers' performance over this many hours (backend/performance.py); 0 leaves it out.
     performance_hours: int = Field(default=24, ge=0, le=336)
+    report: Report | None = None
 
 
 class DiagnosticsEdit(Contract):
@@ -261,12 +282,13 @@ class Support:
                 "install_id": self.census.install_id(), "to": hq_url().split("://", 1)[-1].split("/", 1)[0],
                 "max": MAX_MESSAGE, "diagnostics": True}
 
-    def preview(self, who, app, browser=None, performance_hours=24, shell=None):
+    def preview(self, who, app, browser=None, performance_hours=24, shell=None, report=None):
         """Build the diagnostics bundle and keep it for this person, so the request that files the ticket sends these
         very bytes. Returns its digest and the text the page shows."""
         bundle = diagnostics.build(self.store, self.settings, app.state.auth, who, self.census,
                                    github=getattr(app.state, "github_app", None), performance_hours=performance_hours,
-                                   shell=shell.model_dump() if shell else None)
+                                   shell=shell.model_dump() if shell else None,
+                                   report=report.model_dump() if report else None)
         if browser:
             from pathlib import Path
             ui = Path(__file__).resolve().parent.parent / "ui"
@@ -549,7 +571,16 @@ def install(app, store, settings, census):
     def support_capture_diagnostics(request: Request, body: DiagnosticsCapture):
         who = person(request)
         require_on(settings)
-        return support.preview(who, request.app, body.browser, body.performance_hours, body.app)
+        return support.preview(who, request.app, body.browser, body.performance_hours, body.app, body.report)
+
+    @app.post("/api/v2/support/setup-check")
+    def support_setup_check(request: Request):
+        """Help's Setup check: doctor's checks from this server plus Health's failing lines (backend/setup_check.py).
+        It works with support turned off too; only attaching the result needs support."""
+        from . import onboarding, setup_check
+        who = person(request)
+        return setup_check.run(store, who, settings, request.app.state.auth, getattr(request.app.state, "github_app", None),
+                               lambda c: onboarding.config_view(c, settings, who))
 
     @app.post("/api/v2/support/diagnostics")
     def support_edit_diagnostics(request: Request, body: DiagnosticsEdit):

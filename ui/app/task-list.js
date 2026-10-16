@@ -360,7 +360,7 @@ function taskListRowHTML(it, ctx, depth = 0) {
 }
 function tasksEmptyHTML(state, what) {
   const filtered = tasksActiveFilterCount(state) || state.q;
-  return `<div class="tl-empty">${filtered ? 'No tasks match.' : esc(what)}${filtered ? ' <button type="button" class="linkish" data-clear-filters>Clear filters</button>' : ''}</div>`;
+  return `<div class="tl-empty">${filtered ? 'No tasks match.' : esc(what)}${filtered ? ' <button type="button" class="linkish" data-clear-filters>Clear filters</button>' : ''}${window.talkLineHTML?.() || ''}</div>`;
 }
 function tasksListHTML(items, state) {
   const by = tasksGroupBy(state), done = state.view === 'done';

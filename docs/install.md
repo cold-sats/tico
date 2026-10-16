@@ -289,7 +289,8 @@ Credentials never appear on the command line, in the plan, in logs or in the rep
   Launch it in a public subnet (or fix the route), and Let's Encrypt can then reach it.
 - **A port is in use.** The installer stops before changing anything; free the port or use `--tunnel`.
 - **Check again later:** `cd /opt/tico && sudo ./scripts/tico-setup doctor --domain tico.example.com` re-runs the checks
-  with a fix for each failure.
+  with a fix for each failure. When a check fails, it offers to send the failures to Tico support and prints a link
+  where the reply shows up ([support.md](support.md#reach-us-from-anywhere)); `--no-support` skips the question.
 
 ### Automation
 

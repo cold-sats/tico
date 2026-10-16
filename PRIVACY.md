@@ -219,6 +219,12 @@ with the message and, unless the draft says otherwise, the version and install I
 | `kind` | `setup` when you started from **Want help setting up?**, `feedback` when you answered **How is Tico working for you?**; left out for an ordinary request. |
 | `diagnostics` | Only while "@diagnostics" is ticked: on by default for new requests, off for replies. **Review and edit** shows the exact attachment; edits are validated and redacted again before use. |
 
+**From the installer or `tico-setup doctor`:** when setup fails at a terminal, it asks "Send this to Tico support?
+[y/N]" and sends only on `y`: the failing checks and their fixes, OS, architecture and Tico version, redacted with the
+diagnostics rules and the install's own names, an email only if you type one, and `kind: setup`. No install ID and no
+diagnostics bundle. It prints a link to the request whose secret is in the part after `#`, which browsers do not send to
+HQ. `--no-support` or `TICO_SUPPORT=off` turns the question off.
+
 **What HQ keeps**, per ticket: those fields (the diagnostics with the ticket, to a limit of 256 KB, shown to the Tico team only), a hash of a secret that only your Tico holds (it lets your Tico read this ticket's replies
 and no other), the status (open, answered, closed), the times, the team's replies and any message you write back. No IP address is
 stored or logged, and HQ's access log is off. The address is used in memory to rate limit (5 tickets an hour per address, 10 a day per

@@ -232,6 +232,7 @@ function onbDoneHTML(state) {
   return `<p class="onb-machine" id="onb-machine-status" role="status">${esc(onbMachineStatus(state.record))}</p>
     <div id="onb-bots">${onbBotRowsHTML(state)}</div>
     <div id="onb-after">${frNextHTML(state)}</div>
+    ${window.talkLineHTML?.() || ''}
     <div class="onb-actions"><button class="primary" type="button" id="onb-tasks">Open Tasks</button>
       <span class="spacer"></span><span class="muted" id="onb-status"></span><button class="ghost" type="button" data-setup-help="wizard">Want help setting up?</button></div>`;
 }

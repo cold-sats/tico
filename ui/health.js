@@ -63,8 +63,11 @@ function hlCheckHtml(check) {
   return `<li class="hl-check ${esc(check.status)}" data-hl-check="${esc(check.id)}" data-status="${esc(check.status)}">
     <span class="nav-icon hl-icon" aria-hidden="true">${HL_ICONS[check.status] || HL_ICONS.unknown}</span>
     <div class="hl-main"><strong>${esc(check.label)}</strong><p>${esc(check.summary)}</p>${result}</div>
-    <div class="hl-fixes">${check.fixes.map(hlFixHtml).join('')}${checkButton}</div></li>`;
+    <div class="hl-fixes">${check.fixes.map(hlFixHtml).join('')}${checkButton}${hlReportHtml(check.status === 'bad' && {kind: 'health', title: check.label, detail: check.summary, ref: check.id, group: 'health:' + check.id})}</div></li>`;
 }
+
+// Report this on what is red: Support opens with it attached (ui/support.js), unless this server turned support off.
+const hlReportHtml = report => report && window.supportOn?.() && window.reportThisHTML ? window.reportThisHTML(report) : '';
 
 function hlCredentialFix(source) {
   if (source === 'credentials') return 'Replace the model key in <a href="#/credentials">Credentials</a>';
@@ -134,7 +137,7 @@ async function hlMonitorToggle(box) {
 window.hlStuckHtml = function hlStuckHtml(rows) {
   return (rows || []).map(row => `<li class="hl-stuck" data-stuck="${esc(row.bot)}" data-reason="${esc(row.reason)}">
     <a href="#/bot/${esc(row.bot)}">${esc(row.name)}</a> <span class="muted">${esc(row.why)}${row.reason === 'slow' && row.oldest ? ' · ' + esc(ago(row.oldest)) : ''}${row.queued ? ` · ${row.queued} queued` : ''}</span>
-    ${row.fix ? hlFixHtml(row.fix) : ''}</li>`).join('');
+    ${row.fix ? hlFixHtml(row.fix) : ''}${hlReportHtml({kind: 'stuck', title: `${row.name}: ${row.why}`, detail: row.why, ref: row.bot, group: 'stuck:' + row.reason})}</li>`).join('');
 };
 
 async function hlStuckMove(button) {

@@ -2,6 +2,8 @@
 
     POST   /v1/support                     a person files a ticket, with redacted diagnostics if they chose; the answer is {ticket_id, secret}
     GET    /v1/support/{ticket_id}         that person's app asks for its status and messages (the ticket's secret)
+    GET    /support/{ticket_id}            the same thread as a page, for a person with no app (the installer's link); the
+        secret stays in the link's #fragment, which a browser never sends, and the page asks the JSON route for the thread
     POST   /v1/support/{ticket_id}/messages   the person adds a message to a ticket that is not closed (the secret)
     DELETE /v1/support/{ticket_id}         the person deletes their ticket (the secret)
     GET    /v1/staff/stats                 exact active installs per release, last 7 days (HQ_STAFF_KEY)
@@ -38,6 +40,7 @@ from fastapi import Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
+from . import support_page
 from .limits import Limiter
 
 MAX_MESSAGES = 60                 # a ticket's thread, both sides
@@ -464,6 +467,11 @@ def install(app, tickets, address, staff_key="", judge=None):
         if TICKET_ID.fullmatch(ticket_id) and SECRET.fullmatch(secret):
             found = tickets.for_person(ticket_id, secret)
         return no_store(found) if found else refuse("not_found", 404)
+
+    @app.get("/support/{ticket_id}")
+    def ticket_page(ticket_id: str):
+        # The secret is never in this request: it stays in the link's fragment (support_page.py).
+        return support_page.page() if TICKET_ID.fullmatch(ticket_id) else refuse("not_found", 404)
 
     def secret_of(request, ticket_id):
         secret = request.headers.get("x-ticket-secret") or request.query_params.get("secret") or ""

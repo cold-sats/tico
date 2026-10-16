@@ -6,10 +6,10 @@ import sys
 from . import backup as bk, settings as st
 from .ui import IO, MissingInput
 from .runner_setup import run_runner
-from . import aws as awsmod
+from . import aws as awsmod, support
 from .wizard import Deps, destroy, doctor, run
 
-COMMANDS = ("run", "doctor", "destroy", "runner", "backup-storage")
+COMMANDS = ("run", "doctor", "destroy", "runner", "backup-storage", "support")
 
 
 def parser() -> argparse.ArgumentParser:
@@ -19,7 +19,8 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("command", nargs="?", choices=COMMANDS, default="run",
                    help="run (default): set up the server; runner: add a Linux computer that runs bots; doctor: re-run the checks; "
                         "destroy: remove what setup created on AWS; backup-storage: from a laptop with AWS credentials, create the "
-                        "backup bucket and its key for a server that has none (then install with --backup existing)")
+                        "backup bucket and its key for a server that has none (then install with --backup existing); support: "
+                        "what scripts/install.sh runs when it fails, to offer sending the error to Tico support")
     p.add_argument("--dry-run", action="store_true", help="print the plan and change nothing")
     p.add_argument("--non-interactive", action="store_true", help="never prompt; missing values are errors")
     p.add_argument("--yes", "-y", action="store_true", help="do not ask for confirmation")
@@ -74,6 +75,10 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--compose-ref", default="main", help="git ref to download compose.yaml from when not run inside a checkout")
     p.add_argument("--dns-timeout", type=float, default=20, help="minutes to wait for DNS to go live (default 20)")
     p.add_argument("--skip-dns-wait", action="store_true")
+    p.add_argument("--no-support", action="store_true", help="when a check fails, do not offer to send it to Tico support "
+                   "(TICO_SUPPORT=off does the same)")
+    p.add_argument("--error", help=argparse.SUPPRESS)       # support: the installer's error line
+    p.add_argument("--step", type=int, default=0, help=argparse.SUPPRESS)     # support: the installer's exit code
     return p
 
 
@@ -100,7 +105,7 @@ def main(argv: list[str] | None = None, deps: Deps | None = None, io: IO | None 
     deps = deps or Deps()
     try:
         return {"run": run, "doctor": doctor, "destroy": destroy, "runner": run_runner,
-                "backup-storage": backup_storage}[args.command](args, io, deps)
+                "backup-storage": backup_storage, "support": lambda a, i, _: support.from_installer(a, i)}[args.command](args, io, deps)
     except KeyboardInterrupt:
         io.say("\nInterrupted. Re-run `tico setup`; it resumes.")
         return 130

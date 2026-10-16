@@ -46,6 +46,9 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
         if (p.startsWith('/api/v2/support/')) {
           const rest = p.slice('/api/v2/support/'.length), body = req.postData() ? JSON.parse(req.postData()) : null;
           calls.push(req.method() + ' ' + rest + (body ? ' ' + JSON.stringify(body) : ''));
+          if (rest === 'setup-check') return json({checks: [
+            {name: 'HTTPS certificate', status: 'bad', detail: 'could not connect to tico.acme.example:443', fix: 'Open port 443 to the server.', source: 'doctor'},
+            {name: '/healthz', status: 'ok', detail: 'ok', fix: '', source: 'doctor'}], failing: 1, doctor_only: 'Run tico-setup doctor on the server for the rest.'});
           if (rest === 'setup-snapshot') calls.push('asked from ' + new URL(req.url()).searchParams.get('asked_from'));
           if (rest === 'setup-snapshot') return json({message: "I'd like help setting up Tico.\n\n- Computer online: no", kind: 'setup'});
           if (rest === 'feedback') return json({moment: body.moment, answered: !!body.answer, ticket: null});
@@ -305,6 +308,84 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
     assert.deepEqual(v.errors, []);
     await v.ctx.close();
 
+    // Reach us from anywhere: Talk to us on the phone's tab bar opens Support from another page, ready to write.
+    v = await visit({viewport: {width: 390, height: 844}});
+    await v.page.locator('#support-rail').waitFor();
+    await v.page.evaluate(() => { location.hash = '#/tasks'; });
+    await v.page.waitForFunction(() => !document.querySelector('#support-rail'));
+    await v.page.locator('#mobile-talk').click();
+    await v.page.locator('#support-rail [data-compose] [name=message]').waitFor();
+    assert.equal(await v.page.evaluate(() => location.hash), '#/help');
+    assert.equal(await v.page.evaluate(() => document.activeElement?.name), 'message', 'the message box has the focus');
+    assert.equal(await v.page.locator('[data-report]').count(), 0, 'Talk to us attaches nothing');
+    assert.deepEqual(v.errors, []);
+    await v.ctx.close();
+
+    // Report this on an error toast: a new request with the error named, attached as diagnostics, shown before sending.
+    v = await visit();
+    await v.page.locator('#support-rail').waitFor();
+    await v.page.evaluate(() => toast('Could not save the task "Ship it" (409)', true));
+    await v.page.locator('.toast.err button', {hasText: 'Report this'}).click();
+    await v.page.locator('[data-report]').waitFor();
+    assert.match(await v.page.locator('[data-report]').innerText(), /Attached: Error Could not save the task/);
+    // The message names only the kind: the words on screen go in the redacted attachment, never unredacted in the text.
+    assert.equal(await v.page.locator('[data-compose] [name=message]').inputValue(), 'Error: details attached. ');
+    assert.equal(await v.page.evaluate(() => document.activeElement.selectionStart === document.activeElement.value.length), true, 'the cursor waits after the prefill');
+    assert.match(await v.page.locator('[data-sent]').innerText(), /redacted diagnostics with what you reported/);
+    await v.page.locator('[data-compose] [name=message]').pressSequentially('It happens every time.');
+    await v.page.locator('[data-compose] [name=message]').press('Enter');
+    await v.page.locator('.support-msg.you').waitFor();
+    const reported = JSON.parse(v.calls.find(c => c.startsWith('POST diagnostics/capture')).slice('POST diagnostics/capture '.length)).report;
+    assert.equal(reported.kind, 'toast');
+    assert.equal(reported.title, 'Could not save the task "Ship it" (409)');
+    assert.equal(reported.group, 'toast:Could not save the task "…" (#)', 'numbers and quoted names do not split a group');
+    const sentTicket = JSON.parse(v.calls.find(c => c.startsWith('POST tickets {')).slice('POST tickets '.length));
+    assert.equal(sentTicket.diagnostics, 'c'.repeat(64));
+    assert.equal(sentTicket.message, 'Error: details attached. It happens every time.', 'only what the person saw and typed');
+    // Removing the attachment before sending leaves a plain request.
+    await v.page.evaluate(() => talkToUs({kind: 'run', title: 'Run failed: exit 1'}));
+    assert.equal(await v.page.locator('[data-compose] [name=message]').inputValue(), 'Failed run: details attached. ');
+    // A second report onto an untouched prefill takes its own kind; words the person typed stay.
+    await v.page.locator('[data-compose] [name=message]').fill('Failed run: details attached. Since Monday.');
+    await v.page.evaluate(() => { document.querySelector('[data-compose] [name=message]').dispatchEvent(new Event('input', {bubbles: true})); talkToUs({kind: 'stuck', title: 'finance: no reply'}); });
+    assert.equal(await v.page.locator('[data-compose] [name=message]').inputValue(), 'Stuck bot: details attached. Since Monday.');
+    await v.page.locator('[data-compose] [name=message]').fill('');
+    await v.page.evaluate(() => talkToUs({kind: 'run', title: 'Run failed: exit 1'}));
+    await v.page.locator('[data-unreport]').click();
+    assert.equal(await v.page.locator('[data-report]').count(), 0);
+    assert.equal(await v.page.locator('[data-compose] [name=message]').inputValue(), '', 'no "details attached" with nothing attached');
+    // A red Health line, a stuck bot and a failed run offer Report this; a fine one does not.
+    const offered = await v.page.evaluate(() => ({
+      bad: hlCheckHtml({id: 'computers', label: 'Computers', status: 'bad', summary: 'None online', fixes: []}).includes('data-report-this'),
+      ok: hlCheckHtml({id: 'version', label: 'Version', status: 'ok', summary: 'Current', fixes: []}).includes('data-report-this'),
+      stuck: hlStuckHtml([{bot: 'ops', name: 'Ops', why: 'No computer', reason: 'offline'}]).includes('data-report-this'),
+      failed: runAttemptHTML({run: 'r1', state: 'failed', reason: 'exit 2', try: 1, tries: 1}, true).includes('data-report-this'),
+      done: runAttemptHTML({run: 'r2', state: 'completed', try: 1, tries: 1}, true).includes('data-report-this')}));
+    assert.deepEqual(offered, {bad: true, ok: false, stuck: true, failed: true, done: false});
+    // Setup check: rows with plain fixes, and Send to support attaches them.
+    await v.page.locator('[data-setup-check]').click();
+    await v.page.locator('[data-setup-row="bad"]').waitFor();
+    assert.match(await v.page.locator('.help-setup-head').innerText(), /1 of 2 checks fail/);
+    assert.match(await v.page.locator('[data-setup-row="bad"]').innerText(), /Fix: Open port 443/);
+    assert.equal(await v.page.locator('[data-setup-row="ok"] .help-setup-fix').count(), 0);
+    await v.page.locator('[data-setup-send]').click();
+    await v.page.locator('[data-report]').waitFor();
+    assert.match(await v.page.locator('[data-report]').innerText(), /Setup check/);
+    assert.match(await v.page.locator('[data-sent]').innerText(), /message marked setup/, 'a Setup check goes as a setup request');
+    // Another report in its place, or Remove, gives back the kind the request had before.
+    await v.page.evaluate(() => talkToUs({kind: 'toast', title: 'Could not save'}));
+    assert.doesNotMatch(await v.page.locator('[data-sent]').innerText(), /marked setup/, 'an error report is not a setup request');
+    await v.page.locator('[data-setup-send]').click();
+    await v.page.locator('[data-unreport]').click();
+    assert.doesNotMatch(await v.page.locator('[data-sent]').innerText(), /marked setup/);
+    await v.page.locator('[data-setup-send]').click();
+    await v.page.locator('[data-compose] [data-preview]').click();
+    await v.page.locator('dialog.support-modal [data-use]:not([disabled])').waitFor();
+    const previewed = JSON.parse(v.calls.filter(c => c.startsWith('POST diagnostics/capture')).at(-1).slice('POST diagnostics/capture '.length)).report;
+    assert.deepEqual(previewed.checks.map(c => [c.name, c.status]), [['HTTPS certificate', 'bad'], ['/healthz', 'ok']]);
+    assert.deepEqual(v.errors, []);
+    await v.ctx.close();
+
     // "Want help setting up?" opens a new request that starts from the snapshot, which the person reads and sends as setup.
     v = await visit({seed: [{id: 'sup_0', created: new Date().toISOString(), status: 'open', message: 'Earlier', sent: {}, messages: []}]});
     await v.page.locator('#support-rail').waitFor();
@@ -316,6 +397,10 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
     assert.ok(v.calls.includes('asked from health'));
     assert.match(await v.page.locator('[data-sent]').innerText(), /message marked setup/);
     assert.ok(!v.calls.some(c => c.startsWith('POST tickets {')), 'nothing is sent before the person presses Send');
+    // A Setup check attached and removed again leaves "Want help setting up?" a setup request.
+    await v.page.evaluate(() => talkToUs({kind: 'setup_check', title: '1 of 2 checks fail', checks: []}));
+    await v.page.locator('[data-unreport]').click();
+    assert.match(await v.page.locator('[data-sent]').innerText(), /message marked setup/);
     // A second press keeps the draft as it is: one snapshot, not two.
     await v.page.evaluate(() => document.querySelector('[data-setup-help]').click());
     await v.page.waitForFunction(() => document.querySelector('[data-setup-help]') && !document.querySelector('[data-setup-help]').disabled);
@@ -345,6 +430,11 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
     assert.equal(await v.page.locator('[data-help-support]').count(), 0, 'no pointer to a Support that is off');
     assert.equal(await v.page.locator('#support-rail').count(), 0);
     assert.ok(!v.calls.some(c => c.startsWith('POST')));
+    // With support off, an error toast offers nothing to report to.
+    await v.page.evaluate(() => toast('Could not save', true));
+    assert.equal(await v.page.locator('#talk-to-us').isHidden(), true, 'no Talk to us when support is off');
+    assert.equal(await v.page.locator('#mobile-talk').evaluate(el => el.hidden), true);
+    assert.equal(await v.page.locator('.toast.err button').count(), 0);
     assert.deepEqual(v.errors, []);
     await v.ctx.close();
   } finally {
