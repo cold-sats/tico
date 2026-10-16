@@ -486,6 +486,35 @@ def test_a_held_run_names_its_task_and_owner_only_to_who_may_read_it(api):
     assert all('Archive the old bots' not in i['detail'] for i in held)
 
 
+def test_a_held_run_on_a_private_task_is_not_handed_to_botops(api):
+    """BotOps cannot read private work: neither hand-off is filed; the operator still reviews it."""
+    from backend.store import H
+    with api.app.state.store.transaction() as c:
+        if not H.bot(c, H.FLEET_MAINTAINER):
+            c.execute("INSERT INTO bots(slug, display_name, state) VALUES(?, 'BotOps', 'active')", (H.FLEET_MAINTAINER,))
+    machine = runner(api, 'ana')
+    assign(api, machine, 'ops')
+    ready(api, machine, ['ops'])
+    post(api, 'tasks', {'owner': 'ops', 'title': 'Ana only', 'body': 'Private work.', 'private': True})
+    attempt = claim(api, machine)
+    for run in (attempt, None):
+        if run is None:
+            post(api, f"jobs/{attempt['job_id']}/reconcile", {'attempt_id': attempt['id'], 'decision': 'resume',
+                 'note': 'Nothing happened yet; run it again.', 'acknowledge_uncertain_effects': True})
+            ready(api, machine, ['ops'])
+            run = claim(api, machine)
+        post(api, f"attempts/{run['id']}/started", {'thread_id': 'private'}, machine['token'])
+        post(api, f"attempts/{run['id']}/events", {'events': [
+            {'seq': 1, 'kind': 'tool', 'payload': {'tool': 'Bash', 'status': 'started', 'item_id': 'b1'}}]}, machine['token'])
+        expire(api, run['id'])
+        assert claim(api, machine) is None
+        aged(api, run['id'])
+        sweep(api)
+    assert job_state(api, attempt['job_id']) == 'cancelled'    # stopped twice
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM tasks WHERE owner=?", (H.bot_actor(H.FLEET_MAINTAINER),)).fetchone()[0] == 0
+
+
 def test_a_held_company_task_involving_a_bot_the_reader_cannot_read_stays_unnamed(api, monkeypatch):
     """The same fence as reading the task: Ben reads ops but not legal, so legal's request to ops is not his."""
     from backend.auth import Auth

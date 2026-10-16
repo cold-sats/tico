@@ -53,7 +53,7 @@ All notable changes to Tico are recorded here. The format follows
   only read) now resumes at once, instead of after 15 minutes, in the same session when the same computer picks it
   up, and is told to check what already happened, then continue. A run that used any other tool, such as a shell
   command, a file edit or a hub write, or whose host cannot report its tool calls (an older runner, or a turn that
-  fell back to another provider), is no longer resumed by itself: it stays held, and BotOps is given the review.
+  fell back to another provider), is no longer resumed by itself: it stays held, and BotOps is given the review (not for a private task, which its operator reviews).
   Settings names each held run's task and owner to people who may read that task, and the Stopped runs review lists
   every tool call the run made.
 - Signed webhooks: a trigger in Settings > Triggers can require an HMAC-SHA256 signature of the body (GitHub's

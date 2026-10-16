@@ -214,7 +214,7 @@ that only read) and consumed no approval, is resumed once, each with a note in t
 record (`job.auto_reconcile` in the event log). When the runner itself reported the run interrupted
 (it restarted), such a run resumes at once; when the same computer picks it up again it continues
 the same provider session. Any other run stays *owner review needed*, because Tico cannot see what a
-tool did on the Mac: BotOps is given the review, Settings names the held task and its owner to those
+tool did on the Mac: BotOps is given the review unless the task is private, Settings names the held task and its owner to those
 who may read that task, the review lists each tool call the run made, and the bot's operator or
 BotOps resumes or dismisses it after checking what already happened. Nothing is lost or re-sent.
 While such a review is owed the bot's tasks and routines wait, but a human's own chat
