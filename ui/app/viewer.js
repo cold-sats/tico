@@ -43,9 +43,9 @@ function saveBlob(blob, name) {
 // shown downloads exactly as before.
 const VIEW_KINDS = [[/\.(png|jpe?g|gif|webp|avif|heic|svg)$/i, 'image'], [/\.(mp4|webm|mov|m4v)$/i, 'video'],
   [/\.(mp3|m4a|wav|ogg|aac)$/i, 'audio'], [/\.pdf$/i, 'pdf'], [/\.(md|markdown)$/i, 'markdown'],
-  [/\.csv$/i, 'csv'], [/\.(txt|log|json|ya?ml)$/i, 'text']];
+  [/\.csv$/i, 'csv'], [/\.(txt|log|json|ya?ml)$/i, 'text'], [/\.html?$/i, 'html']];
 const VIEW_TYPES = {image: '', video: 'video/mp4', audio: 'audio/mpeg', pdf: 'application/pdf'};
-const MEDIA_MARK = {video: 'VIDEO', audio: 'AUDIO', pdf: 'PDF', markdown: 'DOC', text: 'TEXT', csv: 'CSV', embed: 'VIDEO'};
+const MEDIA_MARK = {video: 'VIDEO', audio: 'AUDIO', pdf: 'PDF', markdown: 'DOC', text: 'TEXT', csv: 'CSV', embed: 'VIDEO', html: 'HTML'};
 const viewKindOf = name => { for (const [re, kind] of VIEW_KINDS) if (re.test(String(name || '').split(/[?#]/)[0])) return kind; return null; };
 function viewEmbedOf(url) {
   const h = url.hostname.replace(/^www\./, '');
@@ -71,7 +71,8 @@ function viewItemOf(el) {
   const embed = viewEmbedOf(url);
   if (embed) return {src: embed, href: url.href, name: text || url.hostname, kind: 'embed'};
   const kind = viewKindOf(url.pathname);
-  return kind ? {src: url.href, href: url.href, name: text || url.pathname.split('/').pop(), kind} : null;
+  // A web page stays a link: only a Tico file that is HTML opens in the preview.
+  return kind && kind !== 'html' ? {src: url.href, href: url.href, name: text || url.pathname.split('/').pop(), kind} : null;
 }
 // A CSV as a readable table: quoted fields may hold commas, quotes ("") and line breaks. Every cell is
 // set as text, never as HTML. The first CSV_ROWS rows show, the header row stays put while it scrolls.
@@ -110,6 +111,39 @@ function rowsView(rows, max = CSV_ROWS) {
     wrap.append(note);
   }
   return wrap;
+}
+// An HTML file shows as it looks, in a frame that cannot act as the person: no scripts, forms or
+// plugins, its own unique origin (no Tico cookies, storage or page), and nothing fetched from the
+// network, so pictures embedded in the file show and remote ones do not. A link opens in a new tab.
+const HTML_VIEW_LIMIT = 10_000_000;
+const HTML_VIEW_POLICY = "default-src 'none'; img-src data:; media-src data:; style-src 'unsafe-inline' data:; font-src data:";
+function htmlPreviewDoc(raw) {
+  // DOMParser builds an inert document: nothing in it runs or loads while it is rewritten.
+  const doc = new DOMParser().parseFromString(String(raw), 'text/html');
+  for (const m of doc.querySelectorAll('meta[http-equiv]')) if (/^\s*refresh\s*$/i.test(m.getAttribute('http-equiv'))) m.remove();
+  // Every link opens a new tab rather than loading a remote page inside the frame, outside this policy: SVG links
+  // (whose target property is read-only), links in declarative shadow roots (inert templates here) and links in a
+  // nested srcdoc frame (which frame-src does not cover) included.
+  const newTab = root => {
+    for (const a of root.querySelectorAll('a, area')) { a.setAttribute('target', '_blank'); a.setAttribute('rel', 'noopener noreferrer'); }
+    for (const t of root.querySelectorAll('template')) newTab(t.content);
+    for (const f of root.querySelectorAll('iframe[srcdoc], frame[srcdoc]')) f.setAttribute('srcdoc', htmlPreviewDoc(f.getAttribute('srcdoc')));
+  };
+  newTab(doc);
+  const policy = doc.createElement('meta');
+  policy.httpEquiv = 'Content-Security-Policy'; policy.content = HTML_VIEW_POLICY;
+  doc.head.prepend(policy);
+  return (doc.doctype ? '<!DOCTYPE html>' : '') + doc.documentElement.outerHTML;
+}
+function htmlPreviewFrame(raw, title) {
+  const frame = document.createElement('iframe');
+  frame.className = 'html-view';
+  // Set before the frame joins the page, so its first document already runs sandboxed.
+  frame.setAttribute('sandbox', 'allow-popups allow-popups-to-escape-sandbox');
+  frame.referrerPolicy = 'no-referrer';
+  frame.title = title || 'HTML preview';
+  frame.srcdoc = htmlPreviewDoc(raw);
+  return frame;
 }
 const VIEW_FILES = new Map();                 // Tico file id -> Promise<{blob, url, name, kind}>
 function viewFile(id, fallbackName, version = null) {
@@ -210,7 +244,8 @@ async function viewerShow() {
   try { file = await viewFile(item.fileId, item.name, item.version); }
   catch (e) { if (VIEW === state) { d.close(); toast(e.message || 'Could not open the file.', true); } return; }
   const extra = '<button class="ghost" type="button" data-doc-download>Download</button>';
-  if (!file.kind || ((file.kind === 'markdown' || file.kind === 'text') && file.blob.size > DOC_VIEW_LIMIT) || (file.kind === 'csv' && file.blob.size > CSV_LIMIT)) {
+  if (!file.kind || ((file.kind === 'markdown' || file.kind === 'text') && file.blob.size > DOC_VIEW_LIMIT) || (file.kind === 'csv' && file.blob.size > CSV_LIMIT)
+      || (file.kind === 'html' && file.blob.size > HTML_VIEW_LIMIT)) {
     if (VIEW === state && state.items.length === 1) d.close();
     saveBlob(file.blob, file.name);                 // not something to show here: downloads as before
     return;
@@ -219,6 +254,10 @@ async function viewerShow() {
     const text = await file.blob.text();
     paint(file.name, 'csv', '<div data-csv></div>', extra);
     d.querySelector('[data-csv]')?.replaceWith(csvView(text));
+  } else if (file.kind === 'html') {
+    const text = await file.blob.text();
+    paint(file.name, 'html', '<div data-html-view></div>', extra);
+    d.querySelector('[data-html-view]')?.replaceWith(htmlPreviewFrame(text, file.name));
   } else if (file.kind === 'markdown' || file.kind === 'text') {
     const text = await file.blob.text();
     paint(file.name, file.kind, file.kind === 'markdown' ? `<div class="md">${safeMd(text)}</div>` : `<pre class="plain">${esc(text)}</pre>`, extra);

@@ -77,6 +77,8 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
         versions: [version('f-still', 1, {mime: 'image/png', width: 160, height: 90, thumb_url: url('f-still', 1, '/thumb')})]},
       {id: 'f-rows', name: 'shots.csv', mime: 'text/csv', current_version: 1, archived: false, versions: [version('f-rows', 1, {mime: 'text/csv'})]},
       {id: 'f-logo', name: 'logo.svg', mime: 'image/svg+xml', current_version: 1, archived: false, versions: [version('f-logo', 1, {mime: 'image/svg+xml'})]},
+      {id: 'f-page', name: 'page.html', mime: 'text/html', current_version: 1, archived: false, versions: [version('f-page', 1, {mime: 'text/html'})]},
+      {id: 'f-site', name: 'site.html', mime: 'text/html', current_version: 1, archived: false, versions: [version('f-site', 1, {mime: 'text/html', size: 20_000_000})]},
     ];
     const scripts = {1: '# Script\n\nIntro line.\n\nScene one.\nScene two.\n', 2: '# Script\n\nA tighter intro line.\n\nScene one.\nScene two.\nScene three.\n'};
     const csv = 'shot,length\n' + Array.from({length: 260}, (_, i) => `s${i + 1},${i % 7 + 1}s`).join('\n');
@@ -146,6 +148,7 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
           return route.fulfill({contentType: 'image/png', headers: {'Cache-Control': 'private, max-age=31536000, immutable'}, body: id === 'f-still' || (id === 'f-cut' && n === '1') ? AMBER : TEAL});
         }
         if (id === 'f-script' || id === 'f-notes') return route.fulfill({contentType: 'text/markdown', body: scripts[n]});
+        if (id === 'f-page') return route.fulfill({contentType: 'application/octet-stream', body: '<h1>Landing</h1><script>document.body.dataset.ran = "yes"</script>'});
         if (id === 'f-rows') return route.fulfill({contentType: 'text/csv', body: csv});
         if (id === 'f-cut') return new Promise(() => {});        // a video that is still on its way: the poster shows
         return route.fulfill({contentType: 'application/octet-stream', body: 'not a real file'});
@@ -234,7 +237,7 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
     await page.evaluate(() => taskModalShow(TASKS_ST.tasks.find(t => t.id === 't1')));
     const modal = page.locator('#task-modal');
     await modal.locator('.tf-tile[data-tf-file="f-cut"]').waitFor();
-    assert.deepEqual(await modal.locator('.tf-tile .tf-name').allTextContents(), ['cut.mp4', 'script.md', 'frame.png', 'still.png', 'shots.csv', 'logo.svg']);
+    assert.deepEqual(await modal.locator('.tf-tile .tf-name').allTextContents(), ['cut.mp4', 'script.md', 'frame.png', 'still.png', 'shots.csv', 'logo.svg', 'page.html', 'site.html']);
     const cutTile = modal.locator('.tf-tile[data-tf-file="f-cut"]');
     assert.match(await cutTile.locator('.tf-meta').innerText(), /^v3 · \d+h$/);
     assert.equal(await cutTile.locator('.ask-dot').count(), 1, 'a file with an open question has a dot');
@@ -338,6 +341,17 @@ const AMBER = png(160, 90, (x, y) => [220, 110 + (y >> 1), 40 + (x >> 2)]);
     await modal.locator('.tf-tile[data-tf-file="f-logo"]').click();
     assert.equal(await view.locator('.tf-card a[download]').getAttribute('href'), '/api/v2/files/f-logo?v=1');
     assert.equal(await view.locator('img, iframe, object').count(), 0);
+    // HTML: shown as it looks in the sandboxed frame, no script; over the limit, a download card
+    await modal.locator('.tf-tile[data-tf-file="f-page"]').click();
+    const pageFrame = view.locator('.tf-html iframe.html-view');
+    assert.equal(await pageFrame.getAttribute('sandbox'), 'allow-popups allow-popups-to-escape-sandbox');
+    const landing = page.frameLocator('.tf-html iframe.html-view');
+    assert.equal(await landing.locator('h1').innerText(), 'Landing');
+    assert.equal(await landing.locator('body').getAttribute('data-ran'), null);
+    await modal.locator('.tf-tile[data-tf-file="f-site"]').click();
+    assert.equal(await view.locator('.tf-card .tf-glyph').innerText(), 'HTML');
+    assert.equal(await view.locator('.tf-card a[download]').getAttribute('href'), '/api/v2/files/f-site?v=1');
+    assert.equal(await view.locator('iframe').count(), 0);
     // images: full size, ←/→ through the task's images
     await modal.locator('.tf-tile[data-tf-file="f-frame"]').click();
     await view.locator('.tf-media.image.ready').waitFor();
