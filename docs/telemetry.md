@@ -59,7 +59,8 @@ a human sends on purpose, are in two other tables (`tickets`, `ticket_replies`; 
 
 - `GET /v1/latest?install_id=&version=&active_people=&active_bots=&first_result=` records the ping and returns the latest
   release, cached from GitHub for 15 minutes. Any of the four required fields present but invalid, missing or repeated, or
-  `first_result` invalid or repeated: `422`, nothing stored. `first_result` may be left out (a release from before it). No fields: the release only, nothing recorded. Over 60 requests an hour from one address: `429`.
+  `first_result` invalid or repeated: `422`, nothing stored. `first_result` may be left out (a release from before it). No fields: the release only, nothing recorded. Over 60 requests an hour from one address: `429`. The answer also carries Tico's per-version messages and known issues, the same for every install
+  ([tico-hq.md](tico-hq.md#messages-known-issues-and-fixed-in-notices)); nothing more is sent or stored for them.
 - `GET /v1/stats`, public: `tried` (IDs whose two flags have both been true at some time), `active_7d` (heard from in the
   last 7 days), `retained_30d` (first seen at least 30 days ago and a bot active in the last 7 days), `first_result` (IDs that
   have reached a first bot result), `first_result_median_days` (the median days from first seen to first result, over IDs

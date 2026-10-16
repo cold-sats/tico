@@ -8,6 +8,11 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- Tico HQ's update check carries a short message for given versions, shown once to each person in the app, and the known
+  issues by version, which Help lists as **Known issues in your version** (or says it could not check). Nothing more is sent
+  or collected. An install too old to show a message gets its link as the **View changelog** link instead: on 0.2,
+  "You're on 0.2: update to get one-tap support". A request linked to the issue or pull request that fixes it
+  (`hq-tickets link`) gets "Fixed in vX, update here" by itself when the release ships.
 - **Run workflows** on a bot's chosen write repository (Settings, `hub bot repos ... owner/repo:write+actions`, the
   repositories API): an Owner or admin lets the bot start, rerun and cancel GitHub Actions runs there. Those
   repositories get their own token with Actions: write once the GitHub App has Actions set to Read and write and the

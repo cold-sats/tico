@@ -62,6 +62,7 @@ function applyConfig(config) {
   void renderAppUpdate();
   renderUsageNotice();
   betaMark();
+  renderVersionMessage();
   renderFeedbackAsk();
   document.documentElement.classList.toggle('no-support', S.config.support_on === false);
   return S.config;
