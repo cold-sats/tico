@@ -150,6 +150,8 @@ class Stub(BaseHTTPRequestHandler):
         self.seen.append(("POST", self.path, self.headers.get("Authorization"), body))
         if self.path == "/api/v2/tasks/T1":
             return self.reply(200, {"task": {"id": "T1", "status": body.get("status"), "version": 4}})
+        if self.path == "/api/v2/tasks" and body.get("check_model"):
+            return self.reply(200, {"task": {"id": "T2", "owner": body["owner"], "title": body["title"]}})
         if self.path == "/api/v2/bots/writer/tools":
             return self.reply(200, {"ok": True, "dry_run": bool(body.get("dry_run"))})
         if self.path == "/api/v2/approvals":
@@ -188,6 +190,14 @@ class AgainstAStub(unittest.TestCase):
         self.assertEqual(out["status"], "done")
         posted = next(b for m, p, _, b in Stub.seen if m == "POST")
         self.assertEqual((posted["version"], posted["status"], posted["note"]), (3, "done", "shipped"))
+
+    def test_task_child_on_a_check_model_is_the_bots_own_subtask(self):
+        code, out = run_hub("task", "child", "T1", "--check-model", "grok", "--role", "review",
+                            "--title", "Review PR 700", "--body", "https://github.com/ticoteam/tico/pull/700", env=self.env)
+        self.assertEqual(code, 0, out)
+        posted = next(b for m, p, _, b in Stub.seen if m == "POST" and p == "/api/v2/tasks")
+        self.assertEqual((posted["owner"], posted["check_model"], posted["check_role"], posted["relations"]),
+                         ("bot:coo", "grok", "review", [{"task": "T1", "kind": "parent"}]))
 
     def test_tool_add_dry_run_is_checked_by_the_server_not_the_task_dry_run(self):
         code, out = run_hub("tool", "add", "writer", "notion", "--can", "read",

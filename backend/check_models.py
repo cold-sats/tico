@@ -1,0 +1,90 @@
+"""A subtask a bot runs on another model: `hub task child --check-model <runtime>[:<model>] --role review|check`.
+
+The subtask stays the bot's own. Its turns run on the named runtime and model, in a session of their own, and
+read only the subtask's room. Only the runtime, model, harness and effort change: the bot's repository, tools,
+isolation and credentials are its own, so a check never runs with more than the bot has. When the bot finishes
+it, the parent's owner is woken on the parent with the verdict (hubdb._subtask_wake)."""
+from . import hubdb as H
+from . import providers
+from .harnesses import runtime_of
+from .readiness import SIGNED_OUT, can_run
+
+ROLES = ("review", "check")
+
+
+class CheckModelError(ValueError):
+    def __init__(self, code, detail):
+        super().__init__(detail)
+        self.code = code
+
+
+def parse(spec):
+    """(runtime, model) from `<runtime>[:<model>]`; a bare model id names its own runtime."""
+    text = str(spec or "").strip()
+    if not text:
+        raise CheckModelError("check_model", "Name the check model as <runtime> or <runtime>:<model>")
+    runtime, _, model = text.partition(":")
+    runtime, model = runtime.strip(), model.strip()
+    if not model and runtime in providers.MODEL_BY_ID and runtime not in providers.PROVIDER_BY_RUNTIME:
+        return "", runtime
+    return runtime, model
+
+
+def choose(c, settings, bot, spec, role):
+    """The check model a subtask of `bot` may name, or CheckModelError. The company must have the provider
+    on (Settings > AI providers), the model must be current, and the bot's computer must not report that
+    runtime signed out."""
+    if role not in ROLES:
+        raise CheckModelError("role", "Choose --role review or --role check")
+    runtime, model = parse(spec)
+    record = providers.load(c, settings)
+    try:
+        runtime, model = providers.complete_choice(record["enabled"], runtime, model)
+    except providers.ProviderError as exc:
+        raise CheckModelError("check_model", str(exc)) from None
+    if not runtime:
+        raise CheckModelError("check_model", "Enable an AI provider in Settings before naming a check model")
+    row = providers.MODEL_BY_ID.get(model) or {}
+    harnesses = tuple(row.get("harnesses") or (runtime,))
+    harness = next((h for h in harnesses if runtime_of(h) == runtime), harnesses[0])
+    can = can_run(c, bot, runtime, harness=harness, model=model)
+    if can.get("can_run") is False:
+        raise CheckModelError("runner_not_ready", can.get("problem") or f"{runtime} cannot run on this bot's computer")
+    return {"runtime": runtime, "model": model, "harness": harness,
+            "effort": str(row.get("default_effort") or ""), "role": role}
+
+
+def record(c, actor, task_id, check):
+    c.execute("INSERT INTO task_check_models(task_id,runtime,model,harness,effort,role,created_by,created) "
+              "VALUES(?,?,?,?,?,?,?,?)", (task_id, check["runtime"], check["model"], check["harness"],
+                                          check["effort"], check["role"], actor, H.now()))
+    H._task_event(c, task_id, actor, "check_model", None, f"{check['runtime']}:{check['model']}", check["role"])
+
+
+def of(c, task_id):
+    """The task's check model, or None."""
+    return H.check_model(c, task_id)
+
+
+def apply(config, check):
+    """The bot's config for a turn on its check subtask: the check's runtime and model, no fallback to another
+    provider (a check that ran elsewhere would not be the check asked for), and a session of the subtask's own."""
+    if not check:
+        return config
+    out = {k: v for k, v in config.items() if k not in ("fallback_models",)}
+    out.update(runtime=check["runtime"], model=check["model"], harness=check["harness"],
+               fallback={"off": True}, session="task", subtask_session="own")
+    if check["effort"]:
+        out["reasoning_effort"] = check["effort"]
+    else:
+        out.pop("reasoning_effort", None)
+    return out
+
+
+def runs_here(readiness, check):
+    """False when this computer reports the check's runtime signed out. A runtime it has not reported yet is
+    left to the turn, which installs it or fails with the reason, rather than waiting for ever."""
+    state = (readiness.get("runtimes") or {}).get(check["runtime"]) if check else None
+    if not isinstance(state, dict):
+        return True
+    return str(state.get("authenticated") or "unknown") not in SIGNED_OUT

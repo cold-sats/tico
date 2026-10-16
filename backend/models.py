@@ -152,6 +152,9 @@ class TaskCreate(Contract):
     number: TaskNumber | None = None
     # Who else is on the task, by role: {role: [actors]} (backend/task_roles.py).
     roles: dict[str, list[str]] | None = None
+    # A bot's own subtask run on another model, `<runtime>[:<model>]`, as a review or a check (backend/check_models.py).
+    check_model: str | None = Field(default=None, max_length=120)
+    check_role: Literal["review", "check"] | None = None
 
 
 class NoteCreate(Contract):

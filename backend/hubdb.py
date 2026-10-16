@@ -648,6 +648,13 @@ CREATE TABLE IF NOT EXISTS turn_usage_segments (
   PRIMARY KEY(turn_id, position));
 """
 
+# A subtask a bot runs on another model (backend/check_models.py); append to preserve existing installations.
+CHECK_MODELS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS task_check_models (
+  task_id TEXT PRIMARY KEY REFERENCES tasks(id), runtime TEXT NOT NULL, model TEXT NOT NULL,
+  harness TEXT NOT NULL, effort TEXT NOT NULL DEFAULT '', role TEXT NOT NULL, created_by TEXT, created TEXT);
+"""
+
 MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes user_version from i
               MEETING_BRAIN_SCHEMA, MEETING_COMMENTS_SCHEMA,  # to i+1; append, never edit
               GOALS_SCHEMA, RECORDING_SOURCES_SCHEMA, MARKET_SCHEMA,
@@ -656,7 +663,8 @@ MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes us
               STORAGE_SCHEMA, TASK_REVIEW_SCHEMA, MEETING_REVIEW_SCHEMA, NUMBERS_SCHEMA, TASK_PRIVACY_SCHEMA,
               USAGE_SEGMENTS_SCHEMA, KPI_ARCHIVE_SCHEMA, WAITING_ON_SCHEMA,
               LIVE_MEETINGS_SCHEMA, LIVE_MEETINGS_ROUTING_LIMITS_SCHEMA,
-              LIVE_MEETINGS_CHAT_ROUTING_SCHEMA, TASK_RELATIONS_SCHEMA, TRIGGERS_SCHEMA]
+              LIVE_MEETINGS_CHAT_ROUTING_SCHEMA, TASK_RELATIONS_SCHEMA, TRIGGERS_SCHEMA,
+              CHECK_MODELS_SCHEMA]
 
 
 class Refused(Exception):
@@ -3044,8 +3052,9 @@ def session_root(conn, bot, task_id, config=None):
     subtask it filed under its own task (or a person's subtask under it) continues that task's session.
     A parent with another owner, or one whose readers differ, ends the walk: a bot-owned subtask under a
     person's task is its own root, and a session never carries one task's words to people who cannot read it.
-    `subtask_session: own` in the bot's config keeps every subtask its own session (clients/sessions.py)."""
-    if not task_id or (config or {}).get("subtask_session") == "own":
+    `subtask_session: own` in the bot's config keeps every subtask its own session (clients/sessions.py), and a
+    subtask on a check model (backend/check_models.py) is always its own: it reads the subtask, not the parent's thread."""
+    if not task_id or (config or {}).get("subtask_session") == "own" or check_model(conn, task_id):
         return task_id
     root, seen = task_id, {task_id}
     current = _one(conn, "SELECT id,owner,requester,private FROM tasks WHERE id=?", (task_id,))
@@ -3280,13 +3289,23 @@ def _parent_finished(conn, row, previous, actor=None, parent=None, told=None):
             _wake(conn, parent, parent["owner"], "All subtasks done")
 
 
+def check_model(conn, task_id):
+    """The model a bot's check subtask runs on (backend/check_models.py), or None."""
+    if not task_id or not _has_table(conn, "task_check_models"):
+        return None
+    return _one(conn, "SELECT runtime,model,harness,effort,role FROM task_check_models WHERE task_id=?", (task_id,))
+
+
 def _subtask_wake(conn, actor, row, previous, note=None, quiet=False):
     """A person finished, declined or closed a subtask under a bot's open task: wake that bot on the parent,
     where a bot files what it is blocked on (docs/tasks.md), so its turn continues the parent's session
     (session_root). Returns the bot woken, else None; callers leave it out of their own notices on the subtask.
-    A wake still queued for this subtask is not repeated. A quiet update leaves its note out, as on the subtask."""
+    A wake still queued for this subtask is not repeated. A quiet update leaves its note out, as on the subtask.
+    A bot finishing its own check subtask wakes it the same way: the verdict is for the parent's session."""
     terminal = ("done", "closed", "declined")
-    if not is_human(actor) or previous in terminal or row["status"] not in terminal:
+    check = check_model(conn, row["id"])
+    by_checker = bool(check and actor == row["owner"])
+    if not (is_human(actor) or by_checker) or previous in terminal or row["status"] not in terminal:
         return None
     parent = task(conn, TR.parent_of(conn, row["id"]) or "")
     if not parent or not is_bot(parent["owner"]) or parent["status"] in terminal:
@@ -3302,6 +3321,7 @@ def _subtask_wake(conn, actor, row, previous, note=None, quiet=False):
             "AND json_extract(m.refs_json,'$.subtask')=? LIMIT 1", (actor_id(bot), row["id"])):
         return bot
     said = ({"declined": "Subtask declined", "closed": "Subtask closed"}.get(row["status"])
+            or (f"{check['role'].capitalize()} on {check['model']} done: {row['title']}" if by_checker else None)
             or _marked_done(conn, actor, row["title"], "this subtask"))
     # The parent's "All subtasks done" (_parent_finished) rides on this one notice, not a second wake.
     last = "" if children_summary(conn, parent["id"])["open"] else "All subtasks done\n"

@@ -23072,6 +23072,33 @@
               }
             ],
             "title": "Roles"
+          },
+          "check_model": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Check Model"
+          },
+          "check_role": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "review",
+                  "check"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Check Role"
           }
         },
         "additionalProperties": false,

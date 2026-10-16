@@ -7,7 +7,7 @@ import sqlite3
 
 from clients import sessions
 
-from . import inbox_isolation, providers, routines, runner_versions, usage_limits
+from . import check_models, inbox_isolation, providers, routines, runner_versions, usage_limits
 from . import task_privacy as privacy
 from .auth import Identity
 from .batch_work import isolated
@@ -875,7 +875,11 @@ class Execution:
             if not privacy.message_readable(c, "bot:" + row["bot"], message):
                 continue
             conversation = H.conversation(c, message["conversation_id"])
-            if (row["bot"], job_lane(c, row["bot"], followed[row["bot"]], message, conversation, lanes, roots)) in busy:
+            wanted = check_models.of(c, H.message_task_id(message, conversation))
+            if not check_models.runs_here(ready, wanted):
+                continue
+            config = check_models.apply(followed[row["bot"]], wanted)
+            if (row["bot"], job_lane(c, row["bot"], config, message, conversation, lanes, roots)) in busy:
                 continue
             return row
         return None
@@ -1019,6 +1023,9 @@ class Execution:
         from .shared_bots import follow
         followed = follow(c, row["bot"], json.loads(
             c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()[0]))
+        # A check subtask's turns run on its own model, in its own session (backend/check_models.py).
+        check = check_models.of(c, task["id"]) if task else None
+        followed = check_models.apply(followed, check)
         roots, lanes = roots_on(runner), lanes_on(runner)
         lane = job_lane(c, row["bot"], followed, msg, conv, lanes, roots)
         token = secrets.token_urlsafe(32)
@@ -1063,6 +1070,8 @@ class Execution:
                     return False
             from .task_relations import for_prompt
             task = {**task, "relations": for_prompt(c, task["id"], lambda other: bool(other) and readable(other))}
+            if check:
+                task["check"] = {k: check[k] for k in ("runtime", "model", "role")}
             goal = task_goal(c, row["bot"], followed, task)
             if goal:
                 # Worked as a goal: the runner tells the bot to keep at it until the objective holds.
@@ -1097,7 +1106,8 @@ class Execution:
         # turn. The claim holds the write lock and `carried_by` marks each one taken, so two lanes
         # never carry the same task.
         carried = []
-        if getattr(body, "next_run", False):
+        # A check runs on another model for one subtask: the bot's other work waits for its own turns.
+        if getattr(body, "next_run", False) and not check:
             if row["bot"] == "librarian":
                 from .docs import refresh_generated_docs
                 refresh_generated_docs(c)  # Also covers a Librarian enabled after the upgrade.
@@ -1120,7 +1130,7 @@ class Execution:
         # Quiet notes ride the same way: every note waiting for this bot, each with when it was
         # sent, so the run can tell yesterday's from this morning's.
         notes = []
-        if getattr(body, "next_run", False):
+        if getattr(body, "next_run", False) and not check:
             for item in H.notes_waiting(c, row["bot"]):
                 c.execute("UPDATE notes SET carried_by=? WHERE id=?", (aid, item["id"]))
                 notes.append({"id": item["id"], "from": item["from_actor"], "sent": item["created"],
