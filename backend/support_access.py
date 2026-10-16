@@ -73,16 +73,28 @@ ALWAYS_REFUSED = re.compile(r"/api/v2/(?:"
                             r"|triggers/[^/]+/(?:rotate|signing)|access/owner"
                             r"|credentials/[^/]+/reveal|credential-runtime|runner-[a-z-]*credential[a-z-]*(?:/.*)?"
                             r")")
+# Writes refused to both tiers, though the owner may make them: each leaves something in place after Stop that support
+# chose or could read back (a webhook's secret address, a credential, the GitHub App, Slack's tokens, directory sync,
+# a mailbox connection).
+WRITES_REFUSED = re.compile(r"/api/v2/(?:"
+                            r"triggers|triggers/[^/]+/delete"
+                            r"|credentials(?:/.*)?|credential-set|credential-imports(?:/.*)?|credential-requests(?:/.*)?"
+                            r"|github/app/.*|slack/tokens|slack/disconnect|directory|directory/sync"
+                            r"|mail/google/(?:connect|disconnect)"
+                            r")")
+# Pages that open a person's own room or calendar: Tico support has neither, so it gets a plain refusal.
+PERSONAL = re.compile(r"/api/v2/(?:tasks/[^/]+/chat|assistant|calendar/upcoming)")
+# The one path form the gate reads: no empty, dot or percent-encoded segment, so the gate and the router read the same
+# address.
+PLAIN_PATH = re.compile(r"/api/v2(?:/[A-Za-z0-9_~@+=:-][A-Za-z0-9._~@+=:-]*)+")
 # The app tier reads what an admin reads, except a run's raw provider stream, which may hold what the secret scrub missed.
 APP_READS_REFUSED = re.compile(r"/api/v2/attempts/[^/]+/capture")
-# The app tier's only writes: setup. A bot's model, fallback and context size; a computer's runner restart, its AI
-# tools (update, pin, turn one on or off) and starting or cancelling a model sign-in the person finishes; and asking a
-# computer to read its subscriptions' allowance again. No approvals, messages, tasks, runs, publishing, spending,
-# people, access or credentials.
+# The app tier's only writes: setup. A bot's model, fallback and context size; a computer's runner restart; and asking
+# a computer to read its subscriptions' allowance again. No model sign-in (its code would let support choose the
+# account a computer runs on), approvals, messages, tasks, runs, publishing, spending, people, access or credentials.
 APP_WRITES = tuple((method, re.compile(pattern)) for method, pattern in (
     ("POST", r"/api/v2/bots/[^/]+/(?:model|fallback|compact-at)"),
-    ("POST", r"/api/v2/runners/[^/]+/(?:restart|harness-actions|harness-choices|logins)"),
-    ("POST", r"/api/v2/runners/[^/]+/logins/[^/]+/cancel"),
+    ("POST", r"/api/v2/runners/[^/]+/restart"),
     ("POST", r"/api/v2/subscriptions/refresh"),
 ))
 
@@ -161,7 +173,9 @@ def check_live(c, who):
 def gate(who, path, method):
     """What a support identity may reach: refused (403) here before any route runs."""
     method = (method or "").upper()
-    if not path.startswith("/api/v2/") or ALWAYS_REFUSED.fullmatch(path.rstrip("/")):
+    path = path[:-1] if path.endswith("/") else path
+    if (not PLAIN_PATH.fullmatch(path) or ALWAYS_REFUSED.fullmatch(path) or PERSONAL.fullmatch(path)
+            or (method not in ("GET", "HEAD") and WRITES_REFUSED.fullmatch(path))):
         raise Problem("support_access", "Tico support cannot do this.", 403)
     if who.support == "full":
         return
@@ -265,7 +279,7 @@ def _dispatch(app, token, request):
 
 
 def pull_once(app, wait=PULL_WAIT):
-    """One round with HQ: take what it queued, run each, send the answers back. Returns whether the session is still
+    """One round with HQ: take what it queued, run each and send its answer back. Returns whether the session is still
     live (False: the worker stops)."""
     store, settings = app.state.store, app.state.store.settings
     with store.read() as c:
@@ -292,7 +306,8 @@ def pull_once(app, wait=PULL_WAIT):
     if data.get("ended") is True:
         end(store, row, "", "ended_by_hq")
         return False
-    replies = []
+    # Each answer goes back as soon as its request finishes: one slow request then holds up no answer already made,
+    # and no reply body is larger than one capped response.
     for request in (data.get("requests") if isinstance(data.get("requests"), list) else [])[:MAX_BATCH]:
         if not isinstance(request, dict):
             continue
@@ -307,10 +322,9 @@ def pull_once(app, wait=PULL_WAIT):
             c.execute("INSERT INTO support_access_log(session_id,ts,by,method,path,status) VALUES(?,?,?,?,?,?)",
                       (row["id"], H.now(), by, str(request.get("method") or "")[:10].upper(),
                        str(request.get("path") or "")[:500], status))
-        replies.append({"rid": str(request.get("rid") or "")[:80], "status": status, "content_type": content_type,
-                        "body_b64": base64.b64encode(content).decode()})
-    if replies:
-        support._answer(support._ask_hq("POST", base + "/reply", body={"replies": replies}, secret=secret), (200,))
+        reply = {"rid": str(request.get("rid") or "")[:80], "status": status, "content_type": content_type,
+                 "body_b64": base64.b64encode(content).decode()}
+        support._answer(support._ask_hq("POST", base + "/reply", body={"replies": [reply]}, secret=secret), (200,))
     with store.read() as c:
         return bool(live(c, row["id"]))
 

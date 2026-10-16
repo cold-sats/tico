@@ -10,6 +10,7 @@ import pytest
 
 from backend import support, support_access
 from backend.auth import Identity
+from backend.store import Problem
 from backend.tests.test_onboarding import as_person, environment, machine, signed_in  # noqa: F401
 from backend.tests.test_support import FakeHQ
 
@@ -19,7 +20,7 @@ class FakeAccessHQ(FakeHQ):
 
     def __init__(self):
         super().__init__()
-        self.queued, self.replies, self.ended, self.say_ended = [], [], [], False
+        self.queued, self.replies, self.ended, self.say_ended, self.reply_calls = [], [], [], False, 0
 
     def __call__(self, request):
         parts = request.url.path.strip("/").split("/")
@@ -34,6 +35,7 @@ class FakeAccessHQ(FakeHQ):
                 taken, self.queued = self.queued, []
                 return httpx.Response(200, json={"ended": self.say_ended, "requests": taken})
             if parts[5] == "reply":
+                self.reply_calls += 1
                 self.replies.extend(json.loads(request.content)["replies"])
                 return httpx.Response(200, json={"ok": True})
             self.ended.append(parts[4])
@@ -161,6 +163,10 @@ def test_app_access_reads_and_changes_setup_and_nothing_else(environment, hq):
         r = api.request(method, path, json=body, headers=token)
         assert r.status_code == 403 and r.json()["error"]["code"] == "support_access", (path, r.text)
     computer = machine(api)
+    # A model sign-in's code would let support choose the account the computer runs on.
+    for path in (f"/api/v2/runners/{computer['runner_id']}/logins", f"/api/v2/runners/{computer['runner_id']}/harness-actions"):
+        r = api.post(path, json={"harness": "codex"}, headers=token)
+        assert r.status_code == 403 and r.json()["error"]["code"] == "support_access", (path, r.text)
     r = api.post(f"/api/v2/runners/{computer['runner_id']}/restart", json={}, headers=token)
     assert r.status_code < 300, r.text
     with api.app.state.store.read() as c:
@@ -177,6 +183,33 @@ def test_full_access_is_the_owners_reach_but_not_the_session_or_tokens(environme
         assert api.request(method, path, json={}, headers=token).status_code == 403, path
 
 
+@pytest.mark.parametrize("tier", ["app", "full"])
+def test_neither_tier_leaves_anything_behind_after_stop_or_opens_a_personal_page(environment, hq, tier):
+    api = environment()
+    token = bearer(start(api, tier=tier).json())
+    for method, path in (("POST", "/api/v2/triggers"), ("POST", "/api/v2/triggers/trg_1/delete"),
+                         ("POST", "/api/v2/credentials"), ("POST", "/api/v2/credential-set"),
+                         ("POST", "/api/v2/github/app/disconnect"), ("PUT", "/api/v2/slack/tokens"),
+                         ("PUT", "/api/v2/directory"), ("POST", "/api/v2/directory/sync"),
+                         ("POST", "/api/v2/mail/google/connect"), ("GET", "/api/v2/assistant"),
+                         ("GET", "/api/v2/tasks/t1/chat"), ("GET", "/api/v2/calendar/upcoming")):
+        r = api.request(method, path, json={}, headers=token)
+        assert r.status_code == 403 and r.json()["error"]["code"] == "support_access", (method, path, r.text)
+    assert api.get("/api/v2/triggers", headers=token).status_code == 200
+
+
+@pytest.mark.parametrize("path", ["/api/v2//support/access", "/api/v2/./me/tokens", "/api/v2/x/../me/tokens",
+                                  "/api/v2/%73upport/access", "/api/v2/support/access/", "/api/v2/me;x/tokens",
+                                  "/api/v2", "/api/v3/health", ""])
+def test_the_gate_reads_only_the_plain_path_form(path):
+    who = Identity(support_access.SUPPORT_ACTOR, "owner", support="full")
+    with pytest.raises(Problem) as refused:
+        support_access.gate(who, path, "GET")
+    assert refused.value.status == 403 and refused.value.code == "support_access"
+    support_access.gate(who, "/api/v2/health", "GET")
+    support_access.gate(who, "/api/v2/health/", "GET")
+
+
 def test_the_worker_runs_what_hq_carries_as_the_session_and_logs_it(environment, hq):
     api = environment()
     session = start(api, tier="app").json()
@@ -186,6 +219,8 @@ def test_the_worker_runs_what_hq_carries_as_the_session_and_logs_it(environment,
                   "content_type": "application/json", "body_b64": base64.b64encode(b'{"to":"bot:coo"}').decode()},
                  {"rid": "r3", "by": "staff", "method": "GET", "path": "/download/latest.json"}]
     assert support_access.pull_once(api.app) is True
+    # Each answer went back on its own, as soon as its request finished.
+    assert hq.reply_calls == 3
     replies = {r["rid"]: r for r in hq.replies}
     assert replies["r1"]["status"] == 200 and "json" in replies["r1"]["content_type"]
     assert json.loads(base64.b64decode(replies["r1"]["body_b64"]))

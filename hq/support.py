@@ -205,7 +205,9 @@ class Tickets:
         self.staff = Limiter(limit=1200, window=3600, clock=clock)
         self.judged = Limiter(limit=5000, window=86400, clock=clock)          # judge calls a day, all callers: a spend cap
         self.refused = Limiter(limit=20, window=3600, clock=clock)            # wrong staff keys, per address
-        self.access = Limiter(limit=3600, window=3600, clock=clock)           # an install's support-access link (support_access.py)
+        # A support-access link (support_access.py): calls per ticket once its secret is proven, and wrong secrets per address.
+        self.access = Limiter(limit=20000, window=3600, clock=clock)
+        self.access_refused = Limiter(limit=60, window=3600, clock=clock)
 
     # ------------------------------------------------------------------ people
     def create(self, message, email, install_id, version, diagnostics=None, verdict="unchecked", reason="", app_version=None):

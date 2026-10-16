@@ -179,12 +179,14 @@ exists only while its session is live, through a token the server keeps in memor
 against the session again.
 
 - **App only** (`support: app`) reads as an Admin does, except a run's raw provider stream, and writes only the setup routes
-  `backend/support_access.py` lists (`APP_WRITES`): a bot's model, fallback and context size; a computer's restart, AI tools and
-  model sign-in; a subscription allowance read. Everything else, approvals, messages, tasks, runs, people, access and
+  `backend/support_access.py` lists (`APP_WRITES`): a bot's model, fallback and context size; a computer's restart; a
+  subscription allowance read (no model sign-in: its code would let support choose the account a computer runs on). Everything else, approvals, messages, tasks, runs, people, access and
   credentials included, is refused `403 support_access`.
 - **Full access** (`support: full`) has the Owner's rights.
 - Neither makes or sees personal tokens, service keys, agent or SCIM credentials or credential values, signs in or out,
-  enrols a computer, transfers ownership, or reaches the support-access routes. It counts as a token, so nothing that needs a
+  enrols a computer, transfers ownership, or reaches the support-access routes. Neither changes what would stay after
+  the session (`WRITES_REFUSED`): webhook triggers, credentials, the GitHub App, Slack's tokens, directory sync or a
+  mailbox connection. It counts as a token, so nothing that needs a
   person at their own browser accepts it.
 
 ## A computer's performance

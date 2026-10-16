@@ -180,7 +180,9 @@ def install(app, tickets, address, staff_only, sessions=None):
 
     def install_session(request, ticket_id, sid=None):
         """(ticket row, session row) when the caller holds the ticket's secret and, with `sid`, the session is on it."""
-        if not tickets.access.allow(address(request)):
+        # Wrong secrets are limited per address, and a proven link per ticket, so a busy session never locks itself out.
+        who = address(request)
+        if tickets.access_refused.full(who):
             return None, JSONResponse({"error": "rate_limited"}, status_code=429, headers={"Retry-After": "3600"})
         secret = request.headers.get("x-ticket-secret") or ""
         found = None
@@ -188,7 +190,10 @@ def install(app, tickets, address, staff_only, sessions=None):
             with tickets.db.lock:
                 found = tickets._owned(ticket_id, secret)
         if not found:
+            tickets.access_refused.allow(who)
             return None, refuse("not_found", 404)
+        if not tickets.access.allow(ticket_id):
+            return None, JSONResponse({"error": "rate_limited"}, status_code=429, headers={"Retry-After": "3600"})
         if sid is None:
             return (found, None), None
         row = sessions.get(sid, ticket_id) if SESSION.fullmatch(sid) else None
