@@ -1,7 +1,7 @@
 template: product-manager
 slug: product-manager
 name: "Product Manager"
-required: true
+required: false
 bootstrap: false
 group: product
 pack: engineering

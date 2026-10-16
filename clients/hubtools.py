@@ -3356,7 +3356,7 @@ def task_requesters(api, args):
     return api.get(f"tasks/{args['id']}/requesters", **{k: args[k] for k in ('limit', 'offset') if k in args})
 
 
-@tool("hub_task_requester_save", "Record or update a requester on a task. Contact details are unverified and internal only. "
+@tool("hub_task_requester_save", "Record or partially update a requester on a task. Contact details are unverified and internal only. "
       "Omit actor for an external requester; a verified teammate identity determines teammate status. Nothing sends.",
       {"id": TASK_ID, "requester_id": _s("Existing requester id to update; omit to add"),
        "actor": _s("Verified teammate actor; omit for external"), "name": _s("Name"), "email": _s("Email"),
@@ -3378,10 +3378,10 @@ def task_requester_remove(api, args):
 @tool("hub_task_publication_preview", "Build the exact publish approval payload for public task edits or a public comment. "
       "Request a publish approval with this payload, then pass its approved id to the task edit or comment.",
       {"id": TASK_ID, "visibility": _s("Publication", enum=['public', 'private']), "public_title": _s("Title"),
-       "public_summary": _s("Summary"), "comment": _s("Public reply text")}, required=("id",))
+       "public_summary": _s("Summary"), "labels": {"type": "array", "items": {"type": "string"}}, "comment": _s("Public reply text")}, required=("id",))
 def task_publication_preview(api, args):
     return api.post(f"tasks/{args['id']}/publication-preview", {k: args[k] for k in
-                    ('visibility', 'public_title', 'public_summary', 'comment') if k in args}, key=_key(args))
+                    ('visibility', 'public_title', 'public_summary', 'labels', 'comment') if k in args}, key=_key(args))
 
 
 @tool("hub_task_comment_moderate", "Hide, restore or delete a public comment on a task you manage.",
@@ -3399,7 +3399,7 @@ def roadmap_tasks(api, args):
     return api.get('roadmap-tasks', **{k: args[k] for k in ('sort', 'direction', 'limit', 'offset') if k in args})
 
 
-@tool("hub_roadmap_settings", "Read or replace company public roadmap settings. Only owners and admins change them. "
+@tool("hub_roadmap_settings", "Read or partially update company public roadmap settings. Only owners and admins change them. "
       "Labels must already exist. Empty labels disables public roadmaps. Bot public edits need approval by default.",
       {"settings": {"type": "object", "properties": {
            "labels": {"type": "array", "items": {"type": "string"}},

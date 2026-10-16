@@ -1,5 +1,7 @@
 """Default product and engineering pipelines over task steps and parent relations."""
 
+import re
+
 PRODUCT = 'product-roadmap'
 ENGINEERING = 'engineering'
 
@@ -19,6 +21,13 @@ def ensure(c):
             ('Todo', 'open'), ('Doing', 'doing'), ('Waiting', 'waiting'),
             ('In review', 'review'), ('Ready to ship', 'ready'), ('Done', 'closed'), ('Declined', 'declined')]),
     ):
+        if ident == ENGINEERING:
+            dev = next((r for r in c.execute('SELECT id,name FROM task_types ORDER BY id')
+                        if re.fullmatch(r'dev(?:[ -]?tickets?)?', r['name'], re.I)
+                        or re.fullmatch(r'dev(?:[ -]?tickets?)?', r['id'], re.I)), None)
+            if dev:
+                c.execute('UPDATE task_types SET manager=? WHERE id=?', (manager, dev['id']))
+                continue
         existing = c.execute('SELECT id FROM task_types WHERE id=? OR name=? COLLATE NOCASE', (ident, name)).fetchone()
         if existing:
             c.execute('UPDATE task_types SET manager=? WHERE id=?', (manager, existing[0]))
@@ -39,11 +48,14 @@ def sync(c, task_id):
     current = next((s['name'] for s in typ['steps'] if s['id'] == row['step_id']), None)
     if current not in ('Approved', 'Building', 'Shipped'):
         return
-    total, unfinished = c.execute(
-        "SELECT count(*),coalesce(sum(t.status NOT IN ('done','closed','declined')),0) "
+    total, unfinished, shipped = c.execute(
+        "SELECT count(*),coalesce(sum(t.status NOT IN ('done','closed','declined')),0),"
+        "coalesce(sum(t.status IN ('done','closed')),0) "
         "FROM task_relations r JOIN tasks t ON t.id=r.from_task "
-        "WHERE r.to_task=? AND r.kind='parent' AND t.type_id=?", (task_id, managed_type(c, 'engineering-lead'))).fetchone()
-    wanted = 'Building' if unfinished else 'Shipped' if total else 'Approved'
+        "WHERE r.to_task=? AND r.kind='parent' AND t.type_id IN (SELECT id FROM task_types WHERE manager='engineering-lead')", (task_id,)).fetchone()
+    if not total:
+        return
+    wanted = 'Building' if unfinished else 'Shipped' if shipped else 'Approved'
     step = next((s for s in typ['steps'] if s['name'] == wanted), None)
     if not step or current == wanted:
         return

@@ -44,7 +44,7 @@ function taskPipelineTools(state) {
   const other = TASK_TYPES.filter(type => type.id !== 'general' && type.id !== dev?.id && type.id !== product?.id);
   const selected = other.find(type => type.id === state.type);
   const segment = (id, label, disabled = false) => `<button type="button" id="task-type-${esc(id)}" data-task-type="${esc(id)}" aria-pressed="${state.type === id}"${disabled ? ' disabled title="This team has no Dev ticket type"' : ''}>${esc(label)}</button>`;
-  tasksPaint(host, segment('general', 'General') + (product ? segment(product.id, 'Product roadmap') : '') + segment(dev?.id || 'dev', dev?.manager === 'engineering-lead' || dev?.id === 'engineering' ? 'Engineering' : 'Dev tickets', !dev)
+  tasksPaint(host, segment('general', 'General') + (product ? segment(product.id, 'Roadmap') : '') + segment(dev?.id || 'dev', dev?.id === 'engineering' ? 'Engineering' : 'Dev tickets', !dev)
     + `<button type="button" id="task-type-more" aria-haspopup="menu" aria-controls="task-filter-pop" aria-expanded="false" aria-pressed="${!!selected}" aria-label="${esc(selected ? 'Task type: ' + selected.name + '. More task types' : 'More task types')}"${other.length ? '' : ' disabled'}>${selected ? `<span>${esc(selected.name)}</span>` : ''}${TL_ICON.caret}</button>`);
   $('#task-q')?.setAttribute('aria-label', `Search ${pipelineSelectedType(state)?.name || 'General'} tasks`);
 }
@@ -105,23 +105,25 @@ async function taskPipelineCreate(form, selected = '') {
   select.innerHTML = TASK_TYPES.map(type => `<option value="${esc(type.id)}">${esc(type.name)}</option>`).join('');
   select.value = TASK_TYPES.some(type => type.id === selected) ? selected : 'general';
   row.append(select); form.querySelector('label').after(row);
-  const visibility = document.createElement('label'); visibility.textContent = 'Visibility ';
-  const flag = document.createElement('select'); flag.name = 'visibility'; flag.setAttribute('aria-label', 'Visibility');
-  flag.innerHTML = '<option value="private">Private</option><option value="public">Public</option>';
+  const visibility = document.createElement('label'); visibility.className = 'prop-check roadmap-check';
+  const flag = document.createElement('input'); flag.type = 'checkbox'; flag.name = 'public'; flag.setAttribute('aria-label', 'Public');
+  visibility.append(flag, 'Public');
   let ownerTouched = !!form.elements.owner.value && !TASK_TYPES.find(t => t.id === select.value)?.manager;
   form.elements.owner.addEventListener('change', () => { ownerTouched = true; });
   const defaults = () => {
     const type = TASK_TYPES.find(t => t.id === select.value);
-    flag.value = type?.default_visibility || 'private';
+    visibility.hidden = type?.manager !== 'product-manager';
+    flag.checked = type?.default_visibility === 'public' && !form.elements.private?.checked;
+    flag.disabled = !!form.elements.private?.checked;
     const manager = S.emps.find(e => e.name === type?.manager || type?.manager && e.template === type.manager);
     const value = manager && [...form.elements.owner.options].find(o => o.value === manager.name || o.value === 'bot:' + manager.name)?.value;
     if (value && !ownerTouched) form.elements.owner.value = value;
   };
-  select.addEventListener('change', defaults); defaults(); visibility.append(flag); row.after(visibility);
+  select.addEventListener('change', defaults); form.elements.private?.addEventListener('change', defaults); defaults(); row.after(visibility);
 }
 function taskPipelineCreatePayload(form, payload) {
   payload.type = form.elements.type?.value || form.dataset.taskType || 'general';
-  if (form.elements.visibility) payload.visibility = form.elements.visibility.value;
+  if (form.elements.public && !form.elements.public.closest('label').hidden) payload.visibility = form.elements.public.checked ? 'public' : 'private';
 }
 
 function taskTypesSettingsMount() {
@@ -168,7 +170,7 @@ function taskTypeEditor(type = null) {
   const addStep = step => {
     const row = document.createElement('div'); row.className = 'task-step-edit'; row.dataset.stepId = step?.id || '';
     row.innerHTML = `<input required aria-label="Step name" value="${esc(step?.name || '')}" placeholder="Step name">
-      <input aria-label="Public step name" value="${esc(step?.public_name ?? step?.name ?? '')}" placeholder="Public step">
+      <input ${dialog.querySelector('[name=defaultVisibility]').value === 'public' ? '' : 'hidden'} aria-label="Public step name" value="${esc(step?.public_name ?? step?.name ?? '')}" placeholder="Public step">
       <select aria-label="Step status">${PIPELINE_STATUSES.map(status => `<option value="${status}"${step?.status === status ? ' selected' : ''}>${esc(STATUS_WORD[status] || status)}</option>`).join('')}</select>
       <button class="ghost" type="button" data-up aria-label="Move step up">↑</button><button class="ghost" type="button" data-down aria-label="Move step down">↓</button>
       <button class="ghost danger" type="button" data-remove aria-label="Remove step">×</button>`;
@@ -178,6 +180,7 @@ function taskTypeEditor(type = null) {
     rows.append(row);
   };
   (type?.steps || [{name: 'Open', status: 'open'}]).forEach(addStep);
+  dialog.querySelector('[name=defaultVisibility]').onchange = ev => rows.querySelectorAll('[aria-label="Public step name"]').forEach(input => input.hidden = ev.target.value !== 'public');
   dialog.querySelector('[data-add-step]').onclick = () => addStep();
   const saved = async body => {
     const submit = dialog.querySelector('[type=submit]'); submit.disabled = true;

@@ -28,6 +28,8 @@ def migrate(c):
     H.add_column(c, 'task_types', 'default_visibility', "TEXT NOT NULL DEFAULT 'private'")
     H.add_column(c, 'messages', 'public', 'INTEGER NOT NULL DEFAULT 0')
     H.add_column(c, 'messages', 'hidden_at', 'TEXT')
+    c.execute("CREATE INDEX IF NOT EXISTS messages_public_task ON messages(conversation_id,json_extract(refs_json,'$.task'),created,id) "
+              "WHERE public=1 AND hidden_at IS NULL AND deleted_at IS NULL AND json_extract(refs_json,'$.comment')=1")
     if fresh:
         c.execute("UPDATE tasks SET public_title=substr(coalesce(title,''),1,300), "
                   "public_summary=substr(coalesce(body,''),1,8000)")
@@ -177,6 +179,7 @@ class PublicationInput(Contract):
     visibility: str | None = Field(default=None, pattern='^(public|private)$')
     public_title: str | None = Field(default=None, min_length=1, max_length=300)
     public_summary: str | None = Field(default=None, max_length=8000)
+    labels: list[str] | None = Field(default=None, max_length=20)
     comment: str | None = Field(default=None, min_length=1, max_length=4000)
 
 
@@ -242,7 +245,9 @@ def install_internal(app, store, auth, mutate, mover):
         def work(c):
             who = request.state.identity
             row = task(c, who, tid, True)
-            values = body.model_dump(exclude={'actor'})
+            values = body.model_dump(exclude_unset=True, exclude={'actor'})
+            if not values:
+                raise Problem('requester', 'Provide at least one requester field', 422)
             changed = c.execute('UPDATE task_requesters SET ' + ','.join(k + '=?' for k in values) +
                                 ' WHERE task_id=? AND id=?', (*values.values(), row['id'], rid)).rowcount
             if not changed:
@@ -256,6 +261,10 @@ def install_internal(app, store, auth, mutate, mover):
     def preview(request: Request, tid: str, body: PublicationInput):
         with store.read() as c:
             row = task(c, request.state.identity, tid)
+            if body.labels is not None:
+                if body.model_fields_set != {'labels'}:
+                    raise Problem('publication', 'Preview labels separately from public text', 422)
+                return {'payload': publication_payload(row['id'], 'labels', {'labels': H._labels(body.labels)})}
             if body.comment is not None:
                 return {'payload': publication_payload(row['id'], 'comment', {'text': body.comment.strip()})}
             values = {k: v for k, v in body.model_dump(exclude_none=True).items() if v != row.get(k)}

@@ -973,7 +973,7 @@ SCHEMAS.update({
 TAGS['Roadmaps'] = "Company roadmap settings, internal requesters, and anonymous publication (docs/roadmaps.md)."
 STABLE.extend([
     ('/api/v2/roadmaps/settings', 'get', 'Roadmaps', 'getRoadmapSettings', 'Company roadmap settings', None),
-    ('/api/v2/roadmaps/settings', 'post', 'Roadmaps', 'setRoadmapSettings', 'Replace roadmap settings (owners and admins)', None),
+    ('/api/v2/roadmaps/settings', 'post', 'Roadmaps', 'setRoadmapSettings', 'Partially update roadmap settings (owners and admins)', None),
     ('/api/v2/roadmap-tasks', 'get', 'Roadmaps', 'rankRoadmapTasks', 'Rank roadmap tasks with internal requester counts', None),
     ('/api/v2/tasks/{tid}/requesters', 'get', 'Roadmaps', 'listTaskRequesters', 'Internal requester contacts, paged and byte-capped', None),
     ('/api/v2/tasks/{tid}/requesters', 'post', 'Roadmaps', 'addTaskRequester', 'Record a requester; returns a removal token once', None),
@@ -1026,7 +1026,7 @@ PROBLEM = {"type": "object", "required": ["error"], "properties": {"error": {
 DESCRIPTION = (
     "The stable API for building your own frontend on Tico. Everything here keeps its shape within v2: fields are added, "
     "never removed or renamed, and a breaking change is a new /api/v3. Routes not listed are internal. "
-    "Public roadmap routes require an allowlisted Origin, no sign-in or idempotency key (docs/roadmaps.md). "
+    "Public roadmap writes require an allowlisted Origin; reads permit server-side requests. No sign-in or idempotency key (docs/roadmaps.md). "
     "Granola connection and sync writes do not require an idempotency key, nor does POST /api/v2/inbound/tasks, whose "
     "own `key` is its idempotency. Other writes need an `Idempotency-Key` header (1-200 characters; a retry with the same "
     "key and body returns the first answer). Errors are `{\"error\": {code, detail, retryable}}`. See docs/custom-frontend.md.")
@@ -1077,7 +1077,7 @@ def spec(app):
             op["security"] = []
         if path.startswith('/public/roadmaps/'):
             op['security'] = []
-            op.setdefault('parameters', []).append({'name': 'Origin', 'in': 'header', 'required': True,
+            op.setdefault('parameters', []).append({'name': 'Origin', 'in': 'header', 'required': method not in ('get', 'head'),
                 'schema': {'type': 'string'}, 'description': 'An exact origin in the company roadmap allowlist.'})
             for code, detail in [('403', 'Origin not allowed'), ('404', 'Roadmap or task not public'),
                                  ('422', 'Invalid request'), ('429', 'Daily IP action limit reached')]:

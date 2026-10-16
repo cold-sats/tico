@@ -2853,14 +2853,18 @@ def hydrate_task_tags(conn, rows):
             by_id[value.pop("task_id")]["tags"].append(value)
 
 
-def _set_task_tags(conn, actor, task_id, labels, note=""):
+def _set_task_tags(conn, actor, task_id, labels, note="", approval_id=None):
     keys, resolved = _labels(labels), []
     for key in keys:
         row = tag_by_key(conn, key)
         if row and row["is_template"]:
             refuse(conn, actor, "kind", f"{key} is a template; make an instance to put on a task")
         resolved.append((key, row))
-    old = task_labels(task(conn, task_id))
+    task_row = task(conn, task_id)
+    old = task_labels(task_row)
+    from .roadmaps import settings as roadmap_settings, approve as approve_roadmap
+    if task_row['visibility'] == 'public' and (set(keys) - set(old)) & set(roadmap_settings(conn)['labels']):
+        approve_roadmap(conn, actor, task_id, 'labels', {'labels': keys}, approval_id)
     old_ids = {r[0] for r in conn.execute("SELECT tag_id FROM task_tags WHERE task_id=?", (task_id,))}
     wanted, ordered = set(), []
     for key, row in resolved:
@@ -3868,7 +3872,8 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     public = visibility or type_get(conn, task(conn, row['id'])['type_id'])['default_visibility']
     if public not in ('public', 'private'):
         refuse(conn, actor, 'kind', 'visibility is public or private')
-    if private:
+    from .roadmaps import settings as roadmap_settings
+    if private or (is_bot(actor) or VIA.get()) and roadmap_settings(conn)['bot_public_approval']:
         public = 'private'
     conn.execute('UPDATE tasks SET visibility=?,public_title=?,public_summary=? WHERE id=?',
                  (public, title[:300], body[:8000], row['id']))
@@ -4116,7 +4121,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         args[field] = value
         _task_event(conn, task_id, actor, field, row.get(field), value, note or "")
     if labels is not None:
-        _set_task_tags(conn, actor, task_id, labels, note or "")
+        _set_task_tags(conn, actor, task_id, labels, note or "", approval_id=approval_id)
         sets.append("updated=:updated")
     if owner is not None:
         new_owner = _reach(conn, actor, owner)

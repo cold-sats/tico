@@ -1,11 +1,11 @@
 # Public roadmaps
 
 Roadmaps use tasks, types, labels, comments and parent relations. The Product roadmap type starts
-public: Suggested → Exploring → Spec → Approved → Building → Shipped (or Declined). Engineering
+public: Suggested → Exploring → Spec → Approved → Building → Shipped (or Declined). Engineering (or an existing Dev tickets type)
 starts private and uses the development flow. A type default applies only when a task is created;
 existing tasks and tasks moved to another type keep their visibility. Older tasks start private.
 
-In Settings → Tasks, create a label such as `roadmap`. In Public roadmaps, select that label, add
+In Settings → Tasks, create a label such as `roadmap`. In Public roadmap, select that label, add
 an exact website origin such as `https://acme.example`, and save. Empty labels disables roadmaps.
 A public task carrying that label appears through the API. Several labels can be enabled and a
 task can appear on several roadmaps. Publication is separate from the existing two-party Private
@@ -18,10 +18,12 @@ installation host for another company. No public endpoint enumerates labels.
 
 ## Calls from your website
 
-All calls, including reads and command-line calls, require `Origin` from the roadmap allowlist.
-Use no credentials. HTTPS origins must match exactly; HTTP is allowed only for localhost. CORS
-preflights accept GET, POST, DELETE and Content-Type. This browser policy is not visitor identity:
-non-browser callers can supply Origin themselves.
+GET and HEAD work without an Origin, including server-side rendering. Only allowlisted origins
+receive Access-Control-Allow-Origin; responses always vary by Origin. Writes require `Origin`
+from the roadmap allowlist. Use no credentials. HTTPS origins match exactly; HTTP is allowed only
+for localhost. Preflights accept GET, HEAD, POST, DELETE and Content-Type. Origin is browser-only
+friction, not visitor identity: non-browser callers can supply it themselves. Writes proxied through
+your company server share that server’s daily IP allowance.
 
 ```sh
 curl https://tico.acme.example/public/roadmaps/roadmap \
@@ -59,7 +61,8 @@ with the label and submitter's request. They queue quietly for the PM's next run
 review before publication. Successful suggest, add, remove and comment actions share one limit
 per IP per UTC day across every roadmap (default 10, configurable in settings); exhaustion returns
 429. Failed writes roll back their charge. The server uses the connection IP, with forwarded IPs
-accepted only through the deployment's trusted proxy configuration.
+accepted only through the deployment’s trusted proxy configuration (below). IPv6 visitors share
+a /64 bucket.
 
 ## Internal work
 
@@ -69,17 +72,18 @@ an email claim. The roadmap ranking view sorts by total requests, external reque
 requests, organization (alphabetically first nonempty organization), or numeric size.
 
 Use `/api/v2/roadmaps/settings`, `/api/v2/roadmap-tasks`, and `/api/v2/tasks/{id}/requesters`
-(GET/POST), `/requesters/{requester_id}` (POST replace), and `/requesters/{requester_id}/delete`
+(GET/POST), `/requesters/{requester_id}` (POST partial update), and `/requesters/{requester_id}/delete`
 (POST). Internal writes require the usual Idempotency-Key. Requester lists are paged and do not
 return tokens; an internal add shows its token once and an idempotent retry returns only its id. Task updates accept `visibility`, `public_title`, `public_summary`, `size`, and
 `approval_id` (`size: null` clears an estimate); type updates accept `default_visibility`. Public title and summary begin as copies
 of the internal title/body (summary capped at 8,000 characters) and then stay independent.
 
 A bot proposes exact public changes through `POST /api/v2/tasks/{id}/publication-preview` with
-`public_title`, `public_summary`, `visibility`, or `comment`. Request a `publish` approval with its
+`public_title`, `public_summary`, `visibility`, `comment`, or a separate `labels` list. Request a `publish` approval with its
 returned `payload` and task id, wait for the human decision, then pass `approval_id` to the update
-or public comment (`public: true`). Edits and replies need a new approval each time. Owners/admins
-can relax this in Public roadmaps settings. Moderation uses
+or public comment (`public: true`). Bot-created tasks start private while approval is enabled, including Assistant/BotOps acting for
+a person. Publishing, public edits/replies, and attaching an enabled roadmap label to an already
+public task need a new approval each time. Owners/admins can relax this in Public roadmap settings. Moderation uses
 `POST /api/v2/tasks/{id}/comments/{comment_id}/moderate` with `action: hide|show|delete`.
 
 These routes also have hub MCP tools; `hub api` reaches every route. `hub task update` supports
@@ -90,5 +94,21 @@ and the existing outbound send switch.
 The PM gathers requests and comments, researches and drafts a spec, and proposes graduation as an
 existing Decide card. After approval, it moves the roadmap task to Approved and files Engineering
 children through Head of Engineering. The server moves Approved/Building/Shipped between Building
-and Shipped as engineering children open, finish or reopen; removing all children returns Approved.
-Terminal done, closed and declined children count as finished. Requesters remain on the roadmap task.
+and Shipped as engineering children open, finish or reopen. All declined children return Approved;
+Shipped requires at least one done/closed child. With no Engineering children, manual steps remain
+unchanged. Done, closed and declined children count as finished. Requesters remain on the roadmap task.
+
+
+## Client addresses behind a proxy
+
+Set `TICO_TRUSTED_PROXIES` to comma-separated IP addresses or CIDRs for your actual ingress proxies,
+including `127.0.0.1/32,::1/128` for the supervised Rust relay. The default trusts only loopback;
+remote clients cannot choose their IP with forwarding headers. Pin your proxy container addresses
+or configure their dedicated network range, and restrict that network to trusted ingress services.
+
+Use `TICO_CLIENT_IP_HEADER=x-forwarded-for` (default) behind Caddy. The relay appends its peer to the
+chain, and the API chooses the rightmost untrusted address. With cloudflared as the configured trusted
+ingress, use `TICO_CLIENT_IP_HEADER=cf-connecting-ip`; only that deployment should trust Cloudflare’s
+visitor header. Both processes receive `TICO_TRUSTED_PROXIES` through the standard server command
+and Docker Compose. Restart after changing these environment settings. Roadmap settings and requester
+updates are partial: omitted fields keep their current values, and an empty update is rejected.

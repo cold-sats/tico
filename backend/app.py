@@ -4481,9 +4481,8 @@ def create_app(settings=None):
         return (Path(__file__).resolve().parents[1] / "skills" / "tico-sync" / "SKILL.md").read_text()
 
     def client_address(request):
-        """Who is asking, for the pairing rate limit: the address the front door saw, else the connection's."""
-        forwarded = request.headers.get("cf-connecting-ip") or request.headers.get("x-forwarded-for", "").split(",")[-1]
-        return (forwarded or (request.client.host if request.client else "")).strip() or "unknown"
+        from .client_ip import client_ip, ip_bucket
+        return ip_bucket(client_ip(request, settings))
 
     # Pairing (docs/hermes-agents.md): the first two calls need no sign-in; approving and declining are a person's,
     # or BotOps's as the person who asked it.

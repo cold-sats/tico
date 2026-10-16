@@ -31,7 +31,7 @@ function pageTasks(forced, openId = '') {
   main.classList.add('tasks-layout');
   main.innerHTML = `<div class="tasks-page"><div class="tasks-pane" id="tasks-pane">
       <header class="tl-head">
-        <h1>Tasks</h1><a class="tl-addf" href="#/roadmap">Roadmap</a>
+        <h1>Tasks</h1>
         <div class="tl-tabs" id="task-view" role="tablist" aria-label="Task views"></div>
         <span class="spacer"></span>
         <div class="tl-type-search"><div class="tl-types" id="task-type" role="group" aria-label="Task type"></div>

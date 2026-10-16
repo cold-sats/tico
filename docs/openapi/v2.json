@@ -3,7 +3,7 @@
   "info": {
     "title": "Tico API (v2)",
     "version": "2.0.0",
-    "description": "The stable API for building your own frontend on Tico. Everything here keeps its shape within v2: fields are added, never removed or renamed, and a breaking change is a new /api/v3. Routes not listed are internal. Public roadmap routes require an allowlisted Origin, no sign-in or idempotency key (docs/roadmaps.md). Granola connection and sync writes do not require an idempotency key, nor does POST /api/v2/inbound/tasks, whose own `key` is its idempotency. Other writes need an `Idempotency-Key` header (1-200 characters; a retry with the same key and body returns the first answer). Errors are `{\"error\": {code, detail, retryable}}`. See docs/custom-frontend.md."
+    "description": "The stable API for building your own frontend on Tico. Everything here keeps its shape within v2: fields are added, never removed or renamed, and a breaking change is a new /api/v3. Routes not listed are internal. Public roadmap writes require an allowlisted Origin; reads permit server-side requests. No sign-in or idempotency key (docs/roadmaps.md). Granola connection and sync writes do not require an idempotency key, nor does POST /api/v2/inbound/tasks, whose own `key` is its idempotency. Other writes need an `Idempotency-Key` header (1-200 characters; a retry with the same key and body returns the first answer). Errors are `{\"error\": {code, detail, retryable}}`. See docs/custom-frontend.md."
   },
   "tags": [
     {
@@ -10318,7 +10318,7 @@
         ]
       },
       "post": {
-        "summary": "Replace roadmap settings (owners and admins)",
+        "summary": "Partially update roadmap settings (owners and admins)",
         "operationId": "setRoadmapSettings",
         "requestBody": {
           "content": {
@@ -14587,7 +14587,7 @@
           {
             "name": "Origin",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             },
@@ -14788,7 +14788,7 @@
           {
             "name": "Origin",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             },
@@ -14899,7 +14899,7 @@
           {
             "name": "Origin",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             },
@@ -22425,6 +22425,21 @@
             ],
             "title": "Public Summary"
           },
+          "labels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Labels"
+          },
           "comment": {
             "anyOf": [
               {
@@ -23207,32 +23222,58 @@
       "RoadmapSettings": {
         "properties": {
           "labels": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "maxItems": 100,
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Labels"
           },
           "cors_origins": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "maxItems": 100,
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Cors Origins"
           },
           "action_limit": {
-            "type": "integer",
-            "maximum": 10000.0,
-            "minimum": 1.0,
-            "title": "Action Limit",
-            "default": 10
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 10000.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action Limit"
           },
           "bot_public_approval": {
-            "type": "boolean",
-            "title": "Bot Public Approval",
-            "default": true
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bot Public Approval"
           }
         },
         "additionalProperties": false,

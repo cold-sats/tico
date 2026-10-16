@@ -108,7 +108,14 @@ def test_public_projection_moderation_and_no_label_enumeration(api):
 def test_cors_and_ip_limit_shared_across_actions_and_tokens_are_task_bound(api):
     task = public_setup(api, limit=4)
     base = '/public/roadmaps/roadmap/tasks/' + task['id']
-    assert api.get(base).status_code == 403
+    read = api.get(base)
+    assert read.status_code == 200 and read.headers['vary'] == 'Origin'
+    assert 'access-control-allow-origin' not in read.headers
+    assert api.head(base).status_code == 200
+    read = api.get(base, headers={'Origin': 'https://evil.example'})
+    assert read.status_code == 200 and 'access-control-allow-origin' not in read.headers
+    assert api.get(base, headers=ORIGIN).headers['access-control-allow-origin'] == ORIGIN['Origin']
+    assert api.post(base + '/requesters', json={}).status_code == 403
     assert api.post(base + '/requesters', json={}, headers={'Origin': 'https://evil.example'}).status_code == 403
     preflight = api.options(base + '/requesters', headers={**ORIGIN, 'Access-Control-Request-Method': 'POST',
                                                          'Access-Control-Request-Headers': 'Content-Type'})
@@ -142,9 +149,80 @@ def test_requester_contacts_follow_task_privacy_and_teammates_can_remove_themsel
     result = post(api, 'sql', {'sql': 'SELECT * FROM task_requesters'})
     assert 'token_hash' not in str(result)
     task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Improve editing', 'body': 'Feedback', 'type': 'Product roadmap'})
+    external = post(api, 'tasks/' + task['id'] + '/requesters',
+                    {'email': 'customer@acme.example', 'name': 'Customer', 'source': 'meeting'})
+    from backend.tests.test_mcp import call
+    failed, result = call(api, 'hub_task_requester_save', {'id': task['id'], 'requester_id': external['id'], 'important': True})
+    assert not failed, result
+    changed = get(api, 'tasks/' + task['id'] + '/requesters')['requesters'][0]
+    assert changed['important'] and changed['email'] == 'customer@acme.example'
+    assert changed['name'] == 'Customer' and changed['source'] == 'meeting'
+    post(api, 'tasks/' + task['id'] + '/requesters/' + external['id'], {}, expected=422)
+    post(api, 'tasks/' + task['id'] + '/requesters/' + external['id'] + '/delete', {})
+    sized = post(api, 'tasks/' + task['id'], {'version': task['version'], 'size': 7.5})
+    assert get(api, 'tasks/' + task['id'])['task']['size'] == 7.5
+    assert get(api, 'roadmap-tasks?sort=size')['tasks'][0]['size'] == 7.5
+    post(api, 'tasks/' + task['id'], {'version': sized['version'], 'size': None})
+    assert get(api, 'tasks/' + task['id'])['task']['size'] is None
     own = post(api, 'tasks/' + task['id'] + '/requesters', {'actor': 'human:priya'}, token='priya-test')
     with api.app.state.store.read() as c:
         assert not c.execute('SELECT 1 FROM idempotency WHERE instr(response_json,?)>0',
                              (own['requester_token'],)).fetchone()
     post(api, 'tasks/' + task['id'] + '/requesters/' + own['id'] + '/delete', {}, token='priya-test')
     assert get(api, 'tasks/' + task['id'] + '/requesters')['requester_count'] == 0
+
+
+def test_bot_creation_and_label_publication_require_review(api):
+    from backend.tests.test_tasks_board import bot_token
+    task = public_setup(api)
+    token = bot_token(api, 'cpo')
+    for identity in (token, 'ben-via-botops'):
+        created = post(api, 'tasks', {'owner': 'cpo', 'title': 'Research requested exports',
+                                    'body': 'customer@acme.example', 'type': 'Product roadmap',
+                                    'visibility': 'public', 'labels': ['roadmap']}, token=identity)
+        assert created['visibility'] == 'private'
+        assert api.get('/public/roadmaps/roadmap/tasks/' + created['id']).status_code == 404
+    task = post(api, 'tasks/' + task['id'], {'version': task['version'], 'labels': []})
+    token = 'ben-via-botops'
+    post(api, 'tasks/' + task['id'], {'version': task['version'], 'labels': ['roadmap']}, token=token, expected=422)
+    preview = post(api, 'tasks/' + task['id'] + '/publication-preview', {'labels': ['roadmap']}, token=token)
+    approval = post(api, 'approvals', {'kind': 'publish', 'task_id': task['id'], 'payload': preview['payload']}, token=token)
+    post(api, 'approvals/' + approval['id'], {'decision': 'approved'})
+    post(api, 'tasks/' + task['id'], {'version': task['version'], 'labels': ['roadmap'],
+                                     'approval_id': approval['id']}, token=token)
+    assert api.get('/public/roadmaps/roadmap/tasks/' + task['id']).status_code == 200
+    post(api, 'roadmaps/settings', {'action_limit': 20})
+    settings = get(api, 'roadmaps/settings')
+    assert settings['labels'] == ['roadmap'] and settings['cors_origins'] == [ORIGIN['Origin']]
+    post(api, 'roadmaps/settings', {'action_limit': 1})
+    assert api.post('/public/roadmaps/roadmap/tasks/' + task['id'] + '/comments', json={'text': 'Please add this'}, headers=ORIGIN).status_code == 200
+    private = post(api, 'tasks/' + task['id'], {'version': get(api, 'tasks/' + task['id'])['task']['version'],
+                                               'visibility': 'private'})
+    responses = [api.delete('/public/roadmaps/roadmap/tasks/' + tid + '/requesters/invalid', headers=ORIGIN)
+                 for tid in (private['id'], 'not-a-task')]
+    assert all(r.status_code == 404 for r in responses) and responses[0].json() == responses[1].json()
+
+
+def test_manual_graduation_all_declined_and_existing_dev_type(api):
+    from backend import roadmap_flow as F
+    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Ship a small change', 'body': 'Ready to ship',
+                               'type': 'Product roadmap', 'step': 'Building'})
+    assert task['step']['name'] == 'Building'
+    task = post(api, 'tasks/' + task['id'], {'version': task['version'], 'step': 'Shipped', 'status': 'done'})
+    assert task['step']['name'] == 'Shipped'
+    with api.app.state.store.transaction() as c:
+        c.execute("DELETE FROM task_steps WHERE type_id='engineering'")
+        c.execute("DELETE FROM task_types WHERE id='engineering'")
+        dev = H.type_create(c, 'human:ana', 'Dev tickets', steps=[{'name': 'Todo', 'status': 'open'},
+                                                        {'name': 'Done', 'status': 'closed'},
+                                                        {'name': 'Declined', 'status': 'declined'}])
+        F.ensure(c)
+        assert not c.execute("SELECT 1 FROM task_types WHERE id='engineering'").fetchone()
+        assert H.type_get(c, dev['id'])['manager'] == 'engineering-lead'
+    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Explore another change', 'body': 'Review first',
+                               'type': 'Product roadmap', 'step': 'Approved'})
+    child = post(api, 'tasks', {'owner': 'ops', 'title': 'Build the change', 'body': 'Implementation',
+                                'type': dev['id'], 'relations': [{'task': task['id'], 'kind': 'parent'}]})
+    assert get(api, 'tasks/' + task['id'])['task']['step']['name'] == 'Building'
+    post(api, 'tasks/' + child['id'], {'version': child['version'], 'status': 'declined'})
+    assert get(api, 'tasks/' + task['id'])['task']['step']['name'] == 'Approved'
