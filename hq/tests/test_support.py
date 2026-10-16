@@ -58,12 +58,14 @@ def staff(key=STAFF):
 
 def test_a_ticket_is_stored_and_the_secret_only_as_a_hash(client, db):
     install = str(uuid.uuid4())
-    r = file(client, SECRET_TEXT, email="ana@acme.example", install_id=install, version="0.2.17")
+    r = file(client, SECRET_TEXT, email="ana@acme.example", install_id=install, version="0.2.17", app_version="0.3.47")
     assert r.status_code == 201
     body = r.json()
     assert body["status"] == "open" and body["ticket_id"].startswith("TK-") and len(body["secret"]) >= 30
     row = dict(db.conn.execute("SELECT * FROM tickets").fetchone())
     assert row["body"] == SECRET_TEXT and row["email"] == "ana@acme.example" and row["install_id"] == install
+    assert row["version"] == "0.2.17" and row["app_version"] == "0.3.47"
+    assert file(client, app_version="0.3.47; rm").status_code == 422
     assert row["created"] == "2026-11-01T12:00:00Z" and row["status"] == "open"
     assert body["secret"] not in "".join(db.conn.iterdump()) and row["key_hash"] != body["secret"]
     assert "203.0.113.9" not in "".join(db.conn.iterdump())      # no address, ever

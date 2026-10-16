@@ -50,9 +50,11 @@ def test_names_become_labels_that_are_the_same_all_through_a_bundle():
 
 def test_a_bundle_over_the_cap_shrinks_its_logs_first():
     bundle = {"format": 1, "counts": {"bots": 1}, "containers": [],
-              "logs": {"server": ["x" * 300] * 2000, "updater": []}, "runners": [{"log": ["y" * 300] * 2000, "problems": []}]}
+              "logs": {"server": ["x" * 300] * 2000, "updater": [], "app": ["z" * 300] * 3000},
+              "runners": [{"log": ["y" * 300] * 2000, "problems": []}]}
     out = D.fit(bundle)
     assert len(json.dumps(out).encode()) <= D.MAX_BYTES and out["counts"] == {"bots": 1}
+    assert len(out["logs"]["app"]) < 3000           # the desktop app's log shrinks like the others
 
 
 # ------------------------------------------------------------------ the allowlist
@@ -167,6 +169,20 @@ def test_browser_capture_never_accepts_messages_or_private_filenames(environment
     assert json.loads(r.json()["text"])["browser"][0]["file"] == ""
     assert api.post(url, headers=signed_in(), json={"browser": [{**event, "message": "private content"}]}).status_code == 422
     assert api.post(url, headers=signed_in(), json={"browser": [event] * 21}).status_code == 422
+
+
+def test_the_desktop_apps_log_is_labelled_and_redacted(environment):
+    api = environment()
+    url = "/api/v2/support/diagnostics/capture"
+    line = "2026-10-16T06:47:31Z WARN tico_app: update check failed: 401 from https://acme.example/feed sk-abcdEFGH1234567890xyz"
+    r = api.post(url, headers=signed_in(), json={"app": {"version": "0.3.47", "lines": [line]}})
+    assert r.status_code == 200, r.text
+    bundle = json.loads(r.json()["text"])
+    assert bundle["versions"]["app"] == "0.3.47" and bundle["versions"]["server"] != "0.3.47"
+    (logged,) = bundle["logs"]["app"]
+    assert "update check failed" in logged and "sk-abcd" not in logged
+    assert "app" not in json.loads(api.post(url, headers=signed_in(), json={}).json()["text"])["logs"]
+    assert api.post(url, headers=signed_in(), json={"app": {"lines": ["x"] * (D.APP_LINES + 1)}}).status_code == 422
 
 
 def test_request_failures_keep_only_route_templates_and_safe_exception_locations(monkeypatch, caplog):

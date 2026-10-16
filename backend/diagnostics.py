@@ -32,6 +32,7 @@ FORMAT = 1
 MAX_BYTES = 256 * 1024            # HQ refuses more (hq/support.py)
 LOG_LINES = 200                   # server WARN and ERROR lines
 RUNNER_LINES = 50
+APP_LINES = 200                   # the end of the desktop app's log, when the page runs in the app
 LINE = 300                        # characters of one log line
 KEEP_S = 15 * 60                  # a preview may be sent for this long
 KEEP_N = 20
@@ -270,7 +271,7 @@ ALLOWED = {
     "format": None, "created": None,
     "capture": {"server_started": None, "server_events": None, "server_repeats": None,
                 "server_evicted": None, "retention": None, "truncated": None, "edited": None},
-    "versions": {"tico": None, "server": None, "runners": None, "updater": None},
+    "versions": {"tico": None, "server": None, "runners": None, "updater": None, "app": None},
     "system": {"os": None, "arch": None, "docker": None, "compose": None, "in_docker": None},
     "containers": [{"name": None, "state": None, "health": None, "restarts": None}],
     "update": {"state": None, "from": None, "to": None, "message": None, "restored": None},
@@ -282,7 +283,7 @@ ALLOWED = {
     "database": {"migration": None, "cloud_migration": None},
     "features": {},
     "counts": {"bots": None, "people": None, "routines": None},
-    "logs": {"server": None, "updater": None},
+    "logs": {"server": None, "updater": None, "app": None},
     "browser": [{"kind": None, "at": None, "file": None, "line": None, "column": None, "count": None}],
     # The flight recorder's file, last 24 hours (backend/flight_file.py `bundle`): route templates, timings, sizes,
     # stall classes and code locations (file:line function); no paths with ids, no values.
@@ -327,7 +328,7 @@ def fit(bundle):
     capture = bundle.setdefault("capture", {})
     capture.setdefault("truncated", 0)
     while size() > MAX_BYTES:
-        lists = [bundle.get("logs", {}).get(k, []) for k in ("server", "updater")]
+        lists = [bundle.get("logs", {}).get(k, []) for k in ("server", "updater", "app")]
         lists += [r.get("log", []) for r in bundle.get("runners", [])]
         longest = max(lists, key=len, default=[])
         if longest:
@@ -489,9 +490,10 @@ def _performance(c, hours):
     return {"hours": hours, "computers": out}
 
 
-def build(store, settings, auth, who, census, github=None, config=None, performance_hours=0):
+def build(store, settings, auth, who, census, github=None, config=None, performance_hours=0, shell=None):
     """The redacted bundle for this install, as a dictionary (`fit`-ted, allowlisted, every string redacted). A
-    person attaching diagnostics chooses `performance_hours` (0 leaves performance out)."""
+    person attaching diagnostics chooses `performance_hours` (0 leaves performance out). `shell` is the desktop app the
+    page runs in ({version, lines}: support.AppShell), whose version and log go in labelled `app`."""
     from . import health, onboarding, replication, runner_versions
     from .getting_started import _online_runners
     from .views import roster
@@ -538,7 +540,8 @@ def build(store, settings, auth, who, census, github=None, config=None, performa
         "format": FORMAT, "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "versions": {"tico": _version(releases.version()), "server": _version(releases.version()),
                      "runners": sorted({r["release"] for r in runners if r["release"]}),
-                     "updater": _version(updater.get("version"))},
+                     "updater": _version(updater.get("version")),
+                     **({"app": _version(shell.get("version"))} if shell else {})},
         "system": {"os": platform.system(), "arch": platform.machine(), "docker": _version(updater.get("docker")),
                    "compose": _version(updater.get("compose")), "in_docker": onboarding.running_in_docker()},
         "containers": [{"name": str(x.get("name") or ""), "state": str(x.get("state") or ""),
@@ -552,7 +555,8 @@ def build(store, settings, auth, who, census, github=None, config=None, performa
         "database": {"migration": migration, "cloud_migration": cloud},
         "features": features,
         "counts": {"bots": bots_total, "people": len(people.get("people") or []), "routines": routines},
-        "logs": {"server": _lines(server_lines, LOG_LINES), "updater": _lines(updater.get("errors"), RUNNER_LINES)},
+        "logs": {"server": _lines(server_lines, LOG_LINES), "updater": _lines(updater.get("errors"), RUNNER_LINES),
+                 **({"app": _lines(shell.get("lines"), APP_LINES)} if shell else {})},
         "flight": flight,
         **({"performance": perf} if perf else {}),
     }

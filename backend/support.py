@@ -22,7 +22,7 @@ import os
 import re
 import secrets
 import threading
-from typing import Literal
+from typing import Annotated, Literal
 
 import httpx
 
@@ -62,6 +62,8 @@ class SupportTicket(Contract):
     message: str = Field(min_length=1, max_length=MAX_MESSAGE)
     email: str = Field(default="", max_length=254)
     include_ids: bool = True            # the version and the install ID go with it, unless the person unticks it
+    # The desktop app's own version (window.ticoNativeVersion) when the page runs in it; goes with the IDs.
+    app_version: str = Field(default="", max_length=40)
     diagnostics: str = Field(default="", max_length=64)     # the digest of the bundle the person previewed (backend/diagnostics.py)
 
 
@@ -83,8 +85,15 @@ class BrowserFailure(Contract):
     count: int = Field(default=1, ge=1, le=1000000)
 
 
+class AppShell(Contract):
+    """The desktop app the page runs in: its version and the end of its log file (app/src/applog.rs)."""
+    version: str = Field(default="", max_length=40)
+    lines: list[Annotated[str, Field(max_length=2000)]] = Field(default_factory=list, max_length=diagnostics.APP_LINES)
+
+
 class DiagnosticsCapture(Contract):
     browser: list[BrowserFailure] = Field(default_factory=list, max_length=20)
+    app: AppShell | None = None
     # The computers' performance over this many hours (backend/performance.py); 0 leaves it out.
     performance_hours: int = Field(default=24, ge=0, le=336)
 
@@ -148,6 +157,13 @@ def _ask_hq(method, path, *, body=None, secret=""):
             "HQ did not answer (%s)", (type(exc).__name__,), None))
         raise Problem("support_unreachable", "Could not reach Tico support. Try again in a moment.", 502,
                       retryable=True) from None
+
+
+def _refused_field(response):
+    try:
+        return response.json().get("field")
+    except (ValueError, AttributeError):
+        return None
 
 
 def _answer(response, success):
@@ -237,11 +253,12 @@ class Support:
                 "install_id": self.census.install_id(), "to": hq_url().split("://", 1)[-1].split("/", 1)[0],
                 "max": MAX_MESSAGE, "diagnostics": True}
 
-    def preview(self, who, app, browser=None, performance_hours=24):
+    def preview(self, who, app, browser=None, performance_hours=24, shell=None):
         """Build the diagnostics bundle and keep it for this person, so the request that files the ticket sends these
         very bytes. Returns its digest and the text the page shows."""
         bundle = diagnostics.build(self.store, self.settings, app.state.auth, who, self.census,
-                                   github=getattr(app.state, "github_app", None), performance_hours=performance_hours)
+                                   github=getattr(app.state, "github_app", None), performance_hours=performance_hours,
+                                   shell=shell.model_dump() if shell else None)
         if browser:
             from pathlib import Path
             ui = Path(__file__).resolve().parent.parent / "ui"
@@ -308,10 +325,16 @@ class Support:
         if body.include_ids:
             details = self.compose(who)
             sent = {k: details[k] for k in ("version", "install_id") if details[k]}
+            if VERSION.fullmatch(body.app_version):
+                sent["app_version"] = body.app_version
             payload.update(sent)
         if body.diagnostics:
             payload["diagnostics"] = self.attachment(who, body.diagnostics)
         answer = _ask_hq("POST", "/v1/support", body=payload)
+        if answer.status_code == 422 and "app_version" in payload and _refused_field(answer) == "fields":
+            # An HQ from before app_version refuses unknown fields; the ticket still goes, without it.
+            del payload["app_version"], sent["app_version"]
+            answer = _ask_hq("POST", "/v1/support", body=payload)
         if answer.status_code == 422 and "diagnostics" in payload:
             raise Problem("diagnostics_rejected", "Support could not accept this attachment. Review it or remove diagnostics to send just the message.", 422)
         made = _answer(answer, (201, 200))
@@ -510,7 +533,7 @@ def install(app, store, settings, census):
     def support_capture_diagnostics(request: Request, body: DiagnosticsCapture):
         who = person(request)
         require_on(settings)
-        return support.preview(who, request.app, body.browser, body.performance_hours)
+        return support.preview(who, request.app, body.browser, body.performance_hours, body.app)
 
     @app.post("/api/v2/support/diagnostics")
     def support_edit_diagnostics(request: Request, body: DiagnosticsEdit):

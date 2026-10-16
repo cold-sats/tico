@@ -8,6 +8,10 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- The desktop app keeps a log file (`~/Library/Logs/<bundle ID>/tico.log` on macOS, two files of 1 MB at most) with each
+  start and update check, so an app opened from the Dock no longer loses its update failures. Help shows the app's
+  version beside the server's and a **Show the app's log** button; a Support request from the app carries the app's
+  version (`app_version`, labelled apart from the server's) and, with @diagnostics, the end of its log.
 - A message sent while its bot is answering says what happens to it: "Steering this turn" when the bot's CLI takes
   input mid-turn (Claude Code, Codex), or "Queued for the next turn" otherwise, with a Stop and redirect button that
   ends the turn so the next one starts with that message in the same session. Steering is now a declared harness
