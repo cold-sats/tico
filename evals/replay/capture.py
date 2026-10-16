@@ -50,7 +50,8 @@ def capture(server, base, token, task_id):
             v["text"] = fetch_text(v["url"], base, token) if text_like and v.get("url") else ""
     bot = str(detail["task"]["owner"]).removeprefix("bot:")
     instructions = server.request("GET", f"bots/{bot}/instructions", token=token)[1] or {}
-    return replay.split(detail, files, instructions, bot)
+    children = [server.request("GET", f"tasks/{c['id']}", token=token)[1] or {} for c in detail.get("children") or []]
+    return replay.split(detail, files, instructions, bot, [c for c in children if c.get("task")])
 
 
 def main(argv=None):

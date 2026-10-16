@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from backend.tests.test_api import api, assign, claim, headers, post, ready, runner  # noqa: F401  (fixture)
+
 REPLAY = Path(__file__).resolve().parents[2] / "evals" / "replay"
 sys.path.insert(0, str(REPLAY))
 import replay  # noqa: E402
@@ -36,12 +38,15 @@ def test_capture_splits_opening_state_from_outcome_and_needs_a_signature():
                            message("c", "human:ana", "Safari.", "2026-10-16T10:30:00Z"),
                            message("d", "bot:dev", "Fixed in PR 12.", "2026-10-16T11:02:00Z")],
               "comments": [message("a", "human:ana", "Only the login page.", "2026-10-16T09:58:00Z")],
-              "children": [{"id": "q", "owner": "human:ana", "status": "done", "title": "Which account?"},
+              "children": [{"id": "q", "owner": "bot:dev", "status": "done", "title": "Which account?"},
                            {"id": "r", "owner": "bot:pr-reviewer", "status": "done", "title": "Review PR 12"}]}
+    # A question card is owned by the bot that asked and waits on the person: one step for them; a review is not.
     files = {"files": [{"name": "trace.txt", "versions": [{"n": 1, "by": "human:ana", "created": "2026-10-16T09:57:00Z",
                                                            "text": "Traceback"}]},
                        {"name": "fix.diff", "versions": [{"n": 1, "by": "bot:dev", "created": "2026-10-16T11:01:00Z"}]}]}
-    case = replay.split(detail, files, {"content": "# Dev", "updated": "2026-10-15T00:00:00Z"})
+    cards = [{"task": {"id": "q", "owner": "bot:dev", "waiting_on": "human:ana", "status": "done"}},
+             {"task": {"id": "r", "owner": "bot:pr-reviewer", "status": "done"}}]
+    case = replay.split(detail, files, {"content": "# Dev", "updated": "2026-10-15T00:00:00Z"}, card_details=cards)
 
     assert case["id"] == "fix-the-login-page-t1"         # the task id keeps two tasks with one title apart
     assert case["conversation"] == [{"from": "person", "text": "Only the login page."}]
@@ -79,6 +84,12 @@ class FakeTico:
             self.tasks["r1"] = {"task": {"id": "r1", "version": 1, "status": "open", **body},
                                 "messages": [], "comments": [], "runs": [], "files": [], "children": []}
             return 200, {"task": self.tasks["r1"]["task"]}
+        if path.startswith("messages/") and path.endswith("/answer"):
+            row = self.tasks["r1"]
+            row["comments"].append(message("ans", "human:owner", body["text"], "2099-01-01T00:01:55Z", "answer")
+                                   | {"in_reply_to": path.split("/")[1]})
+            self.behave(self, row, "answered")
+            return 200, {}
         tid = path.split("/")[1]
         if tid not in self.tasks:
             return 404, {}
@@ -108,21 +119,17 @@ def run_at(minute):
     return {"bot": "engineering-lead", "started": f"2099-01-01T00:{minute:02}:02Z", "finished": f"2099-01-01T00:{minute:02}:50Z"}
 
 
-def bot_asks_twice_then_finishes(fake, row, event):
-    """Asks on the task (which leaves it waiting on nobody), then through a card, then finishes."""
+def bot_asks_then_finishes(fake, row, event):
+    """Asks on the task, which leaves it waiting on nobody, then finishes once answered."""
     if event == "assigned":
         row["runs"].append(run_at(1))
         ask = message("a1", "bot:engineering-lead", "Which repository?", "2099-01-01T00:01:30Z", "ask")
         row["messages"].append(ask | {"to_actor": "human:owner"})
         row["task"].update(status="waiting", waiting_on=None)
-    elif event == "commented":
+    elif event == "answered":
         row["runs"].append(run_at(2))
-        fake.tasks["q1"] = {"task": {"id": "q1", "version": 1, "status": "open", "owner": "human:owner"}}
-        row["children"].append({"id": "q1", "owner": "human:owner", "status": "open", "title": "Which week?"})
-    else:
-        row["runs"].append(run_at(3))
         row["files"].append({"name": "engineering-summary.md", "versions": [{"by": "bot:engineering-lead"}]})
-        row["messages"].append(message("b1", "bot:engineering-lead", "Attached: 5 shipped, nothing broke.", "2099-01-01T00:03:30Z"))
+        row["messages"].append(message("b1", "bot:engineering-lead", "Attached: 5 shipped, nothing broke.", "2099-01-01T00:02:30Z"))
         row["task"]["status"] = "done"
 
 
@@ -133,7 +140,7 @@ def bot_gives_up(fake, row, event):
     row["task"]["status"] = "waiting"
 
 
-@pytest.mark.parametrize("behave,verdict", [(bot_asks_twice_then_finishes, "win"), (bot_gives_up, "regression")])
+@pytest.mark.parametrize("behave,verdict", [(bot_asks_then_finishes, "win"), (bot_gives_up, "regression")])
 def test_replay_scores_candidate_against_original(behave, verdict, monkeypatch, tmp_path):
     server = FakeTico(behave)
     monkeypatch.setattr(live, "Live", lambda url: server)
@@ -150,11 +157,9 @@ def test_replay_scores_candidate_against_original(behave, verdict, monkeypatch, 
     assert f"1 case: {int(verdict == 'win')} wins, {int(verdict == 'regression')} regressions" in text
     assert code == (0 if verdict == "win" else 1)
     if verdict == "win":
-        # The simulated person answered both questions with the case's words, in order: the one on the task by a
-        # comment, the card by finishing it.
+        # The simulated person answered the question with the case's first answer.
         assert server.tasks["r1"]["comments"][-1]["body"] == "Use the main repository only."
-        assert server.tasks["q1"]["task"]["note"] == "This week, Monday to Friday."
-        assert "runs 4→3" in text
+        assert "runs 4→2" in text
     else:
         assert "## Regressions" in text and "no longer done" in text
 
@@ -165,3 +170,46 @@ def test_replay_refuses_the_live_team(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(live, "Live", lambda url: server)
     assert live.main(["--url", "http://fake", "--token", "t", "--cases", str(REPLAY / "cases")]) == 1
     assert "scratch team" in capsys.readouterr().out and ("POST", "tasks") not in server.calls
+
+
+class Server:
+    """The test client as run.py's server."""
+
+    def __init__(self, api):
+        self.api = api
+
+    def request(self, method, path, body=None, token=None):
+        r = self.api.request(method, "/api/v2/" + path.lstrip("/"), json=body, headers=headers(token))
+        return r.status_code, (r.json() if r.content else {})
+
+
+def test_replay_answers_the_bots_questions_the_way_the_server_asks_them(api):
+    """On the real server: a question on the task leaves it waiting on nobody, and a question card is owned by the
+    bot that asked. The simulated person answers both, and the server counts both as answered."""
+    machine = runner(api)
+    assign(api, machine, "ops")
+    ready(api, machine, ["ops"])
+    server, case = Server(api), {"bot": "ops", "task": {"title": "Summarize this week", "body": "One page."}}
+    tid = live.prepare(server, "ana-test", "human:ana", case)
+    live.hand_over(server, "ana-test", tid, "ops")
+    attempt = claim(api, machine, "ops")
+    post(api, f"attempts/{attempt['id']}/started", {"thread_id": "t"}, machine["token"])
+
+    post(api, f"tasks/{tid}/ask", {"text": "Which repository?"}, token=attempt["token"])
+    now = live.outcome(server, "ana-test", tid, "ops")
+    assert now["status"] == "waiting" and not now["waiting_on"] and len(now["open_questions"]) == 1
+    assert live.answer(server, "ana-test", "human:ana", tid, now, "The main one.")
+    assert live.outcome(server, "ana-test", tid, "ops")["open_questions"] == []
+    assert api.get(f"/api/v2/tasks/{tid}", headers=headers()).json()["task"]["open_asks"] == 0
+
+    card = api.post("/api/v2/task-questions", headers=headers(attempt["token"]), json={
+        "question": "Which week?", "on": "ana", "parent": tid, "options": [{"label": "This week"}, {"label": "Last week"}]})
+    assert card.status_code == 200, card.text
+    assert card.json()["task"]["owner"] == "bot:ops"
+    now = live.outcome(server, "ana-test", tid, "ops")
+    assert [q["task"] for q in now["open_questions"]] == [card.json()["task"]["id"]] and now["person_steps"] == 2
+    assert live.answer(server, "ana-test", "human:ana", tid, now, "this week")
+    after = live.outcome(server, "ana-test", tid, "ops")
+    assert after["open_questions"] == [] and after["person_steps"] == 2
+    answered = api.get(f"/api/v2/tasks/{card.json()['task']['id']}/answers", headers=headers()).json()["answers"]
+    assert answered and "This week" in str(answered)

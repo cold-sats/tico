@@ -71,18 +71,35 @@ def hand_over(server, token, tid, bot):
 def outcome(server, token, tid, bot):
     """The replay as it stands, read the same way capture read the original (replay.side)."""
     detail = ok(server, "GET", f"tasks/{tid}", token=token)
-    now = replay.side(detail, ok(server, "GET", f"tasks/{tid}/files", token=token), bot)
+    children = [ok(server, "GET", f"tasks/{c['id']}", token=token) for c in detail.get("children") or []]
+    now = replay.side(detail, ok(server, "GET", f"tasks/{tid}/files", token=token), bot, children)
     return now | {"waiting_on": detail["task"].get("waiting_on")}
 
 
+def choose(ask, text):
+    """A structured question answered with the case's words: the option whose label they match, else as Other."""
+    answers = {q["id"]: [o["label"] for o in q.get("options") or [] if o["label"].casefold() == text.strip().casefold()][:1]
+               for q in ask.get("questions") or []}
+    return {"answers": answers, **({"other": text} if not all(answers.values()) else {})}
+
+
 def answer(server, token, me, tid, now, text):
-    """The simulated person answers the bot's open question: a card it filed for them, a question on the task
-    (a person's comment answers it), or the task waiting on them. False when nothing waits on them."""
+    """The simulated person answers the bot's oldest open question to them the way a person does in the app: a
+    question on the task or on a card through its answer, a card they own by finishing it, a task waiting on them
+    by a comment. False when nothing waits on them."""
+    mine = [q for q in now["open_questions"] if q["to"] == me]
+    if mine:
+        q = mine[0]
+        if q["ask"]:
+            ok(server, "POST", f"tasks/{q['task']}/answers", {"target": {"comment": q["id"]}, **choose(q["ask"], text)}, token)
+        else:
+            ok(server, "POST", f"messages/{q['id']}/answer", {"text": text}, token)
+        return True
     if now["open_cards"]:
         card = ok(server, "GET", f"tasks/{now['open_cards'][0]}", token=token)["task"]
         ok(server, "POST", f"tasks/{card['id']}", {"version": card["version"], "status": "done", "note": text}, token)
         return True
-    if now["open_ask"] == me or (now["status"] == "waiting" and now["waiting_on"] == me):
+    if now["status"] == "waiting" and now["waiting_on"] == me:
         ok(server, "POST", f"tasks/{tid}/comments", {"text": text}, token)
         return True
     return False

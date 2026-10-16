@@ -28,7 +28,7 @@ import score  # noqa: E402  (the BotOps scorers)
 
 # A replayed task has settled when it reaches one of these and its bot is not running.
 SETTLED = ("waiting", "review", "ready", "done", "closed", "declined")
-# A question card a bot filed for a person is answered once it reaches one of these.
+# A card a person owns is finished once it reaches one of these.
 SETTLED_ASK = ("done", "closed", "declined")
 # Lower is better for each; minutes are reported but too noisy to decide a verdict.
 NUMBERS = ("person_steps", "jargon", "duplicates", "sent_elsewhere", "runs")
@@ -86,9 +86,34 @@ def _person(actor):
     return str(actor or "").startswith("human:")
 
 
-def asks(detail):
-    """The question cards a bot filed for a person under the task: each is a step the person had to take."""
-    return [c for c in detail.get("children") or [] if _person(c.get("owner"))]
+def questions(detail, bot):
+    """The bot's questions to a person in one task's messages, each with whether it is still open, oldest first.
+    A structured question (a card's, or one with options) is open until it has an answer; a plain one until an answer
+    replies to it or the person writes on the task after it, which is what the server counts as answering it."""
+    found, replied = [], set()
+    messages = {m["id"]: m for m in (detail.get("messages") or []) + (detail.get("comments") or [])}.values()
+    for m in sorted(messages, key=lambda m: m["created"]):
+        if m.get("kind") == "answer":
+            replied.add(m.get("in_reply_to"))
+        elif _person(m["from_actor"]):
+            for q in found:
+                if q["to"] == m["from_actor"] and not q["ask"]:
+                    q["open"] = False
+        if m.get("kind") == "ask" and m["from_actor"] == "bot:" + bot and m.get("deleted_at") is None:
+            to = (m.get("ask") or {}).get("who") or m.get("to_actor")
+            if _person(to):
+                found.append({"id": m["id"], "task": detail["task"]["id"], "to": to, "ask": m.get("ask"),
+                              "created": m["created"], "open": not m.get("answers")})
+    for q in found:
+        q["open"] = q["open"] and q["id"] not in replied
+    return found
+
+
+def cards(card_details, bot):
+    """The child tasks that put a question to a person: owned by the person, or holding the bot's question to one
+    (a question card is owned by the bot that asked and waits on the person). Each is one step for the person."""
+    return [d for d in card_details if _person(d["task"].get("owner")) or _person(d["task"].get("waiting_on"))
+            or questions(d, bot)]
 
 
 def bot_runs(detail, bot):
@@ -102,30 +127,31 @@ def attached(files, bot):
     return [f["name"] for f in files.get("files") or [] if any(v.get("by") == "bot:" + bot for v in f.get("versions") or [])]
 
 
-def side(detail, files, bot):
+def side(detail, files, bot, card_details=()):
     """One side's outcome, cut at the bot's first run: what the bot and people said after it, the files the bot
     attached, its runs and minutes, and the person's steps (their messages after the cut plus each question card
-    the bot filed for them). Capture and the replay both read a task through this, so both are counted alike."""
+    the bot filed for them). `card_details` are the child tasks' details. Capture and the replay both read a task
+    through this, so both are counted alike."""
     runs = bot_runs(detail, bot)
     start = when(runs[0]["started"]) if runs else None
-    seen, transcript, last_ask = set(), [], None
+    seen, transcript = set(), []
     for m in sorted((detail.get("messages") or []) + (detail.get("comments") or []), key=lambda m: m["created"]):
         if m["id"] in seen or m.get("kind") == "notice" or m.get("deleted_at") or not start or when(m["created"]) < start:
             continue
         seen.add(m["id"])
         if m["from_actor"] == "bot:" + bot:
             transcript.append(["bot", m["body"]])
-            last_ask = m if m.get("kind") == "ask" else last_ask
         elif _person(m["from_actor"]):
             transcript.append(["person", m["body"]])
-            last_ask = None                       # a person's message on the task answers the bot's question
     minutes = sum((when(r["finished"]) - when(r["started"])).total_seconds() for r in runs if r.get("finished")) / 60
-    cards = asks(detail)
+    asked = cards(card_details, bot)
+    open_questions = [q for d in (detail, *asked) for q in questions(d, bot) if q["open"]]
     return {"status": detail["task"]["status"], "transcript": transcript, "files": attached(files, bot),
             "runs": len(runs), "minutes": round(minutes, 1),
-            "person_steps": sum(1 for who, _ in transcript if who == "person") + len(cards),
-            "open_ask": last_ask and last_ask.get("to_actor"),
-            "open_cards": [c["id"] for c in cards if c.get("status") not in SETTLED_ASK],
+            "person_steps": sum(1 for who, _ in transcript if who == "person") + len(asked),
+            "open_questions": sorted(open_questions, key=lambda q: q["created"]),
+            "open_cards": [d["task"]["id"] for d in asked if _person(d["task"].get("owner"))
+                           and d["task"].get("status") not in SETTLED_ASK],
             "running": not runs or any(not r.get("finished") for r in runs)}
 
 
@@ -145,7 +171,7 @@ def as_started(detail, start):
             "acceptance_criteria": criteria or []}
 
 
-def split(detail, files, instructions, bot=None):
+def split(detail, files, instructions, bot=None, card_details=()):
     """A draft case from a task's detail (GET tasks/{id}), its files (GET tasks/{id}/files) and its bot's
     instructions snapshot (GET bots/{bot}/instructions). The opening state is the task as it was and everything a
     person wrote or attached before the bot's first run; the original outcome is what followed."""
@@ -170,7 +196,7 @@ def split(detail, files, instructions, bot=None):
     snapshot = instructions.get("content") or ""
     exact = bool(instructions.get("updated")) and when(instructions["updated"]) <= start
     status = task["status"]
-    original = side(detail, files, bot)
+    original = side(detail, files, bot, card_details)
     return {
         "id": re.sub(r"[^a-z0-9]+", "-", task["title"].lower()).strip("-")[:50] + "-" + task["id"][:8],
         "title": task["title"],
