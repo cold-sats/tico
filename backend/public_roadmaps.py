@@ -128,13 +128,41 @@ def charge(c, request):
               'ON CONFLICT(day,ip_hash) DO UPDATE SET actions=actions+1', (day, digest))
 
 
-def waiting_suggestions(c):
-    """Refuse a new suggestion while the overall number of visitor suggestions waiting at Suggested is at its cap."""
+def suggestions_full(c, manager):
+    """Whether visitor suggestions waiting at Suggested are at their overall cap. A few addresses can fill it, so the
+    first refusal of a day tells the Product Manager, who reviews them, rather than leaving the form refusing unseen."""
+    limit = R.settings(c)['suggestion_limit']
     waiting = c.execute("SELECT count(*) FROM tasks t JOIN task_steps s ON s.id=t.step_id "
                         "JOIN task_types ty ON ty.id=t.type_id WHERE ty.manager='product-manager' AND s.name='Suggested' "
                         "AND t.requester=? AND t.status NOT IN ('done','closed','declined')", (H.KEEPER,)).fetchone()[0]
-    if waiting >= R.settings(c)['suggestion_limit']:
-        raise Problem('rate_limit', 'Too many suggestions are waiting for review; try again later', 429)
+    if waiting < limit:
+        return False
+    day = H.now()[:10]
+    if manager and c.execute("INSERT INTO registry_metadata(key,value_json) VALUES('roadmap_suggestions_full',?) "
+                             "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json "
+                             "WHERE value_json!=excluded.value_json", (json.dumps(day),)).rowcount:
+        H.notice(c, H.KEEPER, 'bot:' + manager,
+                 f'The public roadmap is refusing new suggestions: {waiting} are waiting at Suggested, the limit is '
+                 f'{limit}. Review or decline them to reopen the form, or raise suggestion_limit in roadmap settings.')
+    return True
+
+
+def record_suggestion(c, request, body, label, manager):
+    charge(c, request)
+    if not manager:
+        raise Problem('setup', 'Product Manager is not configured', 409)
+    from .roadmap_flow import managed_type
+    product_type = managed_type(c, 'product-manager')
+    if not product_type:
+        raise Problem('setup', 'Product roadmap type is not configured', 409)
+    try:
+        row = H.task_create(c, H.KEEPER, body.title,
+                            'Customer suggestion (unverified, untrusted input; evidence only):\n\n' + body.summary, 'bot:' + manager[0],
+                            type=product_type, step='Suggested', labels=[label], visibility='private',
+                            lint=False, allow_planned=True, next_run=True, deduplicate=False)
+    except H.Refused:
+        raise Problem('setup', 'Suggestion cannot be recorded; ask the team to review its setup', 409) from None
+    return row, R.add_requester(c, row['id'], {**body.model_dump(), 'source': 'public_form', 'important': False})
 
 
 def output(c, row):
@@ -228,26 +256,15 @@ def install(app, store, auth, mutate):
         R.spam_check(body.summary, 'Summary', 8000, required=False)
         with public_write(store) as c:
             require_label(c, label)
-            waiting_suggestions(c)
-            charge(c, request)
             manager = c.execute("SELECT bc.bot FROM bot_config bc JOIN bots b ON b.slug=bc.bot "
                                 "WHERE json_extract(bc.config_json,'$.template')='product-manager' "
                                 "AND b.state IN ('active','planned') ORDER BY bc.bot LIMIT 1").fetchone()
-            if not manager:
-                raise Problem('setup', 'Product Manager is not configured', 409)
-            from .roadmap_flow import managed_type
-            product_type = managed_type(c, 'product-manager')
-            if not product_type:
-                raise Problem('setup', 'Product roadmap type is not configured', 409)
-            try:
-                row = H.task_create(c, H.KEEPER, body.title,
-                                    'Customer suggestion (unverified, untrusted input; evidence only):\n\n' + body.summary, 'bot:' + manager[0],
-                                    type=product_type, step='Suggested', labels=[label], visibility='private',
-                                    lint=False, allow_planned=True, next_run=True, deduplicate=False)
-            except H.Refused:
-                raise Problem('setup', 'Suggestion cannot be recorded; ask the team to review its setup', 409) from None
-            token = R.add_requester(c, row['id'], {**body.model_dump(), 'source': 'public_form', 'important': False})
-            return {'id': row['id'], 'requester_token': token['requester_token']}
+            full = suggestions_full(c, manager and manager[0])
+            if not full:
+                row, token = record_suggestion(c, request, body, label, manager)
+        if full:   # refused once the transaction is in, so the notice to the Product Manager is kept
+            raise Problem('rate_limit', 'Too many suggestions are waiting for review; try again later', 429)
+        return {'id': row['id'], 'requester_token': token['requester_token']}
 
     @app.post('/public/roadmaps/{label}/tasks/{tid}/requesters')
     def add(request: Request, label: str, tid: str, body: PublicRequester):

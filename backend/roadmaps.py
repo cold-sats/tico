@@ -19,6 +19,7 @@ VISIBILITY = "TEXT NOT NULL DEFAULT 'private' CHECK(visibility IN ('public','pri
 
 
 def migrate(c):
+    ran_before = 'public_title' in {r[1] for r in c.execute('PRAGMA table_info(tasks)')}
     H.add_column(c, 'tasks', 'visibility', VISIBILITY)
     H.add_column(c, 'tasks', 'public_title', "TEXT NOT NULL DEFAULT ''")
     H.add_column(c, 'tasks', 'public_summary', "TEXT NOT NULL DEFAULT ''")
@@ -40,6 +41,9 @@ def migrate(c):
         c.execute("UPDATE task_types SET default_visibility='private' WHERE manager='product-manager'")
         c.execute("UPDATE tasks SET public_title='',public_summary='' WHERE visibility='private' "
                   "AND public_title=substr(coalesce(title,''),1,300) AND public_summary=substr(coalesce(body,''),1,8000)")
+    if ran_before and H._has_table(c, 'task_events') and c.execute(
+            "INSERT OR IGNORE INTO registry_metadata(key,value_json) VALUES('roadmaps_copies_cleared','true')").rowcount:
+        clear_copies(c)
     c.execute('CREATE TABLE IF NOT EXISTS task_requesters('
               'id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),actor TEXT,'
               "name TEXT NOT NULL DEFAULT '',email TEXT NOT NULL DEFAULT '',phone TEXT NOT NULL DEFAULT '',"
@@ -48,6 +52,27 @@ def migrate(c):
     c.execute('CREATE INDEX IF NOT EXISTS task_requesters_task ON task_requesters(task_id)')
     c.execute('CREATE UNIQUE INDEX IF NOT EXISTS task_requesters_actor ON task_requesters(task_id,actor) '
               'WHERE actor IS NOT NULL')
+
+
+# Public text someone wrote leaves a task event (publication(), task_create); the first version's copies left none.
+WRITTEN = ("EXISTS(SELECT 1 FROM task_events e WHERE e.task_id=tasks.id "
+           "AND e.field IN ('public_title','public_summary'))")
+
+
+def clear_copies(c):
+    """Once, on a database that ran roadmaps before: the first version copied internal titles and bodies into public
+    text at creation and never updated them, so the check above misses a task edited since, and a Product roadmap
+    task it published at creation stayed public. Public text nobody wrote goes; a public task showing its internal
+    title and body is unpublished, with an event saying why so its owner can publish it again with public text."""
+    c.execute(f"UPDATE tasks SET public_title='',public_summary='' WHERE visibility='private' "
+              f"AND (public_title!='' OR public_summary!='') AND NOT {WRITTEN}")
+    copied = [r[0] for r in c.execute(
+        f"SELECT id FROM tasks WHERE visibility='public' AND NOT {WRITTEN} "
+        "AND public_title=substr(coalesce(title,''),1,300) AND public_summary=substr(coalesce(body,''),1,8000)")]
+    for tid in copied:
+        c.execute("UPDATE tasks SET visibility='private',public_title='',public_summary='' WHERE id=?", (tid,))
+        H._task_event(c, tid, H.KEEPER, 'visibility', 'public', 'private',
+                      'Unpublished: its public text was a copy of the internal title and body. Write public text to publish it again.')
 
 
 def settings(c):

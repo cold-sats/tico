@@ -5,7 +5,8 @@ Suggested → Exploring → Spec → Approved → Building → Shipped (or Decli
 type) uses the development flow. Every type starts private. A task is public only once someone publishes it with a
 public title written for it: the internal title and body are never copied into the public text. A type set to
 default public publishes a new task only when its public title is given at creation; without one the task starts
-private. A type default applies only when a task is created; existing tasks and tasks moved to another type keep
+private. A bot (or the Assistant or BotOps acting for a person) cannot create a task with public text or as public;
+it is refused, and the bot creates the task and then asks for an approved publication. A type default applies only when a task is created; existing tasks and tasks moved to another type keep
 their visibility. Older tasks start private.
 
 In Settings → Tasks, create a label such as `roadmap`. In Public roadmap, select that label, add
@@ -66,7 +67,7 @@ Suggestions create private Product roadmap tasks at Suggested for the configured
 with the label and submitter's request. They queue quietly for the PM's next run and need team
 review before publication. At most 20 visitor suggestions wait at Suggested at once across every visitor
 (`suggestion_limit` in settings, 1 to 1000); while that many wait, a new suggestion gets 429 until the team moves
-some on. Successful suggest, add, remove and comment actions share one limit
+some on, and the first refusal of each UTC day sends the Product Manager a notice saying so. Successful suggest, add, remove and comment actions share one limit
 per IP per UTC day across every roadmap (default 10, configurable in settings); exhaustion returns
 429. Failed writes roll back their charge. The server uses the connection IP, with forwarded IPs
 accepted only through the deployment’s trusted proxy configuration (below). IPv6 visitors share
