@@ -124,6 +124,15 @@ def check(settings, bucket, prefix, region, keys):
     except Exception as exc:
         raise Problem("storage_check", "Tico can't use these keys: " + type(exc).__name__, 422) from None
     try:
+        # The same create and abort as the server's write probe (Blobs._check_write): keys that cannot abort
+        # would pass a plain write here, then fail that probe and every upload after the save.
+        upload_id = None
+        try:
+            upload_id = s3.create_multipart_upload(Bucket=bucket, Key=key, ServerSideEncryption="AES256")["UploadId"]
+            s3.abort_multipart_upload(Bucket=bucket, Key=key, UploadId=upload_id)
+        except Exception as exc:
+            raise Problem("storage_check", blob_s3.write_error(exc, _location(bucket, prefix), cleanup=upload_id is not None),
+                          422) from None
         try:
             s3.put_object(Bucket=bucket, Key=key, Body=CHECK, ContentType="text/plain", ServerSideEncryption="AES256",
                           IfNoneMatch="*")
@@ -202,6 +211,19 @@ def startup(store, vault, blobs):
         # The vault key is missing or wrong: new files stay on the server's storage until it is restored.
         import logging
         logging.getLogger("tico.storage").warning("Company storage not applied: %s", exc.detail)
+
+
+def for_backup(store, blobs):
+    """`blobs` (a backup's reader, backend/operations.py and manage.py) pointed at the company's bucket and the
+    earlier ones too, so a bundle can read every file. Unchanged when none was ever set."""
+    with store.read() as c:
+        if not c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='company_storage'").fetchone():
+            return blobs
+        if not c.execute("SELECT 1 FROM company_storage LIMIT 1").fetchone():
+            return blobs
+    from .credentials import Vault
+    apply(store, Vault(store), blobs, copy=False)
+    return blobs
 
 
 def install(app, store, auth):

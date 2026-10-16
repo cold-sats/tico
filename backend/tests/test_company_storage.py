@@ -9,6 +9,7 @@ from botocore.exceptions import ClientError
 from backend import company_storage
 from backend.blobs import Blobs
 from backend.tests.test_api import api, headers, post  # noqa: F401
+from backend.tests.test_backup_bundle import ObjectStore
 from backend.tests.test_storage_delivery import S3, attach, task
 
 SECRET = "example-secret-access-key-0001"
@@ -19,10 +20,16 @@ class Denied(S3):
         raise ClientError({'Error': {'Code': 'AccessDenied', 'Message': SECRET}}, 'PutObject')
 
 
+class NoAbort(S3):
+    """Writes, but cannot cancel an upload: the server's write probe would fail after the save."""
+    def abort_multipart_upload(self, **kw):
+        raise ClientError({'Error': {'Code': 'AccessDenied', 'Message': SECRET}}, 'AbortMultipartUpload')
+
+
 @pytest.fixture
 def buckets(monkeypatch):
     """One fake S3 per access key ID; each records the bucket it was asked for."""
-    made = {'AKIAEXAMPLEGOOD0001': S3(), 'AKIAEXAMPLEGOOD0002': S3(), 'AKIAEXAMPLEDENY0001': Denied(), 'server': S3()}
+    made = {'AKIAEXAMPLEGOOD0001': S3(), 'AKIAEXAMPLEGOOD0002': S3(), 'AKIAEXAMPLEDENY0001': Denied(), 'AKIAEXAMPLENOAB0001': NoAbort(), 'server': S3()}
     for s3 in made.values():
         s3.close = lambda: None
     def client(service, **options):
@@ -53,6 +60,8 @@ def test_owner_sets_bucket_secret_stays_sealed_and_every_file_keeps_opening(api,
     denied = api.put('/api/v2/system/storage', json=body(key='AKIAEXAMPLEDENY0001'), headers=headers())
     assert denied.status_code == 422 and "AccessDenied on acme-files/tico (s3:PutObject)" in denied.text
     assert SECRET not in denied.text
+    no_abort = api.put('/api/v2/system/storage', json=body(key='AKIAEXAMPLENOAB0001'), headers=headers())
+    assert no_abort.status_code == 422 and 's3:AbortMultipartUpload' in no_abort.text
     assert api.get('/api/v2/system/storage', headers=headers()).json()['active'] is None
 
     saved = api.put('/api/v2/system/storage', json=body(), headers=headers())
@@ -72,6 +81,15 @@ def test_owner_sets_bucket_secret_stays_sealed_and_every_file_keeps_opening(api,
     assert download(api, before) == b'stored on the server disk'
     blobs.copy_local(api.app.state.store, threading.Event(), interval=0)
     assert b'stored on the server disk' in first.objects.values()
+
+    # The scheduled backup reads files from the company bucket with the company's keys.
+    from backend.operations import backup
+    class Metrics:
+        def put_metric_data(self, **kw):
+            pass
+    vault = ObjectStore()
+    report = backup(api.app.state.store, vault, Metrics(), 'backup-bucket')
+    assert report['objects'] == 2 and b'stored in the company bucket' in vault.objects.values()
 
     # A restart reads the saved place back from the vault.
     again = Blobs(api.app.state.store.settings)

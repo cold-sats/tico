@@ -16,6 +16,10 @@ from .store import H, Problem
 from . import blob_s3
 
 
+# How long an unreachable earlier place is skipped (Blobs._open_earlier).
+EARLIER_RETRY = 300
+
+
 class Blobs:
     def __init__(self, settings, s3=None):
         self.bucket = settings.blob_bucket
@@ -40,6 +44,9 @@ class Blobs:
         self._base, self._server_sources = settings, self._sources
         # Read-only places files may still be in: [(Location or settings, Sources)], newest first.
         self._earlier = []
+        # {location: monotonic time} of an earlier place that failed other than "no such file": skipped for a while,
+        # so one unreachable bucket does not add its timeouts to every read.
+        self._earlier_down = {}
         # Bumped by `configure`, so a copy or probe begun for one target never records against another.
         self._generation = 0
         self._loop = None
@@ -50,6 +57,9 @@ class Blobs:
         server's own storage. With `store`, files on this computer's disk are then copied to the new place.
         `checked`: the company's keys were just shown to write there, so writes need not wait for the probe."""
         target = Location(self._base, **company) if company else self._base
+        if company:
+            # A client handed in for the server's own bucket (a backup's) cannot sign for the company's.
+            self._s3 = self._probe_s3 = None
         places = [Location(self._base, **place) for place in earlier]
         if company and self._base.blob_bucket:
             places.append(self._base)
@@ -284,10 +294,14 @@ class Blobs:
     def _open_earlier(self, digest, span):
         """The body from the first earlier place that has the file, or None."""
         for place, sources in self._earlier:
+            where = location_of(place)
+            if time.monotonic() - self._earlier_down.get(where, -EARLIER_RETRY) < EARLIER_RETRY:
+                continue
             try:
                 return sources.read_s3("get_object", Bucket=place.blob_bucket, Key=self.s3_key(digest, place), **span)[0]["Body"]
-            except Exception:
-                continue
+            except Exception as exc:
+                if getattr(exc, "response", {}).get("Error", {}).get("Code") not in ("NoSuchKey", "404", "NotFound"):
+                    self._earlier_down[where] = time.monotonic()
         return None
 
     def _open_local(self, key, start):
