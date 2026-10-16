@@ -372,6 +372,13 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
     await v.page.locator('[data-report]').waitFor();
     assert.match(await v.page.locator('[data-report]').innerText(), /Setup check/);
     assert.match(await v.page.locator('[data-sent]').innerText(), /message marked setup/, 'a Setup check goes as a setup request');
+    // Another report in its place, or Remove, gives back the kind the request had before.
+    await v.page.evaluate(() => talkToUs({kind: 'toast', title: 'Could not save'}));
+    assert.doesNotMatch(await v.page.locator('[data-sent]').innerText(), /marked setup/, 'an error report is not a setup request');
+    await v.page.locator('[data-setup-send]').click();
+    await v.page.locator('[data-unreport]').click();
+    assert.doesNotMatch(await v.page.locator('[data-sent]').innerText(), /marked setup/);
+    await v.page.locator('[data-setup-send]').click();
     await v.page.locator('[data-compose] [data-preview]').click();
     await v.page.locator('dialog.support-modal [data-use]:not([disabled])').waitFor();
     const previewed = JSON.parse(v.calls.filter(c => c.startsWith('POST diagnostics/capture')).at(-1).slice('POST diagnostics/capture '.length)).report;
@@ -390,6 +397,10 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
     assert.ok(v.calls.includes('asked from health'));
     assert.match(await v.page.locator('[data-sent]').innerText(), /message marked setup/);
     assert.ok(!v.calls.some(c => c.startsWith('POST tickets {')), 'nothing is sent before the person presses Send');
+    // A Setup check attached and removed again leaves "Want help setting up?" a setup request.
+    await v.page.evaluate(() => talkToUs({kind: 'setup_check', title: '1 of 2 checks fail', checks: []}));
+    await v.page.locator('[data-unreport]').click();
+    assert.match(await v.page.locator('[data-sent]').innerText(), /message marked setup/);
     // A second press keeps the draft as it is: one snapshot, not two.
     await v.page.evaluate(() => document.querySelector('[data-setup-help]').click());
     await v.page.waitForFunction(() => document.querySelector('[data-setup-help]') && !document.querySelector('[data-setup-help]').disabled);

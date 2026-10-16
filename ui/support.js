@@ -199,7 +199,7 @@
     if (unreport) unreport.onclick = () => {
       // An untouched prefill would say "details attached" with nothing attached.
       d.message = unprefilled(d.message);
-      if (d.report.kind === 'setup_check') d.kind = 'support';
+      if (d.report.kind === 'setup_check') d.kind = d.kindBefore || 'support';
       d.report = null; d.bundle = null; d.key = uid(); renderComposer(); form.elements.message?.focus();
     };
     form.oninput = () => {
@@ -321,8 +321,11 @@
     selected = ''; viewing = true;
     const d = draft();
     if (p.report) {
+      // A Setup check marks the request setup (HQ's kind for help with setting up); replacing or removing it gives back
+      // the kind the request had before, which may be setup already ("Want help setting up?").
+      if (d.report?.kind === 'setup_check') d.kind = d.kindBefore || 'support';
+      if (p.report.kind === 'setup_check') { d.kindBefore = d.kind; d.kind = 'setup'; }
       d.report = p.report; d.diag = true; d.bundle = null; d.key = uid();
-      if (p.report.kind === 'setup_check') d.kind = 'setup';      // HQ's kind for help with setting up
       // The words on screen go only in the attachment, which is redacted; the message is sent as typed, so it names
       // the kind and nothing else.
       const rest = unprefilled(d.message);
