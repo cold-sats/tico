@@ -164,7 +164,7 @@
 .notes-modal[open]{display:flex;flex-direction:column}
 .notes-modal .notes-detail{padding-top:0;flex:1;min-height:0}
 .notes-modal-close{display:flex;justify-content:flex-end;padding:10px 14px;flex:none}
-.notes-modal-close button{padding:4px 10px}
+.notes-modal-close button{width:32px;height:32px}
 .notes-modal-close{gap:4px}
 .notes-modal-close .nav-icon{font-size:18px;vertical-align:middle}
 #notes-modal-window[hidden]{display:none}

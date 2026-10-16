@@ -80,33 +80,36 @@ function settingsEditBot(slug = '') {
   const machineOptions = SETTINGS_DATA.machines.filter(machine => !machine.revoked_at &&
     (settingsIsAdmin() || machine.accepts_member_bots)).map(machine =>
     `<option value="${esc(machine.id)}" data-operator="${esc(machine.operator)}">${esc(machine.label)} · ${esc(settingsPersonName(machine.operator))}</option>`).join('');
-  dialog.innerHTML = `<form><div class="tmodal-head"><h2 id="bot-editor-title">${editing ? `Edit ${esc(e.display_name)}` : 'Add bot'}</h2><span class="spacer"></span><button class="ghost" type="button" data-bot-close aria-label="Close">✕</button></div>
+  dialog.innerHTML = `<form><div class="tmodal-head"><h2 id="bot-editor-title" tabindex="-1">${editing ? `Edit ${esc(e.display_name)}` : 'Add bot'}</h2><span class="spacer"></span><button class="ghost" type="button" data-bot-close aria-label="Close" title="Close (Esc)">✕</button></div>
     <div class="bot-editor-body">
       <div class="bot-editor-grid">
+        <h3 class="bot-editor-sec bot-editor-wide">Profile</h3>
         <label class="bot-editor-wide">Name<input name="display_name" type="text" autocomplete="off" value="${esc(e?.display_name || '')}" placeholder="Release Captain" maxlength="100" required></label>
         <label class="bot-editor-wide">Description<textarea name="description" maxlength="2000" placeholder="What this bot owns and does">${esc(e?.description || '')}</textarea></label>
-        <label>Reports to<select name="reports_to"><option value="">Top level</option>${parentOptions}</select></label>
-        <label>Other bots<select name="bot_contact"><option value="open" ${(e?.bot_contact || 'open') === 'open' ? 'selected' : ''}>May chat and assign</option><option value="replies" ${e?.bot_contact === 'replies' ? 'selected' : ''}>Replies only</option><option value="tasks" ${e?.bot_contact === 'tasks' ? 'selected' : ''}>Tasks only</option></select><small>Applies to bots only. Humans are never affected.</small></label>
         <label>Status<select name="status">${['planned','active','paused'].map(value => `<option value="${value}" ${(e?.status || 'planned') === value ? 'selected' : ''}>${value === 'planned' ? 'Setting up' : value[0].toUpperCase() + value.slice(1)}</option>`).join('')}</select></label>
-        <details class="bot-editor-wide" data-bot-advanced><summary>Advanced</summary><div class="bot-editor-grid">
-          <label>Slug<input name="slug" type="text" autocomplete="off" spellcheck="false" value="${esc(slug)}" placeholder="release-captain" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" maxlength="80" ${editing ? 'readonly' : ''}><small>${editing ? 'Its id in commands and paths.' : 'Picked from the name. Tico adds -2 when it is taken.'}</small></label>
-          <label>Repository<input name="repo" type="text" autocomplete="off" spellcheck="false" value="${esc(e?.repo || (slug ? `bot-${slug}` : ''))}" placeholder="bot-release-captain" maxlength="200" ${editing ? 'required' : ''}></label>
-        </div></details>
-        ${editing ? '<fieldset class="bot-editor-wide brepo" data-bot-repos hidden></fieldset>' : ''}
-        <label class="bot-editor-check"><input type="checkbox" name="shared" ${e?.shared ? 'checked' : ''}> Allow branches</label>
-        <label class="bot-editor-check"><input type="checkbox" name="temp" ${e?.temp ? 'checked' : ''}> Temp bot</label>
-        <label class="bot-editor-wide"><span><input type="checkbox" name="private_tasks_default" ${e?.private_tasks_default ? 'checked' : ''}> Create private tasks by default</span><small>Tasks created by or assigned to this bot start private. A human requester can choose company visibility.</small></label>
+        <label>Reports to<select name="reports_to"><option value="">Top level</option>${parentOptions}</select></label>
+        <h3 class="bot-editor-sec bot-editor-wide">Working with others</h3>
+        <label>Other bots<select name="bot_contact"><option value="open" ${(e?.bot_contact || 'open') === 'open' ? 'selected' : ''}>May chat and assign</option><option value="replies" ${e?.bot_contact === 'replies' ? 'selected' : ''}>Replies only</option><option value="tasks" ${e?.bot_contact === 'tasks' ? 'selected' : ''}>Tasks only</option></select><small>Applies to bots only. Humans are never affected.</small></label>
         <label>Conversation<select name="thread_mode"><option value="personal" ${(e?.thread_mode || 'personal') === 'personal' ? 'selected' : ''}>Private per human</option><option value="shared" ${e?.thread_mode === 'shared' ? 'selected' : ''}>Shared room</option></select></label>
-        ${editing ? '<div class="bot-editor-wide sb-rows" data-bot-people></div>' : ''}
-        ${editing ? '' : `<div class="bot-editor-wide" data-add-choice>
+        <label class="bot-editor-check bot-editor-wide"><input type="checkbox" name="private_tasks_default" ${e?.private_tasks_default ? 'checked' : ''}><span>Create private tasks by default<small>Tasks created by or assigned to this bot start private. A human requester can choose company visibility.</small></span></label>
+        <label class="bot-editor-check"><input type="checkbox" name="shared" ${e?.shared ? 'checked' : ''}><span>Allow branches<small>People can make their own branch of it, on their computer and subscription.</small></span></label>
+        <label class="bot-editor-check"><input type="checkbox" name="temp" ${e?.temp ? 'checked' : ''}><span>Temp bot<small>For work expected to end.</small></span></label>
+        ${editing ? `<h3 class="bot-editor-sec bot-editor-wide">Access, model and computer</h3><p class="bot-editor-hint bot-editor-wide">Each of these saves as soon as you change it.</p><div class="bot-editor-wide sb-rows" data-bot-people></div>` : ''}
+        ${editing ? '' : `<h3 class="bot-editor-sec bot-editor-wide">Model and computer</h3><div class="bot-editor-wide" data-add-choice>
           ${settingsChoiceFields(currentModel)}
           <input type="hidden" name="model_effort" value="${esc(currentModel)}">
         </div>
         <label>Computer owner<select name="operator" ${S.me?.role === 'owner' ? '' : 'disabled'}>${SETTINGS_DATA.people.map(person => `<option value="${esc(person.id)}" ${person.id === operator ? 'selected' : ''}>${esc(person.name || person.id)}</option>`).join('')}</select></label>
         <label class="bot-editor-wide">Registered computer<select name="runner_id"><option value="">Assign later</option>${machineOptions}</select><small data-computer-note></small></label>
         <p class="bot-editor-wide muted">Everyone can use it. Change that under Access once it is added.</p>`}
+        ${editing ? '<fieldset class="bot-editor-wide brepo" data-bot-repos hidden></fieldset>' : ''}
+        <details class="bot-editor-wide" data-bot-advanced><summary>Advanced</summary><div class="bot-editor-grid">
+          <label>Slug<input name="slug" type="text" autocomplete="off" spellcheck="false" value="${esc(slug)}" placeholder="release-captain" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" maxlength="80" ${editing ? 'readonly' : ''}><small>${editing ? 'Its id in commands and paths.' : 'Picked from the name. Tico adds -2 when it is taken.'}</small></label>
+          <label>Repository<input name="repo" type="text" autocomplete="off" spellcheck="false" value="${esc(e?.repo || (slug ? `bot-${slug}` : ''))}" placeholder="bot-release-captain" maxlength="200" ${editing ? 'required' : ''}></label>
+        </div></details>
       </div>
-      <div class="row" style="margin-top:16px"><button class="primary" type="submit">${editing ? 'Save bot' : 'Add bot'}</button><button class="ghost" type="button" data-bot-close>Cancel</button><span class="muted" data-bot-status></span>${editing && !isBuiltInBot(e.name) ? `<span class="spacer"></span><select name="successor" aria-label="Hand its work to"><option value="">Hand its work to ${esc(settingsPersonName(e.operator))}</option>${S.emps.filter(row => row.name !== slug).map(row => `<option value="${esc(row.name)}">Hand its work to ${esc(row.display_name || row.name)}</option>`).join('')}</select>${['hermes', 'openclaw'].includes(e.agent?.harness) ? `<label class="bot-editor-check" title="Its agent stops either way; revoking makes it stop reporting in"><input type="checkbox" name="revoke_agent" checked> Revoke its credential</label>` : ''}<button class="ghost danger" type="button" data-bot-remove>Remove bot</button>` : ''}</div></div></form>`;
+    </div>
+    <div class="bot-editor-foot"><button class="primary" type="submit">${editing ? 'Save bot' : 'Add bot'}</button><button class="ghost" type="button" data-bot-close>Cancel</button><span class="muted" data-bot-status></span>${editing && !isBuiltInBot(e.name) ? `<span class="spacer"></span><select name="successor" aria-label="Hand its work to"><option value="">Hand its work to ${esc(settingsPersonName(e.operator))}</option>${S.emps.filter(row => row.name !== slug).map(row => `<option value="${esc(row.name)}">Hand its work to ${esc(row.display_name || row.name)}</option>`).join('')}</select>${['hermes', 'openclaw'].includes(e.agent?.harness) ? `<label class="bot-editor-check" title="Its agent stops either way; revoking makes it stop reporting in"><input type="checkbox" name="revoke_agent" checked> Revoke its credential</label>` : ''}<button class="ghost danger" type="button" data-bot-remove>Remove bot</button>` : ''}</div></form>`;
   const form = dialog.querySelector('form'), status = dialog.querySelector('[data-bot-status]');
   dialog.querySelectorAll('[data-bot-close]').forEach(button => button.onclick = () => dialog.close());
   // The rows for who owns it, its model and its computer: they save on their own, so keep them fresh, and
