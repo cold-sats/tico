@@ -491,7 +491,9 @@ Changes to status, type, owner and the like are one-line markers between the mes
 **Working…** line shows its newest step and opens to the steps so far. Whoever manages the bot gets **Stop** beside
 it, the same stop as in the bot's chat (`POST /v2/bots/{slug}/stop`). The box at the foot is the chat's composer, and
 what you type there is a comment: it wakes the bot as before. `GET /v2/tasks/{id}` carries this view: each bot reply in
-`comments` has its `run`, and `execution` is the owner's newest run in the room, shaped as in a conversation snapshot.
+`comments` has its `run`, and `execution` is the owning bot's newest run in the task's own room, shaped as in a
+conversation snapshot. A task still in a chat room (a person's task, or one filed into a chat before task rooms) has
+no `execution`: that room's runs belong to the chat.
 `hub task comment`, `hub_task_comment` and `POST /v2/tasks/{id}/comments` are unchanged.
 
 Tico spot-checks running work. A bot's open or doing task whose own session ran in the last day (or runs now) and

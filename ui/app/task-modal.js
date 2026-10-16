@@ -382,13 +382,13 @@ function taskChatStop() {
 }
 // The open task changed, or a comment landed in its conversation (live events, ui/app/live.js): read it again, with
 // its files (a new file or version, or an answer on one), once per burst.
-function taskChatLive(state, ms = 200) {
+function taskChatLive(state) {
   if (!taskChatCurrent(state) || state.stopped) { if (TASK_CHAT === state && !state.dialog.open) taskChatStop(); return; }
   liveSoon('task:' + state.id, () => {
     if (!taskChatCurrent(state) || state.stopped) return;
     void taskChatRead(state);
     tfLoad(state.dialog, state.id).catch(() => {});
-  }, ms);
+  }, 200);
 }
 function taskChatCurrent(state) { return TASK_CHAT === state && state.dialog.open; }
 const commentAuthor = (a, via) => {
@@ -446,9 +446,10 @@ function commentLineHTML(x, i, all, files = [], taskId = '', canAnswer = true) {
 }
 // A reply's run, folded to one line ("6 steps · 4 tool calls · 2m"); opening it reads the steps once (GET
 // /v2/turns/{id}/steps) and they stay open across redraws. `TASK_STEPS` holds what was read, per turn.
-const TASK_STEPS = {html: new Map(), open: new Set(), reading: new Set()};
+const TASK_STEPS = {html: new Map(), live: new Map(), open: new Set(), reading: new Set()};
 function taskStepsFold(turn, label, live = false) {
-  const open = TASK_STEPS.open.has(turn), html = !live && TASK_STEPS.html.get(turn);
+  // a working run's fold keeps the steps last read while the next read is on its way
+  const open = TASK_STEPS.open.has(turn), html = (live ? TASK_STEPS.live : TASK_STEPS.html).get(turn);
   return `<details class="run-steps" data-turn="${esc(turn)}"${live ? ' data-live' : ''}${open ? ' open' : ''}><summary>${label}</summary><div class="steps-list">${
     html || '<div class="step muted">Loading…</div>'}</div></details>`;
 }
@@ -468,8 +469,10 @@ async function taskStepsOpen(el) {
   let html;
   try {
     html = v2StepsHTML(await get(`/v2/turns/${encodeURIComponent(turn)}/steps`));
-    if (!live) TASK_STEPS.html.set(turn, html);
-  } catch (error) { html = `<div class="step err">${esc(error.message)}</div>`; }
+    (live ? TASK_STEPS.live : TASK_STEPS.html).set(turn, html);
+  } catch (error) {
+    html = `<div class="step err">${esc(error.status === 403 ? 'Only people who may read this bot’s runs see its steps.' : error.message)}</div>`;
+  }
   finally { TASK_STEPS.reading.delete(turn); }
   // a redraw while it was read put a new fold in its place
   const list = $(`.task-comments details.run-steps[data-turn="${CSS.escape(turn)}"] .steps-list`, document);
@@ -477,14 +480,15 @@ async function taskStepsOpen(el) {
 }
 // The owner's run while it works: "Working" and its newest step, the steps so far one click away, and Stop for whoever
 // manages the bot (POST /v2/bots/{slug}/stop, as in the bot's chat).
-function taskLiveHTML(x) {
+function taskLiveHTML(x, stopping = '') {
   if (!x || !['leased', 'running'].includes(x.state)) return '';
   const part = (x.parts || []).at(-1);
   const step = part ? clipLine(part.text.replace(/\s+/g, ' ').trim(), 120) : '';
   const word = x.state === 'leased' ? 'Starting' : x.label && x.label !== 'Working' ? x.label : 'Working';
   const label = `<span class="typing run" aria-hidden="true"><i></i><i></i><i></i></span><span class="thinking-word">${esc(word)}…</span>${step ? `<span class="task-live-step">${esc(step)}</span>` : ''}`;
   const stop = x.attempt_id && settingsCanManageBot(S.emps.find(e => e.name === x.bot))
-    ? `<button type="button" class="ghost task-live-stop" data-task-stop="${esc(x.attempt_id)}" data-bot="${esc(x.bot)}" title="Stop this run">Stop</button>` : '';
+    ? `<button type="button" class="ghost task-live-stop" data-task-stop="${esc(x.attempt_id)}" data-bot="${esc(x.bot)}" title="Stop this run"${
+      stopping === x.attempt_id ? ' disabled>Stopping…' : '>Stop'}</button>` : '';
   return `<div class="thinking task-live" role="status" aria-label="${esc(actorLabel('bot:' + x.bot))} is ${esc(word.toLowerCase())}${step ? ': ' + esc(step) : ''}">${
     x.attempt_id ? taskStepsFold(x.attempt_id, label, true) : label}${stop}</div>`;
 }
@@ -492,6 +496,7 @@ async function taskRunStop(state, button) {
   button.disabled = true;
   try {
     await post(`/v2/bots/${encodeURIComponent(button.dataset.bot)}/stop`, {attempt_id: button.dataset.taskStop});
+    state.stopping = button.dataset.taskStop;      // the redraws keep "Stopping…" until the run has ended
     button.textContent = 'Stopping…';
     taskChatLive(state);
   } catch (e) { button.disabled = false; toast(`Not stopped: ${e.message}`, true); }
@@ -538,7 +543,7 @@ function taskCommentsRender(state, data) {
   state.count = count;
   const files = tfFiles(state.dialog);
   // The bot's next run on this task, when it is queued: what it waits for, where its reply will appear.
-  const live = taskLiveHTML(data.execution);
+  const live = taskLiveHTML(data.execution, state.stopping);
   const wait = live || !data.waiting_for ? live : `<p class="muted task-wait" role="status">${esc(data.waiting_for)}</p>`;
   const html = (lines.map((x, i, all) => commentLineHTML(x, i, all, files, state.id, can)).join('') || '<p class="muted">Nothing said yet.</p>') + wait;
   const thread = $('.task-comments', host);
@@ -594,9 +599,13 @@ async function taskChatLoad(id, dialog, data = null) {
   // A change to the task itself reaches taskChatLive from the page's task events (ui/app/refresh.js); its comments
   // are messages in its conversation.
   const cid = state.cid;
-  // A run's output moves its "Working" line on: read at most about once a second while it streams.
   const offs = cid ? [liveFollow(cid), liveOn('messages', d => { if (d.conversation_id === cid) taskChatLive(state); }),
-    liveOn('runs', d => { if (d.conversation_id === cid) taskChatLive(state, d.output ? 1000 : 200); })] : [];
+    liveOn('runs', d => {
+      if (d.conversation_id !== cid) return;
+      if (!d.output) { taskChatLive(state); return; }
+      // Output moves the "Working" line on: the thread alone, at most every 1.5 s and not while the tab is hidden.
+      liveThrottle('task-run:' + state.id, () => { if (taskChatCurrent(state) && !state.stopped) void taskChatRead(state); }, 1500);
+    })] : [];
   state.liveOff = () => { offs.forEach(off => off()); state.liveOff = null; };
 }
 async function taskCommentSend(state) {
