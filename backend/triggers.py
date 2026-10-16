@@ -31,7 +31,7 @@ import secrets
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
-from pydantic import Field
+from pydantic import ConfigDict, Field
 
 from . import hubdb as H
 from . import routines
@@ -62,6 +62,7 @@ class TriggerCreate(Contract):
 
 class TriggerSigning(Contract):
     """`secret` the sender was given (GitHub lets you type one); empty makes a new one. `off` stops checking."""
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=False)   # the sender signs with it exactly as typed
     secret: str = Field(default="", max_length=200)
     off: bool = False
 
@@ -268,6 +269,23 @@ def deliver(c, trigger_id, secret, body, headers, *, auth=None, vault=None):
 
 
 def install(app, settings, store, auth, mutate):
+    def once(request, body, fn):
+        """A write whose answer carries a secret goes through the vault's receipt (Vault.change): the idempotency row
+        keeps a keyed fingerprint of the request and the answer without the secret, so neither the address secret nor
+        the signing secret is stored in the clear or guessable offline. A replay answers without the secret."""
+        shown = {}
+
+        def run(c):
+            result = fn(c)
+            if "signing_secret" in result:
+                shown["signing_secret"] = result.pop("signing_secret")
+            if "url" in result:
+                shown["url"], result["url"] = result["url"], address(settings, result["id"])
+            return {"trigger": result}
+        out = request.app.state.vault.change(request.state.identity, request.url.path,
+                                             request.headers.get("idempotency-key"), body, lambda c, who: None, run)
+        return {"trigger": {**out["trigger"], **shown}}
+
     @app.get("/api/v2/triggers")
     def trigger_list(request: Request):
         """Every trigger, its address without the secret, and the routines that listen for it."""
@@ -280,18 +298,17 @@ def install(app, settings, store, auth, mutate):
     @app.post("/api/v2/triggers")
     def trigger_create(request: Request, body: TriggerCreate):
         """A new webhook trigger. The answer's `url` carries the secret and is shown only now."""
-        return mutate(request, body, lambda c: {"trigger": create(c, request.state.identity, settings, body)})
+        return once(request, body, lambda c: create(c, request.state.identity, settings, body))
 
     @app.post("/api/v2/triggers/{trigger_id}/rotate")
     def trigger_rotate(request: Request, trigger_id: str, body: M.Empty):
         """A new secret; the old address stops working at once."""
-        return mutate(request, body, lambda c: {"trigger": rotate(c, request.state.identity, settings, trigger_id)})
+        return once(request, body, lambda c: rotate(c, request.state.identity, settings, trigger_id))
 
     @app.post("/api/v2/triggers/{trigger_id}/signing")
     def trigger_signing(request: Request, trigger_id: str, body: TriggerSigning):
         """Check an HMAC-SHA256 body signature on every delivery (or stop, with `off`). The secret is shown only now."""
-        return mutate(request, body, lambda c: {"trigger": sign(c, request.state.identity, request.app.state.vault,
-                                                                trigger_id, body)})
+        return once(request, body, lambda c: sign(c, request.state.identity, request.app.state.vault, trigger_id, body))
 
     @app.get("/api/v2/triggers/{trigger_id}/deliveries")
     def trigger_deliveries(request: Request, trigger_id: str):

@@ -53,10 +53,14 @@ def test_a_signed_trigger_takes_a_github_delivery_and_refuses_and_logs_a_bad_sig
     post(api, "bots/ops/routines", {"key": "pushes", "title": "Push", "on": "webhook.repo", "text": "Look."})
     post(api, "triggers/repo/signing", {}, token="ben-test", expected=403)        # not the maker
     post(api, "triggers/repo/signing", {"secret": "short"}, expected=422)
-    key = post(api, "triggers/repo/signing", {})["trigger"]["signing_secret"]
+    key = post(api, "triggers/repo/signing", {}, key="s1")["trigger"]["signing_secret"]
     assert len(key) == 64 and get(api, "triggers")["triggers"][0]["signed"] is True
-    with api.app.state.store.read() as c:                                    # sealed, not kept as typed
+    replay = post(api, "triggers/repo/signing", {}, key="s1")["trigger"]      # a retried answer has no secret
+    assert replay["signed"] is True and "signing_secret" not in replay
+    with api.app.state.store.read() as c:                                    # sealed, and in no receipt
         assert key not in c.execute("SELECT signing_secret FROM triggers WHERE id='repo'").fetchone()[0]
+        receipts = " ".join(r[0] + r[1] for r in c.execute("SELECT request_hash,response_json FROM idempotency"))
+        assert key not in receipts and made["url"].rsplit("/", 1)[1] not in receipts
 
     body = b'{"ref": "refs/heads/main"}'
     github = {"X-GitHub-Event": "push", "X-GitHub-Delivery": "g1"}
@@ -78,8 +82,28 @@ def test_a_signed_trigger_takes_a_github_delivery_and_refuses_and_logs_a_bad_sig
     assert hook(api, made["url"].rsplit("/", 1)[0] + "/wrong", body).status_code == 404
     assert len(get(api, "triggers/repo/deliveries")["deliveries"]) == 5         # a wrong address is not logged
 
-    post(api, "triggers/repo/signing", {"off": True})
-    assert hook(api, made["url"], b"{}", {"Idempotency-Key": "u1"}).status_code == 202
-    post(api, "triggers/repo/delete", {})
-    post(api, "triggers", {"name": "Repo"})                                      # made again: unsigned
+    post(api, "triggers/repo/delete", {})                                        # deleted while signed
+    again = post(api, "triggers", {"name": "Repo"})["trigger"]                   # made again: unsigned
     assert get(api, "triggers")["triggers"][0]["signed"] is False
+    post(api, "triggers/repo/signing", {"secret": "  typed with spaces  "})
+    assert hook(api, again["url"], b"{}", {"X-Signature": sig("  typed with spaces  ", b"{}")}).status_code == 202
+    post(api, "triggers/repo/signing", {"off": True})
+    assert hook(api, again["url"], b"{}", {"Idempotency-Key": "u1"}).status_code == 202
+
+
+def test_refusals_are_capped_and_kept_apart_from_the_accepted_calls(api, monkeypatch):
+    from backend import triggers
+    made = post(api, "triggers", {"name": "Limits"})["trigger"]
+    key = post(api, "triggers/limits/signing", {})["trigger"]["signing_secret"]
+    signed = lambda d: {"X-GitHub-Delivery": d, "X-Hub-Signature-256": sig(key, b"{}")}
+    outcomes = lambda: [d["outcome"] for d in get(api, "triggers/limits/deliveries")["deliveries"]]
+    monkeypatch.setattr(triggers, "HOURLY", 2)
+    assert hook(api, made["url"], b"{}", {"X-Signature": "sha256=00"}).status_code == 401
+    assert [hook(api, made["url"], b"{}", signed(d)).status_code for d in ("a1", "a2", "a3")] == [202, 202, 429]
+    assert hook(api, made["url"], b"{}", {"X-Signature": "sha256=00"}).status_code == 401   # past the cap: not logged
+    assert sorted(outcomes()) == ["accepted", "accepted", "refused", "refused"]
+    monkeypatch.setattr(triggers, "HOURLY", 100)
+    monkeypatch.setattr(triggers, "KEEP", 1)
+    assert hook(api, made["url"], b"{}", {"X-Signature": "sha256=00"}).status_code == 401
+    assert sorted(outcomes()) == ["accepted", "accepted", "refused"]           # refusals pruned, accepted kept
+    assert hook(api, made["url"], b"{}", signed("a1")).status_code == 200      # still known as a duplicate

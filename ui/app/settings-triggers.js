@@ -6,7 +6,7 @@
 // "On a trigger" and that routine says which bot runs and what it is told. The address with its secret is shown
 // once, right after it is made or its secret is replaced; the list shows it without the secret. A signing
 // secret is shown the same way, once, and each trigger's log of recent calls (accepted and refused) opens below it.
-let TRIGGER_SHOWN = null;      // {id, url} or {id, signing}: the one secret on screen
+let TRIGGER_SHOWN = null;      // {id, url?, signing?}: the one trigger whose secrets are on screen
 const triggerMayManage = t => S.me?.role === 'owner' || t.created_by === S.me?.id;
 function triggerRoutinesHTML(t) {
   if (!t.routines.length) return '<span class="muted">No routine uses it yet</span>';
@@ -14,14 +14,19 @@ function triggerRoutinesHTML(t) {
     <span class="muted">· ${esc(empName(r.bot))}</span>`).join('<br>');
 }
 function triggerSecretHTML(shown) {
-  if (shown.signing) return `<div class="trigger-secret" role="status">
+  return (shown.url ? triggerAddressHTML(shown) : '') + (shown.signing ? triggerSigningHTML(shown) : '');
+}
+function triggerSigningHTML(shown) {
+  return `<div class="trigger-secret" role="status">
     <p><strong>Copy this signing secret now.</strong> It is not shown again. Calls without a matching signature are refused.</p>
-    <div class="row"><code class="trigger-url">${esc(shown.signing)}</code><button class="ghost" type="button" data-trigger-copy>Copy</button></div>
+    <div class="row"><code class="trigger-url">${esc(shown.signing)}</code><button class="ghost" type="button" data-trigger-copy="signing">Copy</button></div>
     <p class="settings-cell-note">On GitHub, paste it under the webhook's <em>Secret</em>. Other senders put the HMAC-SHA256 of the body, in hex, in <code>X-Signature: sha256=…</code>.</p>
   </div>`;
+}
+function triggerAddressHTML(shown) {
   return `<div class="trigger-secret" role="status">
     <p><strong>Copy this address now.</strong> It carries the secret and is not shown again.</p>
-    <div class="row"><code class="trigger-url">${esc(shown.url)}</code><button class="ghost" type="button" data-trigger-copy>Copy</button></div>
+    <div class="row"><code class="trigger-url">${esc(shown.url)}</code><button class="ghost" type="button" data-trigger-copy="url">Copy</button></div>
     <p class="settings-cell-note">Send a POST with any body: <code>curl -X POST -H 'Content-Type: application/json' -d '{"hello":"world"}' '${esc(shown.url)}'</code></p>
   </div>`;
 }
@@ -58,7 +63,8 @@ async function renderSettingsTriggers() {
   el.onclick = async ev => {
     const copy = ev.target.closest('[data-trigger-copy]');
     if (copy && TRIGGER_SHOWN) {
-      await copyText(TRIGGER_SHOWN.signing || TRIGGER_SHOWN.url); toast(TRIGGER_SHOWN.signing ? 'Signing secret copied' : 'Address copied'); return;
+      const signing = copy.dataset.triggerCopy === 'signing';
+      await copyText(signing ? TRIGGER_SHOWN.signing : TRIGGER_SHOWN.url); toast(signing ? 'Signing secret copied' : 'Address copied'); return;
     }
     const open = ev.target.closest('[data-trigger-routine]');
     if (open) {
@@ -75,19 +81,19 @@ async function renderSettingsTriggers() {
         const id = sign.dataset.triggerSign, t = list.find(x => x.id === id);
         if (t?.signed && !window.confirm('Make a new signing secret? Calls signed with the current one are refused at once.')) return;
         const made = (await post(`/v2/triggers/${encodeURIComponent(id)}/signing`, {})).trigger;
-        TRIGGER_SHOWN = {id, signing: made.signing_secret};
+        TRIGGER_SHOWN = {...(TRIGGER_SHOWN?.id === id ? TRIGGER_SHOWN : {}), id, signing: made.signing_secret};
         renderSettingsTriggers();
       }
       if (unsign) {
         if (!window.confirm('Stop checking signatures? Anyone with the address can call it again.')) return;
         await post(`/v2/triggers/${encodeURIComponent(unsign.dataset.triggerUnsign)}/signing`, {off: true});
-        if (TRIGGER_SHOWN?.id === unsign.dataset.triggerUnsign && TRIGGER_SHOWN.signing) TRIGGER_SHOWN = null;
+        if (TRIGGER_SHOWN?.id === unsign.dataset.triggerUnsign) { delete TRIGGER_SHOWN.signing; if (!TRIGGER_SHOWN.url) TRIGGER_SHOWN = null; }
         renderSettingsTriggers();
       }
       if (rotate) {
         if (!window.confirm('Make a new secret? The current address stops working at once.')) return;
         const t = (await post(`/v2/triggers/${encodeURIComponent(rotate.dataset.triggerRotate)}/rotate`, {})).trigger;
-        TRIGGER_SHOWN = {id: t.id, url: t.url};
+        TRIGGER_SHOWN = {...(TRIGGER_SHOWN?.id === t.id ? TRIGGER_SHOWN : {}), id: t.id, url: t.url};
         renderSettingsTriggers();
       }
       if (del) {
