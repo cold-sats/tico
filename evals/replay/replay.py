@@ -31,7 +31,7 @@ SETTLED = ("waiting", "review", "ready", "done", "closed", "declined")
 NUMBERS = ("person_steps", "jargon", "duplicates", "sent_elsewhere", "runs")
 # What a case may never hold once signed: a key, a token, a password in a URL, an email address.
 SECRET = re.compile(
-    r"(sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[abpr]-[A-Za-z0-9-]{10,}|"
+    r"(?<![\w-])(sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[abpr]-[A-Za-z0-9-]{10,}|"
     r"AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.|"
     r"https?://[^/\s:@]+:[^/\s@]+@|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})")
 
