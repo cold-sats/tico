@@ -311,7 +311,8 @@ def operation_issues(c, who, auth):
             # old row is a leftover nobody cleared. Three in a row is the subscription
             # window spent; Settings still shows the retry time without interrupting chat.
             # An API key's quota or billing refusal is not a subscription window; the person checks billing.
-            from .execution import LIMIT_COOLDOWN_LONG, LIMIT_STRIKES, billing_limit, limit_cooldown, limit_streak
+            from .execution import (LIMIT_COOLDOWN_LONG, LIMIT_STRIKES, billing_limit, last_limit, limit_cooldown,
+                                    limit_streak, provider_reset)
             since = H.parse_ts(status.get("since"))
             cooldown = limit_cooldown(c, slug)
             if since and since > H.parse_ts(H.shift(H.now(), seconds=-max(3600, cooldown))):
@@ -330,7 +331,9 @@ def operation_issues(c, who, auth):
                         f"{runtime} subscription quota exhausted; queued work waits until {retry[:10]} "
                         f"{retry[11:16]} UTC", bot=slug, severity="warning", needs_person=False,
                         action="Wait for the subscription reset, or set a fallback harness in Settings → Bots.")
-                elif limit_streak(c, slug) >= LIMIT_STRIKES:
+                # A reported reset says when the limit lifts, so a streak is no reason to check the subscription.
+                elif limit_streak(c, slug) >= LIMIT_STRIKES and not (
+                        (last := last_limit(c, slug)) and provider_reset(last, H.parse_ts(last["finished"]))):
                     retry = H.shift(status["since"], seconds=cooldown)
                     add("bot", bot["display_name"] + " needs attention",
                         f"{runtime} usage limit three times in a row; queued work waits until {retry[11:16]} UTC, "

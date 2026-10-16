@@ -85,7 +85,8 @@ def test_subscription_quota_holds_until_the_provider_reset_and_try_now_can_lift_
 
 
 def test_a_reported_reset_holds_the_bot_until_then_and_the_tick_releases_it(api, monkeypatch):
-    from backend.execution import cooling_off, release_limits
+    from backend.execution import cooling_off
+    from backend.scheduler import Scheduler
     from backend.store import H
     machine, message, attempt = setup_attempt(api)
     assert get(api, "runners/desired", machine["token"])["features"]["limit_resets_at"] is True
@@ -101,18 +102,33 @@ def test_a_reported_reset_holds_the_bot_until_then_and_the_tick_releases_it(api,
     monkeypatch.setattr(H, "now", lambda: H.shift(reset, seconds=-30))
     ready(api, machine, ["ops"])
     assert claim(api, machine) is None
-    with api.app.state.store.transaction() as c:
-        release_limits(c)
+    scheduler = Scheduler(api.app.state.store, api.app.state.execution)
+    scheduler.tick()
+    with api.app.state.store.read() as c:
         assert cooling_off(c, "ops") and H.status(c, "ops")["state"] == "limited"
         seq = c.execute("SELECT coalesce(max(seq),0) FROM changes").fetchone()[0]
     monkeypatch.setattr(H, "now", lambda: H.shift(reset, seconds=2))
-    with api.app.state.store.transaction() as c:
-        release_limits(c)
+    scheduler.tick()
+    with api.app.state.store.read() as c:
         assert H.status(c, "ops")["state"] == "idle" and not cooling_off(c, "ops")
         assert c.execute("SELECT state FROM jobs WHERE id=?", (attempt["job_id"],)).fetchone()[0] == "queued"
         # The computer is told to ask for work now, not at its next backup poll.
         assert c.execute("SELECT 1 FROM changes WHERE seq>? AND topic='runner' AND kind='work' AND bot='ops'",
                          (seq,)).fetchone()
+
+
+@pytest.mark.parametrize("reset", ["days9", "past", "naive"])
+def test_an_unbelievable_reported_reset_keeps_the_default_wait(api, reset):
+    from backend.execution import LIMIT_COOLDOWN, limit_cooldown
+    from backend.store import H
+    machine, message, attempt = setup_attempt(api)
+    now = H.now()
+    at = {"days9": H.shift(now, days=9), "past": H.shift(now, minutes=-10), "naive": H.shift(now, hours=1)[:19]}[reset]
+    post(api, f"attempts/{attempt['id']}/started", {"thread_id": "odd-reset"}, machine["token"])
+    post(api, f"attempts/{attempt['id']}/complete", {"outcome": "failed", "last_seq": 0, "limited": True,
+         "limit_resets_at": at, "text": ""}, machine["token"])
+    with api.app.state.store.read() as c:
+        assert limit_cooldown(c, "ops") == LIMIT_COOLDOWN
 
 
 def test_an_api_key_quota_refusal_holds_the_bot_and_says_billing_not_subscription(api):
