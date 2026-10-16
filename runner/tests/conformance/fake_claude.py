@@ -7,9 +7,11 @@ homes, when it started and finished); a prompt containing REMEMBER leaves a file
 usage windows as Claude Code 2.1.301 does (`rate_limit_event` with `unifiedWindows`, 53% of five hours, 17% of the week). A prompt containing HANG
 streams one delta and then waits, once per $FAKE_LOG, until its parent goes away; SLOW streams one delta and answers
 after $FAKE_SLOW seconds (2), so a steer written meanwhile is read (replayed) and answered after it, in the same
-process, as Claude Code does."""
+process, as Claude Code does. RECALL answers with the code word only when the prompt itself holds it ("code word is X"),
+as a model with no other memory of the conversation would."""
 import json
 import os
+import re
 import sys
 import time
 
@@ -83,6 +85,9 @@ def main():
             with open(os.path.join("reports", "acme.md"), "w") as report:
                 report.write("# Acme report\n")
         reply = "Acme reply."
+        if "RECALL" in text:
+            word = re.search(r"code word is (\w+)", text)
+            reply = f"The code word is {word.group(1)}." if word else "I do not know the code word."
         if os.environ.get("ACME_API_KEY"):
             reply += " The key is " + os.environ["ACME_API_KEY"]
         for chunk in (reply[:5], reply[5:]):

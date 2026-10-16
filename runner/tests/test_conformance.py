@@ -361,6 +361,23 @@ def test_a_usage_limit_hops_the_turn_to_the_fallback_harness(api, computer):
     assert made["fallback"] == "claude" and [s["runtime"] for s in made["segments"]][-1:] == ["claude"]
 
 
+# The fallback's fresh thread is given the conversation so far, so it can answer what only the earlier turns said.
+@pytest.mark.parametrize("harness", ["codex"])
+@pytest.mark.parametrize("setup", [{"bot": {"fallback": {"harness": "claude", "model": "claude-sonnet-5"}}}])
+def test_a_fallback_turn_answers_from_the_earlier_conversation(api, computer):
+    computer.start()
+    first = post(api, "chat/ops", {"text": "Note this: the Acme code word is PELICAN."})
+    until(lambda: reply_to(api, first["conversation_id"]), "the first reply")
+    post(api, "chat/ops", {"text": "Please LIMIT yourself and RECALL the code word."})
+    answer = until(lambda: (lambda r: r if r and "code word" in r["body"] else None)(reply_to(api, first["conversation_id"])),
+                   "the fallback's reply")
+    assert answer["body"] == "The code word is PELICAN."
+    assert computer.attempts()[-1]["result"]["fallback"] == "claude"
+    fallback = computer.prompts()[-1]
+    assert fallback["harness"] == "claude" and "[Historical message " in fallback["prompt"]
+    assert "from bot:ops (you)" in fallback["prompt"]           # its own earlier reply, which the new thread lacks
+
+
 # A bot out of quota that names no fallback runs the turn once on another provider signed in here (#504).
 @pytest.mark.parametrize("harness", ["codex"])
 @pytest.mark.parametrize("auto", [True, False])
