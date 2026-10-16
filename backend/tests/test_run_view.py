@@ -105,6 +105,9 @@ def test_a_retried_run_shows_both_attempts_and_the_decision_between_them(api):
     from backend.execution import RESUME_SHOWN
     assert earlier["next"] == {"kind": "resumed", "by": H.KEEPER, "at": earlier["next"]["at"], "note": RESUME_SHOWN}
     assert "Archived one bot" not in json.dumps(earlier), "the hub's own words, never what the stopped run saved"
+    # A resume recorded before the hub kept a line for people still shows only its first paragraph.
+    from backend.run_view import decision_note
+    assert decision_note(H.KEEPER, {"note": "Check first.\n\nWhat the stopped run saved:\nArchived"}) == "Check first."
     assert (later["run"], later["try"], later["tries"], later["next"]) == (second["id"], 2, 2, None)
 
 
