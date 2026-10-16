@@ -436,8 +436,16 @@ hub task child <parent-id> --check-model codex:gpt-6.1-sol --title "Check the mi
   handed the subtask's turns.
 - Task detail shows the subtask's `check_model`, and the run's provenance (`ran_on` on the task's runs) names the
   model that ran. When the bot marks the subtask Done or Declined, its owner is woken on the parent with
-  "Review on <model> done: <title>" (or "Subtask declined") and the note, so the verdict lands in the parent's
+  "Review done (ran on <model>): <title>" (or "Subtask declined") and the note, so the verdict lands in the parent's
   session. Closing it is a cancellation and wakes nobody.
+- A usage limit on the check's model holds that subtask alone until the provider's reset: the bot's other work
+  goes on, on its own model, and the bot is not marked limited.
+- The check model belongs to the bot that filed it while it owns the subtask. Handed to another bot, the subtask
+  is that bot's ordinary task, on its own model. Subtasks under a check continue the check's session, never the
+  parent's.
+- Known limits: readiness is read per computer, not per subscription profile; a check model cannot be removed;
+  a provider disabled after filing still runs; a computer that stays signed out of the check's runtime leaves the
+  subtask waiting with no notice.
 
 Every task a bot owns has its own room (a `kind: task` conversation), even one filed from a chat: its comments,
 notices, notes and replies go there, and the chat it was filed from gets one quiet line, "Started task: <title>"

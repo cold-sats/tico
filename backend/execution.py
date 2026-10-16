@@ -198,7 +198,8 @@ def limit_streak(c, bot):
     at LIMIT_STRIKES; a lapsed lease or any other outcome ends the run)."""
     streak = 0
     for row in c.execute("SELECT result_json FROM attempts WHERE bot=? AND state IN ('completed','failed','interrupted') "
-                         "ORDER BY created DESC LIMIT ?", (bot, LIMIT_STRIKES)):
+                         "AND json_extract(result_json,'$.check') IS NULL ORDER BY created DESC LIMIT ?",
+                         (bot, LIMIT_STRIKES)):
         if not (row[0] and json.loads(row[0]).get("limited")):
             break
         streak += 1
@@ -217,6 +218,7 @@ def last_limit(c, bot):
     # Another lane begun before the limit can finish afterwards without lifting the bot's hold.
     return c.execute("SELECT id,finished FROM attempts WHERE bot=? AND state IN ('failed','interrupted') "
                      "AND finished IS NOT NULL AND json_extract(result_json,'$.limited')=1 "
+                     "AND json_extract(result_json,'$.check') IS NULL "
                      "ORDER BY finished DESC LIMIT 1", (bot,)).fetchone()
 
 
@@ -234,10 +236,15 @@ def limit_cooldown(c, bot):
     last = last_limit(c, bot)
     if not last:
         return cooldown
-    finished = H.parse_ts(last["finished"])
+    return reset_cooldown(c, last["id"], last["finished"], cooldown)
+
+
+def reset_cooldown(c, attempt_id, finished, cooldown):
+    """`cooldown`, or longer to reach the reset time the attempt's limit error names."""
+    finished = H.parse_ts(finished)
     if not finished:
         return cooldown
-    for error in limit_errors(c, last["id"]):
+    for error in limit_errors(c, attempt_id):
         match = re.search(r"usage window resets at (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)", error, re.I)
         reset = H.parse_ts(match[1]) if match else None
         if reset:
@@ -877,8 +884,9 @@ class Execution:
             if not privacy.message_readable(c, "bot:" + row["bot"], message):
                 continue
             conversation = H.conversation(c, message["conversation_id"])
-            wanted = check_models.of(c, H.message_task_id(message, conversation))
-            if not check_models.runs_here(ready, wanted):
+            task_id = H.message_task_id(message, conversation)
+            wanted = check_models.of(c, task_id, row["bot"])
+            if not check_models.runs_here(ready, wanted) or (wanted and check_models.held(c, task_id)):
                 continue
             config = check_models.apply(followed[row["bot"]], wanted)
             if (row["bot"], job_lane(c, row["bot"], config, message, conversation, lanes, roots)) in busy:
@@ -1026,7 +1034,7 @@ class Execution:
         followed = follow(c, row["bot"], json.loads(
             c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()[0]))
         # A check subtask's turns run on its own model, in its own session (backend/check_models.py).
-        check = check_models.of(c, task["id"]) if task else None
+        check = check_models.of(c, task["id"], row["bot"]) if task else None
         followed = check_models.apply(followed, check)
         roots, lanes = roots_on(runner), lanes_on(runner)
         lane = job_lane(c, row["bot"], followed, msg, conv, lanes, roots)
@@ -1557,8 +1565,12 @@ class Execution:
             refs = {**(H.message(c, reply["id"]).get("refs") or {}),
                     "run": {"job_id": row["job_id"], "attempt_id": aid}, "answers": handled}
             c.execute("UPDATE messages SET refs_json=? WHERE id=?", (encode(refs), reply["id"]))
+        # A turn on a check subtask ran on the check's model, not the bot's (backend/check_models.py).
+        check_task = H.message_task_id(msg, conv)
+        check = check_models.of(c, check_task, row["bot"])
         c.execute("UPDATE attempts SET state=?,finished=?,final_text=?,result_json=? WHERE id=?",
-                  (body.outcome, H.now(), body.text, encode(body.model_dump()), aid))
+                  (body.outcome, H.now(), body.text,
+                   encode({**body.model_dump(), **({"check": check["runtime"]} if check else {})}), aid))
         # A usage-limited turn did nothing and had no effects, so the job goes back in the
         # queue however often it happens; the bot cools off (claim() honours the window) and
         # a third limit in a row waits longer and tells a person in Needs attention. Only
@@ -1684,6 +1696,8 @@ class Execution:
         usage_limits.after_run(c, row["bot"], self.store.settings.owner_email)
         config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()
         runtime, model = providers.bot_choice(c, self.store.settings, json.loads(config[0]) if config else {})
+        if check:
+            runtime, model = check["runtime"], check["model"]
         if row["thread_id"] and body.tokens_in is not None:
             c.execute("UPDATE bot_sessions SET tokens_in=?,updated=? WHERE bot=? AND runtime=? AND model=? AND thread_id=?",
                       (int(body.tokens_in), H.now(), row["bot"], runtime, model, row["thread_id"]))
@@ -1711,6 +1725,17 @@ class Execution:
             # A worktree this turn was waiting for is not wanted any more (backend/worktree_waits.py).
             from .worktree_waits import cancel_for_attempt
             cancel_for_attempt(c, aid, f"Stopped by {name}")
+        elif limited and check:
+            # A check has no fallback, and its model's limit is not the bot's: hold the check alone, and leave
+            # the bot's own work, its status and its Health finding to its own provider.
+            hit = H.now()
+            retry = H.shift(hit, seconds=reset_cooldown(c, aid, hit, LIMIT_COOLDOWN))
+            check_models.hold(c, check_task, runtime, retry)
+            settle_status(c, row["bot"], "idle", f"{runtime} usage limit on a check at {hit[11:16]}; the check "
+                          f"retries after {retry[:10]} {retry[11:16]} UTC", began=row["started"] or row["created"])
+            H.event(c, H.KEEPER, "attempt.check_limited", aid,
+                    {"bot": row["bot"], "job_id": row["job_id"], "task_id": check_task, "runtime": runtime,
+                     "retry_after": retry})
         elif limited:
             streak = limit_streak(c, row["bot"])
             hit = H.now()

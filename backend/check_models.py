@@ -41,7 +41,7 @@ def choose(c, settings, bot, spec, role):
     try:
         runtime, model = providers.complete_choice(record["enabled"], runtime, model)
     except providers.ProviderError as exc:
-        raise CheckModelError("check_model", str(exc)) from None
+        raise CheckModelError("check_model", str(exc).replace("default model", "check model")) from None
     if not runtime:
         raise CheckModelError("check_model", "Enable an AI provider in Settings before naming a check model")
     row = providers.MODEL_BY_ID.get(model) or {}
@@ -61,9 +61,21 @@ def record(c, actor, task_id, check):
     H._task_event(c, task_id, actor, "check_model", None, f"{check['runtime']}:{check['model']}", check["role"])
 
 
-def of(c, task_id):
-    """The task's check model, or None."""
-    return H.check_model(c, task_id)
+def of(c, task_id, bot):
+    """The check model `bot`'s turns on the task run on, or None: only the bot that filed the check, while it owns it."""
+    return H.check_model(c, task_id, bot)
+
+
+def hold(c, task_id, runtime, until):
+    """A usage limit on the check's model holds that check alone until `until`; the bot's own work goes on."""
+    from .repositories import save_metadata
+    save_metadata(c, "check-limited:" + task_id, {"runtime": runtime, "until": until})
+
+
+def held(c, task_id):
+    """Whether a usage limit on the check's model still holds the check."""
+    from .repositories import metadata
+    return bool(task_id) and str(metadata(c, "check-limited:" + task_id).get("until") or "") > H.now()
 
 
 def apply(config, check):

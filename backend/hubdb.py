@@ -3054,7 +3054,7 @@ def session_root(conn, bot, task_id, config=None):
     person's task is its own root, and a session never carries one task's words to people who cannot read it.
     `subtask_session: own` in the bot's config keeps every subtask its own session (clients/sessions.py), and a
     subtask on a check model (backend/check_models.py) is always its own: it reads the subtask, not the parent's thread."""
-    if not task_id or (config or {}).get("subtask_session") == "own" or check_model(conn, task_id):
+    if not task_id or (config or {}).get("subtask_session") == "own" or check_model(conn, task_id, bot):
         return task_id
     root, seen = task_id, {task_id}
     current = _one(conn, "SELECT id,owner,requester,private FROM tasks WHERE id=?", (task_id,))
@@ -3067,6 +3067,8 @@ def session_root(conn, bot, task_id, config=None):
             break
         seen.add(parent_id)
         root, current = parent_id, parent
+        if check_model(conn, root, bot):
+            break                           # work under a check continues the check's session, never the parent's
     return root
 
 
@@ -3289,11 +3291,17 @@ def _parent_finished(conn, row, previous, actor=None, parent=None, told=None):
             _wake(conn, parent, parent["owner"], "All subtasks done")
 
 
-def check_model(conn, task_id):
-    """The model a bot's check subtask runs on (backend/check_models.py), or None."""
+def check_model(conn, task_id, bot=None):
+    """The model a bot's check subtask runs on (backend/check_models.py), or None. With `bot`, only while that
+    bot both filed the check and owns the subtask: a check handed to another bot is that bot's ordinary task."""
     if not task_id or not _has_table(conn, "task_check_models"):
         return None
-    return _one(conn, "SELECT runtime,model,harness,effort,role FROM task_check_models WHERE task_id=?", (task_id,))
+    if bot is None:
+        return _one(conn, "SELECT runtime,model,harness,effort,role FROM task_check_models WHERE task_id=?", (task_id,))
+    actor = "bot:" + bot
+    return _one(conn, "SELECT m.runtime,m.model,m.harness,m.effort,m.role FROM task_check_models m "
+                      "JOIN tasks t ON t.id=m.task_id WHERE m.task_id=? AND m.created_by=? AND t.owner=?",
+                (task_id, actor, actor))
 
 
 def _subtask_wake(conn, actor, row, previous, note=None, quiet=False):
@@ -3303,7 +3311,7 @@ def _subtask_wake(conn, actor, row, previous, note=None, quiet=False):
     A wake still queued for this subtask is not repeated. A quiet update leaves its note out, as on the subtask.
     A bot finishing its own check subtask wakes it the same way: the verdict is for the parent's session."""
     terminal = ("done", "closed", "declined")
-    check = check_model(conn, row["id"])
+    check = is_bot(row["owner"]) and check_model(conn, row["id"], row["owner"][len("bot:"):])
     # Done or Declined carries a verdict; the bot closing its own check is a cancellation the parent need not hear.
     by_checker = bool(check and actor == row["owner"] and row["status"] in ("done", "declined"))
     if not (is_human(actor) or by_checker) or previous in terminal or row["status"] not in terminal:
@@ -3321,8 +3329,13 @@ def _subtask_wake(conn, actor, row, previous, note=None, quiet=False):
             conn, "SELECT 1 FROM jobs j JOIN messages m ON m.id=j.message_id WHERE j.bot=? AND j.state='queued' "
             "AND json_extract(m.refs_json,'$.subtask')=? LIMIT 1", (actor_id(bot), row["id"])):
         return bot
+    # Turns on a check run on its model; one marked done from another turn before any ran there did not.
+    ran = by_checker and _one(conn, "SELECT 1 FROM turns WHERE task_id=? AND bot=? LIMIT 1",
+                              (row["id"], actor_id(row["owner"])))
+    verdict = (f"{check['role'].capitalize()} done (ran on {check['model']})" if ran
+               else f"{check['role'].capitalize()} done without running on {check['model']}") if by_checker else ""
     said = ({"declined": "Subtask declined", "closed": "Subtask closed"}.get(row["status"])
-            or (f"{check['role'].capitalize()} on {check['model']} done: {row['title']}" if by_checker else None)
+            or (f"{verdict}: {row['title']}" if by_checker else None)
             or _marked_done(conn, actor, row["title"], "this subtask"))
     # The parent's "All subtasks done" (_parent_finished) rides on this one notice, not a second wake.
     last = "" if children_summary(conn, parent["id"])["open"] else "All subtasks done\n"

@@ -2563,7 +2563,7 @@ def create_app(settings=None):
                     "waiting_for": task_wait(c, tid, settings),
                     "runs": task_runs(c, who, tid),
                     # The model a bot's check subtask runs on (backend/check_models.py), or null.
-                    "check_model": check_models.of(c, tid),
+                    "check_model": H.check_model(c, tid),
                     **privacy.page(c, who, row["conversation_id"], task_id=tid)}
 
     def task_runs(c, who, tid, limit=200):

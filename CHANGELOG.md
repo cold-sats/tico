@@ -15,7 +15,8 @@ All notable changes to Tico are recorded here. The format follows
   files the bot's own subtask, whose turns run on that model with no fallback, in a session of their own that reads
   only the subtask. Only the model changes, never the bot's tools or access; only a provider the company enabled
   can be named, and a computer signed out of it is not handed the turn. The run shows the model that ran, and
-  marking the subtask done wakes the parent with the verdict.
+  marking the subtask done wakes the parent with the verdict. A usage limit on the check's model holds only that
+  subtask, and a check handed to another bot runs as that bot's ordinary task.
 - Settings > Computers shows Claude's and Codex's weekly and 5-hour usage as percentages on the computer's own login,
   not only on named subscriptions. Claude's come from its turns (Claude Code 2.1.30x reports both windows); before a
   Claude turn on that computer the row says so instead of a number. Codex's are read while idle, with the account, for
