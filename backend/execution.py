@@ -581,10 +581,12 @@ class Execution:
         sendable = [a for a in worktree_actions if privacy.worktree_action_readable(c, who, a)]
         skipped = len(worktree_actions) - len(sendable)
         # A Restart a person pressed goes to the runner once; it restarts when no turn is running.
-        restart = c.execute("SELECT restart_requested FROM runners WHERE id=?", (who.runner_id,)).fetchone()
+        restart = c.execute("SELECT restart_requested,performance FROM runners WHERE id=?", (who.runner_id,)).fetchone()
         if restart and restart["restart_requested"]:
             c.execute("UPDATE runners SET restart_requested=NULL WHERE id=?", (who.runner_id,))
         return {"server_time": H.now(), "assignments": self.assigned(c, who), "runtime_credential_source": True, "subscription_accounts": True, "worktree_record_stamp": True, "worktree_actions": sendable,
+                # Whether the runner samples its performance (backend/performance.py).
+                "performance": bool(restart) and restart["performance"] != "off",
                 **({"worktree_actions_skipped": skipped} if skipped else {}),
                 **({"restart": True} if restart and restart["restart_requested"] else {})}
 

@@ -1233,6 +1233,14 @@ def view(c, who, settings, auth, github, config):
                                      f"({free / 1024**3:.1f} GB free). Free space on this computer; for Docker, run "
                                      "`docker image prune -a` to remove unused images. The update retries when space frees.",
                                      [_fix("Open Computers", "#/settings", "devices")]))
+            # Diagnostics only: an overload is shown here and on the computer's Performance page; nothing acts on it.
+            from .performance import recent_overload, describe
+            overload = recent_overload(c, computer["id"])
+            if overload:
+                checks.append(_check("performance:" + computer["id"], "Load", "warn",
+                                     f"{computer['label']}: {'overloaded now' if not overload['ended'] else 'was overloaded'}"
+                                     f" ({describe(overload)}).",
+                                     [_fix("Open Performance", "#/computers/" + computer["id"] + "/performance")]))
             container = computer.get("container_exec") or {}
             if computer["online"] and container.get("ok") is False:
                 checks.append(_check("container_exec:" + computer["id"], "Containers", "warn",

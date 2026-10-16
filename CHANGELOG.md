@@ -8,6 +8,9 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- Each computer's Performance page (Settings > Computers > ⋯ > Performance): CPU and memory over the last day, 7 days
+  or 14 days, overloads with the bots that were running and the busiest processes, and a Health warning after one.
+  On by default; its operator or an admin turns it off or deletes the history. Support diagnostics can include it.
 - A bot can have another model check its work without a second bot: `hub task child --check-model grok --role review`
   files the bot's own subtask, whose turns run on that model with no fallback, in a session of their own that reads
   only the subtask. Only the model changes, never the bot's tools or access; only a provider the company enabled

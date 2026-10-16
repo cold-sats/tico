@@ -1712,6 +1712,52 @@ class ScreenMode(Contract):
     mode: Literal["off", "view", "control"]
 
 
+class PerformanceMode(Contract):
+    mode: Literal["off", "on"]
+
+
+class _Sampled(BaseModel):
+    """A newer runner's extra fields are ignored, never refused: samples are diagnostics, not a contract."""
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+
+
+Percent = Annotated[float, Field(ge=0, le=100_000, allow_inf_nan=False)]
+Bytes = Annotated[int, Field(ge=0, le=1 << 60)]
+
+
+class PerformanceDisk(_Sampled):
+    volume: str = Field(default="", max_length=40)
+    total_bytes: Bytes
+    free_bytes: Bytes
+
+
+class PerformanceProcess(_Sampled):
+    """A process name (the executable's, never its arguments) and what every process by that name used."""
+    name: str = Field(pattern=r"^[A-Za-z0-9._+-]{1,40}$")
+    cpu: Percent = 0
+    mem: Bytes = 0
+    count: int = Field(default=1, ge=0, le=100_000)
+
+
+class PerformanceSample(_Sampled):
+    at: float = Field(ge=0, allow_inf_nan=False)
+    scope: Literal["host", "container"] = "host"
+    cpu: float = Field(ge=0, le=100, allow_inf_nan=False)
+    cores: int = Field(default=1, ge=1, le=4096)
+    load: list[Annotated[float, Field(ge=0, le=100_000, allow_inf_nan=False)]] = Field(default_factory=list, max_length=3)
+    mem_total: Bytes | None = None
+    mem_used: Bytes | None = None
+    swap_total: Bytes | None = None
+    swap_used: Bytes | None = None
+    disk: list[PerformanceDisk] = Field(default_factory=list, max_length=4)
+    active: int = Field(default=0, ge=0, le=10_000)
+    procs: list[PerformanceProcess] = Field(default_factory=list, max_length=16)
+
+
+class PerformanceBatch(_Sampled):
+    samples: list[PerformanceSample] = Field(min_length=1, max_length=40)
+
+
 class ScreenSessionStart(Contract):
     control: StrictBool = False
 
