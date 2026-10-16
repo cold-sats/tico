@@ -8,6 +8,10 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- An HTML file opens in the file viewer and a task's Files as it looks, with **Download** beside it. It shows in a
+  sandboxed frame that cannot act as you: no scripts, forms or plugins, no Tico cookies or storage, and nothing loaded
+  from the network (pictures embedded in the file show; remote ones do not). Its links open in a new tab. A link to a
+  web page ending in .html still opens as a link.
 - A new Docker runner offers its screen: `install.sh --runner`, `tico setup runner` and the cloud-init template write
   `TICO_SCREEN=1` unless given `--no-screen` (cloud-init: `TICO_SCREEN=0`). The first time a new computer offers a screen, its
   **Screen** setting starts at **View**; **Control** is one click away in Settings > Computers. A runner installed before
