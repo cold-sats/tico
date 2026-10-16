@@ -33,16 +33,19 @@ def test_capture_splits_opening_state_from_outcome_and_needs_a_signature():
                            message("b", "bot:dev", "Which browser?", "2026-10-16T10:05:00Z"),
                            message("c", "human:ana", "Safari.", "2026-10-16T10:30:00Z"),
                            message("d", "bot:dev", "Fixed in PR 12.", "2026-10-16T11:02:00Z")],
-              "comments": [message("a", "human:ana", "Only the login page.", "2026-10-16T09:58:00Z")]}
+              "comments": [message("a", "human:ana", "Only the login page.", "2026-10-16T09:58:00Z")],
+              "children": [{"id": "q", "owner": "human:ana", "status": "done", "title": "Which account?"},
+                           {"id": "r", "owner": "bot:pr-reviewer", "status": "done", "title": "Review PR 12"}]}
     files = {"files": [{"name": "trace.txt", "versions": [{"n": 1, "by": "human:ana", "created": "2026-10-16T09:57:00Z",
                                                            "text": "Traceback"}]},
                        {"name": "fix.diff", "versions": [{"n": 1, "by": "bot:dev", "created": "2026-10-16T11:01:00Z"}]}]}
     case = replay.split(detail, files, {"content": "# Dev", "updated": "2026-10-15T00:00:00Z"})
 
+    assert case["id"] == "fix-the-login-page-t1"         # the task id keeps two tasks with one title apart
     assert case["conversation"] == [{"from": "person", "text": "Only the login page."}]
     assert case["files"] == [{"name": "trace.txt", "text": "Traceback"}]
     assert case["original"] | {"transcript": None} == {
-        "status": "done", "transcript": None, "files": ["fix.diff"], "runs": 2, "minutes": 9.0, "person_steps": 1}
+        "status": "done", "transcript": None, "files": ["fix.diff"], "runs": 2, "minutes": 9.0, "person_steps": 2}
     assert case["original"]["transcript"] == [["bot", "Which browser?"], ["person", "Safari."], ["bot", "Fixed in PR 12."]]
     assert case["prompt"] == {"sha256": replay.sha("# Dev"), "updated": "2026-10-15T00:00:00Z", "exact": True}
     # A draft is never runnable: a person signs it, and a secret left in it refuses it.
@@ -56,7 +59,8 @@ def test_capture_splits_opening_state_from_outcome_and_needs_a_signature():
 
 
 class FakeTico:
-    """Just enough of the API for run.py: the bot 'runs' when the task is run, as `behave` says."""
+    """Just enough of the API for run.py: the bot runs when it is handed the task and when its question is answered,
+    as `behave` says."""
 
     def __init__(self, behave):
         self.behave, self.tasks, self.calls = behave, {}, []
@@ -68,8 +72,8 @@ class FakeTico:
         if path.endswith("/instructions"):
             return 200, {"content": "# New prompt", "published": True}
         if method == "POST" and path == "tasks":
-            self.tasks["r1"] = {"task": {"id": "r1", "version": 1, "status": "open", "owner": body["owner"], **body},
-                                "messages": [], "comments": [], "runs": [], "files": []}
+            self.tasks["r1"] = {"task": {"id": "r1", "version": 1, "status": "open", **body},
+                                "messages": [], "comments": [], "runs": [], "files": [], "children": []}
             return 200, {"task": self.tasks["r1"]["task"]}
         tid = path.split("/")[1]
         row = self.tasks[tid]
@@ -80,29 +84,40 @@ class FakeTico:
         if path.endswith("/comments"):
             row["comments"].append(message(f"m{len(row['comments'])}", "human:owner", body["text"], "2099-01-01T00:00:01Z"))
             return 200, {}
-        if path.endswith("/run-now"):
-            self.behave(row)
-            return 200, {"queued": True}
         if method == "POST":
             row["task"].update({k: v for k, v in body.items() if k != "version"})
+            if body.get("owner", "").startswith("bot:"):
+                self.behave(self, self.tasks["r1"], "assigned")
+            if tid != "r1" and body.get("status") == "done":
+                next(c for c in self.tasks["r1"]["children"] if c["id"] == tid)["status"] = "done"
+                self.behave(self, self.tasks["r1"], "answered")
         return 200, row
 
 
-def bot_finishes_well(row):
-    row["runs"].append({"started": "2099-01-01T00:00:02Z", "finished": "2099-01-01T00:03:00Z"})
-    row["files"].append({"name": "engineering-summary.md", "versions": [{"by": "bot:engineering-lead"}]})
-    row["messages"].append(message("b1", "bot:engineering-lead", "Attached: 5 shipped, nothing broke.", "2099-01-01T00:02:00Z"))
-    row["task"]["status"] = "done"
+def run_at(minute):
+    return {"started": f"2099-01-01T00:{minute:02}:02Z", "finished": f"2099-01-01T00:{minute:02}:50Z"}
 
 
-def bot_gives_up(row):
-    row["runs"] += [{"started": "2099-01-01T00:00:02Z", "finished": "2099-01-01T00:03:00Z"}] * 3
+def bot_asks_then_finishes(fake, row, event):
+    if event == "assigned":
+        row["runs"].append(run_at(1))
+        fake.tasks["q1"] = {"task": {"id": "q1", "version": 1, "status": "open", "owner": "human:owner"}}
+        row["children"].append({"id": "q1", "owner": "human:owner", "status": "open", "title": "Which repository?"})
+    else:
+        row["runs"].append(run_at(2))
+        row["files"].append({"name": "engineering-summary.md", "versions": [{"by": "bot:engineering-lead"}]})
+        row["messages"].append(message("b1", "bot:engineering-lead", "Attached: 5 shipped, nothing broke.", "2099-01-01T00:02:30Z"))
+        row["task"]["status"] = "done"
+
+
+def bot_gives_up(fake, row, event):
+    row["runs"] += [run_at(1), run_at(2), run_at(3), run_at(4)]
     row["messages"].append(message("b1", "bot:engineering-lead", "I could not read the runners (see harness logs).",
                                    "2099-01-01T00:02:00Z"))
     row["task"]["status"] = "waiting"
 
 
-@pytest.mark.parametrize("behave,verdict", [(bot_finishes_well, "win"), (bot_gives_up, "regression")])
+@pytest.mark.parametrize("behave,verdict", [(bot_asks_then_finishes, "win"), (bot_gives_up, "regression")])
 def test_replay_scores_candidate_against_original(behave, verdict, monkeypatch, tmp_path):
     server = FakeTico(behave)
     monkeypatch.setattr(live, "Live", lambda url: server)
@@ -111,13 +126,18 @@ def test_replay_scores_candidate_against_original(behave, verdict, monkeypatch, 
     code = live.main(["--url", "http://fake", "--token", "t", "--cases", str(REPLAY / "cases"),
                       "--quiet", "0", "--timeout", "5", "--report", str(report)])
 
-    # The opening state was built before the bot was handed the task and woken.
-    order = [c for c in server.calls if c[0] == "POST"]
-    assert order == [("POST", "tasks"), ("POST", "tasks/r1/files"), ("POST", "tasks/r1/comments"),
-                     ("POST", "tasks/r1"), ("POST", "tasks/r1/run-now")]
+    # The opening state was built before the bot was handed the task; the hand-over is what wakes it.
+    posts = [c for c in server.calls if c[0] == "POST"]
+    assert posts[:4] == [("POST", "tasks"), ("POST", "tasks/r1/files"), ("POST", "tasks/r1/comments"), ("POST", "tasks/r1")]
+    assert ("POST", "tasks/r1/run-now") not in posts
     assert server.tasks["r1"]["task"]["owner"] == "bot:engineering-lead"
     text = report.read_text()
     assert f"1 case: {int(verdict == 'win')} wins, {int(verdict == 'regression')} regressions" in text
     assert code == (0 if verdict == "win" else 1)
-    if verdict == "regression":
+    if verdict == "win":
+        # The simulated person answered the card the bot filed for them, with the case's words, once.
+        assert server.tasks["q1"]["task"] | {"version": 1} == {"id": "q1", "version": 1, "status": "done",
+                                                               "owner": "human:owner", "note": "Use the main repository only."}
+        assert "runs 3→2" in text
+    else:
         assert "## Regressions" in text and "no longer done" in text

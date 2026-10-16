@@ -63,8 +63,8 @@ def prepare(server, token, me, case):
 
 def hand_over(server, token, tid, bot):
     current = ok(server, "GET", f"tasks/{tid}", token=token)["task"]
+    # The new owner is woken by the reassignment itself; a run-now on top could queue a second run.
     ok(server, "POST", f"tasks/{tid}", {"version": current["version"], "owner": "bot:" + bot}, token)
-    ok(server, "POST", f"tasks/{tid}/run-now", {}, token)
 
 
 def outcome(server, token, tid, bot):
@@ -85,24 +85,39 @@ def outcome(server, token, tid, bot):
                   for r in runs if r.get("finished")) / 60
     attached = [f["name"] for f in files.get("files") or []
                 if any(v.get("by") == "bot:" + bot for v in f.get("versions") or [])]
+    asks = replay.asks(detail)
     return {"status": detail["task"]["status"], "transcript": transcript, "files": attached, "runs": len(runs),
             "minutes": round(minutes, 1), "waiting_on": detail["task"].get("waiting_on"),
+            "person_steps": sum(1 for who, _ in transcript if who == "person") + len(asks),
+            "open_asks": [a["id"] for a in asks if a.get("status") not in replay.SETTLED_ASK],
             "running": not runs or any(not r.get("finished") for r in runs)}
 
 
+def answer(server, token, me, tid, now, text):
+    """The simulated person answers: the card the bot filed for them, else the task waiting on them. False if neither."""
+    if now["open_asks"]:
+        card = ok(server, "GET", f"tasks/{now['open_asks'][0]}", token=token)["task"]
+        ok(server, "POST", f"tasks/{card['id']}", {"version": card["version"], "status": "done", "note": text}, token)
+        return True
+    if now["status"] == "waiting" and now["waiting_on"] == me:
+        ok(server, "POST", f"tasks/{tid}/comments", {"text": text}, token)
+        return True
+    return False
+
+
 def run_one(server, token, me, case, quiet=60, timeout=1800, poll=5):
-    """Replay one case and return its outcome as `measure` reads it, with the person's steps counted."""
+    """Replay one case and return its outcome as `measure` reads it."""
     tid = prepare(server, token, me, case)
     hand_over(server, token, tid, case["bot"])
-    answers, steps, settled_at = list(case.get("person") or []), 0, None
+    answers, settled_at = list(case.get("person") or []), None
     deadline = time.monotonic() + timeout
     now = outcome(server, token, tid, case["bot"])
     while time.monotonic() < deadline:
         time.sleep(poll)
         now = outcome(server, token, tid, case["bot"])
-        if now["status"] == "waiting" and now["waiting_on"] == me and answers and not now["running"]:
-            ok(server, "POST", f"tasks/{tid}/comments", {"text": answers.pop(0)["text"]}, token)
-            steps, settled_at = steps + 1, None
+        if answers and not now["running"] and answer(server, token, me, tid, now, answers[0]["text"]):
+            answers.pop(0)
+            settled_at = None
             continue
         if now["status"] in replay.SETTLED and not now["running"]:
             settled_at = settled_at or time.monotonic()
@@ -110,7 +125,6 @@ def run_one(server, token, me, case, quiet=60, timeout=1800, poll=5):
                 break
         else:
             settled_at = None
-    now["person_steps"] = steps
     return tid, now
 
 
@@ -144,7 +158,7 @@ def main(argv=None):
         try:
             prompts.setdefault(case["bot"], prompt_of(server, args.token, case["bot"]))
             tid, now = run_one(server, args.token, me, case, quiet=args.quiet, timeout=args.timeout)
-        except RuntimeError as exc:
+        except (RuntimeError, OSError) as exc:     # OSError: a dropped connection or a read timeout
             rows.append({"id": case["id"], "verdict": "error", "why": [str(exc)], "before": before})
             print(f"{case['id']:30} ERROR {exc}")
             continue

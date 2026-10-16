@@ -25,6 +25,6 @@ original:
   transcript:
     - [bot, "The summary is attached: 5 shipped, 1 stuck, nothing broke."]
   files: [engineering-summary.md]
-  runs: 2
+  runs: 3
   minutes: 6.5
-  person_steps: 0
+  person_steps: 1

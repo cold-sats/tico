@@ -27,6 +27,8 @@ import score  # noqa: E402  (the BotOps scorers)
 
 # A replayed task has settled when it reaches one of these and its bot is not running.
 SETTLED = ("waiting", "review", "ready", "done", "closed", "declined")
+# A question card a bot filed for a person is answered once it reaches one of these.
+SETTLED_ASK = ("done", "closed", "declined")
 # Lower is better for each; minutes are reported but too noisy to decide a verdict.
 NUMBERS = ("person_steps", "jargon", "duplicates", "sent_elsewhere", "runs")
 # What a case may never hold once signed: a key, a token, a password in a URL, an email address.
@@ -79,6 +81,11 @@ def _person(actor):
     return str(actor or "").startswith("human:")
 
 
+def asks(detail):
+    """The question cards a bot filed for a person under the task: each is a step the person had to take."""
+    return [c for c in detail.get("children") or [] if _person(c.get("owner"))]
+
+
 def split(detail, files, instructions, bot=None):
     """A draft case from a task's detail (GET tasks/{id}), its files (GET tasks/{id}/files) and its bot's
     instructions snapshot (GET bots/{bot}/instructions). The opening state is everything a person wrote or attached
@@ -112,7 +119,7 @@ def split(detail, files, instructions, bot=None):
     exact = bool(instructions.get("updated")) and when(instructions["updated"]) <= start
     status = task["status"]
     return {
-        "id": re.sub(r"[^a-z0-9]+", "-", task["title"].lower()).strip("-")[:50],
+        "id": re.sub(r"[^a-z0-9]+", "-", task["title"].lower()).strip("-")[:50] + "-" + task["id"][:8],
         "title": task["title"],
         "source": {"task": task["id"], "captured": datetime.now().astimezone().isoformat(timespec="seconds")},
         "reviewed_by": "",
@@ -129,7 +136,7 @@ def split(detail, files, instructions, bot=None):
         "limits": {},
         "original": {"status": status, "transcript": transcript, "files": attached, "runs": len(runs),
                      "minutes": round(minutes, 1),
-                     "person_steps": sum(1 for who, _ in transcript if who == "person")},
+                     "person_steps": sum(1 for who, _ in transcript if who == "person") + len(asks(detail))},
     }
 
 
