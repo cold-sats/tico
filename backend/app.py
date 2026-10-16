@@ -3844,8 +3844,9 @@ def create_app(settings=None):
         with store.read() as c:
             execution.runner(c, request.state.identity)
         # `screen_v1`: this server takes the capability and `readiness.screen` (an older one refuses the heartbeat).
+        # `limit_resets_at`: a run's result may say when its usage limit resets (an older one refuses the field).
         return {**runner_versions.desired(), "features": {"task_files_multipart": True, "runner_commit": True,
-                                                          "screen_v1": True}}
+                                                          "screen_v1": True, "limit_resets_at": True}}
 
     @app.get("/api/v2/runners/assignments")
     def assigned(request: Request):

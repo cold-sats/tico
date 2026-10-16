@@ -1601,6 +1601,8 @@ class Completion(Contract):
     tokens_in: int | None = Field(default=None, ge=0)
     tokens_out: int | None = Field(default=None, ge=0)
     limited: bool = False   # the local runtime refused the turn on a subscription usage limit
+    # When the provider said that limit lifts (its own reset time); work resumes then instead of after a default wait.
+    limit_resets_at: str | None = Field(default=None, max_length=40)
     retryable: bool = False  # the runtime could not renew its sign-in; the turn never started
     fallback: str | None = Field(default=None, max_length=80)  # harness that actually ran the turn
     primary_limited: bool = False  # the bot's own runtime hit its usage limit and the company's default `fallback` ran the turn

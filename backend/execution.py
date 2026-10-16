@@ -15,8 +15,10 @@ from .harnesses import reports_tool_calls
 from .statuses import PARKED_SQL
 from .store import H, P, Problem, bot_readiness, digest, encode, message_page, readiness_document
 
+# The wait after a usage limit whose provider gave no reset time; a reported reset is used instead.
 LIMIT_COOLDOWN = 1800        # seconds a bot waits after its runtime reported a usage limit
 LIMIT_COOLDOWN_LONG = 7200   # after the third limit in a row: the subscription window is spent, not busy
+LIMIT_RESET_MAX = 8 * 86400  # a reported reset further off than a weekly window is not believed
 LIMIT_STRIKES = 3
 # An API key's own quota or billing refusal: the fix is the key's plan and billing, not waiting out a subscription window.
 BILLING_LIMIT_RE = re.compile(r"quota exceeded\. check your plan|exceeded your current quota|insufficient[_ ]quota", re.I)
@@ -215,7 +217,8 @@ def limit_errors(c, attempt_id):
 def last_limit(c, bot):
     """The bot's most recent attempt that ended on a usage limit."""
     # Another lane begun before the limit can finish afterwards without lifting the bot's hold.
-    return c.execute("SELECT id,finished FROM attempts WHERE bot=? AND state IN ('failed','interrupted') "
+    return c.execute("SELECT id,finished,json_extract(result_json,'$.limit_resets_at') AS resets_at "
+                     "FROM attempts WHERE bot=? AND state IN ('failed','interrupted') "
                      "AND finished IS NOT NULL AND json_extract(result_json,'$.limited')=1 "
                      "ORDER BY finished DESC LIMIT 1", (bot,)).fetchone()
 
@@ -228,8 +231,18 @@ def billing_limit(c, bot=None, attempt_id=None):
     return bool(attempt_id) and any(BILLING_LIMIT_RE.search(error) for error in limit_errors(c, attempt_id))
 
 
+def provider_reset(last, finished):
+    """Seconds from the limit to the reset its runner reported from the provider's own fields, or None."""
+    reset = H.parse_ts(last["resets_at"])
+    if not reset or not reset.tzinfo:
+        return None
+    wait = int((reset - finished).total_seconds()) + 1
+    return wait if 0 < wait <= LIMIT_RESET_MAX else None
+
+
 def limit_cooldown(c, bot):
-    """Seconds held after the last limit, including a provider's explicit reset window."""
+    """Seconds held after the last limit: until the provider's reported reset when there is one, else
+    the default wait, stretched to a reset the error text names."""
     cooldown = LIMIT_COOLDOWN_LONG if limit_streak(c, bot) >= LIMIT_STRIKES else LIMIT_COOLDOWN
     last = last_limit(c, bot)
     if not last:
@@ -237,12 +250,25 @@ def limit_cooldown(c, bot):
     finished = H.parse_ts(last["finished"])
     if not finished:
         return cooldown
+    reported = provider_reset(last, finished)
+    if reported:
+        return reported
     for error in limit_errors(c, last["id"]):
         match = re.search(r"usage window resets at (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)", error, re.I)
         reset = H.parse_ts(match[1]) if match else None
         if reset:
             cooldown = max(cooldown, int((reset - finished).total_seconds()) + 1)
     return cooldown
+
+
+def release_limits(c):
+    """Lift each usage limit whose hold has passed: the bot shows it is back, and the status change tells
+    its computer to ask for the queued work now rather than at its next backup poll."""
+    for row in c.execute("SELECT bot,since FROM bot_status WHERE state='limited'").fetchall():
+        if row["since"] and row["since"] > H.shift(H.now(), seconds=-limit_cooldown(c, row["bot"])):
+            continue
+        settle_status(c, row["bot"], "idle", "Usage limit lifted; queued work resumes")
+        H.event(c, H.KEEPER, "limit.released", row["bot"], {"since": row["since"]})
 
 
 def person_wrote_since(c, bot, since):
@@ -1706,14 +1732,18 @@ class Execution:
             hit = H.now()
             retry = H.shift(hit, seconds=limit_cooldown(c, row["bot"]))
             kind = "API quota or billing limit" if billing_limit(c, attempt_id=aid) else "usage limit"
-            focus = (f"{runtime} {kind} at {hit[11:16]}" + (", third in a row" if streak >= LIMIT_STRIKES else "")
-                     + f"; retrying after {retry[:10]} {retry[11:16]} UTC")
+            if body.limit_resets_at and provider_reset(last_limit(c, row["bot"]), H.parse_ts(hit)):
+                focus = (f"{runtime} {kind} at {hit[11:16]}; resumes at {retry[11:16]} UTC"
+                         + ("" if retry[:10] == hit[:10] else f" on {retry[:10]}") + " when it resets")
+            else:
+                focus = (f"{runtime} {kind} at {hit[11:16]}" + (", third in a row" if streak >= LIMIT_STRIKES else "")
+                         + f"; retrying after {retry[:10]} {retry[11:16]} UTC")
             H.status_set(c, H.KEEPER, row["bot"], state="limited", focus=focus)
             # Every limit restarts the cooldown; status_set keeps `since` while the state stays the same.
             c.execute("UPDATE bot_status SET since=? WHERE bot=?", (hit, row["bot"]))
             H.event(c, H.KEEPER, "attempt.limited", aid,
                     {"bot": row["bot"], "job_id": row["job_id"], "runtime": runtime, "streak": streak,
-                     "retry_after": retry})
+                     "retry_after": retry, "provider_reset": bool(body.limit_resets_at)})
         elif rejected:
             settle_status(c, row["bot"], "idle" if requeue else "crashed",
                           f"{body.auth_rejected.runtime} sign-in was rejected; " +
@@ -1866,6 +1896,10 @@ class Execution:
                 H.event(c, H.KEEPER, "job.suppress", row["id"], {"reason": "Bot is archived"})
                 held.append(row["id"])
         return held
+
+    def release_limits(self, c):
+        """Runs from the scheduler's tick: lift each usage limit whose hold has passed."""
+        release_limits(c)
 
     def release_deploy_drains(self, c):
         """Undrain the bots a deploy drained and never gave back.
