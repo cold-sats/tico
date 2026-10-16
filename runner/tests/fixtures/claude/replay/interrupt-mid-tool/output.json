@@ -3,14 +3,16 @@
     [
       {
         "kind": "status",
+        "tool_events": true,
         "state": "active"
       },
       {
-        "kind": "rate_limits",
-        "status": "allowed",
-        "resets_at": "2026-10-16T08:10:00+00:00",
-        "used_percent": 44.0,
-        "window_minutes": 300
+        "kind": "tool",
+        "parent_id": null,
+        "summary": "timeout",
+        "tool": "Bash",
+        "status": "started",
+        "item_id": "toolu_01WFM3BjypCnbEbfdbBRoqN8"
       },
       {
         "act": "interrupt",
@@ -18,10 +20,24 @@
       },
       {
         "kind": "rate_limits",
+        "status": "allowed",
+        "resets_at": "2026-10-16T08:10:00+00:00",
+        "used_percent": 88.0,
+        "window_minutes": 300
+      },
+      {
+        "kind": "rate_limits",
         "status": null,
         "resets_at": "2026-10-19T20:00:00+00:00",
-        "used_percent": 25.0,
+        "used_percent": 32.0,
         "window_minutes": 10080
+      },
+      {
+        "kind": "tool",
+        "parent_id": null,
+        "item_id": "toolu_01WFM3BjypCnbEbfdbBRoqN8",
+        "tool": "Bash",
+        "status": "failed"
       },
       {
         "kind": "turn_completed",

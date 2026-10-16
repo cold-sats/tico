@@ -3,6 +3,7 @@
     [
       {
         "kind": "status",
+        "tool_events": true,
         "state": "active"
       },
       {
@@ -12,7 +13,7 @@
       },
       {
         "kind": "message",
-        "item_id": "msg_011Cg5Qt4GfRa7ZTQ2o8Aiym",
+        "item_id": "msg_011Cg5VE1TmZzUzFaw41bfoh",
         "final": false,
         "text": "hello from the replay"
       },
@@ -20,27 +21,27 @@
         "kind": "rate_limits",
         "status": "allowed",
         "resets_at": "2026-10-16T08:10:00+00:00",
-        "used_percent": 43.0,
+        "used_percent": 87.0,
         "window_minutes": 300
       },
       {
         "kind": "rate_limits",
         "status": null,
         "resets_at": "2026-10-19T20:00:00+00:00",
-        "used_percent": 25.0,
+        "used_percent": 32.0,
         "window_minutes": 10080
       },
       {
         "kind": "tokens",
         "usage": {
-          "input": 16422,
+          "input": 16419,
           "cached": 10584,
           "output": 8
         },
-        "cost_usd": 0.0489728,
-        "input": 16422,
+        "cost_usd": 0.0489488,
+        "input": 16419,
         "output": 8,
-        "total": 16430
+        "total": 16427
       },
       {
         "kind": "message",

@@ -3,6 +3,7 @@
     [
       {
         "kind": "status",
+        "tool_events": true,
         "state": "active"
       },
       {
@@ -12,7 +13,7 @@
       },
       {
         "kind": "message",
-        "item_id": "msg_011Cg5Qz2pXBmb9sbDLLGufR",
+        "item_id": "msg_011Cg5VHbYD2J2WfV22WtX28",
         "final": false,
         "text": "first turn"
       },
@@ -20,27 +21,27 @@
         "kind": "rate_limits",
         "status": "allowed",
         "resets_at": "2026-10-16T08:10:00+00:00",
-        "used_percent": 45.0,
+        "used_percent": 88.0,
         "window_minutes": 300
       },
       {
         "kind": "rate_limits",
         "status": null,
         "resets_at": "2026-10-19T20:00:00+00:00",
-        "used_percent": 25.0,
+        "used_percent": 32.0,
         "window_minutes": 10080
       },
       {
         "kind": "tokens",
         "usage": {
-          "input": 19572,
+          "input": 16419,
           "cached": 10584,
           "output": 5
         },
-        "cost_usd": 0.07411279999999999,
-        "input": 19572,
+        "cost_usd": 0.0488888,
+        "input": 16419,
         "output": 5,
-        "total": 19577
+        "total": 16424
       },
       {
         "kind": "message",
@@ -60,20 +61,21 @@
     [
       {
         "kind": "status",
+        "tool_events": true,
         "state": "active"
       },
       {
         "kind": "rate_limits",
         "status": "allowed",
         "resets_at": "2026-10-16T08:10:00+00:00",
-        "used_percent": 45.0,
+        "used_percent": 88.0,
         "window_minutes": 300
       },
       {
         "kind": "rate_limits",
         "status": null,
         "resets_at": "2026-10-19T20:00:00+00:00",
-        "used_percent": 25.0,
+        "used_percent": 32.0,
         "window_minutes": 10080
       },
       {

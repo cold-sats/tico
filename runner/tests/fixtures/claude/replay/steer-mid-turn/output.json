@@ -3,14 +3,16 @@
     [
       {
         "kind": "status",
+        "tool_events": true,
         "state": "active"
       },
       {
-        "kind": "rate_limits",
-        "status": "allowed",
-        "resets_at": "2026-10-16T08:10:00+00:00",
-        "used_percent": 44.0,
-        "window_minutes": 300
+        "kind": "tool",
+        "parent_id": null,
+        "summary": "sleep",
+        "tool": "Bash",
+        "status": "started",
+        "item_id": "toolu_014eqw9Fr3wvygGxTHVQyjTr"
       },
       {
         "act": "steer",
@@ -18,30 +20,44 @@
       },
       {
         "kind": "rate_limits",
+        "status": "allowed",
+        "resets_at": "2026-10-16T08:10:00+00:00",
+        "used_percent": 87.0,
+        "window_minutes": 300
+      },
+      {
+        "kind": "rate_limits",
         "status": null,
         "resets_at": "2026-10-19T20:00:00+00:00",
-        "used_percent": 25.0,
+        "used_percent": 32.0,
         "window_minutes": 10080
       },
       {
-        "kind": "delta",
-        "delta_kind": "text",
-        "text": "I"
+        "kind": "tool",
+        "parent_id": null,
+        "item_id": "toolu_014eqw9Fr3wvygGxTHVQyjTr",
+        "tool": "Bash",
+        "status": "completed"
       },
       {
         "kind": "delta",
         "delta_kind": "text",
-        "text": " ran `sleep 6"
+        "text": "The"
       },
       {
         "kind": "delta",
         "delta_kind": "text",
-        "text": "`"
+        "text": " `sleep 6` command"
       },
       {
         "kind": "delta",
         "delta_kind": "text",
-        "text": " and it finished without err"
+        "text": " "
+      },
+      {
+        "kind": "delta",
+        "delta_kind": "text",
+        "text": "ran and finished without err"
       },
       {
         "kind": "delta",
@@ -50,26 +66,26 @@
       },
       {
         "kind": "message",
-        "item_id": "msg_011Cg5QwzM8nehD77jBSYM1X",
+        "item_id": "msg_011Cg5VGFEoCGsKUgpsfViKF",
         "final": false,
-        "text": "I ran `sleep 6` and it finished without errors. banana"
+        "text": "The `sleep 6` command ran and finished without errors. banana"
       },
       {
         "kind": "tokens",
         "usage": {
-          "input": 36256,
-          "cached": 27019,
-          "output": 102
+          "input": 32760,
+          "cached": 26857,
+          "output": 100
         },
-        "cost_usd": 0.0813238,
-        "input": 36256,
-        "output": 102,
-        "total": 36358
+        "cost_usd": 0.0545794,
+        "input": 32760,
+        "output": 100,
+        "total": 32860
       },
       {
         "kind": "message",
         "final": true,
-        "text": "I ran `sleep 6` and it finished without errors. banana"
+        "text": "The `sleep 6` command ran and finished without errors. banana"
       },
       {
         "kind": "turn_completed",

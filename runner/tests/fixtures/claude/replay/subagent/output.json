@@ -3,84 +3,86 @@
     [
       {
         "kind": "status",
+        "tool_events": true,
         "state": "active"
+      },
+      {
+        "kind": "tool",
+        "subagent": {
+          "id": "toolu_019NwSNGE1NpxhABjh6jk88v",
+          "parent_id": null,
+          "type": "general-purpose",
+          "model": null,
+          "status": "started"
+        },
+        "parent_id": null,
+        "tool": "Agent",
+        "status": "started",
+        "item_id": "toolu_019NwSNGE1NpxhABjh6jk88v",
+        "summary": ""
       },
       {
         "kind": "rate_limits",
         "status": "allowed",
         "resets_at": "2026-10-16T08:10:00+00:00",
-        "used_percent": 44.0,
+        "used_percent": 87.0,
         "window_minutes": 300
       },
       {
         "kind": "rate_limits",
         "status": null,
         "resets_at": "2026-10-19T20:00:00+00:00",
-        "used_percent": 25.0,
+        "used_percent": 32.0,
         "window_minutes": 10080
       },
       {
-        "kind": "delta",
-        "delta_kind": "text",
-        "text": "The subagent repl"
+        "kind": "tool",
+        "subagent": {
+          "id": "toolu_019NwSNGE1NpxhABjh6jk88v",
+          "parent_id": null,
+          "type": "general-purpose",
+          "model": null,
+          "status": "completed",
+          "tool_uses": 0,
+          "duration_ms": 2607
+        },
+        "parent_id": null,
+        "tool": "Agent",
+        "status": "completed",
+        "item_id": "toolu_019NwSNGE1NpxhABjh6jk88v"
       },
       {
         "kind": "delta",
         "delta_kind": "text",
-        "text": "ied:"
+        "text": "The subagent replied:"
       },
       {
         "kind": "delta",
         "delta_kind": "text",
-        "text": " `pong` (I started"
-      },
-      {
-        "kind": "delta",
-        "delta_kind": "text",
-        "text": " it with the Agent tool"
-      },
-      {
-        "kind": "delta",
-        "delta_kind": "text",
-        "text": ", which is what"
-      },
-      {
-        "kind": "delta",
-        "delta_kind": "text",
-        "text": " this"
-      },
-      {
-        "kind": "delta",
-        "delta_kind": "text",
-        "text": " environment uses in"
-      },
-      {
-        "kind": "delta",
-        "delta_kind": "text",
-        "text": " place of the Task tool)."
+        "text": " pong"
       },
       {
         "kind": "message",
-        "item_id": "msg_011Cg5Qven8NwNd1RcQNwVgt",
+        "item_id": "msg_011Cg5VF647prGhibmFGKVNu",
         "final": false,
-        "text": "The subagent replied: `pong` (I started it with the Agent tool, which is what this environment uses in place of the Task tool)."
+        "text": "The subagent replied: pong"
       },
       {
         "kind": "tokens",
         "usage": {
-          "input": 36477,
-          "cached": 27031,
-          "output": 212
+          "input": 32975,
+          "cached": 26866,
+          "output": 148
         },
-        "cost_usd": 0.15323620000000002,
-        "input": 36477,
-        "output": 212,
-        "total": 36689
+        "cost_usd": 0.1086272,
+        "input": 32975,
+        "output": 148,
+        "total": 33123
       },
       {
         "kind": "message",
         "final": true,
-        "text": "The subagent replied: `pong` (I started it with the Agent tool, which is what this environment uses in place of the Task tool)."
+        "text": "The subagent replied: pong"
       },
       {
         "kind": "turn_completed",

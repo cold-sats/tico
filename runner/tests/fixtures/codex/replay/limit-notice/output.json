@@ -3,26 +3,27 @@
     [
       {
         "kind": "status",
-        "thread_id": "01a14353-13fd-79e3-8b33-f99663ffc9ff",
+        "thread_id": "01a14385-f103-78c1-8be8-c2054dd81882",
         "turn_id": null,
         "state": "active"
       },
       {
         "kind": "status",
-        "thread_id": "01a14353-13fd-79e3-8b33-f99663ffc9ff",
-        "turn_id": "01a14353-1841-7552-a8d7-bb592b0e7e69",
-        "state": "active"
+        "thread_id": "01a14385-f103-78c1-8be8-c2054dd81882",
+        "turn_id": "01a14385-f43e-7971-a0ac-b4342c1e9c8c",
+        "state": "active",
+        "tool_events": true
       },
       {
         "kind": "status",
-        "thread_id": "01a14353-13fd-79e3-8b33-f99663ffc9ff",
+        "thread_id": "01a14385-f103-78c1-8be8-c2054dd81882",
         "turn_id": null,
         "state": "systemError"
       },
       {
         "kind": "turn_failed",
-        "thread_id": "01a14353-13fd-79e3-8b33-f99663ffc9ff",
-        "turn_id": "01a14353-1841-7552-a8d7-bb592b0e7e69",
+        "thread_id": "01a14385-f103-78c1-8be8-c2054dd81882",
+        "turn_id": "01a14385-f43e-7971-a0ac-b4342c1e9c8c",
         "error": "Quota exceeded. Check your plan and billing details.",
         "limit": true
       }

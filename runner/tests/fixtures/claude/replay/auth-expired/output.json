@@ -3,11 +3,12 @@
     [
       {
         "kind": "status",
+        "tool_events": true,
         "state": "active"
       },
       {
         "kind": "message",
-        "item_id": "789661b7-460a-4cb2-b871-8d45a430da0c",
+        "item_id": "532d40fe-cfd5-4820-a309-a5144721bd1a",
         "final": false,
         "text": "Failed to authenticate: OAuth session expired and could not be refreshed"
       },
