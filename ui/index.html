@@ -28,6 +28,7 @@
 <link rel="stylesheet" href="/tico/ui/styles/viewer.css">
 <link rel="stylesheet" href="/tico/ui/styles/search.css">
 <link rel="stylesheet" href="/tico/ui/styles/task-modal.css">
+<link rel="stylesheet" href="/tico/ui/styles/roadmaps.css">
 <link rel="stylesheet" href="/tico/ui/styles/task-files.css">
 <link rel="stylesheet" href="/tico/ui/styles/task-runs.css">
 <link rel="stylesheet" href="/tico/ui/styles/credentials.css">
@@ -69,7 +70,7 @@
 <div id="side-backdrop" hidden></div>
 <div id="stale-banner" role="status" hidden><span>New version ·</span><button class="primary" type="button" id="stale-reload">Reload</button></div>
 <div id="app-update" role="status" hidden><span id="app-update-text"></span><button class="primary" type="button" id="app-update-go" hidden>Update</button><a class="primary" id="app-update-dl" target="_blank" rel="noopener noreferrer" hidden>Download</a><button class="ghost" type="button" id="app-update-later">Later</button></div>
-<div id="usage-notice" role="note" hidden><span>Tico counts active installs anonymously (a random ID, version, and two yes/no activity flags). Turn off: Settings &gt; Privacy or TICO_TELEMETRY=off. <a href="https://github.com/ticoteam/tico/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">Details</a></span><button class="ghost" type="button" id="usage-notice-x">Dismiss</button></div>
+<div id="usage-notice" role="note" hidden><span>Tico counts active installs anonymously (a random ID, version, and three yes/no activity flags). Turn off: Settings &gt; Privacy or TICO_TELEMETRY=off. <a href="https://github.com/ticoteam/tico/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">Details</a></span><button class="ghost" type="button" id="usage-notice-x">Dismiss</button></div>
 <div id="demo-banner" role="note" hidden><strong>Demo — sample data</strong><span>A fictional team. Bots do not run here and nothing leaves this computer.</span></div>
 <aside id="side" aria-label="Primary navigation">
   <header class="side-head">
@@ -92,7 +93,7 @@
       <a class="nav-librarian" id="nav-docs-librarian" href="#/bot/librarian/more" hidden title="Librarian settings" aria-label="Librarian settings"><span class="nav-icon" aria-hidden="true">settings</span></a>
     </div>
     <div class="nav-row">
-      <a class="nav-link" href="#/market" data-nav="market"><span class="nav-icon" aria-hidden="true">storefront</span>Market</a>
+      <a class="nav-link" href="#/market" data-nav="market"><span class="nav-icon" aria-hidden="true">storefront</span>Market<span data-beta="market"></span></a>
       <a class="nav-librarian" id="nav-market-librarian" href="#/bot/librarian/more" hidden title="Librarian settings" aria-label="Librarian settings"><span class="nav-icon" aria-hidden="true">settings</span></a>
     </div>
     <a class="nav-link" href="#/meetings" data-nav="meetings"><span class="nav-icon" aria-hidden="true">forum</span>Meetings<span class="nav-badge meet-pending-badge" data-meet-pending hidden></span></a>
@@ -113,7 +114,7 @@
     </section>
     <section class="side-section" id="nav-inboxes-section" hidden>
       <button class="section-toggle" type="button" data-section-toggle="inboxes" aria-expanded="true" aria-controls="nav-inboxes">
-        <span>Message bots</span><span class="section-chev" aria-hidden="true">›</span>
+        <span>Message bots<span data-beta="message_bots"></span></span><span class="section-chev" aria-hidden="true">›</span>
       </button>
       <div class="section-body" id="nav-inboxes" data-section-body="inboxes">
         <ul class="inbox-list" id="inbox-list"></ul>
@@ -233,6 +234,7 @@
 <script src="/tico/ui/app/tasks.js"></script>
 <script src="/tico/ui/app/task-pipelines.js"></script>
 <script src="/tico/ui/app/task-modal.js"></script>
+<script src="/tico/ui/app/roadmaps.js"></script>
 <script src="/tico/ui/app/task-files.js"></script>
 <script src="/tico/ui/app/task-code.js"></script>
 <script src="/tico/ui/app/task-runs.js"></script>

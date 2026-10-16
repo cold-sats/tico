@@ -6,6 +6,17 @@
 // the glossary live in the docs (docs/how-it-works.md, docs/glossary.md).
 const HELP_DOCS = [['How Tico works', 'how-it-works.md'], ['Glossary', 'glossary.md'], ['Connect an agent', 'connect-an-agent.md'], ['All docs', 'README.md']];
 const helpDoc = (words, file, cls = '') => `<a${cls ? ` class="${cls}"` : ''} href="${GH}/blob/main/docs/${file}" target="_blank" rel="noopener noreferrer">${esc(words)}</a>`;
+// The Beta features, from the server's one list (backend/beta.py), each with its pages in the manual.
+function helpBetaHTML() {
+  const rows = S.config.beta || [];
+  if (!rows.length) return '';
+  const page = doc => `<a href="${GH}/blob/main/docs/${esc(doc)}" target="_blank" rel="noopener noreferrer">${esc(doc.replace(/\.md(#.*)?$/, ''))}</a>`;
+  return `<details class="help-tools help-beta" id="help-beta">
+      <summary><strong>Beta features</strong></summary>
+      <p>These work today and may still change. A support request's diagnostics say which of them your team has on.</p>
+      <ul>${rows.map(f => `<li>${esc(f.name)}${betaPill(f.id)} <span class="muted">${(f.docs || []).map(page).join(' · ')}</span></li>`).join('')}</ul>
+    </details>`;
+}
 
 // The server's version, and inside the desktop app its own version (app/src/main.rs bridge_script) and a way to its
 // log file (app/src/applog.rs), which a shell that keeps one says in ticoNativeFeatures.
@@ -28,6 +39,7 @@ function pageHelp() {
       <li data-help-support><strong>Get help</strong> from a person on the Tico team: write to Support on this page.</li>
       <li><strong>Learn more</strong> in the docs: ${HELP_DOCS.map(([words, file]) => helpDoc(words, file)).join(' · ')}.</li>
     </ul>
+    ${helpBetaHTML()}
     <p class="help-foot">${helpVersionHTML()}</p>
   </article>`;
   $('#help-app-log')?.addEventListener('click', () => nativeHandler('showLog')?.postMessage(null));

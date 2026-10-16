@@ -15,6 +15,13 @@
 
 /* The overview and Support follow the Goals page: shared rail width, borders and independent scrolling. */
 .help-actions{display:flex;align-items:center;gap:16px;margin-top:14px;flex-wrap:wrap}
+.help-tools{margin-top:18px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.help-tools>summary{display:flex;align-items:baseline;gap:10px;padding:16px 18px;cursor:pointer;list-style:none}
+.help-tools>summary::-webkit-details-marker{display:none}
+.help-tools>summary::before{content:'›';color:var(--accent);font-size:20px;line-height:1;transition:transform var(--dur-fast) var(--ease)}
+.help-tools[open]>summary::before{transform:rotate(90deg)}
+.help-tools>summary strong{font-size:var(--t-lg)}
+.help-beta>p{padding:0 18px;font-size:var(--t-base);color:var(--muted)}.help-beta ul{margin:8px 0 0;padding:0 18px 16px 36px}.help-beta li{margin:6px 0;font-size:var(--t-base)}
 #help-open[data-support-unread]{position:relative}
 /* The number of unread support replies, on the ? itself (support.js sets it; absent at zero). */
 #help-open[data-support-count]::after{content:attr(data-support-count);position:absolute;top:-6px;right:-8px;min-width:20px;height:20px;padding:0 4px;box-sizing:border-box;border-radius:10px;background:var(--accent);color:var(--accent-ink);font:700 var(--t-2xs)/16px var(--sans);text-align:center;border:2px solid var(--surface);pointer-events:none}
