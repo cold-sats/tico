@@ -30,6 +30,7 @@ link jumps there.
 | Message | Required, up to 4000 characters. Plain text. |
 | Reply email and install details | Expand to change the optional reply email and inclusion of version/install ID. |
 | @diagnostics | On by default for a new request. Uncheck to send none. Follow-up replies start with it off. |
+| Computer performance | How much of each computer's performance history goes with @diagnostics: None, 1 day (the default), 7 days or 14 days. Computers and bots are relabelled as everywhere else in the bundle. |
 | Review and edit | Inspect the exact JSON, remove sections, or edit fields. **Check edits** validates and redacts again; **Use diagnostics** attaches the reviewed result. |
 
 The composer lists what Send will send and the destination. No ticket or attachment leaves for HQ until Send. If a capture

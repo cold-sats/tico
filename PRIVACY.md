@@ -187,6 +187,16 @@ readiness and profiles, replaces it on each heartbeat, and drops it when the too
 Only owners, administrators and the computer's operator see an account. Other members see that a tool is signed in,
 not as whom, and bots never see one. An older computer reports none of this, and the page shows what it showed before.
 
+## Computer performance
+
+This stays on your own server. It reaches Tico only inside a support ticket's diagnostics, when you leave it in.
+
+Every 30 seconds a computer reports its CPU and memory use, load, swap, the free space on its volumes, how many turns
+were running, and its busiest processes by name: the program's own file name (`cargo`, `node`), cleaned to letters,
+digits and `._+-`, never its arguments, path, environment or owner. The server keeps one-minute points for two days and
+ten-minute points after that, and deletes everything 14 days old, or at once on **Delete history**. Every person and bot
+of the company can read it. The computer's operator or an admin turns it off per computer; an off computer reports nothing.
+
 ## Support tickets
 
 Help > **Support** sends the Tico team a message. It is separate from the count, and it works whether counting is on or
@@ -259,6 +269,7 @@ Every field:
 | `database` | The migration level of the database | `{"migration": 12, "cloud_migration": 44}` |
 | `features` | Which of these are on, as true or false only: `demo`, `updater`, `update_check`, `usage_count`, `backups`, `github_app`, `slack`, `sign_in_proxy`, `blob_storage`, `scheduler`, `observability`, `assistant`, `librarian` | `{"slack": false, "backups": true}` |
 | `counts` | How many bots, humans and routines | `{"bots": 12, "people": 5, "routines": 30}` |
+| `performance` | Only for the window chosen on the form (1 day by default; None sends none). Per computer, numbered `runner-1`: whole computer or container, memory and disk size, CPU and memory points (ten-minute points up to two days, hourly beyond), the overload summary and each overload's time, reasons, peaks, the bots running and the busiest process names, the bots with the most turns and their models, and the busiest processes | `{"label": "runner-1", "summary": "Overloaded once in the last 1 day (CPU over 90%) ...", "bots": [{"bot": "bot-2", "model": "claude-opus-5-5", "runs": 14}]}` |
 | `logs` | Up to 200 server failure/warning entries, with adjacent repeats grouped, and the updater's last failures. Exceptions include only type and up to three application module/line locations, never values, locals or raw tracebacks | `"2026-10-01T09:29:58Z WARNING tico.support: HQ did not answer (ConnectTimeout)"` |
 
 A Tico from before this feature, or a server whose updater is not the Docker one, leaves out what it cannot see. Log lines come
