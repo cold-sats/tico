@@ -640,6 +640,7 @@ def bots(client, args):
                                     ("on_behalf_of", args.on_behalf_of), ("shared", args.shared), ("session", args.session),
                                     ("subtask_session", getattr(args, "subtask_session", None)),
                                     ("task_goal", getattr(args, "task_goal", None)),
+                                    ("review_model", getattr(args, "review_model", None)),
                                     ("capture_stream", getattr(args, "capture_stream", None))) if v is not None}
         try:
             return hubtools.BY_NAME["hub_bot_update"]["fn"](client, fields)

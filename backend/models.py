@@ -1254,6 +1254,9 @@ class BotDefinitionUpdate(Contract):
     subtask_session: Literal["parent", "own"] | None = None
     # `on`: each task the bot owns is worked as a goal (execution.task_goal); unset or `off`: not.
     task_goal: Literal["on", "off"] | None = None
+    # `check`: a subtask it is handed under another's task runs on the company's check model
+    # (check_models.review_default); unset or `own`: its own model.
+    review_model: Literal["check", "own"] | None = None
     # `on`: each run's raw provider stream is kept a week for replay fixtures (backend/stream_capture.py); owner only.
     capture_stream: Literal["on", "off"] | None = None
     expected_revision: int = Field(ge=1)

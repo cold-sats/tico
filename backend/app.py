@@ -2597,7 +2597,7 @@ def create_app(settings=None):
             raise Problem("check_model", "A check model runs a subtask: file it under a task you own", 422)
         try:
             return check_models.choose(c, settings, H.actor_id(owner), body.check_model,
-                                       body.check_role or "check")
+                                       body.check_role or "check", check_models.authors_of(c, settings, parent_id))
         except check_models.CheckModelError as exc:
             raise Problem(exc.code, str(exc), 409 if exc.code == "runner_not_ready" else 422)
 
@@ -2639,9 +2639,11 @@ def create_app(settings=None):
                                      "task without a parent, and do not wait for it.", 422)
         if parent_id:
             auth.task(c, who, parent_id)
-        check = None
+        check, unchecked = None, None
         if body.check_model is not None or body.check_role is not None:
             check = check_choice(c, who, body, owner, parent_id)
+        else:
+            check, unchecked = check_models.review_default(c, settings, owner, parent_id)
         for other, _ in others:
             auth.task(c, who, other)
         parent = H.task(c, parent_id) if parent_id else None
@@ -2693,7 +2695,11 @@ def create_app(settings=None):
                             own_room=H.actor_id(owner) != settings.assistant_bot)
         c.execute("UPDATE tasks SET acceptance_json=? WHERE id=?", (encode(body.acceptance_criteria), row["id"]))
         if check:
-            check_models.record(c, who.actor, row["id"], check)
+            # A check is its owner's (check_models.of): one asked for is filed by its owner (check_choice), and a
+            # reviewer's default comes from its own setting.
+            check_models.record(c, owner, row["id"], check)
+        elif body.check_model is None and body.check_role is None and unchecked:
+            H._task_event(c, row["id"], who.actor, "check_model", None, None, unchecked)
         if handoff and owner == "bot:" + BOTOPS:
             carried = carried_request(c, who, body.request_id)
             if carried:

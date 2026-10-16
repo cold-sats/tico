@@ -198,6 +198,12 @@ class AgainstAStub(unittest.TestCase):
         posted = next(b for m, p, _, b in Stub.seen if m == "POST" and p == "/api/v2/tasks")
         self.assertEqual((posted["owner"], posted["check_model"], posted["check_role"], posted["relations"]),
                          ("bot:coo", "grok", "review", [{"task": "T1", "kind": "parent"}]))
+        # With no value, the server picks the company's check model.
+        code, out = run_hub("task", "child", "T1", "--check-model", "--role", "review", "--title", "Review PR 701",
+                            env=self.env)
+        self.assertEqual(code, 0, out)
+        posted = [b for m, p, _, b in Stub.seen if m == "POST" and p == "/api/v2/tasks"][-1]
+        self.assertEqual((posted["owner"], posted["check_model"]), ("bot:coo", "auto"))
 
     def test_tool_add_dry_run_is_checked_by_the_server_not_the_task_dry_run(self):
         code, out = run_hub("tool", "add", "writer", "notion", "--can", "read",

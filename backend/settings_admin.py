@@ -193,6 +193,7 @@ class SettingsAdmin:
                 "session": effective.get("session"),
                 "subtask_session": effective.get("subtask_session"),
                 "task_goal": effective.get("task_goal"),
+                "review_model": effective.get("review_model"),
                 "capture_stream": (_json(config["config_json"], {}) or {}).get("capture_stream"),
                 "harness": resolve_harness(effective, effective.get("runtime") or row.get("runtime")),
                 "fallback": normalize_fallback(effective.get("fallback"))}
@@ -555,6 +556,12 @@ class SettingsAdmin:
                 declared["subtask_session"] = body.subtask_session
             else:
                 declared.pop("subtask_session", None)
+        if "review_model" in body.model_fields_set:
+            # Cleared or `own` means the default: its own model (check_models.review_default).
+            if body.review_model == "check":
+                declared["review_model"] = "check"
+            else:
+                declared.pop("review_model", None)
         if "task_goal" in body.model_fields_set:
             # Cleared means the default: off (execution.task_goal).
             if body.task_goal:

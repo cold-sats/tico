@@ -97,6 +97,7 @@ The task's ⋯ menu has **Copy session ID** for the primary session, to resume i
 | `session` | unset (default), `task`, `bot` | Unset: each task is its own session and chat shares one. `task`: each chat conversation also gets its own (BotOps). `bot`: one session for everything. |
 | `subtask_session` | `parent` (default), `own` | Whether a subtask someone else files continues its parent's session or gets its own; one the bot files for itself always gets its own. |
 | `task_goal` | `off` (default), `on` | Work each task as a native goal until it is met. |
+| `review_model` | `own` (default), `check` | Run a subtask handed to it under another's task on the company's check model ([Tasks](tasks.md#a-subtask-on-a-check-model)). |
 | `goal:on`, `goal:off` | task labels | Override `task_goal` for one task. |
 | `capture_stream` | `off` (default), `on` | Keep each run's raw provider stream, both ways, for a week (owner only; see below). |
 

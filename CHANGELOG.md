@@ -27,6 +27,10 @@ All notable changes to Tico are recorded here. The format follows
   can be named, and a computer signed out of it is not handed the turn. The run shows the model that ran, and
   marking the subtask done wakes the parent with the verdict. A usage limit on the check's model holds only that
   subtask, and a check handed to another bot runs as that bot's ordinary task.
+- A company check model (Settings > AI providers > Check model, for example `grok, codex`): `--check-model` with no
+  value picks the first from a provider other than the one the parent's work ran on, and refuses rather than check
+  on the author's own provider. A reviewer bot set to `review_model: check` reviews every subtask it is handed this
+  way, so a review of a PR written on Claude runs on Grok or Codex and says which.
 - A Claude or Codex run's steps now list its tool calls and its subagents. A subagent shows by its type, with the
   calls it made indented under it. A call is recorded only by the file it touches or the program it runs, and a tool
   server's call by its name alone; neither a subagent's prompt nor any call's arguments leave the computer. When such
