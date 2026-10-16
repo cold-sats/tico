@@ -32,6 +32,36 @@ def test_the_root_walks_up_same_owner_parents_and_stops_at_another_owner_or_a_lo
         assert H.session_root(c, "ops", own) == top
 
 
+def test_a_subtask_the_bot_filed_for_itself_is_its_own_root(api):
+    parent, = tasks(api, ("bot:ops", None))
+    with api.app.state.store.transaction() as c:
+        own = H.task_create(c, "bot:ops", "Build the export", "Its own work.", "bot:ops", parent_id=parent,
+                            lint=False)["id"]
+        asked = H.task_create(c, "human:ana", "Add the CSV column", "x", "bot:ops", parent_id=own, lint=False)["id"]
+        assert H.session_root(c, "ops", own) == own
+        assert H.session_root(c, "ops", asked) == own, "a person's subtask under it continues its session"
+
+
+def test_a_bot_finishing_its_last_self_filed_subtask_wakes_the_parent_but_not_one_in_the_parents_session(api):
+    first, second = tasks(api, ("bot:ops", None), ("bot:ops", None))
+    with api.app.state.store.transaction() as c:
+        asked = H.task_create(c, "human:ana", "Add the CSV column", "x", "bot:ops", parent_id=first, lint=False)["id"]
+        own = H.task_create(c, "bot:ops", "Build the export", "Its own work.", "bot:ops", parent_id=second,
+                            lint=False)["id"]
+        since = c.execute("SELECT max(rowid) FROM messages").fetchone()[0]
+
+    def woken():
+        with api.app.state.store.read() as c:
+            return [r[0] for r in c.execute(
+                "SELECT json_extract(m.refs_json,'$.task') FROM jobs j JOIN messages m ON m.id=j.message_id "
+                "WHERE j.bot='ops' AND j.state='queued' AND m.body='All subtasks done' AND m.rowid>?", (since,))]
+
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, "bot:ops", asked, status="done", note="Column added.")
+        H.task_update(c, "bot:ops", own, status="done", note="Export built.")
+    assert woken() == [second], "the first's own session finished its subtask; the second's ran apart"
+
+
 def test_a_private_subtask_shares_a_private_parents_session_only_when_both_have_the_same_readers(api):
     with api.app.state.store.transaction() as c:
         parent = H.task_create(c, "human:ana", "Plan the private launch", "x", "bot:ops", private=True, lint=False)["id"]
@@ -84,6 +114,24 @@ def test_a_subtask_turn_runs_in_its_parents_lane_and_session_and_links_and_check
         assert [link for link in H.task_links(c, sub) if link["kind"] == "session"] == []
     assert get(api, "tasks/" + parent)["task"]["checkpoint"] == "Step 1 drafted."
     assert not get(api, "tasks/" + sub)["task"].get("checkpoint")
+
+
+def test_subtasks_a_bot_files_for_itself_from_one_turn_start_in_their_own_lanes_side_by_side(api):
+    machine = roots_runner(api, ["task_lanes_v2", "session_roots_v1"])
+    post(api, "runners/heartbeat", {"version": "test", "platform": "test", "readiness": {"ops": True}, "capacity": 8,
+                                    "capabilities": ["task_lanes_v2", "session_roots_v1"]}, token=machine["token"])
+    parent, = tasks(api, ("bot:ops", None))
+    plan = claim(api, machine)
+    assert plan["lane"] == "task:" + parent
+    with api.app.state.store.transaction() as c:
+        subs = [H.task_create(c, "bot:ops", f"Build part {n} of the plan", "Its own work.", "bot:ops",
+                              parent_id=parent, lint=False)["id"] for n in range(3)]
+    turns = [claim(api, machine) for _ in subs]
+    assert {(t["lane"], t["task"]["session_task_id"]) for t in turns} == {("task:" + s, s) for s in subs}
+    assert claim(api, machine) is None
+    with api.app.state.store.read() as c:
+        assert not c.execute("SELECT 1 FROM attempt_inputs WHERE attempt_id=?", (plan["id"],)).fetchone(), \
+            "the filing turn is handed none of their notices"
 
 
 def test_an_older_runner_and_subtask_session_own_keep_each_subtask_its_own_session(api):

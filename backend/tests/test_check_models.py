@@ -180,8 +180,8 @@ def test_a_check_handed_to_another_bot_is_that_bots_ordinary_task(api):
 
 def test_work_under_a_check_continues_the_checks_session_not_the_parents(api):
     machine, parent, sub = check_filed(api)
-    check = claim(api, machine)
+    # A person's subtask under the check (a bot's own subtask is its own root anyway).
     below = post(api, "tasks", {"owner": "ops", "title": "Read the migration file", "body": "Line by line.",
-                                "relations": [{"task": sub["id"], "kind": "parent"}]}, check["token"])
+                                "relations": [{"task": sub["id"], "kind": "parent"}]})
     with api.app.state.store.read() as c:
         assert H.session_root(c, "ops", below["id"]) == sub["id"]

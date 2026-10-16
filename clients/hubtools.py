@@ -133,7 +133,8 @@ def whoami(api, args):
        "conversation_id": _s("Continue this conversation instead of opening a pair conversation"),
        "in_reply_to": _s("The message this corrects or answers"),
        "command": {"type": "boolean", "description": "Send the text verbatim as a harness command"},
-       "steer": {"type": "boolean", "description": "Apply a correction to your active request"},
+       "steer": {"type": "boolean", "description": "Apply a correction to your active request; with refs "
+                 "`task:<id>` you requested, it goes into its owner's running turn on that task"},
        "refs": {"type": "array", "items": {"type": "string"},
                 "description": "References like `task:<id>` or `approval:<id>`"}},
       required=("to", "text"), writes=True)
