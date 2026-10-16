@@ -64,11 +64,13 @@ MOMENT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f  ‪-‮⁦-⁩]")
 FIELDS = ("message", "email", "install_id", "version")
 OPTIONAL = ("diagnostics",)       # the person's own choice; staff routes only ever show it
+# The desktop app's version, when the person wrote from the app; labelled apart from the server's `version`.
+APP_FIELDS = ("app_version",)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tickets(
  ticket_id TEXT PRIMARY KEY, key_hash TEXT NOT NULL, created TEXT NOT NULL, updated TEXT NOT NULL,
- closed TEXT, status TEXT NOT NULL DEFAULT 'open', body TEXT NOT NULL, email TEXT, install_id TEXT, version TEXT,
+ closed TEXT, status TEXT NOT NULL DEFAULT 'open', body TEXT NOT NULL, email TEXT, install_id TEXT, version TEXT, app_version TEXT,
  email_pending INTEGER NOT NULL DEFAULT 0, diagnostics TEXT, signature TEXT NOT NULL DEFAULT '',
  verdict TEXT NOT NULL DEFAULT 'unchecked', verdict_reason TEXT NOT NULL DEFAULT '', held INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS tickets_created ON tickets(created);
@@ -150,13 +152,13 @@ def parse_diagnostics(data):
 
 
 def parse_ticket(data):
-    """(message, email, install_id, version) from a decoded request, or Invalid. Fields beyond these four (and the optional
-    diagnostics, which `parse_diagnostics` reads) are refused."""
-    if not isinstance(data, dict) or set(data) - set(FIELDS) - set(OPTIONAL):
+    """(message, email, install_id, version, app_version) from a decoded request, or Invalid. Fields beyond these (and the
+    optional diagnostics, which `parse_diagnostics` reads) are refused."""
+    if not isinstance(data, dict) or set(data) - set(FIELDS) - set(APP_FIELDS) - set(OPTIONAL):
         raise Invalid("fields")
     message = text(data.get("message"), "message", MAX_MESSAGE)
     values = {}
-    for name, pattern in (("email", EMAIL), ("install_id", INSTALL_ID), ("version", VERSION)):
+    for name, pattern in (("email", EMAIL), ("install_id", INSTALL_ID), ("version", VERSION), ("app_version", VERSION)):
         value = data.get(name)
         if value in (None, ""):
             values[name] = None
@@ -164,7 +166,7 @@ def parse_ticket(data):
             raise Invalid(name)
         else:
             values[name] = value
-    return message, values["email"], values["install_id"], values["version"]
+    return message, values["email"], values["install_id"], values["version"], values["app_version"]
 
 
 class Tickets:
@@ -186,7 +188,7 @@ class Tickets:
                     if found:
                         db.conn.execute("UPDATE tickets SET signature=? WHERE ticket_id=?", (found, row["ticket_id"]))
             for column, spec in (("verdict", "TEXT NOT NULL DEFAULT 'unchecked'"), ("verdict_reason", "TEXT NOT NULL DEFAULT ''"),
-                                 ("held", "INTEGER NOT NULL DEFAULT 0")):
+                                 ("held", "INTEGER NOT NULL DEFAULT 0"), ("app_version", "TEXT")):
                 if column not in have:
                     db.conn.execute(f"ALTER TABLE tickets ADD COLUMN {column} {spec}")
             reply_columns = {row[1] for row in db.conn.execute("PRAGMA table_info(ticket_replies)")}
@@ -203,7 +205,7 @@ class Tickets:
         self.refused = Limiter(limit=20, window=3600, clock=clock)            # wrong staff keys, per address
 
     # ------------------------------------------------------------------ people
-    def create(self, message, email, install_id, version, diagnostics=None, verdict="unchecked", reason=""):
+    def create(self, message, email, install_id, version, diagnostics=None, verdict="unchecked", reason="", app_version=None):
         """Store a ticket. Returns (ticket_id, secret); the secret is not kept, only its hash. `diagnostics` is the
         attached bundle as compact JSON; it is kept with the ticket until the ticket is deleted."""
         secret = secrets.token_urlsafe(24)
@@ -214,9 +216,9 @@ class Tickets:
                 if not self.db.conn.execute("SELECT 1 FROM tickets WHERE ticket_id=?", (ticket_id,)).fetchone():
                     break
             self.db.conn.execute(
-                "INSERT INTO tickets(ticket_id,key_hash,created,updated,status,body,email,install_id,version,diagnostics,"
-                "signature,verdict,verdict_reason,held) VALUES(?,?,?,?,'open',?,?,?,?,?,?,?,?,?)",
-                (ticket_id, digest(secret), moment, moment, message, email, install_id, version, diagnostics,
+                "INSERT INTO tickets(ticket_id,key_hash,created,updated,status,body,email,install_id,version,app_version,"
+                "diagnostics,signature,verdict,verdict_reason,held) VALUES(?,?,?,?,'open',?,?,?,?,?,?,?,?,?,?)",
+                (ticket_id, digest(secret), moment, moment, message, email, install_id, version, app_version, diagnostics,
                  signature_of(message), verdict, reason[:200], 1 if verdict == "spam" else 0))
         return ticket_id, secret
 
@@ -282,7 +284,7 @@ class Tickets:
         `show` (`full`) carries it."""
         view = {"ticket_id": row["ticket_id"], "status": row["status"], "created": row["created"],
                 "updated": row["updated"], "body": row["body"], "email": row["email"], "version": row["version"],
-                "install_id": row["install_id"], "email_pending": bool(row["email_pending"]),
+                "app_version": row["app_version"], "install_id": row["install_id"], "email_pending": bool(row["email_pending"]),
                 "signature": row["signature"] or signature_of(row["body"]),
                 "has_diagnostics": bool(row["diagnostics"]), "messages": self._messages(row["ticket_id"], full=full),
                 "verdict": row["verdict"], "verdict_reason": row["verdict_reason"], "held": bool(row["held"])}
@@ -429,7 +431,7 @@ def install(app, tickets, address, staff_key="", judge=None):
         if request.state.body_size > MAX_FOLLOW_UP and not (isinstance(data, dict) and "diagnostics" in data):
             return refuse("too_large", 413)          # only the diagnostics may make a request this big
         try:
-            message, email, install_id, version = parse_ticket(data)
+            message, email, install_id, version, app_version = parse_ticket(data)
             diagnostics = parse_diagnostics(data)
         except Invalid as bad:
             return refuse("invalid", 422, field=bad.field)
@@ -437,7 +439,7 @@ def install(app, tickets, address, staff_key="", judge=None):
             return JSONResponse({"error": "rate_limited"}, status_code=429, headers={"Retry-After": "86400"})
         verdict, reason = await run_in_threadpool(judge, message)
         ticket_id, secret = tickets.create(message, email, install_id, version, diagnostics,
-                                           verdict if verdict in VERDICTS else "unchecked", reason)
+                                           verdict if verdict in VERDICTS else "unchecked", reason, app_version)
         return no_store({"ticket_id": ticket_id, "secret": secret, "status": "open"}, 201)
 
     @app.get("/v1/support/{ticket_id}")

@@ -11,6 +11,7 @@
     "dialog:allow-ask",
     "dialog:allow-message",
     "dialog:allow-confirm",
+    "allow-app-log",
     "allow-bridge"
   ],
   "local": false

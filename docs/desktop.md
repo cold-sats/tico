@@ -35,7 +35,12 @@ The app checks for signed updates automatically, installs them and relaunches. G
 use the public GitHub release manifest; your server's web interface updates with the server.
 It checks hourly and from **Tico > Check for Updates…**. When your server offers a newer app than the
 one running, a bar at the top says so with an **Update** button; if the install fails, the bar shows
-the reason and a download link. Settings shows the server version and the app version.
+the reason and a download link. Settings and the foot of Help show the server version and the app version.
+
+The app keeps a log file, `tico.log`, in its log folder (`~/Library/Logs/<bundle ID>/` on macOS), at info level: each
+start, each update check and how it went, and any warning. At 1 MB it moves to `tico.log.1`, so two files at most are
+kept. **Show the app's log** at the foot of Help opens it in Finder; a Support request sent from the app attaches its
+last 200 lines with @diagnostics, redacted like the rest of the bundle.
 Your team may also offer its own app.
 
 ## Optional per-environment builds

@@ -15,8 +15,16 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
 (async () => {
   const browser = await chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
   try {
-    const visit = async ({enabled = true, seed = []} = {}) => {
+    const visit = async ({enabled = true, seed = [], native = false} = {}) => {
       const ctx = await browser.newContext({viewport: {width: 1440, height: 900}, serviceWorkers: 'block'});
+      // The desktop app's bridge (app/src/main.rs BRIDGE_SCRIPT), recording what the page posts to it.
+      if (native) await ctx.addInitScript(() => {
+        window.__posted = [];
+        window.ticoNative = name => ({postMessage: body => window.__posted.push(name)});
+        window.ticoNativeFeatures = ['openWindow', 'checkForUpdates', 'showLog', 'appLog'];
+        window.ticoNativeVersion = '0.3.48';
+        window.ticoNativeLog = async () => ({version: '0.3.48', lines: ['2026-10-16T06:47:31Z WARN tico_app: update check failed: 401']});
+      });
       const page = await ctx.newPage();
       const errors = [], calls = [];
       const hq = {tickets: seed, reply: false, read: false, fail: false, confirm: true, asked: []};
@@ -39,6 +47,7 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
           const rest = p.slice('/api/v2/support/'.length), body = req.postData() ? JSON.parse(req.postData()) : null;
           calls.push(req.method() + ' ' + rest + (body ? ' ' + JSON.stringify(body) : ''));
           if (rest === 'compose') return json({enabled: true, email: 'ana@acme.example', version: '0.2.17', install_id: INSTALL, to: 'updates.tico.team', max: 4000});
+          if (rest === 'diagnostics/capture') return json({id: 'c'.repeat(64), bytes: 2048, text: DIAGNOSTICS_TEXT});
           if (rest === 'diagnostics') return json({id: (req.method() === 'POST' ? 'e' : 'd').repeat(64), bytes: 2048, text: body?.text || DIAGNOSTICS_TEXT});
           if (rest === 'tickets' && req.method() === 'GET') return json(view());
           if (rest === 'tickets/refresh') {
@@ -214,6 +223,25 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
     await v.page.getByRole('button', {name: 'Delete request'}).click();
     await v.page.locator('.support-empty').waitFor();
     assert.equal(await pill.isVisible(), false, 'no stale pill after the conversation changes');
+    assert.deepEqual(v.errors, []);
+    await v.ctx.close();
+
+    // Inside the desktop app: Help shows both versions and opens the app's log; a request carries the app's version
+    // labelled apart from the server's, and diagnostics carry the end of the app's log.
+    v = await visit({native: true});
+    await v.page.locator('#support-rail').waitFor();
+    assert.equal(await v.page.locator('.help-foot').innerText(), "Version v0.2.17 · App v0.3.48 · Show the app's log");
+    await v.page.locator('#help-app-log').click();
+    assert.deepEqual(await v.page.evaluate(() => window.__posted), ['showLog']);
+    assert.match(await v.page.locator('[data-sent]').innerText(), /version 0\.2\.17, app version 0\.3\.48, install ID/);
+    await v.page.locator('[data-compose] [name=message]').fill('The app did not update.');
+    await v.page.locator('[data-compose] [name=message]').press('Enter');
+    await v.page.locator('.support-msg.you').waitFor();
+    const captured = JSON.parse(v.calls.find(c => c.startsWith('POST diagnostics/capture {')).slice('POST diagnostics/capture '.length));
+    assert.deepEqual(captured.app, {version: '0.3.48', lines: ['2026-10-16T06:47:31Z WARN tico_app: update check failed: 401']});
+    const filed = JSON.parse(v.calls.find(c => c.startsWith('POST tickets {')).slice('POST tickets '.length));
+    assert.equal(filed.app_version, '0.3.48');
+    assert.equal(filed.diagnostics, 'c'.repeat(64));
     assert.deepEqual(v.errors, []);
     await v.ctx.close();
 

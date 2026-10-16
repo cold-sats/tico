@@ -93,6 +93,14 @@ const HELP_PLATFORMS = [
   ['OpenClaw', 'Pair an OpenClaw profile with a code; it checks in on its own schedule.'],
 ];
 
+// The server's version, and inside the desktop app its own version (app/src/main.rs bridge_script) and a way to its
+// log file (app/src/applog.rs), which a shell that keeps one says in ticoNativeFeatures.
+function helpVersionHTML() {
+  const parts = [S.config.version && `<span id="help-version">Version ${esc(nvVersion(S.config.version))}</span>`,
+    window.ticoNativeVersion && `<span id="help-app-version">App ${esc(nvVersion(window.ticoNativeVersion))}</span>`,
+    (window.ticoNativeFeatures || []).includes('showLog') && '<button class="help-log" type="button" id="help-app-log">Show the app\'s log</button>'];
+  return parts.filter(Boolean).join(' · ');
+}
 function pageHelp() {
   $('#main').innerHTML = `<article class="help-page" id="help-page">
     <header class="help-hero">
@@ -120,8 +128,9 @@ function pageHelp() {
       <dl>${HELP_GLOSSARY.map(([term, meaning]) => `<dt>${esc(term)}</dt><dd>${esc(meaning)}</dd>`).join('')}</dl>
       <p><a href="${GH}/blob/main/docs/glossary.md" target="_blank" rel="noopener noreferrer">Full glossary</a> · <a href="${GH}/blob/main/docs/README.md" target="_blank" rel="noopener noreferrer">MCP and CLI reference</a></p>
     </details>
-    <p class="help-foot">${S.config.version ? `<span id="help-version">Version ${esc(nvVersion(S.config.version))}</span>` : ''}</p>
+    <p class="help-foot">${helpVersionHTML()}</p>
   </article>`;
+  $('#help-app-log')?.addEventListener('click', () => nativeHandler('showLog')?.postMessage(null));
   $('.help-support-link').onclick = e => { e.preventDefault(); $('#support-rail')?.scrollIntoView({block: 'start'}); $('#support-rail textarea[name=message]')?.focus(); };
   window.supportHelp?.($('#help-page'));    // Contact support and Your requests (ui/support.js)
 }

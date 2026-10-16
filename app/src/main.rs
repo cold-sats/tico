@@ -5,6 +5,7 @@
 // URL come in at build time (scripts/app.sh).
 #![cfg_attr(all(not(debug_assertions), target_os = "windows"), windows_subsystem = "windows")]
 
+mod applog;
 mod config;
 mod hub;
 
@@ -24,6 +25,8 @@ use hub::{Client, HubStatus};
 const USER_AGENT: &str = "TicoHub/2.0 Tauri";
 const MIN_WIDTH: u32 = 360;
 const MIN_HEIGHT: u32 = 400;
+// Lines of the shell's log a Support diagnostics bundle carries.
+const LOG_LINES: usize = 200;
 
 /// The main window's last outer frame (x, y, width, height) in `frame` units: points on macOS,
 /// where one point space spans every display whatever its scale, and physical pixels elsewhere,
@@ -69,7 +72,6 @@ struct AppState {
 type App = AppHandle<tauri::Wry>;
 
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let state = AppState {
         connection: Mutex::new(None),
         status: Mutex::new(HubStatus::default()),
@@ -87,8 +89,12 @@ fn main() {
             show_window(app);
         }))
         .manage(state)
-        .invoke_handler(tauri::generate_handler![bridge, connect_server, server_address])
+        .invoke_handler(tauri::generate_handler![app_log, bridge, connect_server, server_address])
         .setup(move |app| {
+            match applog::init(log_dir(app.handle()).as_deref()) {
+                Some(path) => log::info!("{} {} starting; this log is {}", config::app_name(), app.package_info().version, applog::shown(&path)),
+                None => log::warn!("{} {} starting; no log file, so this log goes to stderr only", config::app_name(), app.package_info().version),
+            }
             let path = server_path(app.handle())?;
             let config = Config::load(&path).map_err(std::io::Error::other)?;
             if let Some(config) = &config {
@@ -154,6 +160,10 @@ fn main() {
 
 fn connection(app: &App) -> Option<Config> {
     app.state::<AppState>().connection.lock().unwrap().clone()
+}
+
+fn log_dir(app: &App) -> Option<std::path::PathBuf> {
+    app.path().app_log_dir().ok()
 }
 
 fn server_path(app: &App) -> tauri::Result<std::path::PathBuf> {
@@ -318,7 +328,9 @@ const BRIDGE_SCRIPT: &str = r#"
   window.ticoNative = name => ({postMessage: body => invoke('bridge', {name, body: body === undefined ? null : body})});
   // What this build's bridge answers beyond the first three, so a page never posts into a
   // shell too old to hear it.
-  window.ticoNativeFeatures = ['openWindow', 'checkForUpdates'];
+  window.ticoNativeFeatures = ['openWindow', 'checkForUpdates', 'showLog', 'appLog'];
+  // The shell's version and the end of its log ({version, lines}), for Support diagnostics.
+  window.ticoNativeLog = () => invoke('app_log');
 })();
 "#;
 
@@ -522,13 +534,17 @@ fn reload(app: &App) {
 }
 
 // ----------------------------------------------------------------------------- bridge
+/// Generic builds accept any server; only the selected origin's page in the main window may call the shell.
+fn from_server(app: &App, window: &WebviewWindow) -> bool {
+    let Some(config) = connection(app) else { return false };
+    window.label() == "main" && window.url().map(|u| u.origin() == config.hub.origin()).unwrap_or(false)
+}
+
 /// What the page posts: `openWindow` ({meeting: id}). Older pages also post `windowMode`, which is
 /// ignored now that the window has one mode.
 #[tauri::command]
 fn bridge(app: App, window: WebviewWindow, name: String, body: Option<Value>) {
-    // Generic builds accept any server; only the selected origin may call the native bridge.
-    let Some(config) = connection(&app) else { return };
-    if window.label() != "main" || window.url().map(|u| u.origin() != config.hub.origin()).unwrap_or(true) { return; }
+    if !from_server(&app, &window) { return; }
     match name.as_str() {
         "openWindow" => {
             // `recording` is what an older page called it.
@@ -539,8 +555,25 @@ fn bridge(app: App, window: WebviewWindow, name: String, body: Option<Value>) {
         }
         // The page's "App update" bar: check the feed now instead of at the next six-hourly check.
         "checkForUpdates" => update_now(&app),
+        // Help's "Show the app's log": the log file, selected in Finder (or the platform's file manager).
+        "showLog" => show_log(&app),
         _ => {}
     }
+}
+
+fn show_log(app: &App) {
+    let Some(dir) = log_dir(app) else { return };
+    let file = dir.join(applog::FILE_NAME);
+    let shown = if file.exists() { app.opener().reveal_item_in_dir(&file) } else { app.opener().open_path(dir.to_string_lossy(), None::<&str>) };
+    if let Err(e) = shown { log::warn!("could not show the log: {e}"); }
+}
+
+/// This shell's version and the end of its log, which the page adds to a Support diagnostics bundle.
+#[tauri::command]
+fn app_log(app: App, window: WebviewWindow) -> Result<Value, String> {
+    if !from_server(&app, &window) { return Err("Only the selected server's page may read the app's log.".into()); }
+    let lines = log_dir(&app).map(|dir| applog::tail(&dir.join(applog::FILE_NAME), LOG_LINES)).unwrap_or_default();
+    Ok(serde_json::json!({"version": app.package_info().version.to_string(), "lines": lines}))
 }
 
 // ----------------------------------------------------------------------------- deep links
@@ -665,7 +698,11 @@ async fn check_for_update(app: &App) {
 /// Tells the page how a check went (`window.ticoAppUpdate` in ui/app/notices.js), so a failed update is
 /// shown with its reason instead of only reaching the log.
 fn report_update(app: &App, state: &str, detail: &str) {
-    if state == "failed" { log::warn!("update: {detail}"); }
+    match state {
+        "failed" => log::warn!("update check failed: {detail}"),
+        "current" => log::info!("update check: {} is current", app.package_info().version),
+        _ => log::info!("update check: {state} {detail} (from {})", app.package_info().version),
+    }
     let body = serde_json::json!({"state": state, "detail": detail});
     eval(app, &format!("window.ticoAppUpdate && window.ticoAppUpdate({body})"));
 }
@@ -706,6 +743,7 @@ async fn check_for_update_once(app: &App) {
         Ok(updater) => updater,
         Err(e) => { report_update(app, "failed", &format!("updater unavailable: {e}")); return; }
     };
+    log::info!("update check: reading the {} feed", if company_policy.is_some() { "company" } else { "release" });
     let update = match updater.check().await {
         Ok(Some(update)) => update,
         Ok(None) => { report_update(app, "current", ""); return; }
@@ -717,7 +755,6 @@ async fn check_for_update_once(app: &App) {
             return;
         }
     }
-    log::info!("update {} available; installing", update.version);
     report_update(app, "installing", &update.version);
     if let Err(e) = update.download_and_install(|_, _| {}, || {}).await {
         report_update(app, "failed", &format!("install failed: {e}"));

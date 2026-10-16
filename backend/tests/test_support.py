@@ -16,6 +16,7 @@ class FakeHQ:
 
     def __init__(self):
         self.tickets, self.seen, self.down, self.status_override = {}, [], False, None
+        self.fields = None           # an older HQ: refuses a ticket carrying a field beyond these
 
     def __call__(self, request):
         self.seen.append(request)
@@ -26,6 +27,8 @@ class FakeHQ:
             if self.status_override:
                 return httpx.Response(self.status_override, json={"error": "x"})
             body = json.loads(request.content)
+            if self.fields is not None and set(body) - self.fields:
+                return httpx.Response(422, json={"error": "invalid", "field": "fields"})
             tid = "TK-%08d" % (len(self.tickets) + 1)
             self.tickets[tid] = {"secret": "s" * 20 + str(len(self.tickets)), "status": "open", "input": body, "messages": []}
             return httpx.Response(201, json={"ticket_id": tid, "secret": self.tickets[tid]["secret"], "status": "open"})
@@ -84,9 +87,24 @@ def test_submit_forwards_exactly_what_the_form_showed_and_keeps_the_secret_on_th
                                            "version": "0.2.17", "install_id": form["install_id"]}
 
     # Without the checkbox: only the message (and the email if one is given).
-    file(api, include_ids=False)
+    file(api, include_ids=False, app_version="0.3.47")
     assert json.loads(hq.seen[-1].content) == {"message": "The board will not load"}
     assert file(api, include_ids=False).json()["sent"] == {}
+
+
+def test_the_desktop_apps_version_goes_labelled_apart_and_an_older_hq_still_gets_the_ticket(environment, hq):
+    api = environment()
+    assert file(api, app_version="0.3.47").json()["sent"]["app_version"] == "0.3.47"
+    sent = json.loads(hq.seen[-1].content)
+    assert sent["version"] == "0.2.17" and sent["app_version"] == "0.3.47"
+    assert "app_version" not in file(api, app_version="0.3.47; rm -rf").json()["sent"]
+    assert "app_version" not in json.loads(hq.seen[-1].content)
+
+    hq.fields = {"message", "email", "install_id", "version"}
+    r = file(api, app_version="0.3.47")
+    assert r.status_code == 200 and "app_version" not in r.json()["sent"]
+    assert [json.loads(x.content).get("app_version") for x in hq.seen[-2:]] == ["0.3.47", None]
+    assert len(hq.tickets) == 3
 
 
 @pytest.mark.parametrize("bad", [{"message": "x" * 4001}])

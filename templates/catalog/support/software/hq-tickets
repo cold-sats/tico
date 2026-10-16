@@ -116,6 +116,7 @@ def facts(ticket):
     email = ticket.get("email")
     return (f"HQ support ticket {ticket['ticket_id']}, opened {ticket['created']}"
             + (f", Tico {ticket['version']}" if ticket.get("version") else "")
+            + (f", desktop app {ticket['app_version']}" if ticket.get("app_version") else "")
             + (f", install {ticket['install_id']}" if ticket.get("install_id") else "")
             + (", diagnostics attached (read them first: software/hq-tickets show)" if ticket.get("has_diagnostics") or ticket.get("diagnostics") else "")
             + ".\n"
@@ -224,7 +225,8 @@ def _summary(bundle):
     if not isinstance(bundle, dict):
         return []
     versions, system = bundle.get("versions") or {}, bundle.get("system") or {}
-    lines = [f"Tico {versions.get('tico') or '?'}, updater {versions.get('updater') or '?'}, runners "
+    lines = [f"Tico {versions.get('tico') or '?'}, " + (f"desktop app {versions['app']}, " if versions.get("app") else "")
+             + f"updater {versions.get('updater') or '?'}, runners "
              f"{', '.join(versions.get('runners') or []) or '?'}; {system.get('os') or '?'} {system.get('arch') or ''}, "
              f"docker {system.get('docker') or '?'}, compose {system.get('compose') or '?'}; migration "
              f"{(bundle.get('database') or {}).get('migration')}, counts {json.dumps(bundle.get('counts') or {}, sort_keys=True)}"]

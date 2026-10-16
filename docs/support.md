@@ -28,7 +28,7 @@ link jumps there.
 | Field | |
 |---|---|
 | Message | Required, up to 4000 characters. Plain text. |
-| Reply email and install details | Expand to change the optional reply email and inclusion of version/install ID. |
+| Reply email and install details | Expand to change the optional reply email and inclusion of version/install ID. From the desktop app, the app's own version goes with them, labelled apart from the server's. |
 | @diagnostics | On by default for a new request. Uncheck to send none. Follow-up replies start with it off. |
 | Computer performance | How much of each computer's performance history goes with @diagnostics: None, 1 day (the default), 7 days or 14 days. Computers and bots are relabelled as everywhere else in the bundle. |
 | Review and edit | Inspect the exact JSON, remove sections, or edit fields. **Check edits** validates and redacts again; **Use diagnostics** attaches the reviewed result. |
@@ -39,7 +39,8 @@ If HQ refuses an attachment, remove it yourself to send just the message; it is 
 its own fresh, edited diagnostics without replacing the first report.
 
 Diagnostics contain redacted versions, health, computer readiness and last heartbeat, capped server/runner/updater failures,
-and capture coverage. The server groups adjacent repeated failures; failed HTTP requests record only their registered route
+and capture coverage. From the desktop app they also carry the app's version (`versions.app`) and the last 200 lines of its log
+file (`logs.app`, [Desktop app](desktop.md)). The server groups adjacent repeated failures; failed HTTP requests record only their registered route
 pattern and status in the bounded diagnostics buffer. Unexpected exceptions include their type and up to three application
 module/line locations, never values, locals or a raw traceback. Browser errors contribute up to 20 groups containing only
 kind, time, known script filename, line/column and count. No console text, request bodies, prompts or model output is captured.
@@ -85,8 +86,8 @@ No email and no diagnostics bundle go this way: diagnostics need a person to pre
 
 ## What is sent and kept
 
-The request is `POST <TICO_HQ_URL>/v1/support` with `message`, and, only if present, `email`, `version`, `install_id` and
-`diagnostics` (up to 256 KB). The answer is a ticket ID and a **secret for that ticket alone**. Your Tico keeps the ticket, the ID and the secret; the secret
+The request is `POST <TICO_HQ_URL>/v1/support` with `message`, and, only if present, `email`, `version`, `install_id`, `app_version` (the
+desktop app's, when sent from it) and `diagnostics` (up to 256 KB). The answer is a ticket ID and a **secret for that ticket alone**. Your Tico keeps the ticket, the ID and the secret; the secret
 never reaches a browser. HQ keeps the message, the email, the version and install ID and diagnostics if sent, a hash of the secret, the status,
 the times, and the thread. It keeps no IP address and no log of a request. Tickets are **kept until someone deletes them**: you,
 with **Delete**, or the team when you ask (put "delete this request" in the ticket, or open an issue). The 13 month rule is for
@@ -162,6 +163,7 @@ spam check held, `POST /v1/staff/tickets/{id}/verdict` to correct it.
 
 ## Compatibility
 
-Deploy the HQ update before the client update to enable follow-up attachments. Older HQs reject that optional field; the app
+An HQ from before `app_version` refuses it as an unknown field; the server then sends the ticket again without it, so a
+request from the app never fails for it. Deploy the HQ update before the client update to enable follow-up attachments. Older HQs reject that optional field; the app
 shows the failure and keeps the draft, allowing an explicit message-only retry. The attachment limit remains 256 KiB. There is
 no new continuous export, persistent log journal, or verbose logging mode.

@@ -20,10 +20,23 @@
   }
   window.addEventListener('error', e => browserFailure('error', e));
   window.addEventListener('unhandledrejection', () => browserFailure('unhandledrejection'));
+  // Inside the desktop app: its own version, apart from the server's (app/src/main.rs bridge_script).
+  const appVersion = () => typeof window.ticoNativeVersion === 'string' ? window.ticoNativeVersion : '';
+  // The app's version and the end of its log file, from a shell that keeps one; anything else leaves it out.
+  async function appShell() {
+    if (!(window.ticoNativeFeatures || []).includes('appLog') || typeof window.ticoNativeLog !== 'function') return null;
+    try {
+      const got = await window.ticoNativeLog();
+      return {version: String(got?.version || '').slice(0, 40), lines: (Array.isArray(got?.lines) ? got.lines : []).slice(-200).map(x => String(x).slice(0, 2000))};
+    } catch (_) { return null; }
+  }
   // `hours` of each computer's performance history go with the attachment (0: none).
-  const capture = hours => browserFailures.length
-    ? call('POST', '/support/diagnostics/capture', {browser: browserFailures, performance_hours: hours})
-    : call('GET', '/support/diagnostics?performance_hours=' + hours);
+  async function capture(hours) {
+    const app = await appShell();
+    return browserFailures.length || app
+      ? call('POST', '/support/diagnostics/capture', {browser: browserFailures, performance_hours: hours, ...(app ? {app} : {})})
+      : call('GET', '/support/diagnostics?performance_hours=' + hours);
+  }
   const PERF_WINDOWS = [[0, 'None'], [24, '1 day'], [168, '7 days'], [336, '14 days']];
   const statuses = {open: 'Open', answered: 'Answered', closed: 'Closed', gone: 'Removed'};
   const ICON = {
@@ -158,7 +171,7 @@
       <p class="err support-error" data-error role="alert" hidden></p>
       <small class="sr-only" id="support-keys">Enter sends. Shift+Enter adds a new line.</small>
       <div class="support-diag"><label><input name="diag" type="checkbox" ${d.diag ? 'checked' : ''}> @diagnostics</label><label>Computer performance <select name="perf">${PERF_WINDOWS.map(([h, label]) => `<option value="${h}"${h === d.perf ? ' selected' : ''}>${label}</option>`).join('')}</select></label><button class="ghost" type="button" data-preview>Review and edit</button></div>
-      ${!selected ? `<details class="support-options"><summary>Reply email and install details</summary><label>Email for a reply<input name="email" type="email" value="${escape(d.email)}" autocomplete="email"></label><label class="support-check"><input name="ids" type="checkbox" ${d.ids ? 'checked' : ''}> Include version and install ID</label></details>` : ''}
+      ${!selected ? `<details class="support-options"><summary>Reply email and install details</summary><label>Email for a reply<input name="email" type="email" value="${escape(d.email)}" autocomplete="email"></label><label class="support-check"><input name="ids" type="checkbox" ${d.ids ? 'checked' : ''}> Include ${appVersion() ? 'versions' : 'version'} and install ID</label></details>` : ''}
       <p class="support-sent" data-sent></p>`;
     form.oninput = () => {
       d.message = form.elements.message.value;
@@ -186,7 +199,7 @@
       try {
         if (d.diag && !d.bundle) { d.bundle = await capture(d.perf); updateSent(); }
         const body = {message: d.message, diagnostics: d.diag ? d.bundle.id : ''};
-        if (!thread) Object.assign(body, {email: d.email.trim(), include_ids: d.ids});
+        if (!thread) Object.assign(body, {email: d.email.trim(), include_ids: d.ids}, d.ids && appVersion() ? {app_version: appVersion()} : {});
         const next = await call('POST', thread ? `/support/tickets/${encodeURIComponent(thread)}/messages` : '/support/tickets', body, d.key);
         state.tickets = [next, ...state.tickets.filter(t => t.id !== next.id)];
         drafts.delete(thread); selected = next.id; viewing = true;
@@ -207,7 +220,7 @@
     if (!rail?.isConnected) return;
     const d = draft(), parts = ['message'];
     if (!selected && d.email.trim()) parts.push('email ' + d.email.trim());
-    if (!selected && d.ids) parts.push('version ' + (compose?.version || 'unknown'), 'install ID ' + compose?.install_id);
+    if (!selected && d.ids) parts.push('version ' + (compose?.version || 'unknown'), ...(appVersion() ? ['app version ' + appVersion()] : []), 'install ID ' + compose?.install_id);
     if (d.diag) parts.push('redacted diagnostics' + (d.bundle ? ' (' + Math.max(1, Math.ceil(d.bundle.bytes / 1024)) + ' KB)' : ''));
     rail.querySelector('[data-sent]').textContent = 'Sends to ' + compose?.to + ': ' + parts.join(', ') + '.';
   }
