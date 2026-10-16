@@ -16,9 +16,9 @@ All notable changes to Tico are recorded here. The format follows
   account's percentages.
 
 ### Changed
-- Connect Google's client secret stays on the server: the server exchanges the sign-in code and refreshes each grant
-  for the computer that holds it, returns only an hour-long, read-only access token for one service, and stores and
-  logs no token. The grant on the computer keeps no secret.
+- Connect Google: the app's client secret stays on the server. The server exchanges the sign-in code and refreshes
+  each grant for the computer that holds it, returns only an hour-long, read-only access token for one service, and
+  stores and logs no token. The grant on the computer keeps no secret.
 
 ## [0.3.50] - 2026-10-16
 
