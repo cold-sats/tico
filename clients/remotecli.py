@@ -405,7 +405,7 @@ def run(args, who=None):
             return post(f"tasks/{args.id}/comments/{args.comment_id}/delete", {})
         if sub == "ask-resolve":
             return post(f"tasks/{args.id}/comments/{args.comment_id}/resolve",
-                        {"quote": args.quote} if args.quote else {})
+                        {"quote": args.quote} if args.quote is not None else {})
         if sub == "delete":
             return post(f"tasks/{args.id}/delete", {})
         if sub == "deleted":

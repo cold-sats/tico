@@ -84,6 +84,13 @@ const NEEDS = [{...T.asked, kind: 'question'}, {...T.forAna, kind: 'task'}, {...
     assert.deepEqual((await rail.locator('#t-assigned .trow .ttl').allTextContents()).map(s => s.trim()), ['Run the release check']);
     assert.equal((await rail.locator('#cnt-assigned').innerText()).trim(), '1');
 
+    // A half-typed answer to the question outside any task survives a redraw of the list.
+    const loose = rail.locator('#t-needs details[data-ask="m-loose"]');
+    await loose.locator('summary').click();
+    await loose.locator('textarea').fill('Friday works');
+    await page.evaluate(() => botNeedsChanged('lead'));
+    assert.equal(await rail.locator('#t-needs details[data-ask="m-loose"] textarea').inputValue(), 'Friday works');
+
     // The question answered elsewhere leaves Needs you: the section and the tree's number move together.
     needs = needs.filter(it => it.id !== 't-asked' && it.id !== 'm-loose');
     await page.evaluate(async () => { await v2Refresh(); renderTree(); });

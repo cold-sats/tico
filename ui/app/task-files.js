@@ -547,7 +547,7 @@ function askHTML(ask, answers, target, asker, taskId, files = [], canAnswer = tr
     </div>`).join('');
   const form = mine || ro ? '' : `<div class="ask-form">${other ? '<input class="ask-other" type="text" maxlength="2000" placeholder="Other…" aria-label="Other answer">' : ''}
       <div class="ask-foot">${!instant || other ? '<button type="button" class="primary ask-send" data-ask-send>Send</button>' : ''}<button type="button" class="linkish ask-dismiss" data-ask-dismiss>Dismiss</button><span class="muted ask-status" role="status"></span></div></div>`;
-  const list = answered ? `<ul class="ask-answers">${answers.map(a => `<li>${a.by ? actorFace(a.by, 14) : ''}<b>${esc(a.by ? actorLabel(a.by) : 'Someone')}</b>
+  const list = answered ? `<ul class="ask-answers">${answers.map(a => `<li>${a.by ? actorFace(a.by, 14) : ''}<b>${esc(a.by ? actorLabel(a.by) : 'Someone')}</b>${a.quoted_by ? `<span class="muted">(quoted by ${esc(actorLabel(a.quoted_by))})</span>` : ''}
       <span class="${a.dismiss ? 'muted' : ''}">${esc(askAnswerWords(a, ask))}</span>${a.other ? `<span class="ask-o">${esc(a.other)}</span>` : ''}${a.at ? `<time class="muted tnum" title="${esc(fmt(a.at))}">${esc(ageShort(a.at))}</time>` : ''}</li>`).join('')}</ul>` : '';
   return `<div class="ask${answered ? ' answered' : ''}${mine ? ' mine' : ''}${ro ? ' ro' : ''}" data-ask="${esc(JSON.stringify(target))}" data-task="${esc(taskId)}"${instant ? ' data-instant' : ''}>
     ${body}${list}${!mine && !ro && answered ? '<button type="button" class="linkish ask-again" data-ask-again>Answer</button>' : ''}${form}</div>`;

@@ -3812,16 +3812,18 @@ def task_ask_resolve(conn, actor, task_id, message_id, quote=None):
             found = human(conn, who) if is_human(who) else bot(conn, who) if is_bot(who) else None
             return (found or {}).get("name") or actor_id(who)
         refs = {"depth": asked["refs"].get("depth", 1), "task": task_id, "comment": True, "quiet": True,
-                "quoted": True}
+                "quoted": True, "for": person}
         if asked["refs"].get("questions"):
             # Read as any other structured answer (`task_answers`): the person's words are its free text.
             refs["answer"] = {"target": {"comment": message_id}, "other": quote, "dismiss": False,
                               "answers": {q["id"]: [] for q in asked["refs"]["questions"]},
-                              "by": actor, "at": ts, "quoted": True}
-        # Already delivered and read: the record is the point, not a message to anyone.
-        reply = _write_message(conn, actor, asker, f'{name(person)} answered elsewhere; {name(actor)} quoted it: "{quote}"',
+                              "by": person, "quoted_by": actor, "at": ts, "quoted": True}
+        # The answer is the person's words, recorded by `actor`. A bot that asked hears it on its next turn (its inbox)
+        # when someone else recorded it; an asker recording its own, or the keeper, needs no message.
+        own = actor == asker or not is_bot(asker)
+        reply = _write_message(conn, actor, asker, f'{name(person)} (quoted by {name(actor)}): "{quote}"',
                                conversation(conn, asked["conversation_id"]), "answer", refs, message_id, None,
-                               delivered_at=ts, read_at=ts)
+                               delivered_at=ts if own else None, read_at=ts if own else None)
     _task_event(conn, task_id, actor, "ask", message_id, "answered" if reply else "withdrawn")
     if row["status"] == "waiting" and row.get("waiting_on") == person and not any(
             a["to_actor"] == person for a in open_task_asks(conn, row)):

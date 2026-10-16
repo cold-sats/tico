@@ -139,8 +139,18 @@ function botNeedsPaint(slug) {
   if (!host || BOT?.slug !== slug) return new Set();
   host.hidden = !items.length;
   $('#cnt-needs').textContent = items.length || '';
-  $('#t-needs').innerHTML = items.length ? `<div class="bot-task-list">${items.map(it =>
+  // A question opened here, and an answer half typed into it, survive the redraw.
+  const list = $('#t-needs'), kept = new Map([...list.querySelectorAll('details[data-ask]')].map(d =>
+    [d.dataset.ask, {open: d.open, text: d.querySelector('textarea')?.value || ''}]));
+  list.innerHTML = items.length ? `<div class="bot-task-list">${items.map(it =>
     it.kind === 'ask' ? looseAskRow(it) : v2TaskRow(it, slug)).join('')}</div>` : '';
+  for (const d of list.querySelectorAll('details[data-ask]')) {
+    const was = kept.get(d.dataset.ask);
+    if (!was) continue;
+    d.open = was.open;
+    const box = d.querySelector('textarea');
+    if (box) box.value = was.text;
+  }
   return new Set(items.map(it => String(it.id)));
 }
 // Needs you moved: redraw the rail from the tasks it last read, without reading them again.

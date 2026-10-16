@@ -48,7 +48,7 @@ def test_an_answer_given_elsewhere_is_quoted_by_the_asker_or_owner_bot_and_the_a
         out = H.task_ask_resolve(c, OPS, work["id"], asked["id"], "Use August, it closed yesterday.")
         reply = out["answer"]
         assert reply["kind"] == "answer" and reply["in_reply_to"] == asked["id"] and reply["refs"]["quoted"]
-        assert reply["answer"]["by"] == OPS and reply["answer"]["other"] == "Use August, it closed yesterday."
+        assert reply["answer"]["by"] == ANA and reply["answer"]["quoted_by"] == OPS and reply["answer"]["other"] == "Use August, it closed yesterday."
         assert c.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == jobs         # it wakes nobody
         assert not listed(c, work["id"]) and H.status_counts(c, OPS)[1] == 0
         assert [a["other"] for a in H.message(c, asked["id"])["answers"]] == ["Use August, it closed yesterday."]
@@ -70,5 +70,6 @@ def test_the_resolve_route_refuses_a_person_who_did_not_ask(api):
     path = f"/api/v2/tasks/{task['id']}/comments/{asked['id']}/resolve"
     refused = api.post(path, json={}, headers=headers())
     assert refused.status_code == 403, refused.text
+    assert api.post(path, json={"quote": ""}, headers=headers()).status_code == 422     # never a silent withdraw
     with api.app.state.store.read() as c:
         assert listed(c, task["id"])

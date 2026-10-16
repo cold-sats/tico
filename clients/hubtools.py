@@ -879,7 +879,7 @@ def task_comment_delete(api, args):
        "quote": _s("The person's answer in their own words, as they gave it")},
       required=("id", "comment_id"), writes=True)
 def task_ask_resolve(api, args):
-    body = {"quote": args["quote"]} if args.get("quote") else {}
+    body = {"quote": args["quote"]} if args.get("quote") is not None else {}
     return api.post(f"tasks/{args['id']}/comments/{args['comment_id']}/resolve", body, key=_key(args))
 
 
