@@ -34,8 +34,15 @@ An `out` frame is compared whole, except what the runner chooses afresh each run
     TICO_REPLAY_RECORD=claude/steer-mid-turn,codex/limit-notice cargo test record_replays -- --ignored --nocapture
 
 (`all` records every scenario.) Each scenario in `record::plans()` runs on the installed CLI, signed in as this
-computer's operator in a scratch home, through `replay_proxy.py`. The recorder masks the login's tokens, home and
-scratch paths, and email addresses. Read the files before committing anything else that could be private: a prompt
+computer's operator in a scratch home, through `replay_proxy.py`. The scratch folder and the copy of the login in it
+are readable by the operator only; a recording that is killed rather than failing leaves the folder in the temp
+directory, so delete it. The recorder masks the login's tokens, home and scratch paths, the host name, and email
+addresses. Read the files before committing anything else that could be private: a prompt
 in a recorded session is kept as written.
+
+The recorder copies Claude's login from `~/.claude/.credentials.json` (on a Mac it is in the Keychain, so record on
+Linux) and Codex's API-key login from `~/.codex/auth.json`; a Codex ChatGPT login is not masked or broken by it. There
+is no Codex compaction plan: the host ends a control call's turn from the caller's task, after notifications read in
+the same burst, so its order would not replay.
 
 A capture of a run on a real install (the runner's raw-stream option) goes in the same three files.

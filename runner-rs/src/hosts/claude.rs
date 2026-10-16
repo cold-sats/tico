@@ -759,6 +759,12 @@ impl ClaudeHost {
         }
     }
 
+    /// Whether a replayed message was matched by order rather than by the uuid written (replay tests).
+    #[cfg(test)]
+    pub fn replay_fallback_used(&self) -> bool {
+        self.inner().replay_fallback_logged
+    }
+
     pub fn interrupt(&self, _thread_id: &str, turn_id: &str) {
         let mut inner = self.inner();
         if inner.turn.as_ref().is_none_or(|(_, t)| t != turn_id) {

@@ -361,6 +361,15 @@ pub async fn replay(harness: &str, s: &Scenario) {
     let (got, _) = drive(harness, &host, rx, &settings(&cwd, &path, &home), &s.input, Pace::Replay(&s.output), || text.clone()).await;
     let name = s.dir.display();
     assert_eq!(got, s.output, "{name}: the host's events differ from the recording");
+    if let Under::Claude(h) = &host {
+        // Claude echoes each message it read with the uuid written, so a broken uuid swap shows here; it also echoes
+        // a local command's output (`/compact`) under a uuid of its own, which the host matches by order.
+        let written: Vec<&Value> = s.transcript.iter().filter(|e| e["dir"] == "out").map(|e| &e["frame"]["uuid"]).collect();
+        let own = s.transcript.iter().filter(|e| e["dir"] == "in").map(|e| &e["frame"]).any(|f| {
+            f["type"] == "user" && crate::util::truthy(f.get("isReplay")) && !crate::util::truthy(f.get("parent_tool_use_id")) && !written.contains(&&f["uuid"])
+        });
+        assert_eq!(h.replay_fallback_used(), own, "{name}: the host matched Claude's echoes by order where the recording matched by uuid, or the reverse");
+    }
     let sent: Vec<Value> = std::fs::read_to_string(dir.join("sent"))
         .unwrap_or_default()
         .lines()
@@ -495,14 +504,8 @@ mod record {
                 until: vec![],
                 bad_login: false,
             },
-            Plan {
-                harness: "codex",
-                name: "compaction",
-                about: "a turn, then /compact (thread/compact/start)",
-                turns: vec![("Reply with exactly: first turn", vec![]), ("/compact", vec![])],
-                until: vec!["thread/compacted"],
-                bad_login: false,
-            },
+            // No Codex compaction plan: the host emits a control call's turn_completed from the caller's task, after
+            // notifications read in the same burst, so a replay of it would not keep one order.
             Plan { harness: "codex", name: "auth-rejected", about: "an API key the provider rejects", turns: vec![("Reply with exactly: hello", vec![])], until: vec![], bad_login: true },
         ]
     }
@@ -514,6 +517,14 @@ mod record {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    /// A copy of the login is readable by its owner only, also when a killed recording leaves it behind.
+    fn write_private(path: &Path, text: &str) {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path).unwrap();
+        f.write_all(text.as_bytes()).unwrap();
     }
 
     fn which(name: &str) -> String {
@@ -536,7 +547,7 @@ mod record {
                     copy["claudeAiOauth"]["refreshToken"] = json!(format!("sk-ant-ort01-revoked{}", "x".repeat(60)));
                     copy["claudeAiOauth"]["expiresAt"] = json!(1_700_000_000_000_i64);
                 }
-                std::fs::write(home.join(".claude/.credentials.json"), copy.to_string()).unwrap();
+                write_private(&home.join(".claude/.credentials.json"), &copy.to_string());
                 secrets
             }
             _ => {
@@ -547,7 +558,7 @@ mod record {
                 if bad {
                     copy["OPENAI_API_KEY"] = json!(format!("sk-proj-revoked{}", "x".repeat(40)));
                 }
-                std::fs::write(home.join(".codex/auth.json"), copy.to_string()).unwrap();
+                write_private(&home.join(".codex/auth.json"), &copy.to_string());
                 vec![key].into_iter().filter(|k| !k.is_empty()).collect()
             }
         }
@@ -579,6 +590,10 @@ mod record {
             let real_cli = which(plan.harness);
             let version = String::from_utf8_lossy(&std::process::Command::new(&real_cli).arg("--version").output().unwrap().stdout).trim().to_string();
             let dir = std::env::temp_dir().join(format!("record-{}-{}", plan.harness, uuid::Uuid::new_v4().simple()));
+            {
+                use std::os::unix::fs::DirBuilderExt;
+                std::fs::DirBuilder::new().mode(0o700).create(&dir).unwrap();
+            }
             let _gone = Gone(dir.clone());
             let (home, cwd, bin, log) = (dir.join("home"), dir.join("work"), dir.join("bin"), dir.join("log.ndjson"));
             std::fs::create_dir_all(&cwd).unwrap();
@@ -612,7 +627,11 @@ mod record {
             let limited = output["turns"].as_array().unwrap().iter().flat_map(|t| t.as_array().unwrap()).any(|e| e["limit"] == true);
             assert!(!limited || plan.bad_login || plan.name == "limit-notice", "{}/{}: the login is out of quota; record it on one that is not", plan.harness, plan.name);
             let redactor = crate::redact::Redactor::new(&secrets);
-            let paths = vec![(dir.display().to_string(), "/tmp/replay"), (std::env::var("HOME").unwrap(), "/home/user")];
+            let host_name = std::fs::read_to_string("/etc/hostname").map(|h| h.trim().to_string()).unwrap_or_default();
+            let mut paths = vec![(dir.display().to_string(), "/tmp/replay"), (std::env::var("HOME").unwrap(), "/home/user")];
+            if host_name.len() >= 4 {
+                paths.push((host_name, "replay-host"));
+            }
             let transcript: Vec<Value> = std::fs::read_to_string(&log).unwrap().lines().map(|l| scrub(&serde_json::from_str(l).unwrap(), &redactor, &paths)).collect();
             let output = scrub(&output, &redactor, &paths);
             let out_dir = super::super::fixtures::dir(plan.harness).join("replay").join(plan.name);
