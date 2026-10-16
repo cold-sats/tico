@@ -88,15 +88,18 @@ def _volume(sample):
 
 
 def ingest(c, runner_id, samples, now=None):
-    """Store a batch of samples; returns the number kept. A sample from more than a day away is dropped."""
+    """Store a batch of samples; returns the number kept. A sample from more than a day away is dropped, and one
+    ahead of the server's clock counts as now, so a computer's fast clock cannot hold back the minutes after it."""
     now = int(now or time.time())
-    kept = 0
+    kept, minutes = 0, []
     for s in sorted(samples, key=lambda s: s.at):
-        at = int(s.at)
-        if abs(at - now) > 86400:
+        at = min(int(s.at), now)
+        if now - at > 86400:
             continue
         kept += 1
         ts = at // MINUTE * MINUTE
+        if not minutes or minutes[-1] != ts:
+            minutes.append(ts)
         free, total = _volume(s)
         used = s.mem_used if s.mem_total else None
         load1 = s.load[0] if s.load else None
@@ -118,8 +121,8 @@ def ingest(c, runner_id, samples, now=None):
                        s.swap_used if s.swap_total else None, s.swap_total or None, free, total, s.active))
         for p in s.procs:
             _add_usage(c, runner_id, MINUTE, ts, "proc", p.name, "", "", 1, p.cpu, p.cpu, p.mem, p.mem)
-    if kept:
-        detect(c, runner_id)
+    for ts in sorted(set(minutes)):    # each minute in turn: a backlog's calm minute ends an overload
+        detect(c, runner_id, ts)
     return kept
 
 
@@ -160,16 +163,19 @@ def _pct(used, total):
     return 100.0 * used / total if used is not None and total else None
 
 
-def detect(c, runner_id):
-    """Open an overload after SUSTAINED loaded minutes in a row; extend it while they last; end it on the first
-    minute that is not. The newest minute may still be filling, so it is judged as it stands."""
-    points = c.execute("SELECT * FROM perf_points WHERE runner_id=? AND span=? ORDER BY ts DESC LIMIT ?",
-                       (runner_id, MINUTE, SUSTAINED)).fetchall()
+def detect(c, runner_id, upto):
+    """Judge the minute at `upto`: open an overload after SUSTAINED loaded minutes in a row; extend it while they
+    last; end it on the first minute that is not. The newest minute may still be filling, so it is judged as it stands."""
+    points = c.execute("SELECT * FROM perf_points WHERE runner_id=? AND span=? AND ts<=? ORDER BY ts DESC LIMIT ?",
+                       (runner_id, MINUTE, upto, SUSTAINED)).fetchall()
     if not points:
         return
     latest = points[0]
-    open_ = c.execute("SELECT * FROM perf_overloads WHERE runner_id=? AND ended IS NULL ORDER BY id DESC LIMIT 1",
-                      (runner_id,)).fetchone()
+    newest = c.execute("SELECT * FROM perf_overloads WHERE runner_id=? ORDER BY id DESC LIMIT 1", (runner_id,)).fetchone()
+    # A late minute from before what the newest overload already covers changes nothing.
+    if newest and latest["ts"] < (newest["last"] if newest["ended"] is None else newest["ended"]):
+        return
+    open_ = newest if newest and newest["ended"] is None else None
     loaded = reasons(latest)
     if open_:
         if loaded:
@@ -317,8 +323,22 @@ def _window(c, runner_id, since, span):
 COLUMNS = ["ts", "cpu", "cpu_max", "mem", "mem_max", "load1", "swap", "disk_free", "active"]
 
 
-def view(c, runner_id, hours, now=None, label=lambda b: b):
-    """What the Performance page and a support attachment show for the last `hours`."""
+def _shown(bots, access):
+    """`bots` with those the reader may not see folded into one unnamed row ("another bot")."""
+    if access is None:
+        return bots
+    out, hidden = [], 0
+    for b in bots:
+        if (access.get(b["bot"]) or {}).get("see"):
+            out.append(b)
+        else:
+            hidden += b.get("runs", 1)
+    return out + ([{"bot": "", "model": "", "runs": hidden}] if hidden else [])
+
+
+def view(c, runner_id, hours, now=None, label=lambda b: b, access=None):
+    """What the Performance page and a support attachment show for the last `hours`. With `access` (the reader's
+    bot_accesses), a bot the reader may not see is unnamed, and a turn's id shows only to a reader of its bot."""
     now = int(now or time.time())
     hours = max(1, min(int(hours), MAX_HOURS))
     since = now - hours * 3600
@@ -334,11 +354,16 @@ def view(c, runner_id, hours, now=None, label=lambda b: b):
                        p["disk_free"], p["active"]])
     latest = c.execute("SELECT mem_total,swap_total,disk_total,scope FROM perf_points WHERE runner_id=? ORDER BY ts DESC "
                        "LIMIT 1", (runner_id,)).fetchone()
-    runs = [{"attempt": r["id"], "bot": label(r["bot"].removeprefix("bot:")), "model": r["model"] or "",
-             "started": r["started"], "finished": r["finished"], "state": r["state"]}
-            for r in _runs(c, runner_id, since, now + 1)]
-    bots = ran(c, runner_id, since, now + 1)
-    bots = [b | {"bot": label(b["bot"])} for b in bots[:20]]
+    seen = lambda slug, right="see": access is None or bool((access.get(slug) or {}).get(right))
+    runs = []
+    for r in _runs(c, runner_id, since, now + 1):
+        slug = r["bot"].removeprefix("bot:")
+        shown = seen(slug)
+        runs.append({"attempt": r["id"] if seen(slug, "read") else None, "bot": label(slug) if shown else "",
+                     "model": (r["model"] or "") if shown else "", "started": r["started"], "finished": r["finished"],
+                     "state": r["state"]})
+    name = lambda b: label(b) if b else ""
+    bots = [b | {"bot": name(b["bot"])} for b in _shown(ran(c, runner_id, since, now + 1), access)[:20]]
     procs = []
     for r in c.execute("SELECT key,sum(cpu*n) cpu_n,max(cpu_max) cpu_max,max(mem_max) mem_max FROM perf_usage "
                        "WHERE runner_id=? AND ts>=? AND kind='proc' GROUP BY key ORDER BY cpu_n DESC LIMIT 15",
@@ -348,12 +373,12 @@ def view(c, runner_id, hours, now=None, label=lambda b: b):
     overloads = [overload_view(o) for o in c.execute(
         "SELECT * FROM perf_overloads WHERE runner_id=? AND coalesce(ended,last)>=? ORDER BY started", (runner_id, since))]
     for o in overloads:
-        o["bots"] = [b | {"bot": label(b["bot"])} for b in o["bots"]]
+        o["bots"] = [b | {"bot": name(b["bot"])} for b in _shown(o["bots"], access)]
     return {"hours": hours, "span": span, "since": since, "until": now, "columns": COLUMNS, "points": points,
             "mem_total": latest["mem_total"] if latest else None, "swap_total": latest["swap_total"] if latest else None,
             "disk_total": latest["disk_total"] if latest else None, "scope": latest["scope"] if latest else None,
             "runs": runs, "busiest": {"bots": bots, "processes": procs}, "overloads": overloads,
-            "summary": summary(overloads, hours / 24)}
+            "summary": summary(overloads, hours / 24, lambda b: b or "another bot")}
 
 
 # ------------------------------------------------------------------------------------------------ retention
@@ -470,6 +495,8 @@ def install(app, store, auth, mutate, execution):
             if not may_switch(auth, who, runner):
                 raise Problem("forbidden", "You cannot change this computer", 403)
             c.execute("UPDATE runners SET performance=? WHERE id=?", (body.mode, rid))
+            if body.mode == "off":      # no more samples will end it, so Health stops saying "overloaded now"
+                c.execute("UPDATE perf_overloads SET ended=last+? WHERE runner_id=? AND ended IS NULL", (MINUTE, rid))
             H.event(c, who.actor, "runner.performance", rid, {"mode": body.mode})
             # The heartbeat reply carries the switch: a `performance` event asks the runner for one now.
             c.execute("INSERT INTO changes(topic,kind,subject_id,at) VALUES('runner','performance',?,?)", (rid, H.now()))
@@ -505,4 +532,4 @@ def install(app, store, auth, mutate, execution):
             if not may_see(who):
                 raise Problem("forbidden", "A person or bot of this company reads a computer's performance", 403)
             return {"computer": {"id": rid, "label": runner["label"]}, **listing(runner),
-                    "may_switch": may_switch(auth, who, runner), **view(c, rid, hours)}
+                    "may_switch": may_switch(auth, who, runner), **view(c, rid, hours, access=auth.bot_accesses(c, who))}

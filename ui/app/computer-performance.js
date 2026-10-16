@@ -11,7 +11,7 @@ let PERF = null;
 
 const performanceHref = id => `#/computers/${encodeURIComponent(id)}/performance`;
 const perfPct = v => v == null ? '–' : `${Math.round(v)}%`;
-const perfBot = slug => typeof botDisplayName === 'function' ? botDisplayName(slug) : slug;
+const perfBot = slug => !slug ? 'another bot' : typeof botDisplayName === 'function' ? botDisplayName(slug) : slug;
 const perfWhen = ts => fmt(new Date(ts * 1000).toISOString());
 const perfMinutes = n => n < 60 ? `${n} min` : `${Math.floor(n / 60)} h ${n % 60 ? `${n % 60} min` : ''}`.trim();
 

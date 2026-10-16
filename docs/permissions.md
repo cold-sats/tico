@@ -181,9 +181,10 @@ stops the reports, and what was recorded stays until it is 14 days old. **Delete
 
 Every person and bot of the company reads it: **⋯ > Performance** in Settings > Computers, `hub computer performance <computer>`,
 or `GET /api/v2/computers/<id>/performance?hours=24` (1 to 336). A report holds numbers and process names only (the
-program's own name, never its arguments), and the turns shown are the server's own record of what ran.
+program's own name, never its arguments), and the turns shown are the server's own record of what ran. A bot the
+reader may not see (its **See** access) shows as "another bot", without its model or turn.
 
-Ten minutes in a row of CPU or memory over 90%, heavy swapping (half the swap in use with memory over 80%) or under 5%
+Ten minutes in a row of CPU or memory over 90%, heavy swapping (half the swap in use with memory over 80%; on a Mac, whose swap grows as it needs, memory alone) or under 5%
 disk free record an overload: when, why, which bots' turns were running and the busiest processes. Health shows it as a
 warning for a day afterwards. An overload changes nothing on its own; it is there to explain a slow day.
 

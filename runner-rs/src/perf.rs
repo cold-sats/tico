@@ -109,7 +109,9 @@ impl Sampler {
                 memory.available = limit.saturating_sub(used);
                 scope = "container";
             }
-            if let (Some(limit), Some(u0), Some(u1)) = (cgroup_cpu_limit(), previous_usage, usage) {
+            // The container's own CPU time, over its quota or, without one, every core it can reach.
+            if let (Some(u0), Some(u1)) = (previous_usage, usage) {
+                let limit = cgroup_cpu_limit().unwrap_or(cores);
                 cpu = 100.0 * (u1.saturating_sub(u0) as f64 / 1000.0) / (elapsed_ms as f64 * limit);
                 scope = "container";
             }
@@ -343,14 +345,16 @@ fn system_cpu() -> Option<(u64, u64)> {
 #[cfg(not(target_os = "linux"))]
 fn memory() -> Memory {
     let total = run(&["sysctl", "-n", "hw.memsize"]).and_then(|s| s.trim().parse().ok()).unwrap_or(0);
-    let available = run(&["vm_stat"]).map(|s| vm_stat_available(&s)).unwrap_or(0);
-    let (swap_total, swap_used) = run(&["sysctl", "-n", "vm.swapusage"]).map(|s| parse_swapusage(&s)).unwrap_or((0, 0));
-    Memory { total, available, swap_total, swap_used }
+    let used = run(&["vm_stat"]).map(|s| vm_stat_used(&s)).unwrap_or(0);
+    // macOS adds swap files as it needs them, so its swap total moves with use and a share of it says nothing:
+    // memory pressure shows in Memory Used instead.
+    Memory { total, available: total.saturating_sub(used), swap_total: 0, swap_used: 0 }
 }
 
-/// Free, inactive, speculative and purgeable pages from `vm_stat`: what macOS can hand out without swapping.
+/// Activity Monitor's Memory Used from `vm_stat`: app memory (anonymous pages less purgeable ones), wired memory and
+/// the compressor's pages. File cache (inactive and active file-backed pages) is not counted, as it can be handed out.
 #[cfg_attr(target_os = "linux", allow(dead_code))]
-fn vm_stat_available(text: &str) -> u64 {
+fn vm_stat_used(text: &str) -> u64 {
     let page = text
         .lines()
         .next()
@@ -363,25 +367,9 @@ fn vm_stat_available(text: &str) -> u64 {
             .and_then(|r| r.trim_start_matches(':').trim().trim_end_matches('.').parse::<u64>().ok())
             .unwrap_or(0)
     };
-    (pages("Pages free") + pages("Pages inactive") + pages("Pages speculative") + pages("Pages purgeable")) * page
-}
-
-/// `total = 2048.00M  used = 1022.25M  free = 1025.75M  (encrypted)`.
-#[cfg_attr(target_os = "linux", allow(dead_code))]
-fn parse_swapusage(text: &str) -> (u64, u64) {
-    let value = |name: &str| {
-        text.split(name).nth(1).and_then(|r| r.trim_start_matches([' ', '=']).split_whitespace().next()).and_then(|v| {
-            let (num, unit) = v.split_at(v.find(|c: char| c.is_ascii_alphabetic()).unwrap_or(v.len()));
-            let scale = match unit {
-                "K" => 1024.0,
-                "M" => 1024.0 * 1024.0,
-                "G" => 1024.0 * 1024.0 * 1024.0,
-                _ => 1.0,
-            };
-            num.parse::<f64>().ok().map(|n| (n * scale) as u64)
-        })
-    };
-    (value("total").unwrap_or(0), value("used").unwrap_or(0))
+    (pages("Anonymous pages").saturating_sub(pages("Pages purgeable")) + pages("Pages wired down")
+        + pages("Pages occupied by compressor"))
+        * page
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -475,12 +463,11 @@ mod tests {
     }
 
     #[test]
-    fn mac_ps_vm_stat_and_swap_parse() {
+    fn mac_ps_and_vm_stat_parse() {
         let proc = parse_ps_line("  812     1   20480   1:02.50 /Applications/Claude.app/Contents/MacOS/Claude Helper").unwrap();
         assert_eq!((proc.pid, proc.ppid, proc.rss, proc.cpu_ms), (812, 1, 20480 * 1024, 62500));
         assert_eq!(parse_cpu_time("1-00:00:01"), Some(86_401_000));
-        let vm = "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:  10.\nPages active: 99.\nPages inactive: 5.\nPages speculative: 1.\nPages purgeable: 4.\n";
-        assert_eq!(vm_stat_available(vm), 20 * 16384);
-        assert_eq!(parse_swapusage("total = 2048.00M  used = 1024.00M  free = 1024.00M  (encrypted)"), (2048 << 20, 1024 << 20));
+        let vm = "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:  10.\nPages active: 99.\nPages inactive: 5.\nPages purgeable: 4.\nPages wired down: 30.\nFile-backed pages: 60.\nAnonymous pages: 50.\nPages occupied by compressor: 6.\n";
+        assert_eq!(vm_stat_used(vm), (50 - 4 + 30 + 6) * 16384);
     }
 }

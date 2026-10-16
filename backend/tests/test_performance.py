@@ -6,6 +6,7 @@ import time
 from backend import performance as P
 from backend.auth import Identity
 from backend.tests.test_api import api, get, headers, post, setup_attempt  # noqa: F401  (the api fixture)
+from backend.tests.test_bot_access import world  # noqa: F401  (a Legal bot and who may see it)
 
 
 def sample(at, cpu=20.0, mem=0.5, procs=()):
@@ -106,3 +107,51 @@ def test_a_support_attachment_carries_the_window_with_computers_and_bots_relabel
     assert computer["label"] == "runner-1" and computer["points"] and computer["bots"] == [
         {"bot": "bot-1", "model": "", "runs": 1}]
     assert r["runner_id"] not in D.canonical(bundle) and "ops" not in D.canonical(bundle)
+
+
+def test_a_bot_the_reader_may_not_see_is_unnamed_in_turns_overloads_and_the_summary(world):
+    from backend.tests.test_bot_access import set_access
+    api, tokens, _ = world
+    r, _, attempt = setup_attempt(api)
+    rid = r["runner_id"]
+    set_access(api, see={"teams": ["legal"]}, read={"teams": ["legal"]}, write={"teams": ["legal"]})
+    start = (int(time.time()) // 60 - 12) * 60
+    with api.app.state.store.transaction() as c:               # the Legal bot's turn ran on this computer
+        c.execute("UPDATE attempts SET bot=replace(bot,'ops','counsel'),created=? WHERE id=?", (P._iso(start - 60), attempt["id"]))
+    post(api, "runners/performance", {"samples": [sample(start + 60 * i, cpu=97.0) for i in range(10)]}, token=r["token"])
+    cara = get(api, f"computers/{rid}/performance?hours=1", token="cara-test")
+    assert cara["runs"][0]["bot"] == "counsel" and cara["runs"][0]["attempt"] == attempt["id"]
+    assert cara["overloads"][0]["bots"][0]["bot"] == "counsel" and "counsel" in cara["summary"]
+    for who in ("dee", "stranger"):
+        seen = get(api, f"computers/{rid}/performance?hours=1", token=tokens[who])
+        assert seen["runs"][0] == seen["runs"][0] | {"bot": "", "model": "", "attempt": None}
+        assert seen["busiest"]["bots"] == [{"bot": "", "model": "", "runs": 1}]
+        assert seen["overloads"][0]["bots"] == [{"bot": "", "model": "", "runs": 1}]
+        assert "counsel" not in str(seen) and "another bot" in seen["summary"]
+
+
+def test_a_fast_clock_or_a_backlog_still_judges_every_minute(api):
+    r, _, _ = setup_attempt(api)
+    rid = r["runner_id"]
+    now = int(time.time()) // 60 * 60
+    # A sample three hours ahead counts as now, and does not hold back the loaded minutes that follow.
+    post(api, "runners/performance", {"samples": [sample(now + 3 * 3600)]}, token=r["token"])
+    start = now + 60
+    with api.app.state.store.transaction() as c:
+        P.ingest(c, rid, [P_sample(start + 60 * i, cpu=97.0) for i in range(10)], now=start + 600)
+        # A backlog: two calm minutes then a loaded one, in one batch. The calm minute ends the overload.
+        P.ingest(c, rid, [P_sample(start + 600, cpu=10.0), P_sample(start + 660, cpu=10.0), P_sample(start + 720, cpu=97.0)],
+                 now=start + 720)
+        rows = [dict(x) for x in c.execute("SELECT started,ended FROM perf_overloads WHERE runner_id=?", (rid,))]
+    assert rows == [{"started": start, "ended": start + 600}]
+
+
+def test_turning_it_off_ends_an_open_overload(api):
+    r, _, _ = setup_attempt(api)
+    rid = r["runner_id"]
+    start = (int(time.time()) // 60 - 11) * 60
+    post(api, "runners/performance", {"samples": [sample(start + 60 * i, cpu=97.0) for i in range(10)]}, token=r["token"])
+    assert get(api, f"computers/{rid}/performance?hours=1")["overloads"][0]["ended"] is None
+    post(api, f"computers/{rid}/performance", {"mode": "off"})
+    assert get(api, f"computers/{rid}/performance?hours=1")["overloads"][0]["ended"] == start + 600
+    assert not any(x["id"] == "performance:" + rid and "overloaded now" in x["summary"] for x in get(api, "health")["checks"])
