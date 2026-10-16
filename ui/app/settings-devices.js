@@ -262,11 +262,15 @@ function machineWindowHTML(label, reading, name) {
     ? `<meter class="machine-usage-bar" min="0" max="100" low="20" optimum="100" value="${left}" aria-label="${esc(name)} ${esc(label)}: ${left}% left"></meter>` : '';
   return `<span class="machine-usage-line${stale || expired ? ' stale' : ''}" data-usage-window="${esc(label)}">${bar}<span>${esc(label)} ${esc(value)}</span>${notes.length ? `<span class="muted">${esc(notes.join(' · '))}</span>` : ''}</span>`;
 }
-function machineUsageHTML(runtime, state, name) {
+// A runtime whose usage comes only from its turns (`weekly_usage = "turns"`, Claude) has nothing to show before one:
+// it says where the reading will come from (`where`: this computer, or this subscription).
+function machineUsageHTML(runtime, state, name, where = 'this computer') {
   const caps = harnessCaps(runtime);
   if (!caps.weekly_usage) return '<span class="muted" data-usage-window="none">Usage unavailable</span>';
   if (state?.account?.kind === 'api_key') return '<span class="muted" data-usage-window="none">No plan usage (API key)</span>';
-  const weekly = machineWindowHTML('Weekly', state?.weekly, name) || '<span class="muted" data-usage-window="Weekly">Weekly usage unavailable</span>';
+  const idle = caps.weekly_usage === 'turns' && !state?.weekly && !state?.five_hour
+    ? ` · reported after a ${harnessWords(runtime)} turn on ${where}` : '';
+  const weekly = machineWindowHTML('Weekly', state?.weekly, name) || `<span class="muted" data-usage-window="Weekly">Weekly usage unavailable${esc(idle)}</span>`;
   return weekly + machineWindowHTML('5-hour window', state?.five_hour, name);
 }
 // The sign-in cell: signed in as <account>, signed out, login expired or rejected, checking, or couldn't check (with
@@ -317,15 +321,16 @@ function machineToolsHtml(machine, online) {
     const rejected = auth === 'rejected'
       ? `<span class="err machine-rejected" data-rejected="${esc(name)}">${value.rejected_at ? esc(ago(value.rejected_at)) + '. ' : ''}${value.rejected_reason ? esc(value.rejected_reason) + '. ' : ''}${hlCredentialFix(value.credential_source)}. It takes no work that needs ${esc(name)} until then.</span>` : '';
     const signIn = installed ? machineSignInHTML(machine, online, name, auth, value) : '<span class="muted">—</span>';
-    // The computer's own login reports no usage windows; each named subscription below carries its own.
-    const own = installed ? machineUsageHTML(name, {account: value.account}, label) : '<span class="muted">—</span>';
+    // The computer's own login's usage windows (only to whoever may see its account); each named subscription below
+    // carries its own.
+    const own = installed ? machineUsageHTML(name, {account: value.account, weekly: value.weekly, five_hour: value.five_hour}, label) : '<span class="muted">—</span>';
     const lines = installed ? profiles.filter(p => p.runtimes?.[name]).map(p => {
       const state = p.runtimes[name];
       return `<div class="machine-tool machine-tool-profile" role="row" data-machine-profile="${esc(p.name)}" data-machine-tool="${esc(name)}">
         <span role="cell" class="machine-tool-name" title="Named subscription ${esc(p.display_name || p.name)}">${esc(p.display_name || p.name)}</span>
         <span role="cell" class="machine-tool-version"></span><span role="cell" class="machine-tool-enabled"></span>
         <span role="cell" class="machine-tool-signin">${machineProfileSignIn(state, name)}</span>
-        <span role="cell" class="machine-tool-usage">${state.signed_in === false ? '<span class="muted">—</span>' : machineUsageHTML(name, state, `${label} ${p.display_name || p.name}`)}</span></div>`;
+        <span role="cell" class="machine-tool-usage">${state.signed_in === false ? '<span class="muted">—</span>' : machineUsageHTML(name, state, `${label} ${p.display_name || p.name}`, 'this subscription')}</span></div>`;
     }).join('') : '';
     return `<div class="machine-tool" role="row" data-machine-tool="${esc(name)}">
       <span role="cell" class="machine-tool-name">${esc(label)}</span>

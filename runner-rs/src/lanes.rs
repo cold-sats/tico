@@ -59,6 +59,11 @@ pub fn hold_back(name: &str) {
     dropped().lock().unwrap().insert(name.into(), Instant::now());
 }
 
+#[cfg(test)]
+pub fn release(name: &str) {
+    dropped().lock().unwrap().remove(name);
+}
+
 /// The capabilities this heartbeat advertises.
 pub fn capabilities() -> Vec<&'static str> {
     let screen = crate::screen::offers(crate::screen::readiness().as_ref()).then_some(crate::screen::CAPABILITY);

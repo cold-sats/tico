@@ -110,7 +110,7 @@ def computer_details(c, row, who, auth):
                          if bot in assigned and (access.get(bot) or {}).get("read") and isinstance(report, dict)}
     from .subscriptions import may_see_accounts, without_accounts
     if not may_see_accounts(auth, who, value):
-        without_accounts(readiness.get("runtimes") or {})
+        without_accounts(readiness.get("runtimes") or {}, windows=True)
     update = runner_versions.view(runner_versions.load(c).get(row["id"]))
     update["wanted_release"] = runner_versions.desired()["version"]
     from .repositories import metadata

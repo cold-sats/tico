@@ -1,9 +1,10 @@
 """A stand-in for the `codex` CLI, for the runner conformance suite (runner/tests/test_conformance.py):
 `--version`, `login status`, `app-server generate-json-schema` (the protocol files that say goals, compact and
 review are there), and `app-server` speaking the part of the JSON-RPC protocol runner-rs/src/hosts/codex.rs uses
-(scripts/journey-fake-codex.py, plus token usage, native goals, steering and `account/read`). Every thread, goal, steer and turn
-request is appended to $FAKE_LOG, with the turn's homes, cwd and granted variables; a prompt containing
-REMEMBER leaves a file in that cwd's memory/.
+(scripts/journey-fake-codex.py, plus token usage, native goals, steering, `account/read` and `account/rateLimits/read`).
+Every thread, goal, steer, turn and rate-limit request is appended to $FAKE_LOG, with the turn's homes, cwd and granted
+variables; a prompt containing REMEMBER leaves a file in that cwd's memory/. FAKE_CODEX_LOGIN=apikey signs it in with
+an API key, whose plan usage the server refuses to read.
 
 Scripted prompts: HANG streams one delta and then waits, once per $FAKE_LOG, until its parent goes away; LIMIT
 fails the turn with a usage limit; SLOW streams one delta and answers after $FAKE_SLOW seconds (2), or at once
@@ -113,8 +114,19 @@ def main():
             if params.get("refreshToken") is not False:
                 send({"id": rid, "error": {"code": -32600, "message": "refreshToken must be false"}})
                 continue
-            send({"id": rid, "result": {"account": {"type": "chatgpt", "email": "dev@acme.example", "planType": "pro"},
-                                        "requiresOpenaiAuth": True}})
+            account = ({"type": "apiKey"} if os.environ.get("FAKE_CODEX_LOGIN") == "apikey"
+                       else {"type": "chatgpt", "email": "dev@acme.example", "planType": "pro"})
+            send({"id": rid, "result": {"account": account, "requiresOpenaiAuth": True}})
+        elif method == "account/rateLimits/read":
+            # As a ChatGPT login answers it: the 5-hour window first, the weekly one second, resets in epoch seconds.
+            record({"harness": "codex", "method": method})
+            if os.environ.get("FAKE_CODEX_LOGIN") == "apikey":
+                send({"id": rid, "error": {"code": -32600, "message": "chatgpt authentication required to read rate limits"}})
+                continue
+            now = int(time.time())
+            send({"id": rid, "result": {"rateLimits": {"limitId": "codex", "planType": "pro",
+                  "primary": {"usedPercent": 40, "windowDurationMins": 300, "resetsAt": now + 3 * 3600},
+                  "secondary": {"usedPercent": 12, "windowDurationMins": 10080, "resetsAt": now + 3 * 86400}}}})
         elif method == "turn/steer":
             text = " ".join(part.get("text", "") for part in params.get("input", []))
             record({"harness": "codex", "method": method, "thread": thread, "steer": text})

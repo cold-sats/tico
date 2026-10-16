@@ -693,6 +693,17 @@ def _account_or_none(value, handler):
 Account = Annotated[SubscriptionAccount | None, WrapValidator(_account_or_none)]
 
 
+class SubscriptionWeekly(Contract):
+    used_percent: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
+    resets_at: str | None = Field(default=None, max_length=50)
+    reported_at: str = Field(max_length=50)
+    status: Literal["allowed", "allowed_warning", "rejected"] | None = None
+
+
+# The computer's own login's usage window on its runtime row: one that fails its checks is left out, like the account.
+UsageWindow = Annotated[SubscriptionWeekly | None, WrapValidator(_account_or_none)]
+
+
 class GoalReadiness(Contract):
     goals: bool = False
     commands: list[SlashCommand] = Field(default_factory=list, max_length=30)
@@ -703,8 +714,9 @@ class GoalReadiness(Contract):
         for key in ("goals", "commands"):
             if key not in self.model_fields_set:
                 data.pop(key, None)
-        if "account" in data and data["account"] is None:
-            data.pop("account")
+        for key in ("account", "weekly", "five_hour"):
+            if key in data and data[key] is None:
+                data.pop(key)
         return data
 
 
@@ -756,6 +768,10 @@ class RuntimeReadiness(GoalReadiness):
     # The computer's own login's account, beside a ready sign-in. Shown only to an administrator or the
     # computer's operator (backend/views.py computer_details, /api/v2/operations).
     account: Account = None
+    # The computer's own login's usage windows, as a named profile's (SubscriptionRuntime), for the same audience as
+    # the account. Their resets are checked against each window's length when the heartbeat is stored.
+    weekly: UsageWindow = None
+    five_hour: UsageWindow = None
 
 
 class McpReport(Contract):
@@ -924,13 +940,6 @@ class RepositoryStatus(Contract):
     last_fetch: str | None = None
     size_mb: float = Field(default=0, ge=0)
     error: str | None = None
-
-
-class SubscriptionWeekly(Contract):
-    used_percent: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
-    resets_at: str | None = Field(default=None, max_length=50)
-    reported_at: str = Field(max_length=50)
-    status: Literal["allowed", "allowed_warning", "rejected"] | None = None
 
 
 class SubscriptionNameEdit(Contract):

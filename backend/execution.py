@@ -502,6 +502,7 @@ class Execution:
                 row.pop('tools', None)
             if not row.get('mail_request'):
                 row.pop('mail_request', None)
+        from .subscriptions import weekly_snapshot
         for row in readiness.get('runtimes', {}).values():
             if not row.get('profiles'):
                 row.pop('profiles', None)
@@ -509,6 +510,13 @@ class Execution:
                 row.pop('rejected_at', None), row.pop('rejected_reason', None)
             if not row.get('credential_source'):
                 row.pop('credential_source', None)
+            # The own login's usage windows, checked as a named profile's are: a reset beyond the window is not its.
+            for window in ('weekly', 'five_hour'):
+                reading = weekly_snapshot(row.get(window), window)
+                if reading:
+                    row[window] = reading
+                else:
+                    row.pop(window, None)
         if readiness.get('worktrees') is None:
             readiness.pop('worktrees', None)
         if not readiness.get('harnesses'):

@@ -3,7 +3,8 @@
 `--version`, `--help` and `auth status --json` answer as Claude Code 2.1.296 does; `-p` speaks stream-json the way
 runner-rs/src/hosts/claude.rs reads it: each user message is replayed, then a text delta, the assistant message and a
 `result`. Every call is appended to $FAKE_LOG as one JSON line (argv, the prompt, cwd, the granted variables and
-homes, when it started and finished); a prompt containing REMEMBER leaves a file in memory/. A prompt containing HANG
+homes, when it started and finished); a prompt containing REMEMBER leaves a file in memory/. Each turn reports its
+usage windows as Claude Code 2.1.301 does (`rate_limit_event` with `unifiedWindows`, 53% of five hours, 17% of the week). A prompt containing HANG
 streams one delta and then waits, once per $FAKE_LOG, until its parent goes away; SLOW streams one delta and answers
 after $FAKE_SLOW seconds (2), so a steer written meanwhile is read (replayed) and answered after it, in the same
 process, as Claude Code does."""
@@ -89,6 +90,11 @@ def main():
                   "delta": {"type": "text_delta", "text": chunk}}, "parent_tool_use_id": None})
         send({"type": "assistant", "message": {"id": "msg_1", "role": "assistant", "content": [{"type": "text", "text": reply}]},
               "parent_tool_use_id": None})
+        now = int(time.time())
+        send({"type": "rate_limit_event", "rate_limit_info": {
+            "status": "allowed", "resetsAt": now + 3 * 3600, "rateLimitType": "five_hour", "overageStatus": "rejected",
+            "isUsingOverage": False, "unifiedWindows": {"five_hour": {"utilization": 0.53, "resetsAt": now + 3 * 3600},
+                                                        "seven_day": {"utilization": 0.17, "resetsAt": now + 3 * 86400}}}})
         record({"harness": "claude", "finished": text, "at": time.time()})
         send({"type": "result", "subtype": "success", "is_error": False, "result": reply, "stop_reason": "end_turn",
               "session_id": session, "total_cost_usd": 0.01,
