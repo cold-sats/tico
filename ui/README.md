@@ -64,7 +64,7 @@ Every file in `app/` and every feature file starts with `'use strict'`, as the o
 | issues, hub-v2, needs-you, bot-tasks | shared request rows and tables, hub v2 helpers, Needs you, a bot's tasks |
 | chat, pill, bot-page, bot-conversation, person-page, assistant-page | bot chat and its live reply, the composer, the bot and human pages, your Assistant |
 | tasks, task-modal, task-code, tasks-page, decide, recurring | Tasks: rows and cards, the modal and its comments, the modal's Code and Subtasks rail and the PR badge, the page, Decide (one card at a time), routines |
-| meetings, mail, messaging, credentials, sql, integrations, help, computer-screen | one page each (computer-screen loads noVNC from `vendor/novnc/` with `import()`) |
+| meetings, mail, messaging, credentials, sql, integrations, help, computer-screen, computer-performance | one page each (computer-screen loads noVNC from `vendor/novnc/` with `import()`) |
 | settings, settings-*, subscriptions, vault, catalog | Settings: shell, one file per tab, the bot editor, access editor, subscriptions (computers, groups, a bot's), credential vault, template cards |
 | welcome, updates, goals, overview | setup, Updates, Goals, and the optional building overview |
 | router, drawer, search, org-fan, nav-events, viewport, refresh, native, boot | `route()`, account menu and phone drawer, search, mobile team switcher, keyboard viewport, the refresh loop, the desktop bridge, startup |

@@ -8,8 +8,12 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- Each computer's Performance page (Settings > Computers > ⋯ > Performance): CPU and memory over the last day, 7 days
+  or 14 days, overloads with the bots that were running and the busiest processes, and a Health warning after one.
+  On by default; its operator or an admin turns it off or deletes the history. Support diagnostics can include it.
 - A Claude or Codex run's steps now list its tool calls and its subagents. A subagent shows by its type, with the
-  calls it made indented under it. A call is recorded only by the file it touches or the program it runs; neither a
+  calls it made indented under it. A call is recorded only by the file it touches or the program it runs (a tool
+  server's call by its name alone); neither a
   subagent's prompt nor any call's arguments leave the computer. When such a run stops partway without having called
   a tool, it now resumes plainly instead of being told to check what it already did, because these runs report every
   call. Runs from an older runner, or that fell back to another provider, keep the cautious resume.
@@ -24,6 +28,13 @@ All notable changes to Tico are recorded here. The format follows
 - Connect Google: the app's client secret stays on the server. The server exchanges the sign-in code and refreshes
   each grant for the computer that holds it, returns only an hour-long, read-only access token for one service, and
   stores and logs no token. The grant on the computer keeps no secret.
+
+### Fixed
+- Subtasks a bot files for itself under its own task start in their own sessions and run side by side, up to the
+  bot's turn limit, instead of one after another in the parent's lane. A subtask a person or another bot files under
+  the bot's task still continues the parent's session, and a bot finishing its last self-filed subtask wakes the
+  parent. A self-filed subtask already open starts its next turn without the parent's checkpoint or worktree, so its
+  description should carry what the bot needs. See [Sessions](docs/sessions.md#subtasks).
 
 ## [0.3.50] - 2026-10-16
 

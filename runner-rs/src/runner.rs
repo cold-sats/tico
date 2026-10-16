@@ -397,6 +397,8 @@ impl Runner {
             self.worktree_stamp.store(beat["worktree_record_stamp"] == true, Ordering::SeqCst);
             self.credential_source.store(beat["runtime_credential_source"] == true, Ordering::SeqCst);
             self.accounts.store(beat["subscription_accounts"] == true, Ordering::SeqCst);
+            // Performance diagnostics run only while the computer's owner has them on (crate::perf).
+            crate::perf::set_enabled(beat["performance"] == true);
             if beat["restart"] == true && self.restart.lock().unwrap().is_none() {
                 // Only a supervisor that starts the runner again may let it exit to restart; take main first if safe.
                 if supervised() {
@@ -599,6 +601,7 @@ impl Runner {
         self.recover_output().await;
         tokio::spawn(self.clone().push_backlog());
         tokio::spawn(self.events.clone().run(self.client.clone()));
+        tokio::spawn(crate::perf::run_loop(self.clone()));
         let mut clock = Clock {
             polled: HashMap::new(),
             next_claim: None,

@@ -1498,7 +1498,7 @@ def install_views(app, store, auth, mutate, task_view):
             default = {providers.default_runtime(providers.load(c, store.settings))} - {""}
             run_on = providers.runtimes_run_on(c, store.settings)
             for row in c.execute("SELECT id,label,operator,last_seen,revoked_at,platform,version,capacity,readiness_json,"
-                                 "accepts_member_bots,screen,capabilities_json FROM runners ORDER BY created"):
+                                 "accepts_member_bots,screen,performance,capabilities_json FROM runners ORDER BY created"):
                 if not auth.bot_admin(who) and who.actor != "human:" + row["operator"]:
                     continue
                 bots = [a[0] for a in c.execute("SELECT bot FROM assignments WHERE runner_id=? ORDER BY bot", (row["id"],))]
@@ -1506,7 +1506,9 @@ def install_views(app, store, auth, mutate, task_view):
                 value["release"] = runner_versions.view(fleet.get(row["id"])).get("release") or ""
                 value["accepts_member_bots"] = bool(row["accepts_member_bots"])
                 from .screen import listing as screen_listing
+                from .performance import listing as performance_listing
                 value.update(screen_listing(value))
+                value.update(performance_listing(value))
                 value.pop("capabilities_json")
                 value["readiness"] = readiness_document(value.pop("readiness_json"))
                 from .repositories import metadata

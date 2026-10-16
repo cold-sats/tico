@@ -20,9 +20,11 @@
   }
   window.addEventListener('error', e => browserFailure('error', e));
   window.addEventListener('unhandledrejection', () => browserFailure('unhandledrejection'));
-  const capture = () => browserFailures.length
-    ? call('POST', '/support/diagnostics/capture', {browser: browserFailures})
-    : call('GET', '/support/diagnostics');
+  // `hours` of each computer's performance history go with the attachment (0: none).
+  const capture = hours => browserFailures.length
+    ? call('POST', '/support/diagnostics/capture', {browser: browserFailures, performance_hours: hours})
+    : call('GET', '/support/diagnostics?performance_hours=' + hours);
+  const PERF_WINDOWS = [[0, 'None'], [24, '1 day'], [168, '7 days'], [336, '14 days']];
   const statuses = {open: 'Open', answered: 'Answered', closed: 'Closed', gone: 'Removed'};
   const ICON = {
     send: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 12h15M13 6l6 6-6 6"/></svg>',
@@ -42,7 +44,7 @@
   const last = t => (t.messages || []).at(-1)?.created || t.created;
   const inThread = () => viewing || !state.tickets.length;
   const draft = () => {
-    if (!drafts.has(selected)) drafts.set(selected, {message: '', email: compose?.email || '', ids: true, diag: !selected, bundle: null, key: uid()});
+    if (!drafts.has(selected)) drafts.set(selected, {message: '', email: compose?.email || '', ids: true, diag: !selected, perf: 24, bundle: null, key: uid()});
     return drafts.get(selected);
   };
   const current = () => state.tickets.find(t => t.id === selected);
@@ -155,13 +157,15 @@
       <button class="support-send" type="submit" aria-label="Send" title="Send (Enter)">${ICON.send}</button></div>
       <p class="err support-error" data-error role="alert" hidden></p>
       <small class="sr-only" id="support-keys">Enter sends. Shift+Enter adds a new line.</small>
-      <div class="support-diag"><label><input name="diag" type="checkbox" ${d.diag ? 'checked' : ''}> @diagnostics</label><button class="ghost" type="button" data-preview>Review and edit</button></div>
+      <div class="support-diag"><label><input name="diag" type="checkbox" ${d.diag ? 'checked' : ''}> @diagnostics</label><label>Computer performance <select name="perf">${PERF_WINDOWS.map(([h, label]) => `<option value="${h}"${h === d.perf ? ' selected' : ''}>${label}</option>`).join('')}</select></label><button class="ghost" type="button" data-preview>Review and edit</button></div>
       ${!selected ? `<details class="support-options"><summary>Reply email and install details</summary><label>Email for a reply<input name="email" type="email" value="${escape(d.email)}" autocomplete="email"></label><label class="support-check"><input name="ids" type="checkbox" ${d.ids ? 'checked' : ''}> Include version and install ID</label></details>` : ''}
       <p class="support-sent" data-sent></p>`;
     form.oninput = () => {
       d.message = form.elements.message.value;
       if (!selected) { d.email = form.elements.email.value; d.ids = form.elements.ids.checked; }
       d.diag = form.elements.diag.checked;
+      const perf = Number(form.elements.perf.value);
+      if (perf !== d.perf) { d.perf = perf; d.bundle = null; }
       d.key = uid(); updateSent();
     };
     form.elements.message.onkeydown = e => {
@@ -180,7 +184,7 @@
       submit.setAttribute('aria-busy', 'true');
       const thread = selected;
       try {
-        if (d.diag && !d.bundle) { d.bundle = await capture(); updateSent(); }
+        if (d.diag && !d.bundle) { d.bundle = await capture(d.perf); updateSent(); }
         const body = {message: d.message, diagnostics: d.diag ? d.bundle.id : ''};
         if (!thread) Object.assign(body, {email: d.email.trim(), include_ids: d.ids});
         const next = await call('POST', thread ? `/support/tickets/${encodeURIComponent(thread)}/messages` : '/support/tickets', body, d.key);
@@ -237,7 +241,7 @@
     const load = async () => {
       if (loading) return;
       loading = true; err.hidden = true; use.disabled = true;
-      try { show(await capture()); }
+      try { show(await capture(d.perf)); }
       catch (e) { fail(e); }
       finally { loading = false; }
     };
