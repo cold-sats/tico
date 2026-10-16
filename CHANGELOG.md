@@ -25,7 +25,9 @@ All notable changes to Tico are recorded here. The format follows
   points to Google's own permissions page. Each server names its own Google app: a private one for a few known
   people (Google's personal-use exemption, with its unverified-app screen and 100-user cap), or Tico's public app,
   which needs Google's verification for lasting grants; in Google's Testing state grants end after 7 days
-  (docs/mail.md).
+  (docs/mail.md). The app's client secret stays on the server: the server exchanges the sign-in code and refreshes
+  each grant for the computer that holds it, returns only an hour-long, read-only access token for one service, and
+  stores and logs no token. The grant on the computer keeps no secret.
 
 ### Changed
 - When a computer holds new work to update, Settings > Health names each running turn it waits for: the bot, its
