@@ -42,7 +42,7 @@ SAFE_COLUMNS = {"slack_posts": {"message_id", "bot", "state", "attempts", "next_
 # Columns nobody reads through SQL. Tables not named in `guarded` (credentials, credential_keys,
 # credential_grants, idempotency, runners, enrollments, session_epochs, settings_changes,
 # backup_verified_blobs, _litestream_*, sqlite_* except sqlite_master) are denied outright.
-HIDDEN = {"bots": {"token_hash", "cwd", "thread_id"}, "attempts": {"token_hash"},
+HIDDEN = {"task_requesters": {"token_hash"}, "bots": {"token_hash", "cwd", "thread_id"}, "attempts": {"token_hash"},
           "service_jobs": {"token_hash"}}
 DENIED_FUNCTIONS = {"load_extension"}
 # FTS5 reads these as main.<virtual>_* with no view context; they are not a public API.
@@ -217,7 +217,7 @@ def guarded(c, auth, who, inner, function, columns=None):
         "tasks": tasks,
         "tags": tag_gate, "task_tags": by_task,
         "task_events": by_task + " AND " + content_gate(("old", "new", "note")), "task_delegations": by_task,
-        "task_reminders": by_task, "task_assets": by_task, "task_links": by_task, "task_roles": by_task,
+        "task_requesters": by_task, "task_reminders": by_task, "task_assets": by_task, "task_links": by_task, "task_roles": by_task,
         # A relation is read only when the caller may read both of its tasks.
         "task_relations": "from_task IN (SELECT id FROM tasks) AND to_task IN (SELECT id FROM tasks)",
         "message_assets": by_message,
