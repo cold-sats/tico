@@ -712,7 +712,6 @@ impl ClaudeHost {
         let input = &block["input"];
         let subagent = AGENT_TOOLS.contains(&name).then(|| {
             json!({"id": id, "parent_id": parent, "type": input.get("subagent_type").cloned().unwrap_or(Value::Null),
-                   "description": input.get("description").cloned().unwrap_or(Value::Null),
                    "model": input.get("model").cloned().unwrap_or(Value::Null), "status": "started"})
         });
         {

@@ -196,11 +196,14 @@ def queued_task_sql():
 def reports_tools(c, attempt_id, config):
     """True when an attempt's silence about tools proves it called none: its harness always reports tool calls,
     or the run itself said it does (a `status` event with `tool_events`, sent by Claude and Codex runners that
-    report each call; an older runner of the same harness does not, and its silence proves nothing)."""
+    report each call; an older runner of the same harness does not, and its silence proves nothing). The latest
+    such event counts: a turn that falls back to another host sends `tool_events: false` when it hops."""
     if reports_tool_calls(config, config.get('runtime')):
         return True
-    return c.execute("SELECT 1 FROM attempt_events WHERE attempt_id=? AND kind='status' "
-                     "AND json_extract(payload_json,'$.tool_events') LIMIT 1", (attempt_id,)).fetchone() is not None
+    row = c.execute("SELECT json_extract(payload_json,'$.tool_events') AS said FROM attempt_events "
+                    "WHERE attempt_id=? AND kind='status' AND json_extract(payload_json,'$.tool_events') IS NOT NULL "
+                    "ORDER BY seq DESC LIMIT 1", (attempt_id,)).fetchone()
+    return bool(row and row['said'])
 
 
 def limit_streak(c, bot):

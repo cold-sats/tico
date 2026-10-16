@@ -302,24 +302,29 @@ def test_a_stopped_run_that_used_tools_resumes_by_itself_with_what_it_saved(api)
     assert get(api, 'bots/ops/execution-review')['jobs'] == []
 
 
-@pytest.mark.parametrize('declared', [True, False])
-def test_a_run_that_says_it_reports_tool_calls_resumes_plainly_when_it_called_none(api, declared):
+@pytest.mark.parametrize('declared, hopped', [(True, False), (False, False), (True, True)])
+def test_a_run_that_says_it_reports_tool_calls_resumes_plainly_when_it_called_none(api, declared, hopped):
     """Claude and Codex runners that report each tool call say so on the turn's `status` event; a run like
     that with no tool event provably called none. The same silence from a runner that does not say so
-    (an older one) proves nothing, so that run is told to check what is already done."""
+    (an older one), or after the turn fell back to a host that does not, proves nothing, so that run is
+    told to check what is already done."""
     machine, message, attempt = setup_attempt(api)
     post(api, f"attempts/{attempt['id']}/started", {'thread_id': 'declared'}, machine['token'])
     status = {'state': 'active', **({'tool_events': True} if declared else {})}
-    post(api, f"attempts/{attempt['id']}/events", {'events': [
-        {'seq': 1, 'kind': 'status', 'payload': status},
-        {'seq': 2, 'kind': 'message', 'payload': {'text': 'Reading the brief.'}}]}, machine['token'])
+    events = [{'seq': 1, 'kind': 'status', 'payload': status},
+              {'seq': 2, 'kind': 'message', 'payload': {'text': 'Reading the brief.'}}]
+    if hopped:
+        events += [{'seq': 3, 'kind': 'diagnostic', 'payload': {'text': 'claude hit its usage limit; running this turn on gemini'}},
+                   {'seq': 4, 'kind': 'status', 'payload': {'tool_events': False}},
+                   {'seq': 5, 'kind': 'status', 'payload': {'state': 'active'}}]
+    post(api, f"attempts/{attempt['id']}/events", {'events': events}, machine['token'])
     expire(api, attempt['id'])
     assert claim(api, machine) is None
     aged(api, attempt['id'])
     assert [d['state'] for d in sweep(api)] == ['queued']
     ready(api, machine, ['ops'])
     body = claim(api, machine)['message']['body']
-    assert ('finish only what is left' in body) is not declared
+    assert ('finish only what is left' in body) is not (declared and not hopped)
 
 
 @pytest.mark.parametrize('activity', [None, 'tool'])

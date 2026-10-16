@@ -14,7 +14,7 @@
   "status": "started",
   "item_id": "c1",
   "parent_id": null,
-  "summary": "cat note.txt"
+  "summary": "cat"
  },
  {
   "kind": "tool",
@@ -33,7 +33,7 @@
   "status": "started",
   "item_id": "m1",
   "parent_id": null,
-  "summary": "acme-1"
+  "summary": ""
  },
  {
   "kind": "tool",
@@ -71,7 +71,7 @@
   "status": "started",
   "item_id": "s1",
   "parent_id": null,
-  "summary": "Count the words in note.txt"
+  "summary": ""
  },
  {
   "kind": "tool",
@@ -94,7 +94,6 @@
    "id": "thr_child",
    "parent_id": null,
    "type": "/root/counter",
-   "description": null,
    "model": "gpt-5.5-mini",
    "status": "started"
   }
@@ -107,7 +106,7 @@
   "status": "started",
   "item_id": "c2",
   "parent_id": "thr_child",
-  "summary": "wc -w note.txt"
+  "summary": "wc"
  },
  {
   "kind": "tool",
@@ -130,10 +129,28 @@
    "id": "thr_child",
    "parent_id": null,
    "type": "/root/counter",
-   "description": null,
    "model": "gpt-5.5-mini",
    "status": "completed"
   }
+ },
+ {
+  "kind": "tool",
+  "thread_id": "thr_1",
+  "turn_id": "turn_1",
+  "tool": "shell",
+  "status": "started",
+  "item_id": "c3",
+  "parent_id": "thr_child2",
+  "summary": "curl"
+ },
+ {
+  "kind": "tool",
+  "thread_id": "thr_1",
+  "turn_id": "turn_1",
+  "tool": "shell",
+  "status": "failed",
+  "item_id": "c3",
+  "parent_id": "thr_child2"
  },
  {
   "kind": "tool",

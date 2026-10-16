@@ -9,7 +9,7 @@
   "tool": "Bash",
   "status": "started",
   "item_id": "toolu_01YXoMhDLBUGTenrB7TZw9XQ",
-  "summary": "cat note.txt",
+  "summary": "cat",
   "parent_id": null
  },
  {
@@ -24,13 +24,12 @@
   "tool": "Agent",
   "status": "started",
   "item_id": "toolu_016qvSH6m3vC3gmmpXkZXJLH",
-  "summary": "count words",
+  "summary": "",
   "parent_id": null,
   "subagent": {
    "id": "toolu_016qvSH6m3vC3gmmpXkZXJLH",
    "parent_id": null,
    "type": "general-purpose",
-   "description": "count words",
    "model": null,
    "status": "started"
   }
@@ -54,7 +53,7 @@
   "tool": "Bash",
   "status": "started",
   "item_id": "toolu_01TCvFpve6ePbRGnWr3d6kNv",
-  "summary": "wc -w note.txt",
+  "summary": "wc",
   "parent_id": "toolu_016qvSH6m3vC3gmmpXkZXJLH"
  },
  {
@@ -74,7 +73,6 @@
    "id": "toolu_016qvSH6m3vC3gmmpXkZXJLH",
    "parent_id": null,
    "type": "general-purpose",
-   "description": "count words",
    "model": null,
    "status": "completed",
    "tool_uses": 1,

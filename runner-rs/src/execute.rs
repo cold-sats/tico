@@ -889,6 +889,8 @@ impl Runner {
                 let hop_env = selected.as_ref().map_or_else(|| base.clone(), |p| p.environment(&hop.runtime, &base));
                 env = hop_env.clone();
                 self.diagnose(&aid, &crate::fallback::diagnostic(&primary, &hop, hit_limit));
+                // The primary's promise to report every tool call ends here; the fallback host makes its own.
+                let _ = self.state.append(&aid, "status", &json!({"tool_events": false}));
                 let (tx, mut rx) = unbounded_channel();
                 let h = host.insert(self.make_host(&bot, &hop.runtime, &hop_env, selected.as_ref(), tx)?);
                 h.start().await?;

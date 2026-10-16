@@ -167,17 +167,39 @@ pub fn event(kind: &str, thread: Option<&str>, turn: Option<&str>, fields: Value
 /// The longest input summary a `tool` event carries. The drive loop scrubs it with the rest of the event.
 pub const TOOL_SUMMARY_CHARS: usize = 120;
 
-/// One line saying what a tool call acts on: the first of its usual target fields (or else its first text
-/// field), clipped.
+/// What a tool call acts on, without its arguments: the file it names, or the program its command runs. Run logs
+/// show this to everyone who can see the run, and arguments can carry tokens or private text.
 pub fn tool_summary(input: &Value) -> String {
-    const KEYS: &[&str] = &["command", "file_path", "path", "pattern", "url", "query", "description", "skill", "prompt"];
-    let text = |v: &Value| v.as_str().filter(|s| !s.trim().is_empty()).map(String::from);
-    let raw = match input {
-        Value::String(s) => s.clone(),
-        Value::Object(m) => KEYS.iter().find_map(|k| m.get(*k).and_then(text)).or_else(|| m.values().find_map(text)).unwrap_or_default(),
-        _ => String::new(),
-    };
-    let line = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    let text = |k: &str| input.get(k).and_then(Value::as_str).filter(|s| !s.trim().is_empty());
+    if let Some(path) = ["file_path", "notebook_path", "path"].iter().find_map(|k| text(k)) {
+        return clip(path);
+    }
+    text("command").map(command_program).unwrap_or_default()
+}
+
+/// The program a shell command runs: leading `NAME=value` assignments are skipped, a `sh -c` wrapper is unwrapped,
+/// and only the program's file name is kept.
+pub fn command_program(command: &str) -> String {
+    let words: Vec<&str> = command.split_whitespace().collect();
+    let Some(at) = words.iter().position(|w| !is_assignment(w)) else { return String::new() };
+    let program = words[at].trim_matches(|c| c == '\'' || c == '"');
+    let program = program.rsplit('/').next().unwrap_or(program);
+    let shell = matches!(program, "sh" | "bash" | "zsh" | "dash");
+    if let (true, Some(flag), Some(_)) = (shell, words.get(at + 1), words.get(at + 2)) {
+        if flag.starts_with('-') && flag.ends_with('c') {
+            let rest = words[at + 2..].join(" ");
+            return command_program(rest.trim_start_matches(['\'', '"']));
+        }
+    }
+    clip(program)
+}
+
+fn is_assignment(word: &str) -> bool {
+    word.split_once('=').is_some_and(|(name, _)| !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+}
+
+fn clip(text: &str) -> String {
+    let line = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if line.chars().count() <= TOOL_SUMMARY_CHARS {
         line
     } else {
@@ -444,6 +466,16 @@ pub mod fixtures {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tool_summary_names_the_file_or_program_but_never_the_arguments() {
+        assert_eq!(tool_summary(&json!({"command": "curl -H 'Authorization: Bearer sk-live-1' https://api.example.com"})), "curl");
+        assert_eq!(tool_summary(&json!({"command": "TOKEN=sk-live-1 /usr/bin/python3 run.py --key sk-live-1"})), "python3");
+        assert_eq!(command_program("/bin/bash -lc 'gh api -H \"Authorization: token x1\" /user'"), "gh");
+        assert_eq!(tool_summary(&json!({"file_path": "/work/note.txt", "content": "secret body"})), "/work/note.txt");
+        assert_eq!(tool_summary(&json!({"description": "count words", "prompt": "Count the words", "subagent_type": "general-purpose"})), "");
+        assert_eq!(tool_summary(&json!({"query": "private question", "url": "https://x.example/?token=1"})), "");
+    }
 
     #[test]
     fn the_python_classifiers_agree() {

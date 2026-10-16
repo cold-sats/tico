@@ -13,7 +13,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::ChildStdin;
 use tokio::sync::oneshot;
 
-use super::{event, failed, hub_mcp_server, is_limit, tool_summary, Events, HostError, Settings};
+use super::{command_program, event, failed, hub_mcp_server, is_limit, tool_summary, Events, HostError, Settings};
 use crate::env::Env;
 use crate::util::{iso, log, py_dumps, text_of};
 
@@ -31,21 +31,20 @@ const NOT_TOOLS: &[&str] = &[
     "enteredReviewMode", "exitedReviewMode", "contextCompaction", "sleep",
 ];
 
-/// A tool item's name and a one-line summary of what it acts on.
+/// A tool item's name and what it acts on: the files it changes or the program it runs, never its arguments.
 fn tool_of(item: &Value) -> (String, String) {
     let kind = item["type"].as_str().unwrap_or_default();
     let named = |key: &str| item[key].as_str().filter(|t| !t.is_empty()).unwrap_or(kind).to_string();
     match kind {
-        "commandExecution" => ("shell".into(), tool_summary(&item["command"])),
+        "commandExecution" => ("shell".into(), command_program(item["command"].as_str().unwrap_or_default())),
         "fileChange" => {
             let paths: Vec<&str> = item["changes"].as_array().into_iter().flatten().filter_map(|c| c["path"].as_str()).collect();
-            ("apply_patch".into(), tool_summary(&json!(paths.join(" "))))
+            ("apply_patch".into(), tool_summary(&json!({"path": paths.join(" ")})))
         }
-        "mcpToolCall" => (format!("mcp__{}__{}", text_of(&item["server"]), text_of(&item["tool"])), tool_summary(&item["arguments"])),
-        "dynamicToolCall" => (named("tool"), tool_summary(&item["arguments"])),
-        "collabAgentToolCall" => (named("tool"), tool_summary(&item["prompt"])),
-        "webSearch" => ("web_search".into(), tool_summary(&item["query"])),
-        "imageView" => ("view_image".into(), tool_summary(&item["path"])),
+        "mcpToolCall" => (format!("mcp__{}__{}", text_of(&item["server"]), text_of(&item["tool"])), String::new()),
+        "dynamicToolCall" | "collabAgentToolCall" => (named("tool"), String::new()),
+        "webSearch" => ("web_search".into(), String::new()),
+        "imageView" => ("view_image".into(), tool_summary(&json!({"path": item["path"]}))),
         _ => (kind.to_string(), String::new()),
     }
 }
@@ -278,13 +277,27 @@ impl CodexHost {
         let turn = p["turnId"].as_str().map(String::from);
         let (t, u) = (tid.as_deref(), turn.as_deref());
         match method {
+            "thread/started" => {
+                // A subagent's thread starts before any of its items, so its calls are known to be the parent's
+                // from the first one.
+                let thread = &p["thread"];
+                let spawned = &thread["source"]["subAgent"]["thread_spawn"]["parent_thread_id"];
+                let parent = thread["parentThreadId"].as_str().or(spawned.as_str()).unwrap_or_default();
+                let child = text_of(&thread["id"]);
+                if !parent.is_empty() && !child.is_empty() && child != parent {
+                    let mut children = self.0.children.lock().unwrap();
+                    let root = children.get(parent).cloned().unwrap_or_else(|| parent.to_string());
+                    children.insert(child, root);
+                }
+            }
             "turn/started" => {
                 let started = p["turn"]["id"].as_str().map(String::from);
+                if tid.as_ref().is_some_and(|tid| self.0.children.lock().unwrap().contains_key(tid)) {
+                    return; // a subagent's turn: the parent's turn is still the one running
+                }
                 if let (Some(tid), Some(s)) = (&tid, &started) {
                     self.0.active_turn.lock().unwrap().insert(tid.clone(), s.clone());
-                    if !self.0.children.lock().unwrap().contains_key(tid) {
-                        self.0.tools_sent.lock().unwrap().clear();
-                    }
+                    self.0.tools_sent.lock().unwrap().clear();
                 }
                 // `tool_events`: this run reports every tool call, so a run with none provably called none.
                 self.emit(event("status", t, started.as_deref(), json!({"state": "active", "tool_events": true})));
@@ -388,7 +401,7 @@ impl CodexHost {
                 }
             }
             "thread/goal/cleared" => self.emit(event("goal", t, None, json!({"status": "cleared", "note": ""}))),
-            _ => {} // thread/started, hook/*, mcpServer/*, turn/plan, warnings: nothing to do
+            _ => {} // hook/*, mcpServer/*, turn/plan, warnings: nothing to do
         }
     }
 
@@ -429,7 +442,7 @@ impl CodexHost {
                 return;
             }
             let subagent = json!({"id": child, "parent_id": sub, "type": item.get("agentPath").cloned().unwrap_or(Value::Null),
-                                  "description": Value::Null, "model": item.get("model").cloned().unwrap_or(Value::Null), "status": status});
+                                  "model": item.get("model").cloned().unwrap_or(Value::Null), "status": status});
             self.emit(event("tool", t, u, json!({"tool": "subagent", "status": status, "item_id": format!("agent:{child}"),
                                                  "parent_id": sub, "subagent": subagent})));
             return;
