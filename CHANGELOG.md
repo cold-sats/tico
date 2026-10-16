@@ -8,6 +8,10 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- A Claude or Codex run's steps now list its tool calls and its subagents. A subagent shows by its type, with the
+  calls it made indented under it; neither its prompt nor any call's arguments are shown. When such a run stops
+  partway without having called a tool, it now resumes plainly instead of being told to check what it already did,
+  because these runs report every call. Runs from a runner older than this release keep the cautious resume.
 - Settings > Computers shows Claude's and Codex's weekly and 5-hour usage as percentages on the computer's own login,
   not only on named subscriptions. Claude's come from its turns (Claude Code 2.1.30x reports both windows); before a
   Claude turn on that computer the row says so instead of a number. Codex's are read while idle, with the account, for
