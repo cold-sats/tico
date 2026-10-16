@@ -501,9 +501,9 @@ fn strip_credential_source(body: &mut Value) -> bool {
 }
 
 /// Take the signed-in accounts and 5-hour windows out of a heartbeat body: what a server from before #610 has no
-/// field for. True when there was one.
+/// field for, nor for the own login's usage windows. True when there was one.
 pub(crate) fn strip_accounts(body: &mut Value) -> bool {
-    let mut any = false;
+    let mut any = crate::readiness_extra::strip_runtime_usage(&mut body["readiness"]);
     for row in body["readiness"]["runtimes"].as_object_mut().into_iter().flat_map(|m| m.values_mut()).filter_map(|v| v.as_object_mut()) {
         any |= row.remove("account").is_some();
     }
@@ -801,7 +801,8 @@ mod tests {
 
     #[test]
     fn accounts_stay_here_until_the_server_takes_them() {
-        let mut body = json!({"readiness": {"runtimes": {"claude": {"installed": true, "account": {"email": "ops@acme.example"}}}},
+        let mut body = json!({"readiness": {"runtimes": {"claude": {"installed": true, "account": {"email": "ops@acme.example"},
+                                                               "weekly": {"used_percent": 17}, "five_hour": {"used_percent": 53}}}},
                               "profiles": [{"name": "acme", "runtimes": {"codex": {"signed_in": true, "weekly": {"used_percent": 3},
                                             "account": {"plan": "pro"}, "five_hour": {"used_percent": 9}}}}]});
         assert!(strip_accounts(&mut body) && !strip_accounts(&mut body));

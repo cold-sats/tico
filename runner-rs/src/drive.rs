@@ -160,9 +160,9 @@ impl Runner {
                     continue;
                 }
                 if kind == "rate_limits" && segment.billing == "subscription" {
-                    if let Some(profile) = &segment.profile {
-                        crate::profiles::remember_weekly(profile, &text_of(&segment.config["runtime"]), &event);
-                    }
+                    // No profile: the computer's own login ("").
+                    let profile = segment.profile.as_deref().unwrap_or_default();
+                    crate::profiles::remember_weekly(profile, &text_of(&segment.config["runtime"]), &event);
                 }
                 if kind == "goal" {
                     let continued = truthy(event.get("tried"));

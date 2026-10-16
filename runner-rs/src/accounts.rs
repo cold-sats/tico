@@ -159,8 +159,11 @@ pub fn refresh_in_background(profile: &str, runtime: &str, env: Env) {
     }
     let runtime = runtime.to_string();
     handle.spawn(async move {
-        if let Some(account) = read_app_server(&runtime, &env).await {
+        if let Some((account, limits)) = read_app_server(&runtime, &env).await {
             remember(&key.0, &key.1, account);
+            if let Some(limits) = limits {
+                crate::subscription_refresh::remember_windows(&key.0, &limits);
+            }
         }
         reading().lock().unwrap().remove(&key);
     });
@@ -188,8 +191,9 @@ fn app_server(exe: &std::path::Path, env: &Env) -> tokio::process::Command {
     cmd
 }
 
-/// One `account/read` on a fresh `<executable> app-server` in `env`.
-pub async fn read_app_server(runtime: &str, env: &Env) -> Option<Value> {
+/// One `account/read` on a fresh `<executable> app-server` in `env`, and for a ChatGPT login its plan usage
+/// (`account/rateLimits/read`, which reads and spends nothing; an API-key login has none and is not asked).
+pub async fn read_app_server(runtime: &str, env: &Env) -> Option<(Value, Option<Value>)> {
     let exe = crate::env::which(&crate::harness_tools::executable_for(runtime), &std::env::var("PATH").unwrap_or_default())?;
     let mut child = app_server(&exe, env).spawn().ok()?;
     let (mut stdin, stdout) = (child.stdin.take()?, child.stdout.take()?);
@@ -198,14 +202,20 @@ pub async fn read_app_server(runtime: &str, env: &Env) -> Option<Value> {
         crate::subscription_refresh::rpc(&mut stdin, &mut lines, 1, "initialize", json!({"clientInfo": {"name": "tico-keeper", "title": "Tico keeper", "version": "0.1"}})).await?;
         let note = json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}).to_string() + "\n";
         stdin.write_all(note.as_bytes()).await.map_err(|_| ())?;
-        crate::subscription_refresh::rpc(&mut stdin, &mut lines, 2, "account/read", json!({"refreshToken": false})).await
+        let account = from_app_server(&crate::subscription_refresh::rpc(&mut stdin, &mut lines, 2, "account/read", json!({"refreshToken": false})).await?).ok_or(())?;
+        let limits = if account["kind"] == "subscription" {
+            crate::subscription_refresh::rpc(&mut stdin, &mut lines, 3, "account/rateLimits/read", json!({})).await.ok()
+        } else {
+            None
+        };
+        Ok::<_, ()>((account, limits))
     }
     .await;
     drop(stdin);
     if tokio::time::timeout(Duration::from_secs(5), child.wait()).await.is_err() {
         let _ = child.kill().await;
     }
-    from_app_server(&reply.ok()?)
+    reply.ok()
 }
 
 #[cfg(test)]
@@ -283,7 +293,7 @@ mod tests {
         let env: Env = [("CODEX_HOME".to_string(), home.display().to_string()), ("PATH".to_string(), "/usr/bin:/bin".to_string())]
             .into_iter().collect();
         let account = tokio::runtime::Runtime::new().unwrap().block_on(read_app_server("codex", &env));
-        assert_eq!(account, Some(json!({"email": "ops@acme.example", "plan": "plus", "kind": "subscription"})));
+        assert_eq!(account.map(|a| a.0), Some(json!({"email": "ops@acme.example", "plan": "plus", "kind": "subscription"})));
         let state = home.join("app-server-state");
         assert_eq!(std::fs::read_to_string(&state).unwrap().trim(), "10003", "the reader's child ran as the bot user");
         assert_eq!(std::fs::symlink_metadata(&state).unwrap().uid(), 10003, "the bot user can change it on its next turn");

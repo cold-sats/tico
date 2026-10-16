@@ -452,6 +452,49 @@ def test_the_signed_in_account_reaches_readiness_without_anything_token_like(api
     assert "sk-ant-oat01" not in stored and "acme-org-0001" not in stored
 
 
+def runtime_row(api, computer):
+    with api.app.state.store.read() as c:
+        row = c.execute("SELECT readiness_json FROM runners WHERE id=?", (computer.registration["runner_id"],)).fetchone()
+    return json.loads(row[0] or "{}").get("runtimes", {}).get(computer.runtime, {})
+
+
+# The computer's own login's usage windows reach the heartbeat with their percentages: Claude's from its turns'
+# rate_limit_event (`unifiedWindows`), Codex's from the idle app-server read, with no turn spent to read them.
+@pytest.mark.parametrize("harness", ["claude", "codex"])
+def test_the_own_logins_usage_windows_reach_the_heartbeat_with_percentages(api, computer):
+    computer.start()
+
+    def windows():
+        row = runtime_row(api, computer)
+        got = tuple((row.get(w) or {}).get("used_percent") for w in ("five_hour", "weekly"))
+        return got if None not in got else None
+
+    if computer.runtime == "claude":
+        assert windows() is None, "Claude reads its usage only from a turn"
+        first = post(api, "chat/ops", {"text": "Please answer locally"})
+        until(lambda: reply_to(api, first["conversation_id"]), "the bot's reply")
+        assert until(windows, "Claude's windows in readiness", timeout=40) == (53, 17)
+        assert runtime_row(api, computer)["five_hour"]["status"] == "allowed"
+    else:
+        assert until(windows, "Codex's windows in readiness", timeout=40) == (40, 12)
+        assert not computer.prompts() and not any(c.get("method") == "turn/start" for c in computer.calls())
+        assert any(c.get("method") == "account/rateLimits/read" for c in computer.calls())
+    row = runtime_row(api, computer)
+    assert {"resets_at", "reported_at"} <= set(row["weekly"]) and row["account"]["plan"] in ("max", "pro")
+
+
+# An API-key Codex login has no plan usage: the server refuses to read it, so it is never asked.
+@pytest.mark.parametrize("harness", ["codex"])
+@pytest.mark.parametrize("setup", [{"env": {"FAKE_CODEX_LOGIN": "apikey"}}])
+def test_an_api_key_codex_login_is_never_asked_for_plan_usage(api, computer):
+    computer.start()
+    until(lambda: (runtime_row(api, computer).get("account") or {}).get("kind") == "api_key", "the API-key account", timeout=40)
+    time.sleep(2)  # a later heartbeat
+    row = runtime_row(api, computer)
+    assert "weekly" not in row and "five_hour" not in row
+    assert not any(c.get("method") == "account/rateLimits/read" for c in computer.calls())
+
+
 @pytest.mark.parametrize("harness", ["codex"])
 @pytest.mark.parametrize("setup", [{"bot": {"session": "task"}, "git": True, "registration": {"capacity": 4},
                                     "env": {"FAKE_SLOW": "4"}}])

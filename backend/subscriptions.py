@@ -73,10 +73,13 @@ def may_see_accounts(auth, who, runner):
     return who.role in ('human', 'owner') and (auth.bot_admin(who) or runner['operator'] == H.actor_id(who.actor))
 
 
-def without_accounts(runtimes):
+def without_accounts(runtimes, windows=False):
+    """Take the accounts out; with `windows`, the own login's usage windows on readiness runtime rows too."""
     for state in runtimes.values():
         if isinstance(state, dict):
             state.pop('account', None)
+            if windows:
+                state.pop('weekly', None), state.pop('five_hour', None)
     return runtimes
 
 

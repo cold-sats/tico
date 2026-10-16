@@ -8,6 +8,10 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- Settings > Computers shows Claude's and Codex's weekly and 5-hour usage as percentages on the computer's own login,
+  not only on named subscriptions. Claude's come from its turns (Claude Code 2.1.30x reports both windows); before a
+  Claude turn on that computer the row says so instead of a number. Codex's are read while idle, with the account, for
+  ChatGPT logins only; nothing is spent to read them. Shown to the same people as the account.
 - A task worktree whose cleanup stopped retrying has a **Retry cleanup** button in the task's Code list, for people
   who can move tasks. Fix what the refusal names first (the bot's write access, kept files); the button then asks
   the worktree's computer to clean it up again, with its usual save and safety checks. Before, this needed an API call.

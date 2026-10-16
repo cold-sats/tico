@@ -72,7 +72,7 @@ pub fn weekly(reply: &Value, now: f64) -> Value {
 
 /// Every window of a `account/rateLimits/read` reply, kept as a turn's would be (the 5-hour one included), with
 /// its plan.
-fn remember_windows(profile: &str, reply: &Value) {
+pub(crate) fn remember_windows(profile: &str, reply: &Value) {
     let buckets = &reply["rateLimitsByLimitId"];
     let bucket = if buckets.is_object() { &buckets["codex"] } else { &reply["rateLimits"] };
     if !bucket.is_object() || !(bucket["limitId"].is_null() || bucket["limitId"] == "codex") {

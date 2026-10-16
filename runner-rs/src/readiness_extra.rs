@@ -444,6 +444,12 @@ pub fn refused(detail: &str, readiness: &Value) -> Option<String> {
             return Some("readiness.goals".into());
         }
     }
+    // The computer's own login's usage windows, from before servers took them on a runtime row.
+    static USAGE: OnceLock<regex::Regex> = OnceLock::new();
+    let usage = USAGE.get_or_init(|| regex::Regex::new(r"readiness\.(?:StructuredReadiness\.)?runtimes\.[^ .:;]+\.(?:weekly|five_hour)(?:[.: ;]|$)").unwrap());
+    if extra && usage.is_match(detail) && runtime_usage(readiness) {
+        return Some("readiness.runtime_usage".into());
+    }
     static CMD: OnceLock<regex::Regex> = OnceLock::new();
     if CMD.get_or_init(|| regex::Regex::new(r"bots\.[^. :;]+\.commands").unwrap()).is_match(detail) && any("commands") {
         return Some("readiness.repo_commands".into());
@@ -485,8 +491,26 @@ pub fn refused(detail: &str, readiness: &Value) -> Option<String> {
     None
 }
 
+/// Whether a runtime row carries the computer's own login's usage windows.
+fn runtime_usage(readiness: &Value) -> bool {
+    readiness["runtimes"].as_object().into_iter().flat_map(|m| m.values()).any(|r| r.get("weekly").is_some() || r.get("five_hour").is_some())
+}
+
+/// Take the computer's own login's usage windows off every runtime row; whether there were any.
+pub fn strip_runtime_usage(readiness: &mut Value) -> bool {
+    let mut any = false;
+    for row in readiness["runtimes"].as_object_mut().into_iter().flat_map(|m| m.values_mut()).filter_map(|v| v.as_object_mut()) {
+        any |= row.remove("weekly").is_some();
+        any |= row.remove("five_hour").is_some();
+    }
+    any
+}
+
 /// Take a held-back readiness field out of a heartbeat body about to be sent again.
 pub fn drop_held(body: &mut Value) {
+    if crate::lanes::held_back("readiness.runtime_usage") {
+        strip_runtime_usage(&mut body["readiness"]);
+    }
     let readiness = &mut body["readiness"];
     for field in OPTIONAL {
         if crate::lanes::held_back(&format!("readiness.{field}")) {
@@ -555,6 +579,24 @@ mod tests {
         assert_eq!(refused("readiness.worktree_waits: Extra inputs are not permitted", &r).as_deref(), Some("readiness.worktree_waits"));
         assert_eq!(refused("readiness.worktrees: Extra inputs are not permitted", &r).as_deref(), Some("readiness.worktrees"));
         assert_eq!(refused("body: extra fields", &r).as_deref(), Some("readiness.worktree_waits"));
+    }
+
+    #[test]
+    fn an_older_server_loses_only_the_own_logins_usage_windows() {
+        let window = json!({"used_percent": 53.0, "resets_at": "2026-10-16T03:10:00+00:00", "reported_at": "2026-10-16T02:47:00+00:00", "status": "allowed"});
+        let mut body = json!({"readiness": {"recent_errors": ["x"], "bots": {},
+                              "runtimes": {"claude": {"installed": true, "account": {"plan": "max"}, "weekly": window, "five_hour": window},
+                                           "codex": {"installed": true}}}});
+        let detail = "body.readiness.StructuredReadiness.runtimes.claude.five_hour: Extra inputs are not permitted";
+        assert_eq!(refused(detail, &body["readiness"]).as_deref(), Some("readiness.runtime_usage"));
+        assert_eq!(refused("body.readiness.runtimes.claude.weekly: Extra inputs are not permitted", &body["readiness"]).as_deref(), Some("readiness.runtime_usage"));
+        // A server that takes them but refuses something else is not mistaken for one that refuses them.
+        assert_eq!(refused("readiness.recent_errors: Extra inputs are not permitted", &body["readiness"]).as_deref(), Some("readiness.recent_errors"));
+        crate::lanes::hold_back("readiness.runtime_usage");
+        drop_held(&mut body);
+        assert_eq!(body["readiness"]["runtimes"]["claude"], json!({"installed": true, "account": {"plan": "max"}}));
+        assert_eq!(refused(detail, &body["readiness"]), None, "nothing left to hold back");
+        crate::lanes::release("readiness.runtime_usage");
     }
 
     #[test]

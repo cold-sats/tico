@@ -13,14 +13,14 @@ def iso(delta=timedelta()):
     return (NOW + delta).isoformat()
 
 
-def beat(api, r, runtime_account=ACCOUNT, profile_account=None, five_hour=None, expected=200):
+def beat(api, r, runtime_account=ACCOUNT, profile_account=None, five_hour=None, expected=200, own=None):
     codex = {'signed_in': True, 'account': profile_account or {'email': 'dev@acme.example', 'plan': 'pro', 'kind': 'subscription'},
              'weekly': {'used_percent': 38, 'resets_at': iso(timedelta(days=2)), 'reported_at': iso()}}
     if five_hour is not None:
         codex['five_hour'] = five_hour
     body = {'version': 'test', 'platform': 'test', 'readiness': {
                 'schema_version': 1, 'bots': {},
-                'runtimes': {'claude': {'installed': True, 'authenticated': 'ready', 'account': runtime_account}}},
+                'runtimes': {'claude': {'installed': True, 'authenticated': 'ready', 'account': runtime_account, **(own or {})}}},
             'profiles': [{'name': 'acme', 'runtimes': {'codex': codex}},
                          {'name': 'beta', 'runtimes': {'codex': {'signed_in': False, 'account': {'email': 'old@acme.example'}}}}]}
     return post(api, 'runners/heartbeat', body, token=r['token'], expected=expected)
@@ -122,3 +122,50 @@ def test_a_window_longer_than_its_own_reads_unknown_never_a_value(api):
         assert codex['weekly']['used_percent'] == 38
     beat(api, r, five_hour={'used_percent': 9, 'resets_at': iso(timedelta(hours=5, minutes=9)), 'reported_at': iso()})
     assert machine(api, r, 'cara-test')['profiles'][0]['runtimes']['codex']['five_hour']['used_percent'] == 9
+
+
+def own_windows(weekly=None, five_hour=None):
+    return {'weekly': weekly or {'used_percent': 17, 'resets_at': iso(timedelta(days=3)), 'reported_at': iso(), 'status': None},
+            'five_hour': five_hour or {'used_percent': 53, 'resets_at': iso(timedelta(hours=3)), 'reported_at': iso(), 'status': 'allowed'}}
+
+
+def test_the_own_logins_windows_go_to_whoever_sees_its_account(api):
+    r = runner(api, operator='ana')
+    assign(api, r, 'ops')
+    beat(api, r, own=own_windows())
+    with api.app.state.store.transaction() as c:
+        c.execute('UPDATE runners SET accepts_member_bots=1 WHERE id=?', (r['runner_id'],))
+    claude = machine(api, r, 'ana-test')['readiness']['runtimes']['claude']
+    assert (claude['five_hour']['used_percent'], claude['weekly']['used_percent']) == (53, 17)
+    assert claude['five_hour']['status'] == 'allowed' and claude['account'] == ACCOUNT
+    owner = next(c for c in get(api, 'computers', 'ana-test')['computers'] if c['id'] == r['runner_id'])
+    assert owner['readiness']['runtimes']['claude']['weekly']['used_percent'] == 17
+    # Cara sees the computer, not its own login's account, so not its usage either.
+    other = next(c for c in get(api, 'computers', 'cara-test')['computers'] if c['id'] == r['runner_id'])
+    assert not {'account', 'weekly', 'five_hour'} & set(other['readiness']['runtimes']['claude'])
+    assert other['readiness']['runtimes']['claude']['authenticated'] == 'ready'
+
+
+def test_an_own_window_that_fails_its_checks_reads_unknown_and_the_heartbeat_still_counts(api):
+    r = runner(api, operator='cara')
+    good = own_windows()
+    bad = [{'five_hour': {**good['five_hour'], 'resets_at': iso(timedelta(hours=5, minutes=11))}},
+           {'weekly': {**good['weekly'], 'resets_at': iso(timedelta(days=8, minutes=1))}},
+           {'weekly': {**good['weekly'], 'used_percent': 150}},
+           {'five_hour': {**good['five_hour'], 'reported_at': iso(timedelta(hours=1))}},
+           {'weekly': {**good['weekly'], 'reported_at': 'yesterday'}},
+           {'five_hour': {**good['five_hour'], 'token': 'sk-ant-oat01-' + 'a' * 40}},
+           {'weekly': 'full'}]
+    for window in bad:
+        beat(api, r, own={**good, **window})
+        claude = machine(api, r, 'cara-test')['readiness']['runtimes']['claude']
+        (name,) = window
+        assert name not in claude, window
+        other = 'weekly' if name == 'five_hour' else 'five_hour'
+        assert claude[other]['used_percent'] == good[other]['used_percent'] and claude['account'] == ACCOUNT
+    # A reading with no percentage stays, as unknown: never 0 or 100.
+    beat(api, r, own=own_windows(five_hour={'used_percent': None, 'resets_at': iso(timedelta(hours=5, minutes=9)), 'reported_at': iso()}))
+    claude = machine(api, r, 'cara-test')['readiness']['runtimes']['claude']
+    assert claude['five_hour']['used_percent'] is None and claude['weekly']['used_percent'] == 17
+    with api.app.state.store.read() as c:
+        assert 'sk-ant-oat01' not in json.dumps([list(row) for row in c.execute('SELECT readiness_json FROM runners')])

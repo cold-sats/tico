@@ -640,17 +640,9 @@ impl ClaudeHost {
                         p.limit_text.get_or_insert_with(|| "Claude usage limit reached".into());
                     }
                 }
-                let window = match info["rateLimitType"].as_str() {
-                    Some("five_hour") => json!(300),
-                    Some("seven_day") => json!(7 * 24 * 60),
-                    _ => Value::Null,
-                };
-                self.emit(event(
-                    "rate_limits",
-                    Some(tid),
-                    Some(turn),
-                    json!({"used_percent": null, "window_minutes": window, "resets_at": iso(&info["resetsAt"]), "status": info.get("status").cloned().unwrap_or(Value::Null)}),
-                ));
+                for payload in rate_limit_windows(info) {
+                    self.emit(event("rate_limits", Some(tid), Some(turn), payload));
+                }
             }
             "result" => return true,
             _ => {}
@@ -778,6 +770,40 @@ impl ClaudeHost {
             p.stopper.terminate(STOP_TIMEOUT);
         }
     }
+}
+
+/// The usage windows of a `rate_limit_event` as `rate_limits` payloads. Claude Code 2.1.30x adds `unifiedWindows`
+/// (`five_hour`, `seven_day`), each with a `utilization` from 0 to 1; that field is undocumented, so a window whose
+/// utilization is missing or out of range reads unknown (null), never 0 or 100, and any other window name is left out.
+/// Without it (an older CLI) only `rateLimitType`'s window goes, with no percentage.
+fn rate_limit_windows(info: &Value) -> Vec<Value> {
+    let minutes = |name: &str| match name {
+        "five_hour" => Some(300),
+        "seven_day" => Some(7 * 24 * 60),
+        _ => None,
+    };
+    let named = info["rateLimitType"].as_str().unwrap_or_default();
+    let status = |name: &str, own: &Value| match own.as_str() {
+        Some(s) => json!(s),
+        None if name == named => info.get("status").cloned().unwrap_or(Value::Null),
+        None => Value::Null,
+    };
+    let mut out = vec![];
+    let mut covered = false;
+    for (name, window) in info["unifiedWindows"].as_object().into_iter().flatten() {
+        let Some(mins) = minutes(name).filter(|_| window.is_object()) else { continue };
+        let used = window["utilization"].as_f64().filter(|u| window["utilization"].is_number() && u.is_finite() && (0.0..=1.0).contains(u));
+        let reset = if window["resetsAt"].is_null() && name == named { &info["resetsAt"] } else { &window["resetsAt"] };
+        covered |= name == named;
+        out.push(json!({"used_percent": used.map(|u| (u * 10000.0).round() / 100.0), "window_minutes": mins,
+                        "resets_at": iso(reset), "status": status(name, &window["status"])}));
+    }
+    if !covered {
+        let window = minutes(named).map_or(Value::Null, |m| json!(m));
+        out.push(json!({"used_percent": null, "window_minutes": window, "resets_at": iso(&info["resetsAt"]),
+                        "status": info.get("status").cloned().unwrap_or(Value::Null)}));
+    }
+    out
 }
 
 /// Claude Code's own notice that the subscription is out of usage: an assistant message it writes itself
@@ -969,6 +995,35 @@ mod tests {
         let (got, _) = limit_turn(&format!("{overage}\n"), &format!("{result}\n"), false).await;
         assert!(got.iter().any(|e| e["kind"] == "turn_completed"), "{got:?}");
         assert!(!got.iter().any(|e| e["kind"] == "turn_failed"), "{got:?}");
+    }
+
+    #[test]
+    fn both_usage_windows_carry_their_percentage() {
+        // Claude Code 2.1.301's event, as read on a Max login (Oct 16 2026).
+        let info: Value = serde_json::from_str(r#"{"status":"allowed","resetsAt":1792120200,"rateLimitType":"five_hour","overageStatus":"rejected","isUsingOverage":false,
+            "unifiedWindows":{"five_hour":{"utilization":0.53,"resetsAt":1792120200},"seven_day":{"utilization":0.17,"resetsAt":1792440000}}}"#).unwrap();
+        let got = rate_limit_windows(&info);
+        assert_eq!(got, vec![
+            json!({"used_percent": 53.0, "window_minutes": 300, "resets_at": iso(&json!(1792120200)), "status": "allowed"}),
+            json!({"used_percent": 17.0, "window_minutes": 10080, "resets_at": iso(&json!(1792440000)), "status": null}),
+        ]);
+        assert_eq!(got[0]["resets_at"], "2026-10-16T03:10:00+00:00");
+        // Odd or missing utilization reads unknown, never 0 or 100; an unlabelled window is left out.
+        let odd = json!({"status": "allowed", "rateLimitType": "seven_day", "resetsAt": 1792440000,
+                         "unifiedWindows": {"five_hour": {"utilization": 1.5, "resetsAt": 1792120200}, "seven_day": {"utilization": "0.2"},
+                                            "seven_day_opus": {"utilization": 0.9, "resetsAt": 1792440000}, "monthly": {"utilization": 0.1}}});
+        let got = rate_limit_windows(&odd);
+        assert_eq!(got.len(), 2, "{got:?}");
+        assert!(got.iter().all(|w| w["used_percent"].is_null()), "{got:?}");
+        assert_eq!(got[1], json!({"used_percent": null, "window_minutes": 10080, "resets_at": iso(&json!(1792440000)), "status": "allowed"}));
+        for bad in [json!(-0.01), json!(null), json!(f64::MAX)] {
+            let one = rate_limit_windows(&json!({"unifiedWindows": {"five_hour": {"utilization": bad, "resetsAt": 1792120200}}}));
+            assert!(one[0]["used_percent"].is_null(), "{bad}");
+        }
+        assert_eq!(rate_limit_windows(&json!({"unifiedWindows": {"five_hour": {"utilization": 0}}}))[0]["used_percent"], 0.0);
+        // An older CLI: the one window it names, no percentage, as before.
+        let older = json!({"status": "allowed_warning", "rateLimitType": "five_hour", "resetsAt": 1792120200});
+        assert_eq!(rate_limit_windows(&older), vec![json!({"used_percent": null, "window_minutes": 300, "resets_at": iso(&json!(1792120200)), "status": "allowed_warning"})]);
     }
 
     #[test]

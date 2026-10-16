@@ -85,6 +85,7 @@ pub async fn runtime_readiness(runtime: &str, sign: &SignIn, client: &Client, as
         }
     } else if authenticated == "missing" {
         crate::accounts::forget(&account_key, runtime);
+        crate::profiles::forget_windows(&account_key, runtime);
     }
     row.insert("installed".into(), json!(exe.is_some()));
     row.insert("authenticated".into(), json!(authenticated));
@@ -267,19 +268,24 @@ pub async fn runtime_report(config: &Config, sign: &SignIn, client: &Client, ass
                 s.insert("detail".into(), json!(detail));
             }
         }
-        let row = if targets.len() == 1 && targets.contains_key("") {
-            targets.remove("").unwrap()
+        let (shown, mut row) = if targets.len() == 1 && targets.contains_key("") {
+            (String::new(), targets.remove("").unwrap())
         } else {
-            let worst = targets
+            let (name, worst) = targets
                 .iter()
                 .min_by_key(|(name, row)| (row["authenticated"] != "rejected", if row["authenticated"] == "rejected" { 0 } else { order(row) }, (*name).clone()))
-                .map(|(_, row)| row.clone())
-                .unwrap_or(Value::Null);
+                .map(|(name, row)| (name.clone(), row.clone()))
+                .unwrap_or_default();
             let mut row = worst.as_object().cloned().unwrap_or_default();
             row.insert("detail".into(), json!(joined(&targets)));
             row.insert("profiles".into(), Value::Object(targets));
-            Value::Object(row)
+            (name, Value::Object(row))
         };
+        // The computer's own login's usage windows, beside its ready sign-in; a row standing for a named profile has
+        // its windows in the profiles report instead.
+        if let Some(r) = row.as_object_mut().filter(|r| shown.is_empty() && r.get("authenticated") == Some(&json!("ready"))) {
+            r.extend(crate::profiles::windows("", runtime));
+        }
         report.insert(runtime.into(), row);
     }
     report

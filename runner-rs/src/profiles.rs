@@ -357,7 +357,7 @@ pub fn claude_token_cold(profile: Option<&Profile>) -> bool {
 }
 
 /// Usage window snapshots per (profile, runtime, window) (runner/subscription_usage.py Reports): non-secret. The
-/// window is `weekly` (10080 minutes) or `five_hour` (300).
+/// window is `weekly` (10080 minutes) or `five_hour` (300); profile "" is the computer's own login.
 fn weekly() -> &'static Mutex<HashMap<(String, String, &'static str), Value>> {
     static W: OnceLock<Mutex<HashMap<(String, String, &'static str), Value>>> = OnceLock::new();
     W.get_or_init(Default::default)
@@ -366,7 +366,7 @@ fn weekly() -> &'static Mutex<HashMap<(String, String, &'static str), Value>> {
 pub fn remember_weekly(profile: &str, runtime: &str, event: &Value) {
     // Only a runtime whose turns or refresh report a weekly window has one to keep.
     let weekly_usage = crate::harness_tools::caps(runtime, "").weekly_usage;
-    if profile.is_empty() || !["refresh", "turns"].contains(&weekly_usage.as_str()) {
+    if !["refresh", "turns"].contains(&weekly_usage.as_str()) {
         return;
     }
     if !event["plan_type"].is_null() {
@@ -392,6 +392,17 @@ pub fn remember_weekly(profile: &str, runtime: &str, event: &Value) {
     let status = event["status"].as_str().filter(|s| ["allowed", "allowed_warning", "rejected"].contains(s)).map_or(Value::Null, |s| json!(s));
     let now = crate::util::iso(&json!(crate::util::epoch_s()));
     weekly().lock().unwrap().insert((profile.into(), runtime.into(), window), json!({"used_percent": percent, "resets_at": reset, "reported_at": now, "status": status}));
+}
+
+/// The usage windows kept for `profile`'s `runtime` login, as `weekly` / `five_hour` fields.
+pub fn windows(profile: &str, runtime: &str) -> Map<String, Value> {
+    let weekly = weekly().lock().unwrap();
+    ["weekly", "five_hour"].into_iter().filter_map(|w| weekly.get(&(profile.to_string(), runtime.to_string(), w)).map(|v| (w.to_string(), v.clone()))).collect()
+}
+
+/// A signed-out login's windows go with it: the next sign-in may be someone else's.
+pub fn forget_windows(profile: &str, runtime: &str) {
+    weekly().lock().unwrap().retain(|(p, r, _), _| !(p == profile && r == runtime));
 }
 
 struct Cached {
@@ -545,6 +556,20 @@ mod tests {
         assert_eq!(acme.environment("claude", &Env::new())["HOME"], "/p/acme/claude");
         assert!(select(c, Some("sales"), None).unwrap().environment("claude", &Env::new()).is_empty());
         assert_eq!(missing(c, "gone"), "profile gone not on this computer");
+    }
+
+    #[test]
+    fn the_computers_own_login_keeps_its_windows_until_it_signs_out() {
+        let reset = crate::util::iso(&json!(crate::util::epoch_s() + 3600.0));
+        // "" is the computer's own login: AWS's bots run on it with no named profile.
+        remember_weekly("", "claude", &json!({"used_percent": 53.0, "window_minutes": 300, "resets_at": reset, "status": "allowed"}));
+        remember_weekly("", "claude", &json!({"used_percent": 17.0, "window_minutes": 10080, "resets_at": reset, "status": null}));
+        let own = windows("", "claude");
+        assert_eq!((own["five_hour"]["used_percent"].clone(), own["weekly"]["used_percent"].clone()), (json!(53.0), json!(17.0)));
+        assert_eq!(own["five_hour"]["status"], "allowed");
+        assert!(windows("", "codex").is_empty() && windows("other", "claude").is_empty());
+        forget_windows("", "claude");
+        assert!(windows("", "claude").is_empty());
     }
 
     #[test]

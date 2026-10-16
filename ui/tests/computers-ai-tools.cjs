@@ -2,7 +2,7 @@
 // account, and usage; a line per named subscription. Covers each sign-in state (signed in as <email> · <plan>, signed
 // out, login expired or rejected, checking, couldn't check with the time), real usage against unavailable usage (never
 // 0% or a full allowance), an account reading older than its refresh marked with when it was last checked, the 5-hour
-// window label, several profiles, a long version kept to its cell, revoked computers hidden by default, and no account
+// window label, the computer's own login's windows (and Claude's before its first turn here), several profiles, a long version kept to its cell, revoked computers hidden by default, and no account
 // where the server sent none. Every request is intercepted.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
@@ -22,7 +22,10 @@ const {html, uiFile} = require('./support/page.cjs');
       readiness: {
         runtimes: {
           claude: {installed: true, authenticated: 'ready', account: {email: 'chris@acme.example', plan: 'max', org: 'Acme', checked_at: at(-60000)}},
-          codex: {installed: true, authenticated: 'ready'},
+          // The computer's own Codex login, read while idle (runner-rs/src/accounts.rs): both windows with percentages.
+          codex: {installed: true, authenticated: 'ready',
+                  weekly: {used_percent: 12, resets_at: at(3 * 86400000), reported_at: at(-120000), status: null},
+                  five_hour: {used_percent: 40, resets_at: at(2 * 3600000), reported_at: at(-120000), status: null}},
           cursor: {installed: true, authenticated: 'missing', detail: 'Cursor login required'},
           musecode: {installed: true, authenticated: 'rejected', rejected_at: at(-600000), rejected_reason: 'The provider refused the login', credential_source: 'computer'},
           grok: {installed: true, authenticated: 'unknown'},
@@ -104,9 +107,15 @@ const {html, uiFile} = require('./support/page.cjs');
     assert.equal(await version.getAttribute('title'), '2026.10.14-941492e-long-build-suffix');
     assert.ok(await version.evaluate(el => el.scrollWidth > el.clientWidth), 'the long version is cut off, not widening the row');
 
-    // Usage: tools without provider data read unavailable; the computer's own login reports no window.
+    // Usage: tools without provider data read unavailable. Claude's own login has no reading before a turn here, and
+    // says where one will come from; never 0% or a full allowance.
     assert.equal((await cells(own('cursor')))[4], 'Usage unavailable');
-    assert.equal((await cells(own('claude')))[4], 'Weekly usage unavailable');
+    assert.equal((await cells(own('claude')))[4], 'Weekly usage unavailable · reported after a Claude Code turn on this computer');
+    assert.equal(await own('claude').locator('meter').count(), 0);
+    // The computer's own login reports its windows too: percentages and bars on its own row.
+    assert.match((await cells(own('codex')))[4], /^Weekly 88% left resets .* · as of 2m ago 5-hour window 60% left resets/);
+    assert.deepEqual(await own('codex').locator('meter').evaluateAll(m => m.map(x => [x.value, x.getAttribute('aria-label')])),
+      [[88, 'Codex Weekly: 88% left'], [60, 'Codex 5-hour window: 60% left']]);
 
     // Several profiles: one line each under the tool, with its own account and usage.
     const acmeCodex = table.locator('[data-machine-profile="acme"][data-machine-tool="codex"]');
@@ -134,6 +143,15 @@ const {html, uiFile} = require('./support/page.cjs');
     assert.deepEqual((await beta('codex')).slice(3), ["Couldn't check", 'Weekly usage unavailable']);
     const text = await table.innerText();
     assert.doesNotMatch(text, /\b0% left\b|\b100% left\b|\b0% used\b/, 'missing usage never reads as none or all left');
+
+    // After a Claude turn on this computer: its own login's windows, as Claude Code reports them (53% of five hours,
+    // 17% of the week used).
+    box.readiness.runtimes.claude.weekly = {used_percent: 17, resets_at: at(3 * 86400000), reported_at: at(-60000), status: null};
+    box.readiness.runtimes.claude.five_hour = {used_percent: 53, resets_at: at(3 * 3600000), reported_at: at(-60000), status: 'allowed'};
+    await page.evaluate(() => loadSettings());
+    await own('claude').locator('meter').first().waitFor();
+    assert.deepEqual(await own('claude').locator('meter').evaluateAll(m => m.map(x => x.value)), [83, 47]);
+    assert.doesNotMatch((await cells(own('claude')))[4], /reported after/);
 
     // Nothing the server did not send: without an account there is no email, only that it is not reported.
     box.readiness.runtimes.claude = {installed: true, authenticated: 'ready'};
