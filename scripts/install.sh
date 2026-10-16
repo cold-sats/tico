@@ -23,6 +23,8 @@
 # Everything after `--` goes to `tico setup` (python3 -m setup), so automation can answer its questions with flags
 # and environment variables (secrets only ever by environment). Exit codes: 0 done, 2 usage, 3 this computer does not
 # qualify, 4 download or checksum failed, 5 Docker or Python setup failed, 6 the wizard or the health check failed.
+# When it fails after the release is unpacked and there is a terminal, it asks whether to send the error to Tico
+# support (redacted; TICO_SUPPORT=off or the wizard's --no-support turns that off); the exit code stays the same.
 set -eu
 
 # The release workflow replaces the placeholder with the tag; on main it stays and the newest release is looked up.
@@ -64,11 +66,29 @@ RUNNER_NAME=
 SERVER_NETWORK=
 SCREEN=
 DIR_GIVEN=${TICO_INSTALL_DIR:+1}
+BUNDLED=
+SUPPORT_ASKED=
 
 say() { printf '%s\n' "$*"; }
 step() { printf '\n==> %s\n' "$*"; }
 warn() { printf 'warning: %s\n' "$*" >&2; }
-die() { code=$1; shift; printf 'error: %s\n' "$*" >&2; exit "$code"; }
+die() {
+  code=$1; shift
+  printf 'error: %s\n' "$*" >&2
+  case $code in 3|4|5|6) offer_support "$code" "$*" ;; esac
+  exit "$code"
+}
+
+# After a failure, the setup this run unpacked offers to send the error to Tico support (setup/support.py): only on a
+# terminal, at most once a run (a wizard that asked leaves the marker), and the exit code stays the failure's. Before
+# the bundle is unpacked there is no redaction to apply, so nothing is offered.
+offer_support() {
+  [ -n "$BUNDLED" ] && [ -f "$DIR/setup/support.py" ] && [ -f "$DIR/backend/redaction.py" ] || return 0
+  [ -z "$SUPPORT_ASKED" ] || [ ! -e "$SUPPORT_ASKED" ] || return 0
+  ( : </dev/tty ) 2>/dev/null || return 0
+  python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' 2>/dev/null || return 0
+  ( cd "$DIR" && TICO_SETUP_HOME="$DIR/.setup" python3 -m setup support --step "$1" --error "$2" </dev/tty ) || true
+}
 
 usage() {
   cat <<'EOF'
@@ -93,7 +113,8 @@ Usage: install.sh [options] [-- tico-setup flags]
   --server-network N with --runner on the server's own computer: join its Docker network N (usually tico_default) and
                      use --url http://server:8765, so the runner never goes through Cloudflare Access
   --screen           with --runner: offer this computer's screen to the web app (TICO_SCREEN=1 in .env; the
-                     server's Screen setting still decides who may open it)
+                     server's Screen setting still decides who may open it). A new runner offers it by default
+  --no-screen        with --runner: do not offer the screen (TICO_SCREEN=0 in .env)
   --help, -h         this text
 
 Run it again any time: with an existing .env it upgrades to --version or repairs and restarts, and leaves
@@ -123,6 +144,7 @@ while [ $# -gt 0 ]; do
     --server-network) [ $# -ge 2 ] || { usage >&2; die 2 "--server-network needs a value"; }; SERVER_NETWORK=$2; shift 2 ;;
     --server-network=*) SERVER_NETWORK=${1#--server-network=}; shift ;;
     --screen) SCREEN=1; shift ;;
+    --no-screen) SCREEN=0; shift ;;
     --yes|-y) YES=1; shift ;;
     --tunnel) TUNNEL=1; shift ;;
     --local) LOCAL=1; shift ;;
@@ -140,12 +162,14 @@ while [ $# -gt 0 ]; do
     *) usage >&2; die 2 "unknown option: $1" ;;
   esac
 done
+# The wizard's --no-support also keeps this script from offering.
+case " $* " in *" --no-support "*) TICO_SUPPORT=off; export TICO_SUPPORT ;; esac
 
 # The default runner is `tico-runner` in /opt/tico-runner. --name adds `tico-runner-<slug>` in /opt/tico-runner-<slug>.
 RUNNER_SLUG=
 RUNNER_PROJECT=tico-runner
 [ -z "$RUNNER_NAME" ] || [ -n "$RUNNER" ] || die 2 "--name goes with --runner."
-[ -z "$SCREEN" ] || [ -n "$RUNNER" ] || die 2 "--screen goes with --runner."
+[ -z "$SCREEN" ] || [ -n "$RUNNER" ] || die 2 "--screen and --no-screen go with --runner."
 if [ -n "$RUNNER_NAME" ]; then
   RUNNER_SLUG=$(printf '%s' "$RUNNER_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9][^a-z0-9]*/-/g; s/^-//; s/-$//' | cut -c1-32 | sed 's/-$//')
   printf '%s' "$RUNNER_SLUG" | grep -Eq '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$' || die 2 "--name needs letters or digits, such as --name mail."
@@ -357,6 +381,9 @@ fetch_bundle() {
   need_tool curl curl
   work=$(mktemp -d)
   trap 'rm -rf "$work"' EXIT
+  SUPPORT_ASKED=$work/support-asked
+  TICO_SUPPORT_ASKED=$SUPPORT_ASKED
+  export TICO_SUPPORT_ASKED
   trap 'exit 130' INT TERM
   bundle=tico-bundle-$VERSION.tar.gz
   base=$RELEASES/download/$VERSION
@@ -383,6 +410,7 @@ fetch_bundle() {
   as_root rm -rf "$DIR/setup"
   as_root tar -xzf "$work/$bundle" -C "$DIR" --no-same-owner
   printf '%s\n' "$VERSION" | as_root tee "$DIR/.bundle-version" >/dev/null
+  BUNDLED=1
   say "ok: unpacked into $DIR"
 }
 
@@ -428,7 +456,8 @@ run_wizard() {
   else
     keep=
     for v in TICO_OIDC_CLIENT_SECRET CLOUDFLARE_API_TOKEN CLOUDFLARE_TUNNEL_TOKEN OPENAI_API_KEY ANTHROPIC_API_KEY GEMINI_API_KEY \
-             LITESTREAM_ACCESS_KEY_ID LITESTREAM_SECRET_ACCESS_KEY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN; do
+             LITESTREAM_ACCESS_KEY_ID LITESTREAM_SECRET_ACCESS_KEY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN \
+             TICO_SUPPORT TICO_SUPPORT_ASKED TICO_HQ_URL; do
       eval "[ -n \"\${$v:-}\" ]" && keep="$keep,$v"
     done
     # sudo drops the environment, so the secrets the caller set are kept by name; their values never reach a command line.
@@ -492,6 +521,8 @@ runner_env() {
       printf 'TICO_CODE=%s\n' "$RUNNER_CODE"
       printf 'TICO_RUNNER_LABEL="%s"\n' "$RUNNER_LABEL"
       printf 'TICO_TAG=%s\nTICO_UPDATER_TAG=%s\n' "$VERSION" "$VERSION"
+      # A new runner offers its screen unless --no-screen; the server's Screen setting decides who may open it.
+      printf 'TICO_SCREEN=%s\n' "${SCREEN:-1}"
       [ -z "$volume_line" ] || printf '%s\n' "$volume_line"
     } > "$env_tmp" )
   as_root install -m 0600 "$env_tmp" "$DIR/.env"
@@ -558,8 +589,10 @@ run_runner() {
   fi
   if [ -n "$SCREEN" ]; then
     # The runner image has the display and VNC programs; the runner starts them while TICO_SCREEN is 1.
-    as_root sh -c "umask 077; { grep -v '^TICO_SCREEN=' '$DIR/.env' || true; echo TICO_SCREEN=1; } > '$DIR/.env.new' && mv '$DIR/.env.new' '$DIR/.env'"
-    say "Screen on: TICO_SCREEN=1 in $DIR/.env (set it to 0 to turn it off)."
+    as_root sh -c "umask 077; { grep -v '^TICO_SCREEN=' '$DIR/.env' || true; echo TICO_SCREEN=$SCREEN; } > '$DIR/.env.new' && mv '$DIR/.env.new' '$DIR/.env'"
+  fi
+  if as_root grep -qx 'TICO_SCREEN=1' "$DIR/.env"; then
+    say "Screen on: TICO_SCREEN=1 in $DIR/.env (set it to 0, or run again with --no-screen, to turn it off)."
   fi
   # The bare container has the name compose wants; the volume it used stays.
   if [ -z "$RUNNER_SLUG" ] && as_root docker container inspect tico-runner >/dev/null 2>&1 \
@@ -598,7 +631,7 @@ if [ -n "$DOCKER_ONLY" ]; then ensure_docker; say "Docker is ready."; exit 0; fi
 resolve_version
 ensure_docker
 say "Installing Tico $VERSION into $DIR"
-say "Tico counts active installs anonymously (a random ID, version, and two yes/no activity flags). Turn off: Settings > Privacy or TICO_TELEMETRY=off."
+say "Tico counts active installs anonymously (a random ID, version, and three yes/no activity flags). Turn off: Settings > Privacy or TICO_TELEMETRY=off."
 say "Details: PRIVACY.md in the Tico repository."
 
 if [ -f "$DIR/.env" ]; then

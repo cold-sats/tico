@@ -53,3 +53,20 @@ def test_artifacts_keep_only_bounded_owned_log_tails(tmp_path):
     with gate.open('w+b') as stream:
         check.log_line(stream, 'b' * (check.LOG_LIMIT + 123))
     assert gate.stat().st_size <= check.LOG_LIMIT
+
+
+def test_each_vm_runs_its_slice_and_an_older_candidate_runs_whole_on_the_product_vm(tmp_path):
+    (tmp_path / 'scripts').mkdir()
+    gate = tmp_path / 'scripts/release_checks.py'
+    base = [check.sys.executable, 'scripts/release_checks.py', '--release', '--previous', 'v0.3.50']
+    gate.write_text("parser.add_argument('--part', choices=PARTS)")
+    assert check.gate_command(tmp_path, 'v0.3.50', None, None) == base
+    assert check.gate_command(tmp_path, 'v0.3.50', 'browser', None) == base + ['--part', 'browser']
+    assert check.gate_command(tmp_path, 'v0.3.50', 'python', '2/4') == base + ['--part', 'python', '--shard', '2/4']
+    for part, shard in (('browser', '1/4'), ('python', '1/4;rm'), ('other', None)):
+        with pytest.raises(RuntimeError):
+            check.gate_command(tmp_path, 'v0.3.50', part, shard)
+    gate.write_text('# frozen before split gates; mentions --part only in prose')
+    assert check.gate_command(tmp_path, 'v0.3.50', 'product', None) == base
+    assert check.gate_command(tmp_path, 'v0.3.50', 'python', '1/4') is None
+    assert check.gate_command(tmp_path, 'v0.3.50', 'browser', None) is None

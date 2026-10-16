@@ -77,7 +77,7 @@ a Claude sign-in for Claude Code, or an API key ([Harnesses](harnesses.md)). No 
 4. **Review the draft.** When it finishes, the bot marks the task **Done** with a note, and the draft file (`post.md`, from its
    `reports/` folder) is on the task. Read it. To change something, comment on the task and the bot revises it.
 5. **Close the task.** The bot marks its work Done; it cannot accept its own result. You asked for it, so you close it:
-   press **Close** on the task (or **Close task** in its menu).
+   press **Close task** at the top of the task (it is also in its **…** menu).
 
 Success: a draft file on the task, read by a person, and a task its requester closed, with the computer online and no blocking
 Health issue.
@@ -289,7 +289,8 @@ Credentials never appear on the command line, in the plan, in logs or in the rep
   Launch it in a public subnet (or fix the route), and Let's Encrypt can then reach it.
 - **A port is in use.** The installer stops before changing anything; free the port or use `--tunnel`.
 - **Check again later:** `cd /opt/tico && sudo ./scripts/tico-setup doctor --domain tico.example.com` re-runs the checks
-  with a fix for each failure.
+  with a fix for each failure. When a check fails, it offers to send the failures to Tico support and prints a link
+  where the reply shows up ([support.md](support.md#reach-us-from-anywhere)); `--no-support` skips the question.
 
 ### Automation
 
@@ -590,16 +591,21 @@ instance metadata hop limit at 1 for runner computers too.
 
 ### Screen
 
-A Linux runner can offer its screen to the web app, so people can watch bots work in a headed browser and, if
-allowed, take control. It is off until you turn it on on the computer itself:
+> **Beta**: a computer's screen (View and Control) works today and may still change. See [Beta features](support.md#beta-features).
 
-- Docker: `install.sh --runner --screen` (or `tico setup runner --screen`, or `TICO_SCREEN=1` in the cloud-init
-  inputs) puts `TICO_SCREEN=1` in the runner's `.env`; add that line by hand and run `docker compose up -d` to turn it
-  on later, or set it to `0` to turn it off.
+A Linux runner can offer its screen to the web app, so people can watch bots work in a headed browser and, if
+allowed, take control. The computer itself decides whether it offers one:
+
+- Docker: a new runner offers it. `install.sh --runner` (and `tico setup runner`, and the cloud-init template) writes
+  `TICO_SCREEN=1` in the runner's `.env`; `--no-screen` (or `TICO_SCREEN=0` in the cloud-init inputs) writes `0`
+  instead. To change it later, edit that line and run `docker compose up -d`. A runner installed before this default
+  has no such line and keeps its screen off until you add `TICO_SCREEN=1` (or run `install.sh --runner --screen`).
 - A Linux checkout: `sudo apt-get install xvfb x11vnc matchbox-window-manager`, then `scripts/tico screen on`
   (`screen off` and `screen status` too; a running runner follows within seconds).
 
-Then choose **Screen** (Off, View or Control) for that computer in **Settings > Computers**. The runner runs a virtual
+The first time a new computer offers its screen, its **Screen** setting in **Settings > Computers** starts at **View**, so
+its operator and admins can watch it; choose **Control** there to drive it, or **Off**. A setting someone already chose
+stays, and a computer added before this default keeps its setting. The runner runs a virtual
 display (`:99`, 1440x900) and gives bots `DISPLAY=:99`; its VNC servers listen on no network port (only on
 sockets in a directory bots cannot open), and the server relays each session. Anyone allowed to open the screen sees everything on that display, including what a bot types into a page,
 and with Control can use it. All bots on one computer share one display. A Mac reports "Linux only for now".
@@ -629,6 +635,16 @@ after updating, so they run `backend.server` rather than a direct Uvicorn listen
 use that entry point. The server creates a fresh private control secret and allocated loopback ports
 on every start; no relay option or manually managed secret is required. The public listener refuses
 `/control/*` and `/_tico/*`. If either server process exits, its supervisor restarts the pair.
+
+The standard Compose file's front doors (Caddy, cloudflared) reach the server over their own `edge` network from
+fixed addresses, and the server trusts forwarded client addresses only from those two and loopback, so each visitor
+keeps their own rate limit with no change to `compose.yaml`. If `172.30.254.0/28` clashes with a network on your
+computer, move it with `TICO_EDGE_SUBNET`, `TICO_EDGE_DYNAMIC_RANGE`, `TICO_CADDY_ADDRESS` and
+`TICO_CLOUDFLARED_ADDRESS` in `.env`; an update that hits the clash rolls back and its message names these
+settings. After setting them, run `docker compose up -d` (or update again). Docker keeps an existing network's
+subnet, so to move an edge network that was already created, run `docker compose down` once first. With your own reverse proxy, set `TICO_TRUSTED_PROXIES` to its addresses plus
+loopback. `TICO_CLIENT_IP_HEADER` defaults to `x-forwarded-for`; use `cf-connecting-ip` only when cloudflared is
+the only trusted ingress. See [public roadmaps](roadmaps.md#client-addresses-behind-a-proxy).
 
 Former pilot installations should stop their own `screen-proxy` and `screen-relay` services and
 return to the standard Compose file. The old overlay is an empty compatibility file. For a manually
@@ -665,6 +681,8 @@ each side job exits and restarts when it sees the checkout move to another revis
 keeps old code in memory. `scripts/tico restart` does the same by hand.
 
 ### Windows PC (WSL 2)
+
+> **Beta**: Windows computers through WSL 2 work today and may still change. See [Beta features](support.md#beta-features).
 
 A Windows PC runs the Linux runner inside WSL 2. Choose **Windows** in Add computer and paste the line it shows into
 PowerShell opened **as administrator**:

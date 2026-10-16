@@ -1,5 +1,7 @@
 # Tico desktop app
 
+> **Beta** on Mac: the Mac app stays Beta until it is signed ([#45](https://github.com/ticoteam/tico/issues/45)); the Windows and Linux apps are not Beta. See [Beta features](support.md#beta-features).
+
 Download **Tico** from your server's **Download for Mac**, **Download for Windows** or
 **Download for Linux** link, or from the [latest GitHub release](https://github.com/ticoteam/tico/releases/latest).
 The same app connects to any Tico server.
@@ -19,6 +21,10 @@ Use **Change server…** in the generic app's menu to connect to another server.
 The app saves the address and restarts automatically to replace its native permissions.
 Only the selected server's origin can use native IPC; Access and external sign-in pages that
 remain in the window receive no native permissions.
+
+Links to other sites, and any link that would open a new tab (links in chat and Markdown), open in your
+default browser, and email links in your mail app. Cloudflare Access and Google sign-in stay in the app
+window. Your team's own files and run logs open in a separate app window, so they keep the app's sign-in.
 
 Tico is one ordinary window with the Mac's own title bar: drag it by its title on any page and
 resize it from any edge, down to 360 by 400 pixels. At 760 pixels wide or less the page switches to its

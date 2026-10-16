@@ -101,6 +101,25 @@ def native_binaries(root):
     return result
 
 
+PARTS = ("product", "python", "browser")
+
+
+def gate_command(root, previous, part, shard):
+    """The candidate's own gate command for this VM's slice, or None when another VM covers it.
+
+    A candidate frozen before `--part` existed runs its whole unchanged gate on the product VM; the other VMs then
+    have nothing of their own to check."""
+    require(part in PARTS or part is None, "unknown gate part")
+    require(shard is None or (part == "python" and re.fullmatch(r"[1-9][0-9]*/[1-9][0-9]*", shard)),
+            "a shard must be K/N and only for the python part")
+    command = [sys.executable, "scripts/release_checks.py", "--release", "--previous", previous]
+    if part is None:
+        return command
+    if "add_argument('--part'" not in (root / "scripts/release_checks.py").read_text():
+        return command if part == "product" else None
+    return command + ["--part", part] + (["--shard", shard] if shard else [])
+
+
 def collect(temp, report):
     """Only bounded text logs from this gate's own temp directory, never home/config/DB."""
     budget = 50 * 1024 ** 2
@@ -131,6 +150,8 @@ def log_line(log, line):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("prepare", "run", "collect"))
+    parser.add_argument("--part", choices=PARTS, help="run: this VM's slice of the candidate's gate")
+    parser.add_argument("--shard", help="run --part python: file group K/N")
     args = parser.parse_args()
     hosted(os.environ)
     sha, previous = inputs(os.environ)
@@ -148,7 +169,7 @@ def main():
                "cpu_count": os.cpu_count(), "started_unix": time.time(), "mode": args.mode,
                "test_settings": {name: os.environ.get(name) for name in
                                  ("TICO_PYTHON_WORKERS", "TICO_UI_JOBS", "TICO_UI_SLOWDOWN", "TICO_BROWSER_CHANNEL")},
-               "gate_started": False, "success": False}
+               "part": args.part, "shard": args.shard, "gate_started": False, "success": False}
     gate_clock = None
     def checkpoint():
         (report / (args.mode + ".json")).write_text(json.dumps(receipt, indent=2) + "\n")
@@ -162,12 +183,17 @@ def main():
         if args.mode == "prepare":
             receipt["success"] = True
             return 0
-        receipt["native_binaries"] = native_binaries(root)
+        command = gate_command(root, previous, args.part, args.shard)
+        if command is None:
+            receipt.update({"gate_state": "covered elsewhere", "success": True,
+                            "note": "candidate predates split gates; the product VM runs its whole gate"})
+            print("This candidate predates split gates; the product VM runs its whole unchanged gate.", flush=True)
+            return 0
         gate_temp = temp / "tico-release-gate"
         gate_temp.mkdir(mode=0o700, exist_ok=True)
+        receipt["native_binaries"] = native_binaries(root)
         env = {**os.environ, "TMPDIR": str(gate_temp),
                "TICO_SCREEN_RELAY_BIN": receipt["native_binaries"]["relay"]["path"]}
-        command = [sys.executable, "scripts/release_checks.py", "--release", "--previous", previous]
         receipt.update({"command": command, "gate_start_requested": True, "gate_state": "starting"})
         checkpoint()  # Survives timeout/cancellation even when the finalizer cannot run.
         gate_clock = time.monotonic()

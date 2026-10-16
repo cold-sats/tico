@@ -108,6 +108,9 @@ def create_app(settings=None):
         from concurrent.futures import ThreadPoolExecutor
         asyncio.get_running_loop().set_default_executor(ThreadPoolExecutor(max_workers=64, thread_name_prefix="tico"))
         store.initialize()
+        # Files go to the company's own bucket from the first request, when the owner set one.
+        from . import company_storage
+        company_storage.startup(store, app.state.vault, app.state.blobs)
         asyncio.get_running_loop().run_in_executor(None, auth.warm)   # Cloudflare's keys, before anyone signs in
         # A company from before the Librarian was built in gets it on update, once it can run it.
         try:
@@ -381,6 +384,9 @@ def create_app(settings=None):
             # them onto the static files ("/download/../index.html").
             if any(part in (".", "..") for part in request.url.path.split("/")):
                 raise Problem("not_found", "Not found", 404)
+            if request.url.path.startswith('/public/roadmaps/'):
+                from .public_roadmaps import guard as public_roadmap_guard
+                return await public_roadmap_guard(request, call_next, store)
             if request.url.path == "/healthz":
                 return await call_next(request)
             if request.url.path == "/_tico/screen/v1/authorize":
@@ -892,6 +898,8 @@ def create_app(settings=None):
         if c is not None:
             value["relations"] = TR.grouped(c, [row["id"]], visible_sql)[row["id"]]
             value["roles"] = TRo.roles_of(c, row["id"])
+            from .roadmaps import stats, EMPTY_STATS
+            value.update({**EMPTY_STATS, **stats(c, [row['id']]).get(row['id'], {})})
             routine = c.execute('SELECT schedule_id FROM schedule_occurrences WHERE task_id=?', (row['id'],)).fetchone()
             if routine:
                 value.update(routine_id=routine['schedule_id'])
@@ -922,6 +930,10 @@ def create_app(settings=None):
             return []
         H.hydrate_task_tags(c, rows)
         ids = [row["id"] for row in rows]
+        from .roadmaps import stats, EMPTY_STATS
+        requester_stats = stats(c, ids)
+        for row in rows:
+            row.update({**EMPTY_STATS, **requester_stats.get(row['id'], {})})
         marks = ",".join("?" * len(ids))
         from .task_review import task_covers
         covers = task_covers(c, ids)
@@ -2395,8 +2407,11 @@ def create_app(settings=None):
                 # A board or a bot's task list polling many tasks needs neither their text nor their criteria.
                 if brief:
                     for row in rows:
-                        for field in ("body", "acceptance_criteria", "acceptance_json"):
+                        for field in ("body", "acceptance_criteria", "acceptance_json", "public_title", "public_summary",
+                                      "requester_count", "external_requesters", "internal_requesters", "important_requesters", "organization", "size"):
                             row.pop(field, None)
+                        if isinstance(row.get("step"), dict):
+                            row["step"].pop("public_name", None)
             if changed_after is not None:
                 found = reads.changed(c, changed_after, visible_sql)
                 ids = reads.around(c, found[0]) if found else []
@@ -2573,13 +2588,27 @@ def create_app(settings=None):
                     "events": [e for e in H.task_history(c, tid) if privacy.content_readable(c, privacy.actor(who), e)],
                     "can_comment": can_comment,
                     "children": children,
-                    "comments": H.task_comments(c, tid, actor=privacy.actor(request.state.identity)),
+                    # The task page reads as its session's chat: each bot reply carries the run behind it (`run`,
+                    # the steps one click away) and `execution` is the owner's run while it works.
+                    "comments": turn_work.annotate(c, auth, who, H.task_comments(c, tid, actor=privacy.actor(who))),
+                    "execution": task_execution(c, who, row),
                     "mover": mover(c, request.state.identity),
                     "waiting_for": task_wait(c, tid, settings),
                     "runs": task_runs(c, who, tid),
                     # The model a bot's check subtask runs on (backend/check_models.py), or null.
                     "check_model": H.check_model(c, tid),
                     **privacy.page(c, who, row["conversation_id"], task_id=tid)}
+
+    def task_execution(c, who, row):
+        """The owning bot's newest run in the task's own room, as a conversation snapshot shows it, or None. A task
+        still in a chat room (a person's task, or one filed into a chat before task rooms) shows none: that room's
+        runs are the chat's, and reading the task does not let one read the chat."""
+        cid, owner = row["conversation_id"], str(row["owner"] or "")
+        room = H.conversation(c, cid) if cid else None
+        if not room or room.get("task_id") != row["id"] or not owner.startswith("bot:"):
+            return None
+        from .views import conversation_execution
+        return conversation_execution(c, cid, who, settings, bot=owner.removeprefix("bot:"))
 
     def task_runs(c, who, tid, limit=200):
         """The runs that worked this task, each with the model that actually ran it (`ran_on`). A review that
@@ -2693,7 +2722,8 @@ def create_app(settings=None):
         if private and actual_bot and actual_bot not in (requester_actor or who.actor, owner):
             raise Problem("privacy", "The acting bot must be a current participant of the private task", 403)
         row = H.task_create(c, who.actor, body.title, body.body, owner, body.due, parent_id,
-                            requester_actor=requester_actor,
+                            requester_actor=requester_actor, visibility=body.visibility,
+                            public_title=body.public_title, public_summary=body.public_summary,
                             private=private, conversation_id=rooms.task_conversation_id(c, auth, owner, who.actor),
                             lane=body.lane, labels=body.labels, top=body.top, lint=lint,
                             goal_id=body.goal_id, next_run=body.next_run, type=body.type, step=body.step,
@@ -2779,7 +2809,7 @@ def create_app(settings=None):
             if body.close:
                 if any(v is not None for v in (body.title, body.status, body.owner, body.due, body.body, body.lane,
                                                body.labels, body.waiting_on, body.rank, body.roles,
-                                               body.goal_id, body.type, body.step, body.step_rank, body.number, body.private)):
+                                               body.goal_id, body.type, body.step, body.step_rank, body.number, body.private, body.visibility, body.public_title, body.public_summary, body.size)):
                     raise Problem("close", "Close and edit are separate operations", 422)
                 note = body.note or ""
                 if (note.strip() and getattr(who, "via", "") == "botops" and who.actor != "bot:" + BOTOPS
@@ -2792,6 +2822,8 @@ def create_app(settings=None):
                 warnings = None
             else:
                 fields = body.model_dump(exclude={"version", "close", "on_behalf_of"})
+                if "size" in body.model_fields_set and body.size is None:
+                    fields["clear_size"] = True
                 warnings = H.task_update(c, who.actor, task_id, **fields, mover=mover(c, who) or None).get("warnings")
             c.execute("UPDATE tasks SET version=version+1 WHERE id=?", (task_id,))
             return {"task": task_view(H.task(c, task_id), c, visible_sql=auth.task_sql(c, who), who=who),
@@ -2890,7 +2922,7 @@ def create_app(settings=None):
                 wake = who.role == "bot" or who.actor in (row["owner"], row["requester"]) or moves
             else:
                 wake = H.comment_wakes(c, who.actor, row, body.text, mover=moves)
-            msg = H.task_comment(c, who.actor, task_id, body.text, wake=wake, ask=ask,
+            msg = H.task_comment(c, who.actor, task_id, body.text, wake=wake, ask=ask, public=body.public, approval_id=body.approval_id,
                                  extra_refs={"attachments": attached, "files": [a["ref"] for a in attached]} if attached else None)
             for person in people:
                 H.task_comment(c, who.actor, task_id, body.text, wake=False, ask=H.mention_ask(body.text, person))
@@ -2992,7 +3024,7 @@ def create_app(settings=None):
             row = own_comment(c, who, tid, mid)
             from .task_review import comment_rights
             comment_rights(c, auth, who, row["id"])
-            msg = H.task_comment_edit(c, who.actor, row["id"], mid, body.text)
+            msg = H.task_comment_edit(c, who.actor, row["id"], mid, body.text, approval_id=body.approval_id)
             return {"comment": msg, "comments": H.task_comments(c, row["id"], actor=privacy.actor(request.state.identity)), "woke": False}
         return mutate(request, body, work, check=lambda c: own_comment(c, who, tid, mid, allow_deleted=True))
 
@@ -3005,6 +3037,26 @@ def create_app(settings=None):
             msg = H.task_comment_delete(c, who.actor, row["id"], mid)
             return {"comment": msg, "comments": H.task_comments(c, row["id"], actor=privacy.actor(request.state.identity)), "woke": False}
         return mutate(request, body, work, check=lambda c: own_comment(c, who, tid, mid, allow_deleted=True))
+
+    @app.post("/api/v2/tasks/{tid}/comments/{mid}/resolve")
+    def task_ask_resolve(request: Request, tid: str, mid: str, body: M.TaskAskResolve):
+        """Settle an open question answered somewhere else (its asker or the task's owner bot, quoting the
+        person), or withdraw it (its asker). It leaves every Needs you list; it wakes nobody."""
+        who = request.state.identity
+        def readable(c):
+            task_id = auth.resolve_task(c, who, tid)
+            row = auth.task(c, who, task_id)
+            asked = H.comment_on(c, row, mid)
+            if not asked or asked.get("deleted_at") or asked["kind"] != "ask":
+                raise Problem("not_found", "No such question on this task", 404)
+            privacy.require_message(c, who, asked)
+            return row
+        def work(c):
+            row = readable(c)
+            out = H.task_ask_resolve(c, who.actor, row["id"], mid, body.quote)
+            return {"comment": out["answer"] or out["ask"],
+                    "comments": H.task_comments(c, row["id"], actor=privacy.actor(who)), "woke": False}
+        return mutate(request, body, work, check=readable)
 
     @app.post("/api/v2/tasks/{tid}/delete")
     def task_delete(request: Request, tid: str, body: M.Empty):
@@ -4473,9 +4525,8 @@ def create_app(settings=None):
         return (Path(__file__).resolve().parents[1] / "skills" / "tico-sync" / "SKILL.md").read_text()
 
     def client_address(request):
-        """Who is asking, for the pairing rate limit: the address the front door saw, else the connection's."""
-        forwarded = request.headers.get("cf-connecting-ip") or request.headers.get("x-forwarded-for", "").split(",")[-1]
-        return (forwarded or (request.client.host if request.client else "")).strip() or "unknown"
+        from .client_ip import client_ip, ip_bucket
+        return ip_bucket(client_ip(request, settings))
 
     # Pairing (docs/hermes-agents.md): the first two calls need no sign-in; approving and declining are a person's,
     # or BotOps's as the person who asked it.
@@ -4870,6 +4921,10 @@ def create_app(settings=None):
     from .views import install_views
     from .task_types import install_task_types
     install_task_types(app, store, auth, mutate, mover)
+    from .roadmaps import install_internal
+    install_internal(app, store, auth, mutate, mover)
+    from .public_roadmaps import install as install_public_roadmaps
+    install_public_roadmaps(app, store, auth, mutate)
     from .service_keys import install_service_keys
     install_service_keys(app, store, auth, mutate)
     install_views(app, store, auth, mutate, task_view)
@@ -4917,6 +4972,8 @@ def create_app(settings=None):
     from .credentials import install_credentials
     install_credentials(app, store, delegate=delegated_identity, propose=propose_card)
     install_credential_cards(app, store, app.state.vault, auth, BOTOPS, delegated_identity, settings_admin._manager)
+    from . import company_storage
+    company_storage.install(app, store, auth)
     from .sql import install_sql
     install_sql(app, store, auth)
     from .judge import install_judge

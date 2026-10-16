@@ -655,6 +655,15 @@ CREATE TABLE IF NOT EXISTS task_check_models (
   harness TEXT NOT NULL, effort TEXT NOT NULL DEFAULT '', role TEXT NOT NULL, created_by TEXT, created TEXT);
 """
 
+# What the Goal Manager has asked a person on the Goals page's behalf (backend/goal_asks.py): one row per
+# KPI or proposal, kind and person, naming the task that asks it; append to preserve existing installations.
+GOAL_ASKS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS goal_asks (
+  kind TEXT NOT NULL, ref TEXT NOT NULL, owner TEXT NOT NULL, task_id TEXT NOT NULL, created TEXT NOT NULL,
+  PRIMARY KEY (kind, ref, owner));
+CREATE INDEX IF NOT EXISTS goal_asks_task ON goal_asks(task_id);
+"""
+
 MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes user_version from i
               MEETING_BRAIN_SCHEMA, MEETING_COMMENTS_SCHEMA,  # to i+1; append, never edit
               GOALS_SCHEMA, RECORDING_SOURCES_SCHEMA, MARKET_SCHEMA,
@@ -664,7 +673,7 @@ MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes us
               USAGE_SEGMENTS_SCHEMA, KPI_ARCHIVE_SCHEMA, WAITING_ON_SCHEMA,
               LIVE_MEETINGS_SCHEMA, LIVE_MEETINGS_ROUTING_LIMITS_SCHEMA,
               LIVE_MEETINGS_CHAT_ROUTING_SCHEMA, TASK_RELATIONS_SCHEMA, TRIGGERS_SCHEMA,
-              TRIGGER_SIGNING_SCHEMA, CHECK_MODELS_SCHEMA]
+              TRIGGER_SIGNING_SCHEMA, CHECK_MODELS_SCHEMA, GOAL_ASKS_SCHEMA]
 
 
 class Refused(Exception):
@@ -971,6 +980,12 @@ def migrate(conn, adopt_legacy=False):
     conn.execute("CREATE INDEX IF NOT EXISTS tasks_snoozed ON tasks(snoozed_until) WHERE snoozed_until IS NOT NULL")
     # A type whose tasks change status only by moving between its steps (`_task_state`).
     add_column(conn, "task_types", "steps_only", "INTEGER NOT NULL DEFAULT 0")
+    if "manager" not in {r[1] for r in conn.execute("PRAGMA table_info(task_types)")}:
+        add_column(conn, "task_types", "manager", "TEXT")
+        from .roadmap_flow import ensure as ensure_roadmap_types
+        ensure_roadmap_types(conn)
+    from .roadmaps import migrate as migrate_roadmaps
+    migrate_roadmaps(conn)
     # A person's open asks, read on every Needs-you load (loose_asks_to).
     conn.execute("CREATE INDEX IF NOT EXISTS messages_open_asks_to ON messages(to_actor, created) "
                  "WHERE kind='ask' AND answered_by IS NULL AND deleted_at IS NULL")
@@ -2502,7 +2517,8 @@ def _type_steps(conn, actor, type_id, steps):
         names.add(name); ids.add(ident)
         clean.append({"id": ident, "type_id": type_id, "name": name,
                       "position": raw.get("position") if raw.get("position") is not None else position,
-                      "status": status})
+                      "status": status, "public_name": str(raw.get("public_name") if raw.get("public_name") is not None else
+                          existing.get(ident, {}).get("public_name", name))})
     for row in clean:
         if (row["id"] in existing and row["status"] != existing[row["id"]]["status"]
                 and _one(conn, "SELECT 1 FROM tasks WHERE step_id=? LIMIT 1", (row["id"],))):
@@ -2517,31 +2533,38 @@ def _type_steps(conn, actor, type_id, steps):
     for ident in ids & set(existing):
         conn.execute("UPDATE task_steps SET name=? WHERE id=?", (new_id(), ident))
     for row in clean:
-        conn.execute("INSERT INTO task_steps(id,type_id,name,position,status) "
-                     "VALUES(:id,:type_id,:name,:position,:status) ON CONFLICT(id) DO UPDATE SET "
-                     "name=excluded.name,position=excluded.position,status=excluded.status", row)
+        conn.execute("INSERT INTO task_steps(id,type_id,name,position,status,public_name) "
+                     "VALUES(:id,:type_id,:name,:position,:status,:public_name) ON CONFLICT(id) DO UPDATE SET "
+                     "name=excluded.name,position=excluded.position,status=excluded.status,public_name=excluded.public_name", row)
 
 
-def type_create(conn, actor, name, steps=(), mover=None, bots=None, numbered=False, steps_only=False):
+def type_create(conn, actor, name, steps=(), mover=None, bots=None, numbered=False, steps_only=False, default_visibility='private'):
     _type_writer(conn, actor, mover)
     name = _type_name(conn, actor, name)
     bots = _type_bots(conn, actor, bots)
     ident, ts = new_id(), now()
     conn.execute("INSERT INTO task_types(id,name,bots,numbered,steps_only,created,updated) VALUES(?,?,?,?,?,?,?)",
                  (ident, name, bots, int(bool(numbered)), int(bool(steps_only)), ts, ts))
+    if default_visibility not in ('public', 'private'):
+        refuse(conn, actor, 'kind', 'default_visibility is public or private')
+    conn.execute('UPDATE task_types SET default_visibility=? WHERE id=?', (default_visibility, ident))
     _type_steps(conn, actor, ident, steps)
     row = type_get(conn, ident)
     event(conn, actor, "task_type.create", ident, row)
     return row
 
 
-def type_update(conn, actor, type_id, name=None, steps=None, mover=None, bots=None, numbered=None, steps_only=None):
+def type_update(conn, actor, type_id, name=None, steps=None, mover=None, bots=None, numbered=None, steps_only=None, default_visibility=None):
     _type_writer(conn, actor, mover)
     row = type_get(conn, type_id)
     if not row:
         refuse(conn, actor, "not-found", "No such task type")
     if row["id"] == GENERAL_TYPE:
         refuse(conn, actor, "built-in", "General keeps the standard statuses")
+    if default_visibility is not None:
+        if default_visibility not in ('public', 'private'):
+            refuse(conn, actor, 'kind', 'default_visibility is public or private')
+        conn.execute('UPDATE task_types SET default_visibility=? WHERE id=?', (default_visibility, row['id']))
     if name is not None:
         name = _type_name(conn, actor, name, row["id"])
         conn.execute("UPDATE task_types SET name=? WHERE id=?", (name, row["id"]))
@@ -2639,8 +2662,13 @@ def _set_status(conn, actor, row, status=None, type=None, step=None, note=""):
             # A finished task's open questions to people are moot. Done keeps its structured questions: that is how
             # a done task asks for acceptance of what it delivered.
             supersede_asks(conn, row["id"], plain_only=effective == "done")
+            if effective == "done":
+                # The keeper's "no progress" question is about the work, which is now finished.
+                supersede_asks(conn, row["id"], from_actor=KEEPER, stuck=True)
             # ...and so is a yes it was waiting for: nothing will act on it now.
             withdraw_task_approvals(conn, row["id"], f"Its task was {TASK_ENDED[effective]}.")
+    from .roadmap_flow import changed as roadmap_changed
+    roadmap_changed(conn, row["id"])
     return effective
 
 
@@ -2659,10 +2687,11 @@ def ask_older(message, at=None):
     return created < (at or datetime.now(timezone.utc)) - timedelta(days=ASK_OLDER_DAYS)
 
 
-def supersede_asks(conn, task_id, *, from_actor=None, to_actor=None, keep=None, plain_only=False):
+def supersede_asks(conn, task_id, *, from_actor=None, to_actor=None, keep=None, plain_only=False, stuck=False):
     """Mark the task's unanswered asks to people superseded: those `from_actor` sent `to_actor` before the ask `keep`,
-    or all of them (plain ones only with `plain_only`). They stay in the thread and leave every queue and count. A
-    question to one person never replaces a different person's question."""
+    or all of them (plain ones only with `plain_only`, the keeper's "no progress" ones only with `stuck`). They stay
+    in the thread and leave every queue and count. A question to one person never replaces a different person's
+    question."""
     # Only the task's own thread, where its queue and counts look (open_task_asks): a lookup by conversation, not a
     # scan of every pending ask on the server each time a task finishes.
     sql = ("SELECT m.id FROM messages m JOIN conversations cv ON cv.id=m.conversation_id "
@@ -2681,6 +2710,8 @@ def supersede_asks(conn, task_id, *, from_actor=None, to_actor=None, keep=None, 
         args.append(keep)
     if plain_only:
         sql += " AND json_type(m.refs_json,'$.questions') IS NULL"
+    if stuck:
+        sql += " AND json_extract(m.refs_json,'$.stuck')"
     ids = [r[0] for r in conn.execute(sql, args)]
     if ids:
         conn.executemany("UPDATE messages SET superseded_at=? WHERE id=?", [(now(), mid) for mid in ids])
@@ -2837,14 +2868,18 @@ def hydrate_task_tags(conn, rows):
             by_id[value.pop("task_id")]["tags"].append(value)
 
 
-def _set_task_tags(conn, actor, task_id, labels, note=""):
+def _set_task_tags(conn, actor, task_id, labels, note="", approval_id=None):
     keys, resolved = _labels(labels), []
     for key in keys:
         row = tag_by_key(conn, key)
         if row and row["is_template"]:
             refuse(conn, actor, "kind", f"{key} is a template; make an instance to put on a task")
         resolved.append((key, row))
-    old = task_labels(task(conn, task_id))
+    task_row = task(conn, task_id)
+    old = task_labels(task_row)
+    from .roadmaps import settings as roadmap_settings, approve as approve_roadmap
+    if task_row['visibility'] == 'public' and (set(keys) - set(old)) & set(roadmap_settings(conn)['labels']):
+        approve_roadmap(conn, actor, task_id, 'labels', {'labels': keys}, approval_id)
     old_ids = {r[0] for r in conn.execute("SELECT tag_id FROM task_tags WHERE task_id=?", (task_id,))}
     wanted, ordered = set(), []
     for key, row in resolved:
@@ -3425,7 +3460,7 @@ def task_ask_recipient(conn, actor, row, ask):
 
 
 @private_task_write
-def task_comment(conn, actor, task_id, text, wake=True, *, ask=None, extra_refs=None, answer_to=None, answer_text=None):
+def task_comment(conn, actor, task_id, text, wake=True, *, ask=None, extra_refs=None, answer_to=None, answer_text=None, public=False, approval_id=None):
     """A comment on a task: one message in the task's conversation, tagged with the task, from
     whoever wrote it. It wakes the bot on the other side of the task when `wake` (a mover, the
     owner or the requester left it); otherwise it is saved for the bot's next turn on the task."""
@@ -3437,6 +3472,11 @@ def task_comment(conn, actor, task_id, text, wake=True, *, ask=None, extra_refs=
     text = str(text or "").strip()
     if not text:
         refuse(conn, actor, "lint", "write the comment")
+    if public:
+        from .roadmaps import check_public_comment
+        if ask or extra_refs or answer_to:
+            refuse(conn, actor, 'kind', 'A public comment is plain text without attachments or asks')
+        check_public_comment(conn, actor, row, text, approval_id)
     others = [a for a in dict.fromkeys([row["owner"], row["requester"], task_origin(conn, row)])
               if a and a not in (actor, KEEPER) and task_private_readable(conn, a, row)]
     target = next((a for a in others if is_bot(a)), None) or (others[0] if others else None)
@@ -3474,6 +3514,9 @@ def task_comment(conn, actor, task_id, text, wake=True, *, ask=None, extra_refs=
     if wake and is_bot(target) and is_human(actor):
         conn.execute("INSERT INTO task_delegations(task_id,delegate,requested_by,message_id,expires) VALUES(?,?,?,?,?)",
                      (task_id, target, actor, msg["id"], shift(now(), hours=24)))
+    if public:
+        conn.execute('UPDATE messages SET public=1 WHERE id=?', (msg['id'],))
+        msg = message(conn, msg['id'])
     return msg
 
 
@@ -3666,14 +3709,15 @@ def _own_comment(conn, actor, task_id, message_id):
         refuse(conn, actor, "not-found", f"no comment {message_id} on task {task_id}")
     if not is_comment(msg):
         refuse(conn, actor, "kind", "only a comment is edited or deleted, not a question, an answer, "
-                                    "a notice or a chat message")
+                                    "a notice or a chat message"
+                                    + ("; settle your open question with hub task ask-resolve" if msg.get("kind") == "ask" else ""))
     if msg["from_actor"] != actor:
         refuse(conn, actor, "identity", f"{actor_id(msg['from_actor'])} wrote this comment; only they change it")
     return msg
 
 
 @private_task_write
-def task_comment_edit(conn, actor, task_id, message_id, text):
+def task_comment_edit(conn, actor, task_id, message_id, text, approval_id=None):
     """The author changes a comment's text. The new text gets the checks a new comment's text gets
     (`task_comment`, `say`); rule 7's lint is for unsolicited items, and a comment is tagged with its
     task, so it never applies. Nothing is sent and nobody wakes: whoever reads the task next reads the
@@ -3682,6 +3726,9 @@ def task_comment_edit(conn, actor, task_id, message_id, text):
     text = str(text or "").strip()
     if not text:
         refuse(conn, actor, "lint", "write the comment")
+    if msg.get('public') and text != msg['body']:
+        from .roadmaps import check_public_comment
+        check_public_comment(conn, actor, task(conn, task_id), text, approval_id)
     path_mentioned(conn, actor, "task note edit", text, task_id)
     if actor == "bot:librarian":
         text = librarian_text(text)
@@ -3723,11 +3770,78 @@ def task_comment_delete(conn, actor, task_id, message_id):
     return deleted
 
 
+ASK_QUOTE_MAX = 4000        # a quoted answer is what the person said, not a document
+
+
+@private_task_write
+def task_ask_resolve(conn, actor, task_id, message_id, quote=None):
+    """Settle an open question on a task that was answered somewhere else, or is no longer wanted.
+
+    With `quote`, the person's words from where they answered (a chat, a call): the question's asker, or the
+    task's owner bot, records them as the answer, marked as quoted by whoever recorded it. Without, the asker
+    withdraws the question: it stays in the thread, superseded. Either way it leaves every Needs you list and
+    count. Nothing is sent and nobody wakes: the answer is filed quietly for the asker's next turn on the task."""
+    _writer(conn, actor)
+    row = task(conn, task_id)
+    if not row:
+        refuse(conn, actor, "not-found", f"no task {task_id}")
+    _task_private_writer(conn, actor, row)
+    asked = comment_on(conn, row, message_id)
+    if not asked or asked.get("deleted_at") or asked.get("kind") != "ask":
+        refuse(conn, actor, "not-found", f"no question {message_id} on task {task_id}")
+    asker, person = asked["from_actor"], asked["to_actor"]
+    if quote is None and actor != asker:
+        refuse(conn, actor, "identity", f"{actor_id(asker)} asked this question; only they withdraw it")
+    if quote is not None and actor != asker and not (is_bot(actor) and actor == row["owner"]):
+        refuse(conn, actor, "identity", "only the question's asker or the task's owner bot records an answer given elsewhere")
+    if not _one(conn, f"SELECT 1 FROM messages m WHERE m.id=? AND {OPEN_ASK_SQL}", (message_id,)):
+        refuse(conn, actor, "kind", "this question was already answered or withdrawn")
+    ts = now()
+    reply = None
+    if quote is None:
+        conn.execute("UPDATE messages SET superseded_at=? WHERE id=?", (ts, message_id))
+    else:
+        quote = str(quote).strip()
+        if not quote:
+            refuse(conn, actor, "lint", "quote the person's answer, or leave the quote out to withdraw the question")
+        if len(quote) > ASK_QUOTE_MAX:
+            refuse(conn, actor, "lint", f"a quoted answer is at most {ASK_QUOTE_MAX} characters")
+        path_mentioned(conn, actor, "reply", quote, task_id)
+
+        def name(who):
+            found = human(conn, who) if is_human(who) else bot(conn, who) if is_bot(who) else None
+            return (found or {}).get("name") or actor_id(who)
+        refs = {"depth": asked["refs"].get("depth", 1), "task": task_id, "comment": True, "quiet": True,
+                "quoted": True, "for": person}
+        if asked["refs"].get("questions"):
+            # Read as any other structured answer (`task_answers`): the person's words are its free text.
+            refs["answer"] = {"target": {"comment": message_id}, "other": quote, "dismiss": False,
+                              "answers": {q["id"]: [] for q in asked["refs"]["questions"]},
+                              "by": person, "quoted_by": actor, "at": ts, "quoted": True}
+        # The answer is the person's words, recorded by `actor`. A bot that asked hears it on its next turn (its inbox)
+        # when someone else recorded it; an asker recording its own, or the keeper, needs no message.
+        own = actor == asker or not is_bot(asker)
+        reply = _write_message(conn, actor, asker, f'{name(person)} (quoted by {name(actor)}): "{quote}"',
+                               conversation(conn, asked["conversation_id"]), "answer", refs, message_id, None,
+                               delivered_at=ts if own else None, read_at=ts if own else None)
+    _task_event(conn, task_id, actor, "ask", message_id, "answered" if reply else "withdrawn")
+    if row["status"] == "waiting" and row.get("waiting_on") == person and not any(
+            a["to_actor"] == person for a in open_task_asks(conn, row)):
+        # Nothing else on the task waits on them: the next move is the bot's, and it leaves their Needs you.
+        conn.execute("UPDATE tasks SET waiting_on=NULL WHERE id=?", (task_id,))
+        _task_event(conn, task_id, actor, "waiting_on", person, None, "")
+    conn.execute("UPDATE tasks SET updated=? WHERE id=?", (ts, task_id))
+    recount(conn, [row["owner"], row["requester"], asker])
+    event(conn, actor, "ask.answered_elsewhere" if reply else "ask.withdrawn", message_id,
+          {"task": task_id, "to": person, **({"answer": reply["id"]} if reply else {})})
+    return {"ask": message(conn, message_id), "answer": reply}
+
+
 @private_task_write
 def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, deduplicate=True,
                 allow_planned=False, conversation_id=None, lane=None, labels=None, top=False, lint=True,
                 goal_id=None, next_run=False, type=None, step=None, number=None, mover=None, private=None,
-                requester_actor=None, own_room=True):
+                requester_actor=None, own_room=True, visibility=None, public_title=None, public_summary=None):
     """Rule 5. Anyone may open a task for any active owner; a human owner's General task is
     linted (rule 7).
 
@@ -3743,6 +3857,11 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     `number` keeps an imported task's number: a mover's (`mover`, as in `task_update`), and free.
     """
     _writer(conn, actor)
+    # Public text is only ever what someone wrote as public text; the internal title and body never stand in.
+    public_title = str(public_title or "").strip()
+    public_summary = str(public_summary or "").strip()
+    if len(public_title) > 300 or len(public_summary) > 8000:
+        refuse(conn, actor, 'lint', 'Public title is at most 300 characters and public summary at most 8000')
     from .shared_bots import route
     owner = route(conn, actor, owner)
     target = _reach(conn, actor, owner, allow_planned=allow_planned)
@@ -3757,6 +3876,15 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
                    or parent and task_private(conn, parent))
     if private:
         requester = actor
+    from .roadmaps import settings as roadmap_settings
+    # Bots (and Assistant/BotOps acting for a person) publish only through an approved publication.
+    bot_review = (is_bot(actor) or VIA.get()) and roadmap_settings(conn)['bot_public_approval']
+    if bot_review and (visibility == 'public' or public_title or public_summary):
+        # Said rather than dropped, so the bot knows its text is not on the roadmap.
+        refuse(conn, actor, 'approval', 'A bot publishes only through an approved publication: create the task, then '
+               'request one with POST /api/v2/tasks/{id}/publication-preview')
+    if visibility == 'public' and not public_title and not private:
+        refuse(conn, actor, 'lint', 'Write a public title to publish this task; its internal title and body stay private')
     if requester_actor is not None:
         # Only the server supplies a verified human origin for a bot's own work.
         if not is_human(requester_actor) or target != actor or not human(conn, requester_actor):
@@ -3838,6 +3966,19 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     if number is not None:
         _task_event(conn, row["id"], actor, "number", None, number, "")
     _set_status(conn, actor, {**row, "status": None}, status="open", type=type)
+    public = visibility or type_get(conn, task(conn, row['id'])['type_id'])['default_visibility']
+    if public not in ('public', 'private'):
+        refuse(conn, actor, 'kind', 'visibility is public or private')
+    if private:
+        public = 'private'
+    if not public_title:
+        # A type that defaults to public publishes only tasks created with public text.
+        public = 'private'
+    conn.execute('UPDATE tasks SET visibility=?,public_title=?,public_summary=? WHERE id=?',
+                 (public, public_title, public_summary, row['id']))
+    for field, value in (('public_title', public_title), ('public_summary', public_summary)):
+        if value:   # written public text leaves a record, as a later publication's does
+            _task_event(conn, row['id'], actor, field, None, value, '')
     if step is not None:
         task_update(conn, actor, row["id"], step=step)
     if top:
@@ -3916,7 +4057,8 @@ def _retitle(conn, actor, row, title, owner, type_id):
 @private_task_write
 def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=None, body=None,
                 lane=None, labels=None, rank=None, mover=None, goal_id=None, quiet=False, type=None, step=None,
-                step_rank=None, number=None, title=None, private=None, waiting_on=None, roles=None):
+                step_rank=None, number=None, title=None, private=None, waiting_on=None, roles=None, visibility=None, public_title=None,
+                public_summary=None, approval_id=None, size=None, clear_size=False):
     """Rule 5. The owner may set doing|waiting|review|done|declined and a note; it may not close.
 
     `lane` and `labels` are a mover's to change (`mover` says whether this actor is one; the
@@ -4081,7 +4223,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         args[field] = value
         _task_event(conn, task_id, actor, field, row.get(field), value, note or "")
     if labels is not None:
-        _set_task_tags(conn, actor, task_id, labels, note or "")
+        _set_task_tags(conn, actor, task_id, labels, note or "", approval_id=approval_id)
         sets.append("updated=:updated")
     if owner is not None:
         new_owner = _reach(conn, actor, owner)
@@ -4098,6 +4240,13 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         sets.append("owner=:owner")
         args["owner"] = new_owner
         _task_event(conn, task_id, actor, "owner", row["owner"], new_owner, note or "")
+        if new_owner != row["owner"] and is_bot(row["owner"]) and row.get("conversation_id"):
+            # The goal Tico set for the old owner ends with its ownership: only the owner's turns end a task goal,
+            # and a person owner has none to end it. A new bot owner's first turn sets its own.
+            from .chat_goals import clear_task_goal
+            room = conversation(conn, row["conversation_id"])
+            if room:
+                clear_task_goal(conn, room)
         if new_owner != row["owner"] and rank is None:
             rank = _queue_end(conn, new_owner)      # the bottom of the new queue
     if rank is not None:
@@ -4119,7 +4268,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
             if row.get(field) is not None:
                 _task_event(conn, task_id, actor, field, row[field], None, note or "")
             sets.append(field + "=NULL")
-    if not sets and not state_change and not roles:
+    if not sets and not state_change and not roles and not clear_size and all(v is None for v in (visibility, public_title, public_summary, size)):
         return row
     # A person finishing it is news for every bot on it; the bots that asked it open questions are read
     # before the status write supersedes those questions.
@@ -4144,6 +4293,18 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         # The task's own thread was named after it; a room many tasks share keeps its subject.
         conn.execute("UPDATE conversations SET subject=? WHERE id=? AND task_id=? AND subject=?",
                      (title, row["conversation_id"], task_id, row["title"]))
+    from .roadmaps import publication
+    updated_row = task(conn, task_id)
+    if task_private(conn, updated_row):
+        conn.execute("UPDATE tasks SET visibility='private' WHERE id=?", (task_id,))
+        updated_row = task(conn, task_id)
+    publication(conn, actor, updated_row, visibility, public_title, public_summary, approval_id)
+    if size is not None or clear_size:
+        import math
+        if size is not None and (not math.isfinite(size) or size < 0):
+            refuse(conn, actor, 'kind', 'Size is a nonnegative finite number')
+        conn.execute('UPDATE tasks SET size=?,updated=? WHERE id=?', (size, now(), task_id))
+        _task_event(conn, task_id, actor, 'size', row.get('size'), size, '')
     plain = plain + self_wait
     if plain:
         _task_event(conn, task_id, KEEPER, "lint", None, "; ".join(plain), "")
@@ -6097,12 +6258,14 @@ def unanswered_ask(conn, task_row, *, actor=None):
 
 
 def tasks_asked_of(conn, actor):
-    """Live tasks with an unanswered ask addressed to this actor, even if they do not own them."""
+    """Live tasks with an unanswered ask addressed to this actor, even if they do not own them. A done task stays
+    while it asks for acceptance of what it delivered, but not for the keeper's "no progress" question on it."""
     return _rows(conn.execute(
         "SELECT t.* FROM tasks t JOIN conversations cv ON cv.id=t.conversation_id "
         f"JOIN messages m ON m.conversation_id=t.conversation_id AND {MESSAGE_TASK_SQL}=t.id "
         f"WHERE (t.status IN ({','.join(repr(x) for x in ACTIVE_STATUSES)}) "
-        "OR (t.status='done' AND json_type(m.refs_json,'$.questions')='array')) "
+        "OR (t.status='done' AND json_type(m.refs_json,'$.questions')='array' "
+        "AND json_extract(m.refs_json,'$.stuck') IS NOT 1)) "
         f"AND m.kind='ask' AND m.to_actor=? AND {OPEN_ASK_SQL} "
         "GROUP BY t.id ORDER BY t.created", (actor,)))
 

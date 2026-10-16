@@ -99,6 +99,7 @@ function liveWire() {
       if (OVERVIEW_PAGE) overviewNeedsDraw();
       if (TASKS_ST && isTasksRoute(S.route)) tasksRender(TASKS_ST);
       if (BOT && isKeeper(BOT.slug) && BOT.tab === 'chat' && !BOT.split) void loadBotChatTasks(BOT.slug);
+      if (BOT && isKeeper(BOT.slug)) botNeedsChanged(BOT.slug);
     }, 200);
   }).catch(() => {}));
   // Away longer than the server keeps: read everything once.

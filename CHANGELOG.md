@@ -8,6 +8,67 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- A bot's page lists its tasks starting with **Needs you**: what that bot needs from you, the same rows its number in
+  the sidebar counts (its tasks for you, its questions on any task, its work waiting on you, its questions outside a
+  task). **Active** follows, then **Assigned to others**; a task in Needs you is not listed again below it.
+- A question asked on a task and answered somewhere else (a chat, a call) can be settled:
+  `hub task ask-resolve <task> <question> --quote "<their words>"` (the asker or the task's owner bot) records the
+  answer, marked as quoted, and the question's asker can withdraw it by leaving out `--quote`. Either way it leaves
+  Needs you; nobody is notified. Also `POST /api/v2/tasks/{id}/comments/{message}/resolve` and the MCP tool
+  `hub_task_ask_resolve`.
+- Company cloud storage: the owner can store the company's files in its own S3 bucket from **Settings › Storage**
+  (bucket, region, folder, access keys). Tico writes and reads back a check object before saving, seals the secret
+  key with the credential key and never shows it again. New files go to the bucket at once, with no restart; files
+  already stored keep opening from where they are, and files on the server's disk are copied in. See docs/files.md,
+  "A company's own bucket".
+- An HTML file opens in the file viewer and a task's Files as it looks, with **Download** beside it. It shows in a
+  sandboxed frame that cannot act as you: no scripts, forms or plugins, no Tico cookies or storage, and nothing loaded
+  from the network (pictures embedded in the file show; remote ones do not). Its links open in a new tab. A link to a
+  web page ending in .html still opens as a link.
+- A task's page shows its session as a chat in place of the Comments box. The bot's updates and replies are
+  messages, and each reply opens to the steps behind it. Other people's lines carry their names. Status and type
+  changes are one-line markers. While the bot works, a **Working…** line shows its current step, with **Stop** for
+  whoever manages the bot. Typing in the box still comments on the task and wakes its bot; `hub task comment` and the
+  MCP tool are unchanged.
+- A new Docker runner offers its screen: `install.sh --runner`, `tico setup runner` and the cloud-init template write
+  `TICO_SCREEN=1` unless given `--no-screen` (cloud-init: `TICO_SCREEN=0`). The first time a new computer offers a screen, its
+  **Screen** setting starts at **View**; **Control** is one click away in Settings > Computers. A runner installed before
+  keeps its `.env` and its Screen setting as they are, and a Screen setting someone already chose stays.
+- Goals: what needs a person is a task from the Goal Manager, so it shows in Tasks and Decide as well as under
+  **Needs you** on the Goals page, where each line links to it. A KPI off track asks the goal's owner, a KPI whose
+  reading is out of date asks its owner, and a proposal asks whoever decides it; one task each, never two. It closes by
+  itself once a fresh reading is logged, the KPI is back on track or the proposal is decided.
+- Tico HQ's update check carries a short message for given versions, shown once to each person in the app, and the known
+  issues by version, which Help lists as **Known issues in your version** (or says it could not check). Nothing more is sent
+  or collected. An install too old to show a message gets its link as the **View changelog** link instead: on 0.2,
+  "You're on 0.2: update to get one-tap support". A request linked to the issue or pull request that fixes it
+  (`hq-tickets link`) gets "Fixed in vX, update here" by itself when the release ships.
+- **Run workflows** on a bot's chosen write repository (Settings, `hub bot repos ... owner/repo:write+actions`, the
+  repositories API): an Owner or admin lets the bot start, rerun and cancel GitHub Actions runs there. Those
+  repositories get their own token with Actions: write once the GitHub App has Actions set to Read and write and the
+  installation accepted it; until then the token answer and Health say why. If GitHub still refuses that token, the
+  repository gets the ordinary write token, the token answer and Health (**GitHub refused workflow tokens**) say so,
+  and GitHub is asked again after a minute rather than on every git call. Workflows: write is never asked for.
+- **Want help setting up?** in the setup wizard, on Health and on a bot in Needs setup opens Support with a setup
+  snapshot (steps done, computer online, model signed in, first bot ready, bots in Needs setup) that the person reads and
+  edits before sending; the request goes marked `setup`. After the install's first bot result, and 7 and 30 days later,
+  each person is asked once, skippably, "How is Tico working for you?"; an answer goes as a `feedback` request. HQ keeps
+  each ticket's `kind`, and the Support Agent's tasks are titled `Support (setup):` or `Support (feedback):`. An HQ
+  from before `kind` still gets the ticket, with the kind named in the message.
+- The anonymous usage count carries a third yes/no flag, `first_result` (a bot turn has ever finished here), and HQ's
+  public `/v1/stats` adds `first_result` (installs that reached a first result) and `first_result_median_days` (the
+  median days from first seen to it, over installs that sent the flag from the start; shown from 5 such installs).
+  PRIVACY.md lists the field.
+- **Reach Tico support from anywhere** ([support.md](docs/support.md#reach-us-from-anywhere)). **Talk to us** in the
+  sidebar and on the phone's tab bar opens a new Support request, and empty Tasks, Updates and Runs pages and the
+  screen after Create say "Stuck or curious? A person at Tico reads every message." **Report this** on every error
+  toast, failed run, red Health line and stuck bot opens a request with that problem attached as a redacted `report`
+  section of the diagnostics, shown before sending. **Setup check** in Help runs `tico-setup doctor`'s HTTPS, health,
+  sign-in and runner-hostname checks from the server plus Health's failing lines, with a plain fix for each, and can
+  attach the result to a request. When the installer or `tico-setup doctor` fails at a terminal, it asks "Send this to
+  Tico support? [y/N]" and on yes sends the redacted failing checks as a `setup` request, then prints a link where
+  replies show up (a new HQ page, `/support/<ticket>`; the secret stays after the `#`). `--no-support` or
+  `TICO_SUPPORT=off` turns the question off. The Support Agent template now checks HQ tickets every minute.
 - Letting Tico support in, off until its security review (`TICO_SUPPORT_ACCESS=on`): from one of their open support
   requests, an owner or admin gives the Tico team **App only** access (an admin's reads and setup changes) or, the owner
   only, **Full access**, for a time they choose (24 hours by default). A banner shows on every screen while it lasts, Stop
@@ -83,8 +144,43 @@ All notable changes to Tico are recorded here. The format follows
   to the provider's requests) as well as its events. Eight captures to start: a plain Claude turn, a subagent, a
   steer while a tool runs, an interrupt mid-tool, compaction, an expired Claude login, Codex out of quota, and a
   rejected Codex key.
+- **Public roadmaps** (docs/roadmaps.md): owners and admins pick labels in Settings > Public roadmap, and anonymous
+  `/public/roadmaps/<label>` endpoints let the company's own website list and show the published tasks under each,
+  with their public step names, request counts and progress, for exact allowlisted origins only. A task is public
+  only when someone publishes it with a public title (and summary) written for it; every type starts private and the
+  internal title, body, contacts, discussion and children are never shown. Bots publish, edit public text and reply
+  publicly only through an exact approved payload; a bot creating a task with public text is refused, not
+  silently made private. Visitors follow a task with optional contact details and get a
+  token that withdraws their request later, even once the task is unpublished, unlabelled or deleted; they can also
+  comment publicly (team can hide or delete) and suggest new tasks, which arrive private at Suggested for the
+  Product Manager. Visitor writes share a daily limit per address (default 10), and at most 20 visitor suggestions
+  wait at once (`suggestion_limit`); while the form refuses, the Product Manager is told once a day. The server and relay believe forwarded addresses only from
+  `TICO_TRUSTED_PROXIES`; the Compose file gives Caddy and cloudflared fixed addresses on their own network and
+  trusts exactly those, so each visitor keeps their own limit; an update that hits a clash with that network names
+  the `TICO_EDGE_*` settings that move it. A database that ran an unreleased build of roadmaps from main has the
+  internal text it copied into public text cleared once (each clearing leaves a task event), and tasks it published
+  that way unpublished. Adds Product roadmap and Engineering task types, a
+  ranked roadmap view, and requesters (Requested by) on tasks.
 
 ### Changed
+- Window controls look like window controls: the ✕ that closes a task, dialog or meeting window, and the …, back and
+  **Open in its own window** buttons beside it, are quiet borderless icon buttons of one size with a tooltip. In the task
+  header the task's own action reads **Close task** and a thin rule sets it apart from the window's ✕. A dialog opens with
+  its heading focused, so no button shows a focus ring until a key is pressed.
+- The bot editor (**Edit** a bot, **Add bot**) reads in sections (Profile, Working with others, Access, model and
+  computer, Repositories, Advanced): labels stand out from what the fields hold, help text is smaller and quieter, and each
+  checkbox sits beside its label with its help underneath. It is a solid card over a dimmed page, with its header and a
+  footer for **Save bot**, **Cancel** and **Remove bot** that stay in place while it scrolls. On a phone,
+  **Create bot repositories** no longer pushes the chosen repositories into a narrow column.
+- `release_checks.py --release` can run one slice of the gate (`--part product|browser|python`, `--shard K/N` for
+  balanced Python test groups), ready for Release validation to run in parallel jobs. Without them it runs the whole
+  gate as before.
+- Help is about a quarter of its old length on every screen: what Tico is, where to start (your first result, the tour,
+  the Assistant) and how to get help, with links to the docs. The map, Who does what, the agent platforms and the
+  glossary moved to [How Tico works](docs/how-it-works.md) and the [Glossary](docs/glossary.md).
+- Help on a phone (or any screen too narrow for the right rail) opens with Support: your requests, **New request**
+  and the composer come first, with a link to the docs right under them and the short overview below. The Support
+  jump link is gone. Wide screens keep Support in the right rail.
 - A bot that hits a Claude or Codex usage limit now resumes at the provider's own reset time instead of after a fixed
   30 minutes (2 hours after three in a row). The bot's status and Health say when it resumes ("resumes at 12:40 UTC"),
   and its computer picks the queued work up as soon as the reset passes. Providers that report no reset time keep the
@@ -94,6 +190,16 @@ All notable changes to Tico are recorded here. The format follows
   stores and logs no token. The grant on the computer keeps no secret.
 
 ### Fixed
+- The keeper's "no progress after a status check" question closes when its task is done, and one already left on a
+  done task no longer keeps that task in Needs you or in a bot's number in the sidebar.
+- Another bot's turn in a task's room (the requester answering there, say) no longer ends the task owner's goal:
+  each one used to clear the goal, start a "/goal clear" run for the owner and set the goal again on its next turn.
+  Handing a task to someone else now ends the goal Tico set for its old bot owner, including when a person takes it.
+- Desktop app: a link that opens a new tab (every link in chat and Markdown) did nothing; it now opens in the default
+  browser, and a Markdown email link opens the mail app. The team's own files and run logs open in an app window,
+  which keeps the app's sign-in; a file the app cannot show (Word, Excel, zip) downloads to Downloads instead
+  (on macOS and Windows the empty window then closes; on Linux it stays open).
+  A PDF's **Open** is hidden in the app; the PDF shows in the viewer and downloads.
 - Linking a pull request whose URL differs only in owner or repository case (or a trailing slash) reuses
   the task's existing link for it, so arming or disarming `--wake-once` acts on that one link instead of adding a second.
 - A company's desktop app installs its updates again. The server signed the update download for S3 in an older

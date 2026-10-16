@@ -71,7 +71,7 @@ async function vaultDelete(id) {
 function vaultDialog(title,body) {
   vaultClose();
   const dialog = $('#credential-dialog');
-  dialog.innerHTML = `<header><h2>${esc(title)}</h2><button type="button" class="ghost" data-vault-close aria-label="Close credential">Close</button></header>${body}`;
+  dialog.innerHTML = `<header><h2>${esc(title)}</h2><button type="button" class="ghost tmodal-act" data-vault-close aria-label="Close credential">Close</button></header>${body}`;
   dialog.querySelector('[data-vault-close]').onclick = vaultClose;
   dialog.oncancel = event => {event.preventDefault();vaultClose();};
   dialog.showModal(); return dialog;

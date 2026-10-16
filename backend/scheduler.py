@@ -186,6 +186,14 @@ class Scheduler:
                     G.refresh(c)
             except Exception as exc:
                 failures.append({"goals": type(exc).__name__})
+            try:
+                # A KPI that went stale as time passed becomes its owner's task here (backend/goal_asks.py). Its own
+                # transaction: a failure here never undoes the colours above.
+                from . import goal_asks
+                with self.store.transaction() as c:
+                    goal_asks.sync(c, self.execution.auth.owner_id(c), at)
+            except Exception as exc:
+                failures.append({"goal_asks": type(exc).__name__})
         if self.health_scanned is None or at - self.health_scanned >= timedelta(hours=1):
             # Every hour, only while the owner has it on: the Health Monitor's scan (backend/health_monitor.py). Plain
             # code; it wakes the bot only for a finding the last scan did not have.

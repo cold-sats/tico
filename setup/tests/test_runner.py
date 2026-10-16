@@ -28,6 +28,8 @@ def test_join_script_is_idempotent_and_removes_the_code_file():
     assert text.rstrip().endswith("rm -f /x/join.env")
     rejoin = "\n".join(rs.join_lines("v1", "/x/join.env", rejoin=True))
     assert "docker rm -f" in rejoin and "rm -f /opt/tico-runner/.env" in rejoin  # a new code needs a new .env
+    assert "screen" not in text                                  # the installer offers the screen by default
+    assert '"$TICO_JOIN_LABEL" --no-screen' in "\n".join(rs.join_lines("v1", "/x/join.env", screen=False))
 
 
 def test_aws_bootstrap_takes_the_code_from_ssm_not_from_user_data():

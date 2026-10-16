@@ -233,7 +233,7 @@ function updRender(state) {
   let html = items.map((u, i) => updCard(u, i, state)).join('');
   if (!items.length) html += state.view === 'archive'
     ? '<div class="upd-empty"><span class="nav-icon" aria-hidden="true">archive</span><b>No archived updates.</b></div>'
-    : '<div class="upd-empty"><span class="nav-icon" aria-hidden="true">dynamic_feed</span><b>No updates yet.</b><span class="muted">The bots report in one at a time each morning.</span></div>';
+    : '<div class="upd-empty"><span class="nav-icon" aria-hidden="true">dynamic_feed</span><b>No updates yet.</b><span class="muted">The bots report in one at a time each morning.</span>' + (window.talkLineHTML?.() || '') + '</div>';
   if (data.next_before) html += '<button type="button" class="ghost upd-more" data-upd-more>Load older</button>';
   feed.innerHTML = html;
   updDecksBind(state);

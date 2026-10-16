@@ -46,6 +46,7 @@ The operation groups below are generated from the committed spec's tags. After r
 | Health | Whether the installation is working. |
 | Live events | One server-sent event stream for a person's pages (docs/custom-frontend.md, Live events): tasks, messages, runs, bots and Needs you as they change, resumable from a change number. |
 | Tags | Tags, metadata, markdown checklists and reusable templates. |
+| Roadmaps | Company roadmap settings, internal requesters, and anonymous publication ([guide](roadmaps.md)). |
 <!-- api-tags:end -->
 
 Internal developer tutorials: [Listening](listening.md#save-decide-and-resolve) and [Needs you batches](needs-you-batches.md).
@@ -178,6 +179,15 @@ and external copies already delivered remain outside this operation. An edit acc
 not `ask` or attachments.
 A client can tell a server offers this by the `editTaskComment` and `deleteTaskComment` operations in `GET /api/v2/openapi.json`.
 
+`POST /api/v2/tasks/{tid}/comments/{mid}/resolve` settles an open question `mid` on the task. With
+`{"quote": "..."}` (at most 4000 characters), the question's asker or the task's owner bot records the person's
+words from wherever they answered as a `kind: "answer"` reply with `refs.quoted: true`; on a structured question
+its `answer` is `{target, answers: {}, other: <quote>, dismiss: false, by: <caller>, at, quoted: true}`. With `{}`,
+the asker withdraws the question: it stays in the thread with `superseded_at`. Either way it leaves every Needs
+you list and count, wakes nobody, and answers as an edit does, with the answer (or the withdrawn question) as
+`comment`. `404` when `mid` is not a question on this task; `403 identity` for any other caller; `422 kind` when
+it was already answered or withdrawn.
+
 ## Branches
 
 `POST /api/v2/bots/{bot}/copies` (also `/branches`) makes the caller's branch and returns its definition,
@@ -194,3 +204,5 @@ MCP uses `hub_bot_branch(bot, runner_id?)` and `hub_bot_update(slug, shared=)`; 
 `hub bot branch <bot> [--computer C]` and `hub bot update <bot> --shared|--no-shared`.
 New tasks and canonical chats to an original route to the caller's active branch when branches are allowed.
 Stored keys, room-mode `shared`, independent copy routes and older runner payloads keep their meanings.
+
+Public roadmap publication, requesters and anonymous endpoints are described in [Public roadmaps](roadmaps.md).

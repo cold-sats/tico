@@ -32,6 +32,8 @@ FAKE_WIZARD = '''import os, pathlib, sys
 d = pathlib.Path(os.environ["TICO_INSTALL_DIR"])
 with (d / "wizard-args.txt").open("a") as f:
     f.write(" ".join(sys.argv[1:]) + "\\n")
+if os.environ.get("FAKE_WIZARD_FAIL"):
+    sys.exit(1)
 tag = sys.argv[sys.argv.index("--tico-version") + 1]
 fd = os.open(d / ".env", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
 os.write(fd, ("TICO_DOMAIN=tico.example.com\\nTICO_OIDC_CLIENT_SECRET=" + os.environ.get("TICO_OIDC_CLIENT_SECRET", "") + "\\nTICO_TAG=" + tag + "\\n").encode())
@@ -60,6 +62,9 @@ def rel(tmp_path_factory):
     (src / "setup").mkdir()
     (src / "setup" / "__init__.py").write_text("")
     (src / "setup" / "__main__.py").write_text(FAKE_WIZARD)
+    (src / "setup" / "support.py").write_text("")
+    (src / "backend").mkdir()
+    (src / "backend" / "redaction.py").write_text("")
     for v in ("v0.2.0", "v0.3.0", "v0.9.0"):
         release(base, src, v, tamper=v == "v0.9.0")
     (base / "unpinned").mkdir()
@@ -111,7 +116,8 @@ def test_installer_scenarios(image, rel, docker_ready):
     for must in ("preflight-memory", "preflight-disk", "preflight-port-80", "fresh-secret-not-echoed", "rerun-env-untouched",
                  "rerun-skips-wizard", "upgrade-keeps-settings", "checksum-mismatch-refused", "checksum-installs-nothing",
                  "unpinned-uses-latest-release", "version-flag-overrides-baked", "older-installer-holds",
-                 "mac-team-install-refused", "mac-local-exit", "mac-runner-exit", "mac-docker-not-running"):
+                 "mac-team-install-refused", "mac-local-exit", "mac-runner-exit", "mac-docker-not-running",
+                 "wizard-fail-exit", "wizard-fail-no-offer-without-tty"):
         assert must in passed, f"scenario {must} did not run"
 
 
@@ -153,7 +159,8 @@ def test_bundle_from_the_real_repo_has_what_a_server_needs_and_is_reproducible(t
         names = set(t.getnames())
         assert t.extractfile("VERSION").read() == b"1.2.3\n"
         assert b"TICO_TAG=v1.2.3\n" in t.extractfile(".env.example").read()
-    assert {"compose.yaml", ".env.example", "setup/__main__.py", "setup/cli.py", "scripts/tico-setup", "docker/runner.compose.yaml"} <= names
+    assert {"compose.yaml", ".env.example", "setup/__main__.py", "setup/cli.py", "scripts/tico-setup", "docker/runner.compose.yaml",
+            "setup/support.py", "backend/redaction.py"} <= names
     assert not [n for n in names if "/tests/" in n or n.endswith((".pyc", ".env")) or n.startswith("/") or ".." in n]
     sums = dict(reversed(l.split("  ")) for l in (a / "SHA256SUMS").read_text().splitlines())
     for f, digest in sums.items():

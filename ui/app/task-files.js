@@ -44,14 +44,15 @@ function tfKind(name, mime) {
   if (/\.csv$/.test(n) || m.startsWith('text/csv')) return 'csv';
   if (/\.json$/.test(n) || m === 'application/json') return 'json';
   if (/\.(txt|text|log|ya?ml)$/.test(n) || m === 'text/plain') return 'text';
-  if (/\.(svg|html?)$/.test(n) || /svg|html/.test(m)) return 'other';               // download only
+  if (/\.html?$/.test(n) || m === 'text/html') return 'html';                        // sandboxed preview (htmlPreviewFrame)
+  if (/\.svg$/.test(n) || /svg/.test(m)) return 'other';                            // download only
   if (/\.(png|jpe?g|gif|webp)$/.test(n) || /^image\/(png|jpeg|gif|webp)/.test(m)) return 'image';
   if (/\.(mp4|webm|mov|m4v)$/.test(n) || m.startsWith('video/')) return 'video';
   if (/\.(mp3|m4a|wav|ogg|aac)$/.test(n) || m.startsWith('audio/')) return 'audio';
   if (/\.pdf$/.test(n) || m === 'application/pdf') return 'pdf';
   return 'other';
 }
-const TF_GLYPH = {markdown: 'MD', csv: 'CSV', json: 'JSON', text: 'TXT', image: 'IMG', video: 'VIDEO', audio: 'AUDIO', pdf: 'PDF'};
+const TF_GLYPH = {markdown: 'MD', csv: 'CSV', json: 'JSON', text: 'TXT', image: 'IMG', video: 'VIDEO', audio: 'AUDIO', pdf: 'PDF', html: 'HTML'};
 const tfGlyph = (kind, name) => TF_GLYPH[kind] || (String(name || '').match(/\.([a-z0-9]{1,4})$/i)?.[1] || 'FILE').toUpperCase();
 const TF_TEXT_MAX = 2_000_000, TF_INLINE_IMAGE = 5_000_000;
 // A version's picture for a tile, a chip or a cover: its thumb, a video's poster, else a small image itself.
@@ -266,6 +267,7 @@ function tfBodyHTML(f, v, kind, d) {
   if (kind === 'video') return `<div class="tf-media video media-skel${v.poster_url ? ' ready' : ''}"${ratio || ' style="aspect-ratio:16/9"'}><video src="${url}"${v.poster_url ? ` poster="${esc(v.poster_url)}"` : ''} controls playsinline preload="metadata"></video></div>`;
   if (kind === 'audio') return `<div class="tf-media audio media-skel"><audio src="${url}" controls preload="metadata"></audio></div>`;
   if (kind === 'pdf' && v.thumb_url) return `<a class="tf-pdf" href="${url}" target="_blank" rel="noopener" aria-label="Open ${name}"><span class="tf-skel"${ratio}><img alt="" data-tf-src="${esc(v.thumb_url)}"></span><span class="tf-pdf-open">Open PDF ↗</span></a>`;
+  if (kind === 'html' && v.size != null && Number(v.size) <= HTML_VIEW_LIMIT) return `<div class="tf-doc tf-html" data-tf-text="${url}" data-kind="html" data-name="${name}" aria-busy="true"><div class="tf-doc-skel"></div></div>`;
   if (['markdown', 'csv', 'json', 'text'].includes(kind) && !big) return `<div class="tf-doc" data-tf-text="${url}" data-kind="${kind}" aria-busy="true"><div class="tf-doc-skel"></div></div>`;
   return `<div class="tf-card"><span class="tf-glyph">${esc(tfGlyph(kind, f.name))}</span><span class="tf-card-t"><span class="tf-name">${name}</span><span class="muted tnum">${v.size != null ? esc(bytes(Number(v.size))) : ''}</span></span>
     ${kind === 'pdf' ? `<a href="${url}" target="_blank" rel="noopener">Open ↗</a>` : ''}<a href="${url}" download>Download</a></div>`;
@@ -316,6 +318,7 @@ function tfBodyWire(box) {
       const kind = doc.dataset.kind;
       doc.removeAttribute('aria-busy');
       if (kind === 'csv') { doc.replaceChildren(csvView(raw, 200)); return; }
+      if (kind === 'html') { doc.replaceChildren(htmlPreviewFrame(raw, doc.dataset.name)); return; }
       if (kind === 'json') { const view = tfJSONView(raw); if (view) { doc.replaceChildren(view); return; } }
       doc.innerHTML = kind === 'markdown' ? `<div class="md">${safeMd(raw)}</div>` : `<pre class="plain">${esc(raw)}</pre>`;
       if (raw.split('\n').length > TF_CLAMP_LINES) {
@@ -544,7 +547,7 @@ function askHTML(ask, answers, target, asker, taskId, files = [], canAnswer = tr
     </div>`).join('');
   const form = mine || ro ? '' : `<div class="ask-form">${other ? '<input class="ask-other" type="text" maxlength="2000" placeholder="Other…" aria-label="Other answer">' : ''}
       <div class="ask-foot">${!instant || other ? '<button type="button" class="primary ask-send" data-ask-send>Send</button>' : ''}<button type="button" class="linkish ask-dismiss" data-ask-dismiss>Dismiss</button><span class="muted ask-status" role="status"></span></div></div>`;
-  const list = answered ? `<ul class="ask-answers">${answers.map(a => `<li>${a.by ? actorFace(a.by, 14) : ''}<b>${esc(a.by ? actorLabel(a.by) : 'Someone')}</b>
+  const list = answered ? `<ul class="ask-answers">${answers.map(a => `<li>${a.by ? actorFace(a.by, 14) : ''}<b>${esc(a.by ? actorLabel(a.by) : 'Someone')}</b>${a.quoted_by ? `<span class="muted">(quoted by ${esc(actorLabel(a.quoted_by))})</span>` : ''}
       <span class="${a.dismiss ? 'muted' : ''}">${esc(askAnswerWords(a, ask))}</span>${a.other ? `<span class="ask-o">${esc(a.other)}</span>` : ''}${a.at ? `<time class="muted tnum" title="${esc(fmt(a.at))}">${esc(ageShort(a.at))}</time>` : ''}</li>`).join('')}</ul>` : '';
   return `<div class="ask${answered ? ' answered' : ''}${mine ? ' mine' : ''}${ro ? ' ro' : ''}" data-ask="${esc(JSON.stringify(target))}" data-task="${esc(taskId)}"${instant ? ' data-instant' : ''}>
     ${body}${list}${!mine && !ro && answered ? '<button type="button" class="linkish ask-again" data-ask-again>Answer</button>' : ''}${form}</div>`;

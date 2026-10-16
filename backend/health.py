@@ -758,6 +758,32 @@ def _github_repo_create(c, github):
                    _fix("Open GitHub settings", "#/integrations")])
 
 
+def _github_workflows(c, github):
+    """A write grant an Owner or admin let run workflows gets a token with Actions: write only once the installation
+    has accepted it. The token request records what the installation last said, so this reads no network."""
+    from .repo_waits import permissions_url
+    from .repositories import workflows_refused, workflows_waiting
+    connected = bool(github and github.row(c))
+    if waiting := workflows_waiting(c) if connected else []:
+        return _check("github_workflows", "Bots can't run workflows yet", "warn",
+                      "These bots may run workflows but get only the ordinary write token: the GitHub App's Actions "
+                      "permission is not Read and write on the installation. Set it in the App's permissions, then "
+                      "accept it for the organisation. Waiting: " + ", ".join(waiting[:3])
+                      + ("." if len(waiting) <= 3 else f"; and {len(waiting) - 3} more."),
+                      [_fix("Change the App's permissions", permissions_url(c, github.row(c))),
+                       _fix("Open GitHub settings", "#/integrations")])
+    if refused := workflows_refused(c) if connected else []:
+        # The installation reports Actions: Read and write, so the setting is not the cause and is not offered.
+        return _check("github_workflows", "GitHub refused workflow tokens", "warn",
+                      "These bots may run workflows but get only the ordinary write token: GitHub refused a token "
+                      "with Actions: write although the installation reports it. Tico asks again after a minute; "
+                      "if this stays, check the installation's repository access and the organisation's Actions "
+                      "policy on GitHub. Refused: " + ", ".join(refused[:3])
+                      + ("." if len(refused) <= 3 else f"; and {len(refused) - 3} more."),
+                      [_fix("Open GitHub settings", "#/integrations")])
+    return None
+
+
 def _slack(c):
     """Only once the owner has pasted tokens: the gateway reports its own state (backend/slack_app.py)."""
     from . import slack_app
@@ -1025,7 +1051,16 @@ def _v(version):
     return "v" + version if version[:1].isdigit() else version
 
 
+def storage_settings(c, settings):
+    """The storage files go to: the company's own bucket when the owner set one (backend/company_storage.py)."""
+    from .blobs import Location
+    from .company_storage import active_location
+    place = active_location(c)
+    return Location(settings, place["bucket"], place["prefix"], place["region"], keys=True) if place else settings
+
+
 def storage_view(c, settings):
+    settings = storage_settings(c, settings)
     usage = c.execute("SELECT COUNT(*) AS files,COALESCE(SUM(size),0) AS bytes FROM "
                       "(SELECT digest,MAX(size) AS size FROM blobs GROUP BY digest)").fetchone()
     row = c.execute("SELECT detail_json FROM service_health WHERE service='blob-copy'").fetchone()
@@ -1035,7 +1070,7 @@ def storage_view(c, settings):
     location = settings.blob_bucket + ("/" + settings.blob_prefix if settings.blob_prefix else "")
     credentials = write_detail.get("credentials") if write_detail.get("location") == location else None
     return {"mode": "s3" if settings.blob_bucket else "local", "bucket": settings.blob_bucket,
-            **({"credentials": credentials} if credentials in ("keys", "backup", "role") else {}),
+            **({"credentials": credentials} if credentials in ("keys", "backup", "role", "company") else {}),
             "region": blob_s3.region(settings) or "", "files": usage["files"], "bytes": usage["bytes"],
             "copy": {key: detail.get(key, 0) for key in ("done", "total", "failed")}}
 
@@ -1065,12 +1100,13 @@ def view(c, who, settings, auth, github, config):
     checks = []
     if full and (listening := _listening(c, settings)):
         checks.append(listening)
-    if full and settings.blob_bucket:
+    storage = storage_settings(c, settings)
+    if full and storage.blob_bucket:
         health = c.execute("SELECT * FROM service_health WHERE service='blob-copy'").fetchone()
         detail = json.loads(health["detail_json"] or "{}") if health else {}
         write_health = c.execute("SELECT detail_json FROM service_health WHERE service='blob-s3'").fetchone()
         write_detail = json.loads(write_health["detail_json"] or "{}") if write_health else {}
-        location = settings.blob_bucket + ("/" + settings.blob_prefix if settings.blob_prefix else "")
+        location = storage.blob_bucket + ("/" + storage.blob_prefix if storage.blob_prefix else "")
         if write_detail.get("error") and write_detail.get("location") == location:
             checks.append(_check("blob_storage", "File storage", "warn", write_detail["error"],
                                  [_fix("Storage", "https://github.com/ticoteam/tico/blob/main/docs/files.md#storage")]))
@@ -1079,7 +1115,7 @@ def view(c, who, settings, auth, github, config):
             if detail.get("error"):
                 summary += ". " + detail["error"]
             checks.append(_check("blob_storage", "File storage", "bad" if detail.get("error") else "info", summary))
-    if full and not settings.blob_bucket and not settings.loopback and not settings.demo and not settings.rehearsal:
+    if full and not storage.blob_bucket and not settings.loopback and not settings.demo and not settings.rehearsal:
         checks.append(_check("blob_storage", "File storage", "info",
                              "Files are on this computer's disk. A file store (S3) is recommended.",
                              [_fix("Storage", "https://github.com/ticoteam/tico/blob/main/docs/files.md#storage")]))
@@ -1408,6 +1444,8 @@ def view(c, who, settings, auth, github, config):
         checks.append(_github(c, github))
         if repo_create := _github_repo_create(c, github):
             checks.append(repo_create)
+        if workflows := _github_workflows(c, github):
+            checks.append(workflows)
         slack = _slack(c)
         if slack:
             checks.append(slack)

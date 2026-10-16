@@ -1,12 +1,12 @@
 // Offline browser regression: Support on the Help page. The form shows exactly what it will send, Enter files the ticket
 // (Shift+Enter is a new line), the list shows each request with its status badge and an unread dot, a reply puts a count
 // on the ? and opening the conversation reads it, a failed send says so in place, the trash asks first, and nothing a
-// ticket says is rendered as HTML.
+// ticket says is rendered as HTML. Help lists the Beta features the server names.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const {html, uiFile} = require('./support/page.cjs');
+const {html, uiFile, beta} = require('./support/page.cjs');
 const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();   // load.cjs arrives with #254
 const INSTALL = '6f1c2a9e-3b7d-4c58-9a10-2d4e8b7f5a63';
 const DIAGNOSTICS_TEXT = '{\n  "format": 1,\n  "versions": {\n    "tico": "0.2.17"\n  }\n}';
@@ -15,8 +15,8 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
 (async () => {
   const browser = await chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
   try {
-    const visit = async ({enabled = true, seed = [], native = false, access = null} = {}) => {
-      const ctx = await browser.newContext({viewport: {width: 1440, height: 900}, serviceWorkers: 'block'});
+    const visit = async ({enabled = true, seed = [], native = false, feedback = null, viewport = {width: 1440, height: 900}, access = null} = {}) => {
+      const ctx = await browser.newContext({viewport, serviceWorkers: 'block'});
       // The desktop app's bridge (app/src/main.rs BRIDGE_SCRIPT), recording what the page posts to it.
       if (native) await ctx.addInitScript(() => {
         window.__posted = [];
@@ -40,7 +40,7 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
           return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(uiFile(ui[1]), 'utf8')});
         if (p.endsWith('.js')) return route.fulfill({contentType: 'application/javascript', body: ''});
         if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
-        const config = {version: '0.2.17', update: null, app_name: 'Tico', usage_count_notice: false};
+        const config = {version: '0.2.17', update: null, app_name: 'Tico', usage_count_notice: false, beta, feedback_question: feedback};
         if (p === '/api/me') return json({id: 'ana', role: 'owner', name: 'Ana', email: 'ana@acme.example', cloud: true, registered: true, config});
         if (p === '/api/v2/config') return json(config);
         if (p.startsWith('/api/v2/support/')) {
@@ -53,6 +53,12 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
           }
           if (rest === 'access/sa_1/stop') { hq.access.active = null; return json({}); }
           if (rest === 'access/sa_1/log') return json({log: [{ts: new Date().toISOString(), by: 'support-agent', method: 'GET', path: '/api/v2/health' + HOSTILE, status: 200}]});
+          if (rest === 'setup-check') return json({checks: [
+            {name: 'HTTPS certificate', status: 'bad', detail: 'could not connect to tico.acme.example:443', fix: 'Open port 443 to the server.', source: 'doctor'},
+            {name: '/healthz', status: 'ok', detail: 'ok', fix: '', source: 'doctor'}], failing: 1, doctor_only: 'Run tico-setup doctor on the server for the rest.'});
+          if (rest === 'setup-snapshot') calls.push('asked from ' + new URL(req.url()).searchParams.get('asked_from'));
+          if (rest === 'setup-snapshot') return json({message: "I'd like help setting up Tico.\n\n- Computer online: no", kind: 'setup'});
+          if (rest === 'feedback') return json({moment: body.moment, answered: !!body.answer, ticket: null});
           if (rest === 'compose') return json({enabled: true, email: 'ana@acme.example', version: '0.2.17', install_id: INSTALL, to: 'updates.tico.team', max: 4000});
           if (rest === 'diagnostics/capture') return json({id: 'c'.repeat(64), bytes: 2048, text: DIAGNOSTICS_TEXT});
           if (rest === 'diagnostics') return json({id: (req.method() === 'POST' ? 'e' : 'd').repeat(64), bytes: 2048, text: body?.text || DIAGNOSTICS_TEXT});
@@ -89,6 +95,28 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
     let v = await visit();
     const {page} = v;
     await page.locator('#support-rail').waitFor();
+    // Wide: the overview on the left, Support in the right rail, no docs line above the overview.
+    const order = p => p.evaluate(() => {
+      const top = sel => document.querySelector(sel).getBoundingClientRect();
+      return {rail: top('#support-rail'), docs: top('.help-docs-first'), hero: top('.help-hero'), page: top('#help-page'),
+              box: top('[data-compose] [name=message]'), docsShown: getComputedStyle(document.querySelector('.help-docs-first')).display !== 'none',
+              jump: document.querySelectorAll('a[href="#support-rail"]').length, height: innerHeight};
+    });
+    let laid = await order(page);
+    assert.ok(laid.rail.left >= laid.page.right - 1, 'Support is the right rail on a wide screen');
+    assert.equal(laid.docsShown, false);
+    assert.equal(laid.jump, 0);
+    // The overview stays short (about a quarter of the 2,180 characters it once was); the rest is in the docs.
+    assert.ok((await page.locator('#help-page').innerText()).replace(/\s+/g, ' ').length < 650, 'Help overview stays short');
+    // Help lists the server's Beta features, each with its pill, and the sidebar's static spots draw theirs.
+    assert.deepEqual(await page.locator('#help-beta li').evaluateAll(rows => rows.map(li => li.firstChild.textContent)), beta.map(f => f.name));
+    assert.equal(await page.locator('#help-beta li .pill.beta').count(), beta.length);
+    assert.equal(await page.locator('[data-nav=market] .pill.beta').count(), 1);
+    assert.equal(await page.locator('#nav-inboxes-section .pill.beta').count(), 1);
+    // A bot is Beta by its template or harness; a bot off the list gets no pill.
+    assert.deepEqual(await page.evaluate(() => [{template: 'listening'}, {template: 'inbox'}, {harness: 'hermes'},
+      {agent: {harness: 'openclaw'}}, {template: 'support'}, {harness: 'claude'}].map(e => !!botBetaPill(e))),
+      [true, true, true, true, false, false]);
     const form = page.locator('[data-compose]'), box = form.locator('[name=message]');
     const requests = page.locator('[data-requests] .support-item'), help = page.locator('#help-open');
     // No requests yet: a friendly prompt with the composer, no list.
@@ -245,7 +273,7 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
     await v.page.locator('[data-compose] [name=message]').press('Enter');
     await v.page.locator('.support-msg.you').waitFor();
     const captured = JSON.parse(v.calls.find(c => c.startsWith('POST diagnostics/capture {')).slice('POST diagnostics/capture '.length));
-    assert.deepEqual(captured.app, {version: '0.3.48', lines: ['2026-10-16T06:47:31Z WARN tico_app: update check failed: 401']});
+    assert.deepEqual(captured.app, {version: '0.3.48', lines: ['2026-10-16T06:47:31Z WARN tico_app: update check failed: 401'], mac: false});
     const filed = JSON.parse(v.calls.find(c => c.startsWith('POST tickets {')).slice('POST tickets '.length));
     assert.equal(filed.app_version, '0.3.48');
     assert.equal(filed.diagnostics, 'c'.repeat(64));
@@ -273,11 +301,183 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
     assert.deepEqual(v.errors, []);
     await v.ctx.close();
 
+    // A phone: Support first, the composer in view without scrolling, the docs link right under it, then the overview.
+    // Reviewing and editing the diagnostics still works there.
+    v = await visit({viewport: {width: 390, height: 844}});
+    await v.page.locator('#support-rail').waitFor();
+    laid = await order(v.page);
+    assert.equal(await v.page.evaluate(() => document.querySelector('#main').scrollTop), 0);
+    assert.ok(laid.rail.top < laid.docs.top && laid.docs.top < laid.hero.top, 'Support, then the docs link, then the overview');
+    assert.ok(laid.docsShown && laid.docs.top - laid.rail.bottom < 30, 'the docs link sits directly under Support');
+    assert.ok(laid.box.top >= 0 && laid.box.bottom <= laid.height, 'the composer is in view without scrolling');
+    assert.equal(laid.jump, 0);
+    assert.equal(await v.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'phone has no horizontal overflow');
+    await v.page.locator('[data-compose] [data-preview]').click();
+    const phoneDialog = v.page.locator('dialog.support-modal');
+    await phoneDialog.locator('[data-use]:not([disabled])').waitFor();
+    assert.equal(await phoneDialog.locator('textarea').inputValue(), DIAGNOSTICS_TEXT);
+    await phoneDialog.locator('textarea').fill('{"format":1,"note":"phone"}');
+    await phoneDialog.locator('[data-save]').click();
+    await phoneDialog.locator('[data-use]:not([disabled])').waitFor();
+    await phoneDialog.locator('[data-use]').click();
+    await phoneDialog.waitFor({state: 'detached'});
+    assert.equal(await v.page.locator('[data-compose] [name=diag]').isChecked(), true);
+    await v.page.screenshot({path: '/tmp/tico-support-phone-first.png'});
+    assert.deepEqual(v.errors, []);
+    await v.ctx.close();
+
+    // A tablet, between the phone and the rail layout: Support still comes first, full width, nothing sideways.
+    v = await visit({viewport: {width: 900, height: 1000}});
+    await v.page.locator('#support-rail').waitFor();
+    laid = await order(v.page);
+    assert.ok(laid.rail.top < laid.docs.top && laid.docs.top < laid.hero.top, 'Support first on a tablet');
+    assert.ok(Math.abs(laid.rail.width - laid.page.width) < 2, 'Support spans the overview\'s width');
+    assert.equal(await v.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    assert.deepEqual(v.errors, []);
+    await v.ctx.close();
+
+    // Reach us from anywhere: Talk to us on the phone's tab bar opens Support from another page, ready to write.
+    v = await visit({viewport: {width: 390, height: 844}});
+    await v.page.locator('#support-rail').waitFor();
+    await v.page.evaluate(() => { location.hash = '#/tasks'; });
+    await v.page.waitForFunction(() => !document.querySelector('#support-rail'));
+    await v.page.locator('#mobile-talk').click();
+    await v.page.locator('#support-rail [data-compose] [name=message]').waitFor();
+    assert.equal(await v.page.evaluate(() => location.hash), '#/help');
+    assert.equal(await v.page.evaluate(() => document.activeElement?.name), 'message', 'the message box has the focus');
+    assert.equal(await v.page.locator('[data-report]').count(), 0, 'Talk to us attaches nothing');
+    assert.deepEqual(v.errors, []);
+    await v.ctx.close();
+
+    // Report this on an error toast: a new request with the error named, attached as diagnostics, shown before sending.
+    v = await visit();
+    await v.page.locator('#support-rail').waitFor();
+    await v.page.evaluate(() => toast('Could not save the task "Ship it" (409)', true));
+    await v.page.locator('.toast.err button', {hasText: 'Report this'}).click();
+    await v.page.locator('[data-report]').waitFor();
+    assert.match(await v.page.locator('[data-report]').innerText(), /Attached: Error Could not save the task/);
+    // The message names only the kind: the words on screen go in the redacted attachment, never unredacted in the text.
+    assert.equal(await v.page.locator('[data-compose] [name=message]').inputValue(), 'Error: details attached. ');
+    assert.equal(await v.page.evaluate(() => document.activeElement.selectionStart === document.activeElement.value.length), true, 'the cursor waits after the prefill');
+    assert.match(await v.page.locator('[data-sent]').innerText(), /redacted diagnostics with what you reported/);
+    await v.page.locator('[data-compose] [name=message]').pressSequentially('It happens every time.');
+    await v.page.locator('[data-compose] [name=message]').press('Enter');
+    await v.page.locator('.support-msg.you').waitFor();
+    const reported = JSON.parse(v.calls.find(c => c.startsWith('POST diagnostics/capture')).slice('POST diagnostics/capture '.length)).report;
+    assert.equal(reported.kind, 'toast');
+    assert.equal(reported.title, 'Could not save the task "Ship it" (409)');
+    assert.equal(reported.group, 'toast:Could not save the task "…" (#)', 'numbers and quoted names do not split a group');
+    const sentTicket = JSON.parse(v.calls.find(c => c.startsWith('POST tickets {')).slice('POST tickets '.length));
+    assert.equal(sentTicket.diagnostics, 'c'.repeat(64));
+    assert.equal(sentTicket.message, 'Error: details attached. It happens every time.', 'only what the person saw and typed');
+    // Removing the attachment before sending leaves a plain request.
+    await v.page.evaluate(() => talkToUs({kind: 'run', title: 'Run failed: exit 1'}));
+    assert.equal(await v.page.locator('[data-compose] [name=message]').inputValue(), 'Failed run: details attached. ');
+    // A second report onto an untouched prefill takes its own kind; words the person typed stay.
+    await v.page.locator('[data-compose] [name=message]').fill('Failed run: details attached. Since Monday.');
+    await v.page.evaluate(() => { document.querySelector('[data-compose] [name=message]').dispatchEvent(new Event('input', {bubbles: true})); talkToUs({kind: 'stuck', title: 'finance: no reply'}); });
+    assert.equal(await v.page.locator('[data-compose] [name=message]').inputValue(), 'Stuck bot: details attached. Since Monday.');
+    await v.page.locator('[data-compose] [name=message]').fill('');
+    await v.page.evaluate(() => talkToUs({kind: 'run', title: 'Run failed: exit 1'}));
+    await v.page.locator('[data-unreport]').click();
+    assert.equal(await v.page.locator('[data-report]').count(), 0);
+    assert.equal(await v.page.locator('[data-compose] [name=message]').inputValue(), '', 'no "details attached" with nothing attached');
+    // A red Health line, a stuck bot and a failed run offer Report this; a fine one does not.
+    const offered = await v.page.evaluate(() => ({
+      bad: hlCheckHtml({id: 'computers', label: 'Computers', status: 'bad', summary: 'None online', fixes: []}).includes('data-report-this'),
+      ok: hlCheckHtml({id: 'version', label: 'Version', status: 'ok', summary: 'Current', fixes: []}).includes('data-report-this'),
+      stuck: hlStuckHtml([{bot: 'ops', name: 'Ops', why: 'No computer', reason: 'offline'}]).includes('data-report-this'),
+      failed: runAttemptHTML({run: 'r1', state: 'failed', reason: 'exit 2', try: 1, tries: 1}, true).includes('data-report-this'),
+      done: runAttemptHTML({run: 'r2', state: 'completed', try: 1, tries: 1}, true).includes('data-report-this')}));
+    assert.deepEqual(offered, {bad: true, ok: false, stuck: true, failed: true, done: false});
+    // Setup check: rows with plain fixes, and Send to support attaches them.
+    await v.page.locator('[data-setup-check]').click();
+    await v.page.locator('[data-setup-row="bad"]').waitFor();
+    assert.match(await v.page.locator('.help-setup-head').innerText(), /1 of 2 checks fail/);
+    assert.match(await v.page.locator('[data-setup-row="bad"]').innerText(), /Fix: Open port 443/);
+    assert.equal(await v.page.locator('[data-setup-row="ok"] .help-setup-fix').count(), 0);
+    await v.page.locator('[data-setup-send]').click();
+    await v.page.locator('[data-report]').waitFor();
+    assert.match(await v.page.locator('[data-report]').innerText(), /Setup check/);
+    assert.match(await v.page.locator('[data-sent]').innerText(), /message marked setup/, 'a Setup check goes as a setup request');
+    // Another report in its place, or Remove, gives back the kind the request had before.
+    await v.page.evaluate(() => talkToUs({kind: 'toast', title: 'Could not save'}));
+    assert.doesNotMatch(await v.page.locator('[data-sent]').innerText(), /marked setup/, 'an error report is not a setup request');
+    await v.page.locator('[data-setup-send]').click();
+    await v.page.locator('[data-unreport]').click();
+    assert.doesNotMatch(await v.page.locator('[data-sent]').innerText(), /marked setup/);
+    await v.page.locator('[data-setup-send]').click();
+    await v.page.locator('[data-compose] [data-preview]').click();
+    await v.page.locator('dialog.support-modal [data-use]:not([disabled])').waitFor();
+    const previewed = JSON.parse(v.calls.filter(c => c.startsWith('POST diagnostics/capture')).at(-1).slice('POST diagnostics/capture '.length)).report;
+    assert.deepEqual(previewed.checks.map(c => [c.name, c.status]), [['HTTPS certificate', 'bad'], ['/healthz', 'ok']]);
+    assert.deepEqual(v.errors, []);
+    await v.ctx.close();
+
+    // "Want help setting up?" opens a new request that starts from the snapshot, which the person reads and sends as setup.
+    v = await visit({seed: [{id: 'sup_0', created: new Date().toISOString(), status: 'open', message: 'Earlier', sent: {}, messages: []}]});
+    await v.page.locator('#support-rail').waitFor();
+    await v.page.evaluate(() => {
+      document.body.insertAdjacentHTML('beforeend', '<button type="button" data-setup-help="health">Want help setting up?</button>');
+      document.querySelector('[data-setup-help]').click();
+    });
+    await v.page.waitForFunction(() => document.querySelector('#support-message')?.value.startsWith("I'd like help setting up Tico."));
+    assert.ok(v.calls.includes('asked from health'));
+    assert.match(await v.page.locator('[data-sent]').innerText(), /message marked setup/);
+    assert.ok(!v.calls.some(c => c.startsWith('POST tickets {')), 'nothing is sent before the person presses Send');
+    // A Setup check attached and removed again leaves "Want help setting up?" a setup request.
+    await v.page.evaluate(() => talkToUs({kind: 'setup_check', title: '1 of 2 checks fail', checks: []}));
+    await v.page.locator('[data-unreport]').click();
+    assert.match(await v.page.locator('[data-sent]').innerText(), /message marked setup/);
+    // A second press keeps the draft as it is: one snapshot, not two.
+    await v.page.evaluate(() => document.querySelector('[data-setup-help]').click());
+    await v.page.waitForFunction(() => document.querySelector('[data-setup-help]') && !document.querySelector('[data-setup-help]').disabled);
+    await v.page.waitForTimeout(100);
+    assert.equal(v.calls.filter(c => c === 'asked from health').length, 2);
+    assert.equal((await v.page.locator('#support-message').inputValue()).split("I'd like help setting up Tico.").length, 2);
+    await v.page.locator('[data-compose] [name=message]').press('Enter');
+    await v.page.locator('.support-msg.you', {hasText: 'Computer online'}).waitFor();
+    assert.equal(JSON.parse(v.calls.find(c => c.startsWith('POST tickets {')).slice('POST tickets '.length)).kind, 'setup');
+    assert.deepEqual(v.errors, []);
+    await v.ctx.close();
+
+    // A Setup check first, then "Want help setting up?", then Remove: still a setup request.
+    v = await visit();
+    await v.page.locator('#support-rail').waitFor();
+    await v.page.evaluate(() => talkToUs({kind: 'setup_check', title: '1 of 2 checks fail', checks: []}));
+    await v.page.locator('[data-report]').waitFor();
+    await v.page.evaluate(() => {
+      document.body.insertAdjacentHTML('beforeend', '<button type="button" data-setup-help="health">Want help setting up?</button>');
+      document.querySelector('[data-setup-help]').click();
+    });
+    await v.page.waitForFunction(() => document.querySelector('#support-message')?.value.includes("I'd like help setting up Tico."));
+    await v.page.locator('[data-unreport]').click();
+    assert.match(await v.page.locator('[data-sent]').innerText(), /message marked setup/);
+    assert.deepEqual(v.errors, []);
+    await v.ctx.close();
+
+    // "How is Tico working for you?": Send files the answer as feedback, and the question goes.
+    v = await visit({feedback: {moment: 'day_7', question: 'How is Tico working for you?'}});
+    const ask = v.page.locator('#feedback-ask');
+    await ask.waitFor();
+    await ask.locator('[name=answer]').fill('Faster than I expected');
+    await ask.locator('[type=submit]').click();
+    await ask.waitFor({state: 'hidden'});
+    assert.ok(v.calls.includes('POST feedback {"moment":"day_7","answer":"Faster than I expected"}'));
+    assert.deepEqual(v.errors, []);
+    await v.ctx.close();
+
     v = await visit({enabled: false});
     await v.page.waitForSelector('#help-page [data-support-off]');
     assert.match(await v.page.locator('[data-support-off]').innerText(), /turned off/);
+    assert.equal(await v.page.locator('[data-help-support]').count(), 0, 'no pointer to a Support that is off');
     assert.equal(await v.page.locator('#support-rail').count(), 0);
     assert.ok(!v.calls.some(c => c.startsWith('POST')));
+    // With support off, an error toast offers nothing to report to.
+    await v.page.evaluate(() => toast('Could not save', true));
+    assert.equal(await v.page.locator('#talk-to-us').isHidden(), true, 'no Talk to us when support is off');
+    assert.equal(await v.page.locator('#mobile-talk').evaluate(el => el.hidden), true);
+    assert.equal(await v.page.locator('.toast.err button').count(), 0);
     assert.deepEqual(v.errors, []);
     await v.ctx.close();
   } finally {

@@ -167,3 +167,46 @@ def test_a_run_from_a_conversation_the_reader_cannot_open_stays_out(api, monkeyp
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE tasks SET checkpoint_blocked=1 WHERE id=?", (tid,))
     assert get(api, f"tasks/{tid}/run-view")["checkpoint"] is None
+
+
+def test_the_task_page_follows_its_session_live_and_each_reply_keeps_its_steps(api):
+    """The task's page reads as its session's chat: while the owner's run works, `execution` says so with its newest
+    step; once it replies, the reply is in the thread with the run behind it, and the steps open from it."""
+    machine = runner(api, "ana")
+    assign(api, machine, "ops")
+    ready(api, machine, ["ops"])
+    tid, attempt = task_attempt(api, machine)
+    aid = attempt["id"]
+    events(api, machine, aid, [("tool", {"tool": "mcp__hub__task_create", "status": "started", "item_id": "c1"}),
+                               ("tool", {"tool": "mcp__hub__task_create", "status": "completed", "item_id": "c1"})])
+    live = get(api, f"tasks/{tid}")["execution"]
+    assert (live["state"], live["attempt_id"], live["bot"]) == ("running", aid, "ops")
+    assert live["parts"][-1] == {**live["parts"][-1], "kind": "tool", "text": "Ran hub task create"}
+    events(api, machine, aid, [("message", {"text": "Counted: 42 words.", "final": True})], first=3)
+    post(api, f"attempts/{aid}/complete", {"outcome": "completed", "text": "Counted: 42 words.", "last_seq": 3},
+         machine["token"])
+    page = get(api, f"tasks/{tid}")
+    reply = next(m for m in page["comments"] if m["from_actor"] == "bot:ops" and "42 words" in m["body"])
+    assert reply["refs"]["turn_id"] == aid and reply["run"]["steps"] >= 1
+    assert page["execution"]["state"] == "completed"
+    assert get(api, f"turns/{aid}/steps")["steps"], "the reply's steps open from the page"
+
+
+def test_a_task_still_in_a_chat_room_never_shows_that_chats_run(api):
+    """A task filed into a person's chat before task rooms keeps that room. Its page must not show the chat's live
+    run to someone who may read the task but not the chat."""
+    machine = runner(api, "ana")
+    assign(api, machine, "ops")
+    ready(api, machine, ["ops"])
+    tid, attempt = task_attempt(api, machine)
+    post(api, f"attempts/{attempt['id']}/complete", {"outcome": "completed", "text": "Counted.", "last_seq": 0},
+         machine["token"])
+    chat = post(api, "chat/ops", {"text": "My salary is 123k, how much should I save?"})
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET conversation_id=? WHERE id=?", (chat["conversation_id"], tid))
+    secret = claim(api, machine)
+    post(api, f"attempts/{secret['id']}/started", {"thread_id": "chat"}, machine["token"])
+    events(api, machine, secret["id"], [("message", {"text": "With your 123k salary save 2k a month", "final": False})])
+    get(api, f"conversations/{chat['conversation_id']}/snapshot", "ben-test", expected=403)
+    for token in ("ana-test", "ben-test"):
+        assert get(api, f"tasks/{tid}", token)["execution"] is None, "the chat's run is not the task's"

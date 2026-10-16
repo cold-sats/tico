@@ -195,10 +195,12 @@ button.linkish.tl-clear:hover{color:var(--ink)}
 .peek-tools{display:inline-flex;gap:2px;margin-left:4px}
 .peek-btn{display:grid;place-items:center;width:26px;height:26px;padding:0;border-radius:6px;color:var(--muted)}
 .peek-btn:hover{color:var(--ink)}
-/* Done and Close in the task header: compact text buttons the height of the icon buttons beside them */
+/* Done and Close task in the task header: compact bordered text buttons the height of the quiet icon buttons beside them */
 .tmodal-act{display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 9px;border-radius:6px;font-size:var(--t-sm);font-weight:600;white-space:nowrap}
 .tmodal-act svg{flex:none}
 .tmodal-x svg{width:12px;height:12px}
+/* The rule between the task's own controls and the window's ✕ */
+.tmodal-sep{flex:none;width:1px;height:18px;margin:0 2px;background:var(--line)}
 /* The title takes the focus when the task opens (tabindex=-1, never tabbed to): no ring for that */
 .tmodal-title:focus:not(:focus-visible),.tmodal-title[tabindex="-1"]:focus{outline:none}
 

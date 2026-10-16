@@ -159,11 +159,15 @@ A computer still hosts its owner's bots and the team owner's; taking members' bo
 
 ## A computer's screen
 
+> **Beta**: a computer's screen (View and Control) works today and may still change. See [Beta features](support.md#beta-features).
+
 A Linux computer can show its screen in the app, so people watch its bots work or take control. Two locks, both needed:
 
-- **On the computer**, its owner turns the screen on (`TICO_SCREEN=1` in Docker, or `tico-runner screen on`). Until then the
-  computer offers no screen and the hub refuses any mode but Off.
-- **Screen** in Settings > Computers: **Off** (the default), **View** or **Control**. The computer's operator or an admin sets it
+- **On the computer**, its owner turns the screen on (`TICO_SCREEN=1` in Docker, which a new Docker runner has; or
+  `tico-runner screen on`). Until then the computer offers no screen and the hub refuses any mode but Off.
+- **Screen** in Settings > Computers: **Off**, **View** or **Control**. It starts at **View** the first time a new computer offers
+  a screen, unless someone already chose a mode for it (audit: `runner.screen` by `system`); a computer added before this
+  default keeps its setting. The computer's operator or an admin sets it
   (`POST /api/v2/computers/<id>/screen {"mode": "view"}`), or BotOps as one of them. Off closes open screens; View closes the
   ones in control.
 
@@ -190,6 +194,8 @@ against the session again.
   person at their own browser accepts it.
 
 ## A computer's performance
+
+> **Beta**: behaviour replay and the computer Performance page work today and may still change. See [Beta features](support.md#beta-features).
 
 Every computer reports its CPU, memory, swap, disk and its busiest processes every 30 seconds, so a slow or overloaded
 computer can be debugged afterwards. It is on by default. The computer's operator or an admin turns it off in

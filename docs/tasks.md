@@ -209,7 +209,7 @@ work does not mark it Done. Both statuses appear in the **Done** view; the task 
 the separate completion and closing events.
 
 A person finishes a bot's request in one tap: **Done** asks nothing. A comment typed in the box
-where you press Done (the task's comment box, the note box on a Decide card or the reply box on a
+where you press Done (the task's message box, the note box on a Decide card or the reply box on a
 Needs you card) and not yet sent goes with Done as the outcome; a card's Done never takes one left
 in the task window. Done on several selected tasks at once sends no comment: an unsent one stays in its
 task's box. The bot that asked is told either way, as *<name> marked this done: <title>*, with the
@@ -484,11 +484,23 @@ or checkpoint. These start no run; the main session reads them the next time som
 not reported twice in a row, and a private task is reported only in a room whose every reader may read it, otherwise
 not at all. A runner from before lanes (`task_lanes_v2`) still reads the whole room.
 
+The task's page shows that room as a chat with the task's session, under **Conversation**, in place of a list of
+comments. The bot's updates and replies are messages, and each reply opens to the steps of the run behind it. What
+people say shows on the right under their names, as in a bot's chat with several people; your own line has no name.
+Changes to status, type, owner and the like are one-line markers between the messages. While the owner's run works, a
+**Working…** line shows its newest step and opens to the steps so far. Whoever manages the bot gets **Stop** beside
+it, the same stop as in the bot's chat (`POST /v2/bots/{slug}/stop`). The box at the foot is the chat's composer, and
+what you type there is a comment: it wakes the bot as before. `GET /v2/tasks/{id}` carries this view: each bot reply in
+`comments` has its `run`, and `execution` is the owning bot's newest run in the task's own room, shaped as in a
+conversation snapshot. A task still in a chat room (a person's task, or one filed into a chat before task rooms) has
+no `execution`: that room's runs belong to the chat.
+`hub task comment`, `hub_task_comment` and `POST /v2/tasks/{id}/comments` are unchanged.
+
 Tico spot-checks running work. A bot's open or doing task whose own session ran in the last day (or runs now) and
 that has made no progress for 30 minutes (no checkpoint, comment, status change, message from its bot or finished
 turn) gets one "Status check: checkpoint where you are, or mark it blocked or done." in its session. Thirty minutes
 later with still no progress it is reported stuck in the main chat, and when a person asked for it they get a
-question on it in Needs you, whose answer wakes the bot. These share the stall watcher's spacing and its cap of three
+question on it in Needs you, whose answer wakes the bot; the question is withdrawn when the task is done. These share the stall watcher's spacing and its cap of three
 a day, after which BotOps gets a task to find out why.
 
 `task_goal: on` on a bot (`hub bot update <slug> --task-goal on`, `hub_bot_update`, or the bot definition API; off by
@@ -758,6 +770,18 @@ hub task comment-delete <task-id> <comment-id>
 The comment id is the `id` in the task's `comments` (`hub task show`). MCP: `hub_task_comment_edit`
 (`id`, `comment_id`, `text`) and `hub_task_comment_delete` (`id`, `comment_id`). The API routes are
 in [Task comments](api.md#task-comments).
+
+A question is not a comment and is never edited or deleted. When the person answers it somewhere else, such as in
+chat, the question's asker or the task's owner bot records their words as its answer, marked as quoted by whoever
+recorded it; without a quote, the asker withdraws a question no longer wanted, which stays in the thread. Either way
+it leaves the person's Needs you and the bot's counts, and nothing is sent or woken.
+
+```sh
+hub task ask-resolve <task-id> <question-id> --quote "Use the August numbers."
+hub task ask-resolve <task-id> <question-id>
+```
+
+MCP: `hub_task_ask_resolve` (`id`, `comment_id`, optional `quote`).
 
 ## Deleting tasks made by mistake
 

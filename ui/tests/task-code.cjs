@@ -474,7 +474,7 @@ async function botDetail(browser) {
     await d.locator('.task-chat textarea').fill('Check the receipt totals too.');
     await d.locator('.task-chat button[type="submit"]').click();
     await d.locator('.task-comments', {hasText: 'Check the receipt totals too.'}).waitFor();
-    assert.deepEqual(writes.at(-1), {method: 'POST', p: '/api/v2/tasks/t-checkout/comments', body: {text: 'Check the receipt totals too.'}});
+    assert.deepEqual(writes.at(-1), {method: 'POST', p: '/api/v2/tasks/t-checkout/comments', body: {text: 'Check the receipt totals too.', public: false}});
     // A subtask opens in the same dialog even though no manager state exists on the bot page.
     await d.locator('[data-sub-open="k1"]').click();
     await d.locator('.tmodal-title', {hasText: 'Summary step on web'}).waitFor();

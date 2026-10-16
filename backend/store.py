@@ -645,6 +645,8 @@ class Store:
             c.executescript(_bot_tools.SCHEMA)
             from . import mail_settings as _mail_settings
             c.executescript(_mail_settings.SCHEMA)
+            from . import company_storage as _company_storage
+            c.executescript(_company_storage.SCHEMA)
             from . import google_connect as _google_connect
             _google_connect.ensure_schema(c)
             from . import support as _support
@@ -679,6 +681,9 @@ class Store:
                 H.add_column(c, "runners", "accepts_member_bots", "INTEGER NOT NULL DEFAULT 0")
                 # Who may open a computer's screen from the app: off, view or control (backend/screen.py).
                 H.add_column(c, "runners", "screen", "TEXT NOT NULL DEFAULT 'off'")
+                # 1 on a computer enrolled since Screen started at View, until its first screen offer or a person's
+                # choice; computers that existed before keep what they had.
+                H.add_column(c, "runners", "screen_default_pending", "INTEGER NOT NULL DEFAULT 0")
                 # Performance diagnostics: on unless a person turns them off (backend/performance.py).
                 H.add_column(c, "runners", "performance", "TEXT NOT NULL DEFAULT 'on'")
                 # A starter bot is `needs_onboarding` until it says its setup is done, then
@@ -1131,6 +1136,8 @@ class Store:
                     from . import task_relations as _task_relations
                     _task_relations.migrate(c)
                     c.execute("INSERT INTO cloud_migrations VALUES(60,?)", (H.now(),))
+                from .public_roadmaps import migrate as migrate_public_roadmaps
+                migrate_public_roadmaps(c)
                 H.ensure_market_reads(c)
                 # Deleted tasks wait here until restored or purged; created unversioned, like the
                 # trigger below, so it never takes a migration number another change needs.
@@ -1486,8 +1493,10 @@ class Store:
                 result = {"_refusal": {"code": refusal.code, "detail": ("Private task write refused" if getattr(exc, "private", False) else refusal.detail),
                                        "status": refusal.status}}
             if not is_poll(operation, result):
+                cached = ({k: v for k, v in result.items() if k != 'requester_token'}
+                          if isinstance(result, dict) else result)
                 c.execute("INSERT INTO idempotency VALUES(?,?,?,?,?,?)",
-                          (principal, operation, key, hashed, encode(result), H.now()))
+                          (principal, operation, key, hashed, encode(cached), H.now()))
         self.ring(logged)
         if refusal:
             raise refusal

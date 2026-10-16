@@ -61,7 +61,21 @@ function applyConfig(config) {
   noticeUpdatedServer();
   void renderAppUpdate();
   renderUsageNotice();
+  betaMark();
+  renderVersionMessage();
+  renderFeedbackAsk();
+  document.documentElement.classList.toggle('no-support', S.config.support_on === false);
   return S.config;
+}
+// Beta: the server's one list (backend/beta.py), so the app, Help, the manual and support diagnostics agree. The pill
+// shows only for an id on it; a static spot in the page is an empty `<span data-beta="id">` that betaMark fills.
+const betaFeature = id => (S.config.beta || []).find(f => f.id === id);
+const betaPill = id => betaFeature(id) ? '<span class="pill beta" title="Beta: works today and may still change">Beta</span>' : '';
+// The pill for a bot that is a Beta feature by its template (a message bot, Listening) or harness (an external agent).
+const botBetaPill = e => betaPill((S.config.beta || []).find(f => (f.templates || []).includes(e?.template)
+  || (f.harnesses || []).includes(e?.harness || e?.agent?.harness))?.id);
+function betaMark(root = document) {
+  root.querySelectorAll('[data-beta]').forEach(el => { el.innerHTML = betaPill(el.dataset.beta); });
 }
 // ----------------------------------------------------------------- derived state
 function stateOf(slug) {
@@ -77,9 +91,10 @@ function stateOf(slug) {
   return 'idle';
 }
 const openCount = slug => S.v2?.status?.[slug]?.open_tasks || 0;
-// The org tree's number is what needs you from that bot, counted the way the
-// Needs you list groups it (companyNeedActor), so the two always agree.
-function needsMeCount(slug) {
+// What needs you from that bot, grouped the way the Needs you list groups it (companyNeedActor). The org tree's
+// number and the bot page's Needs you section both read this, so the number is always the rows.
+function botNeeds(slug) {
   return (S.v2?.needs || []).filter(it => (['task', 'question', 'waiting'].includes(it.kind) && taskNeedsMe(it)
-    && companyNeedActor(it, it) === 'bot:' + slug) || (it.kind === 'ask' && it.requester === 'bot:' + slug)).length;
+    && companyNeedActor(it, it) === 'bot:' + slug) || (it.kind === 'ask' && it.requester === 'bot:' + slug));
 }
+function needsMeCount(slug) { return botNeeds(slug).length; }

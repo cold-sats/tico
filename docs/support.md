@@ -7,9 +7,11 @@ is sent and kept.
 
 ## For a human
 
-Help (the `?` at the bottom of the sidebar) has the app overview on the left and **Support** in the right rail, using the
-same sizing and resize controls as the rest of the app. On a narrow screen, Support follows the overview; the top Support
-link jumps there.
+Help (the `?` at the bottom of the sidebar) has a short overview on the left (what Tico is, where to start, how to get
+help, and links to the docs) and **Support** in the right rail, using the same sizing and resize controls as the rest of
+the app. On a narrower screen, such as a phone, Support comes first: your
+requests, **New request** and the composer are at the top without scrolling. A **Read the Tico docs** link sits right under
+Support, and the short overview follows below it.
 
 - **Your requests** is a list, newest activity first. Each row shows the start of your first message, a status badge
   (**Open**: waiting for Tico support; **Answered**: they replied; **Closed**; **Removed**: the team deleted it at HQ), when it
@@ -39,7 +41,8 @@ If HQ refuses an attachment, remove it yourself to send just the message; it is 
 its own fresh, edited diagnostics without replacing the first report.
 
 Diagnostics contain redacted versions, health, computer readiness and last heartbeat, capped server/runner/updater failures,
-and capture coverage. From the desktop app they also carry the app's version (`versions.app`) and the last 200 lines of its log
+and capture coverage, and the [Beta features](#beta-features) your team has on or in use (`beta`, by id). From the desktop
+app they also carry the app's version (`versions.app`) and the last 200 lines of its log
 file (`logs.app`, [Desktop app](desktop.md)). The server groups adjacent repeated failures; failed HTTP requests record only their registered route
 pattern and status in the bounded diagnostics buffer. Unexpected exceptions include their type and up to three application
 module/line locations, never values, locals or a raw traceback. Browser errors contribute up to 20 groups containing only
@@ -62,6 +65,35 @@ local ticket record. Closed requests remain readable.
 - Demo mode has no Contact support: nothing leaves a demo. Neither does a rehearsal (`TICO_REHEARSAL=1`), which reports "rehearsal" as the reason it is off.
 - `TICO_SUPPORT=off` in the server's `.env` removes it from an install that must not phone out. `TICO_HQ_URL` points it at your
   own HQ (see [telemetry.md](telemetry.md)).
+
+### Reach us from anywhere
+
+- **Talk to us** sits at the bottom of the sidebar and on the phone's tab bar. It opens Help with a new request, ready to
+  write. Empty Tasks, Updates and Runs pages, and the screen after Create, carry the line "Stuck or curious? A person at
+  Tico reads every message." with the same button.
+- **Report this** appears on every error message (toast), on a failed run (a task's Runs section and the Runs page), on a red
+  Health line and on a stuck bot. It opens a new request with what failed named in the message and attached as
+  diagnostics in a `report` section: its kind (`toast`, `run`, `health`, `stuck`, `setup_check`), the words on screen,
+  the run, check or bot it is about, and a `group` that names the same problem the same way each time (numbers and quoted
+  names left out). The composer shows **Attached:** with a **Remove** button, and **Review and edit** shows the exact
+  attachment before anything is sent. Every string in it goes through the same redactor as the rest of the diagnostics.
+  When support is off, no Report this is offered.
+- **Setup check** in Help runs the checks `tico-setup doctor` runs, from the server against its own address (HTTPS
+  certificate, `/healthz`, the sign-in redirect for Google or Microsoft sign-in, the runner hostname), plus Health's red
+  and yellow lines, and shows each with a plain fix. A Tico that serves only its own computer has no HTTPS to check.
+  The server container, tunnel connector and `.env` permissions need a shell on the server, so for those it points to
+  doctor. **Send to support** attaches the result to a new request, so support can ask you to "press Setup check and
+  send" instead of asking questions. The check itself works with support off (`POST /api/v2/support/setup-check`, any
+  signed-in person, once every 30 seconds each).
+- When the installer or `tico-setup doctor` fails at a terminal, it asks **Send this to Tico support? [y/N]**. Only a
+  `y` sends; with no terminal it never asks. Before asking it prints exactly what would be sent. On yes it asks for an optional email, then sends the failing checks and
+  their fixes, the OS, architecture and Tico version as a request of kind `setup`, redacted with the diagnostics rules
+  (`backend/redaction.py`) plus the install's own domain, owner, team name, runner and ssh hosts, and the account name in home folders and ssh
+  logins. It prints the
+  request's number and a link, `https://updates.tico.team/support/TK-XXXXXXXX#s=...`, where replies show up and where you
+  can answer or delete the request. The secret is after the `#`, so it never reaches a server log. `--no-support` or
+  `TICO_SUPPORT=off` turns the question off. The installer asks only once it has unpacked its bundle, so a failure
+  before that (for example a machine that does not qualify) prints its error without the question.
 
 ### A bot's report, after a person's yes
 
@@ -122,6 +154,25 @@ ends a live session. Until its security review is done, it is also off unless th
 
 For the team: `GET /v1/staff/access` lists live sessions, and `/v1/staff/access/<session>/api/v2/...` is one request to that
 install's API, with `X-Tico-Support-By: support-agent` when the bot makes it ([Tico HQ](tico-hq.md#support-access)).
+
+## Beta features
+
+A Beta feature works today and may still change. The app shows a **Beta** pill beside it (its nav item, settings section,
+page title or template card), Help lists them under **Beta features**, and its page in this manual opens with a Beta note.
+@diagnostics lists the ones your team has on or in use; a Windows computer through WSL 2 reports itself as Linux, so the
+server cannot tell one is connected. One list in `backend/beta.py` drives all of these.
+
+- Windows computers through WSL 2: [install](install.md#windows-pc-wsl-2)
+- Chat goals and steering: [chat-goals](chat-goals.md)
+- Message bots: mail and calendar: [messaging](messaging.md), [mail](mail.md), [mail-service](mail-service.md)
+- Slack gateway: [slack-gateway](slack-gateway.md)
+- Listening: [listening](listening.md)
+- Market: [librarian](librarian.md#setting-up-the-market)
+- Live Meetings API and Recorder: [live-meetings-api](live-meetings-api.md)
+- Computer screen (View and Control): [install](install.md#screen), [permissions](permissions.md#a-computers-screen)
+- External agents: Hermes, OpenClaw, Grok Bot, Dots, Muse sync: [hermes-agents](hermes-agents.md), [openclaw-agents](openclaw-agents.md), [external-agent-sync](external-agent-sync.md)
+- Behaviour replay and the computer Performance page: [releasing](releasing.md#behaviour-replay), [permissions](permissions.md#a-computers-performance)
+- The Mac desktop app: [desktop](desktop.md)
 
 ## What is sent and kept
 
@@ -194,6 +245,10 @@ Without `HQ_STAFF_KEY` the watcher does nothing. To watch GitHub, list the repos
 `GH_SUPPORT_REPOS`. Check Settings > Health for a "Watchers" line: it appears only when a watcher fails or has stopped.
 
 ### By hand
+
+**Fixed in.** Link a ticket to the ticoteam/tico issue or pull request that will fix it (`software/hq-tickets link TK-XXXXXXXX
+'#712'`). When a release ships it, HQ posts "Fixed in vX, update here" on the ticket by itself ([tico-hq.md](tico-hq.md#messages-known-issues-and-fixed-in-notices)),
+and the human sees it in Help under Your requests. HQ also keeps the known issues by version that Help shows.
 
 `software/hq-tickets list`, `show TK-XXXXXXXX`; or with curl and the key in a header (`Authorization: Bearer $HQ_STAFF_KEY`):
 `GET /v1/staff/tickets?status=open`, `POST /v1/staff/tickets/{id}/reply` with `{"body": "..."}`, `POST .../status` with

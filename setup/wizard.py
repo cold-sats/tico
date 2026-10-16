@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from . import aws as awsmod, backup as bk, cloud as cloudmod, cloudinit, contract, dns as dnsmod, envfile, remote, route53, settings as st, signin, state, verify
+from . import aws as awsmod, backup as bk, cloud as cloudmod, cloudinit, contract, dns as dnsmod, envfile, remote, route53, settings as st, signin, state, support, verify
 from .cloudflare import DASHBOARD_STEPS, RUNNER_DASHBOARD_STEP, TOKEN_URL, Cloudflare, CloudflareError
 from .settings import Asker, Settings
 from .ui import IO, USAGE_NOTICE, MissingInput
@@ -463,6 +463,7 @@ def run(args, io: IO, deps: Deps) -> int:
                 step.run()
             except remote.StepFailed as e:
                 io.say(f"\nFailed: {e}\nRe-run `tico setup` after fixing it; finished steps are skipped.")
+                offer_support(io, args, s, f"tico setup ({s.target})", error=f"{step.description}: {e}")
                 return 1
         if s.front_door == "cloudflared":
             io.say("\nDNS")
@@ -479,7 +480,7 @@ def run(args, io: IO, deps: Deps) -> int:
     else:
         return _command(io, args, s, deps, zone, records, cf, env_text, compose, url, timeout)
 
-    return finish(io, s, deps, records, runner)
+    return finish(io, s, deps, records, runner, args)
 
 
 def runner_record_free(s: Settings, cf: Cloudflare) -> None:
@@ -647,7 +648,7 @@ def _command(io, args, s, deps, zone, records, cf, env_text, compose, url, timeo
 HTTPS_WAIT_SECONDS = 180
 
 
-def finish(io: IO, s: Settings, deps: Deps, records, runner: remote.Shell | None) -> int:
+def finish(io: IO, s: Settings, deps: Deps, records, runner: remote.Shell | None, args=None) -> int:
     io.say("\nChecking it works")
     checks = verify.run_all(domain=s.domain, provider=s.auth, client_id=s.client_id, front_door=s.front_door,
                             records=records, resolvers=deps.public_resolvers(), shell=runner, runner_host=s.runner(),
@@ -661,7 +662,15 @@ def finish(io: IO, s: Settings, deps: Deps, records, runner: remote.Shell | None
                "Settings > Computers > Add computer, or a Linux box with `python3 -m setup runner`.")
         return 0
     io.say("\nNot everything passed. Fix the hints above and run `python3 -m setup doctor --domain " + s.domain + "`.")
+    offer_support(io, args, s, f"tico setup ({s.target})", checks)
     return 1
+
+
+def offer_support(io: IO, args, s: Settings, what: str, checks=(), error: str = "") -> None:
+    """Offer to send the failure to Tico support (support.py), with this run's domain, names and secrets kept out."""
+    support.offer(io, what, checks, error, domains=support.domains_of(s.domain, s.owner_email, s.allowed_domain, s.runner(), s.ssh_host),
+                  secrets=s.secrets(), names=[s.company], version=support.bundle_version(getattr(args, "tico_version", "") or s.tag),
+                  args=args)
 
 
 def show(io: IO, checks: list[verify.Check]) -> None:
@@ -695,6 +704,8 @@ def doctor(args, io: IO, deps: Deps) -> int:
                             records=records, resolvers=deps.public_resolvers(), shell=runner, runner_host=s.runner())
     show(io, checks)
     ok = all(c.ok for c in checks)
+    if not ok:
+        offer_support(io, args, s, "tico setup doctor", checks)
     if args.runner:
         from . import runner_setup
         ok = runner_setup.doctor_runners(io, deps, f"https://{domain}") and ok

@@ -14,6 +14,7 @@ opens nothing. Beside the copy go a `server.env` with TICO_REHEARSAL=1 (nothing 
 server, and runners are refused), a fresh local sign-in token, and empty registry and attachment folders.
 """
 import argparse
+import json
 import os
 import secrets
 import shlex
@@ -43,12 +44,12 @@ EMPTY = (
     "service_key_tasks",
     # credentials
     "credentials", "credential_keys", "credential_grants", "credential_requests", "credential_imports",
-    "directory_credentials",
+    "directory_credentials", "company_storage",
     # mail, Slack, GitHub, Granola, meeting bots, support
     "mail_mailboxes", "bot_mail_settings", "google_connects", "google_mail_holders", "slack_credentials", "slack_posts", "slack_events", "slack_threads",
     "github_app", "github_app_states", "granola_connections", "meeting_importers", "live_meeting_bots",
     "support_tickets", "support_access", "support_access_log",
-    "usage_alerts",
+    "usage_alerts", "task_requesters", "roadmap_actions",
     # raw provider streams: customer text, and whatever the secret scrub missed
     "attempt_captures", "attempt_capture_drops",
 )
@@ -65,7 +66,7 @@ KEEP = frozenset((
     "cloud_migrations", "connector_snapshots", "conversations", "doc_sources", "doc_versions", "docs",
     "document_versions", "documents", "external_documents", "external_sections", "external_snapshot_docs",
     "external_snapshots", "external_versions", "flight_db", "flight_events", "flight_process", "flight_requests",
-    "flight_slow", "flight_sql", "goal_checkins", "goal_events", "goal_kpis", "goal_proposals", "goals",
+    "flight_slow", "flight_sql", "goal_asks", "goal_checkins", "goal_events", "goal_kpis", "goal_proposals", "goals",
     "health_findings", "health_reports", "humans", "import_refs", "intake_items", "kpi_definitions", "kpi_readings",
     "kpis", "learning_cursors", "learning_deliveries", "learning_items", "learning_runs", "learnings", "linked_docs",
     "listen_items", "listen_judgments", "listen_runs", "live_meeting_chat", "live_meeting_chat_routes",
@@ -207,8 +208,22 @@ def prune(c, days):
         count = c.execute(f"DELETE FROM {quote(table)}" + (" WHERE " + where if where else ""), args).rowcount
         removed[table] = removed.get(table, 0) + count
 
-    for table in emptied(c):
+    gone = emptied(c)
+    for table in gone:
         delete(table)
+    # A deleted task's snapshot holds copies of its own rows; an emptied table's copies (requesters' contacts and
+    # token hashes, delivery bookkeeping) go too, so neither a read of the trash nor a restore brings them back.
+    if "task_trash" in present:
+        for task_id, raw in c.execute("SELECT task_id,rows_json FROM task_trash").fetchall():
+            snapshot = json.loads(raw or "{}")
+            rows = snapshot.get("rows") if isinstance(snapshot, dict) else None
+            if isinstance(rows, dict) and set(rows) & set(gone):
+                snapshot["rows"] = {t: r for t, r in rows.items() if t not in gone}
+                c.execute("UPDATE task_trash SET rows_json=? WHERE task_id=?", (json.dumps(snapshot), task_id))
+    # The secret that keys visitors' hashed addresses is the live install's; the copy gets its own.
+    if "registry_metadata" in present:
+        c.execute("UPDATE registry_metadata SET value_json=? WHERE key='roadmap_ip_secret'",
+                  (json.dumps(secrets.token_hex(32)),))
     if "jobs" in present:
         delete("jobs", "state IN (%s)" % ",".join("?" * len(OPEN_JOBS)), OPEN_JOBS)
     if "attempts" in present:

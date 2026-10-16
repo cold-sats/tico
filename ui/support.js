@@ -27,16 +27,35 @@
     if (!(window.ticoNativeFeatures || []).includes('appLog') || typeof window.ticoNativeLog !== 'function') return null;
     try {
       const got = await window.ticoNativeLog();
-      return {version: String(got?.version || '').slice(0, 40), lines: (Array.isArray(got?.lines) ? got.lines : []).slice(-200).map(x => String(x).slice(0, 2000))};
+      return {version: String(got?.version || '').slice(0, 40), lines: (Array.isArray(got?.lines) ? got.lines : []).slice(-200).map(x => String(x).slice(0, 2000)),
+        mac: /Macintosh|Mac OS X/.test(navigator.userAgent)};
     } catch (_) { return null; }
   }
-  // `hours` of each computer's performance history go with the attachment (0: none).
-  async function capture(hours) {
+  // `hours` of each computer's performance history go with the attachment (0: none); `report` is what Report this or
+  // Setup check attached (backend/support.py Report).
+  async function capture(hours, report) {
     const app = await appShell();
-    return browserFailures.length || app
-      ? call('POST', '/support/diagnostics/capture', {browser: browserFailures, performance_hours: hours, ...(app ? {app} : {})})
+    return browserFailures.length || app || report
+      ? call('POST', '/support/diagnostics/capture', {browser: browserFailures, performance_hours: hours, ...(app ? {app} : {}), ...(report ? {report} : {})})
       : call('GET', '/support/diagnostics?performance_hours=' + hours);
   }
+  const REPORTED = {toast: 'Error', run: 'Failed run', health: 'Health', stuck: 'Stuck bot', setup_check: 'Setup check'};
+  const prefill = report => REPORTED[report.kind] + ': details attached. ';
+  // The message without any kind's untouched prefill: a new report or Remove replaces it rather than stacking on it.
+  const unprefilled = message => { const kind = Object.values(REPORTED).find(k => message.startsWith(k + ': details attached. ')); return kind ? message.slice(kind.length + 20) : message; };
+  // The same problem gets the same group wherever it is reported: numbers and quoted names don't split it.
+  const group = (kind, words) => (kind + ':' + String(words || '').replace(/(["'“‘]).*?["'”’]/g, '"…"').replace(/\d+/g, '#').replace(/\s+/g, ' ').trim()).slice(0, 120);
+  const clip = (s, n) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+  function asReport(r) {
+    if (!r || !REPORTED[r.kind]) return null;
+    const out = {kind: r.kind, title: clip(r.title, 200), detail: String(r.detail ?? '').slice(0, 2000), ref: clip(r.ref, 120)};
+    out.group = clip(r.group, 120) || group(r.kind, r.title);
+    if (Array.isArray(r.checks)) out.checks = r.checks.slice(0, 40).map(c => ({name: clip(c.name, 120) || 'Check', status: ['ok', 'bad', 'warn', 'info'].includes(c.status) ? c.status : 'info',
+      detail: clip(c.detail, 600), fix: String(c.fix ?? '').slice(0, 1200), source: c.source === 'health' ? 'health' : 'doctor'}));
+    return out;
+  }
+  // A Talk to us or Report this pressed anywhere: Help opens with a new request, the report attached as diagnostics.
+  let pending = null;
   const PERF_WINDOWS = [[0, 'None'], [24, '1 day'], [168, '7 days'], [336, '14 days']];
   const statuses = {open: 'Open', answered: 'Answered', closed: 'Closed', gone: 'Removed'};
   const ICON = {
@@ -57,7 +76,7 @@
   const last = t => (t.messages || []).at(-1)?.created || t.created;
   const inThread = () => viewing || !state.tickets.length;
   const draft = () => {
-    if (!drafts.has(selected)) drafts.set(selected, {message: '', email: compose?.email || '', ids: true, diag: !selected, perf: 24, bundle: null, key: uid()});
+    if (!drafts.has(selected)) drafts.set(selected, {message: '', email: compose?.email || '', ids: true, diag: !selected, perf: 24, bundle: null, key: uid(), kind: 'support', report: null});
     return drafts.get(selected);
   };
   const current = () => state.tickets.find(t => t.id === selected);
@@ -70,6 +89,8 @@
     return data;
   }
   function mark() {
+    // Talk to us is for a server that has support on (it opens Support); hidden until that is known to be off.
+    for (const id of ['talk-to-us', 'mobile-talk']) { const el = document.getElementById(id); if (el) el.hidden = state.enabled === false; }
     const link = document.getElementById('help-open'), n = state.unread;
     if (!link) return;
     if (n) {
@@ -274,7 +295,15 @@
       <small class="sr-only" id="support-keys">Enter sends. Shift+Enter adds a new line.</small>
       <div class="support-diag"><label><input name="diag" type="checkbox" ${d.diag ? 'checked' : ''}> @diagnostics</label><label>Computer performance <select name="perf">${PERF_WINDOWS.map(([h, label]) => `<option value="${h}"${h === d.perf ? ' selected' : ''}>${label}</option>`).join('')}</select></label><button class="ghost" type="button" data-preview>Review and edit</button></div>
       ${!selected ? `<details class="support-options"><summary>Reply email and install details</summary><label>Email for a reply<input name="email" type="email" value="${escape(d.email)}" autocomplete="email"></label><label class="support-check"><input name="ids" type="checkbox" ${d.ids ? 'checked' : ''}> Include ${appVersion() ? 'versions' : 'version'} and install ID</label></details>` : ''}
+      ${d.report ? `<p class="support-report" data-report>Attached: <strong>${escape(REPORTED[d.report.kind])}</strong> ${escape(d.report.title)} <button class="linkish" type="button" data-unreport>Remove</button></p>` : ''}
       <p class="support-sent" data-sent></p>`;
+    const unreport = form.querySelector('[data-unreport]');
+    if (unreport) unreport.onclick = () => {
+      // An untouched prefill would say "details attached" with nothing attached.
+      d.message = unprefilled(d.message);
+      if (d.report.kind === 'setup_check') d.kind = d.kindBefore || 'support';
+      d.report = null; d.bundle = null; d.key = uid(); renderComposer(); form.elements.message?.focus();
+    };
     form.oninput = () => {
       d.message = form.elements.message.value;
       if (!selected) { d.email = form.elements.email.value; d.ids = form.elements.ids.checked; }
@@ -299,9 +328,10 @@
       submit.setAttribute('aria-busy', 'true');
       const thread = selected;
       try {
-        if (d.diag && !d.bundle) { d.bundle = await capture(d.perf); updateSent(); }
+        if (d.diag && !d.bundle) { d.bundle = await capture(d.perf, d.report); updateSent(); }
         const body = {message: d.message, diagnostics: d.diag ? d.bundle.id : ''};
-        if (!thread) Object.assign(body, {email: d.email.trim(), include_ids: d.ids}, d.ids && appVersion() ? {app_version: appVersion()} : {});
+        if (!thread) Object.assign(body, {email: d.email.trim(), include_ids: d.ids}, d.ids && appVersion() ? {app_version: appVersion()} : {},
+          d.kind !== 'support' ? {kind: d.kind} : {});
         const next = await call('POST', thread ? `/support/tickets/${encodeURIComponent(thread)}/messages` : '/support/tickets', body, d.key);
         state.tickets = [next, ...state.tickets.filter(t => t.id !== next.id)];
         drafts.delete(thread); selected = next.id; viewing = true;
@@ -320,10 +350,10 @@
   }
   function updateSent() {
     if (!rail?.isConnected) return;
-    const d = draft(), parts = ['message'];
+    const d = draft(), parts = [!selected && d.kind !== 'support' ? 'message marked ' + d.kind : 'message'];
     if (!selected && d.email.trim()) parts.push('email ' + d.email.trim());
     if (!selected && d.ids) parts.push('version ' + (compose?.version || 'unknown'), ...(appVersion() ? ['app version ' + appVersion()] : []), 'install ID ' + compose?.install_id);
-    if (d.diag) parts.push('redacted diagnostics' + (d.bundle ? ' (' + Math.max(1, Math.ceil(d.bundle.bytes / 1024)) + ' KB)' : ''));
+    if (d.diag) parts.push('redacted diagnostics' + (d.report ? ' with what you reported' : '') + (d.bundle ? ' (' + Math.max(1, Math.ceil(d.bundle.bytes / 1024)) + ' KB)' : ''));
     rail.querySelector('[data-sent]').textContent = 'Sends to ' + compose?.to + ': ' + parts.join(', ') + '.';
   }
   async function openEditor(d) {
@@ -356,7 +386,7 @@
     const load = async () => {
       if (loading) return;
       loading = true; err.hidden = true; use.disabled = true;
-      try { show(await capture(d.perf)); }
+      try { show(await capture(d.perf, d.report)); }
       catch (e) { fail(e); }
       finally { loading = false; }
     };
@@ -387,6 +417,74 @@
     dialog.onclose = () => { editor = null; dialog.remove(); };
     if (base) show(base); else await load();
   }
+  function openPending() {
+    const p = pending; pending = null;
+    if (!p || !rail?.isConnected) return;
+    selected = ''; viewing = true;
+    const d = draft();
+    if (p.report) {
+      // A Setup check marks the request setup (HQ's kind for help with setting up); replacing or removing it gives back
+      // the kind the request had before, which may be setup already ("Want help setting up?").
+      if (d.report?.kind === 'setup_check') d.kind = d.kindBefore || 'support';
+      if (p.report.kind === 'setup_check') { d.kindBefore = d.kind; d.kind = 'setup'; }
+      d.report = p.report; d.diag = true; d.bundle = null; d.key = uid();
+      // The words on screen go only in the attachment, which is redacted; the message is sent as typed, so it names
+      // the kind and nothing else.
+      const rest = unprefilled(d.message);
+      if (!d.message.trim() || rest !== d.message) d.message = prefill(p.report) + rest;
+    }
+    renderTickets(); renderThread(true); renderComposer();
+    const box = rail.querySelector('[name=message]');
+    rail.scrollIntoView?.({block: 'start'});
+    if (box) { box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
+  }
+  window.talkToUs = report => {
+    pending = {report: asReport(report)};
+    if (rail?.isConnected) openPending();
+    else if (location.hash !== '#/help') location.hash = '#/help';
+  };
+  // Report this is offered unless this server has support turned off.
+  // Pages re-render once support's state loads; a toast does not, so it asks for `known` and waits for a yes.
+  window.supportOn = known => known ? state.enabled === true : state.enabled !== false;
+  window.reportThisHTML = report => `<button type="button" class="linkish report-this" data-report-this="${escape(JSON.stringify(report))}">Report this</button>`;
+  window.talkLineHTML = () => state.enabled === false ? '' : '<p class="talk-line">Stuck or curious? A person at Tico reads every message. <button type="button" class="linkish" data-talk-to-us>Talk to us</button></p>';
+  document.addEventListener('click', e => {
+    const talk = e.target.closest?.('[data-talk-to-us]'), report = e.target.closest?.('[data-report-this]');
+    if (!talk && !report) return;
+    e.preventDefault(); e.stopPropagation();
+    let value = null;
+    try { value = report ? JSON.parse(report.dataset.reportThis) : null; } catch (_) {}
+    window.talkToUs(value);
+  });
+  // "Want help setting up?" starts a new request from text the person reads, edits and sends themselves.
+  let starting = null;
+  function startPending() {
+    if (!starting || !rail?.isConnected) return;
+    const {kind} = starting, draft = drafts.get(''), unsent = draft?.message.trim() || '';
+    // A new request the person had started keeps their words and choices, with the snapshot after them, once.
+    const message = unsent.includes(starting.message.trim()) ? unsent
+      : unsent ? unsent + '\n\n' + starting.message : starting.message;
+    starting = null; selected = ''; viewing = true;
+    // With a Setup check attached, the kind it gives back on Remove is now this one.
+    drafts.set('', draft ? {...draft, message, kind, ...(draft.report?.kind === 'setup_check' ? {kindBefore: kind} : {})} :
+      {message, email: compose?.email || '', ids: true, diag: true, perf: 24, bundle: null, key: uid(), kind});
+    renderTickets(); renderThread(true); renderComposer();
+    rail.querySelector('[name=message]')?.focus();
+  }
+  window.supportStart = (message, kind = 'support') => {
+    starting = {message, kind};
+    if (rail?.isConnected) startPending(); else location.hash = '#/help';
+  };
+  document.addEventListener('click', async e => {
+    const button = e.target.closest('[data-setup-help]');
+    if (!button || button.disabled) return;
+    e.preventDefault(); button.disabled = true;
+    try {
+      const snapshot = await call('GET', '/support/setup-snapshot?asked_from=' + encodeURIComponent(button.dataset.setupHelp));
+      window.supportStart(snapshot.message, snapshot.kind);
+    } catch (error) { say(error.message, true); }
+    finally { button.disabled = false; }
+  });
   window.supportLeave = () => { editor?.close(); rail = null; schedule(); };
   window.supportHelp = async page => {
     const actor = typeof S === 'undefined' ? '' : S.me?.id;
@@ -395,7 +493,8 @@
       accept(await call('GET', '/support/tickets'));
       if (!page.isConnected) return;
       if (!state.enabled) {
-        page.querySelector('.help-support-link')?.remove();
+        pending = null;
+        page.querySelector('[data-help-support]')?.remove();
         const off = document.createElement('p'); off.className = 'support-off'; off.setAttribute('data-support-off', '');
         off.textContent = 'Contact support is turned off on this Tico server, so requests cannot be sent from here.';
         const actions = page.querySelector('.help-actions');
@@ -434,7 +533,8 @@
         } catch (e) { say(e.message, true); }
       };
       if (selected && !current()) { selected = ''; viewing = false; }
-      renderTickets(); renderThread(true); renderComposer(); void readVisible();
+      renderTickets(); renderThread(true); renderComposer(); void readVisible(); startPending();
+      openPending();
       await refresh(); schedule();
     } catch (e) { if (page.isConnected) { const p = document.createElement('p'); p.className = 'err'; p.textContent = e.message; page.appendChild(p); } }
   };

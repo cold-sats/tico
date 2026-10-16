@@ -107,6 +107,55 @@ document.addEventListener('click', ev => {
   S.config.usage_count_notice = false; renderUsageNotice();
   post('/v2/system/usage-count/notice', {state: 'dismissed'}).catch(() => {});
 });
+// A short message Tico HQ has for this version (backend/releases.py), shown once to each person in this browser: it is
+// marked seen as it appears, so a reload or another tab does not bring it back.
+const VM_KEY = 'tico.version-message.seen';
+const vmSeenKey = () => VM_KEY + ':' + (S.me?.id || S.me?.email || '');
+let vmShowing = 0;
+function renderVersionMessage() {
+  const bar = $('#version-message'), m = S.config.update?.message;
+  if (!bar) return;
+  if (vmShowing) { bar.hidden = vmShowing === -1; return; }
+  let seen = [];
+  try { seen = JSON.parse(localStorage.getItem(vmSeenKey()) || '[]'); } catch {}
+  if (!m || !m.id || !S.me || seen.includes(m.id)) { bar.hidden = true; return; }
+  $('#version-message-text').textContent = m.body;
+  const link = $('#version-message-link');
+  link.hidden = !/^https:\/\//.test(m.url || '');
+  if (!link.hidden) link.href = m.url;
+  bar.hidden = false;
+  vmShowing = m.id;
+  try { localStorage.setItem(vmSeenKey(), JSON.stringify([...seen, m.id].slice(-20))); } catch {}
+}
+document.addEventListener('click', ev => {
+  if (!ev.target.closest('#version-message-x')) return;
+  vmShowing = -1; $('#version-message').hidden = true;
+});
+
+// "How is Tico working for you?" (backend/support_asks.py): after the first bot result and 7 and 30 days on, once
+// each. Send files the answer as a feedback request; Skip sends nothing. Either way that moment is not asked again.
+function renderFeedbackAsk() {
+  const ask = S.config.feedback_question;
+  let box = $('#feedback-ask');
+  if (!ask) { if (box) box.hidden = true; return; }
+  if (box && !box.hidden && box.dataset.moment === ask.moment) return;
+  if (!box) { box = document.createElement('form'); box.id = 'feedback-ask'; box.setAttribute('aria-label', 'Feedback'); document.body.appendChild(box); }
+  box.dataset.moment = ask.moment; box.hidden = false;
+  box.innerHTML = `<label for="feedback-answer">${esc(ask.question)}</label>
+    <textarea id="feedback-answer" name="answer" rows="2" maxlength="3800" placeholder="A sentence is plenty. A person at Tico reads it."></textarea>
+    <div class="feedback-row"><span class="muted">Sent to Tico support as feedback.</span><span class="spacer"></span>
+      <button class="ghost" type="button" data-skip>Skip</button><button class="primary" type="submit">Send</button></div>`;
+  const done = () => { S.config.feedback_question = null; box.hidden = true; };
+  box.querySelector('[data-skip]').onclick = () => { done(); post('/v2/support/feedback', {moment: ask.moment}).catch(() => {}); };
+  box.onsubmit = async ev => {
+    ev.preventDefault();
+    const answer = box.elements.answer.value.trim(), buttons = [...box.querySelectorAll('button')];
+    if (!answer) { box.elements.answer.focus(); return; }
+    buttons.forEach(b => { b.disabled = true; });
+    try { await post('/v2/support/feedback', {moment: ask.moment, answer}); done(); toast('Thanks. Sent to Tico support.'); }
+    catch (error) { toast(error.message || 'Not sent. Try again.', true); buttons.forEach(b => { b.disabled = false; }); }
+  };
+}
 // "Finish setup" tops the nav while the owner has not finished setup, and disappears the
 // moment the server stops asking for one. Everyone else never sees it.
 function renderOnboardingNav() {

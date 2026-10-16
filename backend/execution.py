@@ -8,7 +8,7 @@ import time
 
 from clients import sessions
 
-from . import check_models, inbox_isolation, providers, routines, runner_versions, usage_limits
+from . import check_models, inbox_isolation, providers, routines, runner_versions, screen, usage_limits
 from . import task_privacy as privacy
 from .auth import Identity
 from .batch_work import isolated
@@ -704,9 +704,10 @@ class Execution:
                 return {"runner_id": runner["id"], "token": token, "operator": row["operator"]}
             rid = H.new_id()
             # A new computer takes members' bots, so a team gets going without asking; an admin closes it per
-            # computer (Settings > Computers). Computers that existed before this default keep what they had.
-            c.execute("INSERT INTO runners(id,label,operator,token_hash,created,platform,accepts_member_bots) "
-                      "VALUES(?,?,?,?,?,?,1)",
+            # computer (Settings > Computers). Its Screen starts at View when it first offers one (backend/screen.py).
+            # Computers that existed before these defaults keep what they had.
+            c.execute("INSERT INTO runners(id,label,operator,token_hash,created,platform,accepts_member_bots,"
+                      "screen_default_pending) VALUES(?,?,?,?,?,?,1,1)",
                       (rid, body.label, row["operator"], digest(token), H.now(), body.platform))
             c.execute("UPDATE enrollments SET consumed_at=?,runner_id=? WHERE code_hash=?",
                       (H.now(), rid, digest(body.code)))
@@ -720,6 +721,7 @@ class Execution:
         now = H.now()
         awake_since = self.waking(row, now)
         self.served_at = now
+        offered_before = screen.available(row)
         del row
         from .subscriptions import record
         record(c, who.runner_id, body.profiles, body.readiness)
@@ -776,6 +778,8 @@ class Execution:
                   "capacity=?,readiness_json=?,capabilities_json=? WHERE id=?",
                   (H.now(), awake_since, body.version, body.platform, body.capacity,
                    encode(readiness), encode(sorted(set(body.capabilities))), who.runner_id))
+        if not offered_before and screen.CAPABILITY in body.capabilities:
+            screen.first_offer(c, who.runner_id)
         from . import bot_tools
         bot_tools.reconcile(c, {bot: row.get('tools') for bot, row in readiness.get('bots', {}).items()})
         if self.readiness_reported:
@@ -1295,8 +1299,10 @@ class Execution:
                                  "checkpoint_by": root.get("checkpoint_by") if kept else None})
             own_room = conv and conv.get("kind") == "task" and conv.get("task_id") == task["id"]
             from .chat_goals import clear_task_goal, task_goal_row
-            if own_room and not goal:
-                # goal:off, or the bot's task_goal turned off: the goal Tico set for the task ends.
+            if own_room and not goal and task.get("owner") == "bot:" + row["bot"]:
+                # goal:off, or the bot's task_goal turned off: the goal Tico set for the task ends. Only the
+                # owner's turn decides that: task_goal is None for any other bot, such as the requester answering
+                # in the room, and its turn says nothing about the owner's goal.
                 clear_task_goal(c, conv)
             if (goal and own_room and lane != sessions.MAIN_LANE and task_goals_on(runner)
                     and task.get("session_task_id", task["id"]) == task["id"]):
@@ -1354,6 +1360,9 @@ class Execution:
         from . import worktrees
         # A runner from before task goals would treat a task room's goal as running without ever setting it.
         chat_goal = current(c, conv["id"]) if not (conv.get("kind") == "task" and not task_goals_on(runner)) else None
+        if chat_goal and chat_goal["bot"] != row["bot"]:
+            # Another bot's turn in the room (the requester answering) works without the owner's goal.
+            chat_goal = None
         return {"attempt": {"chat_goal": chat_goal, "routine": routine, "id": aid,
                             "profile": effective(c, row["bot"])[0],
                             "computer_label": runner["label"],

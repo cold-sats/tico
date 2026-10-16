@@ -39,6 +39,27 @@
 .tcomment-who{display:inline-flex;align-items:center;gap:5px;font-weight:600;color:var(--ink)}
 .tcomment .spacer{flex:1}
 .task-chat .row{display:flex;gap:8px;align-items:center}
+/* The conversation reads as the task's session in the bot's chat (styles/chat.css bubbles): a person's line is a
+   bubble on the right under their name, yours without one; the bot's is page text under its name, its run folded
+   below; what changed is a quiet centred line between messages; the "Working" line follows a live run. */
+.task-chat .tcomment.tmsg{display:flex;flex-direction:column;align-items:flex-start;min-width:0;padding:2px 0;border:0;border-radius:0;background:none}
+.task-chat .tcomment.tmsg.you{align-items:flex-end}
+.task-chat .tcomment.tmsg .bubble{margin:2px 0 0;max-width:min(78ch,100%)}
+.task-chat .tcomment.tmsg .bubble.you{white-space:normal;max-width:min(78ch,88%)}
+.task-chat .tcomment.tmsg .bubble.you .md{margin:0}
+.task-chat .tcomment.tmsg .bubble.bot{padding-top:0;padding-bottom:0;width:100%}
+.task-chat .tcomment.tmsg.from-me .tcomment-who{display:none}
+.task-chat .tcomment.tmsg.you .tcomment-head{justify-content:flex-end}
+.task-chat .tcomment.tmsg.you .tcomment-head .spacer{display:none}
+.task-chat .tcomment.tmsg .run-steps{font-size:var(--t-sm);margin-top:2px}
+.task-chat .tcomment.sys.tmark{justify-content:center;text-align:center;border:0;padding:2px 8px;color:var(--muted)}
+.task-chat .tcomment.sys.tmark .tcomment-who{font-weight:500;color:var(--muted)}
+.task-chat .task-live{width:auto;flex-wrap:wrap;align-items:flex-start;gap:6px}
+.task-chat .task-live .run-steps{min-width:0;flex:1}
+.task-chat .task-live .run-steps>summary{display:flex;align-items:center;gap:8px;padding-left:0}
+.task-chat .task-live .run-steps>summary::before{display:none}
+.task-chat .task-live-step{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--t-sm);font-family:var(--mono)}
+.task-chat .task-live-stop{flex:none;padding:2px 10px;font-size:var(--t-sm)}
 /* Task conversation shortcut and the Docs "Ask this doc" button. */
 .chat-btn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:0;border-radius:8px;background:transparent;color:var(--muted);cursor:pointer;vertical-align:middle;flex:none}
 .chat-btn svg{width:17px;height:17px;display:block}
@@ -60,11 +81,11 @@
 #task-modal.thread[open] .task-chat{flex:1;min-height:0;display:flex;flex-direction:column;margin:0;padding:0;border:0}
 #task-modal.thread[open] .task-chat>h3{display:none}
 #task-modal.thread[open] .task-comments{flex:1;max-height:none;padding:8px 0}
-#task-modal.thread[open] .task-pill{flex:none;display:flex;flex-direction:column;gap:4px;margin:8px 0 0;padding:0;border:0;background:none}
-#task-modal.thread[open] .task-pill .p-pill{display:flex;flex-wrap:nowrap;align-items:flex-end;gap:6px;min-height:46px;padding:5px 6px 5px 12px;border-radius:24px}
-#task-modal.thread[open] .task-pill .p-text{order:0;flex:1;min-width:0;width:auto;height:36px;max-height:min(200px,30vh);margin:0;padding:6px 4px;resize:none;font-size:var(--t-base)}
-#task-modal.thread[open] .task-pill .p-send-icon{margin-bottom:1px}
-#task-modal.thread[open] .task-pill [data-task-chat-status]:empty{display:none}
-#task-modal.thread[open] .task-pill [data-task-chat-status]{font-size:var(--t-sm);padding:0 12px}
-@media (max-width:760px){#task-modal.thread[open] .task-pill .p-text{font-size:16px}}
+.task-chat .task-pill{flex:none;display:flex;flex-direction:column;gap:4px;margin:8px 0 0;padding:0;border:0;background:none}
+.task-chat .task-pill .p-pill{display:flex;flex-wrap:nowrap;align-items:flex-end;gap:6px;min-height:46px;padding:5px 6px 5px 12px;border-radius:24px}
+.task-chat .task-pill .p-text{order:0;flex:1;min-width:0;width:auto;height:36px;max-height:min(200px,30vh);margin:0;padding:6px 4px;resize:none;font-size:var(--t-base);border:0;background:transparent;box-shadow:none;outline:0}
+.task-chat .task-pill .p-send-icon{margin-bottom:1px}
+.task-chat .task-pill [data-task-chat-status]:empty{display:none}
+.task-chat .task-pill [data-task-chat-status]{font-size:var(--t-sm);padding:0 12px}
+@media (max-width:760px){.task-chat .task-pill .p-text{font-size:16px}}
 @media (min-width:761px){#task-modal.thread[open]{width:min(680px,calc(100vw - 32px));height:min(86vh,900px)}}

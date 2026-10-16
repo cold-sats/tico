@@ -78,3 +78,62 @@ def test_a_test_step_that_passes_nothing_fails(tmp_path):
     assert run('4 skipped in 0.5s') == 1                # all skipped: the step proved nothing
     assert run('no tests ran in 0.4s') == 1
     assert run('4 skipped in 0.5s', tests=False) == 0   # a non-test step is judged by its exit code alone
+
+
+def test_each_part_runs_only_its_own_slice_of_the_gate(tmp_path, monkeypatch):
+    monkeypatch.setattr(release_checks, 'os', SimpleNamespace(
+        environ={}, getloadavg=lambda: (0, 0, 0), cpu_count=lambda: 4))
+    monkeypatch.setattr(release_checks, 'subprocess', SimpleNamespace(
+        run=lambda *args, **kwargs: SimpleNamespace(stdout='a' * 40)))
+    monkeypatch.setattr(release_checks, 'tempfile', SimpleNamespace(mkdtemp=lambda **kwargs: str(tmp_path)))
+    monkeypatch.setattr(release_checks, 'free_port', lambda: 12345)
+    monkeypatch.setattr(release_checks, 'shard_files', lambda index, total, env: [f'group{index}of{total}.py'])
+    calls = {}
+
+    class Check:
+        def __init__(self, name, command, log_dir, env, tests=False):
+            calls[name] = command
+            self.name, self.log, self.code, self.seconds = name, tmp_path / f'{name}.log', 0, 1.0
+            self.started = release_checks.time.monotonic()
+
+        def join(self):
+            return 0
+
+    monkeypatch.setattr(release_checks, 'Check', Check)
+    product = {'journey', 'build-server', 'build-runner', 'build-updater', 'smoke', 'side-jobs', 'isolation'}
+    for part, shard, expected in (('product', None, product), ('browser', None, {'all-browser'}),
+                                  ('python', None, {'all-python'}), ('python', (2, 4), {'python-2-of-4'})):
+        calls.clear()
+        monkeypatch.setattr(release_checks, 'time', SimpleNamespace(monotonic=iter(range(100, 200)).__next__))
+        assert release_checks.release(SimpleNamespace(previous=None, part=part, shard=shard)) == 0
+        assert set(calls) == expected
+        if part == 'python':   # alone on its VM, the Python slice uses every core
+            command = calls[next(iter(expected))]
+            assert command[command.index('-n') + 1] == '4'
+            assert ('group2of4.py' in command) == bool(shard)
+    calls.clear()
+    monkeypatch.setattr(release_checks, 'time', SimpleNamespace(monotonic=iter(range(100, 200)).__next__))
+    assert release_checks.release(SimpleNamespace(previous=None)) == 0
+    assert set(calls) == product | {'all-python', 'all-browser'}
+    assert calls['all-python'][calls['all-python'].index('-n') + 1] == '2'
+
+
+def test_python_shards_cover_every_collected_file_once_balanced_by_tests(monkeypatch):
+    import pytest
+    listing = '\n'.join(['a.py::t%d' % i for i in range(6)] + ['b.py::t%d' % i for i in range(3)]
+                        + ['c.py::T::t[x::y]', 'c.py::T::u', 'd.py::t', '', '12 tests collected in 0.1s'])
+    monkeypatch.setattr(release_checks, 'subprocess', SimpleNamespace(
+        run=lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=listing, stderr='')))
+    shards = [release_checks.shard_files(index, 3, {}) for index in (1, 2, 3)]
+    assert sorted(sum(shards, [])) == ['a.py', 'b.py', 'c.py', 'd.py']
+    assert shards == [['a.py'], ['b.py'], ['c.py', 'd.py']]
+    with pytest.raises(RuntimeError, match='cannot fill'):
+        release_checks.shard_files(1, 5, {})
+    monkeypatch.setattr(release_checks, 'subprocess', SimpleNamespace(
+        run=lambda *args, **kwargs: SimpleNamespace(returncode=2, stdout='ImportError', stderr='')))
+    with pytest.raises(RuntimeError, match='collection failed'):
+        release_checks.shard_files(1, 2, {})
+    for bad in ('0/4', '5/4', '1-4', ''):
+        with pytest.raises(Exception):
+            release_checks.parse_shard(bad)
+    assert release_checks.parse_shard('3/4') == (3, 4)

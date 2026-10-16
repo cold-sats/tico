@@ -63,6 +63,8 @@ gh workflow run ci.yml --ref main -f candidate_sha=<full-40-character-commit-SHA
 
 The reviewed workflow controls and selected candidate have separate checkouts: a workflow merged after a candidate was
 frozen can check that candidate without changing it. The candidate's `scripts/release_checks.py --release` is unchanged.
+It can also run one slice of the gate (`--part product|browser|python`, with `--shard K/N` splitting the Python test
+files into N groups balanced by test count) so the gate can be spread over parallel VMs; without them it runs whole.
 Native runner/relay prerequisites are built from that candidate and their fingerprints checked before tests. Python and
 Node Playwright browsers (Chromium and WebKit) are installed explicitly. The run records both SHAs, source-tree identity,
 architecture, capacity, worker settings, phase exits and bounded log tails as a three-day artifact; the candidate must
@@ -142,6 +144,8 @@ release that adds updater or migration behavior, the upgrade step is done by the
 rollback step: it runs on the candidate's updater.
 
 ### Behaviour replay
+
+> **Beta**: behaviour replay and the computer Performance page work today and may still change. See [Beta features](support.md#beta-features).
 
 A release that changes a bot's prompt, a built-in template, the runner's hosts or how a turn is assembled also replays
 the signed real cases (`evals/replay/README.md`) on a scratch team running the candidate, before the tag:

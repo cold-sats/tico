@@ -360,7 +360,7 @@ function taskListRowHTML(it, ctx, depth = 0) {
 }
 function tasksEmptyHTML(state, what) {
   const filtered = tasksActiveFilterCount(state) || state.q;
-  return `<div class="tl-empty">${filtered ? 'No tasks match.' : esc(what)}${filtered ? ' <button type="button" class="linkish" data-clear-filters>Clear filters</button>' : ''}</div>`;
+  return `<div class="tl-empty">${filtered ? 'No tasks match.' : esc(what)}${filtered ? ' <button type="button" class="linkish" data-clear-filters>Clear filters</button>' : ''}${window.talkLineHTML?.() || ''}</div>`;
 }
 function tasksListHTML(items, state) {
   const by = tasksGroupBy(state), done = state.view === 'done';
@@ -426,7 +426,7 @@ function tasksTabsHTML(state) {
   return TASK_VIEWS.filter(([k]) => k !== 'snoozed' || counts.snoozed || state.view === 'snoozed').map(([k, label]) => {
     const on = k === state.view, n = counts[k];
     return `<button type="button" role="tab" id="task-tab-${k}" data-view="${k}" aria-selected="${on}" aria-controls="task-body" tabindex="${on ? 0 : -1}"${n != null ? ` aria-label="${esc(label)}, ${n}"` : ''}>${esc(label)}${n != null ? `<span class="cnt tnum${k === 'foryou' && n ? ' hot' : ''}" aria-hidden="true">${n}</span>` : ''}</button>`;
-  }).join('');
+  }).join('') + (pipelineSelectedType(state)?.manager === 'product-manager' ? '<a class="tl-ranked" href="#/roadmap">Ranked</a>' : '');
 }
 function tasksPaint(el, html) {
   if (!el || el.dataset.html === html) return false;

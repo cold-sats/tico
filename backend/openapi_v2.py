@@ -195,6 +195,9 @@ STABLE = [
      "Change the text of a comment you wrote; it wakes nobody and is marked edited_at", "CommentResult"),
     ("/api/v2/tasks/{tid}/comments/{mid}/delete", "post", "Tasks", "deleteTaskComment",
      "Delete a comment you wrote from future comment reads and bot context; existing delivered copies remain", "CommentResult"),
+    ("/api/v2/tasks/{tid}/comments/{mid}/resolve", "post", "Tasks", "resolveTaskQuestion",
+     "Settle an open question answered elsewhere ({quote}: its asker or the task's owner bot), or withdraw it ({}: its "
+     "asker); it leaves every Needs you list and wakes nobody", "CommentResult"),
     ("/api/v2/tasks/{tid}/relations", "post", "Tasks", "relateTask",
      "Relate another task to this one ({task, kind}: parent, blocks, blocked_by, related, duplicate_of, "
      "follow_up), or take the relation off with remove", "TaskResult"),
@@ -360,7 +363,8 @@ STABLE = [
      "Every goal with its owner, its KPIs (each with its target and colour), the KPIs no goal uses and the pending proposals: "
      "what the Goals page draws", "GoalTree"),
     ("/api/v2/goals/needs-you", "get", "Goals", "getGoalsNeedsYou",
-     "Red KPIs on goals the caller owns, stale KPIs they own, and definitions or targets they are asked to confirm", "GoalsNeedsYou"),
+     "Red KPIs on goals the caller owns, stale KPIs they own, and definitions or targets they are asked to confirm; for a person "
+     "each is a Goal Manager task (`task`), the one Tasks and Decide show", "GoalsNeedsYou"),
     ("/api/v2/goals/refresh", "post", "Goals", "refreshGoalStatuses",
      "The Goal Manager's status pass (or the owner's): work automatic colours out again. A colour a person set only gets a suggestion",
      "GoalRefreshView"),
@@ -513,7 +517,7 @@ SCHEMAS = {
                                         "`tool` is a short label such as \"Ran hub task create\", never its arguments or output"}),
     "Conversation": obj({"id": "s", "kind": "s", "subject": "s", "participants": items({"type": "string"}),
                          "created": "s", "last_message_at": "s", "closed_at": "n"}),
-    "TaskStep": obj({"id": "s", "type_id": "s", "name": "s", "position": "i", "status": "s"}),
+    "TaskStep": obj({"id": "s", "type_id": "s", "name": "s", "public_name": "s", "position": "i", "status": "s"}, required=["id", "type_id", "name", "position", "status"]),
     "TaskType": obj({"id": "s", "name": "s", "numbered": "b", "steps_only": "b", "created": "s", "updated": "s", "steps": items(ref("TaskStep"))},
                     bots={"type": ["string", "null"], "enum": ["read", "work", None],
                           "description": "What every bot may do with the type's tasks beyond its own: read "
@@ -870,7 +874,9 @@ SCHEMAS = {
         "type": "object", "required": ["kind"], "additionalProperties": True,
         "properties": {"kind": {"enum": ["kpi_red", "kpi_stale", "proposal"]}, "goal_id": {"type": "string"},
                        "goal_title": {"type": ["string", "null"]}, "kpi_id": {"type": "string"}, "kpi_name": {"type": ["string", "null"]},
-                       "reason": {"type": "string"}, "freshness": {"type": "string"}, "proposal": {"type": "object"}}})},
+                       "reason": {"type": "string"}, "freshness": {"type": "string"}, "proposal": {"type": "object"},
+                       "task": {"type": "object", "required": ["id"], "properties": {
+                           "id": {"type": "string"}, "title": {"type": "string"}, "status": {"type": "string"}}}}})},
                         required=["actor", "items"]),
     "GoalRefreshView": obj({"changed": "a", "suggested": "a", "checked": "i"}),
     "GoalCheckins": obj({"goal_id": "s", "checkins": items(ref("GoalCheckinView"))}),
@@ -970,6 +976,43 @@ SCHEMAS.update({
     "BotRepositories": obj({"mode": {"enum": ["own", "all", "chosen"]}, "all_access": {"enum": ["read", "write"]},
                             "chosen": items(ref("RepositoryGrant")), "effective": items(ref("RepositoryGrant"))}),
 })
+TAGS['Roadmaps'] = "Company roadmap settings, internal requesters, and anonymous publication (docs/roadmaps.md)."
+STABLE.extend([
+    ('/api/v2/roadmaps/settings', 'get', 'Roadmaps', 'getRoadmapSettings', 'Company roadmap settings', None),
+    ('/api/v2/roadmaps/settings', 'post', 'Roadmaps', 'setRoadmapSettings', 'Partially update roadmap settings (owners and admins)', None),
+    ('/api/v2/roadmap-tasks', 'get', 'Roadmaps', 'rankRoadmapTasks', 'Rank roadmap tasks with internal requester counts', None),
+    ('/api/v2/tasks/{tid}/requesters', 'get', 'Roadmaps', 'listTaskRequesters', 'Internal requester contacts, paged and byte-capped', None),
+    ('/api/v2/tasks/{tid}/requesters', 'post', 'Roadmaps', 'addTaskRequester', 'Record a requester; returns a removal token once', None),
+    ('/api/v2/tasks/{tid}/requesters/{rid}', 'post', 'Roadmaps', 'updateTaskRequester', 'Replace internal requester details', None),
+    ('/api/v2/tasks/{tid}/requesters/{rid}/delete', 'post', 'Roadmaps', 'deleteTaskRequester', 'Remove a requester', None),
+    ('/api/v2/tasks/{tid}/publication-preview', 'post', 'Roadmaps', 'previewTaskPublication', 'Exact publish approval payload for public edits or replies', None),
+    ('/api/v2/tasks/{tid}/comments/{mid}/moderate', 'post', 'Roadmaps', 'moderateTaskComment', 'Hide, restore or delete a public comment', None),
+    ('/public/roadmaps/{label}', 'get', 'Roadmaps', 'listPublicRoadmap', 'Public top-level tasks carrying an enabled label', 'PublicRoadmap'),
+    ('/public/roadmaps/{label}/tasks/{tid}', 'get', 'Roadmaps', 'getPublicRoadmapTask', 'Public task and paged public comments', 'PublicRoadmapTask'),
+    ('/public/roadmaps/{label}/suggest', 'post', 'Roadmaps', 'suggestRoadmapTask', 'Private suggestion for Product Manager review', None),
+    ('/public/roadmaps/{label}/tasks/{tid}/requesters', 'post', 'Roadmaps', 'requestPublicRoadmapTask', 'Add yourself; keep the returned removal token', None),
+    ('/public/roadmaps/{label}/tasks/{tid}/requesters/{token}', 'delete', 'Roadmaps', 'removePublicRoadmapRequester', 'Remove yourself using your token', None),
+    ('/public/roadmaps/{label}/tasks/{tid}/comments', 'get', 'Roadmaps', 'listPublicRoadmapComments', 'Visible public comments, paged', 'PublicRoadmapComments'),
+    ('/public/roadmaps/{label}/tasks/{tid}/comments', 'post', 'Roadmaps', 'addPublicRoadmapComment', 'Add a public plain-text comment', None),
+])
+SCHEMAS.update({
+    'PublicTask': obj({'id': 's', 'title': 's', 'summary': 's', 'step': 'n', 'requester_count': 'i',
+                       'parts': obj({'total': 'i', 'done': 'i'})}),
+    'PublicComment': obj({'id': 's', 'text': 's', 'author': {'enum': ['Team', 'Visitor']}, 'created': 's'}),
+    'PublicRoadmap': obj({'tasks': items(ref('PublicTask')), 'next_offset': {'type': ['integer', 'null']}}),
+    'PublicRoadmapComments': obj({'comments': items(ref('PublicComment')), 'next_offset': {'type': ['integer', 'null']}}),
+    'PublicRoadmapTask': obj({'task': ref('PublicTask'), 'comments': items(ref('PublicComment')),
+                              'next_offset': {'type': ['integer', 'null']}}),
+})
+SCHEMAS['Task']['properties'].update({
+    'visibility': {'enum': ['public', 'private']}, 'public_title': {'type': 'string'},
+    'public_summary': {'type': 'string', 'description': 'Separate public text; omitted with brief=true'}, 'size': {'type': ['number', 'null']},
+    'requester_count': {'type': 'integer'}, 'external_requesters': {'type': 'integer'},
+    'internal_requesters': {'type': 'integer'}, 'important_requesters': {'type': 'integer'},
+})
+SCHEMAS['TaskType']['properties'].update({'default_visibility': {'enum': ['public', 'private']},
+                                         'manager': {'type': ['string', 'null']}})
+
 ANSWERS = SCHEMAS
 
 # Documentation for the two sign-in routes whose bodies the handlers read by hand.
@@ -989,6 +1032,7 @@ PROBLEM = {"type": "object", "required": ["error"], "properties": {"error": {
 DESCRIPTION = (
     "The stable API for building your own frontend on Tico. Everything here keeps its shape within v2: fields are added, "
     "never removed or renamed, and a breaking change is a new /api/v3. Routes not listed are internal. "
+    "Public roadmap writes require an allowlisted Origin; reads permit server-side requests. No sign-in or idempotency key (docs/roadmaps.md). "
     "Granola connection and sync writes do not require an idempotency key, nor does POST /api/v2/inbound/tasks, whose "
     "own `key` is its idempotency. Other writes need an `Idempotency-Key` header (1-200 characters; a retry with the same "
     "key and body returns the first answer). Errors are `{\"error\": {code, detail, retryable}}`. See docs/custom-frontend.md.")
@@ -1028,7 +1072,7 @@ def spec(app):
         if path == "/auth/login":
             responses = {"302": {"description": "Redirect to the identity provider"},
                          "400": {"description": "next is not an allowed origin, or code_challenge is missing"}}
-        if path not in ("/healthz", "/auth/login", "/auth/token"):
+        if not path.startswith("/public/roadmaps/") and path not in ("/healthz", "/auth/login", "/auth/token"):
             responses["401"] = {"description": "Not signed in", **ERROR}
             responses["422"] = {"description": "Invalid request or rule: error.code and field-specific error.detail", **ERROR}
         if path == "/auth/token":
@@ -1037,6 +1081,13 @@ def spec(app):
             responses["400"] = {"description": "invalid_grant, or the request is malformed", **ERROR}
         if path in ("/healthz", "/auth/login"):
             op["security"] = []
+        if path.startswith('/public/roadmaps/'):
+            op['security'] = []
+            op.setdefault('parameters', []).append({'name': 'Origin', 'in': 'header', 'required': method not in ('get', 'head'),
+                'schema': {'type': 'string'}, 'description': 'An exact origin in the company roadmap allowlist.'})
+            for code, detail in [('403', 'Origin not allowed'), ('404', 'Roadmap or task not public'),
+                                 ('422', 'Invalid request'), ('429', 'Daily IP action limit reached')]:
+                responses[code] = {**ERROR, 'description': detail}
         op["responses"] = dict(sorted(responses.items()))
         inbound = path == "/api/v2/inbound/tasks"
         granola = path.startswith("/api/v2/meetings/granola")
