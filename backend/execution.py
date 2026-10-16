@@ -31,9 +31,6 @@ STALL_MAX = 900
 SILENT_KINDS = {"error", "diagnostic", "status"}
 NO_EFFECT_TRIES = 3
 PRE_START_TRIES = 10        # lapsed leases before start: a broken computer must not retry forever
-# What people read about an automatic resume whose note tells the bot to check its own work.
-RESUME_SHOWN = ("Resumed automatically: the run stopped partway and may already have done some of the work, so the "
-                "bot was told to check what is done and finish only what is left.")
 NO_EFFECT_WITHIN = 120       # seconds from start; a longer silent run may have used unreported tools
 CHECKPOINT_CHARS = 1500      # a task's checkpoint: the last turn's reply, enough to pick the work back up
 # A deploy drains every bot while it waits for runs to finish (at most 30 minutes) and then
@@ -231,6 +228,60 @@ def reports_tools(c, attempt_id, config):
     if row:
         return bool(row['said'])
     return reports_tool_calls(config, config.get('runtime'))
+
+
+# Tool calls that only read: a run that made nothing else repeats nothing when it runs again. Claude's and Codex's
+# own names. A subagent's launch is listed because its own calls are reported and judged one by one. A shell command
+# never counts, whatever its program: `cat` can be piped into anything.
+READ_ONLY_TOOLS = frozenset({
+    "Read", "Grep", "Glob", "LS", "NotebookRead", "WebFetch", "WebSearch", "TodoWrite", "ToolSearch",
+    "Agent", "Task", "web_search", "view_image", "spawnAgent", "subagent",
+})
+
+
+def recorded_tools(c, attempt_id):
+    """Each tool call an attempt reported, in order, with its latest status: what a person reviewing the stopped
+    run sees, and what decides whether it may run again on its own."""
+    calls = {}
+    for row in c.execute("SELECT seq,payload_json FROM attempt_events WHERE attempt_id=? AND kind='tool' ORDER BY seq",
+                         (attempt_id,)):
+        p = json.loads(row["payload_json"] or "{}") or {}
+        key = p.get("item_id") or f"seq:{row['seq']}"
+        call = calls.setdefault(key, {"tool": str(p.get("tool") or p.get("name") or "tool"), "summary": "",
+                                      "status": "", "nested": bool(p.get("parent_id"))})
+        call["summary"] = str(p.get("summary") or call["summary"])[:120]
+        call["status"] = str(p.get("status") or p.get("state") or call["status"])
+    return list(calls.values())
+
+
+def owner_name(c, actor):
+    """The name a person knows a task's owner by: the bot's display name or the person's name."""
+    if not actor:
+        return ""
+    row = (H.bot(c, H.actor_id(actor)) if H.is_bot(actor) else H.human(c, H.actor_id(actor))) or {}
+    return row.get("display_name") or row.get("name") or H.actor_id(actor)
+
+
+def held_runs(c, who, auth, bot, limit=3):
+    """The tasks of a bot's stopped runs held for review that `who` may read, oldest first: title and owner.
+    A task counts only under the same rule as reading it (`auth.task_sql`), so a company task involving a bot
+    the reader may not read stays unnamed."""
+    fence = auth.task_sql(c, who)
+    held = []
+    for row in c.execute("SELECT m.*,j.attempt_id FROM jobs j JOIN messages m ON m.id=j.message_id "
+                         "WHERE j.bot=? AND j.state='uncertain' ORDER BY j.created", (bot,)):
+        if not (privacy.message_readable(c, privacy.actor(who), row)
+                and (not row["attempt_id"] or privacy.attempt_readable(c, privacy.actor(who), row["attempt_id"]))):
+            continue
+        message = H.message(c, row["id"])  # parsed refs: a comment or notice names its task there
+        task_id = H.message_task_id(message, H.conversation(c, message["conversation_id"]))
+        task = H.task(c, task_id) if task_id else None
+        if (task and H.task_private_readable(c, privacy.actor(who), task)
+                and c.execute(f"SELECT 1 FROM tasks WHERE id=? AND {fence}", (task["id"],)).fetchone()):
+            held.append({"title": task["title"], "owner": task["owner"], "owner_name": owner_name(c, task["owner"])})
+        if len(held) >= limit:
+            break
+    return held
 
 
 def limit_streak(c, bot):
@@ -1983,18 +2034,23 @@ class Execution:
             output = [{'seq': e['seq'], 'kind': e['kind'],
                        'text': str(json.loads(e['payload_json']).get('text', ''))[:4000]}
                       for e in reversed(events)]
-            if any(e['kind'] == 'tool' for e in events):
-                reason = ("The run stopped after using a tool. Tico cannot tell whether the tool "
-                          "finished, so retrying automatically could repeat the action.")
+            calls = recorded_tools(c, row['attempt_id'])
+            acted = sorted({call['tool'] for call in calls if call['tool'] not in READ_ONLY_TOOLS})
+            if acted:
+                reason = (f"The run stopped after using a tool that can change things ({', '.join(acted)}). Tico "
+                          "cannot tell whether it finished, so retrying automatically could repeat the action.")
+            elif calls:
+                reason = "The run stopped after only reading, so trying it again repeats nothing."
             else:
                 reason = ("The run stopped before it returned an answer. Its runner did not record "
                           "enough detail for Tico to prove that retrying automatically is safe.")
             jobs.append({'id':row['id'], 'attempt_id':row['attempt_id'], 'readable':readable,
-                         'task':{'id':task['id'],'title':task['title'],'status':task['status']} if task and readable else None,
+                         'task':{'id':task['id'],'title':task['title'],'status':task['status'],'owner':task['owner'],
+                                 'owner_name':owner_name(c, task['owner'])} if task and readable else None,
                          'request':message['body'] if readable else '',
                          'attempt':(dict(attempt) if readable else
                                     {**dict(attempt), 'final_text': ''}) if attempt else None,
-                         'output':output if readable else [], 'reason':reason})
+                         'output':output if readable else [], 'tools':calls if readable else [], 'reason':reason})
         return {'jobs':jobs}
 
     def reconcile_job(self, c, who, job_id, body):
@@ -2121,14 +2177,20 @@ class Execution:
 
         - **Dismiss** when the task the delivery was for is already done or closed. There is
           nothing left to deliver, and rows that held bots were often this.
-        - **Resume** when the attempt recorded no tool call and consumed no approval: it read,
-          it thought, it was cut off. Running it again repeats nothing. This needs a host that
-          reports its tool calls (`reports_tools`); a run from a host that does not is silent
-          either way, so it waits for a person.
+        - **Resume** when the attempt recorded no tool call other than a read (READ_ONLY_TOOLS) and
+          consumed no approval: it read, it thought, it was cut off. Running it again repeats
+          nothing. This needs a host that reports its tool calls (`reports_tools`); a run from a
+          host that does not is silent either way, so it is held like one that acted.
 
-        A run that used tools stays for a person, because the hub cannot see what a tool did on
-        the Mac. The runner's own `restore` gets the first STALL_MAX to reclaim a run that is
-        still alive; this sweep only looks after that.
+        Any other run, one that used a tool that can change things or whose host cannot say what it
+        did, stays held for its operator or BotOps to review (`review_jobs`), because the hub cannot
+        see what a tool did on the Mac and running it again could repeat an outside action. BotOps is
+        given the review once per hold (`_hand_to_maintainer`), so a held run never waits unseen; the
+        hold is recorded (`job.held`) and the run is not re-judged on later ticks, only checked for a
+        task that has since finished. The runner's own `restore` gets the first STALL_MAX to reclaim
+        a run that is still alive; this sweep only looks after that. A run its runner reported
+        interrupted (it restarted) is not alive, so a run that is safe to repeat resumes at once; when
+        the same computer picks the job up again it continues the same provider session.
 
         Resuming is offered once. A job whose second attempt is also uncertain is not a turn
         that was unlucky, it is one that keeps ending the same way, and running it a third time
@@ -2136,13 +2198,33 @@ class Execution:
         """
         cutoff = H.shift(H.now(), seconds=-STALL_MAX)
         decided = []
-        rows = c.execute("SELECT j.*, a.started, a.finished FROM jobs j LEFT JOIN attempts a ON a.id=j.attempt_id "
-                         "WHERE j.state='uncertain' AND coalesce(a.finished, j.created) <= ? "
+        rows = c.execute("SELECT j.*, a.started, a.finished, coalesce(a.finished, j.created) <= ? AS aged "
+                         "FROM jobs j LEFT JOIN attempts a ON a.id=j.attempt_id "
+                         "WHERE j.state='uncertain' AND (coalesce(a.finished, j.created) <= ? "
+                         "OR a.state='interrupted') "
                          "AND NOT EXISTS(SELECT 1 FROM attempts t WHERE t.bot=j.bot AND t.state IN ('leased','running') "
                          "AND t.lane=coalesce(a.lane,'main')) "
-                         "ORDER BY j.created", (cutoff,)).fetchall()
+                         "ORDER BY j.created", (cutoff, cutoff)).fetchall()
         for row in rows:
             with isolated(c, "auto_reconcile", row["id"]):
+                held = row['attempt_id'] and c.execute("SELECT 1 FROM events WHERE action='job.held' AND target=?",
+                                                       (row['attempt_id'],)).fetchone()
+                calls, acted, safe = [], [], False
+                if not held:
+                    config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row['bot'],)).fetchone()
+                    declared = json.loads(config[0]) if config else {}
+                    calls = recorded_tools(c, row['attempt_id'])
+                    acted = sorted({call['tool'] for call in calls if call['tool'] not in READ_ONLY_TOOLS})
+                    window = (row['started'] or row['created'], row['finished'] or H.now())
+                    consumed = c.execute("SELECT count(*) FROM approvals WHERE requested_by=? AND consumed_at IS NOT NULL "
+                                         "AND consumed_at BETWEEN ? AND ?", ('bot:' + row['bot'], *window)).fetchone()[0]
+                    safe = reports_tools(c, row['attempt_id'], declared) and not acted and not consumed
+                # A message folded into another job's run counts that run as one of its own starts.
+                started = c.execute("SELECT count(*) FROM attempts WHERE started IS NOT NULL AND (job_id=? OR id IN "
+                                    "(SELECT attempt_id FROM attempt_inputs WHERE message_id=?))",
+                                    (row['id'], row['message_id'])).fetchone()[0]
+                if not row['aged'] and not (safe and started <= 1):
+                    continue  # the usual wait: a person may look first
                 msg = H.message(c, row['message_id'])
                 conv = H.conversation(c, msg['conversation_id']) if msg else None
                 task_id = H.message_task_id(msg, conv) if msg else None
@@ -2159,8 +2241,7 @@ class Execution:
                     continue
                 # Only runs that started count: a claim that lapsed before its run began (a computer offline, the
                 # hub unreachable) says nothing about the request itself.
-                if c.execute("SELECT count(*) FROM attempts WHERE job_id=? AND started IS NOT NULL",
-                             (row['id'],)).fetchone()[0] > 1:
+                if started > 1:
                     # Stopped twice the same way: not bad luck. Let it go and hand the cause to BotOps.
                     note = ("Dismissed automatically: this request stopped partway twice, so it is not retried "
                             "again. BotOps is looking into why.")
@@ -2170,44 +2251,44 @@ class Execution:
                         self._tell_maintainer(c, row, msg)
                     decided.append(decision)
                     continue
-                config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row['bot'],)).fetchone()
-                declared = json.loads(config[0]) if config else {}
-                tools = c.execute("SELECT count(*) FROM attempt_events WHERE attempt_id=? AND kind='tool'",
-                                  (row['attempt_id'],)).fetchone()[0]
-                window = (row['started'] or row['created'], row['finished'] or H.now())
-                consumed = c.execute("SELECT count(*) FROM approvals WHERE requested_by=? AND consumed_at IS NOT NULL "
-                                     "AND consumed_at BETWEEN ? AND ?", ('bot:' + row['bot'], *window)).fetchone()[0]
-                if reports_tools(c, row['attempt_id'], declared) and not tools and not consumed:
-                    note = ("Resumed automatically: the interrupted run recorded no tool call and consumed no "
-                            "approval before it stopped, so running it again repeats nothing.")
-                    shown = None
-                else:
-                    # Never ask a person to reconstruct what a run did. The bot has
-                    # the context to check; it gets what the run saved and is told not to repeat an
-                    # outside action. Sends and spending still go through their own approval gates.
-                    saved = self._saved_text(c, row['attempt_id'])
-                    note = ("Your last run on this request stopped partway, and it may already have done some of "
-                            "the work. Before doing anything, check what is already done (messages sent, tasks "
-                            "changed, commits pushed, bots changed) and finish only what is left. Never repeat an "
-                            "outside action that already happened."
-                            + (f"\n\nWhat the stopped run saved:\n{saved}" if saved else ""))
-                    shown = RESUME_SHOWN
+                if not safe:
+                    # Held: running it again could repeat an outside action.
+                    if not held and row['attempt_id']:
+                        H.event(c, H.KEEPER, 'job.held', row['attempt_id'], {'job_id': row['id'], 'tools': acted})
+                        if privacy.message_readable(c, 'bot:' + H.FLEET_MAINTAINER, msg):
+                            self._hand_to_maintainer(c, row, msg, task, acted)
+                    continue
+                reads = sorted({call['tool'] for call in calls})
+                did = f"only read ({', '.join(reads)})" if reads else "recorded no tool call"
+                note = (f"Resumed automatically: the interrupted run {did} and consumed no approval before it "
+                        "stopped, so running it again repeats nothing. If this conversation already holds your "
+                        "earlier partial work, check what already happened, then continue from there.")
                 decided.append(self._decide(c, row, row['attempt_id'], 'resume', note, H.KEEPER,
-                                            action='job.auto_reconcile', shown=shown))
+                                            action='job.auto_reconcile'))
         return decided
 
-    def _saved_text(self, c, attempt_id, limit=1500):
-        """The whole messages a stopped run produced (not its streaming fragments), newest last."""
-        attempt = c.execute("SELECT final_text FROM attempts WHERE id=?", (attempt_id,)).fetchone()
-        if attempt and attempt["final_text"]:
-            return attempt["final_text"][-limit:]
-        texts = []
-        for event in c.execute("SELECT payload_json FROM attempt_events WHERE attempt_id=? AND kind='message' "
-                               "ORDER BY seq", (attempt_id,)):
-            text = (json.loads(event["payload_json"] or "{}") or {}).get("text")
-            if text and (not texts or texts[-1] != text):
-                texts.append(text)
-        return "\n".join(texts)[-limit:]
+    def _hand_to_maintainer(self, c, row, msg, task, acted):
+        """One open BotOps task per bot to review its held runs: BotOps, not a person, recovers a stopped run."""
+        maintainer = H.FLEET_MAINTAINER
+        if row['bot'] == maintainer or not H.bot(c, maintainer):
+            return
+        title = f"Review {row['bot']}'s stopped runs held for a check"
+        if c.execute("SELECT 1 FROM tasks WHERE title=? AND status IN ('open','doing','waiting','review','ready')",
+                     (title,)).fetchone():
+            return
+        did = f"used {', '.join(acted)}" if acted else "ran on a host that does not report its tool calls"
+        about = f" on the task \"{task['title']}\" (owner {owner_name(c, task['owner'])})" if task else ""
+        # The request's words stay out: this task is company-wide, and the review shows them only to readers of
+        # the conversation they came from.
+        try:
+            H.task_create(c, H.KEEPER, title,
+                          f"A run of {row['bot']}{about} (job {row['id']}) stopped after it {did}, so Tico holds it "
+                          "rather than repeat a possible outside action.\n"
+                          f"Read GET bots/{row['bot']}/execution-review (the request, its tool calls and saved output), check what "
+                          "already happened, then resume or dismiss each held run with POST jobs/<id>/reconcile.",
+                          H.bot_actor(maintainer))
+        except H.Refused:
+            pass
 
     def _tell_maintainer(self, c, row, msg):
         """One task for BotOps per bot and day when a request keeps stopping."""
@@ -2218,10 +2299,10 @@ class Execution:
         if c.execute("SELECT 1 FROM tasks WHERE title=? AND status IN ('open','doing','waiting','review','ready')",
                      (title,)).fetchone():
             return
-        request = ((msg or {}).get('body') or '')[:300]
+        # The request's words stay out, as in _hand_to_maintainer: its attempts hold them behind the usual reads.
         try:
             H.task_create(c, H.KEEPER, title,
-                          f"Job {row['id']} stopped partway twice and was dismissed. The request was: {request}\n"
+                          f"Job {row['id']} stopped partway twice and was dismissed.\n"
                           f"Read its attempts (`hub sql`), fix the cause, and send the request again if it still matters.",
                           H.bot_actor(maintainer))
         except H.Refused:

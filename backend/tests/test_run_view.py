@@ -83,7 +83,8 @@ def test_a_retried_run_shows_both_attempts_and_the_decision_between_them(api):
     assign(api, machine, "ops")
     ready(api, machine, ["ops"])
     tid, first = task_attempt(api, machine, "Archive the bots")
-    events(api, machine, first["id"], [("tool", {"name": "shell"}),
+    events(api, machine, first["id"], [("status", {"state": "active", "tool_events": True}),
+                                       ("tool", {"tool": "Read", "status": "started", "item_id": "r1"}),
                                        ("message", {"text": "Archived one bot; the second is next."})])
     expire(api, first["id"])
     assert claim(api, machine) is None
@@ -102,8 +103,8 @@ def test_a_retried_run_shows_both_attempts_and_the_decision_between_them(api):
                                                  "AND target IN (?,?)", ("j", "a")))
     assert "events_action_target" in plan, plan
     assert (earlier["run"], earlier["try"], earlier["tries"], earlier["state"]) == (first["id"], 1, 2, "expired")
-    from backend.execution import RESUME_SHOWN
-    assert earlier["next"] == {"kind": "resumed", "by": H.KEEPER, "at": earlier["next"]["at"], "note": RESUME_SHOWN}
+    assert earlier["next"]["kind"] == "resumed" and earlier["next"]["by"] == H.KEEPER
+    assert earlier["next"]["note"].startswith("Resumed automatically: the interrupted run only read (Read)")
     assert "Archived one bot" not in json.dumps(earlier), "the hub's own words, never what the stopped run saved"
     # A resume recorded before the hub kept a line for people still shows only its first paragraph.
     from backend.run_view import decision_note
