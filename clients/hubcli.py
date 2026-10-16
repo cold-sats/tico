@@ -37,6 +37,8 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub task comment <id> "<text>"         on the record with your name
     hub task comment-edit <id> <comment-id> "<text>"   change a comment you wrote; wakes nobody
     hub task comment-delete <id> <comment-id>          take back a comment you wrote
+    hub task ask-resolve <id> <question-id> [--quote "<their words>"]
+                                                       a question answered elsewhere, quoted; no --quote withdraws yours
     hub task delete <id>                               delete a task made by mistake, to the trash (a person only)
     hub task requesters <id>                           who asked for it (internal contacts, counts; never tokens)
     hub task requester-save <id> [--requester-id R] [--email E] [--organization O] [--important]
@@ -912,6 +914,12 @@ def parser():
     s.add_argument("id")
     s.add_argument("comment_id", help="the comment's id (its id in the task's comments)")
     s.set_defaults(fn="task comment-delete")
+    s = task.add_parser("ask-resolve", help="settle an open question the person answered elsewhere (--quote their "
+                                            "words), or withdraw one you asked")
+    s.add_argument("id")
+    s.add_argument("comment_id", help="the question's id (its id in the task's comments)")
+    s.add_argument("--quote", help="the person's answer in their own words")
+    s.set_defaults(fn="task ask-resolve")
     s = task.add_parser("delete", help="delete a task made by mistake: its requester or a mover, never a bot")
     s.add_argument("id")
     s.set_defaults(fn="task delete")

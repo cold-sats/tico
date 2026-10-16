@@ -339,6 +339,11 @@ class TaskComment(Contract):
     attachments: list[Annotated[StrictStr, Field(pattern=r"^[^@]+@[1-9][0-9]*$")]] = Field(default_factory=list, max_length=10)
 
 
+class TaskAskResolve(Contract):
+    # The person's words from where they answered; without them the asker withdraws the question.
+    quote: Annotated[StrictStr, Field(min_length=1, max_length=4000)] | None = None
+
+
 class TaskLink(Contract):
     url: str | None = Field(default=None, max_length=2000)
     title: str | None = Field(default=None, max_length=200)

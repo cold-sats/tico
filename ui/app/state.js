@@ -91,9 +91,10 @@ function stateOf(slug) {
   return 'idle';
 }
 const openCount = slug => S.v2?.status?.[slug]?.open_tasks || 0;
-// The org tree's number is what needs you from that bot, counted the way the
-// Needs you list groups it (companyNeedActor), so the two always agree.
-function needsMeCount(slug) {
+// What needs you from that bot, grouped the way the Needs you list groups it (companyNeedActor). The org tree's
+// number and the bot page's Needs you section both read this, so the number is always the rows.
+function botNeeds(slug) {
   return (S.v2?.needs || []).filter(it => (['task', 'question', 'waiting'].includes(it.kind) && taskNeedsMe(it)
-    && companyNeedActor(it, it) === 'bot:' + slug) || (it.kind === 'ask' && it.requester === 'bot:' + slug)).length;
+    && companyNeedActor(it, it) === 'bot:' + slug) || (it.kind === 'ask' && it.requester === 'bot:' + slug));
 }
+function needsMeCount(slug) { return botNeeds(slug).length; }

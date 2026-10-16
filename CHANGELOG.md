@@ -8,6 +8,14 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- A bot's page lists its tasks starting with **Needs you**: what that bot needs from you, the same rows its number in
+  the sidebar counts (its tasks for you, its questions on any task, its work waiting on you, its questions outside a
+  task). **Active** follows, then **Assigned to others**; a task in Needs you is not listed again below it.
+- A question asked on a task and answered somewhere else (a chat, a call) can be settled:
+  `hub task ask-resolve <task> <question> --quote "<their words>"` (the asker or the task's owner bot) records the
+  answer, marked as quoted, and the question's asker can withdraw it by leaving out `--quote`. Either way it leaves
+  Needs you; nobody is notified. Also `POST /api/v2/tasks/{id}/comments/{message}/resolve` and the MCP tool
+  `hub_task_ask_resolve`.
 - Company cloud storage: the owner can store the company's files in its own S3 bucket from **Settings › Storage**
   (bucket, region, folder, access keys). Tico writes and reads back a check object before saving, seals the secret
   key with the credential key and never shows it again. New files go to the bucket at once, with no restart; files
@@ -177,6 +185,8 @@ All notable changes to Tico are recorded here. The format follows
   stores and logs no token. The grant on the computer keeps no secret.
 
 ### Fixed
+- The keeper's "no progress after a status check" question closes when its task is done, and one already left on a
+  done task no longer keeps that task in Needs you or in a bot's number in the sidebar.
 - Another bot's turn in a task's room (the requester answering there, say) no longer ends the task owner's goal:
   each one used to clear the goal, start a "/goal clear" run for the owner and set the goal again on its next turn.
   Handing a task to someone else now ends the goal Tico set for its old bot owner, including when a person takes it.

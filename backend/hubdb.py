@@ -2662,6 +2662,9 @@ def _set_status(conn, actor, row, status=None, type=None, step=None, note=""):
             # A finished task's open questions to people are moot. Done keeps its structured questions: that is how
             # a done task asks for acceptance of what it delivered.
             supersede_asks(conn, row["id"], plain_only=effective == "done")
+            if effective == "done":
+                # The keeper's "no progress" question is about the work, which is now finished.
+                supersede_asks(conn, row["id"], from_actor=KEEPER, stuck=True)
             # ...and so is a yes it was waiting for: nothing will act on it now.
             withdraw_task_approvals(conn, row["id"], f"Its task was {TASK_ENDED[effective]}.")
     from .roadmap_flow import changed as roadmap_changed
@@ -2684,10 +2687,11 @@ def ask_older(message, at=None):
     return created < (at or datetime.now(timezone.utc)) - timedelta(days=ASK_OLDER_DAYS)
 
 
-def supersede_asks(conn, task_id, *, from_actor=None, to_actor=None, keep=None, plain_only=False):
+def supersede_asks(conn, task_id, *, from_actor=None, to_actor=None, keep=None, plain_only=False, stuck=False):
     """Mark the task's unanswered asks to people superseded: those `from_actor` sent `to_actor` before the ask `keep`,
-    or all of them (plain ones only with `plain_only`). They stay in the thread and leave every queue and count. A
-    question to one person never replaces a different person's question."""
+    or all of them (plain ones only with `plain_only`, the keeper's "no progress" ones only with `stuck`). They stay
+    in the thread and leave every queue and count. A question to one person never replaces a different person's
+    question."""
     # Only the task's own thread, where its queue and counts look (open_task_asks): a lookup by conversation, not a
     # scan of every pending ask on the server each time a task finishes.
     sql = ("SELECT m.id FROM messages m JOIN conversations cv ON cv.id=m.conversation_id "
@@ -2706,6 +2710,8 @@ def supersede_asks(conn, task_id, *, from_actor=None, to_actor=None, keep=None, 
         args.append(keep)
     if plain_only:
         sql += " AND json_type(m.refs_json,'$.questions') IS NULL"
+    if stuck:
+        sql += " AND json_extract(m.refs_json,'$.stuck')"
     ids = [r[0] for r in conn.execute(sql, args)]
     if ids:
         conn.executemany("UPDATE messages SET superseded_at=? WHERE id=?", [(now(), mid) for mid in ids])
@@ -3703,7 +3709,8 @@ def _own_comment(conn, actor, task_id, message_id):
         refuse(conn, actor, "not-found", f"no comment {message_id} on task {task_id}")
     if not is_comment(msg):
         refuse(conn, actor, "kind", "only a comment is edited or deleted, not a question, an answer, "
-                                    "a notice or a chat message")
+                                    "a notice or a chat message"
+                                    + ("; settle your open question with hub task ask-resolve" if msg.get("kind") == "ask" else ""))
     if msg["from_actor"] != actor:
         refuse(conn, actor, "identity", f"{actor_id(msg['from_actor'])} wrote this comment; only they change it")
     return msg
@@ -3761,6 +3768,71 @@ def task_comment_delete(conn, actor, task_id, message_id):
     _withdraw_queued_comment_copies(conn, message_id)
     _refresh_comment_replies(conn, deleted)
     return deleted
+
+
+ASK_QUOTE_MAX = 4000        # a quoted answer is what the person said, not a document
+
+
+@private_task_write
+def task_ask_resolve(conn, actor, task_id, message_id, quote=None):
+    """Settle an open question on a task that was answered somewhere else, or is no longer wanted.
+
+    With `quote`, the person's words from where they answered (a chat, a call): the question's asker, or the
+    task's owner bot, records them as the answer, marked as quoted by whoever recorded it. Without, the asker
+    withdraws the question: it stays in the thread, superseded. Either way it leaves every Needs you list and
+    count. Nothing is sent and nobody wakes: the answer is filed quietly for the asker's next turn on the task."""
+    _writer(conn, actor)
+    row = task(conn, task_id)
+    if not row:
+        refuse(conn, actor, "not-found", f"no task {task_id}")
+    _task_private_writer(conn, actor, row)
+    asked = comment_on(conn, row, message_id)
+    if not asked or asked.get("deleted_at") or asked.get("kind") != "ask":
+        refuse(conn, actor, "not-found", f"no question {message_id} on task {task_id}")
+    asker, person = asked["from_actor"], asked["to_actor"]
+    if quote is None and actor != asker:
+        refuse(conn, actor, "identity", f"{actor_id(asker)} asked this question; only they withdraw it")
+    if quote is not None and actor != asker and not (is_bot(actor) and actor == row["owner"]):
+        refuse(conn, actor, "identity", "only the question's asker or the task's owner bot records an answer given elsewhere")
+    if not _one(conn, f"SELECT 1 FROM messages m WHERE m.id=? AND {OPEN_ASK_SQL}", (message_id,)):
+        refuse(conn, actor, "kind", "this question was already answered or withdrawn")
+    ts = now()
+    reply = None
+    if quote is None:
+        conn.execute("UPDATE messages SET superseded_at=? WHERE id=?", (ts, message_id))
+    else:
+        quote = str(quote).strip()
+        if not quote:
+            refuse(conn, actor, "lint", "quote the person's answer, or leave the quote out to withdraw the question")
+        if len(quote) > ASK_QUOTE_MAX:
+            refuse(conn, actor, "lint", f"a quoted answer is at most {ASK_QUOTE_MAX} characters")
+        path_mentioned(conn, actor, "reply", quote, task_id)
+
+        def name(who):
+            found = human(conn, who) if is_human(who) else bot(conn, who) if is_bot(who) else None
+            return (found or {}).get("name") or actor_id(who)
+        refs = {"depth": asked["refs"].get("depth", 1), "task": task_id, "comment": True, "quiet": True,
+                "quoted": True}
+        if asked["refs"].get("questions"):
+            # Read as any other structured answer (`task_answers`): the person's words are its free text.
+            refs["answer"] = {"target": {"comment": message_id}, "other": quote, "dismiss": False,
+                              "answers": {q["id"]: [] for q in asked["refs"]["questions"]},
+                              "by": actor, "at": ts, "quoted": True}
+        # Already delivered and read: the record is the point, not a message to anyone.
+        reply = _write_message(conn, actor, asker, f'{name(person)} answered elsewhere; {name(actor)} quoted it: "{quote}"',
+                               conversation(conn, asked["conversation_id"]), "answer", refs, message_id, None,
+                               delivered_at=ts, read_at=ts)
+    _task_event(conn, task_id, actor, "ask", message_id, "answered" if reply else "withdrawn")
+    if row["status"] == "waiting" and row.get("waiting_on") == person and not any(
+            a["to_actor"] == person for a in open_task_asks(conn, row)):
+        # Nothing else on the task waits on them: the next move is the bot's, and it leaves their Needs you.
+        conn.execute("UPDATE tasks SET waiting_on=NULL WHERE id=?", (task_id,))
+        _task_event(conn, task_id, actor, "waiting_on", person, None, "")
+    conn.execute("UPDATE tasks SET updated=? WHERE id=?", (ts, task_id))
+    recount(conn, [row["owner"], row["requester"], asker])
+    event(conn, actor, "ask.answered_elsewhere" if reply else "ask.withdrawn", message_id,
+          {"task": task_id, "to": person, **({"answer": reply["id"]} if reply else {})})
+    return {"ask": message(conn, message_id), "answer": reply}
 
 
 @private_task_write
@@ -6184,12 +6256,14 @@ def unanswered_ask(conn, task_row, *, actor=None):
 
 
 def tasks_asked_of(conn, actor):
-    """Live tasks with an unanswered ask addressed to this actor, even if they do not own them."""
+    """Live tasks with an unanswered ask addressed to this actor, even if they do not own them. A done task stays
+    while it asks for acceptance of what it delivered, but not for the keeper's "no progress" question on it."""
     return _rows(conn.execute(
         "SELECT t.* FROM tasks t JOIN conversations cv ON cv.id=t.conversation_id "
         f"JOIN messages m ON m.conversation_id=t.conversation_id AND {MESSAGE_TASK_SQL}=t.id "
         f"WHERE (t.status IN ({','.join(repr(x) for x in ACTIVE_STATUSES)}) "
-        "OR (t.status='done' AND json_type(m.refs_json,'$.questions')='array')) "
+        "OR (t.status='done' AND json_type(m.refs_json,'$.questions')='array' "
+        "AND json_extract(m.refs_json,'$.stuck') IS NOT 1)) "
         f"AND m.kind='ask' AND m.to_actor=? AND {OPEN_ASK_SQL} "
         "GROUP BY t.id ORDER BY t.created", (actor,)))
 

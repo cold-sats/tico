@@ -291,14 +291,17 @@ async function pageBot(slug, tab) {
   </div>
 
   <aside id="pane-tasks" class="bot-rail" aria-label="Tasks" hidden>
-    <section class="rail-sec bot-active" aria-labelledby="bot-active-h"><h2 class="rail-h" id="bot-active-h">Active</h2>
+    <section class="rail-sec bot-needs" id="bot-needs" aria-labelledby="bot-needs-h" hidden><h2 class="rail-h" id="bot-needs-h">Needs you <span class="cnt" id="cnt-needs"></span></h2>
+      <div id="t-needs" class="tpane"></div>
+    </section>
+    <section class="rail-sec bot-active" aria-labelledby="bot-active-h"><h2 class="rail-h" id="bot-active-h">Active <span class="cnt" id="cnt-active"></span></h2>
       <div id="t-open" class="tpane"><div class="rail-empty">Loading…</div></div>
     </section>
+    <details class="rail-sec rail-fold" id="bot-assigned" hidden><summary class="rail-h">Assigned to others <span class="cnt" id="cnt-assigned"></span></summary>
+      <div id="t-assigned" class="tpane"></div></details>
     ${limited ? '' : `<section class="rail-sec bot-latest" id="bot-latest" aria-label="Updates" hidden></section>
     <section class="rail-sec bot-files" id="bot-files" aria-label="Files" hidden></section>
     <section class="rail-sec bot-recurring" id="bot-recurring" aria-label="Routines" hidden></section>`}
-    <details class="rail-sec rail-fold" id="bot-assigned" hidden><summary class="rail-h">Assigned to others <span class="cnt" id="cnt-assigned"></span></summary>
-      <div id="t-assigned" class="tpane"></div></details>
     <details class="rail-sec rail-fold bot-done"><summary class="rail-h">Done <span class="cnt" id="cnt-done"></span></summary><div id="t-done" class="tpane"><div class="rail-empty">Loading…</div></div></details>
   </aside>
   ${railEdgeHTML('right')}
@@ -442,7 +445,8 @@ async function pageBot(slug, tab) {
     void botGoalsCardLoad(slug);
   }
 
-  // The right rail: Active, Updates, Files, Recurring, then Assigned to others and Done folded away.
+  // The right rail: what needs you from this bot, its Active work, what it assigned to others, Updates, Files,
+  // Recurring, then Done folded away.
   const showTab = t => { if (t === 'done') $('#pane-tasks .bot-done').open = true; };
   // A click opens a folded section without focusing it, so its ring shows only for the keyboard.
   $('#pane-tasks').querySelectorAll('.rail-fold>summary').forEach(sum => sum.addEventListener('mousedown', ev => ev.preventDefault()));
