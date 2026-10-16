@@ -320,7 +320,7 @@ def test_an_older_database_gets_the_column_once_and_starting_again_changes_nothi
         Tickets(old)
         columns = [r[1] for r in old.conn.execute("PRAGMA table_info(tickets)")]
         assert columns.count("diagnostics") == 1 and columns.count("kind") == 1
-    assert old.conn.execute("SELECT body, diagnostics, kind FROM tickets").fetchone()[:] == ("kept", None, "")
+    assert old.conn.execute("SELECT body, diagnostics, kind FROM tickets").fetchone()[:] == ("kept", None, "support")
 
 
 def test_followup_diagnostics_stay_with_the_message_and_delete_with_the_ticket(client, db):
@@ -400,14 +400,15 @@ def test_an_older_database_backfills_signatures_once(tmp_path):
         assert old.conn.execute("SELECT signature FROM tickets").fetchone()[0] == SIG
 
 
-def test_a_setup_ticket_keeps_its_kind_and_no_other_kind_is_taken(client, db):
-    assert file(client, kind="installer").json() == {"error": "invalid", "field": "kind"}
-    assert file(client, kind=["setup"]).status_code == 422 and db.conn.execute("SELECT count(*) FROM tickets").fetchone()[0] == 0
-    made = file(client, "Setup failed: tico setup doctor", kind="setup").json()
-    file(client, "From the app")
-    listed = {t["body"]: t["kind"] for t in client.get("/v1/staff/tickets", headers=staff()).json()["tickets"]}
-    assert listed == {"Setup failed: tico setup doctor": "setup", "From the app": ""}
-    assert client.get(f"/v1/staff/tickets/{made['ticket_id']}", headers=staff()).json()["kind"] == "setup"
+def test_a_setup_or_feedback_request_keeps_its_kind_and_an_unknown_kind_is_refused(client, db):
+    setup = file(client, "Want help setting up", kind="setup").json()["ticket_id"]
+    feedback = file(client, "Working well", kind="feedback").json()["ticket_id"]
+    plain = file(client).json()["ticket_id"]
+    listed = {t["ticket_id"]: t["kind"] for t in client.get("/v1/staff/tickets?status=all", headers=staff()).json()["tickets"]}
+    assert listed == {setup: "setup", feedback: "feedback", plain: "support"}
+    count = db.conn.execute("SELECT count(*) FROM tickets").fetchone()[0]
+    assert file(client, kind="billing").json() == {"error": "invalid", "field": "kind"}
+    assert db.conn.execute("SELECT count(*) FROM tickets").fetchone()[0] == count
 
 
 def test_the_reply_page_is_one_constant_document_under_a_tight_policy(client):

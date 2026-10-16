@@ -27,7 +27,8 @@
     if (!(window.ticoNativeFeatures || []).includes('appLog') || typeof window.ticoNativeLog !== 'function') return null;
     try {
       const got = await window.ticoNativeLog();
-      return {version: String(got?.version || '').slice(0, 40), lines: (Array.isArray(got?.lines) ? got.lines : []).slice(-200).map(x => String(x).slice(0, 2000))};
+      return {version: String(got?.version || '').slice(0, 40), lines: (Array.isArray(got?.lines) ? got.lines : []).slice(-200).map(x => String(x).slice(0, 2000)),
+        mac: /Macintosh|Mac OS X/.test(navigator.userAgent)};
     } catch (_) { return null; }
   }
   // `hours` of each computer's performance history go with the attachment (0: none); `report` is what Report this or
@@ -75,7 +76,7 @@
   const last = t => (t.messages || []).at(-1)?.created || t.created;
   const inThread = () => viewing || !state.tickets.length;
   const draft = () => {
-    if (!drafts.has(selected)) drafts.set(selected, {message: '', email: compose?.email || '', ids: true, diag: !selected, perf: 24, bundle: null, key: uid(), report: null});
+    if (!drafts.has(selected)) drafts.set(selected, {message: '', email: compose?.email || '', ids: true, diag: !selected, perf: 24, bundle: null, key: uid(), kind: 'support', report: null});
     return drafts.get(selected);
   };
   const current = () => state.tickets.find(t => t.id === selected);
@@ -198,6 +199,7 @@
     if (unreport) unreport.onclick = () => {
       // An untouched prefill would say "details attached" with nothing attached.
       d.message = unprefilled(d.message);
+      if (d.report.kind === 'setup_check') d.kind = 'support';
       d.report = null; d.bundle = null; d.key = uid(); renderComposer(); form.elements.message?.focus();
     };
     form.oninput = () => {
@@ -226,7 +228,8 @@
       try {
         if (d.diag && !d.bundle) { d.bundle = await capture(d.perf, d.report); updateSent(); }
         const body = {message: d.message, diagnostics: d.diag ? d.bundle.id : ''};
-        if (!thread) Object.assign(body, {email: d.email.trim(), include_ids: d.ids}, d.ids && appVersion() ? {app_version: appVersion()} : {});
+        if (!thread) Object.assign(body, {email: d.email.trim(), include_ids: d.ids}, d.ids && appVersion() ? {app_version: appVersion()} : {},
+          d.kind !== 'support' ? {kind: d.kind} : {});
         const next = await call('POST', thread ? `/support/tickets/${encodeURIComponent(thread)}/messages` : '/support/tickets', body, d.key);
         state.tickets = [next, ...state.tickets.filter(t => t.id !== next.id)];
         drafts.delete(thread); selected = next.id; viewing = true;
@@ -245,7 +248,7 @@
   }
   function updateSent() {
     if (!rail?.isConnected) return;
-    const d = draft(), parts = ['message'];
+    const d = draft(), parts = [!selected && d.kind !== 'support' ? 'message marked ' + d.kind : 'message'];
     if (!selected && d.email.trim()) parts.push('email ' + d.email.trim());
     if (!selected && d.ids) parts.push('version ' + (compose?.version || 'unknown'), ...(appVersion() ? ['app version ' + appVersion()] : []), 'install ID ' + compose?.install_id);
     if (d.diag) parts.push('redacted diagnostics' + (d.report ? ' with what you reported' : '') + (d.bundle ? ' (' + Math.max(1, Math.ceil(d.bundle.bytes / 1024)) + ' KB)' : ''));
@@ -319,6 +322,7 @@
     const d = draft();
     if (p.report) {
       d.report = p.report; d.diag = true; d.bundle = null; d.key = uid();
+      if (p.report.kind === 'setup_check') d.kind = 'setup';      // HQ's kind for help with setting up
       // The words on screen go only in the attachment, which is redacted; the message is sent as typed, so it names
       // the kind and nothing else.
       const rest = unprefilled(d.message);
@@ -346,6 +350,34 @@
     let value = null;
     try { value = report ? JSON.parse(report.dataset.reportThis) : null; } catch (_) {}
     window.talkToUs(value);
+  });
+  // "Want help setting up?" starts a new request from text the person reads, edits and sends themselves.
+  let starting = null;
+  function startPending() {
+    if (!starting || !rail?.isConnected) return;
+    const {kind} = starting, draft = drafts.get(''), unsent = draft?.message.trim() || '';
+    // A new request the person had started keeps their words and choices, with the snapshot after them, once.
+    const message = unsent.includes(starting.message.trim()) ? unsent
+      : unsent ? unsent + '\n\n' + starting.message : starting.message;
+    starting = null; selected = ''; viewing = true;
+    drafts.set('', draft ? {...draft, message, kind} :
+      {message, email: compose?.email || '', ids: true, diag: true, perf: 24, bundle: null, key: uid(), kind});
+    renderTickets(); renderThread(true); renderComposer();
+    rail.querySelector('[name=message]')?.focus();
+  }
+  window.supportStart = (message, kind = 'support') => {
+    starting = {message, kind};
+    if (rail?.isConnected) startPending(); else location.hash = '#/help';
+  };
+  document.addEventListener('click', async e => {
+    const button = e.target.closest('[data-setup-help]');
+    if (!button || button.disabled) return;
+    e.preventDefault(); button.disabled = true;
+    try {
+      const snapshot = await call('GET', '/support/setup-snapshot?asked_from=' + encodeURIComponent(button.dataset.setupHelp));
+      window.supportStart(snapshot.message, snapshot.kind);
+    } catch (error) { say(error.message, true); }
+    finally { button.disabled = false; }
   });
   window.supportLeave = () => { editor?.close(); rail = null; schedule(); };
   window.supportHelp = async page => {
@@ -394,7 +426,7 @@
         } catch (e) { say(e.message, true); }
       };
       if (selected && !current()) { selected = ''; viewing = false; }
-      renderTickets(); renderThread(true); renderComposer(); void readVisible();
+      renderTickets(); renderThread(true); renderComposer(); void readVisible(); startPending();
       openPending();
       await refresh(); schedule();
     } catch (e) { if (page.isConnected) { const p = document.createElement('p'); p.className = 'err'; p.textContent = e.message; page.appendChild(p); } }

@@ -28,9 +28,9 @@ model subscriptions and sends the results back. The in-app Help page (**?** in t
 | Librarian (built-in) | Answers from your docs and the Tico manual, with sources | Ask the Librarian on Docs and Market | “What is our refund limit?” |
 | Goal Manager (built-in) | Keeps KPIs and goal colours current | Top of Goals | “Why is this goal yellow?” |
 | Your bots | Do the team's work from their Instructions | Team in the sidebar: chat or a task | “Draft replies to the open tickets” |
-| Message bots | Work a human's email or a Slack channel | Message bots in the sidebar | “Sort today's email” |
+| Message bots (Beta) | Work a human's email or a Slack channel | Message bots in the sidebar | “Sort today's email” |
 
-Claude Code, Codex, Hermes and OpenClaw agents can join the same shared work from their own apps
+Claude Code, Codex, Hermes and OpenClaw (Hermes and OpenClaw are Beta) agents can join the same shared work from their own apps
 ([Connect an external agent](connect-an-agent.md)).
 
 The rest of this page is the current system in detail. For a teammate's questions read [Using Tico](using-tico.md).

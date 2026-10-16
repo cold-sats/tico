@@ -66,11 +66,12 @@ EMAIL = re.compile(r"[^@\s<>\",;()\[\]\\]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9.-]{0,25
 MOMENT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f  ‪-‮⁦-⁩]")
 FIELDS = ("message", "email", "install_id", "version")
-OPTIONAL = ("diagnostics", "kind")   # the person's own choice; staff routes only ever show it
-# Where a ticket came from when it is not the app's Contact support: `setup` is the installer or `tico-setup doctor`.
-KINDS = ("setup",)
+OPTIONAL = ("diagnostics",)       # the person's own choice; staff routes only ever show it
 # The desktop app's version, when the person wrote from the app; labelled apart from the server's `version`.
 APP_FIELDS = ("app_version",)
+# What the person asked for: help (the default), help with setting up, or an answer to "How is Tico working for you?".
+KINDS = ("support", "setup", "feedback")
+KIND_FIELDS = ("kind",)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tickets(
@@ -78,7 +79,7 @@ CREATE TABLE IF NOT EXISTS tickets(
  closed TEXT, status TEXT NOT NULL DEFAULT 'open', body TEXT NOT NULL, email TEXT, install_id TEXT, version TEXT, app_version TEXT,
  email_pending INTEGER NOT NULL DEFAULT 0, diagnostics TEXT, signature TEXT NOT NULL DEFAULT '',
  verdict TEXT NOT NULL DEFAULT 'unchecked', verdict_reason TEXT NOT NULL DEFAULT '', held INTEGER NOT NULL DEFAULT 0,
- kind TEXT NOT NULL DEFAULT '');
+ kind TEXT NOT NULL DEFAULT 'support');
 CREATE INDEX IF NOT EXISTS tickets_created ON tickets(created);
 CREATE TABLE IF NOT EXISTS ticket_verdicts(
  id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id TEXT NOT NULL, at TEXT NOT NULL, old TEXT NOT NULL, new TEXT NOT NULL,
@@ -157,21 +158,14 @@ def parse_diagnostics(data):
     return packed
 
 
-def parse_kind(data):
-    """The ticket's kind, "" for one from the app, or Invalid: only the names in KINDS are taken."""
-    value = data.get("kind") if isinstance(data, dict) else None
-    if value is None:
-        return ""
-    if not isinstance(value, str) or value not in KINDS:
-        raise Invalid("kind")
-    return value
-
-
 def parse_ticket(data):
-    """(message, email, install_id, version, app_version) from a decoded request, or Invalid. Fields beyond these (and the
-    optional diagnostics and kind, which `parse_diagnostics` and `parse_kind` read) are refused."""
-    if not isinstance(data, dict) or set(data) - set(FIELDS) - set(APP_FIELDS) - set(OPTIONAL):
+    """(message, email, install_id, version, app_version, kind) from a decoded request, or Invalid. Fields beyond these (and
+    the optional diagnostics, which `parse_diagnostics` reads) are refused."""
+    if not isinstance(data, dict) or set(data) - set(FIELDS) - set(APP_FIELDS) - set(KIND_FIELDS) - set(OPTIONAL):
         raise Invalid("fields")
+    kind = data.get("kind", "support")
+    if kind not in KINDS:
+        raise Invalid("kind")
     message = text(data.get("message"), "message", MAX_MESSAGE)
     values = {}
     for name, pattern in (("email", EMAIL), ("install_id", INSTALL_ID), ("version", VERSION), ("app_version", VERSION)):
@@ -182,7 +176,7 @@ def parse_ticket(data):
             raise Invalid(name)
         else:
             values[name] = value
-    return message, values["email"], values["install_id"], values["version"], values["app_version"]
+    return message, values["email"], values["install_id"], values["version"], values["app_version"], kind
 
 
 class Tickets:
@@ -204,7 +198,8 @@ class Tickets:
                     if found:
                         db.conn.execute("UPDATE tickets SET signature=? WHERE ticket_id=?", (found, row["ticket_id"]))
             for column, spec in (("verdict", "TEXT NOT NULL DEFAULT 'unchecked'"), ("verdict_reason", "TEXT NOT NULL DEFAULT ''"),
-                                 ("held", "INTEGER NOT NULL DEFAULT 0"), ("app_version", "TEXT"), ("kind", "TEXT NOT NULL DEFAULT ''")):
+                                 ("held", "INTEGER NOT NULL DEFAULT 0"), ("app_version", "TEXT"),
+                                 ("kind", "TEXT NOT NULL DEFAULT 'support'")):
                 if column not in have:
                     db.conn.execute(f"ALTER TABLE tickets ADD COLUMN {column} {spec}")
             reply_columns = {row[1] for row in db.conn.execute("PRAGMA table_info(ticket_replies)")}
@@ -222,7 +217,7 @@ class Tickets:
 
     # ------------------------------------------------------------------ people
     def create(self, message, email, install_id, version, diagnostics=None, verdict="unchecked", reason="", app_version=None,
-               kind=""):
+               kind="support"):
         """Store a ticket. Returns (ticket_id, secret); the secret is not kept, only its hash. `diagnostics` is the
         attached bundle as compact JSON; it is kept with the ticket until the ticket is deleted."""
         secret = secrets.token_urlsafe(24)
@@ -300,12 +295,11 @@ class Tickets:
         """A ticket for the staff routes. The diagnostics bundle is large: a listing says whether there is one, and
         `show` (`full`) carries it."""
         view = {"ticket_id": row["ticket_id"], "status": row["status"], "created": row["created"],
-                "updated": row["updated"], "body": row["body"], "email": row["email"], "version": row["version"],
+                "updated": row["updated"], "kind": row["kind"], "body": row["body"], "email": row["email"], "version": row["version"],
                 "app_version": row["app_version"], "install_id": row["install_id"], "email_pending": bool(row["email_pending"]),
                 "signature": row["signature"] or signature_of(row["body"]),
                 "has_diagnostics": bool(row["diagnostics"]), "messages": self._messages(row["ticket_id"], full=full),
-                "verdict": row["verdict"], "verdict_reason": row["verdict_reason"], "held": bool(row["held"]),
-                "kind": row["kind"]}
+                "verdict": row["verdict"], "verdict_reason": row["verdict_reason"], "held": bool(row["held"])}
         if full and row["diagnostics"]:
             view["diagnostics"] = json.loads(row["diagnostics"])
         return view
@@ -449,9 +443,8 @@ def install(app, tickets, address, staff_key="", judge=None):
         if request.state.body_size > MAX_FOLLOW_UP and not (isinstance(data, dict) and "diagnostics" in data):
             return refuse("too_large", 413)          # only the diagnostics may make a request this big
         try:
-            message, email, install_id, version, app_version = parse_ticket(data)
+            message, email, install_id, version, app_version, kind = parse_ticket(data)
             diagnostics = parse_diagnostics(data)
-            kind = parse_kind(data)
         except Invalid as bad:
             return refuse("invalid", 422, field=bad.field)
         if install_id and not tickets.per_install.allow(install_id):
