@@ -2508,7 +2508,8 @@ def _type_steps(conn, actor, type_id, steps):
         names.add(name); ids.add(ident)
         clean.append({"id": ident, "type_id": type_id, "name": name,
                       "position": raw.get("position") if raw.get("position") is not None else position,
-                      "status": status})
+                      "status": status, "public_name": str(raw.get("public_name") if raw.get("public_name") is not None else
+                          existing.get(ident, {}).get("public_name", name))})
     for row in clean:
         if (row["id"] in existing and row["status"] != existing[row["id"]]["status"]
                 and _one(conn, "SELECT 1 FROM tasks WHERE step_id=? LIMIT 1", (row["id"],))):
@@ -2523,9 +2524,9 @@ def _type_steps(conn, actor, type_id, steps):
     for ident in ids & set(existing):
         conn.execute("UPDATE task_steps SET name=? WHERE id=?", (new_id(), ident))
     for row in clean:
-        conn.execute("INSERT INTO task_steps(id,type_id,name,position,status) "
-                     "VALUES(:id,:type_id,:name,:position,:status) ON CONFLICT(id) DO UPDATE SET "
-                     "name=excluded.name,position=excluded.position,status=excluded.status", row)
+        conn.execute("INSERT INTO task_steps(id,type_id,name,position,status,public_name) "
+                     "VALUES(:id,:type_id,:name,:position,:status,:public_name) ON CONFLICT(id) DO UPDATE SET "
+                     "name=excluded.name,position=excluded.position,status=excluded.status,public_name=excluded.public_name", row)
 
 
 def type_create(conn, actor, name, steps=(), mover=None, bots=None, numbered=False, steps_only=False, default_visibility='private'):
@@ -3950,7 +3951,7 @@ def _retitle(conn, actor, row, title, owner, type_id):
 def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=None, body=None,
                 lane=None, labels=None, rank=None, mover=None, goal_id=None, quiet=False, type=None, step=None,
                 step_rank=None, number=None, title=None, private=None, waiting_on=None, roles=None, visibility=None, public_title=None,
-                public_summary=None, approval_id=None, size=None):
+                public_summary=None, approval_id=None, size=None, clear_size=False):
     """Rule 5. The owner may set doing|waiting|review|done|declined and a note; it may not close.
 
     `lane` and `labels` are a mover's to change (`mover` says whether this actor is one; the
@@ -4153,7 +4154,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
             if row.get(field) is not None:
                 _task_event(conn, task_id, actor, field, row[field], None, note or "")
             sets.append(field + "=NULL")
-    if not sets and not state_change and not roles and all(v is None for v in (visibility, public_title, public_summary, size)):
+    if not sets and not state_change and not roles and not clear_size and all(v is None for v in (visibility, public_title, public_summary, size)):
         return row
     # A person finishing it is news for every bot on it; the bots that asked it open questions are read
     # before the status write supersedes those questions.
@@ -4184,9 +4185,9 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         conn.execute("UPDATE tasks SET visibility='private' WHERE id=?", (task_id,))
         updated_row = task(conn, task_id)
     publication(conn, actor, updated_row, visibility, public_title, public_summary, approval_id)
-    if size is not None:
+    if size is not None or clear_size:
         import math
-        if not math.isfinite(size) or size < 0:
+        if size is not None and (not math.isfinite(size) or size < 0):
             refuse(conn, actor, 'kind', 'Size is a nonnegative finite number')
         conn.execute('UPDATE tasks SET size=?,updated=? WHERE id=?', (size, now(), task_id))
         _task_event(conn, task_id, actor, 'size', row.get('size'), size, '')

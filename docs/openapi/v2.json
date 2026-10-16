@@ -24526,7 +24526,8 @@
             "type": "string"
           },
           "public_summary": {
-            "type": "string"
+            "type": "string",
+            "description": "Separate public text; omitted with brief=true"
           },
           "size": {
             "type": [
@@ -25399,6 +25400,9 @@
           "name": {
             "type": "string"
           },
+          "public_name": {
+            "type": "string"
+          },
           "position": {
             "type": "integer"
           },
@@ -25417,6 +25421,19 @@
       },
       "TaskStepInput": {
         "properties": {
+          "public_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public Name"
+          },
           "id": {
             "anyOf": [
               {

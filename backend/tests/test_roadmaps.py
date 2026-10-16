@@ -10,7 +10,11 @@ def test_engineering_children_drive_approved_roadmap_and_reopen(api):
     child = post(api, 'tasks', {'owner': 'ops', 'title': 'Build exports', 'body': 'Implement exports.',
                                'type': 'Engineering', 'relations': [{'task': roadmap['id'], 'kind': 'parent'}]})
     assert get(api, 'tasks/' + roadmap['id'])['task']['step']['name'] == 'Building'
+    second = post(api, 'tasks', {'owner': 'ops', 'title': 'Check exports', 'body': 'Check the changes.',
+                                'type': 'Engineering', 'relations': [{'task': roadmap['id'], 'kind': 'parent'}]})
     child = post(api, 'tasks/' + child['id'], {'version': child['version'], 'status': 'done'})
+    assert get(api, 'tasks/' + roadmap['id'])['task']['step']['name'] == 'Building'
+    post(api, 'tasks/' + second['id'], {'version': second['version'], 'status': 'done'})
     assert get(api, 'tasks/' + roadmap['id'])['task']['step']['name'] == 'Shipped'
     post(api, 'tasks/' + child['id'], {'version': child['version'], 'status': 'open'})
     assert get(api, 'tasks/' + roadmap['id'])['task']['step']['name'] == 'Building'
@@ -28,6 +32,12 @@ def test_visibility_defaults_do_not_rewrite_tasks_and_private_never_publishes(ap
     private = post(api, 'tasks', {'owner': 'cpo', 'title': 'Sensitive research', 'body': 'Secret',
                                  'type': 'Product roadmap', 'private': True})
     post(api, 'tasks/' + private['id'], {'version': private['version'], 'visibility': 'public'}, expected=422)
+    child = post(api, 'tasks', {'owner': 'cpo', 'title': 'Review a part', 'body': 'Part', 'visibility': 'public',
+                               'relations': [{'task': task['id'], 'kind': 'parent'}]})
+    post(api, 'tasks/' + child['id'] + '/relations', {'task': private['id'], 'kind': 'parent'})
+    assert get(api, 'tasks/' + task['id'])['task']['visibility'] == 'public'
+    assert not get(api, 'tasks/' + task['id'])['task']['private']
+    assert get(api, 'tasks/' + child['id'])['task']['visibility'] == 'private'
 
 
 def test_bot_public_text_and_comment_need_exact_single_use_approval(api):
@@ -74,12 +84,15 @@ def test_public_projection_moderation_and_no_label_enumeration(api):
     child = post(api, 'tasks', {'owner': 'cpo', 'title': 'Secret child', 'body': 'Internal work',
                               'visibility': 'public', 'labels': ['roadmap'],
                               'relations': [{'task': task['id'], 'kind': 'parent'}]})
+    with api.app.state.store.transaction() as c:
+        c.execute('UPDATE task_steps SET public_name=? WHERE id=?', ('Under consideration', task['step_id']))
     path = '/public/roadmaps/roadmap/tasks/' + task['id']
     response = api.get(path, headers=ORIGIN)
     assert response.status_code == 200, response.text
     result = response.json()
     assert set(result['task']) == {'id', 'title', 'summary', 'step', 'requester_count', 'parts'}
     assert result['task']['title'] == 'Search' and result['task']['requester_count'] == 1
+    assert result['task']['step'] == 'Under consideration'
     assert result['comments'][0]['author'] == 'Team'
     assert all(secret not in response.text for secret in ('private@', 'Private Name', 'Internal', 'Secret child', child['id']))
     assert len(api.get('/public/roadmaps/roadmap', headers=ORIGIN).json()['tasks']) == 1
@@ -118,3 +131,20 @@ def test_cors_and_ip_limit_shared_across_actions_and_tokens_are_task_bound(api):
         assert row['visibility'] == 'private'
     assert api.post(base + '/requesters', json={}, headers=ORIGIN).status_code == 429
     post(api, 'roadmaps/settings', {'labels': ['roadmap'], 'cors_origins': ['*']}, expected=422)
+
+
+def test_requester_contacts_follow_task_privacy_and_teammates_can_remove_themselves(api):
+    private = post(api, 'tasks', {'owner': 'cpo', 'title': 'Review private feedback', 'body': 'Sensitive', 'private': True})
+    post(api, 'tasks/' + private['id'] + '/requesters', {'email': 'sensitive@acme.example'})
+    get(api, 'tasks/' + private['id'] + '/requesters', token='ben-test', expected=404)
+    result = post(api, 'sql', {'sql': 'SELECT * FROM task_requesters'}, token='ben-test')
+    assert 'sensitive@acme.example' not in str(result)
+    result = post(api, 'sql', {'sql': 'SELECT * FROM task_requesters'})
+    assert 'token_hash' not in str(result)
+    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Improve editing', 'body': 'Feedback', 'type': 'Product roadmap'})
+    own = post(api, 'tasks/' + task['id'] + '/requesters', {'actor': 'human:priya'}, token='priya-test')
+    with api.app.state.store.read() as c:
+        assert not c.execute('SELECT 1 FROM idempotency WHERE instr(response_json,?)>0',
+                             (own['requester_token'],)).fetchone()
+    post(api, 'tasks/' + task['id'] + '/requesters/' + own['id'] + '/delete', {}, token='priya-test')
+    assert get(api, 'tasks/' + task['id'] + '/requesters')['requester_count'] == 0

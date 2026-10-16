@@ -2398,8 +2398,11 @@ def create_app(settings=None):
                 # A board or a bot's task list polling many tasks needs neither their text nor their criteria.
                 if brief:
                     for row in rows:
-                        for field in ("body", "acceptance_criteria", "acceptance_json"):
+                        for field in ("body", "acceptance_criteria", "acceptance_json", "public_title", "public_summary",
+                                      "requester_count", "external_requesters", "internal_requesters", "important_requesters", "organization", "size"):
                             row.pop(field, None)
+                        if isinstance(row.get("step"), dict):
+                            row["step"].pop("public_name", None)
             if changed_after is not None:
                 found = reads.changed(c, changed_after, visible_sql)
                 ids = reads.around(c, found[0]) if found else []
@@ -2782,7 +2785,7 @@ def create_app(settings=None):
             if body.close:
                 if any(v is not None for v in (body.title, body.status, body.owner, body.due, body.body, body.lane,
                                                body.labels, body.waiting_on, body.rank, body.roles,
-                                               body.goal_id, body.type, body.step, body.step_rank, body.number, body.private)):
+                                               body.goal_id, body.type, body.step, body.step_rank, body.number, body.private, body.visibility, body.public_title, body.public_summary, body.size)):
                     raise Problem("close", "Close and edit are separate operations", 422)
                 note = body.note or ""
                 if (note.strip() and getattr(who, "via", "") == "botops" and who.actor != "bot:" + BOTOPS
@@ -2795,6 +2798,8 @@ def create_app(settings=None):
                 warnings = None
             else:
                 fields = body.model_dump(exclude={"version", "close", "on_behalf_of"})
+                if "size" in body.model_fields_set and body.size is None:
+                    fields["clear_size"] = True
                 warnings = H.task_update(c, who.actor, task_id, **fields, mover=mover(c, who) or None).get("warnings")
             c.execute("UPDATE tasks SET version=version+1 WHERE id=?", (task_id,))
             return {"task": task_view(H.task(c, task_id), c, visible_sql=auth.task_sql(c, who), who=who),

@@ -1486,8 +1486,10 @@ class Store:
                 result = {"_refusal": {"code": refusal.code, "detail": ("Private task write refused" if getattr(exc, "private", False) else refusal.detail),
                                        "status": refusal.status}}
             if not is_poll(operation, result):
+                cached = ({k: v for k, v in result.items() if k != 'requester_token'}
+                          if isinstance(result, dict) else result)
                 c.execute("INSERT INTO idempotency VALUES(?,?,?,?,?,?)",
-                          (principal, operation, key, hashed, encode(result), H.now()))
+                          (principal, operation, key, hashed, encode(cached), H.now()))
         self.ring(logged)
         if refusal:
             raise refusal

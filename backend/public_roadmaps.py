@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import secrets
+from contextlib import contextmanager
 
 from fastapi import Request
 from pydantic import Field
@@ -115,7 +116,7 @@ def charge(c, request):
 
 
 def output(c, row):
-    step = c.execute('SELECT name FROM task_steps WHERE id=?', (row['step_id'],)).fetchone()
+    step = c.execute('SELECT public_name FROM task_steps WHERE id=?', (row['step_id'],)).fetchone()
     counts = c.execute("SELECT count(*),coalesce(sum(status IN ('done','closed','declined')),0) FROM tasks "
                        'WHERE id IN (' + H.TR.CHILD_IDS + ')', (row['id'],)).fetchone()
     count = c.execute('SELECT count(*) FROM task_requesters WHERE task_id=?', (row['id'],)).fetchone()[0]
@@ -131,8 +132,18 @@ def comments(c, row, limit=100, offset=0):
                      (row['conversation_id'], row['id'], limit + 1, offset))
     items = ({'id': r['id'], 'text': r['body'], 'author': 'Team' if H.is_human(r['from_actor']) or
                H.is_bot(r['from_actor']) else 'Visitor', 'created': r['created']} for r in rows)
-    items, after = R.page(items, limit, offset)
+    items, after = R.page(items, limit, offset, max_bytes=196608)
     return {'comments': items, 'next_offset': after}
+
+
+@contextmanager
+def public_write(store):
+    from . import events
+    with store.transaction() as c:
+        since = events.mark(c)
+        yield c
+        logged = events.claim(c, since, 'external:roadmap')
+    store.ring(logged)
 
 
 def install(app, store, auth, mutate):
@@ -150,9 +161,11 @@ def install(app, store, auth, mutate):
             if auth.company_role(who) not in ('owner', 'admin'):
                 raise Problem('forbidden', 'Only owners and admins change roadmap settings', 403)
             for label in body.labels:
-                if len(label) > 200 or not H.tag_by_key(c, label):
+                if len(label) > 200 or '/' in label or not H.tag_by_key(c, label) or H.tag_by_key(c, label)['is_template']:
                     raise Problem('label', 'Choose an existing label', 422)
             try:
+                if any(len(origin) > 2048 for origin in body.cors_origins):
+                    raise RuntimeError('Origin too long')
                 origins = cors.parse(body.cors_origins)
             except RuntimeError:
                 raise Problem('cors', 'Use exact HTTPS origins, or HTTP localhost origins', 422) from None
@@ -183,7 +196,7 @@ def install(app, store, auth, mutate):
 
     @app.post('/public/roadmaps/{label}/suggest')
     def suggest(request: Request, label: str, body: Suggestion):
-        with store.transaction() as c:
+        with public_write(store) as c:
             require_label(c, label)
             charge(c, request)
             manager = c.execute("SELECT bc.bot FROM bot_config bc JOIN bots b ON b.slug=bc.bot "
@@ -191,15 +204,22 @@ def install(app, store, auth, mutate):
                                 "AND b.state IN ('active','planned') ORDER BY bc.bot LIMIT 1").fetchone()
             if not manager:
                 raise Problem('setup', 'Product Manager is not configured', 409)
-            row = H.task_create(c, H.KEEPER, body.title, body.summary, 'bot:' + manager[0],
-                                type='product-roadmap', step='Suggested', labels=[label], visibility='private',
-                                lint=False, allow_planned=True, next_run=True, deduplicate=False)
+            from .roadmap_flow import managed_type
+            product_type = managed_type(c, 'product-manager')
+            if not product_type:
+                raise Problem('setup', 'Product roadmap type is not configured', 409)
+            try:
+                row = H.task_create(c, H.KEEPER, body.title, body.summary, 'bot:' + manager[0],
+                                    type=product_type, step='Suggested', labels=[label], visibility='private',
+                                    lint=False, allow_planned=True, next_run=True, deduplicate=False)
+            except H.Refused:
+                raise Problem('setup', 'Suggestion cannot be recorded; ask the team to review its setup', 409) from None
             token = R.add_requester(c, row['id'], {**body.model_dump(), 'source': 'public_form', 'important': False})
             return {'id': row['id'], 'requester_token': token['requester_token']}
 
     @app.post('/public/roadmaps/{label}/tasks/{tid}/requesters')
     def add(request: Request, label: str, tid: str, body: PublicRequester):
-        with store.transaction() as c:
+        with public_write(store) as c:
             row = task(c, label, tid)
             charge(c, request)
             result = R.add_requester(c, row['id'], {**body.model_dump(), 'source': 'public_form', 'important': False})
@@ -210,7 +230,7 @@ def install(app, store, auth, mutate):
     def remove(request: Request, label: str, tid: str, token: str):
         if len(token) > 100:
             raise Problem('not_found', 'Requester not found', 404)
-        with store.transaction() as c:
+        with public_write(store) as c:
             row = task(c, label, tid, public=False)
             charge(c, request)
             return R.remove_requester(c, row['id'], token=token)
@@ -223,7 +243,7 @@ def install(app, store, auth, mutate):
     @app.post('/public/roadmaps/{label}/tasks/{tid}/comments')
     def comment(request: Request, label: str, tid: str, body: PublicCommentInput):
         R.spam_check(body.text)
-        with store.transaction() as c:
+        with public_write(store) as c:
             row = task(c, label, tid)
             charge(c, request)
             conv = H.conversation(c, row['conversation_id'])

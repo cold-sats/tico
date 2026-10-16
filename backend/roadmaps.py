@@ -21,13 +21,17 @@ def migrate(c):
     H.add_column(c, 'tasks', 'public_title', "TEXT NOT NULL DEFAULT ''")
     H.add_column(c, 'tasks', 'public_summary', "TEXT NOT NULL DEFAULT ''")
     H.add_column(c, 'tasks', 'size', 'REAL')
+    steps_fresh = 'public_name' not in {r[1] for r in c.execute('PRAGMA table_info(task_steps)')}
+    H.add_column(c, 'task_steps', 'public_name', "TEXT NOT NULL DEFAULT ''")
+    if steps_fresh:
+        c.execute('UPDATE task_steps SET public_name=name')
     H.add_column(c, 'task_types', 'default_visibility', "TEXT NOT NULL DEFAULT 'private'")
     H.add_column(c, 'messages', 'public', 'INTEGER NOT NULL DEFAULT 0')
     H.add_column(c, 'messages', 'hidden_at', 'TEXT')
     if fresh:
         c.execute("UPDATE tasks SET public_title=substr(coalesce(title,''),1,300), "
                   "public_summary=substr(coalesce(body,''),1,8000)")
-        c.execute("UPDATE task_types SET default_visibility='public' WHERE id='product-roadmap'")
+        c.execute("UPDATE task_types SET default_visibility='public' WHERE manager='product-manager'")
     c.execute('CREATE TABLE IF NOT EXISTS task_requesters('
               'id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),actor TEXT,'
               "name TEXT NOT NULL DEFAULT '',email TEXT NOT NULL DEFAULT '',phone TEXT NOT NULL DEFAULT '',"
@@ -146,7 +150,7 @@ def stats(c, ids):
                      'sum(actor IS NOT NULL) internal_requesters,sum(important) important_requesters,'
                      "min(nullif(organization,'')) organization FROM task_requesters "
                      'WHERE task_id IN (SELECT value FROM json_each(?)) GROUP BY task_id', (json.dumps(ids),))
-    return {r['task_id']: dict(r) for r in rows}
+    return {r['task_id']: {k: r[k] for k in r.keys() if k != 'task_id'} for r in rows}
 
 
 EMPTY_STATS = {'requester_count': 0, 'external_requesters': 0, 'internal_requesters': 0,
@@ -201,7 +205,9 @@ def install_internal(app, store, auth, mutate, mover):
             items, after = page(rows, limit, offset)
             for item in items:
                 item['kind'] = 'teammate' if item['actor'] else 'external'
-            return {'requesters': items, 'next_offset': after,
+            own = c.execute('SELECT id FROM task_requesters WHERE task_id=? AND actor=?',
+                            (row['id'], request.state.identity.actor)).fetchone()
+            return {'requesters': items, 'next_offset': after, 'my_requester_id': own[0] if own else None,
                     **EMPTY_STATS, **stats(c, [row['id']]).get(row['id'], {})}
 
     @app.post('/api/v2/tasks/{tid}/requesters')
@@ -212,7 +218,7 @@ def install_internal(app, store, auth, mutate, mover):
             actor = None
             if body.actor:
                 actor = H.resolve_actor(c, body.actor)
-                if not actor or not H._actor_exists(c, actor):
+                if not actor or not (H.is_human(actor) or H.is_bot(actor)) or not H._actor_exists(c, actor):
                     raise Problem('identity', 'Teammate not found', 422)
             if actor != who.actor:
                 task(c, who, tid, True)
@@ -222,8 +228,13 @@ def install_internal(app, store, auth, mutate, mover):
     @app.post('/api/v2/tasks/{tid}/requesters/{rid}/delete')
     def delete_requester(request: Request, tid: str, rid: str, body: Contract):
         def work(c):
-            row = task(c, request.state.identity, tid, True)
-            return remove_requester(c, row['id'], ident=rid, actor=request.state.identity.actor)
+            who = request.state.identity
+            row = task(c, who, tid)
+            own = c.execute('SELECT 1 FROM task_requesters WHERE task_id=? AND id=? AND actor=?',
+                            (row['id'], rid, who.actor)).fetchone()
+            if not own:
+                task(c, who, tid, True)
+            return remove_requester(c, row['id'], ident=rid, actor=who.actor)
         return mutate(request, body, work)
 
     @app.post('/api/v2/tasks/{tid}/requesters/{rid}')
@@ -282,7 +293,7 @@ def install_internal(app, store, auth, mutate, mover):
             visible = auth.task_sql(c, who)
             limit, offset = max(1, min(limit, 100)), max(0, offset)
             rows = c.execute(
-                'SELECT t.id,t.title,t.visibility,t.public_title,t.public_summary,t.size,t.version,t.status,'
+                'SELECT t.id,t.title,t.visibility,t.size,t.version,t.status,'
                 's.name step,coalesce(r.requester_count,0) requester_count,'
                 'coalesce(r.external_requesters,0) external_requesters,coalesce(r.internal_requesters,0) internal_requesters,'
                 'coalesce(r.important_requesters,0) important_requesters,r.organization '
@@ -290,7 +301,7 @@ def install_internal(app, store, auth, mutate, mover):
                 '(SELECT task_id,count(*) requester_count,sum(actor IS NULL) external_requesters,'
                 'sum(actor IS NOT NULL) internal_requesters,sum(important) important_requesters,'
                 "min(nullif(organization,'')) organization FROM task_requesters GROUP BY task_id) r ON r.task_id=t.id "
-                "WHERE t.type_id='product-roadmap' AND EXISTS (SELECT 1 FROM tasks WHERE tasks.id=t.id AND (" + visible + ')) '
+                "WHERE t.type_id IN (SELECT id FROM task_types WHERE manager='product-manager') AND EXISTS (SELECT 1 FROM tasks WHERE tasks.id=t.id AND (" + visible + ')) '
                 'ORDER BY ' + sorts[sort] + ' ' + direction + ',t.id LIMIT ? OFFSET ?', (limit + 1, offset))
             items, after = page((dict(r) for r in rows), limit, offset)
             return {'tasks': items, 'next_offset': after}

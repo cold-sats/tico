@@ -32,13 +32,13 @@ prerequisites:
     required: true
   - tool: github
     why: "Optional. Read-only issues, pull requests and milestones show what engineering is building against each spec."
-    required: true
+    required: false
   - tool: docs
     why: "Optional. Existing specs and the roadmap, if they live in the team docs."
-    required: true
+    required: false
   - tool: meetings
     why: "Optional. Imported planning and review meetings show what was agreed about scope."
-    required: true
+    required: false
 onboarding:
   - ask: "Which problem or feature should I spec first, and who decided it is next?"
     why: "The first spec is real work on a real decision, not a template."

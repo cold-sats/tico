@@ -780,7 +780,7 @@ def _roles(api, args):
 
 # Task types sit above the stable status contract; old bots can keep setting status.
 TASK_STEPS = {"type": "array", "items": {"type": "object", "properties": {
-    "id": _s("Keep this id when editing an existing step"), "name": _s("Step name"),
+    "id": _s("Keep this id when editing an existing step"), "name": _s("Step name"), "public_name": _s("Public step name"),
     "position": {"type": "integer"}, "status": {"type": "string", "enum": list(TASK_STATUSES)}},
     "required": ["name", "status"], "additionalProperties": False}}
 NUMBERED = {"type": "boolean", "description": "Give each task created on or moved onto the type the team's next number"}

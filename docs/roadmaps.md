@@ -49,7 +49,7 @@ request while its task is private. Contact details are unverified and only for m
 
 Lists accept `limit` (up to 100) and `offset`; follow `next_offset` until null. Pages are capped at
 256 KB. A task contains only `id`, `title` (public title), `summary` (public summary), public step
-name, requester count and `parts: {done, total}`. Public comments contain only id, text, creation
+name (`public_name` on its step, initially copied from the internal name), requester count and `parts: {done, total}`. Public comments contain only id, text, creation
 time and `author: Team|Visitor`. Nothing returns requester names, contacts, internal discussions,
 attachments, assignees, bot work, labels or child identities. Render public text as text or sanitized
 Markdown. Comments allow at most two links and no embedded link/script/iframe HTML.
@@ -71,8 +71,8 @@ requests, organization (alphabetically first nonempty organization), or numeric 
 Use `/api/v2/roadmaps/settings`, `/api/v2/roadmap-tasks`, and `/api/v2/tasks/{id}/requesters`
 (GET/POST), `/requesters/{requester_id}` (POST replace), and `/requesters/{requester_id}/delete`
 (POST). Internal writes require the usual Idempotency-Key. Requester lists are paged and do not
-return tokens. Task updates accept `visibility`, `public_title`, `public_summary`, `size`, and
-`approval_id`; type updates accept `default_visibility`. Public title and summary begin as copies
+return tokens; an internal add shows its token once and an idempotent retry returns only its id. Task updates accept `visibility`, `public_title`, `public_summary`, `size`, and
+`approval_id` (`size: null` clears an estimate); type updates accept `default_visibility`. Public title and summary begin as copies
 of the internal title/body (summary capped at 8,000 characters) and then stay independent.
 
 A bot proposes exact public changes through `POST /api/v2/tasks/{id}/publication-preview` with
