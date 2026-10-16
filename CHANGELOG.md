@@ -122,6 +122,9 @@ All notable changes to Tico are recorded here. The format follows
   ranked roadmap view, and requesters (Requested by) on tasks.
 
 ### Changed
+- `release_checks.py --release` can run one slice of the gate (`--part product|browser|python`, `--shard K/N` for
+  balanced Python test groups), ready for Release validation to run in parallel jobs. Without them it runs the whole
+  gate as before.
 - Help is about a quarter of its old length on every screen: what Tico is, where to start (your first result, the tour,
   the Assistant) and how to get help, with links to the docs. The map, Who does what, the agent platforms and the
   glossary moved to [How Tico works](docs/how-it-works.md) and the [Glossary](docs/glossary.md).
