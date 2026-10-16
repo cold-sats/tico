@@ -24,6 +24,13 @@ def size(row):
     return int(screen.get("width") or WIDTH), int(screen.get("height") or HEIGHT)
 
 
+def first_offer(c, rid):
+    """A computer offering its screen for the first time starts at View, unless a person already chose its setting."""
+    chosen = c.execute("SELECT 1 FROM events WHERE action='runner.screen' AND target=? LIMIT 1", (rid,)).fetchone()
+    if not chosen and c.execute("UPDATE runners SET screen='view' WHERE id=? AND screen='off'", (rid,)).rowcount:
+        H.event(c, "system", "runner.screen", rid, {"mode": "view", "reason": "first offer"})
+
+
 def listing(row):
     """The fields a computer's row carries in the Operations and Computers listings."""
     return {"screen": row["screen"] if row["screen"] in MODES else "off", "screen_available": available(row)}

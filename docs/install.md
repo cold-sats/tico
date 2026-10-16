@@ -593,15 +593,18 @@ instance metadata hop limit at 1 for runner computers too.
 > **Beta**: a computer's screen (View and Control) works today and may still change. See [Beta features](support.md#beta-features).
 
 A Linux runner can offer its screen to the web app, so people can watch bots work in a headed browser and, if
-allowed, take control. It is off until you turn it on on the computer itself:
+allowed, take control. The computer itself decides whether it offers one:
 
-- Docker: `install.sh --runner --screen` (or `tico setup runner --screen`, or `TICO_SCREEN=1` in the cloud-init
-  inputs) puts `TICO_SCREEN=1` in the runner's `.env`; add that line by hand and run `docker compose up -d` to turn it
-  on later, or set it to `0` to turn it off.
+- Docker: a new runner offers it. `install.sh --runner` (and `tico setup runner`, and the cloud-init template) writes
+  `TICO_SCREEN=1` in the runner's `.env`; `--no-screen` (or `TICO_SCREEN=0` in the cloud-init inputs) writes `0`
+  instead. To change it later, edit that line and run `docker compose up -d`. A runner installed before this default
+  has no such line and keeps its screen off until you add `TICO_SCREEN=1` (or run `install.sh --runner --screen`).
 - A Linux checkout: `sudo apt-get install xvfb x11vnc matchbox-window-manager`, then `scripts/tico screen on`
   (`screen off` and `screen status` too; a running runner follows within seconds).
 
-Then choose **Screen** (Off, View or Control) for that computer in **Settings > Computers**. The runner runs a virtual
+The first time a computer offers its screen, its **Screen** setting in **Settings > Computers** starts at **View**, so its
+operator and admins can watch it; choose **Control** there to drive it, or **Off**. A setting someone already chose for
+that computer stays as it is. The runner runs a virtual
 display (`:99`, 1440x900) and gives bots `DISPLAY=:99`; its VNC servers listen on no network port (only on
 sockets in a directory bots cannot open), and the server relays each session. Anyone allowed to open the screen sees everything on that display, including what a bot types into a page,
 and with Control can use it. All bots on one computer share one display. A Mac reports "Linux only for now".

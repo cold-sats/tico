@@ -8,7 +8,7 @@ import time
 
 from clients import sessions
 
-from . import check_models, inbox_isolation, providers, routines, runner_versions, usage_limits
+from . import check_models, inbox_isolation, providers, routines, runner_versions, screen, usage_limits
 from . import task_privacy as privacy
 from .auth import Identity
 from .batch_work import isolated
@@ -720,6 +720,7 @@ class Execution:
         now = H.now()
         awake_since = self.waking(row, now)
         self.served_at = now
+        offered_before = screen.available(row)
         del row
         from .subscriptions import record
         record(c, who.runner_id, body.profiles, body.readiness)
@@ -776,6 +777,8 @@ class Execution:
                   "capacity=?,readiness_json=?,capabilities_json=? WHERE id=?",
                   (H.now(), awake_since, body.version, body.platform, body.capacity,
                    encode(readiness), encode(sorted(set(body.capabilities))), who.runner_id))
+        if not offered_before and screen.CAPABILITY in body.capabilities:
+            screen.first_offer(c, who.runner_id)
         from . import bot_tools
         bot_tools.reconcile(c, {bot: row.get('tools') for bot, row in readiness.get('bots', {}).items()})
         if self.readiness_reported:
