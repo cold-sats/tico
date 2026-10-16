@@ -28,9 +28,9 @@ function providersFormHTML(view, models, id, editable = true) {
     ${id === 'set-prov' ? `<label class="prov"><input type="checkbox" data-provider-fallback ${view.auto_fallback !== false ? 'checked' : ''}${dis}>
       <strong>Fall back when a plan runs out</strong><span class="muted">A bot with no fallback of its own runs on another provider signed in on its computer</span></label>
     <label class="onb-field"><span class="k">Check model</span><input type="text" data-provider-check
-      value="${esc((view.check_models || []).map(row => `${row.runtime}:${row.model}`).join(', '))}"
+      value="${esc((view.check_models || []).join(', '))}"
       placeholder="${esc((view.check_order || []).map(row => row.runtime).join(', ') || 'grok, codex')}"${dis}>
-      <span class="muted">Review and check subtasks run on the first of these from a provider other than the author's. Empty follows the providers above.</span></label>` : ''}</div>`;
+      <span class="muted">Review and check subtasks run on the first of these from a provider other than the author's, then on the other providers above.</span></label>` : ''}</div>`;
 }
 function providersFillModels(root, view, models, keep) {
   const enabled = [...root.querySelectorAll('[data-provider]:checked')].map(input => input.value);
@@ -52,7 +52,8 @@ const providersCollect = root => {
   const fallback = root.querySelector('[data-provider-fallback]'), check = root.querySelector('[data-provider-check]');
   return {enabled: [...root.querySelectorAll('[data-provider]:checked')].map(input => input.value),
     model: root.querySelector('[data-provider-model]').value, ...(fallback ? {auto_fallback: fallback.checked} : {}),
-    ...(check ? {check_models: check.value.split(',').map(item => item.trim()).filter(Boolean)} : {})};
+    // Sent only when edited, so a save about something else never re-checks a saved entry.
+    ...(check && check.value !== check.defaultValue ? {check_models: check.value.split(',').map(item => item.trim()).filter(Boolean)} : {})};
 };
 async function providersSave(view, chosen) {
   return put('/v2/providers', {enabled: chosen.enabled, model: chosen.model, expected_revision: view.revision || 0,

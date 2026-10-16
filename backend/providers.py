@@ -329,8 +329,7 @@ def _record(value):
             "updated_by": str(stored.get("updated_by") or ""), "source": str(stored.get("source") or ""),
             # On unless the owner turned it off: a bot out of quota runs on another provider (default_fallbacks).
             "auto_fallback": stored.get("auto_fallback") is not False,
-            "check_models": [row for row in stored.get("check_models") or []
-                             if isinstance(row, dict) and row.get("model") in MODEL_BY_ID]}
+            "check_models": [str(entry) for entry in stored.get("check_models") or [] if isinstance(entry, str)]}
 
 
 def env_seed(settings):
@@ -388,7 +387,7 @@ def save(c, actor, body, now):
              "auto_fallback": before["auto_fallback"] if auto is None else bool(auto),
              "check_models": (before["check_models"] if checks is None
                               else normalize_check_models(checks, {"enabled": enabled, "runtime": runtime,
-                                                                   "model": model}))}
+                                                                   "model": model}, before["check_models"]))}
     c.execute("INSERT INTO registry_metadata VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
               (KEY, json.dumps(after, sort_keys=True)))
     return before, after
@@ -428,13 +427,16 @@ def default_fallbacks(record):
 
 # ----------------------------------------------------------------------------- check model
 def _check_row(choice, record):
-    """One check-model choice, `runtime`, `runtime:model` or a model id, as {runtime, model, provider}. A runtime
-    alone runs the company default when that is on the same runtime, as default_fallbacks does."""
+    """One check-model entry, `runtime`, `runtime:model` or a model id, as {runtime, model, provider}. A runtime
+    alone runs the company default when that is on the same runtime, else its provider's recommended model, so it
+    follows the catalog rather than pinning the model current when it was saved."""
     text = str(choice or "").strip()
     runtime, model = text.split(":", 1) if ":" in text else ("", text) if text in MODEL_BY_ID else (text, "")
+    runtime, model = runtime.strip(), model.strip()
+    if not runtime and not model or ":" in text and not (runtime and model):
+        raise ProviderError("check_model", f"Check model {text!r}: name a runtime such as grok, or runtime:model", 422)
     if runtime and not model and record["runtime"] == runtime and record["model"]:
         model = record["model"]
-    runtime, model = runtime.strip(), model.strip()
     named = MODEL_BY_ID.get(model) or {}
     if (runtime in PROVIDER_BY_RUNTIME or named.get("provider")) and not runtime_enabled(
             runtime or named["runtime"], record["enabled"], named or None):
@@ -449,28 +451,43 @@ def _check_row(choice, record):
     return {"runtime": runtime, "model": model, "provider": MODEL_BY_ID[model]["provider"]}
 
 
-def normalize_check_models(value, record):
-    """The owner's check-model order, from a list or a comma-separated string, each entry checked against the
-    enabled providers. Empty means the enabled providers' own order (check_order)."""
+def normalize_check_models(value, record, saved=()):
+    """The owner's check-model order as typed, from a list or a comma-separated string. A new entry must be one the
+    enabled providers can run; one already saved is kept as it is, so turning a provider off or a model retiring
+    never makes an unrelated save fail (check_order skips it until it works again)."""
     items = value.split(",") if isinstance(value, str) else list(value or ())
-    rows = []
+    entries = []
     for item in items:
-        if not str(item or "").strip():
+        text = str(item or "").strip()
+        if not text or text in entries:
             continue
-        row = _check_row(item, record)
-        if row not in rows:
-            rows.append(row)
-    return rows
+        if text not in saved:
+            _check_row(text, record)
+        entries.append(text)
+    return entries
 
 
 def check_order(record):
-    """The models a review or check subtask may run on, best first: the owner's check-model order, else one model
-    per enabled provider in the owner's order. A provider turned off or a model retired since it was chosen drops out."""
-    def usable(rows):
-        return [{"runtime": row["runtime"], "model": row["model"], "provider": MODEL_BY_ID[row["model"]]["provider"]}
-                for row in rows if not MODEL_BY_ID[row["model"]].get("deprecated")
-                and any(serves(name, MODEL_BY_ID[row["model"]]) for name in record["enabled"])]
-    return usable(record["check_models"]) or usable(default_fallbacks({**record, "auto_fallback": True}))
+    """The models a review or check subtask may run on, best first: the owner's check-model order, then one model
+    per other enabled provider in the owner's order (the company default for its own provider). An entry whose
+    provider is off or whose model is retired is skipped."""
+    rows = []
+    for entry in record["check_models"]:
+        try:
+            rows.append(_check_row(entry, record))
+        except ProviderError:
+            continue
+    for name in record["enabled"]:
+        default = MODEL_BY_ID.get(record["model"])
+        row = default if default and default["provider"] == name else recommended(name)
+        if row and row.get("provider"):
+            rows.append({"runtime": row["runtime"], "model": row["id"], "provider": row["provider"]})
+    order, seen = [], set()
+    for row in rows:
+        if row["model"] not in seen and not MODEL_BY_ID[row["model"]].get("deprecated"):
+            seen.add(row["model"])
+            order.append(row)
+    return order
 
 
 def author_provider(author):

@@ -266,9 +266,10 @@ since when, and how many are limited.
 
 The company's **check model** (*Check model* in **Settings → AI providers**, `check_models` on
 `/api/v2/providers`) is what review and check subtasks run on when they name no model: an ordered list such as
-`grok, codex`, each entry a runtime or `runtime:model`. Empty follows the enabled providers' order. The pick is
-the first entry from a provider other than the one the work was written on; with none, it is refused rather than
-run on the author's own provider. `check_order` in the same view is the order in effect.
+`grok, codex`, each entry a runtime or `runtime:model`. The other enabled providers follow it, in their order. The
+pick is the first from a provider other than the one the work was written on; with none, it is refused rather than
+run on the author's own provider. An entry whose provider is off or whose model is retired is skipped, and a
+runtime alone follows its provider's current model. `check_order` in the same view is the order in effect.
 
 **A bot's session is its own** ([Sessions](sessions.md)). By default every task is its own provider thread, and the bot's
 chat and other turns share one more. BotOps (and any bot set to `session: task`) also gives each
