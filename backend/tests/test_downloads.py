@@ -245,3 +245,82 @@ def test_github_fetch_is_single_flight_and_does_not_hold_lock(warm, monkeypatch)
             finish.set()
         assert first.result(timeout=10) == MANIFEST
     assert downloads.manifest() == MANIFEST and len(calls) == 1
+
+
+def desktop_follows(url):
+    """The signed-storage redirect the desktop updater follows (app/src/hub.rs has_s3_signature)."""
+    import re
+    from urllib.parse import parse_qsl, urlsplit
+    query = dict(parse_qsl(urlsplit(url).query))
+    return (urlsplit(url).scheme == "https" and query.get("X-Amz-Algorithm") == "AWS4-HMAC-SHA256"
+            and bool(query.get("X-Amz-Credential")) and bool(re.fullmatch(r"[0-9a-fA-F]{64}", query.get("X-Amz-Signature", "")))
+            and bool(re.fullmatch(r"[0-9]{8}T[0-9]{6}Z", query.get("X-Amz-Date", "")))
+            and int(query.get("X-Amz-Expires", "0")) > 0 and "host" in query.get("X-Amz-SignedHeaders", "").split(";"))
+
+
+@pytest.fixture
+def stubbed_s3(monkeypatch):
+    """Real botocore clients, signing offline; each answers HeadObject, plus whatever a test queues."""
+    import os
+    import boto3
+    from botocore.stub import Stubber
+    for name in list(os.environ):
+        if name.startswith(("AWS_", "LITESTREAM_", "TICO_BLOB_", "TICO_BACKUP_")):
+            monkeypatch.delenv(name)
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIDEXAMPLE")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing-secret")
+    real, made = boto3.client, []
+    def make(service, **options):
+        s3 = real(service, **options)
+        stub = Stubber(s3)
+        stub.add_response("head_object", {})
+        stub.activate()
+        made.append((s3, stub))
+        return s3
+    monkeypatch.setattr(boto3, "client", make)
+    return made
+
+
+def credential_region(url):
+    from urllib.parse import parse_qsl, urlsplit
+    return dict(parse_qsl(urlsplit(url).query))["X-Amz-Credential"].split("/")[2]
+
+
+def test_company_artifact_redirect_is_sigv4_for_the_configured_region(stubbed_s3, tmp_path):
+    from backend.config import Settings
+    downloads = Downloads(Settings(db_path=tmp_path / "hub.db", blob_bucket="acme-files", blob_region="us-west-2"))
+    url = downloads.file_url("0.3.49", "Acme Tico.app.tar.gz")
+    assert desktop_follows(url), url
+    assert credential_region(url) == "us-west-2"
+    assert len(stubbed_s3) == 1, "a configured region needs no lookup and no second client"
+
+
+@pytest.mark.parametrize("answer", ["refused", "allowed"])
+def test_company_artifact_redirect_signs_for_the_buckets_region_when_none_is_configured(answer, stubbed_s3, tmp_path):
+    from backend.config import Settings
+    downloads = Downloads(Settings(db_path=tmp_path / "hub.db", blob_bucket="acme-files"))
+    reader = downloads._s3_source.client_for(downloads._s3_source.kind, reads=True)
+    stub = stubbed_s3[0][1]
+    # S3 names a bucket's region on HeadBucket even when it refuses the caller ListBucket.
+    if answer == "refused":
+        stub.add_client_error("head_bucket", "403", http_status_code=403,
+                              response_meta={"HTTPHeaders": {"x-amz-bucket-region": "us-west-2"}})
+    else:
+        stub.add_response("head_bucket", {"BucketRegion": "us-west-2"})
+    stub.add_response("head_object", {})
+    first = downloads.file_url("0.3.49", "Acme Tico.app.tar.gz")
+    assert reader.meta.region_name == "us-east-1"
+    assert desktop_follows(first) and credential_region(first) == "us-west-2", first
+    second = downloads.file_url("0.3.49", "Acme Tico.app.tar.gz")
+    assert desktop_follows(second) and credential_region(second) == "us-west-2", second
+    stub.assert_no_pending_responses()
+    assert len(stubbed_s3) == 2, "the region is looked up once and its signer is reused"
+
+
+def test_unknown_bucket_region_still_signs_sigv4(stubbed_s3, tmp_path):
+    from backend.config import Settings
+    downloads = Downloads(Settings(db_path=tmp_path / "hub.db", blob_bucket="acme-files"))
+    downloads._s3_source.client_for(downloads._s3_source.kind, reads=True)
+    stubbed_s3[0][1].add_client_error("head_bucket", "500", http_status_code=500)
+    url = downloads.file_url("0.3.49", "Acme Tico.app.tar.gz")
+    assert desktop_follows(url) and credential_region(url) == "us-east-1"

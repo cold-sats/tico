@@ -14,14 +14,15 @@ class Sources:
         self.selected = None
         self._clients = {}
         self._building = {}
+        self._regions = {}
         self._lock = threading.Lock()
 
     @property
     def kind(self):
         return self.selected or kinds(self.settings)[0]
 
-    def client_for(self, kind, reads=False):
-        cache_key = kind, reads
+    def client_for(self, kind, reads=False, region_name=None):
+        cache_key = (kind, reads) if region_name is None else (kind, reads, region_name)
         with self._lock:
             if cache_key in self._clients:
                 return self._clients[cache_key]
@@ -34,9 +35,9 @@ class Sources:
                         if reads:
                             from botocore.config import Config
                             config = Config(connect_timeout=2, read_timeout=5, retries={"total_max_attempts": 1})
-                            s3 = client(self.settings, kind=kind, config=config)
+                            s3 = client(self.settings, kind=kind, config=config, region_name=region_name)
                         else:
-                            s3 = client(self.settings, kind=kind)
+                            s3 = client(self.settings, kind=kind, region_name=region_name)
                         with self._lock:
                             self._clients[cache_key] = s3
                     except Exception as exc:
@@ -62,6 +63,23 @@ class Sources:
         return read(lambda kind: self.client_for(kind, reads=True), self.kind,
                     kinds(self.settings, reads=True), operation, **options)
 
+    def presign_get(self, s3, bucket, key, expires):
+        """A GET URL signed by `s3`'s identity for the bucket's own region. SigV4 signs one region,
+        and a client with none configured signs for us-east-1, which S3 refuses for other buckets."""
+        signer = s3
+        if not self.settings.blob_endpoint and not region(self.settings):
+            with self._lock:
+                kind = next((cache_key[0] for cache_key, made in self._clients.items() if made is s3), None)
+                known = self._regions.get(bucket)
+            if kind is not None and known is None:
+                known = bucket_region(s3, bucket)
+                if known:
+                    with self._lock:
+                        self._regions[bucket] = known
+            if kind is not None and known and known != s3.meta.region_name:
+                signer = self.client_for(kind, reads=True, region_name=known)
+        return signer.generate_presigned_url("get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=expires)
+
 
 def region(settings, env=None):
     env = os.environ if env is None else env
@@ -83,11 +101,27 @@ def kinds(settings, env=None, reads=False):
     return candidates + ["role"]
 
 
-def client(settings, config=None, kind=None):
+def bucket_region(s3, bucket):
+    """The bucket's region from HeadBucket, which S3 names even when it refuses the request."""
+    from botocore.exceptions import ClientError
+    try:
+        response = s3.head_bucket(Bucket=bucket)
+    except ClientError as exc:
+        response = exc.response
+    except Exception:
+        return None
+    return (response.get("ResponseMetadata", {}).get("HTTPHeaders", {}).get("x-amz-bucket-region")
+            or response.get("BucketRegion") or None)
+
+
+def client(settings, config=None, kind=None, region_name=None):
     import boto3
-    options = {"region_name": region(settings), "endpoint_url": settings.blob_endpoint or None}
-    if config is not None:
-        options["config"] = config
+    from botocore.config import Config
+    # botocore presigns S3 URLs with SigV2 unless SigV4 is chosen explicitly. The desktop app
+    # follows a download redirect only to a SigV4 URL (app/src/hub.rs has_s3_signature).
+    signing = Config(signature_version="s3v4")
+    options = {"region_name": region_name or region(settings), "endpoint_url": settings.blob_endpoint or None,
+               "config": signing if config is None else config.merge(signing)}
     kind = kind or kinds(settings)[0]
     if kind != "role":
         prefix = "TICO_BLOB" if kind == "keys" else "LITESTREAM"
