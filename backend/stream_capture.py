@@ -21,6 +21,8 @@ TOKEN_RE = re.compile(r"\b(?:sk-ant-[A-Za-z0-9_-]{10,}|sk-[A-Za-z0-9_-]{20,}|gh[
                       r"|github_pat_[A-Za-z0-9_]{20,}|xox[abeprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16})"
                       r"|(?i:bearer)\s+[A-Za-z0-9._~+/-]{16,}=*")
 MASK = "••••"
+# A fixture's expected events: enough for any replay; a run with more says so instead of growing the answer.
+MAX_EVENTS = 5000
 
 
 def wanted(config):
@@ -33,6 +35,24 @@ def sweep(c):
 
 def mask(text):
     return TOKEN_RE.sub(MASK, text)
+
+
+def scrub_value(c, value, label, attempt_id="", conversation_id=""):
+    """A secret taken out after the run (backend/credential_cards.py) leaves the raw streams that carried it too:
+    the run named, and every run in the conversation named."""
+    forms = {value, json.dumps(value)[1:-1]}
+    ids = {attempt_id} if attempt_id else set()
+    if conversation_id:
+        ids.update(r[0] for r in c.execute("SELECT attempt_id FROM attempt_conversations WHERE conversation_id=?",
+                                           (conversation_id,)))
+    for aid in ids:
+        row = c.execute("SELECT frames FROM attempt_captures WHERE attempt_id=?", (aid,)).fetchone()
+        if row and any(f in row["frames"] for f in forms):
+            frames = row["frames"]
+            for form in sorted(forms, key=len, reverse=True):
+                frames = frames.replace(form, label)
+            c.execute("UPDATE attempt_captures SET frames=?,bytes=? WHERE attempt_id=?",
+                      (frames, len(frames.encode()), aid))
 
 
 def keep(c, row, body):
@@ -72,11 +92,14 @@ def export(c, who, aid):
         raise Problem("not_found", "No stream was captured for this run, or it is over a week old", 404)
     attempt = c.execute("SELECT * FROM attempts WHERE id=?", (aid,)).fetchone()
     msg = H.message(c, c.execute("SELECT message_id FROM jobs WHERE id=?", (attempt["job_id"],)).fetchone()[0])
+    # A deleted message's text is not served again; the stream may still hold it until the week is out.
+    message = ({"kind": msg["kind"], "from": msg["from_actor"], "body": mask(msg["body"] or "")} if msg
+               else {"deleted": True})
     config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (attempt["bot"],)).fetchone()
     declared = json.loads(config[0] or "{}") if config else {}
     events = [{"seq": e["seq"], "kind": e["kind"], "payload": json.loads(e["payload_json"])}
-              for e in c.execute("SELECT seq,kind,payload_json FROM attempt_events WHERE attempt_id=? ORDER BY seq",
-                                 (aid,))]
+              for e in c.execute("SELECT seq,kind,payload_json FROM attempt_events WHERE attempt_id=? ORDER BY seq "
+                                 "LIMIT ?", (aid, MAX_EVENTS + 1))]
     result = json.loads(attempt["result_json"]) if attempt["result_json"] else {}
     return {
         "attempt": {"id": aid, "bot": attempt["bot"], "state": attempt["state"], "created": attempt["created"],
@@ -85,11 +108,12 @@ def export(c, who, aid):
         "truncated": bool(cap["truncated"]),
         "dropped_bytes": cap["dropped_bytes"],
         "captured": cap["created"],
-        "input": {"message": {"kind": msg["kind"], "from": msg["from_actor"], "body": mask(msg["body"] or "")},
+        "input": {"message": message,
                   "config": {k: declared.get(k) for k in ("runtime", "harness", "model", "reasoning_effort")
                              if declared.get(k) is not None}},
         "transcript": cap["frames"],
-        "output": {"events": json.loads(mask(json.dumps(events))),
+        "output": {"events": json.loads(mask(json.dumps(events[:MAX_EVENTS]))),
+                   "events_truncated": len(events) > MAX_EVENTS,
                    "result": json.loads(mask(json.dumps(result))),
                    "final_text": mask(attempt["final_text"] or "")},
     }

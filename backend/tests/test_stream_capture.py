@@ -11,7 +11,8 @@ def test_a_captured_stream_is_kept_masked_and_read_only_by_owners_and_engineerin
     r, _, a = setup_attempt(api)
     post(api, f"attempts/{a['id']}/started", {"thread_id": "thread"}, r["token"])
     stream = {"provider": "claude", "frames": '{"dir":"start","provider":"claude","ms":0}\n'
-              '{"dir":"in","ms":5,"frame":{"type":"assistant","text":"key sk-ant-api03-abcdefghijklmnop"}}'}
+              '{"dir":"in","ms":5,"frame":{"type":"assistant","text":"key sk-ant-api03-abcdefghijklmnop"}}\n'
+              '{"dir":"out","ms":9,"frame":{"type":"user","text":"my pin is odd-shaped-pin-77"}}'}
     # Off by default: a runner cannot hand one in for a bot that does not capture.
     post(api, f"attempts/{a['id']}/capture", stream, r["token"], expected=409)
     # Only an owner turns it on.
@@ -27,9 +28,16 @@ def test_a_captured_stream_is_kept_masked_and_read_only_by_owners_and_engineerin
     assert get(api, f"attempts/{a['id']}/capture", a["token"])["attempt"]["id"] == a["id"]
     post(api, f"attempts/{a['id']}/complete", {"outcome": "completed", "text": "done", "last_seq": 0}, r["token"])
 
+    # A secret taken out after the run leaves its raw stream too.
+    from backend.auth import Identity
+    from backend.credential_cards import redact_value
+    with api.app.state.store.transaction() as c:
+        redact_value(c, Identity("human:ana", "owner", "ana@acme.example"), "odd-shaped-pin-77", "PIN",
+                     attempt_id=a["id"])
     found = get(api, f"attempts/{a['id']}/capture")
     assert found["provider"] == "claude" and found["input"]["message"]["body"] == "Please summarize the current work."
     assert "sk-ant-api03" not in found["transcript"] and "••••" in found["transcript"]
+    assert "odd-shaped-pin-77" not in found["transcript"] and "saved as PIN" in found["transcript"]
     assert found["output"]["final_text"] == "done"
     # A person who is not an owner is refused.
     get(api, f"attempts/{a['id']}/capture", "ben-test", expected=403)

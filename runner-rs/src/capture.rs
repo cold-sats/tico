@@ -38,7 +38,9 @@ impl Capture {
         std::fs::create_dir_all(&dir)?;
         sweep(&dir);
         let path = dir.join(format!("{aid}.ndjson"));
-        let file = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(true).open(&path)?;
+        use std::os::unix::fs::OpenOptionsExt;
+        // Customer text, even scrubbed: readable by the runner alone.
+        let file = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(true).mode(0o600).open(&path)?;
         Ok(Arc::new(Capture {
             path,
             file: Mutex::new(Some(file)),

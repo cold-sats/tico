@@ -220,6 +220,8 @@ def redact_value(c, person, value, env, conversation_id="", attempt_id="", messa
         if row and row["final_text"] and value in row["final_text"]:
             c.execute("UPDATE attempts SET final_text=? WHERE id=?", (row["final_text"].replace(value, label), attempt_id))
         remember(attempt_id, value)
+    from .stream_capture import scrub_value
+    scrub_value(c, value, label, attempt_id, conversation_id)
     # The answers kept for retries (the chat send that carried it, the claim that delivered it to the run).
     for form in forms:
         for row in c.execute("SELECT actor,operation,key,response_json FROM idempotency WHERE instr(response_json, ?) > 0", (form,)).fetchall():
@@ -391,6 +393,8 @@ def install_credential_cards(app, store, vault, auth, botops, delegate, manager)
             if not span or span not in (msg["body"] or ""):
                 return {"redacted": 0}
             c.execute("UPDATE messages SET body=? WHERE id=?", ((msg["body"] or "").replace(span, f"{MASK} {label}"), mid))
+            from .stream_capture import scrub_value
+            scrub_value(c, span, f"{MASK} {label}", conversation_id=msg["conversation_id"])
             H.event(c, person.actor, "message.redacted", mid, {"messages": 1, "label": label})
             return {"redacted": 1}
 
