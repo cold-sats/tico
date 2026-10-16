@@ -375,6 +375,9 @@ def create_app(settings=None):
             # them onto the static files ("/download/../index.html").
             if any(part in (".", "..") for part in request.url.path.split("/")):
                 raise Problem("not_found", "Not found", 404)
+            if request.url.path.startswith('/public/roadmaps/'):
+                from .public_roadmaps import guard as public_roadmap_guard
+                return await public_roadmap_guard(request, call_next, store)
             if request.url.path == "/healthz":
                 return await call_next(request)
             if request.url.path == "/_tico/screen/v1/authorize":
@@ -4872,6 +4875,8 @@ def create_app(settings=None):
     install_task_types(app, store, auth, mutate, mover)
     from .roadmaps import install_internal
     install_internal(app, store, auth, mutate, mover)
+    from .public_roadmaps import install as install_public_roadmaps
+    install_public_roadmaps(app, store, auth, mutate)
     from .service_keys import install_service_keys
     install_service_keys(app, store, auth, mutate)
     install_views(app, store, auth, mutate, task_view)

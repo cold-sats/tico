@@ -1129,6 +1129,8 @@ class Store:
                     from . import task_relations as _task_relations
                     _task_relations.migrate(c)
                     c.execute("INSERT INTO cloud_migrations VALUES(60,?)", (H.now(),))
+                from .public_roadmaps import migrate as migrate_public_roadmaps
+                migrate_public_roadmaps(c)
                 H.ensure_market_reads(c)
                 # Deleted tasks wait here until restored or purged; created unversioned, like the
                 # trigger below, so it never takes a migration number another change needs.

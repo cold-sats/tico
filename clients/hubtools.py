@@ -484,6 +484,7 @@ def tag_update(api, args):
       {"owner": _s("Who does it: a bot slug, a person id, or `me`"),
        "title": _s("Task title: General uses plain words without reference numbers or all-caps; custom types keep board references"),
        "body": _s("The details", default=""),
+       "visibility": _s("Roadmap visibility at creation", enum=["public", "private"]),
        "due": _s("ISO-8601 date-time with timezone"),
        "private": {"type": "boolean", "description": "Only requester and assignee may read; bot defaults also apply"},
        "parent": _s("Parent task id (or 8-character short id), when this is one part of a bigger task. Blocked on a "
@@ -515,7 +516,7 @@ def task_create(api, args):
             "due": args.get("due"), "goal_id": args.get("goal_id") or None}
     if args.get("parent"):
         body["relations"] = [{"task": args["parent"], "kind": "parent"}]
-    for field in ("labels", "top", "links", "next_run", "request_id", "type", "step", "number", "check_model", "check_role"):
+    for field in ("labels", "top", "links", "next_run", "request_id", "type", "step", "number", "check_model", "check_role", "visibility"):
         if args.get(field) not in (None, "", [], False):
             body[field] = args[field]
     if args.get("private") is not None:
@@ -3389,6 +3390,26 @@ def task_publication_preview(api, args):
 def task_comment_moderate(api, args):
     return api.post(f"tasks/{args['id']}/comments/{args['comment_id']}/moderate", {'action': args['action']}, key=_key(args))
 
+
+
+@tool("hub_roadmap_tasks", "Rank roadmap tasks by requester count, external requests, important requests, organization or size.",
+      {"sort": _s("Sort", enum=['requester_count', 'external_requesters', 'important', 'organization', 'size']),
+       "direction": _s("Direction", enum=['asc', 'desc']), "limit": {"type": "integer"}, "offset": {"type": "integer"}})
+def roadmap_tasks(api, args):
+    return api.get('roadmap-tasks', **{k: args[k] for k in ('sort', 'direction', 'limit', 'offset') if k in args})
+
+
+@tool("hub_roadmap_settings", "Read or replace company public roadmap settings. Only owners and admins change them. "
+      "Labels must already exist. Empty labels disables public roadmaps. Bot public edits need approval by default.",
+      {"settings": {"type": "object", "properties": {
+           "labels": {"type": "array", "items": {"type": "string"}},
+           "cors_origins": {"type": "array", "items": {"type": "string"}},
+           "action_limit": {"type": "integer", "minimum": 1}, "bot_public_approval": {"type": "boolean"}},
+           "additionalProperties": False}}, writes=True)
+def roadmap_settings(api, args):
+    if args.get('settings') is not None:
+        return _as_person(api).post('roadmaps/settings', args['settings'], key=_key(args))
+    return api.get('roadmaps/settings')
 
 BY_NAME = {t["name"]: t for t in TOOLS}
 

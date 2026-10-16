@@ -50,3 +50,71 @@ def test_bot_public_text_and_comment_need_exact_single_use_approval(api):
     assert result['comment']['public'] == 1
     post(api, 'tasks/' + task['id'] + '/comments', {'text': 'Now available', 'public': True,
                                                 'approval_id': approval['id']}, token=token, expected=422)
+
+
+def public_setup(api, limit=10):
+    post(api, 'tags', {'key': 'roadmap'})
+    post(api, 'tags', {'key': 'internal'})
+    post(api, 'roadmaps/settings', {'labels': ['roadmap'], 'cors_origins': ['https://acme.example'],
+                                  'action_limit': limit})
+    return post(api, 'tasks', {'owner': 'cpo', 'title': 'Internal title', 'body': 'Internal summary',
+                               'type': 'Product roadmap', 'labels': ['roadmap']})
+
+
+ORIGIN = {'Origin': 'https://acme.example'}
+
+
+def test_public_projection_moderation_and_no_label_enumeration(api):
+    task = public_setup(api)
+    task = post(api, 'tasks/' + task['id'], {'version': task['version'], 'public_title': 'Search',
+                                          'public_summary': 'Find things faster'})
+    post(api, 'tasks/' + task['id'] + '/comments', {'text': 'Internal discussion'})
+    public = post(api, 'tasks/' + task['id'] + '/comments', {'text': 'Team update', 'public': True})['comment']
+    post(api, 'tasks/' + task['id'] + '/requesters', {'email': 'private@acme.example', 'name': 'Private Name'})
+    child = post(api, 'tasks', {'owner': 'cpo', 'title': 'Secret child', 'body': 'Internal work',
+                              'visibility': 'public', 'labels': ['roadmap'],
+                              'relations': [{'task': task['id'], 'kind': 'parent'}]})
+    path = '/public/roadmaps/roadmap/tasks/' + task['id']
+    response = api.get(path, headers=ORIGIN)
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert set(result['task']) == {'id', 'title', 'summary', 'step', 'requester_count', 'parts'}
+    assert result['task']['title'] == 'Search' and result['task']['requester_count'] == 1
+    assert result['comments'][0]['author'] == 'Team'
+    assert all(secret not in response.text for secret in ('private@', 'Private Name', 'Internal', 'Secret child', child['id']))
+    assert len(api.get('/public/roadmaps/roadmap', headers=ORIGIN).json()['tasks']) == 1
+    assert api.get('/public/roadmaps/internal', headers=ORIGIN).status_code == 404
+    post(api, 'tasks/' + task['id'] + '/comments/' + public['id'] + '/moderate', {'action': 'hide'})
+    assert api.get(path, headers=ORIGIN).json()['comments'] == []
+    post(api, 'tasks/' + task['id'] + '/comments/' + public['id'] + '/moderate', {'action': 'show'})
+    assert len(api.get(path, headers=ORIGIN).json()['comments']) == 1
+    post(api, 'tasks/' + task['id'], {'version': task['version'], 'visibility': 'private'})
+    assert api.get(path, headers=ORIGIN).status_code == 404
+
+
+def test_cors_and_ip_limit_shared_across_actions_and_tokens_are_task_bound(api):
+    task = public_setup(api, limit=4)
+    base = '/public/roadmaps/roadmap/tasks/' + task['id']
+    assert api.get(base).status_code == 403
+    assert api.post(base + '/requesters', json={}, headers={'Origin': 'https://evil.example'}).status_code == 403
+    preflight = api.options(base + '/requesters', headers={**ORIGIN, 'Access-Control-Request-Method': 'POST',
+                                                         'Access-Control-Request-Headers': 'Content-Type'})
+    assert preflight.status_code == 204 and preflight.headers['access-control-allow-origin'] == ORIGIN['Origin']
+    assert 'access-control-allow-credentials' not in preflight.headers
+    token = api.post(base + '/requesters', json={'email': 'customer@acme.example'}, headers=ORIGIN).json()['requester_token']
+    other = post(api, 'tasks', {'owner': 'cpo', 'title': 'Other', 'body': 'Research it', 'type': 'Product roadmap', 'labels': ['roadmap']})
+    assert api.delete('/public/roadmaps/roadmap/tasks/' + other['id'] + '/requesters/' + token, headers=ORIGIN).status_code == 404
+    with api.app.state.store.read() as c:
+        assert c.execute('SELECT token_hash FROM task_requesters').fetchone()[0] != token
+    assert api.post(base + '/comments', json={'text': 'Please add this'}, headers=ORIGIN).status_code == 200
+    assert api.delete(base + '/requesters/' + token, headers=ORIGIN).status_code == 200
+    assert api.delete(base + '/requesters/' + token, headers=ORIGIN).status_code == 404
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET config_json=json_set(config_json,'$.template','product-manager') WHERE bot='cpo'")
+    suggested = api.post('/public/roadmaps/roadmap/suggest', json={'title': 'New idea', 'summary': 'Details'}, headers=ORIGIN)
+    assert suggested.status_code == 200, suggested.text
+    with api.app.state.store.read() as c:
+        row = H.task(c, suggested.json()['id'])
+        assert row['visibility'] == 'private'
+    assert api.post(base + '/requesters', json={}, headers=ORIGIN).status_code == 429
+    post(api, 'roadmaps/settings', {'labels': ['roadmap'], 'cors_origins': ['*']}, expected=422)
