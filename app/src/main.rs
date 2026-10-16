@@ -264,7 +264,8 @@ fn build_window(app: &App) -> tauri::Result<()> {
         // Anything that is not the hub opens in the default browser. Cloudflare's provider
         // choice is itself a clicked link: the whole authentication redirect chain stays in this
         // web view so the resulting CF_Authorization cookie belongs to the app, not the browser.
-        .on_navigation(move |url| stays_in_app(&opener, url));
+        .on_navigation(move |url| stays_in_app(&opener, url))
+        .on_new_window(new_window_handler(app));
     #[cfg(target_os = "macos")]
     {
         // The native title bar drags the window on every page, including sign-in pages that are
@@ -284,11 +285,72 @@ fn stays_in_app(opener: &App, url: &url::Url) -> bool {
     if target.is_empty() || target == host || url.scheme() == "tauri" {
         return true;
     }
-    if target.ends_with(".cloudflareaccess.com") || target == "accounts.google.com" {
+    if is_sign_in(target) {
         return true;
     }
     let _ = opener.opener().open_url(url.as_str(), None::<&str>);
     false
+}
+
+fn is_sign_in(host: &str) -> bool {
+    host.ends_with(".cloudflareaccess.com") || host == "accounts.google.com"
+}
+
+/// Where a request for a new window (a `target="_blank"` link, `window.open`) goes. The web view has
+/// no tabs, and without a handler it drops the request, so the click does nothing.
+#[derive(Debug, PartialEq)]
+enum NewWindow {
+    /// A sign-in pop-up: a native window sharing this web view's cookies, as for `stays_in_app`.
+    InApp,
+    /// A new tab in the default browser, as a browser would open it, including the hub's own pages.
+    Browser,
+    /// Nothing worth opening (`about:blank`, `javascript:`, `data:`).
+    Ignore,
+}
+
+fn new_window_target(url: &url::Url) -> NewWindow {
+    match url.scheme() {
+        "http" | "https" if is_sign_in(url.host_str().unwrap_or("")) => NewWindow::InApp,
+        "http" | "https" | "mailto" => NewWindow::Browser,
+        _ => NewWindow::Ignore,
+    }
+}
+
+fn new_window_handler(app: &App) -> impl Fn(url::Url, tauri::webview::NewWindowFeatures) -> tauri::webview::NewWindowResponse<tauri::Wry> + Send + 'static {
+    let opener = app.clone();
+    move |url, _| match new_window_target(&url) {
+        NewWindow::InApp => tauri::webview::NewWindowResponse::Allow,
+        NewWindow::Browser => {
+            let _ = opener.opener().open_url(url.as_str(), None::<&str>);
+            tauri::webview::NewWindowResponse::Deny
+        }
+        NewWindow::Ignore => tauri::webview::NewWindowResponse::Deny,
+    }
+}
+
+#[cfg(test)]
+mod new_window_tests {
+    use super::*;
+
+    #[test]
+    fn new_windows_open_in_the_browser_except_sign_in() {
+        for (address, expected) in [
+            ("https://github.com/ticoteam/tico/pull/1", NewWindow::Browser),
+            ("http://example.com/", NewWindow::Browser),
+            ("https://team.example.com/files/report.md", NewWindow::Browser),
+            ("mailto:support@example.com", NewWindow::Browser),
+            ("https://team.cloudflareaccess.com/cdn-cgi/access/login", NewWindow::InApp),
+            ("https://accounts.google.com/o/oauth2/auth", NewWindow::InApp),
+            ("https://evil.com/accounts.google.com", NewWindow::Browser),
+            ("https://cloudflareaccess.com.evil.com/", NewWindow::Browser),
+            ("about:blank", NewWindow::Ignore),
+            ("javascript:alert(1)", NewWindow::Ignore),
+            ("data:text/html,hi", NewWindow::Ignore),
+            ("file:///etc/passwd", NewWindow::Ignore),
+        ] {
+            assert_eq!(new_window_target(&url::Url::parse(address).unwrap()), expected, "{address}");
+        }
+    }
 }
 
 /// One ordinary, resizable window per meeting, showing only that meeting (`&window=1`); asking
@@ -315,6 +377,7 @@ fn open_meeting_window(app: &App, id: &str) {
         .resizable(true)
         .user_agent(USER_AGENT)
         .on_navigation(move |url| stays_in_app(&opener, url))
+        .on_new_window(new_window_handler(app))
         .build();
 }
 
