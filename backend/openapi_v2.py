@@ -360,7 +360,8 @@ STABLE = [
      "Every goal with its owner, its KPIs (each with its target and colour), the KPIs no goal uses and the pending proposals: "
      "what the Goals page draws", "GoalTree"),
     ("/api/v2/goals/needs-you", "get", "Goals", "getGoalsNeedsYou",
-     "Red KPIs on goals the caller owns, stale KPIs they own, and definitions or targets they are asked to confirm", "GoalsNeedsYou"),
+     "Red KPIs on goals the caller owns, stale KPIs they own, and definitions or targets they are asked to confirm; for a person "
+     "each is a Goal Manager task (`task`), the one Tasks and Decide show", "GoalsNeedsYou"),
     ("/api/v2/goals/refresh", "post", "Goals", "refreshGoalStatuses",
      "The Goal Manager's status pass (or the owner's): work automatic colours out again. A colour a person set only gets a suggestion",
      "GoalRefreshView"),
@@ -870,7 +871,9 @@ SCHEMAS = {
         "type": "object", "required": ["kind"], "additionalProperties": True,
         "properties": {"kind": {"enum": ["kpi_red", "kpi_stale", "proposal"]}, "goal_id": {"type": "string"},
                        "goal_title": {"type": ["string", "null"]}, "kpi_id": {"type": "string"}, "kpi_name": {"type": ["string", "null"]},
-                       "reason": {"type": "string"}, "freshness": {"type": "string"}, "proposal": {"type": "object"}}})},
+                       "reason": {"type": "string"}, "freshness": {"type": "string"}, "proposal": {"type": "object"},
+                       "task": {"type": "object", "required": ["id"], "properties": {
+                           "id": {"type": "string"}, "title": {"type": "string"}, "status": {"type": "string"}}}}})},
                         required=["actor", "items"]),
     "GoalRefreshView": obj({"changed": "a", "suggested": "a", "checked": "i"}),
     "GoalCheckins": obj({"goal_id": "s", "checkins": items(ref("GoalCheckinView"))}),

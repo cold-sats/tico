@@ -143,6 +143,25 @@ their own click) or rejects it; confirming makes the change as that human.
 
 Pending proposals appear under **Needs you** on the Goals page for the human who decides them.
 
+### What needs a person is a task
+
+Each thing under **Needs you** is a task the Goal Manager asks of the person who must act, so it also shows in
+Tasks and Decide (backend/goal_asks.py):
+
+| Kind | Asked of | Closes by itself when |
+|---|---|---|
+| `kpi_red`: a KPI off track on a goal | the goal's owner | the KPI is back on track, or no longer on that goal |
+| `kpi_stale`: a KPI's reading is out of date or missing | the KPI's owner | a fresh reading is logged |
+| `proposal`: a change to confirm or reject | the goal's owner (the KPI's for a definition) | it is decided |
+
+A company goal or KPI is asked of the owner of the environment; a proposal about a bot's goal or KPI goes to the
+nearest person above the bot on the org chart. A bot's own red or stale KPI files no task: it is the bot's work.
+There is one task per KPI or proposal, kind and person, never two. Tico brings them up to date after every goals
+write and once an hour, when time passing makes data stale. When what it was about becomes someone else's, the
+first task closes and the new owner gets one. A task the person closes or declines while its cause stands is
+not asked again until the cause clears and comes back. Nothing is filed while the Goal Manager is not set up;
+the Goals page still lists what waits.
+
 ## Automatic bot KPIs
 
 Every bot has five KPIs that Tico computes from its own data, so no steward is needed. They are virtual: nothing is stored,
@@ -185,7 +204,7 @@ and version, its owner, its targets and the Goal Manager's latest check-in, with
 (a KPI no goal uses yet) are at the bottom, owned by whoever was tapped, and the KPIs no goal uses are listed there too.
 Someone with no goal opens on a new one; the team line opens the team goal. **Needs you** is a short strip at the
 top, shown only when something waits: red KPIs on goals you own, stale data on KPIs you own, and definitions and targets
-waiting for your confirmation. Initial page load makes two requests, the tree and Needs you; the Goal Manager panel and
+waiting for your confirmation. Each line links to its task. Initial page load makes two requests, the tree and Needs you; the Goal Manager panel and
 the historical KPI view load only when opened.
 People who may edit an owner's KPIs can open **Archived KPIs** in that owner's panel. The historical list is separate
 from active KPIs; a KPI's detail panel offers **Restore KPI** to return it to active lists and freshness checks.

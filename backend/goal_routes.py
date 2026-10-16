@@ -12,6 +12,7 @@ person confirms.
 from fastapi import Request
 
 from . import botkpis
+from . import goal_asks as GA
 from . import goals as G
 from . import kpis as K
 from . import models as M
@@ -20,6 +21,22 @@ from .store import H, Problem
 
 
 def install(app, store, auth, mutate, settings):
+    write = mutate
+
+    def mutate(request, body, work):
+        """Every goals write, then the Goal Manager's asks brought up to date in the same transaction: a reading
+        logged or a proposal decided closes its task at once, not at the next hourly pass."""
+        def work_then_ask(c):
+            out = work(c)
+            try:
+                GA.sync(c, auth.owner_id(c))
+            except Exception as exc:          # the person's write stands; the hourly pass asks instead
+                if not c.in_transaction:
+                    raise
+                GA.log.warning("Goal Manager asks not brought up to date: %s", type(exc).__name__)
+            return out
+        return write(request, body, work_then_ask)
+
     # ------------------------------------------------------------------ who may
     def org_shape(c):
         roster, entries = views.roster(c), views.entries(c)
@@ -194,36 +211,15 @@ def install(app, store, auth, mutate, settings):
     @app.get("/api/v2/goals/needs-you")
     def goals_needs_you(request: Request):
         """What waits on the caller here: red KPIs on goals they own, stale KPIs they own, and definitions and
-        targets they are asked to confirm."""
+        targets they are asked to confirm. For a person each is a Goal Manager task (backend/goal_asks.py), shown
+        with it; one they closed while its cause stands is left out."""
         who = request.state.identity
         auth.domain(who)
         with store.read() as c:
-            def mine(owner):
-                return owner == who.actor or (owner == G.COMPANY and who.role == "owner")
-            items = []
-            goals = [g for g in readable_goals(c, who, G.goals(c, live_only=True)) if mine(g["owner"])]
-            for goal_id, kpis in K.goal_views(c, [g["id"] for g in goals]).items():
-                title = next(g["title"] for g in goals if g["id"] == goal_id)
-                for k in kpis:
-                    if k["status"] == "red":
-                        items.append({"kind": "kpi_red", "goal_id": goal_id, "goal_title": title, "kpi_id": k["id"],
-                                      "kpi_name": k["name"], "reason": k["reason"]})
-            owned = [dict(r) for r in c.execute("SELECT * FROM kpis WHERE archived_at IS NULL ORDER BY created")
-                     if mine(r["owner"])]
-            data = K.effective_many(c, [r["id"] for r in owned])
-            for record in owned:
-                rows = data.get(record["id"], [])
-                state = K.assess(record, None, rows)
-                if state["freshness"] != "fresh":
-                    items.append({"kind": "kpi_stale", "kpi_id": record["id"], "kpi_name": record["name"],
-                                  "freshness": state["freshness"], "reason": state["reason"]})
-            for p in G.proposals(c, "pending"):
-                if decider(c, who, p):
-                    goal = G.goal(c, p["goal_id"]) if p["goal_id"] else None
-                    record = K.kpi(c, p["kpi_id"]) if p["kpi_id"] else None
-                    items.append({"kind": "proposal", "proposal": p, "goal_title": goal and goal["title"],
-                                  "kpi_name": record and record["name"]})
-            return {"actor": who.actor, "items": items}
+            hidden = hidden_owners(c, who)
+            items = [i for i in GA.wanted(c, auth.owner_id(c)) if i["owner"] == who.actor]
+            items = [i for i in items if not (i.get("goal_id") and (G.goal(c, i["goal_id"]) or {}).get("owner") in hidden)]
+            return {"actor": who.actor, "items": GA.for_person(c, who.actor, items)}
 
     @app.post("/api/v2/goals/refresh")
     def goals_refresh(request: Request, body: M.GoalRefresh):

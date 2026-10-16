@@ -184,6 +184,9 @@ class Scheduler:
             try:
                 with self.store.transaction() as c:
                     G.refresh(c)
+                    # A KPI that went stale as time passed becomes its owner's task here (backend/goal_asks.py).
+                    from . import goal_asks
+                    goal_asks.sync(c, self.execution.auth.owner_id(c), at)
             except Exception as exc:
                 failures.append({"goals": type(exc).__name__})
         if self.health_scanned is None or at - self.health_scanned >= timedelta(hours=1):

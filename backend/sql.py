@@ -244,6 +244,7 @@ def guarded(c, auth, who, inner, function, columns=None):
         "kpi_readings": "kpi_id IN (SELECT id FROM kpis)", "kpi_definitions": "kpi_id IN (SELECT id FROM kpis)",
         "goal_kpis": "goal_id IN (SELECT id FROM goals)", "goal_checkins": "goal_id IN (SELECT id FROM goals)",
         "goal_proposals": "goal_id IS NULL OR goal_id IN (SELECT id FROM goals)",
+        "goal_asks": "task_id IN (SELECT id FROM tasks)",
         # The market graph is the company's, the same way goals are.
         "market_entities": "1", "market_edges": "1", "market_evidence": "1",
         "market_citations": "1", "market_insights": "1", "market_events": "1",
