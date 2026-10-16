@@ -252,7 +252,9 @@ manages the bot (`POST /api/v2/bots/{bot}/limit/retry`, BotOps as the person who
 cooldown for that bot and every bot limited on the same runtime on the same computer, which share
 the subscription (`limit.cleared` in the event log). If the bot has a fallback
 harness in **Settings → Bots**, the runner reruns that run at once on the fallback (fresh
-session) and reports `fallback` as that harness, which **Runs** shows in the Session column.
+session, given the conversation's latest messages, up to about 16,000 tokens, marked as history; never a
+person's private Assistant chat) and
+reports `fallback` as that harness, which **Runs** shows in the Session column.
 Tico is seeded with Gemini CLI as its fallback from Antigravity, so a usage limit uses
 a stored `GEMINI_API_KEY` Credential granted to the bot. **None (fail)** means no hop:
 the cloud cooldown applies.

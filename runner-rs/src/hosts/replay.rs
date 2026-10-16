@@ -475,6 +475,16 @@ mod record {
                 until: vec![],
                 bad_login: false,
             },
+            // A fallback turn's fresh thread, given only the replayed conversation (crate::fallback::replay): the answer
+            // is in the history and nowhere else.
+            Plan {
+                harness: "claude",
+                name: "fallback-replay",
+                about: "a fallback turn that answers from the replayed conversation",
+                turns: vec![(fallback_prompt(), vec![])],
+                until: vec![],
+                bad_login: false,
+            },
             Plan { harness: "claude", name: "auth-expired", about: "an expired login whose refresh fails", turns: vec![("Reply with exactly: hello", vec![])], until: vec![], bad_login: true },
             // Record on a login that is out of quota: the provider's own refusal, as the turn sees it.
             Plan {
@@ -508,6 +518,18 @@ mod record {
             // notifications read in the same burst, so a replay of it would not keep one order.
             Plan { harness: "codex", name: "auth-rejected", about: "an API key the provider rejects", turns: vec![("Reply with exactly: hello", vec![])], until: vec![], bad_login: true },
         ]
+    }
+
+    fn fallback_prompt() -> &'static str {
+        let attempt = json!({"bot": "ops", "conversation": {"scope": "shared"}, "message": {"id": "m3"}, "history": [
+            {"id": "m1", "from_actor": "human:ana", "body": "Note this for later: the Acme code word is PELICAN.", "refs": {}, "created": "2026-10-16T05:00:00Z"},
+            {"id": "m2", "from_actor": "bot:ops", "body": "Noted.", "refs": {}, "created": "2026-10-16T05:00:05Z"},
+        ]});
+        let text = format!(
+            "{}\n\nCurrent message from human:ana:\nWhat is the Acme code word? Reply with only the word.",
+            crate::fallback::replay(&attempt, crate::fallback::REPLAY_TOKENS)
+        );
+        Box::leak(text.into_boxed_str())
     }
 
     /// Removes a recording's folder, which holds a copy of the login, even when the recording panics.

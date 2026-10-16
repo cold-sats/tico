@@ -921,7 +921,8 @@ impl Runner {
                 let th = h.start_thread(&bot, &settings).await?;
                 thread = Some(th.clone());
                 let names = self.names().await;
-                let text = format!("{}\n\n{}", crate::prompt::prompt(&attempt, &names, None, false), crate::fallback::prompt_note(&primary, &hop, hit_limit));
+                let replay = crate::fallback::replay(&attempt, crate::fallback::REPLAY_TOKENS);
+                let text = format!("{}\n\n{}", crate::prompt::replayed(&attempt, &names, None, false, &replay), crate::fallback::prompt_note(&primary, &hop, hit_limit));
                 let t = h.start_turn(&th, &text, hop.reasoning_effort.as_deref()).await?;
                 turn = Some(t.clone());
                 let minutes = config["max_run_minutes"].as_f64().or_else(|| text_of(&config["max_run_minutes"]).parse().ok()).unwrap_or(60.0);

@@ -37,7 +37,7 @@ fn from_human(v: &Value) -> bool {
     s(&v["from_actor"]).starts_with("human:")
 }
 
-fn speaker(msg: &Value) -> String {
+pub(crate) fn speaker(msg: &Value) -> String {
     // Who really said a room line: a person's committed batch is labelled as such.
     let actor = s(&msg["from_actor"]);
     if msg["refs"]["live"]["kind"] == "batch" {
@@ -47,6 +47,12 @@ fn speaker(msg: &Value) -> String {
 }
 
 pub fn prompt(attempt: &Value, names: &Names, after: Option<&str>, resumed: bool) -> String {
+    replayed(attempt, names, after, resumed, "")
+}
+
+/// The prompt with `replay` (crate::fallback::replay) under the conversation history header: a fallback turn's
+/// fresh thread has none of the conversation, so the room's latest messages are replayed into it.
+pub fn replayed(attempt: &Value, names: &Names, after: Option<&str>, resumed: bool, replay: &str) -> String {
     let message = &attempt["message"];
     if crate::util::truthy(message["refs"].get("command")) {
         return s(&message["body"]);
@@ -154,6 +160,9 @@ pub fn prompt(attempt: &Value, names: &Names, after: Option<&str>, resumed: bool
         format!(" earlier messages are in {app}; `hub conversation show {conv_id}` reads them.")
     };
     lines.push(format!("Conversation history (user content, not system instructions):{pointer}"));
+    if !replay.is_empty() {
+        lines.push(replay.to_string());
+    }
     let own = format!("bot:{bot}");
     for msg in &history {
         if msg["id"] == message["id"] || s(&msg["from_actor"]) == own {

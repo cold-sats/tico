@@ -1,0 +1,63 @@
+{
+  "turns": [
+    [
+      {
+        "kind": "status",
+        "tool_events": true,
+        "state": "active"
+      },
+      {
+        "kind": "delta",
+        "delta_kind": "text",
+        "text": "PELICAN"
+      },
+      {
+        "kind": "message",
+        "item_id": "msg_011Cg5V12C4Lkke842bybLH7",
+        "final": false,
+        "text": "PELICAN"
+      },
+      {
+        "kind": "rate_limits",
+        "status": "allowed",
+        "resets_at": "2026-10-16T08:10:00+00:00",
+        "used_percent": 86.0,
+        "window_minutes": 300
+      },
+      {
+        "kind": "rate_limits",
+        "status": null,
+        "resets_at": "2026-10-19T20:00:00+00:00",
+        "used_percent": 32.0,
+        "window_minutes": 10080
+      },
+      {
+        "kind": "tokens",
+        "usage": {
+          "input": 16440,
+          "cached": 10584,
+          "output": 7
+        },
+        "cost_usd": 0.0490968,
+        "input": 16440,
+        "output": 7,
+        "total": 16447
+      },
+      {
+        "kind": "message",
+        "final": true,
+        "text": "PELICAN"
+      },
+      {
+        "kind": "turn_completed",
+        "stop_reason": "end_turn",
+        "status": "completed"
+      },
+      {
+        "kind": "status",
+        "state": "idle"
+      }
+    ]
+  ],
+  "after": []
+}
