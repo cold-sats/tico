@@ -183,19 +183,26 @@ def test_full_access_is_the_owners_reach_but_not_the_session_or_tokens(environme
         assert api.request(method, path, json={}, headers=token).status_code == 403, path
 
 
-@pytest.mark.parametrize("tier", ["app", "full"])
-def test_neither_tier_leaves_anything_behind_after_stop_or_opens_a_personal_page(environment, hq, tier):
+def test_full_access_keeps_the_owners_lasting_changes_and_neither_tier_opens_a_personal_page(environment, hq):
     api = environment()
-    token = bearer(start(api, tier=tier).json())
+    app_token = bearer(start(api, tier="app").json())
     for method, path in (("POST", "/api/v2/triggers"), ("POST", "/api/v2/triggers/trg_1/delete"),
-                         ("POST", "/api/v2/credentials"), ("POST", "/api/v2/credential-set"),
+                         ("POST", "/api/v2/triggers/trg_1/rotate"), ("POST", "/api/v2/credentials"),
                          ("POST", "/api/v2/github/app/disconnect"), ("PUT", "/api/v2/slack/tokens"),
-                         ("PUT", "/api/v2/directory"), ("POST", "/api/v2/directory/sync"),
-                         ("POST", "/api/v2/mail/google/connect"), ("GET", "/api/v2/assistant"),
+                         ("PUT", "/api/v2/directory"), ("GET", "/api/v2/assistant"),
                          ("GET", "/api/v2/tasks/t1/chat"), ("GET", "/api/v2/calendar/upcoming")):
-        r = api.request(method, path, json={}, headers=token)
+        r = api.request(method, path, json={}, headers=app_token)
         assert r.status_code == 403 and r.json()["error"]["code"] == "support_access", (method, path, r.text)
-    assert api.get("/api/v2/triggers", headers=token).status_code == 200
+    with api.app.state.store.read() as c:
+        sid = c.execute("SELECT id FROM support_access WHERE ended_at IS NULL").fetchone()[0]
+    assert api.post(f"/api/v2/support/access/{sid}/stop", json={}, headers=signed_in()).status_code == 200
+    full_token = bearer(start(api, tier="full").json())
+    for method, path in (("GET", "/api/v2/assistant"), ("GET", "/api/v2/tasks/t1/chat"), ("GET", "/api/v2/calendar/upcoming")):
+        r = api.request(method, path, headers=full_token)
+        assert r.status_code == 403 and r.json()["error"]["code"] == "support_access", (path, r.text)
+    # The owner's reach, as decided for the full level: a webhook it makes is its owner's call, not refused here.
+    r = api.post("/api/v2/triggers", json={}, headers=full_token)
+    assert not (r.status_code == 403 and r.json()["error"]["code"] == "support_access"), r.text
 
 
 @pytest.mark.parametrize("path", ["/api/v2//support/access", "/api/v2/./me/tokens", "/api/v2/x/../me/tokens",

@@ -70,17 +70,8 @@ ALWAYS_REFUSED = re.compile(r"/api/v2/(?:"
                             r"|me/tokens(?:/.*)?|access/tokens(?:/.*)?|service-keys(?:/.*)?|enrollments"
                             r"|agents/pairings(?:/.*)?|directory/scim-token|github/token"
                             r"|bots/[^/]+/(?:agent-credential(?:/revoke)?|repository-read-token)"
-                            r"|triggers/[^/]+/(?:rotate|signing)|access/owner"
+                            r"|access/owner"
                             r"|credentials/[^/]+/reveal|credential-runtime|runner-[a-z-]*credential[a-z-]*(?:/.*)?"
-                            r")")
-# Writes refused to both tiers, though the owner may make them: each leaves something in place after Stop that support
-# chose or could read back (a webhook's secret address, a credential, the GitHub App, Slack's tokens, directory sync,
-# a mailbox connection).
-WRITES_REFUSED = re.compile(r"/api/v2/(?:"
-                            r"triggers|triggers/[^/]+/delete"
-                            r"|credentials(?:/.*)?|credential-set|credential-imports(?:/.*)?|credential-requests(?:/.*)?"
-                            r"|github/app/.*|slack/tokens|slack/disconnect|directory|directory/sync"
-                            r"|mail/google/(?:connect|disconnect)"
                             r")")
 # Pages that open a person's own room or calendar: Tico support has neither, so it gets a plain refusal.
 PERSONAL = re.compile(r"/api/v2/(?:tasks/[^/]+/chat|assistant|calendar/upcoming)")
@@ -174,8 +165,7 @@ def gate(who, path, method):
     """What a support identity may reach: refused (403) here before any route runs."""
     method = (method or "").upper()
     path = path[:-1] if path.endswith("/") else path
-    if (not PLAIN_PATH.fullmatch(path) or ALWAYS_REFUSED.fullmatch(path) or PERSONAL.fullmatch(path)
-            or (method not in ("GET", "HEAD") and WRITES_REFUSED.fullmatch(path))):
+    if not PLAIN_PATH.fullmatch(path) or ALWAYS_REFUSED.fullmatch(path) or PERSONAL.fullmatch(path):
         raise Problem("support_access", "Tico support cannot do this.", 403)
     if who.support == "full":
         return

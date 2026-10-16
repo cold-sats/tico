@@ -130,8 +130,9 @@ start it, it always starts from one of your own open requests, and it ends on it
      bot, publish, spend, or change people, access or credentials.
    - **Full access** (the owner only): what the owner can do in Tico. Even then support cannot make or see personal tokens,
      service keys or credential values, sign anyone in or out, hand the install to someone else, or change these sessions.
-     Nor can it change what would stay behind after Stop: webhook triggers (making or deleting one), credentials, the
-     GitHub App, Slack's tokens, directory sync or a mailbox connection.
+     What it changes the owner's way can outlast Stop, such as a webhook, a credential, the GitHub App, Slack's tokens or
+     directory sync, and it reads what the owner reads, mail and raw run streams included: give it only when you want
+     support to have that.
 3. Choose how long: 1 hour, 4 hours, 24 hours (the default), 7 days, or any number of hours up to 30 days. Press **Start**.
 
 While it lasts, everyone on your Tico sees a banner on every screen: "Tico support has access, 23 h 12 min left · Stop".

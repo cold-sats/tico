@@ -188,9 +188,8 @@ against the session again.
   credentials included, is refused `403 support_access`.
 - **Full access** (`support: full`) has the Owner's rights.
 - Neither makes or sees personal tokens, service keys, agent or SCIM credentials or credential values, signs in or out,
-  enrols a computer, transfers ownership, or reaches the support-access routes. Neither changes what would stay after
-  the session (`WRITES_REFUSED`): webhook triggers, credentials, the GitHub App, Slack's tokens, directory sync or a
-  mailbox connection. It counts as a token, so nothing that needs a
+  enrols a computer, transfers ownership, or reaches the support-access routes. Full access otherwise changes what the
+  Owner may, including what outlasts the session (webhooks, credentials, the GitHub App, Slack's tokens, directory sync). It counts as a token, so nothing that needs a
   person at their own browser accepts it.
 
 ## A computer's performance
