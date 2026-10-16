@@ -252,6 +252,12 @@ def set_access(c, bot, body, org, actor, legacy=False, team_list=False, own_clic
             grants.pop(bot, None)
         save_metadata(c, 'repository-creation-grants', grants)
     after = access(c, bot, org)
+    # Kept flags apply again when a grant returns to effect (Own or All back to Chosen): that is a gain too.
+    running = {r['full_name'].lower() for r in before['effective'] if r.get('run_workflows')}
+    if any(r.get('run_workflows') and r['full_name'].lower() not in running for r in after['effective']) and (
+            not team_list or not H.is_human(actor) or not own_click):
+        raise Problem('forbidden', 'Only an Owner or admin lets a bot run workflows, themselves in Settings > '
+                      'Repositories', 403)
     save_extra_repos(c, bot, [r['full_name'] for r in after['chosen'] if r['access'] == 'write'] if body.mode == 'chosen' else [])
     lost = stopped(before, after)
     H.event(c, actor, 'bot.repos_changed', bot, {'before': before, 'after': after, **lost})

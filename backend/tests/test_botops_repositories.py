@@ -105,3 +105,7 @@ def test_only_an_owner_or_admin_lets_a_bot_run_workflows(api, botops, repos):
     assert flag in effective(api)
     cleared = act(api, ana, "PUT", "bots/ops/repositories", {"mode": "chosen", "chosen": [{**flag, "run_workflows": False}]})
     assert cleared.status_code == 403 and flag in effective(api)
+    # A kept setting coming back into effect is a gain too: BotOps cannot switch Own back to Chosen under it.
+    put(api, "bots/ops/repositories", {"mode": "own"}, token="ana-test")
+    back = act(api, ana, "PUT", "bots/ops/repositories", {"mode": "chosen"})
+    assert back.status_code == 403 and effective(api) == []

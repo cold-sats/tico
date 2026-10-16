@@ -271,6 +271,20 @@ def test_run_workflows_gets_its_own_actions_token_only_once_the_installation_acc
                    headers=auth('runner-test')).json()
     assert one['tokens'][0]['actions'] == 'write' and one['token'] == one['tokens'][0]['token']
     assert 'github_workflows' not in {x['id'] for x in api.get('/api/v2/health', headers=auth()).json()['checks']}
+    # Actions dropped back to read inside the live cache: the refused mint falls back and says why.
+    gh.permissions = {'actions': 'read', 'checks': 'read', 'statuses': 'read'}
+    api.app_state.github_app.cache.clear()
+    token = turn_token(api).json()
+    assert token['workflows_withheld']['repositories'] == ['Acme/product']
+    assert all(t.get('actions') is None for t in token['tokens'])
+    assert 'github_workflows' in {x['id'] for x in api.get('/api/v2/health', headers=auth()).json()['checks']}
+    # An installation without Checks: the refusal is the reads', not Actions'; the flagged repository still gets it.
+    gh.permissions = {'actions': 'write', 'statuses': 'read'}
+    api.app_state.github_app.cache.clear()
+    api.app_state.github_app.live.clear()
+    one = api.post('/api/v2/github/token', json={'bot': 'cpo', 'repository': 'Acme/product', 'purpose': 'git'},
+                   headers=auth('runner-test')).json()
+    assert one['tokens'][0]['actions'] == 'write' and 'workflows_withheld' not in one
     # Turning it off is a narrowing, said on the reply.
     off = put(api, 'bots/cpo/repositories', {'mode': 'chosen', 'chosen': [{**flagged[0], 'run_workflows': False}]})
     assert off['workflows_stopped'] == ['Acme/product']

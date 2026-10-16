@@ -1117,15 +1117,22 @@ def install_github_app(app, settings, store):
                         include_cache_status=True, missing=missing)
                     run_actions = {'actions': 'write'}
                 except Problem as problem:
-                    # The installation's permission changed within LIVE_TTL: these repositories keep the ordinary ask.
                     if problem.code != "github_app_permissions":
                         raise
-                    R.workflow_health(service, False)
-                    withheld = {"repositories": workflow_repos, "reason": WORKFLOWS_WITHHELD}
-                    run_value, run_expires, workflow_repos, cached, reachability_changed = service.mint_turn(
-                        workflow_repos, TURN_PERMISSIONS, own=repo, refresh_margin=refresh_margin,
-                        include_cache_status=True, missing=missing)
-                    run_actions = {}
+                    # Either Actions: write went away within LIVE_TTL, or a read (Checks, Commit statuses) the
+                    # installation lacks: GitHub says which now.
+                    if (service.live_permissions(refresh=True) or {}).get("actions") == "write":
+                        run_value, run_expires, workflow_repos, cached, reachability_changed = service.mint_turn(
+                            workflow_repos, WORKFLOW_PERMISSIONS, own=repo, refresh_margin=refresh_margin,
+                            include_cache_status=True, missing=missing)
+                        run_actions = {'actions': 'write'}
+                    else:
+                        R.workflow_health(service, False)
+                        withheld = {"repositories": workflow_repos, "reason": WORKFLOWS_WITHHELD}
+                        run_value, run_expires, workflow_repos, cached, reachability_changed = service.mint_turn(
+                            workflow_repos, TURN_PERMISSIONS, own=repo, refresh_margin=refresh_margin,
+                            include_cache_status=True, missing=missing)
+                        run_actions = {}
                 if run_value:
                     tokens.append({'token': run_value, 'expires_at': run_expires, 'repositories': workflow_repos,
                                    'access': 'write', **run_actions, 'cached': cached,
