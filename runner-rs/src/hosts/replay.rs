@@ -463,7 +463,7 @@ mod record {
                 harness: "claude",
                 name: "interrupt-mid-tool",
                 about: "an interrupt while a shell command runs",
-                turns: vec![("Run the shell command `sleep 45` with the Bash tool, then reply done.", vec![(tool("sleep 45"), s(2), json!({"interrupt": true}))])],
+                turns: vec![("Run the shell command `timeout 45 tail -f /dev/null` with the Bash tool, then reply done.", vec![(tool("timeout 45 tail -f /dev/null"), s(2), json!({"interrupt": true}))])],
                 until: vec![],
                 bad_login: false,
             },

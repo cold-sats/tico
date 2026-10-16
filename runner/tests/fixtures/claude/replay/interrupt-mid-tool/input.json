@@ -9,7 +9,7 @@
   },
   "turns": [
     {
-      "prompt": "Run the shell command `sleep 45` with the Bash tool, then reply done.",
+      "prompt": "Run the shell command `timeout 45 tail -f /dev/null` with the Bash tool, then reply done.",
       "actions": [
         {
           "interrupt": true,
