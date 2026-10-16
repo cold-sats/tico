@@ -40,6 +40,7 @@ mod memory_history;
 mod mcp;
 mod op;
 mod perbot;
+mod perf;
 mod placement;
 mod playbook;
 mod product_files;
