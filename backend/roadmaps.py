@@ -41,8 +41,9 @@ def migrate(c):
         c.execute("UPDATE task_types SET default_visibility='private' WHERE manager='product-manager'")
         c.execute("UPDATE tasks SET public_title='',public_summary='' WHERE visibility='private' "
                   "AND public_title=substr(coalesce(title,''),1,300) AND public_summary=substr(coalesce(body,''),1,8000)")
-    if ran_before and H._has_table(c, 'task_events') and c.execute(
-            "INSERT OR IGNORE INTO registry_metadata(key,value_json) VALUES('roadmaps_copies_cleared','true')").rowcount:
+    # Marked on every database, so a fresh one does not take its own second start for a first-version one.
+    if c.execute("INSERT OR IGNORE INTO registry_metadata(key,value_json) VALUES('roadmaps_copies_cleared','true')").rowcount \
+            and ran_before and H._has_table(c, 'task_events'):
         clear_copies(c)
     c.execute('CREATE TABLE IF NOT EXISTS task_requesters('
               'id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),actor TEXT,'
@@ -63,9 +64,16 @@ def clear_copies(c):
     """Once, on a database that ran roadmaps before: the first version copied internal titles and bodies into public
     text at creation and never updated them, so the check above misses a task edited since, and a Product roadmap
     task it published at creation stayed public. Public text nobody wrote goes; a public task showing its internal
-    title and body is unpublished, with an event saying why so its owner can publish it again with public text."""
-    c.execute(f"UPDATE tasks SET public_title='',public_summary='' WHERE visibility='private' "
-              f"AND (public_title!='' OR public_summary!='') AND NOT {WRITTEN}")
+    title and body is unpublished, with an event saying why so its owner can publish it again with public text.
+    Text written at creation before creation left an event is cleared too, so each clearing leaves one."""
+    cleared = c.execute(f"SELECT id,public_title,public_summary FROM tasks WHERE visibility='private' "
+                        f"AND (public_title!='' OR public_summary!='') AND NOT {WRITTEN}").fetchall()
+    for tid, title, summary in cleared:
+        c.execute("UPDATE tasks SET public_title='',public_summary='' WHERE id=?", (tid,))
+        for field, value in (('public_title', title), ('public_summary', summary)):
+            if value:
+                H._task_event(c, tid, H.KEEPER, field, value, '',
+                              'Cleared: public text with no record of being written, likely a copy of the internal text.')
     copied = [r[0] for r in c.execute(
         f"SELECT id FROM tasks WHERE visibility='public' AND NOT {WRITTEN} "
         "AND public_title=substr(coalesce(title,''),1,300) AND public_summary=substr(coalesce(body,''),1,8000)")]

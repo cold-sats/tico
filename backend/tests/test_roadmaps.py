@@ -292,6 +292,8 @@ def test_first_version_copies_edited_since_or_published_at_creation_are_cleared(
     shown = post(api, 'tasks', {'owner': 'cpo', 'title': 'Shown idea', 'body': 'Shown notes', 'type': 'Product roadmap',
                                'visibility': 'public', 'public_title': 'Shown idea', 'public_summary': 'Shown notes'})
     with api.app.state.store.transaction() as c:
+        # A fresh database is marked on its first start, so its second start clears nothing.
+        assert c.execute("SELECT 1 FROM registry_metadata WHERE key='roadmaps_copies_cleared'").fetchone()
         # What the first version left: a copy made before the title changed, and a task public at creation.
         c.execute("UPDATE tasks SET public_title='Old title',public_summary='Old notes',title='New title' WHERE id=?",
                   (edited['id'],))
@@ -306,6 +308,9 @@ def test_first_version_copies_edited_since_or_published_at_creation_are_cleared(
         assert state(shown['id']) == ('public', 'Shown idea', 'Shown notes')       # written at creation, so it stays
         note = c.execute("SELECT note FROM task_events WHERE task_id=? AND field='visibility'", (copied['id'],)).fetchone()
         assert 'copy of the internal title and body' in note[0]
+        cleared = c.execute("SELECT field,old,new,note FROM task_events WHERE task_id=? AND note LIKE 'Cleared:%' "
+                            "ORDER BY field", (edited['id'],)).fetchall()
+        assert [tuple(r[:3]) for r in cleared] == [('public_summary', 'Old notes', ''), ('public_title', 'Old title', '')]
         c.execute("UPDATE tasks SET public_title='Old title' WHERE id=?", (edited['id'],))
         R.migrate(c)                                                                # once only
         assert state(edited['id']) == ('private', 'Old title', '')
