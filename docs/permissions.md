@@ -170,6 +170,23 @@ Only the computer's operator and admins open the screen, in the app themselves: 
 ticket, at most three at once per computer, an hour at most each. Every opening and closing is in the audit log
 (`runner.screen_open`, `runner.screen_close` with who, view or control, and how long).
 
+## A computer's performance
+
+Every computer reports its CPU, memory, swap, disk and its busiest processes every 30 seconds, so a slow or overloaded
+computer can be debugged afterwards. It is on by default. The computer's operator or an admin turns it off in
+**Settings > Computers > ⋯ > Performance diagnostics** (`POST /api/v2/computers/<id>/performance {"mode": "off"}`); Off
+stops the reports, and what was recorded stays until it is 14 days old. **Delete history** on the page, or
+`DELETE /api/v2/computers/<id>/performance`, removes it now. Each change is in the audit log (`runner.performance`,
+`runner.performance_erased`).
+
+Every person and bot of the company reads it: **⋯ > Performance** in Settings > Computers, `hub computer performance <computer>`,
+or `GET /api/v2/computers/<id>/performance?hours=24` (1 to 336). A report holds numbers and process names only (the
+program's own name, never its arguments), and the turns shown are the server's own record of what ran.
+
+Ten minutes in a row of CPU or memory over 90%, heavy swapping (half the swap in use with memory over 80%) or under 5%
+disk free record an overload: when, why, which bots' turns were running and the busiest processes. Health shows it as a
+warning for a day afterwards. An overload changes nothing on its own; it is there to explain a slow day.
+
 ## BotOps uses the requester’s rights
 
 An owner should be able to say "build me a Jira bot, and add Sam" in chat with BotOps and have it done. BotOps therefore acts **as the
@@ -290,6 +307,7 @@ The commands (with MCP tools of the same names):
 | `hub bot model <bot> [<model>] [--effort E] [--on-behalf-of <task>]`, `hub bot pause\|resume <bot>` | the model (none: list the choices; a change answers with the computer's `readiness`), stop and restart |
 | `hub routine on\|off <key> --bot <bot>` | a routine on or off |
 | `hub computer list`, `hub health check` | the computers a bot may go on and what runs on each; what is wrong with the bots, most urgent first, each with its fix |
+| `hub computer performance <computer> [--hours 24]` | the computer's CPU and memory over the window, its overloads and what ran in them, and its busiest processes |
 | `hub credential request\|set\|list` | a card for a credential in the chat, storing one a human pasted, the credentials with their bots (never a value); see [credential-vault.md](credential-vault.md) |
 | `hub credential grant <name> --to <bot>`, `hub credential revoke <name> --from <bot>` | give a bot a stored credential, or take it away; at once for a credential administrator, the person who stored it (for a bot they own or manage), or a holder delegating to a bot they own or run; revoke the delegation to take it away |
 | `hub credential import <VAR> --from-bot <bot>` | move one variable from that bot's own secrets file into Credentials, granted to that bot; the computer sends the value itself and nobody sees it |

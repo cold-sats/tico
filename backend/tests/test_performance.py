@@ -1,0 +1,108 @@
+"""Computer performance diagnostics: on by default with an off switch for the operator or an admin; every person and
+bot reads them; ten loaded minutes record an overload naming what ran; minutes roll into ten-minute points after two
+days and everything goes after fourteen."""
+import time
+
+from backend import performance as P
+from backend.auth import Identity
+from backend.tests.test_api import api, get, headers, post, setup_attempt  # noqa: F401  (the api fixture)
+
+
+def sample(at, cpu=20.0, mem=0.5, procs=()):
+    return {"at": at, "cpu": cpu, "cores": 8, "load": [1.0, 1.0, 1.0], "mem_total": 1000, "mem_used": int(1000 * mem),
+            "disk": [{"volume": "state", "total_bytes": 100, "free_bytes": 50}], "active": 1,
+            "procs": [{"name": n, "cpu": c, "mem": 10, "count": 1} for n, c in procs]}
+
+
+def beat(api, r):
+    return post(api, "runners/heartbeat", {"version": "test", "platform": "test", "readiness": {}}, token=r["token"])
+
+
+def test_on_by_default_everyone_reads_it_and_only_the_operator_or_an_admin_switches_it_off(api):
+    r, _, attempt = setup_attempt(api)
+    rid = r["runner_id"]
+    assert beat(api, r)["performance"] is True
+    now = time.time()
+    assert post(api, "runners/performance", {"samples": [sample(now - 30), sample(now)]}, token=r["token"]) == {"kept": 2}
+    api.app.state.store.settings.test_identities["ops-bot"] = Identity("bot:ops", "bot", runner_id=rid, attempt_id=attempt["id"])
+    for token in ("cara-test", "ops-bot"):                      # a member and a bot both read it
+        seen = get(api, f"computers/{rid}/performance?hours=1", token=token)
+        assert seen["performance"] == "on" and seen["points"] and seen["points"][0][1] == 20.0
+        assert [x["attempt"] for x in seen["runs"]] == [attempt["id"]]    # the server's own record of what ran
+    post(api, f"computers/{rid}/performance", {"mode": "off"}, token="cara-test", expected=403)
+    post(api, f"computers/{rid}/performance", {"mode": "off"}, token="ops-bot", expected=403)
+    assert post(api, f"computers/{rid}/performance", {"mode": "off"}) == {"performance": "off"}
+    assert beat(api, r)["performance"] is False
+    refused = post(api, "runners/performance", {"samples": [sample(now)]}, token=r["token"], expected=409)
+    assert refused["error"]["code"] == "performance_off"
+    assert next(m for m in get(api, "operations")["computers"] if m["id"] == rid)["performance"] == "off"
+    # A process name is the executable's, never its arguments.
+    post(api, f"computers/{rid}/performance", {"mode": "on"})
+    bad = sample(now)
+    bad["procs"] = [{"name": "node --token=abc", "cpu": 1, "mem": 1}]
+    post(api, "runners/performance", {"samples": [bad]}, token=r["token"], expected=422)
+    assert api.delete(f"/api/v2/computers/{rid}/performance", headers=headers("cara-test")).status_code == 403
+    assert api.delete(f"/api/v2/computers/{rid}/performance", headers=headers()).json() == {"erased": True}
+    assert get(api, f"computers/{rid}/performance?hours=1")["points"] == []
+
+
+def test_ten_loaded_minutes_record_an_overload_that_names_what_ran_and_health_shows_it(api):
+    r, _, attempt = setup_attempt(api)
+    rid = r["runner_id"]
+    start = (int(time.time()) // 60 - 12) * 60
+    with api.app.state.store.transaction() as c:                # the turn began before the load did
+        c.execute("UPDATE attempts SET created=? WHERE id=?", (P._iso(start - 60), attempt["id"]))
+    busy = [sample(start + 60 * i, cpu=97.0, procs=[("cargo", 400.0), ("claude", 50.0)]) for i in range(10)]
+    post(api, "runners/performance", {"samples": busy[:9]}, token=r["token"])
+    assert get(api, f"computers/{rid}/performance?hours=1")["overloads"] == []          # nine minutes are not ten
+    post(api, "runners/performance", {"samples": busy[9:]}, token=r["token"])
+    seen = get(api, f"computers/{rid}/performance?hours=1")
+    (o,) = seen["overloads"]
+    assert o["reasons"] == ["cpu"] and o["ended"] is None and o["bots"][0]["bot"] == "ops"
+    assert o["procs"][0]["name"] == "cargo"
+    assert seen["summary"].startswith("Overloaded once") and "cargo" in seen["summary"]
+    check = next(x for x in get(api, "health")["checks"] if x["id"] == "performance:" + rid)
+    assert check["status"] == "warn" and "overloaded now" in check["summary"]
+    post(api, "runners/performance", {"samples": [sample(start + 600)]}, token=r["token"])   # a calm minute ends it
+    assert get(api, f"computers/{rid}/performance?hours=1")["overloads"][0]["ended"] == start + 600
+
+
+def test_minutes_roll_into_ten_minute_points_after_two_days_and_everything_goes_after_fourteen(api):
+    r, _, _ = setup_attempt(api)
+    rid = r["runner_id"]
+    store = api.app.state.store
+    now = int(time.time()) // 600 * 600
+    old = now - 3 * 86400
+    with store.transaction() as c:
+        P.ingest(c, rid, [P_sample(old + 30 * i, cpu=10.0 * (i + 1)) for i in range(4)], now=old)
+        P.ingest(c, rid, [P_sample(now - 15 * 86400)], now=now - 15 * 86400)
+    P.sweep(store, now)
+    with store.read() as c:
+        rows = [tuple(x) for x in c.execute("SELECT span,ts,n,cpu,cpu_max FROM perf_points WHERE runner_id=?", (rid,))]
+        procs = [tuple(x) for x in c.execute("SELECT span,key,n FROM perf_usage WHERE runner_id=?", (rid,))]
+    assert rows == [(600, old // 600 * 600, 4, 25.0, 40.0)]
+    assert procs == [(600, "git", 4)]
+    week = get(api, f"computers/{rid}/performance?hours=168")
+    assert week["span"] == 600 and week["points"][0][1] == 25.0
+
+
+def P_sample(at, cpu=20.0):
+    from backend.models import PerformanceSample
+    return PerformanceSample(**sample(at, cpu=cpu, procs=[("git", 5.0)]))
+
+
+def test_a_support_attachment_carries_the_window_with_computers_and_bots_relabelled(api):
+    from backend import diagnostics as D
+    r, _, attempt = setup_attempt(api)
+    now = int(time.time())
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE attempts SET created=? WHERE id=?", (P._iso(now - 3600), attempt["id"]))
+        P.ingest(c, r["runner_id"], [P_sample(now - 60), P_sample(now)], now=now)
+    with api.app.state.store.read() as c:
+        section = D._performance(c, 24)
+    redactor = D.Redactor(bots=[("ops", ["Ops"])])
+    bundle = redactor.clean(D.allowed({"format": D.FORMAT, "performance": section}))
+    (computer,) = bundle["performance"]["computers"]
+    assert computer["label"] == "runner-1" and computer["points"] and computer["bots"] == [
+        {"bot": "bot-1", "model": "", "runs": 1}]
+    assert r["runner_id"] not in D.canonical(bundle) and "ops" not in D.canonical(bundle)
