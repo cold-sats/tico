@@ -1,0 +1,95 @@
+{
+  "turns": [
+    [
+      {
+        "kind": "status",
+        "thread_id": "01a1435c-f977-78f3-b260-d5d767bc5881",
+        "turn_id": null,
+        "state": "active"
+      },
+      {
+        "kind": "status",
+        "thread_id": "01a1435c-f977-78f3-b260-d5d767bc5881",
+        "turn_id": "01a1435c-fb37-7411-b0b8-292acbd31f24",
+        "state": "active"
+      },
+      {
+        "kind": "error",
+        "thread_id": "01a1435c-f977-78f3-b260-d5d767bc5881",
+        "turn_id": "01a1435c-fb37-7411-b0b8-292acbd31f24",
+        "error": "Reconnecting... 2/5",
+        "limit": false
+      },
+      {
+        "kind": "error",
+        "thread_id": "01a1435c-f977-78f3-b260-d5d767bc5881",
+        "turn_id": "01a1435c-fb37-7411-b0b8-292acbd31f24",
+        "error": "Reconnecting... 3/5",
+        "limit": false
+      },
+      {
+        "kind": "error",
+        "thread_id": "01a1435c-f977-78f3-b260-d5d767bc5881",
+        "turn_id": "01a1435c-fb37-7411-b0b8-292acbd31f24",
+        "error": "Reconnecting... 4/5",
+        "limit": false
+      },
+      {
+        "kind": "error",
+        "thread_id": "01a1435c-f977-78f3-b260-d5d767bc5881",
+        "turn_id": "01a1435c-fb37-7411-b0b8-292acbd31f24",
+        "error": "Reconnecting... 5/5",
+        "limit": false
+      },
+      {
+        "kind": "error",
+        "thread_id": "01a1435c-f977-78f3-b260-d5d767bc5881",
+        "turn_id": "01a1435c-fb37-7411-b0b8-292acbd31f24",
+        "error": "Reconnecting... 1/5",
+        "limit": false
+      },
+      {
+        "kind": "error",
+        "thread_id": "01a1435c-f977-78f3-b260-d5d767bc5881",
+        "turn_id": "01a1435c-fb37-7411-b0b8-292acbd31f24",
+        "error": "Reconnecting... 2/5",
+        "limit": false
+      },
+      {
+        "kind": "error",
+        "thread_id": "01a1435c-f977-78f3-b260-d5d767bc5881",
+        "turn_id": "01a1435c-fb37-7411-b0b8-292acbd31f24",
+        "error": "Reconnecting... 3/5",
+        "limit": false
+      },
+      {
+        "kind": "error",
+        "thread_id": "01a1435c-f977-78f3-b260-d5d767bc5881",
+        "turn_id": "01a1435c-fb37-7411-b0b8-292acbd31f24",
+        "error": "Reconnecting... 4/5",
+        "limit": false
+      },
+      {
+        "kind": "error",
+        "thread_id": "01a1435c-f977-78f3-b260-d5d767bc5881",
+        "turn_id": "01a1435c-fb37-7411-b0b8-292acbd31f24",
+        "error": "Reconnecting... 5/5",
+        "limit": false
+      },
+      {
+        "kind": "status",
+        "thread_id": "01a1435c-f977-78f3-b260-d5d767bc5881",
+        "turn_id": null,
+        "state": "systemError"
+      },
+      {
+        "kind": "turn_failed",
+        "thread_id": "01a1435c-f977-78f3-b260-d5d767bc5881",
+        "turn_id": "01a1435c-fb37-7411-b0b8-292acbd31f24",
+        "error": "unexpected status 401 Unauthorized: Incorrect API key provided: sk-proj-*******************************************xxxx. You can find your API key at https://platform.openai.com/account/api-keys., url: https://api.openai.com/v1/responses, cf-ray: a4b4f3282b1f4e7c-PDX, request id: req_77db9a01a8c64299813b2063379bafa5, auth error: 401, auth error code: invalid_api_key",
+        "limit": false
+      }
+    ]
+  ],
+  "after": []
+}

@@ -16,6 +16,8 @@ mod oneshot;
 pub mod pi;
 #[cfg(test)]
 mod isolationtests;
+#[cfg(test)]
+mod replay;
 
 use std::sync::OnceLock;
 

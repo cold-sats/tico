@@ -1,0 +1,32 @@
+{
+  "turns": [
+    [
+      {
+        "kind": "status",
+        "thread_id": "01a14353-13fd-79e3-8b33-f99663ffc9ff",
+        "turn_id": null,
+        "state": "active"
+      },
+      {
+        "kind": "status",
+        "thread_id": "01a14353-13fd-79e3-8b33-f99663ffc9ff",
+        "turn_id": "01a14353-1841-7552-a8d7-bb592b0e7e69",
+        "state": "active"
+      },
+      {
+        "kind": "status",
+        "thread_id": "01a14353-13fd-79e3-8b33-f99663ffc9ff",
+        "turn_id": null,
+        "state": "systemError"
+      },
+      {
+        "kind": "turn_failed",
+        "thread_id": "01a14353-13fd-79e3-8b33-f99663ffc9ff",
+        "turn_id": "01a14353-1841-7552-a8d7-bb592b0e7e69",
+        "error": "Quota exceeded. Check your plan and billing details.",
+        "limit": true
+      }
+    ]
+  ],
+  "after": []
+}

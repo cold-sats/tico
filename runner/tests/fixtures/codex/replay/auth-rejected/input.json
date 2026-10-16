@@ -1,0 +1,16 @@
+{
+  "harness": "codex",
+  "cli": "codex-cli 0.163.0",
+  "about": "an API key the provider rejects",
+  "source": {
+    "real": true,
+    "recorded": "2026-10-16",
+    "how": "record_replays: the installed CLI through replay_proxy.py"
+  },
+  "turns": [
+    {
+      "prompt": "Reply with exactly: hello",
+      "actions": []
+    }
+  ]
+}
