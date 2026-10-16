@@ -46,6 +46,11 @@ class Blobs:
             return getattr(self._s3, operation)(**options), self._s3
         return self._sources.read_s3(operation, **options)
 
+    def presign_get(self, s3, bucket, key, expires):
+        if self._s3 is not None:
+            return s3.generate_presigned_url("get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=expires)
+        return self._sources.presign_get(s3, bucket, key, expires)
+
     @staticmethod
     def key(digest):
         if not re.fullmatch(r"[0-9a-f]{64}", digest):

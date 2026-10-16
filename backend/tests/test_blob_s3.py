@@ -5,10 +5,21 @@ from pathlib import Path
 
 import boto3
 import pytest
+from botocore.config import Config
 
 from backend.blobs import Blobs
 from backend.config import Settings
 from backend.downloads import Downloads
+
+
+def recorded(options):
+    """Every client signs with SigV4 (blob_s3.client); keep `config` only when it sets more than that."""
+    options = dict(options)
+    config = options.pop("config")
+    assert config.signature_version == "s3v4"
+    if config.connect_timeout != Config().connect_timeout:
+        options["config"] = config
+    return options
 
 
 @pytest.fixture
@@ -18,7 +29,7 @@ def client_options(monkeypatch):
             monkeypatch.delenv(key)
     calls = []
     result = object()
-    monkeypatch.setattr(boto3, "client", lambda service, **options: calls.append((service, options)) or result)
+    monkeypatch.setattr(boto3, "client", lambda service, **options: calls.append((service, recorded(options))) or result)
     return calls, result
 
 
@@ -178,7 +189,7 @@ def credential_clients(client_options, monkeypatch):
     def make(service, **options):
         key = options.get('aws_access_key_id')
         kind = 'keys' if key == 'testing-files' else 'backup' if key == 'testing-backup' else 'role'
-        calls.append((kind, options))
+        calls.append((kind, recorded(options)))
         return clients[kind]
     monkeypatch.setattr(boto3, 'client', make)
     return clients, calls
