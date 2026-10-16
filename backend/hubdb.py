@@ -3039,9 +3039,11 @@ SESSION_ROOT_DEPTH = 20
 
 
 def session_root(conn, bot, task_id, config=None):
-    """The task whose session a bot's turn on `task_id` continues. A subtask does not get a session of its
-    own: the walk goes up through parents the same bot owns and stops at the topmost, so a bot working a
-    subtask it filed under its own task (or a person's subtask under it) continues that task's session.
+    """The task whose session a bot's turn on `task_id` continues. A subtask someone filed for the bot under
+    its task (a person's, another bot's, or a person's subtask under it) does not get a session of its own: the
+    walk goes up through parents the same bot owns and stops at the topmost, so it continues that task's session.
+    A subtask the bot filed for itself is new work it planned out, so it is its own root and runs in its own
+    session beside its parent; a dozen filed from one turn would otherwise run one after another in that turn's lane.
     A parent with another owner, or one whose readers differ, ends the walk: a bot-owned subtask under a
     person's task is its own root, and a session never carries one task's words to people who cannot read it.
     `subtask_session: own` in the bot's config keeps every subtask its own session (clients/sessions.py)."""
@@ -3050,7 +3052,7 @@ def session_root(conn, bot, task_id, config=None):
     root, seen = task_id, {task_id}
     current = _one(conn, "SELECT id,owner,requester,private FROM tasks WHERE id=?", (task_id,))
     for _ in range(SESSION_ROOT_DEPTH):
-        parent_id = TR.parent_of(conn, root) if current else None
+        parent_id = TR.parent_of(conn, root) if current and current["requester"] != "bot:" + bot else None
         if not parent_id or parent_id in seen:
             break
         parent = _one(conn, "SELECT id,owner,requester,private FROM tasks WHERE id=?", (parent_id,))
@@ -3275,8 +3277,12 @@ def _parent_finished(conn, row, previous, actor=None, parent=None, told=None):
         parent = task(conn, parent_id)
         if not parent or children_summary(conn, parent_id)["open"]:
             break
-        if parent["status"] not in terminal and parent["owner"] != actor and not (
-                parent_id == first and told and parent["owner"] == told):
+        # The owner finishing work in the parent's own session already knows; one finished in a session of
+        # its own (a subtask the bot filed for itself) has to wake the parent's session.
+        same_session = parent["owner"] == actor and is_bot(actor) and \
+            _session_lanes(conn, {**row, "owner": actor})[1] == _session_lanes(conn, parent)[1]
+        if parent["status"] not in terminal and (parent["owner"] != actor or is_bot(actor) and not same_session) \
+                and not (parent_id == first and told and parent["owner"] == told):
             _wake(conn, parent, parent["owner"], "All subtasks done")
 
 

@@ -35,7 +35,8 @@ function route() {
   convStop(); meetStop(); onbStop(); TASKS_ST?.layoutAbort?.abort(); TASKS_ST = null; // page-local work never outlives its page
   if (S.route !== '#/usage') USE = null;
   if (!S.route.startsWith('#/replay')) replayStop();
-  if (!S.route.startsWith('#/computers/')) screenStop();
+  if (!/^#\/computers\/[^/?]+\/screen$/.test(S.route)) screenStop();
+  if (!/^#\/computers\/[^/?]+\/performance$/.test(S.route)) perfStop();
   if (UPD && !(S.route === UPDATES || S.route.startsWith(UPDATES + '?'))) { UPD.io?.disconnect(); void updFlush(UPD); UPD = null; }
   if (!S.route.startsWith('#/bot/')) botStopped();
   renderTree();
@@ -92,6 +93,7 @@ function route() {
   else if (S.route === '#/usage') pageUsage();
   else if (S.route === '#/replay' || S.route.startsWith('#/replay?')) pageReplay();
   else if (/^#\/computers\/[^/?]+\/screen$/.test(S.route)) pageComputerScreen(decodeURIComponent(S.route.split('/')[2]), from);
+  else if (/^#\/computers\/[^/?]+\/performance$/.test(S.route)) pageComputerPerformance(decodeURIComponent(S.route.split('/')[2]));
   else location.hash = UPDATES;         // unknown or empty routes land on Updates, home
   window.syncLibrarianRail?.();
   $('#main').scrollTop = 0;

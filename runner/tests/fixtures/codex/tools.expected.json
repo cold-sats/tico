@@ -156,6 +156,58 @@
   "kind": "tool",
   "thread_id": "thr_1",
   "turn_id": "turn_1",
+  "tool": "spawnAgent",
+  "status": "completed",
+  "item_id": "s2",
+  "parent_id": null
+ },
+ {
+  "kind": "tool",
+  "thread_id": "thr_1",
+  "turn_id": "turn_1",
+  "tool": "shell",
+  "status": "completed",
+  "item_id": "c4",
+  "parent_id": "thr_child3"
+ },
+ {
+  "kind": "tool",
+  "thread_id": "thr_1",
+  "turn_id": "turn_1",
+  "tool": "subagent",
+  "status": "started",
+  "item_id": "agent:thr_child4",
+  "parent_id": null,
+  "subagent": {
+   "id": "thr_child4",
+   "parent_id": null,
+   "type": "/root/lister",
+   "model": "gpt-5.5-mini",
+   "status": "started"
+  }
+ },
+ {
+  "kind": "tool",
+  "thread_id": "thr_1",
+  "turn_id": "turn_1",
+  "tool": "shell",
+  "status": "completed",
+  "item_id": "c5",
+  "parent_id": "thr_child4"
+ },
+ {
+  "kind": "tool",
+  "thread_id": "thr_1",
+  "turn_id": "turn_1",
+  "tool": "hub__lookup",
+  "status": "completed",
+  "item_id": "fo1",
+  "parent_id": null
+ },
+ {
+  "kind": "tool",
+  "thread_id": "thr_1",
+  "turn_id": "turn_1",
   "tool": "futureTool",
   "status": "started",
   "item_id": "x1",

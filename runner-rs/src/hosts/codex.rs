@@ -27,7 +27,7 @@ const NOOP_COMMAND: &str = "/usr/bin/true";
 /// Thread items that are not tool calls. Any other item type, including one added later, is reported as a tool,
 /// because an unreported call would let a stopped run look safe to repeat.
 const NOT_TOOLS: &[&str] = &[
-    "userMessage", "hookPrompt", "agentMessage", "functionCallOutput", "plan", "reasoning", "subAgentActivity",
+    "userMessage", "hookPrompt", "agentMessage", "plan", "reasoning", "subAgentActivity",
     "enteredReviewMode", "exitedReviewMode", "contextCompaction", "sleep",
 ];
 
@@ -43,6 +43,11 @@ fn tool_of(item: &Value) -> (String, String) {
         }
         "mcpToolCall" => (format!("mcp__{}__{}", text_of(&item["server"]), text_of(&item["tool"])), String::new()),
         "dynamicToolCall" | "collabAgentToolCall" => (named("tool"), String::new()),
+        // An output with no call item of its own still means a call ran.
+        "functionCallOutput" => match item["namespace"].as_str().filter(|n| !n.is_empty()) {
+            Some(ns) => (format!("{ns}__{}", named("name")), String::new()),
+            None => (named("name"), String::new()),
+        },
         "webSearch" => ("web_search".into(), String::new()),
         "imageView" => ("view_image".into(), tool_summary(&json!({"path": item["path"]}))),
         _ => (kind.to_string(), String::new()),

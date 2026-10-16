@@ -268,6 +268,8 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            BotOps: any v2 route, as the person who asked; a Confirm card for what
                                            always needs their click. Never a secret in the body
     hub computer list                      the computers a bot may go on, and what runs on each
+    hub computer performance <label|id> [--hours 24]
+                                           its CPU, memory and disk over time, overloads and what ran then
     hub credential request <ENV> [--for-bot B] [--label "your Jira login"] [--format "you@x.com:API token"]
                     [--help-url https://...] [--kind api_key|token|password]
                                            open a card in the chat for the person to type the secret into
@@ -1669,8 +1671,12 @@ def parser():
     s.add_argument("body", nargs="?", help="a JSON body for a write; - reads it from standard input")
     s.add_argument("--on-behalf-of", help="the open task a person asked you for, when something else started this run")
     s.set_defaults(fn="api")
-    sub.add_parser("computer", help="the computers a bot may go on").add_subparsers(dest="sub").add_parser(
-        "list", help="the computers a bot may go on, and what runs on each").set_defaults(fn="computer list")
+    comp = sub.add_parser("computer", help="the computers a bot may go on").add_subparsers(dest="sub")
+    comp.add_parser("list", help="the computers a bot may go on, and what runs on each").set_defaults(fn="computer list")
+    s = comp.add_parser("performance", help="a computer's CPU, memory and disk over time, overloads and what ran then")
+    s.add_argument("computer", help="the computer's label or id")
+    s.add_argument("--hours", type=int, default=24)
+    s.set_defaults(fn="computer performance")
     cred = sub.add_parser("credential", help="ask for a credential in the chat, store one, list them").add_subparsers(dest="sub")
     s = cred.add_parser("request", help="open a card in the chat for the person to type the credential into")
     s.add_argument("env", help="the variable's name, like JIRA_BASIC_AUTH")

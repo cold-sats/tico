@@ -178,20 +178,66 @@ pub fn tool_summary(input: &Value) -> String {
 }
 
 /// The program a shell command runs: leading `NAME=value` assignments are skipped, a `sh -c` wrapper is unwrapped,
-/// and only the program's file name is kept.
+/// and only the program's file name is kept. Words are split the way a shell quotes them, so a quoted value with a
+/// space stays one word; a command whose quoting does not close gives nothing.
 pub fn command_program(command: &str) -> String {
-    let words: Vec<&str> = command.split_whitespace().collect();
+    let Some(words) = shell_words(command) else { return String::new() };
     let Some(at) = words.iter().position(|w| !is_assignment(w)) else { return String::new() };
-    let program = words[at].trim_matches(|c| c == '\'' || c == '"');
-    let program = program.rsplit('/').next().unwrap_or(program);
+    let program = words[at].rsplit('/').next().unwrap_or(&words[at]);
     let shell = matches!(program, "sh" | "bash" | "zsh" | "dash");
-    if let (true, Some(flag), Some(_)) = (shell, words.get(at + 1), words.get(at + 2)) {
+    if let (true, Some(flag), Some(inner)) = (shell, words.get(at + 1), words.get(at + 2)) {
         if flag.starts_with('-') && flag.ends_with('c') {
-            let rest = words[at + 2..].join(" ");
-            return command_program(rest.trim_start_matches(['\'', '"']));
+            return command_program(inner);
         }
     }
     clip(program)
+}
+
+/// A command's words after shell quoting (single, double, backslash), or None when a quote is left open.
+fn shell_words(command: &str) -> Option<Vec<String>> {
+    let (mut words, mut word, mut started) = (vec![], String::new(), false);
+    let mut chars = command.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            c if c.is_whitespace() => {
+                if started {
+                    words.push(std::mem::take(&mut word));
+                    started = false;
+                }
+            }
+            '\'' => {
+                started = true;
+                loop {
+                    match chars.next()? {
+                        '\'' => break,
+                        c => word.push(c),
+                    }
+                }
+            }
+            '"' => {
+                started = true;
+                loop {
+                    match chars.next()? {
+                        '"' => break,
+                        '\\' => word.push(chars.next()?),
+                        c => word.push(c),
+                    }
+                }
+            }
+            '\\' => {
+                started = true;
+                word.push(chars.next()?);
+            }
+            c => {
+                started = true;
+                word.push(c);
+            }
+        }
+    }
+    if started {
+        words.push(word);
+    }
+    Some(words)
 }
 
 fn is_assignment(word: &str) -> bool {
@@ -472,6 +518,10 @@ mod tests {
         assert_eq!(tool_summary(&json!({"command": "curl -H 'Authorization: Bearer sk-live-1' https://api.example.com"})), "curl");
         assert_eq!(tool_summary(&json!({"command": "TOKEN=sk-live-1 /usr/bin/python3 run.py --key sk-live-1"})), "python3");
         assert_eq!(command_program("/bin/bash -lc 'gh api -H \"Authorization: token x1\" /user'"), "gh");
+        assert_eq!(tool_summary(&json!({"command": "TOKEN=\"Bearer sk-live-abc\" curl https://api.example.com"})), "curl");
+        assert_eq!(tool_summary(&json!({"command": "AUTH='x sk-live-abc' ./run.sh"})), "run.sh");
+        assert_eq!(tool_summary(&json!({"command": "bash -c \"TOKEN='a sk-live-abc' curl x\""})), "curl");
+        assert_eq!(tool_summary(&json!({"command": "TOKEN='sk-live-abc curl"})), "");
         assert_eq!(tool_summary(&json!({"file_path": "/work/note.txt", "content": "secret body"})), "/work/note.txt");
         assert_eq!(tool_summary(&json!({"description": "count words", "prompt": "Count the words", "subagent_type": "general-purpose"})), "");
         assert_eq!(tool_summary(&json!({"query": "private question", "url": "https://x.example/?token=1"})), "");

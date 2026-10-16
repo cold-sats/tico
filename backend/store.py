@@ -378,7 +378,7 @@ MAIL_RETENTION_DAYS = 180
 # (the heartbeat reply carries every assignment), and grew to most of the database file. A claim that leased a job stays replayable so a lost reply cannot
 # strand the lease.
 def is_poll(operation, result):
-    if operation == "/api/v2/runners/heartbeat":
+    if operation in ("/api/v2/runners/heartbeat", "/api/v2/runners/performance"):
         return True
     if operation == "/api/v2/jobs/claim":
         return isinstance(result, dict) and result.get("attempt") is None
@@ -653,6 +653,8 @@ class Store:
             c.executescript(_slack_channels.SCHEMA)
             from . import flight as _flight
             c.executescript(_flight.SCHEMA)
+            from . import performance as _performance
+            c.executescript(_performance.SCHEMA)
             _updates.purge_rejected(c)
             c.execute("BEGIN IMMEDIATE")
             try:
@@ -667,6 +669,8 @@ class Store:
                 H.add_column(c, "runners", "accepts_member_bots", "INTEGER NOT NULL DEFAULT 0")
                 # Who may open a computer's screen from the app: off, view or control (backend/screen.py).
                 H.add_column(c, "runners", "screen", "TEXT NOT NULL DEFAULT 'off'")
+                # Performance diagnostics: on unless a person turns them off (backend/performance.py).
+                H.add_column(c, "runners", "performance", "TEXT NOT NULL DEFAULT 'on'")
                 # A starter bot is `needs_onboarding` until it says its setup is done, then
                 # `onboarded`; NULL for every other bot (backend/onboarding.py).
                 H.add_column(c, "bot_config", "onboarding_state", "TEXT")
