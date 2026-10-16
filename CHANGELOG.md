@@ -8,6 +8,11 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Behaviour replay** (`evals/replay/`): capture a finished task's opening state and outcome as a case, have a person
+  redact and sign it, then re-run it on a candidate build or prompt in a scratch team. Both sides are scored by the
+  BotOps scorers and the case's checks, and the report lists wins and regressions. Unsigned cases, ones still
+  holding a common key or token shape or an email address, and a server that holds the original tasks are refused.
+  Run at release preparation, not per pull request.
 - Each computer's Performance page (Settings > Computers > ⋯ > Performance): CPU and memory over the last day, 7 days
   or 14 days, overloads with the bots that were running and the busiest processes, and a Health warning after one.
   On by default; its operator or an admin turns it off or deletes the history. Support diagnostics can include it.
