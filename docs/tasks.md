@@ -141,7 +141,8 @@ lease, and what followed it: run again automatically or by a person, resumed or 
 waiting for a person. Under it are the subagents the try started, as a tree with each one's type, model, duration and
 result, and the shells and monitors it ran in the background; one still running is also listed at the top while the
 run is live. Background work is reported by Claude runs; other harnesses show none. Only the file or program a call
-touches is shown, never its arguments, and an attempt that also carried a private task you cannot read is left out.
+touches is shown, never its arguments. An attempt is left out unless you can read its bot, the conversation it
+answered and every private task it carried; an automatic decision shows the hub's own words, never what the run saved.
 
 Waiting work is not starved: a bot's queued jobs are claimed oldest first (a person's chat message
 still goes ahead), so a newer task never jumps one that has been waiting. Task ranks stay as people

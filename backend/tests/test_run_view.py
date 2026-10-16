@@ -99,4 +99,29 @@ def test_a_retried_run_shows_both_attempts_and_the_decision_between_them(api):
     assert "events_action_target" in plan, plan
     assert (earlier["run"], earlier["try"], earlier["tries"], earlier["state"]) == (first["id"], 1, 2, "expired")
     assert earlier["next"]["kind"] == "resumed" and earlier["next"]["by"] == H.KEEPER and earlier["next"]["note"]
+    assert "Archived one bot" not in json.dumps(earlier), "the hub's own words, never what the stopped run saved"
     assert (later["run"], later["try"], later["tries"], later["next"]) == (second["id"], 2, 2, None)
+
+
+def test_a_run_from_a_conversation_the_reader_cannot_open_stays_out(api):
+    """A person's direct message to the bot that names the task puts that run on the task; only who can read that
+    conversation (and the bot) sees it. A blocked checkpoint is not shown."""
+    machine = runner(api, "ana")
+    assign(api, machine, "ops")
+    ready(api, machine, ["ops"])
+    tid, shared = task_attempt(api, machine, "Export the report")
+    post(api, f"attempts/{shared['id']}/complete", {"outcome": "completed", "last_seq": 0, "text": "Exported."},
+         machine["token"])
+    post(api, "chat/ops", {"text": "Run the payroll export for this task."})
+    direct = claim(api, machine)
+    post(api, f"attempts/{direct['id']}/started", {"thread_id": "dm"}, machine["token"])
+    events(api, machine, direct["id"], [("tool", {"tool": "Bash", "status": "started", "item_id": "p1",
+                                                  "summary": "payroll-export.sh", "parent_id": None, "background": True})])
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE turns SET task_id=? WHERE id=?", (tid, direct["id"]))
+    assert {r["run"] for r in get(api, f"tasks/{tid}/run-view")["attempts"]} == {shared["id"], direct["id"]}
+    seen = get(api, f"tasks/{tid}/run-view", token="cara-test")
+    assert [r["run"] for r in seen["attempts"]] == [shared["id"]] and "payroll" not in json.dumps(seen)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET checkpoint_blocked=1 WHERE id=?", (tid,))
+    assert get(api, f"tasks/{tid}/run-view")["checkpoint"] is None

@@ -11,7 +11,7 @@ import json
 
 from fastapi import Request
 
-from .store import H
+from .store import H, Problem
 from . import task_privacy as privacy
 from .turns import TOOL_START, TOOL_BACKGROUNDED, clip, seconds
 
@@ -79,7 +79,23 @@ def work(rows, live):
         if node.get("duration_ms") is None and "tool_uses" in node and node["ended"]:
             took = seconds(node["started"], node["ended"])
             node["duration_ms"] = took * 1000 if took is not None else None
-    return list(agents.values())[:NODE_LIMIT], list(shells.values())[:NODE_LIMIT]
+    return capped(list(agents.values())), capped(list(shells.values()))
+
+
+def capped(nodes):
+    """At most NODE_LIMIT, in start order: every running one first, then the newest of the ended."""
+    running = [n for n in nodes if n["running"]][-NODE_LIMIT:]
+    room = NODE_LIMIT - len(running)
+    ended = [n for n in nodes if not n["running"]][-room:] if room else []
+    keep = {id(n) for n in running + ended}
+    return [n for n in nodes if id(n) in keep]
+
+
+def decision_note(actor, note):
+    """A person's decision keeps its note. The hub's own keeps only its first paragraph, its own words: the rest of an
+    automatic resume note is what the stopped run saved, which is the bot's text, not a decision."""
+    note = str(note or "")
+    return clip(note.split("\n\n")[0] if actor == H.KEEPER else note, 400)
 
 
 def next_step(attempt, tries, job, decisions, retries):
@@ -100,7 +116,9 @@ def next_step(attempt, tries, job, decisions, retries):
         return {"kind": "waiting", "by": None, "at": None,
                 "note": "Stopped partway after it may have acted: waiting for a person to decide whether to run it again."}
     if job["state"] in ("queued", "leased"):
-        return {"kind": "queued", "by": None, "at": None, "note": "Queued to run again."}
+        by = next((r for r in reversed(retries) if r["at"] >= (attempt["finished"] or attempt["created"])), None)
+        return {"kind": "queued", "by": by and by["by"], "at": by and by["at"],
+                "note": "Queued to run again by hand." if by else "Queued to run again."}
     return None
 
 
@@ -108,10 +126,22 @@ def run_view(c, auth, who, tid):
     actor = privacy.actor(who)
     # A task party who cannot read the bot sees none of its runs, as on the bot's steps and failed attempts.
     bots = auth.bot_accesses(c, who)
+
+    def readable(r):
+        # As on the run's own steps: the reader must open the conversation it answered, not only the task. A person's
+        # direct message to the bot that names the task puts that run here, and it stays theirs.
+        if not (bots.get(r["bot"]) or {}).get("read") or not privacy.attempt_readable(c, actor, r["id"]):
+            return False
+        try:
+            auth.conversation(c, who, r["conversation_id"])
+            return True
+        except Problem:
+            return False
     turns = [r for r in H._rows(c.execute(
-        "SELECT t.id,t.bot,t.exit,a.job_id,a.state,a.created,a.started,a.finished,a.lease_until,a.result_json "
-        "FROM turns t JOIN attempts a ON a.id=t.id WHERE t.task_id=? ORDER BY a.created DESC LIMIT ?",
-        (tid, ATTEMPT_LIMIT))) if (bots.get(r["bot"]) or {}).get("read") and privacy.attempt_readable(c, actor, r["id"])]
+        "SELECT t.id,t.bot,t.exit,a.job_id,a.state,a.created,a.started,a.finished,a.lease_until,a.result_json,"
+        "m.conversation_id FROM turns t JOIN attempts a ON a.id=t.id JOIN jobs j ON j.id=a.job_id "
+        "JOIN messages m ON m.id=j.message_id WHERE t.task_id=? ORDER BY a.created DESC LIMIT ?",
+        (tid, ATTEMPT_LIMIT))) if readable(r)]
     ids = [r["id"] for r in turns]
     jobs = sorted({r["job_id"] for r in turns})
     # A blocked checkpoint is no checkpoint: no prompt or stall report uses it either.
@@ -134,7 +164,7 @@ def run_view(c, auth, who, tid):
         if e["action"] in DECISIONS and detail.get("attempt_id"):
             decisions[detail["attempt_id"]] = {
                 "kind": "resumed" if detail.get("decision") == "resume" else "dismissed",
-                "by": e["actor"], "at": e["ts"], "note": clip(detail.get("note"), 400)}
+                "by": e["actor"], "at": e["ts"], "note": decision_note(e["actor"], detail.get("note"))}
         elif e["action"] == "job.retry":
             retries.setdefault(e["target"], []).append({"by": e["actor"], "at": e["ts"]})
         elif e["action"] in LEASE:

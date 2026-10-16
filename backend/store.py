@@ -1182,6 +1182,8 @@ class Store:
                                    # A computer asking after the tasks its session checkouts are kept for.
                                    ("attempts_bot_lane", "attempts(bot, lane)"),
                                    ("events_action_target", "events(action, target, ts)"),
+                                   # A task's runs (the task view's runs and its Runs section, backend/run_view.py).
+                                   ("turns_task", "turns(task_id, started)"),
                                    # A blob's provenance (task_privacy.blob_readable), read for every
                                    # version of every file a bot's Files tab lists and for each download.
                                    ("message_assets_blob", "message_assets(blob_id)"),
