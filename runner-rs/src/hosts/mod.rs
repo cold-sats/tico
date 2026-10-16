@@ -179,10 +179,14 @@ pub fn tool_summary(input: &Value) -> String {
 
 /// The program a shell command runs: leading `NAME=value` assignments are skipped, a `sh -c` wrapper is unwrapped,
 /// and only the program's file name is kept. Words are split the way a shell quotes them, so a quoted value with a
-/// space stays one word; a command whose quoting does not close gives nothing.
+/// space stays one word; a command whose quoting does not close gives nothing, and so does one whose program could
+/// come from an expansion (`$(...)`, backticks, `${...}`), since those are not split here.
 pub fn command_program(command: &str) -> String {
     let Some(words) = shell_words(command) else { return String::new() };
     let Some(at) = words.iter().position(|w| !is_assignment(w)) else { return String::new() };
+    if words[..=at].iter().any(|w| w.contains("$(") || w.contains('`') || w.contains("${")) {
+        return String::new();
+    }
     let program = words[at].rsplit('/').next().unwrap_or(&words[at]);
     let shell = matches!(program, "sh" | "bash" | "zsh" | "dash");
     if let (true, Some(flag), Some(inner)) = (shell, words.get(at + 1), words.get(at + 2)) {
@@ -384,13 +388,29 @@ impl Host {
         }
     }
 
-    pub fn supports_steer(&self) -> bool {
+    /// The manifest runtime and variant this host runs, for its declared capabilities.
+    fn harness(&self) -> (&'static str, &'static str) {
         match self {
-            Host::Claude(h) => h.supports_steer(),
-            Host::Codex(_) => true,
-            Host::Gemini(_) | Host::Antigravity(_) => false,
-            Host::MuseCode(_) | Host::Pi(_) | Host::Cursor(_) | Host::Grok(_) => false,
+            Host::Claude(_) => ("claude", ""),
+            Host::Codex(_) => ("codex", ""),
+            Host::Gemini(_) => ("gemini", ""),
+            Host::Antigravity(_) => ("gemini", "antigravity"),
+            Host::MuseCode(_) => ("musecode", ""),
+            Host::Pi(_) => ("pi", ""),
+            Host::Cursor(_) => ("cursor", ""),
+            Host::Grok(_) => ("grok", ""),
         }
+    }
+
+    /// A running turn takes new input only when the harness declares `steer`, and for Claude Code only when the
+    /// installed CLI echoes its input; otherwise the input waits for the next turn.
+    pub fn supports_steer(&self) -> bool {
+        let (runtime, harness) = self.harness();
+        crate::harness_tools::caps(runtime, harness).steer
+            && match self {
+                Host::Claude(h) => h.supports_steer(),
+                _ => true,
+            }
     }
 
     pub async fn start_thread(&self, bot: &str, settings: &Settings) -> Result<String, HostError> {
@@ -522,6 +542,10 @@ mod tests {
         assert_eq!(tool_summary(&json!({"command": "AUTH='x sk-live-abc' ./run.sh"})), "run.sh");
         assert_eq!(tool_summary(&json!({"command": "bash -c \"TOKEN='a sk-live-abc' curl x\""})), "curl");
         assert_eq!(tool_summary(&json!({"command": "TOKEN='sk-live-abc curl"})), "");
+        assert_eq!(tool_summary(&json!({"command": "TOKEN=$(echo sk-live-abc) curl x"})), "");
+        assert_eq!(tool_summary(&json!({"command": "TOKEN=`echo sk-live-abc` curl x"})), "");
+        assert_eq!(tool_summary(&json!({"command": "TOKEN=${T:-a sk-live-abc} curl x"})), "");
+        assert_eq!(tool_summary(&json!({"command": "curl -H \"X: $(cat key)\" x"})), "curl");
         assert_eq!(tool_summary(&json!({"file_path": "/work/note.txt", "content": "secret body"})), "/work/note.txt");
         assert_eq!(tool_summary(&json!({"description": "count words", "prompt": "Count the words", "subagent_type": "general-purpose"})), "");
         assert_eq!(tool_summary(&json!({"query": "private question", "url": "https://x.example/?token=1"})), "");

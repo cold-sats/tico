@@ -1153,6 +1153,30 @@ mod tests {
     }
 
     #[test]
+    fn a_tool_server_call_carries_no_summary() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let host = ClaudeHost::new("acme", vec!["claude".into()], tx);
+        let input = json!({"command": "curl -H 'Authorization: Bearer sk-live-1' x", "path": "/work/a.txt"});
+        host.tool_started(&json!({"id": "t1", "name": "mcp__repo__run", "input": input}), None, "th", "tu");
+        host.tool_started(&json!({"id": "t2", "name": "Bash", "input": input}), None, "th", "tu");
+        let (server, bash) = (rx.try_recv().unwrap(), rx.try_recv().unwrap());
+        assert_eq!((server["tool"].as_str(), server["summary"].as_str()), (Some("mcp__repo__run"), Some("")));
+        assert_eq!(bash["summary"], "/work/a.txt");
+    }
+
+    #[test]
+    fn a_refused_turns_event_gives_the_reset() {
+        // `rate_limit_event` as Claude Code sends it when the five-hour window refuses a turn.
+        let info: Value = serde_json::from_str(r#"{"status":"rejected","resetsAt":4102444800,"rateLimitType":"five_hour","overageStatus":"rejected","isUsingOverage":false}"#).unwrap();
+        for w in rate_limit_windows(&info) {
+            crate::profiles::remember_weekly("claude-reset-test", "claude", &w);
+        }
+        let now = 4102444800.0 - 3000.0;
+        assert_eq!(crate::profiles::limit_reset("claude-reset-test", "claude", now).as_deref(), Some("2100-01-01T00:00:00+00:00"));
+        crate::profiles::forget_windows("claude-reset-test", "claude");
+    }
+
+    #[test]
     fn only_claudes_own_notice_is_a_limit() {
         let text = "You've hit your session limit · resets 12:40am (UTC)";
         assert!(limit_notice(&json!({"error": "rate_limit", "message": {"model": "claude-opus-5-5"}}), text));
