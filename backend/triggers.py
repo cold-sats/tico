@@ -15,6 +15,13 @@ triggers exist.
 A sender's `Idempotency-Key` (or `Webhook-Id`, `X-Request-Id`, `X-GitHub-Delivery`) makes a
 retried delivery open nothing new. Each trigger takes at most `HOURLY` deliveries an hour, so a
 noisy sender cannot wake a bot without end; past that the sender gets 429 and retries later.
+
+A trigger may also have a signing secret. Then every delivery must carry an HMAC-SHA256 of its exact
+body under that secret, in GitHub's `X-Hub-Signature-256: sha256=<hex>` or a generic `X-Signature`
+(`sha256=<hex>` or bare hex); one without a matching signature is refused with 401 and logged. The
+secret is sealed with the credential vault, since checking a signature needs the secret itself.
+Refusals are logged only after the address's own secret matched, at most `HOURLY` an hour, so a
+stranger cannot fill the log.
 """
 import hashlib
 import hmac
@@ -43,6 +50,8 @@ KEEP = 200                       # recent deliveries kept per trigger, for the S
 LISTED = 200                     # triggers in one listing, and LISTED_ROUTINES routines under each
 LISTED_ROUTINES = 20
 DELIVERY_HEADERS = ("idempotency-key", "webhook-id", "x-request-id", "x-github-delivery")
+SIGNATURE_HEADERS = ("x-hub-signature-256", "x-signature")
+LOGGED = 50                      # deliveries in one trigger's log on the page
 
 
 
@@ -51,12 +60,34 @@ class TriggerCreate(Contract):
     id: str = Field(default="", max_length=40)
 
 
+class TriggerSigning(Contract):
+    """`secret` the sender was given (GitHub lets you type one); empty makes a new one. `off` stops checking."""
+    secret: str = Field(default="", max_length=200)
+    off: bool = False
+
+
 def digest(secret):
     return hashlib.sha256(secret.encode()).hexdigest()
 
 
 def slug_of(name):
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:40].strip("-") or "hook"
+
+
+def sealed_as(trigger_id):
+    return "triggers:" + trigger_id
+
+
+def signature_ok(key, body, headers):
+    """Whether one of SIGNATURE_HEADERS holds the HMAC-SHA256 of `body` under `key`, as hex with or without `sha256=`."""
+    want = hmac.new(key.encode(), body, hashlib.sha256).hexdigest()
+    for name in SIGNATURE_HEADERS:
+        sent = str(headers.get(name) or "").strip()
+        if sent[:7].lower() == "sha256=":
+            sent = sent[7:]
+        if sent and hmac.compare_digest(sent.lower().encode(), want.encode()):
+            return True
+    return False
 
 
 def event_of(trigger_id):
@@ -91,15 +122,18 @@ def listing(c, settings):
     since = H.shift(H.now(), hours=-24)
     out = []
     for t in c.execute("SELECT * FROM triggers WHERE deleted_at IS NULL ORDER BY name COLLATE NOCASE, id LIMIT ?", (LISTED,)).fetchall():
-        last = c.execute("SELECT max(received_at) FROM trigger_deliveries WHERE trigger_id=?", (t["id"],)).fetchone()[0]
-        day = c.execute("SELECT count(*) FROM trigger_deliveries WHERE trigger_id=? AND received_at>?",
-                        (t["id"], since)).fetchone()[0]
+        last = c.execute("SELECT max(received_at) FROM trigger_deliveries WHERE trigger_id=? AND outcome='accepted'",
+                         (t["id"],)).fetchone()[0]
+        day, refused = c.execute(
+            "SELECT count(CASE WHEN outcome='accepted' THEN 1 END), count(CASE WHEN outcome='refused' THEN 1 END) "
+            "FROM trigger_deliveries WHERE trigger_id=? AND received_at>?", (t["id"], since)).fetchone()
         used = [dict(r) for r in c.execute(
             "SELECT id,bot,title FROM schedules WHERE event_name=? AND deleted_at IS NULL ORDER BY bot,title LIMIT ?",
             (event_of(t["id"]), LISTED_ROUTINES)).fetchall()]
         out.append({"id": t["id"], "name": t["name"], "kind": t["kind"], "event": event_of(t["id"]),
                     "url": address(settings, t["id"]), "created_by": t["created_by"], "created_at": t["created_at"],
-                    "last_received": last, "received_24h": day, "routines": used})
+                    "last_received": last, "received_24h": day, "refused_24h": refused,
+                    "signed": bool(t["signing_secret"]), "routines": used})
     return out
 
 
@@ -116,7 +150,7 @@ def create(c, who, settings, body):
     # fire again, and the old address stays dead.
     c.execute("INSERT INTO triggers(id,name,kind,secret_hash,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?) "
               "ON CONFLICT(id) DO UPDATE SET name=excluded.name,secret_hash=excluded.secret_hash,"
-              "created_by=excluded.created_by,updated_at=excluded.updated_at,deleted_at=NULL",
+              "created_by=excluded.created_by,updated_at=excluded.updated_at,deleted_at=NULL,signing_secret=NULL",
               (trigger_id, body.name.strip(), "webhook", digest(secret), who.actor, now, now))
     H.event(c, who.actor, "trigger.created", trigger_id, {"name": body.name.strip()})
     return {"id": trigger_id, "event": event_of(trigger_id), "url": address(settings, trigger_id, secret)}
@@ -135,6 +169,46 @@ def rotate(c, who, settings, trigger_id):
     c.execute("UPDATE triggers SET secret_hash=?,updated_at=? WHERE id=?", (digest(secret), H.now(), trigger_id))
     H.event(c, who.actor, "trigger.rotated", trigger_id, {})
     return {"id": trigger_id, "url": address(settings, trigger_id, secret)}
+
+
+def sign(c, who, vault, trigger_id, body):
+    """Set, replace or turn off the signing secret. The answer carries the secret once, for the sender's settings."""
+    may_manage(c, who, _row(c, trigger_id))
+    if body.off:
+        c.execute("UPDATE triggers SET signing_secret=NULL,updated_at=? WHERE id=?", (H.now(), trigger_id))
+        H.event(c, who.actor, "trigger.signing_off", trigger_id, {})
+        return {"id": trigger_id, "signed": False}
+    key = body.secret or secrets.token_hex(32)
+    if len(key) < 16:
+        raise Problem("trigger", "A signing secret has at least 16 characters", 422)
+    c.execute("UPDATE triggers SET signing_secret=?,updated_at=? WHERE id=?",
+              (vault.cipher.seal(c, sealed_as(trigger_id), key), H.now(), trigger_id))
+    H.event(c, who.actor, "trigger.signing_set", trigger_id, {})
+    return {"id": trigger_id, "signed": True, "signing_secret": key}
+
+
+def deliveries(c, trigger_id):
+    _row(c, trigger_id)
+    return [dict(r) for r in c.execute(
+        "SELECT sent_id,received_at,bytes,tasks,outcome,reason FROM trigger_deliveries WHERE trigger_id=? "
+        "ORDER BY received_at DESC LIMIT ?", (trigger_id, LOGGED)).fetchall()]
+
+
+def _log(c, trigger_id, delivery, sent_id, body, fired, outcome, reason=""):
+    c.execute("INSERT INTO trigger_deliveries(trigger_id,delivery,received_at,bytes,tasks,outcome,reason,sent_id) "
+              "VALUES(?,?,?,?,?,?,?,?)", (trigger_id, delivery, H.now(), len(body), fired, outcome, reason, sent_id))
+    c.execute("DELETE FROM trigger_deliveries WHERE trigger_id=? AND outcome=? AND delivery NOT IN (SELECT delivery FROM "
+              "trigger_deliveries WHERE trigger_id=? AND outcome=? ORDER BY received_at DESC LIMIT ?)",
+              (trigger_id, outcome, trigger_id, outcome, KEEP))
+
+
+def _refuse(c, trigger_id, sent_id, body, problem):
+    """Log a refused delivery (at most HOURLY an hour) and hand back the refusal for after the commit."""
+    hour = c.execute("SELECT count(*) FROM trigger_deliveries WHERE trigger_id=? AND outcome='refused' AND received_at>?",
+                     (trigger_id, H.shift(H.now(), hours=-1))).fetchone()[0]
+    if hour < HOURLY:
+        _log(c, trigger_id, H.new_id(), sent_id, body, 0, "refused", problem.detail)
+    return {"refused": problem}
 
 
 def remove(c, who, trigger_id):
@@ -162,22 +236,34 @@ def content_of(body, content_type):
             + text + "\n```" + note)
 
 
-def deliver(c, trigger_id, secret, body, headers, *, auth=None):
+def deliver(c, trigger_id, secret, body, headers, *, auth=None, vault=None):
+    """What one call to the address does. A refusal worth logging comes back as `{"refused": Problem}`, so the
+    transaction keeps its log row; the caller raises it after the commit."""
     found = c.execute("SELECT * FROM triggers WHERE id=? AND deleted_at IS NULL", (trigger_id,)).fetchone()
     if not found or not secret or not hmac.compare_digest(found["secret_hash"], digest(secret)):
         raise Problem("not_found", "Not found", 404)
-    delivery = next((str(headers.get(h))[:200] for h in DELIVERY_HEADERS if headers.get(h)), "") or H.new_id()
+    sent_id = next((str(headers.get(h))[:200] for h in DELIVERY_HEADERS if headers.get(h)), "")
+    if found["signing_secret"]:
+        if vault is None:
+            raise Problem("vault_unavailable", "This trigger's signing secret cannot be read here", 503)
+        key = vault.cipher.unseal(c, sealed_as(trigger_id), found["signing_secret"])
+        if not any(headers.get(h) for h in SIGNATURE_HEADERS):
+            return _refuse(c, trigger_id, sent_id, body, Problem(
+                "signature", "This trigger needs a signed body (X-Hub-Signature-256 or X-Signature)", 401))
+        if not signature_ok(key, body, headers):
+            return _refuse(c, trigger_id, sent_id, body, Problem(
+                "signature", "The signature does not match the body and this trigger's signing secret", 401))
+    delivery = sent_id or H.new_id()
     if c.execute("SELECT 1 FROM trigger_deliveries WHERE trigger_id=? AND delivery=?", (trigger_id, delivery)).fetchone():
         return {"ok": True, "duplicate": True, "tasks": 0}
-    hour = c.execute("SELECT count(*) FROM trigger_deliveries WHERE trigger_id=? AND received_at>?",
+    hour = c.execute("SELECT count(*) FROM trigger_deliveries WHERE trigger_id=? AND outcome='accepted' AND received_at>?",
                      (trigger_id, H.shift(H.now(), hours=-1))).fetchone()[0]
     if hour >= HOURLY:
-        raise Problem("rate_limited", f"This trigger takes {HOURLY} deliveries an hour; try again later", 429)
+        return _refuse(c, trigger_id, sent_id, body, Problem(
+            "rate_limited", f"This trigger takes {HOURLY} deliveries an hour; try again later", 429))
     fired = routines.emit(c, event_of(trigger_id), delivery, {"trigger": found["name"]},
                           content=content_of(body, headers.get("content-type")), auth=auth)
-    c.execute("INSERT INTO trigger_deliveries VALUES(?,?,?,?,?)", (trigger_id, delivery, H.now(), len(body), len(fired)))
-    c.execute("DELETE FROM trigger_deliveries WHERE trigger_id=? AND delivery NOT IN (SELECT delivery FROM "
-              "trigger_deliveries WHERE trigger_id=? ORDER BY received_at DESC LIMIT ?)", (trigger_id, trigger_id, KEEP))
+    _log(c, trigger_id, delivery, sent_id, body, len(fired), "accepted")
     return {"ok": True, "tasks": len(fired)}
 
 
@@ -201,6 +287,21 @@ def install(app, settings, store, auth, mutate):
         """A new secret; the old address stops working at once."""
         return mutate(request, body, lambda c: {"trigger": rotate(c, request.state.identity, settings, trigger_id)})
 
+    @app.post("/api/v2/triggers/{trigger_id}/signing")
+    def trigger_signing(request: Request, trigger_id: str, body: TriggerSigning):
+        """Check an HMAC-SHA256 body signature on every delivery (or stop, with `off`). The secret is shown only now."""
+        return mutate(request, body, lambda c: {"trigger": sign(c, request.state.identity, request.app.state.vault,
+                                                                trigger_id, body)})
+
+    @app.get("/api/v2/triggers/{trigger_id}/deliveries")
+    def trigger_deliveries(request: Request, trigger_id: str):
+        """The latest calls to this trigger, accepted and refused, newest first."""
+        who = request.state.identity
+        if who.role not in ("human", "owner", "bot"):
+            raise Problem("forbidden", "Only people and bots read triggers", 403)
+        with store.read() as c:
+            return {"deliveries": deliveries(c, trigger_id)}
+
     @app.post("/api/v2/triggers/{trigger_id}/delete")
     def trigger_delete(request: Request, trigger_id: str, body: M.Empty):
         """Routines that listened for it stay, and fire again if the same id is made again."""
@@ -214,7 +315,10 @@ def install(app, settings, store, auth, mutate):
             bearer = request.headers.get("authorization", "")
             secret = bearer[7:].strip() if bearer[:7].lower() == "bearer " else ""
         with store.transaction() as c:
-            result = deliver(c, trigger_id, secret, body, request.headers, auth=auth)
+            result = deliver(c, trigger_id, secret, body, request.headers, auth=auth,
+                             vault=getattr(request.app.state, "vault", None))
+        if "refused" in result:
+            raise result["refused"]
         return JSONResponse(result, status_code=200 if result.get("duplicate") else 202)
 
     @app.post(PATH + "{trigger_id}")

@@ -16,6 +16,9 @@ All notable changes to Tico are recorded here. The format follows
 - Each computer's Performance page (Settings > Computers > ⋯ > Performance): CPU and memory over the last day, 7 days
   or 14 days, overloads with the bots that were running and the busiest processes, and a Health warning after one.
   On by default; its operator or an admin turns it off or deletes the history. Support diagnostics can include it.
+- Signed webhooks: a trigger in Settings > Triggers can require an HMAC-SHA256 signature of the body (GitHub's
+  `X-Hub-Signature-256` or a generic `X-Signature`) under its own signing secret; a call with a bad or missing
+  signature is refused with 401 and logged. Each trigger shows its recent calls, accepted and refused.
 - Settings > Computers shows Claude's and Codex's weekly and 5-hour usage as percentages on the computer's own login,
   not only on named subscriptions. Claude's come from its turns (Claude Code 2.1.30x reports both windows); before a
   Claude turn on that computer the row says so instead of a number. Codex's are read while idle, with the account, for

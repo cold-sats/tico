@@ -1827,7 +1827,8 @@ def routine_update(api, args):
 @tool("hub_trigger_list", "The webhook triggers people made in Settings > Triggers: each one's `event` "
       "(`webhook.<id>`) is what a routine's `on` names to run whenever something posts to it.", {})
 def trigger_list(api, args):
-    return [{k: t.get(k) for k in ("id", "name", "event", "last_received", "received_24h", "routines")}
+    return [{k: t.get(k) for k in ("id", "name", "event", "signed", "last_received", "received_24h", "refused_24h",
+                                   "routines")}
             for t in api.get("triggers")["triggers"]]
 
 
