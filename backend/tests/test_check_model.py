@@ -42,7 +42,9 @@ def test_stale_entries_are_skipped_and_never_fail_a_save():
     # A company default retired since it was saved is no check model; its provider's current one stands in.
     retired = P._record({**COMPANY, "model": "claude-opus-5"})
     assert [row["model"] for row in P.check_order(retired)][0] == "claude-opus-5-5"
-    assert P.check_order(P._record({**retired, "check_models": ["claude"]}))[0]["model"] == "claude-opus-5-5"
+    assert [row["model"] for row in P.check_order(P._record({**retired, "check_models": ["claude", "grok"]}))][:2] == \
+        ["claude-opus-5-5", "grok-4.6"]
+    assert P.normalize_check_models(["claude"], retired) == ["claude"]
     # A current company default leads its provider's place in the order, not the recommended model.
     assert P.check_order(P._record({**COMPANY, "model": "claude-sonnet-5-5"}))[0]["model"] == "claude-sonnet-5-5"
     off = {"enabled": ["anthropic", "openai"], "runtime": "claude", "model": "claude-opus-5-5"}

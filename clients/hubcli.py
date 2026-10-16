@@ -726,7 +726,8 @@ def parser():
     s.add_argument("--body", default="")
     s.add_argument("--check-model", metavar="RUNTIME[:MODEL]", nargs="?", const="auto",
                    help="run this subtask of yours on another model, in its own session (e.g. grok, codex:gpt-6.1-sol); "
-                        "with no value, the company's check model from a provider other than the parent's author")
+                        "with no value (put the flag after the parent id), the company's check model from a provider other "
+                        "than the parent's authors")
     s.add_argument("--role", dest="check_role", choices=("review", "check"),
                    help="with --check-model: what the other model is asked for (default check)")
     s.set_defaults(fn="task child create")
@@ -1517,8 +1518,8 @@ def parser():
                    help="parent (default): a subtask continues its parent task's session; own: its own session")
     s.add_argument("--task-goal", choices=("on", "off"), help="on: work each task it owns as a goal; off (default): not")
     s.add_argument("--review-model", choices=("check", "own"),
-                   help="check: a subtask it is handed under another's task runs on the company's check model; "
-                        "own (default): its own model")
+                   help="check: every subtask it is handed under another's task runs on the company's check model, "
+                        "for a reviewer bot; own (default): its own model")
     s.add_argument("--shared", action=argparse.BooleanOptionalAction, default=None, help="allow branches")
     s.set_defaults(fn="bot update")
     s = bot.add_parser("check", help="what preflight would still refuse about that repository")

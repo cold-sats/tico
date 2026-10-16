@@ -15,17 +15,43 @@ def check_row(api, task_id):
         return c.execute("SELECT runtime,model,role FROM task_check_models WHERE task_id=?", (task_id,)).fetchone()
 
 
-def test_a_check_with_no_model_takes_the_company_check_model_and_never_the_authors_provider(api):
-    machine, parent, turn = parent_turn(api)
+def computer(api, machine, grok="ready"):
+    """Every runtime installed and signed in, Grok as given."""
+    runtimes = {name: {"installed": True, "authenticated": "ready"} for name in ("claude", "codex", "cursor")}
+    post(api, "runners/heartbeat", {
+        "version": "test", "platform": "test", "capabilities": ["task_lanes_v2", "session_roots_v1"],
+        "readiness": {"schema_version": 1, "runtimes": {**runtimes, "grok": {"installed": True, "authenticated": grok}},
+                      "bots": {"ops": {"runtime": "claude", "ready": True}}}}, token=machine["token"])
+
+
+def earlier_run(api, task_id, model, provider, runtime):
+    """A finished run on the task by another model: the parent's work as a fallback wrote it."""
     with api.app.state.store.transaction() as c:
-        # The owner's order puts Claude first; the work was written on Claude, so Claude is skipped.
+        c.execute("INSERT INTO turns(id,bot,started,finished,task_id) VALUES('earlier','ops','2026-01-01T00:00:00Z',"
+                  "'2026-01-01T00:05:00Z',?)", (task_id,))
+        c.execute("INSERT INTO turn_usage_segments(turn_id,position,input_tokens,output_tokens,model,provider,runtime,"
+                  "harness) VALUES('earlier',0,10,10,?,?,?,?)", (model, provider, runtime, runtime))
+
+
+def test_a_check_with_no_model_skips_every_maker_of_the_parents_work(api):
+    machine, parent, turn = parent_turn(api)
+    earlier_run(api, parent["id"], "gpt-6-luna", "openai", "codex")
+    with api.app.state.store.transaction() as c:
+        # The order puts Codex and Claude first: Codex wrote part of the work as a fallback, Claude is the bot's own.
         c.execute("UPDATE registry_metadata SET value_json=? WHERE key='providers'",
-                  (encode({"revision": 1, "enabled": ["anthropic", "xai"], "runtime": "claude",
-                           "model": "claude-sonnet-5-5", "check_models": ["claude", "grok"]}),))
+                  (encode({"revision": 1, "enabled": ["anthropic", "xai", "openai", "cursor"], "runtime": "claude",
+                           "model": "claude-sonnet-5-5", "check_models": ["codex", "claude", "grok", "cursor"]}),))
+    computer(api, machine)
     sub = post(api, "tasks", {"owner": "ops", "title": "Check the import fix", "body": "Read the PR.",
                               "check_model": "auto", "relations": [{"task": parent["id"], "kind": "parent"}]},
                turn["token"])
     assert tuple(check_row(api, sub["id"])) == ("grok", "grok-4.6", "check")
+    # Grok signed out on the bot's computer: the next in order.
+    computer(api, machine, grok="missing")
+    later = post(api, "tasks", {"owner": "ops", "title": "Check it on another", "body": "Read the PR.",
+                                "check_model": "auto", "relations": [{"task": parent["id"], "kind": "parent"}]},
+                 turn["token"])
+    assert tuple(check_row(api, later["id"]))[:2] == ("cursor", "cursor-auto")
     # With only the author's provider on, it is refused rather than run there.
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE registry_metadata SET value_json=? WHERE key='providers'",
@@ -51,6 +77,20 @@ def test_a_review_for_a_bot_set_to_review_on_the_check_model_runs_there_and_says
     # Its own top-level work is no review of someone else's: its own model.
     own = post(api, "tasks", {"owner": "cpo", "title": "Write the weekly notes", "body": "As every week."})
     assert check_row(api, own["id"]) is None
+    # A subtask under its own task is no one else's work either.
+    mine = post(api, "tasks", {"owner": "cpo", "title": "Split the notes", "body": "Two parts.",
+                               "relations": [{"task": own["id"], "kind": "parent"}]})
+    assert check_row(api, mine["id"]) is None
+    with api.app.state.store.read() as c:
+        assert not c.execute("SELECT 1 FROM task_events WHERE task_id=? AND field='check_model'", (mine["id"],)).fetchone()
+    # A person's task with no runs has no known author: its own model, and the history says why.
+    person = post(api, "tasks", {"owner": "human:ana", "title": "Draft the launch post", "body": "Mine."})
+    unknown = post(api, "tasks", {"owner": "cpo", "title": "Review my draft", "body": "Please.",
+                                  "relations": [{"task": person["id"], "kind": "parent"}]})
+    assert check_row(api, unknown["id"]) is None
+    with api.app.state.store.read() as c:
+        why = c.execute("SELECT note FROM task_events WHERE task_id=? AND field='check_model'", (unknown["id"],)).fetchone()
+    assert why and "author is unknown" in why[0]
 
     assign(api, machine, "cpo")
     post(api, "runners/heartbeat", {
