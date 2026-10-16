@@ -8,6 +8,11 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- Company cloud storage: the owner can store the company's files in its own S3 bucket from **Settings › Storage**
+  (bucket, region, folder, access keys). Tico writes and reads back a check object before saving, seals the secret
+  key with the credential key and never shows it again. New files go to the bucket at once, with no restart; files
+  already stored keep opening from where they are, and files on the server's disk are copied in. See docs/files.md,
+  "A company's own bucket".
 - An HTML file opens in the file viewer and a task's Files as it looks, with **Download** beside it. It shows in a
   sandboxed frame that cannot act as you: no scripts, forms or plugins, no Tico cookies or storage, and nothing loaded
   from the network (pictures embedded in the file show; remote ones do not). Its links open in a new tab. A link to a

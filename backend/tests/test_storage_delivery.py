@@ -53,6 +53,8 @@ class S3:
     def get_object(self, **kw):
         if self.offline:
             raise RuntimeError('offline')
+        if kw['Key'] not in self.objects:
+            raise ClientError({'Error': {'Code': 'NoSuchKey'}}, 'GetObject')
         data = self.objects[kw['Key']]
         if 'Range' in kw:
             start, end = byte_range(kw['Range'], len(data))
