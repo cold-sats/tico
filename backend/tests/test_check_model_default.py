@@ -117,3 +117,14 @@ def test_a_review_for_a_bot_set_to_review_on_the_check_model_runs_there_and_says
     after = post(api, "tasks", {"owner": "cpo", "title": "Review PR 702", "body": "https://github.com/ticoteam/tico/pull/702",
                                 "relations": [{"task": parent["id"], "kind": "parent"}]})
     assert check_row(api, after["id"]) is None, "turned off, its reviews run on its own model again"
+    # Set again, with only the author's provider on: filed on its own model, and the history says why.
+    review_model("check")
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE registry_metadata SET value_json=? WHERE key='providers'",
+                  (encode({"revision": 9, "enabled": ["anthropic"], "runtime": "claude", "model": "claude-sonnet-5-5"}),))
+    alone = post(api, "tasks", {"owner": "cpo", "title": "Review PR 703", "body": "https://github.com/ticoteam/tico/pull/703",
+                                "relations": [{"task": parent["id"], "kind": "parent"}]})
+    assert check_row(api, alone["id"]) is None
+    with api.app.state.store.read() as c:
+        why = c.execute("SELECT note FROM task_events WHERE task_id=? AND field='check_model'", (alone["id"],)).fetchone()
+    assert why and "other than Anthropic" in why[0], why

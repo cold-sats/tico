@@ -2692,9 +2692,9 @@ def create_app(settings=None):
                             own_room=H.actor_id(owner) != settings.assistant_bot)
         c.execute("UPDATE tasks SET acceptance_json=? WHERE id=?", (encode(body.acceptance_criteria), row["id"]))
         if check:
-            # A reviewer's default is its own setting's check, so it is the reviewer's (check_models.of).
-            check_models.record(c, who.actor if body.check_model is not None or body.check_role is not None else owner,
-                                row["id"], check)
+            # A check is its owner's (check_models.of): one asked for is filed by its owner (check_choice), and a
+            # reviewer's default comes from its own setting.
+            check_models.record(c, owner, row["id"], check)
         elif body.check_model is None and body.check_role is None and unchecked:
             H._task_event(c, row["id"], who.actor, "check_model", None, None, unchecked)
         if handoff and owner == "bot:" + BOTOPS:

@@ -451,7 +451,8 @@ is refused, never run on an author's own. `--role` is `review` or `check` (the d
   parent's.
 - Known limits: readiness is read per computer, not per subscription profile; a check model cannot be removed;
   a provider disabled after filing still runs; a computer that stays signed out of the check's runtime leaves the
-  subtask waiting with no notice.
+  subtask waiting with no notice; a check held by its model's limit waits for the reset even when a person comments
+  on it or presses Try now.
 - A reviewer bot set to `review_model: check` (`hub bot update <slug> --review-model check`, `hub_bot_update`, or the
   bot definition API) runs every subtask it is handed under another's task as a `review` on the company's check
   model, chosen against the parent's authors the same way, and its verdict comes back the same way. When the authors
