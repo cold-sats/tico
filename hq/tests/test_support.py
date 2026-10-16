@@ -318,8 +318,9 @@ def test_an_older_database_gets_the_column_once_and_starting_again_changes_nothi
         INSERT INTO tickets(ticket_id,key_hash,created,updated,body) VALUES('TK-AAAAAAAA','h','t','t','kept');""")
     for _ in range(2):
         Tickets(old)
-        assert [r[1] for r in old.conn.execute("PRAGMA table_info(tickets)")].count("diagnostics") == 1
-    assert old.conn.execute("SELECT body, diagnostics FROM tickets").fetchone()[:] == ("kept", None)
+        columns = [r[1] for r in old.conn.execute("PRAGMA table_info(tickets)")]
+        assert columns.count("diagnostics") == 1 and columns.count("kind") == 1
+    assert old.conn.execute("SELECT body, diagnostics, kind FROM tickets").fetchone()[:] == ("kept", None, "")
 
 
 def test_followup_diagnostics_stay_with_the_message_and_delete_with_the_ticket(client, db):
@@ -397,3 +398,35 @@ def test_an_older_database_backfills_signatures_once(tmp_path):
     for _ in range(2):
         Tickets(old)
         assert old.conn.execute("SELECT signature FROM tickets").fetchone()[0] == SIG
+
+
+def test_a_setup_ticket_keeps_its_kind_and_no_other_kind_is_taken(client, db):
+    assert file(client, kind="installer").json() == {"error": "invalid", "field": "kind"}
+    assert file(client, kind=["setup"]).status_code == 422 and db.conn.execute("SELECT count(*) FROM tickets").fetchone()[0] == 0
+    made = file(client, "Setup failed: tico setup doctor", kind="setup").json()
+    file(client, "From the app")
+    listed = {t["body"]: t["kind"] for t in client.get("/v1/staff/tickets", headers=staff()).json()["tickets"]}
+    assert listed == {"Setup failed: tico setup doctor": "setup", "From the app": ""}
+    assert client.get(f"/v1/staff/tickets/{made['ticket_id']}", headers=staff()).json()["kind"] == "setup"
+
+
+def test_the_reply_page_is_one_constant_document_under_a_tight_policy(client):
+    import base64
+    import hashlib
+    import re as regex
+    made = file(client, SECRET_TEXT, kind="setup").json()
+    page = client.get(f"/support/{made['ticket_id']}")
+    other = client.get("/support/TK-BBBBBBBB")
+    assert page.status_code == 200 and page.text == other.text          # nothing about a ticket is written into it
+    assert SECRET_TEXT not in page.text and made["ticket_id"] not in page.text and made["secret"] not in page.text
+    assert client.get("/support/not-a-ticket").status_code == 404
+    csp = page.headers["content-security-policy"]
+    assert "default-src 'none'" in csp and "connect-src 'self'" in csp and "frame-ancestors 'none'" in csp
+    assert page.headers["cache-control"] == "no-store" and page.headers["referrer-policy"] == "no-referrer"
+    for tag, source in (("script", "script-src"), ("style", "style-src")):
+        (inline,) = regex.findall(r"<%s>(.*?)</%s>" % (tag, tag), page.text, regex.S)
+        digest = base64.b64encode(hashlib.sha256(inline.encode()).digest()).decode()
+        assert "%s 'sha256-%s';" % (source, digest) in csp
+    assert not regex.search(r"(?:src|href)=|https?://|innerHTML|insertAdjacentHTML|document\.write", page.text)
+    # The page reads the secret from the fragment and sends it as the header the JSON route takes.
+    assert "location.hash" in page.text and '"X-Ticket-Secret": secret' in page.text and "?secret" not in page.text

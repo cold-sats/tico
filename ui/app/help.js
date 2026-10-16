@@ -26,10 +26,39 @@ function pageHelp() {
     <ul class="help-essentials">
       <li><strong>Start</strong> with your first result, or ask the Assistant (sidebar or ⌘K) what needs you today.</li>
       <li data-help-support><strong>Get help</strong> from a person on the Tico team: write to Support on this page.</li>
+      <li class="help-setup"><strong>Setup check</strong> runs the installer's checks from here and says how to fix what fails. <button class="ghost" type="button" data-setup-check>Setup check</button>
+        <div class="help-setup-result" data-setup-result aria-live="polite"></div></li>
       <li><strong>Learn more</strong> in the docs: ${HELP_DOCS.map(([words, file]) => helpDoc(words, file)).join(' · ')}.</li>
     </ul>
     <p class="help-foot">${helpVersionHTML()}</p>
   </article>`;
   $('#help-app-log')?.addEventListener('click', () => nativeHandler('showLog')?.postMessage(null));
+  $('[data-setup-check]')?.addEventListener('click', e => void helpSetupCheck(e.currentTarget));
   window.supportHelp?.($('#help-page'));    // Contact support and Your requests (ui/support.js)
+}
+
+// Setup check: `tico-setup doctor`'s checks run by the server against its own address, and Health's failing lines
+// (POST /v2/support/setup-check, backend/setup_check.py). The result can go to Support as a request's attachment.
+const SETUP_ICONS = {ok: 'check_circle', warn: 'warning', bad: 'error', info: 'radio_button_unchecked'};
+async function helpSetupCheck(button) {
+  const host = $('[data-setup-result]');
+  if (!host || button.disabled) return;
+  button.disabled = true; button.textContent = 'Checking…';
+  host.innerHTML = '<p class="muted">Running the checks. This takes up to ten seconds.</p>';
+  try {
+    const r = await post('/v2/support/setup-check', {});
+    if (!host.isConnected) return;
+    const rows = r.checks || [];
+    const bad = rows.filter(c => c.status === 'bad').length, warn = rows.filter(c => c.status === 'warn').length;
+    const head = bad ? `${bad} of ${rows.length} ${rows.length === 1 ? 'check fails' : 'checks fail'}.` : warn ? `Nothing fails; ${warn} ${warn === 1 ? 'needs' : 'need'} a look.` : 'Every check passes.';
+    host.innerHTML = `<p class="help-setup-head" role="status">${esc(head)}</p>
+      <ul class="help-setup-list">${rows.map(c => `<li class="hl-check ${esc(c.status)}" data-setup-row="${esc(c.status)}"><span class="nav-icon hl-icon" aria-hidden="true">${SETUP_ICONS[c.status] || 'help'}</span>
+        <div class="hl-main"><strong>${esc(c.name)}</strong><p>${esc(c.detail)}</p>${c.status !== 'ok' && c.fix ? `<p class="help-setup-fix">Fix: ${esc(c.fix)}</p>` : ''}</div></li>`).join('')}</ul>
+      <p class="muted">${esc(r.doctor_only || '')}</p>
+      ${window.supportOn?.() && window.talkToUs ? '<button class="ghost" type="button" data-setup-send>Send to support</button>' : ''}`;
+    host.querySelector('[data-setup-send]')?.addEventListener('click', () => window.talkToUs({kind: 'setup_check', title: head, checks: rows,
+      group: 'setup_check:' + rows.filter(c => c.status === 'bad').map(c => c.name).join(',')}));
+  } catch (e) {
+    if (host.isConnected) host.innerHTML = `<p class="err">${esc(e.message)}</p>`;
+  } finally { button.disabled = false; button.textContent = 'Setup check'; }
 }

@@ -22,15 +22,16 @@ routines:
     labels: [priority:p2]
     enabled: false
 
-# Programs Tico runs on this bot's computer every 5 minutes, with no model (docs/watchers.md). A run costs
-# nothing: the program looks, and only when there is something new does it open a task, which wakes the bot. Each does
-# nothing until it has its settings, so a team that does not use it loses nothing.
+# Programs Tico runs on this bot's computer, with no model (docs/watchers.md). A run costs nothing: the program looks,
+# and only when there is something new does it open a task, which wakes the bot. Each does nothing until it has its
+# settings, so a team that does not use it loses nothing. HQ tickets are looked at every minute (one request when
+# nothing is new), so a request, a setup one included, reaches the bot within a few minutes.
 #   hq-tickets: Tico HQ support tickets, when HQ_STAFF_KEY and HQ_URL are in this bot's credentials (docs/support.md)
 #   gh-support: GitHub issues and Discussions, when config/github.yaml names the repositories (playbooks/tico-github.md)
 watchers:
   - name: hq-tickets
     run: software/hq-tickets watch
-    every: 5m
+    every: 1m
   - name: gh-support
     run: software/gh-support watch
     every: 5m

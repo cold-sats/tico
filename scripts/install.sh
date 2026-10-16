@@ -23,6 +23,8 @@
 # Everything after `--` goes to `tico setup` (python3 -m setup), so automation can answer its questions with flags
 # and environment variables (secrets only ever by environment). Exit codes: 0 done, 2 usage, 3 this computer does not
 # qualify, 4 download or checksum failed, 5 Docker or Python setup failed, 6 the wizard or the health check failed.
+# When it fails after the release is unpacked and there is a terminal, it asks whether to send the error to Tico
+# support (redacted; TICO_SUPPORT=off or the wizard's --no-support turns that off); the exit code stays the same.
 set -eu
 
 # The release workflow replaces the placeholder with the tag; on main it stays and the newest release is looked up.
@@ -64,11 +66,29 @@ RUNNER_NAME=
 SERVER_NETWORK=
 SCREEN=
 DIR_GIVEN=${TICO_INSTALL_DIR:+1}
+BUNDLED=
+SUPPORT_ASKED=
 
 say() { printf '%s\n' "$*"; }
 step() { printf '\n==> %s\n' "$*"; }
 warn() { printf 'warning: %s\n' "$*" >&2; }
-die() { code=$1; shift; printf 'error: %s\n' "$*" >&2; exit "$code"; }
+die() {
+  code=$1; shift
+  printf 'error: %s\n' "$*" >&2
+  case $code in 3|4|5|6) offer_support "$code" "$*" ;; esac
+  exit "$code"
+}
+
+# After a failure, the setup this run unpacked offers to send the error to Tico support (setup/support.py): only on a
+# terminal, at most once a run (a wizard that asked leaves the marker), and the exit code stays the failure's. Before
+# the bundle is unpacked there is no redaction to apply, so nothing is offered.
+offer_support() {
+  [ -n "$BUNDLED" ] && [ -f "$DIR/setup/support.py" ] && [ -f "$DIR/backend/redaction.py" ] || return 0
+  [ -z "$SUPPORT_ASKED" ] || [ ! -e "$SUPPORT_ASKED" ] || return 0
+  ( : </dev/tty ) 2>/dev/null || return 0
+  python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' 2>/dev/null || return 0
+  ( cd "$DIR" && TICO_SETUP_HOME="$DIR/.setup" python3 -m setup support --step "$1" --error "$2" </dev/tty ) || true
+}
 
 usage() {
   cat <<'EOF'
@@ -140,6 +160,8 @@ while [ $# -gt 0 ]; do
     *) usage >&2; die 2 "unknown option: $1" ;;
   esac
 done
+# The wizard's --no-support also keeps this script from offering.
+case " $* " in *" --no-support "*) TICO_SUPPORT=off; export TICO_SUPPORT ;; esac
 
 # The default runner is `tico-runner` in /opt/tico-runner. --name adds `tico-runner-<slug>` in /opt/tico-runner-<slug>.
 RUNNER_SLUG=
@@ -357,6 +379,9 @@ fetch_bundle() {
   need_tool curl curl
   work=$(mktemp -d)
   trap 'rm -rf "$work"' EXIT
+  SUPPORT_ASKED=$work/support-asked
+  TICO_SUPPORT_ASKED=$SUPPORT_ASKED
+  export TICO_SUPPORT_ASKED
   trap 'exit 130' INT TERM
   bundle=tico-bundle-$VERSION.tar.gz
   base=$RELEASES/download/$VERSION
@@ -383,6 +408,7 @@ fetch_bundle() {
   as_root rm -rf "$DIR/setup"
   as_root tar -xzf "$work/$bundle" -C "$DIR" --no-same-owner
   printf '%s\n' "$VERSION" | as_root tee "$DIR/.bundle-version" >/dev/null
+  BUNDLED=1
   say "ok: unpacked into $DIR"
 }
 
@@ -428,7 +454,8 @@ run_wizard() {
   else
     keep=
     for v in TICO_OIDC_CLIENT_SECRET CLOUDFLARE_API_TOKEN CLOUDFLARE_TUNNEL_TOKEN OPENAI_API_KEY ANTHROPIC_API_KEY GEMINI_API_KEY \
-             LITESTREAM_ACCESS_KEY_ID LITESTREAM_SECRET_ACCESS_KEY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN; do
+             LITESTREAM_ACCESS_KEY_ID LITESTREAM_SECRET_ACCESS_KEY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN \
+             TICO_SUPPORT TICO_SUPPORT_ASKED TICO_HQ_URL; do
       eval "[ -n \"\${$v:-}\" ]" && keep="$keep,$v"
     done
     # sudo drops the environment, so the secrets the caller set are kept by name; their values never reach a command line.

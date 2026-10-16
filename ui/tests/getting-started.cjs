@@ -257,7 +257,7 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
       map: document.querySelectorAll('#help-map, .help-who').length,
       fits: document.documentElement.scrollWidth <= innerWidth,
     }));
-    assert.deepEqual(help.items, ['Start', 'Get help', 'Learn more']);
+    assert.deepEqual(help.items, ['Start', 'Get help', 'Setup check', 'Learn more']);
     assert.deepEqual(help.docs, ['how-it-works.md', 'glossary.md', 'connect-an-agent.md', 'README.md']);
     assert.equal(help.map, 0);
     assert.equal(help.fits, true);

@@ -65,6 +65,34 @@ local ticket record. Closed requests remain readable.
 - `TICO_SUPPORT=off` in the server's `.env` removes it from an install that must not phone out. `TICO_HQ_URL` points it at your
   own HQ (see [telemetry.md](telemetry.md)).
 
+### Reach us from anywhere
+
+- **Talk to us** sits at the bottom of the sidebar and on the phone's tab bar. It opens Help with a new request, ready to
+  write. Empty Tasks, Updates and Runs pages, and the screen after Create, carry the line "Stuck or curious? A person at
+  Tico reads every message." with the same button.
+- **Report this** appears on every error message (toast), on a failed run (a task's Runs section and the Runs page), on a red
+  Health line and on a stuck bot. It opens a new request with what failed named in the message and attached as
+  diagnostics in a `report` section: its kind (`toast`, `run`, `health`, `stuck`, `setup_check`), the words on screen,
+  the run, check or bot it is about, and a `group` that names the same problem the same way each time (numbers and quoted
+  names left out). The composer shows **Attached:** with a **Remove** button, and **Review and edit** shows the exact
+  attachment before anything is sent. Every string in it goes through the same redactor as the rest of the diagnostics.
+  When support is off, no Report this is offered.
+- **Setup check** in Help runs the checks `tico-setup doctor` runs, from the server against its own address (HTTPS
+  certificate, `/healthz`, the sign-in redirect for Google or Microsoft sign-in, the runner hostname), plus Health's red
+  and yellow lines, and shows each with a plain fix. A Tico that serves only its own computer has no HTTPS to check.
+  The server container, tunnel connector and `.env` permissions need a shell on the server, so for those it points to
+  doctor. **Send to support** attaches the result to a new request, so support can ask you to "press Setup check and
+  send" instead of asking questions. The check itself works with support off (`POST /api/v2/support/setup-check`, any
+  signed-in person).
+- When the installer or `tico-setup doctor` fails at a terminal, it asks **Send this to Tico support? [y/N]**. Only a
+  `y` sends; with no terminal it never asks. On yes it asks for an optional email, then sends the failing checks and
+  their fixes, the OS, architecture and Tico version as a request of kind `setup`, redacted with the diagnostics rules
+  (`backend/redaction.py`) plus the install's own domain, owner, team name, runner and ssh hosts. It prints the
+  request's number and a link, `https://updates.tico.team/support/TK-XXXXXXXX#s=...`, where replies show up and where you
+  can answer or delete the request. The secret is after the `#`, so it never reaches a server log. `--no-support` or
+  `TICO_SUPPORT=off` turns the question off. The installer asks only once it has unpacked its bundle, so a failure
+  before that (for example a machine that does not qualify) prints its error without the question.
+
 ### A bot's report, after a person's yes
 
 A bot that hits a Tico bug (or a person's token, through MCP) reports it to the Tico team without handing the person a

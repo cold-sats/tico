@@ -79,6 +79,10 @@ has fresh-wizard-passthrough "--domain tico.example.com --company Acme" "$args"
 [ "$(stat -c %a $D/.setup)" = 700 ] && ok fresh-wizard-state-private || bad fresh-wizard-state-private "$(stat -c %a $D/.setup)"
 has fresh-next-steps "Add computer" "$out"
 out=$(inst --dir /work/tun --tunnel --yes -- --domain t.example.com 2>&1); has tunnel-front-door "--front-door cloudflared" "$(cat /work/tun/wizard-args.txt)"
+# A failed wizard with no terminal: the failure's exit code, and no offer to send it to support (nothing could answer).
+out=$(FAKE_WIZARD_FAIL=1 inst --dir /work/wfail --yes -- --domain f.example.com 2>&1); code_is wizard-fail-exit 6 $? "$out"
+lacks wizard-fail-no-offer-without-tty "Send this to Tico support" "$out"
+[ "$(wc -l < /work/wfail/wizard-args.txt)" = 1 ] && ok wizard-fail-setup-ran-once || bad wizard-fail-setup-ran-once "$(cat /work/wfail/wizard-args.txt)"
 
 # --- local quick start: no domain, no sign-in, no wizard --------------------------------------------------
 L=/work/local

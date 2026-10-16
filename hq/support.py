@@ -2,6 +2,8 @@
 
     POST   /v1/support                     a person files a ticket, with redacted diagnostics if they chose; the answer is {ticket_id, secret}
     GET    /v1/support/{ticket_id}         that person's app asks for its status and messages (the ticket's secret)
+    GET    /support/{ticket_id}            the same thread as a page, for a person with no app (the installer's link); the
+        secret stays in the link's #fragment, which a browser never sends, and the page asks the JSON route for the thread
     POST   /v1/support/{ticket_id}/messages   the person adds a message to a ticket that is not closed (the secret)
     DELETE /v1/support/{ticket_id}         the person deletes their ticket (the secret)
     GET    /v1/staff/stats                 exact active installs per release, last 7 days (HQ_STAFF_KEY)
@@ -38,6 +40,7 @@ from fastapi import Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
+from . import support_page
 from .limits import Limiter
 
 MAX_MESSAGES = 60                 # a ticket's thread, both sides
@@ -63,7 +66,9 @@ EMAIL = re.compile(r"[^@\s<>\",;()\[\]\\]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9.-]{0,25
 MOMENT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f  ‪-‮⁦-⁩]")
 FIELDS = ("message", "email", "install_id", "version")
-OPTIONAL = ("diagnostics",)       # the person's own choice; staff routes only ever show it
+OPTIONAL = ("diagnostics", "kind")   # the person's own choice; staff routes only ever show it
+# Where a ticket came from when it is not the app's Contact support: `setup` is the installer or `tico-setup doctor`.
+KINDS = ("setup",)
 # The desktop app's version, when the person wrote from the app; labelled apart from the server's `version`.
 APP_FIELDS = ("app_version",)
 
@@ -72,7 +77,8 @@ CREATE TABLE IF NOT EXISTS tickets(
  ticket_id TEXT PRIMARY KEY, key_hash TEXT NOT NULL, created TEXT NOT NULL, updated TEXT NOT NULL,
  closed TEXT, status TEXT NOT NULL DEFAULT 'open', body TEXT NOT NULL, email TEXT, install_id TEXT, version TEXT, app_version TEXT,
  email_pending INTEGER NOT NULL DEFAULT 0, diagnostics TEXT, signature TEXT NOT NULL DEFAULT '',
- verdict TEXT NOT NULL DEFAULT 'unchecked', verdict_reason TEXT NOT NULL DEFAULT '', held INTEGER NOT NULL DEFAULT 0);
+ verdict TEXT NOT NULL DEFAULT 'unchecked', verdict_reason TEXT NOT NULL DEFAULT '', held INTEGER NOT NULL DEFAULT 0,
+ kind TEXT NOT NULL DEFAULT '');
 CREATE INDEX IF NOT EXISTS tickets_created ON tickets(created);
 CREATE TABLE IF NOT EXISTS ticket_verdicts(
  id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id TEXT NOT NULL, at TEXT NOT NULL, old TEXT NOT NULL, new TEXT NOT NULL,
@@ -151,9 +157,19 @@ def parse_diagnostics(data):
     return packed
 
 
+def parse_kind(data):
+    """The ticket's kind, "" for one from the app, or Invalid: only the names in KINDS are taken."""
+    value = data.get("kind") if isinstance(data, dict) else None
+    if value is None:
+        return ""
+    if not isinstance(value, str) or value not in KINDS:
+        raise Invalid("kind")
+    return value
+
+
 def parse_ticket(data):
     """(message, email, install_id, version, app_version) from a decoded request, or Invalid. Fields beyond these (and the
-    optional diagnostics, which `parse_diagnostics` reads) are refused."""
+    optional diagnostics and kind, which `parse_diagnostics` and `parse_kind` read) are refused."""
     if not isinstance(data, dict) or set(data) - set(FIELDS) - set(APP_FIELDS) - set(OPTIONAL):
         raise Invalid("fields")
     message = text(data.get("message"), "message", MAX_MESSAGE)
@@ -188,7 +204,7 @@ class Tickets:
                     if found:
                         db.conn.execute("UPDATE tickets SET signature=? WHERE ticket_id=?", (found, row["ticket_id"]))
             for column, spec in (("verdict", "TEXT NOT NULL DEFAULT 'unchecked'"), ("verdict_reason", "TEXT NOT NULL DEFAULT ''"),
-                                 ("held", "INTEGER NOT NULL DEFAULT 0"), ("app_version", "TEXT")):
+                                 ("held", "INTEGER NOT NULL DEFAULT 0"), ("app_version", "TEXT"), ("kind", "TEXT NOT NULL DEFAULT ''")):
                 if column not in have:
                     db.conn.execute(f"ALTER TABLE tickets ADD COLUMN {column} {spec}")
             reply_columns = {row[1] for row in db.conn.execute("PRAGMA table_info(ticket_replies)")}
@@ -205,7 +221,8 @@ class Tickets:
         self.refused = Limiter(limit=20, window=3600, clock=clock)            # wrong staff keys, per address
 
     # ------------------------------------------------------------------ people
-    def create(self, message, email, install_id, version, diagnostics=None, verdict="unchecked", reason="", app_version=None):
+    def create(self, message, email, install_id, version, diagnostics=None, verdict="unchecked", reason="", app_version=None,
+               kind=""):
         """Store a ticket. Returns (ticket_id, secret); the secret is not kept, only its hash. `diagnostics` is the
         attached bundle as compact JSON; it is kept with the ticket until the ticket is deleted."""
         secret = secrets.token_urlsafe(24)
@@ -217,9 +234,9 @@ class Tickets:
                     break
             self.db.conn.execute(
                 "INSERT INTO tickets(ticket_id,key_hash,created,updated,status,body,email,install_id,version,app_version,"
-                "diagnostics,signature,verdict,verdict_reason,held) VALUES(?,?,?,?,'open',?,?,?,?,?,?,?,?,?,?)",
+                "diagnostics,signature,verdict,verdict_reason,held,kind) VALUES(?,?,?,?,'open',?,?,?,?,?,?,?,?,?,?,?)",
                 (ticket_id, digest(secret), moment, moment, message, email, install_id, version, app_version, diagnostics,
-                 signature_of(message), verdict, reason[:200], 1 if verdict == "spam" else 0))
+                 signature_of(message), verdict, reason[:200], 1 if verdict == "spam" else 0, kind))
         return ticket_id, secret
 
     def _owned(self, ticket_id, secret):
@@ -287,7 +304,8 @@ class Tickets:
                 "app_version": row["app_version"], "install_id": row["install_id"], "email_pending": bool(row["email_pending"]),
                 "signature": row["signature"] or signature_of(row["body"]),
                 "has_diagnostics": bool(row["diagnostics"]), "messages": self._messages(row["ticket_id"], full=full),
-                "verdict": row["verdict"], "verdict_reason": row["verdict_reason"], "held": bool(row["held"])}
+                "verdict": row["verdict"], "verdict_reason": row["verdict_reason"], "held": bool(row["held"]),
+                "kind": row["kind"]}
         if full and row["diagnostics"]:
             view["diagnostics"] = json.loads(row["diagnostics"])
         return view
@@ -433,13 +451,14 @@ def install(app, tickets, address, staff_key="", judge=None):
         try:
             message, email, install_id, version, app_version = parse_ticket(data)
             diagnostics = parse_diagnostics(data)
+            kind = parse_kind(data)
         except Invalid as bad:
             return refuse("invalid", 422, field=bad.field)
         if install_id and not tickets.per_install.allow(install_id):
             return JSONResponse({"error": "rate_limited"}, status_code=429, headers={"Retry-After": "86400"})
         verdict, reason = await run_in_threadpool(judge, message)
         ticket_id, secret = tickets.create(message, email, install_id, version, diagnostics,
-                                           verdict if verdict in VERDICTS else "unchecked", reason, app_version)
+                                           verdict if verdict in VERDICTS else "unchecked", reason, app_version, kind)
         return no_store({"ticket_id": ticket_id, "secret": secret, "status": "open"}, 201)
 
     @app.get("/v1/support/{ticket_id}")
@@ -451,6 +470,11 @@ def install(app, tickets, address, staff_key="", judge=None):
         if TICKET_ID.fullmatch(ticket_id) and SECRET.fullmatch(secret):
             found = tickets.for_person(ticket_id, secret)
         return no_store(found) if found else refuse("not_found", 404)
+
+    @app.get("/support/{ticket_id}")
+    def ticket_page(ticket_id: str):
+        # The secret is never in this request: it stays in the link's fragment (support_page.py).
+        return support_page.page() if TICKET_ID.fullmatch(ticket_id) else refuse("not_found", 404)
 
     def secret_of(request, ticket_id):
         secret = request.headers.get("x-ticket-secret") or request.query_params.get("secret") or ""
