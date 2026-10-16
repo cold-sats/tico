@@ -85,6 +85,8 @@ class BrowserFailure(Contract):
 
 class DiagnosticsCapture(Contract):
     browser: list[BrowserFailure] = Field(default_factory=list, max_length=20)
+    # The computers' performance over this many hours (backend/performance.py); 0 leaves it out.
+    performance_hours: int = Field(default=24, ge=0, le=336)
 
 
 class DiagnosticsEdit(Contract):
@@ -235,11 +237,11 @@ class Support:
                 "install_id": self.census.install_id(), "to": hq_url().split("://", 1)[-1].split("/", 1)[0],
                 "max": MAX_MESSAGE, "diagnostics": True}
 
-    def preview(self, who, app, browser=None):
+    def preview(self, who, app, browser=None, performance_hours=24):
         """Build the diagnostics bundle and keep it for this person, so the request that files the ticket sends these
         very bytes. Returns its digest and the text the page shows."""
         bundle = diagnostics.build(self.store, self.settings, app.state.auth, who, self.census,
-                                   github=getattr(app.state, "github_app", None))
+                                   github=getattr(app.state, "github_app", None), performance_hours=performance_hours)
         if browser:
             from pathlib import Path
             ui = Path(__file__).resolve().parent.parent / "ui"
@@ -499,16 +501,16 @@ def install(app, store, settings, census):
         return support.compose(who)
 
     @app.get("/api/v2/support/diagnostics")
-    def support_diagnostics(request: Request):
+    def support_diagnostics(request: Request, performance_hours: int = 24):
         who = person(request)
         require_on(settings)
-        return support.preview(who, request.app)
+        return support.preview(who, request.app, performance_hours=max(0, min(performance_hours, 336)))
 
     @app.post("/api/v2/support/diagnostics/capture")
     def support_capture_diagnostics(request: Request, body: DiagnosticsCapture):
         who = person(request)
         require_on(settings)
-        return support.preview(who, request.app, body.browser)
+        return support.preview(who, request.app, body.browser, body.performance_hours)
 
     @app.post("/api/v2/support/diagnostics")
     def support_edit_diagnostics(request: Request, body: DiagnosticsEdit):
