@@ -484,9 +484,10 @@ def tag_update(api, args):
       {"owner": _s("Who does it: a bot slug, a person id, or `me`"),
        "title": _s("Task title: General uses plain words without reference numbers or all-caps; custom types keep board references"),
        "body": _s("The details", default=""),
-       "visibility": _s("Roadmap visibility at creation; public needs public_title", enum=["public", "private"]),
-       "public_title": _s("Public title for a public roadmap task; the internal title is never published"),
-       "public_summary": _s("Public summary; the internal body is never published"),
+       "visibility": _s("People only: roadmap visibility at creation; public needs public_title. A bot is refused; "
+                        "it creates the task, then requests a publication", enum=["public", "private"]),
+       "public_title": _s("People only (a bot is refused): public title; the internal title is never published"),
+       "public_summary": _s("People only (a bot is refused): public summary; the internal body is never published"),
        "due": _s("ISO-8601 date-time with timezone"),
        "private": {"type": "boolean", "description": "Only requester and assignee may read; bot defaults also apply"},
        "parent": _s("Parent task id (or 8-character short id), when this is one part of a bigger task. Blocked on a "
