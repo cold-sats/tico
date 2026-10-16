@@ -8,6 +8,10 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- A task's Runs section shows where the work left off (its checkpoint, with who and when), every try with its outcome
+  and what followed it (run again automatically or by a person, resumed, dismissed, or waiting for a person), the
+  subagents each try started with their model, duration and result, and the shells and monitors a Claude run left
+  running in the background.
 - A Claude or Codex run's steps now list its tool calls and its subagents. A subagent shows by its type, with the
   calls it made indented under it. A call is recorded only by the file it touches or the program it runs; neither a
   subagent's prompt nor any call's arguments leave the computer. When such a run stops partway without having called

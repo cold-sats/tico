@@ -35,6 +35,14 @@
   }
  },
  {
+  "kind": "tool",
+  "tool": "Agent",
+  "status": "backgrounded",
+  "item_id": "toolu_016qvSH6m3vC3gmmpXkZXJLH",
+  "parent_id": null,
+  "background": true
+ },
+ {
   "kind": "rate_limits",
   "used_percent": 9.0,
   "window_minutes": 300,
@@ -69,6 +77,7 @@
   "status": "completed",
   "item_id": "toolu_016qvSH6m3vC3gmmpXkZXJLH",
   "parent_id": null,
+  "background": true,
   "subagent": {
    "id": "toolu_016qvSH6m3vC3gmmpXkZXJLH",
    "parent_id": null,

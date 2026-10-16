@@ -28,6 +28,8 @@ STEP_EVENTS = ("(kind IN ('tool','message','error') OR "
 # A tool event that reports a call's end (or its failure) is the same call the start already listed.
 TOOL_ENDED = TOOL_QUIET | {"failed", "error", "cancelled", "canceled"}
 TOOL_LABEL_CHARS = 60
+# A call that moved to the background while it ran: still the same open call, so not a step of its own.
+TOOL_BACKGROUNDED = "backgrounded"
 
 
 def clip(text, limit):
@@ -63,6 +65,10 @@ def build_steps(rows):
             status = str(p.get("status") or p.get("state") or p.get("phase") or "").lower()
             key = p.get("item_id") or name
             agent = subagent_kind(p)
+            if status == TOOL_BACKGROUNDED:
+                if key in calls:
+                    calls[key]["background"] = True
+                continue
             if key in calls and status not in TOOL_START:
                 step = calls.pop(key)
                 outcome = "" if status in TOOL_QUIET else status
@@ -75,6 +81,8 @@ def build_steps(rows):
                 step = {"kind": "tool", "tool": name, "text": text, "at": at}
             if p.get("parent_id"):
                 step["nested"] = True
+            if p.get("background"):
+                step["background"] = True
             steps.append(step)
             if status in TOOL_START:
                 calls[key] = step
