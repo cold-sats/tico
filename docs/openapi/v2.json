@@ -12556,6 +12556,86 @@
         ]
       }
     },
+    "/api/v2/tasks/{tid}/comments/{mid}/resolve": {
+      "post": {
+        "summary": "Settle an open question answered elsewhere ({quote}: its asker or the task's owner bot), or withdraw it ({}: its asker); it leaves every Needs you list and wakes nobody",
+        "operationId": "resolveTaskQuestion",
+        "parameters": [
+          {
+            "name": "tid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tid"
+            }
+          },
+          {
+            "name": "mid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Mid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskAskResolve"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommentResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
     "/api/v2/tasks/{tid}/delete": {
       "post": {
         "summary": "Delete a task made by mistake, with its conversation, to the trash: its human requester or a mover, signed in as themselves; a task carrying work is refused (409 has_work)",
@@ -24726,6 +24806,26 @@
           "answers"
         ],
         "additionalProperties": true
+      },
+      "TaskAskResolve": {
+        "properties": {
+          "quote": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "TaskAskResolve"
       },
       "TaskComment": {
         "properties": {

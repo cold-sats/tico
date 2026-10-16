@@ -195,6 +195,9 @@ STABLE = [
      "Change the text of a comment you wrote; it wakes nobody and is marked edited_at", "CommentResult"),
     ("/api/v2/tasks/{tid}/comments/{mid}/delete", "post", "Tasks", "deleteTaskComment",
      "Delete a comment you wrote from future comment reads and bot context; existing delivered copies remain", "CommentResult"),
+    ("/api/v2/tasks/{tid}/comments/{mid}/resolve", "post", "Tasks", "resolveTaskQuestion",
+     "Settle an open question answered elsewhere ({quote}: its asker or the task's owner bot), or withdraw it ({}: its "
+     "asker); it leaves every Needs you list and wakes nobody", "CommentResult"),
     ("/api/v2/tasks/{tid}/relations", "post", "Tasks", "relateTask",
      "Relate another task to this one ({task, kind}: parent, blocks, blocked_by, related, duplicate_of, "
      "follow_up), or take the relation off with remove", "TaskResult"),

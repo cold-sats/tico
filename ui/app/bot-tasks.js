@@ -108,9 +108,10 @@ async function loadBotChatTasks(slug) {
   }
   botChatTasksRender(slug, [...unique.values()]);
 }
-// Active is the bot's own work; "Assigned to others" is what it asked of people
-// and other bots (a task it filed for you shows here, and its number in the org tree). Both have
-// a count; Recurring comes last. A failed load is retried, never shown as an empty list.
+// Needs you leads: what this bot needs from the person, the rows its number in the org tree counts (botNeeds),
+// whoever owns the task. Active is the bot's own work; "Assigned to others" is what it asked of people and other
+// bots. A task in Needs you is not listed again below it. Each has a count; Recurring comes later. A failed load is
+// retried, never shown as an empty list.
 async function loadBotTasksV2(slug) {
   const pane = $('#t-open'); if (!pane) return;
   const seen = BOT_TASKS_CACHE.get(slug);
@@ -132,9 +133,35 @@ async function loadBotTasksV2(slug) {
   BOT_TASKS_CACHE.set(slug, {owned, asked});
   botTasksRender(slug, owned, asked);
 }
+// The Needs you section from the list the page holds, so it moves with the org tree's number; returns its ids.
+function botNeedsPaint(slug) {
+  const host = $('#bot-needs'), items = botNeeds(slug);
+  if (!host || BOT?.slug !== slug) return new Set();
+  host.hidden = !items.length;
+  $('#cnt-needs').textContent = items.length || '';
+  // A question opened here, and an answer half typed into it, survive the redraw.
+  const list = $('#t-needs'), kept = new Map([...list.querySelectorAll('details[data-ask]')].map(d =>
+    [d.dataset.ask, {open: d.open, text: d.querySelector('textarea')?.value || ''}]));
+  list.innerHTML = items.length ? `<div class="bot-task-list">${items.map(it =>
+    it.kind === 'ask' ? looseAskRow(it) : v2TaskRow(it, slug)).join('')}</div>` : '';
+  for (const d of list.querySelectorAll('details[data-ask]')) {
+    const was = kept.get(d.dataset.ask);
+    if (!was) continue;
+    d.open = was.open;
+    const box = d.querySelector('textarea');
+    if (box) box.value = was.text;
+  }
+  return new Set(items.map(it => String(it.id)));
+}
+// Needs you moved: redraw the rail from the tasks it last read, without reading them again.
+function botNeedsChanged(slug) {
+  const seen = BOT_TASKS_CACHE.get(slug);
+  if (seen && BOT?.loaded?.has('tasks')) botTasksRender(slug, seen.owned, seen.asked);
+}
 function botTasksRender(slug, owned, asked) {
   if (!$('#t-open') || BOT?.slug !== slug) return;
-  const mine = owned.tasks || [], theirs = (asked.tasks || []).filter(t => actorSlug(t.owner) !== slug);
+  const needed = botNeedsPaint(slug), listed = t => !needed.has(String(t.id));
+  const mine = (owned.tasks || []).filter(listed), theirs = (asked.tasks || []).filter(t => actorSlug(t.owner) !== slug && listed(t));
   const latest = (a, b) => String(b.updated || b.created || '').localeCompare(String(a.updated || a.created || ''));
   // What a person asked for (directly or under a person's task) above what the bot made itself, then the latest change.
   const personFirst = t => t.from_person ? 0 : 1;
@@ -148,6 +175,7 @@ function botTasksRender(slug, owned, asked) {
   // What it asked of others: whatever waits on a person first, then by the latest change.
   const needsPerson = t => actorPerson(t.owner) ? 0 : 1;
   const outward = theirs.filter(t => V2_ACTIVE.includes(String(t.status))).sort((a, b) => needsPerson(a) - needsPerson(b) || latest(a, b));
+  $('#cnt-active').textContent = active.length || '';
   $('#t-open').innerHTML = active.length ? `<div class="bot-task-list">${active.map(t => v2TaskRow(t, slug)).join('')}</div>`
     : '<div class="rail-empty">None</div>';
   // Folded at the foot of the rail; it opens by itself while something in it waits on a person.

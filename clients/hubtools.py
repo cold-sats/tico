@@ -872,6 +872,17 @@ def task_comment_delete(api, args):
     return api.post(f"tasks/{args['id']}/comments/{args['comment_id']}/delete", {}, key=_key(args))
 
 
+@tool("hub_task_ask_resolve", "Settle an open question on a task that the person answered somewhere else, such as "
+      "in chat: pass their words as quote (the question's asker or the task's owner bot). Without quote, the asker "
+      "withdraws a question no longer wanted. Either way it leaves the person's Needs you; it wakes nobody.",
+      {"id": TASK_ID, "comment_id": _s("The question's id (`id` in the task's `comments`)"),
+       "quote": _s("The person's answer in their own words, as they gave it")},
+      required=("id", "comment_id"), writes=True)
+def task_ask_resolve(api, args):
+    body = {"quote": args["quote"]} if args.get("quote") is not None else {}
+    return api.post(f"tasks/{args['id']}/comments/{args['comment_id']}/resolve", body, key=_key(args))
+
+
 @tool("hub_task_delete", "Delete a task made by mistake, such as a duplicate: it goes to the trash and can be "
       "restored. Only a person signed in as themselves may: the task's requester, or someone who may move any "
       "task. A task carrying work (a bot turn, a bot's own file, an approval, a subtask) is refused; close it instead.",
