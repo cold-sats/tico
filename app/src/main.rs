@@ -300,17 +300,20 @@ fn is_sign_in(host: &str) -> bool {
 /// no tabs, and without a handler it drops the request, so the click does nothing.
 #[derive(Debug, PartialEq)]
 enum NewWindow {
-    /// A sign-in pop-up: a native window sharing this web view's cookies, as for `stays_in_app`.
+    /// A native window sharing this web view's cookies: sign-in pop-ups, as for `stays_in_app`, and
+    /// the hub's own `/api/` files and logs, which the browser cannot read without the app's sign-in.
     InApp,
-    /// A new tab in the default browser, as a browser would open it, including the hub's own pages.
+    /// A new tab in the default browser, as a browser would open it.
     Browser,
-    /// Nothing worth opening (`about:blank`, `javascript:`, `data:`).
+    /// Nothing the browser could open (`about:blank`, `javascript:`, `data:`, `blob:`, `file:`).
     Ignore,
 }
 
-fn new_window_target(url: &url::Url) -> NewWindow {
+fn new_window_target(hub: Option<&url::Url>, url: &url::Url) -> NewWindow {
+    let hub_api = hub.is_some_and(|hub| url.origin() == hub.origin() && url.path().starts_with("/api/"));
     match url.scheme() {
-        "http" | "https" if is_sign_in(url.host_str().unwrap_or("")) => NewWindow::InApp,
+        "https" if is_sign_in(url.host_str().unwrap_or("")) => NewWindow::InApp,
+        "http" | "https" if hub_api => NewWindow::InApp,
         "http" | "https" | "mailto" => NewWindow::Browser,
         _ => NewWindow::Ignore,
     }
@@ -318,7 +321,7 @@ fn new_window_target(url: &url::Url) -> NewWindow {
 
 fn new_window_handler(app: &App) -> impl Fn(url::Url, tauri::webview::NewWindowFeatures) -> tauri::webview::NewWindowResponse<tauri::Wry> + Send + 'static {
     let opener = app.clone();
-    move |url, _| match new_window_target(&url) {
+    move |url, _| match new_window_target(connection(&opener).map(|c| c.hub).as_ref(), &url) {
         NewWindow::InApp => tauri::webview::NewWindowResponse::Allow,
         NewWindow::Browser => {
             let _ = opener.opener().open_url(url.as_str(), None::<&str>);
@@ -333,23 +336,35 @@ mod new_window_tests {
     use super::*;
 
     #[test]
-    fn new_windows_open_in_the_browser_except_sign_in() {
-        for (address, expected) in [
-            ("https://github.com/ticoteam/tico/pull/1", NewWindow::Browser),
-            ("http://example.com/", NewWindow::Browser),
-            ("https://team.example.com/files/report.md", NewWindow::Browser),
-            ("mailto:support@example.com", NewWindow::Browser),
-            ("https://team.cloudflareaccess.com/cdn-cgi/access/login", NewWindow::InApp),
-            ("https://accounts.google.com/o/oauth2/auth", NewWindow::InApp),
-            ("https://evil.com/accounts.google.com", NewWindow::Browser),
-            ("https://cloudflareaccess.com.evil.com/", NewWindow::Browser),
-            ("about:blank", NewWindow::Ignore),
-            ("javascript:alert(1)", NewWindow::Ignore),
-            ("data:text/html,hi", NewWindow::Ignore),
-            ("file:///etc/passwd", NewWindow::Ignore),
-        ] {
-            assert_eq!(new_window_target(&url::Url::parse(address).unwrap()), expected, "{address}");
+    fn new_windows_open_in_the_browser_except_sign_in_and_hub_files() {
+        for hub in ["https://team.example.com/", "https://team.example.com/tico/"] {
+            let hub = url::Url::parse(hub).unwrap();
+            let api = hub.join("/api/v2/files/f1").unwrap();
+            for (address, expected) in [
+                ("https://github.com/ticoteam/tico/pull/1", NewWindow::Browser),
+                ("http://example.com/", NewWindow::Browser),
+                ("https://team.example.com/#/tasks", NewWindow::Browser),
+                (api.as_str(), NewWindow::InApp),
+                ("https://team.example.com:8443/api/v2/files/f1", NewWindow::Browser),
+                ("http://team.example.com/api/v2/files/f1", NewWindow::Browser),
+                ("https://other.example.com/api/v2/files/f1", NewWindow::Browser),
+                ("mailto:support@example.com", NewWindow::Browser),
+                ("https://team.cloudflareaccess.com/cdn-cgi/access/login", NewWindow::InApp),
+                ("https://accounts.google.com/o/oauth2/auth", NewWindow::InApp),
+                ("http://accounts.google.com/o/oauth2/auth", NewWindow::Browser),
+                ("https://evil.com/accounts.google.com", NewWindow::Browser),
+                ("https://accounts.google.com@evil.com/", NewWindow::Browser),
+                ("https://cloudflareaccess.com.evil.com/", NewWindow::Browser),
+                ("about:blank", NewWindow::Ignore),
+                ("javascript:alert(1)", NewWindow::Ignore),
+                ("data:text/html,hi", NewWindow::Ignore),
+                ("blob:https://team.example.com/0b1c", NewWindow::Ignore),
+                ("file:///etc/passwd", NewWindow::Ignore),
+            ] {
+                assert_eq!(new_window_target(Some(&hub), &url::Url::parse(address).unwrap()), expected, "{hub} {address}");
+            }
         }
+        assert_eq!(new_window_target(None, &url::Url::parse("https://team.example.com/api/x").unwrap()), NewWindow::Browser);
     }
 }
 

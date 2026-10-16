@@ -128,8 +128,9 @@ All notable changes to Tico are recorded here. The format follows
   stores and logs no token. The grant on the computer keeps no secret.
 
 ### Fixed
-- Desktop app: a link that opens a new tab (every link in chat and Markdown, a file's **Open**) did nothing; it now
-  opens in the default browser. Cloudflare Access and Google sign-in pop-ups still open in the app.
+- Desktop app: a link that opens a new tab (every link in chat and Markdown) did nothing; it now opens in the default
+  browser. Cloudflare Access and Google sign-in pop-ups, and the team's own files and run logs, open in an app window,
+  which keeps the app's sign-in. A PDF's **Open** is hidden in the app; the PDF shows in the viewer and downloads.
 - Linking a pull request whose URL differs only in owner or repository case (or a trailing slash) reuses
   the task's existing link for it, so arming or disarming `--wake-once` acts on that one link instead of adding a second.
 - A company's desktop app installs its updates again. The server signed the update download for S3 in an older
