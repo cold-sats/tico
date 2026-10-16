@@ -7,6 +7,9 @@ step. A person moves the task. The repository's webhook posts here signed with
 
 - a pull request opened, merged or closed -> the link is `open`, `draft`, `merged` or `closed`
 - checks, conflicts and reviews     -> specific owner notices grouped within three minutes
+- a link armed with `wake_once`     -> one notice when its checks finish (pass or fail), it gets an
+                                       approving or change-requesting review, or a release ships it;
+                                       then it disarms. It wakes the owner's turn and changes nothing else.
 - a review requested or withdrawn   -> that person is on or off the task in `github_review_role`
 - a push to main                    -> the commits are recorded, in order, in `main_pushes`
 
@@ -63,6 +66,15 @@ def queue_wake(c, task, item):
     save_metadata(c, key, {"due": burst.get("due") or H.shift(H.now(), seconds=170), "items": items})
 
 
+def fire_once(detail, item):
+    """A link armed with `wake_once` gives this result, once: disarm it in the same write that queues it."""
+    if not detail.get("wake_once"):
+        return False
+    detail.pop("wake_once")
+    detail["wake_once_fired"] = {"at": H.now(), "item": item[:500]}
+    return True
+
+
 def flush_wakes(c):
     """Send each due PR burst independently; keep a failed or blocked notice for retry."""
     from .repositories import metadata
@@ -117,7 +129,7 @@ def _review_role(c, task, payload, role):
                          note="GitHub review " + ("request withdrawn" if action == "review_request_removed" else "requested"))
 
 
-def pull_request(c, payload, review_role=""):
+def pull_request(c, payload, review_role="", release_repo=""):
     pr = payload.get("pull_request") or {}
     url = str(pr.get("html_url") or "").split("?")[0].rstrip("/")
     action = str(payload.get("action") or "")
@@ -165,6 +177,12 @@ def pull_request(c, payload, review_role=""):
                     detail["head_login"] = login
                 else:
                     detail.pop("head_login", None)
+        wake_once = False
+        if (state == "merged" and link["state"] != "merged" and match
+                and f"{match.group(1)}/{match.group(2)}".lower() != str(release_repo).lower()):
+            # Only the release's own repository ships, so a merge elsewhere is the last result an armed link gets.
+            wake_once = fire_once(detail, f"Merged: {link['title']}; it is not in the repository Tico releases, "
+                                          f"so no shipped wake follows {url}")
         conflict_head = detail.get("head_sha") or "unknown"
         conflict_wake = mergeable == "conflict" and detail.get("conflict_head") != conflict_head
         if mergeable == "conflict":
@@ -178,6 +196,8 @@ def pull_request(c, payload, review_role=""):
         item = f"{link['title']} {state}" if state != "closed" else f"{link['title']} was closed without merging"
         if mergeable == "conflict":
             item += ": Merge conflict"
+        if wake_once:
+            queue_wake(c, task, detail["wake_once_fired"]["item"])
         if (state == "closed" and link["state"] != state
                 or conflict_wake):
             queue_wake(c, task, item)
@@ -243,6 +263,17 @@ def pr_signal(c, event, payload):
             detail["checks"] = dict(list(checks.items())[-100:])
             fields["checks"] = "failing" if "failing" in checks.values() else "pending" if "pending" in checks.values() else "passing"
             item = f"Checks {state} on {label}: {name}"
+            # A suite completes once all of its runs have; a single run or commit status may be one of many.
+            if (event == "check_suite" and signal.get("status") == "completed" and state != "pending"
+                    and "pending" not in checks.values()):
+                # GitHub sends a suite's `requested` only to its own App, so a single run or status still pending
+                # is often the only sign that another service's checks are not done.
+                sha = str(signal.get("head_sha") or detail.get("head_sha") or "")[:12]
+                failed = [k[6:] for k, v in checks.items() if k.startswith("suite:") and v == "failing"]
+                done = (f"Checks finished on {label}: {'failed (' + ', '.join(failed) + ')' if failed else 'passed'} "
+                        f"{link['url']}/checks" + (f" at {sha}" if sha else ""))
+                if fire_once(detail, done):
+                    wake, item = True, done
         elif event == "pull_request_review":
             state = str((payload.get("review") or {}).get("state") or "").lower()
             if payload.get("action") == "dismissed":
@@ -261,6 +292,11 @@ def pr_signal(c, event, payload):
             wake = fresh and payload.get("action") != "dismissed" and (
                 state == "changes_requested" or state == "commented" and not _own_comment(c, task, payload, "review", detail))
             item = f"Review {state.replace('_', ' ')} on {label}"
+            if fresh and payload.get("action") == "submitted" and state in ("approved", "changes_requested"):
+                who = str((review.get("user") or {}).get("login") or "")
+                done = item + (f" by {who}" if who else "") + " " + str(review.get("html_url") or link["url"])
+                if fire_once(detail, done):
+                    wake, item = True, done
         else:
             action = payload.get("action")
             if action not in ("created", "deleted"):
@@ -345,7 +381,8 @@ def refresh_task_prs(service, task_id):
                                 success = True
                                 continue
                             pull_request(c, {"action": "refresh", "pull_request": pr, "head_login": head_login},
-                                         review_role=service.settings.github_review_role)
+                                         review_role=service.settings.github_review_role,
+                                         release_repo=service.settings.release_repo)
                         success = True
                 except Exception:
                     logging.getLogger("tico.github").exception("PR refresh failed for %s #%s", *key)
@@ -493,6 +530,11 @@ def ship_deployed(c, settings, *, ancestry=None):
                 continue
             c.execute("UPDATE task_links SET state='shipped',updated=? WHERE id=?", (H.now(), link["id"]))
             c.execute("UPDATE tasks SET updated=? WHERE id=?", (H.now(), link["task_id"]))
+            detail = H._json(link.get("detail_json"), {}) or {}
+            item = f"Shipped: {link['title']} is in the running release {commit[:12]} {link['url']}"
+            if fire_once(detail, item):
+                c.execute("UPDATE task_links SET detail_json=? WHERE id=?", (json.dumps(detail), link["id"]))
+                queue_wake(c, H.task(c, link["task_id"]), item)
             evidence = {"release": commit, "url": link["url"]}
             if (repo.lower(), link["pr_sha"], commit) in (ancestry or ()):
                 evidence["ancestry"] = {"repository": repo.lower(), "merge": link["pr_sha"], "deployed": commit,
@@ -526,7 +568,8 @@ def install_github(app, settings, store):
             return {"ok": True}
         with store.transaction() as c:
             if event == "pull_request":
-                result = pull_request(c, payload, review_role=settings.github_review_role)
+                result = pull_request(c, payload, review_role=settings.github_review_role,
+                                      release_repo=settings.release_repo)
             elif event in ("check_run", "check_suite", "status", "pull_request_review", "pull_request_review_comment"):
                 result = pr_signal(c, event, payload)
             elif event == "push":

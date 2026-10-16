@@ -253,6 +253,20 @@ counts as the bot. New heads reset mergeability to Unknown, and conflicts wake o
 until a clean result clears the marker. Check suites are tracked separately by App.
 The grouping survives server restarts and keeps at most 50 distinct notice items per burst.
 
+A bot waiting on one result can arm a one-shot wake on a PR link: `hub task link <task> <pr url> --wake-once`
+(`wake_once: true` on `POST /api/v2/tasks/{id}/links` or `hub_task_link`; `--no-wake-once` disarms it). The
+owner then hears once, in the task's conversation, at the first of: every check suite, check run and status
+GitHub has reported on the PR's current head has completed (passed, or failed naming the failing suites, with
+the checks link and commit), a review is submitted approving or requesting changes (with the reviewer and
+review link), or a release ships the merged PR. A PR merged in a repository other than the one Tico releases
+never ships, so its merge is the wake. The link disarms in the same write, so redelivered events never repeat
+it; the link's `detail_json.wake_once_fired` records what fired. Arming needs the connected App and is refused
+on a closed or shipped PR, or one already merged outside the release repository; it is off unless armed,
+creates no task and never changes the task's status or step. While armed on an open or merged PR that the App
+has sent an event for, or in a repository it reaches, the task counts as waiting on GitHub, so a waiting task
+is not sent back to open. A snoozed task gets the notice quietly, like any other news. A CI run or deploy with
+no PR is not covered.
+
 A review request can also put the reviewer on the task. Set `TICO_GITHUB_REVIEW_ROLE` to a task role
 (for example `reviewer`) and restart the API, then give each person their GitHub login under **GitHub**
 in the Contact card of their profile (or `POST /api/v2/people/{id}` with `{"github": "login"}`).

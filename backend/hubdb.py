@@ -2955,8 +2955,12 @@ def link_kind(url):
 
 
 @private_task_write
-def task_link(conn, actor, task_id, url, title=None, kind=None, mover=None):
-    """Attach a link to a task. A pull request link is what moves a product-lane task."""
+def task_link(conn, actor, task_id, url, title=None, kind=None, mover=None, wake_once=None, release_repo=""):
+    """Attach a link to a task. A pull request link is what moves a product-lane task.
+
+    `wake_once` arms (True) or disarms (False) one wake on a pull request link: the next time its checks
+    finish, it gets an approving or change-requesting review, or a release ships it, the task's owner hears
+    once, in the task's conversation. It never changes the task's status (`github.py`)."""
     _writer(conn, actor)
     row = task(conn, task_id)
     if not row:
@@ -2974,9 +2978,16 @@ def task_link(conn, actor, task_id, url, title=None, kind=None, mover=None):
         kind = "url"
     if kind not in LINK_KINDS:
         refuse(conn, actor, "kind", f"a link is {'|'.join(LINK_KINDS)}, not {kind}")
+    if wake_once is not None and (kind != "pr" or not app):
+        refuse(conn, actor, "kind", "a one-shot wake needs a pull request link in the connected GitHub App's organization")
     have = _one(conn, "SELECT * FROM task_links WHERE task_id=? AND url=?", (task_id, url))
     if have:
-        return have
+        if wake_once and (have["state"] in ("closed", "shipped") or have["state"] == "merged"
+                          and str(have.get("repo") or "").lower() != str(release_repo).lower()):
+            refuse(conn, actor, "state", f"{have['title']} is {have['state']}"
+                   + (" outside the repository Tico releases" if have["state"] == "merged" else "")
+                   + ": no result is left to wake on")
+        return _arm_wake_once(conn, actor, have, wake_once)
     title = str(title or "").strip()
     if not title:
         m = PR_URL.match(url) or ISSUE_URL.match(url)
@@ -2993,7 +3004,23 @@ def task_link(conn, actor, task_id, url, title=None, kind=None, mover=None):
     _task_event(conn, task_id, actor, "link", None, url, title)
     conn.execute("UPDATE tasks SET updated=? WHERE id=?", (now(), task_id))
     event(conn, actor, "task.link", task_id, {"url": url, "kind": kind})
-    return link
+    return _arm_wake_once(conn, actor, link, wake_once)
+
+
+def _arm_wake_once(conn, actor, link, wake_once):
+    """Arm or disarm a pull request link's one wake; None leaves it as it is."""
+    if wake_once is None:
+        return link
+    detail = _json(link.get("detail_json"), {}) or {}
+    if bool(detail.get("wake_once")) == bool(wake_once):
+        return link
+    if wake_once:
+        detail["wake_once"] = {"by": actor, "at": now()}
+    else:
+        detail.pop("wake_once", None)
+    conn.execute("UPDATE task_links SET detail_json=?,updated=? WHERE id=?", (json.dumps(detail), now(), link["id"]))
+    event(conn, actor, "task.link.wake_once", link["task_id"], {"url": link["url"], "armed": bool(wake_once)})
+    return _one(conn, "SELECT * FROM task_links WHERE id=?", (link["id"],))
 
 
 # A harness's resume command, optionally after the `cd` into the bot's folder that botResumeCommand writes.
@@ -4407,6 +4434,13 @@ def waiting_for(conn, row):
         return "an undecided approval"
     if row.get("waiting_on"):
         return f"{actor_id(row['waiting_on'])} to act"
+    # Only a PR GitHub reports on can wake it: one the App has sent an event for, or in a repository it reaches.
+    armed = _one(conn, "SELECT l.title FROM task_links l WHERE l.task_id=? AND l.kind='pr' "
+                       "AND l.state IN ('open','draft','merged') AND json_extract(l.detail_json,'$.wake_once') IS NOT NULL "
+                       "AND (json_extract(l.detail_json,'$.tracked') OR EXISTS(SELECT 1 FROM repositories r "
+                       "WHERE lower(r.full_name)=lower(l.repo) AND r.reachable=1)) LIMIT 1", (row["id"],))
+    if armed:
+        return f"GitHub on {armed['title']}"
     return None
 
 
