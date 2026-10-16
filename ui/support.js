@@ -291,11 +291,13 @@
   let pending = null;
   function startPending() {
     if (!pending || !rail?.isConnected) return;
-    const {kind} = pending, unsent = drafts.get('')?.message.trim();
-    // A new request the person had started keeps their words, with the snapshot after them.
-    const message = unsent ? unsent + '\n\n' + pending.message : pending.message;
+    const {kind} = pending, draft = drafts.get(''), unsent = draft?.message.trim() || '';
+    // A new request the person had started keeps their words and choices, with the snapshot after them, once.
+    const message = unsent.includes(pending.message.trim()) ? unsent
+      : unsent ? unsent + '\n\n' + pending.message : pending.message;
     pending = null; selected = ''; viewing = true;
-    drafts.set('', {message, email: compose?.email || '', ids: true, diag: true, perf: 24, bundle: null, key: uid(), kind});
+    drafts.set('', draft ? {...draft, message, kind} :
+      {message, email: compose?.email || '', ids: true, diag: true, perf: 24, bundle: null, key: uid(), kind});
     renderTickets(); renderThread(true); renderComposer();
     rail.querySelector('[name=message]')?.focus();
   }

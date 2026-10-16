@@ -270,6 +270,12 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
     assert.ok(v.calls.includes('asked from health'));
     assert.match(await v.page.locator('[data-sent]').innerText(), /message marked setup/);
     assert.ok(!v.calls.some(c => c.startsWith('POST tickets {')), 'nothing is sent before the person presses Send');
+    // A second press keeps the draft as it is: one snapshot, not two.
+    await v.page.evaluate(() => document.querySelector('[data-setup-help]').click());
+    await v.page.waitForFunction(() => document.querySelector('[data-setup-help]') && !document.querySelector('[data-setup-help]').disabled);
+    await v.page.waitForTimeout(100);
+    assert.equal(v.calls.filter(c => c === 'asked from health').length, 2);
+    assert.equal((await v.page.locator('#support-message').inputValue()).split("I'd like help setting up Tico.").length, 2);
     await v.page.locator('[data-compose] [name=message]').press('Enter');
     await v.page.locator('.support-msg.you', {hasText: 'Computer online'}).waitFor();
     assert.equal(JSON.parse(v.calls.find(c => c.startsWith('POST tickets {')).slice('POST tickets '.length)).kind, 'setup');

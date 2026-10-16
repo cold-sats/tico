@@ -55,7 +55,8 @@ def env_off():
 def first_result(c, settings):
     """When a bot the company added first completed a turn, or "" before one has: the Assistant and the other built-in
     bots answer from the first minute, so they say nothing about a working team. Attempts are never deleted and the
-    table is in the order they were made, so the first match is the earliest-started result and is found at once."""
+    table is in the order they were made, so the first match is the earliest-started result;
+    the scan reads only the built-in bots' turns before it (tens of milliseconds at 20,000 Assistant turns)."""
     from .getting_started import built_in
     skip = sorted(built_in(settings))
     row = c.execute("SELECT finished FROM attempts WHERE state='completed' AND finished IS NOT NULL AND bot NOT IN (%s) "

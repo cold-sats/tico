@@ -493,8 +493,13 @@ def test_a_setup_request_starts_from_a_snapshot_and_keeps_its_kind_even_at_an_ol
         H.sync_registry(c, {"payroll": {"name": "Payroll for Acme Corp", "status": "active"}}, None)
         c.execute("INSERT OR REPLACE INTO bot_config(bot,config_json,operator,onboarding_state) "
                   "VALUES('payroll','{}','human:test','needs_setup')")
+        c.execute("UPDATE bots SET display_name='Payroll for Acme Corp' WHERE slug='payroll'")
+    owner_items = api.get("/api/v2/getting-started", headers=signed_in()).json()["items"]
+    assert any("Payroll for Acme Corp" in item["label"] for item in owner_items)
     snapshot = api.get("/api/v2/support/setup-snapshot?asked_from=bot", headers=signed_in()).json()
     assert "Payroll" not in snapshot["message"] and "- Bots in Needs setup: 1" in snapshot["message"]
+    plain = api.get("/api/v2/support/setup-snapshot?asked_from=health", headers=as_person(api, "quinn")).json()
+    assert "Needs setup" not in plain["message"] and "Payroll" not in plain["message"]
     assert hq.seen == [] and snapshot["kind"] == "setup"           # building the snapshot sends nothing
     lines = snapshot["message"].splitlines()
     assert "Setup snapshot (asked from a bot in Needs setup):" in lines and "- Computer online: no" in lines
