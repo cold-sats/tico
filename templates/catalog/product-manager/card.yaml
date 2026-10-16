@@ -1,7 +1,7 @@
 template: product-manager
 slug: product-manager
 name: "Product Manager"
-required: false
+required: true
 bootstrap: false
 group: product
 pack: engineering
@@ -32,13 +32,13 @@ prerequisites:
     required: true
   - tool: github
     why: "Optional. Read-only issues, pull requests and milestones show what engineering is building against each spec."
-    required: false
+    required: true
   - tool: docs
     why: "Optional. Existing specs and the roadmap, if they live in the team docs."
-    required: false
+    required: true
   - tool: meetings
     why: "Optional. Imported planning and review meetings show what was agreed about scope."
-    required: false
+    required: true
 onboarding:
   - ask: "Which problem or feature should I spec first, and who decided it is next?"
     why: "The first spec is real work on a real decision, not a template."

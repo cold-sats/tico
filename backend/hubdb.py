@@ -971,6 +971,10 @@ def migrate(conn, adopt_legacy=False):
     conn.execute("CREATE INDEX IF NOT EXISTS tasks_snoozed ON tasks(snoozed_until) WHERE snoozed_until IS NOT NULL")
     # A type whose tasks change status only by moving between its steps (`_task_state`).
     add_column(conn, "task_types", "steps_only", "INTEGER NOT NULL DEFAULT 0")
+    if "manager" not in {r[1] for r in conn.execute("PRAGMA table_info(task_types)")}:
+        add_column(conn, "task_types", "manager", "TEXT")
+        from .roadmap_flow import ensure as ensure_roadmap_types
+        ensure_roadmap_types(conn)
     # A person's open asks, read on every Needs-you load (loose_asks_to).
     conn.execute("CREATE INDEX IF NOT EXISTS messages_open_asks_to ON messages(to_actor, created) "
                  "WHERE kind='ask' AND answered_by IS NULL AND deleted_at IS NULL")
@@ -2641,6 +2645,8 @@ def _set_status(conn, actor, row, status=None, type=None, step=None, note=""):
             supersede_asks(conn, row["id"], plain_only=effective == "done")
             # ...and so is a yes it was waiting for: nothing will act on it now.
             withdraw_task_approvals(conn, row["id"], f"Its task was {TASK_ENDED[effective]}.")
+    from .roadmap_flow import changed as roadmap_changed
+    roadmap_changed(conn, row["id"])
     return effective
 
 

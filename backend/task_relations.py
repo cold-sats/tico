@@ -362,6 +362,10 @@ def set_parent(conn, actor, child_id, parent_id, mover=None, note="", private=No
     if old and row["status"] not in ("done", "closed", "declined"):
         # The old parent may have nothing left open now.
         H._parent_finished(conn, {**row, "status": "closed"}, row["status"], actor, parent=old)
+    from .roadmap_flow import changed, sync
+    changed(conn, child_id)
+    if old:
+        sync(conn, old)
     return True
 
 
