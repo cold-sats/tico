@@ -9,8 +9,11 @@ from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
 from . import health
+from .store import Problem
 
 LOOPBACK = {"127.0.0.1", "localhost", "::1", ""}
+EVERY = 30              # seconds between one person's runs: each run makes up to four outbound HTTPS checks
+_last: dict[str, float] = {}
 DOCTOR_ONLY = ("Server container, tunnel connector and .env permissions are checked on the server itself: "
                "run `sudo ./scripts/tico-setup doctor` in the Tico folder there.")
 
@@ -66,6 +69,10 @@ def health_checks(view):
 
 
 def run(store, who, settings, auth, github, config_view, checks=None):
+    key, at = who.actor, time.monotonic()
+    if at - _last.get(key, -EVERY) < EVERY:
+        raise Problem("setup_check_busy", "Setup check just ran. Try again in half a minute.", 429, retryable=True)
+    _last[key] = at
     with store.read() as c:
         view = health.view(c, who, settings, auth, github, config_view(c))
     rows = doctor_checks(settings, checks) + health_checks(view)

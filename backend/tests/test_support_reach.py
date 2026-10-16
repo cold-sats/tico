@@ -120,3 +120,15 @@ def test_the_setup_check_route_answers_a_person_and_refuses_a_bot(environment): 
     assert "doctor" in body["doctor_only"] and body["failing"] == sum(c["status"] == "bad" for c in body["checks"])
     bot = api.post("/api/v2/support/setup-check", headers={"Authorization": "Bearer nope"})
     assert bot.status_code in (401, 403)
+
+
+def test_one_person_runs_setup_check_at_most_twice_a_minute(environment, monkeypatch):  # noqa: F811
+    api = environment()
+    clock = [1000.0]
+    monkeypatch.setattr(setup_check, "_last", {})
+    monkeypatch.setattr(setup_check.time, "monotonic", lambda: clock[0])
+    assert api.post("/api/v2/support/setup-check", headers=signed_in()).status_code == 200
+    busy = api.post("/api/v2/support/setup-check", headers=signed_in())
+    assert busy.status_code == 429 and "half a minute" in busy.text
+    clock[0] += setup_check.EVERY
+    assert api.post("/api/v2/support/setup-check", headers=signed_in()).status_code == 200

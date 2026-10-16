@@ -27,6 +27,7 @@ class AnswerIO(CaptureIO):
 
     def confirm(self, question, default=True):
         self.asked.append(question)
+        self.shown = self.text          # what the person had read when asked
         v = (self.confirms.pop(0) if self.confirms else "").strip().lower()
         return default if not v else v.startswith("y")
 
@@ -74,6 +75,21 @@ def test_a_yes_sends_a_redacted_setup_ticket_and_prints_where_replies_show(tty):
         assert leaked not in message
     assert "[company-domain]" in message and "[ip]" in message
     assert f"Sent as TK-ABCDEFGH. Replies show up at {HQ}/support/TK-ABCDEFGH#s={'s' * 32}" in io.text
+
+
+def test_the_person_reads_exactly_what_would_be_sent_before_the_question(tty):
+    io, post = AnswerIO(["y"]), Post((201, TICKET))
+    assert offer(io, post) is True
+    message = post.bodies[0][1]["message"]
+    assert all(line in io.shown for line in message.splitlines())
+
+
+def test_home_folders_and_ssh_logins_lose_the_account_name():
+    text = support.scrub("cd /home/ana/tico; open /Users/bob/x; C:\\Users\\cara\\x; ssh ubuntu@203.0.113.7; root@[2001:db8::1]")
+    for leaked in ("ana", "bob", "cara", "ubuntu", "root", "203.0.113.7"):
+        assert leaked not in text, leaked
+    assert "/home/[user]/tico" in text and "[user]@[ip]" in text
+    assert support.scrub("write to me@acme.example") == "write to [email]"
 
 
 @pytest.mark.parametrize("answer", ["", "n", "no"])

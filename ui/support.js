@@ -39,6 +39,7 @@
       : call('GET', '/support/diagnostics?performance_hours=' + hours);
   }
   const REPORTED = {toast: 'Error', run: 'Failed run', health: 'Health', stuck: 'Stuck bot', setup_check: 'Setup check'};
+  const prefill = report => REPORTED[report.kind] + ': details attached. ';
   // The same problem gets the same group wherever it is reported: numbers and quoted names don't split it.
   const group = (kind, words) => (kind + ':' + String(words || '').replace(/(["'“‘]).*?["'”’]/g, '"…"').replace(/\d+/g, '#').replace(/\s+/g, ' ').trim()).slice(0, 120);
   const clip = (s, n) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
@@ -85,6 +86,8 @@
     return data;
   }
   function mark() {
+    // Talk to us is for a server that has support on (it opens Support); hidden until that is known to be off.
+    for (const id of ['talk-to-us', 'mobile-talk']) { const el = document.getElementById(id); if (el) el.hidden = state.enabled === false; }
     const link = document.getElementById('help-open'), n = state.unread;
     if (!link) return;
     if (n) {
@@ -190,7 +193,11 @@
       ${d.report ? `<p class="support-report" data-report>Attached: <strong>${escape(REPORTED[d.report.kind])}</strong> ${escape(d.report.title)} <button class="linkish" type="button" data-unreport>Remove</button></p>` : ''}
       <p class="support-sent" data-sent></p>`;
     const unreport = form.querySelector('[data-unreport]');
-    if (unreport) unreport.onclick = () => { d.report = null; d.bundle = null; d.key = uid(); renderComposer(); form.elements.message?.focus(); };
+    if (unreport) unreport.onclick = () => {
+      // An untouched prefill would say "details attached" with nothing attached.
+      if (d.message.startsWith(prefill(d.report))) d.message = d.message.slice(prefill(d.report).length);
+      d.report = null; d.bundle = null; d.key = uid(); renderComposer(); form.elements.message?.focus();
+    };
     form.oninput = () => {
       d.message = form.elements.message.value;
       if (!selected) { d.email = form.elements.email.value; d.ids = form.elements.ids.checked; }
@@ -310,7 +317,9 @@
     const d = draft();
     if (p.report) {
       d.report = p.report; d.diag = true; d.bundle = null; d.key = uid();
-      if (!d.message.trim()) d.message = REPORTED[p.report.kind] + ': ' + p.report.title + '\n\n';
+      // The words on screen go only in the attachment, which is redacted; the message is sent as typed, so it names
+      // the kind and nothing else.
+      if (!d.message.trim()) d.message = prefill(p.report);
     }
     renderTickets(); renderThread(true); renderComposer();
     const box = rail.querySelector('[name=message]');

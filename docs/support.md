@@ -83,11 +83,12 @@ local ticket record. Closed requests remain readable.
   The server container, tunnel connector and `.env` permissions need a shell on the server, so for those it points to
   doctor. **Send to support** attaches the result to a new request, so support can ask you to "press Setup check and
   send" instead of asking questions. The check itself works with support off (`POST /api/v2/support/setup-check`, any
-  signed-in person).
+  signed-in person, once every 30 seconds each).
 - When the installer or `tico-setup doctor` fails at a terminal, it asks **Send this to Tico support? [y/N]**. Only a
-  `y` sends; with no terminal it never asks. On yes it asks for an optional email, then sends the failing checks and
+  `y` sends; with no terminal it never asks. Before asking it prints exactly what would be sent. On yes it asks for an optional email, then sends the failing checks and
   their fixes, the OS, architecture and Tico version as a request of kind `setup`, redacted with the diagnostics rules
-  (`backend/redaction.py`) plus the install's own domain, owner, team name, runner and ssh hosts. It prints the
+  (`backend/redaction.py`) plus the install's own domain, owner, team name, runner and ssh hosts, and the account name in home folders and ssh
+  logins. It prints the
   request's number and a link, `https://updates.tico.team/support/TK-XXXXXXXX#s=...`, where replies show up and where you
   can answer or delete the request. The secret is after the `#`, so it never reaches a server log. `--no-support` or
   `TICO_SUPPORT=off` turns the question off. The installer asks only once it has unpacked its bundle, so a failure

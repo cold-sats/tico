@@ -316,9 +316,10 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
     await v.page.locator('.toast.err button', {hasText: 'Report this'}).click();
     await v.page.locator('[data-report]').waitFor();
     assert.match(await v.page.locator('[data-report]').innerText(), /Attached: Error Could not save the task/);
-    assert.match(await v.page.locator('[data-compose] [name=message]').inputValue(), /^Error: Could not save the task/);
+    // The message names only the kind: the words on screen go in the redacted attachment, never unredacted in the text.
+    assert.equal(await v.page.locator('[data-compose] [name=message]').inputValue(), 'Error: details attached. ');
+    assert.equal(await v.page.evaluate(() => document.activeElement.selectionStart === document.activeElement.value.length), true, 'the cursor waits after the prefill');
     assert.match(await v.page.locator('[data-sent]').innerText(), /redacted diagnostics with what you reported/);
-    await v.page.locator('[data-compose] [name=message]').press('End');
     await v.page.locator('[data-compose] [name=message]').pressSequentially('It happens every time.');
     await v.page.locator('[data-compose] [name=message]').press('Enter');
     await v.page.locator('.support-msg.you').waitFor();
@@ -326,11 +327,15 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
     assert.equal(reported.kind, 'toast');
     assert.equal(reported.title, 'Could not save the task "Ship it" (409)');
     assert.equal(reported.group, 'toast:Could not save the task "…" (#)', 'numbers and quoted names do not split a group');
-    assert.equal(JSON.parse(v.calls.find(c => c.startsWith('POST tickets {')).slice('POST tickets '.length)).diagnostics, 'c'.repeat(64));
+    const sentTicket = JSON.parse(v.calls.find(c => c.startsWith('POST tickets {')).slice('POST tickets '.length));
+    assert.equal(sentTicket.diagnostics, 'c'.repeat(64));
+    assert.equal(sentTicket.message, 'Error: details attached. It happens every time.', 'only what the person saw and typed');
     // Removing the attachment before sending leaves a plain request.
     await v.page.evaluate(() => talkToUs({kind: 'run', title: 'Run failed: exit 1'}));
+    assert.equal(await v.page.locator('[data-compose] [name=message]').inputValue(), 'Failed run: details attached. ');
     await v.page.locator('[data-unreport]').click();
     assert.equal(await v.page.locator('[data-report]').count(), 0);
+    assert.equal(await v.page.locator('[data-compose] [name=message]').inputValue(), '', 'no "details attached" with nothing attached');
     // A red Health line, a stuck bot and a failed run offer Report this; a fine one does not.
     const offered = await v.page.evaluate(() => ({
       bad: hlCheckHtml({id: 'computers', label: 'Computers', status: 'bad', summary: 'None online', fixes: []}).includes('data-report-this'),
@@ -363,6 +368,8 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
     assert.ok(!v.calls.some(c => c.startsWith('POST')));
     // With support off, an error toast offers nothing to report to.
     await v.page.evaluate(() => toast('Could not save', true));
+    assert.equal(await v.page.locator('#talk-to-us').isHidden(), true, 'no Talk to us when support is off');
+    assert.equal(await v.page.locator('#mobile-talk').evaluate(el => el.hidden), true);
     assert.equal(await v.page.locator('.toast.err button').count(), 0);
     assert.deepEqual(v.errors, []);
     await v.ctx.close();

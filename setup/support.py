@@ -85,6 +85,12 @@ def domains_of(*values: str) -> list[str]:
     return out
 
 
+# A home folder names the account (/home/ana/tico), and so does an ssh login (ana@203.0.113.7); the address itself goes
+# with the diagnostics rules.
+HOME = re.compile(r"((?:/home|/Users|[A-Za-z]:\\Users)[/\\])(?!\[user\])[^/\\\s\"'<>]+")
+SSH_USER = re.compile(r"(?<![A-Za-z0-9._%+'-])[A-Za-z_][A-Za-z0-9_.-]{0,31}@(?=\d{1,3}\.\d{1,3}\.|\[|[0-9a-fA-F]*:)")
+
+
 def scrub(text: str, *, domains=(), secrets=(), names=()) -> str:
     """The text as it may leave: the run's own secrets and names first, then the diagnostics rules with its domains."""
     text = str(text or "")
@@ -92,6 +98,8 @@ def scrub(text: str, *, domains=(), secrets=(), names=()) -> str:
         text = text.replace(secret, "[secret]")
     for name in sorted({n.strip() for n in names if n and len(n.strip()) >= 3}, key=len, reverse=True):
         text = re.sub(r"(?<![A-Za-z0-9])%s(?![A-Za-z0-9])" % re.escape(name), "[team]", text, flags=re.I)
+    text = HOME.sub(lambda m: m.group(1) + "[user]", text)
+    text = SSH_USER.sub("[user]@", text)
     return redaction().Redactor(company_domains=domains).text(text)
 
 
@@ -163,8 +171,9 @@ def offer(io: IO, what: str, checks=(), error: str = "", *, domains=(), secrets=
         if not hq.startswith(("https://", "http://127.0.0.1", "http://localhost")):
             return False
         message = scrub(summary(what, checks, error, version), domains=domains, secrets=secrets, names=names)[:MAX_MESSAGE]
-        io.say("\nTico support can look at this for you. It would get the failure above with keys, emails, addresses "
-               "and your domain removed, plus this computer's OS and the Tico version.")
+        io.say("\nTico support can look at this for you. This is exactly what would be sent (keys, emails, addresses, "
+               "account names and your domain removed):\n")
+        io.say("\n".join("    " + line for line in message.splitlines()))
         if not io.confirm(QUESTION, False):
             return False
         email = io.ask("Email for the reply (optional; Enter to skip)").strip()
