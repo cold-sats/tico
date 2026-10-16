@@ -886,6 +886,8 @@ def create_app(settings=None):
         if c is not None:
             value["relations"] = TR.grouped(c, [row["id"]], visible_sql)[row["id"]]
             value["roles"] = TRo.roles_of(c, row["id"])
+            from .roadmaps import stats, EMPTY_STATS
+            value.update({**EMPTY_STATS, **stats(c, [row['id']]).get(row['id'], {})})
             routine = c.execute('SELECT schedule_id FROM schedule_occurrences WHERE task_id=?', (row['id'],)).fetchone()
             if routine:
                 value.update(routine_id=routine['schedule_id'])
@@ -916,6 +918,10 @@ def create_app(settings=None):
             return []
         H.hydrate_task_tags(c, rows)
         ids = [row["id"] for row in rows]
+        from .roadmaps import stats, EMPTY_STATS
+        requester_stats = stats(c, ids)
+        for row in rows:
+            row.update({**EMPTY_STATS, **requester_stats.get(row['id'], {})})
         marks = ",".join("?" * len(ids))
         from .task_review import task_covers
         covers = task_covers(c, ids)
@@ -2687,7 +2693,7 @@ def create_app(settings=None):
         if private and actual_bot and actual_bot not in (requester_actor or who.actor, owner):
             raise Problem("privacy", "The acting bot must be a current participant of the private task", 403)
         row = H.task_create(c, who.actor, body.title, body.body, owner, body.due, parent_id,
-                            requester_actor=requester_actor,
+                            requester_actor=requester_actor, visibility=body.visibility,
                             private=private, conversation_id=rooms.task_conversation_id(c, auth, owner, who.actor),
                             lane=body.lane, labels=body.labels, top=body.top, lint=lint,
                             goal_id=body.goal_id, next_run=body.next_run, type=body.type, step=body.step,
@@ -2884,7 +2890,7 @@ def create_app(settings=None):
                 wake = who.role == "bot" or who.actor in (row["owner"], row["requester"]) or moves
             else:
                 wake = H.comment_wakes(c, who.actor, row, body.text, mover=moves)
-            msg = H.task_comment(c, who.actor, task_id, body.text, wake=wake, ask=ask,
+            msg = H.task_comment(c, who.actor, task_id, body.text, wake=wake, ask=ask, public=body.public, approval_id=body.approval_id,
                                  extra_refs={"attachments": attached, "files": [a["ref"] for a in attached]} if attached else None)
             for person in people:
                 H.task_comment(c, who.actor, task_id, body.text, wake=False, ask=H.mention_ask(body.text, person))
@@ -2986,7 +2992,7 @@ def create_app(settings=None):
             row = own_comment(c, who, tid, mid)
             from .task_review import comment_rights
             comment_rights(c, auth, who, row["id"])
-            msg = H.task_comment_edit(c, who.actor, row["id"], mid, body.text)
+            msg = H.task_comment_edit(c, who.actor, row["id"], mid, body.text, approval_id=body.approval_id)
             return {"comment": msg, "comments": H.task_comments(c, row["id"], actor=privacy.actor(request.state.identity)), "woke": False}
         return mutate(request, body, work, check=lambda c: own_comment(c, who, tid, mid, allow_deleted=True))
 
@@ -4864,6 +4870,8 @@ def create_app(settings=None):
     from .views import install_views
     from .task_types import install_task_types
     install_task_types(app, store, auth, mutate, mover)
+    from .roadmaps import install_internal
+    install_internal(app, store, auth, mutate, mover)
     from .service_keys import install_service_keys
     install_service_keys(app, store, auth, mutate)
     install_views(app, store, auth, mutate, task_view)

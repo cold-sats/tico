@@ -975,6 +975,8 @@ def migrate(conn, adopt_legacy=False):
         add_column(conn, "task_types", "manager", "TEXT")
         from .roadmap_flow import ensure as ensure_roadmap_types
         ensure_roadmap_types(conn)
+    from .roadmaps import migrate as migrate_roadmaps
+    migrate_roadmaps(conn)
     # A person's open asks, read on every Needs-you load (loose_asks_to).
     conn.execute("CREATE INDEX IF NOT EXISTS messages_open_asks_to ON messages(to_actor, created) "
                  "WHERE kind='ask' AND answered_by IS NULL AND deleted_at IS NULL")
@@ -2526,26 +2528,33 @@ def _type_steps(conn, actor, type_id, steps):
                      "name=excluded.name,position=excluded.position,status=excluded.status", row)
 
 
-def type_create(conn, actor, name, steps=(), mover=None, bots=None, numbered=False, steps_only=False):
+def type_create(conn, actor, name, steps=(), mover=None, bots=None, numbered=False, steps_only=False, default_visibility='private'):
     _type_writer(conn, actor, mover)
     name = _type_name(conn, actor, name)
     bots = _type_bots(conn, actor, bots)
     ident, ts = new_id(), now()
     conn.execute("INSERT INTO task_types(id,name,bots,numbered,steps_only,created,updated) VALUES(?,?,?,?,?,?,?)",
                  (ident, name, bots, int(bool(numbered)), int(bool(steps_only)), ts, ts))
+    if default_visibility not in ('public', 'private'):
+        refuse(conn, actor, 'kind', 'default_visibility is public or private')
+    conn.execute('UPDATE task_types SET default_visibility=? WHERE id=?', (default_visibility, ident))
     _type_steps(conn, actor, ident, steps)
     row = type_get(conn, ident)
     event(conn, actor, "task_type.create", ident, row)
     return row
 
 
-def type_update(conn, actor, type_id, name=None, steps=None, mover=None, bots=None, numbered=None, steps_only=None):
+def type_update(conn, actor, type_id, name=None, steps=None, mover=None, bots=None, numbered=None, steps_only=None, default_visibility=None):
     _type_writer(conn, actor, mover)
     row = type_get(conn, type_id)
     if not row:
         refuse(conn, actor, "not-found", "No such task type")
     if row["id"] == GENERAL_TYPE:
         refuse(conn, actor, "built-in", "General keeps the standard statuses")
+    if default_visibility is not None:
+        if default_visibility not in ('public', 'private'):
+            refuse(conn, actor, 'kind', 'default_visibility is public or private')
+        conn.execute('UPDATE task_types SET default_visibility=? WHERE id=?', (default_visibility, row['id']))
     if name is not None:
         name = _type_name(conn, actor, name, row["id"])
         conn.execute("UPDATE task_types SET name=? WHERE id=?", (name, row["id"]))
@@ -3431,7 +3440,7 @@ def task_ask_recipient(conn, actor, row, ask):
 
 
 @private_task_write
-def task_comment(conn, actor, task_id, text, wake=True, *, ask=None, extra_refs=None, answer_to=None, answer_text=None):
+def task_comment(conn, actor, task_id, text, wake=True, *, ask=None, extra_refs=None, answer_to=None, answer_text=None, public=False, approval_id=None):
     """A comment on a task: one message in the task's conversation, tagged with the task, from
     whoever wrote it. It wakes the bot on the other side of the task when `wake` (a mover, the
     owner or the requester left it); otherwise it is saved for the bot's next turn on the task."""
@@ -3443,6 +3452,11 @@ def task_comment(conn, actor, task_id, text, wake=True, *, ask=None, extra_refs=
     text = str(text or "").strip()
     if not text:
         refuse(conn, actor, "lint", "write the comment")
+    if public:
+        from .roadmaps import check_public_comment
+        if ask or extra_refs or answer_to:
+            refuse(conn, actor, 'kind', 'A public comment is plain text without attachments or asks')
+        check_public_comment(conn, actor, row, text, approval_id)
     others = [a for a in dict.fromkeys([row["owner"], row["requester"], task_origin(conn, row)])
               if a and a not in (actor, KEEPER) and task_private_readable(conn, a, row)]
     target = next((a for a in others if is_bot(a)), None) or (others[0] if others else None)
@@ -3480,6 +3494,9 @@ def task_comment(conn, actor, task_id, text, wake=True, *, ask=None, extra_refs=
     if wake and is_bot(target) and is_human(actor):
         conn.execute("INSERT INTO task_delegations(task_id,delegate,requested_by,message_id,expires) VALUES(?,?,?,?,?)",
                      (task_id, target, actor, msg["id"], shift(now(), hours=24)))
+    if public:
+        conn.execute('UPDATE messages SET public=1 WHERE id=?', (msg['id'],))
+        msg = message(conn, msg['id'])
     return msg
 
 
@@ -3679,7 +3696,7 @@ def _own_comment(conn, actor, task_id, message_id):
 
 
 @private_task_write
-def task_comment_edit(conn, actor, task_id, message_id, text):
+def task_comment_edit(conn, actor, task_id, message_id, text, approval_id=None):
     """The author changes a comment's text. The new text gets the checks a new comment's text gets
     (`task_comment`, `say`); rule 7's lint is for unsolicited items, and a comment is tagged with its
     task, so it never applies. Nothing is sent and nobody wakes: whoever reads the task next reads the
@@ -3688,6 +3705,9 @@ def task_comment_edit(conn, actor, task_id, message_id, text):
     text = str(text or "").strip()
     if not text:
         refuse(conn, actor, "lint", "write the comment")
+    if msg.get('public') and text != msg['body']:
+        from .roadmaps import check_public_comment
+        check_public_comment(conn, actor, task(conn, task_id), text, approval_id)
     path_mentioned(conn, actor, "task note edit", text, task_id)
     if actor == "bot:librarian":
         text = librarian_text(text)
@@ -3733,7 +3753,7 @@ def task_comment_delete(conn, actor, task_id, message_id):
 def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, deduplicate=True,
                 allow_planned=False, conversation_id=None, lane=None, labels=None, top=False, lint=True,
                 goal_id=None, next_run=False, type=None, step=None, number=None, mover=None, private=None,
-                requester_actor=None, own_room=True):
+                requester_actor=None, own_room=True, visibility=None):
     """Rule 5. Anyone may open a task for any active owner; a human owner's General task is
     linted (rule 7).
 
@@ -3844,6 +3864,13 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     if number is not None:
         _task_event(conn, row["id"], actor, "number", None, number, "")
     _set_status(conn, actor, {**row, "status": None}, status="open", type=type)
+    public = visibility or type_get(conn, task(conn, row['id'])['type_id'])['default_visibility']
+    if public not in ('public', 'private'):
+        refuse(conn, actor, 'kind', 'visibility is public or private')
+    if private:
+        public = 'private'
+    conn.execute('UPDATE tasks SET visibility=?,public_title=?,public_summary=? WHERE id=?',
+                 (public, title[:300], body[:8000], row['id']))
     if step is not None:
         task_update(conn, actor, row["id"], step=step)
     if top:
@@ -3922,7 +3949,8 @@ def _retitle(conn, actor, row, title, owner, type_id):
 @private_task_write
 def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=None, body=None,
                 lane=None, labels=None, rank=None, mover=None, goal_id=None, quiet=False, type=None, step=None,
-                step_rank=None, number=None, title=None, private=None, waiting_on=None, roles=None):
+                step_rank=None, number=None, title=None, private=None, waiting_on=None, roles=None, visibility=None, public_title=None,
+                public_summary=None, approval_id=None, size=None):
     """Rule 5. The owner may set doing|waiting|review|done|declined and a note; it may not close.
 
     `lane` and `labels` are a mover's to change (`mover` says whether this actor is one; the
@@ -4125,7 +4153,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
             if row.get(field) is not None:
                 _task_event(conn, task_id, actor, field, row[field], None, note or "")
             sets.append(field + "=NULL")
-    if not sets and not state_change and not roles:
+    if not sets and not state_change and not roles and all(v is None for v in (visibility, public_title, public_summary, size)):
         return row
     # A person finishing it is news for every bot on it; the bots that asked it open questions are read
     # before the status write supersedes those questions.
@@ -4150,6 +4178,18 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         # The task's own thread was named after it; a room many tasks share keeps its subject.
         conn.execute("UPDATE conversations SET subject=? WHERE id=? AND task_id=? AND subject=?",
                      (title, row["conversation_id"], task_id, row["title"]))
+    from .roadmaps import publication
+    updated_row = task(conn, task_id)
+    if task_private(conn, updated_row):
+        conn.execute("UPDATE tasks SET visibility='private' WHERE id=?", (task_id,))
+        updated_row = task(conn, task_id)
+    publication(conn, actor, updated_row, visibility, public_title, public_summary, approval_id)
+    if size is not None:
+        import math
+        if not math.isfinite(size) or size < 0:
+            refuse(conn, actor, 'kind', 'Size is a nonnegative finite number')
+        conn.execute('UPDATE tasks SET size=?,updated=? WHERE id=?', (size, now(), task_id))
+        _task_event(conn, task_id, actor, 'size', row.get('size'), size, '')
     plain = plain + self_wait
     if plain:
         _task_event(conn, task_id, KEEPER, "lint", None, "; ".join(plain), "")
