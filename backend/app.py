@@ -1097,6 +1097,12 @@ def create_app(settings=None):
         if in_assistant_room:
             refs["assistant"] = True           # the server's mark: this turn acts for the person
         conversation_id = body.conversation_id
+        if not conversation_id and body.kind == "steer" and who.role == "bot" and refs.get("task"):
+            # A requester's steer goes to the task's own room, which its owner's running turn takes input from.
+            task = H.task(c, refs["task"])
+            if not task or task["requester"] != who.actor or task["owner"] != to or not task.get("conversation_id"):
+                raise Problem("steer_target", "Steer a task you requested, sent to its owner", 422)
+            conversation_id = task["conversation_id"]
         if not conversation_id and who.role in ("owner", "human") and to.startswith("bot:"):
             conversation_id = rooms.chat_room(c, auth, who, H.actor_id(to))["id"]
         privacy.require_destination(c, who, to, conversation_id, refs,
@@ -2563,7 +2569,7 @@ def create_app(settings=None):
                     "waiting_for": task_wait(c, tid, settings),
                     "runs": task_runs(c, who, tid),
                     # The model a bot's check subtask runs on (backend/check_models.py), or null.
-                    "check_model": check_models.of(c, tid),
+                    "check_model": H.check_model(c, tid),
                     **privacy.page(c, who, row["conversation_id"], task_id=tid)}
 
     def task_runs(c, who, tid, limit=200):
@@ -3869,8 +3875,9 @@ def create_app(settings=None):
         with store.read() as c:
             execution.runner(c, request.state.identity)
         # `screen_v1`: this server takes the capability and `readiness.screen` (an older one refuses the heartbeat).
+        # `limit_resets_at`: a run's result may say when its usage limit resets (an older one refuses the field).
         return {**runner_versions.desired(), "features": {"task_files_multipart": True, "runner_commit": True,
-                                                          "screen_v1": True}}
+                                                          "screen_v1": True, "limit_resets_at": True}}
 
     @app.get("/api/v2/runners/assignments")
     def assigned(request: Request):
@@ -4737,7 +4744,7 @@ def create_app(settings=None):
 
     @app.post("/api/v2/bots/{bot}/stop")
     def stop_turn(request: Request, bot: str, body: M.StopTurn):
-        return mutate(request, body, lambda c: execution.stop(c, request.state.identity, bot, body.attempt_id))
+        return mutate(request, body, lambda c: execution.stop(c, request.state.identity, bot, body.attempt_id, body.redirect))
 
     @app.post("/api/v2/bots/{bot}/control")
     def control(request: Request, bot: str, body: M.BotControl):

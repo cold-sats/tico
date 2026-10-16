@@ -15,8 +15,10 @@ from .harnesses import reports_tool_calls
 from .statuses import PARKED_SQL
 from .store import H, P, Problem, bot_readiness, digest, encode, message_page, readiness_document
 
+# The wait after a usage limit whose provider gave no reset time; a reported reset is used instead.
 LIMIT_COOLDOWN = 1800        # seconds a bot waits after its runtime reported a usage limit
 LIMIT_COOLDOWN_LONG = 7200   # after the third limit in a row: the subscription window is spent, not busy
+LIMIT_RESET_MAX = 8 * 86400  # a reported reset further off than a weekly window is not believed
 LIMIT_STRIKES = 3
 # An API key's own quota or billing refusal: the fix is the key's plan and billing, not waiting out a subscription window.
 BILLING_LIMIT_RE = re.compile(r"quota exceeded\. check your plan|exceeded your current quota|insufficient[_ ]quota", re.I)
@@ -193,12 +195,27 @@ def queued_task_sql():
     return "coalesce(" + ",".join(refs) + f",nullif(trim(cv.task_id,{whitespace}),''))"
 
 
+def reports_tools(c, attempt_id, config):
+    """True when an attempt's silence about tools proves it called none: its harness always reports tool calls,
+    or the run itself said it does (a `status` event with `tool_events`, sent by Claude and Codex runners that
+    report each call; an older runner of the same harness does not, and its silence proves nothing). The latest
+    such event counts, ahead of the harness: a turn that falls back to another host sends `tool_events: false`
+    when it hops."""
+    row = c.execute("SELECT json_extract(payload_json,'$.tool_events') AS said FROM attempt_events "
+                    "WHERE attempt_id=? AND kind='status' AND json_extract(payload_json,'$.tool_events') IS NOT NULL "
+                    "ORDER BY seq DESC LIMIT 1", (attempt_id,)).fetchone()
+    if row:
+        return bool(row['said'])
+    return reports_tool_calls(config, config.get('runtime'))
+
+
 def limit_streak(c, bot):
     """How many of the bot's latest finished attempts in a row ended on a usage limit (capped
     at LIMIT_STRIKES; a lapsed lease or any other outcome ends the run)."""
     streak = 0
     for row in c.execute("SELECT result_json FROM attempts WHERE bot=? AND state IN ('completed','failed','interrupted') "
-                         "ORDER BY created DESC LIMIT ?", (bot, LIMIT_STRIKES)):
+                         "AND json_extract(result_json,'$.check') IS NULL ORDER BY created DESC LIMIT ?",
+                         (bot, LIMIT_STRIKES)):
         if not (row[0] and json.loads(row[0]).get("limited")):
             break
         streak += 1
@@ -215,8 +232,10 @@ def limit_errors(c, attempt_id):
 def last_limit(c, bot):
     """The bot's most recent attempt that ended on a usage limit."""
     # Another lane begun before the limit can finish afterwards without lifting the bot's hold.
-    return c.execute("SELECT id,finished FROM attempts WHERE bot=? AND state IN ('failed','interrupted') "
+    return c.execute("SELECT id,finished,json_extract(result_json,'$.limit_resets_at') AS resets_at "
+                     "FROM attempts WHERE bot=? AND state IN ('failed','interrupted') "
                      "AND finished IS NOT NULL AND json_extract(result_json,'$.limited')=1 "
+                     "AND json_extract(result_json,'$.check') IS NULL "
                      "ORDER BY finished DESC LIMIT 1", (bot,)).fetchone()
 
 
@@ -228,21 +247,50 @@ def billing_limit(c, bot=None, attempt_id=None):
     return bool(attempt_id) and any(BILLING_LIMIT_RE.search(error) for error in limit_errors(c, attempt_id))
 
 
+def provider_reset(last, finished):
+    """Seconds from the limit to the reset its runner reported from the provider's own fields, or None."""
+    reset = H.parse_ts(last["resets_at"])
+    if not reset or not reset.tzinfo:
+        return None
+    wait = int((reset - finished).total_seconds()) + 1
+    return wait if 0 < wait <= LIMIT_RESET_MAX else None
+
+
 def limit_cooldown(c, bot):
-    """Seconds held after the last limit, including a provider's explicit reset window."""
+    """Seconds held after the last limit: until the provider's reported reset when there is one, else
+    the default wait, stretched to a reset the error text names."""
     cooldown = LIMIT_COOLDOWN_LONG if limit_streak(c, bot) >= LIMIT_STRIKES else LIMIT_COOLDOWN
     last = last_limit(c, bot)
     if not last:
         return cooldown
-    finished = H.parse_ts(last["finished"])
+    return reset_cooldown(c, last["id"], last["finished"], cooldown, last["resets_at"])
+
+
+def reset_cooldown(c, attempt_id, finished, cooldown, resets_at=None):
+    """`cooldown`, or until the reset the runner reported from the provider, or longer to reach a reset the
+    attempt's limit error names."""
+    finished = H.parse_ts(finished)
     if not finished:
         return cooldown
-    for error in limit_errors(c, last["id"]):
+    reported = provider_reset({"resets_at": resets_at}, finished)
+    if reported:
+        return reported
+    for error in limit_errors(c, attempt_id):
         match = re.search(r"usage window resets at (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)", error, re.I)
         reset = H.parse_ts(match[1]) if match else None
         if reset:
             cooldown = max(cooldown, int((reset - finished).total_seconds()) + 1)
     return cooldown
+
+
+def release_limits(c):
+    """Lift each usage limit whose hold has passed: the bot shows it is back, and the status change tells
+    its computer to ask for the queued work now rather than at its next backup poll."""
+    for row in c.execute("SELECT bot,since FROM bot_status WHERE state='limited'").fetchall():
+        if row["since"] and row["since"] > H.shift(H.now(), seconds=-limit_cooldown(c, row["bot"])):
+            continue
+        settle_status(c, row["bot"], "idle", "Usage limit lifted; queued work resumes")
+        H.event(c, H.KEEPER, "limit.released", row["bot"], {"since": row["since"]})
 
 
 def person_wrote_since(c, bot, since):
@@ -867,9 +915,10 @@ class Execution:
             f"AND (({task_sql} IS NOT NULL AND "
             + H.MESSAGE_TASK_SQL.replace("m.", "um.").replace("cv.", "uc.") + f"={task_sql}) "
             f"OR ({task_sql} IS NULL AND cv.kind='chat' AND um.conversation_id=m.conversation_id)))) "
-            # A person's chat first; then the bot holding the fewest turns here, so a freed turn goes to another
-            # bot's waiting job before the busy bot's next one; then the longest waiting.
-            "ORDER BY CASE WHEN m.from_actor LIKE 'human:%' THEN 0 ELSE 1 END,"
+            # A redirect first (it replaces a turn just stopped); then a person's chat; then the bot holding the
+            # fewest turns here, so a freed turn goes to another bot's waiting job before the busy bot's next one;
+            # then the longest waiting.
+            "ORDER BY j.redirect DESC,CASE WHEN m.from_actor LIKE 'human:%' THEN 0 ELSE 1 END,"
             f"CASE j.bot {' '.join('WHEN ? THEN ?' for _ in bots)} ELSE 0 END,j.created,j.id",
             (*bots, who.runner_id, *full, *(v for bot in bots for v in (bot, held.get(bot, 0)))))
         for row in candidates:
@@ -877,8 +926,9 @@ class Execution:
             if not privacy.message_readable(c, "bot:" + row["bot"], message):
                 continue
             conversation = H.conversation(c, message["conversation_id"])
-            wanted = check_models.of(c, H.message_task_id(message, conversation))
-            if not check_models.runs_here(ready, wanted):
+            task_id = H.message_task_id(message, conversation)
+            wanted = check_models.of(c, task_id, row["bot"])
+            if not check_models.runs_here(ready, wanted) or (wanted and check_models.held(c, task_id)):
                 continue
             config = check_models.apply(followed[row["bot"]], wanted)
             if (row["bot"], job_lane(c, row["bot"], config, message, conversation, lanes, roots)) in busy:
@@ -1026,7 +1076,7 @@ class Execution:
         followed = follow(c, row["bot"], json.loads(
             c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()[0]))
         # A check subtask's turns run on its own model, in its own session (backend/check_models.py).
-        check = check_models.of(c, task["id"]) if task else None
+        check = check_models.of(c, task["id"], row["bot"]) if task else None
         followed = check_models.apply(followed, check)
         roots, lanes = roots_on(runner), lanes_on(runner)
         lane = job_lane(c, row["bot"], followed, msg, conv, lanes, roots)
@@ -1295,9 +1345,13 @@ class Execution:
         return {"lease_until": until, "lease_seconds": self.store.settings.lease_seconds,
                 **({"stop": True} if row["stop_requested"] else {})}
 
-    def stop(self, c, who, bot, attempt_id=None):
+    def stop(self, c, who, bot, attempt_id=None, redirect=None):
         """A person who manages the bot asks its running turn to stop. The runner interrupts the turn
-        when it next renews the lease, and `complete` settles it as stopped rather than held for review."""
+        when it next renews the lease, and `complete` settles it as stopped rather than held for review.
+
+        With `redirect`, the caller's own message still queued in a conversation that turn works in is
+        claimed first once it ends, so the next turn starts with it in the same session (Stop and redirect,
+        for a harness that cannot take input mid-turn)."""
         if not H.bot(c, bot):
             raise Problem("not_found", "Unknown bot", 404)
         if not (self.auth.operator(c, who, bot) or self.auth.bot_manager(c, who, bot)):
@@ -1311,10 +1365,21 @@ class Execution:
             raise Problem("ambiguous", "This bot is running more than one turn; say which to stop", 409,
                           extra={"attempts": [r["id"] for r in rows]})
         row = rows[0]
+        if redirect:
+            job = c.execute("SELECT j.id,j.state,m.from_actor FROM jobs j JOIN messages m ON m.id=j.message_id "
+                            "WHERE j.message_id=? AND j.bot=? AND (m.conversation_id=(SELECT om.conversation_id "
+                            "FROM jobs oj JOIN messages om ON om.id=oj.message_id JOIN attempts oa ON oa.job_id=oj.id "
+                            "WHERE oa.id=?) OR m.conversation_id IN (SELECT conversation_id FROM attempt_conversations "
+                            "WHERE attempt_id=?))", (redirect, bot, row["id"], row["id"])).fetchone()
+            if not job or job["from_actor"] != who.actor:
+                raise Problem("not_found", "Redirect with your own message to this turn's conversation", 404)
+            if job["state"] != "queued":
+                raise Problem("not_queued", "That message is already being answered", 409)
+            c.execute("UPDATE jobs SET redirect=1 WHERE id=?", (job["id"],))
         if not row["stop_requested"]:
             c.execute("UPDATE attempts SET stop_requested=? WHERE id=?", (who.actor, row["id"]))
-            H.event(c, who.actor, "attempt.stop", row["id"], {"bot": bot})
-        return {"attempt_id": row["id"], "stopping": True}
+            H.event(c, who.actor, "attempt.stop", row["id"], {"bot": bot, **({"redirect": redirect} if redirect else {})})
+        return {"attempt_id": row["id"], "stopping": True, **({"redirect": redirect} if redirect else {})}
 
     def started(self, c, who, aid, body):
         row = self.attempt(c, who, aid)
@@ -1364,7 +1429,8 @@ class Execution:
         taken = 0
         for row in c.execute("SELECT m.* FROM jobs j JOIN messages m ON m.id=j.message_id "
                              "WHERE j.bot=? AND j.state='queued' AND coalesce(json_extract(m.refs_json,'$.command'),0)!=1 "
-                             "AND (m.conversation_id=("
+                             # A redirect replaces the turn being stopped, so it starts the next one instead.
+                             "AND j.redirect=0 AND (m.conversation_id=("
                              "SELECT active_message.conversation_id FROM attempts active_attempt "
                              "JOIN jobs active_job ON active_job.id=active_attempt.job_id "
                              "JOIN messages active_message ON active_message.id=active_job.message_id "
@@ -1557,8 +1623,12 @@ class Execution:
             refs = {**(H.message(c, reply["id"]).get("refs") or {}),
                     "run": {"job_id": row["job_id"], "attempt_id": aid}, "answers": handled}
             c.execute("UPDATE messages SET refs_json=? WHERE id=?", (encode(refs), reply["id"]))
+        # A turn on a check subtask ran on the check's model, not the bot's (backend/check_models.py).
+        check_task = H.message_task_id(msg, conv)
+        check = check_models.of(c, check_task, row["bot"])
         c.execute("UPDATE attempts SET state=?,finished=?,final_text=?,result_json=? WHERE id=?",
-                  (body.outcome, H.now(), body.text, encode(body.model_dump()), aid))
+                  (body.outcome, H.now(), body.text,
+                   encode({**body.model_dump(), **({"check": check["runtime"]} if check else {})}), aid))
         # A usage-limited turn did nothing and had no effects, so the job goes back in the
         # queue however often it happens; the bot cools off (claim() honours the window) and
         # a third limit in a row waits longer and tells a person in Needs attention. Only
@@ -1684,6 +1754,8 @@ class Execution:
         usage_limits.after_run(c, row["bot"], self.store.settings.owner_email)
         config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()
         runtime, model = providers.bot_choice(c, self.store.settings, json.loads(config[0]) if config else {})
+        if check:
+            runtime, model = check["runtime"], check["model"]
         if row["thread_id"] and body.tokens_in is not None:
             c.execute("UPDATE bot_sessions SET tokens_in=?,updated=? WHERE bot=? AND runtime=? AND model=? AND thread_id=?",
                       (int(body.tokens_in), H.now(), row["bot"], runtime, model, row["thread_id"]))
@@ -1711,19 +1783,34 @@ class Execution:
             # A worktree this turn was waiting for is not wanted any more (backend/worktree_waits.py).
             from .worktree_waits import cancel_for_attempt
             cancel_for_attempt(c, aid, f"Stopped by {name}")
+        elif limited and check:
+            # A check has no fallback, and its model's limit is not the bot's: hold the check alone, and leave
+            # the bot's own work, its status and its Health finding to its own provider.
+            hit = H.now()
+            retry = H.shift(hit, seconds=reset_cooldown(c, aid, hit, LIMIT_COOLDOWN, body.limit_resets_at))
+            check_models.hold(c, check_task, runtime, retry)
+            settle_status(c, row["bot"], "idle", f"{runtime} usage limit on a check at {hit[11:16]}; the check "
+                          f"retries after {retry[:10]} {retry[11:16]} UTC", began=row["started"] or row["created"])
+            H.event(c, H.KEEPER, "attempt.check_limited", aid,
+                    {"bot": row["bot"], "job_id": row["job_id"], "task_id": check_task, "runtime": runtime,
+                     "retry_after": retry})
         elif limited:
             streak = limit_streak(c, row["bot"])
             hit = H.now()
             retry = H.shift(hit, seconds=limit_cooldown(c, row["bot"]))
             kind = "API quota or billing limit" if billing_limit(c, attempt_id=aid) else "usage limit"
-            focus = (f"{runtime} {kind} at {hit[11:16]}" + (", third in a row" if streak >= LIMIT_STRIKES else "")
-                     + f"; retrying after {retry[:10]} {retry[11:16]} UTC")
+            if body.limit_resets_at and provider_reset(last_limit(c, row["bot"]), H.parse_ts(hit)):
+                focus = (f"{runtime} {kind} at {hit[11:16]}; resumes at {retry[11:16]} UTC"
+                         + ("" if retry[:10] == hit[:10] else f" on {retry[:10]}") + " when it resets")
+            else:
+                focus = (f"{runtime} {kind} at {hit[11:16]}" + (", third in a row" if streak >= LIMIT_STRIKES else "")
+                         + f"; retrying after {retry[:10]} {retry[11:16]} UTC")
             H.status_set(c, H.KEEPER, row["bot"], state="limited", focus=focus)
             # Every limit restarts the cooldown; status_set keeps `since` while the state stays the same.
             c.execute("UPDATE bot_status SET since=? WHERE bot=?", (hit, row["bot"]))
             H.event(c, H.KEEPER, "attempt.limited", aid,
                     {"bot": row["bot"], "job_id": row["job_id"], "runtime": runtime, "streak": streak,
-                     "retry_after": retry})
+                     "retry_after": retry, "provider_reset": bool(body.limit_resets_at)})
         elif rejected:
             settle_status(c, row["bot"], "idle" if requeue else "crashed",
                           f"{body.auth_rejected.runtime} sign-in was rejected; " +
@@ -1877,6 +1964,10 @@ class Execution:
                 held.append(row["id"])
         return held
 
+    def release_limits(self, c):
+        """Runs from the scheduler's tick: lift each usage limit whose hold has passed."""
+        release_limits(c)
+
     def release_deploy_drains(self, c):
         """Undrain the bots a deploy drained and never gave back.
 
@@ -1925,8 +2016,8 @@ class Execution:
           nothing left to deliver, and rows that held bots were often this.
         - **Resume** when the attempt recorded no tool call and consumed no approval: it read,
           it thought, it was cut off. Running it again repeats nothing. This needs a host that
-          reports its tool calls; on claude and codex no `tool` event is ever sent, so silence
-          there is not evidence and the run waits for a person.
+          reports its tool calls (`reports_tools`); a run from a host that does not is silent
+          either way, so it waits for a person.
 
         A run that used tools stays for a person, because the hub cannot see what a tool did on
         the Mac. The runner's own `restore` gets the first STALL_MAX to reclaim a run that is
@@ -1979,7 +2070,7 @@ class Execution:
                 window = (row['started'] or row['created'], row['finished'] or H.now())
                 consumed = c.execute("SELECT count(*) FROM approvals WHERE requested_by=? AND consumed_at IS NOT NULL "
                                      "AND consumed_at BETWEEN ? AND ?", ('bot:' + row['bot'], *window)).fetchone()[0]
-                if reports_tool_calls(declared, declared.get('runtime')) and not tools and not consumed:
+                if reports_tools(c, row['attempt_id'], declared) and not tools and not consumed:
                     note = ("Resumed automatically: the interrupted run recorded no tool call and consumed no "
                             "approval before it stopped, so running it again repeats nothing.")
                 else:

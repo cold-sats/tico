@@ -15,7 +15,7 @@ use tokio::process::Child;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 
-use super::{event, failed, hub_mcp_server, is_auth_retryable, is_limit, Events, HostError, Settings};
+use super::{event, failed, hub_mcp_server, is_auth_retryable, is_limit, tool_summary, Events, HostError, Settings};
 use crate::util::{iso, log, py_dumps, text_of};
 
 pub const STREAM_ARGS: &[&str] = &[
@@ -32,6 +32,8 @@ const LIMIT_SETTLE: Duration = if cfg!(test) { Duration::from_millis(500) } else
 const STEER_MIN_VERSION: (u64, u64, u64) = (2, 1, 296);
 const AUTOCOMPACT_BUFFER: i64 = 33_000;
 const AUTOCOMPACT_RANGE: (i64, i64) = (100_000, 1_000_000);
+/// The tools that start a subagent: `Agent`, called `Task` by older Claude Code.
+const AGENT_TOOLS: &[&str] = &["Agent", "Task"];
 pub const RESTORING: &str = "Saved provider session is unavailable; restoring this conversation's context.";
 
 pub fn version_tuple(text: &str) -> Option<(u64, u64, u64)> {
@@ -150,6 +152,21 @@ struct Inner {
     reader: Option<tokio::task::JoinHandle<()>>,
     /// How far each thread's transcript has been read for goal records.
     goal_offsets: HashMap<String, u64>,
+    /// This turn's tool calls by `tool_use` id, the bot's own and its subagents'.
+    tools: HashMap<String, ToolCall>,
+}
+
+/// A tool call reported as started, kept until its end is reported once.
+#[derive(Clone)]
+struct ToolCall {
+    name: String,
+    /// The `Agent` call whose subagent made this call; none for the bot's own.
+    parent: Option<String>,
+    /// For a subagent's start: what the hub is told about it.
+    subagent: Option<Value>,
+    /// A backgrounded subagent's call returns at once; it ends with its `task_notification`.
+    background: bool,
+    ended: bool,
 }
 
 struct Shared {
@@ -344,10 +361,12 @@ impl ClaudeHost {
             let launched = self.launch(thread_id, &t, effort).map_err(|e| failed(format!("could not start claude: {e}")))?;
             inner.turn = Some((thread_id.into(), turn.clone()));
             inner.reply.insert(turn.clone(), String::new());
+            inner.tools.clear();
             launched
         };
         log(&format!("claude[{}]: turn started pid {}", self.0.bot, child.id().map_or("?".into(), |p| p.to_string())));
-        self.emit(event("status", Some(thread_id), None, json!({"state": "active"})));
+        // `tool_events`: this run reports every tool call, so a run with none provably called none.
+        self.emit(event("status", Some(thread_id), None, json!({"state": "active", "tool_events": true})));
         let host = self.clone();
         let (tid, t2, text, effort) = (thread_id.to_string(), turn.clone(), text.to_string(), effort.map(String::from));
         let reader = tokio::spawn(async move { host.read_loop(child, stderr, tid, t2, text, effort).await });
@@ -570,6 +589,9 @@ impl ClaudeHost {
 
     /// One stream-json line to host events; true when it is the turn's result.
     fn on_message(&self, msg: &Value, tid: &str, turn: &str) -> bool {
+        if msg.is_object() {
+            self.on_tools(msg, tid, turn);
+        }
         if !msg.is_object() || crate::util::truthy(msg.get("parent_tool_use_id")) {
             return false; // subagent traffic is not the bot's reply
         }
@@ -648,6 +670,89 @@ impl ClaudeHost {
             _ => {}
         }
         false
+    }
+
+    /// `tool` events from one stream-json line: a call starting (`tool_use`), ending (`tool_result`), or a
+    /// backgrounded subagent finishing (`task_notification`). A subagent's start and end carry `subagent`.
+    fn on_tools(&self, msg: &Value, tid: &str, turn: &str) {
+        let parent = msg["parent_tool_use_id"].as_str().filter(|p| !p.is_empty());
+        let blocks = || msg["message"]["content"].as_array().into_iter().flatten();
+        match (msg["type"].as_str().unwrap_or_default(), msg["subtype"].as_str().unwrap_or_default()) {
+            ("assistant", _) => {
+                for b in blocks().filter(|b| b["type"] == "tool_use") {
+                    self.tool_started(b, parent, tid, turn);
+                }
+            }
+            ("user", _) => {
+                for b in blocks().filter(|b| b["type"] == "tool_result") {
+                    let status = if crate::util::truthy(b.get("is_error")) { "failed" } else { "completed" };
+                    self.tool_ended(b["tool_use_id"].as_str().unwrap_or_default(), status, false, &Value::Null, tid, turn);
+                }
+            }
+            ("system", "task_started") if msg["is_backgrounded"] == true => {
+                if let Some(call) = self.inner().tools.get_mut(msg["tool_use_id"].as_str().unwrap_or_default()) {
+                    call.background = true;
+                }
+            }
+            ("system", "task_notification") => {
+                let status = match msg["status"].as_str().unwrap_or_default() {
+                    "completed" => "completed",
+                    "failed" | "error" => "failed",
+                    _ => "interrupted",
+                };
+                self.tool_ended(msg["tool_use_id"].as_str().unwrap_or_default(), status, true, &msg["usage"], tid, turn);
+            }
+            _ => {}
+        }
+    }
+
+    fn tool_started(&self, block: &Value, parent: Option<&str>, tid: &str, turn: &str) {
+        let id = block["id"].as_str().unwrap_or_default();
+        let name = block["name"].as_str().filter(|n| !n.is_empty()).unwrap_or("tool");
+        let input = &block["input"];
+        let subagent = AGENT_TOOLS.contains(&name).then(|| {
+            json!({"id": id, "parent_id": parent, "type": input.get("subagent_type").cloned().unwrap_or(Value::Null),
+                   "model": input.get("model").cloned().unwrap_or(Value::Null), "status": "started"})
+        });
+        {
+            let mut inner = self.inner();
+            if id.is_empty() || inner.tools.contains_key(id) {
+                return; // Claude repeats an assistant message as it grows; a call starts once
+            }
+            let call = ToolCall { name: name.into(), parent: parent.map(String::from), subagent: subagent.clone(), background: false, ended: false };
+            inner.tools.insert(id.into(), call);
+        }
+        // A tool server's arguments are its own: a `path` or `command` there can carry anything.
+        let summary = if name.starts_with("mcp__") { String::new() } else { tool_summary(input) };
+        let mut fields = json!({"tool": name, "status": "started", "item_id": id, "summary": summary, "parent_id": parent});
+        if let Some(s) = subagent {
+            fields["subagent"] = s;
+        }
+        self.emit(event("tool", Some(tid), Some(turn), fields));
+    }
+
+    fn tool_ended(&self, id: &str, status: &str, notified: bool, usage: &Value, tid: &str, turn: &str) {
+        let call = {
+            let mut inner = self.inner();
+            match inner.tools.get_mut(id) {
+                Some(c) if !c.ended && (notified || !(c.background && c.subagent.is_some())) => {
+                    c.ended = true;
+                    c.clone()
+                }
+                _ => return,
+            }
+        };
+        let mut fields = json!({"tool": call.name, "status": status, "item_id": id, "parent_id": call.parent});
+        if let Some(mut s) = call.subagent {
+            s["status"] = json!(status);
+            for key in ["tool_uses", "duration_ms"] {
+                if let Some(v) = usage.get(key) {
+                    s[key] = v.clone();
+                }
+            }
+            fields["subagent"] = s;
+        }
+        self.emit(event("tool", Some(tid), Some(turn), fields));
     }
 
     fn finish(&self, tid: &str, turn: &str, result: Option<Value>, rc: i32, stderr: &str, failure: Option<String>) {
@@ -1024,6 +1129,30 @@ mod tests {
         // An older CLI: the one window it names, no percentage, as before.
         let older = json!({"status": "allowed_warning", "rateLimitType": "five_hour", "resetsAt": 1792120200});
         assert_eq!(rate_limit_windows(&older), vec![json!({"used_percent": null, "window_minutes": 300, "resets_at": iso(&json!(1792120200)), "status": "allowed_warning"})]);
+    }
+
+    #[test]
+    fn a_tool_server_call_carries_no_summary() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let host = ClaudeHost::new("acme", vec!["claude".into()], tx);
+        let input = json!({"command": "curl -H 'Authorization: Bearer sk-live-1' x", "path": "/work/a.txt"});
+        host.tool_started(&json!({"id": "t1", "name": "mcp__repo__run", "input": input}), None, "th", "tu");
+        host.tool_started(&json!({"id": "t2", "name": "Bash", "input": input}), None, "th", "tu");
+        let (server, bash) = (rx.try_recv().unwrap(), rx.try_recv().unwrap());
+        assert_eq!((server["tool"].as_str(), server["summary"].as_str()), (Some("mcp__repo__run"), Some("")));
+        assert_eq!(bash["summary"], "/work/a.txt");
+    }
+
+    #[test]
+    fn a_refused_turns_event_gives_the_reset() {
+        // `rate_limit_event` as Claude Code sends it when the five-hour window refuses a turn.
+        let info: Value = serde_json::from_str(r#"{"status":"rejected","resetsAt":4102444800,"rateLimitType":"five_hour","overageStatus":"rejected","isUsingOverage":false}"#).unwrap();
+        for w in rate_limit_windows(&info) {
+            crate::profiles::remember_weekly("claude-reset-test", "claude", &w);
+        }
+        let now = 4102444800.0 - 3000.0;
+        assert_eq!(crate::profiles::limit_reset("claude-reset-test", "claude", now).as_deref(), Some("2100-01-01T00:00:00+00:00"));
+        crate::profiles::forget_windows("claude-reset-test", "claude");
     }
 
     #[test]

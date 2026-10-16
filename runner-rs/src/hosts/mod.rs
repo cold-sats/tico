@@ -164,6 +164,99 @@ pub fn event(kind: &str, thread: Option<&str>, turn: Option<&str>, fields: Value
     Value::Object(ev)
 }
 
+/// The longest input summary a `tool` event carries. The drive loop scrubs it with the rest of the event.
+pub const TOOL_SUMMARY_CHARS: usize = 120;
+
+/// What a tool call acts on, without its arguments: the file it names, or the program its command runs. Run logs
+/// show this to everyone who can see the run, and arguments can carry tokens or private text.
+pub fn tool_summary(input: &Value) -> String {
+    let text = |k: &str| input.get(k).and_then(Value::as_str).filter(|s| !s.trim().is_empty());
+    if let Some(path) = ["file_path", "notebook_path", "path"].iter().find_map(|k| text(k)) {
+        return clip(path);
+    }
+    text("command").map(command_program).unwrap_or_default()
+}
+
+/// The program a shell command runs: leading `NAME=value` assignments are skipped, a `sh -c` wrapper is unwrapped,
+/// and only the program's file name is kept. Words are split the way a shell quotes them, so a quoted value with a
+/// space stays one word; a command whose quoting does not close gives nothing, and so does one whose program could
+/// come from an expansion (`$(...)`, backticks, `${...}`), since those are not split here.
+pub fn command_program(command: &str) -> String {
+    let Some(words) = shell_words(command) else { return String::new() };
+    let Some(at) = words.iter().position(|w| !is_assignment(w)) else { return String::new() };
+    if words[..=at].iter().any(|w| w.contains("$(") || w.contains('`') || w.contains("${")) {
+        return String::new();
+    }
+    let program = words[at].rsplit('/').next().unwrap_or(&words[at]);
+    let shell = matches!(program, "sh" | "bash" | "zsh" | "dash");
+    if let (true, Some(flag), Some(inner)) = (shell, words.get(at + 1), words.get(at + 2)) {
+        if flag.starts_with('-') && flag.ends_with('c') {
+            return command_program(inner);
+        }
+    }
+    clip(program)
+}
+
+/// A command's words after shell quoting (single, double, backslash), or None when a quote is left open.
+fn shell_words(command: &str) -> Option<Vec<String>> {
+    let (mut words, mut word, mut started) = (vec![], String::new(), false);
+    let mut chars = command.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            c if c.is_whitespace() => {
+                if started {
+                    words.push(std::mem::take(&mut word));
+                    started = false;
+                }
+            }
+            '\'' => {
+                started = true;
+                loop {
+                    match chars.next()? {
+                        '\'' => break,
+                        c => word.push(c),
+                    }
+                }
+            }
+            '"' => {
+                started = true;
+                loop {
+                    match chars.next()? {
+                        '"' => break,
+                        '\\' => word.push(chars.next()?),
+                        c => word.push(c),
+                    }
+                }
+            }
+            '\\' => {
+                started = true;
+                word.push(chars.next()?);
+            }
+            c => {
+                started = true;
+                word.push(c);
+            }
+        }
+    }
+    if started {
+        words.push(word);
+    }
+    Some(words)
+}
+
+fn is_assignment(word: &str) -> bool {
+    word.split_once('=').is_some_and(|(name, _)| !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+}
+
+fn clip(text: &str) -> String {
+    let line = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if line.chars().count() <= TOOL_SUMMARY_CHARS {
+        line
+    } else {
+        format!("{}…", line.chars().take(TOOL_SUMMARY_CHARS - 1).collect::<String>())
+    }
+}
+
 /// A way to stop a child process that only one task owns and reaps (`own`). Signals go through that task, so
 /// neither SIGTERM nor the later SIGKILL can reach a pid the system has already handed to another process.
 #[derive(Clone)]
@@ -295,13 +388,29 @@ impl Host {
         }
     }
 
-    pub fn supports_steer(&self) -> bool {
+    /// The manifest runtime and variant this host runs, for its declared capabilities.
+    fn harness(&self) -> (&'static str, &'static str) {
         match self {
-            Host::Claude(h) => h.supports_steer(),
-            Host::Codex(_) => true,
-            Host::Gemini(_) | Host::Antigravity(_) => false,
-            Host::MuseCode(_) | Host::Pi(_) | Host::Cursor(_) | Host::Grok(_) => false,
+            Host::Claude(_) => ("claude", ""),
+            Host::Codex(_) => ("codex", ""),
+            Host::Gemini(_) => ("gemini", ""),
+            Host::Antigravity(_) => ("gemini", "antigravity"),
+            Host::MuseCode(_) => ("musecode", ""),
+            Host::Pi(_) => ("pi", ""),
+            Host::Cursor(_) => ("cursor", ""),
+            Host::Grok(_) => ("grok", ""),
         }
+    }
+
+    /// A running turn takes new input only when the harness declares `steer`, and for Claude Code only when the
+    /// installed CLI echoes its input; otherwise the input waits for the next turn.
+    pub fn supports_steer(&self) -> bool {
+        let (runtime, harness) = self.harness();
+        crate::harness_tools::caps(runtime, harness).steer
+            && match self {
+                Host::Claude(h) => h.supports_steer(),
+                _ => true,
+            }
     }
 
     pub async fn start_thread(&self, bot: &str, settings: &Settings) -> Result<String, HostError> {
@@ -423,6 +532,24 @@ pub mod fixtures {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tool_summary_names_the_file_or_program_but_never_the_arguments() {
+        assert_eq!(tool_summary(&json!({"command": "curl -H 'Authorization: Bearer sk-live-1' https://api.example.com"})), "curl");
+        assert_eq!(tool_summary(&json!({"command": "TOKEN=sk-live-1 /usr/bin/python3 run.py --key sk-live-1"})), "python3");
+        assert_eq!(command_program("/bin/bash -lc 'gh api -H \"Authorization: token x1\" /user'"), "gh");
+        assert_eq!(tool_summary(&json!({"command": "TOKEN=\"Bearer sk-live-abc\" curl https://api.example.com"})), "curl");
+        assert_eq!(tool_summary(&json!({"command": "AUTH='x sk-live-abc' ./run.sh"})), "run.sh");
+        assert_eq!(tool_summary(&json!({"command": "bash -c \"TOKEN='a sk-live-abc' curl x\""})), "curl");
+        assert_eq!(tool_summary(&json!({"command": "TOKEN='sk-live-abc curl"})), "");
+        assert_eq!(tool_summary(&json!({"command": "TOKEN=$(echo sk-live-abc) curl x"})), "");
+        assert_eq!(tool_summary(&json!({"command": "TOKEN=`echo sk-live-abc` curl x"})), "");
+        assert_eq!(tool_summary(&json!({"command": "TOKEN=${T:-a sk-live-abc} curl x"})), "");
+        assert_eq!(tool_summary(&json!({"command": "curl -H \"X: $(cat key)\" x"})), "curl");
+        assert_eq!(tool_summary(&json!({"file_path": "/work/note.txt", "content": "secret body"})), "/work/note.txt");
+        assert_eq!(tool_summary(&json!({"description": "count words", "prompt": "Count the words", "subagent_type": "general-purpose"})), "");
+        assert_eq!(tool_summary(&json!({"query": "private question", "url": "https://x.example/?token=1"})), "");
+    }
 
     #[test]
     fn the_python_classifiers_agree() {

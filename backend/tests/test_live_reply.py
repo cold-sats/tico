@@ -68,3 +68,35 @@ def test_a_follow_up_says_which_run_took_it_and_the_reply_lists_both(api):
     with api.app.state.store.read() as c:
         stored = json.loads(c.execute("SELECT refs_json FROM messages WHERE from_actor='bot:ops'").fetchone()[0])
     assert stored["answers"] == [first["id"], follow["id"]] and stored["run"] == {"job_id": starter_job, "attempt_id": aid}
+
+
+def test_a_subagent_and_its_calls_are_steps_but_not_the_reply(api):
+    """Claude and Codex runners report a subagent's start and end, and the calls it makes (`parent_id`). The
+    steps show the subagent by its type and its calls under it; neither its description nor its prompt is read."""
+    r, msg, aid = start(api)
+    secret = "hunter2-token"
+    agent = {"id": "a1", "parent_id": None, "type": "general-purpose", "description": f"count words {secret}",
+             "model": None}
+    send_events(api, r, aid, [
+        ("status", {"state": "active", "tool_events": True}),
+        ("tool", {"tool": "Bash", "status": "started", "item_id": "b1", "summary": "cat note.txt", "parent_id": None}),
+        ("tool", {"tool": "Bash", "status": "completed", "item_id": "b1", "parent_id": None}),
+        ("tool", {"tool": "Agent", "status": "started", "item_id": "a1", "summary": secret, "parent_id": None,
+                  "subagent": {**agent, "status": "started"}}),
+        ("tool", {"tool": "Bash", "status": "started", "item_id": "b2", "summary": f"wc -w {secret}", "parent_id": "a1"}),
+        ("tool", {"tool": "Bash", "status": "failed", "item_id": "b2", "parent_id": "a1"}),
+        ("tool", {"tool": "Agent", "status": "completed", "item_id": "a1", "parent_id": None,
+                  "subagent": {**agent, "status": "completed", "tool_uses": 1}}),
+        ("message", {"text": "One word.", "final": False})])
+    steps = get(api, f"turns/{aid}/steps")
+    assert [(s["kind"], s["tool"], s["text"], s.get("nested", False)) for s in steps["steps"]] == [
+        ("tool", "Bash", "", False),
+        ("subagent", "subagent", "general-purpose", False),
+        ("tool", "Bash", "failed", True),
+        ("said", "", "One word.", False)]
+    assert steps["tool_calls"] == 2
+    assert secret not in json.dumps(steps)
+    parts = running(api, msg)["parts"]
+    assert [(p["kind"], p["text"]) for p in parts] == [
+        ("tool", "Ran Bash"), ("tool", "Ran Agent"), ("reply", "One word.")]
+    assert secret not in json.dumps(parts)

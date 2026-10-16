@@ -1607,6 +1607,8 @@ class Completion(Contract):
     tokens_in: int | None = Field(default=None, ge=0)
     tokens_out: int | None = Field(default=None, ge=0)
     limited: bool = False   # the local runtime refused the turn on a subscription usage limit
+    # When the provider said that limit lifts (its own reset time); work resumes then instead of after a default wait.
+    limit_resets_at: str | None = Field(default=None, max_length=40)
     retryable: bool = False  # the runtime could not renew its sign-in; the turn never started
     fallback: str | None = Field(default=None, max_length=80)  # harness that actually ran the turn
     primary_limited: bool = False  # the bot's own runtime hit its usage limit and the company's default `fallback` ran the turn
@@ -1682,6 +1684,7 @@ class LimitRetry(Contract):
 
 class StopTurn(Contract):
     attempt_id: ID | None = None   # the run the person saw; a newer one is not stopped by mistake
+    redirect: ID | None = None     # the caller's queued message the next turn starts with (Stop and redirect)
 
 
 class AssistantMessage(Contract):
@@ -1748,6 +1751,8 @@ class PerformanceProcess(_Sampled):
 class PerformanceSample(_Sampled):
     at: float = Field(ge=0, allow_inf_nan=False)
     scope: Literal["host", "container"] = "host"
+    # A container's memory is the host's when it has no memory limit; an older runner leaves this out.
+    memory_scope: Literal["host", "container"] | None = None
     cpu: float = Field(ge=0, le=100, allow_inf_nan=False)
     cores: int = Field(default=1, ge=1, le=4096)
     load: list[Annotated[float, Field(ge=0, le=100_000, allow_inf_nan=False)]] = Field(default_factory=list, max_length=3)

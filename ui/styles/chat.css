@@ -177,6 +177,7 @@ a.ref::before,.run-did .ref::before{content:'';display:inline-block;width:.8em;h
 .steps-list .step-tool{flex:none;color:var(--ink);font-family:var(--mono);font-size:var(--t-sm)}
 .steps-list .step-sum{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .steps-list .step.err .step-tool,.steps-list .step.err .step-sum{color:var(--fail)}
+.steps-list .step.nested{padding-left:16px}
 .steps-list .think>summary{cursor:pointer;font-family:var(--mono);font-size:var(--t-sm);color:var(--ink)}
 .steps-list .step-text{max-height:220px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:2px 0 4px}
 #conv{position:relative}
@@ -328,6 +329,7 @@ body:has(#app-nudge:not([hidden])) #main.bot-split-layout>#bot-top{margin-top:8p
 .run-fold>.did{margin-left:2px}
 .run-fold>summary{cursor:pointer;color:var(--muted);font-size:var(--t-sm)}
 .run-fold>summary:hover{color:var(--ink)}
+.chat-delivery{align-self:flex-end;margin:2px 0;color:var(--muted);font-size:var(--t-sm);display:flex;gap:8px;align-items:center}
 .chat-warn{align-self:flex-start;margin:2px 0;padding:2px 8px;border-radius:6px;background:var(--surface2);color:var(--muted);font-size:var(--t-sm)}
 /* the hover time and the copy button are chrome: copying the thread copies only what was said */
 .chat-stamp,.chat-message-actions,.chat-fold .chat-time{user-select:none;-webkit-user-select:none}

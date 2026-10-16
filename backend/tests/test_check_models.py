@@ -79,7 +79,7 @@ def test_a_review_subtask_runs_on_grok_in_its_own_session_and_its_verdict_wakes_
     back = claim(api, machine)
     assert back["task"]["id"] == parent["id"]
     assert back["config"]["runtime"] == "claude" and "check" not in back["task"]
-    assert "Review on grok-4.6 done: Review PR 700 with another model" in back["message"]["body"]
+    assert "Review done (ran on grok-4.6): Review PR 700 with another model" in back["message"]["body"]
     assert "Verdict: OK to merge" in back["message"]["body"]
 
 
@@ -128,3 +128,60 @@ def test_a_person_cannot_file_one_and_a_signed_out_runtime_is_refused_and_not_ha
     assert claim(api, machine) is None, "a computer signed out of Grok is not handed the check"
     heartbeat(api, machine)
     assert claim(api, machine)["task"]["id"] == sub["id"]
+
+
+def check_filed(api, title="Review PR 701 on Grok"):
+    machine, parent, turn = parent_turn(api)
+    sub = post(api, "tasks", {"owner": "ops", "title": title, "body": "Read it.", "check_model": "grok",
+                              "check_role": "review", "relations": [{"task": parent["id"], "kind": "parent"}]},
+               turn["token"])
+    finish(api, machine, turn)
+    return machine, parent, sub
+
+
+def test_a_limit_on_the_check_model_holds_the_check_alone_and_the_bot_keeps_working(api, monkeypatch):
+    from backend.execution import cooling_off
+    machine, parent, sub = check_filed(api)
+    check = claim(api, machine)
+    assert check["task"]["id"] == sub["id"]
+    now = H.now()
+    reset = H.shift(now, hours=2)[:19] + "Z"
+    post(api, f"attempts/{check['id']}/started", {"thread_id": "grok-limit"}, machine["token"])
+    post(api, f"attempts/{check['id']}/events", {"events": [{"seq": 1, "kind": "error", "payload": {
+        "error": f"Grok quota exhausted. Your usage window resets at {reset}.", "limit": True}}]}, machine["token"])
+    post(api, f"attempts/{check['id']}/complete", {"outcome": "failed", "last_seq": 1, "limited": True, "text": ""},
+         machine["token"])
+    with api.app.state.store.read() as c:
+        status = H.status(c, "ops")
+        assert status["state"] != "limited" and not cooling_off(c, "ops"), "Grok's limit is not the bot's"
+        assert "grok usage limit on a check" in status["focus"] and "claude" not in status["focus"]
+    person = post(api, "tasks", {"owner": "ops", "title": "Answer the customer", "body": "Reply to the import question."})
+    other = claim(api, machine)
+    assert other["task"]["id"] == person["id"] and other["config"]["runtime"] == "claude"
+    finish(api, machine, other)
+    assert claim(api, machine) is None, "the check waits for Grok's reset"
+    monkeypatch.setattr(H, "now", lambda: H.shift(reset, seconds=2))
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE runners SET last_seen=NULL,awake_since=NULL")   # the computer stayed in touch meanwhile
+    heartbeat(api, machine)
+    again = claim(api, machine)
+    assert again["task"]["id"] == sub["id"] and again["config"]["runtime"] == "grok"
+
+
+def test_a_check_handed_to_another_bot_is_that_bots_ordinary_task(api):
+    machine, parent, turn = parent_turn(api)
+    sub = post(api, "tasks", {"owner": "ops", "title": "Review it on Grok", "body": "Read it.", "check_model": "grok",
+                              "relations": [{"task": parent["id"], "kind": "parent"}]}, turn["token"])
+    post(api, "tasks/" + sub["id"], {"owner": "coo", "version": sub["version"]}, turn["token"])
+    with api.app.state.store.read() as c:
+        assert H.check_model(c, sub["id"], "coo") is None and H.check_model(c, sub["id"], "ops") is None
+        assert H.check_model(c, sub["id"])["model"] == "grok-4.6", "the record itself stays"
+
+
+def test_work_under_a_check_continues_the_checks_session_not_the_parents(api):
+    machine, parent, sub = check_filed(api)
+    # A person's subtask under the check (a bot's own subtask is its own root anyway).
+    below = post(api, "tasks", {"owner": "ops", "title": "Read the migration file", "body": "Line by line.",
+                                "relations": [{"task": sub["id"], "kind": "parent"}]})
+    with api.app.state.store.read() as c:
+        assert H.session_root(c, "ops", below["id"]) == sub["id"]

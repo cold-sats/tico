@@ -1,0 +1,120 @@
+[
+ {
+  "kind": "status",
+  "state": "active",
+  "tool_events": true
+ },
+ {
+  "kind": "tool",
+  "tool": "Bash",
+  "status": "started",
+  "item_id": "toolu_01YXoMhDLBUGTenrB7TZw9XQ",
+  "summary": "cat",
+  "parent_id": null
+ },
+ {
+  "kind": "tool",
+  "tool": "Bash",
+  "status": "completed",
+  "item_id": "toolu_01YXoMhDLBUGTenrB7TZw9XQ",
+  "parent_id": null
+ },
+ {
+  "kind": "tool",
+  "tool": "Agent",
+  "status": "started",
+  "item_id": "toolu_016qvSH6m3vC3gmmpXkZXJLH",
+  "summary": "",
+  "parent_id": null,
+  "subagent": {
+   "id": "toolu_016qvSH6m3vC3gmmpXkZXJLH",
+   "parent_id": null,
+   "type": "general-purpose",
+   "model": null,
+   "status": "started"
+  }
+ },
+ {
+  "kind": "rate_limits",
+  "used_percent": 9.0,
+  "window_minutes": 300,
+  "resets_at": "2026-10-16T08:10:00+00:00",
+  "status": "allowed"
+ },
+ {
+  "kind": "rate_limits",
+  "used_percent": 19.0,
+  "window_minutes": 10080,
+  "resets_at": "2026-10-19T20:00:00+00:00",
+  "status": null
+ },
+ {
+  "kind": "tool",
+  "tool": "Bash",
+  "status": "started",
+  "item_id": "toolu_01TCvFpve6ePbRGnWr3d6kNv",
+  "summary": "wc",
+  "parent_id": "toolu_016qvSH6m3vC3gmmpXkZXJLH"
+ },
+ {
+  "kind": "tool",
+  "tool": "Bash",
+  "status": "completed",
+  "item_id": "toolu_01TCvFpve6ePbRGnWr3d6kNv",
+  "parent_id": "toolu_016qvSH6m3vC3gmmpXkZXJLH"
+ },
+ {
+  "kind": "tool",
+  "tool": "Agent",
+  "status": "completed",
+  "item_id": "toolu_016qvSH6m3vC3gmmpXkZXJLH",
+  "parent_id": null,
+  "subagent": {
+   "id": "toolu_016qvSH6m3vC3gmmpXkZXJLH",
+   "parent_id": null,
+   "type": "general-purpose",
+   "model": null,
+   "status": "completed",
+   "tool_uses": 1,
+   "duration_ms": 2201
+  }
+ },
+ {
+  "kind": "message",
+  "text": "`note.txt` contains `alpha`. The word-count subagent is still running, so I'll report its number when it finishes.",
+  "final": false,
+  "item_id": "msg_011Cg5J4yRwdSk1w8zhRVSWc"
+ },
+ {
+  "kind": "message",
+  "text": "`note.txt` contains `alpha`, and the word-count subagent reports 1 word.",
+  "final": false,
+  "item_id": "msg_011Cg5J596N46Fntn2ts3HwE"
+ },
+ {
+  "kind": "tokens",
+  "input": 64354,
+  "output": 426,
+  "total": 64780,
+  "cost_usd": 0.004812945,
+  "usage": {
+   "input": 64354,
+   "cached": 53335,
+   "output": 426
+  }
+ },
+ {
+  "kind": "message",
+  "text": "`note.txt` contains `alpha`. The word-count subagent is still running, so I'll report its number when it finishes.\n\n`note.txt` contains `alpha`, and the word-count subagent reports 1 word.",
+  "final": true
+ },
+ {
+  "kind": "turn_completed",
+  "status": "completed",
+  "stop_reason": "end_turn"
+ },
+ {
+  "kind": "status",
+  "state": "idle"
+ }
+]
