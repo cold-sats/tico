@@ -5,6 +5,9 @@ import threading
 import time
 
 CLIENT_BUILD_TIMEOUT = 5
+# A failed bucket-region lookup is not repeated for this long, so an S3 outage does not add the
+# lookup's timeouts to every download.
+REGION_RETRY = 300
 
 
 class Sources:
@@ -15,6 +18,7 @@ class Sources:
         self._clients = {}
         self._building = {}
         self._regions = {}
+        self._region_misses = {}
         self._lock = threading.Lock()
 
     @property
@@ -71,11 +75,14 @@ class Sources:
             with self._lock:
                 kind = next((cache_key[0] for cache_key, made in self._clients.items() if made is s3), None)
                 known = self._regions.get(bucket)
-            if kind is not None and known is None:
+                missed = self._region_misses.get(bucket)
+            if kind is not None and known is None and (missed is None or time.monotonic() - missed >= REGION_RETRY):
                 known = bucket_region(s3, bucket)
-                if known:
-                    with self._lock:
+                with self._lock:
+                    if known:
                         self._regions[bucket] = known
+                    else:
+                        self._region_misses[bucket] = time.monotonic()
             if kind is not None and known and known != s3.meta.region_name:
                 signer = self.client_for(kind, reads=True, region_name=known)
         return signer.generate_presigned_url("get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=expires)

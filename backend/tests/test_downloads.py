@@ -317,10 +317,31 @@ def test_company_artifact_redirect_signs_for_the_buckets_region_when_none_is_con
     assert len(stubbed_s3) == 2, "the region is looked up once and its signer is reused"
 
 
-def test_unknown_bucket_region_still_signs_sigv4(stubbed_s3, tmp_path):
+def test_unknown_bucket_region_still_signs_sigv4_and_is_not_looked_up_on_every_download(stubbed_s3, tmp_path, monkeypatch):
+    from backend import blob_s3
     from backend.config import Settings
     downloads = Downloads(Settings(db_path=tmp_path / "hub.db", blob_bucket="acme-files"))
     downloads._s3_source.client_for(downloads._s3_source.kind, reads=True)
-    stubbed_s3[0][1].add_client_error("head_bucket", "500", http_status_code=500)
+    stub = stubbed_s3[0][1]
+    lookups, lookup = [], blob_s3.bucket_region
+    monkeypatch.setattr(blob_s3, "bucket_region", lambda s3, bucket: lookups.append(bucket) or lookup(s3, bucket))
+    stub.add_client_error("head_bucket", "500", http_status_code=500)
+    stub.add_response("head_object", {})
+    for _ in range(2):
+        url = downloads.file_url("0.3.49", "Acme Tico.app.tar.gz")
+        assert desktop_follows(url) and credential_region(url) == "us-east-1"
+    assert len(lookups) == 1
+
+
+def test_server_wiring_through_file_storage_signs_for_the_buckets_region(stubbed_s3, tmp_path):
+    """The server builds Downloads on the attachment store (install_downloads), not its own S3 source."""
+    from backend.blobs import Blobs
+    from backend.config import Settings
+    settings = Settings(db_path=tmp_path / "hub.db", blob_bucket="acme-files")
+    blobs = Blobs(settings)
+    downloads = Downloads(settings, s3_source=blobs)
+    blobs._sources.client_for(blobs._sources.kind, reads=True)
+    stubbed_s3[0][1].add_client_error("head_bucket", "403", http_status_code=403,
+                                      response_meta={"HTTPHeaders": {"x-amz-bucket-region": "us-west-2"}})
     url = downloads.file_url("0.3.49", "Acme Tico.app.tar.gz")
-    assert desktop_follows(url) and credential_region(url) == "us-east-1"
+    assert desktop_follows(url) and credential_region(url) == "us-west-2", url
