@@ -51,10 +51,11 @@ def scrub_value(c, value, label, attempt_id="", conversation_id=""):
     if conversation_id:
         ids.update(r[0] for r in c.execute("SELECT attempt_id FROM attempt_conversations WHERE conversation_id=?",
                                            (conversation_id,)))
-    # A run still going hands its stream in later, holding the value: marked (no secret kept), it is not stored.
+    # A run not yet settled hands its stream in later, holding the value: marked (no secret kept), it is not stored.
+    # That includes a lapsed lease (`expired`), which the runner's next call restores before it uploads.
     for aid in ids:
         c.execute("INSERT OR IGNORE INTO attempt_capture_drops(attempt_id,created) SELECT id,? FROM attempts "
-                  "WHERE id=? AND state IN ('leased','running')", (H.now(), aid))
+                  "WHERE id=? AND state NOT IN ('completed','failed','interrupted')", (H.now(), aid))
     for aid in ids:
         row = c.execute("SELECT frames FROM attempt_captures WHERE attempt_id=?", (aid,)).fetchone()
         if row and any(f in row["frames"] for f in forms):
