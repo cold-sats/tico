@@ -722,7 +722,9 @@ impl ClaudeHost {
             let call = ToolCall { name: name.into(), parent: parent.map(String::from), subagent: subagent.clone(), background: false, ended: false };
             inner.tools.insert(id.into(), call);
         }
-        let mut fields = json!({"tool": name, "status": "started", "item_id": id, "summary": tool_summary(input), "parent_id": parent});
+        // A tool server's arguments are its own: a `path` or `command` there can carry anything.
+        let summary = if name.starts_with("mcp__") { String::new() } else { tool_summary(input) };
+        let mut fields = json!({"tool": name, "status": "started", "item_id": id, "summary": summary, "parent_id": parent});
         if let Some(s) = subagent {
             fields["subagent"] = s;
         }
