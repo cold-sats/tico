@@ -113,6 +113,12 @@ All notable changes to Tico are recorded here. The format follows
   ranked roadmap view, and requesters (Requested by) on tasks.
 
 ### Changed
+- Help is about a quarter of its old length on every screen: what Tico is, where to start (your first result, the tour,
+  the Assistant) and how to get help, with links to the docs. The map, Who does what, the agent platforms and the
+  glossary moved to [How Tico works](docs/how-it-works.md) and the [Glossary](docs/glossary.md).
+- Help on a phone (or any screen too narrow for the right rail) opens with Support: your requests, **New request**
+  and the composer come first, with a link to the docs right under them and the short overview below. The Support
+  jump link is gone. Wide screens keep Support in the right rail.
 - A bot that hits a Claude or Codex usage limit now resumes at the provider's own reset time instead of after a fixed
   30 minutes (2 hours after three in a row). The bot's status and Health say when it resumes ("resumes at 12:40 UTC"),
   and its computer picks the queued work up as soon as the reset passes. Providers that report no reset time keep the

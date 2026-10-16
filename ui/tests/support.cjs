@@ -15,8 +15,8 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
 (async () => {
   const browser = await chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
   try {
-    const visit = async ({enabled = true, seed = [], native = false, feedback = null} = {}) => {
-      const ctx = await browser.newContext({viewport: {width: 1440, height: 900}, serviceWorkers: 'block'});
+    const visit = async ({enabled = true, seed = [], native = false, feedback = null, viewport = {width: 1440, height: 900}} = {}) => {
+      const ctx = await browser.newContext({viewport, serviceWorkers: 'block'});
       // The desktop app's bridge (app/src/main.rs BRIDGE_SCRIPT), recording what the page posts to it.
       if (native) await ctx.addInitScript(() => {
         window.__posted = [];
@@ -85,13 +85,24 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
     let v = await visit();
     const {page} = v;
     await page.locator('#support-rail').waitFor();
+    // Wide: the overview on the left, Support in the right rail, no docs line above the overview.
+    const order = p => p.evaluate(() => {
+      const top = sel => document.querySelector(sel).getBoundingClientRect();
+      return {rail: top('#support-rail'), docs: top('.help-docs-first'), hero: top('.help-hero'), page: top('#help-page'),
+              box: top('[data-compose] [name=message]'), docsShown: getComputedStyle(document.querySelector('.help-docs-first')).display !== 'none',
+              jump: document.querySelectorAll('a[href="#support-rail"]').length, height: innerHeight};
+    });
+    let laid = await order(page);
+    assert.ok(laid.rail.left >= laid.page.right - 1, 'Support is the right rail on a wide screen');
+    assert.equal(laid.docsShown, false);
+    assert.equal(laid.jump, 0);
+    // The overview stays short (about a quarter of the 2,180 characters it once was); the rest is in the docs.
+    assert.ok((await page.locator('#help-page').innerText()).replace(/\s+/g, ' ').length < 650, 'Help overview stays short');
     // Help lists the server's Beta features, each with its pill, and the sidebar's static spots draw theirs.
     assert.deepEqual(await page.locator('#help-beta li').evaluateAll(rows => rows.map(li => li.firstChild.textContent)), beta.map(f => f.name));
     assert.equal(await page.locator('#help-beta li .pill.beta').count(), beta.length);
     assert.equal(await page.locator('[data-nav=market] .pill.beta').count(), 1);
     assert.equal(await page.locator('#nav-inboxes-section .pill.beta').count(), 1);
-    assert.equal(await page.locator('.help-platforms .pill.beta').count(), 2);
-    assert.equal(await page.locator('.help-who .pill.beta').count(), 1);
     // A bot is Beta by its template or harness; a bot off the list gets no pill.
     assert.deepEqual(await page.evaluate(() => [{template: 'listening'}, {template: 'inbox'}, {harness: 'hermes'},
       {agent: {harness: 'openclaw'}}, {template: 'support'}, {harness: 'claude'}].map(e => !!botBetaPill(e))),
@@ -259,6 +270,41 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
     assert.deepEqual(v.errors, []);
     await v.ctx.close();
 
+    // A phone: Support first, the composer in view without scrolling, the docs link right under it, then the overview.
+    // Reviewing and editing the diagnostics still works there.
+    v = await visit({viewport: {width: 390, height: 844}});
+    await v.page.locator('#support-rail').waitFor();
+    laid = await order(v.page);
+    assert.equal(await v.page.evaluate(() => document.querySelector('#main').scrollTop), 0);
+    assert.ok(laid.rail.top < laid.docs.top && laid.docs.top < laid.hero.top, 'Support, then the docs link, then the overview');
+    assert.ok(laid.docsShown && laid.docs.top - laid.rail.bottom < 30, 'the docs link sits directly under Support');
+    assert.ok(laid.box.top >= 0 && laid.box.bottom <= laid.height, 'the composer is in view without scrolling');
+    assert.equal(laid.jump, 0);
+    assert.equal(await v.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'phone has no horizontal overflow');
+    await v.page.locator('[data-compose] [data-preview]').click();
+    const phoneDialog = v.page.locator('dialog.support-modal');
+    await phoneDialog.locator('[data-use]:not([disabled])').waitFor();
+    assert.equal(await phoneDialog.locator('textarea').inputValue(), DIAGNOSTICS_TEXT);
+    await phoneDialog.locator('textarea').fill('{"format":1,"note":"phone"}');
+    await phoneDialog.locator('[data-save]').click();
+    await phoneDialog.locator('[data-use]:not([disabled])').waitFor();
+    await phoneDialog.locator('[data-use]').click();
+    await phoneDialog.waitFor({state: 'detached'});
+    assert.equal(await v.page.locator('[data-compose] [name=diag]').isChecked(), true);
+    await v.page.screenshot({path: '/tmp/tico-support-phone-first.png'});
+    assert.deepEqual(v.errors, []);
+    await v.ctx.close();
+
+    // A tablet, between the phone and the rail layout: Support still comes first, full width, nothing sideways.
+    v = await visit({viewport: {width: 900, height: 1000}});
+    await v.page.locator('#support-rail').waitFor();
+    laid = await order(v.page);
+    assert.ok(laid.rail.top < laid.docs.top && laid.docs.top < laid.hero.top, 'Support first on a tablet');
+    assert.ok(Math.abs(laid.rail.width - laid.page.width) < 2, 'Support spans the overview\'s width');
+    assert.equal(await v.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    assert.deepEqual(v.errors, []);
+    await v.ctx.close();
+
     // "Want help setting up?" opens a new request that starts from the snapshot, which the person reads and sends as setup.
     v = await visit({seed: [{id: 'sup_0', created: new Date().toISOString(), status: 'open', message: 'Earlier', sent: {}, messages: []}]});
     await v.page.locator('#support-rail').waitFor();
@@ -296,6 +342,7 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
     v = await visit({enabled: false});
     await v.page.waitForSelector('#help-page [data-support-off]');
     assert.match(await v.page.locator('[data-support-off]').innerText(), /turned off/);
+    assert.equal(await v.page.locator('[data-help-support]').count(), 0, 'no pointer to a Support that is off');
     assert.equal(await v.page.locator('#support-rail').count(), 0);
     assert.ok(!v.calls.some(c => c.startsWith('POST')));
     assert.deepEqual(v.errors, []);
