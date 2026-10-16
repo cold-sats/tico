@@ -194,6 +194,7 @@ class SettingsAdmin:
                 "subtask_session": effective.get("subtask_session"),
                 "task_goal": effective.get("task_goal"),
                 "review_model": effective.get("review_model"),
+                "capture_stream": (_json(config["config_json"], {}) or {}).get("capture_stream"),
                 "harness": resolve_harness(effective, effective.get("runtime") or row.get("runtime")),
                 "fallback": normalize_fallback(effective.get("fallback"))}
 
@@ -567,6 +568,16 @@ class SettingsAdmin:
                 declared["task_goal"] = body.task_goal
             else:
                 declared.pop("task_goal", None)
+        if "capture_stream" in body.model_fields_set:
+            # A raw provider stream can hold customer text: only an owner turns it on (backend/stream_capture.py).
+            if body.capture_stream == "on" and who.role != "owner":
+                raise Problem("forbidden", "Only an owner turns on a bot's stream capture", 403)
+            if body.capture_stream == "on":
+                declared["capture_stream"] = "on"
+            else:
+                declared.pop("capture_stream", None)
+                from .stream_capture import forget_bot
+                forget_bot(c, bot)
         if "shared" in body.model_fields_set:
             declared["shared"] = bool(body.shared)
         if "template" in body.model_fields_set:

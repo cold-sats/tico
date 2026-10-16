@@ -1341,10 +1341,17 @@ def parser():
     s.add_argument("batch")
     s.set_defaults(fn="needs-you abandon")
 
-    s = sub.add_parser("run", help="a bot's runs").add_subparsers(dest="sub").add_parser("list", help="a bot's recent runs")
+    runs = sub.add_parser("run", help="a bot's runs").add_subparsers(dest="sub")
+    s = runs.add_parser("list", help="a bot's recent runs")
     s.add_argument("bot")
     s.add_argument("--since")
     s.set_defaults(fn="run list")
+    s = runs.add_parser("export", help="a run's captured provider stream (owners and engineering bots)")
+    s.add_argument("attempt", help="the attempt id, from hub run list")
+    s.add_argument("--fixture", action="store_true",
+                   help="write input.json, <provider>_transcript.ndjson and output.json to a folder")
+    s.add_argument("--out", help="with --fixture: the parent folder (default: the current one)")
+    s.set_defaults(fn="run export")
 
     team = sub.add_parser("team", help="team chart and icon").add_subparsers(dest="sub")
     s = team.add_parser("icon", help="set the public team logo (owner; PNG/JPEG/WebP up to 1 MB)")
@@ -1522,6 +1529,8 @@ def parser():
     s.add_argument("--review-model", choices=("check", "own"),
                    help="check: every subtask it is handed under another's task runs on the company's check model, "
                         "for a reviewer bot; own (default): its own model")
+    s.add_argument("--capture-stream", choices=("on", "off"),
+                   help="on (owner only): keep each run's raw provider stream a week for hub run export; off (default): not")
     s.add_argument("--shared", action=argparse.BooleanOptionalAction, default=None, help="allow branches")
     s.set_defaults(fn="bot update")
     s = bot.add_parser("check", help="what preflight would still refuse about that repository")

@@ -1257,6 +1257,8 @@ class BotDefinitionUpdate(Contract):
     # `check`: a subtask it is handed under another's task runs on the company's check model
     # (check_models.review_default); unset or `own`: its own model.
     review_model: Literal["check", "own"] | None = None
+    # `on`: each run's raw provider stream is kept a week for replay fixtures (backend/stream_capture.py); owner only.
+    capture_stream: Literal["on", "off"] | None = None
     expected_revision: int = Field(ge=1)
     # BotOps applying a person's own request: the id of that person's message to BotOps. The
     # change is checked as that person, never as BotOps (backend/app.py update_bot).
@@ -1559,6 +1561,14 @@ class Event(Contract):
 
 class EventBatch(Contract):
     events: list[Event] = Field(min_length=1, max_length=100)
+
+
+class StreamCapture(Contract):
+    """A run's raw provider stream, one JSON record per line (runner-rs/src/capture.rs)."""
+    provider: str = Field(min_length=1, max_length=40)
+    frames: str = Field(min_length=1, max_length=5_200_000)
+    truncated: bool = False
+    dropped_bytes: int = Field(default=0, ge=0, le=10**12)
 
 
 class AuthRejected(Contract):

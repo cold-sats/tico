@@ -336,6 +336,16 @@ pub enum Host {
 }
 
 impl Host {
+    /// Record this harness's raw stream into `capture`; false for a harness the runner does not capture yet.
+    pub fn set_capture(&self, capture: &std::sync::Arc<crate::capture::Capture>) -> bool {
+        match self {
+            Host::Claude(h) => h.set_capture(capture.clone()),
+            Host::Codex(h) => h.set_capture(capture.clone()),
+            _ => return false,
+        }
+        true
+    }
+
     pub async fn start(&self) -> Result<(), HostError> {
         match self {
             Host::Claude(h) => h.start().await,
