@@ -66,7 +66,7 @@ KEEP = frozenset((
     "cloud_migrations", "connector_snapshots", "conversations", "doc_sources", "doc_versions", "docs",
     "document_versions", "documents", "external_documents", "external_sections", "external_snapshot_docs",
     "external_snapshots", "external_versions", "flight_db", "flight_events", "flight_process", "flight_requests",
-    "flight_slow", "flight_sql", "goal_checkins", "goal_events", "goal_kpis", "goal_proposals", "goals",
+    "flight_slow", "flight_sql", "goal_asks", "goal_checkins", "goal_events", "goal_kpis", "goal_proposals", "goals",
     "health_findings", "health_reports", "humans", "import_refs", "intake_items", "kpi_definitions", "kpi_readings",
     "kpis", "learning_cursors", "learning_deliveries", "learning_items", "learning_runs", "learnings", "linked_docs",
     "listen_items", "listen_judgments", "listen_runs", "live_meeting_chat", "live_meeting_chat_routes",

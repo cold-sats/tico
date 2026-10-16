@@ -655,6 +655,15 @@ CREATE TABLE IF NOT EXISTS task_check_models (
   harness TEXT NOT NULL, effort TEXT NOT NULL DEFAULT '', role TEXT NOT NULL, created_by TEXT, created TEXT);
 """
 
+# What the Goal Manager has asked a person on the Goals page's behalf (backend/goal_asks.py): one row per
+# KPI or proposal, kind and person, naming the task that asks it; append to preserve existing installations.
+GOAL_ASKS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS goal_asks (
+  kind TEXT NOT NULL, ref TEXT NOT NULL, owner TEXT NOT NULL, task_id TEXT NOT NULL, created TEXT NOT NULL,
+  PRIMARY KEY (kind, ref, owner));
+CREATE INDEX IF NOT EXISTS goal_asks_task ON goal_asks(task_id);
+"""
+
 MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes user_version from i
               MEETING_BRAIN_SCHEMA, MEETING_COMMENTS_SCHEMA,  # to i+1; append, never edit
               GOALS_SCHEMA, RECORDING_SOURCES_SCHEMA, MARKET_SCHEMA,
@@ -664,7 +673,7 @@ MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes us
               USAGE_SEGMENTS_SCHEMA, KPI_ARCHIVE_SCHEMA, WAITING_ON_SCHEMA,
               LIVE_MEETINGS_SCHEMA, LIVE_MEETINGS_ROUTING_LIMITS_SCHEMA,
               LIVE_MEETINGS_CHAT_ROUTING_SCHEMA, TASK_RELATIONS_SCHEMA, TRIGGERS_SCHEMA,
-              TRIGGER_SIGNING_SCHEMA, CHECK_MODELS_SCHEMA]
+              TRIGGER_SIGNING_SCHEMA, CHECK_MODELS_SCHEMA, GOAL_ASKS_SCHEMA]
 
 
 class Refused(Exception):

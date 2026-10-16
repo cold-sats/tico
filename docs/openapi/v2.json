@@ -5274,7 +5274,7 @@
     },
     "/api/v2/goals/needs-you": {
       "get": {
-        "summary": "Red KPIs on goals the caller owns, stale KPIs they own, and definitions or targets they are asked to confirm",
+        "summary": "Red KPIs on goals the caller owns, stale KPIs they own, and definitions or targets they are asked to confirm; for a person each is a Goal Manager task (`task`), the one Tasks and Decide show",
         "operationId": "getGoalsNeedsYou",
         "responses": {
           "200": {
@@ -19048,6 +19048,23 @@
                 },
                 "proposal": {
                   "type": "object"
+                },
+                "task": {
+                  "type": "object",
+                  "required": [
+                    "id"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    }
+                  }
                 }
               }
             }

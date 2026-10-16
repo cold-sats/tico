@@ -8,6 +8,10 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- Goals: what needs a person is a task from the Goal Manager, so it shows in Tasks and Decide as well as under
+  **Needs you** on the Goals page, where each line links to it. A KPI off track asks the goal's owner, a KPI whose
+  reading is out of date asks its owner, and a proposal asks whoever decides it; one task each, never two. It closes by
+  itself once a fresh reading is logged, the KPI is back on track or the proposal is decided.
 - Tico HQ's update check carries a short message for given versions, shown once to each person in the app, and the known
   issues by version, which Help lists as **Known issues in your version** (or says it could not check). Nothing more is sent
   or collected. An install too old to show a message gets its link as the **View changelog** link instead: on 0.2,
