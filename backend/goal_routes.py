@@ -216,9 +216,18 @@ def install(app, store, auth, mutate, settings):
         who = request.state.identity
         auth.domain(who)
         with store.read() as c:
-            hidden = hidden_owners(c, who)
-            items = [i for i in GA.wanted(c, auth.owner_id(c)) if i["owner"] == who.actor]
-            items = [i for i in items if not (i.get("goal_id") and (G.goal(c, i["goal_id"]) or {}).get("owner") in hidden)]
+            wanted = GA.wanted(c, auth.owner_id(c))
+            # Red and stale KPIs are the asker's; a proposal shows to everyone who may decide it, with the task
+            # only for the one it is asked of.
+            items = [i for i in wanted if i["kind"] != "proposal" and i["owner"] == who.actor]
+            asked = {i["ref"]: i for i in wanted if i["kind"] == "proposal"}
+            for p in G.proposals(c, "pending"):
+                if decider(c, who, p):
+                    goal = G.goal(c, p["goal_id"]) if p["goal_id"] else None
+                    record = K.kpi(c, p["kpi_id"]) if p["kpi_id"] else None
+                    items.append(asked.get(p["id"]) or {"kind": "proposal", "ref": p["id"], "proposal": p,
+                                                       "goal_title": goal and goal["title"],
+                                                       "kpi_name": record and record["name"]})
             return {"actor": who.actor, "items": GA.for_person(c, who.actor, items)}
 
     @app.post("/api/v2/goals/refresh")

@@ -180,22 +180,33 @@ def sync(conn, owner_id, at=None):
             if H.is_human(i["owner"]) and H.human(conn, H.actor_id(i["owner"]))}
     have = {(r["kind"], r["ref"], r["owner"]): dict(r) for r in conn.execute("SELECT * FROM goal_asks")}
     created, closed = [], []
-    for key, row in have.items():
-        if key in want:
+    moved = {(kind, ref): owner for kind, ref, owner in want}
+    for key, row in list(have.items()):
+        task = H.task(conn, row["task_id"])
+        # Marked done while its cause stands: accepted and asked again, so it does not sit done and hidden.
+        again = key in want and task and task["status"] == "done"
+        if key in want and not again:
             continue
         with isolated(conn, "goal_ask_close", row["task_id"]):
-            task = H.task(conn, row["task_id"])
             if task and task["status"] in H.LIVE_STATUSES:
-                H.task_close(conn, G.AUTO_ACTOR, task["id"], note=_resolved(conn, row["kind"], row["ref"]), quiet=True)
+                if again:
+                    note = f"Still needed: {want[key].get('reason') or 'nothing has changed yet'}. Asked again in a new task."
+                elif moved.get(key[:2]):
+                    note = f"Now asked of {H.actor_id(moved[key[:2]])}, who owns it now."
+                else:
+                    note = _resolved(conn, row["kind"], row["ref"])
+                H.task_close(conn, G.AUTO_ACTOR, task["id"], note=note, quiet=True)
                 closed.append(task["id"])
             conn.execute("DELETE FROM goal_asks WHERE kind=? AND ref=? AND owner=?", key)
+            if again:
+                del have[key]
     for key, item in want.items():
         if key in have:
             continue
         with isolated(conn, "goal_ask_file", ":".join(key)):
             title, body = _ask(item)
             if H.TITLE_LINT == "refuse" and H.lint_title(title):
-                # A KPI named in capitals ("NPS") would be refused, and counted against the Goal Manager, every hour.
+                # A KPI name the title lint refuses would be refused, and counted against the Goal Manager, every hour.
                 log.warning("Not asking %s: the title lint refuses its KPI's name", item["owner"])
                 continue
             made = H.task_create(conn, G.AUTO_ACTOR, _free_title(conn, item["owner"], title), body, item["owner"],

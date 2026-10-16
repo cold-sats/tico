@@ -159,7 +159,8 @@ nearest person above the bot on the org chart. A bot's own red or stale KPI file
 There is one task per KPI or proposal, kind and person, never two. Tico brings them up to date after every goals
 write and once an hour, when time passing makes data stale. When what it was about becomes someone else's, the
 first task closes and the new owner gets one. A task the person closes or declines while its cause stands is
-not asked again until the cause clears and comes back. Nothing is filed while the Goal Manager is not set up;
+not asked again until the cause clears and comes back; one they mark done while it stands is accepted and asked
+again. A proposal still shows on the Goals page to everyone who may decide it; the task is only the asker's. Nothing is filed while the Goal Manager is not set up;
 the Goals page still lists what waits.
 
 ## Automatic bot KPIs

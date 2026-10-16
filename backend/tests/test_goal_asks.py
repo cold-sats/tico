@@ -95,6 +95,9 @@ def test_a_proposal_asks_whoever_decides_it_and_closes_when_decided(api):
     assert task["title"] == "Confirm or reject a new Activation target on Raise activation"
     [item] = [i for i in get(api, "goals/needs-you", "ben-test")["items"] if i["kind"] == "proposal"]
     assert item["task"]["id"] == task["id"] and item["proposal"]["id"] == proposal["id"]
+    # The environment owner may decide it too: it stays on their Goals page, without the task, which is Ben's.
+    [theirs] = [i for i in get(api, "goals/needs-you")["items"] if i["kind"] == "proposal"]
+    assert theirs["proposal"]["id"] == proposal["id"] and "task" not in theirs
     post(api, f"goal-proposals/{proposal['id']}/decide", {"decision": "reject", "note": "Keep it"}, token="ben-test")
     with api.app.state.store.read() as c:
         row = H.task(c, task["id"])
@@ -126,3 +129,16 @@ def test_an_owner_change_moves_the_ask_and_without_a_goal_manager_nothing_is_fil
     [new] = [a for a in asks(api) if a["kind"] == "kpi_red"]
     assert new["owner"] == "human:cara" and new["id"] != old["id"]
     assert old["id"] in {t["id"] for t in manager_tasks(api, "closed")}
+
+
+def test_a_task_marked_done_while_the_cause_stands_is_asked_again(api):
+    goal_manager(api)
+    kpi = post(api, "kpis", {"name": "Unreported measure", "owner": "me", "cadence": "weekly"})["kpi"]
+    [task] = asks(api, "human:ana")
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, "human:ana", task["id"], status="done", note="Done")
+    sync(api)
+    [again] = [a for a in asks(api) if a["ref"] == kpi["id"]]
+    assert again["id"] != task["id"] and again["status"] == "open"
+    with api.app.state.store.read() as c:
+        assert H.task(c, task["id"])["status"] == "closed"
