@@ -522,11 +522,11 @@ mod record {
 
     fn fallback_prompt() -> &'static str {
         let attempt = json!({"bot": "ops", "conversation": {"scope": "shared"}, "message": {"id": "m3"}, "history": [
-            {"id": "m1", "from_actor": "human:ana@acme.test", "body": "Note this for later: the Acme code word is PELICAN.", "refs": {}, "created": "2026-10-16T05:00:00Z"},
+            {"id": "m1", "from_actor": "human:ana", "body": "Note this for later: the Acme code word is PELICAN.", "refs": {}, "created": "2026-10-16T05:00:00Z"},
             {"id": "m2", "from_actor": "bot:ops", "body": "Noted.", "refs": {}, "created": "2026-10-16T05:00:05Z"},
         ]});
         let text = format!(
-            "{}\n\nCurrent message from human:ana@acme.test:\nWhat is the Acme code word? Reply with only the word.",
+            "{}\n\nCurrent message from human:ana:\nWhat is the Acme code word? Reply with only the word.",
             crate::fallback::replay(&attempt, crate::fallback::REPLAY_TOKENS)
         );
         Box::leak(text.into_boxed_str())

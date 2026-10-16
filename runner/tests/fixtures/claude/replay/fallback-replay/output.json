@@ -13,7 +13,7 @@
       },
       {
         "kind": "message",
-        "item_id": "msg_011Cg5UQgvzEPnLgNp5E8LZZ",
+        "item_id": "msg_011Cg5V12C4Lkke842bybLH7",
         "final": false,
         "text": "PELICAN"
       },
@@ -21,27 +21,27 @@
         "kind": "rate_limits",
         "status": "allowed",
         "resets_at": "2026-10-16T08:10:00+00:00",
-        "used_percent": 79.0,
+        "used_percent": 86.0,
         "window_minutes": 300
       },
       {
         "kind": "rate_limits",
         "status": null,
         "resets_at": "2026-10-19T20:00:00+00:00",
-        "used_percent": 31.0,
+        "used_percent": 32.0,
         "window_minutes": 10080
       },
       {
         "kind": "tokens",
         "usage": {
-          "input": 16618,
+          "input": 16440,
           "cached": 10584,
           "output": 7
         },
-        "cost_usd": 0.0505208,
-        "input": 16618,
+        "cost_usd": 0.0490968,
+        "input": 16440,
         "output": 7,
-        "total": 16625
+        "total": 16447
       },
       {
         "kind": "message",
