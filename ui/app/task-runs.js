@@ -21,9 +21,10 @@ const runMs = ms => ms == null ? '' : durationWords(ms / 1000);
 function runAgentsHTML(agents, model) {
   if (!agents.length) return '';
   const ids = new Set(agents.map(a => a.id));
-  const kids = p => agents.filter(a => (ids.has(a.parent_id) ? a.parent_id : null) === p);
+  const kids = p => agents.filter(a => (ids.has(a.parent_id) && a.parent_id !== a.id ? a.parent_id : null) === p);
+  const seen = new Set();
   const tree = p => {
-    const rows = kids(p);
+    const rows = kids(p).filter(a => !seen.has(a.id) && seen.add(a.id));
     return rows.length ? `<ul class="truns-tree">${rows.map(a => `<li><span class="truns-agent">${esc(a.type || 'agent')}</span>
       <span class="muted">${esc([a.model || (model ? model + ' (the run’s model)' : 'the run’s model'), a.running ? 'running' : a.status,
         runMs(a.duration_ms), a.tool_uses != null ? `${a.tool_uses} tool ${a.tool_uses === 1 ? 'call' : 'calls'}` : '',

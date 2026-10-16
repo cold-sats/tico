@@ -20,6 +20,9 @@ LIVE = ("leased", "running")
 # What a person or the hub decided about a stopped attempt, and the lease events that kept or lost it.
 DECISIONS = ("job.reconcile", "job.auto_reconcile")
 LEASE = {"attempt.lease-grace": "grace", "attempt.lease-restored": "restored"}
+# Read by action and target (store index events_action_target), never by scanning events since a time.
+RECOVERY_SQL = ("action IN ('job.reconcile','job.auto_reconcile','job.retry','attempt.lease-grace',"
+                "'attempt.lease-restored')")
 
 
 def failure_reason(state, result_json):
@@ -44,7 +47,14 @@ def work(rows, live):
             continue
         status = str(p.get("status") or "").lower()
         agent = p.get("subagent") if isinstance(p.get("subagent"), dict) else None
-        if agent:
+        if status == TOOL_BACKGROUNDED:
+            # A call moved to the background while it ran: its start did not say background, so it is listed here.
+            if key in agents:
+                agents[key]["background"] = True
+            elif key not in shells:
+                shells[key] = {"id": key, "tool": clip(p.get("tool") or "tool", 60), "summary": "",
+                               "parent_id": p.get("parent_id"), "status": None, "started": at, "ended": None}
+        elif agent:
             node = agents.setdefault(key, {"id": key, "parent_id": agent.get("parent_id") or p.get("parent_id"),
                                            "type": None, "model": None, "status": None, "background": False,
                                            "tool_uses": None, "duration_ms": None, "started": at, "ended": None})
@@ -60,14 +70,8 @@ def work(rows, live):
             if key not in shells and status in TOOL_START:
                 shells[key] = {"id": key, "tool": clip(p.get("tool") or "tool", 60), "summary": clip(p.get("summary"), SUMMARY_CHARS),
                                "parent_id": p.get("parent_id"), "status": None, "started": at, "ended": None}
-            elif key in shells and status not in TOOL_START and status != TOOL_BACKGROUNDED:
+            elif key in shells and status not in TOOL_START:
                 shells[key]["status"], shells[key]["ended"] = status, at
-        elif status == TOOL_BACKGROUNDED and key in agents:
-            agents[key]["background"] = True
-        elif status == TOOL_BACKGROUNDED:
-            # A call moved to the background while it ran; its start line named it but not as background.
-            shells[key] = {"id": key, "tool": clip(p.get("tool") or "tool", 60), "summary": "", "parent_id": p.get("parent_id"),
-                           "status": None, "started": at, "ended": None}
     for node in (*agents.values(), *shells.values()):
         node["running"] = node["ended"] is None and live
         if node["ended"] is None and not live:
@@ -100,17 +104,20 @@ def next_step(attempt, tries, job, decisions, retries):
     return None
 
 
-def run_view(c, who, tid):
+def run_view(c, auth, who, tid):
     actor = privacy.actor(who)
+    # A task party who cannot read the bot sees none of its runs, as on the bot's steps and failed attempts.
+    bots = auth.bot_accesses(c, who)
     turns = [r for r in H._rows(c.execute(
         "SELECT t.id,t.bot,t.exit,a.job_id,a.state,a.created,a.started,a.finished,a.lease_until,a.result_json "
         "FROM turns t JOIN attempts a ON a.id=t.id WHERE t.task_id=? ORDER BY a.created DESC LIMIT ?",
-        (tid, ATTEMPT_LIMIT))) if privacy.attempt_readable(c, actor, r["id"])]
+        (tid, ATTEMPT_LIMIT))) if (bots.get(r["bot"]) or {}).get("read") and privacy.attempt_readable(c, actor, r["id"])]
     ids = [r["id"] for r in turns]
     jobs = sorted({r["job_id"] for r in turns})
-    task = c.execute("SELECT checkpoint,checkpoint_at,checkpoint_by FROM tasks WHERE id=?", (tid,)).fetchone()
+    # A blocked checkpoint is no checkpoint: no prompt or stall report uses it either.
+    task = c.execute("SELECT checkpoint,checkpoint_at,checkpoint_by,checkpoint_blocked FROM tasks WHERE id=?", (tid,)).fetchone()
     checkpoint = ({"text": task["checkpoint"], "at": task["checkpoint_at"], "by": task["checkpoint_by"]}
-                  if task and (task["checkpoint"] or "").strip() else None)
+                  if task and (task["checkpoint"] or "").strip() and not task["checkpoint_blocked"] else None)
     if not ids:
         return {"task_id": tid, "checkpoint": checkpoint, "attempts": []}
     marks, job_marks = ",".join("?" * len(ids)), ",".join("?" * len(jobs))
@@ -120,12 +127,9 @@ def run_view(c, who, tid):
     for r in H._rows(c.execute(f"SELECT id,job_id,created FROM attempts WHERE job_id IN ({job_marks}) ORDER BY created",
                                jobs)):
         tries.setdefault(r["job_id"], []).append(r)
-    since = min(r["created"] for r in turns)
     decisions, retries, lease = {}, {}, {}
-    for e in c.execute(f"SELECT ts,actor,action,target,detail_json FROM events WHERE ts>=? AND (("
-                       f"action IN ('job.reconcile','job.auto_reconcile','job.retry') AND target IN ({job_marks})) OR "
-                       f"(action IN ('attempt.lease-grace','attempt.lease-restored') AND target IN ({marks}))) ORDER BY ts",
-                       (since, *jobs, *ids)):
+    for e in c.execute(f"SELECT ts,actor,action,target,detail_json FROM events WHERE {RECOVERY_SQL} AND target IN "
+                       f"({job_marks},{marks}) ORDER BY ts", (*jobs, *ids)):
         detail = json.loads(e["detail_json"] or "{}") or {}
         if e["action"] in DECISIONS and detail.get("attempt_id"):
             decisions[detail["attempt_id"]] = {
@@ -171,4 +175,4 @@ def install(app, store, auth):
         with store.read() as c:
             tid = auth.resolve_task(c, who, tid)
             auth.task(c, who, tid)
-            return run_view(c, who, tid)
+            return run_view(c, auth, who, tid)

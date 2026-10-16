@@ -41,26 +41,29 @@ def test_a_run_shows_its_subagent_and_the_background_command_it_left_running(api
         ("tool", {"tool": "Bash", "status": "started", "item_id": "b2", "summary": "wc", "parent_id": "a1"}),
         ("tool", {"tool": "Bash", "status": "completed", "item_id": "b2", "parent_id": "a1"}),
         ("tool", {"tool": "Agent", "status": "completed", "item_id": "a1", "parent_id": None, "background": True,
-                  "subagent": {**agent, "status": "completed", "tool_uses": 1, "duration_ms": 2201}})])
+                  "subagent": {**agent, "status": "completed", "tool_uses": 1, "duration_ms": 2201}}),
+        # A shell Claude moved to the background while it ran: its start did not say so.
+        ("tool", {"tool": "Bash", "status": "started", "item_id": "s2", "summary": "npm", "parent_id": None}),
+        ("tool", {"tool": "Bash", "status": "backgrounded", "item_id": "s2", "parent_id": None, "background": True})])
     view = get(api, f"tasks/{tid}/run-view")
     assert secret not in json.dumps(view)
     [run] = view["attempts"]
     assert (run["run"], run["state"], run["try"], run["tries"], run["next"]) == (aid, "running", 1, 1, None)
     assert [(s["tool"], s["summary"], s["running"]) for s in run["background"]] == [
-        ("Bash", "sleep", True), ("Monitor", "tail", False)]
+        ("Bash", "sleep", True), ("Monitor", "tail", False), ("Bash", "", True)]
     [sub] = run["subagents"]
     assert (sub["type"], sub["model"], sub["status"], sub["tool_uses"], sub["duration_ms"], sub["background"]) == (
         "general-purpose", "claude-haiku-5-5", "completed", 1, 2201, True)
     # The steps view keeps one line for the subagent that moved to the background.
     steps = get(api, f"turns/{aid}/steps")["steps"]
     assert [(s["kind"], s.get("nested", False)) for s in steps] == [
-        ("tool", False), ("tool", False), ("subagent", False), ("tool", True)]
+        ("tool", False), ("tool", False), ("subagent", False), ("tool", True), ("tool", False)]
 
-    post(api, f"attempts/{aid}/complete", {"outcome": "completed", "last_seq": 9, "text": "Counted: 1 word."},
+    post(api, f"attempts/{aid}/complete", {"outcome": "completed", "last_seq": 11, "text": "Counted: 1 word."},
          machine["token"])
     view = get(api, f"tasks/{tid}/run-view")
-    [shell, _] = view["attempts"][0]["background"]
-    assert (shell["running"], shell["status"]) == (False, "no end reported")
+    [shell, _, moved] = view["attempts"][0]["background"]
+    assert (shell["running"], shell["status"]) == (False, "no end reported") == (moved["running"], moved["status"])
     assert view["checkpoint"]["text"] == "Counted: 1 word." and view["checkpoint"]["by"] == "bot:ops"
 
     # A run that also carried a private task is left out for whoever cannot read that task.
@@ -89,6 +92,11 @@ def test_a_retried_run_shows_both_attempts_and_the_decision_between_them(api):
     second = claim(api, machine)
     assert second["job_id"] == first["job_id"]
     later, earlier = get(api, f"tasks/{tid}/run-view")["attempts"]
+    with api.app.state.store.read() as c:
+        from backend.run_view import RECOVERY_SQL
+        plan = " ".join(r[-1] for r in c.execute(f"EXPLAIN QUERY PLAN SELECT ts FROM events WHERE {RECOVERY_SQL} "
+                                                 "AND target IN (?,?)", ("j", "a")))
+    assert "events_action_target" in plan, plan
     assert (earlier["run"], earlier["try"], earlier["tries"], earlier["state"]) == (first["id"], 1, 2, "expired")
     assert earlier["next"]["kind"] == "resumed" and earlier["next"]["by"] == H.KEEPER and earlier["next"]["note"]
     assert (later["run"], later["try"], later["tries"], later["next"]) == (second["id"], 2, 2, None)
