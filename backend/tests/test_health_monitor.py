@@ -160,6 +160,34 @@ def test_event_stream_counts_drops_and_not_the_ones_a_server_restart_caused(envi
         assert c.execute("SELECT present FROM health_findings WHERE key=?", (key,)).fetchone()[0] == 0
 
 
+def test_event_stream_does_not_count_drops_the_runner_says_were_back_within_seconds(environment, monkeypatch):
+    api, runner = built(environment)
+    api.post("/api/v2/health-monitor/turn-on", json={}, headers=signed_in())
+    monkeypatch.setattr(diagnostics.RING, "started", "2026-01-10T05:48:11Z")      # far from every line below
+    lost = ("%s Tico runner: event stream lost (ConnectionError: error decoding response body: stream error received: "
+            "unexpected internal error encountered); polling until it is back")
+    back = "%s Tico runner: event stream back after %d s; polling stops"
+    resets = []                                    # a tunnel's edge resetting the stream: each back in 1-3 s
+    for at, took in (("06:43:46", 2), ("07:12:38", 1), ("07:14:27", 3), ("07:24:26", 1), ("07:27:22", 2)):
+        resets += [lost % f"2026-01-10T{at}Z", back % (f"2026-01-10T{at[:-2]}59Z", took)]
+    runner_errors(api, runner, resets)
+    assert scan(api) == []
+    key = "event_stream:" + runner["runner_id"]
+    stayed_down = [lost % "2026-01-10T08:00:00Z", back % ("2026-01-10T08:02:00Z", 120),
+                   lost % "2026-01-10T08:10:00Z", "2026-01-10T08:10:01Z Tico runner: event stream unavailable (x); polling",
+                   back % ("2026-01-10T08:11:00Z", 60), lost % "2026-01-10T08:20:00Z"]     # the last: not back yet
+    runner_errors(api, runner, resets + stayed_down)
+    assert scan(api) == [key]                      # three drops that lasted count; the brief ones still do not
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT detail FROM health_findings WHERE key=?", (key,)).fetchone()[0].startswith("3 of")
+    # A "back" line answers only the drop just before it: two drops in a row and one quick return is one brief drop.
+    runner_errors(api, runner, [lost % "2026-01-10T09:00:00Z", lost % "2026-01-10T09:00:30Z",
+                                back % ("2026-01-10T09:00:32Z", 2), lost % "2026-01-10T09:30:00Z"])
+    with api.app.state.store.read() as c:
+        assert not [f for f in health_monitor._runner_checks(c, api.app.state.store.settings)
+                    if f["check_id"] == "event_stream"]     # two drops that lasted: under the threshold
+
+
 def test_with_the_rule_off_a_report_is_an_approval_and_nothing_leaves(environment, hq):
     api, runner = built(environment)
     api.post("/api/v2/health-monitor/turn-on", json={}, headers=signed_in())
