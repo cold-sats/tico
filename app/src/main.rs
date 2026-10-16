@@ -289,8 +289,8 @@ fn stays_in_app(opener: &App, url: &url::Url) -> bool {
 }
 
 fn navigation_stays(host: &str, url: &url::Url) -> bool {
-    // A Markdown mailto link has no target, so it arrives here rather than as a new window.
-    if url.scheme() == "mailto" {
+    // A Markdown mailto (or tel, sms) link has no target, so it arrives here rather than as a new window.
+    if matches!(url.scheme(), "mailto" | "tel" | "sms") {
         return false;
     }
     let target = url.host_str().unwrap_or("");
@@ -315,7 +315,7 @@ enum NewWindow {
 fn new_window_target(hub: Option<&url::Url>, url: &url::Url) -> NewWindow {
     match url.scheme() {
         "http" | "https" if hub.is_some_and(|hub| url.origin() == hub.origin()) && url.path().starts_with("/api/") => NewWindow::Hub,
-        "http" | "https" | "mailto" => NewWindow::Browser,
+        "http" | "https" | "mailto" | "tel" | "sms" => NewWindow::Browser,
         _ => NewWindow::Ignore,
     }
 }
@@ -342,14 +342,49 @@ fn open_hub_window(app: &App, url: url::Url) {
     static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
     let label = format!("hub-{}", NEXT.fetch_add(1, Ordering::Relaxed));
     let opener = app.clone();
-    let _ = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url))
+    #[cfg(not(target_os = "linux"))]
+    let opened = url.clone();
+    #[allow(unused_mut)]
+    let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url))
         .title(config::app_name())
         .inner_size(1000.0, 800.0)
         .min_inner_size(MIN_WIDTH as f64, MIN_HEIGHT as f64)
         .user_agent(USER_AGENT)
         .on_navigation(move |url| stays_in_app(&opener, url))
-        .on_new_window(new_window_handler(app))
-        .build();
+        .on_new_window(new_window_handler(app));
+    // A file the web view cannot show (Word, Excel, zip) downloads, leaving this window empty: save
+    // it to Downloads, show it there and close the window. Only the file this window opened on
+    // counts, so a window that showed its file stays open for later downloads from it. Not on
+    // Linux: there each window's handler sits on the shared web context and outlives its window,
+    // then refuses every later download in the app; WebKit saves to Downloads by itself and the
+    // window stays empty.
+    #[cfg(not(target_os = "linux"))]
+    {
+        let saved = Mutex::new(None);
+        builder = builder.on_download(move |webview, event| {
+            match event {
+                tauri::webview::DownloadEvent::Requested { url, destination } if same_file(&url, &opened) => {
+                    *saved.lock().unwrap() = Some(destination.clone());
+                }
+                tauri::webview::DownloadEvent::Finished { url, success, .. } if same_file(&url, &opened) => {
+                    match (success, saved.lock().unwrap().take()) {
+                        (true, Some(path)) => { let _ = webview.app_handle().opener().reveal_item_in_dir(path); }
+                        _ => log::warn!("a file window's download failed"),
+                    }
+                    let _ = webview.window().close();
+                }
+                _ => {}
+            }
+            true
+        });
+    }
+    let _ = builder.build();
+}
+
+/// The same file, whatever its fragment.
+#[cfg_attr(target_os = "linux", allow(dead_code))]
+fn same_file(a: &url::Url, b: &url::Url) -> bool {
+    a.as_str().split('#').next() == b.as_str().split('#').next()
 }
 
 #[cfg(test)]
@@ -370,6 +405,8 @@ mod new_window_tests {
                 ("https://other.example.com/api/v2/files/f1", NewWindow::Browser),
                 ("https://team.example.com@evil.example/api/v2/files/f1", NewWindow::Browser),
                 ("mailto:support@example.com", NewWindow::Browser),
+                ("tel:+15550100", NewWindow::Browser),
+                ("sms:+15550100", NewWindow::Browser),
                 ("https://team.cloudflareaccess.com/cdn-cgi/access/login", NewWindow::Browser),
                 ("https://accounts.google.com/o/oauth2/auth", NewWindow::Browser),
                 ("about:blank", NewWindow::Ignore),
@@ -388,10 +425,23 @@ mod new_window_tests {
     fn mailto_navigation_leaves_the_app() {
         let stays = |address: &str| navigation_stays("team.example.com", &url::Url::parse(address).unwrap());
         assert!(!stays("mailto:support@example.com"));
+        assert!(!stays("tel:+15550100"));
+        assert!(!stays("sms:+15550100"));
         assert!(!stays("https://example.com/"));
         assert!(stays("https://team.example.com/#/tasks"));
         assert!(stays("https://team.cloudflareaccess.com/cdn-cgi/access/login"));
         assert!(stays("about:blank"));
+    }
+
+    #[test]
+    fn a_file_window_acts_only_on_its_own_download() {
+        let opened = url::Url::parse("https://team.example.com/api/v2/files/f1?v=2").unwrap();
+        let same = |address: &str| same_file(&url::Url::parse(address).unwrap(), &opened);
+        assert!(same("https://team.example.com/api/v2/files/f1?v=2"));
+        assert!(same("https://team.example.com/api/v2/files/f1?v=2#page=1"));
+        assert!(!same("https://team.example.com/api/v2/files/f1"));
+        assert!(!same("https://team.example.com/api/v2/files/f2?v=2"));
+        assert!(!same("blob:https://team.example.com/0b1c"));
     }
 }
 
