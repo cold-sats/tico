@@ -27,6 +27,14 @@ All notable changes to Tico are recorded here. The format follows
   can be named, and a computer signed out of it is not handed the turn. The run shows the model that ran, and
   marking the subtask done wakes the parent with the verdict. A usage limit on the check's model holds only that
   subtask, and a check handed to another bot runs as that bot's ordinary task.
+- A Claude or Codex run's steps now list its tool calls and its subagents. A subagent shows by its type, with the
+  calls it made indented under it. A call is recorded only by the file it touches or the program it runs, and a tool
+  server's call by its name alone; neither a subagent's prompt nor any call's arguments leave the computer. When such
+  a run stops partway without having called a tool, it now resumes plainly instead of being told to check what it
+  already did, because these runs report every call. Runs from an older runner, or that fell back to another provider, keep the cautious resume.
+- Signed webhooks: a trigger in Settings > Triggers can require an HMAC-SHA256 signature of the body (GitHub's
+  `X-Hub-Signature-256` or a generic `X-Signature`) under its own signing secret; a call with a bad or missing
+  signature is refused with 401 and logged. Each trigger shows its recent calls, accepted and refused.
 - Settings > Computers shows Claude's and Codex's weekly and 5-hour usage as percentages on the computer's own login,
   not only on named subscriptions. Claude's come from its turns (Claude Code 2.1.30x reports both windows); before a
   Claude turn on that computer the row says so instead of a number. Codex's are read while idle, with the account, for

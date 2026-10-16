@@ -282,7 +282,7 @@ function v2StepsHTML(d) {
   if (!steps.length) return '<div class="step muted">No steps were recorded for this run.</div>';
   return steps.map(st => st.kind === 'thinking'
     ? `<details class="step think"><summary>Thinking</summary><div class="step-text">${esc(st.text)}</div></details>`
-    : `<div class="step${st.kind === 'error' ? ' err' : ''}" title="${esc(fmt(st.at))}"><span class="step-tool">${esc(st.kind === 'tool' ? st.tool : st.kind)}</span><span class="step-sum">${esc(st.text)}</span></div>`).join('');
+    : `<div class="step${st.kind === 'error' ? ' err' : ''}${st.nested ? ' nested' : ''}" title="${esc(fmt(st.at))}"><span class="step-tool">${esc(st.kind === 'tool' ? st.tool : st.kind)}</span><span class="step-sum">${esc(st.text)}</span></div>`).join('');
 }
 async function v2StepsOpen(state, el) {
   const turn = el.dataset.turn;
