@@ -176,6 +176,7 @@ struct Shared {
     steer: std::sync::atomic::AtomicBool,
     autocompact: std::sync::atomic::AtomicBool,
     inner: Mutex<Inner>,
+    capture: Mutex<Option<Arc<crate::capture::Capture>>>,
 }
 
 #[derive(Clone)]
@@ -197,6 +198,7 @@ impl ClaudeHost {
             steer: false.into(),
             autocompact: false.into(),
             inner: Mutex::new(Inner::default()),
+            capture: Mutex::new(None),
         }))
     }
 
@@ -206,6 +208,15 @@ impl ClaudeHost {
 
     fn emit(&self, ev: Value) {
         let _ = self.0.tx.send(ev);
+    }
+
+    pub fn set_capture(&self, capture: Arc<crate::capture::Capture>) {
+        capture.attach("claude");
+        *self.0.capture.lock().unwrap_or_else(|p| p.into_inner()) = Some(capture);
+    }
+
+    fn capture(&self) -> Option<Arc<crate::capture::Capture>> {
+        self.0.capture.lock().unwrap_or_else(|p| p.into_inner()).clone()
     }
 
     pub fn supports_steer(&self) -> bool {
@@ -379,10 +390,14 @@ impl ClaudeHost {
         let first = uuid::Uuid::new_v4().to_string();
         let _ = tx.send(Some(user_line(&first, text)));
         let mut stdin = stdin;
+        let capture = self.capture();
         // Its own task: a prompt can be larger than the pipe's buffer, and nothing else waits on it.
         tokio::spawn(async move {
             while let Some(Some(line)) = rx.recv().await {
                 let Some(s) = stdin.as_mut() else { break };
+                if let Some(c) = &capture {
+                    c.sent(&line);
+                }
                 if s.write_all(line.as_bytes()).await.is_err() || s.flush().await.is_err() {
                     break;
                 }
@@ -452,6 +467,9 @@ impl ClaudeHost {
                         Some(Ok(Some(line))) => line,
                         Some(_) => break,
                     };
+                    if let Some(c) = self.capture() {
+                        c.received(&line);
+                    }
                     {
                         let mut inner = self.inner();
                         if let Some(p) = inner.pipe.as_mut().filter(|p| p.awaiting.is_some()) {

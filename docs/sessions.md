@@ -98,8 +98,18 @@ The task's ⋯ menu has **Copy session ID** for the primary session, to resume i
 | `subtask_session` | `parent` (default), `own` | Whether a subtask someone else files continues its parent's session or gets its own; one the bot files for itself always gets its own. |
 | `task_goal` | `off` (default), `on` | Work each task as a native goal until it is met. |
 | `goal:on`, `goal:off` | task labels | Override `task_goal` for one task. |
+| `capture_stream` | `off` (default), `on` | Keep each run's raw provider stream, both ways, for a week (owner only; see below). |
 
-Set them with `hub bot update <slug> --session task`, `--subtask-session own` or `--task-goal on`, or `hub_bot_update`.
+Set them with `hub bot update <slug> --session task`, `--subtask-session own`, `--task-goal on` or `--capture-stream on`, or `hub_bot_update`.
+
+### Capturing a run for a replay test
+
+With `capture_stream: on`, the runner records every frame it sends a Claude or Codex harness and every frame it reads
+back, with the turn's secrets masked, up to about 5 MB per run (a `truncated` record marks the cut). Other harnesses
+are not captured yet. Tico keeps each capture for 7 days. `hub run export <attempt> --fixture` writes it as a folder of
+three files: `input.json` (the message and model settings), `<provider>_transcript.ndjson` (the raw frames) and
+`output.json` (the events and result Tico recorded). A raw stream can hold customer text, so only owners turn it on,
+and only owners and engineering bots read it, for runs they can already see.
 
 ## FAQ
 

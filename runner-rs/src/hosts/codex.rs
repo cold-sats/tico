@@ -112,6 +112,7 @@ struct Shared {
     children: Mutex<HashMap<String, String>>,
     /// Tool events already sent, by item id and status: a start or end is reported once.
     tools_sent: Mutex<HashSet<String>>,
+    capture: Mutex<Option<Arc<crate::capture::Capture>>>,
 }
 
 #[derive(Clone)]
@@ -135,11 +136,21 @@ impl CodexHost {
             token_seen: Mutex::new(HashMap::new()),
             children: Mutex::new(HashMap::new()),
             tools_sent: Mutex::new(HashSet::new()),
+            capture: Mutex::new(None),
         }))
     }
 
     fn emit(&self, ev: Value) {
         let _ = self.0.tx.send(ev);
+    }
+
+    pub fn set_capture(&self, capture: Arc<crate::capture::Capture>) {
+        capture.attach("codex");
+        *self.0.capture.lock().unwrap() = Some(capture);
+    }
+
+    fn capture(&self) -> Option<Arc<crate::capture::Capture>> {
+        self.0.capture.lock().unwrap().clone()
     }
 
     pub async fn start(&self) -> Result<(), HostError> {
@@ -172,6 +183,9 @@ impl CodexHost {
                 let line = line.trim();
                 if line.is_empty() {
                     continue;
+                }
+                if let Some(c) = host.capture() {
+                    c.received(line);
                 }
                 if let Ok(msg) = serde_json::from_str::<Value>(line) {
                     host.on_message(msg).await;
@@ -214,6 +228,9 @@ impl CodexHost {
             return Err(failed("codex app-server is not running"));
         }
         let line = msg.to_string() + "\n";
+        if let Some(c) = self.capture() {
+            c.sent(&line);
+        }
         let mut stdin = self.0.stdin.lock().await;
         let Some(s) = stdin.as_mut() else { return Err(failed("codex app-server stdin closed")) };
         if let Err(e) = async {
