@@ -4,7 +4,7 @@ One Tico server holds the team's shared work, and your computers run the bots. H
 app, Slack (DM Tico) or MCP and the CLI; each computer's runner asks it for work, runs the bot on that computer's own
 model subscriptions and sends the results back. The in-app Help page (**?** in the sidebar) is kept short and links here.
 
-![How Tico works](images/help-desktop-light.png)
+![How Tico works](images/how-it-works-map.png)
 
 - **Tico server**: tasks, goals and KPIs, docs, updates, messages and Credentials. It runs no bots
   ([Architecture](architecture.md)).

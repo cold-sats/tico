@@ -283,6 +283,16 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
     assert.deepEqual(v.errors, []);
     await v.ctx.close();
 
+    // A tablet, between the phone and the rail layout: Support still comes first, full width, nothing sideways.
+    v = await visit({viewport: {width: 900, height: 1000}});
+    await v.page.locator('#support-rail').waitFor();
+    laid = await order(v.page);
+    assert.ok(laid.rail.top < laid.docs.top && laid.docs.top < laid.hero.top, 'Support first on a tablet');
+    assert.ok(Math.abs(laid.rail.width - laid.page.width) < 2, 'Support spans the overview\'s width');
+    assert.equal(await v.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    assert.deepEqual(v.errors, []);
+    await v.ctx.close();
+
     v = await visit({enabled: false});
     await v.page.waitForSelector('#help-page [data-support-off]');
     assert.match(await v.page.locator('[data-support-off]').innerText(), /turned off/);
