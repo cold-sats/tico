@@ -62,7 +62,12 @@ gh workflow run ci.yml --ref main -f candidate_sha=<full-40-character-commit-SHA
 ```
 
 The reviewed workflow controls and selected candidate have separate checkouts: a workflow merged after a candidate was
-frozen can check that candidate without changing it. The candidate's `scripts/release_checks.py --release` is unchanged.
+frozen can check that candidate without changing it. The gate is split across six parallel VMs: one runs the product
+phases (journey, builds, smoke, side jobs, isolation), one the browser tests and four the Python tests, each a quarter of
+the test files balanced by test count (`release_checks.py --release --part product|browser|python [--shard K/N]`).
+`release-check` passes only when all six pass. A candidate frozen before `--part` existed runs its whole unchanged gate on
+the product VM and the other five report it covered. pip, npm, Playwright browser and Cargo caches shorten setup; a cache
+miss only costs time.
 Native runner/relay prerequisites are built from that candidate and their fingerprints checked before tests. Python and
 Node Playwright browsers (Chromium and WebKit) are installed explicitly. The run records both SHAs, source-tree identity,
 architecture, capacity, worker settings, phase exits and bounded log tails as a three-day artifact; the candidate must
