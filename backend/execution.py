@@ -7,7 +7,7 @@ import sqlite3
 
 from clients import sessions
 
-from . import inbox_isolation, providers, routines, runner_versions, usage_limits
+from . import check_models, inbox_isolation, providers, routines, runner_versions, usage_limits
 from . import task_privacy as privacy
 from .auth import Identity
 from .batch_work import isolated
@@ -214,7 +214,8 @@ def limit_streak(c, bot):
     at LIMIT_STRIKES; a lapsed lease or any other outcome ends the run)."""
     streak = 0
     for row in c.execute("SELECT result_json FROM attempts WHERE bot=? AND state IN ('completed','failed','interrupted') "
-                         "ORDER BY created DESC LIMIT ?", (bot, LIMIT_STRIKES)):
+                         "AND json_extract(result_json,'$.check') IS NULL ORDER BY created DESC LIMIT ?",
+                         (bot, LIMIT_STRIKES)):
         if not (row[0] and json.loads(row[0]).get("limited")):
             break
         streak += 1
@@ -234,6 +235,7 @@ def last_limit(c, bot):
     return c.execute("SELECT id,finished,json_extract(result_json,'$.limit_resets_at') AS resets_at "
                      "FROM attempts WHERE bot=? AND state IN ('failed','interrupted') "
                      "AND finished IS NOT NULL AND json_extract(result_json,'$.limited')=1 "
+                     "AND json_extract(result_json,'$.check') IS NULL "
                      "ORDER BY finished DESC LIMIT 1", (bot,)).fetchone()
 
 
@@ -261,13 +263,19 @@ def limit_cooldown(c, bot):
     last = last_limit(c, bot)
     if not last:
         return cooldown
-    finished = H.parse_ts(last["finished"])
+    return reset_cooldown(c, last["id"], last["finished"], cooldown, last["resets_at"])
+
+
+def reset_cooldown(c, attempt_id, finished, cooldown, resets_at=None):
+    """`cooldown`, or until the reset the runner reported from the provider, or longer to reach a reset the
+    attempt's limit error names."""
+    finished = H.parse_ts(finished)
     if not finished:
         return cooldown
-    reported = provider_reset(last, finished)
+    reported = provider_reset({"resets_at": resets_at}, finished)
     if reported:
         return reported
-    for error in limit_errors(c, last["id"]):
+    for error in limit_errors(c, attempt_id):
         match = re.search(r"usage window resets at (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)", error, re.I)
         reset = H.parse_ts(match[1]) if match else None
         if reset:
@@ -918,7 +926,12 @@ class Execution:
             if not privacy.message_readable(c, "bot:" + row["bot"], message):
                 continue
             conversation = H.conversation(c, message["conversation_id"])
-            if (row["bot"], job_lane(c, row["bot"], followed[row["bot"]], message, conversation, lanes, roots)) in busy:
+            task_id = H.message_task_id(message, conversation)
+            wanted = check_models.of(c, task_id, row["bot"])
+            if not check_models.runs_here(ready, wanted) or (wanted and check_models.held(c, task_id)):
+                continue
+            config = check_models.apply(followed[row["bot"]], wanted)
+            if (row["bot"], job_lane(c, row["bot"], config, message, conversation, lanes, roots)) in busy:
                 continue
             return row
         return None
@@ -1062,6 +1075,9 @@ class Execution:
         from .shared_bots import follow
         followed = follow(c, row["bot"], json.loads(
             c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()[0]))
+        # A check subtask's turns run on its own model, in its own session (backend/check_models.py).
+        check = check_models.of(c, task["id"], row["bot"]) if task else None
+        followed = check_models.apply(followed, check)
         roots, lanes = roots_on(runner), lanes_on(runner)
         lane = job_lane(c, row["bot"], followed, msg, conv, lanes, roots)
         token = secrets.token_urlsafe(32)
@@ -1074,6 +1090,8 @@ class Execution:
                   (aid, row["id"], row["bot"], who.runner_id, row["generation"], digest(token), until, H.now(), lane))
         c.execute("UPDATE jobs SET state='leased',attempt_id=? WHERE id=?", (aid, row["id"]))
         c.execute("INSERT OR IGNORE INTO attempt_conversations VALUES(?,?)", (aid, conv["id"]))
+        if check:
+            check_models.handed(c, aid, task["id"], check)
         # A bot that names no runtime or model runs on the company default, resolved here the way
         # runners/assignments resolves it: the runner starts exactly what this says.
         config = providers.fill(providers.load(c, self.store.settings), followed)
@@ -1106,6 +1124,8 @@ class Execution:
                     return False
             from .task_relations import for_prompt
             task = {**task, "relations": for_prompt(c, task["id"], lambda other: bool(other) and readable(other))}
+            if check:
+                task["check"] = {k: check[k] for k in ("runtime", "model", "role")}
             goal = task_goal(c, row["bot"], followed, task)
             if goal:
                 # Worked as a goal: the runner tells the bot to keep at it until the objective holds.
@@ -1140,7 +1160,8 @@ class Execution:
         # turn. The claim holds the write lock and `carried_by` marks each one taken, so two lanes
         # never carry the same task.
         carried = []
-        if getattr(body, "next_run", False):
+        # A check runs on another model for one subtask: the bot's other work waits for its own turns.
+        if getattr(body, "next_run", False) and not check:
             if row["bot"] == "librarian":
                 from .docs import refresh_generated_docs
                 refresh_generated_docs(c)  # Also covers a Librarian enabled after the upgrade.
@@ -1163,7 +1184,7 @@ class Execution:
         # Quiet notes ride the same way: every note waiting for this bot, each with when it was
         # sent, so the run can tell yesterday's from this morning's.
         notes = []
-        if getattr(body, "next_run", False):
+        if getattr(body, "next_run", False) and not check:
             for item in H.notes_waiting(c, row["bot"]):
                 c.execute("UPDATE notes SET carried_by=? WHERE id=?", (aid, item["id"]))
                 notes.append({"id": item["id"], "from": item["from_actor"], "sent": item["created"],
@@ -1604,8 +1625,12 @@ class Execution:
             refs = {**(H.message(c, reply["id"]).get("refs") or {}),
                     "run": {"job_id": row["job_id"], "attempt_id": aid}, "answers": handled}
             c.execute("UPDATE messages SET refs_json=? WHERE id=?", (encode(refs), reply["id"]))
+        # A turn on a check subtask ran on the check's model, not the bot's (backend/check_models.py).
+        # Decided by what the claim handed out: a check handed to another bot mid-turn still ran on the check's model.
+        check_task, check = check_models.handed_out(c, aid)
         c.execute("UPDATE attempts SET state=?,finished=?,final_text=?,result_json=? WHERE id=?",
-                  (body.outcome, H.now(), body.text, encode(body.model_dump()), aid))
+                  (body.outcome, H.now(), body.text,
+                   encode({**body.model_dump(), **({"check": check["runtime"]} if check else {})}), aid))
         # A usage-limited turn did nothing and had no effects, so the job goes back in the
         # queue however often it happens; the bot cools off (claim() honours the window) and
         # a third limit in a row waits longer and tells a person in Needs attention. Only
@@ -1731,6 +1756,8 @@ class Execution:
         usage_limits.after_run(c, row["bot"], self.store.settings.owner_email)
         config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()
         runtime, model = providers.bot_choice(c, self.store.settings, json.loads(config[0]) if config else {})
+        if check:
+            runtime, model = check["runtime"], check["model"]
         if row["thread_id"] and body.tokens_in is not None:
             c.execute("UPDATE bot_sessions SET tokens_in=?,updated=? WHERE bot=? AND runtime=? AND model=? AND thread_id=?",
                       (int(body.tokens_in), H.now(), row["bot"], runtime, model, row["thread_id"]))
@@ -1758,6 +1785,17 @@ class Execution:
             # A worktree this turn was waiting for is not wanted any more (backend/worktree_waits.py).
             from .worktree_waits import cancel_for_attempt
             cancel_for_attempt(c, aid, f"Stopped by {name}")
+        elif limited and check:
+            # A check has no fallback, and its model's limit is not the bot's: hold the check alone, and leave
+            # the bot's own work, its status and its Health finding to its own provider.
+            hit = H.now()
+            retry = H.shift(hit, seconds=reset_cooldown(c, aid, hit, LIMIT_COOLDOWN, body.limit_resets_at))
+            check_models.hold(c, check_task, runtime, retry)
+            settle_status(c, row["bot"], "idle", f"{runtime} usage limit on a check at {hit[11:16]}; the check "
+                          f"retries after {retry[:10]} {retry[11:16]} UTC", began=row["started"] or row["created"])
+            H.event(c, H.KEEPER, "attempt.check_limited", aid,
+                    {"bot": row["bot"], "job_id": row["job_id"], "task_id": check_task, "runtime": runtime,
+                     "retry_after": retry})
         elif limited:
             streak = limit_streak(c, row["bot"])
             hit = H.now()

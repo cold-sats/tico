@@ -723,9 +723,13 @@ def parser():
     task = sub.add_parser("task").add_subparsers(dest="sub")
     s = task.add_parser("child", help="create a subtask")
     s.add_argument("parent")
-    s.add_argument("--owner", required=True)
+    s.add_argument("--owner", help="who does it; a --check-model subtask is your own (`me`)")
     s.add_argument("--title", required=True)
     s.add_argument("--body", default="")
+    s.add_argument("--check-model", metavar="RUNTIME[:MODEL]",
+                   help="run this subtask of yours on another model, in its own session (e.g. grok, codex:gpt-6.1-sol)")
+    s.add_argument("--role", dest="check_role", choices=("review", "check"),
+                   help="with --check-model: what the other model is asked for (default check)")
     s.set_defaults(fn="task child create")
     s = task.add_parser("tree", help="show nested subtasks")
     s.add_argument("id")

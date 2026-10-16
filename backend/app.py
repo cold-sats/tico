@@ -24,7 +24,7 @@ from . import go_live as pending_go_lives
 from . import repo_waits
 from . import built_on
 from . import agents, batch, external_sync, inbox_isolation, mcp_oauth, harness_actions, model_login, oidc, personal_tokens, views
-from . import team_rules, usage_limits
+from . import check_models, team_rules, usage_limits
 from . import task_privacy as privacy
 from . import task_relations as TR
 from . import task_roles as TRo
@@ -2568,6 +2568,8 @@ def create_app(settings=None):
                     "mover": mover(c, request.state.identity),
                     "waiting_for": task_wait(c, tid, settings),
                     "runs": task_runs(c, who, tid),
+                    # The model a bot's check subtask runs on (backend/check_models.py), or null.
+                    "check_model": H.check_model(c, tid),
                     **privacy.page(c, who, row["conversation_id"], task_id=tid)}
 
     def task_runs(c, who, tid, limit=200):
@@ -2581,6 +2583,20 @@ def create_app(settings=None):
         made = ran_on(c, [r["id"] for r in rows])
         return [{"run": r["id"], "bot": r["bot"], "started": r["started"], "finished": r["finished"],
                  "outcome": r["exit"], "ran_on": made[r["id"]]} for r in rows]
+
+    def check_choice(c, who, body, owner, parent_id):
+        """The check model a bot's subtask asks for (backend/check_models.py), or Problem. Only a bot files one, as
+        its own subtask under its own task, so the verdict comes back to the session that asked."""
+        if who.role != "bot" or who.via or owner != who.actor:
+            raise Problem("check_model", "Only a bot runs a check model, on a subtask it owns", 422)
+        parent = H.task(c, parent_id) if parent_id else None
+        if not parent or parent["owner"] != who.actor:
+            raise Problem("check_model", "A check model runs a subtask: file it under a task you own", 422)
+        try:
+            return check_models.choose(c, settings, H.actor_id(owner), body.check_model,
+                                       body.check_role or "check")
+        except check_models.CheckModelError as exc:
+            raise Problem(exc.code, str(exc), 409 if exc.code == "runner_not_ready" else 422)
 
     def task_create(c, who, body, lint=True, asked=None):
         """`asked`: the person a bot's question is put to (backend/media.py task_question). When the task is
@@ -2620,6 +2636,9 @@ def create_app(settings=None):
                                      "task without a parent, and do not wait for it.", 422)
         if parent_id:
             auth.task(c, who, parent_id)
+        check = None
+        if body.check_model is not None or body.check_role is not None:
+            check = check_choice(c, who, body, owner, parent_id)
         for other, _ in others:
             auth.task(c, who, other)
         parent = H.task(c, parent_id) if parent_id else None
@@ -2670,6 +2689,8 @@ def create_app(settings=None):
                             number=body.number, mover=mover(c, who) or None,
                             own_room=H.actor_id(owner) != settings.assistant_bot)
         c.execute("UPDATE tasks SET acceptance_json=? WHERE id=?", (encode(body.acceptance_criteria), row["id"]))
+        if check:
+            check_models.record(c, who.actor, row["id"], check)
         if handoff and owner == "bot:" + BOTOPS:
             carried = carried_request(c, who, body.request_id)
             if carried:

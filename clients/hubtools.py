@@ -515,7 +515,7 @@ def task_create(api, args):
             "due": args.get("due"), "goal_id": args.get("goal_id") or None}
     if args.get("parent"):
         body["relations"] = [{"task": args["parent"], "kind": "parent"}]
-    for field in ("labels", "top", "links", "next_run", "request_id", "type", "step", "number"):
+    for field in ("labels", "top", "links", "next_run", "request_id", "type", "step", "number", "check_model", "check_role"):
         if args.get(field) not in (None, "", [], False):
             body[field] = args[field]
     if args.get("private") is not None:
@@ -529,11 +529,20 @@ def task_create(api, args):
     return s3links.annotate(api.post("tasks", body, key=_key(args)), links)
 
 
-@tool("hub_task_child_create", "Create a subtask under a parent; you are its requester.",
-      {"parent": TASK_ID, "owner": _s("Bot slug or human id"), "title": _s("What to do"),
-       "body": _s("Details", default="")}, required=("parent", "owner", "title"), writes=True)
+@tool("hub_task_child_create", "Create a subtask under a parent; you are its requester. With `check_model`, the "
+      "subtask is your own and runs on that model in a session of its own, reading only the subtask: name in its "
+      "body the PR or files to look at. Mark it done with the verdict as the note; it comes back to the parent.",
+      {"parent": TASK_ID, "owner": _s("Bot slug or human id; `me` for a check_model subtask (the default)"),
+       "title": _s("What to do"), "body": _s("Details", default=""),
+       "check_model": _s("A company-enabled runtime, optionally with a model: `grok`, `codex:gpt-6.1-sol`"),
+       "check_role": {"type": "string", "enum": ["review", "check"],
+                      "description": "With check_model: a review of work, or a check of a claim (default check)"}},
+      required=("parent", "title"), writes=True)
 def task_child_create(api, args):
-    return task_create(api, {**args, "body": args.get("body") or args["title"]})
+    owner = args.get("owner") or ("me" if args.get("check_model") else None)
+    if not owner:
+        raise ValueError("owner is required (or check_model, which files the subtask for you)")
+    return task_create(api, {**args, "owner": owner, "body": args.get("body") or args["title"]})
 
 
 @tool("hub_task_tree", "The nested subtasks with status, owner and worst PR state.",

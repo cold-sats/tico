@@ -416,6 +416,41 @@ such a subtask shows no session.
 definition API) keeps every subtask its own session; unset or `parent` is the default. A runner from before this
 change keys every task, subtasks included, on its own session, and Tico gives it lanes the same way.
 
+### A subtask on a check model
+
+A bot can have another model look at its work without a second bot:
+
+```sh
+hub task child <parent-id> --check-model grok --role review --title "Review PR 655" --body "https://github.com/..."
+hub task child <parent-id> --check-model codex:gpt-6.1-sol --title "Check the migration plan" --body "..."
+```
+
+`--check-model` takes a runtime (its provider's recommended model) or `runtime:model`; `--role` is `review` or
+`check` (the default). The API takes `check_model` and `check_role` on task create; the MCP tool is
+`hub_task_child_create` with the same fields.
+
+- The subtask is the filing bot's own, under a task it owns. Its turns run on the named runtime and model with no
+  fallback to another provider, always in a session of their own, and read only the subtask's room: name the PR
+  or files in its body. Its turns carry none of the bot's next-run tasks or notes.
+- Only the runtime, model, harness and effort change. The bot's repository, tools, credentials and isolation are
+  its own, so a check never runs with more than the bot has.
+- Only a provider the company has enabled (Settings > AI providers) and a current model can be named, and the
+  bot's computer must not report that runtime missing or signed out. A computer that reports it signed out is not
+  handed the subtask's turns.
+- Task detail shows the subtask's `check_model`, and the run's provenance (`ran_on` on the task's runs) names the
+  model that ran. When the bot marks the subtask Done or Declined, its owner is woken on the parent with
+  "Review done (ran on <model>): <title>" (or "Subtask declined") and the note, so the verdict lands in the parent's
+  session. Closing it is a cancellation and wakes nobody.
+- A usage limit on the check's model holds that subtask alone until the provider's reset: the bot's other work
+  goes on, on its own model, and the bot is not marked limited.
+- The check model belongs to the bot that filed it while it owns the subtask. Handed to another bot, the subtask
+  is that bot's ordinary task, on its own model. Subtasks under a check continue the check's session, never the
+  parent's.
+- Known limits: readiness is read per computer, not per subscription profile; a check model cannot be removed;
+  a provider disabled after filing still runs; a computer that stays signed out of the check's runtime leaves the
+  subtask waiting with no notice; a check held by its model's limit waits for the reset even when a person comments
+  on it or presses Try now.
+
 Every task a bot owns has its own room (a `kind: task` conversation), even one filed from a chat: its comments,
 notices, notes and replies go there, and the chat it was filed from gets one quiet line, "Started task: <title>"
 (`refs.task_started`). A bot's open task filed into a chat room before this moves to a room of its own the next time
