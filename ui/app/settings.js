@@ -346,10 +346,11 @@ async function executionReview(bot) {
     const {jobs} = await get(`/v2/bots/${encodeURIComponent(bot)}/execution-review`);
     host.innerHTML = jobs.length ? jobs.map(job => `<form data-job="${esc(job.id)}">
       <h3>${esc(job.task?.title || 'Interrupted conversation')}</h3>
-      <p class="muted">Stopped ${esc(fmt(job.attempt?.started || job.attempt?.created))}${job.task ? ` · task ${esc(job.task.status)}` : ''}</p>
+      <p class="muted">Stopped ${esc(fmt(job.attempt?.started || job.attempt?.created))}${job.task ? ` · task ${esc(job.task.status)}${job.task.owner_name ? `, owner ${esc(job.task.owner_name)}` : ''}` : ''}</p>
       <p><strong>Why Tico paused this request</strong><br>${esc(job.reason)}</p>
       <details><summary>Original request</summary><div style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(job.request)}</div></details>
       <details${job.attempt?.final_text || job.output.some(event=>event.text) ? ' open' : ''}><summary>${job.attempt?.final_text || job.output.some(event=>event.text) ? 'What the run saved' : 'No answer was saved'}</summary><div style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto">${esc(job.attempt?.final_text || job.output.map(event=>event.text).filter(Boolean).join('\n') || 'The run ended without saving an answer.')}</div></details>
+      ${job.tools?.length ? `<details open><summary>Tool calls it made (${job.tools.length})</summary><ul class="review-tools">${job.tools.map(call => `<li${call.nested ? ' class="nested"' : ''}><code>${esc(call.tool)}</code>${call.summary ? ` ${esc(call.summary)}` : ''}${call.status ? ` <span class="muted">· ${esc(call.status)}</span>` : ''}</li>`).join('')}</ul></details>` : ''}
       <p><strong>Did an outside action finish?</strong><br>If not, Tico can retry. If it did or you are unsure, it stays stopped.</p>
       <label>Anything Tico should know? <span class="muted">Optional</span><textarea name="note" aria-label="Details for Tico" maxlength="4000" placeholder="For example: the draft exists, but nothing was sent."></textarea></label>
       <div class="row"><button type="submit" name="decision" value="resume">Nothing happened — try again</button><button type="submit" name="decision" value="dismiss" class="ghost">Done or unsure — don’t retry</button></div>

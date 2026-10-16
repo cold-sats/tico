@@ -1,6 +1,6 @@
 """Operator review preserves evidence and fences stale or unauthorized decisions."""
 import pytest
-from backend.tests.test_api import api, assign, setup_attempt, post, get, expire, ready, claim, headers
+from backend.tests.test_api import api, assign, runner, setup_attempt, post, get, expire, ready, claim, headers
 
 
 def interrupted(api):
@@ -312,27 +312,28 @@ def test_a_turn_that_failed_before_doing_anything_goes_back_in_the_queue(api):
     assert get(api, 'bots/ops/execution-review')['jobs'] == []
 
 
-def test_a_stopped_run_that_used_tools_resumes_by_itself_with_what_it_saved(api):
-    """Ana, 2026-09-25: no person answers "did this run finish an outside action?". The bot gets
-    what the run saved, checks what is done, and finishes only the rest."""
+def test_a_stopped_run_that_used_tools_is_held_until_reviewed(api):
+    """A run that may have acted is not run again on its own: it waits, named, for its operator or BotOps.
+    Their resume runs it once more; a second stop is dismissed and BotOps finds out why."""
     from backend.store import H
     machine, message, attempt = setup_attempt(api)
     post(api, f"attempts/{attempt['id']}/started", {'thread_id': 'stopped'}, machine['token'])
     post(api, f"attempts/{attempt['id']}/events", {'events': [
         {'seq': 1, 'kind': 'tool', 'payload': {'name': 'shell'}},
-        {'seq': 2, 'kind': 'delta', 'payload': {'text': 'Arch'}},
-        {'seq': 3, 'kind': 'message', 'payload': {'text': 'Archived both bots; telling Priya next.'}}]},
+        {'seq': 2, 'kind': 'message', 'payload': {'text': 'Archived both bots; telling Priya next.'}}]},
         machine['token'])
     expire(api, attempt['id'])
-    assert claim(api, machine) is None and job_state(api, attempt['job_id']) == 'uncertain'
+    assert claim(api, machine) is None
     aged(api, attempt['id'])
-    assert [d['state'] for d in sweep(api)] == ['queued']
+    assert sweep(api) == [] and job_state(api, attempt['job_id']) == 'uncertain'
+    review = get(api, 'bots/ops/execution-review')['jobs'][0]
+    assert review['output'][-1]['text'] == 'Archived both bots; telling Priya next.'
+    assert [t['tool'] for t in review['tools']] == ['shell'] and 'shell' in review['reason']
+    post(api, f"jobs/{attempt['job_id']}/reconcile", {'attempt_id': attempt['id'], 'decision': 'resume',
+         'note': 'Nothing was archived yet; run it again.', 'acknowledge_uncertain_effects': True})
     ready(api, machine, ['ops'])
     again = claim(api, machine)
-    body = again['message']['body']
-    assert 'finish only what is left' in body and 'Archived both bots; telling Priya next.' in body
-    assert 'Arch\n' not in body, "whole messages, not streaming fragments"
-    # It stops a second time: dismissed, and BotOps (not a person) finds out why.
+    assert 'Nothing was archived yet; run it again.' in again['message']['body']
     with api.app.state.store.transaction() as c:
         if not H.bot(c, H.FLEET_MAINTAINER):
             c.execute("INSERT INTO bots(slug, display_name, state) VALUES(?, 'BotOps', 'active')", (H.FLEET_MAINTAINER,))
@@ -344,8 +345,8 @@ def test_a_stopped_run_that_used_tools_resumes_by_itself_with_what_it_saved(api)
     aged(api, again['id'])
     assert [d['state'] for d in sweep(api)] == ['cancelled']
     with api.app.state.store.read() as c:
-        task = c.execute("SELECT owner FROM tasks WHERE title=?", ("Find why ops's runs keep stopping",)).fetchone()
-    assert task and task['owner'] == H.bot_actor(H.FLEET_MAINTAINER)
+        task = c.execute("SELECT owner,body FROM tasks WHERE title=?", ("Find why ops's runs keep stopping",)).fetchone()
+    assert task and task['owner'] == H.bot_actor(H.FLEET_MAINTAINER) and message['body'] not in task['body']
     assert get(api, 'bots/ops/execution-review')['jobs'] == []
 
 
@@ -368,10 +369,151 @@ def test_a_run_that_says_it_reports_tool_calls_resumes_plainly_when_it_called_no
     expire(api, attempt['id'])
     assert claim(api, machine) is None
     aged(api, attempt['id'])
+    if not declared or hopped:
+        assert sweep(api) == [] and job_state(api, attempt['job_id']) == 'uncertain'
+        return
+    assert [d['state'] for d in sweep(api)] == ['queued']
+    ready(api, machine, ['ops'])
+    assert 'recorded no tool call' in claim(api, machine)['message']['body']
+
+
+def restarted_mid_turn(api, calls, *, reported=True):
+    """A Claude-style run that says it reports its tool calls, made `calls` ((name, parent) pairs) and was cut off:
+    by a runner restart that reported it interrupted, or by a lapsed lease."""
+    machine, message, attempt = setup_attempt(api)
+    post(api, f"attempts/{attempt['id']}/started", {'thread_id': 'restarted'}, machine['token'])
+    events = [{'seq': 1, 'kind': 'status', 'payload': {'state': 'active', 'tool_events': True}}]
+    for n, (name, parent) in enumerate(calls):
+        for status in ('started', 'completed'):
+            events.append({'seq': len(events) + 1, 'kind': 'tool', 'payload': {
+                'tool': name, 'status': status, 'item_id': f'call-{n}', 'parent_id': parent,
+                **({'summary': f'notes/{n}.md'} if status == 'started' else {})}})
+    events.append({'seq': len(events) + 1, 'kind': 'message', 'payload': {'text': 'Reading the notes.'}})
+    post(api, f"attempts/{attempt['id']}/events", {'events': events}, machine['token'])
+    if reported:
+        post(api, f"attempts/{attempt['id']}/complete", {'outcome': 'interrupted', 'last_seq': len(events),
+             'text': 'Runner restarted during execution'}, machine['token'])
+    else:
+        expire(api, attempt['id'])
+        assert claim(api, machine) is None
+    assert job_state(api, attempt['job_id']) == 'uncertain'
+    return machine, message, attempt
+
+
+def test_a_run_that_only_read_resumes_at_once_after_its_runner_restarted(api):
+    """Reads, including a subagent's, repeat nothing; a restart ended the run, so nothing is left to restore."""
+    machine, message, attempt = restarted_mid_turn(api, [('Read', None), ('Agent', None), ('Grep', 'call-1')])
     assert [d['state'] for d in sweep(api)] == ['queued']
     ready(api, machine, ['ops'])
     body = claim(api, machine)['message']['body']
-    assert ('finish only what is left' in body) is not (declared and not hopped)
+    assert 'only read (Agent, Grep, Read)' in body and 'check what already happened, then continue' in body
+    assert 'finish only what is left' not in body
+
+
+def test_a_run_that_only_read_waits_out_a_lapsed_lease_for_the_runner_to_restore_it(api):
+    machine, message, attempt = restarted_mid_turn(api, [('Read', None)], reported=False)
+    assert sweep(api) == [] and job_state(api, attempt['job_id']) == 'uncertain'
+    aged(api, attempt['id'])
+    assert [d['state'] for d in sweep(api)] == ['queued']
+    ready(api, machine, ['ops'])
+    assert 'only read (Read)' in claim(api, machine)['message']['body']
+
+
+@pytest.mark.parametrize('writer', [('Bash', None), ('Write', 'call-1'), ('mcp__hub__hub_task_update', None)])
+def test_a_run_that_used_a_tool_that_writes_waits_and_its_review_lists_the_calls(api, writer):
+    """Any call outside the reads, a subagent's included, holds the run for review; the card names every call."""
+    machine, message, attempt = restarted_mid_turn(api, [('Read', None), ('Agent', None), writer])
+    assert sweep(api) == [] and job_state(api, attempt['job_id']) == 'uncertain'
+    review = get(api, 'bots/ops/execution-review')['jobs'][0]
+    assert [(t['tool'], t['nested'], t['status']) for t in review['tools']] == [
+        ('Read', False, 'completed'), ('Agent', False, 'completed'), (writer[0], bool(writer[1]), 'completed')]
+    assert review['tools'][0]['summary'] == 'notes/0.md'
+    assert f'can change things ({writer[0]})' in review['reason']
+    from backend.store import H
+    with api.app.state.store.transaction() as c:
+        if not H.bot(c, H.FLEET_MAINTAINER):
+            c.execute("INSERT INTO bots(slug, display_name, state) VALUES(?, 'BotOps', 'active')", (H.FLEET_MAINTAINER,))
+    aged(api, attempt['id'])
+    assert sweep(api) == [] and sweep(api) == [] and job_state(api, attempt['job_id']) == 'uncertain'
+    with api.app.state.store.read() as c:
+        handed = c.execute("SELECT owner,body FROM tasks WHERE title=?", ("Review ops's stopped runs held for a check",)).fetchall()
+        holds = c.execute("SELECT count(*) FROM events WHERE action='job.held' AND target=?", (attempt['id'],)).fetchone()[0]
+    assert [t['owner'] for t in handed] == [H.bot_actor(H.FLEET_MAINTAINER)] and holds == 1
+    # A company task: the words of Ana's own chat with ops stay in that chat.
+    assert message['body'] not in handed[0]['body'] and attempt['job_id'] in handed[0]['body']
+
+
+def test_a_run_that_only_read_but_consumed_an_approval_is_held(api):
+    from backend.store import H
+    machine, message, attempt = restarted_mid_turn(api, [('Read', None)])
+    with api.app.state.store.transaction() as c:
+        started = c.execute("SELECT started FROM attempts WHERE id=?", (attempt['id'],)).fetchone()[0]
+        c.execute("INSERT INTO approvals(id,kind,message_id,requested_by,created,consumed_at) VALUES(?,?,?,?,?,?)",
+                  (H.new_id(), 'spend', message['id'], 'bot:ops', started, started))
+    assert sweep(api) == [] and job_state(api, attempt['job_id']) == 'uncertain'
+
+
+def test_a_read_only_run_that_stops_again_after_its_resume_is_not_resumed_early(api):
+    machine, message, attempt = restarted_mid_turn(api, [('Read', None)])
+    assert [d['state'] for d in sweep(api)] == ['queued']
+    ready(api, machine, ['ops'])
+    again = claim(api, machine)
+    post(api, f"attempts/{again['id']}/started", {'thread_id': 'restarted'}, machine['token'])
+    post(api, f"attempts/{again['id']}/events", {'events': [
+        {'seq': 1, 'kind': 'status', 'payload': {'state': 'active', 'tool_events': True}}]}, machine['token'])
+    post(api, f"attempts/{again['id']}/complete", {'outcome': 'interrupted', 'last_seq': 1,
+         'text': 'Runner restarted during execution'}, machine['token'])
+    assert sweep(api) == [] and job_state(api, attempt['job_id']) == 'uncertain'
+    aged(api, again['id'])
+    assert [d['state'] for d in sweep(api)] == ['cancelled']
+
+
+def test_a_held_run_names_its_task_and_owner_only_to_who_may_read_it(api):
+    machine = runner(api, 'ana')
+    assign(api, machine, 'ops')
+    ready(api, machine, ['ops'])
+    post(api, 'tasks', {'owner': 'ops', 'title': 'Archive the old bots', 'body': 'Archive them and tell Priya.', 'private': True})
+    attempt = claim(api, machine)
+    post(api, f"attempts/{attempt['id']}/started", {'thread_id': 'held'}, machine['token'])
+    post(api, f"attempts/{attempt['id']}/events", {'events': [
+        {'seq': 1, 'kind': 'tool', 'payload': {'tool': 'Bash', 'status': 'started', 'item_id': 'b1'}}]}, machine['token'])
+    expire(api, attempt['id'])
+    assert claim(api, machine) is None
+    issue = next(i for i in get(api, 'operations')['issues'] if i['kind'] == 'uncertain_work')
+    assert 'Held: "Archive the old bots" (owner ' in issue['detail']
+    assert get(api, 'bots/ops/execution-review')['jobs'][0]['task']['owner'] == 'bot:ops'
+    held = [i for i in get(api, 'operations', token='ben-test')['issues'] if i['kind'] == 'uncertain_work']
+    assert all('Archive the old bots' not in i['detail'] for i in held)
+
+
+def test_a_held_company_task_involving_a_bot_the_reader_cannot_read_stays_unnamed(api, monkeypatch):
+    """The same fence as reading the task: Ben reads ops but not legal, so legal's request to ops is not his."""
+    from backend.auth import Auth
+    machine = runner(api, 'ana')
+    assign(api, machine, 'ops')
+    ready(api, machine, ['ops'])
+    task = post(api, 'tasks', {'owner': 'ops', 'title': 'Counsel memo for Acme', 'body': 'Draft it.'})
+    task_id = task.get('task', task).get('id') or task['refs']['task']
+    attempt = claim(api, machine)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET requester='bot:legal' WHERE title='Counsel memo for Acme'")
+    post(api, f"attempts/{attempt['id']}/started", {'thread_id': 'held'}, machine['token'])
+    post(api, f"attempts/{attempt['id']}/events", {'events': [
+        {'seq': 1, 'kind': 'tool', 'payload': {'tool': 'Bash', 'status': 'started', 'item_id': 'b1'}}]}, machine['token'])
+    expire(api, attempt['id'])
+    assert claim(api, machine) is None
+    def held_for(token):
+        return ' '.join(i['detail'] for i in get(api, 'operations', token=token)['issues'] if i['kind'] == 'uncertain_work')
+    assert 'Counsel memo for Acme' in held_for('ben-test')          # control: Ben may read it
+    real = Auth.bot_accesses
+    def without_legal(self, c, who, slugs=None):
+        levels = real(self, c, who, slugs)
+        if who.actor == 'human:ben':
+            levels = {**levels, 'legal': {'see': True, 'read': False, 'write': False}}
+        return levels
+    monkeypatch.setattr(Auth, 'bot_accesses', without_legal)
+    assert 'Counsel memo for Acme' not in held_for('ben-test')
+    assert 'Counsel memo for Acme' in held_for('ana-test')
 
 
 @pytest.mark.parametrize('activity', [None, 'tool'])
@@ -460,8 +602,8 @@ def test_a_claim_that_lapsed_before_its_run_started_does_not_count_as_stopping_p
     attempt = claim(api, machine)
     assert attempt and attempt['job_id'] == lapsed['job_id']
     post(api, f"attempts/{attempt['id']}/started", {'thread_id': 'once'}, machine['token'])
-    post(api, f"attempts/{attempt['id']}/events", {'events': [{'seq': 1, 'kind': 'tool', 'payload': {'name': 'shell'}}]},
-         machine['token'])
+    post(api, f"attempts/{attempt['id']}/events", {'events': [
+        {'seq': 1, 'kind': 'status', 'payload': {'state': 'active', 'tool_events': True}}]}, machine['token'])
     expire(api, attempt['id'])
     assert claim(api, machine) is None and job_state(api, attempt['job_id']) == 'uncertain'
     aged(api, attempt['id'])

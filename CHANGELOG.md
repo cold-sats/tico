@@ -48,7 +48,14 @@ All notable changes to Tico are recorded here. The format follows
   calls it made indented under it. A call is recorded only by the file it touches or the program it runs, and a tool
   server's call by its name alone; neither a subagent's prompt nor any call's arguments leave the computer. When such
   a run stops partway without having called a tool, it now resumes plainly instead of being told to check what it
-  already did, because these runs report every call. Runs from an older runner, or that fell back to another provider, keep the cautious resume.
+  already did, because these runs report every call.
+- A Claude or Codex run cut off by a runner restart after only reading (files, searches, web pages, subagents that
+  only read) now resumes at once, instead of after 15 minutes, in the same session when the same computer picks it
+  up, and is told to check what already happened, then continue. A run that used any other tool, such as a shell
+  command, a file edit or a hub write, or whose host cannot report its tool calls (an older runner, or a turn that
+  fell back to another provider), is no longer resumed by itself: it stays held, and BotOps is given the review.
+  Settings names each held run's task and owner to people who may read that task, and the Stopped runs review lists
+  every tool call the run made.
 - Signed webhooks: a trigger in Settings > Triggers can require an HMAC-SHA256 signature of the body (GitHub's
   `X-Hub-Signature-256` or a generic `X-Signature`) under its own signing secret; a call with a bad or missing
   signature is refused with 401 and logged. Each trigger shows its recent calls, accepted and refused.

@@ -209,10 +209,14 @@ is unaffected — including every computer already enrolled when this rule arriv
 A run that was mid-flight loses its 90 s lease: not-yet-started work is re-queued; started work
 becomes *Interrupted*. Fifteen minutes later (after the runner's own chance to reclaim it) the
 scheduler settles what needs no eyes: a delivery whose task is already done or closed is dismissed,
-and a run that recorded no tool call and consumed no approval is resumed, each with a note
-in the job's recovery record (`job.auto_reconcile` in the event log). A run that used tools stays
-*owner review needed*, because Tico cannot see what a tool did on the Mac; the bot's owner
-resumes or dismisses it after checking what already happened. Nothing is lost or re-sent.
+and a run whose host reports its tool calls, that only read (files, searches, web pages, subagents
+that only read) and consumed no approval, is resumed once, each with a note in the job's recovery
+record (`job.auto_reconcile` in the event log). When the runner itself reported the run interrupted
+(it restarted), such a run resumes at once; when the same computer picks it up again it continues
+the same provider session. Any other run stays *owner review needed*, because Tico cannot see what a
+tool did on the Mac: BotOps is given the review, Settings names the held task and its owner to those
+who may read that task, the review lists each tool call the run made, and the bot's operator or
+BotOps resumes or dismisses it after checking what already happened. Nothing is lost or re-sent.
 While such a review is owed the bot's tasks and routines wait, but a human's own chat
 messages still run: nothing about them is uncertain.
 

@@ -359,9 +359,12 @@ def operation_issues(c, who, auth):
                            if queued else " Other work can continue.")
             # A stopped run is held so an automatic retry cannot repeat an outside action. It is
             # useful in Settings, but age alone never turns it into an interruption for a person.
+            from .execution import held_runs
+            named = "; ".join(f"\"{h['title']}\" (owner {h['owner_name']})" for h in held_runs(c, who, auth, slug))
+            held_note = f" Held: {named}." if named else ""
             add("uncertain_work", f"{bot['display_name']} saved {uncertain} stopped {noun} for later",
                 "The bot stopped before returning an answer. Tico paused only that request so it "
-                f"will not repeat a possible outside action.{queued_note} Review it whenever useful.",
+                f"will not repeat a possible outside action.{held_note}{queued_note} Review it whenever useful.",
                 bot=slug, severity="warning", needs_person=False, action="review")
         agent = location.get("agent")
         if agent and bot["state"] == "active" and not agent["credential"]:
