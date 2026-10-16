@@ -140,6 +140,15 @@ All notable changes to Tico are recorded here. The format follows
   ranked roadmap view, and requesters (Requested by) on tasks.
 
 ### Changed
+- Window controls look like window controls: the ✕ that closes a task, dialog or meeting window, and the …, back and
+  **Open in its own window** buttons beside it, are quiet borderless icon buttons of one size with a tooltip. In the task
+  header the task's own action reads **Close task** and a thin rule sets it apart from the window's ✕. A dialog opens with
+  its heading focused, so no button shows a focus ring until a key is pressed.
+- The bot editor (**Edit** a bot, **Add bot**) reads in sections (Profile, Working with others, Access, model and
+  computer, Repositories, Advanced): labels stand out from what the fields hold, help text is smaller and quieter, and each
+  checkbox sits beside its label with its help underneath. It is a solid card over a dimmed page, with its header and a
+  footer for **Save bot**, **Cancel** and **Remove bot** that stay in place while it scrolls. On a phone,
+  **Create bot repositories** no longer pushes the chosen repositories into a narrow column.
 - `release_checks.py --release` can run one slice of the gate (`--part product|browser|python`, `--shard K/N` for
   balanced Python test groups), ready for Release validation to run in parallel jobs. Without them it runs the whole
   gate as before.

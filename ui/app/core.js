@@ -53,3 +53,17 @@ async function copyText(value) {
     if (!document.execCommand('copy')) throw new Error('Clipboard unavailable');
   } finally { area.remove(); focused?.focus({preventScroll:true}); }
 }
+// A dialog whose first control is the ✕ in its header opens with the focus on its heading (or itself) instead: the browser would
+// otherwise put the focus, and a focus ring, on the ✕ before anyone has pressed a key. Tab still reaches the ✕ next.
+// A dialog that focuses a field of its own after opening, or marks one autofocus, keeps that choice.
+if (typeof HTMLDialogElement !== 'undefined') {
+  const showModal = HTMLDialogElement.prototype.showModal;
+  HTMLDialogElement.prototype.showModal = function (...args) {
+    const result = showModal.apply(this, args);
+    const first = document.activeElement, head = first?.closest?.('.tmodal-head, header, .notes-modal-close, .msg-message-head, .doc-viewer-head');
+    const heading = head && this.contains(head) && !first.hasAttribute('autofocus') && first.matches('button')
+      ? head.querySelector('h1, h2, h3, strong') || this : null;
+    if (heading) { if (!heading.hasAttribute('tabindex')) heading.tabIndex = -1; heading.focus({preventScroll: true}); }
+    return result;
+  };
+}
