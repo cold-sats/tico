@@ -183,7 +183,7 @@ async function cloudCompose(path, body, files = []) {
 }
 const toast = (msg, isErr, action) => {
   // An error with nothing else to press offers Report this: Support opens with the error attached (ui/support.js).
-  if (isErr && !action && msg && typeof talkToUs === 'function' && window.supportOn?.()) action = {label: 'Report this', run: () => talkToUs({kind: 'toast', title: String(msg)})};
+  if (isErr && !action && msg && typeof talkToUs === 'function' && window.supportOn?.(true)) action = {label: 'Report this', run: () => talkToUs({kind: 'toast', title: String(msg)})};
   const t = document.createElement('div'); t.className = 'toast' + (isErr ? ' err' : ''); t.textContent = msg;
   if (action) {
     const button = document.createElement('button'); button.className = 'linkish'; button.textContent = action.label;

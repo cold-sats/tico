@@ -332,7 +332,8 @@
     else if (location.hash !== '#/help') location.hash = '#/help';
   };
   // Report this is offered unless this server has support turned off.
-  window.supportOn = () => state.enabled !== false;
+  // Pages re-render once support's state loads; a toast does not, so it asks for `known` and waits for a yes.
+  window.supportOn = known => known ? state.enabled === true : state.enabled !== false;
   window.reportThisHTML = report => `<button type="button" class="linkish report-this" data-report-this="${escape(JSON.stringify(report))}">Report this</button>`;
   window.talkLineHTML = () => state.enabled === false ? '' : '<p class="talk-line">Stuck or curious? A person at Tico reads every message. <button type="button" class="linkish" data-talk-to-us>Talk to us</button></p>';
   document.addEventListener('click', e => {
