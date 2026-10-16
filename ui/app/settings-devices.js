@@ -400,8 +400,11 @@ function renderSettingsMachines() {
     const screen = machine.screen || 'off';
     const screenChoice = screenMayOpen(machine) && (machine.screen_available || screen !== 'off')
       ? `<div class="people-menu-check machine-screen-choice" data-computer-screen="${esc(machine.id)}"><span>Screen</span>${repoSegHTML(`screen-${machine.id}`, 'Screen', [['off', 'Off'], ['view', 'View'], ['control', 'Control']], screen, false, ' repo-seg-sm')}</div>` : '';
+    // Performance (everyone reads it); its operator or a bot admin turns the diagnostics off and on.
+    const performance = machine.revoked_at ? '' : `<button type="button" role="menuitem" data-computer-performance="${esc(machine.id)}">Performance</button>`
+      + (screenMayOpen(machine) ? `<label class="people-menu-check"><input type="checkbox" data-performance-mode="${esc(machine.id)}" ${machine.performance !== 'off' ? 'checked' : ''}> Performance diagnostics</label>` : '');
     const menu = [bots.length ? `<button type="button" role="menuitem" data-computer-bots="${esc(machine.id)}">Show bots</button>` : '',
-      screenChoice,
+      performance, screenChoice,
       !machine.revoked_at && admin ? `<label class="people-menu-check"><input type="checkbox" data-member-bots="${esc(machine.id)}" ${machine.accepts_member_bots ? 'checked' : ''}> Accepts members' bots</label>` : '',
       mayRemove ? `<button type="button" role="menuitem" class="danger-text" data-computer-remove="${esc(machine.id)}">Remove computer</button>` : ''].join('');
     // Which runner engine it runs (runner/engine.py); hovering says the build, or why it is on Python.
@@ -445,6 +448,16 @@ function renderSettingsMachines() {
       } catch (error) { toast(error.message, true); choice.checked = !choice.checked; choice.disabled = false; }
       return;
     }
+    const perf = event.target.closest('[data-performance-mode]');
+    if (perf) {
+      perf.disabled = true;
+      try {
+        await post(`/v2/computers/${encodeURIComponent(perf.dataset.performanceMode)}/performance`, {mode: perf.checked ? 'on' : 'off'});
+        toast(perf.checked ? 'Performance diagnostics on' : 'Performance diagnostics off');
+        await loadSettings();
+      } catch (error) { toast(error.message, true); perf.checked = !perf.checked; perf.disabled = false; }
+      return;
+    }
     const box = event.target.closest('[data-member-bots]');
     if (!box) return;
     box.disabled = true;
@@ -463,6 +476,8 @@ function renderSettingsMachines() {
       if (open) { const r = more.getBoundingClientRect(); menu.style.position = 'fixed'; menu.style.top = `${Math.min(r.bottom + 4, innerHeight - menu.offsetHeight - 8)}px`; menu.style.left = `${Math.max(8, r.right - menu.offsetWidth)}px`; menu.style.right = 'auto'; }
       return;
     }
+    const perfLink = event.target.closest('[data-computer-performance]');
+    if (perfLink) { peopleCloseMenus(); location.hash = performanceHref(perfLink.dataset.computerPerformance); return; }
     const shown = event.target.closest('[data-computer-bots]');
     if (shown) {
       event.preventDefault(); peopleCloseMenus();

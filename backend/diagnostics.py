@@ -294,6 +294,15 @@ ALLOWED = {
                "hours": [{"ts": None, "cpu_max": None, "rss_max": None, "lag_max": None, "wait_max": None,
                           "locked": None, "requests": None}]},
 }
+# A computer's performance window, when the person attaching diagnostics keeps it (backend/performance.py): numbers,
+# process names, bot labels and models; `points` rows follow performance.COLUMNS.
+ALLOWED["performance"] = {"hours": None, "computers": [{
+    "label": None, "scope": None, "mem_total": None, "disk_total": None, "span": None, "points": None, "summary": None,
+    "overloads": [{"started": None, "ended": None, "minutes": None, "reasons": None, "cpu_max": None, "mem_max": None,
+                   "runs_max": None, "bots": [{"bot": None, "model": None, "runs": None}],
+                   "procs": [{"name": None, "cpu": None, "mem": None}]}],
+    "bots": [{"bot": None, "model": None, "runs": None}],
+    "processes": [{"name": None, "cpu_minutes": None, "cpu_max": None, "mem_max": None}]}]}
 FEATURES = ("demo", "updater", "update_check", "usage_count", "backups", "github_app", "slack", "sign_in_proxy",
             "blob_storage", "scheduler", "observability", "assistant", "librarian")
 
@@ -324,6 +333,14 @@ def fit(bundle):
         if longest:
             n = max(1, len(longest) // 2)
             del longest[:n]
+            capture["truncated"] += n
+            continue
+        # Then every other performance point, densest computer first.
+        computers = (bundle.get("performance") or {}).get("computers") or []
+        densest = max(computers, key=lambda x: len(x.get("points") or []), default=None)
+        if densest and len(densest.get("points") or []) > 24:
+            n = len(densest["points"]) // 2
+            densest["points"] = densest["points"][::2]
             capture["truncated"] += n
             continue
         # Extremely large fleets must still fit; missing rows are never silently hidden.
@@ -450,8 +467,31 @@ def _runner_rows(c, fleet, online_ids):
     return rows
 
 
-def build(store, settings, auth, who, census, github=None, config=None):
-    """The redacted bundle for this install, as a dictionary (`fit`-ted, allowlisted, every string redacted)."""
+def _performance(c, hours):
+    """Each computer's performance window, labelled like `_runner_rows` (`runner-N`) and with bots as `bot:<slug>`,
+    which the redactor turns into `bot-N`. Ten-minute points for a day or two, hourly ones beyond."""
+    from . import performance
+    out = []
+    for index, row in enumerate(c.execute("SELECT id FROM runners WHERE revoked_at IS NULL ORDER BY id"), 1):
+        seen = performance.view(c, row["id"], hours, label=lambda b: "bot:" + b if b else "")
+        if not seen["points"]:
+            continue
+        span = 600 if hours <= 48 else 3600
+        points, last = [], None
+        for p in seen["points"]:             # the bucket's first point stands for it: a support window is a sketch
+            if last is None or p[0] // span != last:
+                points.append(p)
+                last = p[0] // span
+        out.append({"label": "runner-%d" % index, "scope": seen["scope"], "mem_total": seen["mem_total"],
+                    "disk_total": seen["disk_total"], "span": span, "points": points, "summary": seen["summary"],
+                    "overloads": seen["overloads"][-20:], "bots": seen["busiest"]["bots"][:10],
+                    "processes": seen["busiest"]["processes"][:10]})
+    return {"hours": hours, "computers": out}
+
+
+def build(store, settings, auth, who, census, github=None, config=None, performance_hours=0):
+    """The redacted bundle for this install, as a dictionary (`fit`-ted, allowlisted, every string redacted). A
+    person attaching diagnostics chooses `performance_hours` (0 leaves performance out)."""
     from . import health, onboarding, replication, runner_versions
     from .getting_started import _online_runners
     from .views import roster
@@ -476,6 +516,7 @@ def build(store, settings, auth, who, census, github=None, config=None):
         assistant = H.bot(c, settings.assistant_bot)
         librarian = H.bot(c, "librarian")
         github_on = bool(github and github.row(c) and github.row(c)["installation_id"])
+        perf = _performance(c, performance_hours) if performance_hours else None
     features = {"demo": bool(settings.demo), "updater": bool(releases._updater()[0]),
                 "update_check": releases.Checker.enabled(), "usage_count": census.enabled(),
                 "backups": backup.get("mode") not in (None, "off"), "github_app": github_on, "slack": slack,
@@ -513,6 +554,7 @@ def build(store, settings, auth, who, census, github=None, config=None):
         "counts": {"bots": bots_total, "people": len(people.get("people") or []), "routines": routines},
         "logs": {"server": _lines(server_lines, LOG_LINES), "updater": _lines(updater.get("errors"), RUNNER_LINES)},
         "flight": flight,
+        **({"performance": perf} if perf else {}),
     }
     return fit(redactor.clean(allowed(bundle)))
 

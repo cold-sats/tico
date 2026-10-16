@@ -30,7 +30,7 @@ pub fn channels(kind: &str) -> &'static [&'static str] {
         "work" => &["claim"],
         "assignments" | "credentials" | "repositories" => &["sync"],
         "config" => &["sync", "config"],
-        "worktrees" | "restart" => &["heartbeat"],
+        "worktrees" | "restart" | "performance" => &["heartbeat"],
         "logins" => &["logins"],
         "harness_actions" => &["harness"],
         "credential_imports" => &["imports"],
