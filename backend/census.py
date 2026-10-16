@@ -1,13 +1,14 @@
 """The anonymous usage count: what an install tells Tico HQ when it looks for a new release.
 
 Read PRIVACY.md first; this module is the whole of it. When counting is on, the release check asks
-`GET <TICO_HQ_URL>/v1/latest` with exactly four query fields (`payload()`): a random install id, the
-version, and two yes/no flags. Nothing else is sent, and nothing is sent at all while counting is off
+`GET <TICO_HQ_URL>/v1/latest` with exactly five query fields (`payload()`): a random install id, the
+version, and three yes/no flags. Nothing else is sent, and nothing is sent at all while counting is off
 (`off_reason()`), when the owner has not yet been shown the notice, or in demo mode. Off means the check
 goes straight to GitHub with no id, as it did before this existed.
 
-The id is random, made once, stored in this database and never derived from anything. The flags are
-booleans over the last seven days: a person used the app, a bot turn completed.
+The id is random, made once, stored in this database and never derived from anything. Two flags are
+booleans over the last seven days (a person used the app, a bot turn completed); the third says a bot turn has
+ever completed here, so HQ can tell how long an install took to reach its first working bot.
 """
 import json
 import logging
@@ -25,9 +26,9 @@ DEFAULT_HQ = "https://updates.tico.team"
 WINDOW_DAYS = 7
 NOTE_EVERY = 3600                 # a person's activity is written at most this often
 DOC_URL = "https://github.com/ticoteam/tico/blob/main/PRIVACY.md"
-NOTICE = ("Tico counts active installs anonymously (a random ID, version, and two yes/no activity flags). "
+NOTICE = ("Tico counts active installs anonymously (a random ID, version, and three yes/no activity flags). "
           "Turn off: Settings > Privacy or TICO_TELEMETRY=off.")
-FIELDS = ("install_id", "version", "active_people", "active_bots")
+FIELDS = ("install_id", "version", "active_people", "active_bots", "first_result")
 _OFF = ("off", "0", "false", "no", "disabled")
 
 
@@ -49,6 +50,13 @@ def env_off():
     if os.environ.get("DO_NOT_TRACK", "").strip().lower() not in ("", "0", "false", "no"):
         return "DO_NOT_TRACK"
     return ""
+
+
+def first_result(c):
+    """When a bot turn first completed on this install, or "" before any has. Attempts are never deleted, and the
+    table is in the order they were made, so the first match is the earliest result and is found at once."""
+    row = c.execute("SELECT finished FROM attempts WHERE state='completed' AND finished IS NOT NULL LIMIT 1").fetchone()
+    return row[0] if row else ""
 
 
 def _load(c):
@@ -91,7 +99,7 @@ class Census:
 
     # ------------------------------------------------------------------ the payload
     def payload(self, c, version):
-        """The four fields, or None when nothing may be sent. Creates the id on first use."""
+        """The five fields, or None when nothing may be sent. Creates the id on first use."""
         if not self.ready(c):
             return None
         since = H.shift(self.clock(), days=-WINDOW_DAYS)
@@ -99,7 +107,8 @@ class Census:
         people = str(record.get("last_person") or "") >= since
         bots = c.execute("SELECT 1 FROM attempts WHERE state='completed' AND finished>=? LIMIT 1",
                          (since,)).fetchone() is not None
-        return {"install_id": self._id(record, c), "version": version, "active_people": people, "active_bots": bots}
+        return {"install_id": self._id(record, c), "version": version, "active_people": people, "active_bots": bots,
+                "first_result": bool(first_result(c))}
 
     def _id(self, record, c=None):
         value = str(record.get("install_id") or "")
@@ -130,7 +139,7 @@ class Census:
                         {k: data[k] for k in FIELDS})
             return None
         return {"install_id": data["install_id"], "version": data["version"],
-                "active_people": str(data["active_people"]).lower(), "active_bots": str(data["active_bots"]).lower()}
+                **{k: str(data[k]).lower() for k in ("active_people", "active_bots", "first_result")}}
 
     # ------------------------------------------------------------------ activity
     def note_person(self, who):

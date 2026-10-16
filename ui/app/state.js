@@ -61,6 +61,7 @@ function applyConfig(config) {
   noticeUpdatedServer();
   void renderAppUpdate();
   renderUsageNotice();
+  renderFeedbackAsk();
   return S.config;
 }
 // ----------------------------------------------------------------- derived state

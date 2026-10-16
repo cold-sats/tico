@@ -8,6 +8,16 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Want help setting up?** in the setup wizard, on Health and on a bot in Needs setup opens Support with a setup
+  snapshot (steps done, computer online, model signed in, first bot ready, bots in Needs setup) that the person reads and
+  edits before sending; the request goes marked `setup`. After the install's first bot result, and 7 and 30 days later,
+  each person is asked once, skippably, "How is Tico working for you?"; an answer goes as a `feedback` request. HQ keeps
+  each ticket's `kind`, and the Support Agent's tasks are titled `Support (setup):` or `Support (feedback):`. An HQ
+  from before `kind` still gets the ticket, with the kind named in the message.
+- The anonymous usage count carries a third yes/no flag, `first_result` (a bot turn has ever finished here), and HQ's
+  public `/v1/stats` adds `first_result` (installs that reached a first result) and `first_result_median_days` (the
+  median days from first seen to it, over installs that sent the flag from the start; shown from 5 such installs).
+  PRIVACY.md lists the field.
 - A bot waiting on a linked pull request can end its turn instead of polling: `hub task link <task> <pr url>
   --wake-once` (or `wake_once` on `hub_task_link`) wakes the task once, in its conversation, when the PR's checks
   finish (pass or fail), it is approved or gets changes requested, or a release ships it (or it merges in a
