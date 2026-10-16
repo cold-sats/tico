@@ -38,7 +38,7 @@ def server_user_data(env: dict[str, str], *, version: str, server_ip: str = "", 
     return _fill(_template("tico-server.yaml", template_dir), values)
 
 
-def runner_user_data(*, url: str, code: str, label: str, version: str, allow_ssh: bool = False, screen: bool = False,
+def runner_user_data(*, url: str, code: str, label: str, version: str, allow_ssh: bool = False, screen: bool = True,
                      template_dir: Path | None = None) -> str:
     if not VERSION_RE.match(version):
         raise ValueError(f"version must be a release such as v1.2.3, not {version!r}")
