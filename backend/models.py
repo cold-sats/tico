@@ -1744,6 +1744,8 @@ class PerformanceProcess(_Sampled):
 class PerformanceSample(_Sampled):
     at: float = Field(ge=0, allow_inf_nan=False)
     scope: Literal["host", "container"] = "host"
+    # A container's memory is the host's when it has no memory limit; an older runner leaves this out.
+    memory_scope: Literal["host", "container"] | None = None
     cpu: float = Field(ge=0, le=100, allow_inf_nan=False)
     cores: int = Field(default=1, ge=1, le=4096)
     load: list[Annotated[float, Field(ge=0, le=100_000, allow_inf_nan=False)]] = Field(default_factory=list, max_length=3)
