@@ -10,8 +10,8 @@ All notable changes to Tico are recorded here. The format follows
 ### Added
 - **Behaviour replay** (`evals/replay/`): capture a finished task's opening state and outcome as a case, have a person
   redact and sign it, then re-run it on a candidate build or prompt in a scratch team. Both sides are scored by the
-  BotOps scorers and the case's checks, and the report lists wins and regressions. Unsigned cases, or ones still
-  holding a key, token or email address, are refused. Run at release preparation, not per pull request.
+  BotOps scorers and the case's checks, and the report lists wins and regressions. Unsigned cases, ones still
+  holding a common key or token shape or an email address, and a server that holds the original tasks are refused. Run at release preparation, not per pull request.
 - Settings > Computers shows Claude's and Codex's weekly and 5-hour usage as percentages on the computer's own login,
   not only on named subscriptions. Claude's come from its turns (Claude Code 2.1.30x reports both windows); before a
   Claude turn on that computer the row says so instead of a number. Codex's are read while idle, with the account, for

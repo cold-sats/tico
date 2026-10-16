@@ -30,9 +30,11 @@ folder) and are passed with `--cases`. `cases/example.yaml` is made up and shows
 
 2. **A person reviews each draft**: cut names, customers, links and figures the replay does not need (what is cut from
    the original transcript is cut from the baseline too), write the `done` checks and `limits`, add `person` answers
-   for questions the bot is likely to ask, and set `reviewed_by` to their name. `prompt.exact: false` means the bot's
+   for the questions the bot is likely to ask (answered in order, on the task or on a card it files), and set `reviewed_by` to their name. `prompt.exact: false` means the bot's
    instructions changed after the task ran; the baseline is then the old run on an older prompt.
-3. `run.py --check` lists any case that cannot run: unsigned, or still holding a key, token or email address.
+3. `run.py --check` lists any case that cannot run: unsigned, or still holding a common key or token shape, a password,
+   an email address or a phone number. The check is a backstop: a token with no telling shape passes it, so the
+   person's read is what keeps a case clean.
 
 `done` checks: `status: [done, review]`, `file_attached: <regex>`, `reply_matches: <regex>`, `reply_not_matches: <regex>`.
 
@@ -51,4 +53,7 @@ change the server and runner. The report names the instructions hash each bot ac
 real model turns, so it is not run per pull request. Model output varies: rerun a single regression with `--only <id>`
 before believing it.
 
-Exit code 0 when nothing regressed and every case ran.
+It refuses a server that holds the cases' original tasks: the live team's bots would get them. Write `--report` and
+`--json` outside this repository too; they hold the cases' text.
+
+Exit code 0 only when every case ran and none regressed.

@@ -14,6 +14,7 @@ Real cases hold a customer's words and live outside this public repository (`--c
 made-up example.
 """
 import hashlib
+import json
 import re
 import sys
 from datetime import datetime
@@ -31,11 +32,15 @@ SETTLED = ("waiting", "review", "ready", "done", "closed", "declined")
 SETTLED_ASK = ("done", "closed", "declined")
 # Lower is better for each; minutes are reported but too noisy to decide a verdict.
 NUMBERS = ("person_steps", "jargon", "duplicates", "sent_elsewhere", "runs")
-# What a case may never hold once signed: a key, a token, a password in a URL, an email address.
+# Common shapes of what a case may never hold once signed: provider keys, bearer tokens, a password, a password in a
+# URL, an email address, a phone number. A token with no telling shape (Tico's own are random text) is not caught:
+# the person's signature is the real gate.
 SECRET = re.compile(
-    r"(?<![\w-])(sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[abpr]-[A-Za-z0-9-]{10,}|"
-    r"AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.|"
-    r"https?://[^/\s:@]+:[^/\s@]+@|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})")
+    r"(?<![\w-])(sk-[A-Za-z0-9_-]{16,}|[sr]k_live_[A-Za-z0-9]{10,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|"
+    r"xox[abpr]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{30,}|A[KS]IA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|"
+    r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.|[Bb]earer\s+[A-Za-z0-9._~+/=-]{16,}|"
+    r"(?i:(?:password|passwd|secret|api[_-]?key|aws_secret_access_key)\s*[:=]\s*\S{6,})|"
+    r"https?://[^/\s:@]+:[^/\s@]+@|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|\+\d[\d ().-]{8,}\d)")
 
 
 def sha(text):
@@ -86,38 +91,86 @@ def asks(detail):
     return [c for c in detail.get("children") or [] if _person(c.get("owner"))]
 
 
-def split(detail, files, instructions, bot=None):
-    """A draft case from a task's detail (GET tasks/{id}), its files (GET tasks/{id}/files) and its bot's
-    instructions snapshot (GET bots/{bot}/instructions). The opening state is everything a person wrote or attached
-    before the bot's first run; the original outcome is what followed."""
-    task = detail["task"]
-    bot = bot or str(task["owner"]).removeprefix("bot:")
-    runs = sorted((r for r in detail.get("runs") or [] if r.get("started")), key=lambda r: r["started"])
-    if not runs:
-        raise ValueError("the task has no runs to replay")
-    start = when(runs[0]["started"])
-    seen, opening, transcript = set(), [], []
+def bot_runs(detail, bot):
+    """The case's bot's runs on the task, oldest first: another bot's turns on it are not this bot's work."""
+    return sorted((r for r in detail.get("runs") or [] if r.get("started") and r.get("bot") in (bot, "bot:" + bot)),
+                  key=lambda r: r["started"])
+
+
+def attached(files, bot):
+    """Names of the files the bot attached or changed: any version by the bot. The same rule on both sides."""
+    return [f["name"] for f in files.get("files") or [] if any(v.get("by") == "bot:" + bot for v in f.get("versions") or [])]
+
+
+def side(detail, files, bot):
+    """One side's outcome, cut at the bot's first run: what the bot and people said after it, the files the bot
+    attached, its runs and minutes, and the person's steps (their messages after the cut plus each question card
+    the bot filed for them). Capture and the replay both read a task through this, so both are counted alike."""
+    runs = bot_runs(detail, bot)
+    start = when(runs[0]["started"]) if runs else None
+    seen, transcript, last_ask = set(), [], None
     for m in sorted((detail.get("messages") or []) + (detail.get("comments") or []), key=lambda m: m["created"]):
-        if m["id"] in seen or m.get("kind") == "notice" or m.get("deleted_at"):
+        if m["id"] in seen or m.get("kind") == "notice" or m.get("deleted_at") or not start or when(m["created"]) < start:
             continue
         seen.add(m["id"])
-        mine = m["from_actor"] == "bot:" + bot
-        if when(m["created"]) < start:
-            if _person(m["from_actor"]):
-                opening.append({"from": "person", "text": m["body"]})
-        elif mine or _person(m["from_actor"]):
-            transcript.append(["bot" if mine else "person", m["body"]])
-    opened, attached = [], []
+        if m["from_actor"] == "bot:" + bot:
+            transcript.append(["bot", m["body"]])
+            last_ask = m if m.get("kind") == "ask" else last_ask
+        elif _person(m["from_actor"]):
+            transcript.append(["person", m["body"]])
+            last_ask = None                       # a person's message on the task answers the bot's question
+    minutes = sum((when(r["finished"]) - when(r["started"])).total_seconds() for r in runs if r.get("finished")) / 60
+    cards = asks(detail)
+    return {"status": detail["task"]["status"], "transcript": transcript, "files": attached(files, bot),
+            "runs": len(runs), "minutes": round(minutes, 1),
+            "person_steps": sum(1 for who, _ in transcript if who == "person") + len(cards),
+            "open_ask": last_ask and last_ask.get("to_actor"),
+            "open_cards": [c["id"] for c in cards if c.get("status") not in SETTLED_ASK],
+            "running": not runs or any(not r.get("finished") for r in runs)}
+
+
+def as_started(detail, start):
+    """The task's title, body and acceptance criteria as they were at `start`: an edit made after it is outcome."""
+    task, value = detail["task"], {}
+    for e in sorted(detail.get("events") or [], key=lambda e: e["ts"]):
+        if e.get("field") in ("title", "body", "acceptance_criteria", "acceptance") and when(e["ts"]) >= start:
+            value.setdefault("acceptance_criteria" if e["field"].startswith("acceptance") else e["field"], e.get("old"))
+    criteria = value.get("acceptance_criteria", task.get("acceptance_criteria") or [])
+    if isinstance(criteria, str):
+        try:
+            criteria = json.loads(criteria)
+        except ValueError:
+            criteria = [criteria]
+    return {"title": value.get("title") or task["title"], "body": value.get("body", task.get("body")) or "",
+            "acceptance_criteria": criteria or []}
+
+
+def split(detail, files, instructions, bot=None):
+    """A draft case from a task's detail (GET tasks/{id}), its files (GET tasks/{id}/files) and its bot's
+    instructions snapshot (GET bots/{bot}/instructions). The opening state is the task as it was and everything a
+    person wrote or attached before the bot's first run; the original outcome is what followed."""
+    task = detail["task"]
+    bot = bot or str(task["owner"]).removeprefix("bot:")
+    runs = bot_runs(detail, bot)
+    if not runs:
+        raise ValueError(f"{bot} never ran on the task")
+    if detail.get("has_more"):
+        raise ValueError("the task has more messages than one read returns, so its opening may be missing")
+    start = when(runs[0]["started"])
+    opening = [{"from": "person", "text": m["body"]}
+               for m in sorted({m["id"]: m for m in (detail.get("messages") or []) + (detail.get("comments") or [])}.values(),
+                               key=lambda m: m["created"])
+               if _person(m["from_actor"]) and m.get("kind") != "notice" and not m.get("deleted_at") and when(m["created"]) < start]
+    mine = set(attached(files, bot))
+    opened = []
     for f in files.get("files") or []:
         first = min(f.get("versions") or [{}], key=lambda v: v.get("n", 0))
-        if first.get("by") == "bot:" + bot or (first.get("created") and when(first["created"]) >= start):
-            attached.append(f["name"])
-        else:
+        if f["name"] not in mine and first.get("created") and when(first["created"]) < start:
             opened.append({"name": f["name"], "text": first.get("text", "")})
-    minutes = sum((when(r["finished"]) - when(r["started"])).total_seconds() for r in runs if r.get("finished")) / 60
     snapshot = instructions.get("content") or ""
     exact = bool(instructions.get("updated")) and when(instructions["updated"]) <= start
     status = task["status"]
+    original = side(detail, files, bot)
     return {
         "id": re.sub(r"[^a-z0-9]+", "-", task["title"].lower()).strip("-")[:50] + "-" + task["id"][:8],
         "title": task["title"],
@@ -126,17 +179,14 @@ def split(detail, files, instructions, bot=None):
         "bot": bot,
         # The prompt the original ran on. `exact: false`: the snapshot is newer than the task's first run.
         "prompt": {"sha256": sha(snapshot), "updated": instructions.get("updated"), "exact": exact},
-        "task": {"title": task["title"], "body": task.get("body") or "",
-                 "acceptance_criteria": task.get("acceptance_criteria") or []},
+        "task": as_started(detail, start),
         "conversation": opening,
         "files": opened,
         "person": [],
         "done": [{"status": ["done", "review", "ready", "closed"] if status in ("done", "review", "ready", "closed")
                   else [status]}],
         "limits": {},
-        "original": {"status": status, "transcript": transcript, "files": attached, "runs": len(runs),
-                     "minutes": round(minutes, 1),
-                     "person_steps": sum(1 for who, _ in transcript if who == "person") + len(asks(detail))},
+        "original": {k: original[k] for k in ("status", "transcript", "files", "runs", "minutes", "person_steps")},
     }
 
 

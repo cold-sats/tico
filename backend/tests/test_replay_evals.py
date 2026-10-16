@@ -26,8 +26,10 @@ def message(mid, actor, body, created, kind="say"):
 def test_capture_splits_opening_state_from_outcome_and_needs_a_signature():
     detail = {"task": {"id": "t1", "title": "Fix the login page", "body": "It 500s.", "owner": "bot:dev",
                        "status": "done", "acceptance_criteria": []},
-              "runs": [{"started": "2026-10-16T10:00:00Z", "finished": "2026-10-16T10:06:00Z"},
-                       {"started": "2026-10-16T11:00:00Z", "finished": "2026-10-16T11:03:00Z"}],
+              "runs": [{"bot": "botops", "started": "2026-10-16T09:00:00Z", "finished": "2026-10-16T09:01:00Z"},
+                       {"bot": "dev", "started": "2026-10-16T10:00:00Z", "finished": "2026-10-16T10:06:00Z"},
+                       {"bot": "dev", "started": "2026-10-16T11:00:00Z", "finished": "2026-10-16T11:03:00Z"}],
+              "events": [{"ts": "2026-10-16T10:20:00Z", "field": "title", "old": "Login page 500s", "new": "Fix the login page"}],
               "messages": [message("n", "keeper", "New task from human:ana", "2026-10-16T09:59:00Z", "notice"),
                            message("a", "human:ana", "Only the login page.", "2026-10-16T09:58:00Z"),
                            message("b", "bot:dev", "Which browser?", "2026-10-16T10:05:00Z"),
@@ -43,6 +45,8 @@ def test_capture_splits_opening_state_from_outcome_and_needs_a_signature():
 
     assert case["id"] == "fix-the-login-page-t1"         # the task id keeps two tasks with one title apart
     assert case["conversation"] == [{"from": "person", "text": "Only the login page."}]
+    # The cut is this bot's first run, not BotOps' earlier one, and the title is the one the bot started with.
+    assert case["task"]["title"] == "Login page 500s"
     assert case["files"] == [{"name": "trace.txt", "text": "Traceback"}]
     assert case["original"] | {"transcript": None} == {
         "status": "done", "transcript": None, "files": ["fix.diff"], "runs": 2, "minutes": 9.0, "person_steps": 2}
@@ -59,8 +63,8 @@ def test_capture_splits_opening_state_from_outcome_and_needs_a_signature():
 
 
 class FakeTico:
-    """Just enough of the API for run.py: the bot runs when it is handed the task and when its question is answered,
-    as `behave` says."""
+    """Just enough of the API for run.py. The bot runs when it is handed the task, when a person comments after that,
+    and when its question card is done, as `behave` says."""
 
     def __init__(self, behave):
         self.behave, self.tasks, self.calls = behave, {}, []
@@ -76,37 +80,49 @@ class FakeTico:
                                 "messages": [], "comments": [], "runs": [], "files": [], "children": []}
             return 200, {"task": self.tasks["r1"]["task"]}
         tid = path.split("/")[1]
+        if tid not in self.tasks:
+            return 404, {}
         row = self.tasks[tid]
+        handed = str(self.tasks.get("r1", {"task": {}})["task"].get("owner")).startswith("bot:")
         if path.endswith("/files"):
             if method == "POST":
                 row["files"].append({"name": body["name"], "versions": [{"by": "human:owner"}]})
             return 200, {"files": row["files"]}
         if path.endswith("/comments"):
-            row["comments"].append(message(f"m{len(row['comments'])}", "human:owner", body["text"], "2099-01-01T00:00:01Z"))
+            row["comments"].append(message(f"m{len(row['comments'])}", "human:owner", body["text"],
+                                           f"2099-01-01T00:{len(row['runs']):02}:55Z" if handed else "2099-01-01T00:00:01Z"))
+            if handed:
+                self.behave(self, row, "commented")
             return 200, {}
         if method == "POST":
             row["task"].update({k: v for k, v in body.items() if k != "version"})
             if body.get("owner", "").startswith("bot:"):
-                self.behave(self, self.tasks["r1"], "assigned")
+                self.behave(self, row, "assigned")
             if tid != "r1" and body.get("status") == "done":
                 next(c for c in self.tasks["r1"]["children"] if c["id"] == tid)["status"] = "done"
-                self.behave(self, self.tasks["r1"], "answered")
+                self.behave(self, self.tasks["r1"], "card done")
         return 200, row
 
 
 def run_at(minute):
-    return {"started": f"2099-01-01T00:{minute:02}:02Z", "finished": f"2099-01-01T00:{minute:02}:50Z"}
+    return {"bot": "engineering-lead", "started": f"2099-01-01T00:{minute:02}:02Z", "finished": f"2099-01-01T00:{minute:02}:50Z"}
 
 
-def bot_asks_then_finishes(fake, row, event):
+def bot_asks_twice_then_finishes(fake, row, event):
+    """Asks on the task (which leaves it waiting on nobody), then through a card, then finishes."""
     if event == "assigned":
         row["runs"].append(run_at(1))
-        fake.tasks["q1"] = {"task": {"id": "q1", "version": 1, "status": "open", "owner": "human:owner"}}
-        row["children"].append({"id": "q1", "owner": "human:owner", "status": "open", "title": "Which repository?"})
-    else:
+        ask = message("a1", "bot:engineering-lead", "Which repository?", "2099-01-01T00:01:30Z", "ask")
+        row["messages"].append(ask | {"to_actor": "human:owner"})
+        row["task"].update(status="waiting", waiting_on=None)
+    elif event == "commented":
         row["runs"].append(run_at(2))
+        fake.tasks["q1"] = {"task": {"id": "q1", "version": 1, "status": "open", "owner": "human:owner"}}
+        row["children"].append({"id": "q1", "owner": "human:owner", "status": "open", "title": "Which week?"})
+    else:
+        row["runs"].append(run_at(3))
         row["files"].append({"name": "engineering-summary.md", "versions": [{"by": "bot:engineering-lead"}]})
-        row["messages"].append(message("b1", "bot:engineering-lead", "Attached: 5 shipped, nothing broke.", "2099-01-01T00:02:30Z"))
+        row["messages"].append(message("b1", "bot:engineering-lead", "Attached: 5 shipped, nothing broke.", "2099-01-01T00:03:30Z"))
         row["task"]["status"] = "done"
 
 
@@ -117,7 +133,7 @@ def bot_gives_up(fake, row, event):
     row["task"]["status"] = "waiting"
 
 
-@pytest.mark.parametrize("behave,verdict", [(bot_asks_then_finishes, "win"), (bot_gives_up, "regression")])
+@pytest.mark.parametrize("behave,verdict", [(bot_asks_twice_then_finishes, "win"), (bot_gives_up, "regression")])
 def test_replay_scores_candidate_against_original(behave, verdict, monkeypatch, tmp_path):
     server = FakeTico(behave)
     monkeypatch.setattr(live, "Live", lambda url: server)
@@ -130,14 +146,22 @@ def test_replay_scores_candidate_against_original(behave, verdict, monkeypatch, 
     posts = [c for c in server.calls if c[0] == "POST"]
     assert posts[:4] == [("POST", "tasks"), ("POST", "tasks/r1/files"), ("POST", "tasks/r1/comments"), ("POST", "tasks/r1")]
     assert ("POST", "tasks/r1/run-now") not in posts
-    assert server.tasks["r1"]["task"]["owner"] == "bot:engineering-lead"
     text = report.read_text()
     assert f"1 case: {int(verdict == 'win')} wins, {int(verdict == 'regression')} regressions" in text
     assert code == (0 if verdict == "win" else 1)
     if verdict == "win":
-        # The simulated person answered the card the bot filed for them, with the case's words, once.
-        assert server.tasks["q1"]["task"] | {"version": 1} == {"id": "q1", "version": 1, "status": "done",
-                                                               "owner": "human:owner", "note": "Use the main repository only."}
-        assert "runs 3→2" in text
+        # The simulated person answered both questions with the case's words, in order: the one on the task by a
+        # comment, the card by finishing it.
+        assert server.tasks["r1"]["comments"][-1]["body"] == "Use the main repository only."
+        assert server.tasks["q1"]["task"]["note"] == "This week, Monday to Friday."
+        assert "runs 4→3" in text
     else:
         assert "## Regressions" in text and "no longer done" in text
+
+
+def test_replay_refuses_the_live_team(monkeypatch, tmp_path, capsys):
+    server = FakeTico(bot_gives_up)
+    server.tasks["00000000-0000-0000-0000-000000000000"] = {"task": {"id": "00000000-0000-0000-0000-000000000000"}}
+    monkeypatch.setattr(live, "Live", lambda url: server)
+    assert live.main(["--url", "http://fake", "--token", "t", "--cases", str(REPLAY / "cases")]) == 1
+    assert "scratch team" in capsys.readouterr().out and ("POST", "tasks") not in server.calls

@@ -9,12 +9,13 @@ a real model, running the prompt you want to compare: the candidate prompt, or t
 report records each bot's instructions hash so you can see which prompt actually ran.
 
 For each case: a task is made owned by you with the case's title and body, its files attached and the people's opening
-messages posted as comments; it is then handed to the bot and run. A simulated person answers a question the way the
-case's `person` says (one step each). The run ends when the task settles (waiting, review, ready, done, closed or
+messages posted as comments; it is then handed to the bot and run. A simulated person answers each question (on the task, or a
+card filed for them) with the case's `person` answers in order. The run ends when the task settles (waiting, review, ready, done, closed or
 declined) and the bot is quiet, or at --timeout. It is scored with the same code as the original outcome.
 
-Cases that are not signed by a person (`reviewed_by`) or still hold a secret-looking value are refused.
-Exit code 0 when no case regressed.
+Cases that are not signed by a person (`reviewed_by`) or still hold a secret-looking value are refused, and so is a
+server that holds the cases' original tasks (the live team). A case whose bot never runs is reported as could not run.
+Exit code 0 only when every case ran and none regressed.
 """
 import argparse
 import importlib.util
@@ -68,38 +69,20 @@ def hand_over(server, token, tid, bot):
 
 
 def outcome(server, token, tid, bot):
-    """The replay as it stands, cut at its first run like capture cuts the original (server clock on both sides)."""
+    """The replay as it stands, read the same way capture read the original (replay.side)."""
     detail = ok(server, "GET", f"tasks/{tid}", token=token)
-    files = ok(server, "GET", f"tasks/{tid}/files", token=token)
-    runs = sorted((r for r in detail.get("runs") or [] if r.get("started")), key=lambda r: r["started"])
-    seen, transcript = set(), []
-    for m in sorted((detail.get("messages") or []) + (detail.get("comments") or []), key=lambda m: m["created"]):
-        if m["id"] in seen or m.get("kind") == "notice" or not runs or replay.when(m["created"]) < replay.when(runs[0]["started"]):
-            continue
-        seen.add(m["id"])
-        if m["from_actor"] == "bot:" + bot:
-            transcript.append(("bot", m["body"]))
-        elif m["from_actor"].startswith("human:"):
-            transcript.append(("person", m["body"]))
-    minutes = sum((replay.when(r["finished"]) - replay.when(r["started"])).total_seconds()
-                  for r in runs if r.get("finished")) / 60
-    attached = [f["name"] for f in files.get("files") or []
-                if any(v.get("by") == "bot:" + bot for v in f.get("versions") or [])]
-    asks = replay.asks(detail)
-    return {"status": detail["task"]["status"], "transcript": transcript, "files": attached, "runs": len(runs),
-            "minutes": round(minutes, 1), "waiting_on": detail["task"].get("waiting_on"),
-            "person_steps": sum(1 for who, _ in transcript if who == "person") + len(asks),
-            "open_asks": [a["id"] for a in asks if a.get("status") not in replay.SETTLED_ASK],
-            "running": not runs or any(not r.get("finished") for r in runs)}
+    now = replay.side(detail, ok(server, "GET", f"tasks/{tid}/files", token=token), bot)
+    return now | {"waiting_on": detail["task"].get("waiting_on")}
 
 
 def answer(server, token, me, tid, now, text):
-    """The simulated person answers: the card the bot filed for them, else the task waiting on them. False if neither."""
-    if now["open_asks"]:
-        card = ok(server, "GET", f"tasks/{now['open_asks'][0]}", token=token)["task"]
+    """The simulated person answers the bot's open question: a card it filed for them, a question on the task
+    (a person's comment answers it), or the task waiting on them. False when nothing waits on them."""
+    if now["open_cards"]:
+        card = ok(server, "GET", f"tasks/{now['open_cards'][0]}", token=token)["task"]
         ok(server, "POST", f"tasks/{card['id']}", {"version": card["version"], "status": "done", "note": text}, token)
         return True
-    if now["status"] == "waiting" and now["waiting_on"] == me:
+    if now["open_ask"] == me or (now["status"] == "waiting" and now["waiting_on"] == me):
         ok(server, "POST", f"tasks/{tid}/comments", {"text": text}, token)
         return True
     return False
@@ -125,7 +108,21 @@ def run_one(server, token, me, case, quiet=60, timeout=1800, poll=5):
                 break
         else:
             settled_at = None
+    if not now["runs"]:
+        raise RuntimeError(f"{case['bot']} never ran on the replayed task (is it on a computer with a model?)")
     return tid, now
+
+
+def inside_repo(path):
+    root = Path(__file__).resolve().parents[2]
+    return (root / ".git").exists() and Path(path).resolve().is_relative_to(root)
+
+
+def source_team(server, token, cases):
+    """True when the server holds a case's original task: that is the live team the cases came from, not a scratch
+    team, and replaying there would hand real tasks to its live bots."""
+    return any(server.request("GET", f"tasks/{(c.get('source') or {}).get('task')}", token=token)[0] == 200
+               for c in cases if (c.get("source") or {}).get("task"))
 
 
 def main(argv=None):
@@ -148,7 +145,13 @@ def main(argv=None):
         print(f"{name}: refused: {'; '.join(why)}")
     if args.check or not cases:
         return 1 if refused or not cases else 0
+    if any(p and inside_repo(p) for p in (args.report, args.json)):
+        print("write the report and results outside this repository: they hold the cases' text")
+        return 1
     server = Live(args.url)
+    if source_team(server, args.token, cases):
+        print("this server holds the cases' original tasks: replay on a scratch team, never the live one")
+        return 1
     me = ok(server, "GET", "me", token=args.token)["actor"]
     rows, prompts = [], {}
     for case in cases:

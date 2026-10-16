@@ -15,16 +15,17 @@ files:
   - {name: last-week.md, text: "# Last week\n\nShipped: 4 pull requests."}
 person:
   - {when: asked, text: Use the main repository only.}
+  - {when: asked, text: "This week, Monday to Friday."}
 done:
   - status: [done, review]
   - file_attached: summary
   - reply_not_matches: "I could not"
-limits: {person_steps: 1, jargon: 2, duplicates: 0, sent_elsewhere: 0}
+limits: {person_steps: 2, jargon: 2, duplicates: 0, sent_elsewhere: 0}
 original:
   status: done
   transcript:
     - [bot, "The summary is attached: 5 shipped, 1 stuck, nothing broke."]
   files: [engineering-summary.md]
-  runs: 3
+  runs: 4
   minutes: 6.5
-  person_steps: 1
+  person_steps: 2
