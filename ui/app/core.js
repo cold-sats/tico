@@ -60,9 +60,9 @@ if (typeof HTMLDialogElement !== 'undefined') {
   const showModal = HTMLDialogElement.prototype.showModal;
   HTMLDialogElement.prototype.showModal = function (...args) {
     const result = showModal.apply(this, args);
-    const first = document.activeElement, head = first?.closest?.('.tmodal-head, header, .notes-modal-close');
+    const first = document.activeElement, head = first?.closest?.('.tmodal-head, header, .notes-modal-close, .msg-message-head, .doc-viewer-head');
     const heading = head && this.contains(head) && !first.hasAttribute('autofocus') && first.matches('button')
-      ? head.querySelector('h1, h2, h3, strong') || this.querySelector('h1, h2, h3') || this : null;
+      ? head.querySelector('h1, h2, h3, strong') || this : null;
     if (heading) { if (!heading.hasAttribute('tabindex')) heading.tabIndex = -1; heading.focus({preventScroll: true}); }
     return result;
   };

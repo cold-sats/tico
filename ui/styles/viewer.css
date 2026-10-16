@@ -7,7 +7,9 @@
 .viewer-count{font-size:var(--t-sm);color:var(--muted);font-variant-numeric:tabular-nums}
 .doc-viewer.viewer-media{width:min(1200px,calc(100vw - 24px));background:#0c0f13;color:#f1f4f7;border-color:#1c232b}
 .doc-viewer.viewer-media .doc-viewer-head{border-color:#1c232b}.doc-viewer.viewer-media .ghost{color:#f1f4f7}
-.doc-viewer.viewer-media .doc-viewer-head h2{color:#f1f4f7}.doc-viewer.viewer-media .ghost{border-color:#39424d}
+.doc-viewer.viewer-media .doc-viewer-head h2{color:#f1f4f7}
+/* the media viewer stays dark in both themes: its ✕ keeps light ink and a light hover */
+.doc-viewer.viewer-media .doc-viewer-head>[data-doc-close]{color:#c3cad3}.doc-viewer.viewer-media .doc-viewer-head>[data-doc-close]:hover{color:#f1f4f7;background:rgba(255,255,255,.12)}.doc-viewer.viewer-media .ghost{border-color:#39424d}
 .doc-viewer.viewer-media .viewer-count{color:#aab4bf}
 .viewer-image,.viewer-video,.viewer-embed{display:flex;align-items:center;justify-content:center;padding:10px!important;min-height:200px}
 .viewer-img{max-width:100%;max-height:calc(92vh - 90px);object-fit:contain;border-radius:6px;cursor:zoom-in;touch-action:pinch-zoom;background:linear-gradient(45deg,#e7eaec 25%,transparent 25%,transparent 75%,#e7eaec 75%) 0 0/16px 16px,linear-gradient(45deg,#e7eaec 25%,transparent 25%,transparent 75%,#e7eaec 75%) 8px 8px/16px 16px,#fff}

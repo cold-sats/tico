@@ -66,7 +66,7 @@ function intCredPaint() {
           <button class="ghost" data-vault-share="${esc(item.id)}" type="button">${VAULT.can_manage ? 'Manage access' : 'Use with my bots'}</button></div></td></tr>`).join('')}</tbody></table></div>`
     : `<p class="empty">Nothing stored in Tico for this tool.</p>`;
   dialog.innerHTML = `<header><h2>Credentials · ${esc(row.title)}</h2>
-      <button type="button" class="ghost" data-int-cred-close aria-label="Close credentials">Close</button></header>
+      <button type="button" class="ghost tmodal-act" data-int-cred-close aria-label="Close credentials">Close</button></header>
     <div class="int-cred-body">
       <p class="muted" style="margin:0 0 8px">${esc(row.access || '')}</p>
       <ul class="int-cred-decl">${declared}</ul>
@@ -87,7 +87,7 @@ async function intCredOpen(service) {
   INT_CRED_SERVICE = service;
   if (!dialog.open) dialog.showModal();
   dialog.innerHTML = `<header><h2>Credentials · ${esc(row.title)}</h2>
-    <button type="button" class="ghost" data-int-cred-close aria-label="Close credentials">Close</button></header>
+    <button type="button" class="ghost tmodal-act" data-int-cred-close aria-label="Close credentials">Close</button></header>
     <div class="int-cred-body"><p class="muted">Loading…</p></div>`;
   dialog.querySelector('[data-int-cred-close]').onclick = () => { INT_CRED_SERVICE = ''; dialog.close(); };
   if (S.me?.credential_access) {
