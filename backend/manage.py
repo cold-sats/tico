@@ -281,7 +281,6 @@ def main(argv=None):
         # A hand-run bundle carries the key files beside the database (credential.key, github-app.key, slack.key):
         # restore_bundle (python -m backend.backup) puts them back beside the restored database.
         from .company_storage import for_backup
-        from .store import Store
         report = upload_bundle(args.database, args.bucket, args.key, s3, for_backup(Store(settings), Blobs(settings, s3)),
                                key_dir=Path(args.database).resolve().parent)
     print(json.dumps(report, indent=2))
