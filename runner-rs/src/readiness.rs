@@ -268,27 +268,34 @@ pub async fn runtime_report(config: &Config, sign: &SignIn, client: &Client, ass
                 s.insert("detail".into(), json!(detail));
             }
         }
-        let (shown, mut row) = if targets.len() == 1 && targets.contains_key("") {
-            (String::new(), targets.remove("").unwrap())
-        } else {
-            let (name, worst) = targets
-                .iter()
-                .min_by_key(|(name, row)| (row["authenticated"] != "rejected", if row["authenticated"] == "rejected" { 0 } else { order(row) }, (*name).clone()))
-                .map(|(name, row)| (name.clone(), row.clone()))
-                .unwrap_or_default();
-            let mut row = worst.as_object().cloned().unwrap_or_default();
-            row.insert("detail".into(), json!(joined(&targets)));
-            row.insert("profiles".into(), Value::Object(targets));
-            (name, Value::Object(row))
-        };
-        // The computer's own login's usage windows, beside its ready sign-in; a row standing for a named profile has
-        // its windows in the profiles report instead.
-        if let Some(r) = row.as_object_mut().filter(|r| shown.is_empty() && r.get("authenticated") == Some(&json!("ready"))) {
-            r.extend(crate::profiles::windows("", runtime));
-        }
-        report.insert(runtime.into(), row);
+        let own = crate::profiles::windows("", runtime);
+        report.insert(runtime.into(), combined(targets, own));
     }
     report
+}
+
+/// One runtime's row from its logins' rows: the computer's own login alone, or the one that needs attention first with
+/// every login's row under `profiles`. The own login's usage windows (`own`) go beside its ready sign-in, whichever
+/// row is shown; a named profile's are in the profiles report instead.
+fn combined(mut targets: Map<String, Value>, own: Map<String, Value>) -> Value {
+    let own_ready = targets.get("").is_some_and(|r| r["authenticated"] == "ready");
+    let mut row = if targets.len() == 1 && targets.contains_key("") {
+        targets.remove("").and_then(|r| r.as_object().cloned()).unwrap_or_default()
+    } else {
+        let worst = targets
+            .iter()
+            .min_by_key(|(name, row)| (row["authenticated"] != "rejected", if row["authenticated"] == "rejected" { 0 } else { order(row) }, (*name).clone()))
+            .map(|(_, row)| row.clone())
+            .unwrap_or_default();
+        let mut row = worst.as_object().cloned().unwrap_or_default();
+        row.insert("detail".into(), json!(joined(&targets)));
+        row.insert("profiles".into(), Value::Object(targets));
+        row
+    };
+    if own_ready {
+        row.extend(own);
+    }
+    Value::Object(row)
 }
 
 /// A bot's checkout: the configured repos entry, else `bot-<slug>` or the older `emp-<slug>` under projects_dir.
@@ -599,4 +606,35 @@ pub fn changed_agent_instructions(
         versions.push((bot, version));
     }
     (result, versions)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn map(v: Value) -> Map<String, Value> {
+        v.as_object().cloned().unwrap()
+    }
+
+    #[test]
+    fn the_own_logins_windows_stay_on_a_computer_whose_worst_row_is_a_named_profile() {
+        let own = map(json!({"weekly": {"used_percent": 17.0}, "five_hour": {"used_percent": 53.0}}));
+        let rows = |own_auth: &str, lab_auth: &str| {
+            map(json!({"": {"installed": true, "authenticated": own_auth, "detail": "Signed in"},
+                       "lab": {"installed": true, "authenticated": lab_auth, "detail": "Not signed in"}}))
+        };
+        // The AWS box: its own login runs most bots and is signed in; a named profile beside it is signed out.
+        let row = combined(rows("ready", "missing"), own.clone());
+        assert_eq!(row["authenticated"], "missing", "the row still shows the login that needs attention");
+        assert_eq!((row["weekly"]["used_percent"].clone(), row["five_hour"]["used_percent"].clone()), (json!(17.0), json!(53.0)));
+        // A rejected profile is shown first too.
+        assert_eq!(combined(rows("ready", "rejected"), own.clone())["weekly"]["used_percent"], json!(17.0));
+        // Own login the worst row, or alone: as before.
+        assert_eq!(combined(rows("ready", "ready"), own.clone())["weekly"]["used_percent"], json!(17.0));
+        assert_eq!(combined(map(json!({"": {"installed": true, "authenticated": "ready"}})), own.clone())["five_hour"]["used_percent"], json!(53.0));
+        // Not beside an own login that is not signed in, nor on a computer whose bots all use named profiles.
+        let row = combined(rows("missing", "ready"), own.clone());
+        assert!(row.get("weekly").is_none() && row.get("five_hour").is_none());
+        assert!(combined(map(json!({"lab": {"installed": true, "authenticated": "ready"}})), own).get("weekly").is_none());
+    }
 }

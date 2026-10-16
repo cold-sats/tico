@@ -103,13 +103,20 @@ fn tried() -> &'static Mutex<HashMap<(String, String), Instant>> {
     T.get_or_init(Default::default)
 }
 
-/// Keep `account` as what `profile` is signed in to for `runtime`, stamped now.
+/// Keep `account` as what `profile` is signed in to for `runtime`, stamped now. A login that is now another account
+/// (email or kind) without signing out between drops the usage windows kept for the last one.
 pub fn remember(profile: &str, runtime: &str, account: Value) {
     let mut account = account;
     if let Some(m) = account.as_object_mut() {
         m.insert("checked_at".into(), crate::util::iso(&json!(crate::util::epoch_s())));
     }
-    known().lock().unwrap().insert((profile.into(), runtime.into()), Known { at: Some(Instant::now()), account });
+    let key = (profile.to_string(), runtime.to_string());
+    // A turn's plan alone (`at` None) names no account to compare with.
+    let switched = known().lock().unwrap().insert(key, Known { at: Some(Instant::now()), account: account.clone() })
+        .is_some_and(|k| k.at.is_some() && ["email", "kind"].iter().any(|f| k.account.get(*f) != account.get(*f)));
+    if switched {
+        crate::profiles::forget_windows(profile, runtime);
+    }
 }
 
 /// A plan a turn reported (Codex `planType` on its rate limits): kept on the known account, or as the account. It
@@ -367,5 +374,28 @@ mod tests {
         assert!(claim_read(&key));
         reading().lock().unwrap().remove(&key);
         forget("retry-test", "codex");
+    }
+
+    #[test]
+    fn another_account_on_the_same_login_drops_the_last_ones_windows() {
+        let reset = crate::util::iso(&json!(crate::util::epoch_s() + 3600.0));
+        let used = |p: f64| json!({"used_percent": p, "window_minutes": 10080, "resets_at": reset, "status": null});
+        // A turn's windows and plan before the first account read: the read names the same login, not another.
+        remember_plan("switch-test", "claude", &json!("max"));
+        crate::profiles::remember_weekly("switch-test", "claude", &used(40.0));
+        remember("switch-test", "claude", json!({"email": "ops@acme.example", "plan": "max"}));
+        assert_eq!(crate::profiles::windows("switch-test", "claude")["weekly"]["used_percent"], json!(40.0));
+        // The same account read again, on another plan: still its windows.
+        remember("switch-test", "claude", json!({"email": "ops@acme.example", "plan": "pro"}));
+        assert_eq!(crate::profiles::windows("switch-test", "claude")["weekly"]["used_percent"], json!(40.0));
+        // Another email, with no sign-out between: the last account's windows go.
+        remember("switch-test", "claude", json!({"email": "lab@acme.example", "plan": "max"}));
+        assert!(crate::profiles::windows("switch-test", "claude").is_empty());
+        // From a subscription to an API key on the same login: so do these.
+        crate::profiles::remember_weekly("switch-test", "claude", &used(12.0));
+        remember("switch-test", "claude", json!({"email": "lab@acme.example", "kind": "api_key"}));
+        assert!(crate::profiles::windows("switch-test", "claude").is_empty());
+        forget("switch-test", "claude");
+        crate::profiles::forget_windows("switch-test", "claude");
     }
 }
