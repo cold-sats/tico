@@ -289,8 +289,8 @@ fn stays_in_app(opener: &App, url: &url::Url) -> bool {
 }
 
 fn navigation_stays(host: &str, url: &url::Url) -> bool {
-    // A Markdown mailto link has no target, so it arrives here rather than as a new window.
-    if url.scheme() == "mailto" {
+    // A Markdown mailto (or tel, sms) link has no target, so it arrives here rather than as a new window.
+    if matches!(url.scheme(), "mailto" | "tel" | "sms") {
         return false;
     }
     let target = url.host_str().unwrap_or("");
@@ -315,7 +315,7 @@ enum NewWindow {
 fn new_window_target(hub: Option<&url::Url>, url: &url::Url) -> NewWindow {
     match url.scheme() {
         "http" | "https" if hub.is_some_and(|hub| url.origin() == hub.origin()) && url.path().starts_with("/api/") => NewWindow::Hub,
-        "http" | "https" | "mailto" => NewWindow::Browser,
+        "http" | "https" | "mailto" | "tel" | "sms" => NewWindow::Browser,
         _ => NewWindow::Ignore,
     }
 }
@@ -342,6 +342,7 @@ fn open_hub_window(app: &App, url: url::Url) {
     static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
     let label = format!("hub-{}", NEXT.fetch_add(1, Ordering::Relaxed));
     let opener = app.clone();
+    let saved = Mutex::new(None);
     let _ = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url))
         .title(config::app_name())
         .inner_size(1000.0, 800.0)
@@ -349,6 +350,23 @@ fn open_hub_window(app: &App, url: url::Url) {
         .user_agent(USER_AGENT)
         .on_navigation(move |url| stays_in_app(&opener, url))
         .on_new_window(new_window_handler(app))
+        .on_download(move |webview, event| {
+            // A file the web view cannot show (Word, Excel, zip) downloads, leaving this window
+            // empty: save it to Downloads, show it there and close the window.
+            match event {
+                tauri::webview::DownloadEvent::Requested { destination, .. } => {
+                    *saved.lock().unwrap() = Some(destination.clone());
+                }
+                tauri::webview::DownloadEvent::Finished { success, .. } => {
+                    if let (true, Some(path)) = (success, saved.lock().unwrap().take()) {
+                        let _ = webview.app_handle().opener().reveal_item_in_dir(path);
+                    }
+                    let _ = webview.window().close();
+                }
+                _ => {}
+            }
+            true
+        })
         .build();
 }
 
@@ -370,6 +388,7 @@ mod new_window_tests {
                 ("https://other.example.com/api/v2/files/f1", NewWindow::Browser),
                 ("https://team.example.com@evil.example/api/v2/files/f1", NewWindow::Browser),
                 ("mailto:support@example.com", NewWindow::Browser),
+                ("tel:+15550100", NewWindow::Browser),
                 ("https://team.cloudflareaccess.com/cdn-cgi/access/login", NewWindow::Browser),
                 ("https://accounts.google.com/o/oauth2/auth", NewWindow::Browser),
                 ("about:blank", NewWindow::Ignore),
@@ -388,6 +407,7 @@ mod new_window_tests {
     fn mailto_navigation_leaves_the_app() {
         let stays = |address: &str| navigation_stays("team.example.com", &url::Url::parse(address).unwrap());
         assert!(!stays("mailto:support@example.com"));
+        assert!(!stays("tel:+15550100"));
         assert!(!stays("https://example.com/"));
         assert!(stays("https://team.example.com/#/tasks"));
         assert!(stays("https://team.cloudflareaccess.com/cdn-cgi/access/login"));
