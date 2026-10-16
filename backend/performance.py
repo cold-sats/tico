@@ -209,12 +209,13 @@ def _iso(ts):
 
 
 def _runs(c, runner_id, start, end, limit=500):
-    """The turns this computer ran that overlap [start, end): this server's own record."""
+    """The turns this computer ran that overlap [start, end), oldest first: this server's own record. A busy window
+    keeps its newest `limit`."""
     # A leased turn counts from its lease: the runner reports `started` once its harness is up.
     return c.execute("SELECT a.id,a.bot,coalesce(a.started,a.created) started,a.finished,a.state,t.model FROM attempts a "
                      "LEFT JOIN turns t ON t.id=a.id WHERE a.runner_id=? AND coalesce(a.started,a.created)<? AND "
-                     "(a.finished IS NULL OR a.finished>=?) ORDER BY coalesce(a.started,a.created) LIMIT ?",
-                     (runner_id, _iso(end), _iso(start), limit)).fetchall()
+                     "(a.finished IS NULL OR a.finished>=?) ORDER BY coalesce(a.started,a.created) DESC LIMIT ?",
+                     (runner_id, _iso(end), _iso(start), limit)).fetchall()[::-1]
 
 
 def ran(c, runner_id, start, end):
