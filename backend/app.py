@@ -2582,13 +2582,27 @@ def create_app(settings=None):
                     "events": [e for e in H.task_history(c, tid) if privacy.content_readable(c, privacy.actor(who), e)],
                     "can_comment": can_comment,
                     "children": children,
-                    "comments": H.task_comments(c, tid, actor=privacy.actor(request.state.identity)),
+                    # The task page reads as its session's chat: each bot reply carries the run behind it (`run`,
+                    # the steps one click away) and `execution` is the owner's run while it works.
+                    "comments": turn_work.annotate(c, auth, who, H.task_comments(c, tid, actor=privacy.actor(who))),
+                    "execution": task_execution(c, who, row),
                     "mover": mover(c, request.state.identity),
                     "waiting_for": task_wait(c, tid, settings),
                     "runs": task_runs(c, who, tid),
                     # The model a bot's check subtask runs on (backend/check_models.py), or null.
                     "check_model": H.check_model(c, tid),
                     **privacy.page(c, who, row["conversation_id"], task_id=tid)}
+
+    def task_execution(c, who, row):
+        """The owning bot's newest run in the task's own room, as a conversation snapshot shows it, or None. A task
+        still in a chat room (a person's task, or one filed into a chat before task rooms) shows none: that room's
+        runs are the chat's, and reading the task does not let one read the chat."""
+        cid, owner = row["conversation_id"], str(row["owner"] or "")
+        room = H.conversation(c, cid) if cid else None
+        if not room or room.get("task_id") != row["id"] or not owner.startswith("bot:"):
+            return None
+        from .views import conversation_execution
+        return conversation_execution(c, cid, who, settings, bot=owner.removeprefix("bot:"))
 
     def task_runs(c, who, tid, limit=200):
         """The runs that worked this task, each with the model that actually ran it (`ran_on`). A review that

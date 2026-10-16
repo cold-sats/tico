@@ -17,6 +17,11 @@ All notable changes to Tico are recorded here. The format follows
   sandboxed frame that cannot act as you: no scripts, forms or plugins, no Tico cookies or storage, and nothing loaded
   from the network (pictures embedded in the file show; remote ones do not). Its links open in a new tab. A link to a
   web page ending in .html still opens as a link.
+- A task's page shows its session as a chat in place of the Comments box. The bot's updates and replies are
+  messages, and each reply opens to the steps behind it. Other people's lines carry their names. Status and type
+  changes are one-line markers. While the bot works, a **Working…** line shows its current step, with **Stop** for
+  whoever manages the bot. Typing in the box still comments on the task and wakes its bot; `hub task comment` and the
+  MCP tool are unchanged.
 - A new Docker runner offers its screen: `install.sh --runner`, `tico setup runner` and the cloud-init template write
   `TICO_SCREEN=1` unless given `--no-screen` (cloud-init: `TICO_SCREEN=0`). The first time a new computer offers a screen, its
   **Screen** setting starts at **View**; **Control** is one click away in Settings > Computers. A runner installed before

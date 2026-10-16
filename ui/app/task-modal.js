@@ -1,4 +1,4 @@
-/* ui/app/task-modal.js — The task modal and its comment thread (its files: ui/app/task-files.js)
+/* ui/app/task-modal.js — The task modal and its conversation (the task's session as a chat) (its files: ui/app/task-files.js)
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
@@ -370,8 +370,10 @@ async function taskSave(d, id, body, then, field) {
     return false;
   }
 }
-// ---- comments: one flat list of what was said and what changed, then a box. Not a chat.
-// `taskChatStop` and `taskChatLoad` keep their names: the router and the chat cards call them.
+// ---- the conversation: the task's session as a chat. What people and the bot said are messages (the bot's replies
+// open to the steps behind them), what changed is a one-line marker between them, and while the owner's run works a
+// "Working" line shows its newest step, with Stop for whoever may stop it. The box says it in the task (a comment),
+// which wakes its bot. `taskChatStop` and `taskChatLoad` keep their names: the router and the chat cards call them.
 let TASK_CHAT = null;
 const TASK_DRAFTS = new Map();         // an unsent comment, per task, kept across redraws until it is sent or cleared
 function taskChatStop() {
@@ -426,18 +428,78 @@ function commentLineHTML(x, i, all, files = [], taskId = '', canAnswer = true) {
     // A result mirrored into a comment keeps its full text there; the event still records the status move.
     const mirrored = x.note && all?.some(y => y.kind === 'comment' && y.message?.from_actor === x.actor
       && String(y.message.body || '').trim() === String(x.note).trim() && Math.abs(Date.parse(y.ts) - Date.parse(x.ts)) < 5000);
-    return `<div class="tcomment sys"><span class="tcomment-who">${commentAuthor(x.actor, x.via)}</span> <span class="muted">${esc(say)}${x.note && x.field !== 'note' && !mirrored ? ` — ${esc(clipLine(x.note, 200))}` : ''}</span>
+    return `<div class="tcomment sys tmark"><span class="tcomment-who">${commentAuthor(x.actor, x.via)}</span> <span class="muted">${esc(say)}${x.note && x.field !== 'note' && !mirrored ? ` — ${esc(clipLine(x.note, 200))}` : ''}</span>
       <time class="muted tnum" title="${esc(fmt(x.ts))}">${esc(ago(x.ts))}</time></div>`;
   }
   const m = x.message, ask = askOf(m);
   // a question's text is in its block; a body that only repeats it is left out
   const body = ask && ask.questions.some(q => String(q.question || '').trim() === String(m.body || '').trim()) ? '' : m.body || '';
   const kind = m.kind === 'ask' ? '<span class="pill needs">question</span>' : m.kind === 'answer' ? '<span class="pill">answer</span>' : '';
-  return `<div class="tcomment${String(m.from_actor || '').startsWith('bot:') ? ' bot' : ''}"><div class="tcomment-head"><span class="tcomment-who">${commentAuthor(m.from_actor, m.refs?.via)}</span>${kind}${roadmapCommentMark(m, taskId)}
+  // As in a bot's chat with several people: a person's line is a bubble on the right under their name (yours needs
+  // none), the bot's reads as page text under its own.
+  const person = !!actorPerson(m.from_actor), me = m.from_actor === myActor();
+  return `<div class="tcomment tmsg${person ? ' you' : ''}${me ? ' from-me' : ''}${String(m.from_actor || '').startsWith('bot:') ? ' bot' : ''}" data-message="${esc(m.id || '')}"><div class="tcomment-head"><span class="tcomment-who">${commentAuthor(m.from_actor, m.refs?.via)}</span>${kind}${roadmapCommentMark(m, taskId)}
       ${m.refs?.quiet ? '<span class="muted" title="Saved for the bot\'s next run on this task">saved</span>' : ''}
       <span class="spacer"></span>${m.edited_at ? `<span class="muted" title="Edited ${esc(fmt(m.edited_at))}">edited</span>` : ''}<time class="muted tnum" title="${esc(fmt(m.created))}">${esc(ago(m.created))}</time></div>
-    ${body ? `<div class="md">${safeMd(body)}</div>` : ''}
-    ${tfCommentFilesHTML(m, files)}${ask ? askHTML(ask, m.answers, askTargetOf(m), m.from_actor, taskId, files, canAnswer) : ''}</div>`;
+    <div class="bubble ${person ? 'you' : 'bot'}">${body ? `<div class="md">${safeMd(body)}</div>` : ''}
+    ${tfCommentFilesHTML(m, files)}${ask ? askHTML(ask, m.answers, askTargetOf(m), m.from_actor, taskId, files, canAnswer) : ''}</div>${taskStepsHTML(m)}</div>`;
+}
+// A reply's run, folded to one line ("6 steps · 4 tool calls · 2m"); opening it reads the steps once (GET
+// /v2/turns/{id}/steps) and they stay open across redraws. `TASK_STEPS` holds what was read, per turn.
+const TASK_STEPS = {html: new Map(), live: new Map(), open: new Set(), reading: new Set()};
+function taskStepsFold(turn, label, live = false) {
+  // a working run's fold keeps the steps last read while the next read is on its way
+  const open = TASK_STEPS.open.has(turn), html = (live ? TASK_STEPS.live : TASK_STEPS.html).get(turn);
+  return `<details class="run-steps" data-turn="${esc(turn)}"${live ? ' data-live' : ''}${open ? ' open' : ''}><summary>${label}</summary><div class="steps-list">${
+    html || '<div class="step muted">Loading…</div>'}</div></details>`;
+}
+function taskStepsHTML(m) {
+  const run = m.run || {}, turn = m.refs?.turn_id;
+  if (!run.steps || !turn) return '';
+  return taskStepsFold(turn, esc([`${run.steps} step${run.steps === 1 ? '' : 's'}`,
+    run.tool_calls ? `${run.tool_calls} tool call${run.tool_calls === 1 ? '' : 's'}` : '', tookWords(run.took_s)].filter(Boolean).join(' · ')));
+}
+async function taskStepsOpen(el) {
+  const turn = el.dataset.turn, live = el.hasAttribute('data-live');
+  if (!el.open) { TASK_STEPS.open.delete(turn); return; }
+  TASK_STEPS.open.add(turn);
+  // A finished run's steps are read once; a working run's are read again each time it is opened or moves on.
+  if (!live && TASK_STEPS.html.has(turn) || TASK_STEPS.reading.has(turn)) return;
+  TASK_STEPS.reading.add(turn);
+  let html;
+  try {
+    html = v2StepsHTML(await get(`/v2/turns/${encodeURIComponent(turn)}/steps`));
+    (live ? TASK_STEPS.live : TASK_STEPS.html).set(turn, html);
+  } catch (error) {
+    html = `<div class="step err">${esc(error.status === 403 ? 'Only people who may read this bot’s runs see its steps.' : error.message)}</div>`;
+  }
+  finally { TASK_STEPS.reading.delete(turn); }
+  // a redraw while it was read put a new fold in its place
+  const list = $(`.task-comments details.run-steps[data-turn="${CSS.escape(turn)}"] .steps-list`, document);
+  if (list) list.innerHTML = html;
+}
+// The owner's run while it works: "Working" and its newest step, the steps so far one click away, and Stop for whoever
+// manages the bot (POST /v2/bots/{slug}/stop, as in the bot's chat).
+function taskLiveHTML(x, stopping = '') {
+  if (!x || !['leased', 'running'].includes(x.state)) return '';
+  const part = (x.parts || []).at(-1);
+  const step = part ? clipLine(part.text.replace(/\s+/g, ' ').trim(), 120) : '';
+  const word = x.state === 'leased' ? 'Starting' : x.label && x.label !== 'Working' ? x.label : 'Working';
+  const label = `<span class="typing run" aria-hidden="true"><i></i><i></i><i></i></span><span class="thinking-word">${esc(word)}…</span>${step ? `<span class="task-live-step">${esc(step)}</span>` : ''}`;
+  const stop = x.attempt_id && settingsCanManageBot(S.emps.find(e => e.name === x.bot))
+    ? `<button type="button" class="ghost task-live-stop" data-task-stop="${esc(x.attempt_id)}" data-bot="${esc(x.bot)}" title="Stop this run"${
+      stopping === x.attempt_id ? ' disabled>Stopping…' : '>Stop'}</button>` : '';
+  return `<div class="thinking task-live" role="status" aria-label="${esc(actorLabel('bot:' + x.bot))} is ${esc(word.toLowerCase())}${step ? ': ' + esc(step) : ''}">${
+    x.attempt_id ? taskStepsFold(x.attempt_id, label, true) : label}${stop}</div>`;
+}
+async function taskRunStop(state, button) {
+  button.disabled = true;
+  try {
+    await post(`/v2/bots/${encodeURIComponent(button.dataset.bot)}/stop`, {attempt_id: button.dataset.taskStop});
+    state.stopping = button.dataset.taskStop;      // the redraws keep "Stopping…" until the run has ended
+    button.textContent = 'Stopping…';
+    taskChatLive(state);
+  } catch (e) { button.disabled = false; toast(`Not stopped: ${e.message}`, true); }
 }
 function taskCommentsRender(state, data) {
   const host = state.host;
@@ -446,28 +508,29 @@ function taskCommentsRender(state, data) {
     ...(data.events || []).map(e => ({kind: 'event', ts: e.ts, ...e})),
   ].sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
   if (!$('form', host)) {
-    // The thread view's box is the main chat's composer: a pill, one line that grows, the send arrow, Return sends.
-    const pill = state.dialog.classList.contains('thread');
-    host.innerHTML = `<h3>Comments</h3>
+    // The box is the main chat's composer: a pill, one line that grows, the send arrow, Return sends.
+    host.innerHTML = `<h3>Conversation</h3>
       <div class="task-comments" role="log" aria-live="polite"></div>
-      ${pill ? `<form class="ask task-pill"><div class="p-pill"><textarea class="p-text" rows="1" maxlength="4000" required aria-label="Message" placeholder="Message…"></textarea>
+      <form class="task-pill"><div class="p-pill"><textarea class="p-text" rows="1" maxlength="4000" required aria-label="Message" placeholder="Message…"></textarea>
           <button class="p-send p-send-icon" type="submit" aria-label="Send" title="Send">${ICON_SEND}</button></div>
-          <span class="muted" data-task-chat-status role="status"></span></form>`
-      : `<form><textarea rows="3" maxlength="4000" required aria-label="Add a comment" placeholder="Add a comment…"></textarea>
-        <div class="row"><button class="primary" type="submit">Comment</button><span class="muted" data-task-chat-status role="status"></span></div></form>`}`;
+          <span class="muted" data-task-chat-status role="status"></span></form>`;
     $('form', host).onsubmit = ev => { ev.preventDefault(); void taskCommentSend(state); };
     const box = $('textarea', host);
     box.value = TASK_DRAFTS.get(String(state.id)) || '';
-    const grow = () => { if (!pill) return; box.style.height = 'auto'; box.style.height = box.scrollHeight + 'px'; };
+    const grow = () => { box.style.height = 'auto'; box.style.height = box.scrollHeight + 'px'; };
     box.oninput = () => { grow(); if (box.value) TASK_DRAFTS.set(String(state.id), box.value); else TASK_DRAFTS.delete(String(state.id)); };
-    if (pill) {
-      if (box.value) requestAnimationFrame(grow);
-      // As in the main chat: on a computer Return sends and Shift+Return is a new line; on a phone Return is a line.
-      box.onkeydown = ev => {
-        if (ev.key !== 'Enter' || ev.isComposing) return;
-        if (ev.metaKey || ev.ctrlKey || (!ev.shiftKey && !touchKeyboard())) { ev.preventDefault(); void taskCommentSend(state); }
-      };
-    }
+    if (box.value) requestAnimationFrame(grow);
+    // As in the main chat: on a computer Return sends and Shift+Return is a new line; on a phone Return is a line.
+    box.onkeydown = ev => {
+      if (ev.key !== 'Enter' || ev.isComposing) return;
+      if (ev.metaKey || ev.ctrlKey || (!ev.shiftKey && !touchKeyboard())) { ev.preventDefault(); void taskCommentSend(state); }
+    };
+    const thread = $('.task-comments', host);
+    thread.addEventListener('toggle', ev => { if (ev.target.matches?.('details.run-steps')) void taskStepsOpen(ev.target); }, true);
+    thread.addEventListener('click', ev => {
+      const stop = ev.target.closest('[data-task-stop]');
+      if (stop && taskChatCurrent(state)) void taskRunStop(state, stop);
+    });
   }
   state.data = data;
   // `can_comment`: false for someone who may read the task but not comment on it; they get no box and no answer controls
@@ -480,7 +543,8 @@ function taskCommentsRender(state, data) {
   state.count = count;
   const files = tfFiles(state.dialog);
   // The bot's next run on this task, when it is queued: what it waits for, where its reply will appear.
-  const wait = data.waiting_for ? `<p class="muted task-wait" role="status">${esc(data.waiting_for)}</p>` : '';
+  const live = taskLiveHTML(data.execution, state.stopping);
+  const wait = live || !data.waiting_for ? live : `<p class="muted task-wait" role="status">${esc(data.waiting_for)}</p>`;
   const html = (lines.map((x, i, all) => commentLineHTML(x, i, all, files, state.id, can)).join('') || '<p class="muted">Nothing said yet.</p>') + wait;
   const thread = $('.task-comments', host);
   if (!can) d.askDrafts?.clear();
@@ -490,6 +554,9 @@ function taskCommentsRender(state, data) {
     const stick = stickScroll(thread);
     if (!state.rendered) stick.toBottom();
     stick.update(() => { thread.innerHTML = html; askDraftRestore(thread, d); }, {fresh: !!state.rendered});
+    // A working run's steps, left open, follow it as it moves on.
+    const liveSteps = $('details.run-steps[data-live][open]', thread);
+    if (liveSteps) void taskStepsOpen(liveSteps);
     roadmapCommentsBind(state);
     state.rendered = html;
   }
@@ -513,7 +580,7 @@ async function taskChatRead(state) {
     if (e.status === 400) {state.stopped = true; clearInterval(state.poll); state.liveOff?.();}
     const status = $('[data-task-chat-status]', state.host);
     if (status) status.textContent = `Unable to refresh: ${e.message}`;
-    else state.host.innerHTML = `<p class="err" role="status">Comments unavailable: ${esc(e.message)}</p>`;
+    else state.host.innerHTML = `<p class="err" role="status">Conversation unavailable: ${esc(e.message)}</p>`;
   } finally { state.reading = false; }
 }
 async function taskChatLoad(id, dialog, data = null) {
@@ -532,7 +599,13 @@ async function taskChatLoad(id, dialog, data = null) {
   // A change to the task itself reaches taskChatLive from the page's task events (ui/app/refresh.js); its comments
   // are messages in its conversation.
   const cid = state.cid;
-  const offs = cid ? [liveFollow(cid), liveOn('messages', d => { if (d.conversation_id === cid) taskChatLive(state); })] : [];
+  const offs = cid ? [liveFollow(cid), liveOn('messages', d => { if (d.conversation_id === cid) taskChatLive(state); }),
+    liveOn('runs', d => {
+      if (d.conversation_id !== cid) return;
+      if (!d.output) { taskChatLive(state); return; }
+      // Output moves the "Working" line on: the thread alone, at most every 1.5 s and not while the tab is hidden.
+      liveThrottle('task-run:' + state.id, () => { if (taskChatCurrent(state) && !state.stopped) void taskChatRead(state); }, 1500);
+    })] : [];
   state.liveOff = () => { offs.forEach(off => off()); state.liveOff = null; };
 }
 async function taskCommentSend(state) {
@@ -542,8 +615,7 @@ async function taskCommentSend(state) {
   if (!text) { box.focus(); return; }
   state.sending = true;
   const button = $('button[type=submit]', form), status = $('[data-task-chat-status]', form);
-  const icon = button.classList.contains('p-send-icon');
-  button.disabled = box.disabled = true; if (!icon) button.textContent = 'Sending…'; status.textContent = '';
+  button.disabled = box.disabled = true; status.textContent = '';
   try {
     const data = await post(`/v2/tasks/${encodeURIComponent(state.id)}/comments`, {text, public: !!$('[data-comment-public]', form)?.checked});
     if (!taskChatCurrent(state)) return;
@@ -556,7 +628,7 @@ async function taskCommentSend(state) {
     if (taskChatCurrent(state)) status.textContent = `Not saved: ${e.message}`;
   } finally {
     state.sending = false;
-    if (taskChatCurrent(state)) { button.disabled = box.disabled = false; if (!icon) button.textContent = 'Comment'; if (icon) box.focus(); }
+    if (taskChatCurrent(state)) { button.disabled = box.disabled = false; box.focus(); }
   }
 }
 async function taskChatSend(state) { return taskCommentSend(state); }
@@ -640,6 +712,6 @@ function hubModalHTML(t, it, opts = {}) {
         <section class="task-props" data-task-props aria-label="Properties">${taskPropsHTML(t, opts)}</section>
         <div class="task-rail" data-task-rail hidden></div>
       </aside>
-      <section class="task-chat" aria-label="Comments"><p class="muted" role="status">Loading comments…</p></section>
+      <section class="task-chat" aria-label="Conversation"><p class="muted" role="status">Loading the conversation…</p></section>
     </div>`;
 }
