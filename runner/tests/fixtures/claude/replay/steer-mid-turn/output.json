@@ -1,0 +1,86 @@
+{
+  "turns": [
+    [
+      {
+        "kind": "status",
+        "state": "active"
+      },
+      {
+        "kind": "rate_limits",
+        "status": "allowed",
+        "resets_at": "2026-10-16T08:10:00+00:00",
+        "used_percent": 44.0,
+        "window_minutes": 300
+      },
+      {
+        "act": "steer",
+        "ok": true
+      },
+      {
+        "kind": "rate_limits",
+        "status": null,
+        "resets_at": "2026-10-19T20:00:00+00:00",
+        "used_percent": 25.0,
+        "window_minutes": 10080
+      },
+      {
+        "kind": "delta",
+        "delta_kind": "text",
+        "text": "I"
+      },
+      {
+        "kind": "delta",
+        "delta_kind": "text",
+        "text": " ran `sleep 6"
+      },
+      {
+        "kind": "delta",
+        "delta_kind": "text",
+        "text": "`"
+      },
+      {
+        "kind": "delta",
+        "delta_kind": "text",
+        "text": " and it finished without err"
+      },
+      {
+        "kind": "delta",
+        "delta_kind": "text",
+        "text": "ors. banana"
+      },
+      {
+        "kind": "message",
+        "item_id": "msg_011Cg5QwzM8nehD77jBSYM1X",
+        "final": false,
+        "text": "I ran `sleep 6` and it finished without errors. banana"
+      },
+      {
+        "kind": "tokens",
+        "usage": {
+          "input": 36256,
+          "cached": 27019,
+          "output": 102
+        },
+        "cost_usd": 0.0813238,
+        "input": 36256,
+        "output": 102,
+        "total": 36358
+      },
+      {
+        "kind": "message",
+        "final": true,
+        "text": "I ran `sleep 6` and it finished without errors. banana"
+      },
+      {
+        "kind": "turn_completed",
+        "stop_reason": "end_turn",
+        "status": "completed"
+      },
+      {
+        "kind": "status",
+        "state": "idle"
+      }
+    ]
+  ],
+  "after": []
+}

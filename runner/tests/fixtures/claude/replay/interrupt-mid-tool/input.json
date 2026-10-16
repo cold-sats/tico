@@ -1,0 +1,21 @@
+{
+  "harness": "claude",
+  "cli": "2.1.301 (Claude Code)",
+  "about": "an interrupt while a shell command runs",
+  "source": {
+    "real": true,
+    "recorded": "2026-10-16",
+    "how": "record_replays: the installed CLI through replay_proxy.py"
+  },
+  "turns": [
+    {
+      "prompt": "Run the shell command `sleep 45` with the Bash tool, then reply done.",
+      "actions": [
+        {
+          "interrupt": true,
+          "after_events": 2
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "turns": [
+    [
+      {
+        "kind": "status",
+        "state": "active"
+      },
+      {
+        "kind": "message",
+        "item_id": "789661b7-460a-4cb2-b871-8d45a430da0c",
+        "final": false,
+        "text": "Failed to authenticate: OAuth session expired and could not be refreshed"
+      },
+      {
+        "kind": "turn_failed",
+        "auth_retry": false,
+        "limit": false,
+        "error": "Failed to authenticate: OAuth session expired and could not be refreshed"
+      },
+      {
+        "kind": "status",
+        "state": "idle"
+      }
+    ]
+  ],
+  "after": []
+}

@@ -1,0 +1,21 @@
+{
+  "harness": "claude",
+  "cli": "2.1.301 (Claude Code)",
+  "about": "a steer written while a tool runs, read after it",
+  "source": {
+    "real": true,
+    "recorded": "2026-10-16",
+    "how": "record_replays: the installed CLI through replay_proxy.py"
+  },
+  "turns": [
+    {
+      "prompt": "Run the shell command `sleep 6` with the Bash tool, then reply with one short line.",
+      "actions": [
+        {
+          "steer": "Also end your reply with the word banana.",
+          "after_events": 2
+        }
+      ]
+    }
+  ]
+}

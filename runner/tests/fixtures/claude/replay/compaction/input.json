@@ -1,0 +1,20 @@
+{
+  "harness": "claude",
+  "cli": "2.1.301 (Claude Code)",
+  "about": "a turn, then /compact on the same session",
+  "source": {
+    "real": true,
+    "recorded": "2026-10-16",
+    "how": "record_replays: the installed CLI through replay_proxy.py"
+  },
+  "turns": [
+    {
+      "prompt": "Reply with exactly: first turn",
+      "actions": []
+    },
+    {
+      "prompt": "/compact",
+      "actions": []
+    }
+  ]
+}

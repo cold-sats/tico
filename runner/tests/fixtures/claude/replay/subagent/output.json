@@ -1,0 +1,97 @@
+{
+  "turns": [
+    [
+      {
+        "kind": "status",
+        "state": "active"
+      },
+      {
+        "kind": "rate_limits",
+        "status": "allowed",
+        "resets_at": "2026-10-16T08:10:00+00:00",
+        "used_percent": 44.0,
+        "window_minutes": 300
+      },
+      {
+        "kind": "rate_limits",
+        "status": null,
+        "resets_at": "2026-10-19T20:00:00+00:00",
+        "used_percent": 25.0,
+        "window_minutes": 10080
+      },
+      {
+        "kind": "delta",
+        "delta_kind": "text",
+        "text": "The subagent repl"
+      },
+      {
+        "kind": "delta",
+        "delta_kind": "text",
+        "text": "ied:"
+      },
+      {
+        "kind": "delta",
+        "delta_kind": "text",
+        "text": " `pong` (I started"
+      },
+      {
+        "kind": "delta",
+        "delta_kind": "text",
+        "text": " it with the Agent tool"
+      },
+      {
+        "kind": "delta",
+        "delta_kind": "text",
+        "text": ", which is what"
+      },
+      {
+        "kind": "delta",
+        "delta_kind": "text",
+        "text": " this"
+      },
+      {
+        "kind": "delta",
+        "delta_kind": "text",
+        "text": " environment uses in"
+      },
+      {
+        "kind": "delta",
+        "delta_kind": "text",
+        "text": " place of the Task tool)."
+      },
+      {
+        "kind": "message",
+        "item_id": "msg_011Cg5Qven8NwNd1RcQNwVgt",
+        "final": false,
+        "text": "The subagent replied: `pong` (I started it with the Agent tool, which is what this environment uses in place of the Task tool)."
+      },
+      {
+        "kind": "tokens",
+        "usage": {
+          "input": 36477,
+          "cached": 27031,
+          "output": 212
+        },
+        "cost_usd": 0.15323620000000002,
+        "input": 36477,
+        "output": 212,
+        "total": 36689
+      },
+      {
+        "kind": "message",
+        "final": true,
+        "text": "The subagent replied: `pong` (I started it with the Agent tool, which is what this environment uses in place of the Task tool)."
+      },
+      {
+        "kind": "turn_completed",
+        "stop_reason": "end_turn",
+        "status": "completed"
+      },
+      {
+        "kind": "status",
+        "state": "idle"
+      }
+    ]
+  ],
+  "after": []
+}

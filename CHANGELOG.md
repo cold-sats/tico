@@ -45,6 +45,11 @@ All notable changes to Tico are recorded here. The format follows
   ChatGPT logins only; nothing is spent to read them. Shown to the same people as the account. They show on a
   computer whose other bots use named subscriptions too, and a login switched to another account drops the last
   account's percentages.
+- Runner replay tests: real Claude Code and Codex sessions, recorded at the process boundary, are played back
+  through a fake CLI, and the test checks the frames the runner writes back (prompts, steers, interrupts, answers
+  to the provider's requests) as well as its events. Eight captures to start: a plain Claude turn, a subagent, a
+  steer while a tool runs, an interrupt mid-tool, compaction, an expired Claude login, Codex out of quota, and a
+  rejected Codex key.
 
 ### Changed
 - A bot that hits a Claude or Codex usage limit now resumes at the provider's own reset time instead of after a fixed

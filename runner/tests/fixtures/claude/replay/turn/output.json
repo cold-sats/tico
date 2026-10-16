@@ -1,0 +1,62 @@
+{
+  "turns": [
+    [
+      {
+        "kind": "status",
+        "state": "active"
+      },
+      {
+        "kind": "delta",
+        "delta_kind": "text",
+        "text": "hello from the replay"
+      },
+      {
+        "kind": "message",
+        "item_id": "msg_011Cg5Qt4GfRa7ZTQ2o8Aiym",
+        "final": false,
+        "text": "hello from the replay"
+      },
+      {
+        "kind": "rate_limits",
+        "status": "allowed",
+        "resets_at": "2026-10-16T08:10:00+00:00",
+        "used_percent": 43.0,
+        "window_minutes": 300
+      },
+      {
+        "kind": "rate_limits",
+        "status": null,
+        "resets_at": "2026-10-19T20:00:00+00:00",
+        "used_percent": 25.0,
+        "window_minutes": 10080
+      },
+      {
+        "kind": "tokens",
+        "usage": {
+          "input": 16422,
+          "cached": 10584,
+          "output": 8
+        },
+        "cost_usd": 0.0489728,
+        "input": 16422,
+        "output": 8,
+        "total": 16430
+      },
+      {
+        "kind": "message",
+        "final": true,
+        "text": "hello from the replay"
+      },
+      {
+        "kind": "turn_completed",
+        "stop_reason": "end_turn",
+        "status": "completed"
+      },
+      {
+        "kind": "status",
+        "state": "idle"
+      }
+    ]
+  ],
+  "after": []
+}

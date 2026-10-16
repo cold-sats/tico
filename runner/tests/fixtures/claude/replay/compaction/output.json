@@ -1,0 +1,91 @@
+{
+  "turns": [
+    [
+      {
+        "kind": "status",
+        "state": "active"
+      },
+      {
+        "kind": "delta",
+        "delta_kind": "text",
+        "text": "first turn"
+      },
+      {
+        "kind": "message",
+        "item_id": "msg_011Cg5Qz2pXBmb9sbDLLGufR",
+        "final": false,
+        "text": "first turn"
+      },
+      {
+        "kind": "rate_limits",
+        "status": "allowed",
+        "resets_at": "2026-10-16T08:10:00+00:00",
+        "used_percent": 45.0,
+        "window_minutes": 300
+      },
+      {
+        "kind": "rate_limits",
+        "status": null,
+        "resets_at": "2026-10-19T20:00:00+00:00",
+        "used_percent": 25.0,
+        "window_minutes": 10080
+      },
+      {
+        "kind": "tokens",
+        "usage": {
+          "input": 19572,
+          "cached": 10584,
+          "output": 5
+        },
+        "cost_usd": 0.07411279999999999,
+        "input": 19572,
+        "output": 5,
+        "total": 19577
+      },
+      {
+        "kind": "message",
+        "final": true,
+        "text": "first turn"
+      },
+      {
+        "kind": "turn_completed",
+        "stop_reason": "end_turn",
+        "status": "completed"
+      },
+      {
+        "kind": "status",
+        "state": "idle"
+      }
+    ],
+    [
+      {
+        "kind": "status",
+        "state": "active"
+      },
+      {
+        "kind": "rate_limits",
+        "status": "allowed",
+        "resets_at": "2026-10-16T08:10:00+00:00",
+        "used_percent": 45.0,
+        "window_minutes": 300
+      },
+      {
+        "kind": "rate_limits",
+        "status": null,
+        "resets_at": "2026-10-19T20:00:00+00:00",
+        "used_percent": 25.0,
+        "window_minutes": 10080
+      },
+      {
+        "kind": "turn_completed",
+        "stop_reason": null,
+        "status": "completed"
+      },
+      {
+        "kind": "status",
+        "state": "idle"
+      }
+    ]
+  ],
+  "after": []
+}
