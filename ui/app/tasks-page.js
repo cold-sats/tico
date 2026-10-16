@@ -31,7 +31,7 @@ function pageTasks(forced, openId = '') {
   main.classList.add('tasks-layout');
   main.innerHTML = `<div class="tasks-page"><div class="tasks-pane" id="tasks-pane">
       <header class="tl-head">
-        <h1>Tasks</h1>
+        <h1>Tasks</h1><a class="tl-addf" href="#/roadmap">Roadmap</a>
         <div class="tl-tabs" id="task-view" role="tablist" aria-label="Task views"></div>
         <span class="spacer"></span>
         <div class="tl-type-search"><div class="tl-types" id="task-type" role="group" aria-label="Task type"></div>
@@ -291,7 +291,7 @@ function openTaskCreate(owner = '', opts = {}) {
       `<option value="${esc(g.id)}">${esc(g.title)} · ${esc(goalOwnerInfo(g.owner).name)}</option>`).join('');
   });
   taskFormFiles(creation);
-  void taskPipelineCreate($('#task-create-form'), TASKS_ST?.type);
+  void taskPipelineCreate($('#task-create-form'), opts.type || TASKS_ST?.type);
   $('#task-create-form').onsubmit = async ev => {
     ev.preventDefault();
     const form = ev.target, btn = form.querySelector('[type=submit]'), msg = $('#task-create-msg');
