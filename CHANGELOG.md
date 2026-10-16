@@ -18,6 +18,10 @@ All notable changes to Tico are recorded here. The format follows
   BotOps scorers and the case's checks, and the report lists wins and regressions. Unsigned cases, ones still
   holding a common key or token shape or an email address, and a server that holds the original tasks are refused.
   Run at release preparation, not per pull request.
+- A task's Runs section shows where the work left off (its checkpoint, with who and when), every try with its outcome
+  and what followed it (run again automatically or by a person, resumed, dismissed, or waiting for a person), the
+  subagents each try started with their model, duration and result, and the shells and monitors a Claude run left
+  running in the background.
 - Each computer's Performance page (Settings > Computers > ⋯ > Performance): CPU and memory over the last day, 7 days
   or 14 days, overloads with the bots that were running and the busiest processes, and a Health warning after one.
   On by default; its operator or an admin turns it off or deletes the history. Support diagnostics can include it.

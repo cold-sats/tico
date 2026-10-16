@@ -7,7 +7,9 @@
 //    icon, PR badge, owner), a child's own children on expand, and "Add subtask" posting a task with a parent relation;
 //  - a worktree with no repo names it from its folder, else says "unknown repo" (muted);
 //  - a task with no code links and no children has no rail at all; on a phone the rail sits under the details;
-//  - the bot page's Active rows carry one small PR badge each, from the task's pr_state, and none without PRs.
+//  - the bot page's Active rows carry one small PR badge each, from the task's pr_state, and none without PRs;
+//  - Runs (GET /tasks/{id}/run-view): the checkpoint with its author, background work still running, each try with what
+//    followed it, and the subagent tree with a nested subagent under its parent; a task with no runs has no section.
 // TASK_CODE_SHOTS=<dir> saves the screenshots for the owner.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
@@ -59,7 +61,21 @@ function fixtures() {
   const others = [task('t-review', {title: 'Review the pricing copy', pr_state: 'changes_requested'}),
     task('t-open', {title: 'Upgrade the image library', pr_state: 'open'}),
     task('t-none', {title: 'Write the release notes', pr_state: null})];
-  return {tasks: [parent, plain, ...others], tree};
+  // As backend/run_view.py answers: newest attempt first; a lapsed try the hub resumed, then the live retry.
+  const ago = s => new Date(Date.now() - s * 1000).toISOString();
+  const runView = {task_id: 't-checkout', checkpoint: {text: 'Summary step built; receipts next.', at: ago(300), by: 'bot:eng'},
+    attempts: [
+      {run: 'a2', bot: 'eng', job: 'j1', try: 2, tries: 2, state: 'running', outcome: null, created: ago(120), started: ago(118), finished: null,
+       took_s: null, ran_on: {segments: [{model: 'claude-opus-5-5'}]}, lease: [], reason: null, next: null,
+       subagents: [{id: 'g1', parent_id: null, type: 'general-purpose', model: null, status: 'completed', background: true, tool_uses: 3, duration_ms: 42000, running: false},
+         {id: 'g2', parent_id: 'g1', type: 'Explore', model: 'claude-haiku-5-5', status: null, background: false, tool_uses: null, duration_ms: null, running: true}],
+       background: [{id: 'b1', tool: 'Bash', summary: 'npm', status: null, started: ago(60), ended: null, running: true},
+         {id: 'b2', tool: 'Monitor', summary: 'tail', status: 'completed', started: ago(90), ended: ago(80), running: false}]},
+      {run: 'a1', bot: 'eng', job: 'j1', try: 1, tries: 2, state: 'expired', outcome: 'interrupted', created: ago(900), started: ago(898), finished: ago(600),
+       took_s: 298, ran_on: {segments: [{model: 'claude-opus-5-5'}]}, lease: [{kind: 'grace', at: ago(610)}],
+       reason: 'Lease expired before completion', next: {kind: 'resumed', by: 'keeper', at: ago(130), note: 'Resumed automatically: it recorded no tool call.'},
+       subagents: [], background: []}]};
+  return {tasks: [parent, plain, ...others], tree, runView};
 }
 
 async function open(browser, {viewport = {width: 1440, height: 900}, theme = 'dark', at = '#/task/t-checkout', mover = true, rich = false} = {}) {
@@ -151,6 +167,7 @@ async function open(browser, {viewport = {width: 1440, height: 900}, theme = 'da
         comments: rich && t.id === 't-checkout' ? data.comments : [],
         events: rich && t.id === 't-checkout' ? data.events : []});
     }
+    if (p === '/api/v2/tasks/t-checkout/run-view') return json(data.runView);
     if (rich && p === '/api/v2/tasks/t-checkout/files') return json({files: data.files});
     if (rich && p === '/api/v2/files/f-notes') return route.fulfill({contentType: 'text/markdown', body: '# Review\n\nReceipt check version ' + url.searchParams.get('v') + '.'});
     if (rich && p.endsWith('/comments') && method === 'POST') {
@@ -251,6 +268,22 @@ async function desktop(browser) {
   await modal.locator('[data-task-more]').click();
   await modal.locator('.prop-pop .tl-mi', {hasText: 'Copy session ID'}).click();
   assert.deepEqual(await page.evaluate(() => window.copied), ['thread-abc']);
+  // Runs: the checkpoint, what still runs in the background, then each try, newest open.
+  const runs = modal.locator('[data-task-runs]');
+  await runs.locator('.truns-try').first().waitFor();
+  assert.match(await runs.locator('.truns-cp').innerText(), /Summary step built; receipts next\.\s*Engineer · 5m ago/);
+  assert.deepEqual(await runs.locator('.truns-live li').allInnerTexts(), ['Bash · npm running · started 1m ago']);
+  const tries = runs.locator('.truns-try');
+  assert.equal(await tries.count(), 2);
+  assert.match(await tries.first().locator('summary').innerText(), /^Try 2 of 2 · running · for 2m · claude-opus-5-5/);
+  assert.equal(await tries.first().evaluate(x => x.open), true);
+  assert.equal(await tries.nth(1).evaluate(x => x.open), false);
+  assert.match(await tries.first().locator('.truns-sub > .truns-tree > li').innerText(),
+    /^general-purpose\s*claude-opus-5-5 \(the run’s model\) · completed · 42s · 3 tool calls · in the background\s*Explore\s*claude-haiku-5-5 · running$/);
+  assert.equal(await tries.first().locator('.truns-tree .truns-tree li').count(), 1, 'a nested subagent sits under its parent');
+  await tries.nth(1).locator('summary').click();
+  assert.match(await tries.nth(1).innerText(), /Try 1 of 2 · lease expired · 4m 58s[\s\S]*Lease expired before completion[\s\S]*Run again automatically, 2m ago\s*Resumed automatically/);
+  if (SHOTS) { fs.mkdirSync(SHOTS, {recursive: true}); await runs.screenshot({path: path.join(SHOTS, 'task-runs-dark.png')}); }
   // Subtasks: the roll-up, one level, PR badges, expand a child.
   assert.equal(await rail.locator('.sub-sum').innerText(), '4 of 10 done · 7 PRs merged');
   assert.equal(await rail.locator('.sub-sum .sub-bar > i').evaluate(i => i.style.width), '40%', 'a thin bar beside it');
@@ -307,6 +340,7 @@ async function desktop(browser) {
   // the full detail is drawn (its rail painted from it)
   await page.waitForFunction(() => document.querySelector('#task-modal')?.taskRail?.full?.id === 't-plain');
   assert.equal(await modal.locator('[data-task-rail]').isHidden(), true);
+  assert.equal(await modal.locator('[data-task-runs]').isHidden(), true, 'no runs, no Runs section');
   assert.equal(await modal.evaluate(d => d.classList.contains('has-rail')), false);
   assert.equal(await modal.locator('text=Subtasks').count(), 0);
   // "Add subtask" in the task's "…" menu opens the rail's field, which then is the only one.

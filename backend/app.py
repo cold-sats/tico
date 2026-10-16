@@ -4877,6 +4877,8 @@ def create_app(settings=None):
     from .chat_goals import install as install_chat_goals
     install_chat_goals(app, store, auth, mutate, send)
     turn_work.install(app, store, auth)
+    from . import run_view
+    run_view.install(app, store, auth)
     from .documents import install_documents
     install_documents(app, store, auth, mutate)
     from .docs import install_docs
