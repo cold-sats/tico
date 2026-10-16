@@ -3,7 +3,7 @@ the background shells and monitors still running, and the checkpoint. Nothing fr
 import json
 
 from backend.store import H
-from backend.tests.test_api import api, assign, claim, expire, get, post, ready, runner  # noqa: F401
+from backend.tests.test_api import api, assign, claim, expire, get, post, put, ready, runner  # noqa: F401
 from backend.tests.test_execution_review import aged, sweep
 
 
@@ -65,6 +65,10 @@ def test_a_run_shows_its_subagent_and_the_background_command_it_left_running(api
     [shell, _, moved] = view["attempts"][0]["background"]
     assert (shell["running"], shell["status"]) == (False, "no end reported") == (moved["running"], moved["status"])
     assert view["checkpoint"]["text"] == "Counted: 1 word." and view["checkpoint"]["by"] == "bot:ops"
+    # A long list keeps a call still running, however early it started.
+    from backend.run_view import NODE_LIMIT, capped
+    kept = capped([{"id": n, "running": n == 0} for n in range(NODE_LIMIT + 10)])
+    assert len(kept) == NODE_LIMIT and kept[0]["id"] == 0 and kept[-1]["id"] == NODE_LIMIT + 9
 
     # A run that also carried a private task is left out for whoever cannot read that task.
     hidden = post(api, "tasks", {"owner": "ops", "title": "Private", "body": "Only Ana.", "private": True})
@@ -98,14 +102,40 @@ def test_a_retried_run_shows_both_attempts_and_the_decision_between_them(api):
                                                  "AND target IN (?,?)", ("j", "a")))
     assert "events_action_target" in plan, plan
     assert (earlier["run"], earlier["try"], earlier["tries"], earlier["state"]) == (first["id"], 1, 2, "expired")
-    assert earlier["next"]["kind"] == "resumed" and earlier["next"]["by"] == H.KEEPER and earlier["next"]["note"]
+    from backend.execution import RESUME_SHOWN
+    assert earlier["next"] == {"kind": "resumed", "by": H.KEEPER, "at": earlier["next"]["at"], "note": RESUME_SHOWN}
     assert "Archived one bot" not in json.dumps(earlier), "the hub's own words, never what the stopped run saved"
     assert (later["run"], later["try"], later["tries"], later["next"]) == (second["id"], 2, 2, None)
 
 
-def test_a_run_from_a_conversation_the_reader_cannot_open_stays_out(api):
+def test_a_persons_retry_and_dismissal_name_them(api):
+    machine = runner(api, "ana")
+    assign(api, machine, "ops")
+    ready(api, machine, ["ops"])
+    tid, first = task_attempt(api, machine, "Rename the files")
+    expire(api, first["id"])
+    assert claim(api, machine) is None
+    post(api, f"jobs/{first['job_id']}/retry", {"acknowledge_uncertain_effects": True})
+    queued = get(api, f"tasks/{tid}/run-view")["attempts"][0]["next"]
+    assert (queued["kind"], queued["by"], queued["note"]) == ("queued", "human:ana", "Queued to run again by hand.")
+    second = claim(api, machine)
+    post(api, f"attempts/{second['id']}/started", {"thread_id": "again"}, machine["token"])
+    expire(api, second["id"])
+    assert claim(api, machine) is None
+    post(api, f"jobs/{first['job_id']}/reconcile", {"attempt_id": second["id"], "decision": "dismiss",
+                                                    "note": "Renamed by hand; nothing left to do.",
+                                                    "acknowledge_uncertain_effects": True})
+    later, earlier = get(api, f"tasks/{tid}/run-view")["attempts"]
+    assert (earlier["next"]["kind"], earlier["next"]["by"], earlier["next"]["note"]) == (
+        "retried", "human:ana", "Run again by hand.")
+    assert (later["next"]["kind"], later["next"]["by"], later["next"]["note"]) == (
+        "dismissed", "human:ana", "Renamed by hand; nothing left to do.")
+
+
+def test_a_run_from_a_conversation_the_reader_cannot_open_stays_out(api, monkeypatch):
     """A person's direct message to the bot that names the task puts that run on the task; only who can read that
-    conversation (and the bot) sees it. A blocked checkpoint is not shown."""
+    conversation (and the bot) sees it, and it does not push the reader's own runs off the page. Nobody without Read
+    on the bot sees its runs. A blocked checkpoint is not shown."""
     machine = runner(api, "ana")
     assign(api, machine, "ops")
     ready(api, machine, ["ops"])
@@ -120,8 +150,16 @@ def test_a_run_from_a_conversation_the_reader_cannot_open_stays_out(api):
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE turns SET task_id=? WHERE id=?", (tid, direct["id"]))
     assert {r["run"] for r in get(api, f"tasks/{tid}/run-view")["attempts"]} == {shared["id"], direct["id"]}
+    monkeypatch.setattr("backend.run_view.ATTEMPT_LIMIT", 1)
     seen = get(api, f"tasks/{tid}/run-view", token="cara-test")
     assert [r["run"] for r in seen["attempts"]] == [shared["id"]] and "payroll" not in json.dumps(seen)
+    access = get(api, "bots/ops/access")
+    put(api, "bots/ops/access", {"see": access["see"], "read": {"people": ["ana"]}, "write": access["write"],
+                                 "revision": access["revision"]})
+    # The task moved to a person: Cara still reads it, and still none of the bot's runs on it.
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET owner='human:ana', requester='human:ana' WHERE id=?", (tid,))
+    assert get(api, f"tasks/{tid}/run-view", token="cara-test")["attempts"] == []
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE tasks SET checkpoint_blocked=1 WHERE id=?", (tid,))
     assert get(api, f"tasks/{tid}/run-view")["checkpoint"] is None

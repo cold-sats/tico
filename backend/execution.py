@@ -30,6 +30,9 @@ STALL_MAX = 900
 SILENT_KINDS = {"error", "diagnostic", "status"}
 NO_EFFECT_TRIES = 3
 PRE_START_TRIES = 10        # lapsed leases before start: a broken computer must not retry forever
+# What people read about an automatic resume whose note tells the bot to check its own work.
+RESUME_SHOWN = ("Resumed automatically: the run stopped partway and may already have done some of the work, so the "
+                "bot was told to check what is done and finish only what is left.")
 NO_EFFECT_WITHIN = 120       # seconds from start; a longer silent run may have used unreported tools
 CHECKPOINT_CHARS = 1500      # a task's checkpoint: the last turn's reply, enough to pick the work back up
 # A deploy drains every bot while it waits for runs to finish (at most 30 minutes) and then
@@ -1872,8 +1875,9 @@ class Execution:
             raise Problem("review_note", "Describe completed work and what should happen next", 422)
         return self._decide(c, row, body.attempt_id, body.decision, note, who.actor)
 
-    def _decide(self, c, row, attempt_id, decision, note, actor, *, action='job.reconcile'):
-        """Record one decision on an uncertain job: resume queues it again, dismiss releases it."""
+    def _decide(self, c, row, attempt_id, decision, note, actor, *, action='job.reconcile', shown=None):
+        """Record one decision on an uncertain job: resume queues it again, dismiss releases it. `shown` is the
+        line people read when the note itself is written to the bot."""
         job_id = row['id']
         state = 'queued' if decision == 'resume' else 'cancelled'
         c.execute("INSERT INTO job_recovery VALUES(?,?,?,?,?,?) ON CONFLICT(job_id) DO UPDATE SET "
@@ -1883,7 +1887,8 @@ class Execution:
         if decision == 'dismiss':
             c.execute("UPDATE messages SET delivered_at=coalesce(delivered_at,?) WHERE id=?", (H.now(),row['message_id']))
         c.execute("UPDATE jobs SET state=? WHERE id=?", (state,job_id))
-        H.event(c, actor, action, job_id, {'attempt_id':attempt_id, 'decision':decision, 'note':note})
+        H.event(c, actor, action, job_id, {'attempt_id':attempt_id, 'decision':decision, 'note':note,
+                                           **({'shown':shown} if shown else {})})
         if not c.execute("SELECT 1 FROM jobs WHERE bot=? AND state='uncertain'", (row['bot'],)).fetchone():
             settle_status(c, row['bot'], 'idle', 'Stopped run reviewed')
         return {'job_id':job_id, 'state':state}
@@ -2037,6 +2042,7 @@ class Execution:
                 if reports_tools(c, row['attempt_id'], declared) and not tools and not consumed:
                     note = ("Resumed automatically: the interrupted run recorded no tool call and consumed no "
                             "approval before it stopped, so running it again repeats nothing.")
+                    shown = None
                 else:
                     # Never ask a person to reconstruct what a run did. The bot has
                     # the context to check; it gets what the run saved and is told not to repeat an
@@ -2047,8 +2053,9 @@ class Execution:
                             "changed, commits pushed, bots changed) and finish only what is left. Never repeat an "
                             "outside action that already happened."
                             + (f"\n\nWhat the stopped run saved:\n{saved}" if saved else ""))
+                    shown = RESUME_SHOWN
                 decided.append(self._decide(c, row, row['attempt_id'], 'resume', note, H.KEEPER,
-                                            action='job.auto_reconcile'))
+                                            action='job.auto_reconcile', shown=shown))
         return decided
 
     def _saved_text(self, c, attempt_id, limit=1500):

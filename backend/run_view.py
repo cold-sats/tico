@@ -16,6 +16,7 @@ from . import task_privacy as privacy
 from .turns import TOOL_START, TOOL_BACKGROUNDED, clip, seconds
 
 ATTEMPT_LIMIT, NODE_LIMIT, SUMMARY_CHARS = 20, 50, 120
+SCAN_LIMIT = 500  # the most of a task's newest runs read to fill one reader's page
 LIVE = ("leased", "running")
 # What a person or the hub decided about a stopped attempt, and the lease events that kept or lost it.
 DECISIONS = ("job.reconcile", "job.auto_reconcile")
@@ -91,11 +92,13 @@ def capped(nodes):
     return [n for n in nodes if id(n) in keep]
 
 
-def decision_note(actor, note):
-    """A person's decision keeps its note. The hub's own keeps only its first paragraph, its own words: the rest of an
-    automatic resume note is what the stopped run saved, which is the bot's text, not a decision."""
-    note = str(note or "")
-    return clip(note.split("\n\n")[0] if actor == H.KEEPER else note, 400)
+def decision_note(actor, detail):
+    """A person's decision keeps its note. The hub's own shows the line it wrote for people, or else only the note's
+    first paragraph: the rest of an automatic resume note is what the stopped run saved, the bot's text."""
+    note = str(detail.get("note") or "")
+    if actor != H.KEEPER:
+        return clip(note, 400)
+    return clip(detail.get("shown") or note.split("\n\n")[0], 400)
 
 
 def next_step(attempt, tries, job, decisions, retries):
@@ -137,11 +140,18 @@ def run_view(c, auth, who, tid):
             return True
         except Problem:
             return False
-    turns = [r for r in H._rows(c.execute(
-        "SELECT t.id,t.bot,t.exit,a.job_id,a.state,a.created,a.started,a.finished,a.lease_until,a.result_json,"
-        "m.conversation_id FROM turns t JOIN attempts a ON a.id=t.id JOIN jobs j ON j.id=a.job_id "
-        "JOIN messages m ON m.id=j.message_id WHERE t.task_id=? ORDER BY a.created DESC LIMIT ?",
-        (tid, ATTEMPT_LIMIT))) if readable(r)]
+    # The page limit counts only runs this reader can open: hidden newer runs must not push theirs off the page.
+    turns = []
+    for row in c.execute(
+            "SELECT t.id,t.bot,t.exit,a.job_id,a.state,a.created,a.started,a.finished,a.lease_until,a.result_json,"
+            "m.conversation_id FROM turns t JOIN attempts a ON a.id=t.id JOIN jobs j ON j.id=a.job_id "
+            "JOIN messages m ON m.id=j.message_id WHERE t.task_id=? ORDER BY a.created DESC LIMIT ?",
+            (tid, SCAN_LIMIT)):
+        r = dict(row)
+        if readable(r):
+            turns.append(r)
+            if len(turns) == ATTEMPT_LIMIT:
+                break
     ids = [r["id"] for r in turns]
     jobs = sorted({r["job_id"] for r in turns})
     # A blocked checkpoint is no checkpoint: no prompt or stall report uses it either.
@@ -164,7 +174,7 @@ def run_view(c, auth, who, tid):
         if e["action"] in DECISIONS and detail.get("attempt_id"):
             decisions[detail["attempt_id"]] = {
                 "kind": "resumed" if detail.get("decision") == "resume" else "dismissed",
-                "by": e["actor"], "at": e["ts"], "note": decision_note(e["actor"], detail.get("note"))}
+                "by": e["actor"], "at": e["ts"], "note": decision_note(e["actor"], detail)}
         elif e["action"] == "job.retry":
             retries.setdefault(e["target"], []).append({"by": e["actor"], "at": e["ts"]})
         elif e["action"] in LEASE:
