@@ -186,6 +186,8 @@ CREATE TABLE IF NOT EXISTS attempt_captures(
  frames TEXT NOT NULL, truncated INTEGER NOT NULL DEFAULT 0, dropped_bytes INTEGER NOT NULL DEFAULT 0,
  bytes INTEGER NOT NULL, created TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS attempt_captures_created ON attempt_captures(created);
+-- A run that had a secret taken out while it was going: its capture, handed in at the end, is not kept.
+CREATE TABLE IF NOT EXISTS attempt_capture_drops(attempt_id TEXT PRIMARY KEY, created TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS idempotency(
  actor TEXT NOT NULL, operation TEXT NOT NULL, key TEXT NOT NULL,
  request_hash TEXT NOT NULL, response_json TEXT NOT NULL, created TEXT NOT NULL,

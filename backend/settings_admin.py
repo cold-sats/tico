@@ -569,6 +569,8 @@ class SettingsAdmin:
                 declared["capture_stream"] = "on"
             else:
                 declared.pop("capture_stream", None)
+                from .stream_capture import forget_bot
+                forget_bot(c, bot)
         if "shared" in body.model_fields_set:
             declared["shared"] = bool(body.shared)
         if "template" in body.model_fields_set:

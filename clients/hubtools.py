@@ -2840,11 +2840,16 @@ def turns(api, args):
     return api.get(f"bots/{args['bot']}/turns", since=args.get("since"))
 
 
-@tool("hub_run_export", "Owners and engineering bots: a run's captured raw provider stream with its input and the "
-      "events Tico recorded, for a replay fixture. Only bots with capture_stream on have one, kept a week.",
-      {"attempt": _s("The attempt id, from hub_run_list")}, required=("attempt",))
+@tool("hub_run_export", "Owners and engineering bots: whether a run's raw provider stream was captured, and its size. "
+      "Write the replay fixture with `hub run export <attempt> --fixture`. Only bots with capture_stream on have one, "
+      "kept a week.", {"attempt": _s("The attempt id, from hub_run_list")}, required=("attempt",))
 def run_export(api, args):
-    return api.get(f"attempts/{args['attempt']}/capture")
+    return api.get(f"attempts/{args['attempt']}/capture", full="false")
+
+
+def run_export_full(api, attempt):
+    """The whole export, for the CLI to write to files; never returned into a bot's context."""
+    return api.get(f"attempts/{attempt}/capture")
 
 
 def write_fixture(found, parent):

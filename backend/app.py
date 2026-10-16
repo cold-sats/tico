@@ -4793,10 +4793,10 @@ def create_app(settings=None):
             c, execution.attempt(c, request.state.identity, aid, active=False), body))
 
     @app.get("/api/v2/attempts/{aid}/capture")
-    def export_capture(request: Request, aid: str):
+    def export_capture(request: Request, aid: str, full: bool = True):
         from . import stream_capture
         with store.read() as c:
-            return stream_capture.export(c, request.state.identity, aid)
+            return stream_capture.export(c, request.state.identity, auth, aid, full=full)
 
     @app.post("/api/v2/attempts/{aid}/inputs")
     def inputs(request: Request, aid: str, body: M.Empty):

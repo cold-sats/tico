@@ -4,7 +4,7 @@
 //!
 //! One record per line: `{"dir":"start","provider":..}` when a harness attaches (a fallback adds a second),
 //! then `{"dir":"out"|"in","ms":..,"frame":..}` with the frame as JSON when it parses and as text when not,
-//! and `{"dir":"truncated",..}` once the cap is reached.
+//! and `{"dir":"skipped","bytes":..}` for a frame left out because it no longer fits under the cap.
 
 use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
@@ -15,6 +15,8 @@ use std::time::{Duration, Instant, SystemTime};
 use serde_json::{json, Value};
 
 pub const LIMIT: u64 = 5_000_000;
+/// Room past LIMIT for skip markers, so a long run over the cap still says what it left out.
+const MARKS: u64 = 100_000;
 /// A file a runner never handed in (it stopped mid-turn) is gone after the same week the server keeps one.
 const KEEP: Duration = Duration::from_secs(7 * 24 * 3600);
 
@@ -76,10 +78,7 @@ impl Capture {
 
     fn frame(&self, dir: &str, line: &str) {
         let line = line.trim();
-        if line.is_empty() || self.truncated.load(Ordering::Relaxed) {
-            if !line.is_empty() {
-                self.dropped.fetch_add(line.len() as u64, Ordering::Relaxed);
-            }
+        if line.is_empty() {
             return;
         }
         // Scrubbed as written and again inside each string once parsed, where JSON escaping can hide a value.
@@ -94,14 +93,14 @@ impl Capture {
         let Some(file) = slot.as_mut() else { return };
         let size = text.len() as u64;
         let at = self.written.load(Ordering::Relaxed);
-        if self.truncated.load(Ordering::Relaxed) || at + size > LIMIT {
+        if at + size > LIMIT {
+            // A frame that does not fit is skipped with a marker and the stream goes on: a run's ending is
+            // usually what a replay needs. Markers have a small reserve past LIMIT of their own.
             self.dropped.fetch_add(size, Ordering::Relaxed);
-            if !self.truncated.swap(true, Ordering::Relaxed) {
-                // Past the cap: one marker, then nothing more this turn. The marker may run just over LIMIT.
-                let mark = json!({"dir": "truncated", "ms": self.ms(), "limit": LIMIT}).to_string() + "\n";
-                if file.write_all(mark.as_bytes()).is_ok() {
-                    self.written.fetch_add(mark.len() as u64, Ordering::Relaxed);
-                }
+            self.truncated.store(true, Ordering::Relaxed);
+            let mark = json!({"dir": "skipped", "ms": self.ms(), "bytes": size}).to_string() + "\n";
+            if at + (mark.len() as u64) <= LIMIT + MARKS && file.write_all(mark.as_bytes()).is_ok() {
+                self.written.fetch_add(mark.len() as u64, Ordering::Relaxed);
             }
             return;
         }
@@ -193,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn the_stream_stops_at_the_cap_with_one_marker() {
+    fn a_frame_past_the_cap_is_skipped_and_later_ones_still_fit() {
         let d = dir();
         let c = Capture::open(&d, "cap-limit").unwrap();
         c.attach("codex");
@@ -201,10 +200,12 @@ mod tests {
         for _ in 0..20 {
             c.received(&big);
         }
+        c.received(r#"{"method":"turn/completed"}"#);
         let out = c.finish().unwrap();
         let frames = out["frames"].as_str().unwrap();
-        assert!(frames.len() as u64 <= LIMIT + 200, "{}", frames.len());
-        assert_eq!(frames.lines().filter(|l| l.contains(r#""dir":"truncated""#)).count(), 1);
+        assert!(frames.len() as u64 <= LIMIT + MARKS, "{}", frames.len());
+        assert!(frames.lines().filter(|l| l.contains(r#""dir":"skipped""#)).count() >= 8);
+        assert!(frames.trim_end().ends_with(r#"{"method":"turn/completed"}}"#), "the ending is kept");
         assert!(out["truncated"].as_bool().unwrap() && out["dropped_bytes"].as_u64().unwrap() > 0);
         let _ = std::fs::remove_dir_all(&d);
     }

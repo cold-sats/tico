@@ -125,9 +125,9 @@ def run(args, who=None):
         return via_tool(client, args)
     if fn == "run export":
         from clients import hubtools
-        found = hubtools.BY_NAME["hub_run_export"]["fn"](client, {"attempt": args.attempt})
         if not args.fixture:
-            return found
+            return hubtools.BY_NAME["hub_run_export"]["fn"](client, {"attempt": args.attempt})
+        found = hubtools.run_export_full(client, args.attempt)
         return {"written": hubtools.write_fixture(found, Path(args.out or "."))}
     if fn in ("task child create", "task tree"):
         return via_tool(client, args)

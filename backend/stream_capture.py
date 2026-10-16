@@ -31,6 +31,12 @@ def wanted(config):
 
 def sweep(c):
     c.execute("DELETE FROM attempt_captures WHERE created<?", (H.shift(H.now(), days=-KEEP_DAYS),))
+    c.execute("DELETE FROM attempt_capture_drops WHERE created<?", (H.shift(H.now(), days=-KEEP_DAYS),))
+
+
+def forget_bot(c, bot):
+    """Capture turned off: what was kept goes with it."""
+    c.execute("DELETE FROM attempt_captures WHERE bot=?", (bot,))
 
 
 def mask(text):
@@ -45,6 +51,10 @@ def scrub_value(c, value, label, attempt_id="", conversation_id=""):
     if conversation_id:
         ids.update(r[0] for r in c.execute("SELECT attempt_id FROM attempt_conversations WHERE conversation_id=?",
                                            (conversation_id,)))
+    # A run still going hands its stream in later, holding the value: marked (no secret kept), it is not stored.
+    for aid in ids:
+        c.execute("INSERT OR IGNORE INTO attempt_capture_drops(attempt_id,created) SELECT id,? FROM attempts "
+                  "WHERE id=? AND state IN ('leased','running')", (H.now(), aid))
     for aid in ids:
         row = c.execute("SELECT frames FROM attempt_captures WHERE attempt_id=?", (aid,)).fetchone()
         if row and any(f in row["frames"] for f in forms):
@@ -62,6 +72,10 @@ def keep(c, row, body):
     if not wanted(json.loads(found[0] or "{}") if found else {}):
         # Turned off since the turn began, or never on: nothing is kept.
         raise Problem("capture_off", "This bot does not capture its provider stream", 409)
+    if c.execute("SELECT 1 FROM attempt_capture_drops WHERE attempt_id=?", (row["id"],)).fetchone():
+        # A secret was taken out while this run was going; the stream may still carry it.
+        c.execute("DELETE FROM attempt_captures WHERE attempt_id=?", (row["id"],))
+        return {"kept": False, "reason": "a secret was removed during this run"}
     frames = mask(body.frames)
     c.execute("INSERT INTO attempt_captures(attempt_id,bot,provider,frames,truncated,dropped_bytes,bytes,created) "
               "VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(attempt_id) DO UPDATE SET provider=excluded.provider,"
@@ -81,17 +95,41 @@ def may_read(c, who):
     return bool(team and team["team"] == "engineering")
 
 
-def export(c, who, aid):
-    """The run as a three-part replay fixture: what it was given, the raw stream, and what Tico made of it."""
+def require_run(c, who, auth, aid):
+    """The checks the run list makes (app.py turns): the bot, the conversation, the message and the run itself."""
+    attempt = c.execute("SELECT * FROM attempts WHERE id=?", (aid,)).fetchone()
+    if not attempt:
+        raise Problem("not_found", "Turn not found", 404)
+    auth.require_read(c, who, attempt["bot"])
+    msg = H.message(c, c.execute("SELECT message_id FROM jobs WHERE id=?", (attempt["job_id"],)).fetchone()[0])
+    if msg:
+        auth.conversation(c, who, msg["conversation_id"])
+        privacy.require_message(c, who, msg)
+    else:
+        # A deleted message still has its room: the run is read only by those who may read that room.
+        rooms = [r[0] for r in c.execute("SELECT conversation_id FROM attempt_conversations WHERE attempt_id=?", (aid,))]
+        if not rooms:
+            raise Problem("not_found", "Turn not found", 404)
+        for room in rooms:
+            auth.conversation(c, who, room)
+    privacy.require_attempt(c, who, aid)
+    return attempt, msg
+
+
+def export(c, who, auth, aid, full=True):
+    """The run as a three-part replay fixture: what it was given, the raw stream, and what Tico made of it.
+    Without `full`, only what was captured and how big it is (for a bot's context)."""
     if not may_read(c, who):
         raise Problem("forbidden", "Only owners and engineering bots read a run's raw stream", 403)
-    privacy.require_attempt(c, who, aid)
+    attempt, msg = require_run(c, who, auth, aid)
     cap = c.execute("SELECT * FROM attempt_captures WHERE attempt_id=? AND created>=?",
                     (aid, H.shift(H.now(), days=-KEEP_DAYS))).fetchone()
     if not cap:
         raise Problem("not_found", "No stream was captured for this run, or it is over a week old", 404)
-    attempt = c.execute("SELECT * FROM attempts WHERE id=?", (aid,)).fetchone()
-    msg = H.message(c, c.execute("SELECT message_id FROM jobs WHERE id=?", (attempt["job_id"],)).fetchone()[0])
+    if not full:
+        return {"attempt": {"id": aid, "bot": attempt["bot"], "state": attempt["state"]}, "provider": cap["provider"],
+                "bytes": cap["bytes"], "truncated": bool(cap["truncated"]), "captured": cap["created"],
+                "fixture": f"hub run export {aid} --fixture"}
     # A deleted message's text is not served again; the stream may still hold it until the week is out.
     message = ({"kind": msg["kind"], "from": msg["from_actor"], "body": mask(msg["body"] or "")} if msg
                else {"deleted": True})

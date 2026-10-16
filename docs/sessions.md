@@ -105,11 +105,11 @@ Set them with `hub bot update <slug> --session task`, `--subtask-session own`, `
 ### Capturing a run for a replay test
 
 With `capture_stream: on`, the runner records every frame it sends a Claude or Codex harness and every frame it reads
-back, with the turn's secrets masked, up to about 5 MB per run (a `truncated` record marks the cut). Other harnesses
-are not captured yet. Tico keeps each capture for 7 days. `hub run export <attempt> --fixture` writes it as a folder of
+back, with the turn's secrets masked, up to about 5 MB per run (a frame that no longer fits is left out with a `skipped` record). Other harnesses
+are not captured yet. Tico keeps each capture for 7 days; turning capture off deletes the bot's captures, and a run that had a secret taken out while it was going keeps none. `hub run export <attempt> --fixture` writes it as a folder of
 three files: `input.json` (the message and model settings), `<provider>_transcript.ndjson` (the raw frames) and
 `output.json` (the events and result Tico recorded). A raw stream can hold customer text, so only owners turn it on,
-and only owners and engineering bots read it, for runs they can already see.
+and only owners and engineering bots read it, for runs they can already see in the bot's run list. The MCP tool answers only whether a run was captured and its size; the CLI writes the files.
 
 ## FAQ
 

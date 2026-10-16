@@ -1,4 +1,4 @@
-from backend.tests.test_api import api, get, post, setup_attempt
+from backend.tests.test_api import api, assign, claim, get, post, ready, setup_attempt
 
 
 def turn_on(api, bot, token="ana-test", expected=200):
@@ -44,6 +44,33 @@ def test_a_captured_stream_is_kept_masked_and_read_only_by_owners_and_engineerin
     # Kept a week, then gone.
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE attempt_captures SET created='2000-01-01T00:00:00Z'")
+    get(api, f"attempts/{a['id']}/capture", expected=404)
+
+
+def test_a_hidden_run_is_refused_and_a_secret_removed_mid_run_or_capture_off_leaves_nothing(api):
+    r, msg, a = setup_attempt(api)
+    post(api, f"attempts/{a['id']}/started", {"thread_id": "thread"}, r["token"])
+    turn_on(api, "ops")
+    stream = {"provider": "claude", "frames": '{"dir":"out","ms":1,"frame":{"text":"Please summarize the current work."}}'}
+    post(api, f"attempts/{a['id']}/capture", stream, r["token"])
+    # An engineering bot whose run list hides this run (another person's chat with ops) cannot read its stream.
+    assign(api, r, "finance")
+    ready(api, r, ["ops", "finance"])
+    post(api, "chat/finance", {"text": "Check the numbers"})
+    finance = claim(api, r, "finance")
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET team='engineering' WHERE bot='finance'")
+    assert get(api, "bots/ops/turns", finance["token"]) == []
+    assert api.get(f"/api/v2/attempts/{a['id']}/capture",
+                   headers={"Authorization": "Bearer " + finance["token"]}).status_code in (403, 404)
+    # Turning capture off deletes what was kept.
+    revision = next(b for b in get(api, "bots") if b["slug"] == "ops")["revision"]
+    post(api, "bots/ops/definition", {"capture_stream": "off", "expected_revision": revision})
+    get(api, f"attempts/{a['id']}/capture", expected=404)
+    # A span the person takes out while the run is going: the stream handed in afterwards is not kept.
+    turn_on(api, "ops")
+    post(api, f"messages/{msg['id']}/redact", {"span": "summarize the current", "label": "removed"})
+    assert post(api, f"attempts/{a['id']}/capture", stream, r["token"])["kept"] is False
     get(api, f"attempts/{a['id']}/capture", expected=404)
 
 
