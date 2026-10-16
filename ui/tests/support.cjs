@@ -413,6 +413,21 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
     assert.deepEqual(v.errors, []);
     await v.ctx.close();
 
+    // A Setup check first, then "Want help setting up?", then Remove: still a setup request.
+    v = await visit();
+    await v.page.locator('#support-rail').waitFor();
+    await v.page.evaluate(() => talkToUs({kind: 'setup_check', title: '1 of 2 checks fail', checks: []}));
+    await v.page.locator('[data-report]').waitFor();
+    await v.page.evaluate(() => {
+      document.body.insertAdjacentHTML('beforeend', '<button type="button" data-setup-help="health">Want help setting up?</button>');
+      document.querySelector('[data-setup-help]').click();
+    });
+    await v.page.waitForFunction(() => document.querySelector('#support-message')?.value.includes("I'd like help setting up Tico."));
+    await v.page.locator('[data-unreport]').click();
+    assert.match(await v.page.locator('[data-sent]').innerText(), /message marked setup/);
+    assert.deepEqual(v.errors, []);
+    await v.ctx.close();
+
     // "How is Tico working for you?": Send files the answer as feedback, and the question goes.
     v = await visit({feedback: {moment: 'day_7', question: 'How is Tico working for you?'}});
     const ask = v.page.locator('#feedback-ask');

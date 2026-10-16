@@ -363,7 +363,8 @@
     const message = unsent.includes(starting.message.trim()) ? unsent
       : unsent ? unsent + '\n\n' + starting.message : starting.message;
     starting = null; selected = ''; viewing = true;
-    drafts.set('', draft ? {...draft, message, kind} :
+    // With a Setup check attached, the kind it gives back on Remove is now this one.
+    drafts.set('', draft ? {...draft, message, kind, ...(draft.report?.kind === 'setup_check' ? {kindBefore: kind} : {})} :
       {message, email: compose?.email || '', ids: true, diag: true, perf: 24, bundle: null, key: uid(), kind});
     renderTickets(); renderThread(true); renderComposer();
     rail.querySelector('[name=message]')?.focus();
