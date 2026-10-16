@@ -16,6 +16,10 @@ from .store import H, Problem
 from . import blob_s3
 
 
+# How long an unreachable earlier place is skipped (Blobs._open_earlier).
+EARLIER_RETRY = 300
+
+
 class Blobs:
     def __init__(self, settings, s3=None):
         self.bucket = settings.blob_bucket
@@ -36,10 +40,55 @@ class Blobs:
         self._probe_task = None
         self._s3_failed = set()
         self.copy_status = {"done": 0, "total": 0, "running": False, "error": "", "failed": 0}
+        # The server's own storage; `configure` may put a company bucket in its place.
+        self._base, self._server_sources = settings, self._sources
+        # Read-only places files may still be in: [(Location or settings, Sources)], newest first.
+        self._earlier = []
+        # {location: monotonic time} of an earlier place that failed other than "no such file": skipped for a while,
+        # so one unreachable bucket does not add its timeouts to every read.
+        self._earlier_down = {}
+        # Bumped by `configure`, so a copy or probe begun for one target never records against another.
+        self._generation = 0
+        self._loop = None
+
+    def configure(self, company=None, earlier=(), store=None, checked=False):
+        """Write to `company` ({bucket, prefix, region, keys}), or to the server's own storage when None, from now
+        on, without a restart. Files keep their bytes where they are: reads also try each of `earlier` and the
+        server's own storage. With `store`, files on this computer's disk are then copied to the new place.
+        `checked`: the company's keys were just shown to write there, so writes need not wait for the probe."""
+        target = Location(self._base, **company) if company else self._base
+        if company:
+            # A client handed in for the server's own bucket (a backup's) cannot sign for the company's.
+            self._s3 = self._probe_s3 = None
+        places = [Location(self._base, **place) for place in earlier]
+        if company and self._base.blob_bucket:
+            places.append(self._base)
+        here = location_of(target)
+        seen, readable = {here}, []
+        for place in places:
+            if place.blob_bucket and location_of(place) not in seen:
+                seen.add(location_of(place))
+                readable.append((place, blob_s3.Sources(place)))
+        with self._write_lock:
+            self.settings, self.bucket = target, target.blob_bucket
+            self._sources = blob_s3.Sources(target) if company else self._server_sources
+            if checked and company:
+                self._sources.selected = "company"
+            self._write_failed, self._write_error = False, ""
+            self._s3_failed = set()
+            self._earlier = readable
+            self._generation += 1
+        if store is not None and self._loop is not None and target.blob_bucket:
+            threading.Thread(target=self.storage_loop, args=(store, self._loop), name="tico-storage-copy", daemon=True).start()
 
     @property
     def s3(self):
         return self._s3 if self._s3 is not None else self._sources.s3
+
+    @property
+    def server_storage(self):
+        """The server's own credentials, whatever bucket company files use: for the desktop app's builds."""
+        return ServerStorage(self)
 
     def read_s3(self, operation, **options):
         if self._s3 is not None:
@@ -57,8 +106,8 @@ class Blobs:
             raise ValueError("Invalid content digest")
         return "blobs/" + digest[:2] + "/" + digest
 
-    def s3_key(self, digest):
-        prefix = self.settings.blob_prefix
+    def s3_key(self, digest, settings=None):
+        prefix = (settings or self.settings).blob_prefix
         return (prefix + "/" if prefix else "") + self.key(digest)
 
     @property
@@ -118,16 +167,17 @@ class Blobs:
             if self._write_failed or self._sources.selected is None:
                 detail = self._write_error or "S3 storage write check is still pending"
                 raise Problem("blob_storage", detail + "; retry without discarding your file", 503, True)
-            s3, kind = self._s3, self._sources.kind
-        key = self.s3_key(digest)
-        options = dict(Bucket=self.bucket, Key=key, ContentType=content_type,
+            s3, kind, sources = self._s3, self._sources.kind, self._sources
+            settings, bucket = self.settings, self.bucket
+        key = self.s3_key(digest, settings)
+        options = dict(Bucket=bucket, Key=key, ContentType=content_type,
                        CacheControl="private, max-age=31536000, immutable",
                        ContentDisposition=disposition(content_type),
                        ServerSideEncryption="AES256", Metadata={"sha256": digest})
         upload_id = None
         try:
-            s3 = s3 if s3 is not None else self._sources.client_for(kind)
-            if self._matches_s3(digest, size):
+            s3 = s3 if s3 is not None else sources.client_for(kind)
+            if self._matches_s3(digest, size, settings, bucket, sources):
                 return
             if size <= 8 * 1024 ** 2:
                 s3.put_object(**options, Body=small_body if small_body is not None else PacedReader(stream, rate_limit, stop), IfNoneMatch="*",
@@ -138,26 +188,30 @@ class Blobs:
                 paced = PacedReader(stream, rate_limit, stop)
                 while chunk := paced.read(8 * 1024 ** 2):
                     number = len(parts) + 1
-                    result = s3.upload_part(Bucket=self.bucket, Key=key, UploadId=upload_id,
+                    result = s3.upload_part(Bucket=bucket, Key=key, UploadId=upload_id,
                                                 PartNumber=number, Body=chunk)
                     parts.append({"PartNumber": number, "ETag": result["ETag"]})
-                s3.complete_multipart_upload(Bucket=self.bucket, Key=key, UploadId=upload_id,
+                s3.complete_multipart_upload(Bucket=bucket, Key=key, UploadId=upload_id,
                                                  MultipartUpload={"Parts": parts}, IfNoneMatch="*")
         except Exception as exc:
             if upload_id:
                 try:
-                    s3.abort_multipart_upload(Bucket=self.bucket, Key=key, UploadId=upload_id)
+                    s3.abort_multipart_upload(Bucket=bucket, Key=key, UploadId=upload_id)
                 except Exception:
                     pass
             if getattr(exc, "response", {}).get("Error", {}).get("Code") in ("PreconditionFailed", "412"):
-                if not self._matches_s3(digest, size):
+                if not self._matches_s3(digest, size, settings, bucket, sources):
                     raise Problem("blob_integrity", "Stored file failed its integrity check", 503) from exc
             else:
-                raise Problem("blob_storage", blob_s3.write_error(exc, self.bucket) + "; retry without discarding your file", 503, True) from exc
+                raise Problem("blob_storage", blob_s3.write_error(exc, bucket) + "; retry without discarding your file", 503, True) from exc
 
-    def _matches_s3(self, digest, size):
+    def _matches_s3(self, digest, size, settings=None, bucket=None, sources=None):
+        options = dict(Bucket=bucket or self.bucket, Key=self.s3_key(digest, settings), ChecksumMode="ENABLED")
         try:
-            head, _ = self.read_s3("head_object", Bucket=self.bucket, Key=self.s3_key(digest), ChecksumMode="ENABLED")
+            if sources is not None and self._s3 is None:
+                head = sources.read_s3("head_object", **options)[0]
+            else:
+                head, _ = self.read_s3("head_object", **options)
         except Exception as exc:
             if getattr(exc, "response", {}).get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
                 return False
@@ -206,17 +260,15 @@ class Blobs:
     def open_range(self, digest, start=0, end=None):
         """Open now (so failures precede headers); iterator closes even on disconnect."""
         key = self.key(digest)
+        span = {"Range": f"bytes={start}-{end if end is not None else ''}"} if start or end is not None else {}
         if self.bucket and digest not in self._s3_failed:
             try:
-                args = dict(Bucket=self.bucket, Key=self.s3_key(digest))
-                if start or end is not None:
-                    args["Range"] = f"bytes={start}-{end if end is not None else ''}"
-                response, _ = self.read_s3("get_object", **args)
+                response, _ = self.read_s3("get_object", Bucket=self.bucket, Key=self.s3_key(digest), **span)
                 stream = response["Body"]
             except Exception:
-                stream = self._open_local(key, start)
+                stream = self._open_elsewhere(key, digest, start, span)
         else:
-            stream = self._open_local(key, start)
+            stream = self._open_elsewhere(key, digest, start, span)
         def chunks():
             remaining = None if end is None else end - start + 1
             try:
@@ -231,6 +283,29 @@ class Blobs:
                 stream.close()
         return chunks()
 
+    def _open_elsewhere(self, key, digest, start, span):
+        """This computer's copy when there is one, else the first earlier bucket that has the file."""
+        if self._earlier and not (self.directory / key).is_file():
+            stream = self._open_earlier(digest, span)
+            if stream is not None:
+                return stream
+        return self._open_local(key, start)
+
+    def _open_earlier(self, digest, span):
+        """The body from the first earlier place that has the file, or None."""
+        for place, sources in self._earlier:
+            where = location_of(place)
+            if time.monotonic() - self._earlier_down.get(where, -EARLIER_RETRY) < EARLIER_RETRY:
+                continue
+            try:
+                return sources.read_s3("get_object", Bucket=place.blob_bucket, Key=self.s3_key(digest, place), **span)[0]["Body"]
+            except Exception as exc:
+                # Any answer from S3 means the bucket is reachable: without s3:ListBucket a missing file is
+                # AccessDenied, not NoSuchKey. Only a failure to get an answer (timeout, endpoint) marks it down.
+                if getattr(exc, "response", None) is None:
+                    self._earlier_down[where] = time.monotonic()
+        return None
+
     def _open_local(self, key, start):
         try:
             stream = (self.directory / key).open("rb")
@@ -240,23 +315,27 @@ class Blobs:
             raise Problem("blob_storage", "Stored file is unavailable; check S3 access and retained local copies", 503, True) from exc
 
     def storage_loop(self, store, stop, retry_interval=30 * 60):
+        # `configure` starts a fresh loop for a new target; this one ends when the target changes.
+        self._loop = stop
+        generation = self._generation
         self.copy_local(store, stop)
-        while self._write_failed and not stop.wait(retry_interval):
+        while self._write_failed and not stop.wait(retry_interval) and generation == self._generation:
             self.copy_local(store, stop)
 
     def copy_local(self, store, stop, interval=0.25):
         if not self.bucket or self.rehearsal or stop.is_set():
             return
-        if not self.check_write(store, stop):
+        generation, location = self._generation, self.location
+        if not self.check_write(store, stop) or generation != self._generation:
             return
         with store.read() as c:
             rows = list(c.execute("SELECT digest,MAX(content_type) AS content_type FROM blobs GROUP BY digest"))
-            known = {r[0] for r in c.execute("SELECT digest FROM blob_locations WHERE bucket=?", (self.location,))}
+            known = {r[0] for r in c.execute("SELECT digest FROM blob_locations WHERE bucket=?", (location,))}
         rows = [r for r in rows if r["digest"] not in known and (self.directory / self.key(r["digest"])).is_file()]
         self.copy_status.update(done=0, total=len(rows), running=bool(rows), error="", failed=0)
         self._copy_health(store)
         for row in rows:
-            if stop.is_set():
+            if stop.is_set() or generation != self._generation:
                 break
             try:
                 path = self.directory / self.key(row["digest"])
@@ -268,12 +347,14 @@ class Blobs:
                     self._upload(source, digest, path.stat().st_size, row["content_type"],
                                  rate_limit=8 * 1024 ** 2 if interval else 0, stop=stop)
                 self.verify_s3(digest, rate_limit=8 * 1024 ** 2 if interval else 0, stop=stop)
+                if generation != self._generation:
+                    break
                 with store.transaction() as c:
-                    c.execute("INSERT OR REPLACE INTO blob_locations VALUES(?,?,?)", (digest, self.location, H.now()))
+                    c.execute("INSERT OR REPLACE INTO blob_locations VALUES(?,?,?)", (digest, location, H.now()))
                 self._s3_failed.discard(row["digest"])
                 self.copy_status["done"] += 1
             except Exception as exc:
-                if stop.is_set():
+                if stop.is_set() or generation != self._generation:
                     break
                 self.copy_status["failed"] += 1
                 self._s3_failed.add(row["digest"])
@@ -290,9 +371,11 @@ class Blobs:
         if stop is not None and stop.is_set():
             return False
         with self._probe_lock:
-            if self._probe_task is None or self._probe_task[0].is_set():
+            if self._probe_task is None or self._probe_task[0].is_set() or self._probe_task[3] != self._generation:
+                if self._probe_task is not None:
+                    self._probe_task[2].set()
                 done, errors, cancel = threading.Event(), [], threading.Event()
-                self._probe_task = done, errors, cancel
+                self._probe_task = done, errors, cancel, self._generation
                 class ProbeStop:
                     def is_set(self):
                         return cancel.is_set() or (stop is not None and stop.is_set())
@@ -304,7 +387,7 @@ class Blobs:
                     finally:
                         done.set()
                 threading.Thread(target=probe, name="tico-storage-probe", daemon=True).start()
-            done, errors, cancel = self._probe_task
+            done, errors, cancel, _ = self._probe_task
         deadline = time.monotonic() + timeout
         while not done.wait(0.05):
             if stop is not None and stop.is_set():
@@ -332,19 +415,24 @@ class Blobs:
 
         if stop is not None and stop.is_set():
             return
+        # One target throughout, even if `configure` replaces it meanwhile.
+        with self._write_lock:
+            generation, settings, sources, bucket = self._generation, self.settings, self._sources, self.bucket
+            location = self.location
         with store.read() as c:
             row = c.execute("SELECT detail_json FROM service_health WHERE service='blob-s3'").fetchone()
         previous = json.loads(row["detail_json"] or "{}") if row else {}
-        # Retain at most one unfinished probe; retry cleanup before creating another.
-        pending = previous if previous.get("upload_id") else {}
+        # Retain at most one unfinished probe; retry cleanup before creating another. One left in a bucket
+        # this server no longer writes to is not this target's to clean up (its keys may not reach it).
+        pending = previous if previous.get("upload_id") and previous.get("location", location) == location else {}
         error = ""
-        candidates = [self._sources.kind] if self._probe_s3 is not None else blob_s3.kinds(self.settings)
+        candidates = [sources.kind] if self._probe_s3 is not None else blob_s3.kinds(settings)
         for kind in candidates:
             if stop is not None and stop.is_set():
                 return
             client = None
             try:
-                client = self._probe_s3 or blob_s3.client(self.settings, kind=kind, config=Config(
+                client = self._probe_s3 or blob_s3.client(settings, kind=kind, config=Config(
                     connect_timeout=5, read_timeout=10, retries={"max_attempts": 2}))
                 if stop is not None and stop.is_set():
                     return
@@ -356,37 +444,40 @@ class Blobs:
                             raise
                     pending = {}
                 if stop is not None and stop.is_set():
-                    self._write_health(store, pending, self._write_error)
+                    self._write_health(store, pending, self._write_error, location, sources)
                     return
-                key = self.s3_key(hashlib.sha256(b"Tico storage write check").hexdigest())
-                result = client.create_multipart_upload(Bucket=self.bucket, Key=key, ServerSideEncryption="AES256")
-                pending = {"bucket": self.bucket, "key": key, "upload_id": result["UploadId"]}
-                self._write_health(store, pending, self._write_error or "S3 storage write check is still pending")
+                key = self.s3_key(hashlib.sha256(b"Tico storage write check").hexdigest(), settings)
+                result = client.create_multipart_upload(Bucket=bucket, Key=key, ServerSideEncryption="AES256")
+                pending = {"bucket": bucket, "key": key, "upload_id": result["UploadId"]}
+                self._write_health(store, pending, self._write_error or "S3 storage write check is still pending", location, sources)
                 if stop is not None and stop.is_set():
                     return
-                client.abort_multipart_upload(Bucket=self.bucket, Key=key, UploadId=pending["upload_id"])
+                client.abort_multipart_upload(Bucket=bucket, Key=key, UploadId=pending["upload_id"])
                 pending = {}
                 if stop is not None and stop.is_set():
-                    self._write_health(store, pending, self._write_error)
+                    self._write_health(store, pending, self._write_error, location, sources)
                     return
                 with self._write_lock:
-                    self._sources.selected = kind
-                    self._write_failed = False
-                    self._write_error = ""
+                    sources.selected = kind
+                    if generation == self._generation:
+                        self._write_failed = False
+                        self._write_error = ""
                 error = ""
                 break
             except Exception as exc:
-                error = blob_s3.write_error(exc, pending.get("bucket", self.bucket), cleanup=bool(pending))
+                error = blob_s3.write_error(exc, pending.get("bucket", bucket), cleanup=bool(pending))
             finally:
                 if client is not None and self._probe_s3 is None:
                     client.close()
         with self._write_lock:
+            if generation != self._generation:
+                return
             self._write_failed = bool(error)
             self._write_error = error
-        self._write_health(store, pending, error)
+        self._write_health(store, pending, error, location, sources)
 
-    def _write_health(self, store, pending, error):
-        detail = {**pending, "location": self.location, "error": error, "credentials": self._sources.kind}
+    def _write_health(self, store, pending, error, location=None, sources=None):
+        detail = {**pending, "location": location or self.location, "error": error, "credentials": (sources or self._sources).kind}
         with self._health_lock, store.transaction() as c:
             c.execute("INSERT INTO service_health(service,last_success,last_error,detail_json) VALUES(?,?,?,?) "
                       "ON CONFLICT(service) DO UPDATE SET last_success=excluded.last_success,last_error=excluded.last_error,detail_json=excluded.detail_json",
@@ -451,3 +542,43 @@ class PacedReader:
 
     def tell(self):
         return self.source.tell()
+
+
+def location_of(settings):
+    return settings.blob_bucket + ("/" + settings.blob_prefix if settings.blob_prefix else "")
+
+
+class Location:
+    """The server's settings with a company's own bucket, region and keys (backend/company_storage.py) in place of
+    its storage settings; everything else reads through to the server's."""
+    def __init__(self, base, bucket, prefix="", region="", keys=None):
+        self._base = base
+        self.blob_bucket, self.blob_prefix, self.blob_region = bucket, prefix, region
+        self.blob_endpoint, self.blob_credentials, self.blob_keys = "", "company", keys
+
+    def __getattr__(self, name):
+        return getattr(self._base, name)
+
+    def __repr__(self):
+        return f"Location({location_of(self)!r})"
+
+
+class ServerStorage:
+    """A Blobs' read access with the server's own credentials (backend/downloads.py), shared with its write probe
+    while no company bucket is set."""
+    def __init__(self, blobs):
+        self.blobs = blobs
+
+    @property
+    def s3(self):
+        return self.blobs._s3 if self.blobs._s3 is not None else self.blobs._server_sources.s3
+
+    def read_s3(self, operation, **options):
+        if self.blobs._s3 is not None:
+            return getattr(self.blobs._s3, operation)(**options), self.blobs._s3
+        return self.blobs._server_sources.read_s3(operation, **options)
+
+    def presign_get(self, s3, bucket, key, expires):
+        if self.blobs._s3 is not None:
+            return s3.generate_presigned_url("get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=expires)
+        return self.blobs._server_sources.presign_get(s3, bucket, key, expires)

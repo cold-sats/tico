@@ -96,6 +96,7 @@ Timestamps are ISO-8601 UTC text (`2026-09-15T21:40:12.931675Z`); compare them w
 | `kpi_definitions` | `kpi_id, version, ts, actor, name, definition, unit, direction, cadence, source_note` | every version of a KPI's definition |
 | `goal_checkins` | `goal_id, kpi_id, ts, author, source_actor, body, signal` | the owner's own words on how a goal is going; `signal`: on_track, at_risk, off_track |
 | `goal_proposals` | `id, kind, goal_id, kpi_id, payload_json, reason, proposed_by, proposed_at, status, decided_by, decided_at` | a change waiting for its owner to confirm |
+| `goal_asks` | `kind, ref, owner, task_id, created` | the Goal Manager's task asking a person about a KPI or proposal; `kind`: kpi_red, kpi_stale, proposal; `ref`: the KPI or proposal id |
 | `task_delegations` | `task_id, delegate, requested_by, message_id, expires` | |
 | `approvals` | `id, kind, task_id, message_id, payload_json, requested_by, decided_by, decision, decided_at, consumed_at, created` | `kind`: send, spend, publish, merge |
 | `jobs` | `id, message_id, bot, state, created, attempt_id` | one per message a bot has to act on; `state`: queued, leased, running, input, completed, failed, uncertain, cancelled |

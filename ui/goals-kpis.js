@@ -511,7 +511,11 @@ function goalsRender(state) {
     li.onkeydown = ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open(); } };
   }
   const needs = body.querySelector('#goal-needs');
-  if (needs) { bindKpiLines(needs); bindProposals(needs, () => goalsReload(state)); }
+  if (needs) {
+    bindKpiLines(needs); bindProposals(needs, () => goalsReload(state));
+    // The task link opens the task, not the KPI its row opens.
+    for (const a of needs.querySelectorAll('[data-need-task]')) { a.onclick = ev => ev.stopPropagation(); a.onkeydown = ev => ev.stopPropagation(); }
+  }
 }
 async function goalsReload(state) {
   await goalsRefresh();
@@ -690,12 +694,14 @@ function goalPanelRender(state) {
 }
 
 // ---------------------------------------------------------------- Needs you
+// Each item is a Goal Manager task for the caller (backend/goal_asks.py), the same one Tasks and Decide show: linked.
+const needTaskLink = it => it.task ? `<a class="need-task muted" href="#/task/${esc(it.task.id)}" data-need-task>Task</a>` : '';
 function goalNeedsHtml(items) {
   if (!items?.length) return '';
   const rows = items.map(it => {
-    if (it.kind === 'proposal') return proposalHtml({...it.proposal, may_decide: true}, it.kpi_name || it.goal_title || '');
+    if (it.kind === 'proposal') return proposalHtml({...it.proposal, may_decide: true}, it.kpi_name || it.goal_title || '').replace(/<\/li>$/, `${needTaskLink(it)}</li>`);
     const red = it.kind === 'kpi_red';
-    return `<li class="need-row" data-kpi="${esc(it.kpi_id)}" tabindex="0" role="button">${gdot(red ? 'red' : 'gray')}<span class="need-text"><b>${esc(it.kpi_name)}</b>${red ? ` on ${esc(it.goal_title)}` : ''}<span class="muted">: ${esc(it.reason)}</span></span></li>`;
+    return `<li class="need-row" data-kpi="${esc(it.kpi_id)}" tabindex="0" role="button">${gdot(red ? 'red' : 'gray')}<span class="need-text"><b>${esc(it.kpi_name)}</b>${red ? ` on ${esc(it.goal_title)}` : ''}<span class="muted">: ${esc(it.reason)}</span></span>${needTaskLink(it)}</li>`;
   }).join('');
   return `<section class="gt-needs" id="goal-needs" aria-label="Needs you"><div class="gt-needs-h">Needs you<span class="cnt tnum">${items.length}</span></div><ul>${rows}</ul></section>`;
 }

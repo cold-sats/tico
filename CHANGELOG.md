@@ -8,6 +8,28 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- Company cloud storage: the owner can store the company's files in its own S3 bucket from **Settings › Storage**
+  (bucket, region, folder, access keys). Tico writes and reads back a check object before saving, seals the secret
+  key with the credential key and never shows it again. New files go to the bucket at once, with no restart; files
+  already stored keep opening from where they are, and files on the server's disk are copied in. See docs/files.md,
+  "A company's own bucket".
+- An HTML file opens in the file viewer and a task's Files as it looks, with **Download** beside it. It shows in a
+  sandboxed frame that cannot act as you: no scripts, forms or plugins, no Tico cookies or storage, and nothing loaded
+  from the network (pictures embedded in the file show; remote ones do not). Its links open in a new tab. A link to a
+  web page ending in .html still opens as a link.
+- A new Docker runner offers its screen: `install.sh --runner`, `tico setup runner` and the cloud-init template write
+  `TICO_SCREEN=1` unless given `--no-screen` (cloud-init: `TICO_SCREEN=0`). The first time a new computer offers a screen, its
+  **Screen** setting starts at **View**; **Control** is one click away in Settings > Computers. A runner installed before
+  keeps its `.env` and its Screen setting as they are, and a Screen setting someone already chose stays.
+- Goals: what needs a person is a task from the Goal Manager, so it shows in Tasks and Decide as well as under
+  **Needs you** on the Goals page, where each line links to it. A KPI off track asks the goal's owner, a KPI whose
+  reading is out of date asks its owner, and a proposal asks whoever decides it; one task each, never two. It closes by
+  itself once a fresh reading is logged, the KPI is back on track or the proposal is decided.
+- Tico HQ's update check carries a short message for given versions, shown once to each person in the app, and the known
+  issues by version, which Help lists as **Known issues in your version** (or says it could not check). Nothing more is sent
+  or collected. An install too old to show a message gets its link as the **View changelog** link instead: on 0.2,
+  "You're on 0.2: update to get one-tap support". A request linked to the issue or pull request that fixes it
+  (`hq-tickets link`) gets "Fixed in vX, update here" by itself when the release ships.
 - **Run workflows** on a bot's chosen write repository (Settings, `hub bot repos ... owner/repo:write+actions`, the
   repositories API): an Owner or admin lets the bot start, rerun and cancel GitHub Actions runs there. Those
   repositories get their own token with Actions: write once the GitHub App has Actions set to Read and write and the
@@ -123,6 +145,9 @@ All notable changes to Tico are recorded here. The format follows
   ranked roadmap view, and requesters (Requested by) on tasks.
 
 ### Changed
+- `release_checks.py --release` can run one slice of the gate (`--part product|browser|python`, `--shard K/N` for
+  balanced Python test groups), ready for Release validation to run in parallel jobs. Without them it runs the whole
+  gate as before.
 - Help is about a quarter of its old length on every screen: what Tico is, where to start (your first result, the tour,
   the Assistant) and how to get help, with links to the docs. The map, Who does what, the agent platforms and the
   glossary moved to [How Tico works](docs/how-it-works.md) and the [Glossary](docs/glossary.md).
@@ -138,6 +163,14 @@ All notable changes to Tico are recorded here. The format follows
   stores and logs no token. The grant on the computer keeps no secret.
 
 ### Fixed
+- Another bot's turn in a task's room (the requester answering there, say) no longer ends the task owner's goal:
+  each one used to clear the goal, start a "/goal clear" run for the owner and set the goal again on its next turn.
+  Handing a task to someone else now ends the goal Tico set for its old bot owner, including when a person takes it.
+- Desktop app: a link that opens a new tab (every link in chat and Markdown) did nothing; it now opens in the default
+  browser, and a Markdown email link opens the mail app. The team's own files and run logs open in an app window,
+  which keeps the app's sign-in; a file the app cannot show (Word, Excel, zip) downloads to Downloads instead
+  (on macOS and Windows the empty window then closes; on Linux it stays open).
+  A PDF's **Open** is hidden in the app; the PDF shows in the viewer and downloads.
 - Linking a pull request whose URL differs only in owner or repository case (or a trailing slash) reuses
   the task's existing link for it, so arming or disarming `--wake-once` acts on that one link instead of adding a second.
 - A company's desktop app installs its updates again. The server signed the update download for S3 in an older

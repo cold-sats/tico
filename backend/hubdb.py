@@ -655,6 +655,15 @@ CREATE TABLE IF NOT EXISTS task_check_models (
   harness TEXT NOT NULL, effort TEXT NOT NULL DEFAULT '', role TEXT NOT NULL, created_by TEXT, created TEXT);
 """
 
+# What the Goal Manager has asked a person on the Goals page's behalf (backend/goal_asks.py): one row per
+# KPI or proposal, kind and person, naming the task that asks it; append to preserve existing installations.
+GOAL_ASKS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS goal_asks (
+  kind TEXT NOT NULL, ref TEXT NOT NULL, owner TEXT NOT NULL, task_id TEXT NOT NULL, created TEXT NOT NULL,
+  PRIMARY KEY (kind, ref, owner));
+CREATE INDEX IF NOT EXISTS goal_asks_task ON goal_asks(task_id);
+"""
+
 MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes user_version from i
               MEETING_BRAIN_SCHEMA, MEETING_COMMENTS_SCHEMA,  # to i+1; append, never edit
               GOALS_SCHEMA, RECORDING_SOURCES_SCHEMA, MARKET_SCHEMA,
@@ -664,7 +673,7 @@ MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes us
               USAGE_SEGMENTS_SCHEMA, KPI_ARCHIVE_SCHEMA, WAITING_ON_SCHEMA,
               LIVE_MEETINGS_SCHEMA, LIVE_MEETINGS_ROUTING_LIMITS_SCHEMA,
               LIVE_MEETINGS_CHAT_ROUTING_SCHEMA, TASK_RELATIONS_SCHEMA, TRIGGERS_SCHEMA,
-              TRIGGER_SIGNING_SCHEMA, CHECK_MODELS_SCHEMA]
+              TRIGGER_SIGNING_SCHEMA, CHECK_MODELS_SCHEMA, GOAL_ASKS_SCHEMA]
 
 
 class Refused(Exception):
@@ -4157,6 +4166,13 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         sets.append("owner=:owner")
         args["owner"] = new_owner
         _task_event(conn, task_id, actor, "owner", row["owner"], new_owner, note or "")
+        if new_owner != row["owner"] and is_bot(row["owner"]) and row.get("conversation_id"):
+            # The goal Tico set for the old owner ends with its ownership: only the owner's turns end a task goal,
+            # and a person owner has none to end it. A new bot owner's first turn sets its own.
+            from .chat_goals import clear_task_goal
+            room = conversation(conn, row["conversation_id"])
+            if room:
+                clear_task_goal(conn, room)
         if new_owner != row["owner"] and rank is None:
             rank = _queue_end(conn, new_owner)      # the bottom of the new queue
     if rank is not None:

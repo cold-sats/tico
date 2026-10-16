@@ -645,6 +645,8 @@ class Store:
             c.executescript(_bot_tools.SCHEMA)
             from . import mail_settings as _mail_settings
             c.executescript(_mail_settings.SCHEMA)
+            from . import company_storage as _company_storage
+            c.executescript(_company_storage.SCHEMA)
             from . import google_connect as _google_connect
             _google_connect.ensure_schema(c)
             from . import support as _support
@@ -677,6 +679,9 @@ class Store:
                 H.add_column(c, "runners", "accepts_member_bots", "INTEGER NOT NULL DEFAULT 0")
                 # Who may open a computer's screen from the app: off, view or control (backend/screen.py).
                 H.add_column(c, "runners", "screen", "TEXT NOT NULL DEFAULT 'off'")
+                # 1 on a computer enrolled since Screen started at View, until its first screen offer or a person's
+                # choice; computers that existed before keep what they had.
+                H.add_column(c, "runners", "screen_default_pending", "INTEGER NOT NULL DEFAULT 0")
                 # Performance diagnostics: on unless a person turns them off (backend/performance.py).
                 H.add_column(c, "runners", "performance", "TEXT NOT NULL DEFAULT 'on'")
                 # A starter bot is `needs_onboarding` until it says its setup is done, then

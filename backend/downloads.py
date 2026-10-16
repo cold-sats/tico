@@ -251,7 +251,8 @@ class Downloads:
 
 
 def install_downloads(app, store):
-    downloads = Downloads(store.settings, s3_source=app.state.blobs)
+    # App builds stay in the server's bucket, read with its keys, when company files use another.
+    downloads = Downloads(store.settings, s3_source=app.state.blobs.server_storage)
     app.state.downloads = downloads
 
     @app.get("/download/latest.json")

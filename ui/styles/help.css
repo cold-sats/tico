@@ -102,3 +102,4 @@
 .help-setup-list{list-style:none;margin:8px 0;padding:0;display:grid;gap:6px}
 .help-setup-head{font-weight:600;margin:0}
 .help-setup-fix{color:var(--ink);font-size:var(--t-sm)}
+.help-known-issues ul{margin:0;padding-left:20px;line-height:1.5}.help-ki-none{margin:0 2px;color:var(--muted)}.help-ki-fixed{color:var(--muted);font-size:var(--t-sm)}

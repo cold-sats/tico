@@ -61,7 +61,8 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--label", dest="runner_label", help="runner: the computer's name in Tico")
     p.add_argument("--runner-tag", default="latest", help="runner: the release (vX.Y.Z) whose install.sh and images the runner uses; default is the latest")
     p.add_argument("--rejoin", action="store_true", help="runner: replace an existing runner container on the box")
-    p.add_argument("--screen", action="store_true", help="runner: offer the computer's screen to the web app (TICO_SCREEN=1)")
+    p.add_argument("--screen", action=argparse.BooleanOptionalAction, default=True,
+                   help="runner: offer the computer's screen to the web app (TICO_SCREEN=1, the default; --no-screen turns it off)")
     p.add_argument("--runner", action="store_true", help="doctor: also check the runners this machine set up")
     p.add_argument("--backup", choices=list(bk.CHOICES), help="where backups go: aws (create an S3 bucket), r2 (create an R2 bucket), "
                    "existing (--backup-url), local (this server only). Default: aws on the AWS target, else local")

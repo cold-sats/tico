@@ -184,6 +184,7 @@ class Tickets:
 
     def __init__(self, db, now=utcnow, clock=time.monotonic):
         self.db, self.now = db, now
+        self.on_release = None   # called with a ticket id when a person releases it from the spam hold
         with db.lock:
             db.conn.execute("PRAGMA secure_delete=ON")       # a deleted ticket's text is overwritten, not just unlinked
             db.conn.executescript(SCHEMA)
@@ -338,6 +339,8 @@ class Tickets:
                                  (ticket_id, moment, row["verdict"], verdict, note[:200]))
             self.db.conn.execute("UPDATE tickets SET verdict=?, verdict_reason=?, held=?, updated=? WHERE ticket_id=?",
                                  (verdict, ("corrected by staff: " + note)[:200] if note else "corrected by staff", held, moment, ticket_id))
+        if row["held"] and not held and self.on_release:
+            self.on_release(ticket_id)          # notices.py: a fixed-in notice it missed while held
         return {"ticket_id": ticket_id, "verdict": verdict, "held": bool(held), "was": row["verdict"]}
 
     def show(self, ticket_id):
@@ -428,7 +431,8 @@ async def read_json(request, limit):
 
 def install(app, tickets, address, staff_key="", judge=None):
     """Add the routes. `address(request)` is who is asking, for the rate limits only. `judge(text) -> (verdict, reason)`
-    classifies what arrives (judge.py); it never raises, and without one every verdict is `unchecked`."""
+    classifies what arrives (judge.py); it never raises, and without one every verdict is `unchecked`. Returns the
+    staff key check, for the other staff routes (notices.py)."""
     key_digest = digest(staff_key) if staff_key else ""
     judge = judge or (lambda text: ("unchecked", "no judge"))
 
@@ -640,3 +644,5 @@ def install(app, tickets, address, staff_key="", judge=None):
             return no_store({"verdict": "unchecked", "reason": "the daily judge limit is reached"})
         verdict, reason = await run_in_threadpool(judge, data["text"][:MAX_JUDGED])
         return no_store({"verdict": verdict if verdict in VERDICTS else "unchecked", "reason": reason})
+
+    return staff_only

@@ -253,11 +253,13 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
     // Help is short: what Tico is, where to start and how to get help, with the map and the rest in the docs.
     const help = await page.evaluate(() => ({
       items: [...document.querySelectorAll('.help-essentials li strong')].map(el => el.textContent),
+      setup: document.querySelectorAll('.help-essentials [data-setup-check]').length,
       docs: [...document.querySelectorAll('.help-essentials a')].map(a => a.getAttribute('href').split('/docs/')[1]),
       map: document.querySelectorAll('#help-map, .help-who').length,
       fits: document.documentElement.scrollWidth <= innerWidth,
     }));
-    assert.deepEqual(help.items, ['Start', 'Get help', 'Setup check', 'Learn more']);
+    assert.deepEqual(help.items, ['Start', 'Get help', 'Learn more']);
+    assert.equal(help.setup, 1, 'Setup check is on Help');
     assert.deepEqual(help.docs, ['how-it-works.md', 'glossary.md', 'connect-an-agent.md', 'README.md']);
     assert.equal(help.map, 0);
     assert.equal(help.fits, true);

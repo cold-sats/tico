@@ -13,6 +13,11 @@ docker/side-jobs-smoke.sh and `scripts/journey-test.sh --release` (install the p
 candidate, roll back a migrating update). The journey starts installing the previous release while the images build. Each check gets its own Docker names and smoke a free host port, so they run
 side by side; two release checks must not run at once, since the journey's candidate tags are fixed.
 
+`--part product|python|browser` runs one slice of the same gate so the hosted Release validation workflow can
+spread it over several VMs: `product` is the journey, image builds, smoke, side-jobs and Docker isolation; `python`
+is the Python tests (with `--shard K/N`, the Kth of N file groups balanced by test count); `browser` is every browser
+test. Without `--part` the whole gate runs on this machine, as before.
+
 Use the test environment's Python to invoke this script. The release gate defaults to half the CPU count in
 Python workers (at least one); the browser runner selects free-core concurrency and load-scaled timeouts.
 TICO_PYTHON_WORKERS, TICO_UI_JOBS and TICO_UI_SLOWDOWN override those defaults.
@@ -99,6 +104,45 @@ class Check:
         return '\n'.join(self.log.read_text(errors='replace').splitlines()[-lines:])
 
 
+ISOLATION_FILE = 'runner/tests/test_isolation_docker.py'
+PARTS = ('product', 'python', 'browser')
+
+
+def parse_shard(text):
+    """'K/N' with 1 <= K <= N, as two integers."""
+    match = re.fullmatch(r'([1-9]\d*)/([1-9]\d*)', text or '')
+    if not match or int(match.group(1)) > int(match.group(2)):
+        raise argparse.ArgumentTypeError('--shard must be K/N with 1 <= K <= N')
+    return int(match.group(1)), int(match.group(2))
+
+
+def shard_files(index, total, env):
+    """The test files of shard `index` of `total`: every file the release Python step collects, grouped so each
+    shard holds about the same number of tests (largest file first, into the lightest shard). Deterministic, so the
+    N shards together cover each collected file exactly once."""
+    result = subprocess.run([sys.executable, '-m', 'pytest', '--collect-only', '-q', '-n', '0',
+                             '-m', 'slow or not slow', f'--ignore={ISOLATION_FILE}'],
+                            cwd=ROOT, env=env, capture_output=True, text=True)
+    if result.returncode:
+        print(result.stdout[-4000:] + result.stderr[-4000:], flush=True)
+        raise RuntimeError(f'test collection failed (exit {result.returncode})')
+    counts = {}
+    for line in result.stdout.splitlines():
+        if '::' in line and not line.startswith(' '):
+            name = line.split('::', 1)[0]
+            counts[name] = counts.get(name, 0) + 1
+    if len(counts) < total:
+        raise RuntimeError(f'{len(counts)} test files cannot fill {total} shards')
+    loads, groups = [0] * total, [[] for _ in range(total)]
+    for name in sorted(counts, key=lambda name: (-counts[name], name)):
+        lightest = min(range(total), key=lambda i: (loads[i], i))
+        loads[lightest] += counts[name]
+        groups[lightest].append(name)
+    print(f'Python shard {index}/{total}: {len(groups[index - 1])} files, {loads[index - 1]} of '
+          f'{sum(loads)} tests', flush=True)
+    return sorted(groups[index - 1])
+
+
 def phase_table(checks, started, not_run=()):
     print('\n| Phase | Start offset (s) | Duration (s) | Exit |\n'
           '| --- | ---: | ---: | --- |', flush=True)
@@ -109,31 +153,45 @@ def phase_table(checks, started, not_run=()):
 
 
 def release(args):
+    part, shard = getattr(args, 'part', None), getattr(args, 'shard', None)
+    runs = lambda name: part in (None, name)
     started, initial_load = time.monotonic(), load()
     commit = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
     logs = Path(tempfile.mkdtemp(prefix='tico-release-check-'))
     ready = logs / 'images-ready'
     base_env = {**os.environ, 'DOCKER_BUILDKIT': '1'}
-    workers = str(max(1, int(os.environ.get('TICO_PYTHON_WORKERS', max(1, (os.cpu_count() or 2) // 2)))))
+    # Alone on its VM the Python slice can use every core; beside builds and browsers, half of them.
+    default_workers = (os.cpu_count() or 2) if part == 'python' else max(1, (os.cpu_count() or 2) // 2)
+    workers = str(max(1, int(os.environ.get('TICO_PYTHON_WORKERS', default_workers))))
     test_env = {**base_env, 'TICO_PYTHON': sys.executable}
-    print(f'Release check: candidate {CANDIDATE} from {commit[:7]}; logs in {logs}', flush=True)
+    scope = '' if part is None else f'; part {part}' + (f' {shard[0]}/{shard[1]}' if shard else '')
+    print(f'Release check: candidate {CANDIDATE} from {commit[:7]}{scope}; logs in {logs}', flush=True)
 
-    journey_env = {**base_env, 'TICO_JOURNEY_IMAGES_READY': str(ready)}
-    journey_cmd = ['bash', 'scripts/journey-test.sh', '--release'] + (['--previous', args.previous] if args.previous else [])
-    checks = [Check('journey', journey_cmd, logs, journey_env)]   # installs the previous release while the images build
+    builds, checks, built, not_run = [], [], True, ()
+    if runs('product'):
+        journey_env = {**base_env, 'TICO_JOURNEY_IMAGES_READY': str(ready)}
+        journey_cmd = ['bash', 'scripts/journey-test.sh', '--release'] + (['--previous', args.previous] if args.previous else [])
+        checks.append(Check('journey', journey_cmd, logs, journey_env))   # installs the previous release while the images build
 
-    builds = [Check(f'build-{target}', ['docker', 'build', '-q', '--target', target,
-                                        '--build-arg', f'TICO_VERSION={CANDIDATE}', '--build-arg', f'TICO_COMMIT={commit}',
-                                        '--build-arg', f'TICO_REPOSITORY={os.environ.get("TICO_JOURNEY_REPOSITORY", "ticoteam/tico")}',
-                                        '-t', f'{published}:{CANDIDATE}', '-t', f'{local}:local', '.'], logs, base_env)
-              for target, published, local in IMAGES]
-    build_codes = [build.join() for build in builds]  # wait for every build, including after a failed one
-    built = all(code == 0 for code in build_codes)
-    ready.write_text('ok' if built else 'failed')
-    checks.append(Check('all-python', [sys.executable, '-m', 'pytest', '-q', '-n', workers, '-m', 'slow or not slow',
-                                      '--ignore=runner/tests/test_isolation_docker.py'], logs, test_env, tests=True))
-    checks.append(Check('all-browser', ['node', 'scripts/ui-tests.cjs', '--all'], logs, test_env))
-    if built:
+        builds = [Check(f'build-{target}', ['docker', 'build', '-q', '--target', target,
+                                            '--build-arg', f'TICO_VERSION={CANDIDATE}', '--build-arg', f'TICO_COMMIT={commit}',
+                                            '--build-arg', f'TICO_REPOSITORY={os.environ.get("TICO_JOURNEY_REPOSITORY", "ticoteam/tico")}',
+                                            '-t', f'{published}:{CANDIDATE}', '-t', f'{local}:local', '.'], logs, base_env)
+                  for target, published, local in IMAGES]
+        build_codes = [build.join() for build in builds]  # wait for every build, including after a failed one
+        built = all(code == 0 for code in build_codes)
+        ready.write_text('ok' if built else 'failed')
+    if runs('python'):
+        python_cmd = [sys.executable, '-m', 'pytest', '-q', '-n', workers, '-m', 'slow or not slow',
+                      f'--ignore={ISOLATION_FILE}']
+        name = 'all-python'
+        if shard:
+            python_cmd += shard_files(shard[0], shard[1], test_env)
+            name = f'python-{shard[0]}-of-{shard[1]}'
+        checks.append(Check(name, python_cmd, logs, test_env, tests=True))
+    if runs('browser'):
+        checks.append(Check('all-browser', ['node', 'scripts/ui-tests.cjs', '--all'], logs, test_env))
+    if runs('product') and built:
         local_env = {**base_env, 'TICO_IMAGE': 'tico-rc', 'TICO_TAG': 'local', 'TICO_RUNNER_IMAGE': 'tico-rc-runner',
                      'TICO_UPDATER_IMAGE': 'tico-rc-updater'}
         checks.append(Check('smoke', ['bash', 'docker/smoke.sh'], logs,
@@ -141,16 +199,17 @@ def release(args):
         checks.append(Check('side-jobs', ['bash', 'docker/side-jobs-smoke.sh'], logs,
                             {**local_env, 'TICO_SIDEJOBS_NAME': 'tico-rc-sidejobs'}))
         checks.append(Check('isolation', [sys.executable, '-m', 'pytest', '-q', '-n', workers, '-m', 'slow or not slow',
-                                         'runner/tests/test_isolation_docker.py'], logs,
+                                         ISOLATION_FILE], logs,
                             {**test_env,
                              'TICO_RUNNER_TEST_IMAGE': f"{local_env['TICO_RUNNER_IMAGE']}:{local_env['TICO_TAG']}"},
                             tests=True))
-    else:
+    elif runs('product'):
         print('  isolation: not run (candidate image builds failed)', flush=True)
+        not_run = ('smoke', 'side-jobs', 'isolation')
     failed = [check for check in builds + checks if check.join() != 0]
     for check in failed:
         print(f'\n--- {check.name} (last lines of {check.log}) ---\n{check.tail()}', flush=True)
-    phase_table(builds + checks, started, () if built else ('smoke', 'side-jobs', 'isolation'))
+    phase_table(builds + checks, started, not_run)
     elapsed = time.monotonic() - started
     verdict = 'failed' if failed else 'passed' if elapsed < BUDGET_SECONDS else 'passed, over budget'
     print(f'Release check {verdict}: {elapsed:.0f}s / {BUDGET_SECONDS}s; load {initial_load} -> {load()}', flush=True)
@@ -161,7 +220,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     parser.add_argument('--release', action='store_true', help='every test and the whole-product checks (the release gate)')
     parser.add_argument('--previous', help='with --release: the release the journey upgrades from (default: newest tag)')
+    parser.add_argument('--part', choices=PARTS, help='with --release: run only this slice of the gate')
+    parser.add_argument('--shard', type=parse_shard, help='with --part python: run file group K of N (K/N)')
     args = parser.parse_args()
+    if (args.part or args.shard) and not args.release:
+        parser.error('--part and --shard need --release')
+    if args.shard and args.part != 'python':
+        parser.error('--shard needs --part python')
     return release(args) if args.release else full()
 
 
