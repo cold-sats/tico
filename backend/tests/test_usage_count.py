@@ -29,10 +29,10 @@ def counting(api):
     return api.app.state.census
 
 
-def complete_a_bot_turn(api, when):
+def complete_a_bot_turn(api, when, bot="coo"):
     with sqlite3.connect(str(api.app.state.store.settings.db_path)) as c:
         c.execute("INSERT INTO attempts(id,job_id,bot,runner_id,generation,token_hash,state,lease_until,created,finished) "
-                  "VALUES('a1','j1','coo','r1',1,'h','completed',?,?,?)", (when, when, when))
+                  "VALUES(?,'j1',?,'r1',1,?,'completed',?,?,?)", ("a-" + bot, bot, "h-" + bot, when, when, when))
 
 
 def wire(monkeypatch, api, hq=True):
@@ -62,7 +62,11 @@ def test_the_payload_is_exactly_the_allowed_fields(environment):
     complete_a_bot_turn(api, H.now())
     with api.app.state.store.read() as read:
         second = c.payload(read, "0.2.13")
-    assert set(second) == ALLOWED and second["active_people"] and second["active_bots"] and second["first_result"]
+    assert set(second) == ALLOWED and second["active_people"] and second["active_bots"]
+    assert not second["first_result"]                        # the Assistant answering is not a working team yet
+    complete_a_bot_turn(api, H.now(), bot="payroll")
+    with api.app.state.store.read() as read:
+        assert c.payload(read, "0.2.13")["first_result"]
     assert second["install_id"] == first["install_id"]
     # Older than a week is not "active", and a token or an Assistant acting for a person is not a sign-in.
     old = H.shift(H.now(), days=-8)

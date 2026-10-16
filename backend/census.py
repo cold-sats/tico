@@ -7,8 +7,8 @@ version, and three yes/no flags. Nothing else is sent, and nothing is sent at al
 goes straight to GitHub with no id, as it did before this existed.
 
 The id is random, made once, stored in this database and never derived from anything. Two flags are
-booleans over the last seven days (a person used the app, a bot turn completed); the third says a bot turn has
-ever completed here, so HQ can tell how long an install took to reach its first working bot.
+booleans over the last seven days (a person used the app, a bot turn completed); the third says a bot the company
+added has ever completed a turn here, so HQ can tell how long an install took to reach its first working bot.
 """
 import json
 import logging
@@ -52,10 +52,14 @@ def env_off():
     return ""
 
 
-def first_result(c):
-    """When a bot turn first completed on this install, or "" before any has. Attempts are never deleted, and the
-    table is in the order they were made, so the first match is the earliest result and is found at once."""
-    row = c.execute("SELECT finished FROM attempts WHERE state='completed' AND finished IS NOT NULL LIMIT 1").fetchone()
+def first_result(c, settings):
+    """When a bot the company added first completed a turn, or "" before one has: the Assistant and the other built-in
+    bots answer from the first minute, so they say nothing about a working team. Attempts are never deleted and the
+    table is in the order they were made, so the first match is the earliest-started result and is found at once."""
+    from .getting_started import built_in
+    skip = sorted(built_in(settings))
+    row = c.execute("SELECT finished FROM attempts WHERE state='completed' AND finished IS NOT NULL AND bot NOT IN (%s) "
+                    "LIMIT 1" % ",".join("?" * len(skip)), skip).fetchone()
     return row[0] if row else ""
 
 
@@ -108,7 +112,7 @@ class Census:
         bots = c.execute("SELECT 1 FROM attempts WHERE state='completed' AND finished>=? LIMIT 1",
                          (since,)).fetchone() is not None
         return {"install_id": self._id(record, c), "version": version, "active_people": people, "active_bots": bots,
-                "first_result": bool(first_result(c))}
+                "first_result": bool(first_result(c, self.settings))}
 
     def _id(self, record, c=None):
         value = str(record.get("install_id") or "")

@@ -487,8 +487,14 @@ def test_a_persons_token_cannot_say_yes_to_a_report_through_the_needs_you_list(e
 
 
 def test_a_setup_request_starts_from_a_snapshot_and_keeps_its_kind_even_at_an_older_hq(environment, hq):  # noqa: F811
+    from backend.store import H
     api = environment()
+    with api.app.state.store.transaction() as c:                   # a parked bot whose name must not go
+        H.sync_registry(c, {"payroll": {"name": "Payroll for Acme Corp", "status": "active"}}, None)
+        c.execute("INSERT OR REPLACE INTO bot_config(bot,config_json,operator,onboarding_state) "
+                  "VALUES('payroll','{}','human:test','needs_setup')")
     snapshot = api.get("/api/v2/support/setup-snapshot?asked_from=bot", headers=signed_in()).json()
+    assert "Payroll" not in snapshot["message"] and "- Bots in Needs setup: 1" in snapshot["message"]
     assert hq.seen == [] and snapshot["kind"] == "setup"           # building the snapshot sends nothing
     lines = snapshot["message"].splitlines()
     assert "Setup snapshot (asked from a bot in Needs setup):" in lines and "- Computer online: no" in lines
@@ -505,26 +511,45 @@ def test_the_feedback_question_waits_for_a_first_result_and_an_answer_arrives_as
     from backend.store import H
     from backend.tests.test_usage_count import complete_a_bot_turn
     api = environment()
+    store = api.app.state.store
     question = lambda h=None: api.get("/api/v2/config", headers=h or signed_in()).json()["feedback_question"]
-    assert question() is None                                      # no bot has finished a turn yet
+    with store.transaction() as c:                                 # everyone so far acted before any result
+        c.execute("UPDATE events SET ts=?", (H.shift(H.now(), days=-3),))
     complete_a_bot_turn(api, H.shift(H.now(), days=-1))
+    assert question() is None                                      # only the Assistant has answered
+    complete_a_bot_turn(api, H.shift(H.now(), hours=2), bot="payroll")
+    assert question() is None                                      # a result stamped ahead of this clock waits
+    with store.transaction() as c:
+        c.execute("UPDATE attempts SET finished=? WHERE bot='payroll'", (H.shift(H.now(), days=-1),))
     assert question() == {"moment": "first_result", "question": "How is Tico working for you?"}
+    assert api.get("/api/v2/config", headers=as_bot(api)).json()["feedback_question"] is None
     r = api.post("/api/v2/support/feedback", json={"moment": "first_result", "answer": "Good so far"}, headers=signed_in())
     assert r.status_code == 200 and r.json()["answered"]
-    sent = json.loads(hq.seen[-1].content)
-    assert sent["kind"] == "feedback" and sent["message"].endswith("\n\nGood so far")
+    sent = json.loads(hq.seen[-1].content)                         # only their words: no IDs, no diagnostics
+    assert sent == {"message": sent["message"], "kind": "feedback"} and sent["message"].endswith("\n\nGood so far")
     assert question() is None
-    # A week on, the person is asked once more; a skip sends nothing and ends it.
-    with api.app.state.store.transaction() as c:
-        c.execute("UPDATE attempts SET finished=?", (H.shift(H.now(), days=-8),))
+    # A week on, the person is asked once more, but not within 3 days of their last answer.
+    with store.transaction() as c:
+        c.execute("UPDATE attempts SET finished=? WHERE bot='payroll'", (H.shift(H.now(), days=-8),))
+        c.execute("UPDATE events SET ts=?", (H.shift(H.now(), days=-9),))
+        c.execute("UPDATE preferences SET value_json=json_set(value_json,'$.first_result.at',?) WHERE key=?",
+                  (H.shift(H.now(), days=-1), "support.feedback"))
+    assert question() is None
+    with store.transaction() as c:
         c.execute("UPDATE preferences SET value_json=json_set(value_json,'$.first_result.at',?) WHERE key=?",
                   (H.shift(H.now(), days=-7), "support.feedback"))
     assert question()["moment"] == "day_7"
     before = len(hq.seen)
     assert not api.post("/api/v2/support/feedback", json={"moment": "day_7"}, headers=signed_in()).json()["answered"]
     assert len(hq.seen) == before and question() is None
-    # Another person has their own question; with support off nobody is asked.
+    # Someone who joined after the first result is asked from their own first action, never about that first result.
     riley = as_person(api, "riley")
+    assert question(riley) is None                                 # has not done anything yet
+    with store.transaction() as c:
+        H.event(c, "human:riley", "test.acted", "x", {})
+    assert question(riley) is None
+    with store.transaction() as c:
+        c.execute("UPDATE events SET ts=? WHERE actor='human:riley'", (H.shift(H.now(), days=-7),))
     assert question(riley)["moment"] == "day_7"
     monkeypatch.setenv("TICO_SUPPORT", "off")
-    assert question(riley) is None
+    assert question(riley) is None and api.get("/api/v2/config", headers=riley).json()["support_on"] is False
