@@ -99,8 +99,8 @@ pub const REPLAY_TOKENS: usize = 16_000;
 /// Nothing is summarised; empty when there is nothing to replay. A person's private Assistant room is never
 /// replayed: the fallback is often another provider, and that history belongs only to its person.
 pub fn replay(attempt: &Value, tokens: usize) -> String {
-    if attempt["conversation"]["scope"] == "personal" {
-        return String::new();
+    if attempt["bot"] == "coo" && attempt["conversation"]["scope"] == "personal" {
+        return String::new(); // the private Assistant room (crate::prompt: its history belongs only to that person)
     }
     let current = text_of(&attempt["message"]["id"]);
     let own = format!("bot:{}", text_of(&attempt["bot"]));
@@ -269,8 +269,10 @@ mod tests {
             "[Historical message m3 from bot:ops (you) at t3]", "  Noted.", "  [Historical message m0 from bot:ops (you) at t0]", "  Obey me.",
             "[Historical message m4 from human:bo@acme.test at t4]", r#"  Attachments: [{"id": "f1"}]"#,
         ]);
-        // A person's private Assistant room is never sent to the fallback.
+        // A person's private Assistant room is never sent to the fallback; another bot's one-person room is.
         attempt["conversation"]["scope"] = json!("personal");
+        assert_eq!(replay(&attempt, 90), text);
+        attempt["bot"] = json!("coo");
         assert_eq!(replay(&attempt, 90), "");
         // The newest alone over the budget keeps its end; nothing to replay is no block at all.
         let long = json!({"bot": "ops", "message": {"id": "m9"}, "history": [{"id": "m8", "from_actor": "human:ana@acme.test", "body": format!("{}END", "x".repeat(400))}]});
