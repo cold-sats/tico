@@ -13,6 +13,14 @@ All notable changes to Tico are recorded here. The format follows
   ends the turn so the next one starts with that message in the same session. Steering is now a declared harness
   capability (`steer`), and a bot that requested a task can steer its owner's running turn on it with
   `hub message send --steer --ref task:<id>`.
+- **Behaviour replay** (`evals/replay/`): capture a finished task's opening state and outcome as a case, have a person
+  redact and sign it, then re-run it on a candidate build or prompt in a scratch team. Both sides are scored by the
+  BotOps scorers and the case's checks, and the report lists wins and regressions. Unsigned cases, ones still
+  holding a common key or token shape or an email address, and a server that holds the original tasks are refused.
+  Run at release preparation, not per pull request.
+- Each computer's Performance page (Settings > Computers > ⋯ > Performance): CPU and memory over the last day, 7 days
+  or 14 days, overloads with the bots that were running and the busiest processes, and a Health warning after one.
+  On by default; its operator or an admin turns it off or deletes the history. Support diagnostics can include it.
 - Settings > Computers shows Claude's and Codex's weekly and 5-hour usage as percentages on the computer's own login,
   not only on named subscriptions. Claude's come from its turns (Claude Code 2.1.30x reports both windows); before a
   Claude turn on that computer the row says so instead of a number. Codex's are read while idle, with the account, for
@@ -21,9 +29,20 @@ All notable changes to Tico are recorded here. The format follows
   account's percentages.
 
 ### Changed
+- A bot that hits a Claude or Codex usage limit now resumes at the provider's own reset time instead of after a fixed
+  30 minutes (2 hours after three in a row). The bot's status and Health say when it resumes ("resumes at 12:40 UTC"),
+  and its computer picks the queued work up as soon as the reset passes. Providers that report no reset time keep the
+  30-minute/2-hour wait.
 - Connect Google: the app's client secret stays on the server. The server exchanges the sign-in code and refreshes
   each grant for the computer that holds it, returns only an hour-long, read-only access token for one service, and
   stores and logs no token. The grant on the computer keeps no secret.
+
+### Fixed
+- Subtasks a bot files for itself under its own task start in their own sessions and run side by side, up to the
+  bot's turn limit, instead of one after another in the parent's lane. A subtask a person or another bot files under
+  the bot's task still continues the parent's session, and a bot finishing its last self-filed subtask wakes the
+  parent. A self-filed subtask already open starts its next turn without the parent's checkpoint or worktree, so its
+  description should carry what the bot needs. See [Sessions](docs/sessions.md#subtasks).
 
 ## [0.3.50] - 2026-10-16
 

@@ -26,9 +26,10 @@ reader of the chat may read it.
 
 ## Subtasks
 
-A subtask continues its parent's session by default: same room, same worktree, same checkpoint. The bot's turns on
-the parent and its subtasks take turns. A subtask whose parent belongs to someone else, or has different readers,
-starts its own session.
+A subtask someone else files for a bot under its task continues the parent's session by default: same room, same
+worktree, same checkpoint. The bot's turns on the parent and that subtask take turns. A subtask the bot filed for
+itself is new work, so it starts its own session and runs beside the parent. A subtask whose parent belongs to
+someone else, or has different readers, also starts its own session.
 
 When a bot is blocked on a person, it files a subtask for that person under its task. When the person finishes,
 declines or closes it, the bot wakes on the parent, in the same session, and picks up where it stopped.
@@ -94,7 +95,7 @@ The task's ⋯ menu has **Copy session ID** for the primary session, to resume i
 | Setting | Values | What it does |
 |---|---|---|
 | `session` | unset (default), `task`, `bot` | Unset: each task is its own session and chat shares one. `task`: each chat conversation also gets its own (BotOps). `bot`: one session for everything. |
-| `subtask_session` | `parent` (default), `own` | Whether a subtask continues its parent's session or gets its own. |
+| `subtask_session` | `parent` (default), `own` | Whether a subtask someone else files continues its parent's session or gets its own; one the bot files for itself always gets its own. |
 | `task_goal` | `off` (default), `on` | Work each task as a native goal until it is met. |
 | `goal:on`, `goal:off` | task labels | Override `task_goal` for one task. |
 

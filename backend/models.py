@@ -1385,6 +1385,9 @@ class ProvidersUpdate(Contract):
     expected_revision: int = Field(default=0, ge=0)
     # Run a limited bot's turn on another signed-in provider when it names no fallback; None keeps the saved value.
     auto_fallback: bool | None = None
+    # What review and check subtasks run on, best first (`runtime` or `runtime:model`); None keeps the saved order,
+    # [] follows the enabled providers' order.
+    check_models: list[Annotated[str, Field(min_length=1, max_length=140)]] | None = Field(default=None, max_length=10)
 
 
 class SystemUpdate(Contract):
@@ -1598,6 +1601,8 @@ class Completion(Contract):
     tokens_in: int | None = Field(default=None, ge=0)
     tokens_out: int | None = Field(default=None, ge=0)
     limited: bool = False   # the local runtime refused the turn on a subscription usage limit
+    # When the provider said that limit lifts (its own reset time); work resumes then instead of after a default wait.
+    limit_resets_at: str | None = Field(default=None, max_length=40)
     retryable: bool = False  # the runtime could not renew its sign-in; the turn never started
     fallback: str | None = Field(default=None, max_length=80)  # harness that actually ran the turn
     primary_limited: bool = False  # the bot's own runtime hit its usage limit and the company's default `fallback` ran the turn
@@ -1708,6 +1713,54 @@ class InboxOnly(Contract):
 
 class ScreenMode(Contract):
     mode: Literal["off", "view", "control"]
+
+
+class PerformanceMode(Contract):
+    mode: Literal["off", "on"]
+
+
+class _Sampled(BaseModel):
+    """A newer runner's extra fields are ignored, never refused: samples are diagnostics, not a contract."""
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+
+
+Percent = Annotated[float, Field(ge=0, le=100_000, allow_inf_nan=False)]
+Bytes = Annotated[int, Field(ge=0, le=1 << 60)]
+
+
+class PerformanceDisk(_Sampled):
+    volume: str = Field(default="", max_length=40)
+    total_bytes: Bytes
+    free_bytes: Bytes
+
+
+class PerformanceProcess(_Sampled):
+    """A process name (the executable's, never its arguments) and what every process by that name used."""
+    name: str = Field(pattern=r"^[A-Za-z0-9._+-]{1,40}$")
+    cpu: Percent = 0
+    mem: Bytes = 0
+    count: int = Field(default=1, ge=0, le=100_000)
+
+
+class PerformanceSample(_Sampled):
+    at: float = Field(ge=0, allow_inf_nan=False)
+    scope: Literal["host", "container"] = "host"
+    # A container's memory is the host's when it has no memory limit; an older runner leaves this out.
+    memory_scope: Literal["host", "container"] | None = None
+    cpu: float = Field(ge=0, le=100, allow_inf_nan=False)
+    cores: int = Field(default=1, ge=1, le=4096)
+    load: list[Annotated[float, Field(ge=0, le=100_000, allow_inf_nan=False)]] = Field(default_factory=list, max_length=3)
+    mem_total: Bytes | None = None
+    mem_used: Bytes | None = None
+    swap_total: Bytes | None = None
+    swap_used: Bytes | None = None
+    disk: list[PerformanceDisk] = Field(default_factory=list, max_length=4)
+    active: int = Field(default=0, ge=0, le=10_000)
+    procs: list[PerformanceProcess] = Field(default_factory=list, max_length=16)
+
+
+class PerformanceBatch(_Sampled):
+    samples: list[PerformanceSample] = Field(min_length=1, max_length=40)
 
 
 class ScreenSessionStart(Contract):

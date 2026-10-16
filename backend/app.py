@@ -57,6 +57,7 @@ from .readiness import absolute as absolute_link, can_run
 from . import fleet_check as fleet_check_module
 from .getting_started import _online_runners
 from .screen import listing as screen_listing
+from .performance import listing as performance_listing
 from .credential_cards import install_credential_cards, scrub_attempt
 from .github import PATH as GITHUB_WEBHOOK_PATH
 from .triggers import PATH as TRIGGER_HOOK_PATH
@@ -1242,8 +1243,8 @@ def create_app(settings=None):
         def work(c):
             before, after = Providers.save(c, who.actor, body.model_dump(), H.now())
             H.event(c, who.actor, "providers.updated", "",
-                    {"before": {k: before[k] for k in ("enabled", "runtime", "model", "revision", "auto_fallback")},
-                     "after": {k: after[k] for k in ("enabled", "runtime", "model", "revision", "auto_fallback")}})
+                    {"before": {k: before[k] for k in ("enabled", "runtime", "model", "revision", "auto_fallback", "check_models")},
+                     "after": {k: after[k] for k in ("enabled", "runtime", "model", "revision", "auto_fallback", "check_models")}})
             return Providers.view(after)
         return mutate(request, body, work)
 
@@ -3849,8 +3850,9 @@ def create_app(settings=None):
         with store.read() as c:
             execution.runner(c, request.state.identity)
         # `screen_v1`: this server takes the capability and `readiness.screen` (an older one refuses the heartbeat).
+        # `limit_resets_at`: a run's result may say when its usage limit resets (an older one refuses the field).
         return {**runner_versions.desired(), "features": {"task_files_multipart": True, "runner_commit": True,
-                                                          "screen_v1": True}}
+                                                          "screen_v1": True, "limit_resets_at": True}}
 
     @app.get("/api/v2/runners/assignments")
     def assigned(request: Request):
@@ -4130,7 +4132,7 @@ def create_app(settings=None):
             rows.append({"id": r["id"], "label": r["label"], "online": r["id"] in online,
                          "platform": r["platform"] or "", "operator": r["operator"],
                          "accepts_member_bots": bool(r["accepts_member_bots"]), "bots": bots,
-                         **screen_listing(r), **views.computer_details(c, r, who, auth)})
+                         **screen_listing(r), **performance_listing(r), **views.computer_details(c, r, who, auth)})
         return rows
 
     @app.get("/api/v2/computers")
@@ -4944,6 +4946,8 @@ def create_app(settings=None):
     # A computer's screen in the app (backend/screen.py); its websockets go before the static mounts below.
     from .screen import install as install_screen
     screen_sessions = install_screen(app, store, auth, mutate, execution, settings)
+    from .performance import install as install_performance
+    install_performance(app, store, auth, mutate, execution)
     from .route_renames import install as install_route_renames
     install_route_renames(app)           # after every route: the new spellings canonical, the old ones deprecated
 

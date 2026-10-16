@@ -311,7 +311,8 @@ def operation_issues(c, who, auth):
             # old row is a leftover nobody cleared. Three in a row is the subscription
             # window spent; Settings still shows the retry time without interrupting chat.
             # An API key's quota or billing refusal is not a subscription window; the person checks billing.
-            from .execution import LIMIT_COOLDOWN_LONG, LIMIT_STRIKES, billing_limit, limit_cooldown, limit_streak
+            from .execution import (LIMIT_COOLDOWN_LONG, LIMIT_STRIKES, billing_limit, last_limit, limit_cooldown,
+                                    limit_streak, provider_reset)
             since = H.parse_ts(status.get("since"))
             cooldown = limit_cooldown(c, slug)
             if since and since > H.parse_ts(H.shift(H.now(), seconds=-max(3600, cooldown))):
@@ -330,7 +331,9 @@ def operation_issues(c, who, auth):
                         f"{runtime} subscription quota exhausted; queued work waits until {retry[:10]} "
                         f"{retry[11:16]} UTC", bot=slug, severity="warning", needs_person=False,
                         action="Wait for the subscription reset, or set a fallback harness in Settings → Bots.")
-                elif limit_streak(c, slug) >= LIMIT_STRIKES:
+                # A reported reset says when the limit lifts, so a streak is no reason to check the subscription.
+                elif limit_streak(c, slug) >= LIMIT_STRIKES and not (
+                        (last := last_limit(c, slug)) and provider_reset(last, H.parse_ts(last["finished"]))):
                     retry = H.shift(status["since"], seconds=cooldown)
                     add("bot", bot["display_name"] + " needs attention",
                         f"{runtime} usage limit three times in a row; queued work waits until {retry[11:16]} UTC, "
@@ -338,8 +341,9 @@ def operation_issues(c, who, auth):
                         needs_person=False,
                         action="Check the subscription or set a fallback harness in Settings → Bots.")
                 else:
+                    retry = H.shift(status["since"], seconds=cooldown)
                     add("bot", bot["display_name"] + " needs attention",
-                        f"{runtime} usage limit; retrying automatically", bot=slug,
+                        f"{runtime} usage limit; resumes at {retry[11:16]} UTC", bot=slug,
                         severity="warning", needs_person=False)
         queued = privacy.job_count(c, who, slug)
         if location.get("agent"):
@@ -1503,7 +1507,7 @@ def install_views(app, store, auth, mutate, task_view):
             default = {providers.default_runtime(providers.load(c, store.settings))} - {""}
             run_on = providers.runtimes_run_on(c, store.settings)
             for row in c.execute("SELECT id,label,operator,last_seen,revoked_at,platform,version,capacity,readiness_json,"
-                                 "accepts_member_bots,screen,capabilities_json FROM runners ORDER BY created"):
+                                 "accepts_member_bots,screen,performance,capabilities_json FROM runners ORDER BY created"):
                 if not auth.bot_admin(who) and who.actor != "human:" + row["operator"]:
                     continue
                 bots = [a[0] for a in c.execute("SELECT bot FROM assignments WHERE runner_id=? ORDER BY bot", (row["id"],))]
@@ -1511,7 +1515,9 @@ def install_views(app, store, auth, mutate, task_view):
                 value["release"] = runner_versions.view(fleet.get(row["id"])).get("release") or ""
                 value["accepts_member_bots"] = bool(row["accepts_member_bots"])
                 from .screen import listing as screen_listing
+                from .performance import listing as performance_listing
                 value.update(screen_listing(value))
+                value.update(performance_listing(value))
                 value.pop("capabilities_json")
                 value["readiness"] = readiness_document(value.pop("readiness_json"))
                 from .repositories import metadata

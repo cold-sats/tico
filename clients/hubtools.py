@@ -2258,6 +2258,25 @@ def computers(api, args):
     return _as_person(api).get("computers")
 
 
+@tool("hub_computer_performance", "A computer's CPU, memory, load, swap and free disk over the last hours (up to 336): "
+      "a summary of when it was overloaded and what ran then, its overloads, the bots with the most turns there and "
+      "the busiest processes, and up to 96 points (columns named in `columns`). Numbers and process names only.",
+      {"computer": _s("The computer's label or id (hub computer list)"),
+       "hours": {"type": "integer", "minimum": 1, "maximum": 336, "default": 24}}, required=("computer",))
+def computer_performance(api, args):
+    wanted = str(args["computer"]).strip()
+    rows = api.get("computers") or []
+    match = [r for r in rows if wanted in (r.get("id"), r.get("label"))]
+    if not match:
+        raise ValueError(f"No computer named {wanted!r}; hub computer list names them")
+    seen = api.get(f"computers/{match[0]['id']}/performance?hours={int(args.get('hours') or 24)}")
+    points = seen.get("points") or []
+    step = max(1, -(-len(points) // 96))
+    return {**{k: seen.get(k) for k in ("computer", "performance", "hours", "summary", "overloads", "busiest",
+                                        "columns", "mem_total", "disk_total", "scope")},
+            "runs": len(seen.get("runs") or []), "points": points[::step]}
+
+
 @tool("hub_health_check", "What is wrong, most urgent first: bots with no computer, computers offline, failing runs, a "
       "credential a bot needs, setup that never finished, paused or stopped bots, failing watchers or queued work, "
       "and computers low on disk space. Includes the same checks as Health and their fixes. Fix what you may, then report. "
