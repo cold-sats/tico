@@ -138,6 +138,12 @@ def create_app(settings=None):
             telemetry.capture("github", exc)
         # A deploy keeps the API down longer than a lease; do not fail turns for that.
         execution.grace_leases()
+        # A live support session picks its link to HQ back up (backend/support_access.py).
+        try:
+            from . import support_access
+            support_access.started(app, asyncio.get_running_loop())
+        except Exception as exc:
+            telemetry.capture("support_access", exc)
         telemetry.start()
         stop = asyncio.Event()
         screen_relay_task = None
@@ -4985,6 +4991,8 @@ def create_app(settings=None):
     install_groups(app, store, auth, mutate, settings)
     from .support import install as install_support
     install_support(app, store, settings, census)
+    from .support_access import install as install_support_access
+    install_support_access(app, store, settings, auth)
     from .watchers import install as install_watchers
     install_watchers(app, store, auth, execution, mutate)
     from .health_monitor import install as install_health_monitor

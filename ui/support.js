@@ -162,7 +162,109 @@
     const closed = t && ['closed', 'gone'].includes(t.status);
     rail.querySelector('[data-compose]').hidden = !!closed;
     rail.querySelector('[data-closed]').hidden = !closed;
+    renderAccess();
   }
+  // Letting Tico support in (docs/support.md): a banner on every screen while a session lasts; on an open request, the
+  // button that starts one (an owner or admin) and the list of every request support made.
+  let access = {available: false, active: null, last: null, at: 0}, accessTimer = 0;
+  const accessLogs = new Map();
+  const TIERS = {app: 'App only', full: 'Full access'};
+  const remaining = () => access.active ? access.active.seconds_left - (Date.now() - access.at) / 1000 : 0;
+  const timeLeft = () => {
+    const m = Math.max(1, Math.ceil(remaining() / 60)), h = Math.floor(m / 60);
+    return h ? `${h} h ${m % 60} min` : `${m} min`;
+  };
+  const canStop = () => !!access.active && (!!access.can_start || access.active.started_by === 'human:' + (typeof S === 'undefined' ? '' : S.me?.id || ''));
+  function renderBanner() {
+    const bar = document.getElementById('support-access-banner');
+    if (!bar) return;
+    bar.hidden = !(access.active && remaining() > 0);
+    if (bar.hidden) return;
+    bar.querySelector('[data-access-left]').textContent = `Tico support has access, ${timeLeft()} left`;
+    bar.querySelector('[data-access-stop]').hidden = !canStop();
+  }
+  async function loadLog(id) {
+    const held = accessLogs.get(id);
+    if (held && (held.busy || Date.now() - held.at < 30000)) return;
+    accessLogs.set(id, {...held, busy: true, at: Date.now()});
+    try { accessLogs.set(id, {at: Date.now(), items: (await call('GET', `/support/access/${encodeURIComponent(id)}/log`)).log || []}); }
+    catch (_) { accessLogs.set(id, {at: Date.now(), items: held?.items || []}); }
+    renderAccess();
+  }
+  function renderAccess() {
+    const host = rail?.querySelector('[data-access]'), t = current();
+    if (!host) return;
+    const live = t && access.active?.ticket_id === t.id && remaining() > 0 ? access.active : null;
+    const shown = live || (t && access.last?.ticket_id === t.id ? access.last : null);
+    let html = '';
+    if (live) html = `<p class="support-access-on">Tico support has access (${escape(TIERS[live.tier] || live.tier)}), ${escape(timeLeft())} left${canStop() ? ' · <button type="button" class="ghost" data-access-stop>Stop</button>' : ''}</p>`;
+    else if (t && ['open', 'answered'].includes(t.status) && access.available && access.can_start && !access.active)
+      html = '<button type="button" class="ghost" data-access-start>Let Tico support in</button>';
+    if (shown && access.can_start) {
+      const items = accessLogs.get(shown.id)?.items;
+      if (!items) void loadLog(shown.id);
+      else if (live) void loadLog(shown.id);
+      html += `<details class="support-access-log"${live ? ' open' : ''}><summary>Requests Tico support made</summary>${items?.length
+        ? `<ol>${items.map(x => `<li><time datetime="${escape(x.ts)}">${escape(when(x.ts))}</time> ${escape(x.by === 'support-agent' ? 'Support Agent' : 'Staff')} · ${escape(x.method)} ${escape(x.path)} · ${escape(x.status)}</li>`).join('')}</ol>`
+        : '<p class="support-sent">None yet.</p>'}</details>`;
+    }
+    host.hidden = !html;
+    if (host.dataset.shown !== html) {
+      const open = host.querySelector('details')?.open;
+      host.innerHTML = html; host.dataset.shown = html;
+      if (open !== undefined && host.querySelector('details')) host.querySelector('details').open = open;
+    }
+  }
+  async function pollAccess() {
+    clearTimeout(accessTimer);
+    if (typeof S !== 'undefined' && S.me && !document.hidden) {
+      try { access = {...await call('GET', '/support/access'), at: Date.now()}; } catch (_) { /* the next poll asks again */ }
+      renderBanner(); renderAccess();
+    }
+    accessTimer = setTimeout(pollAccess, typeof S !== 'undefined' && S.me ? 30000 : 2000);
+  }
+  async function stopAccess() {
+    if (!access.active) return;
+    try { await call('POST', `/support/access/${encodeURIComponent(access.active.id)}/stop`, {}); say('Tico support no longer has access.'); }
+    catch (e) { say(e.message, true); }
+    await pollAccess();
+  }
+  function openAccess(t) {
+    const dialog = document.createElement('dialog');
+    dialog.className = 'tmodal support-modal'; dialog.setAttribute('aria-label', 'Let Tico support in');
+    dialog.innerHTML = `<div class="tmodal-head"><strong>Let Tico support in</strong><span class="spacer"></span><button type="button" class="ghost" data-close aria-label="Close">✕</button></div>
+      <form class="tmodal-body" data-access-form>
+      <label class="support-check"><input type="radio" name="tier" value="app" checked><span><strong>App only.</strong> Support sees settings, Health, computers, bots, tasks and runs, and can change setup (a bot's model, a computer's AI tools, a restart). Support cannot see credential values, approve for you, send, spend, publish or run bots.</span></label>
+      <label class="support-check"><input type="radio" name="tier" value="full"${access.can_full ? '' : ' disabled'}><span><strong>Full access.</strong> What the owner can do in Tico, except tokens, credential values and ownership.${access.can_full ? '' : ' Only the owner can give it.'}</span></label>
+      <label>How long <select name="hours"><option value="1">1 hour</option><option value="4">4 hours</option><option value="24" selected>24 hours</option><option value="168">7 days</option><option value="custom">Other…</option></select></label>
+      <label data-custom hidden>Hours (1 to 720) <input name="custom" type="number" min="1" max="720" step="1" value="24"></label>
+      <p class="support-sent">A banner shows on every screen while it lasts, and Stop there ends it at once. Every request support makes is listed under this request.</p>
+      <p class="err" data-error role="alert" hidden></p>
+      <div class="support-row"><button class="ghost" type="button" data-close>Cancel</button><button class="primary" type="submit">Start</button></div></form>`;
+    document.body.appendChild(dialog); dialog.showModal();
+    const form = dialog.querySelector('form'), err = dialog.querySelector('[data-error]');
+    form.elements.hours.onchange = () => { dialog.querySelector('[data-custom]').hidden = form.elements.hours.value !== 'custom'; };
+    form.onsubmit = async e => {
+      e.preventDefault();
+      const hours = Number(form.elements.hours.value === 'custom' ? form.elements.custom.value : form.elements.hours.value);
+      if (!Number.isInteger(hours) || hours < 1 || hours > 720) { err.textContent = 'Choose 1 to 720 hours.'; err.hidden = false; return; }
+      form.querySelectorAll('button, input, select').forEach(el => { el.disabled = true; });
+      try {
+        await call('POST', '/support/access', {ticket_id: t.id, tier: form.elements.tier.value, hours});
+        dialog.close(); say('Tico support has access.'); await pollAccess();
+      } catch (error) {
+        err.textContent = error.message; err.hidden = false;
+        form.querySelectorAll('button, input, select').forEach(el => { el.disabled = false; });
+        if (!access.can_full) form.querySelector('[value=full]').disabled = true;
+      }
+    };
+    dialog.querySelectorAll('[data-close]').forEach(b => { b.onclick = () => dialog.close(); });
+    dialog.onclose = () => dialog.remove();
+  }
+  document.addEventListener('click', e => {
+    if (e.target.closest('#support-access-banner [data-access-stop], [data-access] [data-access-stop]')) void stopAccess();
+    else if (e.target.closest('[data-access] [data-access-start]') && current()) openAccess(current());
+  });
   function renderComposer() {
     const d = draft(), form = rail.querySelector('[data-compose]');
     form.innerHTML = `<label class="sr-only" for="support-message">Message to support</label>
@@ -312,6 +414,7 @@
             <div class="support-thread-title"><strong data-title></strong><span data-status></span></div>
             <button type="button" class="ghost support-icon support-trash" data-delete aria-label="Delete request" title="Delete request">${ICON.trash}</button></div>
           <div class="support-thread" data-thread aria-label="Support conversation"></div>
+          <div class="support-access rail-sec" data-access hidden></div>
           <p class="support-sent support-closed" data-closed hidden>This request is closed. Start a new request if you need more help.</p>
           <form class="support-write rail-sec" data-compose novalidate></form>
         </div>`;
@@ -338,10 +441,11 @@
   window.supportPoll = refresh;
   // Replies are checked when the app comes back into view or focus, and on the poll above; there is no Refresh button.
   const wake = () => { if (state.enabled) { void refresh(); schedule(); } };
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) wake(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { wake(); void pollAccess(); } });
   window.addEventListener('focus', wake);
   window.addEventListener('load', () => setTimeout(async () => {
     if (typeof S === 'undefined' || !S.me || state.enabled !== null) return;
     try { accept(await call('GET', '/support/tickets')); schedule(); } catch (_) { /* Help offers a retry */ }
   }, 3000));
+  window.addEventListener('load', () => setTimeout(pollAccess, 1000));
 })();

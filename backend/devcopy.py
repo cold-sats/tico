@@ -47,7 +47,7 @@ EMPTY = (
     # mail, Slack, GitHub, Granola, meeting bots, support
     "mail_mailboxes", "bot_mail_settings", "google_connects", "google_mail_holders", "slack_credentials", "slack_posts", "slack_events", "slack_threads",
     "github_app", "github_app_states", "granola_connections", "meeting_importers", "live_meeting_bots",
-    "support_tickets",
+    "support_tickets", "support_access", "support_access_log",
     "usage_alerts",
     # raw provider streams: customer text, and whatever the secret scrub missed
     "attempt_captures", "attempt_capture_drops",

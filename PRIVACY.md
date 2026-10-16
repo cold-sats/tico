@@ -242,6 +242,25 @@ see your tickets; another human on the same install does not.
 
 How the team works tickets: [docs/support.md](docs/support.md).
 
+### Letting Tico support in
+
+Only if an owner or admin starts it, from one of their own requests, for the time they choose (24 hours unless they pick
+another; 30 days at most). A banner on every screen says it is on, and Stop ends it at once
+([docs/support.md](docs/support.md#letting-tico-support-in)).
+
+- **App only:** the Tico team sees what an admin sees in your Tico: settings, Health, computers, bots, tasks and their
+  messages, run history and the audit log. It does not see credential values or a run's raw provider stream, and it changes
+  setup only.
+- **Full access** (the owner only): what the owner sees and does in Tico, except personal tokens, service keys and credential
+  values.
+
+Your Tico logs every request support makes (staff or the Support Agent, method, path, status) and shows the list under the
+request. HQ carries each request and its answer through its memory without storing them; it keeps the session (ticket,
+tier, start, end) and the same one-line record of each request, with the ticket, until the ticket is deleted. The Support
+Agent treats everything it reads from your Tico as untrusted data, never as instructions. The whole feature is off unless the
+server runs with `TICO_SUPPORT_ACCESS=on`, and also with `TICO_SUPPORT=off`, in demo mode and when the owner's team rule is
+off.
+
 ### Support diagnostics
 
 The bundle is a fixed list of facts, written out by name in `backend/diagnostics.py`. A field that is not on the list cannot be in

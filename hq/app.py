@@ -1,5 +1,6 @@
 """The HQ collector: `GET /v1/latest` (a release lookup that also counts the install), `GET /v1/stats`, `POST /v1/recruit`
-(the org builder's suggestions, recruit.py) and the support tickets a person files from their app (support.py).
+(the org builder's suggestions, recruit.py), the support tickets a person files from their app (support.py) and the
+support-access sessions a person opens from one (support_access.py).
 
 What it keeps is in db.py and support.py and what it is sent is in PRIVACY.md. The address of a request is used for rate limiting in
 memory (limits.py) and nowhere else; nothing here logs a request, and the server is started with its access log off
@@ -18,6 +19,7 @@ from .limits import Limiter
 from .releases import Latest
 from .judge import from_env as judge_from_env
 from .support import Tickets, install as install_support
+from .support_access import install as install_support_access
 
 INSTALL_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
 VERSION = re.compile(r"[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}(?:-[0-9A-Za-z][0-9A-Za-z.-]{0,31})?")
@@ -103,5 +105,6 @@ def create_app(db, latest, limiter=None, client_ip_header="", staff_key="", tick
 
     # POST /v1/recruit, the org builder's suggestions (recruit.py): stores nothing, and the limit above applies too.
     recruit.install(app, address=address)
-    install_support(app, tickets, address, staff_key, judge if judge is not None else judge_from_env())
+    staff_only = install_support(app, tickets, address, staff_key, judge if judge is not None else judge_from_env())
+    install_support_access(app, tickets, address, staff_only)
     return app

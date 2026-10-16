@@ -1463,6 +1463,7 @@ class AccessRules(Contract):
     member_tokens: bool | None = None
     health_monitor_reports: bool | None = None
     bots_go_ahead: bool | None = None
+    support_access: bool | None = None
     go_ahead_days: Annotated[int, Field(strict=True, ge=1, le=14)] | None = None
 
 

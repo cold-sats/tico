@@ -89,6 +89,9 @@ class Identity:
     task_actor: str = ""
     # A service key's scope (backend/service_keys.py ROUTES): "tasks" or "update"; empty for everyone else.
     scope: str = ""
+    # Tico support in a session a person opened (backend/support_access.py): "app" or "full". Its actor is
+    # human:tico-support, its session id in token_id, and `support_access.gate` decides what it reaches.
+    support: str = ""
 
 
 def standing(c, pid):
@@ -108,6 +111,11 @@ def standing(c, pid):
 
 
 def validate_identity(c, who):
+    if who.support:
+        # No roster row: the session it came in with must still be live.
+        from . import support_access
+        support_access.check_live(c, who)
+        return
     if who.task_actor:
         validate_identity(c, Identity(who.task_actor, 'bot', runner_id=who.runner_id,
                                       attempt_id=who.attempt_id, agent=who.agent))
@@ -398,6 +406,9 @@ class Auth:
                 pass
             elif token.startswith(service_keys.PREFIX):
                 who = self.identity_from_service_key(c, token, path, method)
+            elif token.startswith("tico_sa_"):
+                from . import support_access
+                who = support_access.identity(c, token, self.settings)
             elif token:
                 row = c.execute("SELECT id FROM runners WHERE token_hash=? AND revoked_at IS NULL",
                                 (digest(token),)).fetchone()
@@ -447,6 +458,9 @@ class Auth:
                 who = Identity("human:" + row["id"],
                                "owner" if email == self.owner_email else "human", email=email, via_proxy=True)
             validate_identity(c, who)
+            if who.support:
+                from . import support_access
+                support_access.gate(who, path, method)
             action = headers.get("x-tico-assistant-action", "")
             if action:
                 # The person's own click on something the Assistant proposed (backend/assistant.py
@@ -702,8 +716,9 @@ class Auth:
         return P.manages(H.actor_id(who.actor), kind, ident, views.roster(c), views.entries(c), archived)
 
     def bot_admin(self, who):
-        """Whether a person may administer bots assigned to their own operator identity."""
-        return who.role == "owner" or (who.role == "human" and who.email.lower() in self.bot_admins)
+        """Whether a person may administer bots assigned to their own operator identity. Tico support with app access
+        reads as an admin does (backend/support_access.py limits what it writes)."""
+        return who.role == "owner" or (who.role == "human" and (who.support == "app" or who.email.lower() in self.bot_admins))
 
     def identity_for_actor(self, c, actor):
         """Rebuild a human identity for deferred work without elevating its permissions."""

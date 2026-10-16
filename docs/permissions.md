@@ -81,7 +81,7 @@ read its value, and share it with their other bots ([Bot owners](#bot-owners)).
 ## Team rules
 
 The product favours getting going fast, and the owner tightens it later. Settings > Humans (owner only, saved as they change;
-`GET` and `PUT /api/v2/access/rules`) has eight switches, all **on** by default:
+`GET` and `PUT /api/v2/access/rules`) has ten switches, all **on** by default:
 
 | Rule | On (default) | Off |
 | --- | --- | --- |
@@ -93,6 +93,7 @@ The product favours getting going fast, and the owner tightens it later. Setting
 | **Members store credentials for their bots** | anyone on the team stores a credential for a bot they own or manage, granted to that bot | only credential administrators store credentials |
 | **Admins see SQL** | Admins open the SQL page | the SQL page is the owner's |
 | **Members make personal tokens** | any human makes a personal API token, which sees what they see | the owner and the Admins do |
+| **Owners and admins may let Tico support in** (`support_access`) | an owner or admin may open a time-limited support session from their own request ([below](#tico-support)) | nobody can, and a live session ends |
 | **Bots go ahead on their recommendation** (`bots_go_ahead`, days in `go_ahead_days`, 3) | a bot's ask with a reversible, internal default goes ahead when nobody answers in that many days (or by the date the bot gave); sends, spending and deletes still wait ([Tasks](tasks.md#when-nobody-answers-a-bots-ask)) | every ask waits for its answer, until it expires after 14 days |
 
 Only the Owner changes them, directly in Settings or by asking BotOps to act with the Owner's rights.
@@ -169,6 +170,22 @@ A Linux computer can show its screen in the app, so people watch its bots work o
 Only the computer's operator and admins open the screen, in the app themselves: each opening is a one-minute, single-use
 ticket, at most three at once per computer, an hour at most each. Every opening and closing is in the audit log
 (`runner.screen_open`, `runner.screen_close` with who, view or control, and how long).
+
+## Tico support
+
+A session a person opens from a support request ([support.md](support.md#letting-tico-support-in)) lets the Tico team in as
+one more identity, `human:tico-support`, named **Tico support** wherever names show. It has no roster row and no sign-in: it
+exists only while its session is live, through a token the server keeps in memory, and every request it makes is checked
+against the session again.
+
+- **App only** (`support: app`) reads as an Admin does, except a run's raw provider stream, and writes only the setup routes
+  `backend/support_access.py` lists (`APP_WRITES`): a bot's model, fallback and context size; a computer's restart, AI tools and
+  model sign-in; a subscription allowance read. Everything else, approvals, messages, tasks, runs, people, access and
+  credentials included, is refused `403 support_access`.
+- **Full access** (`support: full`) has the Owner's rights.
+- Neither makes or sees personal tokens, service keys, agent or SCIM credentials or credential values, signs in or out,
+  enrols a computer, transfers ownership, or reaches the support-access routes. It counts as a token, so nothing that needs a
+  person at their own browser accepts it.
 
 ## A computer's performance
 

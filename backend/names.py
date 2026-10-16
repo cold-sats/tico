@@ -18,6 +18,8 @@ import re
 ACTOR_KEYS = ("owner", "requester", "from_actor", "to_actor", "actor", "author", "operator", "reports_to",
               "status_by", "proposed_by", "decided_by", "source_actor")
 ID = re.compile(r"\b(human|bot):([A-Za-z0-9._-]*[A-Za-z0-9_])")
+# Tico support in a session a person opened (backend/support_access.py): no roster row, always this name.
+SUPPORT_ACTOR, SUPPORT_NAME = "human:tico-support", "Tico support"
 
 
 def _title(slug):
@@ -49,7 +51,7 @@ def lookup(conn, ids):
     """{actor id: display name} for the human and bot ids among `ids`; an unknown id is left out."""
     humans = sorted({i.split(":", 1)[1] for i in ids if i.startswith("human:")})
     bots = sorted({i.split(":", 1)[1] for i in ids if i.startswith("bot:")})
-    out = {}
+    out = {SUPPORT_ACTOR: SUPPORT_NAME} if SUPPORT_ACTOR in ids else {}
     for start in range(0, len(humans), 500):
         chunk = humans[start:start + 500]
         for row in conn.execute("SELECT id,name FROM humans WHERE id IN (%s)" % ",".join("?" * len(chunk)), chunk):

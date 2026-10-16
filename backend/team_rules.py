@@ -4,8 +4,9 @@ One record, `rules`, holds only what the owner changed. Each rule is on by defau
 back the click or the limit the product had before. They are read wherever the decision is made: the Assistant's
 direct writes (backend/assistant.py), what BotOps does without a card (backend/botops_act.py), the bots BotOps
 manages in its own runs and who is a credential administrator (backend/auth.py), who stores a credential for their
-own bot (backend/credentials.py), the SQL page and personal tokens, and whether a bot goes ahead on its own default when
-a person leaves its ask unanswered (backend/ask_deadlines.py).
+own bot (backend/credentials.py), the SQL page and personal tokens, whether a bot goes ahead on its own default when
+a person leaves its ask unanswered (backend/ask_deadlines.py), and whether Tico support may be let in
+(backend/support_access.py).
 """
 import json
 
@@ -23,6 +24,7 @@ DEFAULTS = {
     "member_tokens": True,          # members make personal tokens
     "bots_go_ahead": True,          # an ask with a reversible, internal default goes ahead after `go_ahead_days`
     "health_monitor_reports": True,  # the Health Monitor, once turned on, files Tico bug reports without a card
+    "support_access": True,         # an owner or admin may let Tico support in from a ticket (backend/support_access.py)
 }
 # Numbers the owner sets, with their default and bounds.
 NUMBERS = {
@@ -57,4 +59,7 @@ def save(c, actor, changes):
               (KEY, json.dumps(after, sort_keys=True)))
     if after != before:
         H.event(c, actor, "access.rules_updated", "", {"before": before, "after": after})
+    if before["support_access"] and not after["support_access"]:
+        from . import support_access
+        support_access.end_all(c, actor, "turned_off")
     return after

@@ -141,6 +141,8 @@
 .support-diag,.support-row,.support-check{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .support-row{justify-content:flex-end}.support-diag{font-size:var(--t-sm)}.support-diag label{display:flex;gap:6px;align-items:center}
 .support-options{font-size:var(--t-sm)}.support-options summary{color:var(--muted);cursor:pointer}.support-options label{margin-top:8px}.support-options input[type=email]{width:100%;box-sizing:border-box}
+.support-access{display:grid;gap:6px;font-size:var(--t-sm)}.support-access[hidden]{display:none}.support-access p{margin:0}
+.support-access-log ol{margin:6px 0 0;padding-left:18px;max-height:180px;overflow:auto;overflow-wrap:anywhere;color:var(--muted)}
 .support-modal{width:min(760px,calc(100vw - 32px));max-height:90vh}.support-modal .tmodal-body{display:grid;gap:10px;overflow:auto}
 .support-modal p{margin:0;font-size:var(--t-base)}.support-json{width:100%;min-height:280px;box-sizing:border-box;font:var(--t-sm)/1.5 var(--mono);white-space:pre;resize:vertical}
 .support-sections{display:flex;gap:8px 16px;flex-wrap:wrap}.support-sections label{display:flex;align-items:center;gap:5px;font-size:var(--t-sm)}

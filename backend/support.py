@@ -144,13 +144,14 @@ def clean_email(value):
     return value
 
 
-def _ask_hq(method, path, *, body=None, secret=""):
-    """One request to HQ, or a Problem the person can act on. Nothing from HQ's answer is logged."""
+def _ask_hq(method, path, *, body=None, secret="", wait=HQ_WAIT):
+    """One request to HQ, or a Problem the person can act on. Nothing from HQ's answer is logged. `wait` is longer for
+    a long poll (backend/support_access.py)."""
     headers = {"Accept": "application/json", "User-Agent": "tico-support"}
     if secret:
         headers["X-Ticket-Secret"] = secret
     try:
-        with httpx.Client(timeout=HQ_WAIT, transport=TRANSPORT, follow_redirects=False) as http:
+        with httpx.Client(timeout=wait, transport=TRANSPORT, follow_redirects=False) as http:
             return http.request(method, hq_url() + path, json=body, headers=headers)
     except httpx.HTTPError as exc:
         diagnostics.RING.handle(logging.LogRecord("tico.support", logging.WARNING, "", 0,
