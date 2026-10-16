@@ -1,0 +1,16 @@
+{
+  "harness": "claude",
+  "cli": "2.1.301 (Claude Code)",
+  "about": "a subagent's stream next to the bot's own",
+  "source": {
+    "real": true,
+    "recorded": "2026-10-16",
+    "how": "record_replays: the installed CLI through replay_proxy.py"
+  },
+  "turns": [
+    {
+      "prompt": "Use the Task tool to start one general-purpose subagent with the prompt 'Reply with exactly: pong'. Then tell me in one line what it replied.",
+      "actions": []
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "turns": [
+    [
+      {
+        "kind": "status",
+        "state": "active"
+      },
+      {
+        "kind": "rate_limits",
+        "status": "allowed",
+        "resets_at": "2026-10-16T08:10:00+00:00",
+        "used_percent": 44.0,
+        "window_minutes": 300
+      },
+      {
+        "act": "interrupt",
+        "ok": true
+      },
+      {
+        "kind": "rate_limits",
+        "status": null,
+        "resets_at": "2026-10-19T20:00:00+00:00",
+        "used_percent": 25.0,
+        "window_minutes": 10080
+      },
+      {
+        "kind": "turn_completed",
+        "status": "interrupted"
+      },
+      {
+        "kind": "status",
+        "state": "idle"
+      }
+    ]
+  ],
+  "after": []
+}
