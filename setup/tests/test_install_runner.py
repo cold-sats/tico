@@ -64,7 +64,7 @@ def test_runner_mode_writes_the_compose_file_and_a_pinned_env_and_starts_it(box)
     assert not (box["dir"] / "compose.yaml").exists()                 # the server's file stays out
     env = (box["dir"] / ".env").read_text().splitlines()
     assert env == ["TICO_URL=https://tico.example.com", "TICO_CODE=code_123-abc",
-                   'TICO_RUNNER_LABEL="Ana\'s build box"', "TICO_TAG=v0.2.0", "TICO_UPDATER_TAG=v0.2.0"]
+                   'TICO_RUNNER_LABEL="Ana\'s build box"', "TICO_TAG=v0.2.0", "TICO_UPDATER_TAG=v0.2.0", "TICO_SCREEN=1"]
     assert stat.S_IMODE((box["dir"] / ".env").stat().st_mode) == 0o600
     calls = box["log"].read_text()
     assert "docker compose -f runner.compose.yaml up -d" in calls
@@ -98,13 +98,31 @@ def test_a_new_code_url_or_label_replaces_only_those_keys_of_an_existing_env(box
     assert "Updating TICO_URL TICO_CODE in" in again.stdout and "other settings are kept" in again.stdout
     assert env.read_text().splitlines() == [
         "TICO_URL=https://new.example.com", "TICO_CODE=fresh-code_9", 'TICO_RUNNER_LABEL="Ana\'s build box"',
-        "TICO_TAG=v0.2.0", "TICO_UPDATER_TAG=v0.2.0", "TICO_RUNNER_PINNED=1"]
+        "TICO_TAG=v0.2.0", "TICO_UPDATER_TAG=v0.2.0", "TICO_SCREEN=1", "TICO_RUNNER_PINNED=1"]
     assert stat.S_IMODE(env.stat().st_mode) == 0o600
     assert "up -d" in box["log"].read_text()
     # A key the file lacks is added, and a label alone leaves the join code as it was.
     env.write_text("TICO_TAG=v0.2.0\n")
     assert install(box, "--runner", "--label", "Box 2").returncode == 0
     assert env.read_text().splitlines() == ["TICO_TAG=v0.2.0", 'TICO_RUNNER_LABEL="Box 2"']
+
+
+def test_a_new_runner_offers_its_screen_unless_told_not_to_and_an_existing_env_keeps_its_choice(box):
+    env = box["dir"] / ".env"
+    off = install(box, *JOIN, "--no-screen")
+    assert off.returncode == 0, off.stdout + off.stderr
+    assert "TICO_SCREEN=0" in env.read_text().splitlines() and "Screen on" not in off.stdout
+    assert install(box, "--runner").returncode == 0                     # an upgrade leaves the choice alone
+    assert "TICO_SCREEN=0" in env.read_text().splitlines()
+    on = install(box, "--runner", "--screen")
+    assert on.returncode == 0 and "Screen on: TICO_SCREEN=1" in on.stdout
+    assert [line for line in env.read_text().splitlines() if line.startswith("TICO_SCREEN")] == ["TICO_SCREEN=1"]
+    # An install from before the default has no line, and keeps the screen off through an upgrade.
+    env.write_text("TICO_TAG=v0.2.0\n")
+    assert install(box, "--runner").returncode == 0
+    assert "TICO_SCREEN" not in env.read_text()
+    bad = install(box, "--no-screen")
+    assert bad.returncode == 2 and "go with --runner" in bad.stderr
 
 
 def test_a_named_runner_gets_its_own_project_container_volume_and_updater_next_to_the_default_one(box):
@@ -122,7 +140,7 @@ def test_a_named_runner_gets_its_own_project_container_volume_and_updater_next_t
     assert (box["dir"] / ".env").read_text() == default_env
     assert (mail / ".env").read_text().splitlines() == [
         "TICO_URL=http://server:8765", "TICO_CODE=code_456", 'TICO_RUNNER_LABEL="Mail Bot"', "TICO_TAG=v0.2.0",
-        "TICO_UPDATER_TAG=v0.2.0", "TICO_RUNNER_HOME_VOLUME=tico-runner-mail-bot_runner-home"]     # never the first runner's volume
+        "TICO_UPDATER_TAG=v0.2.0", "TICO_SCREEN=1", "TICO_RUNNER_HOME_VOLUME=tico-runner-mail-bot_runner-home"]     # never the first runner's volume
     override = (mail / "runner.override.yaml").read_text()
     assert override.startswith("name: tico-runner-mail-bot\n") and "container_name: tico-runner-mail-bot\n" in override
     assert "aliases: [tico-runner-mail-bot-updater]" in override and "http://tico-runner-mail-bot-updater:8080" in override

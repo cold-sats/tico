@@ -12,6 +12,10 @@ All notable changes to Tico are recorded here. The format follows
   sandboxed frame that cannot act as you: no scripts, forms or plugins, no Tico cookies or storage, and nothing loaded
   from the network (pictures embedded in the file show; remote ones do not). Its links open in a new tab. A link to a
   web page ending in .html still opens as a link.
+- A new Docker runner offers its screen: `install.sh --runner`, `tico setup runner` and the cloud-init template write
+  `TICO_SCREEN=1` unless given `--no-screen` (cloud-init: `TICO_SCREEN=0`). The first time a new computer offers a screen, its
+  **Screen** setting starts at **View**; **Control** is one click away in Settings > Computers. A runner installed before
+  keeps its `.env` and its Screen setting as they are, and a Screen setting someone already chose stays.
 - Goals: what needs a person is a task from the Goal Manager, so it shows in Tasks and Decide as well as under
   **Needs you** on the Goals page, where each line links to it. A KPI off track asks the goal's owner, a KPI whose
   reading is out of date asks its owner, and a proposal asks whoever decides it; one task each, never two. It closes by
