@@ -1388,6 +1388,9 @@ class ProvidersUpdate(Contract):
     expected_revision: int = Field(default=0, ge=0)
     # Run a limited bot's turn on another signed-in provider when it names no fallback; None keeps the saved value.
     auto_fallback: bool | None = None
+    # What review and check subtasks run on, best first (`runtime` or `runtime:model`); None keeps the saved order,
+    # [] follows the enabled providers' order.
+    check_models: list[Annotated[str, Field(min_length=1, max_length=140)]] | None = Field(default=None, max_length=10)
 
 
 class SystemUpdate(Contract):

@@ -1237,8 +1237,8 @@ def create_app(settings=None):
         def work(c):
             before, after = Providers.save(c, who.actor, body.model_dump(), H.now())
             H.event(c, who.actor, "providers.updated", "",
-                    {"before": {k: before[k] for k in ("enabled", "runtime", "model", "revision", "auto_fallback")},
-                     "after": {k: after[k] for k in ("enabled", "runtime", "model", "revision", "auto_fallback")}})
+                    {"before": {k: before[k] for k in ("enabled", "runtime", "model", "revision", "auto_fallback", "check_models")},
+                     "after": {k: after[k] for k in ("enabled", "runtime", "model", "revision", "auto_fallback", "check_models")}})
             return Providers.view(after)
         return mutate(request, body, work)
 
