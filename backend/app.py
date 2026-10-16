@@ -108,6 +108,9 @@ def create_app(settings=None):
         from concurrent.futures import ThreadPoolExecutor
         asyncio.get_running_loop().set_default_executor(ThreadPoolExecutor(max_workers=64, thread_name_prefix="tico"))
         store.initialize()
+        # Files go to the company's own bucket from the first request, when the owner set one.
+        from . import company_storage
+        company_storage.startup(store, app.state.vault, app.state.blobs)
         asyncio.get_running_loop().run_in_executor(None, auth.warm)   # Cloudflare's keys, before anyone signs in
         # A company from before the Librarian was built in gets it on update, once it can run it.
         try:
@@ -4929,6 +4932,8 @@ def create_app(settings=None):
     from .credentials import install_credentials
     install_credentials(app, store, delegate=delegated_identity, propose=propose_card)
     install_credential_cards(app, store, app.state.vault, auth, BOTOPS, delegated_identity, settings_admin._manager)
+    from . import company_storage
+    company_storage.install(app, store, auth)
     from .sql import install_sql
     install_sql(app, store, auth)
     from .judge import install_judge

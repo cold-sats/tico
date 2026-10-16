@@ -82,13 +82,13 @@ const shots = process.env.TICO_SHOTS || '';
     await page.locator('[data-hl-metrics]').waitFor();
     assert.equal(await page.locator('#hl-page .hl-table').count(), 2);
     for (const mode of ['dark', 'light']) { await theme(mode); await shot(`storage-s3-desktop-${mode}`); }
-    // local disk: no copy line, a docs link
+    // local disk: no copy line, a link to Settings > Storage
     await settled();
     health = {...health, storage: {mode: 'local', bucket: null, region: null, files: 1, bytes: 2048, copy: {done: 0, total: 0, failed: 0}}};
     await redraw();
     assert.match((await row.locator('.hl-storage-main').innerText()).replace(/\s+/g, ' '), /^Storage Local disk 1 file · 2 KB Set up S3$/);
     assert.equal(await row.locator('[data-hl-copy], [data-hl-copy-failed]').count(), 0);
-    assert.equal(await row.locator('a').getAttribute('href'), 'https://github.com/ticoteam/tico/blob/main/docs/files.md#storage');
+    assert.equal(await row.locator('a').getAttribute('href'), '#/settings/storage');
     for (const mode of ['dark', 'light']) { await theme(mode); await shot(`storage-local-desktop-${mode}`); }
     // a phone: one row that wraps, no sideways scroll
     await page.setViewportSize({width: 390, height: 844});

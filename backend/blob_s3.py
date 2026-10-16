@@ -97,6 +97,9 @@ def region(settings, env=None):
 
 def kinds(settings, env=None, reads=False):
     env = os.environ if env is None else env
+    # A company bucket set in Settings (backend/company_storage.py) carries its own keys and uses nothing else.
+    if getattr(settings, "blob_keys", None):
+        return ["company"]
     mode = getattr(settings, "blob_credentials", "auto") or "auto"
     if mode != "auto" and not reads:
         return [mode]
@@ -130,7 +133,10 @@ def client(settings, config=None, kind=None, region_name=None):
     options = {"region_name": region_name or region(settings), "endpoint_url": settings.blob_endpoint or None,
                "config": signing if config is None else config.merge(signing)}
     kind = kind or kinds(settings)[0]
-    if kind != "role":
+    if kind == "company":
+        key, secret = settings.blob_keys
+        options.update(aws_access_key_id=key, aws_secret_access_key=secret)
+    elif kind != "role":
         prefix = "TICO_BLOB" if kind == "keys" else "LITESTREAM"
         key, secret = os.environ.get(prefix + "_ACCESS_KEY_ID"), os.environ.get(prefix + "_SECRET_ACCESS_KEY")
         if not key or not secret:

@@ -135,7 +135,9 @@ and keeps the bytes; the file returns when the bot publishes a changed version. 
 
 ## Storage
 
-Local disk is the default. To use S3:
+Local disk is the default. The owner can put the company's files in its own bucket from Settings › Storage
+([A company's own bucket](#a-companys-own-bucket)); the server's operator can set one with the steps below.
+To use S3:
 
 1. Create a dedicated bucket in the AWS console, or preview
    `deploy/aws/attachments-s3.sh --bucket acme-files --region us-east-1 --role acme-server`
@@ -259,6 +261,25 @@ The optional ffmpeg + poppler-utils install was measured in a disposable
 APT reported 119 MB of download archives and 417 MB of installed packages. This exceeds the
 150 MB image budget, so these tools are omitted from the standard server image. Install them in
 a custom server image, or supply a poster. Pillow and the multipart parser ship with the server.
+### A company's own bucket
+
+In **Settings › More › Storage** the owner enters a bucket, its region, an optional folder in it, and an access key ID
+and secret access key. Only the owner, signed in as themselves, can see or change it; a bot, BotOps and the Assistant
+cannot. Before saving, Tico writes a small check object (`<folder>/blobs/…`, about 80 bytes) with those keys and reads it
+back; when either fails it saves nothing and says which S3 error it got. The keys need `s3:PutObject`, `s3:GetObject`
+and `s3:AbortMultipartUpload` on the bucket's objects (step 2 above, without the IAM role), and `s3:DeleteObject` to
+replace the team icon (docs/desktop.md).
+
+From the moment it is saved, without a restart, every new file goes to that bucket, ahead of `TICO_BLOB_BUCKET` and the
+server's disk. Files already stored keep opening: a file is read from the bucket in use, then from each bucket used
+before it (newest first), then from the server's own storage. Files on the server's disk are copied into the new bucket
+in the background (Settings › Health shows progress); files in another bucket stay where they are. **Use the server's
+storage** sends new files back to the server's own storage; the bucket stays on the list of places files are read from.
+
+The secret access key is sealed with the credential key (`credential.key`, or `TICO_CREDENTIAL_KMS_KEY`) and is
+never shown again, logged or returned by the API. Leave it empty to keep the saved one when changing the bucket's folder
+or region with the same key ID. A copy made with `python -m backend.devcopy` leaves the company's bucket out.
+
 ## Task file reviews
 
 Task attachments are versioned by name within their task, across uploaders. Reusing a name

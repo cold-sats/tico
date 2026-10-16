@@ -8,6 +8,11 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- Company cloud storage: the owner can store the company's files in its own S3 bucket from **Settings › Storage**
+  (bucket, region, folder, access keys). Tico writes and reads back a check object before saving, seals the secret
+  key with the credential key and never shows it again. New files go to the bucket at once, with no restart; files
+  already stored keep opening from where they are, and files on the server's disk are copied in. See docs/files.md,
+  "A company's own bucket".
 - Goals: what needs a person is a task from the Goal Manager, so it shows in Tasks and Decide as well as under
   **Needs you** on the Goals page, where each line links to it. A KPI off track asks the goal's owner, a KPI whose
   reading is out of date asks its owner, and a proposal asks whoever decides it; one task each, never two. It closes by

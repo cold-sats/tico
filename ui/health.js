@@ -102,7 +102,7 @@ function hlStorageHtml(st) {
     <span class="muted tnum">${files.toLocaleString()} file${files === 1 ? '' : 's'} · ${esc(bytes(Number(st.bytes) || 0))}</span>
     ${copying ? `<span class="hl-copy tnum" data-hl-copy>Copying to S3 · ${done.toLocaleString()} of ${total.toLocaleString()}</span>` : ''}
     ${failed ? `<span class="err tnum" data-hl-copy-failed>${failed.toLocaleString()} failed</span>` : ''}
-    ${s3 ? '' : `<a class="hl-s3" href="${GH}/blob/main/docs/files.md#storage" target="_blank" rel="noopener noreferrer">Set up S3</a>`}</div></div>`;
+    ${s3 ? '' : '<a class="hl-s3" href="#/settings/storage">Set up S3</a>'}</div></div>`;
 }
 
 // The owner: the optional Health Monitor (backend/health_monitor.py). One switch turns it on or off; the second is the team
