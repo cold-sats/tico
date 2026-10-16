@@ -61,7 +61,7 @@ as `0.3.50` or a whole line such as `0.2`) and `known_issues` (`{id, title, sinc
 shows its version's newest message once to each person, and Help lists **Known issues in your version** (or says it could not
 check, when its update check goes to GitHub instead: usage counting off, or a release mirror).
 
-A release before v0.3.53 keeps only the release fields. When one of those names its version (usage counting on), HQ puts its
+A release before v0.3.52 keeps only the release fields. When one of those names its version (usage counting on), HQ puts its
 message's `url` in place of the release link, which is what its **New version · View changelog** opens. A v0.2 install with
 counting off asks GitHub and cannot be reached this way.
 
