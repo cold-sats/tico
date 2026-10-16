@@ -122,6 +122,9 @@ impl Events {
                 }
                 Err(Failure::Broken(why)) => {
                     if self.state() == Stream::Up {
+                        // This connection was live: the drop is new, so the backoff starts over. Otherwise a proxy
+                        // that resets the stream every few minutes would stretch each short reset to RECONNECT_MAX_S.
+                        delay = 1.0;
                         log(&format!("Tico runner: event stream lost ({why}); polling until it is back"));
                         *self.down_since.lock().unwrap() = Some(Instant::now());
                     } else if !said_down {

@@ -186,6 +186,15 @@ def test_event_stream_does_not_count_drops_the_runner_says_were_back_within_seco
     with api.app.state.store.read() as c:
         assert not [f for f in health_monitor._runner_checks(c, api.app.state.store.settings)
                     if f["check_id"] == "event_stream"]     # two drops that lasted: under the threshold
+    # A "back" with no "lost" kept before it (a clean end is not an error line) answers nothing; 30 s is brief, 31 is not.
+    runner_errors(api, runner, [lost % "2026-01-10T10:00:00Z", back % ("2026-01-10T10:02:00Z", 120),
+                                back % ("2026-01-10T10:20:01Z", 1), lost % "2026-01-10T10:30:00Z",
+                                back % ("2026-01-10T10:30:31Z", 31), lost % "2026-01-10T10:40:00Z",
+                                back % ("2026-01-10T10:40:30Z", 30), lost % "2026-01-10T10:50:00Z"])
+    with api.app.state.store.read() as c:
+        (found,) = [f for f in health_monitor._runner_checks(c, api.app.state.store.settings)
+                    if f["check_id"] == "event_stream"]
+    assert found["detail"].startswith("3 of")
 
 
 def test_with_the_rule_off_a_report_is_an_approval_and_nothing_leaves(environment, hq):
