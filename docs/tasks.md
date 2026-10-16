@@ -402,11 +402,13 @@ a thread URL, a `claude --resume <id>` or `codex resume <id>` command, or anothe
 (`hub task link <id> <value> --session`, `hub_task_link` with `kind: session`, or Sessions + on the task).
 They are for tracking only: task chat and comments always go to the owning bot.
 
-A subtask does not get a session of its own. A turn on a task runs in its **session root**: Tico walks up the
-parents the same bot owns (up to 20) and takes the topmost, so the bot's turns on a subtask continue its parent's
-session, in the parent's lane and worktree, one at a time with the parent's turns. A parent owned by someone else, or
-one with different readers (one task private and the other not, or two private tasks whose people cannot each read
-both), ends the walk, so a bot's subtask under a person's task is its own root. The primary session, the Copy session
+A subtask someone else files for a bot under its task does not get a session of its own. A turn on a task runs in its
+**session root**: Tico walks up the parents the same bot owns (up to 20) and takes the topmost, so the bot's turns on
+such a subtask continue its parent's session, in the parent's lane and worktree, one at a time with the parent's
+turns. A subtask the bot filed for itself is its own root: it starts in its own session and lane, beside its parent
+and the bot's other tasks, up to the bot's turn limit. A parent owned by someone else, or one with different readers
+(one task private and the other not, or two private tasks whose people cannot each read both), ends the walk, so a
+bot's subtask under a person's task is its own root. The primary session, the Copy session
 ID and the checkpoint all live on the root, and a fresh session on a subtask starts from the root's checkpoint; a
 subtask shows no session.
 `subtask_session: own` on a bot (`hub bot update <slug> --subtask-session own`, `hub_bot_update`, or the bot
