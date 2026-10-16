@@ -16,6 +16,10 @@ All notable changes to Tico are recorded here. The format follows
   account's percentages.
 
 ### Changed
+- A bot that hits a Claude or Codex usage limit now resumes at the provider's own reset time instead of after a fixed
+  30 minutes (2 hours after three in a row). The bot's status and Health say when it resumes ("resumes at 12:40 UTC"),
+  and its computer picks the queued work up as soon as the reset passes. Providers that report no reset time keep the
+  30-minute/2-hour wait.
 - Connect Google: the app's client secret stays on the server. The server exchanges the sign-in code and refreshes
   each grant for the computer that holds it, returns only an hour-long, read-only access token for one service, and
   stores and logs no token. The grant on the computer keeps no secret.

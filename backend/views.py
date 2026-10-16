@@ -338,8 +338,9 @@ def operation_issues(c, who, auth):
                         needs_person=False,
                         action="Check the subscription or set a fallback harness in Settings → Bots.")
                 else:
+                    retry = H.shift(status["since"], seconds=cooldown)
                     add("bot", bot["display_name"] + " needs attention",
-                        f"{runtime} usage limit; retrying automatically", bot=slug,
+                        f"{runtime} usage limit; resumes at {retry[11:16]} UTC", bot=slug,
                         severity="warning", needs_person=False)
         queued = privacy.job_count(c, who, slug)
         if location.get("agent"):
