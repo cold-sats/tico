@@ -88,7 +88,7 @@ def domains_of(*values: str) -> list[str]:
 # A home folder names the account (/home/ana/tico), and so does an ssh login (ana@203.0.113.7); the address itself goes
 # with the diagnostics rules.
 HOME = re.compile(r"((?:/home|/Users|[A-Za-z]:\\Users)[/\\])(?!\[user\])[^/\\\s\"'<>]+")
-SSH_USER = re.compile(r"(?<![A-Za-z0-9._%+'-])[A-Za-z_][A-Za-z0-9_.-]{0,31}@(?=\d{1,3}\.\d{1,3}\.|\[|[0-9a-fA-F]*:)")
+SSH_USER = re.compile(r"(?<![A-Za-z0-9._%+'-])[A-Za-z_][A-Za-z0-9_.-]{0,31}@(?=\d{1,3}(?:\.\d{1,3}){3}(?![\w.-]*[A-Za-z])|\[|[0-9a-fA-F]*:)")
 
 
 def scrub(text: str, *, domains=(), secrets=(), names=()) -> str:

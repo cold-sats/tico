@@ -333,6 +333,12 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
     // Removing the attachment before sending leaves a plain request.
     await v.page.evaluate(() => talkToUs({kind: 'run', title: 'Run failed: exit 1'}));
     assert.equal(await v.page.locator('[data-compose] [name=message]').inputValue(), 'Failed run: details attached. ');
+    // A second report onto an untouched prefill takes its own kind; words the person typed stay.
+    await v.page.locator('[data-compose] [name=message]').fill('Failed run: details attached. Since Monday.');
+    await v.page.evaluate(() => { document.querySelector('[data-compose] [name=message]').dispatchEvent(new Event('input', {bubbles: true})); talkToUs({kind: 'stuck', title: 'finance: no reply'}); });
+    assert.equal(await v.page.locator('[data-compose] [name=message]').inputValue(), 'Stuck bot: details attached. Since Monday.');
+    await v.page.locator('[data-compose] [name=message]').fill('');
+    await v.page.evaluate(() => talkToUs({kind: 'run', title: 'Run failed: exit 1'}));
     await v.page.locator('[data-unreport]').click();
     assert.equal(await v.page.locator('[data-report]').count(), 0);
     assert.equal(await v.page.locator('[data-compose] [name=message]').inputValue(), '', 'no "details attached" with nothing attached');

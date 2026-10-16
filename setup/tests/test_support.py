@@ -90,6 +90,7 @@ def test_home_folders_and_ssh_logins_lose_the_account_name():
         assert leaked not in text, leaked
     assert "/home/[user]/tico" in text and "[user]@[ip]" in text
     assert support.scrub("write to me@acme.example") == "write to [email]"
+    assert support.scrub("write to me@12.34.example.com") == "write to [email]"
 
 
 @pytest.mark.parametrize("answer", ["", "n", "no"])

@@ -40,6 +40,8 @@
   }
   const REPORTED = {toast: 'Error', run: 'Failed run', health: 'Health', stuck: 'Stuck bot', setup_check: 'Setup check'};
   const prefill = report => REPORTED[report.kind] + ': details attached. ';
+  // The message without any kind's untouched prefill: a new report or Remove replaces it rather than stacking on it.
+  const unprefilled = message => { const kind = Object.values(REPORTED).find(k => message.startsWith(k + ': details attached. ')); return kind ? message.slice(kind.length + 20) : message; };
   // The same problem gets the same group wherever it is reported: numbers and quoted names don't split it.
   const group = (kind, words) => (kind + ':' + String(words || '').replace(/(["'“‘]).*?["'”’]/g, '"…"').replace(/\d+/g, '#').replace(/\s+/g, ' ').trim()).slice(0, 120);
   const clip = (s, n) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
@@ -195,7 +197,7 @@
     const unreport = form.querySelector('[data-unreport]');
     if (unreport) unreport.onclick = () => {
       // An untouched prefill would say "details attached" with nothing attached.
-      if (d.message.startsWith(prefill(d.report))) d.message = d.message.slice(prefill(d.report).length);
+      d.message = unprefilled(d.message);
       d.report = null; d.bundle = null; d.key = uid(); renderComposer(); form.elements.message?.focus();
     };
     form.oninput = () => {
@@ -319,7 +321,8 @@
       d.report = p.report; d.diag = true; d.bundle = null; d.key = uid();
       // The words on screen go only in the attachment, which is redacted; the message is sent as typed, so it names
       // the kind and nothing else.
-      if (!d.message.trim()) d.message = prefill(p.report);
+      const rest = unprefilled(d.message);
+      if (!d.message.trim() || rest !== d.message) d.message = prefill(p.report) + rest;
     }
     renderTickets(); renderThread(true); renderComposer();
     const box = rail.querySelector('[name=message]');
