@@ -36,7 +36,10 @@ Words are defined in the [Glossary](glossary.md).
   `waiting`, `review`, `ready`, `done`, `closed`, `declined` (`review` and `ready` belong to the
   product lane). The owner marks it `done`; only the requester (or any human) closes it. Every
   task has a comment thread, on the record with the author.
-- **Message** — one line in a conversation. Kinds: `say`, `ask`, `answer`, `notice`, `steer`.
+- **Message** — one line in a conversation. Kinds: `say`, `ask`, `answer`, `notice`, `steer`. A message sent while
+  its bot answers in the same conversation goes into that turn when the harness can steer (`steer` in its manifest)
+  and otherwise waits for the next turn; chat says which, and Stop and redirect ends the turn so the next one starts
+  with that message. A requesting bot steers its delegated task's running turn with `hub message send --steer --ref task:<id>`.
   A bot's `ask` to a human is what lands in **Needs you**.
 - **Approval** — a human's yes or no to one exact action. Kinds: `send`, `spend`, `publish`,
   `merge`. A bot may request one when uncertain about a specific action; authorized work needs no separate

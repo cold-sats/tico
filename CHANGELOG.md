@@ -8,6 +8,11 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- A message sent while its bot is answering says what happens to it: "Steering this turn" when the bot's CLI takes
+  input mid-turn (Claude Code, Codex), or "Queued for the next turn" otherwise, with a Stop and redirect button that
+  ends the turn so the next one starts with that message in the same session. Steering is now a declared harness
+  capability (`steer`), and a bot that requested a task can steer its owner's running turn on it with
+  `hub message send --steer --ref task:<id>`.
 - Settings > Computers shows Claude's and Codex's weekly and 5-hour usage as percentages on the computer's own login,
   not only on named subscriptions. Claude's come from its turns (Claude Code 2.1.30x reports both windows); before a
   Claude turn on that computer the row says so instead of a number. Codex's are read while idle, with the account, for

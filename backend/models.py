@@ -1673,6 +1673,7 @@ class LimitRetry(Contract):
 
 class StopTurn(Contract):
     attempt_id: ID | None = None   # the run the person saw; a newer one is not stopped by mistake
+    redirect: ID | None = None     # the caller's queued message the next turn starts with (Stop and redirect)
 
 
 class AssistantMessage(Contract):

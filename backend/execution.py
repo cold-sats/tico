@@ -865,9 +865,10 @@ class Execution:
             f"AND (({task_sql} IS NOT NULL AND "
             + H.MESSAGE_TASK_SQL.replace("m.", "um.").replace("cv.", "uc.") + f"={task_sql}) "
             f"OR ({task_sql} IS NULL AND cv.kind='chat' AND um.conversation_id=m.conversation_id)))) "
-            # A person's chat first; then the bot holding the fewest turns here, so a freed turn goes to another
-            # bot's waiting job before the busy bot's next one; then the longest waiting.
-            "ORDER BY CASE WHEN m.from_actor LIKE 'human:%' THEN 0 ELSE 1 END,"
+            # A redirect first (it replaces a turn just stopped); then a person's chat; then the bot holding the
+            # fewest turns here, so a freed turn goes to another bot's waiting job before the busy bot's next one;
+            # then the longest waiting.
+            "ORDER BY j.redirect DESC,CASE WHEN m.from_actor LIKE 'human:%' THEN 0 ELSE 1 END,"
             f"CASE j.bot {' '.join('WHEN ? THEN ?' for _ in bots)} ELSE 0 END,j.created,j.id",
             (*bots, who.runner_id, *full, *(v for bot in bots for v in (bot, held.get(bot, 0)))))
         for row in candidates:
@@ -1283,9 +1284,13 @@ class Execution:
         return {"lease_until": until, "lease_seconds": self.store.settings.lease_seconds,
                 **({"stop": True} if row["stop_requested"] else {})}
 
-    def stop(self, c, who, bot, attempt_id=None):
+    def stop(self, c, who, bot, attempt_id=None, redirect=None):
         """A person who manages the bot asks its running turn to stop. The runner interrupts the turn
-        when it next renews the lease, and `complete` settles it as stopped rather than held for review."""
+        when it next renews the lease, and `complete` settles it as stopped rather than held for review.
+
+        With `redirect`, the caller's own message still queued in a conversation that turn works in is
+        claimed first once it ends, so the next turn starts with it in the same session (Stop and redirect,
+        for a harness that cannot take input mid-turn)."""
         if not H.bot(c, bot):
             raise Problem("not_found", "Unknown bot", 404)
         if not (self.auth.operator(c, who, bot) or self.auth.bot_manager(c, who, bot)):
@@ -1299,10 +1304,21 @@ class Execution:
             raise Problem("ambiguous", "This bot is running more than one turn; say which to stop", 409,
                           extra={"attempts": [r["id"] for r in rows]})
         row = rows[0]
+        if redirect:
+            job = c.execute("SELECT j.id,j.state,m.from_actor FROM jobs j JOIN messages m ON m.id=j.message_id "
+                            "WHERE j.message_id=? AND j.bot=? AND (m.conversation_id=(SELECT om.conversation_id "
+                            "FROM jobs oj JOIN messages om ON om.id=oj.message_id JOIN attempts oa ON oa.job_id=oj.id "
+                            "WHERE oa.id=?) OR m.conversation_id IN (SELECT conversation_id FROM attempt_conversations "
+                            "WHERE attempt_id=?))", (redirect, bot, row["id"], row["id"])).fetchone()
+            if not job or job["from_actor"] != who.actor:
+                raise Problem("not_found", "Redirect with your own message to this turn's conversation", 404)
+            if job["state"] != "queued":
+                raise Problem("not_queued", "That message is already being answered", 409)
+            c.execute("UPDATE jobs SET redirect=1 WHERE id=?", (job["id"],))
         if not row["stop_requested"]:
             c.execute("UPDATE attempts SET stop_requested=? WHERE id=?", (who.actor, row["id"]))
-            H.event(c, who.actor, "attempt.stop", row["id"], {"bot": bot})
-        return {"attempt_id": row["id"], "stopping": True}
+            H.event(c, who.actor, "attempt.stop", row["id"], {"bot": bot, **({"redirect": redirect} if redirect else {})})
+        return {"attempt_id": row["id"], "stopping": True, **({"redirect": redirect} if redirect else {})}
 
     def started(self, c, who, aid, body):
         row = self.attempt(c, who, aid)
@@ -1352,7 +1368,8 @@ class Execution:
         taken = 0
         for row in c.execute("SELECT m.* FROM jobs j JOIN messages m ON m.id=j.message_id "
                              "WHERE j.bot=? AND j.state='queued' AND coalesce(json_extract(m.refs_json,'$.command'),0)!=1 "
-                             "AND (m.conversation_id=("
+                             # A redirect replaces the turn being stopped, so it starts the next one instead.
+                             "AND j.redirect=0 AND (m.conversation_id=("
                              "SELECT active_message.conversation_id FROM attempts active_attempt "
                              "JOIN jobs active_job ON active_job.id=active_attempt.job_id "
                              "JOIN messages active_message ON active_message.id=active_job.message_id "
