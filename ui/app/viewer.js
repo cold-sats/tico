@@ -116,12 +116,20 @@ function rowsView(rows, max = CSV_ROWS) {
 // plugins, its own unique origin (no Tico cookies, storage or page), and nothing fetched from the
 // network, so pictures embedded in the file show and remote ones do not. A link opens in a new tab.
 const HTML_VIEW_LIMIT = 10_000_000;
-const HTML_VIEW_POLICY = "default-src 'none'; img-src data: blob:; media-src data: blob:; style-src 'unsafe-inline' data:; font-src data:";
+const HTML_VIEW_POLICY = "default-src 'none'; img-src data:; media-src data:; style-src 'unsafe-inline' data:; font-src data:";
 function htmlPreviewDoc(raw) {
   // DOMParser builds an inert document: nothing in it runs or loads while it is rewritten.
   const doc = new DOMParser().parseFromString(String(raw), 'text/html');
   for (const m of doc.querySelectorAll('meta[http-equiv]')) if (/^\s*refresh\s*$/i.test(m.getAttribute('http-equiv'))) m.remove();
-  for (const a of doc.querySelectorAll('a[href], area[href]')) { a.target = '_blank'; a.rel = 'noopener noreferrer'; }
+  // Every link opens a new tab rather than loading a remote page inside the frame, outside this policy: SVG links
+  // (whose target property is read-only), links in declarative shadow roots (inert templates here) and links in a
+  // nested srcdoc frame (which frame-src does not cover) included.
+  const newTab = root => {
+    for (const a of root.querySelectorAll('a, area')) { a.setAttribute('target', '_blank'); a.setAttribute('rel', 'noopener noreferrer'); }
+    for (const t of root.querySelectorAll('template')) newTab(t.content);
+    for (const f of root.querySelectorAll('iframe[srcdoc], frame[srcdoc]')) f.setAttribute('srcdoc', htmlPreviewDoc(f.getAttribute('srcdoc')));
+  };
+  newTab(doc);
   const policy = doc.createElement('meta');
   policy.httpEquiv = 'Content-Security-Policy'; policy.content = HTML_VIEW_POLICY;
   doc.head.prepend(policy);

@@ -267,7 +267,7 @@ function tfBodyHTML(f, v, kind, d) {
   if (kind === 'video') return `<div class="tf-media video media-skel${v.poster_url ? ' ready' : ''}"${ratio || ' style="aspect-ratio:16/9"'}><video src="${url}"${v.poster_url ? ` poster="${esc(v.poster_url)}"` : ''} controls playsinline preload="metadata"></video></div>`;
   if (kind === 'audio') return `<div class="tf-media audio media-skel"><audio src="${url}" controls preload="metadata"></audio></div>`;
   if (kind === 'pdf' && v.thumb_url) return `<a class="tf-pdf" href="${url}" target="_blank" rel="noopener" aria-label="Open ${name}"><span class="tf-skel"${ratio}><img alt="" data-tf-src="${esc(v.thumb_url)}"></span><span class="tf-pdf-open">Open PDF ↗</span></a>`;
-  if (kind === 'html' && Number(v.size || 0) <= HTML_VIEW_LIMIT) return `<div class="tf-doc tf-html" data-tf-text="${url}" data-kind="html" data-name="${name}" aria-busy="true"><div class="tf-doc-skel"></div></div>`;
+  if (kind === 'html' && v.size != null && Number(v.size) <= HTML_VIEW_LIMIT) return `<div class="tf-doc tf-html" data-tf-text="${url}" data-kind="html" data-name="${name}" aria-busy="true"><div class="tf-doc-skel"></div></div>`;
   if (['markdown', 'csv', 'json', 'text'].includes(kind) && !big) return `<div class="tf-doc" data-tf-text="${url}" data-kind="${kind}" aria-busy="true"><div class="tf-doc-skel"></div></div>`;
   return `<div class="tf-card"><span class="tf-glyph">${esc(tfGlyph(kind, f.name))}</span><span class="tf-card-t"><span class="tf-name">${name}</span><span class="muted tnum">${v.size != null ? esc(bytes(Number(v.size))) : ''}</span></span>
     ${kind === 'pdf' ? `<a href="${url}" target="_blank" rel="noopener">Open ↗</a>` : ''}<a href="${url}" download>Download</a></div>`;
