@@ -2588,7 +2588,7 @@ def create_app(settings=None):
             raise Problem("check_model", "A check model runs a subtask: file it under a task you own", 422)
         try:
             return check_models.choose(c, settings, H.actor_id(owner), body.check_model,
-                                       body.check_role or "check")
+                                       body.check_role or "check", check_models.author_of(c, settings, parent_id))
         except check_models.CheckModelError as exc:
             raise Problem(exc.code, str(exc), 409 if exc.code == "runner_not_ready" else 422)
 
@@ -2633,6 +2633,8 @@ def create_app(settings=None):
         check = None
         if body.check_model is not None or body.check_role is not None:
             check = check_choice(c, who, body, owner, parent_id)
+        else:
+            check = check_models.review_default(c, settings, owner, parent_id)
         for other, _ in others:
             auth.task(c, who, other)
         parent = H.task(c, parent_id) if parent_id else None

@@ -425,8 +425,11 @@ hub task child <parent-id> --check-model grok --role review --title "Review PR 6
 hub task child <parent-id> --check-model codex:gpt-6.1-sol --title "Check the migration plan" --body "..."
 ```
 
-`--check-model` takes a runtime (its provider's recommended model) or `runtime:model`; `--role` is `review` or
-`check` (the default). The API takes `check_model` and `check_role` on task create; the MCP tool is
+`--check-model` takes a runtime (its provider's recommended model) or `runtime:model`. With no value (`auto` in the
+API) it takes the company's check model (Settings > AI providers, [How it works](how-it-works.md)): the first in its
+order from a provider other than the parent's author and runnable on the bot's computer. The author is the maker of
+the parent's latest run, else the provider its owner runs on; with no other provider it is refused, never run on the
+author's own. `--role` is `review` or `check` (the default). The API takes `check_model` and `check_role` on task create; the MCP tool is
 `hub_task_child_create` with the same fields.
 
 - The subtask is the filing bot's own, under a task it owns. Its turns run on the named runtime and model with no
@@ -441,6 +444,11 @@ hub task child <parent-id> --check-model codex:gpt-6.1-sol --title "Check the mi
   model that ran. When the bot marks the subtask Done or Declined, its owner is woken on the parent with
   "Review on <model> done: <title>" (or "Subtask declined") and the note, so the verdict lands in the parent's
   session. Closing it is a cancellation and wakes nobody.
+- A reviewer bot set to `review_model: check` (`hub bot update <slug> --review-model check`, `hub_bot_update`, or the
+  bot definition API) runs every subtask it is handed under another's task as a `review` on the company's check
+  model, chosen against the parent's author the same way, and its verdict comes back the same way. When no other
+  provider can run it, the subtask is filed as usual and runs on the reviewer's own model. Its own top-level tasks
+  keep its own model.
 
 Every task a bot owns has its own room (a `kind: task` conversation), even one filed from a chat: its comments,
 notices, notes and replies go there, and the chat it was filed from gets one quiet line, "Started task: <title>"

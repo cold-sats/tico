@@ -16,6 +16,10 @@ All notable changes to Tico are recorded here. The format follows
   only the subtask. Only the model changes, never the bot's tools or access; only a provider the company enabled
   can be named, and a computer signed out of it is not handed the turn. The run shows the model that ran, and
   marking the subtask done wakes the parent with the verdict.
+- A company check model (Settings > AI providers > Check model, for example `grok, codex`): `--check-model` with no
+  value picks the first from a provider other than the one the parent's work ran on, and refuses rather than check
+  on the author's own provider. A reviewer bot set to `review_model: check` reviews every subtask it is handed this
+  way, so a review of a PR written on Claude runs on Grok or Codex and says which.
 - Settings > Computers shows Claude's and Codex's weekly and 5-hour usage as percentages on the computer's own login,
   not only on named subscriptions. Claude's come from its turns (Claude Code 2.1.30x reports both windows); before a
   Claude turn on that computer the row says so instead of a number. Codex's are read while idle, with the account, for

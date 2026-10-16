@@ -533,7 +533,8 @@ def task_create(api, args):
       "body the PR or files to look at. Mark it done with the verdict as the note; it comes back to the parent.",
       {"parent": TASK_ID, "owner": _s("Bot slug or human id; `me` for a check_model subtask (the default)"),
        "title": _s("What to do"), "body": _s("Details", default=""),
-       "check_model": _s("A company-enabled runtime, optionally with a model: `grok`, `codex:gpt-6.1-sol`"),
+       "check_model": _s("A company-enabled runtime, optionally with a model: `grok`, `codex:gpt-6.1-sol`; `auto` for "
+                         "the company's check model from a provider other than the parent's author"),
        "check_role": {"type": "string", "enum": ["review", "check"],
                       "description": "With check_model: a review of work, or a check of a claim (default check)"}},
       required=("parent", "title"), writes=True)
@@ -1865,6 +1866,9 @@ def routine_run(api, args):
                            "description": "parent (default): a subtask continues its parent task's session; own: its own session"},
        "task_goal": {"type": "string", "enum": ["on", "off"],
                      "description": "on: work each task it owns as a goal; off (default): not"},
+       "review_model": {"type": "string", "enum": ["check", "own"],
+                        "description": "check: a subtask it is handed under another's task runs on the company's "
+                                       "check model; own (default): its own model"},
        "status": {"type": "string", "enum": ["active", "paused", "planned"]}},
       required=("slug",), writes=True)
 def bot_set(api, args):
@@ -1876,7 +1880,7 @@ def bot_set(api, args):
         row = api.get(f"bots/{args['slug']}/access", **({"on_behalf_of": on_behalf} if delegated else {}))
         if not row:
             raise ValueError("No bot " + args["slug"])
-    change = {k: args[k] for k in ("reports_to", "display_name", "description", "template", "repo", "status", "shared", "session", "subtask_session", "task_goal") if args.get(k) is not None}
+    change = {k: args[k] for k in ("reports_to", "display_name", "description", "template", "repo", "status", "shared", "session", "subtask_session", "task_goal", "review_model") if args.get(k) is not None}
     return api.post(f"bots/{args['slug']}/definition",
                     {**change, "expected_revision": row["revision"],
                      **({"on_behalf_of": on_behalf} if delegated else {})}, key=_key(args))

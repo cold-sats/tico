@@ -30,14 +30,61 @@ def parse(spec):
     return runtime, model
 
 
-def choose(c, settings, bot, spec, role):
+AUTO = "auto"
+
+
+def author_of(c, settings, task_id):
+    """The model maker who wrote a task's work: the maker of its latest run (usage_records.ran_on), else the
+    provider its owner is set to run on; '' when neither is known."""
+    from .shared_bots import follow
+    from .usage_records import ran_on
+    task = H.task(c, task_id) if task_id else None
+    if not task:
+        return ""
+    turn = c.execute("SELECT id FROM turns WHERE task_id=? ORDER BY started DESC LIMIT 1", (task_id,)).fetchone()
+    if turn:
+        made = ran_on(c, [turn["id"]])[turn["id"]]
+        maker = made["family"] or next((s["family"] for s in made["segments"] if s["family"]), None)
+        if maker:
+            return maker
+    if not H.is_bot(task["owner"]):
+        return ""
+    row = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (H.actor_id(task["owner"]),)).fetchone()
+    config = follow(c, H.actor_id(task["owner"]), H._json(row["config_json"], {}) or {}) if row else {}
+    return providers.author_provider(providers.bot_choice(c, settings, config)[1])
+
+
+def _auto(c, settings, bot, author):
+    """The company's check model for work by `author` (providers.check_order): the first from another provider
+    that this bot's computer does not refuse."""
+    record = providers.load(c, settings)
+    refused = []
+    for row in providers.check_order(record):
+        if row["provider"] == providers.author_provider(author):
+            continue
+        model = providers.MODEL_BY_ID[row["model"]]
+        harnesses = tuple(model.get("harnesses") or (row["runtime"],))
+        harness = next((h for h in harnesses if runtime_of(h) == row["runtime"]), harnesses[0])
+        can = can_run(c, bot, row["runtime"], harness=harness, model=row["model"])
+        if can.get("can_run") is False:
+            refused.append(can.get("problem") or row["runtime"])
+            continue
+        return row["runtime"], row["model"]
+    own = providers.PROVIDER_BY_ID.get(providers.author_provider(author))
+    raise CheckModelError("runner_not_ready" if refused else "check_model",
+                          f"No check model from a provider other than {own['label'] if own else 'the author'}"
+                          + (": " + "; ".join(refused[:3]) if refused else
+                             ": enable another AI provider in Settings > AI providers, or name one with --check-model"))
+
+
+def choose(c, settings, bot, spec, role, author=""):
     """The check model a subtask of `bot` may name, or CheckModelError. The company must have the provider
     on (Settings > AI providers), the model must be current, and the bot's computer must not report that
-    runtime signed out."""
+    runtime signed out. `auto` takes the company's check model for work by `author`, never its own provider."""
     if role not in ROLES:
         raise CheckModelError("role", "Choose --role review or --role check")
-    runtime, model = parse(spec)
     record = providers.load(c, settings)
+    runtime, model = _auto(c, settings, bot, author) if str(spec or "").strip() == AUTO else parse(spec)
     try:
         runtime, model = providers.complete_choice(record["enabled"], runtime, model)
     except providers.ProviderError as exc:
@@ -88,3 +135,21 @@ def runs_here(readiness, check):
     if not isinstance(state, dict):
         return True
     return str(state.get("authenticated") or "unknown") not in SIGNED_OUT
+
+
+def review_default(c, settings, owner, parent_id):
+    """The check model a subtask runs on when its owner bot is set to review on the company's check model
+    (`review_model: check`) and the parent is someone else's work; None otherwise, or when no other provider can
+    run it (the bot then works on its own model, as before)."""
+    from .shared_bots import follow
+    parent = H.task(c, parent_id) if parent_id else None
+    if not parent or not H.is_bot(owner) or parent["owner"] == owner:
+        return None
+    row = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (H.actor_id(owner),)).fetchone()
+    config = follow(c, H.actor_id(owner), H._json(row["config_json"], {}) or {}) if row else {}
+    if config.get("review_model") != "check":
+        return None
+    try:
+        return choose(c, settings, H.actor_id(owner), AUTO, "review", author_of(c, settings, parent_id))
+    except CheckModelError:
+        return None

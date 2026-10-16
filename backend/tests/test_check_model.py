@@ -39,8 +39,12 @@ def test_stale_entries_are_skipped_and_never_fail_a_save():
     record = P._record({**COMPANY, "check_models": ["grok", "codex:gpt-6-sol"]})
     # gpt-6-sol is retired: skipped, and the runtime-only grok entry is no pin.
     assert [row["model"] for row in P.check_order(record)][:2] == ["grok-4.6", "claude-opus-5-5"]
-    # A company default retired since it was saved is no check model either.
-    assert "claude-opus-5" not in [row["model"] for row in P.check_order(P._record({**COMPANY, "model": "claude-opus-5"}))]
+    # A company default retired since it was saved is no check model; its provider's current one stands in.
+    retired = P._record({**COMPANY, "model": "claude-opus-5"})
+    assert [row["model"] for row in P.check_order(retired)][0] == "claude-opus-5-5"
+    assert P.check_order(P._record({**retired, "check_models": ["claude"]}))[0]["model"] == "claude-opus-5-5"
+    # A current company default leads its provider's place in the order, not the recommended model.
+    assert P.check_order(P._record({**COMPANY, "model": "claude-sonnet-5-5"}))[0]["model"] == "claude-sonnet-5-5"
     off = {"enabled": ["anthropic", "openai"], "runtime": "claude", "model": "claude-opus-5-5"}
     assert P.normalize_check_models(["grok", "codex:gpt-6-sol"], off, saved=record["check_models"]) == \
         ["grok", "codex:gpt-6-sol"]

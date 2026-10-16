@@ -435,7 +435,8 @@ def _check_row(choice, record):
     runtime, model = runtime.strip(), model.strip()
     if not runtime and not model or ":" in text and not (runtime and model):
         raise ProviderError("check_model", f"Check model {text!r}: name a runtime such as grok, or runtime:model", 422)
-    if runtime and not model and record["runtime"] == runtime and record["model"]:
+    if (runtime and not model and record["runtime"] == runtime and record["model"]
+            and not (MODEL_BY_ID.get(record["model"]) or {}).get("deprecated")):
         model = record["model"]
     named = MODEL_BY_ID.get(model) or {}
     if (runtime in PROVIDER_BY_RUNTIME or named.get("provider")) and not runtime_enabled(
@@ -479,7 +480,8 @@ def check_order(record):
             continue
     for name in record["enabled"]:
         default = MODEL_BY_ID.get(record["model"])
-        row = default if default and default["provider"] == name else recommended(name)
+        row = (default if default and default["provider"] == name and not default.get("deprecated")
+               else recommended(name))
         if row and row.get("provider"):
             rows.append({"runtime": row["runtime"], "model": row["id"], "provider": row["provider"]})
     order, seen = [], set()

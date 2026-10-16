@@ -136,6 +136,12 @@ const {html, uiFile, harnesses} = require('./support/page.cjs');
     assert.equal('check_models' in writes.find(row => row.p === '/api/v2/providers').body, false);
     await page.locator('#set-providers .muted', {hasText: 'Bots wait'}).waitFor();
     assert.match(await page.locator('#set-providers').innerText(), /Bots wait/);
+    // Edited, the order is sent as typed.
+    const saves = () => writes.filter(row => row.p === '/api/v2/providers').length, before = saves();
+    await page.locator('#set-prov [data-provider-check]').fill('grok, codex');
+    await page.locator('#set-prov-save').click();
+    for (let i = 0; i < 100 && saves() === before; i++) await new Promise(done => setTimeout(done, 50));
+    assert.deepEqual(writes.filter(row => row.p === '/api/v2/providers').at(-1).body.check_models, ['grok', 'codex']);
     await page.locator('[data-settings-tab=people]').click();
     await page.locator('#people-add').waitFor();
     await page.locator('[data-settings-tab=devices]').click();

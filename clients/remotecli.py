@@ -633,7 +633,8 @@ def bots(client, args):
                                     ("description", args.description), ("status", args.status), ("repo", args.repo),
                                     ("on_behalf_of", args.on_behalf_of), ("shared", args.shared), ("session", args.session),
                                     ("subtask_session", getattr(args, "subtask_session", None)),
-                                    ("task_goal", getattr(args, "task_goal", None))) if v is not None}
+                                    ("task_goal", getattr(args, "task_goal", None)),
+                                    ("review_model", getattr(args, "review_model", None))) if v is not None}
         try:
             return hubtools.BY_NAME["hub_bot_update"]["fn"](client, fields)
         except ValueError as exc:
