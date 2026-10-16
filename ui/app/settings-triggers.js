@@ -56,6 +56,7 @@ async function renderSettingsTriggers() {
     status.textContent = 'Adding…';
     try {
       const made = (await post('/v2/triggers', {name: ev.target.elements.name.value.trim()})).trigger;
+      if (made.replayed) { TRIGGER_SHOWN = null; renderSettingsTriggers(); toast('Webhook added, but its address was lost on the way. Use New secret to get one.', true); return; }
       TRIGGER_SHOWN = {id: made.id, url: made.url};
       renderSettingsTriggers();
     } catch (e) { status.textContent = e.message; }
@@ -81,6 +82,7 @@ async function renderSettingsTriggers() {
         const id = sign.dataset.triggerSign, t = list.find(x => x.id === id);
         if (t?.signed && !window.confirm('Make a new signing secret? Calls signed with the current one are refused at once.')) return;
         const made = (await post(`/v2/triggers/${encodeURIComponent(id)}/signing`, {})).trigger;
+        if (made.replayed) { renderSettingsTriggers(); toast('Signing is on, but the secret was lost on the way. Use New signing secret to get one.', true); return; }
         TRIGGER_SHOWN = {...(TRIGGER_SHOWN?.id === id ? TRIGGER_SHOWN : {}), id, signing: made.signing_secret};
         renderSettingsTriggers();
       }
@@ -93,6 +95,10 @@ async function renderSettingsTriggers() {
       if (rotate) {
         if (!window.confirm('Make a new secret? The current address stops working at once.')) return;
         const t = (await post(`/v2/triggers/${encodeURIComponent(rotate.dataset.triggerRotate)}/rotate`, {})).trigger;
+        if (t.replayed) {
+          if (TRIGGER_SHOWN?.id === t.id) { delete TRIGGER_SHOWN.url; if (!TRIGGER_SHOWN.signing) TRIGGER_SHOWN = null; }
+          renderSettingsTriggers(); toast('A new secret was made, but the address was lost on the way. Use New secret again.', true); return;
+        }
         TRIGGER_SHOWN = {...(TRIGGER_SHOWN?.id === t.id ? TRIGGER_SHOWN : {}), id: t.id, url: t.url};
         renderSettingsTriggers();
       }

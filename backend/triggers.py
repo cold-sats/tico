@@ -272,10 +272,12 @@ def install(app, settings, store, auth, mutate):
     def once(request, body, fn):
         """A write whose answer carries a secret goes through the vault's receipt (Vault.change): the idempotency row
         keeps a keyed fingerprint of the request and the answer without the secret, so neither the address secret nor
-        the signing secret is stored in the clear or guessable offline. A replay answers without the secret."""
+        the signing secret is stored in the clear or guessable offline. A replay answers without the secret and with
+        `replayed: true`, so the page asks for a new secret instead of showing an address that lacks it."""
         shown = {}
 
         def run(c):
+            shown["replayed"] = False
             result = fn(c)
             if "signing_secret" in result:
                 shown["signing_secret"] = result.pop("signing_secret")
@@ -284,7 +286,7 @@ def install(app, settings, store, auth, mutate):
             return {"trigger": result}
         out = request.app.state.vault.change(request.state.identity, request.url.path,
                                              request.headers.get("idempotency-key"), body, lambda c, who: None, run)
-        return {"trigger": {**out["trigger"], **shown}}
+        return {"trigger": {**out["trigger"], "replayed": True, **shown}}
 
     @app.get("/api/v2/triggers")
     def trigger_list(request: Request):

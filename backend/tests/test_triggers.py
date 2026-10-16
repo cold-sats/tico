@@ -50,13 +50,14 @@ def sig(key, body):
 
 def test_a_signed_trigger_takes_a_github_delivery_and_refuses_and_logs_a_bad_signature(api):
     made = post(api, "triggers", {"name": "Repo"})["trigger"]
+    assert made["replayed"] is False
     post(api, "bots/ops/routines", {"key": "pushes", "title": "Push", "on": "webhook.repo", "text": "Look."})
     post(api, "triggers/repo/signing", {}, token="ben-test", expected=403)        # not the maker
     post(api, "triggers/repo/signing", {"secret": "short"}, expected=422)
     key = post(api, "triggers/repo/signing", {}, key="s1")["trigger"]["signing_secret"]
     assert len(key) == 64 and get(api, "triggers")["triggers"][0]["signed"] is True
     replay = post(api, "triggers/repo/signing", {}, key="s1")["trigger"]      # a retried answer has no secret
-    assert replay["signed"] is True and "signing_secret" not in replay
+    assert replay["signed"] is True and replay["replayed"] is True and "signing_secret" not in replay
     with api.app.state.store.read() as c:                                    # sealed, and in no receipt
         assert key not in c.execute("SELECT signing_secret FROM triggers WHERE id='repo'").fetchone()[0]
         receipts = " ".join(r[0] + r[1] for r in c.execute("SELECT request_hash,response_json FROM idempotency"))
