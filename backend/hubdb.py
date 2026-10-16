@@ -3304,7 +3304,8 @@ def _subtask_wake(conn, actor, row, previous, note=None, quiet=False):
     A bot finishing its own check subtask wakes it the same way: the verdict is for the parent's session."""
     terminal = ("done", "closed", "declined")
     check = check_model(conn, row["id"])
-    by_checker = bool(check and actor == row["owner"])
+    # Done or Declined carries a verdict; the bot closing its own check is a cancellation the parent need not hear.
+    by_checker = bool(check and actor == row["owner"] and row["status"] in ("done", "declined"))
     if not (is_human(actor) or by_checker) or previous in terminal or row["status"] not in terminal:
         return None
     parent = task(conn, TR.parent_of(conn, row["id"]) or "")

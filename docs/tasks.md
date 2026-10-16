@@ -434,9 +434,10 @@ hub task child <parent-id> --check-model codex:gpt-6.1-sol --title "Check the mi
 - Only a provider the company has enabled (Settings > AI providers) and a current model can be named, and the
   bot's computer must not report that runtime missing or signed out. A computer that reports it signed out is not
   handed the subtask's turns.
-- The run's provenance (`ran_on` on the task's runs) names the model that ran. When the bot marks the subtask
-  Done, Declined or Closed, its owner is woken on the parent with "Review on <model> done: <title>" and the note,
-  so the verdict lands in the parent's session.
+- Task detail shows the subtask's `check_model`, and the run's provenance (`ran_on` on the task's runs) names the
+  model that ran. When the bot marks the subtask Done or Declined, its owner is woken on the parent with
+  "Review on <model> done: <title>" (or "Subtask declined") and the note, so the verdict lands in the parent's
+  session. Closing it is a cancellation and wakes nobody.
 
 Every task a bot owns has its own room (a `kind: task` conversation), even one filed from a chat: its comments,
 notices, notes and replies go there, and the chat it was filed from gets one quiet line, "Started task: <title>"
