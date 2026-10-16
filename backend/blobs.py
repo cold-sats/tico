@@ -300,7 +300,9 @@ class Blobs:
             try:
                 return sources.read_s3("get_object", Bucket=place.blob_bucket, Key=self.s3_key(digest, place), **span)[0]["Body"]
             except Exception as exc:
-                if getattr(exc, "response", {}).get("Error", {}).get("Code") not in ("NoSuchKey", "404", "NotFound"):
+                # Any answer from S3 means the bucket is reachable: without s3:ListBucket a missing file is
+                # AccessDenied, not NoSuchKey. Only a failure to get an answer (timeout, endpoint) marks it down.
+                if getattr(exc, "response", None) is None:
                     self._earlier_down[where] = time.monotonic()
         return None
 

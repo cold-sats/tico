@@ -20,6 +20,17 @@ class Denied(S3):
         raise ClientError({'Error': {'Code': 'AccessDenied', 'Message': SECRET}}, 'PutObject')
 
 
+class NoList(S3):
+    """Keys without s3:ListBucket: S3 answers a missing file with AccessDenied, not NoSuchKey."""
+    reads = 0
+
+    def get_object(self, **kw):
+        self.reads += 1
+        if not self.offline and kw['Key'] not in self.objects:
+            raise ClientError({'Error': {'Code': 'AccessDenied'}}, 'GetObject')
+        return super().get_object(**kw)
+
+
 class NoAbort(S3):
     """Writes, but cannot cancel an upload: the server's write probe would fail after the save."""
     def abort_multipart_upload(self, **kw):
@@ -29,7 +40,7 @@ class NoAbort(S3):
 @pytest.fixture
 def buckets(monkeypatch):
     """One fake S3 per access key ID; each records the bucket it was asked for."""
-    made = {'AKIAEXAMPLEGOOD0001': S3(), 'AKIAEXAMPLEGOOD0002': S3(), 'AKIAEXAMPLEDENY0001': Denied(), 'AKIAEXAMPLENOAB0001': NoAbort(), 'server': S3()}
+    made = {'AKIAEXAMPLEGOOD0001': NoList(), 'AKIAEXAMPLEGOOD0002': NoList(), 'AKIAEXAMPLEDENY0001': Denied(), 'AKIAEXAMPLENOAB0001': NoAbort(), 'server': S3()}
     for s3 in made.values():
         s3.close = lambda: None
     def client(service, **options):
@@ -109,6 +120,15 @@ def test_owner_sets_bucket_secret_stays_sealed_and_every_file_keeps_opening(api,
     for fid, data in ((before, b'stored on the server disk'), (after, b'stored in the company bucket'),
                       (second, b'in the second bucket')):
         assert download(api, fid) == data
+    assert download(api, second) == b'in the second bucket', 'a miss answered AccessDenied is not an outage'
+
+    # A bucket that does not answer is skipped for a while, so its timeout is not added to every read.
+    newer = buckets['AKIAEXAMPLEGOOD0002']
+    newer.offline = True
+    assert download(api, after) == b'stored in the company bucket'
+    newer.offline, tries = False, newer.reads
+    assert download(api, after) == b'stored in the company bucket'
+    assert newer.reads == tries
 
 
 def test_keeping_the_secret_needs_the_same_key_id(api, buckets):
