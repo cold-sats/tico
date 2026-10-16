@@ -5,19 +5,31 @@
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const FILE_NAME: &str = "tico.log";
 const MAX_BYTES: u64 = 1024 * 1024;
 // What `tail` reads from the end of each file: enough for its lines, never the whole file.
-const TAIL_BYTES: u64 = 64 * 1024;
+const TAIL_BYTES: u64 = 256 * 1024;
+// Lines logged before the log folder is known (plugin start-up), written to the file once it is.
+const EARLY_LINES: usize = 200;
+
+static LOGGER: OnceLock<FileLog> = OnceLock::new();
 
 struct FileLog {
-    path: Option<PathBuf>,
-    file: Mutex<Option<File>>,
     level: Option<log::LevelFilter>,
     max: u64,
+    // Written as `~`, so the log (and diagnostics made from it) does not name the person's account.
+    home: Option<String>,
+    sink: Mutex<Sink>,
+}
+
+#[derive(Default)]
+struct Sink {
+    path: Option<PathBuf>,
+    file: Option<File>,
+    early: Vec<String>,
 }
 
 fn open(path: &Path) -> std::io::Result<File> {
@@ -30,25 +42,58 @@ fn rotated(path: &Path) -> PathBuf {
     PathBuf::from(name)
 }
 
+fn home() -> Option<String> {
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+    let home = home.to_string_lossy().trim_end_matches(['/', '\\']).to_string();
+    (home.len() > 1).then_some(home)
+}
+
 impl FileLog {
-    fn new(dir: Option<&Path>, level: Option<log::LevelFilter>, max: u64) -> Self {
-        let path = dir.and_then(|dir| std::fs::create_dir_all(dir).ok().map(|_| dir.join(FILE_NAME)));
-        let file = path.as_deref().and_then(|p| open(p).ok());
-        FileLog { path: file.as_ref().and(path), file: Mutex::new(file), level, max }
+    fn new(level: Option<log::LevelFilter>, max: u64, home: Option<String>) -> Self {
+        FileLog { level, max, home, sink: Mutex::new(Sink::default()) }
     }
 
-    fn write_line(&self, line: &str) {
-        let Some(path) = &self.path else { return };
-        let mut file = self.file.lock().unwrap_or_else(|e| e.into_inner());
-        let full = file.as_ref().and_then(|f| f.metadata().ok()).map(|m| m.len() + line.len() as u64 > self.max);
+    fn sink(&self) -> std::sync::MutexGuard<'_, Sink> {
+        self.sink.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Starts writing to `dir`'s log file, beginning with what was logged before. None when it cannot be written.
+    fn attach(&self, dir: &Path) -> Option<PathBuf> {
+        std::fs::create_dir_all(dir).ok()?;
+        let path = dir.join(FILE_NAME);
+        let file = open(&path).ok()?;
+        let mut sink = self.sink();
+        let early = std::mem::take(&mut sink.early);
+        sink.path = Some(path.clone());
+        sink.file = Some(file);
+        for line in early {
+            self.write_line(&mut sink, &line);
+        }
+        Some(path)
+    }
+
+    fn write_line(&self, sink: &mut Sink, line: &str) {
+        let Some(path) = sink.path.clone() else {
+            if sink.early.len() < EARLY_LINES { sink.early.push(line.to_string()); }
+            return;
+        };
+        let full = sink.file.as_ref().and_then(|f| f.metadata().ok()).map(|m| m.len() + line.len() as u64 > self.max);
         if full.unwrap_or(false) {
             // Closed before the rename, which Windows refuses on an open file.
-            *file = None;
-            let _ = std::fs::rename(path, rotated(path));
-            *file = open(path).ok();
+            sink.file = None;
+            let _ = std::fs::rename(&path, rotated(&path));
+            sink.file = open(&path).ok();
         }
-        if let Some(f) = file.as_mut() {
+        if let Some(f) = sink.file.as_mut() {
             let _ = f.write_all(line.as_bytes());
+        }
+    }
+
+    fn line(&self, record: &log::Record) -> String {
+        let line = format!("{} {} {}: {}\n", timestamp(SystemTime::now()), record.level(), record.target(), record.args());
+        match &self.home {
+            Some(home) => line.replace(home.as_str(), "~"),
+            None => line,
         }
     }
 }
@@ -67,34 +112,38 @@ impl log::Log for FileLog {
         if !self.enabled(record.metadata()) {
             return;
         }
-        let line = format!("{} {} {}: {}\n", timestamp(SystemTime::now()), record.level(), record.target(), record.args());
+        let line = self.line(record);
         eprint!("{line}");
-        self.write_line(&line);
+        self.write_line(&mut self.sink(), &line);
     }
 
     fn flush(&self) {
-        if let Some(f) = self.file.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        if let Some(f) = self.sink().file.as_mut() {
             let _ = f.flush();
         }
     }
 }
 
-/// Logs to stderr and, when `dir` can be written, to its log file. Returns the file's path, or None for stderr alone.
-pub fn init(dir: Option<&Path>) -> Option<PathBuf> {
+/// Logs to stderr from the first line; `attach` adds the file once the app knows its log folder.
+pub fn init() {
     let level = std::env::var("RUST_LOG").ok().and_then(|v| v.parse().ok());
-    let logger = FileLog::new(dir, level, MAX_BYTES);
-    let path = logger.path.clone();
+    let logger = LOGGER.get_or_init(|| FileLog::new(level, MAX_BYTES, home()));
     log::set_max_level(level.unwrap_or(log::LevelFilter::Info));
-    log::set_boxed_logger(Box::new(logger)).ok()?;
-    path
+    let _ = log::set_logger(logger);
 }
 
-/// `path` with the home folder as `~`, so the log (and diagnostics made from it) does not name the person's account.
+/// Writes the log to `dir` from now on, starting with the lines logged before. Returns the file's path, or None
+/// when it cannot be written (stderr alone).
+pub fn attach(dir: Option<&Path>) -> Option<PathBuf> {
+    LOGGER.get()?.attach(dir?)
+}
+
+/// `path` with the home folder as `~`, as every logged line has it.
 pub fn shown(path: &Path) -> String {
-    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from);
-    match home.as_deref().and_then(|home| path.strip_prefix(home).ok()) {
-        Some(rest) => Path::new("~").join(rest).display().to_string(),
-        None => path.display().to_string(),
+    let text = path.display().to_string();
+    match home() {
+        Some(home) => text.replace(home.as_str(), "~"),
+        None => text,
     }
 }
 
@@ -162,7 +211,8 @@ mod tests {
     #[test]
     fn the_log_rotates_to_one_old_file_and_tail_reads_across_both() {
         let dir = scratch("rotate");
-        let logger = FileLog::new(Some(&dir), None, 200);
+        let logger = FileLog::new(None, 200, None);
+        assert!(logger.attach(&dir).is_some());
         for n in 0..12 {
             line(&logger, &format!("update check {n}: current"));
         }
@@ -178,13 +228,31 @@ mod tests {
     }
 
     #[test]
-    fn other_crates_log_warnings_only_and_an_unwritable_folder_keeps_stderr() {
-        let logger = FileLog::new(None, None, MAX_BYTES);
-        assert!(logger.path.is_none());
+    fn lines_before_the_folder_is_known_reach_the_file_and_the_home_folder_is_never_written() {
+        let dir = scratch("early");
+        let logger = FileLog::new(None, MAX_BYTES, Some("/Users/ana".into()));
+        line(&logger, "plugin started");
+        line(&logger, "could not read /Users/ana/Library/Application Support/x");
+        logger.attach(&dir).unwrap();
+        line(&logger, "after");
+        let lines = tail(&dir.join(FILE_NAME), 10);
+        assert_eq!(lines.len(), 3, "{lines:?}");
+        assert!(lines[0].ends_with("plugin started") && lines[2].ends_with("after"), "{lines:?}");
+        assert!(lines[1].ends_with("could not read ~/Library/Application Support/x"), "{lines:?}");
+        assert!(!std::fs::read_to_string(dir.join(FILE_NAME)).unwrap().contains("ana"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn other_crates_log_warnings_only_and_without_a_folder_nothing_panics() {
+        let logger = FileLog::new(None, MAX_BYTES, None);
         let info = |target| log::Metadata::builder().level(log::Level::Info).target(target).build();
         assert!(logger.enabled(&info(env!("CARGO_CRATE_NAME"))));
         assert!(!logger.enabled(&info("hyper::client")));
-        line(&logger, "no file, no panic");
+        for _ in 0..EARLY_LINES + 5 {
+            line(&logger, "no file, no panic");
+        }
+        assert_eq!(logger.sink().early.len(), EARLY_LINES);
     }
 
     #[test]

@@ -17,6 +17,7 @@ class FakeHQ:
     def __init__(self):
         self.tickets, self.seen, self.down, self.status_override = {}, [], False, None
         self.fields = None           # an older HQ: refuses a ticket carrying a field beyond these
+        self.refuse_field = None     # refuses every ticket, naming this field as the wrong one
 
     def __call__(self, request):
         self.seen.append(request)
@@ -27,6 +28,8 @@ class FakeHQ:
             if self.status_override:
                 return httpx.Response(self.status_override, json={"error": "x"})
             body = json.loads(request.content)
+            if self.refuse_field:
+                return httpx.Response(422, json={"error": "invalid", "field": self.refuse_field})
             if self.fields is not None and set(body) - self.fields:
                 return httpx.Response(422, json={"error": "invalid", "field": "fields"})
             tid = "TK-%08d" % (len(self.tickets) + 1)
@@ -104,6 +107,15 @@ def test_the_desktop_apps_version_goes_labelled_apart_and_an_older_hq_still_gets
     r = file(api, app_version="0.3.47")
     assert r.status_code == 200 and "app_version" not in r.json()["sent"]
     assert [json.loads(x.content).get("app_version") for x in hq.seen[-2:]] == ["0.3.47", None]
+    assert len(hq.tickets) == 3
+
+    # Only that refusal is retried, once: HQ objecting to the value itself, or to another field, is answered as it is.
+    for fields, refuse, body in ((None, "app_version", {"app_version": "0.3.47"}),
+                                 ({"message"}, None, {"email": "ana@acme.example"})):
+        hq.fields, hq.refuse_field, before = fields, refuse, len(hq.seen)
+        r = file(api, **body)
+        assert r.status_code < 500 and r.status_code >= 400, r.text
+        assert len(hq.seen) == before + 1
     assert len(hq.tickets) == 3
 
 

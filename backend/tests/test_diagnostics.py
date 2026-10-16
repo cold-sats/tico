@@ -50,9 +50,11 @@ def test_names_become_labels_that_are_the_same_all_through_a_bundle():
 
 def test_a_bundle_over_the_cap_shrinks_its_logs_first():
     bundle = {"format": 1, "counts": {"bots": 1}, "containers": [],
-              "logs": {"server": ["x" * 300] * 2000, "updater": []}, "runners": [{"log": ["y" * 300] * 2000, "problems": []}]}
+              "logs": {"server": ["x" * 300] * 2000, "updater": [], "app": ["z" * 300] * 3000},
+              "runners": [{"log": ["y" * 300] * 2000, "problems": []}]}
     out = D.fit(bundle)
     assert len(json.dumps(out).encode()) <= D.MAX_BYTES and out["counts"] == {"bots": 1}
+    assert len(out["logs"]["app"]) < 3000           # the desktop app's log shrinks like the others
 
 
 # ------------------------------------------------------------------ the allowlist

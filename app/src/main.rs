@@ -72,6 +72,7 @@ struct AppState {
 type App = AppHandle<tauri::Wry>;
 
 fn main() {
+    applog::init();
     let state = AppState {
         connection: Mutex::new(None),
         status: Mutex::new(HubStatus::default()),
@@ -91,7 +92,7 @@ fn main() {
         .manage(state)
         .invoke_handler(tauri::generate_handler![app_log, bridge, connect_server, server_address])
         .setup(move |app| {
-            match applog::init(log_dir(app.handle()).as_deref()) {
+            match applog::attach(log_dir(app.handle()).as_deref()) {
                 Some(path) => log::info!("{} {} starting; this log is {}", config::app_name(), app.package_info().version, applog::shown(&path)),
                 None => log::warn!("{} {} starting; no log file, so this log goes to stderr only", config::app_name(), app.package_info().version),
             }
