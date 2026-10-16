@@ -342,20 +342,26 @@ fn open_hub_window(app: &App, url: url::Url) {
     static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
     let label = format!("hub-{}", NEXT.fetch_add(1, Ordering::Relaxed));
     let opener = app.clone();
-    let saved = Mutex::new(None);
+    #[cfg(not(target_os = "linux"))]
     let opened = url.clone();
-    let _ = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url))
+    #[allow(unused_mut)]
+    let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url))
         .title(config::app_name())
         .inner_size(1000.0, 800.0)
         .min_inner_size(MIN_WIDTH as f64, MIN_HEIGHT as f64)
         .user_agent(USER_AGENT)
         .on_navigation(move |url| stays_in_app(&opener, url))
-        .on_new_window(new_window_handler(app))
-        .on_download(move |webview, event| {
-            // A file the web view cannot show (Word, Excel, zip) downloads, leaving this window
-            // empty: save it to Downloads, show it there and close the window. Only the file this
-            // window opened on counts: on Linux every window hears every download in the app, and
-            // a window that showed its file stays open for later downloads from it.
+        .on_new_window(new_window_handler(app));
+    // A file the web view cannot show (Word, Excel, zip) downloads, leaving this window empty: save
+    // it to Downloads, show it there and close the window. Only the file this window opened on
+    // counts, so a window that showed its file stays open for later downloads from it. Not on
+    // Linux: there each window's handler sits on the shared web context and outlives its window,
+    // then refuses every later download in the app; WebKit saves to Downloads by itself and the
+    // window stays empty.
+    #[cfg(not(target_os = "linux"))]
+    {
+        let saved = Mutex::new(None);
+        builder = builder.on_download(move |webview, event| {
             match event {
                 tauri::webview::DownloadEvent::Requested { url, destination } if same_file(&url, &opened) => {
                     *saved.lock().unwrap() = Some(destination.clone());
@@ -370,11 +376,13 @@ fn open_hub_window(app: &App, url: url::Url) {
                 _ => {}
             }
             true
-        })
-        .build();
+        });
+    }
+    let _ = builder.build();
 }
 
 /// The same file, whatever its fragment.
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 fn same_file(a: &url::Url, b: &url::Url) -> bool {
     a.as_str().split('#').next() == b.as_str().split('#').next()
 }
