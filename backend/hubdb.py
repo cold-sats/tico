@@ -3277,8 +3277,12 @@ def _parent_finished(conn, row, previous, actor=None, parent=None, told=None):
         parent = task(conn, parent_id)
         if not parent or children_summary(conn, parent_id)["open"]:
             break
-        if parent["status"] not in terminal and parent["owner"] != actor and not (
-                parent_id == first and told and parent["owner"] == told):
+        # The owner finishing work in the parent's own session already knows; one finished in a session of
+        # its own (a subtask the bot filed for itself) has to wake the parent's session.
+        same_session = parent["owner"] == actor and is_bot(actor) and \
+            _session_lanes(conn, {**row, "owner": actor})[1] == _session_lanes(conn, parent)[1]
+        if parent["status"] not in terminal and (parent["owner"] != actor or is_bot(actor) and not same_session) \
+                and not (parent_id == first and told and parent["owner"] == told):
             _wake(conn, parent, parent["owner"], "All subtasks done")
 
 

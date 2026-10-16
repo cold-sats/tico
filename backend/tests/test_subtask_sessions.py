@@ -42,6 +42,26 @@ def test_a_subtask_the_bot_filed_for_itself_is_its_own_root(api):
         assert H.session_root(c, "ops", asked) == own, "a person's subtask under it continues its session"
 
 
+def test_a_bot_finishing_its_last_self_filed_subtask_wakes_the_parent_but_not_one_in_the_parents_session(api):
+    first, second = tasks(api, ("bot:ops", None), ("bot:ops", None))
+    with api.app.state.store.transaction() as c:
+        asked = H.task_create(c, "human:ana", "Add the CSV column", "x", "bot:ops", parent_id=first, lint=False)["id"]
+        own = H.task_create(c, "bot:ops", "Build the export", "Its own work.", "bot:ops", parent_id=second,
+                            lint=False)["id"]
+        since = c.execute("SELECT max(rowid) FROM messages").fetchone()[0]
+
+    def woken():
+        with api.app.state.store.read() as c:
+            return [r[0] for r in c.execute(
+                "SELECT json_extract(m.refs_json,'$.task') FROM jobs j JOIN messages m ON m.id=j.message_id "
+                "WHERE j.bot='ops' AND j.state='queued' AND m.body='All subtasks done' AND m.rowid>?", (since,))]
+
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, "bot:ops", asked, status="done", note="Column added.")
+        H.task_update(c, "bot:ops", own, status="done", note="Export built.")
+    assert woken() == [second], "the first's own session finished its subtask; the second's ran apart"
+
+
 def test_a_private_subtask_shares_a_private_parents_session_only_when_both_have_the_same_readers(api):
     with api.app.state.store.transaction() as c:
         parent = H.task_create(c, "human:ana", "Plan the private launch", "x", "bot:ops", private=True, lint=False)["id"]

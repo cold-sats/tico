@@ -345,7 +345,8 @@ and cycles are refused.
 A parent may be marked Done or closed, by a bot or a person, while subtasks are still open. The
 subtasks stay open, and the parent's history and its Finished or Closed notice end with
 "Still open:" and their titles. Finishing or moving away the last open subtask wakes the
-parent's owner with “All subtasks done”, unless that owner made the change.
+parent's owner with “All subtasks done”, unless that owner made the change (a bot finishing a subtask it filed
+for itself, which runs in its own session, still wakes the parent).
 Closing a parent cancels it; later subtask completion does not wake its owner.
 Done, Closed and Declined count as finished. Open descendants under a finished subtask do not
 block its parent.
@@ -409,8 +410,8 @@ turns. A subtask the bot filed for itself is its own root: it starts in its own 
 and the bot's other tasks, up to the bot's turn limit. A parent owned by someone else, or one with different readers
 (one task private and the other not, or two private tasks whose people cannot each read both), ends the walk, so a
 bot's subtask under a person's task is its own root. The primary session, the Copy session
-ID and the checkpoint all live on the root, and a fresh session on a subtask starts from the root's checkpoint; a
-subtask shows no session.
+ID and the checkpoint all live on the root, and a fresh session on such a subtask starts from the root's checkpoint;
+such a subtask shows no session.
 `subtask_session: own` on a bot (`hub bot update <slug> --subtask-session own`, `hub_bot_update`, or the bot
 definition API) keeps every subtask its own session; unset or `parent` is the default. A runner from before this
 change keys every task, subtasks included, on its own session, and Tico gives it lanes the same way.
