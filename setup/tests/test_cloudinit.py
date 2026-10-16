@@ -78,7 +78,7 @@ def test_a_cloud_runner_offers_its_screen_unless_its_input_says_0():
     assert "\nTICO_SCREEN=1\n" in inputs() and "\nTICO_SCREEN=0\n" in inputs(screen=False)
     line = next(l for l in script(load("tico-runner.yaml"), "/usr/local/sbin/tico-runner-bootstrap").splitlines()
                 if l.strip().startswith("screen="))
-    for value, flag in (("1", "--screen"), ("", "--screen"), ("0", "--no-screen")):
+    for value, flag in (("1", ""), ("", ""), ("0", "--no-screen")):
         run = subprocess.run(["bash", "-c", f'val() {{ echo "{value}"; }}; {line.strip()}; echo "${{screen[@]}}"'],
                              capture_output=True, text=True)
         assert run.stdout.strip() == flag

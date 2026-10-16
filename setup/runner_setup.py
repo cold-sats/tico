@@ -33,7 +33,8 @@ def installer_url(tag: str) -> str:
 def join_lines(tag: str, env_file: str, rejoin: bool = False, screen: bool = True) -> list[str]:
     """Starts the runner unless one is already there, through `install.sh --runner` (compose plus the
     updater); a bare `docker run` would never follow the server's releases. The volume keeps logins and repositories.
-    `screen` offers this computer's screen (install.sh --screen, the default); False passes --no-screen."""
+    The installer offers the screen by default; `screen=False` passes --no-screen. No flag on the default path, so a
+    release pinned from before either flag existed still installs."""
     c = contract.RUNNER_CONTAINER
     # A new code needs a fresh .env: the installer keeps the one it finds.
     replace = f"docker rm -f {c} >/dev/null 2>&1 || true; rm -f {contract.RUNNER_DIR}/.env; " if rejoin else ""
@@ -43,7 +44,7 @@ def join_lines(tag: str, env_file: str, rejoin: bool = False, screen: bool = Tru
         f"  {replace}set -a; . {env_file}; set +a; rm -f {env_file}",
         "  " + remote.fetch_and_run(installer_url(tag), f"--runner --dir {contract.RUNNER_DIR} "
                                     '--url "$TICO_JOIN_URL" --code "$TICO_JOIN_CODE" --label "$TICO_JOIN_LABEL"'
-                                    + (" --screen" if screen else " --no-screen")),
+                                    + ("" if screen else " --no-screen")),
         "fi",
         f"rm -f {env_file}",
     ]

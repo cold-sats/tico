@@ -28,7 +28,7 @@ def test_join_script_is_idempotent_and_removes_the_code_file():
     assert text.rstrip().endswith("rm -f /x/join.env")
     rejoin = "\n".join(rs.join_lines("v1", "/x/join.env", rejoin=True))
     assert "docker rm -f" in rejoin and "rm -f /opt/tico-runner/.env" in rejoin  # a new code needs a new .env
-    assert '"$TICO_JOIN_LABEL" --screen' in text                                  # the screen is offered by default
+    assert "screen" not in text                                  # the installer offers the screen by default
     assert '"$TICO_JOIN_LABEL" --no-screen' in "\n".join(rs.join_lines("v1", "/x/join.env", screen=False))
 
 
@@ -113,7 +113,7 @@ def test_a_downloaded_installer_runs_with_the_join_arguments_and_its_exit_code_c
     p = subprocess.run(["sh", "-c", script], env=env, capture_output=True, text=True)
     assert p.returncode == 0, p.stdout + p.stderr
     assert (tmp_path / "ran").read_text() == (
-        f"ran --runner --dir /opt/tico-runner --url https://tico.example.com --code {CODE} --label build 1 --screen\n")
+        f"ran --runner --dir /opt/tico-runner --url https://tico.example.com --code {CODE} --label build 1\n")
     script, _ = _join_script(tmp_path)
     p = subprocess.run(["sh", "-c", script], env={**env, "INSTALLER_EXIT": "3"}, capture_output=True, text=True)
     assert p.returncode == 3

@@ -704,9 +704,10 @@ class Execution:
                 return {"runner_id": runner["id"], "token": token, "operator": row["operator"]}
             rid = H.new_id()
             # A new computer takes members' bots, so a team gets going without asking; an admin closes it per
-            # computer (Settings > Computers). Computers that existed before this default keep what they had.
-            c.execute("INSERT INTO runners(id,label,operator,token_hash,created,platform,accepts_member_bots) "
-                      "VALUES(?,?,?,?,?,?,1)",
+            # computer (Settings > Computers). Its Screen starts at View when it first offers one (backend/screen.py).
+            # Computers that existed before these defaults keep what they had.
+            c.execute("INSERT INTO runners(id,label,operator,token_hash,created,platform,accepts_member_bots,"
+                      "screen_default_pending) VALUES(?,?,?,?,?,?,1,1)",
                       (rid, body.label, row["operator"], digest(token), H.now(), body.platform))
             c.execute("UPDATE enrollments SET consumed_at=?,runner_id=? WHERE code_hash=?",
                       (H.now(), rid, digest(body.code)))

@@ -602,9 +602,9 @@ allowed, take control. The computer itself decides whether it offers one:
 - A Linux checkout: `sudo apt-get install xvfb x11vnc matchbox-window-manager`, then `scripts/tico screen on`
   (`screen off` and `screen status` too; a running runner follows within seconds).
 
-The first time a computer offers its screen, its **Screen** setting in **Settings > Computers** starts at **View**, so its
-operator and admins can watch it; choose **Control** there to drive it, or **Off**. A setting someone already chose for
-that computer stays as it is. The runner runs a virtual
+The first time a new computer offers its screen, its **Screen** setting in **Settings > Computers** starts at **View**, so
+its operator and admins can watch it; choose **Control** there to drive it, or **Off**. A setting someone already chose
+stays, and a computer added before this default keeps its setting. The runner runs a virtual
 display (`:99`, 1440x900) and gives bots `DISPLAY=:99`; its VNC servers listen on no network port (only on
 sockets in a directory bots cannot open), and the server relays each session. Anyone allowed to open the screen sees everything on that display, including what a bot types into a page,
 and with Control can use it. All bots on one computer share one display. A Mac reports "Linux only for now".

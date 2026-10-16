@@ -25,9 +25,9 @@ def size(row):
 
 
 def first_offer(c, rid):
-    """A computer offering its screen for the first time starts at View, unless a person already chose its setting."""
-    chosen = c.execute("SELECT 1 FROM events WHERE action='runner.screen' AND target=? LIMIT 1", (rid,)).fetchone()
-    if not chosen and c.execute("UPDATE runners SET screen='view' WHERE id=? AND screen='off'", (rid,)).rowcount:
+    """A new computer's first screen offer sets its Screen to View, unless a person already chose one."""
+    if c.execute("UPDATE runners SET screen='view',screen_default_pending=0 WHERE id=? AND screen_default_pending=1",
+                 (rid,)).rowcount:
         H.event(c, "system", "runner.screen", rid, {"mode": "view", "reason": "first offer"})
 
 
@@ -75,7 +75,7 @@ def install(app, store, auth, mutate, execution, settings):
                 raise Problem("forbidden", "You cannot change this computer", 403)
             if body.mode != "off" and not available(runner):
                 raise Problem("screen_unavailable", UNAVAILABLE, 409)
-            c.execute("UPDATE runners SET screen=? WHERE id=?", (body.mode, rid))
+            c.execute("UPDATE runners SET screen=?,screen_default_pending=0 WHERE id=?", (body.mode, rid))
             H.event(c, who.actor, "runner.screen", rid, {"mode": body.mode})
             return {"screen": body.mode, "screen_available": available(runner)}
         result = mutate(request, body, work)
