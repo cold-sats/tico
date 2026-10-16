@@ -8,7 +8,7 @@ has its own image, database and compose file. An install reaches it only through
 
 | Endpoint | What it is for | Stores |
 |---|---|---|
-| `GET /v1/latest` | The release check. With the anonymous usage count on, it carries four fields (a random install id, the version and two yes/no activity flags) and answers the latest release, as GitHub would | One row per install id: first and last day seen, last version, last active days |
+| `GET /v1/latest` | The release check. With the anonymous usage count on, it carries five fields (a random install id, the version and three yes/no activity flags) and answers the latest release, as GitHub would | One row per install id: first and last day seen, last version, last active days, the first day a bot finished a turn |
 | `GET /v1/stats` | The public aggregate of that count | Nothing |
 | `POST /v1/recruit` | Bot suggestions for one group while a team builds its team chart ([Finish setup](onboarding.md#the-team-builder)) | Nothing |
 | `GET /healthz` | Liveness | Nothing |
