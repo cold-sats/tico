@@ -1097,6 +1097,12 @@ def create_app(settings=None):
         if in_assistant_room:
             refs["assistant"] = True           # the server's mark: this turn acts for the person
         conversation_id = body.conversation_id
+        if not conversation_id and body.kind == "steer" and who.role == "bot" and refs.get("task"):
+            # A requester's steer goes to the task's own room, which its owner's running turn takes input from.
+            task = H.task(c, refs["task"])
+            if not task or task["requester"] != who.actor or task["owner"] != to or not task.get("conversation_id"):
+                raise Problem("steer_target", "Steer a task you requested, sent to its owner", 422)
+            conversation_id = task["conversation_id"]
         if not conversation_id and who.role in ("owner", "human") and to.startswith("bot:"):
             conversation_id = rooms.chat_room(c, auth, who, H.actor_id(to))["id"]
         privacy.require_destination(c, who, to, conversation_id, refs,
@@ -4713,7 +4719,7 @@ def create_app(settings=None):
 
     @app.post("/api/v2/bots/{bot}/stop")
     def stop_turn(request: Request, bot: str, body: M.StopTurn):
-        return mutate(request, body, lambda c: execution.stop(c, request.state.identity, bot, body.attempt_id))
+        return mutate(request, body, lambda c: execution.stop(c, request.state.identity, bot, body.attempt_id, body.redirect))
 
     @app.post("/api/v2/bots/{bot}/control")
     def control(request: Request, bot: str, body: M.BotControl):

@@ -555,7 +555,12 @@ def queued_label(c, bot, location, settings=None, human=False, behind=False):
         else:
             label = "Saved — " + str(problems[0]) if problems else "Saved — waiting for computer setup"
     elif behind:
-        label = "Saved — read when the current reply finishes"
+        # Whether the running turn takes it (`steer`) or it waits for the next one; chat offers Stop and redirect.
+        from .harnesses import steers
+        config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (bot,)).fetchone()
+        config = json.loads(config[0]) if config else {}
+        label = ("Saved — steering this turn" if steers(config, config.get("runtime"))
+                 else "Saved — queued for the next turn")
     elif (computer := free_turn(c, bot, location, human)):
         label = "Saved — waiting for a free turn on " + computer
     return label, readiness_reason

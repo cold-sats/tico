@@ -8,6 +8,11 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- A message sent while its bot is answering says what happens to it: "Steering this turn" when the bot's CLI takes
+  input mid-turn (Claude Code, Codex), or "Queued for the next turn" otherwise, with a Stop and redirect button that
+  ends the turn so the next one starts with that message in the same session. Steering is now a declared harness
+  capability (`steer`), and a bot that requested a task can steer its owner's running turn on it with
+  `hub message send --steer --ref task:<id>`.
 - **Behaviour replay** (`evals/replay/`): capture a finished task's opening state and outcome as a case, have a person
   redact and sign it, then re-run it on a candidate build or prompt in a scratch team. Both sides are scored by the
   BotOps scorers and the case's checks, and the report lists wins and regressions. Unsigned cases, ones still
