@@ -27,6 +27,13 @@ All notable changes to Tico are recorded here. The format follows
   which needs Google's verification for lasting grants; in Google's Testing state grants end after 7 days
   (docs/mail.md).
 
+### Changed
+- When a computer holds new work to update, Settings > Health names each running turn it waits for: the bot, its
+  task and when it started (only what the reader may read), and says a turn that only waits on something elsewhere
+  can note the wait and end. The Health Monitor's finding no longer tells BotOps to update such a computer by hand:
+  it updates by itself, and BotOps reads its update once, records the wait and ends the turn instead of watching it.
+  Stopping a turn stays a person's choice; the 20-minute update drain is unchanged.
+
 ### Fixed
 - A Docker runner's updater can no longer leave the runner holding new work for ever. Each Docker command it
   runs has a time limit and is stopped when it runs over; a switch that runs over is rolled back like any failed
