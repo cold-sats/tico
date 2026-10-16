@@ -30,10 +30,11 @@ def installer_url(tag: str) -> str:
     return f"https://github.com/ticoteam/tico/releases/download/{tag}/install.sh"
 
 
-def join_lines(tag: str, env_file: str, rejoin: bool = False, screen: bool = False) -> list[str]:
+def join_lines(tag: str, env_file: str, rejoin: bool = False, screen: bool = True) -> list[str]:
     """Starts the runner unless one is already there, through `install.sh --runner` (compose plus the
     updater); a bare `docker run` would never follow the server's releases. The volume keeps logins and repositories.
-    `screen` turns this computer's screen on (install.sh --screen)."""
+    The installer offers the screen by default; `screen=False` passes --no-screen. No flag on the default path, so a
+    release pinned from before either flag existed still installs."""
     c = contract.RUNNER_CONTAINER
     # A new code needs a fresh .env: the installer keeps the one it finds.
     replace = f"docker rm -f {c} >/dev/null 2>&1 || true; rm -f {contract.RUNNER_DIR}/.env; " if rejoin else ""
@@ -43,14 +44,14 @@ def join_lines(tag: str, env_file: str, rejoin: bool = False, screen: bool = Fal
         f"  {replace}set -a; . {env_file}; set +a; rm -f {env_file}",
         "  " + remote.fetch_and_run(installer_url(tag), f"--runner --dir {contract.RUNNER_DIR} "
                                     '--url "$TICO_JOIN_URL" --code "$TICO_JOIN_CODE" --label "$TICO_JOIN_LABEL"'
-                                    + (" --screen" if screen else "")),
+                                    + ("" if screen else " --no-screen")),
         "fi",
         f"rm -f {env_file}",
     ]
 
 
 def bootstrap_script(*, os_family: str, tag: str, env_b64: str = "", env_param: tuple[str, str] | None = None,
-                     rejoin: bool = False, screen: bool = False) -> str:
+                     rejoin: bool = False, screen: bool = True) -> str:
     d, q = contract.RUNNER_DIR, shlex.quote
     L = ["#!/bin/bash", "set -eu", "exec > >(tee -a /var/log/tico-setup.log) 2>&1", "echo tico-setup runner: start $(date -u)"]
     L += remote.docker_install_lines(os_family, need_aws_cli=bool(env_param))
@@ -65,7 +66,7 @@ def bootstrap_script(*, os_family: str, tag: str, env_b64: str = "", env_param: 
 
 
 def ssh_steps(sh: remote.Shell, *, url: str, code: str, label: str, tag: str, rejoin: bool, say, scrub,
-              screen: bool = False) -> list[Step]:
+              screen: bool = True) -> list[Step]:
     d = contract.RUNNER_DIR
     h = Host(sh, say, scrub)
 
@@ -129,7 +130,7 @@ def run_runner(args, io: IO, deps: Deps) -> int:
     a.get("runner_label", "Name for this computer in Tico", flag="--label", default=(host_of(args.ssh_host or "linux").replace(".", "-")))
     label = s.runner_label
     s.runner_tag = args.runner_tag
-    screen = bool(getattr(args, "screen", False))
+    screen = bool(getattr(args, "screen", True))
     if s.target == "ssh":
         a.get("ssh_host", "SSH destination (user@host)", flag="--ssh")
         s.ssh_port = int(args.ssh_port or 22)

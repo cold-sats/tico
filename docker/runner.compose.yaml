@@ -29,7 +29,8 @@ services:
       TICO_RUNNER_COMPOSE: "1"   # lets the runner tell a compose install from a bare `docker run` when it hints at an update
       TICO_RUNNER_PINNED: ${TICO_RUNNER_PINNED:-0}
       TICO_UPDATER_URL: http://updater:8080
-      # TICO_SCREEN=1 in .env offers this computer's screen to the web app (off by default; docs/install.md).
+      # TICO_SCREEN=1 in .env offers this computer's screen to the web app; install.sh writes it for a new runner, and an
+      # .env without the line keeps the screen off (docs/install.md).
       TICO_SCREEN: ${TICO_SCREEN:-}
     volumes:
       - runner-home:/home/runner

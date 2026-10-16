@@ -24,6 +24,13 @@ def size(row):
     return int(screen.get("width") or WIDTH), int(screen.get("height") or HEIGHT)
 
 
+def first_offer(c, rid):
+    """A new computer's first screen offer sets its Screen to View, unless a person already chose one."""
+    if c.execute("UPDATE runners SET screen='view',screen_default_pending=0 WHERE id=? AND screen_default_pending=1",
+                 (rid,)).rowcount:
+        H.event(c, "system", "runner.screen", rid, {"mode": "view", "reason": "first offer"})
+
+
 def listing(row):
     """The fields a computer's row carries in the Operations and Computers listings."""
     return {"screen": row["screen"] if row["screen"] in MODES else "off", "screen_available": available(row)}
@@ -68,7 +75,7 @@ def install(app, store, auth, mutate, execution, settings):
                 raise Problem("forbidden", "You cannot change this computer", 403)
             if body.mode != "off" and not available(runner):
                 raise Problem("screen_unavailable", UNAVAILABLE, 409)
-            c.execute("UPDATE runners SET screen=? WHERE id=?", (body.mode, rid))
+            c.execute("UPDATE runners SET screen=?,screen_default_pending=0 WHERE id=?", (body.mode, rid))
             H.event(c, who.actor, "runner.screen", rid, {"mode": body.mode})
             return {"screen": body.mode, "screen_available": available(runner)}
         result = mutate(request, body, work)

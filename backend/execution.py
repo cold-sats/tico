@@ -8,7 +8,7 @@ import time
 
 from clients import sessions
 
-from . import check_models, inbox_isolation, providers, routines, runner_versions, usage_limits
+from . import check_models, inbox_isolation, providers, routines, runner_versions, screen, usage_limits
 from . import task_privacy as privacy
 from .auth import Identity
 from .batch_work import isolated
@@ -704,9 +704,10 @@ class Execution:
                 return {"runner_id": runner["id"], "token": token, "operator": row["operator"]}
             rid = H.new_id()
             # A new computer takes members' bots, so a team gets going without asking; an admin closes it per
-            # computer (Settings > Computers). Computers that existed before this default keep what they had.
-            c.execute("INSERT INTO runners(id,label,operator,token_hash,created,platform,accepts_member_bots) "
-                      "VALUES(?,?,?,?,?,?,1)",
+            # computer (Settings > Computers). Its Screen starts at View when it first offers one (backend/screen.py).
+            # Computers that existed before these defaults keep what they had.
+            c.execute("INSERT INTO runners(id,label,operator,token_hash,created,platform,accepts_member_bots,"
+                      "screen_default_pending) VALUES(?,?,?,?,?,?,1,1)",
                       (rid, body.label, row["operator"], digest(token), H.now(), body.platform))
             c.execute("UPDATE enrollments SET consumed_at=?,runner_id=? WHERE code_hash=?",
                       (H.now(), rid, digest(body.code)))
@@ -720,6 +721,7 @@ class Execution:
         now = H.now()
         awake_since = self.waking(row, now)
         self.served_at = now
+        offered_before = screen.available(row)
         del row
         from .subscriptions import record
         record(c, who.runner_id, body.profiles, body.readiness)
@@ -776,6 +778,8 @@ class Execution:
                   "capacity=?,readiness_json=?,capabilities_json=? WHERE id=?",
                   (H.now(), awake_since, body.version, body.platform, body.capacity,
                    encode(readiness), encode(sorted(set(body.capabilities))), who.runner_id))
+        if not offered_before and screen.CAPABILITY in body.capabilities:
+            screen.first_offer(c, who.runner_id)
         from . import bot_tools
         bot_tools.reconcile(c, {bot: row.get('tools') for bot, row in readiness.get('bots', {}).items()})
         if self.readiness_reported:
