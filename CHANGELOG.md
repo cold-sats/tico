@@ -80,6 +80,9 @@ All notable changes to Tico are recorded here. The format follows
   rejected Codex key.
 
 ### Changed
+- Help on a phone (or any screen too narrow for the right rail) opens with Support: your requests, **New request**
+  and the composer come first, with a link to the docs right under them and the overview below. The Support jump link
+  is gone. Wide screens are unchanged.
 - A bot that hits a Claude or Codex usage limit now resumes at the provider's own reset time instead of after a fixed
   30 minutes (2 hours after three in a row). The bot's status and Health say when it resumes ("resumes at 12:40 UTC"),
   and its computer picks the queued work up as soon as the reset passes. Providers that report no reset time keep the

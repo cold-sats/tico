@@ -151,6 +151,13 @@
   .support-thread{flex:1;max-height:none}.support-write{flex:none}.support-listview{flex:1}
   #main.help-layout>.rail-edge[data-rail="right"]{display:block;position:absolute;left:auto;right:calc(var(--rail-right) - 4px)}
   body:has(#main.help-layout) #topbar:not(:has(#app-nudge:not([hidden]))){display:none}
-  .help-actions .help-support-link{display:none}
+}
+/* Narrower than the rail layout, Support comes first and a link to the docs sits under it; the overview follows. */
+.help-docs-first{display:none}
+@media(max-width:1099.98px){
+  #main.help-layout{display:flex;flex-direction:column}
+  #main.help-layout>.support-rail{order:-1;width:100%;max-width:980px;box-sizing:border-box;margin:0 auto}
+  #main.help-layout>.help-page{width:100%}
+  #main.help-layout .help-docs-first{display:block;margin:10px 2px 16px;font-size:var(--t-base)}
 }
 @media(max-width:760px){.support-write textarea,.support-json{font-size:16px}.help-platforms{grid-template-columns:1fr}}

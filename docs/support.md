@@ -8,8 +8,9 @@ is sent and kept.
 ## For a human
 
 Help (the `?` at the bottom of the sidebar) has the app overview on the left and **Support** in the right rail, using the
-same sizing and resize controls as the rest of the app. On a narrow screen, Support follows the overview; the top Support
-link jumps there.
+same sizing and resize controls as the rest of the app. On a narrower screen, such as a phone, Support comes first: your
+requests, **New request** and the composer are at the top without scrolling. A **Read the Tico docs** link sits right under
+Support, and the app overview follows below it.
 
 - **Your requests** is a list, newest activity first. Each row shows the start of your first message, a status badge
   (**Open**: waiting for Tico support; **Answered**: they replied; **Closed**; **Removed**: the team deleted it at HQ), when it
