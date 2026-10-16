@@ -343,6 +343,7 @@ fn open_hub_window(app: &App, url: url::Url) {
     let label = format!("hub-{}", NEXT.fetch_add(1, Ordering::Relaxed));
     let opener = app.clone();
     let saved = Mutex::new(None);
+    let opened = url.clone();
     let _ = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url))
         .title(config::app_name())
         .inner_size(1000.0, 800.0)
@@ -352,14 +353,17 @@ fn open_hub_window(app: &App, url: url::Url) {
         .on_new_window(new_window_handler(app))
         .on_download(move |webview, event| {
             // A file the web view cannot show (Word, Excel, zip) downloads, leaving this window
-            // empty: save it to Downloads, show it there and close the window.
+            // empty: save it to Downloads, show it there and close the window. Only the file this
+            // window opened on counts: on Linux every window hears every download in the app, and
+            // a window that showed its file stays open for later downloads from it.
             match event {
-                tauri::webview::DownloadEvent::Requested { destination, .. } => {
+                tauri::webview::DownloadEvent::Requested { url, destination } if same_file(&url, &opened) => {
                     *saved.lock().unwrap() = Some(destination.clone());
                 }
-                tauri::webview::DownloadEvent::Finished { success, .. } => {
-                    if let (true, Some(path)) = (success, saved.lock().unwrap().take()) {
-                        let _ = webview.app_handle().opener().reveal_item_in_dir(path);
+                tauri::webview::DownloadEvent::Finished { url, success, .. } if same_file(&url, &opened) => {
+                    match (success, saved.lock().unwrap().take()) {
+                        (true, Some(path)) => { let _ = webview.app_handle().opener().reveal_item_in_dir(path); }
+                        _ => log::warn!("a file window's download failed"),
                     }
                     let _ = webview.window().close();
                 }
@@ -368,6 +372,11 @@ fn open_hub_window(app: &App, url: url::Url) {
             true
         })
         .build();
+}
+
+/// The same file, whatever its fragment.
+fn same_file(a: &url::Url, b: &url::Url) -> bool {
+    a.as_str().split('#').next() == b.as_str().split('#').next()
 }
 
 #[cfg(test)]
@@ -389,6 +398,7 @@ mod new_window_tests {
                 ("https://team.example.com@evil.example/api/v2/files/f1", NewWindow::Browser),
                 ("mailto:support@example.com", NewWindow::Browser),
                 ("tel:+15550100", NewWindow::Browser),
+                ("sms:+15550100", NewWindow::Browser),
                 ("https://team.cloudflareaccess.com/cdn-cgi/access/login", NewWindow::Browser),
                 ("https://accounts.google.com/o/oauth2/auth", NewWindow::Browser),
                 ("about:blank", NewWindow::Ignore),
@@ -408,10 +418,22 @@ mod new_window_tests {
         let stays = |address: &str| navigation_stays("team.example.com", &url::Url::parse(address).unwrap());
         assert!(!stays("mailto:support@example.com"));
         assert!(!stays("tel:+15550100"));
+        assert!(!stays("sms:+15550100"));
         assert!(!stays("https://example.com/"));
         assert!(stays("https://team.example.com/#/tasks"));
         assert!(stays("https://team.cloudflareaccess.com/cdn-cgi/access/login"));
         assert!(stays("about:blank"));
+    }
+
+    #[test]
+    fn a_file_window_acts_only_on_its_own_download() {
+        let opened = url::Url::parse("https://team.example.com/api/v2/files/f1?v=2").unwrap();
+        let same = |address: &str| same_file(&url::Url::parse(address).unwrap(), &opened);
+        assert!(same("https://team.example.com/api/v2/files/f1?v=2"));
+        assert!(same("https://team.example.com/api/v2/files/f1?v=2#page=1"));
+        assert!(!same("https://team.example.com/api/v2/files/f1"));
+        assert!(!same("https://team.example.com/api/v2/files/f2?v=2"));
+        assert!(!same("blob:https://team.example.com/0b1c"));
     }
 }
 
