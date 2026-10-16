@@ -583,8 +583,8 @@ function taskPeekPos(id) {
   const keys = tasksVisibleKeys(), i = keys.indexOf('t' + id);
   return i < 0 ? '' : `${i + 1} / ${keys.length}`;
 }
-// The task in full or in the peek. The header: its status, its owner, its age, Done and Close for whoever may use them
-// (the two most common actions), a "…" menu and ✕. Then the title, who added it and when, the properties, the
+// The task in full or in the peek. The header: its status, its owner, its age, Done and Close task for whoever may use
+// them (the two most common actions) as labelled buttons, then the quiet icon buttons: "…" and, past a rule, ✕ for the window. Then the title, who added it and when, the properties, the
 // details, Code, Subtasks, Comments.
 function hubModalHTML(t, it, opts = {}) {
   const askToYou = taskAskToPerson(t);
@@ -613,10 +613,10 @@ function hubModalHTML(t, it, opts = {}) {
       <span class="spacer"></span>${pos ? `<span class="peek-pos tnum" title="J / K or ↑ / ↓ move to the next or previous task">${esc(pos)}</span>` : ''}
       <span class="muted tnum tmodal-age" title="Updated ${esc(fmt(it.updated))}">${esc(ago(it.updated))}</span>
       ${canDone ? `<button class="ghost tmodal-act" type="button" data-task-finish="done" title="Mark this task done">${PROP_ICON.check}<span>Done</span></button>` : ''}
-      ${canClose ? `<button class="ghost tmodal-act" type="button" data-task-finish="close" aria-label="Close task" title="Close this task">Close</button>` : ''}
-      <button class="ghost peek-btn" type="button" data-task-more aria-haspopup="menu" aria-label="More actions" title="More">${PROP_ICON.more}</button>
+      ${canClose ? `<button class="ghost tmodal-act" type="button" data-task-finish="close" title="Close this task">Close task</button>` : ''}
+      <button class="ghost peek-btn" type="button" data-task-more aria-haspopup="menu" aria-label="More actions" title="More actions">${PROP_ICON.more}</button>
       ${thread ? '<button class="ghost tmodal-act tthread-only" type="button" data-thread-details>Details</button>' : ''}
-      <button class="ghost peek-btn tmodal-x" type="button" data-modal-close aria-label="Close" title="Close (Esc)">${TL_ICON.x}</button></div>
+      <span class="tmodal-sep" aria-hidden="true"></span><button class="ghost peek-btn tmodal-x" type="button" data-modal-close aria-label="Close window" title="Close window (Esc)">${TL_ICON.x}</button></div>
     <h2 class="tmodal-title" tabindex="-1">${esc(t.title)}</h2>
     <div class="muted tmeta">${esc(taskSourceLine(t))} · ${esc(ago(t.created))}${t.goal_id ? ` · <a href="#/goals/${encodeURIComponent(t.goal_id)}" class="task-goal" data-goal-title="${esc(t.goal_id)}">serves a goal</a>` : ''}</div>
     <div class="tmodal-body task-layout">

@@ -353,13 +353,29 @@ p:empty{display:none}
 .access-list{display:flex;flex-wrap:wrap;gap:4px 14px;max-height:132px;overflow:auto;padding:2px}
 .access-list label{display:flex;align-items:center;gap:5px}
 .access-list .muted{font-size:var(--t-sm)}
-.bot-editor{width:min(680px,94vw);padding:0;border:0;background:var(--surface);color:var(--ink)}
+/* The bot editor and the other settings dialogs that share .bot-editor: a solid card over a dimmed page, its header and
+   footer held in place while the body scrolls between them. */
+.bot-editor{width:min(680px,94vw);max-height:min(88vh,960px);padding:0;border:0;border-radius:14px;background:var(--surface);color:var(--ink);box-shadow:0 20px 60px rgba(0,0,0,.45)}
+.bot-editor::backdrop,.owner-picker::backdrop,.transition-dialog::backdrop{background:rgba(0,0,0,.5)}
+.bot-editor .tmodal-head{position:sticky;top:0;z-index:2;padding:14px 14px 12px 18px;background:var(--surface);border-bottom:1px solid var(--line)}
+.bot-editor-foot{position:sticky;bottom:0;z-index:2;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 18px;background:var(--surface);border-top:1px solid var(--line)}
+.bot-editor-foot .spacer{flex:1}
+.bot-editor-foot select{width:auto;max-width:100%}
 .bot-editor-body{padding:18px}.bot-editor-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 [data-bot-advanced]>summary{cursor:pointer;font-size:var(--t-sm);color:var(--muted)}[data-bot-advanced]>.bot-editor-grid{margin-top:10px}
-.bot-editor-grid label{display:grid;align-content:start;gap:5px;font-size:var(--t-sm);color:var(--muted)}
-.bot-editor-grid label.bot-editor-check{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--text)}
-.bot-editor-check small{flex-basis:100%;color:var(--muted)}
-.bot-editor-grid input:not([type=checkbox]):not([type=radio]),.bot-editor-grid select,.bot-editor-grid textarea{width:100%;font-size:16px}
+/* Hierarchy: a field's label in the ink at 600, what it holds in the ink at 400, help under it quieter and smaller,
+   and each group under a small uppercase head. Kept at no specificity so a component's own label (a check, a repo row) wins. */
+:where(.bot-editor-grid) label{display:grid;align-content:start;gap:5px;font-size:var(--t-sm);font-weight:600;color:var(--ink)}
+.bot-editor-grid small,.bot-editor-hint{font-size:var(--t-xs);font-weight:400;line-height:1.4;color:var(--muted)}
+.bot-editor-hint{margin:-6px 0 0}
+.bot-editor-sec{margin:6px 0 -2px;padding-top:14px;border-top:1px solid var(--line);font-size:var(--t-label);font-weight:600;letter-spacing:var(--track-caps);text-transform:uppercase;color:var(--muted)}
+.bot-editor-sec:first-child{margin-top:0;padding-top:0;border-top:0}
+/* A checkbox sits beside its words, its help under the words */
+.bot-editor-check{display:flex;align-items:flex-start;gap:8px;font-weight:500}
+.bot-editor-check>input{flex:none;margin:2px 0 0}
+.bot-editor-check>span{display:grid;gap:2px}
+.bot-editor-grid input:not([type=checkbox]):not([type=radio]),.bot-editor-grid select,.bot-editor-grid textarea{width:100%;font-size:16px;font-weight:400}
+.bot-editor-grid input[readonly]{color:var(--muted)}
 .bot-editor-grid textarea{min-height:88px;resize:vertical}.bot-editor-wide{grid-column:1/-1}
 .bot-editor-owners{display:flex;gap:7px;flex-wrap:wrap;padding:8px 0}
 .bot-editor-owners label{display:flex;align-items:center;gap:5px;color:var(--ink)}
@@ -426,6 +442,8 @@ input[type=search].repos-filter{flex:0 1 220px;margin-left:auto;padding:4px 10px
 /* A bot's Repositories, in the bot editor */
 fieldset.brepo{display:grid;gap:6px;position:relative;margin:0;padding:var(--s2) 0 0;border:0;border-top:1px solid var(--line);min-width:0}
 fieldset.brepo[hidden]{display:none}
+fieldset.brepo>.repo-name{grid-area:auto;display:flex;align-items:center;gap:8px;font-size:var(--t-base);font-weight:600;color:var(--ink)}
+fieldset.brepo>.repo-name+p{margin:-4px 0 4px 24px;font-size:var(--t-xs);line-height:1.4}
 .brepo-h{padding:0 0 2px;font-size:var(--t-label);font-weight:600;letter-spacing:var(--track-caps);text-transform:uppercase;color:var(--muted)}
 .brepo-status{position:absolute;right:0;top:var(--s2);font-size:var(--t-sm)}
 .brepo-mode{justify-self:start;max-width:100%}
