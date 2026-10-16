@@ -8,6 +8,8 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- Maintainers can manually validate an exact release candidate on an isolated GitHub-hosted Linux computer, with
+  native prerequisites, capacity checks and retained results, without changing or publishing the candidate.
 - A person can connect their own Google account for their inbox and calendar from Settings > Inbox > Connect
   Google: sign in, approve, done. No service account, no domain-wide delegation, no Workspace admin and no Google Cloud
   project of their own; Tico supplies the Google app (docs/mail.md, Connect your Google account). The grant is read
