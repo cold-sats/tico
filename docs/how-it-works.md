@@ -264,6 +264,12 @@ bot moves back on its own once the limit resets. The owner turns this off in **S
 (*Fall back when a plan runs out*, `auto_fallback`). Overview lists how many bots are on a fallback and
 since when, and how many are limited.
 
+The company's **check model** (*Check model* in **Settings → AI providers**, `check_models` on
+`/api/v2/providers`) is what review and check subtasks run on when they name no model: an ordered list such as
+`grok, codex`, each entry a runtime or `runtime:model`. Empty follows the enabled providers' order. The pick is
+the first entry from a provider other than the one the work was written on; with none, it is refused rather than
+run on the author's own provider. `check_order` in the same view is the order in effect.
+
 **A bot's session is its own** ([Sessions](sessions.md)). By default every task is its own provider thread, and the bot's
 chat and other turns share one more. BotOps (and any bot set to `session: task`) also gives each
 chat conversation its own thread, so unrelated requesters stay separate; `session: bot` keeps

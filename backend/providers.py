@@ -328,7 +328,9 @@ def _record(value):
             "revision": int(stored.get("revision") or 0), "updated": str(stored.get("updated") or ""),
             "updated_by": str(stored.get("updated_by") or ""), "source": str(stored.get("source") or ""),
             # On unless the owner turned it off: a bot out of quota runs on another provider (default_fallbacks).
-            "auto_fallback": stored.get("auto_fallback") is not False}
+            "auto_fallback": stored.get("auto_fallback") is not False,
+            "check_models": [row for row in stored.get("check_models") or []
+                             if isinstance(row, dict) and row.get("model") in MODEL_BY_ID]}
 
 
 def env_seed(settings):
@@ -380,10 +382,13 @@ def save(c, actor, body, now):
         raise ProviderError("conflict", "The provider choice changed since you opened it; reload and try again", 409)
     enabled = normalize_enabled(body.get("enabled"))
     runtime, model = complete_choice(enabled, body.get("runtime"), body.get("model"))
-    auto = body.get("auto_fallback")
+    auto, checks = body.get("auto_fallback"), body.get("check_models")
     after = {"enabled": enabled, "runtime": runtime, "model": model, "revision": before["revision"] + 1,
              "updated": now, "updated_by": actor, "source": "owner",
-             "auto_fallback": before["auto_fallback"] if auto is None else bool(auto)}
+             "auto_fallback": before["auto_fallback"] if auto is None else bool(auto),
+             "check_models": (before["check_models"] if checks is None
+                              else normalize_check_models(checks, {"enabled": enabled, "runtime": runtime,
+                                                                   "model": model}))}
     c.execute("INSERT INTO registry_metadata VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
               (KEY, json.dumps(after, sort_keys=True)))
     return before, after
@@ -396,6 +401,7 @@ def view(record):
             "revision": record["revision"], "source": record["source"],
             "updated": record["updated"], "updated_by": record["updated_by"],
             "auto_fallback": record["auto_fallback"],
+            "check_models": record["check_models"], "check_order": check_order(record),
             "providers": [{**row, "enabled": row["id"] in record["enabled"],
                            "recommended": (recommended(row["id"]) or {}).get("id", "")}
                           for row in PROVIDERS]}
@@ -418,6 +424,78 @@ def default_fallbacks(record):
         seen.add(runtime)
         rows.append({"runtime": runtime, "harness": runtime, "model": model})
     return rows
+
+
+# ----------------------------------------------------------------------------- check model
+def _check_row(choice, record):
+    """One check-model choice, `runtime`, `runtime:model` or a model id, as {runtime, model, provider}. A runtime
+    alone runs the company default when that is on the same runtime, as default_fallbacks does."""
+    text = str(choice or "").strip()
+    runtime, model = text.split(":", 1) if ":" in text else ("", text) if text in MODEL_BY_ID else (text, "")
+    if runtime and not model and record["runtime"] == runtime and record["model"]:
+        model = record["model"]
+    runtime, model = runtime.strip(), model.strip()
+    named = MODEL_BY_ID.get(model) or {}
+    if (runtime in PROVIDER_BY_RUNTIME or named.get("provider")) and not runtime_enabled(
+            runtime or named["runtime"], record["enabled"], named or None):
+        raise ProviderError("check_model", f"Check model {text!r}: its provider "
+                            f"({named.get('provider') or runtime_provider(runtime)}) is not enabled", 422)
+    try:
+        runtime, model = complete_choice(record["enabled"], runtime, model)
+    except ProviderError as error:
+        raise ProviderError("check_model", f"Check model {text!r}: {error.detail}", 422) from None
+    if not runtime:
+        raise ProviderError("check_model", "Enable at least one AI provider before choosing a check model", 422)
+    return {"runtime": runtime, "model": model, "provider": MODEL_BY_ID[model]["provider"]}
+
+
+def normalize_check_models(value, record):
+    """The owner's check-model order, from a list or a comma-separated string, each entry checked against the
+    enabled providers. Empty means the enabled providers' own order (check_order)."""
+    items = value.split(",") if isinstance(value, str) else list(value or ())
+    rows = []
+    for item in items:
+        if not str(item or "").strip():
+            continue
+        row = _check_row(item, record)
+        if row not in rows:
+            rows.append(row)
+    return rows
+
+
+def check_order(record):
+    """The models a review or check subtask may run on, best first: the owner's check-model order, else one model
+    per enabled provider in the owner's order. A provider turned off or a model retired since it was chosen drops out."""
+    def usable(rows):
+        return [{"runtime": row["runtime"], "model": row["model"], "provider": MODEL_BY_ID[row["model"]]["provider"]}
+                for row in rows if not MODEL_BY_ID[row["model"]].get("deprecated")
+                and any(serves(name, MODEL_BY_ID[row["model"]]) for name in record["enabled"])]
+    return usable(record["check_models"]) or usable(default_fallbacks({**record, "auto_fallback": True}))
+
+
+def author_provider(author):
+    """The model maker behind `author`: a provider id, a model id or a runtime; '' when it names none."""
+    author = str(author or "").strip()
+    if author in PROVIDER_BY_ID:
+        return author
+    row = MODEL_BY_ID.get(author)
+    if row:
+        return row["provider"] or ""
+    return runtime_provider(author)
+
+
+def check_choice(record, author, available=None):
+    """The check model for work written on `author` (a provider, model or runtime): the first in check_order from
+    another provider, and on a runtime in `available` (the signed-in runtimes) when that is given. A check that
+    runs on the author's own provider is no second opinion, so it is refused rather than picked."""
+    own = author_provider(author)
+    for row in check_order(record):
+        if row["provider"] == own or (available is not None and row["runtime"] not in available):
+            continue
+        return row
+    raise ProviderError("check_model", "No check model from a provider other than "
+                        f"{PROVIDER_BY_ID[own]['label'] if own else 'the author'}: enable or sign in another AI "
+                        "provider in Settings > AI providers, or name one with --check-model", 409)
 
 
 # ----------------------------------------------------------------------------- resolution
