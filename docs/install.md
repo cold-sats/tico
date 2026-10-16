@@ -636,7 +636,9 @@ The standard Compose file's front doors (Caddy, cloudflared) reach the server ov
 fixed addresses, and the server trusts forwarded client addresses only from those two and loopback, so each visitor
 keeps their own rate limit with no change to `compose.yaml`. If `172.30.254.0/28` clashes with a network on your
 computer, move it with `TICO_EDGE_SUBNET`, `TICO_EDGE_DYNAMIC_RANGE`, `TICO_CADDY_ADDRESS` and
-`TICO_CLOUDFLARED_ADDRESS` in `.env`. With your own reverse proxy, set `TICO_TRUSTED_PROXIES` to its addresses plus
+`TICO_CLOUDFLARED_ADDRESS` in `.env`; an update that hits the clash rolls back and its message names these
+settings. Docker keeps an existing network's subnet, so after changing them run `docker compose down` once before
+`docker compose up -d` (or the next update). With your own reverse proxy, set `TICO_TRUSTED_PROXIES` to its addresses plus
 loopback. `TICO_CLIENT_IP_HEADER` defaults to `x-forwarded-for`; use `cf-connecting-ip` only when cloudflared is
 the only trusted ingress. See [public roadmaps](roadmaps.md#client-addresses-behind-a-proxy).
 

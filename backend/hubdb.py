@@ -3796,7 +3796,11 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     from .roadmaps import settings as roadmap_settings
     # Bots (and Assistant/BotOps acting for a person) publish only through an approved publication.
     bot_review = (is_bot(actor) or VIA.get()) and roadmap_settings(conn)['bot_public_approval']
-    if visibility == 'public' and not public_title and not private and not bot_review:
+    if bot_review and (visibility == 'public' or public_title or public_summary):
+        # Said rather than dropped, so the bot knows its text is not on the roadmap.
+        refuse(conn, actor, 'approval', 'A bot publishes only through an approved publication: create the task, then '
+               'request one with POST /api/v2/tasks/{id}/publication-preview')
+    if visibility == 'public' and not public_title and not private:
         refuse(conn, actor, 'lint', 'Write a public title to publish this task; its internal title and body stay private')
     if requester_actor is not None:
         # Only the server supplies a verified human origin for a bot's own work.
@@ -3882,9 +3886,6 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     public = visibility or type_get(conn, task(conn, row['id'])['type_id'])['default_visibility']
     if public not in ('public', 'private'):
         refuse(conn, actor, 'kind', 'visibility is public or private')
-    if bot_review:
-        # Public text from a bot goes through an approved publication, never in with the task.
-        public, public_title, public_summary = 'private', '', ''
     if private:
         public = 'private'
     if not public_title:
@@ -3892,6 +3893,9 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
         public = 'private'
     conn.execute('UPDATE tasks SET visibility=?,public_title=?,public_summary=? WHERE id=?',
                  (public, public_title, public_summary, row['id']))
+    for field, value in (('public_title', public_title), ('public_summary', public_summary)):
+        if value:   # written public text leaves a record, as a later publication's does
+            _task_event(conn, row['id'], actor, field, None, value, '')
     if step is not None:
         task_update(conn, actor, row["id"], step=step)
     if top:

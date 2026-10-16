@@ -1,7 +1,7 @@
 """Roadmap privacy boundaries and the existing parent/child flow."""
 
 from backend import hubdb as H
-from backend.tests.test_tasks_board import api, get, post
+from backend.tests.test_tasks_board import api, get, headers, post
 
 
 def test_engineering_children_drive_approved_roadmap_and_reopen(api):
@@ -189,10 +189,14 @@ def test_bot_creation_and_label_publication_require_review(api):
     task = public_setup(api)
     token = bot_token(api, 'cpo')
     for identity in (token, 'ben-via-botops'):
-        created = post(api, 'tasks', {'owner': 'cpo', 'title': 'Research requested exports',
-                                    'body': 'customer@acme.example', 'type': 'Product roadmap',
-                                    'visibility': 'public', 'labels': ['roadmap']}, token=identity)
-        assert created['visibility'] == 'private'
+        task_body = {'owner': 'cpo', 'title': 'Research requested exports', 'body': 'customer@acme.example',
+                     'type': 'Product roadmap', 'labels': ['roadmap']}
+        # Public text from a bot is refused, not silently dropped: it goes through an approved publication.
+        for extra in ({'visibility': 'public'}, {'public_title': 'Exports'}, {'public_summary': 'Soon'}):
+            refused = api.post('/api/v2/tasks', json={**task_body, **extra}, headers=headers(identity))
+            assert refused.status_code == 422 and refused.json()['error']['code'] == 'approval', refused.text
+        created = post(api, 'tasks', task_body, token=identity)
+        assert created['visibility'] == 'private' and created['public_title'] == ''
         assert api.get('/public/roadmaps/roadmap/tasks/' + created['id']).status_code == 404
     task = post(api, 'tasks/' + task['id'], {'version': task['version'], 'labels': []})
     token = 'ben-via-botops'
@@ -279,6 +283,35 @@ def test_first_version_copies_leave_private_tasks_and_the_product_type_turns_pri
         assert H.type_get(c, 'product-roadmap')['default_visibility'] == 'public'
 
 
+def test_first_version_copies_edited_since_or_published_at_creation_are_cleared(api):
+    from backend import roadmaps as R
+    edited = post(api, 'tasks', {'owner': 'cpo', 'title': 'Old title', 'body': 'Old notes', 'type': 'Product roadmap'})
+    copied = post(api, 'tasks', {'owner': 'cpo', 'title': 'Acme churn', 'body': 'jane@acme.example', 'type': 'Product roadmap'})
+    draft = post(api, 'tasks', {'owner': 'cpo', 'title': 'Draft', 'body': 'Internal', 'type': 'Product roadmap'})
+    draft = post(api, 'tasks/' + draft['id'], {'version': draft['version'], 'public_title': 'Written draft'})
+    shown = post(api, 'tasks', {'owner': 'cpo', 'title': 'Shown idea', 'body': 'Shown notes', 'type': 'Product roadmap',
+                               'visibility': 'public', 'public_title': 'Shown idea', 'public_summary': 'Shown notes'})
+    with api.app.state.store.transaction() as c:
+        # What the first version left: a copy made before the title changed, and a task public at creation.
+        c.execute("UPDATE tasks SET public_title='Old title',public_summary='Old notes',title='New title' WHERE id=?",
+                  (edited['id'],))
+        c.execute("UPDATE tasks SET visibility='public',public_title=title,public_summary=body WHERE id=?", (copied['id'],))
+        c.execute("DELETE FROM registry_metadata WHERE key='roadmaps_copies_cleared'")
+        R.migrate(c)
+        state = lambda tid: tuple(c.execute('SELECT visibility,public_title,public_summary FROM tasks WHERE id=?',
+                                            (tid,)).fetchone())
+        assert state(edited['id']) == ('private', '', '')
+        assert state(copied['id']) == ('private', '', '')
+        assert state(draft['id']) == ('private', 'Written draft', '')              # written public text stays
+        assert state(shown['id']) == ('public', 'Shown idea', 'Shown notes')       # written at creation, so it stays
+        note = c.execute("SELECT note FROM task_events WHERE task_id=? AND field='visibility'", (copied['id'],)).fetchone()
+        assert 'copy of the internal title and body' in note[0]
+        c.execute("UPDATE tasks SET public_title='Old title' WHERE id=?", (edited['id'],))
+        R.migrate(c)                                                                # once only
+        assert state(edited['id']) == ('private', 'Old title', '')
+    assert api.get('/public/roadmaps/roadmap/tasks/' + copied['id']).status_code == 404
+
+
 def test_a_requester_token_withdraws_after_unlabel_disable_and_delete(api):
     task = public_setup(api, limit=50)
     base = '/public/roadmaps/roadmap/tasks/' + task['id']
@@ -317,6 +350,13 @@ def test_a_requester_token_withdraws_after_unlabel_disable_and_delete(api):
         snapshot = c.execute('SELECT rows_json FROM task_trash WHERE task_id=?', (trashed['id'],)).fetchone()[0]
     assert hashlib.sha256(leaving.encode()).hexdigest() not in snapshot
     assert hashlib.sha256(staying.encode()).hexdigest() in snapshot
+    # A purged trash row is past withdrawing from: it is neither read nor written.
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE task_trash SET purged_at='2026-01-01T00:00:00Z' WHERE task_id=?", (trashed['id'],))
+    assert api.delete(path + '/requesters/' + staying, headers=ORIGIN).status_code == 404
+    with api.app.state.store.transaction() as c:
+        assert c.execute('SELECT rows_json FROM task_trash WHERE task_id=?', (trashed['id'],)).fetchone()[0] == snapshot
+        c.execute('UPDATE task_trash SET purged_at=NULL WHERE task_id=?', (trashed['id'],))
     post(api, 'tasks/' + trashed['id'] + '/restore', {})
     assert count(trashed['id']) == 1
 
@@ -336,11 +376,21 @@ def test_suggestions_have_an_overall_cap_and_spam_checks(api):
     assert suggest({'title': 'Imports', 'summary': 'From CSV'}).status_code == 200
     capped = suggest({'title': 'Webhooks'})
     assert capped.status_code == 429 and 'waiting' in capped.json()['error']['detail']
+    assert suggest({'title': 'Webhooks'}).status_code == 429
     with api.app.state.store.read() as c:
         assert c.execute('SELECT count(*) FROM tasks WHERE requester=?', (H.KEEPER,)).fetchone()[0] == 2
+        # The Product Manager hears once a day that the form is refusing, not once per refusal.
+        told = c.execute("SELECT body FROM messages WHERE to_actor='bot:cpo' AND kind='notice' "
+                         "AND body LIKE '%refusing new suggestions%'").fetchall()
+    assert len(told) == 1 and '2 are waiting' in told[0][0] and 'limit is 2' in told[0][0]
     waiting = get(api, 'tasks/' + first.json()['id'])['task']
     post(api, 'tasks/' + waiting['id'], {'version': waiting['version'], 'step': 'Exploring'})
-    assert suggest({'title': 'Webhooks'}).status_code == 200
+    third = suggest({'title': 'Webhooks'})
+    assert third.status_code == 200
+    assert suggest({'title': 'Audit log'}).status_code == 429
+    with api.app.state.store.transaction() as c:   # a declined suggestion still at Suggested no longer waits
+        c.execute("UPDATE tasks SET status='declined' WHERE id=?", (third.json()['id'],))
+    assert suggest({'title': 'Audit log'}).status_code == 200
     post(api, 'roadmaps/settings', {'suggestion_limit': 0}, expected=422)
 
 

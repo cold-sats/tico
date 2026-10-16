@@ -97,13 +97,16 @@ All notable changes to Tico are recorded here. The format follows
   with their public step names, request counts and progress, for exact allowlisted origins only. A task is public
   only when someone publishes it with a public title (and summary) written for it; every type starts private and the
   internal title, body, contacts, discussion and children are never shown. Bots publish, edit public text and reply
-  publicly only through an exact approved payload. Visitors follow a task with optional contact details and get a
+  publicly only through an exact approved payload; a bot creating a task with public text is refused, not
+  silently made private. Visitors follow a task with optional contact details and get a
   token that withdraws their request later, even once the task is unpublished, unlabelled or deleted; they can also
   comment publicly (team can hide or delete) and suggest new tasks, which arrive private at Suggested for the
   Product Manager. Visitor writes share a daily limit per address (default 10), and at most 20 visitor suggestions
-  wait at once (`suggestion_limit`). The server and relay believe forwarded addresses only from
+  wait at once (`suggestion_limit`); while the form refuses, the Product Manager is told once a day. The server and relay believe forwarded addresses only from
   `TICO_TRUSTED_PROXIES`; the Compose file gives Caddy and cloudflared fixed addresses on their own network and
-  trusts exactly those, so each visitor keeps their own limit. Adds Product roadmap and Engineering task types, a
+  trusts exactly those, so each visitor keeps their own limit; an update that hits a clash with that network names
+  the `TICO_EDGE_*` settings that move it. A database that ran an unreleased build of roadmaps from main has the
+  internal text it copied into public text cleared once, and tasks it published that way unpublished. Adds Product roadmap and Engineering task types, a
   ranked roadmap view, and requesters (Requested by) on tasks.
 
 ### Changed
