@@ -292,3 +292,8 @@ def test_a_setup_ticket_reaches_the_bot_on_the_same_path_marked_as_setup(rig, hq
     rig.file("Kind: setup\nSetup failed: install.sh (exit 6)")
     (task,) = rig.watch()
     assert task["title"] == "Support (setup): Setup failed: install.sh (exit 6)"
+    # "Want help setting up?" in the app is a setup request too, but its person reads the reply in the app.
+    rig.file("I'd like help setting up Tico.\n\n- Computer online: no", kind="setup")
+    (task,) = rig.watch()
+    assert task["title"] == "Support (setup): I'd like help setting up Tico."
+    assert "a setup request from the installer" not in task["body"] and "in the person's app only" in task["body"]
