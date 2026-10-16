@@ -450,9 +450,12 @@ def create_app(settings=None):
                 # A bot's computer publishes files up to 25 MB as raw bytes (backend/files.py).
                 published = (request.url.path in ("/api/v2/files/uploads", "/api/v2/files/imports")
                              and request.state.identity.role in ("bot", "runner"))
+                # A run's raw provider stream: up to 5 MB of frames, escaped once more as a JSON string.
+                captured = (request.url.path.startswith("/api/v2/attempts/") and request.url.path.endswith("/capture")
+                            and request.state.identity.role == "runner")
                 streamed = bool(re.fullmatch(r"/api/v2/tasks/[^/]+/files", request.url.path)
                                 and request.headers.get("content-type", "").lower().startswith("multipart/form-data"))
-                limit = (1024 * 1024 if request.url.path == "/api/v2/team/icon" else settings.upload_max_bytes + 11_000_000 if streamed else 14_500_000 if re.fullmatch(r"/api/v2/tasks/[^/]+/files", request.url.path) or request.url.path == "/api/v2/task-questions" else 27_000_000 if published else 20_000_000 if docs_import or upload and request.state.identity.role in ("human", "owner")
+                limit = (1024 * 1024 if request.url.path == "/api/v2/team/icon" else settings.upload_max_bytes + 11_000_000 if streamed else 14_500_000 if re.fullmatch(r"/api/v2/tasks/[^/]+/files", request.url.path) or request.url.path == "/api/v2/task-questions" else 27_000_000 if published else 12_000_000 if captured else 20_000_000 if docs_import or upload and request.state.identity.role in ("human", "owner")
                          else 2_000_000)
                 if int(size) > limit:
                     raise Problem("too_large", f"Upload exceeds the file limit of {settings.upload_max_bytes} bytes" if streamed else "Request exceeds the upload limit", 413)
@@ -4802,6 +4805,19 @@ def create_app(settings=None):
     def events(request: Request, aid: str, body: M.EventBatch):
         body = scrub_attempt(aid, body)          # a secret set in this run never reaches the record
         return mutate(request, body, lambda c: execution.events(c, request.state.identity, aid, body))
+
+    @app.post("/api/v2/attempts/{aid}/capture")
+    def keep_capture(request: Request, aid: str, body: M.StreamCapture):
+        from . import stream_capture
+        body = scrub_attempt(aid, body)          # a secret set in this run never reaches the record
+        return mutate(request, body, lambda c: stream_capture.keep(
+            c, execution.attempt(c, request.state.identity, aid, active=False), body))
+
+    @app.get("/api/v2/attempts/{aid}/capture")
+    def export_capture(request: Request, aid: str, full: bool = True):
+        from . import stream_capture
+        with store.read() as c:
+            return stream_capture.export(c, request.state.identity, auth, aid, full=full)
 
     @app.post("/api/v2/attempts/{aid}/inputs")
     def inputs(request: Request, aid: str, body: M.Empty):

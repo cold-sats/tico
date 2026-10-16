@@ -180,6 +180,14 @@ CREATE TABLE IF NOT EXISTS attempt_inputs(
  acked_at TEXT);
 -- A run's inputs by run (backend/task_privacy.py attempt_tasks): without it each lookup scanned every message.
 CREATE INDEX IF NOT EXISTS attempt_inputs_attempt ON attempt_inputs(attempt_id);
+-- A run's raw provider stream for a bot with `capture_stream` on, kept a week (backend/stream_capture.py).
+CREATE TABLE IF NOT EXISTS attempt_captures(
+ attempt_id TEXT PRIMARY KEY REFERENCES attempts(id), bot TEXT NOT NULL, provider TEXT NOT NULL,
+ frames TEXT NOT NULL, truncated INTEGER NOT NULL DEFAULT 0, dropped_bytes INTEGER NOT NULL DEFAULT 0,
+ bytes INTEGER NOT NULL, created TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS attempt_captures_created ON attempt_captures(created);
+-- A run that had a secret taken out while it was going: its capture, handed in at the end, is not kept.
+CREATE TABLE IF NOT EXISTS attempt_capture_drops(attempt_id TEXT PRIMARY KEY, created TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS idempotency(
  actor TEXT NOT NULL, operation TEXT NOT NULL, key TEXT NOT NULL,
  request_hash TEXT NOT NULL, response_json TEXT NOT NULL, created TEXT NOT NULL,

@@ -664,6 +664,7 @@ impl Runner {
         let (mut thread, mut turn): (Option<String>, Option<String>) = (None, None);
         let mut drove = Drove::interrupted();
         let mut redactor: Option<Arc<Redactor>> = None;
+        let mut capture: Option<Arc<crate::capture::Capture>> = None;
         let mut started_at = String::new();
         let mut memory_before = String::new();
         let mut segments: Vec<Segment> = vec![];
@@ -732,6 +733,12 @@ impl Runner {
             if let Some(r) = &redactor {
                 redact::register(&aid, r.clone());
             }
+            if crate::capture::wanted(&config) {
+                // Opened only once the turn's secrets are registered: every frame is scrubbed as it is written.
+                capture = crate::capture::Capture::open(&self.state.directory, &aid)
+                    .map_err(|e| log(&format!("Tico runner: {bot}: could not open the stream capture: {e}")))
+                    .ok();
+            }
             if let Some(p) = &selected {
                 // A thread begun on one login is never resumed on another.
                 conv = format!("{conv}:profile:{}:{}", p.name, p.binding());
@@ -770,6 +777,9 @@ impl Runner {
                 self.make_host(&bot, &runtime, &env, selected.as_ref(), tx)?
             };
             let h = host.insert(made);
+            if let Some(c) = &capture {
+                h.set_capture(c);
+            }
             h.start().await?;
             mark("harness_started", &aid);
             let settings = Settings {
@@ -893,6 +903,9 @@ impl Runner {
                 let _ = self.state.append(&aid, "status", &json!({"tool_events": false}));
                 let (tx, mut rx) = unbounded_channel();
                 let h = host.insert(self.make_host(&bot, &hop.runtime, &hop_env, selected.as_ref(), tx)?);
+                if let Some(c) = &capture {
+                    h.set_capture(c);
+                }
                 h.start().await?;
                 let settings = Settings {
                     cwd: execution_path.display().to_string(),
@@ -1084,6 +1097,12 @@ impl Runner {
             let completion = self.state.finish(&aid, &completion)?;
             let sent: Result<(), ApiError> = async {
                 self.flush(&aid).await?;
+                if let Some(stream) = capture.take().and_then(|c| c.finish()) {
+                    // Before completion, while the attempt is still this runner's; a capture is never worth a turn.
+                    if let Err(e) = self.client.post(&format!("attempts/{aid}/capture"), &stream, Some(&format!("capture:{aid}"))).await {
+                        log(&format!("Tico runner: {bot}: the stream capture for {aid} was not kept ({})", describe(&e)));
+                    }
+                }
                 self.complete(&aid, &completion).await?;
                 Ok(())
             }

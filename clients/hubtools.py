@@ -1867,6 +1867,8 @@ def routine_run(api, args):
                            "description": "parent (default): a subtask continues its parent task's session; own: its own session"},
        "task_goal": {"type": "string", "enum": ["on", "off"],
                      "description": "on: work each task it owns as a goal; off (default): not"},
+       "capture_stream": {"type": "string", "enum": ["on", "off"],
+                          "description": "on (owner only): keep each run's raw provider stream a week; off (default): not"},
        "status": {"type": "string", "enum": ["active", "paused", "planned"]}},
       required=("slug",), writes=True)
 def bot_set(api, args):
@@ -1878,7 +1880,7 @@ def bot_set(api, args):
         row = api.get(f"bots/{args['slug']}/access", **({"on_behalf_of": on_behalf} if delegated else {}))
         if not row:
             raise ValueError("No bot " + args["slug"])
-    change = {k: args[k] for k in ("reports_to", "display_name", "description", "template", "repo", "status", "shared", "session", "subtask_session", "task_goal") if args.get(k) is not None}
+    change = {k: args[k] for k in ("reports_to", "display_name", "description", "template", "repo", "status", "shared", "session", "subtask_session", "task_goal", "capture_stream") if args.get(k) is not None}
     return api.post(f"bots/{args['slug']}/definition",
                     {**change, "expected_revision": row["revision"],
                      **({"on_behalf_of": on_behalf} if delegated else {})}, key=_key(args))
@@ -2845,6 +2847,32 @@ def status_history(api, args):
       {"bot": _s("Bot slug"), "since": _s("Window like `24h` or an ISO timestamp")}, required=("bot",))
 def turns(api, args):
     return api.get(f"bots/{args['bot']}/turns", since=args.get("since"))
+
+
+@tool("hub_run_export", "Owners and engineering bots: whether a run's raw provider stream was captured, and its size. "
+      "Write the replay fixture with `hub run export <attempt> --fixture`. Only bots with capture_stream on have one, "
+      "kept a week.", {"attempt": _s("The attempt id, from hub_run_list")}, required=("attempt",))
+def run_export(api, args):
+    return api.get(f"attempts/{args['attempt']}/capture", full="false")
+
+
+def run_export_full(api, attempt):
+    """The whole export, for the CLI to write to files; never returned into a bot's context."""
+    return api.get(f"attempts/{attempt}/capture")
+
+
+def write_fixture(found, parent):
+    """A run export as a replay fixture folder: input.json, <provider>_transcript.ndjson and output.json."""
+    folder = Path(parent) / ("replay-" + re.sub(r"[^A-Za-z0-9_-]", "", str(found["attempt"]["id"])))
+    folder.mkdir(parents=True, exist_ok=True)
+    provider = re.sub(r"[^a-z0-9_-]", "", str(found.get("provider") or "provider").lower()) or "provider"
+    meta = {k: found.get(k) for k in ("attempt", "provider", "truncated", "dropped_bytes", "captured")}
+    files = {"input.json": json.dumps({**found["input"], "source": meta}, indent=2, ensure_ascii=False) + "\n",
+             f"{provider}_transcript.ndjson": found["transcript"].rstrip("\n") + "\n",
+             "output.json": json.dumps(found["output"], indent=2, ensure_ascii=False) + "\n"}
+    for name, text in files.items():
+        (folder / name).write_text(text, encoding="utf-8")
+    return [str(folder / name) for name in files]
 
 
 @tool("hub_message_list", "Messages and notices waiting for you.", {})

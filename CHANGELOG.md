@@ -35,6 +35,10 @@ All notable changes to Tico are recorded here. The format follows
 - Signed webhooks: a trigger in Settings > Triggers can require an HMAC-SHA256 signature of the body (GitHub's
   `X-Hub-Signature-256` or a generic `X-Signature`) under its own signing secret; a call with a bad or missing
   signature is refused with 401 and logged. Each trigger shows its recent calls, accepted and refused.
+- A bot can keep each run's raw provider stream for replay tests: with `capture_stream: on` (owner only), the runner
+  records every frame it sends a Claude or Codex harness and every frame it reads back, secrets masked, up to about
+  5 MB per run, kept 7 days. `hub run export <attempt> --fixture` writes it as `input.json`,
+  `<provider>_transcript.ndjson` and `output.json`. Only owners and engineering bots read it.
 - Settings > Computers shows Claude's and Codex's weekly and 5-hour usage as percentages on the computer's own login,
   not only on named subscriptions. Claude's come from its turns (Claude Code 2.1.30x reports both windows); before a
   Claude turn on that computer the row says so instead of a number. Codex's are read while idle, with the account, for

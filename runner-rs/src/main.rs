@@ -7,6 +7,7 @@
 
 mod accounts;
 mod backlog;
+mod capture;
 mod client;
 mod commands;
 mod config;

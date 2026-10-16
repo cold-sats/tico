@@ -123,6 +123,12 @@ def run(args, who=None):
                 more["enabled"] = bool(args.enable)
             return via_tool(client, args, **more)
         return via_tool(client, args)
+    if fn == "run export":
+        from clients import hubtools
+        if not args.fixture:
+            return hubtools.BY_NAME["hub_run_export"]["fn"](client, {"attempt": args.attempt})
+        found = hubtools.run_export_full(client, args.attempt)
+        return {"written": hubtools.write_fixture(found, Path(args.out or "."))}
     if fn in ("task child create", "task tree"):
         return via_tool(client, args)
     if args.cmd in ("chat", "replay"):
@@ -633,7 +639,8 @@ def bots(client, args):
                                     ("description", args.description), ("status", args.status), ("repo", args.repo),
                                     ("on_behalf_of", args.on_behalf_of), ("shared", args.shared), ("session", args.session),
                                     ("subtask_session", getattr(args, "subtask_session", None)),
-                                    ("task_goal", getattr(args, "task_goal", None))) if v is not None}
+                                    ("task_goal", getattr(args, "task_goal", None)),
+                                    ("capture_stream", getattr(args, "capture_stream", None))) if v is not None}
         try:
             return hubtools.BY_NAME["hub_bot_update"]["fn"](client, fields)
         except ValueError as exc:
