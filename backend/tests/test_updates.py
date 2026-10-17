@@ -174,7 +174,7 @@ def test_updates_roll_up_the_org_chart_with_reports_updates_in_the_managers_requ
         assert "Sized the market" in text and "No update from: " + other.capitalize() in text
         posted = updates.post(c, "boss", "- The team sized the market", day="2026-09-29")
         mine = c.execute("SELECT id FROM updates WHERE bot=?", (first,)).fetchone()["id"]
-        assert posted["inputs"] == [mine], "the manager's update links the reports' updates it was written from"
+        assert posted["inputs"] == [{"id": mine, "author": first}], "the manager's update links the reports' updates it was written from"
         assert updates.redo(c, "daily", "2026-09-29", ["analyst"], managers=True) == ["analyst", "boss"], \
             "a redo with managers rewrites the roll-up above, deepest first"
 
@@ -376,9 +376,11 @@ def test_the_tree_nests_a_days_updates_by_the_org_chart_and_only_direct_reports_
     monkeypatch.setattr(updates, "today", lambda at=None: "2026-09-29")
     bot(api, "boss", "Manager", reports_to="human:ana")
     bot(api, "analyst", "Analyst", reports_to="boss")
+    bot(api, "writer", "Writer", reports_to="boss")
     with api.app.state.store.transaction() as c:
-        updates.post(c, "boss", "- Planned the launch", day="2026-09-29")
         updates.post(c, "analyst", "- Sized the market", day="2026-09-29")
+        updates.post(c, "writer", "- Wrote the launch post", day="2026-09-29")
+        updates.post(c, "boss", "- Planned the launch", day="2026-09-29")
     t = get(api, "updates/tree")
     assert t["scope"] == "below" and [r["key"] for r in t["roots"]] == ["p:ana"], "below you, by default"
     find = lambda nodes, key: next((n for n in nodes if n["key"] == key), None) or next(
@@ -389,8 +391,20 @@ def test_the_tree_nests_a_days_updates_by_the_org_chart_and_only_direct_reports_
     assert t["unread"] == 1
     assert get(api, "updates/tree?scope=all")["scope"] == "all"
     get(api, "updates/tree?scope=mine", expected=422)
-    # A bot Cara may not read is not in her tree at all; its report moves up under the next one she can see.
+    # The manager's card links the reports' updates it was written from, only those the reader may read.
+    links = {i["author"]: i["id"] for i in boss["update"]["inputs"]}
+    assert set(links) == {"analyst", "writer"} and links["analyst"] == analyst["update"]["id"]
     from backend.tests.test_api import restrict
+    with api.app.state.store.transaction() as c:
+        restrict(c, "writer", people=["ana"])
+    uid = boss["update"]["id"]
+    for path in ("updates/tree?scope=all", "updates", f"updates/{uid}"):
+        seen = get(api, path, token="cara-test")
+        assert links["analyst"] in json.dumps(seen) and links["writer"] not in json.dumps(seen), path
+        assert '"writer"' not in json.dumps(seen), path + ": no hidden author either"
+    assert get(api, f"updates/{uid}", token="cara-test")["update"]["inputs"] == [{"id": links["analyst"], "author": "analyst"}]
+    assert len(get(api, f"updates/{uid}")["update"]["inputs"]) == 2, "the owner still sees both"
+    # A bot Cara may not read is not in her tree at all; its report moves up under the next one she can see.
     with api.app.state.store.transaction() as c:
         restrict(c, "boss", people=["ana"])
     hers = get(api, "updates/tree?scope=all", token="cara-test")

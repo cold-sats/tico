@@ -831,6 +831,16 @@ def _decode(row):
     return item
 
 
+def with_inputs(c, item, readable=None):
+    """`inputs` as the reports' updates this reader may read, `[{id, author}]`, so a card links what it
+    was written from. An input by an author outside `readable` (None: the author's own view) leaves
+    nothing behind, not even its id; one since deleted drops out too."""
+    ids = [i for i in item.get("inputs") or [] if isinstance(i, str)]
+    rows = dict(c.execute("SELECT id, bot FROM updates WHERE id IN (" + ",".join("?" * len(ids)) + ")", ids).fetchall()) if ids else {}
+    item["inputs"] = [{"id": i, "author": rows[i]} for i in ids if i in rows and (readable is None or rows[i] in readable)]
+    return item
+
+
 # ----------------------------------------------------------------------------- posting and reading
 def lint(body, kind):
     """What is wrong with an update, or None: 1-5 one-line bullets, plain English, short."""
@@ -937,7 +947,7 @@ def post(c, bot, body, kind=None, day=None, slides=None, drafted_by=None, inputs
             c.execute("DELETE FROM update_archive_overrides WHERE state='restored' AND update_id IN "
                       "(SELECT id FROM updates WHERE bot=? AND kind=? AND day<?)", (bot, kind, day))
     H.event(c, H.bot_actor(drafted_by) if drafted_by else author_actor(bot), "update.post", uid, {"kind": kind, "day": day, **({"warning": problem} if problem else {})})
-    posted = one(c, uid)
+    posted = with_inputs(c, one(c, uid))
     return {**posted, "warning": problem} if problem else posted
 
 
@@ -1066,7 +1076,7 @@ def listing(c, actor, readable, kind=None, bot=None, unread=False, before=None, 
         (actor, actor, *args, limit)).fetchall()
     items = []
     for row in rows:
-        item = _decode(row)
+        item = with_inputs(c, _decode(row), readable)
         item["read"] = bool(item.pop("read_at"))
         item["archived"] = bool(row["archived"])
         item["replies"] = c.execute("SELECT count(*) FROM messages WHERE json_extract(refs_json,'$.update')=?",
@@ -1143,7 +1153,7 @@ def tree(c, actor, readable, kind, day=None, scope=None):
         row = rows.get(node["author"])
         update = None
         if row:
-            update = _decode(row)
+            update = with_inputs(c, _decode(row), readable)
             update["read"] = bool(update.pop("read_at"))
         kids = [build(k, seen | {k}) for k in sorted(children.get(key, []), key=lambda k: (k[0] != "p", nodes[k]["name"].lower()))
                 if k not in seen]

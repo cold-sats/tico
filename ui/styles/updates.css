@@ -92,4 +92,8 @@
 .upd-edit{grid-template-columns:minmax(0,1fr)}
 .upd-edit textarea{width:100%;margin-top:8px;font:inherit}
 .upd-own{display:flex;gap:6px;align-items:center;font-size:var(--t-sm);margin-top:6px}
+.upd-field{display:block;margin-top:10px;font-size:var(--t-sm);font-weight:600}
+.upd-field .muted{font-weight:400}
+.upd-edit .upd-field input,.upd-edit .upd-field textarea{display:block;width:100%;margin-top:4px;font:inherit;font-weight:400}
+.upd-from{font-size:var(--t-sm);margin-top:6px}
 @media (max-width:600px){.upd-sub{margin-left:8px;padding-left:10px}}
