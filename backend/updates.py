@@ -168,22 +168,35 @@ def team_updates(c, author, kind, day):
     return [rows[a] for a in reports if a in rows], missing
 
 
-def waits_on_reports(c, row):
-    """Whether a manager's request still waits for its reports: one of them is queued or out, and
-    the wait since the first was asked (or the day's first request) is under `MANAGER_WAIT_S`."""
-    reports = [a for a in direct_reports(c, row["bot"]) if not is_person(a)]
+def _holding(c, row):
+    """(waits, clock) for a queued request: whether a report is still queued or out, and whether this
+    manager's own 90-minute clock runs. A report that is itself a manager still waiting on its own
+    reports has not been asked yet, so the clock above it has not started."""
+    reports = direct_reports(c, row["bot"])
     if not reports:
-        return False
+        return False, False
     marks = ",".join("?" * len(reports))
-    rows = c.execute(f"SELECT state, sent_at FROM update_queue WHERE kind=? AND day=? AND bot IN ({marks})",
+    rows = c.execute(f"SELECT * FROM update_queue WHERE kind=? AND day=? AND bot IN ({marks})",
                      (row["kind"], row["day"], *reports)).fetchall()
     if not any(r["state"] in ("queued", "sent") for r in rows):
-        return False
-    first = min((r["sent_at"] for r in rows if r["sent_at"]), default=None) or c.execute(
-        "SELECT min(sent_at) FROM update_queue WHERE day=?", (row["day"],)).fetchone()[0]
-    if not first:
+        return False, False
+    if any(r["state"] == "queued" and _holding(c, r)[0] for r in rows):
+        return True, False
+    return True, True
+
+
+def waits_on_reports(c, row):
+    """Whether a manager's request still waits for its reports. Its clock starts the first time it is
+    held with its reports asked (`held_at`, kept through a report's retry), and after `MANAGER_WAIT_S`
+    it is asked with what is in."""
+    waits, clock = _holding(c, row)
+    if not waits or not clock:
+        return waits
+    held = row["held_at"]
+    if not held:
+        c.execute("UPDATE update_queue SET held_at=? WHERE id=?", (H.now(), row["id"]))
         return True
-    return (H.parse_ts(H.now()) - H.parse_ts(first)).total_seconds() < MANAGER_WAIT_S
+    return (H.parse_ts(H.now()) - H.parse_ts(held)).total_seconds() < MANAGER_WAIT_S
 
 
 def _label(c, author):
@@ -222,6 +235,7 @@ def ensure_schema(c):
     """Columns added after the tables first shipped."""
     H.add_column(c, "update_queue", "tries", "INTEGER NOT NULL DEFAULT 0")
     H.add_column(c, "update_queue", "redo", "INTEGER NOT NULL DEFAULT 0")
+    H.add_column(c, "update_queue", "held_at", "TEXT")
     H.add_column(c, "updates", "slides_json", "TEXT")
     H.add_column(c, "updates", "drafted_by", "TEXT")
     H.add_column(c, "updates", "edited_by", "TEXT")
@@ -429,7 +443,7 @@ def redo(c, kind, day, bots=None, managers=False):
     for n, slug in enumerate(chosen, 1):
         c.execute("INSERT INTO update_queue(id,bot,kind,day,rank,state,tries,redo,reason) VALUES(?,?,?,?,?,'queued',0,1,?) "
                   "ON CONFLICT(bot,kind,day) DO UPDATE SET state='queued', rank=excluded.rank, tries=0, redo=1, "
-                  "message_id=NULL, sent_at=NULL, done_at=NULL, reason=excluded.reason",
+                  "message_id=NULL, sent_at=NULL, done_at=NULL, held_at=NULL, reason=excluded.reason",
                   (H.new_id(), slug, kind, when.isoformat(), last + n, "asked again in the current shape"))
     return chosen
 

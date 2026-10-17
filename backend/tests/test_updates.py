@@ -147,9 +147,9 @@ def test_people_post_their_own_update_and_alerts_come_only_from_direct_reports(a
     asked(api, "updates", {"body": "- From my chat"}, attempt["token"], "turn", expected=403)
 
 
-def test_updates_roll_up_the_org_chart_and_a_stuck_report_holds_its_manager_90_minutes_at_most(api):
-    """The deepest bots are asked first; a manager is asked once its reports are in, with their updates
-    in its request, or 90 minutes after its first report was asked, naming who had none."""
+def test_updates_roll_up_the_org_chart_with_reports_updates_in_the_managers_request(api):
+    """The deepest bots are asked first; a manager's request carries its reports' updates and names
+    who had none, and its update links the ones it was written from."""
     from backend.tests.test_bot_contact import bot
     bot(api, "boss", "Manager", reports_to="human:ana")
     bot(api, "analyst", "Analyst", reports_to="boss")
@@ -162,11 +162,6 @@ def test_updates_roll_up_the_org_chart_and_a_stuck_report_holds_its_manager_90_m
         updates.post(c, first, "- Sized the market", day="2026-09-29")
         boss = c.execute("SELECT * FROM update_queue WHERE bot='boss'").fetchone()
         other = "writer" if first == "analyst" else "analyst"
-        c.execute("UPDATE update_queue SET state='sent', sent_at=? WHERE bot=?", (updates.H.now(), other))
-        assert updates.waits_on_reports(c, boss), "a report is still out"
-        c.execute("UPDATE update_queue SET sent_at=? WHERE bot IN (?, ?)",
-                  (updates.H.shift(updates.H.now(), minutes=-91), first, other))
-        assert not updates.waits_on_reports(c, boss), "the wait is up after 90 minutes"
         text = updates.request_text(c, "boss", "daily", "2026-09-29")
         assert "Sized the market" in text and "No update from: " + other.capitalize() in text
         posted = updates.post(c, "boss", "- The team sized the market", day="2026-09-29")
@@ -174,3 +169,55 @@ def test_updates_roll_up_the_org_chart_and_a_stuck_report_holds_its_manager_90_m
         assert posted["inputs"] == [mine], "the manager's update links the reports' updates it was written from"
         assert updates.redo(c, "daily", "2026-09-29", ["analyst"], managers=True) == ["analyst", "boss"], \
             "a redo with managers rewrites the roll-up above, deepest first"
+
+
+def test_a_report_on_retry_and_a_stacked_manager_keep_the_90_minute_wait(api, monkeypatch):
+    """Through the scheduler's own steps: a report whose run ends without a post is asked again, and its
+    manager waits 90 minutes from when it was first held, not from the day's first request; the
+    manager above waits for that manager rather than starting its own clock."""
+    from backend.tests.test_api import assign, ready, runner
+    chain = {"cpo": "human:ana", "ops": "cpo", "finance": "ops", "product-design": "ops"}
+    r = runner(api)
+    for slug in chain:
+        assign(api, r, slug)
+    ready(api, r, list(chain))
+    store = api.app.state.store
+    with store.transaction() as c:
+        for slug, boss in chain.items():
+            c.execute("UPDATE bot_config SET reports_to=? WHERE bot=?", (boss, slug))
+        for (slug,) in c.execute("SELECT slug FROM bots").fetchall():
+            if slug not in chain:
+                c.execute("INSERT OR REPLACE INTO update_settings(bot,daily,weekly) VALUES(?,0,0)", (slug,))
+    clock = [H.now()]
+    monkeypatch.setattr(H, "now", lambda: clock[0])
+
+    def tick(minutes=0):
+        clock[0] = H.shift(clock[0], minutes=minutes)
+        with store.transaction() as c:
+            return updates.dispatch(c, MORNING)
+
+    def job(slug, state):
+        with store.transaction() as c:
+            c.execute("UPDATE jobs SET state=? WHERE message_id=(SELECT message_id FROM update_queue WHERE bot=?)",
+                      (state, slug))
+
+    first = tick()
+    other = "product-design" if first == "finance" else "finance"
+    with store.transaction() as c:
+        updates.post(c, first, "- Closed the books", day="2026-09-29")
+    job(first, "completed")
+    assert tick() == other
+    job(other, "completed")                     # its run ended without a post: asked once more,
+    post(api, "chat/" + other, {"text": "One more thing"})   # once the run it is busy with now is over
+    assert tick(100) is None, "the day's first request is 100 minutes old, and the manager still waits"
+    with store.transaction() as c:
+        held = dict(c.execute("SELECT bot, held_at FROM update_queue WHERE bot IN ('ops','cpo')").fetchall())
+    assert held["ops"] and not held["cpo"], "the manager above has not started its clock"
+    assert tick(60) is None, "an hour after the manager was held"
+    assert tick(31) == "ops", "91 minutes after it was held, the manager writes with what is in"
+    with store.transaction() as c:
+        assert "No update from: " + updates._label(c, other) in c.execute(
+            "SELECT m.body FROM update_queue q JOIN messages m ON m.id=q.message_id WHERE q.bot='ops'").fetchone()[0]
+        updates.post(c, "ops", "- The team closed the books", day="2026-09-29")
+    job("ops", "completed")
+    assert tick() == "cpo", "the manager above is asked once its report posts"
