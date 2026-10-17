@@ -1813,6 +1813,9 @@ def create_app(settings=None):
                 if body.slack_muted_bots is not None:
                     row = {**row, "slack_muted_bots": list(dict.fromkeys(body.slack_muted_bots))}
                 if body.reports_to is not None:
+                    if str(row.get("reports_to") or "") != body.reports_to.strip():
+                        from .report_order import forget
+                        forget(c, "human:" + pid)          # a new manager's report goes last there
                     row = {**row, "reports_to": body.reports_to.strip()}
                 if body.left:
                     row = Access.leave(c, people, row)
@@ -5052,6 +5055,8 @@ def create_app(settings=None):
     install_subscriptions(app, store, auth, mutate, settings, computer_rows)
     from .groups import install as install_groups
     install_groups(app, store, auth, mutate, settings)
+    from .report_order import install as install_report_order
+    install_report_order(app, store, auth, mutate)
     from .support import install as install_support
     install_support(app, store, settings, census)
     from .support_access import install as install_support_access

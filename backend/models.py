@@ -1219,6 +1219,12 @@ class GroupUpdate(Contract):
     remove: GroupMembers = Field(default_factory=GroupMembers)
 
 
+class ReportOrder(Contract):
+    """A manager's direct reports in the order the team chart shows them: bot slugs and human ids (`bot:` or `human:`
+    in front when one could be either). Reports left out keep their places."""
+    reports: list[ID] = Field(min_length=1, max_length=200)
+
+
 class BotDefinitionCreate(Contract):
     private_tasks_default: StrictBool = False
     slug: Slug | None = None                 # left out, picked from the display name

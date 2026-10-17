@@ -8,6 +8,12 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- The team chart keeps the order you put a manager's reports in, for everyone who views it, instead of A–Z. Drag a
+  human or a bot above or below another report of the same manager, or use **Move up** / **Move down** in its row's
+  menu (keyboard too). A new report goes last. The Goals tree and a person's page follow the same order. Whoever may
+  put reports under that manager may order them, and a bot its own; a drop onto someone you may not put it under
+  says so and moves nothing. Bots read and set it with `hub org order <manager> [--set a,b,c]`
+  ([team chart](docs/org-chart.md#the-order-of-reports)).
 - Beta features carry a small **Beta** pill where they appear: Market, Message bots, Listening, Live meetings, chat
   goals, the Slack gateway, a computer's Screen, Behaviour replay and the computer Performance page,
   Windows through WSL 2, external agents (Hermes, OpenClaw, Grok Bot, Dots, Muse sync) and the Mac app. Help lists

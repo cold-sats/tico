@@ -236,3 +236,15 @@ function runtimeTag(e) {
 // Renaming a bot never changes where it sits: the order field decides, the name does not.
 const botOrder = e => { const n = Number(e?.order); return e?.order == null || e.order === '' || !Number.isFinite(n) ? Infinity : n; };
 const byBotOrder = (a, b) => { const x = botOrder(a), y = botOrder(b); return x === y ? 0 : x < y ? -1 : 1; };
+// Whom a chart node reports to, as a tree key (`p:<id>` or `b:<slug>`); '' at the top.
+const orgReportsTo = n => {
+  const to = String((n.kind === 'person' ? n.person?.reports_to : n.reports_to) || '');
+  return !to ? '' : n.kind === 'person' ? 'p:' + to : to.startsWith('human:') ? 'p:' + to.slice(6) : 'b:' + to;
+};
+// A manager's reports in the order someone put them on the chart (backend/report_order.py): the placed ones first, by
+// place, before the chart's own order. Only a direct report of `parent` has a place there.
+const reportPlace = (n, parent) => {
+  const at = n.kind === 'person' ? n.person?.report_position : n.report_position;
+  return at == null || orgReportsTo(n) !== parent ? Infinity : at;
+};
+const byReportOrder = parent => (a, b) => { const x = reportPlace(a, parent), y = reportPlace(b, parent); return x === y ? 0 : x < y ? -1 : 1; };

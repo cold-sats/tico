@@ -3,6 +3,8 @@
 //    under whoever they report to when that one is in the same group; the Built-in bots stay outside every group;
 //  - owners and admins add a group, rename it, drag a human or a bot into a group (or out, onto "No group") and
 //    nest a group in another; a member has none of those handles.
+//  - a manager's reports keep the order they are dragged (or moved up and down by keyboard) into, through a reload;
+//    a drop onto a manager the viewer may not put reports under says so and moves nothing.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -110,6 +112,14 @@ async function open(browser, me, branches = false) {
       groups.splice(groups.indexOf(group), 1);
       return json({id: m[1], deleted: true, moved_to: group.parent});
     }
+    if ((m = p.match(/^\/api\/v2\/org\/order\/([^/]+)$/)) && method === 'PUT') {
+      const body = request.postDataJSON(); calls.push(['PUT', decodeURIComponent(m[1]), body]);
+      body.reports.forEach((id, i) => {
+        const [kind, key] = id.split(':');
+        (kind === 'human' ? people.find(r => r.id === key) : bots.find(r => r.name === key)).report_position = i;
+      });
+      return json({});
+    }
     if (p === '/api/v2/tasks') return json({tasks: []});
     if (p === '/api/v2/conversations') return json({conversations: []});
     if (p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
@@ -140,6 +150,63 @@ async function drag(page, from, to) {
   await page.mouse.move(45, 45);
   await to.hover();
   await page.mouse.up();
+}
+
+async function reportOrder(browser) {
+  const {page, errors, calls, bots} = await open(browser, {id: 'ana', role: 'owner', name: 'Ana', email: 'ana@example.test', cloud: true});
+  for (const [name, display_name] of [['analyst', 'Analyst'], ['builder', 'Builder']])
+    bots.push({...bots.find(b => b.name === 'scout'), name, display_name});
+  await page.evaluate(() => refresh(true));
+  const under = async () => (await shape(page))[0].Ana;
+  assert.deepEqual(await under(), ['Cara', 'Analyst', 'Builder', 'Scout'], 'nobody placed them: humans, then names');
+  // Dragged onto the top of a fellow report, Scout goes above it, and stays there through a reload.
+  const analyst = node(page, 'b:analyst');
+  await node(page, 'b:scout').hover();
+  await page.mouse.down();
+  await page.mouse.move(40, 40);
+  await analyst.hover({position: {x: 20, y: 2}});
+  await page.mouse.up();
+  await page.waitForFunction(() => document.querySelectorAll('#tree [data-org-place]')[1]?.dataset.org === 'b:scout');
+  assert.deepEqual(calls.shift(), ['PUT', 'human:ana', {reports: ['human:cara', 'bot:scout', 'bot:analyst', 'bot:builder']}]);
+  await page.reload();
+  await page.locator('#tree a.node').first().waitFor();
+  assert.deepEqual(await under(), ['Cara', 'Scout', 'Analyst', 'Builder']);
+  // By keyboard: Tab from the row to its Move menu, then Move up, Move down.
+  await node(page, 'b:builder').focus();
+  await page.keyboard.press('Tab');
+  assert.equal(await page.evaluate(() => document.activeElement.dataset.orgMenu), 'b:builder');
+  await page.keyboard.press('Enter');
+  assert.equal(await page.getByRole('menuitem', {name: 'Move down'}).isDisabled(), true, 'the last one goes no lower');
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Move up');
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => document.activeElement?.dataset.orgMenu === 'b:builder' && !document.querySelector('#tree .org-order-menu'));
+  assert.deepEqual(calls.shift(), ['PUT', 'human:ana', {reports: ['human:cara', 'bot:scout', 'bot:builder', 'bot:analyst']}]);
+  assert.deepEqual(await under(), ['Cara', 'Scout', 'Builder', 'Analyst']);
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => document.querySelectorAll('#tree [data-org-place]')[3]?.dataset.org === 'b:builder');
+  assert.deepEqual(calls.shift(), ['PUT', 'human:ana', {reports: ['human:cara', 'bot:scout', 'bot:analyst', 'bot:builder']}]);
+  // Escape closes the menu, back on its button, and moves nothing.
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#tree .org-order-menu').count(), 0);
+  assert.equal(await page.evaluate(() => document.activeElement.dataset.orgMenu), 'b:builder');
+  assert.deepEqual(calls, []);
+  assert.deepEqual(errors, []);
+  await page.close();
+
+  // Ben may move his CMO, but not under Scout, who is not his: he is told so, and nothing moves.
+  const ben = await open(browser, {id: 'ben', role: 'viewer', name: 'Ben', email: 'ben@example.test', cloud: true, company_role: 'member'});
+  assert.equal(await ben.page.locator('#tree [data-org-menu], #tree [data-org-place]').count(), 0, 'nothing of his to order');
+  const before = await shape(ben.page);
+  await ben.page.locator('#tree [data-toggle="p:ben"]').first().click();
+  await drag(ben.page, node(ben.page, 'b:cmo'), node(ben.page, 'b:scout'));
+  await ben.page.locator('.toast.err', {hasText: "You can't put CMO under Scout"}).waitFor();
+  assert.deepEqual(ben.calls, []);
+  assert.deepEqual(await shape(ben.page), before);
+  assert.deepEqual(ben.errors, []);
+  await ben.page.close();
 }
 
 async function externalChanges(browser) {
@@ -470,6 +537,7 @@ async function personalBranches(browser) {
     await teamAdd(browser);
     await deleteGroups(browser);
     await personalBranches(browser);
-    console.log('PASS: groups nest in the team chart; owners add, rename, drag into and nest groups; members read.');
+    await reportOrder(browser);
+    console.log('PASS: groups nest in the team chart; owners add, rename, drag into and nest groups; reports keep their order; members read.');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
