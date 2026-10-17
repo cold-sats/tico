@@ -7,6 +7,14 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Roadmaps: a database that ran an unreleased build of roadmaps from main has the internal text it copied into public
+  text cleared once more, now field by field, so a rewritten public title keeps its task public while a copied summary
+  goes (each clearing leaves a task event); a public task whose title was a copy is unpublished. An update that hits a
+  clash with the edge network now says to move the `TICO_EDGE_*` settings and then update again.
+
+## [0.3.52] - 2026-10-16
+
 ### Added
 - A bot's page lists its tasks starting with **Needs you**: what that bot needs from you, the same rows its number in
   the sidebar counts (its tasks for you, its questions on any task, its work waiting on you, its questions outside a
@@ -153,9 +161,8 @@ All notable changes to Tico are recorded here. The format follows
   `TICO_TRUSTED_PROXIES`; the Compose file gives Caddy and cloudflared fixed addresses on their own network and
   trusts exactly those, so each visitor keeps their own limit; an update that hits a clash with that network names
   the `TICO_EDGE_*` settings that move it. A database that ran an unreleased build of roadmaps from main has the
-  internal text it copied into public text cleared once, field by field, so a rewritten public title keeps its task
-  public while a copied summary goes (each clearing leaves a task event); a public task whose title was a copy is
-  unpublished. Adds Product roadmap and Engineering task types, a
+  internal text it copied into public text cleared once (each clearing leaves a task event), and tasks it published
+  that way unpublished. Adds Product roadmap and Engineering task types, a
   ranked roadmap view, and requesters (Requested by) on tasks.
 
 ### Changed
@@ -2992,7 +2999,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.50...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.52...HEAD
+[0.3.52]: https://github.com/ticoteam/tico/compare/v0.3.50...v0.3.52
 [0.3.50]: https://github.com/ticoteam/tico/compare/v0.3.49...v0.3.50
 [0.3.49]: https://github.com/ticoteam/tico/compare/v0.3.48...v0.3.49
 [0.3.48]: https://github.com/ticoteam/tico/compare/v0.3.47...v0.3.48
