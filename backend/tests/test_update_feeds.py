@@ -34,12 +34,15 @@ def entry(n, title=None, files=("AGENT.md",)):
                       "changed_files": [f"templates/catalog/pr-reviewer/{f}" for f in files]}}
 
 
+UNSET = object()
+
+
 class Feeds:
     """What the internet says: releases and template entries, newest first, and every request made."""
 
     def __init__(self):
         self.releases, self.entries, self.requests, self.snapshots = [], [], [], []
-        self.next_url, self.bad_release_page = None, None     # a broken next link; a release page that isn't a list
+        self.next_url, self.bad_release_page = UNSET, None    # a broken next link; a release page that isn't a list
 
     def handler(self, request):
         self.requests.append(str(request.url))
@@ -55,7 +58,8 @@ class Feeds:
         body = {"version": "https://jsonfeed.org/version/1.1", "_tico": {"schema_version": 1,
                 "source_revision": snapshot}, "items": items}
         if len(self.entries) > page * 50:
-            body["next_url"] = self.next_url or f"https://tico.team/docs/bots/templates/pr-reviewer/feed-{page + 1}.json"
+            body["next_url"] = (f"https://tico.team/docs/bots/templates/pr-reviewer/feed-{page + 1}.json"
+                                if self.next_url is UNSET else self.next_url)
         return httpx.Response(200, json=body)
 
 
@@ -361,12 +365,12 @@ def test_a_next_link_it_will_not_follow_stores_nothing_and_a_later_good_poll_cat
     feeds.releases = [release(n) for n in range(41, 1, -1)] + feeds.releases  # 40 new: past page 1
     feeds.bad_release_page = 2
     for bad in ("https://evil.example/docs/bots/templates/pr-reviewer/feed-2.json", "http://tico.team/feed-2.json",
-                "https://tico.team/docs/feed 2.json", 2):
+                "https://tico.team/docs/feed 2.json", 2, "", False, 0, [], None):
         feeds.next_url = bad
         assert poll(api) == {}, f"{bad!r}: nothing stored or sent"
         assert cursors(api) == before and waiting(api) == [], f"{bad!r}: no cursor moves past the missing pages"
     assert not [u for u in feeds.requests if "evil" in u or u.startswith("http://")], "and it is never followed"
-    feeds.next_url, feeds.bad_release_page = None, None
+    feeds.next_url, feeds.bad_release_page = UNSET, None
     given = poll(api, times=6)["ops"]
     assert len(given) == len(set(given)) == 100 and ids(notes(api)) == given, "each once"
     assert [i for i in given if i.startswith("template:")] == [f"template:{entry(n)['id']}" for n in range(2, 62)]

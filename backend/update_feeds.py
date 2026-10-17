@@ -357,7 +357,8 @@ def fetch_tico(store, http):
 
 def fetch_template(store, http, template):
     """New entries of one template's feed, newest first. It follows `next_url` (on the same site only) until an id
-    this server holds or the feed ends; a next link it won't follow fails the pass. It starts over from the first
+    this server holds or the feed ends (no `next_url` field); a present next link it won't follow, including an empty
+    or falsy one, fails the pass. It starts over from the first
     page once if the feed's snapshot changes while it reads, including between passes. Returns (entries, snapshot, walk) as `fetch_tico` does."""
     first = template_feed().format(template=template)
     url, snapshot, found, pages = _walk(store, "templates:" + template) or (first, None, [], 0)
@@ -379,8 +380,10 @@ def fetch_template(store, http, template):
         found += _newer(items, known, seen)
         seen.update(item["id"] for item in items)
         pages += 1
-        url = body.get("next_url")
-        if known or not any_held or not url or pages >= WALK_MAX_PAGES:
+        # Only a feed with no next_url field has ended; a present value, even an empty or falsy one, must be a
+        # link it will follow, or the older pages past it would be passed over.
+        last, url = "next_url" not in body, body.get("next_url")
+        if known or not any_held or last or pages >= WALK_MAX_PAGES:
             return found, snapshot or "", None
         if (not isinstance(url, str) or not url.startswith(SITE)
                 or not re.fullmatch(r"https://[^\s<>\"'`]{1,490}", url)):
