@@ -23624,6 +23624,18 @@
               }
             ],
             "title": "Bot Public Approval"
+          },
+          "suggestions_bot": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggestions Bot"
           }
         },
         "additionalProperties": false,
@@ -25972,6 +25984,18 @@
               "string",
               "null"
             ]
+          },
+          "role": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "product-roadmap",
+              "engineering",
+              null
+            ],
+            "description": "The Product roadmap or Dev tickets type, whoever manages it"
           }
         },
         "required": [
