@@ -1,7 +1,8 @@
 //! The Claude Code host: one `claude -p` process per turn, one Claude session per
 //! bot thread. The prompt goes in on stdin as a stream-json user message and stdin stays open for steers;
 //! `--replay-user-messages` echoes each message as Claude reads it, so a `result` ends the runner's turn only
-//! when no steer is unread, and then stdin closes and the process exits.
+//! when no steer is unread and no background task of the session still runs, and then stdin closes and the process
+//! exits. Claude stays up for its background tasks either way; open stdin lets a follow-up in meanwhile.
 
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom};
@@ -117,6 +118,11 @@ struct Pipe {
     /// Claude reported a usage limit: unless model work follows, the turn ends here, `result` or not.
     limit_at: Option<Instant>,
     limit_text: Option<String>,
+    /// The session's own background tasks still running (subagents, shells, monitors), from Claude's last
+    /// `background_tasks_changed`. Claude stays up until they end, so stdin stays open for steers meanwhile.
+    background: usize,
+    /// A `result` read every message written: once no background task runs, the turn is over.
+    answered: bool,
     stopper: super::Stopper,
 }
 
@@ -125,6 +131,13 @@ impl Pipe {
         if self.open {
             self.open = false;
             let _ = self.lines.send(None);
+        }
+    }
+
+    /// Closes stdin when the turn is over: every message read and answered, and no background task left.
+    fn close_if_done(&mut self) {
+        if self.answered && self.background == 0 && self.unread.is_empty() {
+            self.close();
         }
     }
 }
@@ -418,6 +431,8 @@ impl ClaudeHost {
             timed_out: false,
             limit_at: None,
             limit_text: None,
+            background: 0,
+            answered: false,
             stopper,
         });
     }
@@ -599,8 +614,13 @@ impl ClaudeHost {
             p.cost = pipe_cost;
             let first = p.first.clone();
             p.unread.remove(&first);
-            if crate::util::truthy(result.get("is_error")) || p.unread.is_empty() {
+            if crate::util::truthy(result.get("is_error")) {
                 p.close();
+            } else if p.unread.is_empty() {
+                // With background work running Claude stays up and wakes itself when it ends; stdin stays open
+                // so a follow-up meanwhile is read at once instead of waiting for that work.
+                p.answered = true;
+                p.close_if_done();
             } else {
                 p.awaiting = Some(Instant::now() + Duration::from_secs(STEER_READ_TIMEOUT_S));
             }
@@ -660,6 +680,12 @@ impl ClaudeHost {
                     inner.reply.insert(turn.into(), text.clone());
                     drop(inner);
                     self.emit(event("message", Some(tid), Some(turn), json!({"text": text, "final": false, "item_id": id})));
+                }
+            }
+            "system" if msg["subtype"] == "background_tasks_changed" => {
+                if let Some(p) = self.inner().pipe.as_mut() {
+                    p.background = msg["tasks"].as_array().map_or(0, |t| t.len());
+                    p.close_if_done();
                 }
             }
             "system" if msg["subtype"] == "init" => {
@@ -896,6 +922,7 @@ impl ClaudeHost {
                 p.unread.insert(mid.clone());
                 p.order.push(mid.clone());
                 p.steered = true;
+                p.answered = false;
                 let _ = p.lines.send(Some(user_line(&mid, text)));
                 Ok(())
             }
@@ -1127,6 +1154,81 @@ mod tests {
         }
         std::fs::remove_dir_all(dir).unwrap();
         (got, steered)
+    }
+
+    /// Runs one turn on a `claude` that writes `first` (a background task starts, then a `result`), then writes `then`
+    /// once a steer arrives on stdin, or `idle` after a second with none, and exits when stdin closes. With `steer`,
+    /// one goes in after the first `result` was read.
+    async fn background_turn(first: &str, then: &str, idle: &str, steer: bool) -> (Vec<Value>, Option<bool>) {
+        let dir = std::env::temp_dir().join(format!("claude-bg-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for (name, text) in [("first.jsonl", first), ("then.jsonl", then), ("idle.jsonl", idle)] {
+            std::fs::write(dir.join(name), text).unwrap();
+        }
+        let path = dir.join("claude");
+        crate::util::write_script(
+            &path,
+            "#!/bin/sh\ncase \"$1\" in --version) echo '2.1.296 (Claude Code)'; exit 0;; --help) echo '  --autocompact <tokens>'; exit 0;; esac\nIFS= read -r line\ncat first.jsonl\nif [ -s then.jsonl ]; then IFS= read -r steer && cat then.jsonl; else sleep 1; cat idle.jsonl; fi\ncat >/dev/null\n",
+        );
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let host = ClaudeHost::new("acme", vec![path.display().to_string()], tx);
+        host.start().await.unwrap();
+        let mut settings = Settings { cwd: dir.display().to_string(), ..Default::default() };
+        settings.env.insert("PATH".into(), "/usr/bin:/bin".into());
+        let thread = host.start_thread(&settings);
+        let turn = host.start_turn(&thread, "hello", None).unwrap();
+        let mut steered = None;
+        if steer {
+            // Once the first `result` is read: the turn's own answer is in, its background task still runs.
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while !host.inner().pipe.as_ref().is_some_and(|p| p.answered || !p.open) && Instant::now() < deadline {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            steered = Some(host.steer(&thread, &turn, "Did you delegate this?").is_ok());
+        }
+        let mut got = vec![];
+        while let Ok(Some(ev)) = tokio::time::timeout(Duration::from_secs(10), rx.recv()).await {
+            let idle = ev["kind"] == "status" && ev["state"] == "idle";
+            got.push(ev);
+            if idle {
+                break;
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+        (got, steered)
+    }
+
+    const BG_STARTED: &str = r#"{"type": "system", "subtype": "background_tasks_changed", "tasks": [{"task_id": "a1", "task_type": "local_agent", "description": "Build concept A"}]}"#;
+    const BG_DONE: &str = r#"{"type": "system", "subtype": "background_tasks_changed", "tasks": []}"#;
+
+    fn result_line(text: &str) -> String {
+        format!(r#"{{"type": "result", "subtype": "success", "is_error": false, "result": "{text}", "usage": {{"input_tokens": 1, "output_tokens": 1}}}}"#)
+    }
+
+    fn assistant_line(id: &str, text: &str) -> String {
+        format!(r#"{{"type": "assistant", "message": {{"id": "{id}", "content": [{{"type": "text", "text": "{text}"}}]}}}}"#)
+    }
+
+    #[tokio::test]
+    async fn a_follow_up_is_answered_while_background_work_runs() {
+        let first = format!("{BG_STARTED}\n{}\n{}\n", assistant_line("m1", "Three builders are working."), result_line("Three builders are working."));
+        let echo = r#"{"type": "user", "isReplay": true, "message": {"role": "user", "content": "Did you delegate this?"}}"#;
+        let then = format!("{echo}\n{}\n{}\n{BG_DONE}\n", assistant_line("m2", "No, I am building them myself."), result_line("No, I am building them myself."));
+        let (got, steered) = background_turn(&first, &then, "", true).await;
+        assert_eq!(steered, Some(true), "{got:?}");
+        let last = got.iter().rev().find(|e| e["kind"] == "message" && e["final"] == true).unwrap();
+        assert_eq!(last["text"], "Three builders are working.\n\nNo, I am building them myself.");
+        assert!(got.iter().any(|e| e["kind"] == "turn_completed"), "{got:?}");
+    }
+
+    #[tokio::test]
+    async fn the_turn_ends_when_its_background_work_does() {
+        let first = format!("{BG_STARTED}\n{}\n", result_line("Started."));
+        let (got, _) = background_turn(&first, "", &format!("{BG_DONE}\n"), false).await;
+        assert!(got.iter().any(|e| e["kind"] == "turn_completed"), "{got:?}");
+        // A turn with no background task ends at its `result`, as before.
+        let (got, _) = background_turn(&format!("{}\n", result_line("Done.")), "", "", false).await;
+        assert!(got.iter().any(|e| e["kind"] == "turn_completed"), "{got:?}");
     }
 
     #[tokio::test]

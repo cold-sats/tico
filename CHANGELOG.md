@@ -185,6 +185,10 @@ All notable changes to Tico are recorded here. The format follows
   stores and logs no token. The grant on the computer keeps no secret.
 
 ### Fixed
+- A Claude bot that answered while its subagents or background commands were still running now reads a follow-up at
+  once and answers it. It used to stop taking messages after its answer: the run stayed Working until that work
+  ended or someone pressed Stop, and the follow-up showed only "follow-up added". Every bot's instructions also say
+  not to wait inside a long poll or sleep loop, where a follow-up waits until the command returns.
 - The keeper's "no progress after a status check" question closes when its task is done, and one already left on a
   done task no longer keeps that task in Needs you or in a bot's number in the sidebar.
 - Another bot's turn in a task's room (the requester answering there, say) no longer ends the task owner's goal:
