@@ -11,7 +11,8 @@ All notable changes to Tico are recorded here. The format follows
 - Roadmaps: a database that ran an unreleased build of roadmaps from main has the internal text it copied into public
   text cleared once more, now field by field, so a rewritten public title keeps its task public while a copied summary
   goes (each clearing leaves a task event); a public task whose title was a copy is unpublished. An update that hits a
-  clash with the edge network now says to move the `TICO_EDGE_*` settings and then update again.
+  clash with the edge network now says to move the `TICO_EDGE_*` settings and then update again (after
+  `docker compose down`, run `docker compose up -d` first).
 
 ## [0.3.52] - 2026-10-16
 
@@ -193,8 +194,6 @@ All notable changes to Tico are recorded here. The format follows
   stores and logs no token. The grant on the computer keeps no secret.
 
 ### Fixed
-- The updater's hint for a clashing edge network now says to run `docker compose up -d` after `docker compose down`
-  before updating again; it left that step out.
 - The keeper's "no progress after a status check" question closes when its task is done, and one already left on a
   done task no longer keeps that task in Needs you or in a bot's number in the sidebar.
 - Another bot's turn in a task's room (the requester answering there, say) no longer ends the task owner's goal:

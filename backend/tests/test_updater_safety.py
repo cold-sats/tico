@@ -405,3 +405,4 @@ def test_a_subnet_clash_names_the_settings_that_move_the_edge_network(monkeypatc
     message = str(failed.value)
     assert message.startswith(stderr)
     assert ("TICO_EDGE_SUBNET" in message and "update again" in message) is hinted
+    assert ("docker compose down, then docker compose up -d, then update again" in message) is hinted

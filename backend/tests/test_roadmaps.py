@@ -270,8 +270,6 @@ def test_first_version_copies_leave_private_tasks_and_the_product_type_turns_pri
     hidden = post(api, 'tasks', {'owner': 'cpo', 'title': 'Old idea', 'body': 'Internal notes', 'type': 'Product roadmap'})
     shown = post(api, 'tasks', {'owner': 'cpo', 'title': 'Shown idea', 'body': 'Shown notes', 'type': 'Product roadmap',
                                'visibility': 'public', 'public_title': 'Shown idea', 'public_summary': 'Shown notes'})
-    kept = post(api, 'tasks', {'owner': 'cpo', 'title': 'Kept internal', 'body': 'Kept internal notes',
-                               'type': 'Product roadmap'})
     with api.app.state.store.transaction() as c:
         c.execute("DELETE FROM registry_metadata WHERE key='roadmaps_explicit_public_text'")
         c.execute("UPDATE task_types SET default_visibility='public' WHERE id='product-roadmap'")
