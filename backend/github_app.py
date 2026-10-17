@@ -1345,26 +1345,37 @@ def install_github_app(app, settings, store):
         bot, repository = H.actor_id(who.actor), result["repository"]
         org = repository.split("/")[0]
         name = (H.bot(c, bot) or {}).get("display_name") or bot
+        moved = None
         c.execute("SAVEPOINT product_repo_grant")
         try:
             # Granting needs it on the team list; a bot set to every ticked repository then reaches it too.
             c.execute("INSERT INTO repositories(id,full_name,enabled,added_by,updated) VALUES(?,?,1,?,?) "
                       "ON CONFLICT(full_name) DO UPDATE SET enabled=1", (uuid.uuid4().hex, repository, who.actor, H.now()))
             before = R.access(c, bot, org)
-            if before["mode"] == "all":
-                access = before["all_access"]
+            if before["mode"] == "all" and before["all_access"] == "write":
+                pass                                          # it writes every ticked repository, this one now too
             else:
-                chosen = [R.Grant(**r) for r in before["chosen"] if r["full_name"].lower() != repository.lower()] \
-                    if before["mode"] == "chosen" else []
-                R.set_access(c, bot, R.RepoAccessUpdate(mode="chosen", chosen=chosen + [R.Grant(full_name=repository)]),
+                if before["mode"] == "chosen":
+                    keep = [R.Grant(**r) for r in before["chosen"]]
+                elif before["mode"] == "all":
+                    # All ticked repos has one level for every repository, so a read-only bot moves to Chosen
+                    # repos: read on each repository it reaches now, write on the new one. Nothing gets wider.
+                    # Its own repository is the one write in what it reaches; it stays write whatever the mode.
+                    keep = [R.Grant(full_name=r["full_name"], access="read") for r in before["effective"]
+                            if r["access"] == "read"]
+                    moved = len([g for g in keep if g.full_name.lower() != repository.lower()])
+                else:
+                    keep = []
+                keep = [g for g in keep if g.full_name.lower() != repository.lower()]
+                R.set_access(c, bot, R.RepoAccessUpdate(mode="chosen", chosen=keep + [R.Grant(full_name=repository)]),
                              org, who.actor, own_click=False)
-                access = "write"
+            access = "write"
             c.execute("RELEASE product_repo_grant")
         except Problem as problem:
             c.execute("ROLLBACK TO product_repo_grant")
             c.execute("RELEASE product_repo_grant")
             log.warning("A bot's product repository was created, but its access could not be granted: %s", problem.code)
-            access = "none"
+            access, moved = "none", None
         others = []
         if access != "none":
             for r in c.execute("SELECT bc.bot,bc.config_json FROM bot_config bc JOIN bots b ON b.slug=bc.bot "
@@ -1372,10 +1383,12 @@ def install_github_app(app, settings, store):
                 if json.loads(r["config_json"] or "{}").get("repo_access_mode") == "all":
                     others.append((H.bot(c, r["bot"]) or {}).get("display_name") or r["bot"])
         said = {"write": f"{name} has write access to it.",
-                "read": f"{name} reaches it read-only, like every ticked repository; an Owner or admin can give it "
-                        "write in Settings > Repositories.",
                 "none": f"{name} could not be given access to it; an Owner or admin can give it in Settings > "
                         "Repositories."}[access]
+        if moved is not None:
+            kept = f"read on the {moved} repositor{'y' if moved == 1 else 'ies'} it reached and " if moved else ""
+            said += (f" It was on All ticked repos with read access, so it is now on Chosen repos: {kept}write on this "
+                     "one. A repository ticked later reaches it only once chosen.")
         if others:
             said += f" Bots set to every ticked repository reach it too: {', '.join(others)}."
         if result["installation_access"] == "owner_action_required":
@@ -1387,7 +1400,7 @@ def install_github_app(app, settings, store):
                      f"{name} created private repo {repository.split('/')[1]} ({repository}). {said}",
                      refs={"repository": repository, "created_by": who.actor})
         return {**result, "bot_access": access, "note": "Created as a private empty repository. " + said,
-                "_notified": bool(owner_id)}
+                "_notified": bool(owner_id), "_moved": moved is not None}
 
     @app.get("/api/v2/github/product-repos/preview")
     def product_repo_preview(request: Request, name: str):
@@ -1520,8 +1533,8 @@ def install_github_app(app, settings, store):
                     H.event(c, who.actor, "github.product_repo_created", result["repository"],
                             {"visibility": "private", "auto_init": False,
                              "installation_access": result["installation_access"],
-                             **({"bot_access": result["bot_access"], "owner_notified": result.pop("_notified")}
-                                if who.role == "bot" else {})})
+                             **({"bot_access": result["bot_access"], "owner_notified": result.pop("_notified"),
+                                 "moved_to_chosen": result.pop("_moved")} if who.role == "bot" else {})})
                     if not previous:
                         c.execute("INSERT INTO idempotency VALUES(?,?,?,?,?,?)",
                                   (who.actor, operation, key, request_hash, encode(result), H.now()))

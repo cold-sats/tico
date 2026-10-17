@@ -3,6 +3,7 @@ gets write to what it made, the Owner is told, and connecting GitHub stays the O
 import json
 
 from backend import hubdb as H
+from backend.auth import Identity
 from backend.store import encode
 from backend.tests.test_github_app import api, gh, auth, botops_turn, connect, product_repo_request, runner_token  # noqa: F401
 
@@ -93,6 +94,29 @@ def test_a_chosen_bot_keeps_its_grants_and_bots_on_every_ticked_repo_are_named(a
     assert "Bots set to every ticked repository reach it too: cpo." in made.json()["note"]
 
 
+def test_a_read_only_all_repos_creator_gets_write_to_the_new_repo_and_keeps_read_elsewhere(api, gh):
+    ready(api, gh)
+    with api.app_state.store.transaction() as c:
+        c.execute("INSERT INTO repositories(id,full_name,enabled,updated) VALUES('r-tico','Acme/tico',1,?)", (H.now(),))
+    assert api.put(ACCESS, json={"mode": "all", "all_access": "read", "create_product_repositories": True},
+                   headers=auth()).status_code == 200
+    assert {"full_name": "Acme/tico", "access": "read"} in api.get(ACCESS, headers=auth()).json()["effective"]
+    made = product_repo_request(api, BODY, actor="bot-test", key="all-read-bot")
+    assert made.status_code == 200, made.text
+    assert made.json()["bot_access"] == "write"
+    view = api.get(ACCESS, headers=auth()).json()
+    effective = {r["full_name"]: r["access"] for r in view["effective"]}
+    assert view["mode"] == "chosen"
+    assert effective == {"Acme/emp-cmo": "write", "Acme/tico": "read", "Acme/tico-services": "write"}
+    with api.app_state.store.read() as c:
+        detail = json.loads(c.execute("SELECT detail_json FROM events WHERE action='github.product_repo_created'").fetchone()[0])
+        assert detail["bot_access"] == "write" and detail["moved_to_chosen"] is True
+        notice = c.execute("SELECT body FROM messages WHERE to_actor='human:ana' AND kind='notice'").fetchone()[0]
+    assert ("cmo has write access to it. It was on All ticked repos with read access, so it is now on Chosen repos: "
+            "read on the 1 repository it reached and write on this one.") in notice
+    assert notice.endswith(made.json()["note"].removeprefix("Created as a private empty repository. "))
+
+
 def test_a_bot_without_the_right_is_refused_and_told_which_right(api, gh):
     ready(api, gh)
     botops_turn(api)
@@ -125,6 +149,33 @@ def test_only_the_owner_turns_the_right_on_and_an_admin_may_turn_it_off(api, gh)
     assert not creates(gh)
 
 
+def test_the_owners_request_carried_by_a_bot_turn_cannot_turn_the_right_on(api, gh):
+    ready(api, gh)
+    botops_turn(api)
+    carried = {"via-botops": Identity("human:ana", "owner", "ana@acme.example", runner_id="r1", attempt_id="a2",
+                                      via="botops", task_actor="bot:botops", confirmed=True),
+               "via-self": Identity("human:ana", "owner", "ana@acme.example", runner_id="r1", attempt_id="a1",
+                                    task_actor="bot:cmo", confirmed=True)}
+    api.app_state.store.settings.test_identities.update(carried)
+    for token in carried:
+        refused = grant(api, who=token)
+        assert refused.status_code == 403 and "Only the Owner turns on" in refused.text, (token, refused.text)
+        assert api.get(ACCESS, headers=auth()).json()["create_product_repositories"] is False, token
+
+
+def test_an_external_agent_of_a_granted_bot_cannot_create(api, gh):
+    ready(api, gh)
+    assert grant(api).status_code == 200
+    with api.app_state.store.transaction() as c:
+        c.execute("INSERT INTO agents(bot,harness,token_hash,created,created_by) VALUES('cmo','hermes','agent-hash',?,'human:ana')",
+                  (H.now(),))
+    api.app_state.store.settings.test_identities["agent-test"] = Identity("bot:cmo", "bot", agent="hermes")
+    assert api.get(PREVIEW, params={"name": "tico-services"}, headers=auth("agent-test")).status_code == 403
+    refused = product_repo_request(api, BODY, actor="agent-test", key="agent")
+    assert refused.status_code == 403 and RIGHT in refused.text
+    assert not creates(gh)
+
+
 def test_connecting_and_disconnecting_github_stay_the_owners(api, gh):
     ready(api, gh)
     assert grant(api).status_code == 200
@@ -138,8 +189,10 @@ def test_connecting_and_disconnecting_github_stay_the_owners(api, gh):
 def test_a_bot_never_creates_a_bot_repository_name(api, gh):
     ready(api, gh)
     assert grant(api).status_code == 200
-    # bot-/emp- names, and a name a bot's repository already uses (cpo's emp-cpo, cmo's own emp-cmo).
-    for name in ("bot-newhire", "emp-newhire", "BOT-x", "emp-cpo", "emp-cmo"):
+    # bot-/emp- names, and a name a bot's repository already uses (cmo's own emp-cmo, cpo's unprefixed handbook).
+    with api.app_state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET repo='Acme/handbook' WHERE bot='cpo'")
+    for name in ("bot-newhire", "emp-newhire", "BOT-x", "emp-cmo", "handbook", "Handbook"):
         refused = product_repo_request(api, {**BODY, "name": name}, actor="bot-test", key="name-" + name)
         assert refused.status_code == 403 and "bot repository name" in refused.text, (name, refused.text)
         assert api.get(PREVIEW, params={"name": name}, headers=auth("bot-test")).status_code == 403

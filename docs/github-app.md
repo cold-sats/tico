@@ -186,12 +186,13 @@ product repositories right.* The rules are in [Permissions](permissions.md#bots-
   name a bot's repository already uses (`403`).
 - **After it is created**, in the same step that saves the receipt (so a retry with the same key replays it and
   does nothing twice): the repository is ticked for the team, the bot gets write to it (a bot on **Own repo
-  only** moves to **Chosen repos** with just this one; a bot on **Chosen repos** keeps its other grants), and the
-  Owner gets a notice: *Head of Engineering created private repo tico-services (acme/tico-services). Head of
+  only** moves to **Chosen repos** with just this one; a bot on **Chosen repos** keeps its other grants; a bot on
+  **All ticked repos** with read access moves to **Chosen repos**, read on every repository it reached and write on
+  this one, so a repository ticked later reaches it only once chosen), and the Owner gets a notice: *Head of Engineering created private repo tico-services (acme/tico-services). Head of
   Engineering has write access to it.* The notice also names any bot set to **All ticked repos**, which reaches
-  it too. The reply's `bot_access` is `write`; `read` for a bot on All ticked repos with read access, and `none`
-  if the grant could not be made (the repository exists; an Owner or admin grants it in Settings). The event
-  `github.product_repo_created` records the bot, `bot_access` and whether the Owner was told.
+  it too, and says when the bot moved from All ticked repos to Chosen repos. The reply's `bot_access` is `write`,
+  or `none` if the grant could not be made (the repository exists; an Owner or admin grants it in Settings). The
+  event `github.product_repo_created` records the bot, `bot_access`, `moved_to_chosen` and whether the Owner was told.
 
 **If the app lacks Administration: write**, nothing is created. The preview's `capability` is `missing` and the
 create answers `409 github_permission_missing`, both saying: *The GitHub App installation is missing

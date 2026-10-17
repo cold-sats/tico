@@ -107,7 +107,9 @@ All notable changes to Tico are recorded here. The format follows
   on for itself, BotOps doesn't have it built in, and no bot gets it by default. **Owner: to let Head of Engineering and
   DevOps create repositories, turn it on in each one's settings.** Private only: a public repository is publishing and
   stays a person's step, and bots can't delete, rename, transfer or change a repository's visibility. The bot gets write
-  to the repository it made and the Owner gets a notice ("Head of Engineering created private repo tico-services…").
+  to the repository it made and the Owner gets a notice ("Head of Engineering created private repo tico-services…"); a
+  bot on All ticked repos with read access moves to Chosen repos, keeping read on what it reached, and the notice says
+  so.
   Without the right a bot is refused with the right named; if the GitHub App lacks Administration: write, the refusal
   says so and links the app's permissions page, where the Owner turns it on once. Connecting and disconnecting GitHub
   stay the Owner's ([Permissions](docs/permissions.md#bots-that-create-repositories),
