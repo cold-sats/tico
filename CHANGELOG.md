@@ -8,6 +8,13 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Sign out** and **Switch account** for Codex (ChatGPT) and Claude Code logins, from Settings > Computers and Manage
+  subscription, for the computer's own login and each named subscription. Sign out names the bots that stop first;
+  Switch account signs the new account in on the side, so cancelling keeps the old one, and puts the old login back if
+  the new one doesn't take; it isn't offered for Claude Code on a Mac, which keeps its login in the Keychain. After any
+  of these the page waits for the computer's next report before redrawing. A computer login someone signed
+  out stays signed out: the model key given to every computer no longer signs it back in, until someone signs in or
+  chooses **Use the shared key**. No restart. Needs a current runner on the computer.
 - The team chart keeps the order you put a manager's reports in, for everyone who views it, instead of A–Z. Drag a
   human or a bot above or below another report of the same manager, or use **Move up** / **Move down** in its row's
   menu (keyboard too). A new report goes last. The Goals tree, a person's page and Updates follow the same order.
