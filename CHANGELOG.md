@@ -7,6 +7,12 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Roadmaps: a database that ran an unreleased build of roadmaps from main has the internal text it copied into public
+  text cleared once more, now field by field, so a rewritten public title keeps its task public while a copied summary
+  goes (each clearing leaves a task event); a public task whose title was a copy is unpublished. An update that hits a
+  clash with the edge network now says to move the `TICO_EDGE_*` settings and then update again.
+
 ## [0.3.52] - 2026-10-16
 
 ### Added
