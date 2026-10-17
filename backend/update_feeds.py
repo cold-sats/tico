@@ -342,7 +342,8 @@ def fetch_tico(store, http):
     page, seen = int(page), {item["id"] for item in found}
     for _ in range(MAX_PAGES):
         rows = _get(http, RELEASES_API, per_page=RELEASE_PAGE, page=page)
-        rows = rows if isinstance(rows, list) else []
+        if not isinstance(rows, list):
+            raise ValueError("not a list of releases")
         items = [item for item in (tico_item(row) for row in rows) if item]
         known, any_held = _held(store, "tico", [item["id"] for item in items])
         found += _newer(items, known, seen)
@@ -356,8 +357,8 @@ def fetch_tico(store, http):
 
 def fetch_template(store, http, template):
     """New entries of one template's feed, newest first. It follows `next_url` (on the same site only) until an id
-    this server holds, and starts over from the first page once if the feed's snapshot changes while it reads,
-    including between passes. Returns (entries, snapshot, walk) as `fetch_tico` does."""
+    this server holds or the feed ends; a next link it won't follow fails the pass. It starts over from the first
+    page once if the feed's snapshot changes while it reads, including between passes. Returns (entries, snapshot, walk) as `fetch_tico` does."""
     first = template_feed().format(template=template)
     url, snapshot, found, pages = _walk(store, "templates:" + template) or (first, None, [], 0)
     seen, restarted = {item["id"] for item in found}, False
@@ -378,10 +379,14 @@ def fetch_template(store, http, template):
         found += _newer(items, known, seen)
         seen.update(item["id"] for item in items)
         pages += 1
-        url = str(body.get("next_url") or "")
-        if (known or not any_held or not url.startswith(SITE) or not re.fullmatch(r"https://[^\s<>\"'`]{1,490}", url)
-                or pages >= WALK_MAX_PAGES):
+        url = body.get("next_url")
+        if known or not any_held or not url or pages >= WALK_MAX_PAGES:
             return found, snapshot or "", None
+        if (not isinstance(url, str) or not url.startswith(SITE)
+                or not re.fullmatch(r"https://[^\s<>\"'`]{1,490}", url)):
+            # Older entries lie past a link it won't follow: fail so nothing is stored and the pass is retried,
+            # rather than ending here and passing over them.
+            raise ValueError("the feed's next page is not on " + SITE)
     return found, snapshot or "", (url, snapshot or "", pages)
 
 

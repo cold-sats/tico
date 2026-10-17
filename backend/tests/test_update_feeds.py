@@ -39,11 +39,14 @@ class Feeds:
 
     def __init__(self):
         self.releases, self.entries, self.requests, self.snapshots = [], [], [], []
+        self.next_url, self.bad_release_page = None, None     # a broken next link; a release page that isn't a list
 
     def handler(self, request):
         self.requests.append(str(request.url))
         if request.url.host == "api.github.com":
             page, size = int(request.url.params["page"]), int(request.url.params["per_page"])
+            if page == self.bad_release_page:
+                return httpx.Response(200, json={"message": "API rate limit exceeded"})
             return httpx.Response(200, json=self.releases[(page - 1) * size:page * size])
         name = request.url.path.rsplit("/", 1)[-1]
         page = 1 if name == "feed.json" else int(name[len("feed-"):-len(".json")])
@@ -52,7 +55,7 @@ class Feeds:
         body = {"version": "https://jsonfeed.org/version/1.1", "_tico": {"schema_version": 1,
                 "source_revision": snapshot}, "items": items}
         if len(self.entries) > page * 50:
-            body["next_url"] = f"https://tico.team/docs/bots/templates/pr-reviewer/feed-{page + 1}.json"
+            body["next_url"] = self.next_url or f"https://tico.team/docs/bots/templates/pr-reviewer/feed-{page + 1}.json"
         return httpx.Response(200, json=body)
 
 
@@ -341,3 +344,30 @@ def test_hostile_ids_and_file_names_through_fetch_delivery_and_claim_stay_quoted
     poll(api)
     monkeypatch.setattr(F, "_state", {"swept": 0.0, "fetched": {}, "retry": {}})       # a restart
     assert poll(api, times=2) == {} and ids(notes(api)) == given, "the same ids, nothing again"
+
+
+def cursors(api):
+    with api.app.state.store.read() as c:
+        return ([tuple(r) for r in c.execute("SELECT bot,category,feed,cursor FROM feed_cursors ORDER BY bot,category")],
+                [r[0] for r in c.execute("SELECT id FROM feed_updates ORDER BY seq")])
+
+
+def test_a_next_link_it_will_not_follow_stores_nothing_and_a_later_good_poll_catches_up(api, feeds):
+    subscribe(api, ["templates", "tico"])
+    feeds.releases, feeds.entries = [release(1)], [entry(1)]
+    poll(api)
+    before = cursors(api)
+    feeds.entries = [entry(n) for n in range(61, 1, -1)] + feeds.entries      # 60 new: past page 1
+    feeds.releases = [release(n) for n in range(41, 1, -1)] + feeds.releases  # 40 new: past page 1
+    feeds.bad_release_page = 2
+    for bad in ("https://evil.example/docs/bots/templates/pr-reviewer/feed-2.json", "http://tico.team/feed-2.json",
+                "https://tico.team/docs/feed 2.json", 2):
+        feeds.next_url = bad
+        assert poll(api) == {}, f"{bad!r}: nothing stored or sent"
+        assert cursors(api) == before and waiting(api) == [], f"{bad!r}: no cursor moves past the missing pages"
+    assert not [u for u in feeds.requests if "evil" in u or u.startswith("http://")], "and it is never followed"
+    feeds.next_url, feeds.bad_release_page = None, None
+    given = poll(api, times=6)["ops"]
+    assert len(given) == len(set(given)) == 100 and ids(notes(api)) == given, "each once"
+    assert [i for i in given if i.startswith("template:")] == [f"template:{entry(n)['id']}" for n in range(2, 62)]
+    assert [i for i in given if i.startswith("tico:")] == [f"tico:v0.4.{n}" for n in range(2, 42)], "oldest first"
