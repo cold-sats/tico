@@ -2815,10 +2815,12 @@ def update_post(api, args):
 @tool("hub_update_redo", "Ask the bots again for a past day's update in the current shape, such as last "
       "Friday's week in review as slides (the owner). Every active bot with that update on, or only `bots`.",
       {"day": _s("YYYY-MM-DD"), "kind": _s("daily or weekly (default weekly)", enum=["daily", "weekly"]),
-       "bots": {"type": "array", "items": {"type": "string"}, "description": "Only these bots"}},
+       "bots": {"type": "array", "items": {"type": "string"}, "description": "Only these bots"},
+       "managers": {"type": "boolean", "description": "With bots: also the bots above them, so their roll-up is rewritten"}},
       required=("day",), writes=True)
 def update_redo(api, args):
-    fields = (("day", args["day"]), ("kind", args.get("kind")), ("bots", args.get("bots") or None))
+    fields = (("day", args["day"]), ("kind", args.get("kind")), ("bots", args.get("bots") or None),
+              ("managers", True if args.get("managers") else None))
     return api.post("updates/redo", {k: v for k, v in fields if v is not None}, key=_key(args))
 
 

@@ -199,7 +199,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub update show <id>                   one update with its thread
     hub update create "<- bullets>" [--kind daily|weekly]   post your own update when Tico asks
     hub update create --slides-file week.json [--day D]   a week in review: {goal, kpis, done, focus, blockers}
-    hub update redo --day D [--kind weekly|daily] [--bot B ...]   ask the bots to redo a past day (owner)
+    hub update redo --day D [--kind weekly|daily] [--bot B ...] [--with-managers]   ask the bots to redo a past day (owner)
     hub update mark-read [ids...] [--all] [--unread]
     hub update reply <id> "<text>"
     hub update settings <bot> [--daily on|off] [--weekly on|off]
@@ -1461,6 +1461,7 @@ def parser():
     s.add_argument("--day", required=True)
     s.add_argument("--kind", choices=("daily", "weekly"))
     s.add_argument("--bot", dest="bots", action="append", help="only this bot (repeatable)")
+    s.add_argument("--with-managers", dest="managers", action="store_true", help="also the bots above them")
     s.set_defaults(fn="update redo")
     s = upd.add_parser("list", help="updates from bots and people, newest first")
     s.add_argument("--kind", choices=("daily", "weekly"))

@@ -1869,6 +1869,7 @@ class UpdateRedo(Contract):
     kind: Literal["daily", "weekly"] = "weekly"
     day: Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$")]
     bots: list[Annotated[str, Field(max_length=80)]] | None = Field(default=None, max_length=200)
+    managers: bool = False                                             # also the bots above `bots`
 
 
 class UpdateRead(Contract):

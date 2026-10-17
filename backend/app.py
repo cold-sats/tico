@@ -2113,7 +2113,7 @@ def create_app(settings=None):
         who = request.state.identity
         owner_only(who, "asks the bots to redo an update")
         def work(c):
-            return {"kind": body.kind, "day": body.day, "bots": updates.redo(c, body.kind, body.day, body.bots)}
+            return {"kind": body.kind, "day": body.day, "bots": updates.redo(c, body.kind, body.day, body.bots, body.managers)}
         return mutate(request, body, work)
 
     @app.post("/api/v2/updates/read")
