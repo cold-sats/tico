@@ -16925,6 +16925,9 @@
           },
           "woke": {
             "type": "boolean"
+          },
+          "warning": {
+            "type": "string"
           }
         },
         "required": [

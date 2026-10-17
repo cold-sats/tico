@@ -152,6 +152,10 @@ All notable changes to Tico are recorded here. The format follows
   `docker compose down`, run `docker compose up -d` first).
 
 ### Fixed
+- One bot's quarantine no longer spreads to the bots that work with it. A message or task comment to a paused or
+  quarantined bot is kept and runs when it is back, and the sender is told when that is. A new task or hand-off to
+  one is refused as `target_inactive`, saying when the bot is back. That refusal opens no review of the sender and
+  never counts as a repeat toward its quarantine; it counts only toward the 30 refusals a day that stop a loop.
 - Tico HQ answers a support ticket or follow-up whose message, email or diagnostics hold an unpaired surrogate (JSON
   `"\ud800"`) with the usual 422 naming the field, instead of a server error. Nothing is stored or judged.
 - Settings > Health's **Sign-in settings** fix (no identity proxy) opened Settings on Computers, a tab that has nothing
