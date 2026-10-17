@@ -291,6 +291,8 @@ def test_first_version_copies_edited_since_or_published_at_creation_are_cleared(
     draft = post(api, 'tasks/' + draft['id'], {'version': draft['version'], 'public_title': 'Written draft'})
     shown = post(api, 'tasks', {'owner': 'cpo', 'title': 'Shown idea', 'body': 'Shown notes', 'type': 'Product roadmap',
                                'visibility': 'public', 'public_title': 'Shown idea', 'public_summary': 'Shown notes'})
+    kept = post(api, 'tasks', {'owner': 'cpo', 'title': 'Kept internal', 'body': 'Kept internal notes',
+                               'type': 'Product roadmap'})
     with api.app.state.store.transaction() as c:
         # A fresh database is marked on its first start, so its second start clears nothing.
         assert c.execute("SELECT 1 FROM registry_metadata WHERE key='roadmaps_copies_cleared_by_field'").fetchone()
@@ -298,6 +300,9 @@ def test_first_version_copies_edited_since_or_published_at_creation_are_cleared(
         c.execute("UPDATE tasks SET public_title='Old title',public_summary='Old notes',title='New title' WHERE id=?",
                   (edited['id'],))
         c.execute("UPDATE tasks SET visibility='public',public_title=title,public_summary=body WHERE id=?", (copied['id'],))
+        # Public text with no event that differs from the internal text is not a copy, so a public task keeps it.
+        c.execute("UPDATE tasks SET visibility='public',public_title='Kept public',public_summary='Kept summary' WHERE id=?",
+                  (kept['id'],))
         c.execute("DELETE FROM registry_metadata WHERE key='roadmaps_copies_cleared_by_field'")
         R.migrate(c)
         state = lambda tid: tuple(c.execute('SELECT visibility,public_title,public_summary FROM tasks WHERE id=?',
@@ -306,6 +311,7 @@ def test_first_version_copies_edited_since_or_published_at_creation_are_cleared(
         assert state(copied['id']) == ('private', '', '')
         assert state(draft['id']) == ('private', 'Written draft', '')              # written public text stays
         assert state(shown['id']) == ('public', 'Shown idea', 'Shown notes')       # written at creation, so it stays
+        assert state(kept['id']) == ('public', 'Kept public', 'Kept summary')      # only an exact copy goes
         note = c.execute("SELECT note FROM task_events WHERE task_id=? AND field='visibility'", (copied['id'],)).fetchone()
         assert 'copy of the internal title' in note[0]
         cleared = c.execute("SELECT field,old,new,note FROM task_events WHERE task_id=? AND note LIKE 'Cleared:%' "
