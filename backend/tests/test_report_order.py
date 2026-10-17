@@ -99,6 +99,9 @@ def test_reports_that_join_go_last_in_the_order_they_came_whatever_their_names(a
     assert order(api, "coo") == order(api, "coo", token="cara-test") == ["ops", "doc-updater", "finance", "alpha", "zulu"]
     coo = next(n for n in get(api, "updates/tree?scope=all")["roots"][0]["children"] if n["key"] == "b:coo")
     assert [n["key"] for n in coo["children"]] == ["b:ops", "b:doc-updater", "b:finance", "b:alpha", "b:zulu"]
+    places = {e["name"]: e.get("report_position") for e in api.get("/api/employees", headers=headers("cara-test")).json()}
+    assert sorted(("ops", "doc-updater", "finance", "alpha", "zulu"), key=places.get) == [
+        "ops", "doc-updater", "finance", "alpha", "zulu"], "the chart reloads the same places"
     # Humans the same: added to the team, or moved under the manager, each goes last.
     put(api, "org/order/ana", {"reports": ["cara", "ben"]})
     zed = post(api, "access/people", {"name": "Zed", "email": "zed@acme.example", "reports_to": "ana"})["person"]
@@ -106,6 +109,8 @@ def test_reports_that_join_go_last_in_the_order_they_came_whatever_their_names(a
     post(api, "people/cara", {"reports_to": "ben"})
     post(api, "people/cara", {"reports_to": "ana"})
     assert [r for r in order(api, "human:ana") if r in ("cara", "ben", zed, abe)] == ["ben", zed, abe, "cara"]
+    places = {p["id"]: p.get("report_position") for p in api.get("/api/people", headers=headers("cara-test")).json()["people"]}
+    assert sorted(("cara", "ben", zed, abe), key=places.get) == ["ben", zed, abe, "cara"], "the chart reloads the same places"
 
 
 def test_reports_nobody_placed_follow_one_rule_humans_then_a_bots_order_then_names(api):
