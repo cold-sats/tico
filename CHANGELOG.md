@@ -44,6 +44,12 @@ All notable changes to Tico are recorded here. The format follows
   only, **Full access**, for a time they choose (24 hours by default). A banner shows on every screen while it lasts, Stop
   ends it at once, and every request support makes is listed under the request. The install dials out to Tico HQ; nothing
   connects in. The team rule **Owners and admins may let Tico support in** turns it off ([support](docs/support.md#letting-tico-support-in)).
+- A bot's **More** always has a **Screen** row, so the screen stays findable when it isn't working: ready (open it, View
+  or Control), or why not and what to do. Screen off: the computer's operator or an admin turns it on (View) there.
+  No screen offered: the steps on the computer, with commands to copy; on Docker the main one turns the screen on live
+  inside the runner's container, with no restart (install.md says the same). Also a Mac, an offline computer, no computer, or
+  not yours to open. The header's Screen button now shows only when the row is ready (not while the computer is offline).
+  Someone who may only see the bot is told its computer isn't shown to them. The row and the button follow each refresh.
 
 ### Changed
 - Faster image handling and startup with Pillow 13, plus pydantic 2.14, pypdf 6.21, Starlette 1.8 and Uvicorn 0.54.
