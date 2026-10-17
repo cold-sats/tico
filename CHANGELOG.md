@@ -47,7 +47,9 @@ All notable changes to Tico are recorded here. The format follows
   is today's Product Manager rule, then a Head of Product bot, so a team without a Product Manager still takes
   suggestions; an archived bot never gets them. Reading the settings shows the bot suggestions go to now. With no
   receiving bot a visitor gets "Suggestions aren't being accepted right now." instead of an internal setup error,
-  and trying to change a task type's manager says where to choose the bot instead.
+  and trying to change a task type's manager says where to choose the bot instead. In Settings → Tasks → Public
+  roadmap, **Suggestions go to** picks it and says which bot Automatic means now; a chosen bot that has since been
+  archived shows as archived, not as a blank. Members see the Public roadmap settings read-only.
 - Settings > Health warns owners and admins when public roadmap suggestions reach no bot ("No bot receives roadmap
   suggestions"), or when the bot chosen for them is archived or not active and they go to another bot instead. It
   shows only while a public label is enabled and clears by itself.
