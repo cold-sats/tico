@@ -1,0 +1,21 @@
+{
+  "harness": "claude",
+  "cli": "2.1.301 (Claude Code)",
+  "about": "a steer after the result while a background command runs, answered before it ends",
+  "source": {
+    "real": true,
+    "recorded": "2026-10-17",
+    "how": "record_replays: the installed CLI through replay_proxy.py"
+  },
+  "turns": [
+    {
+      "prompt": "Start the shell command `timeout 30 tail -f /dev/null` with the Bash tool and run_in_background set to true. Do not wait for it: reply with exactly 'started' and end your turn.",
+      "actions": [
+        {
+          "steer": "While that runs: what is 2+2? Answer in one word.",
+          "after_events": 6
+        }
+      ]
+    }
+  ]
+}

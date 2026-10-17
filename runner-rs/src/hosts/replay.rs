@@ -459,6 +459,19 @@ mod record {
                 until: vec![],
                 bad_login: false,
             },
+            // A follow-up after the turn's answer while its background work still runs: read and answered then, not
+            // once that work ends.
+            Plan {
+                harness: "claude",
+                name: "steer-during-background",
+                about: "a steer after the result while a background command runs, answered before it ends",
+                turns: vec![(
+                    "Start the shell command `timeout 30 tail -f /dev/null` with the Bash tool and run_in_background set to true. Do not wait for it: reply with exactly 'started' and end your turn.",
+                    vec![(vec!["\"type\": \"result\""], s(1), json!({"steer": "While that runs: what is 2+2? Answer in one word."}))],
+                )],
+                until: vec![],
+                bad_login: false,
+            },
             Plan {
                 harness: "claude",
                 name: "interrupt-mid-tool",
