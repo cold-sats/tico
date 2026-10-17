@@ -29,7 +29,8 @@ All notable changes to Tico are recorded here. The format follows
   default, and **Whole org** shows the chart from the top (the choice is kept). The badge and unread dots count only
   your direct reports, so a report's report never alerts. **List** keeps the plain newest-first feed. On Friday the
   **Weekly** tab has your week in review to write or edit as its slides (goal, done, focus, blockers, KPIs). A
-  manager's card says **From:** with the reports' updates it was written from, each a link that opens that card;
+  manager's card says **From:** with the reports' updates it was written from, each a link that opens that card (in
+  **List**, an older one not on the page opens under the card that links it, not the author's latest);
   `hub update show` lists them too, and you only see those you may read.
 - Docs: [The software factory](docs/software-factory.md), Tico's recommended way to build software with bots: the
   roles in order from Builder to DevOps, which model and effort each runs on, the Dev tickets steps and who moves each.
@@ -44,8 +45,18 @@ All notable changes to Tico are recorded here. The format follows
   only, **Full access**, for a time they choose (24 hours by default). A banner shows on every screen while it lasts, Stop
   ends it at once, and every request support makes is listed under the request. The install dials out to Tico HQ; nothing
   connects in. The team rule **Owners and admins may let Tico support in** turns it off ([support](docs/support.md#letting-tico-support-in)).
+- A bot's **More** always has a **Screen** row, so the screen stays findable when it isn't working: ready (open it, View
+  or Control), or why not and what to do. Screen off: the computer's operator or an admin turns it on (View) there.
+  No screen offered: the steps on the computer, with commands to copy; on Docker the main one turns the screen on live
+  inside the runner's container, with no restart (install.md says the same). Also a Mac, an offline computer, no computer, or
+  not yours to open. The header's Screen button now shows only when the row is ready (not while the computer is offline).
+  Someone who may only see the bot is told its computer isn't shown to them. The row and the button follow each refresh.
 
 ### Changed
+- What the Help page held now also has a home of its own, ahead of the Help page going away: **Setup check** is a
+  button on **Settings → Health**, with the same checks, fixes and **Send to support**; **Show the app's log** sits on
+  the version line at the top of **Settings**; **Beta features** and **Known issues in your version** open the
+  **Changelog** page; and **Take the tour** is in the account menu.
 - Faster image handling and startup with Pillow 13, plus pydantic 2.14, pypdf 6.21, Starlette 1.8 and Uvicorn 0.54.
   Python and browser tests use one Playwright version (1.64), so they share one Chromium and WebKit.
 - Steering is out of Beta: a message sent while a bot answers, which goes into that turn, no longer carries the
@@ -61,6 +72,12 @@ All notable changes to Tico are recorded here. The format follows
   once, and bots assigned to it run on it, without restarting the computer's runner. Before, a new named subscription
   stayed hidden until a restart. One whose sign-in failed or was cancelled stays listed as not signed in, so you can
   sign it in again; one taken out of the computer's `runner.json` goes from the list within 15 seconds.
+- A Linux computer's screen now comes up when another X server (say a headless IDE's own `Xvfb :99`) already holds
+  display `:99`. The runner takes the first free display from `:99` to `:120`, and bots get that `DISPLAY`. Set
+  `TICO_SCREEN_DISPLAY` (like `:101`) to use one display exactly. When the display it needs is taken, the computer's
+  screen says so, with the process holding it when the runner can read it: "Display :99 is in use by another X
+  server (Xvfb, pid 1234). Stop it or set TICO_SCREEN_DISPLAY to a free display." It used to say only "Xvfb :99 did
+  not start".
 - A roadmap item no longer moves to **Shipped** when its Dev tickets all ended at **Closed** without reaching
   **Done**, for example as duplicates or after **Won't do**; it goes back to **Approved**. A Dev ticket closed
   straight from Done still counts as shipped, as does the default Engineering type's Done step.
