@@ -8,6 +8,12 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- The team chart keeps the order you put a manager's reports in, for everyone who views it, instead of A–Z. Drag a
+  human or a bot above or below another report of the same manager, or use **Move up** / **Move down** in its row's
+  menu (keyboard too). A new report goes last. The Goals tree, a person's page and Updates follow the same order.
+  Whoever may put reports under that manager may order them, and a bot its own; a drop onto someone you may not put
+  it under says so and moves nothing. Bots read and set it with `hub org order <manager> [--set a,b,c]`
+  ([team chart](docs/org-chart.md#the-order-of-reports)).
 - **Subscribe to updates** in a bot's settings: its managers choose **Default employee settings** (changes to the
   template it was made from, from tico.team's template changelog feeds), **Tico updates** (published releases,
   including MCP and tool changes), both or neither. Each update is one quiet note for the bot's next run, with a

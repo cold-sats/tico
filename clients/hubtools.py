@@ -2077,6 +2077,21 @@ def group_update(api, args):
     return who.patch(f"groups/{args['group']}", body, key=_key(args))
 
 
+@tool("hub_org_order", "A manager's direct reports, humans and bots, in the order the team chart shows them (placed ones "
+      "first, then the rest: humans, then by name). With `set`, put them in that order, as the person who asked you: "
+      "whoever may put reports under that manager may order them, and a bot orders its own reports. Reports left out "
+      "keep their places, so naming two swaps those two. Who reports to whom does not change. Answers with the order.",
+      {"manager": _s("The manager: a bot's slug or a human's id (`bot:` or `human:` in front when one could be either)"),
+       "set": {"type": "array", "items": {"type": "string"},
+               "description": "Its direct reports in the new order: bot slugs and human ids"}},
+      required=("manager",), writes=True)
+def org_order(api, args):
+    path = "org/order/" + quote(str(args["manager"]).strip(), safe=":")
+    if not args.get("set"):
+        return api.get(path)
+    return _as_person(api).call("PUT", path, {"reports": list(args["set"])}, _key(args))
+
+
 # ----------------------------------------------------------------------------- BotOps: what the app can do, as the requester
 class _Requester:
     """The same `api`, using the requester's rights, recorded via BotOps."""

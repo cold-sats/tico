@@ -1828,6 +1828,8 @@ def create_app(settings=None):
                     row = Access.leave(c, people, row)
                 people[i] = row
                 roster = {**roster, "people": people}
+                from .report_order import roster_saved
+                roster_saved(c, roster)                    # a new manager's report goes last there
                 c.execute("UPDATE registry_metadata SET value_json=? WHERE key='people'", (encode(roster),))
                 H.event(c, who.actor, "person.updated", pid, {"title": body.title is not None, "about": body.about is not None,
                                                               "goals": body.goals is not None, "notes": body.notes is not None,
@@ -5110,6 +5112,8 @@ def create_app(settings=None):
     install_subscriptions(app, store, auth, mutate, settings, computer_rows)
     from .groups import install as install_groups
     install_groups(app, store, auth, mutate, settings)
+    from .report_order import install as install_report_order
+    install_report_order(app, store, auth, mutate)
     from .support import install as install_support
     install_support(app, store, settings, census)
     from .support_access import install as install_support_access
