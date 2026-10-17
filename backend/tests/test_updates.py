@@ -145,3 +145,32 @@ def test_people_post_their_own_update_and_alerts_come_only_from_direct_reports(a
     from backend.tests.test_assistant import asked, assistant_turn
     _, attempt = assistant_turn(api, "ben-test", "Post my update")
     asked(api, "updates", {"body": "- From my chat"}, attempt["token"], "turn", expected=403)
+
+
+def test_updates_roll_up_the_org_chart_and_a_stuck_report_holds_its_manager_90_minutes_at_most(api):
+    """The deepest bots are asked first; a manager is asked once its reports are in, with their updates
+    in its request, or 90 minutes after its first report was asked, naming who had none."""
+    from backend.tests.test_bot_contact import bot
+    bot(api, "boss", "Manager", reports_to="human:ana")
+    bot(api, "analyst", "Analyst", reports_to="boss")
+    bot(api, "writer", "Writer", reports_to="boss")
+    store = api.app.state.store
+    with store.transaction() as c:
+        first = updates.dispatch(c, MORNING)
+        ranks = {r["bot"]: r["rank"] for r in c.execute("SELECT bot, rank FROM update_queue")}
+        assert first in ("analyst", "writer") and ranks["boss"] > max(ranks["analyst"], ranks["writer"])
+        updates.post(c, first, "- Sized the market", day="2026-09-29")
+        boss = c.execute("SELECT * FROM update_queue WHERE bot='boss'").fetchone()
+        other = "writer" if first == "analyst" else "analyst"
+        c.execute("UPDATE update_queue SET state='sent', sent_at=? WHERE bot=?", (updates.H.now(), other))
+        assert updates.waits_on_reports(c, boss), "a report is still out"
+        c.execute("UPDATE update_queue SET sent_at=? WHERE bot IN (?, ?)",
+                  (updates.H.shift(updates.H.now(), minutes=-91), first, other))
+        assert not updates.waits_on_reports(c, boss), "the wait is up after 90 minutes"
+        text = updates.request_text(c, "boss", "daily", "2026-09-29")
+        assert "Sized the market" in text and "No update from: " + other.capitalize() in text
+        posted = updates.post(c, "boss", "- The team sized the market", day="2026-09-29")
+        mine = c.execute("SELECT id FROM updates WHERE bot=?", (first,)).fetchone()["id"]
+        assert posted["inputs"] == [mine], "the manager's update links the reports' updates it was written from"
+        assert updates.redo(c, "daily", "2026-09-29", ["analyst"], managers=True) == ["analyst", "boss"], \
+            "a redo with managers rewrites the roll-up above, deepest first"

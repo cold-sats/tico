@@ -26600,6 +26600,11 @@
               }
             ],
             "title": "Bots"
+          },
+          "managers": {
+            "type": "boolean",
+            "title": "Managers",
+            "default": false
           }
         },
         "additionalProperties": false,

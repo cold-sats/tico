@@ -23,6 +23,10 @@ sensitive so it can take a while."
   for a person, the key `reports_to` already uses. `drafted_by` is the bot that wrote a draft the
   author has not replaced, `edited_by` the author once they changed it, and `inputs_json` the
   reports' updates it was written from.
+- Updates roll up the org chart: the queue asks the deepest bots first, and a manager is asked only
+  once each direct report has posted, missed or been skipped, or `MANAGER_WAIT_S` after its first
+  report was asked, whichever comes first. Its request carries its direct reports' updates (not
+  theirs below: each manager already summed those up), and names who had none.
 """
 import json
 import re
@@ -36,6 +40,7 @@ START_HOUR = 5              # the day's queue is built from 05:00 Pacific
 RUN_LIMIT_S = 75 * 60       # a request whose run has not ended in this long is given up on
 PICKUP_LIMIT_S = 20 * 60    # ...and one no computer picked up in this long: move on (it may still post later)
 KINDS = ("daily", "weekly")
+MANAGER_WAIT_S = 90 * 60    # a manager waits this long for late reports, then writes with what it has
 # A linter checks the shape of every update. The feed is skimmed, so a wall of text comes back with how to write it, as a
 # warning on the accepted post (refused only when TICO_STYLE_LINT=refuse): rewriting cost bots whole runs. An empty update
 # or a week in review without its slides is still refused. A writing correction never counts toward quarantine.
@@ -117,9 +122,82 @@ def set_settings(c, bot, daily=None, weekly=None):
     return {"daily": daily, "weekly": weekly}
 
 
+# ----------------------------------------------------------------------------- the org chart
+def _chart(c):
+    from . import views
+    archived = {r["slug"] for r in c.execute("SELECT slug FROM bots WHERE state='archived'")}
+    return views.roster(c), views.entries(c), archived
+
+
+def direct_reports(c, author):
+    """The authors one level below this one on the org chart: bot slugs and `human:<id>`."""
+    from . import goals as G
+    roster, entries, archived = _chart(c)
+    return [a if H.actor_kind(a) == "human" else H.actor_id(a)
+            for a in G.reports_of(author_actor(author), roster, entries, archived)]
+
+
+def depths(c, slugs):
+    """Each bot's depth on the org chart, counting the bots above it (the people above do not
+    post through the queue), so the deepest are asked first."""
+    from . import people as P
+    roster, entries, archived = _chart(c)
+    out = {}
+    for slug in slugs:
+        n, parent, seen = 0, P.org_parent("bot", slug, roster, entries, archived), set()
+        while parent.startswith("b:") and parent not in seen:
+            seen.add(parent)
+            n += 1
+            parent = P.org_parent("bot", parent[2:], roster, entries, archived)
+        out[slug] = n
+    return out
+
+
+def team_updates(c, author, kind, day):
+    """(the direct reports' updates for that day, the reports who have none) for a manager's request."""
+    reports = direct_reports(c, author)
+    if not reports:
+        return [], []
+    rows = {r["bot"]: dict(r) for r in c.execute(
+        "SELECT id, bot, body FROM updates WHERE kind=? AND day=? AND bot IN (" + ",".join("?" * len(reports)) + ")",
+        (kind, day, *reports))}
+    asked = {r["bot"] for r in c.execute(
+        "SELECT bot FROM update_queue WHERE kind=? AND day=? AND bot IN (" + ",".join("?" * len(reports)) + ")",
+        (kind, day, *reports))}
+    missing = [a for a in reports if a not in rows and (a in asked or is_person(a))]
+    return [rows[a] for a in reports if a in rows], missing
+
+
+def waits_on_reports(c, row):
+    """Whether a manager's request still waits for its reports: one of them is queued or out, and
+    the wait since the first was asked (or the day's first request) is under `MANAGER_WAIT_S`."""
+    reports = [a for a in direct_reports(c, row["bot"]) if not is_person(a)]
+    if not reports:
+        return False
+    marks = ",".join("?" * len(reports))
+    rows = c.execute(f"SELECT state, sent_at FROM update_queue WHERE kind=? AND day=? AND bot IN ({marks})",
+                     (row["kind"], row["day"], *reports)).fetchall()
+    if not any(r["state"] in ("queued", "sent") for r in rows):
+        return False
+    first = min((r["sent_at"] for r in rows if r["sent_at"]), default=None) or c.execute(
+        "SELECT min(sent_at) FROM update_queue WHERE day=?", (row["day"],)).fetchone()[0]
+    if not first:
+        return True
+    return (H.parse_ts(H.now()) - H.parse_ts(first)).total_seconds() < MANAGER_WAIT_S
+
+
+def _label(c, author):
+    if is_person(author):
+        from . import people as P
+        p = P.person(author[6:], _chart(c)[0])
+        return (p or {}).get("name") or author[6:]
+    return ((H.bot(c, author) or {}).get("display_name") or author)
+
+
 # ----------------------------------------------------------------------------- the queue
 def build_queue(c, day, kind):
-    """Today's requests, once: every active bot whose switch for `kind` is on, quietest first."""
+    """Today's requests, once: every active bot whose switch for `kind` is on, the deepest on the
+    org chart first and the quietest first among equals."""
     if c.execute("SELECT 1 FROM update_queue WHERE day=? LIMIT 1", (day,)).fetchone():
         return 0
     rows = c.execute(
@@ -127,7 +205,8 @@ def build_queue(c, day, kind):
         "(SELECT last_turn_at FROM bot_status s WHERE s.bot=b.slug) last_turn "
         "FROM bots b LEFT JOIN update_settings us ON us.bot=b.slug "
         "WHERE b.state='active' AND coalesce(us." + ("daily" if kind == "daily" else "weekly") + ",1)=1").fetchall()
-    order = sorted(rows, key=lambda r: (r["last_update"] or "", r["last_turn"] or "", r["slug"]))
+    depth = depths(c, [r["slug"] for r in rows])
+    order = sorted(rows, key=lambda r: (-depth[r["slug"]], r["last_update"] or "", r["last_turn"] or "", r["slug"]))
     for rank, row in enumerate(order):
         c.execute("INSERT INTO update_queue(id,bot,kind,day,rank,state) VALUES(?,?,?,?,?,'queued')",
                   (H.new_id(), row["slug"], kind, day, rank))
@@ -262,6 +341,14 @@ def request_text(c, bot, kind, day, redo=False):
             "Waiting on a person:", line(asked, lambda r: f"{r['title']} ({H.actor_id(r['owner'])})"),
             "Your goals:", line(goals, lambda r: r["title"]),
         ]
+    team, missing = team_updates(c, bot, kind, day)
+    if team or missing:
+        ask.insert(1, "You manage a team: your update is your own work and what matters from theirs, naming who did it. "
+                      "Sum it up in your own words; do not copy their bullets.")
+        facts += ["Your team's " + ("weeks in review" if week else "updates") + " today:"]
+        facts += [f"{_label(c, u['bot'])}:\n{u['body']}" for u in team] or ["- (none yet)"]
+        if missing:
+            facts.append("No update from: " + ", ".join(_label(c, a) for a in missing))
     if redo:
         old = c.execute("SELECT body FROM updates WHERE bot=? AND kind=? AND day=?", (bot, kind, day)).fetchone()
         ask.insert(1, f"This redoes your {'week in review' if week else 'update'} for {day} in the current shape; "
@@ -302,6 +389,8 @@ def dispatch(c, at=None):
             continue
         if _busy(c, row["bot"]):
             continue                      # asked later today, once its run is over
+        if waits_on_reports(c, row):
+            continue                      # asked once its reports are in, or the wait is up
         send_request(c, row)
         return row["bot"]
     # A day that ends with bots never free leaves their requests behind; they are missed.
@@ -310,9 +399,10 @@ def dispatch(c, at=None):
     return None
 
 
-def redo(c, kind, day, bots=None):
+def redo(c, kind, day, bots=None, managers=False):
     """Ask bots again for a past day's update, in today's shape: every active bot whose switch is on,
-    or only `bots`. Each goes to the back of the queue and is sent like any request."""
+    or only `bots` (with `managers`, also the bots above them, so the roll-up is written again).
+    Each goes to the back of the queue, deepest first, and is sent like any request."""
     if kind not in KINDS:
         raise Problem("kind", "An update is daily or weekly", 422)
     try:
@@ -327,6 +417,14 @@ def redo(c, kind, day, bots=None):
     unknown = sorted(set(bots or ()) - set(chosen))
     if unknown:
         raise Problem("bot", "Not an active bot with its " + kind + " update on: " + ", ".join(unknown), 422)
+    if bots and managers:
+        from . import goals as G
+        roster, entries, archived = _chart(c)
+        above = {H.actor_id(a) for slug in chosen for a in G.above(H.bot_actor(slug), roster, entries, archived)
+                 if H.actor_kind(a) == "bot"}
+        chosen += [r["slug"] for r in rows if r["slug"] in above and r["slug"] not in chosen]
+    depth = depths(c, chosen)
+    chosen.sort(key=lambda slug: -depth[slug])
     last = c.execute("SELECT coalesce(max(rank), 0) FROM update_queue").fetchone()[0]
     for n, slug in enumerate(chosen, 1):
         c.execute("INSERT INTO update_queue(id,bot,kind,day,rank,state,tries,redo,reason) VALUES(?,?,?,?,?,'queued',0,1,?) "
@@ -526,7 +624,9 @@ def post(c, bot, body, kind=None, day=None, slides=None, drafted_by=None, inputs
                          (bot, kind, day)).fetchone()
     if drafted_by and existing and (not existing["drafted_by"] or existing["edited_by"]):
         raise Problem("own_update", "They wrote their own update today; a draft does not replace it", 409)
-    inputs_json = json.dumps(list(inputs)) if inputs is not None else (existing["inputs_json"] if existing else None)
+    if inputs is None:
+        inputs = [u["id"] for u in team_updates(c, bot, kind, day)[0]]
+    inputs_json = json.dumps(list(inputs)) if inputs else None
     if drafted_by:
         draft, edited = drafted_by, None
     elif existing and existing["drafted_by"] and not replace_draft:

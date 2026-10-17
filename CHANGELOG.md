@@ -13,6 +13,11 @@ All notable changes to Tico are recorded here. The format follows
   update the Assistant drafted for someone says **Drafted by Assistant** until they replace it with their own words.
   `hub update list --scope direct` (and `scope=direct` on the API) keeps only your direct reports on the org chart,
   the one level that will raise alerts once updates roll up the chart.
+- Updates roll up the org chart. Tico asks the bots lowest on the chart first. A manager is asked once each of its
+  direct reports has posted or missed, or 90 minutes after the first of them was asked, whichever comes first. Its
+  request carries its reports' updates and names who had none, so its update sums up the team in its own words and
+  links the updates it was written from. Friday's week in review rolls up the same way. Redoing a past day can take
+  the managers above too (`hub update redo --bot X --with-managers`).
 - Beta features carry a small **Beta** pill where they appear: Market, Message bots, Listening, Live meetings, chat
   goals and steering, the Slack gateway, a computer's Screen, Behaviour replay and the computer Performance page,
   Windows through WSL 2, external agents (Hermes, OpenClaw, Grok Bot, Dots, Muse sync) and the Mac app. Help lists
