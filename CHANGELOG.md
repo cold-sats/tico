@@ -8,6 +8,13 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Sign out** and **Switch account** for Codex (ChatGPT) and Claude Code logins, from Settings > Computers and Manage
+  subscription, for the computer's own login and each named subscription. Sign out names the bots that stop first;
+  Switch account signs the new account in on the side, so cancelling keeps the old one, and puts the old login back if
+  the new one doesn't take; it isn't offered for Claude Code on a Mac, which keeps its login in the Keychain. After any
+  of these the page waits for the computer's next report before redrawing. A computer login someone signed
+  out stays signed out: the model key given to every computer no longer signs it back in, until someone signs in or
+  chooses **Use the shared key**. No restart. Needs a current runner on the computer.
 - The team chart keeps the order you put a manager's reports in, for everyone who views it, instead of A–Z. Drag a
   human or a bot above or below another report of the same manager, or use **Move up** / **Move down** in its row's
   menu (keyboard too). A new report goes last. The Goals tree, a person's page and Updates follow the same order.
@@ -143,6 +150,11 @@ All notable changes to Tico are recorded here. The format follows
   `docker compose down`, run `docker compose up -d` first).
 
 ### Fixed
+- Tico HQ answers a support ticket or follow-up whose message, email or diagnostics hold an unpaired surrogate (JSON
+  `"\ud800"`) with the usual 422 naming the field, instead of a server error. Nothing is stored or judged.
+- Settings > Health's **Sign-in settings** fix (no identity proxy) opened Settings on Computers, a tab that has nothing
+  about sign-in. It now opens the sign-in section of the install guide. Every link that names a Settings tab is now checked
+  against the tabs that exist, and chat's and the Goal Manager's links to a tab are tested by clicking them.
 - BotOps and Assistant Confirm cards read in plain words: a repository change says who gets what and what they lose
   ("Security Engineer: read-only on tico (was write). Loses access to tico-marketing-site and tico-recorder."), never
   `PUT /api/v2/...` or a word like "chosen" or "all"; any other card without a sentence of its own gets a plain one, and
