@@ -118,6 +118,10 @@ All notable changes to Tico are recorded here. The format follows
 - A roadmap item no longer moves to **Shipped** when its Dev tickets all ended at **Closed** without reaching
   **Done**, for example as duplicates or after **Won't do**; it goes back to **Approved**. A Dev ticket closed
   straight from Done still counts as shipped, as does the default Engineering type's Done step.
+- When a sign-in ends (a Cloudflare Access session expiring, or built-in sign-in), the web app and the desktop app say
+  **You've been signed out** with **Sign in again**, instead of bots looking frozen while every request fails in the
+  background. The live updates stop retrying until then; signing in brings you back to the same page with what you had
+  typed. The desktop app's Dock badge shows "!" while signed out. A dropped network still just reconnects.
 - The **Message bots** heading in the sidebar's team chart shows its Beta pill. Before, only the separate Message bots
   section had one, and that section is hidden when message bots sit in the chart.
 - A Claude bot that answered while its subagents or background commands were still running now reads a follow-up at
