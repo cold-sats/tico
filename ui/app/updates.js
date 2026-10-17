@@ -157,6 +157,8 @@ function updOrder(state, fresh) {
 function updBadge(n) {
   S.updUnread = n;
   for (const el of document.querySelectorAll('[data-upd-badge]')) { el.textContent = n > 99 ? '99+' : String(n || ''); el.hidden = !n; }
+  const allRead = $('#upd-allread');
+  if (allRead && n > 0 && UPD && updIsTree(UPD)) allRead.hidden = false;
 }
 // An update's author is a bot slug or `human:<id>` for a person, who posts in the same shape.
 function updAuthor(key) {
@@ -318,7 +320,8 @@ async function updPostOwn(state, form) {
   if (!body) { err.textContent = 'Write at least one bullet.'; return; }
   const button = form.querySelector('[type=submit]'); button.disabled = true; err.textContent = '';
   try {
-    const r = await post('/v2/updates', {body, replace_draft: !!form.querySelector('[data-upd-own]')?.checked});
+    // Always a daily: on a Friday the server would otherwise take it for a week in review.
+    const r = await post('/v2/updates', {body, kind: 'daily', replace_draft: !!form.querySelector('[data-upd-own]')?.checked});
     if (UPD !== state) return;
     if (r.update?.warning) toast(r.update.warning);
     state.editing = false;
@@ -333,7 +336,8 @@ function updRender(state) {
   if (data.tree && updIsTree(state)) {
     feed.innerHTML = updTreeHTML(state);
     updDecksBind(state);
-    const allRead = $('#upd-allread'); if (allRead) allRead.hidden = !state.list.some(u => !u.read && !u.quiet);
+    // The badge also counts direct reports' updates from other days, which this day's tree does not show.
+    const allRead = $('#upd-allread'); if (allRead) allRead.hidden = !(S.updUnread > 0) && !state.list.some(u => !u.read && !u.quiet);
     updWatch(state);
     return;
   }

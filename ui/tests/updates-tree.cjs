@@ -18,10 +18,10 @@ const update = (id, bot, body, read) => ({id, bot, kind: 'daily', day: today, he
 (async () => {
   const browser = await chromium.launch({channel: process.env.TICO_BROWSER_CHANNEL ?? 'chrome', headless: true});
   const asked = [], posted = [];
-  let mine = null;
+  let mine = null, unreadCount = 2, allSeen = false;   // one more from a direct report on another day
   const tree = scope => {
-    const seo = {key: 'b:seo', author: 'seo', name: 'AI SEO', direct: false, update: update('u-seo', 'seo', '- Published the checklist page', false), children: []};
-    const cmo = {key: 'b:cmo', author: 'cmo', name: 'AI CMO', direct: true, update: update('u-cmo', 'cmo', '- The team shipped the checklist', false), children: [seo]};
+    const seo = {key: 'b:seo', author: 'seo', name: 'AI SEO', direct: false, update: update('u-seo', 'seo', '- Published the checklist page', allSeen), children: []};
+    const cmo = {key: 'b:cmo', author: 'cmo', name: 'AI CMO', direct: true, update: update('u-cmo', 'cmo', '- The team shipped the checklist', allSeen), children: [seo]};
     const ana = {key: 'p:ana', author: 'human:ana', name: 'Ana', direct: false, update: mine, children: [cmo]};
     return {kind: 'daily', day: today, scope: scope || 'below', me: 'p:ana', unread: 1,
             roots: scope === 'all' ? [{key: 'p:boss', author: 'human:boss', name: 'Bo', direct: false, update: null, children: [ana]}] : [ana]};
@@ -44,7 +44,7 @@ const update = (id, bot, body, read) => ({id, bot, kind: 'daily', day: today, he
       if (p === '/api/status') return json({active: [], employees: []});
       if (p === '/api/v2/status') return json({bots: []});
       if (p === '/api/humans') return json({people: [{id: 'ana', name: 'Ana'}, {id: 'boss', name: 'Bo'}]});
-      if (p === '/api/v2/updates/unread') { asked.push(url.search); return json({unread: 1}); }
+      if (p === '/api/v2/updates/unread') { asked.push(url.search); return json({unread: unreadCount}); }
       if (p === '/api/v2/updates/tree') { asked.push(p + url.search); return json(tree(url.searchParams.get('scope'))); }
       if (p === '/api/v2/updates/read') { posted.push({path: p, body: req.postDataJSON()}); return json({marked: 1, read: true}); }
       if (p === '/api/v2/updates' && req.method() === 'POST') {
@@ -73,7 +73,11 @@ const update = (id, bot, body, read) => ({id, bot, kind: 'daily', day: today, he
     const seo = page.locator('#upd-feed [data-upd="u-seo"]');
     await seo.waitFor();
     assert.equal(await seo.locator('.upd-dot').count(), 0, 'one level down only: no dot two levels down');
-    assert.equal(await page.locator('[data-upd-badge]').first().textContent(), '1');
+    // Seen, the deeper card is marked read, and the badge (direct reports only) does not move.
+    const read = id => posted.some(x => x.path === '/api/v2/updates/read' && x.body.ids?.includes(id));
+    for (let i = 0; i < 50 && !(read('u-seo') && read('u-cmo')); i++) await page.waitForTimeout(100);
+    assert.ok(read('u-seo') && read('u-cmo'), 'cards are read when seen, a deeper one too');
+    assert.equal(await page.locator('[data-upd-badge]').first().textContent(), '1', 'reading a deeper card leaves the badge alone');
     if (shots) await page.screenshot({path: `${shots}/updates-tree.png`});
     // Whole org shows the chart from the top; the choice is kept.
     await page.locator('#upd-scope').click();
@@ -87,10 +91,19 @@ const update = (id, bot, body, read) => ({id, bot, kind: 'daily', day: today, he
     await page.locator('#upd-feed [data-upd-editor] textarea').fill('- Signed the Northwind lease');
     await page.locator('#upd-feed [data-upd-editor] [type=submit]').click();
     await page.locator('#upd-feed [data-upd="u-ana"]').waitFor();
-    assert.deepEqual(posted.find(x => x.path === '/api/v2/updates').body, {body: '- Signed the Northwind lease', replace_draft: false});
+    assert.deepEqual(posted.find(x => x.path === '/api/v2/updates').body, {body: '- Signed the Northwind lease', kind: 'daily', replace_draft: false});
     assert.equal(await page.locator('#upd-feed [data-upd="u-ana"] [data-upd-write]').count(), 1, 'your card can be edited all day');
     assert.deepEqual(errors, []);
     await page.close();
+    // Today's cards all read, but a direct report's update from another day still counts: Mark all read clears it.
+    allSeen = true; unreadCount = 1;
+    const later = await open({width: 1280, height: 900});
+    await later.page.goto('http://tico-ui.test/#/updates');
+    await later.page.locator('#upd-feed [data-upd="u-cmo"]').waitFor();
+    await later.page.locator('#upd-allread:not([hidden])').click();
+    assert.equal(await later.page.locator('[data-upd-badge]').first().isHidden(), true, 'the badge clears');
+    assert.ok(posted.some(x => x.path === '/api/v2/updates/read' && x.body.all), 'every unread one is marked');
+    await later.page.close();
     // A phone: the nested cards fit the screen.
     const phone = await open({width: 360, height: 760});
     await phone.page.goto('http://tico-ui.test/#/updates');
@@ -99,7 +112,7 @@ const update = (id, bot, body, read) => ({id, bot, kind: 'daily', day: today, he
     assert.ok(wide <= 360, `no sideways scroll on a phone (${wide}px)`);
     if (shots) await phone.page.screenshot({path: `${shots}/updates-tree-phone.png`});
     assert.deepEqual(phone.errors, []);
-    console.log('PASS: Updates nested by the org chart: your card on top, direct reports open and alerting, an icon opens deeper cards that never alert, Whole org from the top of the chart (kept), the badge from direct reports only, writing your own update from your card, and a phone that fits.');
+    console.log('PASS: Updates nested by the org chart: your card on top, direct reports open and alerting, an icon opens deeper cards that never alert, Whole org from the top of the chart (kept), the badge from direct reports only, writing your own update from your card (as a daily), Mark all read for a badge from another day, and a phone that fits.');
   } finally {
     await browser.close();
   }

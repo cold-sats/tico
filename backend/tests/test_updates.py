@@ -302,3 +302,10 @@ def test_the_tree_nests_a_days_updates_by_the_org_chart_and_only_direct_reports_
     assert t["unread"] == 1
     assert get(api, "updates/tree?scope=all")["scope"] == "all"
     get(api, "updates/tree?scope=mine", expected=422)
+    # A bot Cara may not read is not in her tree at all; its report moves up under the next one she can see.
+    from backend.tests.test_api import restrict
+    with api.app.state.store.transaction() as c:
+        restrict(c, "boss", people=["ana"])
+    hers = get(api, "updates/tree?scope=all", token="cara-test")
+    assert find(hers["roots"], "b:boss") is None and "Planned the launch" not in str(hers)
+    assert find(hers["roots"], "b:analyst")["update"]["body"] == "- Sized the market"
