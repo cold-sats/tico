@@ -8,6 +8,18 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- The team chart keeps the order you put a manager's reports in, for everyone who views it, instead of A–Z. Drag a
+  human or a bot above or below another report of the same manager, or use **Move up** / **Move down** in its row's
+  menu (keyboard too). A new report goes last. The Goals tree, a person's page and Updates follow the same order.
+  Whoever may put reports under that manager may order them, and a bot its own; a drop onto someone you may not put
+  it under says so and moves nothing. Bots read and set it with `hub org order <manager> [--set a,b,c]`
+  ([team chart](docs/org-chart.md#the-order-of-reports)).
+- **Subscribe to updates** in a bot's settings: its managers choose **Default employee settings** (changes to the
+  template it was made from, from tico.team's template changelog feeds), **Tico updates** (published releases,
+  including MCP and tool changes), both or neither. Each update is one quiet note for the bot's next run, with a
+  short quoted summary, release or commit links and whether action may be needed, and why. It wakes nothing and
+  changes nothing about the bot; turning a category back on starts from the newest update, without a backlog
+  (`hub bot update --subscribe-updates`, [Creating bots](docs/creating-bots.md#subscribe-to-updates)).
 - Tico HQ answers the setup page on tico.team before its assistant launches: `GET /v1/onboarding/health` says
   `{"ok": false}`, and `POST /v1/onboarding/event` takes the page's download and message counts. Counts are kept only when
   `HQ_ONBOARDING_COUNTS=on`: one row per planning session with the furthest step, whether the file was downloaded,
@@ -85,6 +97,10 @@ All notable changes to Tico are recorded here. The format follows
   button on **Settings → Health**, with the same checks, fixes and **Send to support**; **Show the app's log** sits on
   the version line at the top of **Settings**; **Beta features** and **Known issues in your version** open the
   **Changelog** page; and **Take the tour** is in the account menu.
+- **Support** is a pop-up from the **?** at the bottom of the sidebar (the **Support** tab on a phone, where it opens
+  as a sheet): it opens on your latest request that isn't closed, keeps words you haven't sent, and lists every
+  request under **Your requests**, with **View docs** and **What's new** beside it. A reply puts a count on the **?**.
+  **Talk to us** and the Help page are gone; old Help links open the pop-up over Overview ([support](docs/support.md)).
 - Faster image handling and startup with Pillow 13, plus pydantic 2.14, pypdf 6.21, Starlette 1.8 and Uvicorn 0.54.
   Python and browser tests use one Playwright version (1.64), so they share one Chromium and WebKit.
 - Tasks: when a bot files a task for a person, that person's comment on it now wakes the bot, with or without an
@@ -103,6 +119,13 @@ All notable changes to Tico are recorded here. The format follows
   quarantined bot is kept and runs when it is back, and the sender is told when that is. A new task or hand-off to
   one is refused as `target_inactive`, saying when the bot is back. That refusal opens no review of the sender and
   never counts as a repeat toward its quarantine; it counts only toward the 30 refusals a day that stop a loop.
+- BotOps and Assistant Confirm cards read in plain words: a repository change says who gets what and what they lose
+  ("Security Engineer: read-only on tico (was write). Loses access to tico-marketing-site and tico-recorder."), never
+  `PUT /api/v2/...` or a word like "chosen" or "all"; any other card without a sentence of its own gets a plain one, and
+  a card made before this reads plainly too, its old line kept under Details. The method, path and fields are under a
+  closed **Details**; the words a message, comment or support request sends stay on the card. Confirm or Cancel on one
+  card no longer makes the chat jump: the other cards stay exactly as they were, with any **Show more** or Details you
+  opened still open, and focus stays where it was.
 - Usage prices each model request at its own rate when the model charges more for long prompts (Claude Haiku 5.5, over
   100,000 tokens). It used to price a whole run at the lower rate, so a Haiku 5.5 run could read up to five times too
   low. A run from a runner that doesn't report each request (update the runner) says **estimate, may be low**.
