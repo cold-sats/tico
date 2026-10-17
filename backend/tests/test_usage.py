@@ -143,6 +143,9 @@ def test_each_haiku_request_pays_the_rate_for_its_own_prompt_length(api):
     over = (5_000 * 0.50 + 115_000 * 0.05 + 2_000 * 2.50) / 1e6
     assert turn(api, attempt["id"])["est_cost_usd"] == pytest.approx(under + over)
     assert today(api)["low_estimate_runs"] == 0
+    # A prompt of exactly 100,000 tokens is not over it.
+    assert providers.estimate("claude-haiku-5-5", 1_000, 99_000, 10, [[1_000, 99_000, 10]]) == (
+        pytest.approx(price("claude-haiku-5-5", 1_000, 99_000, 10)), False)
 
 
 def test_without_each_request_the_estimate_may_be_low_and_other_models_are_unchanged(api):
