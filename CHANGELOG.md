@@ -74,6 +74,10 @@ All notable changes to Tico are recorded here. The format follows
   `docker compose down`, run `docker compose up -d` first).
 
 ### Fixed
+- A subscription you sign in from **Settings > AI providers > Subscriptions > Sign in** shows up on that computer at
+  once, and bots assigned to it run on it, without restarting the computer's runner. Before, a new named subscription
+  stayed hidden until a restart. One whose sign-in failed or was cancelled stays listed as not signed in, so you can
+  sign it in again; one taken out of the computer's `runner.json` goes from the list within 15 seconds.
 - A Linux computer's screen now comes up when another X server (say a headless IDE's own `Xvfb :99`) already holds
   display `:99`. The runner takes the first free display from `:99` to `:120`, and bots get that `DISPLAY`. Set
   `TICO_SCREEN_DISPLAY` (like `:101`) to use one display exactly. When the display it needs is taken, the computer's
