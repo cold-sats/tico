@@ -221,10 +221,20 @@ def test_a_report_on_retry_and_a_stacked_manager_keep_the_90_minute_wait(api, mo
         held = dict(c.execute("SELECT bot, held_at FROM update_queue WHERE bot IN ('ops','cpo')").fetchall())
     assert held["ops"] and not held["cpo"], "the manager above has not started its clock"
     assert tick(60) is None, "an hour after the manager was held"
-    assert tick(31) == "ops", "91 minutes after it was held, the manager writes with what is in"
+    post(api, "chat/ops", {"text": "Check the close"})    # the manager is busy with a run when its wait is up
+    assert tick(31) is None
+    with store.transaction() as c:
+        assert c.execute("SELECT held_at FROM update_queue WHERE bot='cpo'").fetchone()[0], \
+            "a report whose own wait is over counts as released: the clock above starts, not a day's wait"
+        c.execute("UPDATE jobs SET state='completed' WHERE bot='ops'")
+    assert tick() == "ops", "91 minutes after it was held, the manager writes with what is in"
     with store.transaction() as c:
         assert "No update from: " + updates._label(c, other) in c.execute(
             "SELECT m.body FROM update_queue q JOIN messages m ON m.id=q.message_id WHERE q.bot='ops'").fetchone()[0]
         updates.post(c, "ops", "- The team closed the books", day="2026-09-29")
     job("ops", "completed")
     assert tick() == "cpo", "the manager above is asked once its report posts"
+    with store.transaction() as c:                 # a reports_to loop is followed once, never forever
+        c.execute("UPDATE bot_config SET reports_to='product-design' WHERE bot='cpo'")
+        c.execute("UPDATE update_queue SET state='queued', held_at=NULL WHERE bot IN ('cpo','ops','product-design')")
+        updates.waits_on_reports(c, c.execute("SELECT * FROM update_queue WHERE bot='cpo'").fetchone())
