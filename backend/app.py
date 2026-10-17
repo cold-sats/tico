@@ -4109,6 +4109,29 @@ def create_app(settings=None):
         return mutate(request, body, lambda c: model_login.use_shared_key(
             c, request.state.identity, rid, body.runtime, auth=auth))
 
+    # Clear key / Replace key (backend/computer_keys.py). What signs it in, and for the company's shared key every
+    # computer it serves: the "this computer only / all of them" ask. Previews only.
+    @app.get("/api/v2/runners/{rid}/keys")
+    def computer_key_info(request: Request, rid: str, runtime: str):
+        with store.read() as c:
+            return model_login.key_info(c, request.state.identity, rid, runtime, auth=auth, vault=app.state.vault)
+
+    @app.post("/api/v2/runners/{rid}/keys/clear")
+    def clear_computer_key(request: Request, rid: str, body: M.KeyClear):
+        return mutate(request, body, lambda c: model_login.clear_key(
+            c, request.state.identity, rid, body.runtime, body.scope, auth=auth))
+
+    # The key goes to the vault, never into the login relay; the vault's own write path keeps it out of the request
+    # receipt (a keyed fingerprint, as for Credentials).
+    @app.post("/api/v2/runners/{rid}/keys")
+    def replace_computer_key(request: Request, rid: str, body: M.KeyReplace):
+        who = request.state.identity
+        vault = app.state.vault
+        return vault.change(who, request.url.path, request.headers.get("idempotency-key"), body,
+                            lambda c, w: None,
+                            lambda c: model_login.replace_key(c, who, rid, body.runtime, body.secret.get_secret_value(),
+                                                              body.env, body.scope, auth=auth, vault=vault))
+
     @app.get("/api/v2/runners/{rid}/logins/{lid}")
     def read_login(request: Request, rid: str, lid: str):
         # A read that also expires: a sign-in nobody finished does not stay open.

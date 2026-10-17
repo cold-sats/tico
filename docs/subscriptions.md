@@ -87,6 +87,48 @@ After a sign-in, switch, sign-out or **Use the shared key**, the page looks agai
 the change finished (its heartbeat; `readiness_at` on the computer in `GET /api/v2/operations`) and that report shows
 the change, redrawing **Settings → Computers** and **AI providers** together, for about a minute.
 
+### API keys on a Computer
+
+A Computer's own login can run on a model API key instead of a subscription (Codex, Claude Code, Cursor Agent and
+Muse Code take one). Its row on **Settings → Computers** says whose key it is, by its preview only (`sk-…xyz`): **this
+computer's key** (added from Tico), **the company's shared key** (the credential given to **Every computer**), or **a
+key set on the computer** (its environment or `secrets/_shared.env`). The same people who may sign it in (the Computer's
+operator, owners and admins) see **Replace key** and **Clear key** in place of **Sign out**, and **Add key** next to a
+login with none. The Computer must be online and on a current runner; an older one answers `Update <computer> to …`.
+
+- **Add key** and **Replace key** take the key in a password field. It goes once to Tico's credential vault, sealed
+  like any other credential, for that Computer alone, and is never shown again in full. The Computer fetches it over its
+  own connection (the sign-in queue never carries a key), checks it (Codex signs in with it; the others read it on each
+  turn), and only then is it in use: the key it replaces is deleted from the vault, and a key set on the computer is
+  taken out of `secrets/_shared.env`. A key that does not work, a cancel, or a check that runs out of time deletes the
+  new key and leaves the old one in use. Runs that start afterwards use the new key.
+- **Clear key** first names the bots that stop, like **Sign out**. The Computer then deletes the key from its key files
+  (and, for Codex, logs out a login the key made; a browser or subscription login is not the key's and stays), and
+  Tico deletes this computer's key from the vault. Bots and assignments stay. Afterwards the row reads **Signed out**
+  with **Add key**: like a sign-out, the company's shared key does not sign it back in (the server does not hand it
+  out, and the runner's ten-minute re-apply skips it) until someone adds a key, signs in or chooses **Use the shared
+  key**.
+
+**The company's shared key.** Replacing or clearing it from one Computer first asks **This computer only** or **All of
+them**, listing every Computer it signs in and which of them are offline.
+
+- *This computer only*: Replace gives this Computer a key of its own, which signs it in before the shared one; Clear
+  stops this Computer using the shared key. The others keep it.
+- *All of them*, Replace: the shared credential's value is replaced, in **Credentials** too. Only someone who may manage
+  credentials can do this. Online Computers fetch it at once; an offline one gets it when it is next online.
+- *All of them*, Clear: offered only to someone who may change every Computer listed (otherwise Tico names the ones they
+  may not). Each online Computer clears its copy as above. **An offline Computer keeps its copy only until it is next
+  online**: Tico marks it cleared at once, so its first key fetch when it comes back (at start-up, then every ten
+  minutes) tells it to clear the key, and it does, with no one needing to act. A computer that
+  joins later still gets the shared key, which stays in **Credentials**.
+
+`GET /api/v2/runners/{runner_id}/keys?runtime=codex` says which key signs it in (`source`, `preview`) and, for the
+shared key, the Computers it serves. `POST /api/v2/runners/{runner_id}/keys` with `{"runtime":"codex","secret":"…",
+"scope":"this"}` adds or replaces a key and returns a `use_key` row to follow with `GET …/logins/{id}` (it ends `done`
+or `failed`); `"scope":"all"` replaces the shared key. `POST /api/v2/runners/{runner_id}/keys/clear` with
+`{"runtime":"codex","scope":"this"}` (or `"all"`) clears it and returns each Computer's `clear_key` row, or `waiting`
+for one that is offline. A named subscription holds no key, so **Manage subscription** has none of these.
+
 ### Refreshing weekly allowance
 
 On **AI providers**, a computer operator or administrator can choose **Refresh weekly

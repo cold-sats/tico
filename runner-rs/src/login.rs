@@ -9,6 +9,9 @@
 //! (signed in on the side in a home of its own, moved into place only once it has finished and the server has agreed
 //! it is no longer cancelled, so a cancelled or failed switch leaves the old login working), and lets the company's shared key sign a signed-out computer login in again.
 //! A computer login a person signed out stays signed out (signin.rs SIGNED_OUT_FILE).
+//!
+//! It also clears this computer's own model key (`clear_key`) and puts a new one in its place (`use_key`). No key ever
+//! travels in the queue: a new key is fetched from the app over the runner's own connection.
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -30,6 +33,8 @@ use crate::util::{log, text_of};
 pub const LIFETIME_S: u64 = 15 * 60;
 /// Told to the server in every heartbeat: this runner knows the kinds beyond `sign_in`.
 pub const SIGN_OUT_CAPABILITY: &str = "model_sign_out_v1";
+/// Told to the server in every heartbeat: this runner clears and replaces its own model key (`clear_key`, `use_key`).
+pub const KEYS_CAPABILITY: &str = "model_keys_v1";
 const LOGOUT_TIMEOUT: Duration = Duration::from_secs(60);
 /// How long a finished switch waits for the server to agree it goes ahead (`finishing`) before giving up.
 const CONFIRM_TIMEOUT: Duration = Duration::from_secs(30);
@@ -164,7 +169,7 @@ struct Inner {
 /// One login command, from start to a verdict.
 pub struct Session {
     id: String,
-    /// sign_in | switch | sign_out | use_shared_key (backend/model_login.py KINDS).
+    /// sign_in | switch | sign_out | use_shared_key | clear_key | use_key (backend/model_login.py KINDS).
     kind: String,
     runtime: String,
     profile: String,
@@ -699,6 +704,23 @@ fn run_session(s: Arc<Session>, runner: Arc<Runner>, config: Config, lifetime: D
     }
 }
 
+/// Run the CLI's own logout. Its exit status is not the verdict (an already signed-out CLI may say so with an error):
+/// the check after it is.
+fn log_out(exe: &str, logout: &[String], env: &Env) {
+    let args: Vec<&str> = logout.iter().map(String::as_str).collect();
+    let ran = model_command(exe, &args, env).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+    if let Ok(mut child) = ran {
+        let until = Instant::now() + LOGOUT_TIMEOUT;
+        while !matches!(child.try_wait(), Ok(Some(_)) | Err(_)) {
+            if Instant::now() > until {
+                kill(&mut child);
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+}
+
 /// Sign `runtime` out: the computer's own login is marked signed out first (so no key signs it straight back in),
 /// then the CLI's own logout runs and the sign-in is checked again. A logout that did not take leaves it as it was.
 fn run_sign_out(s: Arc<Session>, runner: Arc<Runner>, config: Config) {
@@ -724,19 +746,7 @@ fn run_sign_out(s: Arc<Session>, runner: Arc<Runner>, config: Config) {
             return fail(&format!("{} is still signing in with a key on this computer; try again in a minute", s.runtime));
         }
     }
-    // Its exit status is not the verdict (an already signed-out CLI may say so with an error): the check after it is.
-    let args: Vec<&str> = logout.iter().map(String::as_str).collect();
-    let ran = model_command(&exe, &args, &env).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
-    if let Ok(mut child) = ran {
-        let until = Instant::now() + LOGOUT_TIMEOUT;
-        while !matches!(child.try_wait(), Ok(Some(_)) | Err(_)) {
-            if Instant::now() > until {
-                kill(&mut child);
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-    }
+    log_out(&exe, &logout, &env);
     if signed_in(&s.runtime, &exe, &env, false).0 {
         if own {
             let _ = runner.sign_in.unmark_signed_out(&s.runtime);
@@ -747,6 +757,119 @@ fn run_sign_out(s: Arc<Session>, runner: Arc<Runner>, config: Config) {
     crate::accounts::forget(&account, &s.runtime);
     crate::profiles::forget_windows(&account, &s.runtime);
     s.finish("signed_out", "Signed out", &runner, &default);
+}
+
+/// The CLI and environment the computer's own key login runs with (signin.rs key_login), for a clear with no job.
+pub fn key_cli(runtime: &str) -> Option<(String, Env)> {
+    let exe = crate::env::which(&crate::harness_tools::executable_for(runtime), &std::env::var("PATH").unwrap_or_default())?;
+    let mut env: Env = std::env::vars().collect();
+    env.extend(crate::harness_tools::env_for(runtime));
+    Some((exe.display().to_string(), env))
+}
+
+/// Whether a sign-in check says the login is one an API key made, not a browser or subscription login.
+fn by_key(detail: &str) -> bool {
+    detail.to_lowercase().contains("api key")
+}
+
+/// Clear `runtime`'s key on this computer, for a clear_key job or a clear made in the app while this computer was
+/// away: marked signed out (the company's copy goes), its names taken out of the computer's own key file and
+/// `_shared.env`, the key logins already running let end, and a login the key became logged out with the CLI (`cli`:
+/// its executable and environment). A browser or subscription login is not the key's and stays.
+pub fn clear_key(sign: &crate::signin::SignIn, runtime: &str, cli: Option<(&str, &Env)>) -> Result<(), String> {
+    sign.forget_keys(runtime).map_err(|e| format!("Could not clear the key on this computer ({:?})", e.kind()))?;
+    if !sign.wait_for_key_logins(runtime, crate::signin::KEY_LOGIN_DRAIN) {
+        return Err(format!("{runtime} is still signing in with a key on this computer; try again in a minute"));
+    }
+    let logout = crate::harness_tools::login_command(runtime).map(|l| l.logout).unwrap_or_default();
+    if crate::harness_tools::caps(runtime, "").api_key_login.is_empty() || logout.is_empty() {
+        return Ok(());
+    }
+    let Some((exe, env)) = cli else { return Ok(()) };
+    match signed_in(runtime, exe, env, false) {
+        (true, detail) if by_key(&detail) => log_out(exe, &logout, env),
+        _ => return Ok(()),
+    }
+    if signed_in(runtime, exe, env, false).0 {
+        return Err(format!("The key was removed but {runtime} is still signed in"));
+    }
+    Ok(())
+}
+
+/// A clear_key job: the computer's own key for `runtime` is gone, and no key on this computer signs it in again
+/// until a person adds one or signs in.
+fn run_clear_key(s: Arc<Session>, runner: Arc<Runner>, config: Config) {
+    let default = profile_for(&config, "").map(|p| p.name).unwrap_or_default();
+    let cli = login_env(&s.runtime, &config, "").ok();
+    match clear_key(&runner.sign_in, &s.runtime, cli.as_ref().map(|(exe, env, _)| (exe.as_str(), env))) {
+        Ok(()) => {
+            let account = cli.and_then(|(_, _, p)| p).map(|p| p.name).unwrap_or_default();
+            crate::accounts::forget(&account, &s.runtime);
+            s.finish("signed_out", "Key cleared", &runner, &default);
+        }
+        Err(e) => s.finish("failed", &e, &runner, &default),
+    }
+}
+
+/// A use_key job: the key a person just added in the app for this computer takes the place of its own key for
+/// `runtime`, and is checked (a login the CLI stores from it must sign in). Fetched for this job by its id, never
+/// sent in the queue. A key that does not work leaves the old one in use; one that works deletes the old key from
+/// the terminal.
+fn run_use_key(s: Arc<Session>, runner: Arc<Runner>, config: Config, handle: tokio::runtime::Handle) {
+    let default = profile_for(&config, "").map(|p| p.name).unwrap_or_default();
+    let sign = &runner.sign_in;
+    let names = crate::signin::headless_names(&s.runtime);
+    let (old, was_out) = sign.computer_keys(&s.runtime);
+    let query = [("runtime", s.runtime.clone()), ("login", s.id.clone())];
+    let reply = handle.block_on(runner.client.get_query("runner-model-credentials", &query)).unwrap_or_default();
+    let mut new = Env::new();
+    for row in reply["credentials"].as_array().cloned().unwrap_or_default() {
+        let (k, v) = (text_of(&row["env"]), text_of(&row["value"]).trim().to_string());
+        if row["source"] == "computer" && names.contains(&k) && !v.is_empty() && !v.contains(['\r', '\n', '\0']) {
+            new.insert(k, v);
+        }
+    }
+    if new.is_empty() {
+        return s.finish("failed", "The new key was not found; add it again", &runner, &default);
+    }
+    let caps = crate::harness_tools::caps(&s.runtime, "");
+    let (cli, missing) = match (!caps.api_key_login.is_empty()).then(|| login_env(&s.runtime, &config, "")).transpose() {
+        Ok(cli) => (cli, None),
+        Err(e) => (None, Some(e)),
+    };
+    // The old key and sign-out back as they were; a stored login the new key broke is made again with the old key.
+    let fail = |reason: String| {
+        let back = sign.set_computer_keys(&s.runtime, &old).and_then(|_| if was_out { sign.mark_signed_out(&s.runtime) } else { sign.unmark_signed_out(&s.runtime) });
+        if let Err(e) = back {
+            log(&format!("Tico runner: {} key could not be put back ({:?})", s.runtime, e.kind()));
+        }
+        if let Some((exe, env, _)) = &cli {
+            if sign.headless_secret(&s.runtime).is_some() && !signed_in(&s.runtime, exe, env, false).0 {
+                sign.retry_key_login(&s.runtime);
+                handle.block_on(sign.key_login(&s.runtime, std::path::Path::new(exe)));
+            }
+        }
+        let left = if sign.headless_secret(&s.runtime).is_some() { "the old key is still in use" } else { "still no key" };
+        s.finish("failed", &format!("{reason}; {left}"), &runner, &default);
+    };
+    if let Some(e) = missing {
+        return fail(e);
+    }
+    if let Err(e) = sign.set_computer_keys(&s.runtime, &new).and_then(|_| sign.unmark_signed_out(&s.runtime)) {
+        return fail(format!("The new key could not be saved ({:?})", e.kind()));
+    }
+    // A runtime that reads the key on each turn is checked by the key being stored; one that turns it into a login of
+    // its own must be signed in by it.
+    if let Some((exe, env, _)) = &cli {
+        sign.retry_key_login(&s.runtime);
+        if !handle.block_on(sign.key_login(&s.runtime, std::path::Path::new(exe))) || !signed_in(&s.runtime, exe, env, false).0 {
+            return fail(format!("The new key did not sign {} in", s.runtime));
+        }
+    }
+    if let Err(e) = sign.forget_hand_keys(&s.runtime) {
+        log(&format!("Tico runner: {} old key could not be deleted from _shared.env ({:?})", s.runtime, e.kind()));
+    }
+    s.finish("done", "The new key is in use", &runner, &default);
 }
 
 /// The browser sign-ins this runner is running, kept in step with the server's list.
@@ -773,7 +896,26 @@ impl Logins {
         let mut config = runner.config_now();
         let default = profile_for(&config, "").map(|p| p.name).unwrap_or_default();
         let named = (!s.profile.is_empty()).then(|| profile_for(&config, &s.profile)).flatten();
-        if crate::harness_tools::login_command(&s.runtime).is_none() {
+        // A key job runs for a runtime with no browser sign-in too, and only on the computer's own login.
+        let key_job = ["clear_key", "use_key"].contains(&s.kind.as_str());
+        if key_job && !s.profile.is_empty() {
+            s.finish("failed", &format!("Subscription {} holds no key of this computer's; only its own login has one", s.profile), runner, &default);
+        } else if key_job && crate::signin::headless_names(&s.runtime).is_empty() {
+            s.finish("failed", &format!("This computer does not hold a key for {}", s.runtime), runner, &default);
+        } else if key_job && self.sessions.values().any(|o| o.live() && o.runtime == s.runtime && o.profile == s.profile) {
+            s.finish("failed", &format!("Another sign-in is already running for {}", s.runtime), runner, &default);
+        } else if s.kind == "clear_key" {
+            let (s2, r2) = (s.clone(), runner.clone());
+            std::thread::spawn(move || run_clear_key(s2, r2, config));
+        } else if s.kind == "use_key" {
+            match tokio::runtime::Handle::try_current() {
+                Ok(handle) => {
+                    let (s2, r2) = (s.clone(), runner.clone());
+                    std::thread::spawn(move || run_use_key(s2, r2, config, handle));
+                }
+                Err(_) => s.finish("failed", "The runner could not fetch the new key", runner, &default),
+            }
+        } else if crate::harness_tools::login_command(&s.runtime).is_none() {
             s.finish("failed", &format!("Browser sign-in is not available for {}", s.runtime), runner, &default);
         } else if !["sign_in", "switch", "sign_out", "use_shared_key"].contains(&s.kind.as_str()) {
             // Never a sign-in in place of something this runner does not know.
@@ -945,8 +1087,9 @@ mod tests {
 
     /// A stand-in `codex`, each run recorded in $HOME/runs: `login status` reads $CODEX_HOME/auth.json (on a switch's
     /// side home it first waits for $HOME/release while $HOME/hold-probe is there; in the real home it says signed
-    /// out while $HOME/refuse is there), `logout` removes it (unless $HOME/stuck), and `login --device-auth` shows a
-    /// code and writes a new login (or hangs while $HOME/slow is there).
+    /// out while $HOME/refuse is there), `logout` removes it (unless $HOME/stuck), `login --device-auth` shows a
+    /// code and writes a new login (or hangs while $HOME/slow is there), and `login --with-api-key` writes a key login
+    /// (a key with "bad" in it is refused, and the old login is gone).
     const FAKE_CODEX: &str = r#"#!/bin/sh
 home="${CODEX_HOME:-$HOME/.codex}"
 echo "$@" >> "$HOME/runs"
@@ -956,8 +1099,13 @@ case "$1 $2" in
       *tico-switch-*) if [ -f "$HOME/hold-probe" ]; then : > "$HOME/probing"; n=0; while [ ! -f "$HOME/release" ] && [ $n -lt 200 ]; do sleep 0.05; n=$((n+1)); done; fi ;;
       *) if [ -f "$HOME/refuse" ]; then echo "Not signed in"; exit 1; fi ;;
     esac
+    if grep -q '^apikey' "$home/auth.json" 2>/dev/null; then echo "Logged in using an API key - sk-***"; exit 0; fi
     if [ -f "$home/auth.json" ]; then echo "Logged in using ChatGPT"; exit 0; fi; echo "Not signed in"; exit 1 ;;
   "logout ") [ -f "$HOME/stuck" ] || rm -f "$home/auth.json"; exit 0 ;;
+  "login --with-api-key")
+    read key
+    case "$key" in *bad*) rm -f "$home/auth.json"; exit 1 ;; esac
+    mkdir -p "$home"; echo "apikey $key" > "$home/auth.json"; exit 0 ;;
   "login --device-auth")
     echo "Open https://auth.openai.com/codex/device"; echo "Enter this one-time code"; echo "ABCD-1234"
     if [ -f "$HOME/slow" ]; then sleep 30; exit 1; fi
@@ -1146,6 +1294,165 @@ exit 2
         assert_eq!(state(&cancelled).0, "cancelled");
         assert_eq!(std::fs::read_to_string(&auth).unwrap(), "old\n");
         assert_eq!(sides(), 0);
+    }
+
+    /// A Tico that answers the model key fetch: `replies.0` to readiness's fetch, `replies.1` to a use_key job's (the
+    /// request names the job). Each request line is kept.
+    fn key_server(rt: &tokio::runtime::Runtime) -> (String, Arc<Mutex<(String, String)>>, Arc<Mutex<Vec<String>>>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = rt.block_on(tokio::net::TcpListener::bind("127.0.0.1:0")).unwrap();
+        let url = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+        let (replies, seen) = (Arc::new(Mutex::new((String::new(), String::new()))), Arc::new(Mutex::new(vec![])));
+        let (answer, heard) = (replies.clone(), seen.clone());
+        rt.spawn(async move {
+            while let Ok((mut sock, _)) = listener.accept().await {
+                let mut buf = vec![0u8; 8192];
+                let n = sock.read(&mut buf).await.unwrap_or(0);
+                let line = String::from_utf8_lossy(&buf[..n]).lines().next().unwrap_or_default().to_string();
+                let body = { let r = answer.lock().unwrap(); if line.contains("login=") { r.1.clone() } else { r.0.clone() } };
+                heard.lock().unwrap().push(line);
+                let reply = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+                let _ = sock.write_all(reply.as_bytes()).await;
+                let _ = sock.shutdown().await;
+            }
+        });
+        (url, replies, seen)
+    }
+
+    #[test]
+    fn clear_and_replace_the_computers_own_codex_key() {
+        const CHILD: &str = "TICO_TEST_MODEL_KEYS";
+        let Some(root) = std::env::var_os(CHILD).map(std::path::PathBuf::from) else {
+            // A process of its own: PATH, HOME and CODEX_HOME point at a stand-in CLI and a scratch home.
+            let root = std::env::temp_dir().join(format!("tico-model-keys-{}", uuid::Uuid::new_v4().simple()));
+            std::fs::create_dir_all(root.join("bin")).unwrap();
+            std::fs::write(root.join("bin/codex"), FAKE_CODEX).unwrap();
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(root.join("bin/codex"), std::fs::Permissions::from_mode(0o755)).unwrap();
+            let path = format!("{}:/usr/bin:/bin", root.join("bin").display());
+            let out = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "login::tests::clear_and_replace_the_computers_own_codex_key", "--nocapture"])
+                .env(CHILD, &root).env("PATH", path).env("HOME", &root).env("CODEX_HOME", root.join("codex"))
+                .env_remove(crate::isolation::UID_ENV).env_remove(crate::isolation::GID_ENV)
+                .env_remove("OPENAI_API_KEY").output().unwrap();
+            std::fs::remove_dir_all(&root).ok();
+            let said = String::from_utf8_lossy(&out.stdout);
+            assert!(out.status.success() && said.contains("1 passed"), "{said}{}", String::from_utf8_lossy(&out.stderr));
+            return;
+        };
+        use crate::signin::{read_env, COMPUTER_KEYS_FILE, HAND_KEYS_FILE, TEAM_KEYS_FILE};
+        let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+        let (url, replies, seen) = key_server(&rt);
+        let fetches = || seen.lock().unwrap().iter().filter(|l| !l.contains("login=")).count();
+        let secrets = root.join("projects/secrets");
+        std::fs::create_dir_all(&secrets).unwrap();
+        std::fs::create_dir_all(root.join("codex")).unwrap();
+        let path = root.join("runner.json");
+        std::fs::write(&path, json!({"url": url, "token": "t", "runner_id": "r1", "projects_dir": root.join("projects")}).to_string()).unwrap();
+        let config = Config::load(&path).unwrap();
+        let client = crate::client::Client::new(&config.url(), &config.token(), 5, 0).unwrap();
+        let runner = Arc::new(Runner::new(config.clone(), client, crate::state::State::open(&root.join("state")).unwrap()));
+        let sign = &runner.sign_in;
+        let (auth, runs) = (root.join("codex/auth.json"), root.join("runs"));
+        let (computer, hand, team) = (secrets.join(COMPUTER_KEYS_FILE), secrets.join(HAND_KEYS_FILE), secrets.join(TEAM_KEYS_FILE));
+        let key_logins = || std::fs::read_to_string(&runs).unwrap_or_default().lines().filter(|l| *l == "login --with-api-key").count();
+        let use_key = |reply: &str| {
+            replies.lock().unwrap().1 = reply.into();
+            let s = session("use_key");
+            run_use_key(s.clone(), runner.clone(), config.clone(), rt.handle().clone());
+            state(&s)
+        };
+
+        // Clear: every copy of the key on this computer goes, and the login it made; the terminal's other lines stay.
+        std::fs::write(&hand, "OPENAI_API_KEY=sk-hand-0123456789\nKEEP=me\n# a note\n").unwrap();
+        std::fs::write(&computer, "OPENAI_API_KEY=sk-mine-0123456789\n").unwrap();
+        std::fs::write(&team, "OPENAI_API_KEY=sk-team-0123456789\n").unwrap();
+        std::fs::write(&auth, "apikey sk-mine-0123456789\n").unwrap();
+        let clear = session("clear_key");
+        run_clear_key(clear.clone(), runner.clone(), config.clone());
+        assert_eq!(state(&clear), ("signed_out".into(), "Key cleared".into()));
+        assert!(!auth.exists(), "the login the key made is logged out");
+        assert_eq!(std::fs::read_to_string(&hand).unwrap(), "KEEP=me\n# a note\n");
+        assert!(!read_env(&computer).contains_key("OPENAI_API_KEY") && !read_env(&team).contains_key("OPENAI_API_KEY"));
+        // Nothing signs it back in: not the next fetch, not a company key that reappears, not the key login, not a restart.
+        replies.lock().unwrap().0 = r#"{"credentials":[{"env":"OPENAI_API_KEY","value":"sk-team-0123456789","source":"shared"}]}"#.into();
+        sign.refresh_now("codex");
+        assert!(!rt.block_on(sign.team_model_keys(&runner.client, "codex")));
+        assert_eq!(fetches(), 0, "the shared key was fetched after the key was cleared");
+        std::fs::write(&team, "OPENAI_API_KEY=sk-team-0123456789\n").unwrap();
+        assert!(sign.headless_secret("codex").is_none());
+        let before = key_logins();
+        assert!(!rt.block_on(sign.key_login("codex", &root.join("bin/codex"))));
+        assert_eq!(key_logins(), before, "a key login ran after the key was cleared");
+        let restarted = crate::signin::SignIn::new(&root.join("projects"));
+        assert!(restarted.signed_out("codex") && restarted.headless_secret("codex").is_none());
+        std::fs::remove_file(&team).unwrap();
+
+        // A browser login is not the key's: clearing the key leaves it signed in.
+        sign.unmark_signed_out("codex").unwrap();
+        std::fs::write(&computer, "OPENAI_API_KEY=sk-mine-0123456789\n").unwrap();
+        std::fs::write(&auth, "old\n").unwrap();
+        let clear = session("clear_key");
+        run_clear_key(clear.clone(), runner.clone(), config.clone());
+        assert_eq!(state(&clear).0, "signed_out");
+        assert_eq!(std::fs::read_to_string(&auth).unwrap(), "old\n");
+        assert!(sign.signed_out("codex") && !read_env(&computer).contains_key("OPENAI_API_KEY"));
+
+        // Replace: the new key is fetched for this job, logged in with and checked; the old terminal key is deleted.
+        std::fs::write(&hand, "OPENAI_API_KEY=sk-hand-0123456789\nKEEP=me\n").unwrap();
+        std::fs::remove_file(&auth).unwrap();
+        let done = use_key(r#"{"credentials":[{"env":"OPENAI_API_KEY","value":"sk-new-0123456789","source":"computer"}]}"#);
+        assert_eq!(done, ("done".into(), "The new key is in use".into()));
+        assert!(seen.lock().unwrap().iter().any(|l| l.contains("runtime=codex") && l.contains("login=l")), "{:?}", seen.lock().unwrap());
+        assert_eq!(read_env(&computer)["OPENAI_API_KEY"], "sk-new-0123456789");
+        assert_eq!(std::fs::read_to_string(&auth).unwrap(), "apikey sk-new-0123456789\n");
+        assert_eq!(std::fs::read_to_string(&hand).unwrap(), "KEEP=me\n");
+        assert!(!sign.signed_out("codex"));
+        assert_eq!(sign.key_source("codex"), Some(("OPENAI_API_KEY".into(), "computer")));
+
+        // A new key the provider refuses: the old key and its login are back.
+        let refused = use_key(r#"{"credentials":[{"env":"OPENAI_API_KEY","value":"sk-bad-0123456789","source":"computer"}]}"#);
+        assert_eq!(refused, ("failed".into(), "The new key did not sign codex in; the old key is still in use".into()));
+        assert_eq!(read_env(&computer)["OPENAI_API_KEY"], "sk-new-0123456789");
+        assert_eq!(std::fs::read_to_string(&auth).unwrap(), "apikey sk-new-0123456789\n");
+        assert!(!sign.signed_out("codex"));
+
+        // From a cleared key, a refused one leaves it cleared and signed out.
+        let clear = session("clear_key");
+        run_clear_key(clear.clone(), runner.clone(), config.clone());
+        assert_eq!(state(&clear).0, "signed_out");
+        let refused = use_key(r#"{"credentials":[{"env":"OPENAI_API_KEY","value":"sk-bad-0123456789","source":"computer"}]}"#);
+        assert_eq!(refused, ("failed".into(), "The new key did not sign codex in; still no key".into()));
+        assert!(sign.signed_out("codex") && !read_env(&computer).contains_key("OPENAI_API_KEY"));
+        assert!(sign.headless_secret("codex").is_none());
+
+        // No key staged for the job, or a shared one: nothing changes.
+        let missing = use_key(r#"{"credentials":[{"env":"OPENAI_API_KEY","value":"sk-team-0123456789","source":"shared"}]}"#);
+        assert_eq!(missing, ("failed".into(), "The new key was not found; add it again".into()));
+        assert!(sign.signed_out("codex"));
+
+        // Only the computer's own login holds a key, and only for a runtime that takes one; nothing runs.
+        let mut logins = Logins::default();
+        logins.begin(&runner, &json!({"id": "lprofile", "runtime": "codex", "kind": "clear_key", "profile": "lab"}));
+        logins.begin(&runner, &json!({"id": "lgemini", "runtime": "gemini", "kind": "use_key"}));
+        assert!(crate::signin::headless_names("gemini").is_empty());
+        assert_eq!(state(&logins.sessions["lprofile"]).0, "failed");
+        assert_eq!(state(&logins.sessions["lgemini"]), ("failed".into(), "This computer does not hold a key for gemini".into()));
+
+        // Cleared in the app while this computer was away: the next fetch clears it here, and none follows.
+        sign.unmark_signed_out("codex").unwrap();
+        std::fs::write(&team, "OPENAI_API_KEY=sk-team-0123456789\n").unwrap();
+        std::fs::write(&auth, "apikey sk-team-0123456789\n").unwrap();
+        replies.lock().unwrap().0 = r#"{"credentials":[],"signed_out":true,"clear_key":true}"#.into();
+        assert!(rt.block_on(sign.team_model_keys(&runner.client, "codex")));
+        assert_eq!(fetches(), 1);
+        assert!(sign.signed_out("codex") && sign.headless_secret("codex").is_none());
+        assert!(!read_env(&team).contains_key("OPENAI_API_KEY") && !auth.exists());
+        sign.refresh_now("codex");
+        assert!(!rt.block_on(sign.team_model_keys(&runner.client, "codex")));
+        let before = key_logins();
+        assert!(!rt.block_on(sign.key_login("codex", &root.join("bin/codex"))));
+        assert_eq!((fetches(), key_logins()), (1, before));
     }
 
     #[test]
