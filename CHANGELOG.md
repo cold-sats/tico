@@ -193,6 +193,8 @@ All notable changes to Tico are recorded here. The format follows
   stores and logs no token. The grant on the computer keeps no secret.
 
 ### Fixed
+- The updater's hint for a clashing edge network now says to run `docker compose up -d` after `docker compose down`
+  before updating again; it left that step out.
 - The keeper's "no progress after a status check" question closes when its task is done, and one already left on a
   done task no longer keeps that task in Needs you or in a bot's number in the sidebar.
 - Another bot's turn in a task's room (the requester answering there, say) no longer ends the task owner's goal:
