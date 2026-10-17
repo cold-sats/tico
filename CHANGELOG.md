@@ -14,19 +14,23 @@ All notable changes to Tico are recorded here. The format follows
   `hub update list --scope direct` (and `scope=direct` on the API) keeps only your direct reports on the org chart,
   the one level that will raise alerts once updates roll up the chart.
 - Updates roll up the org chart. Tico asks the bots lowest on the chart first. A manager is asked once each of its
-  direct reports has posted or missed, or 90 minutes after the first of them was asked, whichever comes first. Its
+  direct reports has posted, missed or skipped, or 90 minutes after it was first held for them, whichever comes first. Its
   request carries its reports' updates and names who had none, so its update sums up the team in its own words and
   links the updates it was written from. Friday's week in review rolls up the same way. Redoing a past day can take
   the managers above too (`hub update redo --bot X --with-managers`).
 - Each person's update is drafted for them, labelled **Drafted by Assistant**. Once the bots and the person's reports
   are in, Tico writes the draft with one call to the company's own model. That call gets only what every member can
-  already see: their shared tasks and goals and their reports' updates. Private tasks, restricted bots and Assistant
-  chats are never part of it. The draft posts at once as theirs, and they can edit or replace it all day; it never
-  goes over words they wrote. **Assistant drafts my update** on a person's page turns it off.
+  already see: their shared tasks and goals, the status changes, comments and answers they made on those tasks,
+  the meetings they were in that are not private, and their reports' updates. Approvals, private tasks, restricted
+  bots and Assistant chats are never part of it. The draft posts at once as theirs, and they can edit or replace it
+  all day; once they have posted words of their own that day, it is never drafted. **Assistant drafts my update** on a person's page turns it off.
 - **Updates** shows the day as the org chart. Your card is on top, with **Write your update** or **Edit**. Each card
   with reports has a small icon that opens its reports' cards, and theirs below. You see the cards below you by
   default, and **Whole org** shows the chart from the top (the choice is kept). The badge and unread dots count only
-  your direct reports, so a report's report never alerts. **List** keeps the plain newest-first feed.
+  your direct reports, so a report's report never alerts. **List** keeps the plain newest-first feed. On Friday the
+  **Weekly** tab has your week in review to write or edit as its slides (goal, done, focus, blockers, KPIs). A
+  manager's card says **From:** with the reports' updates it was written from, each a link that opens that card;
+  `hub update show` lists them too, and you only see those you may read.
 - Docs: [The software factory](docs/software-factory.md), Tico's recommended way to build software with bots: the
   roles in order from Builder to DevOps, which model and effort each runs on, the Dev tickets steps and who moves each.
   Linked from the README, Public roadmaps and Starter bots.
