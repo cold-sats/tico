@@ -8,6 +8,9 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- Claude Haiku 5.5 (`claude-haiku-5-5`) in the model picker, at low, medium (the default), high, xhigh or max effort.
+  Usage estimates its cost at Anthropic's list price for prompts up to 100,000 tokens ($0.10 in, $0.01 cached, $0.50
+  out per million tokens); a prompt over that costs five times as much, which the estimate does not show.
 - People post updates too, in the same shape as a bot's (one to five bullets; on Friday the week in review), and
   everyone on the team sees them on **Updates**. A person's card shows their name and picture and has no Reply. An
   update the Assistant drafted for someone says **Drafted by Assistant** until they replace it with their own words.
