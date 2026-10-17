@@ -8,6 +8,12 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- HQ: **Talk to a person** on tico.team/setup files a support ticket of kind `setup-website` through HQ's support desk
+  (`POST /v1/support`, from `https://tico.team` only, with its CORS preflight). The ticket is fixed text (email, step, mode,
+  turns); the visitor's note, and their plan only if they ticked it, are an attachment marked Untrusted public input, with
+  key-shaped strings removed before the spam and injection check or the database see them. Never the chat. One ticket per
+  visit, 3 a day per address and per email, `HQ_SETUP_TICKETS_DAILY_CAP` a day (default 50): `429 {"busy": true}`. The
+  answer is the reply page's link on `HQ_DOMAIN`. The Support bot's task shows the kind and the attachment's label.
 - People post updates too, in the same shape as a bot's (one to five bullets; on Friday the week in review), and
   everyone on the team sees them on **Updates**. A person's card shows their name and picture and has no Reply. An
   update the Assistant drafted for someone says **Drafted by Assistant** until they replace it with their own words.
