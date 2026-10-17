@@ -509,39 +509,6 @@ function orgTreeWithHelpers(byParent) {
   }
   return out;
 }
-// A human's synced bots from a platform that holds many of them (Grok Bot: backend/external_sync.py) sit in one
-// cluster under that human: pinned bots at the top, the platform's other sections nested inside. A single agent
-// (Dots) is an ordinary row.
-// One moved elsewhere on the chart, or with bots under it, stays an ordinary row.
-const CLUSTER_PROVIDERS = {grokbot: {label: 'Grok Bot', logo: 'xai'}};
-const clusterProvider = e => CLUSTER_PROVIDERS[e.harness] ? e.harness : CLUSTER_PROVIDERS[e.agent?.harness] ? e.agent.harness : '';
-const isPinned = n => n.kind === 'bot' && /^pinned$/i.test((n.agent?.section || '').trim());
-function orgAgentClusters(byParent) {
-  const tree = {}, clusters = {};
-  for (const [parent, kids] of Object.entries(byParent)) {
-    const rows = parent.startsWith('p:') ? kids.filter(n => {
-      const provider = n.kind === 'bot' && !byParent['b:' + n.name] && clusterProvider(n);
-      if (!provider) return true;
-      const id = parent + '|' + provider, section = (n.agent?.section || '').trim();
-      if (!clusters[id]) {
-        clusters[id] = {kind: 'cluster', id, provider, name: CLUSTER_PROVIDERS[provider].label, count: 0};
-        (tree[parent] ||= []).push(clusters[id]);
-      }
-      clusters[id].count++;
-      if (!section || isPinned(n)) { (tree['c:' + id] ||= []).push(n); return false; }
-      const sid = id + '|' + section;
-      if (!clusters[sid]) {
-        clusters[sid] = {kind: 'cluster', id: sid, provider, name: section, section: true, count: 0};
-        (tree['c:' + id] ||= []).push(clusters[sid]);
-      }
-      clusters[sid].count++;
-      (tree['c:' + sid] ||= []).push(n);
-      return false;
-    }) : kids;
-    if (rows.length) (tree[parent] ||= []).unshift(...rows);
-  }
-  return tree;
-}
 // Whether one of my personal tokens has reached Tico (GET /v2/me/tokens): undefined before asking, null when I may not
 // hold tokens (no button), else true or false. Without one, my row offers Connect (ui/connect-agent.js).
 let MY_AGENT, MY_AGENT_AT = 0;
@@ -559,8 +526,7 @@ window.addEventListener('focus', () => { if (MY_AGENT === false && Date.now() - 
 function renderTree() {
   ensureCollapsed();
   if (MY_AGENT === undefined && S.me?.id) { MY_AGENT = null; void loadMyAgent(); }
-  const full = orgTreeWithHelpers(orgTreeByParent());
-  const byParent = orgAgentClusters(full);
+  const byParent = orgTreeWithHelpers(orgTreeByParent());
   const myId = mePerson()?.id;
   const curBot = S.route.startsWith('#/bot/') ? S.route.slice(6).split('/')[0] : null;
   const curPerson = S.route.startsWith('#/person/') ? decodeURIComponent(S.route.slice(9).split('/')[0]) : null;
@@ -568,8 +534,7 @@ function renderTree() {
   const subtreeNeeds = key => (byParent[key] || []).some(c =>
     (c.kind === 'bot' && (stateOf(c.name) === 'needs' || needsMeCount(c.name) || subtreeNeeds('b:' + c.name))) ||
     (c.kind === 'person' && subtreeNeeds('p:' + c.id)) ||
-    (c.kind === 'group' && subtreeNeeds('g:' + c.id)) ||
-    (c.kind === 'cluster' && subtreeNeeds('c:' + c.id)));
+    (c.kind === 'group' && subtreeNeeds('g:' + c.id)));
   const isTemp = e => e.kind === 'bot' && isTempBot(e);
   const nameOf = n => n.kind === 'person' ? (n.person.name || n.id) : (n.display_name || '').replace(TEMP_RE, '');
   const sources = {};
@@ -582,10 +547,6 @@ function renderTree() {
       // A group's own humans and bots come first, then the groups nested in it.
       if ((a.kind === 'group') !== (b.kind === 'group')) return a.kind === 'group' ? 1 : -1;
       if (a.kind === 'group' && b.kind === 'group') return (a.order || 0) - (b.order || 0);
-      // A cluster follows its human's own bots. Inside one, as on the platform, pinned bots lead, then its sections,
-      // then the bots in none.
-      if (isPinned(a) !== isPinned(b)) return isPinned(a) ? -1 : 1;
-      if ((a.kind === 'cluster') !== (b.kind === 'cluster')) return (a.kind === 'cluster') === !parent.startsWith('c:') ? 1 : -1;
       if (placed(a, b)) return placed(a, b);               // a manager's reports in the order someone put them
       if ((a.kind === 'person') !== (b.kind === 'person')) return a.kind === 'person' ? -1 : 1;
       if (isTemp(a) !== isTemp(b)) return isTemp(a) - isTemp(b);
@@ -597,7 +558,7 @@ function renderTree() {
     // and Move down.
     const order = orgMayOrder(parent) ? sorted.filter(n => (n.kind === 'person' || (n.kind === 'bot' && !isHelperBot(n)))
       && orgReportsTo(n) === parent).map(n => n.kind === 'person' ? 'p:' + n.id : 'b:' + n.name) : [];
-    return sorted.map(node => row(node, depth, false, parent.startsWith('c:'), {parent, order: order.length > 1 ? order : []})).join('');
+    return sorted.map(node => row(node, depth, false, {parent, order: order.length > 1 ? order : []})).join('');
   };
   // A report's place among its manager's reports: its drop zones and its Move menu.
   const placeAttrs = (key, at) => at.order.includes(key) ? ` data-org-in="${esc(at.parent)}" data-org-place` : '';
@@ -609,8 +570,7 @@ function renderTree() {
       + '</span>';
   };
   // flat: the history list, one row per bot and person, no children and nothing to drag
-  // inCluster: the cluster's own row already says which platform, so its bots carry no runtime mark
-  const row = (node, depth, flat = false, inCluster = false, at = {parent: '', order: []}) => {
+  const row = (node, depth, flat = false, at = {parent: '', order: []}) => {
     if (node.kind === 'group') {
       const key = 'g:' + node.id, manage = !node.helpers && orgCanGroups() && !flat, adding = manage && ORG_EDIT?.add === node.id;
       const kids = byParent[key], isCol = kids && collapsed.has(key) && !adding;
@@ -623,15 +583,6 @@ function renderTree() {
         ${manage && !renaming ? `<span class="org-group-tools"><button type="button" class="org-tool" data-group-add="${esc(node.id)}" title="Add group" aria-label="Add a group in ${esc(node.name)}"><span class="org-plus" aria-hidden="true">+</span></button><button type="button" class="org-tool" data-group-rename="${esc(node.id)}" title="Rename" aria-label="Rename ${esc(node.name)}"><span class="nav-icon" aria-hidden="true">edit</span></button><button type="button" class="org-tool" data-group-delete="${esc(node.id)}" title="Delete group" aria-label="Delete group ${esc(node.name)}"${ORG_DELETING.has(node.id) ? ' disabled' : ''}><span class="nav-icon" aria-hidden="true">delete</span></button></span>` : ''}</div>
         <ul ${isCol ? 'hidden' : ''}>${adding ? `<li class="org-new">${orgGroupFieldHTML()}</li>` : ''}${rec(key, depth + 1)}</ul></li>`;
     }
-    if (node.kind === 'cluster') {
-      const key = 'c:' + node.id, isCol = collapsed.has(key);
-      const mark = node.section ? '' : window.toolIcons?.markup({logo_key: CLUSTER_PROVIDERS[node.provider].logo, name: node.name}) || '';
-      return `<li class="dept org-cluster${node.section ? ' org-cluster-section' : ''}"><div class="noderow">
-        <button class="chev ${isCol ? 'col' : ''}" data-toggle="${esc(key)}" aria-label="${isCol ? 'Expand' : 'Collapse'} ${esc(node.name)}">›</button>
-        <span class="org-cluster-label" data-toggle="${esc(key)}" role="button" tabindex="0">${mark}<span class="nm">${esc(node.name)}</span><span class="org-cluster-n">${node.count}</span></span>
-        ${isCol && subtreeNeeds(key) ? '<span class="dot needs" title="something inside needs attention"></span>' : ''}</div>
-        <ul ${isCol ? 'hidden' : ''}>${rec(key, depth + 1)}</ul></li>`;
-    }
     if (node.kind === 'person') {
       const p = node.person, key = 'p:' + p.id, kids = !flat && byParent[key], isCol = kids && collapsed.has(key);
       return `<li class="${kids ? 'dept' : ''}"><div class="noderow">
@@ -640,7 +591,7 @@ function renderTree() {
           ${personAvatar(p, depth ? 16 : 20)}<span class="nm">${esc(firstName(p.name) || p.id)}</span>
           ${isCol && subtreeNeeds(key) ? '<span class="dot needs" title="something inside needs attention"></span>' : ''}</a>
         ${moveMenu(key, p.name || p.id, at)}
-        ${!flat && p.id === myId && MY_AGENT === false && !(kids || []).some(n => n.kind === 'cluster') ? '<button type="button" class="org-connect" data-connect-agent title="Connect Grok Bot, Muse or another agent">Connect</button>' : ''}
+        ${!flat && p.id === myId && MY_AGENT === false ? '<button type="button" class="org-connect" data-connect-agent title="Connect Grok Bot, Muse or another agent">Connect</button>' : ''}
         ${mailPersonVisible(p) ? `<a class="person-mail-link${S.route.startsWith(MESSAGING) && messagingParams().bot === p.inbox_bot ? ' cur' : ''}" href="${MESSAGING}?bot=${encodeURIComponent(p.inbox_bot)}&source=${encodeURIComponent('email:' + p.email)}" title="${esc(p.name || p.id)} has a message bot" aria-label="Open ${esc(p.name || p.id)}'s message bot">forum</a>` : ''}</div>
         ${kids ? `<ul ${isCol ? 'hidden' : ''}>${rec(key, depth + 1)}</ul>` : ''}</li>`;
     }
@@ -651,7 +602,7 @@ function renderTree() {
     return `<li class="${kids ? 'dept' : ''}"><div class="noderow">
       ${kids ? `<button class="chev ${isCol ? 'col' : ''}" data-toggle="${esc(key)}" aria-label="${isCol ? 'Expand' : 'Collapse'} ${esc(e.display_name)}">›</button>` : ''}
       <a class="node ${e.status} ${curBot === e.name ? 'cur' : ''} ${st}" href="#/bot/${e.name}"${curBot === e.name ? ' aria-current="page"' : ''} data-org="b:${esc(e.name)}"${helper ? ' data-helper' : placeAttrs(key, at)}${!flat && !helper && (orgMayDrag(key) || at.order.includes(key)) ? ' draggable="true"' : ''}>
-        ${avatar(e.name, depth ? 16 : 20, st)}<span class="nm">${shownName(e)}</span>${orgBranchMark(e)}${inCluster ? '' : runtimeTag(e)}${frTreeMark(e)}
+        ${avatar(e.name, depth ? 16 : 20, st)}<span class="nm">${shownName(e)}</span>${orgBranchMark(e)}${runtimeTag(e)}${frTreeMark(e)}
         ${e.goal_active ? '<span class="nav-icon tree-goal" role="img" aria-label="Goal" title="Goal">target</span>' : ''}
         ${isCol && subtreeNeeds(key) ? '<span class="dot needs" title="something inside needs attention"></span>' : ''}
         ${treeLimitMark(e.name)}${treeBadge(n, st)}</a>${moveMenu(key, e.display_name || e.name, at)}</div>
@@ -661,7 +612,7 @@ function renderTree() {
   // Every bot and person, the one you opened last on top; ones you never opened follow by name.
   const history = () => {
     const seen = orgHistory(), at = n => { const i = seen.indexOf(n.kind === 'person' ? 'p:' + n.id : 'b:' + n.name); return i < 0 ? Infinity : i; };
-    return Object.values(full).flat().filter(n => n.kind !== 'group' && n.kind !== 'cluster')
+    return Object.values(byParent).flat().filter(n => n.kind !== 'group')
       .sort((a, b) => (at(a) - at(b)) || nameOf(a).localeCompare(nameOf(b)))
       .map(node => row(node, 0, true)).join('');
   };
