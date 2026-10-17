@@ -44,7 +44,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
 from . import cors, judge as judge_module, support_page
-from .company_file.keys import scrub
+from .company_file.keys import PATTERNS as KEY_PATTERNS, scrub
 from .limits import Limiter
 
 MAX_MESSAGES = 60                 # a ticket's thread, both sides
@@ -202,16 +202,28 @@ def parse_ticket(data):
     return message, values["email"], values["install_id"], values["version"], values["app_version"], kind
 
 
+def utf8(value):
+    try:
+        value.encode()
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def parse_setup_website(data):
     """The fields of a Talk to a person request from tico.team/setup, as a dict, or Invalid("fields"): the answer names
     nothing, so the page gets no help probing it. There is no field for the chat, so the chat cannot be sent."""
     if not isinstance(data, dict) or set(SETUP_REQUIRED) - set(data) or set(data) - set(SETUP_REQUIRED) - set(SETUP_OPTIONAL):
         raise Invalid("fields")
+    # JSON can carry an unpaired surrogate as an escape; UTF-8, and so the database, cannot.
+    if any(isinstance(value, str) and not utf8(value) for value in data.values()):
+        raise Invalid("fields")
     email, step, mode, turns, session_id = (data[name] for name in ("email", "step", "mode", "turns", "session_id"))
     if data["kind"] != SETUP_WEBSITE or not isinstance(email, str) or len(email) > 254 or not EMAIL.fullmatch(email) \
             or step not in SETUP_STEPS or mode not in SETUP_MODES \
             or not isinstance(turns, int) or isinstance(turns, bool) or not 0 <= turns <= MAX_TURNS \
-            or not isinstance(session_id, str) or not SESSION_ID.fullmatch(session_id):
+            or not isinstance(session_id, str) or not SESSION_ID.fullmatch(session_id) \
+            or any(pattern.search(session_id) for pattern in KEY_PATTERNS):      # a key is never hashed into a limit
         raise Invalid("fields")
     note, plan = data.get("note"), data.get("plan")
     if note is not None:
@@ -548,7 +560,7 @@ def install(app, tickets, address, staff_key="", judge=None, public_url=PUBLIC_U
         if isinstance(data, dict) and data.get("kind") == SETUP_WEBSITE:
             return await file_setup_website(request, who, data)
         if browser:
-            return refuse("invalid", 422, field="kind")      # the setup page files its own kind and nothing else
+            return refuse("invalid", 422)      # the setup page files its own kind and nothing else, and is told nothing
         if request.state.body_size > MAX_FOLLOW_UP and not (isinstance(data, dict) and "diagnostics" in data):
             return refuse("too_large", 413)          # only the diagnostics may make a request this big
         try:

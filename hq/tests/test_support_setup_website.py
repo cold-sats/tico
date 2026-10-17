@@ -3,6 +3,7 @@
 no field for the chat, key-shaped strings removed before anything is judged or kept, the judge first, one ticket per
 setup session, 3 a day per address, a daily cap, and CORS for https://tico.team only."""
 
+import json
 import logging
 from pathlib import Path
 
@@ -83,6 +84,12 @@ def post(client, body=None, origin=ORIGIN, ip="198.51.100.1", **change):
                        headers={**origin, "X-Forwarded-For": ip})
 
 
+def post_raw(client, text, ip):
+    """The request as JSON text, for what `json=` cannot send: an escaped unpaired surrogate."""
+    return client.post("/v1/support", content=text.encode(),
+                       headers={**ORIGIN, "X-Forwarded-For": ip, "Content-Type": "application/json"})
+
+
 def staff():
     return {"Authorization": "Bearer " + STAFF}
 
@@ -118,19 +125,43 @@ def test_the_ticket_is_fixed_text_and_the_note_and_plan_are_a_labelled_attachmen
     assert "attachment" not in client.get(f"/v1/staff/tickets/{bare}", headers=staff()).json()
 
 
-def test_no_chat_field_and_any_other_shape_is_refused_with_no_detail(client):
-    """Test 21: there is no field for the chat; an off-shape request names nothing and stores nothing."""
-    for change in ({"transcript": "visitor: hi"}, {"chat": [{"text": "hi"}]}, {"mode": "cloud"}, {"turns": True},
-                   {"plan": "version: 0.1\n"}):
-        r = post(client, **change)
-        assert r.status_code == 422 and r.json() == {"error": "invalid"}, change
-    assert rows(client) == []
+def test_no_chat_field_and_any_other_shape_is_refused_with_no_detail(client, judged):
+    """Test 21: there is no field for the chat; an off-shape request names nothing, stores nothing and is not judged."""
+    bodies = [ask(transcript="visitor: hi"), ask(chat=[{"text": "hi"}]), ask(mode="cloud"), ask(turns=True),
+              ask(plan="version: 0.1\n"), ask(kind="support"), ask(kind=None), {"message": "hello"}, ["setup-website"]]
+    for n, body in enumerate(bodies):
+        r = post(client, body, ip=f"198.51.100.{n + 100}")
+        assert r.status_code == 422 and r.json() == {"error": "invalid"}, body
+    unpaired = json.dumps(ask(note="Hi \ud800 there"))          # json.dumps writes the surrogate as the escape \\ud800
+    assert "\\ud800" in unpaired and post_raw(client, unpaired, "198.51.100.120").json() == {"error": "invalid"}
+    assert rows(client) == [] and judged == []
+    assert post(client, ip="198.51.100.120").status_code == 200       # the refusals used up no setup limit
+
+
+def test_each_field_is_checked_at_its_limit(client, judged):
+    """Every rule refuses just past its limit and accepts at it, so neither a missing check nor a refusal of
+    everything passes."""
+    room = 32 * 1024 - len(PLAN.encode()) - 2                   # bytes left after "#" and the last newline
+    big_plan = PLAN + "#" + "é" * (room // 2) + "x" * (room % 2) + "\n"      # é is two bytes, so 32 KB is fewer characters
+    assert len(big_plan.encode()) == 32 * 1024
+    refused = [{"email": None}, {"email": "ana@"}, {"email": "a@" + "b" * 250 + ".com"}, {"note": "n" * 1001},
+               {"plan": big_plan + "é"}, {"session_id": "s" * 15}, {"session_id": "s" * 65}, {"session_id": "a b" * 8},
+               {"session_id": SLACK}, {"turns": -1}, {"turns": 1001}, {"turns": 7.0}, {"step": "billing"}]
+    for n, change in enumerate(refused):
+        assert post(client, ip=f"198.51.100.{n + 100}", **change).json() == {"error": "invalid"}, change
+    assert rows(client) == [] and judged == []
+    accepted = [{"email": "a@" + "b" * 248 + ".com"}, {"note": "n" * 1000}, {"plan": big_plan}, {"session_id": "s" * 16}, {"session_id": "s" * 64},
+                {"turns": 0}, {"turns": 1000}]
+    for n, change in enumerate(accepted):
+        r = post(client, ip=f"198.51.100.{n + 150}", **{"email": f"v{n}@example.com", **change})
+        assert r.status_code == 200, change
+    assert len(rows(client)) == len(accepted)
 
 
 def test_only_tico_team_may_file_one_or_read_the_answer(client):
     assert post(client, origin={}).status_code == 403
     assert post(client, origin={"Origin": "https://tico.team.evil.example"}).status_code == 403
-    assert client.post("/v1/support", json={"message": "hello"}, headers=ORIGIN).status_code == 422
+    assert client.post("/v1/support", json={"message": "hello"}, headers=ORIGIN).json() == {"error": "invalid"}
     assert rows(client) == []
     preflight = {"Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type"}
     ok = client.options("/v1/support", headers={**ORIGIN, **preflight})
