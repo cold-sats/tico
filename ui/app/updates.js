@@ -131,28 +131,41 @@ function updBadge(n) {
   S.updUnread = n;
   for (const el of document.querySelectorAll('[data-upd-badge]')) { el.textContent = n > 99 ? '99+' : String(n || ''); el.hidden = !n; }
 }
+// An update's author is a bot slug or `human:<id>` for a person, who posts in the same shape.
+function updAuthor(key) {
+  const person = String(key || '').startsWith('human:');
+  if (!person) return {person, name: empName(key), label: botDisplayName(key), avatar: avatar(key, 36), href: `#/bot/${encodeURIComponent(key)}`};
+  const id = String(key).slice(6), p = (S.people || []).find(x => x.id === id);
+  return {person, name: esc(p?.name || id), label: p?.name || id, avatar: personAvatar(p || {id, name: id}, 36), href: `#/person/${encodeURIComponent(id)}`};
+}
+// A person's update the Assistant drafted says so until they replace it with their own words.
+function updDraftPill(u) {
+  if (!u.drafted_by) return '';
+  return `<span class="upd-pill upd-draft">${u.edited_by ? 'Drafted by ' + esc(botDisplayName(u.drafted_by)) + ', edited' : 'Drafted by ' + esc(botDisplayName(u.drafted_by))}</span>`;
+}
 function updCard(u, i, state) {
+  const who = updAuthor(u.bot);
   const open = state.open.has(u.id);
   const thread = state.threads[u.id];
   const body = String(u.body || '').trim();
   return `<article class="upd-card${u.read ? '' : ' unread'}${!u.slides && state.view === 'inbox' ? ' swipeable' : ''}${open ? ' open' : ''}${i === state.sel ? ' sel' : ''}" data-upd="${esc(u.id)}" data-i="${i}" tabindex="-1">
-    <div class="upd-av">${avatar(u.bot, 36)}</div>
+    <div class="upd-av">${who.avatar}</div>
     <div class="upd-main">
-      <div class="upd-meta"><a href="#/bot/${encodeURIComponent(u.bot)}" class="upd-name" data-upd-bot>${empName(u.bot)}</a>
-        ${u.kind === 'weekly' ? '<span class="upd-pill">Week in review</span>' : ''}
+      <div class="upd-meta"><a href="${who.href}" class="upd-name" data-upd-bot>${who.name}</a>
+        ${u.kind === 'weekly' ? '<span class="upd-pill">Week in review</span>' : ''}${updDraftPill(u)}
         <span class="muted">· ${esc(ago(u.updated || u.created))}</span>${u.read ? '' : '<span class="upd-dot" aria-label="Unread"></span>'}</div>
       ${u.slides ? updDeck(u, state) : body ? `<div class="upd-body md">${safeMd(body, {shortLinks: true})}</div>` : ''}
       <div class="upd-actions">
-        <button type="button" class="upd-act" data-upd-reply><span class="nav-icon" aria-hidden="true">chat_bubble</span>${u.replies ? u.replies : 'Reply'}</button>
+        ${who.person ? '' : `<button type="button" class="upd-act" data-upd-reply><span class="nav-icon" aria-hidden="true">chat_bubble</span>${u.replies ? u.replies : 'Reply'}</button>`}
         <button type="button" class="upd-act" data-upd-toggle>${u.read ? 'Mark unread' : 'Mark read'}</button>
         <button type="button" class="upd-act" data-upd-archive aria-label="${state.view === 'archive' ? 'Restore update' : 'Archive update'}"${state.archivePending.has(u.id) ? ' disabled' : ''}>${state.view === 'archive' ? 'Restore' : 'Archive'}</button>
       </div>
       ${open ? `<div class="upd-thread">${thread ? thread.map(m => `<div class="upd-msg${String(m.from_actor).startsWith('bot:') ? ' bot' : ''}${m.pending ? ' pending' : ''}">
           <b>${esc(actorLabel(m.from_actor))}</b> ${String(m.from_actor).startsWith('bot:') ? `<div class="md">${safeMd(m.body || '', {shortLinks: true})}</div>` : esc(String(m.body || '').replace(/^Re your update "[^"]*": /, ''))}
           <span class="muted">${m.pending ? 'sending…' : esc(ago(m.created))}</span></div>`).join('') : (u.replies ? '<div class="muted">Loading replies…</div>' : '')}
-        <form class="upd-reply" data-upd-form><textarea rows="1" placeholder="Reply to ${esc(botDisplayName(u.bot))}…" aria-label="Reply">${esc(UPD_DRAFTS.get(u.id) || '')}</textarea>
+        <form class="upd-reply" data-upd-form><textarea rows="1" placeholder="Reply to ${esc(who.label)}…" aria-label="Reply">${esc(UPD_DRAFTS.get(u.id) || '')}</textarea>
           <button class="primary" type="submit" aria-label="Send">Send</button></form>
-        <div class="muted upd-hint">Goes to ${esc(botDisplayName(u.bot))}'s chat too.</div></div>` : ''}
+        <div class="muted upd-hint">Goes to ${esc(who.label)}'s chat too.</div></div>` : ''}
     </div></article>`;
 }
 // A week in review is five slides, swiped left to right (scroll-snap), with arrows and dots for a mouse

@@ -5,6 +5,7 @@ message in the bot's chat."""
 from datetime import datetime, timezone
 
 from backend import updates
+from backend.store import H, Problem, digest
 from backend.tests.test_api import api, get, headers, post, setup_attempt  # noqa: F401
 
 MORNING = datetime(2026, 9, 29, 13, 0, tzinfo=timezone.utc)      # Tuesday 06:00 Pacific
@@ -54,7 +55,6 @@ def test_a_bot_posts_once_a_day_and_each_person_has_their_own_read_state(api, mo
     assert empty.status_code == 422, "an empty update is still refused"
     again = api.post("/api/v2/updates", json={"body": "- Drafted and sent the checklist"},
                      headers={**bot, "Idempotency-Key": "u5"}).json()["update"]
-    post(api, "updates", {"body": "- Me too"}, expected=403)           # people read, bots post
     feed = get(api, "updates")
     assert [u["headline"] for u in feed["updates"]] == ["Drafted and sent the checklist"]
     assert feed["updates"][0]["read"] is False and feed["unread"] == 1
@@ -103,3 +103,52 @@ def test_a_week_in_review_is_five_slides_and_an_owner_can_have_last_week_redone(
     with store.transaction() as c:
         updates.dispatch(c, BEFORE_FIVE)
         assert c.execute("SELECT state FROM update_queue WHERE bot='ops' AND day=?", (friday,)).fetchone()[0] == "posted"
+
+
+def test_people_post_their_own_update_and_alerts_come_only_from_direct_reports(api, monkeypatch):
+    """A person posts in the same shape as a bot, as `human:<id>`, and everyone on the chart sees it;
+    an Assistant draft stays labelled when its person edits it and goes when they replace it; the
+    direct scope keeps one level of the chart, so a report's report never alerts."""
+    from backend.tests.test_bot_contact import bot
+    monkeypatch.setattr(updates, "today", lambda at=None: "2026-09-29")
+    bot(api, "boss", "Manager", reports_to="human:ana")
+    bot(api, "analyst", "Analyst", reports_to="boss")
+    store = api.app.state.store
+    with store.transaction() as c:
+        updates.post(c, "boss", "- Planned the launch", day="2026-09-29")
+        updates.post(c, "analyst", "- Sized the market", day="2026-09-29")
+        updates.post(c, "human:ben", "- Met two customers", day="2026-09-29", drafted_by="coo")
+
+    def redraft():
+        with store.transaction() as c:
+            try:
+                updates.post(c, "human:ben", "- Redrafted", day="2026-09-29", drafted_by="coo")
+                raise AssertionError("a draft landed over the person's own words")
+            except Problem as e:
+                assert e.status == 409
+    edited = post(api, "updates", {"body": "- Met three customers"}, token="ben-test")["update"]
+    assert edited["bot"] == "human:ben" and edited["drafted_by"] == "coo" and edited["edited_by"] == "human:ben"
+    redraft()                                   # over the words they edited
+    own = post(api, "updates", {"body": "- Met three customers", "replace_draft": True}, token="ben-test")["update"]
+    assert own["drafted_by"] is None and own["edited_by"] is None
+    redraft()                                   # over their own words
+    seen = {u["bot"] for u in get(api, "updates")["updates"]}
+    assert {"boss", "analyst", "human:ben"} <= seen, "a person's update is for the whole company"
+    post(api, f"updates/{own['id']}/reply", {"text": "Nice"}, expected=422)
+    direct = {u["bot"] for u in get(api, "updates?scope=direct")["updates"]}
+    assert "boss" in direct and "analyst" not in direct, "only one level down alerts"
+    assert get(api, "updates/unread?scope=direct")["unread"] == len(direct)
+    get(api, "updates?scope=everyone", expected=422)
+    # An external agent is outside the company: it sees its own bot's update, no person's.
+    with store.transaction() as c:
+        c.execute("INSERT INTO agents(bot,harness,token_hash,created,created_by,last_seen) VALUES(?,?,?,?,?,?)",
+                  ("analyst", "hermes", digest("agent-test"), H.now(), "human:ana", H.now()))
+    outside = {u["bot"] for u in get(api, "updates", token="agent-test")["updates"]}
+    assert "analyst" in outside and not any(updates.is_person(a) for a in outside)
+    # The Assistant acting for ben in his chat posts no update for him: his update is his own.
+    from backend.tests.test_assistant import asked, assistant_turn
+    _, attempt = assistant_turn(api, "ben-test", "Post my update")
+    asked(api, "updates", {"body": "- From my chat"}, attempt["token"], "turn", expected=403)
+    # Nor as a card for him to confirm: posting an update is not a route the Assistant can propose.
+    post(api, "assistant/actions", {"summary": "Post my update", "path": "/api/v2/updates",
+                                    "body": {"body": "- From my chat"}}, token=attempt["token"], expected=422)

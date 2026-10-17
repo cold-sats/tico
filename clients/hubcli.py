@@ -194,7 +194,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub health check                       what is wrong with the bots, most urgent first, each with its fix
     hub health metrics [--minutes N]       the server's flight recorder (owners, admins and bots)
                                            (the Assistant gets the live snapshot)
-    hub update list [--kind daily|weekly] [--bot X] [--unread] [--limit N]
+    hub update list [--kind daily|weekly] [--bot X] [--scope all|direct] [--unread] [--limit N]
                                            the bots' updates, newest first
     hub update show <id>                   one update with its thread
     hub update create "<- bullets>" [--kind daily|weekly]   post your own update when Tico asks
@@ -1462,9 +1462,10 @@ def parser():
     s.add_argument("--kind", choices=("daily", "weekly"))
     s.add_argument("--bot", dest="bots", action="append", help="only this bot (repeatable)")
     s.set_defaults(fn="update redo")
-    s = upd.add_parser("list", help="the bots' updates, newest first")
+    s = upd.add_parser("list", help="updates from bots and people, newest first")
     s.add_argument("--kind", choices=("daily", "weekly"))
-    s.add_argument("--bot")
+    s.add_argument("--bot", help="one author: a bot slug or human:<id>")
+    s.add_argument("--scope", choices=("all", "direct"), help="direct: only your direct reports")
     s.add_argument("--unread", action="store_true")
     s.add_argument("--limit", type=int)
     s.set_defaults(fn="update list")

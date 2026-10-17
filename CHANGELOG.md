@@ -8,6 +8,11 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- People post updates too, in the same shape as a bot's (one to five bullets; on Friday the week in review), and
+  everyone on the team sees them on **Updates**. A person's card shows their name and picture and has no Reply. An
+  update the Assistant drafted for someone says **Drafted by Assistant** until they replace it with their own words.
+  `hub update list --scope direct` (and `scope=direct` on the API) keeps only your direct reports on the org chart,
+  the one level that will raise alerts once updates roll up the chart.
 - Docs: [The software factory](docs/software-factory.md), Tico's recommended way to build software with bots: the
   roles in order from Builder to DevOps, which model and effort each runs on, the Dev tickets steps and who moves each.
   Linked from the README, Public roadmaps and Starter bots.
