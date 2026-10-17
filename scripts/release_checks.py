@@ -10,7 +10,8 @@ it runs Python tests except Docker isolation (`pytest -m "slow or not slow"`) an
 (`node scripts/ui-tests.cjs --all`), alongside the Docker isolation tests
 and whole-product checks against the successfully built images: docker/smoke.sh,
 docker/side-jobs-smoke.sh and `scripts/journey-test.sh --release` (install the previous release, upgrade to the
-candidate, roll back a migrating update). The journey starts installing the previous release while the images build. Each check gets its own Docker names and smoke a free host port, so they run
+candidate, roll back a migrating update). The journey starts installing the previous release while the images build. Each check gets its own Docker names, smoke a free host port, and each compose stack its own edge network range
+(EDGE, checked to be creatable side by side before any stack starts), so they run
 side by side; two release checks must not run at once, since the journey's candidate tags are fixed.
 
 `--part product|python|browser` runs one slice of the same gate so the hosted Release validation workflow can
@@ -24,6 +25,7 @@ TICO_PYTHON_WORKERS, TICO_UI_JOBS and TICO_UI_SLOWDOWN override those defaults.
 Existing pytest and TICO_UI_JOBS settings still select concurrency for the default suites.
 """
 import argparse
+import ipaddress
 import os
 from pathlib import Path
 import socket
@@ -39,6 +41,9 @@ ROOT = Path(__file__).resolve().parents[1]
 BUDGET_SECONDS = 480
 DEFAULT_BUDGET_SECONDS = 300
 CANDIDATE = 'v9.9.9'   # what scripts/journey-test.sh calls a local build
+# The edge network range (A.B.C.0/28, see docker/edge-env.sh) of each compose stack the gate runs side by side. A
+# separate project and host port do not separate networks: Docker refuses a second network on a range in use.
+EDGE = {'journey': '172.30.252', 'smoke': '172.30.253', 'backup-test': '172.30.251'}   # the journey runs backup-test
 IMAGES = (('server', 'ghcr.io/ticoteam/tico', 'tico-rc'),
           ('runner', 'ghcr.io/ticoteam/tico-runner', 'tico-rc-runner'),
           ('updater', 'ghcr.io/ticoteam/tico-updater', 'tico-rc-updater'))
@@ -102,6 +107,68 @@ class Check:
 
     def tail(self, lines=40):
         return '\n'.join(self.log.read_text(errors='replace').splitlines()[-lines:])
+
+
+def edge_settings(prefix):
+    """The edge settings docker/edge-env.sh writes for one range, as the stacks append them to their env files."""
+    output = subprocess.run(['bash', 'docker/edge-env.sh', prefix], cwd=ROOT, capture_output=True, text=True,
+                            check=True).stdout
+    return dict(line.split('=', 1) for line in output.splitlines())
+
+
+def edge_networks(ranges=EDGE):
+    """On this Docker host, before any stack starts: every gate stack's edge network can be created at the same time,
+    and Docker refuses a second network on a range already held, so a shared range would fail here, not in a stack.
+    Returns (ok, report); a failure names the existing networks on a clashing range."""
+    settings = {name: edge_settings(prefix) for name, prefix in ranges.items()}
+    probes = {name: f'tico-rc-edgecheck-{name}' for name in settings}
+    overlap = 'tico-rc-edgecheck-overlap'
+
+    def create(network, edge):
+        return subprocess.Popen(['docker', 'network', 'create', '--subnet', edge['TICO_EDGE_SUBNET'],
+                                 '--ip-range', edge['TICO_EDGE_DYNAMIC_RANGE'], network],
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+    def remove():
+        subprocess.run(['docker', 'network', 'rm', *probes.values(), overlap], capture_output=True, text=True)
+
+    def holders():
+        ids = subprocess.run(['docker', 'network', 'ls', '-q'], capture_output=True, text=True).stdout.split()
+        listing = subprocess.run(['docker', 'network', 'inspect', '--format',
+                                  '{{.Name}} {{range .IPAM.Config}}{{.Subnet}} {{end}}', *ids],
+                                 capture_output=True, text=True).stdout if ids else ''
+        wanted = [ipaddress.ip_network(edge['TICO_EDGE_SUBNET']) for edge in settings.values()]
+        clashing = []
+        for line in listing.splitlines():
+            name, *subnets = line.split()
+            for subnet in subnets:
+                try:
+                    network = ipaddress.ip_network(subnet, strict=False)
+                except ValueError:
+                    continue
+                if any(network.version == want.version and network.overlaps(want) for want in wanted):
+                    clashing.append(f'{name} {subnet}')
+        return '; '.join(clashing)
+
+    remove()   # leftovers of an interrupted check
+    try:
+        started = {name: create(probes[name], edge) for name, edge in settings.items()}   # all at once, as in the gate
+        outputs = {name: process.communicate()[0].strip() for name, process in started.items()}
+        failed = [name for name, process in started.items() if process.returncode]
+        if failed:
+            return False, (f'edge networks: could not create {", ".join(failed)} beside the others: '
+                           + ' | '.join(outputs[name] for name in failed)
+                           + f'; networks on these ranges: {holders() or "none listed"}')
+        first = next(iter(settings))
+        second = create(overlap, settings[first])
+        refusal = second.communicate()[0].strip()
+        if second.returncode == 0 or 'overlap' not in refusal.lower():
+            return False, (f'edge networks: Docker did not refuse a second network on {first}\'s '
+                           f'{settings[first]["TICO_EDGE_SUBNET"]} ({refusal or "created"}), so this check proves nothing')
+        return True, ('edge networks: ' + ', '.join(f'{name} {edge["TICO_EDGE_SUBNET"]}' for name, edge in settings.items())
+                      + f' created at once; a second network on {first}\'s range refused as expected')
+    finally:
+        remove()
 
 
 ISOLATION_FILE = 'runner/tests/test_isolation_docker.py'
@@ -169,7 +236,13 @@ def release(args):
 
     builds, checks, built, not_run = [], [], True, ()
     if runs('product'):
-        journey_env = {**base_env, 'TICO_JOURNEY_IMAGES_READY': str(ready)}
+        edge_ok, edge_report = edge_networks()
+        print(f'  {edge_report}', flush=True)
+        if not edge_ok:
+            print('Release check failed: the gate stacks cannot hold their edge networks side by side', flush=True)
+            return 1
+        journey_env = {**base_env, 'TICO_JOURNEY_IMAGES_READY': str(ready), 'TICO_JOURNEY_EDGE': EDGE['journey'],
+                       'TICO_BACKUP_EDGE': EDGE['backup-test']}
         journey_cmd = ['bash', 'scripts/journey-test.sh', '--release'] + (['--previous', args.previous] if args.previous else [])
         checks.append(Check('journey', journey_cmd, logs, journey_env))   # installs the previous release while the images build
 
@@ -195,7 +268,8 @@ def release(args):
         local_env = {**base_env, 'TICO_IMAGE': 'tico-rc', 'TICO_TAG': 'local', 'TICO_RUNNER_IMAGE': 'tico-rc-runner',
                      'TICO_UPDATER_IMAGE': 'tico-rc-updater'}
         checks.append(Check('smoke', ['bash', 'docker/smoke.sh'], logs,
-                            {**local_env, 'TICO_SMOKE_PROJECT': 'tico-rc-smoke', 'TICO_SMOKE_PORT': str(free_port())}))
+                            {**local_env, 'TICO_SMOKE_PROJECT': 'tico-rc-smoke', 'TICO_SMOKE_PORT': str(free_port()),
+                             'TICO_SMOKE_EDGE': EDGE['smoke']}))
         checks.append(Check('side-jobs', ['bash', 'docker/side-jobs-smoke.sh'], logs,
                             {**local_env, 'TICO_SIDEJOBS_NAME': 'tico-rc-sidejobs'}))
         checks.append(Check('isolation', [sys.executable, '-m', 'pytest', '-q', '-n', workers, '-m', 'slow or not slow',

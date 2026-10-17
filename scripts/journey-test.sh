@@ -120,7 +120,9 @@ COMPOSE_PROFILES=updater
 TICO_UPDATER_URL=http://updater:8080
 TICO_TAG=$PREV
 EOF
+  docker/edge-env.sh "${TICO_JOURNEY_EDGE:-172.30.252}" >> "$DIR/.env" || return 1
   [ "$LOCAL" = 0 ] || echo "TICO_UPDATER_BUNDLE=never" >> "$DIR/.env"   # the candidate is a local build: no release to download
+  # The edge range (TICO_JOURNEY_EDGE) is the journey's own, so docker/smoke.sh and a real install can be up beside it.
   # Kept out of the bundle's files, so the updater never replaces it: a private project, no host port, quick health limit.
   cat > "$DIR/compose.override.yaml" <<EOF
 name: $PROJECT
