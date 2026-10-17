@@ -91,6 +91,15 @@ def test_a_shipped_dev_ticket_its_requester_closes_still_counts_as_shipped(api):
     _step(api, child, 'Closed')
     assert _roadmap_step(api, item) == 'Approved'
 
+    item, (child,) = _building(api, dev, 'Dropped after Done', tickets=1)
+    _step(api, child, 'Done')
+    _step(api, child, "Won't do")
+    assert _roadmap_step(api, item) == 'Approved'
+    closed = post(api, 'tasks/' + child['id'], {'version': get(api, 'tasks/' + child['id'])['task']['version'],
+                                                'close': True})
+    assert closed['step']['name'] == 'Closed'
+    assert _roadmap_step(api, item) == 'Approved'
+
 
 def test_a_default_engineering_ticket_at_done_closed_ships_the_roadmap_item(api):
     item = post(api, 'tasks', {'owner': 'cpo', 'title': 'Search', 'body': 'Spec.', 'type': 'Product roadmap',
