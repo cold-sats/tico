@@ -13,8 +13,11 @@ All notable changes to Tico are recorded here. The format follows
   update the Assistant drafted for someone says **Drafted by Assistant** until they replace it with their own words.
   `hub update list --scope direct` (and `scope=direct` on the API) keeps only your direct reports on the org chart,
   the one level that will raise alerts once updates roll up the chart.
+- Docs: [The software factory](docs/software-factory.md), Tico's recommended way to build software with bots: the
+  roles in order from Builder to DevOps, which model and effort each runs on, the Dev tickets steps and who moves each.
+  Linked from the README, Public roadmaps and Starter bots.
 - Beta features carry a small **Beta** pill where they appear: Market, Message bots, Listening, Live meetings, chat
-  goals and steering, the Slack gateway, a computer's Screen, Behaviour replay and the computer Performance page,
+  goals, the Slack gateway, a computer's Screen, Behaviour replay and the computer Performance page,
   Windows through WSL 2, external agents (Hermes, OpenClaw, Grok Bot, Dots, Muse sync) and the Mac app. Help lists
   them under **Beta features**, each manual page says so, and a support request's diagnostics name the ones your team
   has on. The pills arrived in 0.3.52; that release's notes left them out.
@@ -25,6 +28,8 @@ All notable changes to Tico are recorded here. The format follows
   connects in. The team rule **Owners and admins may let Tico support in** turns it off ([support](docs/support.md#letting-tico-support-in)).
 
 ### Changed
+- Steering is out of Beta: a message sent while a bot answers, which goes into that turn, no longer carries the
+  **Beta** pill in chat, and Help lists only chat goals under **Beta features**.
 - Roadmaps: a database that ran an unreleased build of roadmaps from main has the internal text it copied into public
   text cleared once more, now field by field, so a rewritten public title keeps its task public while a copied summary
   goes (each clearing leaves a task event); a public task whose title was a copy is unpublished. An update that hits a

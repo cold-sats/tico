@@ -7,8 +7,9 @@
 # (docker/runner.compose.yaml with its updater sidecar) through an update from one local tag to the
 # release its server runs, and through one that does not turn healthy and is rolled back.
 #   TICO_IMAGE=tico TICO_TAG=local TICO_RUNNER_IMAGE=tico-runner TICO_UPDATER_IMAGE=tico-updater docker/smoke.sh
-# TICO_SMOKE_PROJECT and TICO_SMOKE_PORT (defaults tico-smoke, 8765) name its Docker objects and host port, so a second
-# copy can run beside one already running.
+# TICO_SMOKE_PROJECT, TICO_SMOKE_PORT and TICO_SMOKE_EDGE (defaults tico-smoke, 8765, 172.30.253) name its Docker objects,
+# host port and edge network range (A.B.C.0/28, apart from an install's default and the journey's), so a second copy
+# with all three of its own can run beside one already running.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export TICO_IMAGE="${TICO_IMAGE:-tico}" TICO_TAG="${TICO_TAG:-local}"
@@ -27,6 +28,7 @@ TICO_OWNER_EMAIL=owner@example.com
 TICO_AUTH_PROXY=none
 EOF
 echo "TICO_PORT=$port" >> "$env_file"
+docker/edge-env.sh "${TICO_SMOKE_EDGE:-172.30.253}" >> "$env_file"
 dc() { docker compose -p "$project" --env-file "$env_file" "$@"; }
 cleanup() {
   status=$?
