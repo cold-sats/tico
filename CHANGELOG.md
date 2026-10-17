@@ -77,6 +77,13 @@ All notable changes to Tico are recorded here. The format follows
   `docker compose down`, run `docker compose up -d` first).
 
 ### Fixed
+- Roadmaps keep working after the bot that managed the Product roadmap or Dev tickets type is archived or replaced.
+  Tico found both types by their manager's name (`product-manager`, `engineering-lead`), so a type that moved to
+  another bot lost its Approved → Building → Shipped sync, its Roadmap tab and its ranked list. Each type now has a
+  role (`role` in `hub task types` and the API), given once on upgrade without changing any task; setting up the
+  default types never replaces a manager a type already has. A Dev tickets type made in Settings → Types, even beside
+  Engineering, now moves its roadmap item to Building and Shipped too; before, only a type managed by Head of
+  Engineering did.
 - A subscription you sign in from **Settings > AI providers > Subscriptions > Sign in** shows up on that computer at
   once, and bots assigned to it run on it, without restarting the computer's runner. Before, a new named subscription
   stayed hidden until a restart. One whose sign-in failed or was cancelled stays listed as not signed in, so you can
