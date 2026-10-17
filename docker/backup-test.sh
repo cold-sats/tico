@@ -25,7 +25,7 @@ TICO_COMPANY_NAME=Backup Test
 TICO_OWNER_EMAIL=owner@example.com
 TICO_AUTH_PROXY=none
 EOF2
-  docker/edge-env.sh 172.30.251 >> "$work/env"   # its own edge range, apart from an install's and the gate's
+  docker/edge-env.sh "${TICO_BACKUP_EDGE:-172.30.251}" >> "$work/env"   # its own edge range, apart from an install's and the gate's
   [ "$1" = remote ] || return 0
   cat >> "$work/env" <<'EOF2'
 TICO_BACKUP_URL=s3://tico-test/tico

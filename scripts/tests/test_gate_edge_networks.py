@@ -14,7 +14,6 @@ from scripts import release_checks
 
 ROOT = Path(__file__).resolve().parents[2]
 NAMES = ('TICO_EDGE_SUBNET', 'TICO_EDGE_DYNAMIC_RANGE', 'TICO_CADDY_ADDRESS', 'TICO_CLOUDFLARED_ADDRESS')
-BACKUP_TEST = '172.30.251'
 OVERLAP = 'Error response from daemon: invalid pool request: Pool overlaps with other one on this address space'
 
 
@@ -23,7 +22,7 @@ def test_each_stack_writes_its_own_edge_range_from_the_generator():
     assert all(f'${{{name}:-' in compose for name in NAMES)   # the generator writes what compose.yaml reads
     default = ipaddress.ip_network(re.search(r'subnet: \$\{TICO_EDGE_SUBNET:-([0-9./]+)\}', compose).group(1))
     taken = {'compose.yaml default': default}
-    for name, prefix in {**release_checks.EDGE, 'backup-test': BACKUP_TEST}.items():
+    for name, prefix in release_checks.EDGE.items():
         edge = release_checks.edge_settings(prefix)   # the real docker/edge-env.sh output
         assert sorted(edge) == sorted(NAMES), name
         subnet, dynamic = (ipaddress.ip_network(edge[key]) for key in NAMES[:2])
@@ -34,10 +33,12 @@ def test_each_stack_writes_its_own_edge_range_from_the_generator():
             assert not subnet.overlaps(range_), f'{name} edge range overlaps {other}'
         taken[name] = subnet
     # Each stack appends that whole output to the env file its compose project reads; the gate passes its range.
-    for path, writes in (('docker/smoke.sh', 'docker/edge-env.sh "${TICO_SMOKE_EDGE:-%s}" >> "$env_file"' % release_checks.EDGE['smoke']),
-                         ('scripts/journey-test.sh', 'docker/edge-env.sh "${TICO_JOURNEY_EDGE:-%s}" >> "$DIR/.env"' % release_checks.EDGE['journey']),
-                         ('docker/backup-test.sh', f'docker/edge-env.sh {BACKUP_TEST} >> "$work/env"')):
-        assert writes in (ROOT / path).read_text(), path
+    for path, variable, name, env_file in (('docker/smoke.sh', 'TICO_SMOKE_EDGE', 'smoke', '"$env_file"'),
+                                           ('scripts/journey-test.sh', 'TICO_JOURNEY_EDGE', 'journey', '"$DIR/.env"'),
+                                           ('docker/backup-test.sh', 'TICO_BACKUP_EDGE', 'backup-test', '"$work/env"')):
+        writes = f'docker/edge-env.sh "${{{variable}:-{release_checks.EDGE[name]}}}" >> {env_file}'
+        lines = [line.strip() for line in (ROOT / path).read_text().splitlines()]
+        assert any(line.startswith(writes) for line in lines), path   # a live command, not a comment
     assert subprocess.run(['bash', 'docker/edge-env.sh', '172.30'], cwd=ROOT, capture_output=True).returncode == 2
 
 

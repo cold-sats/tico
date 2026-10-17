@@ -62,6 +62,7 @@ def test_isolation_uses_the_candidate_image_only_after_successful_builds(tmp_pat
             assert {'smoke', 'side-jobs'} <= calls.keys()
             assert calls['smoke'][1]['TICO_SMOKE_EDGE'] == release_checks.EDGE['smoke']
             assert calls['journey'][1]['TICO_JOURNEY_EDGE'] == release_checks.EDGE['journey']
+            assert calls['journey'][1]['TICO_BACKUP_EDGE'] == release_checks.EDGE['backup-test']
             assert (tmp_path / 'images-ready').read_text() == 'ok'
         else:
             assert 'isolation' not in calls

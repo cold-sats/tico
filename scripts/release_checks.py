@@ -43,7 +43,7 @@ DEFAULT_BUDGET_SECONDS = 300
 CANDIDATE = 'v9.9.9'   # what scripts/journey-test.sh calls a local build
 # The edge network range (A.B.C.0/28, see docker/edge-env.sh) of each compose stack the gate runs side by side. A
 # separate project and host port do not separate networks: Docker refuses a second network on a range in use.
-EDGE = {'journey': '172.30.252', 'smoke': '172.30.253'}
+EDGE = {'journey': '172.30.252', 'smoke': '172.30.253', 'backup-test': '172.30.251'}   # the journey runs backup-test
 IMAGES = (('server', 'ghcr.io/ticoteam/tico', 'tico-rc'),
           ('runner', 'ghcr.io/ticoteam/tico-runner', 'tico-rc-runner'),
           ('updater', 'ghcr.io/ticoteam/tico-updater', 'tico-rc-updater'))
@@ -241,7 +241,8 @@ def release(args):
         if not edge_ok:
             print('Release check failed: the gate stacks cannot hold their edge networks side by side', flush=True)
             return 1
-        journey_env = {**base_env, 'TICO_JOURNEY_IMAGES_READY': str(ready), 'TICO_JOURNEY_EDGE': EDGE['journey']}
+        journey_env = {**base_env, 'TICO_JOURNEY_IMAGES_READY': str(ready), 'TICO_JOURNEY_EDGE': EDGE['journey'],
+                       'TICO_BACKUP_EDGE': EDGE['backup-test']}
         journey_cmd = ['bash', 'scripts/journey-test.sh', '--release'] + (['--previous', args.previous] if args.previous else [])
         checks.append(Check('journey', journey_cmd, logs, journey_env))   # installs the previous release while the images build
 
