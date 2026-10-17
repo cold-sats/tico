@@ -1890,10 +1890,10 @@ def back_when(conn, slug, state):
 
 
 def target_inactive(conn, slug, state):
-    """The refusal text for a write to a bot that is not running: when it is back, and that it is not held
+    """The refusal text for a write to a bot that is not running: when it is back, and how little it counts
     against the sender, so the sender waits instead of retrying."""
-    return (f"{slug} {back_when(conn, slug, state)}. This refusal does not count against you; "
-            "send it again once it is back")
+    return (f"{slug} {back_when(conn, slug, state)}. This refusal is not a repeat and opens no review of you; "
+            "only the day's limit of 30 refusals counts it. Send it again once it is back")
 
 
 def held_note(conn, target):
