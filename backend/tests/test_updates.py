@@ -118,16 +118,20 @@ def test_people_post_their_own_update_and_alerts_come_only_from_direct_reports(a
         updates.post(c, "boss", "- Planned the launch", day="2026-09-29")
         updates.post(c, "analyst", "- Sized the market", day="2026-09-29")
         updates.post(c, "human:ben", "- Met two customers", day="2026-09-29", drafted_by="coo")
+
+    def redraft():
+        with store.transaction() as c:
+            try:
+                updates.post(c, "human:ben", "- Redrafted", day="2026-09-29", drafted_by="coo")
+                raise AssertionError("a draft landed over the person's own words")
+            except Problem as e:
+                assert e.status == 409
     edited = post(api, "updates", {"body": "- Met three customers"}, token="ben-test")["update"]
     assert edited["bot"] == "human:ben" and edited["drafted_by"] == "coo" and edited["edited_by"] == "human:ben"
+    redraft()                                   # over the words they edited
     own = post(api, "updates", {"body": "- Met three customers", "replace_draft": True}, token="ben-test")["update"]
     assert own["drafted_by"] is None and own["edited_by"] is None
-    with store.transaction() as c:
-        try:
-            updates.post(c, "human:ben", "- Redrafted", day="2026-09-29", drafted_by="coo")
-            raise AssertionError("a draft landed over the person's own words")
-        except Problem as e:
-            assert e.status == 409
+    redraft()                                   # over their own words
     seen = {u["bot"] for u in get(api, "updates")["updates"]}
     assert {"boss", "analyst", "human:ben"} <= seen, "a person's update is for the whole company"
     post(api, f"updates/{own['id']}/reply", {"text": "Nice"}, expected=422)
@@ -145,3 +149,6 @@ def test_people_post_their_own_update_and_alerts_come_only_from_direct_reports(a
     from backend.tests.test_assistant import asked, assistant_turn
     _, attempt = assistant_turn(api, "ben-test", "Post my update")
     asked(api, "updates", {"body": "- From my chat"}, attempt["token"], "turn", expected=403)
+    # Nor as a card for him to confirm: posting an update is not a route the Assistant can propose.
+    post(api, "assistant/actions", {"summary": "Post my update", "path": "/api/v2/updates",
+                                    "body": {"body": "- From my chat"}}, token=attempt["token"], expected=422)
