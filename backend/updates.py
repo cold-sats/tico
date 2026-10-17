@@ -136,10 +136,11 @@ def _chart(c):
     return views.roster(c), views.entries(c), archived
 
 
-def direct_reports(c, author):
-    """The authors one level below this one on the org chart: bot slugs and `human:<id>`."""
+def direct_reports(c, author, chart=None):
+    """The authors one level below this one on the org chart: bot slugs and `human:<id>`. `chart` is
+    `_chart(c)` when the caller already read it (the queue reads it once a step, not once a report)."""
     from . import goals as G
-    roster, entries, archived = _chart(c)
+    roster, entries, archived = chart or _chart(c)
     return [a if H.actor_kind(a) == "human" else H.actor_id(a)
             for a in G.reports_of(author_actor(author), roster, entries, archived)]
 
@@ -186,11 +187,20 @@ def team_updates(c, author, kind, day):
     return [rows[a] for a in reports if a in rows], missing
 
 
-def _holding(c, row):
+def _waited_out(row):
+    """Whether a held manager's own wait is over, so it is asked with what is in."""
+    return bool(row["held_at"]) and (H.parse_ts(H.now()) - H.parse_ts(row["held_at"])).total_seconds() >= MANAGER_WAIT_S
+
+
+def _holding(c, row, chart=None, seen=frozenset()):
     """(waits, clock) for a queued request: whether a report is still queued or out, and whether this
     manager's own 90-minute clock runs. A report that is itself a manager still waiting on its own
-    reports has not been asked yet, so the clock above it has not started."""
-    reports = direct_reports(c, row["bot"])
+    reports has not been asked yet, so the clock above it has not started, until that report's own
+    wait is over: a stack of managers busy all day still adds one wait each, not a day. `seen` stops a
+    `reports_to` loop."""
+    chart = chart or _chart(c)
+    seen = seen | {row["bot"]}
+    reports = direct_reports(c, row["bot"], chart)
     if not reports:
         return False, False
     marks = ",".join("?" * len(reports))
@@ -198,23 +208,23 @@ def _holding(c, row):
                      (row["kind"], row["day"], *reports)).fetchall()
     if not any(r["state"] in ("queued", "sent") for r in rows):
         return False, False
-    if any(r["state"] == "queued" and _holding(c, r)[0] for r in rows):
+    if any(r["state"] == "queued" and r["bot"] not in seen and not _waited_out(r) and _holding(c, r, chart, seen)[0]
+           for r in rows):
         return True, False
     return True, True
 
 
-def waits_on_reports(c, row):
+def waits_on_reports(c, row, chart=None):
     """Whether a manager's request still waits for its reports. Its clock starts the first time it is
     held with its reports asked (`held_at`, kept through a report's retry), and after `MANAGER_WAIT_S`
     it is asked with what is in."""
-    waits, clock = _holding(c, row)
+    waits, clock = _holding(c, row, chart)
     if not waits or not clock:
         return waits
-    held = row["held_at"]
-    if not held:
+    if not row["held_at"]:
         c.execute("UPDATE update_queue SET held_at=? WHERE id=?", (H.now(), row["id"]))
         return True
-    return (H.parse_ts(H.now()) - H.parse_ts(held)).total_seconds() < MANAGER_WAIT_S
+    return not _waited_out(row)
 
 
 def _label(c, author):
@@ -540,6 +550,7 @@ def dispatch(c, at=None, assistant=None):
     if out and settle_sent(c, out):
         return None
     # Today's requests first, then any redo of a past day an owner asked for.
+    chart = None
     for row in c.execute("SELECT q.* FROM update_queue q JOIN bots b ON b.slug=q.bot WHERE q.state='queued' "
                          "AND (q.day=? OR q.redo=1) ORDER BY q.day=? DESC, q.rank", (day, day)).fetchall():
         bot = H.bot(c, row["bot"]) or {}
@@ -551,7 +562,8 @@ def dispatch(c, at=None, assistant=None):
             continue
         if _busy(c, row["bot"]):
             continue                      # asked later today, once its run is over
-        if waits_on_reports(c, row):
+        chart = chart or _chart(c)
+        if waits_on_reports(c, row, chart):
             continue                      # asked once its reports are in, or the wait is up
         send_request(c, row)
         return row["bot"]

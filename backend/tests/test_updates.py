@@ -118,16 +118,20 @@ def test_people_post_their_own_update_and_alerts_come_only_from_direct_reports(a
         updates.post(c, "boss", "- Planned the launch", day="2026-09-29")
         updates.post(c, "analyst", "- Sized the market", day="2026-09-29")
         updates.post(c, "human:ben", "- Met two customers", day="2026-09-29", drafted_by="coo")
+
+    def redraft():
+        with store.transaction() as c:
+            try:
+                updates.post(c, "human:ben", "- Redrafted", day="2026-09-29", drafted_by="coo")
+                raise AssertionError("a draft landed over the person's own words")
+            except Problem as e:
+                assert e.status == 409
     edited = post(api, "updates", {"body": "- Met three customers"}, token="ben-test")["update"]
     assert edited["bot"] == "human:ben" and edited["drafted_by"] == "coo" and edited["edited_by"] == "human:ben"
+    redraft()                                   # over the words they edited
     own = post(api, "updates", {"body": "- Met three customers", "replace_draft": True}, token="ben-test")["update"]
     assert own["drafted_by"] is None and own["edited_by"] is None
-    with store.transaction() as c:
-        try:
-            updates.post(c, "human:ben", "- Redrafted", day="2026-09-29", drafted_by="coo")
-            raise AssertionError("a draft landed over the person's own words")
-        except Problem as e:
-            assert e.status == 409
+    redraft()                                   # over their own words
     seen = {u["bot"] for u in get(api, "updates")["updates"]}
     assert {"boss", "analyst", "human:ben"} <= seen, "a person's update is for the whole company"
     post(api, f"updates/{own['id']}/reply", {"text": "Nice"}, expected=422)
@@ -145,6 +149,9 @@ def test_people_post_their_own_update_and_alerts_come_only_from_direct_reports(a
     from backend.tests.test_assistant import asked, assistant_turn
     _, attempt = assistant_turn(api, "ben-test", "Post my update")
     asked(api, "updates", {"body": "- From my chat"}, attempt["token"], "turn", expected=403)
+    # Nor as a card for him to confirm: posting an update is not a route the Assistant can propose.
+    post(api, "assistant/actions", {"summary": "Post my update", "path": "/api/v2/updates",
+                                    "body": {"body": "- From my chat"}}, token=attempt["token"], expected=422)
 
 
 def test_updates_roll_up_the_org_chart_with_reports_updates_in_the_managers_request(api):
@@ -214,13 +221,23 @@ def test_a_report_on_retry_and_a_stacked_manager_keep_the_90_minute_wait(api, mo
         held = dict(c.execute("SELECT bot, held_at FROM update_queue WHERE bot IN ('ops','cpo')").fetchall())
     assert held["ops"] and not held["cpo"], "the manager above has not started its clock"
     assert tick(60) is None, "an hour after the manager was held"
-    assert tick(31) == "ops", "91 minutes after it was held, the manager writes with what is in"
+    post(api, "chat/ops", {"text": "Check the close"})    # the manager is busy with a run when its wait is up
+    assert tick(31) is None
+    with store.transaction() as c:
+        assert c.execute("SELECT held_at FROM update_queue WHERE bot='cpo'").fetchone()[0], \
+            "a report whose own wait is over counts as released: the clock above starts, not a day's wait"
+        c.execute("UPDATE jobs SET state='completed' WHERE bot='ops'")
+    assert tick() == "ops", "91 minutes after it was held, the manager writes with what is in"
     with store.transaction() as c:
         assert "No update from: " + updates._label(c, other) in c.execute(
             "SELECT m.body FROM update_queue q JOIN messages m ON m.id=q.message_id WHERE q.bot='ops'").fetchone()[0]
         updates.post(c, "ops", "- The team closed the books", day="2026-09-29")
     job("ops", "completed")
     assert tick() == "cpo", "the manager above is asked once its report posts"
+    with store.transaction() as c:                 # a reports_to loop is followed once, never forever
+        c.execute("UPDATE bot_config SET reports_to='product-design' WHERE bot='cpo'")
+        c.execute("UPDATE update_queue SET state='queued', held_at=NULL WHERE bot IN ('cpo','ops','product-design')")
+        updates.waits_on_reports(c, c.execute("SELECT * FROM update_queue WHERE bot='cpo'").fetchone())
 
 
 def test_a_persons_draft_is_written_from_only_what_everyone_can_see_and_never_over_their_own(api, monkeypatch):
