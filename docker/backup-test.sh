@@ -24,11 +24,8 @@ write_env() {
 TICO_COMPANY_NAME=Backup Test
 TICO_OWNER_EMAIL=owner@example.com
 TICO_AUTH_PROXY=none
-TICO_EDGE_SUBNET=172.30.251.0/28
-TICO_EDGE_DYNAMIC_RANGE=172.30.251.8/29
-TICO_CADDY_ADDRESS=172.30.251.2
-TICO_CLOUDFLARED_ADDRESS=172.30.251.3
 EOF2
+  docker/edge-env.sh 172.30.251 >> "$work/env"   # its own edge range, apart from an install's and the gate's
   [ "$1" = remote ] || return 0
   cat >> "$work/env" <<'EOF2'
 TICO_BACKUP_URL=s3://tico-test/tico
