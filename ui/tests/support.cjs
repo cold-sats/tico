@@ -15,7 +15,7 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
 (async () => {
   const browser = await chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
   try {
-    const visit = async ({enabled = true, seed = [], native = false, feedback = null, viewport = {width: 1440, height: 900}} = {}) => {
+    const visit = async ({enabled = true, seed = [], native = false, feedback = null, viewport = {width: 1440, height: 900}, access = null} = {}) => {
       const ctx = await browser.newContext({viewport, serviceWorkers: 'block'});
       // The desktop app's bridge (app/src/main.rs BRIDGE_SCRIPT), recording what the page posts to it.
       if (native) await ctx.addInitScript(() => {
@@ -27,7 +27,7 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
       });
       const page = await ctx.newPage();
       const errors = [], calls = [];
-      const hq = {tickets: seed, reply: false, read: false, fail: false, confirm: true, asked: []};
+      const hq = {tickets: seed, reply: false, read: false, fail: false, confirm: true, asked: [], access};
       const view = () => ({enabled, tickets: hq.tickets.map(t => ({...t, unread: t.messages.filter(m => m.from === 'staff' && !hq.read).length})),
                            unread: hq.tickets.reduce((n, t) => n + t.messages.filter(m => m.from === 'staff' && !hq.read).length, 0)});
       page.on('pageerror', e => errors.push(e.message));
@@ -46,6 +46,13 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
         if (p.startsWith('/api/v2/support/')) {
           const rest = p.slice('/api/v2/support/'.length), body = req.postData() ? JSON.parse(req.postData()) : null;
           calls.push(req.method() + ' ' + rest + (body ? ' ' + JSON.stringify(body) : ''));
+          if (rest === 'access' && req.method() === 'GET') return json(hq.access || {available: false, off_reason: 'TICO_SUPPORT_ACCESS', active: null, last: null});
+          if (rest === 'access') {
+            hq.access.active = hq.access.last = {id: 'sa_1', ticket_id: body.ticket_id, tier: body.tier, started_by: 'human:ana', seconds_left: body.hours * 3600 - 48 * 60};
+            return json(hq.access.active);
+          }
+          if (rest === 'access/sa_1/stop') { hq.access.active = null; return json({}); }
+          if (rest === 'access/sa_1/log') return json({log: [{ts: new Date().toISOString(), by: 'support-agent', method: 'GET', path: '/api/v2/health' + HOSTILE, status: 200}]});
           if (rest === 'setup-check') return json({checks: [
             {name: 'HTTPS certificate', status: 'bad', detail: 'could not connect to tico.acme.example:443', fix: 'Open port 443 to the server.', source: 'doctor'},
             {name: '/healthz', status: 'ok', detail: 'ok', fix: '', source: 'doctor'}], failing: 1, doctor_only: 'Run tico-setup doctor on the server for the rest.'});
@@ -270,6 +277,27 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
     const filed = JSON.parse(v.calls.find(c => c.startsWith('POST tickets {')).slice('POST tickets '.length));
     assert.equal(filed.app_version, '0.3.48');
     assert.equal(filed.diagnostics, 'c'.repeat(64));
+    assert.deepEqual(v.errors, []);
+    await v.ctx.close();
+
+    // Letting Tico support in from an open request: the dialog offers only what this person may give, the banner shows
+    // on the page with the time left, the log lists what support did (as text), and Stop ends it.
+    v = await visit({seed: [{id: 'sup_9', created: new Date().toISOString(), status: 'open', message: 'Bots stopped', messages: [], sent: {}}],
+                     access: {available: true, off_reason: '', active: null, last: null, can_start: true, can_full: false}});
+    await v.page.locator('[data-requests] .support-item').first().click();
+    await v.page.getByRole('button', {name: 'Let Tico support in'}).click();
+    assert.equal(await v.page.locator('dialog [name=tier][value=full]').isDisabled(), true, 'full access is the owner\'s to give');
+    await v.page.locator('dialog [name=hours]').selectOption('4');
+    await v.page.locator('dialog [type=submit]').click();
+    await v.page.locator('#support-access-banner:not([hidden])').waitFor();
+    assert.ok(v.calls.includes('POST access {"ticket_id":"sup_9","tier":"app","hours":4}'));
+    assert.equal(await v.page.locator('#support-access-banner [data-access-left]').innerText(), 'Tico support has access, 3 h 12 min left');
+    await v.page.locator('.support-access-log li').waitFor();
+    assert.match(await v.page.locator('.support-access-log li').innerText(), /Support Agent · GET \/api\/v2\/health<img src=x/);
+    await v.page.locator('#support-access-banner [data-access-stop]').click();
+    await v.page.locator('#support-access-banner').waitFor({state: 'hidden'});
+    assert.ok(v.calls.includes('POST access/sa_1/stop {}'));
+    assert.equal(await v.page.evaluate(() => window.__pwned), undefined);
     assert.deepEqual(v.errors, []);
     await v.ctx.close();
 

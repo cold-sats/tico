@@ -12,7 +12,27 @@ has its own image, database and compose file. An install reaches it only through
 | `GET /v1/stats` | The public aggregate of that count | Nothing |
 | (in `GET /v1/latest`) | Tico's short messages for given versions and its known issues by version, the same lists for every install ([Messages, known issues and fixed-in notices](#messages-known-issues-and-fixed-in-notices)) | Nothing from installs |
 | `POST /v1/recruit` | Bot suggestions for one group while a team builds its team chart ([Finish setup](onboarding.md#the-team-builder)) | Nothing |
+| `/v1/support/...`, `/v1/staff/...` | Support tickets ([support.md](support.md#what-is-sent-and-kept)) and support access, below | The tickets; access sessions and their request log |
 | `GET /healthz` | Liveness | Nothing |
+
+## Support access
+
+A person lets the Tico team into their app from a ticket ([support.md](support.md#letting-tico-support-in)). The install
+opens and ends the session and fetches the work; HQ never connects to an install.
+
+| Route | Who | |
+|---|---|---|
+| `POST /v1/support/{ticket}/access` | the install (`X-Ticket-Secret`) | `{tier: app\|full, expires_at}` opens a session: `{session}`. A live one on the same ticket ends |
+| `POST /v1/support/{ticket}/access/{session}/pull` | the install | held up to 25 s: `{ended, requests: [{rid, by, method, path, query, content_type, body_b64}]}` |
+| `POST /v1/support/{ticket}/access/{session}/reply` | the install | `{replies: [{rid, status, content_type, body_b64}]}` |
+| `POST /v1/support/{ticket}/access/{session}/end` | the install | the person stopped it |
+| `GET /v1/staff/access` | staff key | live sessions (`?ticket=TK-...`: that ticket's, ended ones too) |
+| `GET /v1/staff/access/{session}/log` | staff key | each carried request: when, by, method, path, status |
+| `GET\|POST\|PUT\|PATCH\|DELETE /v1/staff/access/{session}/api/{path}` | staff key | one request to the install's `/api/{path}`, answered with its status and body; `X-Tico-Support-By: staff` (default) or `support-agent`; 409 for a session that ended or ran out, 504 when the install does not answer in 30 s |
+
+The queue between a staff call and the install's pull is in HQ's memory (HQ runs as one process). HQ stores the session
+(ticket, tier, opened, expires, ended) and the one-line record of each request, deleted with the ticket; never a request or
+answer body. What an install answers is untrusted data, for staff and for the Support Agent.
 
 ## `POST /v1/recruit`
 

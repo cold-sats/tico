@@ -141,6 +141,12 @@ def create_app(settings=None):
             telemetry.capture("github", exc)
         # A deploy keeps the API down longer than a lease; do not fail turns for that.
         execution.grace_leases()
+        # A live support session picks its link to HQ back up (backend/support_access.py).
+        try:
+            from . import support_access
+            support_access.started(app, asyncio.get_running_loop())
+        except Exception as exc:
+            telemetry.capture("support_access", exc)
         telemetry.start()
         stop = asyncio.Event()
         screen_relay_task = None
@@ -432,6 +438,12 @@ def create_app(settings=None):
                 began = time.perf_counter()
                 who = await asyncio.get_running_loop().run_in_executor(AUTH_POOL, auth.authenticate, request.headers,
                                                                        request.url.path, request.method)
+                if who.support:
+                    # Again on the path as sent, still percent-encoded: the gate then reads the address the router
+                    # will, not a decoded one that could differ from it.
+                    from . import support_access
+                    raw = request.scope.get("raw_path") or b""
+                    support_access.gate(who, raw.decode("latin-1") if raw else request.url.path, request.method)
                 if who.via == "assistant" and not who.confirmed and not who.task_actor:
                     who = replace(who, task_actor="bot:" + settings.assistant_bot)
                 request.state.auth_ms = (time.perf_counter() - began) * 1000
@@ -5042,6 +5054,8 @@ def create_app(settings=None):
     install_groups(app, store, auth, mutate, settings)
     from .support import install as install_support
     install_support(app, store, settings, census)
+    from .support_access import install as install_support_access
+    install_support_access(app, store, settings, auth)
     from .watchers import install as install_watchers
     install_watchers(app, store, auth, execution, mutate)
     from .health_monitor import install as install_health_monitor

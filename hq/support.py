@@ -18,6 +18,8 @@
     POST   /v1/staff/tickets/{id}/verdict  correct a verdict (legit, spam, injection_risk, unchecked); legit releases a held one
     POST   /v1/staff/judge                 {text} -> {verdict, reason}: the same check for GitHub threads (HQ_STAFF_KEY)
 
+The support-access routes, a session a person opens from a ticket so the team can use their app, are in support_access.py.
+
 Each new ticket is classified before any bot reads it (judge.py): `legit`, `spam`, `injection_risk` or `unchecked`. Only the
 verdict and a short reason are stored; a `spam` ticket is held and the queue skips it until a person corrects the verdict.
 
@@ -215,6 +217,9 @@ class Tickets:
         self.staff = Limiter(limit=1200, window=3600, clock=clock)
         self.judged = Limiter(limit=5000, window=86400, clock=clock)          # judge calls a day, all callers: a spend cap
         self.refused = Limiter(limit=20, window=3600, clock=clock)            # wrong staff keys, per address
+        # A support-access link (support_access.py): calls per ticket once its secret is proven, and wrong secrets per address.
+        self.access = Limiter(limit=20000, window=3600, clock=clock)
+        self.access_refused = Limiter(limit=60, window=3600, clock=clock)
 
     # ------------------------------------------------------------------ people
     def create(self, message, email, install_id, version, diagnostics=None, verdict="unchecked", reason="", app_version=None,
@@ -275,6 +280,9 @@ class Tickets:
             if secret is not None and not self._owned(ticket_id, secret):
                 return False
             self.db.conn.execute("DELETE FROM ticket_replies WHERE ticket_id=?", (ticket_id,))
+            for table in ("access_log", "access_sessions"):      # support_access.py's, where it is installed
+                if self.db.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
+                    self.db.conn.execute(f"DELETE FROM {table} WHERE ticket_id=?", (ticket_id,))
             found = self.db.conn.execute("DELETE FROM tickets WHERE ticket_id=?", (ticket_id,)).rowcount
             if found:
                 self.db.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")

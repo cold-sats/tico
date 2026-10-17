@@ -26,6 +26,12 @@ class Limiter:
         seen.append(now)
         return True
 
+    def full(self, address):
+        """Whether `address` is at its limit now, without counting this as a hit."""
+        now = self.clock()
+        key = hashlib.blake2b(str(address).encode(), key=self.salt, digest_size=16).digest()
+        return sum(1 for t in self.hits.get(key, ()) if now - t < self.window) >= self.limit
+
     def _sweep(self, now):
         self.swept = now
         for key in [k for k, seen in self.hits.items() if not seen or now - seen[-1] >= self.window]:

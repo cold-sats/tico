@@ -1,4 +1,4 @@
-/* ui/styles/base.css — Demo, stale-tab and usage banners; spacing scale and element defaults.
+/* ui/styles/base.css — Demo, stale-tab, support-access and usage banners; spacing scale and element defaults.
    The cascade runs in the order index.html links these files; keep rules in order. */
 /* Demo mode (python -m backend.demo): a strip nobody can close, and the page below it shortened to fit. */
 #demo-banner{display:none}
@@ -9,6 +9,9 @@
 #app-update a.primary{padding:5px 12px;border-radius:6px;text-decoration:none}
 #app-update .ghost{color:var(--bg);opacity:.75}
 #stale-banner:not([hidden])~#app-update{bottom:72px}
+/* Tico support has access (ui/support.js): over the top of every page while the session lasts. */
+#support-access-banner{position:fixed;left:50%;top:8px;transform:translateX(-50%);z-index:3100;display:flex;align-items:center;gap:10px;max-width:calc(100vw - 32px);padding:6px 8px 6px 14px;background:var(--wait-bg);color:var(--ink);border:1px solid var(--wait);border-radius:8px;font-size:var(--t-sm);box-shadow:0 6px 20px rgba(0,0,0,.12)}
+#support-access-banner[hidden],#support-access-banner [hidden]{display:none}
 #usage-notice{position:fixed;left:16px;bottom:16px;z-index:3000;display:flex;align-items:center;gap:12px;max-width:min(560px,calc(100vw - 32px));padding:10px 14px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;font-size:var(--t-sm);box-shadow:0 6px 20px rgba(0,0,0,.12)}
 #usage-notice[hidden]{display:none}
 #version-message{position:fixed;left:16px;bottom:72px;z-index:3000;display:flex;align-items:center;gap:12px;max-width:min(560px,calc(100vw - 32px));padding:10px 14px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;font-size:var(--t-sm);box-shadow:0 6px 20px rgba(0,0,0,.12)}

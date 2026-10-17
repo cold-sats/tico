@@ -78,6 +78,11 @@ All notable changes to Tico are recorded here. The format follows
   Tico support? [y/N]" and on yes sends the redacted failing checks as a `setup` request, then prints a link where
   replies show up (a new HQ page, `/support/<ticket>`; the secret stays after the `#`). `--no-support` or
   `TICO_SUPPORT=off` turns the question off. The Support Agent template now checks HQ tickets every minute.
+- Letting Tico support in, off until its security review (`TICO_SUPPORT_ACCESS=on`): from one of their open support
+  requests, an owner or admin gives the Tico team **App only** access (an admin's reads and setup changes) or, the owner
+  only, **Full access**, for a time they choose (24 hours by default). A banner shows on every screen while it lasts, Stop
+  ends it at once, and every request support makes is listed under the request. The install dials out to Tico HQ; nothing
+  connects in. The team rule **Owners and admins may let Tico support in** turns it off ([support](docs/support.md#letting-tico-support-in)).
 - A bot waiting on a linked pull request can end its turn instead of polling: `hub task link <task> <pr url>
   --wake-once` (or `wake_once` on `hub_task_link`) wakes the task once, in its conversation, when the PR's checks
   finish (pass or fail), it is approved or gets changes requested, or a release ships it (or it merges in a
