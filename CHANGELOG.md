@@ -18,6 +18,11 @@ All notable changes to Tico are recorded here. The format follows
   request carries its reports' updates and names who had none, so its update sums up the team in its own words and
   links the updates it was written from. Friday's week in review rolls up the same way. Redoing a past day can take
   the managers above too (`hub update redo --bot X --with-managers`).
+- Each person's update is drafted for them, labelled **Drafted by Assistant**. Once the bots and the person's reports
+  are in, Tico writes the draft with one call to the company's own model. That call gets only what every member can
+  already see: their shared tasks and goals and their reports' updates. Private tasks, restricted bots and Assistant
+  chats are never part of it. The draft posts at once as theirs, and they can edit or replace it all day; it never
+  goes over words they wrote. **Assistant drafts my update** on a person's page turns it off.
 - Docs: [The software factory](docs/software-factory.md), Tico's recommended way to build software with bots: the
   roles in order from Builder to DevOps, which model and effort each runs on, the Dev tickets steps and who moves each.
   Linked from the README, Public roadmaps and Starter bots.
