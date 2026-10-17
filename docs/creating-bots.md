@@ -62,8 +62,10 @@ as instructions. An update never changes the bot's Instructions, settings or acc
 change, use [Edit Instructions](#edit-instructions) as usual, with its approvals.
 
 Turning a category on, or back on, starts from the newest update: the bot gets what comes out from then on, never a
-backlog of what came out while it was off. Unticking both stops all delivery. A server that was down catches up on
-everything it missed, once each and in order. Nothing is fetched while no bot subscribes; `TICO_UPDATE_CHECK=off`
+backlog of what came out while it was off. Unticking a category stops it at once: updates of that category the bot
+has not picked up yet are cancelled too, and unticking both stops all delivery. A server that was down catches up on
+everything it missed, once each and in order, over as many polls as it takes (up to 40 feed pages back; past that it
+starts from the newest 40 pages). Nothing is fetched while no bot subscribes; `TICO_UPDATE_CHECK=off`
 stops the fetching, and `TICO_TEMPLATE_FEED=off` leaves the template category without a feed (it then says so and
 sends nothing). From the command line: `hub bot update <slug> --subscribe-updates templates,tico` (or `none`), or
 `update_subscriptions` on `hub_bot_update`.
