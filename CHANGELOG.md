@@ -85,6 +85,10 @@ All notable changes to Tico are recorded here. The format follows
   button on **Settings → Health**, with the same checks, fixes and **Send to support**; **Show the app's log** sits on
   the version line at the top of **Settings**; **Beta features** and **Known issues in your version** open the
   **Changelog** page; and **Take the tour** is in the account menu.
+- **Support** is a pop-up from the **?** at the bottom of the sidebar (the **Support** tab on a phone, where it opens
+  as a sheet): it opens on your latest request that isn't closed, keeps words you haven't sent, and lists every
+  request under **Your requests**, with **View docs** and **What's new** beside it. A reply puts a count on the **?**.
+  **Talk to us** and the Help page are gone; old Help links open the pop-up over Overview ([support](docs/support.md)).
 - Faster image handling and startup with Pillow 13, plus pydantic 2.14, pypdf 6.21, Starlette 1.8 and Uvicorn 0.54.
   Python and browser tests use one Playwright version (1.64), so they share one Chromium and WebKit.
 - Tasks: when a bot files a task for a person, that person's comment on it now wakes the bot, with or without an
