@@ -2056,7 +2056,7 @@ def create_app(settings=None):
         with store.read() as c:
             return updates.listing(c, who.actor, update_visible(c, who, mine, update_scope(scope)), kind=kind, bot=bot, unread=unread,
                                    before=before, limit=max(1, min(limit, 100)), archive=archive,
-                                   include_archive=include_archive)
+                                   include_archive=include_archive, may_read=update_visible(c, who))
 
     @app.get("/api/v2/updates/unread")
     def updates_unread(request: Request, mine: bool = False, scope: str | None = None):
