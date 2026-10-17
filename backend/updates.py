@@ -1151,16 +1151,12 @@ def tree(c, actor, readable, kind, day=None, scope=None):
             parent = parent_of.get(parent, "")
         node["parent"] = parent if parent in nodes else ""
         children.setdefault(node["parent"], []).append(key)
-    # A manager's reports in the order someone put them on the team chart (backend/report_order.py), then humans
-    # first, by name.
-    places = report_order.placed(c)
+    # A manager's reports in the team chart's order (backend/report_order.py rank).
+    chart_rank = report_order.rank(c)
     full = lambda k: ("human:" if k[0] == "p" else "bot:") + k[2:]
 
     def rank(parent, k):
-        at = places.get(full(k))
-        if at and parent and at[0] == full(parent):
-            return (0, at[1], False, "")
-        return (1, 0, k[0] != "p", nodes[k]["name"].lower())
+        return chart_rank(full(k), full(parent) if parent else "")
 
     def build(key, seen):
         node = nodes[key]
@@ -1175,7 +1171,7 @@ def tree(c, actor, readable, kind, day=None, scope=None):
                 "update": update, "children": kids}
     if scope not in ("below", "all"):
         scope = "below" if children.get(me) else "all"
-    tops = [me] if scope == "below" and me in nodes else sorted(children.get("", []), key=lambda k: nodes[k]["name"].lower())
+    tops = [me] if scope == "below" and me in nodes else sorted(children.get("", []), key=lambda k: rank("", k))
     return {"kind": kind, "day": day, "scope": scope, "me": me, "roots": [build(k, {k}) for k in tops],
             "unread": count_unread(c, actor, direct, kind)}
 

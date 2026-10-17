@@ -270,10 +270,16 @@ function orgReorder(key, at, where, parent) {
   keys.splice(where === 'after' ? i + 1 : i, 0, key);
   return orgOrderSave(parent, keys);
 }
+// One place up or down among the rows beside it (a group shows some of a manager's reports): it swaps places with that
+// neighbour in the manager's whole order.
 function orgMoveStep(key, parent, step) {
-  const keys = orgOrderKeys(parent), i = keys.indexOf(key), j = i + step;
-  if (i < 0 || j < 0 || j >= keys.length) return;
-  [keys[i], keys[j]] = [keys[j], keys[i]];
+  const keys = orgOrderKeys(parent), node = $('#tree').querySelector(`[data-org-place][data-org="${CSS.escape(key)}"]`);
+  const near = [...(node?.closest('ul')?.children || [])].map(li => li.querySelector(':scope > .noderow > [data-org-place]'))
+    .filter(n => n?.dataset.orgIn === parent).map(n => n.dataset.org);
+  const i = near.indexOf(key), j = i + step;
+  if (i < 0 || j < 0 || j >= near.length) return;
+  const x = keys.indexOf(key), y = keys.indexOf(near[j]);
+  [keys[x], keys[y]] = [keys[y], keys[x]];
   return orgOrderSave(parent, keys, key);
 }
 let ORG_MENU = null;                       // the key whose Move menu is open
@@ -535,7 +541,6 @@ function renderTree() {
     (c.kind === 'bot' && (stateOf(c.name) === 'needs' || needsMeCount(c.name) || subtreeNeeds('b:' + c.name))) ||
     (c.kind === 'person' && subtreeNeeds('p:' + c.id)) ||
     (c.kind === 'group' && subtreeNeeds('g:' + c.id)));
-  const isTemp = e => e.kind === 'bot' && isTempBot(e);
   const nameOf = n => n.kind === 'person' ? (n.person.name || n.id) : (n.display_name || '').replace(TEMP_RE, '');
   const sources = {};
   for (const r of inboxNavRows()) (sources[r.bot] ||= []).push(r);
@@ -548,17 +553,20 @@ function renderTree() {
       if ((a.kind === 'group') !== (b.kind === 'group')) return a.kind === 'group' ? 1 : -1;
       if (a.kind === 'group' && b.kind === 'group') return (a.order || 0) - (b.order || 0);
       if (placed(a, b)) return placed(a, b);               // a manager's reports in the order someone put them
-      if ((a.kind === 'person') !== (b.kind === 'person')) return a.kind === 'person' ? -1 : 1;
-      if (isTemp(a) !== isTemp(b)) return isTemp(a) - isTemp(b);
       if (a.kind === 'bot' && b.kind === 'bot' && isHelperBot(a) && isHelperBot(b) && helperRank(a) !== helperRank(b)) return helperRank(a) - helperRank(b);
-      if (a.kind === 'bot' && b.kind === 'bot' && byBotOrder(a, b)) return byBotOrder(a, b);
-      return nameOf(a).localeCompare(nameOf(b));
+      return chartFallback(a, b);                          // then the chart's own order, as on the server
     });
-    // The direct reports here that the viewer may put in order: each gets a place to drop before or after, and Move up
-    // and Move down.
-    const order = orgMayOrder(parent) ? sorted.filter(n => (n.kind === 'person' || (n.kind === 'bot' && !isHelperBot(n)))
-      && orgReportsTo(n) === parent).map(n => n.kind === 'person' ? 'p:' + n.id : 'b:' + n.name) : [];
-    return sorted.map(node => row(node, depth, false, {parent, order: order.length > 1 ? order : []})).join('');
+    // The reports here that the viewer may put in order, per manager: a manager's own rows, or in a group the members
+    // that share one. Each gets a place to drop before or after, and Move up and Move down.
+    const lists = {};
+    for (const n of sorted) {
+      if (n.kind !== 'person' && (n.kind !== 'bot' || isHelperBot(n))) continue;
+      const manager = orgReportsTo(n);
+      if (manager && (manager === parent || parent.startsWith('g:')) && orgMayOrder(manager))
+        (lists[manager] ||= []).push(n.kind === 'person' ? 'p:' + n.id : 'b:' + n.name);
+    }
+    const at = n => { const manager = orgReportsTo(n), list = lists[manager] || []; return {parent: manager, order: list.length > 1 ? list : []}; };
+    return sorted.map(node => row(node, depth, false, at(node))).join('');
   };
   // A report's place among its manager's reports: its drop zones and its Move menu.
   const placeAttrs = (key, at) => at.order.includes(key) ? ` data-org-in="${esc(at.parent)}" data-org-place` : '';

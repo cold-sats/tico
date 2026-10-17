@@ -2,8 +2,11 @@
 
 There is no table of its own: one document in `registry_metadata` (key `report_order`) holds, for each human or bot
 someone placed by hand, the manager it was placed under and its place there. A place counts only while the report
-still reports to that manager, and changing its `reports_to` forgets it, so a new report goes last. Reports with no
-place follow the placed ones in the chart's own order: humans first, then by name.
+still reports to that manager. A report that joins a manager someone ordered goes last there, after the ones before
+it, whatever its name: every write of `reports_to` calls `arrive` (`access.save_roster` for humans, the bot
+definition writes in `settings_admin` and `shared_bots`). Reports with no place, under a manager nobody ordered,
+follow the chart's own order (`fallback`): humans first, then bots, temporary ones last and a bot's `order` lowest
+first, then by name. ui/app/avatars.js `chartFallback` is the same rule in the app.
 
 Whoever may put a report under a manager may order that manager's reports: the owner, a person the manager is or
 reports up to, and the person who runs a bot manager (the `reports_to` rules in `app.person_update` and
@@ -14,9 +17,14 @@ reports up to, and the person who runs a bot manager (the `reports_to` rules in 
   save(c, auth, who, manager, names)  put those reports in that order; the ones left out keep their places
   positions(c)                {report key: place} for every place that still counts (the UI's `report_position`)
   placed(c)                   the same with the manager each place is under (the Updates tree)
-  forget(c, report)           drop a report's place when it moves to another manager
+  rank(c)                     a sort key for (report, manager) in the chart's order, for any list of reports
+  arrive(c, report, reports_to)  a report's `reports_to` changed or it joined the chart: it goes last there
+  roster_saved(c, roster)     `arrive` for each person whose manager the new roster changes
 """
 import json
+import math
+import re
+import unicodedata
 
 from . import hubdb as H
 from . import people as P
@@ -43,13 +51,70 @@ def _chart(c):
     return views.roster(c), views.entries(c), archived
 
 
+def boss_key(kind, reports_to):
+    """A `reports_to` value as a manager key: a human's is a person id, a bot's a slug or `human:<id>`; '' at the top."""
+    boss = str(reports_to or "").strip()
+    if not boss:
+        return ""
+    if kind == "human":
+        return "human:" + boss
+    return boss if boss.startswith("human:") else "bot:" + boss
+
+
 def _boss(kind, ident, roster, configs):
     """Whom a report reports to, as a manager key; '' at the top."""
     if kind == "human":
-        boss = str((P.person(ident, roster) or {}).get("reports_to") or "").strip()
-        return "human:" + boss if boss else ""
-    boss = str((configs.get(ident) or {}).get("reports_to") or "").strip()
-    return boss if not boss or boss.startswith("human:") else "bot:" + boss
+        return boss_key(kind, (P.person(ident, roster) or {}).get("reports_to"))
+    return boss_key(kind, (configs.get(ident) or {}).get("reports_to"))
+
+
+TEMP = re.compile(r"^Temp\s+")
+
+
+def _name_key(name):
+    """A name as the chart compares it: accents and case aside (ui/app/avatars.js chartNameKey)."""
+    text = unicodedata.normalize("NFKD", str(name or ""))
+    return "".join(ch for ch in text if not unicodedata.combining(ch)).lower()
+
+
+def _bot_order(config):
+    """A bot's `order` (its definition), lowest first; none sorts after every number (ui/app/avatars.js botOrder)."""
+    value = config.get("order")
+    if value is None or value == "" or isinstance(value, bool):
+        return math.inf
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return math.inf
+    return number if math.isfinite(number) else math.inf
+
+
+def fallback(kind, ident, name, config=None):
+    """The chart's own order for a report with no place: humans first; then bots, temporary ones last and a bot's
+    `order` lowest first; then the name; the id breaks a tie."""
+    if kind == "human":
+        return (0, 0, math.inf, _name_key(name), ident)
+    config = config or {}
+    temp = bool(config.get("temp")) or bool(TEMP.match(str(name or "")))
+    return (1, int(temp), _bot_order(config), _name_key(TEMP.sub("", str(name or ""))), ident)
+
+
+def rank(c):
+    """key(report, manager) sorts any list of a manager's reports in the chart's order: the placed ones by place, then
+    the rest by `fallback`. Keys are `bot:<slug>` or `human:<id>`."""
+    places = placed(c)
+    roster, configs, _ = _chart(c)
+    names = {r["slug"]: r["display_name"] or r["slug"] for r in H.bots(c)}
+
+    def key(report, manager):
+        at = places.get(report)
+        if at and manager and at[0] == manager:
+            return (0, at[1], ())
+        kind, _, ident = report.partition(":")
+        if kind == "human":
+            return (1, 0, fallback(kind, ident, (P.person(ident, roster) or {}).get("name") or ident))
+        return (1, 0, fallback(kind, ident, names.get(ident) or ident, configs.get(ident)))
+    return key
 
 
 def placed(c):
@@ -72,12 +137,35 @@ def positions(c):
     return {report: place for report, (_, place) in placed(c).items()}
 
 
-def forget(c, report):
-    """A report moving to another manager starts at the end there (`report` is `bot:<slug>` or `human:<id>`)."""
+def arrive(c, report, reports_to):
+    """A report joins a manager (`reports_to` as stored for it; '' at the top): its old place is dropped and, when
+    someone ordered that manager's reports, it goes last there. Under a manager nobody ordered it keeps no place, so
+    the chart's own order holds. `report` is `bot:<slug>` or `human:<id>`."""
     doc = _load(c)
-    if report in doc:
-        doc.pop(report)
-        _store(c, doc)
+    if not doc:
+        return
+    manager = boss_key(report.partition(":")[0], reports_to)
+    doc.pop(report, None)
+    taken = [int(v.get("position") or 0) for v in doc.values() if isinstance(v, dict) and v.get("manager") == manager]
+    if manager and taken:
+        doc[report] = {"manager": manager, "position": max(taken) + 1}
+    _store(c, doc)
+
+
+def roster_saved(c, roster):
+    """Before a roster is stored: each person it adds, or whose `reports_to` it changes, arrives there."""
+    if not _load(c):
+        return
+    row = c.execute("SELECT value_json FROM registry_metadata WHERE key='people'").fetchone()
+    old = json.loads(row[0]) if row else {}
+    before = {p.get("id"): str(p.get("reports_to") or "").strip()
+              for p in (old.get("people") or []) if isinstance(p, dict)}
+    for person in (roster or {}).get("people") or []:
+        if not isinstance(person, dict) or not person.get("id"):
+            continue
+        now = str(person.get("reports_to") or "").strip()
+        if person["id"] not in before or before[person["id"]] != now:
+            arrive(c, "human:" + person["id"], now)
 
 
 def manager_key(c, auth, who, name):
@@ -126,8 +214,8 @@ def _reports(c, auth, who, manager):
     def rank(row):
         placed = doc.get(row["key"])
         if isinstance(placed, dict) and placed.get("manager") == manager:
-            return (0, int(placed.get("position") or 0), 0, "")
-        return (1, 0, 0 if row["kind"] == "human" else 1, row["name"].lower())
+            return (0, int(placed.get("position") or 0), ())
+        return (1, 0, fallback(row["kind"], row["id"], row["name"], configs.get(row["id"]) if row["kind"] == "bot" else None))
     for row in rows:
         row["saved"] = rank(row)[0] == 0
     return sorted(rows, key=rank), roster

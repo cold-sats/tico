@@ -60,6 +60,21 @@ def test_only_someone_who_may_put_reports_there_orders_them(api):
     # Nor may she move a report onto another manager: nothing moves, and the order stays.
     report_to(api, "ops", "human:cara", token="cara-test", expected=403)
     assert order(api, "coo") == ["ops", "finance", "doc-updater"]
+    from backend.tests.test_api import restrict
+    # The person who runs the COO may order its reports, though nothing reports up to him; Cara still may not.
+    from backend.tests.test_api import as_member
+    as_member(api, "ben@acme.example")
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET operator='ben' WHERE bot='coo'")
+    put(api, "org/order/coo", {"reports": ["finance", "ops"]}, token="ben-test")
+    put(api, "org/order/coo", {"reports": ["ops", "finance"]}, token="cara-test", expected=403)
+    assert order(api, "coo") == ["finance", "ops", "doc-updater"]
+    # A report he may not see keeps its place when he orders the others.
+    with api.app.state.store.transaction() as c:
+        restrict(c, "ops", people=["ana"])
+    assert order(api, "coo", token="ben-test") == ["finance", "doc-updater"]
+    put(api, "org/order/coo", {"reports": ["doc-updater", "finance"]}, token="ben-test")
+    assert order(api, "coo") == ["doc-updater", "ops", "finance"], "Ops stays where it was, between them"
     # Once the COO reports to her, she may order its reports.
     report_to(api, "coo", "human:cara")
     assert get(api, "org/order/coo", token="cara-test")["can_order"] is True
@@ -70,3 +85,49 @@ def test_only_someone_who_may_put_reports_there_orders_them(api):
     put(api, "org/order/coo", {"reports": ["doc-updater", "ops", "finance"]}, token=coo["token"])
     put(api, "org/order/coo", {"reports": ["ops"]}, token=ops["token"], expected=403)
     assert order(api, "coo") == ["doc-updater", "ops", "finance"]
+
+
+def test_reports_that_join_go_last_in_the_order_they_came_whatever_their_names(api):
+    from backend.tests.test_bot_contact import bot
+    chart(api)
+    put(api, "org/order/coo", {"reports": ["ops", "doc-updater", "finance"]})
+    bot(api, "zulu", "Zulu", reports_to="coo")
+    bot(api, "alpha", "Alpha", reports_to="coo")
+    assert order(api, "coo") == ["ops", "doc-updater", "finance", "zulu", "alpha"]
+    report_to(api, "zulu", "human:ben")                    # leaves, and comes back last
+    report_to(api, "zulu", "coo")
+    assert order(api, "coo") == order(api, "coo", token="cara-test") == ["ops", "doc-updater", "finance", "alpha", "zulu"]
+    coo = next(n for n in get(api, "updates/tree?scope=all")["roots"][0]["children"] if n["key"] == "b:coo")
+    assert [n["key"] for n in coo["children"]] == ["b:ops", "b:doc-updater", "b:finance", "b:alpha", "b:zulu"]
+    # Humans the same: added to the team, or moved under the manager, each goes last.
+    put(api, "org/order/ana", {"reports": ["cara", "ben"]})
+    zed = post(api, "access/people", {"name": "Zed", "email": "zed@acme.example", "reports_to": "ana"})["person"]
+    abe = post(api, "access/people", {"name": "Abe", "email": "abe@acme.example", "reports_to": "ana"})["person"]
+    post(api, "people/cara", {"reports_to": "ben"})
+    post(api, "people/cara", {"reports_to": "ana"})
+    assert [r for r in order(api, "human:ana") if r in ("cara", "ben", zed, abe)] == ["ben", zed, abe, "cara"]
+
+
+def test_reports_nobody_placed_follow_one_rule_humans_then_a_bots_order_then_names(api):
+    import json
+    from backend.store import encode
+    roster(api, [{"id": "ana", "email": "ana@acme.example", "name": "Ana", "primary_for": ["*"]},
+                 {"id": "zoe", "email": "zoe@acme.example", "name": "Zoë", "reports_to": "ana"},
+                 {"id": "eli", "email": "eli@acme.example", "name": "Éli", "reports_to": "ana"},
+                 {"id": "bea", "email": "bea@acme.example", "name": "bea", "reports_to": "ana"}])
+    for slug in ("ops", "finance", "doc-updater"):
+        report_to(api, slug, "coo")
+    with api.app.state.store.transaction() as c:          # a bot's own `order`, from its definition
+        for slug, place in (("ops", 1), ("finance", 2)):
+            config = json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot=?", (slug,)).fetchone()[0])
+            c.execute("UPDATE bot_config SET config_json=? WHERE bot=?", (encode({**config, "order": place}), slug))
+    assert order(api, "coo") == ["ops", "finance", "doc-updater"], "ordered bots first, lowest first, then names"
+    assert [r for r in order(api, "human:ana") if r in ("zoe", "eli", "bea")] == ["bea", "eli", "zoe"], (
+        "by name, accents and case aside, not as the roster lists them")
+    # A place someone saved comes first; the ones with none keep the same rule after it.
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO registry_metadata VALUES('report_order',?)",
+                  (encode({"bot:doc-updater": {"manager": "bot:coo", "position": 0}}),))
+    assert order(api, "coo") == ["doc-updater", "ops", "finance"]
+    coo = next(n for n in get(api, "updates/tree?scope=all")["roots"][0]["children"] if n["key"] == "b:coo")
+    assert [n["key"] for n in coo["children"]] == ["b:doc-updater", "b:ops", "b:finance"], "Updates the same"

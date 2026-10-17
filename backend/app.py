@@ -1815,14 +1815,13 @@ def create_app(settings=None):
                 if body.slack_muted_bots is not None:
                     row = {**row, "slack_muted_bots": list(dict.fromkeys(body.slack_muted_bots))}
                 if body.reports_to is not None:
-                    if str(row.get("reports_to") or "") != body.reports_to.strip():
-                        from .report_order import forget
-                        forget(c, "human:" + pid)          # a new manager's report goes last there
                     row = {**row, "reports_to": body.reports_to.strip()}
                 if body.left:
                     row = Access.leave(c, people, row)
                 people[i] = row
                 roster = {**roster, "people": people}
+                from .report_order import roster_saved
+                roster_saved(c, roster)                    # a new manager's report goes last there
                 c.execute("UPDATE registry_metadata SET value_json=? WHERE key='people'", (encode(roster),))
                 H.event(c, who.actor, "person.updated", pid, {"title": body.title is not None, "about": body.about is not None,
                                                               "goals": body.goals is not None, "notes": body.notes is not None,
