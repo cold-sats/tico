@@ -225,6 +225,12 @@ def test_the_working_line_is_only_the_owning_bots_run(api):
         cid = H.task(c, tid)["conversation_id"]
         assert conversation_execution(c, cid, bot="coo") is None, "another bot's runs only"
         assert conversation_execution(c, cid, bot="ops")["attempt_id"] == attempt["id"]
+    # Another bot's newer job in the task's room (the requester's bot answering there, say) does not take the line.
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO messages(id,conversation_id,from_actor,to_actor,kind,body,refs_json,created) "
+                  "VALUES('msg-coo',?,'human:ana','bot:coo','chat','Over to you','{}',?)", (cid, H.now()))
+        assert c.execute("SELECT bot FROM jobs WHERE message_id='msg-coo'").fetchone()["bot"] == "coo"
+    assert get(api, f"tasks/{tid}")["execution"]["attempt_id"] == attempt["id"], "the owner's run, not the newest"
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE tasks SET owner='human:ana' WHERE id=?", (tid,))
     assert get(api, f"tasks/{tid}")["execution"] is None, "a person's task has no session to follow"

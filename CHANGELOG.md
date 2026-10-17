@@ -33,8 +33,8 @@ All notable changes to Tico are recorded here. The format follows
   once and answers it. It used to stop taking messages after its answer: the run stayed Working until that work
   ended or someone pressed Stop, and the follow-up showed only "follow-up added". Every bot's instructions also say
   not to wait inside a long poll or sleep loop, where a follow-up waits until the command returns.
-- A task page's "Working" line no longer slows to one update every 15 seconds after you come back to its browser tab;
-  it keeps its own pace.
+- A task page's "Working" line, and a bot's reply as it streams into a chat, no longer slow to one update every 15
+  seconds after you come back to its browser tab; each keeps its own pace.
 
 ## [0.3.52] - 2026-10-16
 
