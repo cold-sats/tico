@@ -74,6 +74,10 @@ All notable changes to Tico are recorded here. The format follows
   `docker compose down`, run `docker compose up -d` first).
 
 ### Fixed
+- One bot's quarantine no longer spreads to the bots that work with it. A message or task comment to a paused or
+  quarantined bot is kept and runs when it is back, and the sender is told when that is. A new task or hand-off to
+  one is refused as `target_inactive`, saying when the bot is back. That refusal opens no review of the sender and
+  never counts as a repeat toward its quarantine; it counts only toward the 30 refusals a day that stop a loop.
 - A Linux computer's screen now comes up when another X server (say a headless IDE's own `Xvfb :99`) already holds
   display `:99`. The runner takes the first free display from `:99` to `:120`, and bots get that `DISPLAY`. Set
   `TICO_SCREEN_DISPLAY` (like `:101`) to use one display exactly. When the display it needs is taken, the computer's
