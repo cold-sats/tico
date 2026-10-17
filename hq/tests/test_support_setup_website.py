@@ -190,8 +190,14 @@ def test_keys_are_removed_before_they_are_judged_kept_or_logged(client, judged, 
     assert r.status_code == 200 and r.json()["keys_removed"] is True
     shown = client.get(f"/v1/staff/tickets/{r.json()['ticket_id']}", headers=staff()).json()
     assert shown["attachment"]["note"] == "Our Slack token is [removed]"
-    for secret in (SLACK, GITHUB):
-        assert secret not in dump(client) and secret not in str(shown) and secret not in caplog.text
+    # A quoted label, as JSON or YAML writes a key, and a password too short to look like a key are cut as well.
+    quoted = post(client, email="ben@example.com", note='Login: {"password": "k9"}',
+                  plan=PLAN + '  "api_key": "Rye-4417-oven"\n  pwd: \'Qz\'\n')
+    assert quoted.json()["keys_removed"] is True
+    shown_too = client.get(f"/v1/staff/tickets/{quoted.json()['ticket_id']}", headers=staff()).json()
+    assert shown_too["attachment"]["note"] == 'Login: {"password": "[removed]"}'
+    for secret in (SLACK, GITHUB, '"k9"', "Rye-4417-oven", "'Qz'"):
+        assert secret not in dump(client) and secret not in str(shown) + str(shown_too) and secret not in caplog.text
         assert all(secret not in text for text in judged)
 
 
