@@ -214,6 +214,9 @@ def test_each_short_or_quoted_key_is_removed_and_reported_on_its_own(client, jud
         ("plan", PLAN + '  "api_key": "Qx"\n', ['"Qx"'], 'name: "Crumb"', True),
         ("note", json.dumps({"about": json.dumps({"password": 'Plum"Nectar\\ Kumquat', "name": "Crumb"})}),
          ["Plum", "Nectar", "Kumquat"], '\\"name\\": \\"Crumb\\"', True),
+        ("note", "DB_PASSWORD=Kiwi4 and the oven", ["Kiwi4"], "and the oven", True),
+        ("plan", PLAN + "  STRIPE_API_KEY: Fig7\n", ["Fig7"], 'about: "Bakery"', True),
+        ("note", "API_TOKEN is set on our install", [], "API_TOKEN is set on our install", False),
         ("note", "The token is optional for us", [], "The token is optional for us", False),
     ]
     for n, (field, text, gone, kept, removed) in enumerate(cases):
