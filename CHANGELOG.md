@@ -53,6 +53,10 @@ All notable changes to Tico are recorded here. The format follows
   Someone who may only see the bot is told its computer isn't shown to them. The row and the button follow each refresh.
 
 ### Changed
+- What the Help page held now also has a home of its own, ahead of the Help page going away: **Setup check** is a
+  button on **Settings → Health**, with the same checks, fixes and **Send to support**; **Show the app's log** sits on
+  the version line at the top of **Settings**; **Beta features** and **Known issues in your version** open the
+  **Changelog** page; and **Take the tour** is in the account menu.
 - Faster image handling and startup with Pillow 13, plus pydantic 2.14, pypdf 6.21, Starlette 1.8 and Uvicorn 0.54.
   Python and browser tests use one Playwright version (1.64), so they share one Chromium and WebKit.
 - Steering is out of Beta: a message sent while a bot answers, which goes into that turn, no longer carries the
