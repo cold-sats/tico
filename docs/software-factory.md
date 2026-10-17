@@ -59,8 +59,9 @@ for example. Edit each bot's instructions to match its role here, or ask BotOps 
 
 ## Dev tickets: the steps
 
-Create a task type named **Dev tickets** in Settings → Types with these steps. Tico gives a type with that name to
-Head of Engineering in place of the default Engineering type.
+In Settings → Types, rename the default **Engineering** type to **Dev tickets** and replace its steps with these.
+Renaming keeps the type with Head of Engineering, so a roadmap item follows its Dev tickets (below); a new type you
+create yourself doesn't get that link. Move any tasks off a step before you delete it or change its status.
 
 | Step | Status | Moved there by | What happens |
 |---|---|---|---|
@@ -90,8 +91,9 @@ Head of Engineering in place of the default Engineering type.
 
 Feature ideas live in the **Product roadmap** type: Suggested → Exploring → Spec → Approved → Building → Shipped (or
 Declined). Head of Product moves them. A roadmap item's Dev tickets are its children, and the item moves to Building
-and Shipped as they finish. Spec and Approved show publicly as "Planned", and Building as "In progress". Shipped goes
-out with the release notes, after post-release QA. Publishing a roadmap is covered in [Public roadmaps](roadmaps.md).
+and Shipped as they finish. In Settings → Types, give Spec and Approved the public step name "Planned", and Building
+"In progress"; otherwise each step shows publicly under its own name. Shipped goes out with the release notes, after
+post-release QA. Publishing a roadmap is covered in [Public roadmaps](roadmaps.md).
 
 ## When Security holds a release
 
