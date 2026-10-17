@@ -9,8 +9,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ### Added
 - Claude Haiku 5.5 (`claude-haiku-5-5`) in the model picker, at low, medium (the default), high, xhigh or max effort.
-  Usage estimates its cost at Anthropic's list price for prompts up to 100,000 tokens ($0.10 in, $0.01 cached, $0.50
-  out per million tokens); a prompt over that costs five times as much, which the estimate does not show.
+  Usage estimates its cost at Anthropic's list price: $0.10 in, $0.01 cached and $0.50 out per million tokens for a
+  prompt up to 100,000 tokens, five times that for a longer one.
 - People post updates too, in the same shape as a bot's (one to five bullets; on Friday the week in review), and
   everyone on the team sees them on **Updates**. A person's card shows their name and picture and has no Reply. An
   update the Assistant drafted for someone says **Drafted by Assistant** until they replace it with their own words.
@@ -58,6 +58,9 @@ All notable changes to Tico are recorded here. The format follows
   `docker compose down`, run `docker compose up -d` first).
 
 ### Fixed
+- Usage prices each model request at its own rate when the model charges more for long prompts (Claude Haiku 5.5, over
+  100,000 tokens). It used to price a whole run at the lower rate, so a Haiku 5.5 run could read up to five times too
+  low. A run from a runner that doesn't report each request (update the runner) says **estimate, may be low**.
 - The **Message bots** heading in the sidebar's team chart shows its Beta pill. Before, only the separate Message bots
   section had one, and that section is hidden when message bots sit in the chart.
 - A Claude bot that answered while its subagents or background commands were still running now reads a follow-up at

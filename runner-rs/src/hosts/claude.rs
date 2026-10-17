@@ -92,6 +92,17 @@ pub fn usage_tokens(usage: &Value) -> (i64, i64) {
     (inp, count(usage, "output_tokens"))
 }
 
+/// One model request's (uncached input with cache writes, cache reads, output) from an `assistant` line, keyed by
+/// the message id: Claude writes a line per content block, each with the whole request's usage so far.
+fn request_tokens(msg: &Value) -> Option<(String, [i64; 3])> {
+    let m = &msg["message"];
+    let id = m["id"].as_str().filter(|id| !id.is_empty())?;
+    let u = &m["usage"];
+    let cached = count(u, "cache_read_input_tokens");
+    let tokens = [usage_tokens(u).0 - cached, cached, count(u, "output_tokens")];
+    (msg["type"] == "assistant" && tokens.iter().any(|n| *n > 0)).then(|| (id.to_string(), tokens))
+}
+
 pub fn user_line(mid: &str, text: &str) -> String {
     py_dumps(&json!({"type": "user", "uuid": mid, "message": {"role": "user", "content": [{"type": "text", "text": text}]}})) + "\n"
 }
@@ -149,6 +160,8 @@ struct Usage {
     cached: i64,
     cost: Option<f64>,
     texts: Vec<String>,
+    /// Each model request this turn, the bot's and its subagents', in the order Claude made them.
+    requests: Vec<(String, [i64; 3])>,
 }
 
 #[derive(Default)]
@@ -632,6 +645,15 @@ impl ClaudeHost {
         if msg.is_object() {
             self.on_tools(msg, tid, turn);
         }
+        if let Some((id, tokens)) = request_tokens(msg) {
+            // Some models price each request by its prompt length (backend/providers.py LONG_PROMPT), subagents' too.
+            let mut inner = self.inner();
+            let requests = &mut inner.usage.entry(turn.into()).or_default().requests;
+            match requests.iter_mut().find(|(seen, _)| *seen == id) {
+                Some((_, had)) => (0..3).for_each(|i| had[i] = had[i].max(tokens[i])),
+                None => requests.push((id, tokens)),
+            }
+        }
         if !msg.is_object() || crate::util::truthy(msg.get("parent_tool_use_id")) {
             return false; // subagent traffic is not the bot's reply
         }
@@ -843,7 +865,8 @@ impl ClaudeHost {
                 Some(tid),
                 Some(turn),
                 json!({"input": u.input, "output": u.output, "total": u.input + u.output, "cost_usd": u.cost,
-                       "usage": {"input": u.input, "cached": u.cached, "output": u.output}}),
+                       "usage": {"input": u.input, "cached": u.cached, "output": u.output,
+                                 "requests": u.requests.iter().map(|(_, r)| r).collect::<Vec<_>>()}}),
             ));
         }
         self.poll_goal(tid);
@@ -1235,6 +1258,18 @@ mod tests {
         // A turn with no background task ends at its `result`, as before.
         let (got, _) = background_turn(&format!("{}\n", result_line("Done.")), "", "", false).await;
         assert!(got.iter().any(|e| e["kind"] == "turn_completed"), "{got:?}");
+    }
+
+    #[tokio::test]
+    async fn each_model_request_is_counted_once() {
+        // A request's usage rides on every content block's line; a subagent's request counts too.
+        let usage = r#""usage": {"input_tokens": 2, "cache_creation_input_tokens": 3000, "cache_read_input_tokens": 120000, "output_tokens": 40}"#;
+        let think = format!(r#"{{"type": "assistant", "message": {{"id": "m1", "content": [{{"type": "thinking", "thinking": ""}}], {usage}}}}}"#);
+        let tool = format!(r#"{{"type": "assistant", "message": {{"id": "m1", "content": [{{"type": "tool_use", "id": "t1", "name": "Task", "input": {{}}}}], {usage}}}}}"#);
+        let sub = r#"{"type": "assistant", "parent_tool_use_id": "t1", "message": {"id": "m2", "content": [], "usage": {"input_tokens": 900, "output_tokens": 5}}}"#;
+        let (got, _) = background_turn(&format!("{think}\n{tool}\n{sub}\n{}\n", result_line("Done.")), "", "", false).await;
+        let tokens = got.iter().find(|e| e["kind"] == "tokens").unwrap();
+        assert_eq!(tokens["usage"]["requests"], json!([[3002, 120000, 40], [900, 0, 5]]), "{got:?}");
     }
 
     #[tokio::test]
