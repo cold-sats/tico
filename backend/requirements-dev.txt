@@ -93,7 +93,7 @@ orjson==3.13.0
     #   -r backend/requirements.in
 packaging==26.3
     # via pytest
-pillow==12.3.0
+pillow==13.0.0
     # via
     #   -c backend/requirements.txt
     #   -r backend/requirements.in
