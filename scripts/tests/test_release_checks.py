@@ -11,6 +11,7 @@ def test_isolation_uses_the_candidate_image_only_after_successful_builds(tmp_pat
         run=lambda *args, **kwargs: SimpleNamespace(stdout='a' * 40)))
     monkeypatch.setattr(release_checks, 'tempfile', SimpleNamespace(mkdtemp=lambda **kwargs: str(tmp_path)))
     monkeypatch.setattr(release_checks, 'free_port', lambda: 12345)
+    monkeypatch.setattr(release_checks, 'edge_networks', lambda: (True, 'edge networks: ok'))
 
     for builds_ok, overrides, workers, browser_jobs in (
             (True, {}, '6', None), (False, {}, '6', None),
@@ -59,6 +60,9 @@ def test_isolation_uses_the_candidate_image_only_after_successful_builds(tmp_pat
             assert env['TICO_RUNNER_TEST_IMAGE'] == 'tico-rc-runner:local'
             assert env['TICO_RUNNER_TEST_IMAGE'] in runner_build
             assert {'smoke', 'side-jobs'} <= calls.keys()
+            assert calls['smoke'][1]['TICO_SMOKE_EDGE'] == release_checks.EDGE['smoke']
+            assert calls['journey'][1]['TICO_JOURNEY_EDGE'] == release_checks.EDGE['journey']
+            assert calls['journey'][1]['TICO_BACKUP_EDGE'] == release_checks.EDGE['backup-test']
             assert (tmp_path / 'images-ready').read_text() == 'ok'
         else:
             assert 'isolation' not in calls
@@ -88,7 +92,8 @@ def test_each_part_runs_only_its_own_slice_of_the_gate(tmp_path, monkeypatch):
     monkeypatch.setattr(release_checks, 'tempfile', SimpleNamespace(mkdtemp=lambda **kwargs: str(tmp_path)))
     monkeypatch.setattr(release_checks, 'free_port', lambda: 12345)
     monkeypatch.setattr(release_checks, 'shard_files', lambda index, total, env: [f'group{index}of{total}.py'])
-    calls = {}
+    calls, edge_checks = {}, []
+    monkeypatch.setattr(release_checks, 'edge_networks', lambda: edge_checks.append(len(calls)) or (True, 'ok'))
 
     class Check:
         def __init__(self, name, command, log_dir, env, tests=False):
@@ -107,6 +112,8 @@ def test_each_part_runs_only_its_own_slice_of_the_gate(tmp_path, monkeypatch):
         monkeypatch.setattr(release_checks, 'time', SimpleNamespace(monotonic=iter(range(100, 200)).__next__))
         assert release_checks.release(SimpleNamespace(previous=None, part=part, shard=shard)) == 0
         assert set(calls) == expected
+        assert edge_checks == ([0] if part == 'product' else [])   # before any stack starts, product only
+        edge_checks.clear()
         if part == 'python':   # alone on its VM, the Python slice uses every core
             command = calls[next(iter(expected))]
             assert command[command.index('-n') + 1] == '4'
@@ -116,6 +123,10 @@ def test_each_part_runs_only_its_own_slice_of_the_gate(tmp_path, monkeypatch):
     assert release_checks.release(SimpleNamespace(previous=None)) == 0
     assert set(calls) == product | {'all-python', 'all-browser'}
     assert calls['all-python'][calls['all-python'].index('-n') + 1] == '2'
+    calls.clear()
+    monkeypatch.setattr(release_checks, 'edge_networks', lambda: (False, 'edge networks: could not create smoke'))
+    assert release_checks.release(SimpleNamespace(previous=None, part='product', shard=None)) == 1
+    assert not calls   # no stack starts when the edge networks cannot be held side by side
 
 
 def test_python_shards_cover_every_collected_file_once_balanced_by_tests(monkeypatch):
