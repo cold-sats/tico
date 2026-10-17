@@ -24,6 +24,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ### Changed
 
+- The server, runner and updater images run Python 3.15 on Debian trixie with SQLite 3.54.1, built in and checked
+  when the image is built (Debian's own copy is 3.46.1). Self-hosters need nothing new: the update pulls the images.
 - Tico HQ's code (the service at `https://updates.tico.team`) moved out of this repository. Installs talk to
   `https://updates.tico.team` as before, with one fix: with `TICO_SUPPORT=off`, in a rehearsal or in demo mode, a live
   support session now ends without the install telling HQ (it used to send the end notice), so with support off nothing
