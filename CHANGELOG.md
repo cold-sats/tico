@@ -23,6 +23,10 @@ All notable changes to Tico are recorded here. The format follows
   already see: their shared tasks and goals and their reports' updates. Private tasks, restricted bots and Assistant
   chats are never part of it. The draft posts at once as theirs, and they can edit or replace it all day; it never
   goes over words they wrote. **Assistant drafts my update** on a person's page turns it off.
+- **Updates** shows the day as the org chart. Your card is on top, with **Write your update** or **Edit**. Each card
+  with reports has a small icon that opens its reports' cards, and theirs below. You see the cards below you by
+  default, and **Whole org** shows the chart from the top (the choice is kept). The badge and unread dots count only
+  your direct reports, so a report's report never alerts. **List** keeps the plain newest-first feed.
 - Docs: [The software factory](docs/software-factory.md), Tico's recommended way to build software with bots: the
   roles in order from Builder to DevOps, which model and effort each runs on, the Dev tickets steps and who moves each.
   Linked from the README, Public roadmaps and Starter bots.

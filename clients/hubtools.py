@@ -2837,7 +2837,8 @@ def updates_list(api, args):
                    unread=("true" if args.get("unread") else None), before=args.get("before"), limit=args.get("limit"))
 
 
-@tool("hub_update_show", "One update in full with its thread: your replies and the bot's answers.",
+@tool("hub_update_show", "One update in full with its thread: your replies and the bot's answers, and in `inputs` "
+      "the reports' updates it was written from that you may read.",
       {"update": _s("Update id")}, required=("update",))
 def update_show(api, args):
     return api.get("updates/" + args["update"])
