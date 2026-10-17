@@ -48,9 +48,13 @@ def sync(c, task_id):
     current = next((s['name'] for s in typ['steps'] if s['id'] == row['step_id']), None)
     if current not in ('Approved', 'Building', 'Shipped'):
         return
+    # A child shipped when it reached a done status. Closed counts too where the type has no done step (the default
+    # Engineering type's Done is closed), or after the child was done: accepting finished work closes it. A Dev
+    # ticket closed without being done (a duplicate, superseded) did not ship, nor did a declined one.
     total, unfinished, shipped = c.execute(
         "SELECT count(*),coalesce(sum(t.status NOT IN ('done','closed','declined')),0),"
-        "coalesce(sum(t.status IN ('done','closed')),0) "
+        "coalesce(sum(t.status='done' OR t.status='closed' AND (t.done_at IS NOT NULL OR NOT EXISTS "
+        "(SELECT 1 FROM task_steps s WHERE s.type_id=t.type_id AND s.status='done'))),0) "
         "FROM task_relations r JOIN tasks t ON t.id=r.from_task "
         "WHERE r.to_task=? AND r.kind='parent' AND t.type_id IN (SELECT id FROM task_types WHERE manager='engineering-lead')", (task_id,)).fetchone()
     if not total:

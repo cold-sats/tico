@@ -32,6 +32,9 @@ All notable changes to Tico are recorded here. The format follows
   `docker compose down`, run `docker compose up -d` first).
 
 ### Fixed
+- A roadmap item no longer moves to **Shipped** when its Dev tickets all ended at **Closed** without reaching
+  **Done**, for example as duplicates; it goes back to **Approved**. A Dev ticket closed after Done still counts as
+  shipped, as does the default Engineering type's Done step.
 - The **Message bots** heading in the sidebar's team chart shows its Beta pill. Before, only the separate Message bots
   section had one, and that section is hidden when message bots sit in the chart.
 - A Claude bot that answered while its subagents or background commands were still running now reads a follow-up at

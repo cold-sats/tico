@@ -108,9 +108,11 @@ and the existing outbound send switch.
 The PM gathers requests and comments, researches and drafts a spec, and proposes graduation as an
 existing Decide card. After approval, it moves the roadmap task to Approved and files Engineering
 children through Head of Engineering. The server moves Approved/Building/Shipped between Building
-and Shipped as engineering children open, finish or reopen. All declined children return Approved;
-Shipped requires at least one done/closed child. With no Engineering children, manual steps remain
-unchanged. Done, closed and declined children count as finished. Requesters remain on the roadmap task.
+and Shipped as engineering children open, finish or reopen. Done, closed and declined children count
+as finished, and Shipped requires at least one child that shipped: one that reached a done step, or a closed
+one whose type has no done step (the default Engineering type's Done). A Dev ticket closed without reaching
+Done, such as a duplicate, did not ship. When every child finished without shipping, the item returns to
+Approved. With no Engineering children, manual steps remain unchanged. Requesters remain on the roadmap task.
 
 
 ## Client addresses behind a proxy
