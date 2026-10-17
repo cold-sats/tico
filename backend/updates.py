@@ -1119,6 +1119,7 @@ def tree(c, actor, readable, kind, day=None, scope=None):
     (the default when someone reports to them), all at the top of the chart. Only direct reports
     are `direct`, the one level that alerts; `unread` counts just those."""
     from . import people as P
+    from . import report_order
     roster, entries, archived = _chart(c)
     view = P.org_view(roster, entries, archived)
     me = ("p:" if H.actor_kind(actor) == "human" else "b:") + H.actor_id(actor)
@@ -1150,6 +1151,17 @@ def tree(c, actor, readable, kind, day=None, scope=None):
             parent = parent_of.get(parent, "")
         node["parent"] = parent if parent in nodes else ""
         children.setdefault(node["parent"], []).append(key)
+    # A manager's reports in the order someone put them on the team chart (backend/report_order.py), then humans
+    # first, by name.
+    places = report_order.placed(c)
+    full = lambda k: ("human:" if k[0] == "p" else "bot:") + k[2:]
+
+    def rank(parent, k):
+        at = places.get(full(k))
+        if at and parent and at[0] == full(parent):
+            return (0, at[1], False, "")
+        return (1, 0, k[0] != "p", nodes[k]["name"].lower())
+
     def build(key, seen):
         node = nodes[key]
         row = rows.get(node["author"])
@@ -1157,7 +1169,7 @@ def tree(c, actor, readable, kind, day=None, scope=None):
         if row:
             update = with_inputs(c, _decode(row), readable)
             update["read"] = bool(update.pop("read_at"))
-        kids = [build(k, seen | {k}) for k in sorted(children.get(key, []), key=lambda k: (k[0] != "p", nodes[k]["name"].lower()))
+        kids = [build(k, seen | {k}) for k in sorted(children.get(key, []), key=lambda k: rank(key, k))
                 if k not in seen]
         return {"key": key, "author": node["author"], "name": node["name"], "direct": node["author"] in direct,
                 "update": update, "children": kids}

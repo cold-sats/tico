@@ -13,6 +13,7 @@ reports up to, and the person who runs a bot manager (the `reports_to` rules in 
   view(c, auth, who, manager) the manager's reports the caller may see, in the chart's order
   save(c, auth, who, manager, names)  put those reports in that order; the ones left out keep their places
   positions(c)                {report key: place} for every place that still counts (the UI's `report_position`)
+  placed(c)                   the same with the manager each place is under (the Updates tree)
   forget(c, report)           drop a report's place when it moves to another manager
 """
 import json
@@ -51,8 +52,9 @@ def _boss(kind, ident, roster, configs):
     return boss if not boss or boss.startswith("human:") else "bot:" + boss
 
 
-def positions(c):
-    """{report key: place} for each place that still counts: the report still reports to the manager it was placed under."""
+def placed(c):
+    """{report key: (manager key, place)} for each place that still counts: the report still reports to the manager it
+    was placed under."""
     doc = _load(c)
     if not doc:
         return {}
@@ -61,8 +63,13 @@ def positions(c):
     for report, row in doc.items():
         kind, _, ident = report.partition(":")
         if isinstance(row, dict) and row.get("manager") and _boss(kind, ident, roster, configs) == row["manager"]:
-            out[report] = int(row.get("position") or 0)
+            out[report] = (row["manager"], int(row.get("position") or 0))
     return out
+
+
+def positions(c):
+    """{report key: place} for each place that still counts."""
+    return {report: place for report, (_, place) in placed(c).items()}
 
 
 def forget(c, report):

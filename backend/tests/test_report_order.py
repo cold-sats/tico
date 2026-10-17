@@ -34,6 +34,8 @@ def test_the_order_is_kept_for_everyone_and_a_new_report_goes_last(api):
     # A new report goes last, whatever its name; one that leaves and comes back is new again.
     report_to(api, "cpo", "coo")
     assert order(api, "coo") == ["finance", "doc-updater", "ops", "cpo"]
+    coo = next(n for n in get(api, "updates/tree?scope=all")["roots"][0]["children"] if n["key"] == "b:coo")
+    assert [n["key"] for n in coo["children"]] == ["b:finance", "b:doc-updater", "b:ops", "b:cpo"], "Updates too"
     report_to(api, "ops", "human:ben")
     report_to(api, "ops", "coo")
     assert order(api, "coo") == ["finance", "doc-updater", "cpo", "ops"]

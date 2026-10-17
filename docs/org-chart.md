@@ -28,7 +28,7 @@ to their own chart. Branches keep their own reporting relationships and work.
 
 A manager's reports, humans and bots, are listed in the order someone put them in, the same for everyone who views the
 chart; the ones nobody placed follow, humans first, then by name. A new report, or one that moves in from another
-manager, goes last. The Goals tree and a person's page list reports in the same order.
+manager, goes last. The Goals tree, a person's page and **Updates** list reports in the same order.
 
 - **In the app**, drag a human or a bot onto the top or bottom of another report of the same manager to put it above or
   below; dropping onto the middle of a row still makes it report there. Each report's row also has a menu with **Move
