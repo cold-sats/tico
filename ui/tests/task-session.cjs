@@ -111,6 +111,21 @@ async function run(viewport, shot) {
     await page.evaluate(() => taskChatRead(TASK_CHAT));
     await page.waitForFunction(() => !document.querySelector('#task-modal .task-live'));
     assert.ok(await fold.evaluate(x => x.open), 'an open fold stays open across the redraw');
+    // A tab shown again replays what it missed at the caller's pace (the live line's 1.5 s), not the 15 s default.
+    const replayed = await page.evaluate(async () => {
+      let hidden = false, ran = 0;
+      Object.defineProperty(document, 'hidden', {configurable: true, get: () => hidden});
+      const wait = ms => new Promise(r => setTimeout(r, ms));
+      liveThrottle('pace-test', () => ran++, 300);
+      await wait(50);
+      hidden = true; liveThrottle('pace-test', () => ran++, 300);
+      hidden = false; document.dispatchEvent(new Event('visibilitychange'));
+      const shown = Date.now();
+      while (ran < 2 && Date.now() - shown < 3000) await wait(20);
+      delete document.hidden;
+      return {ran, ms: Date.now() - shown};
+    });
+    assert.equal(replayed.ran, 2, `the hidden call ran within 3 s of the tab showing (${replayed.ms} ms)`);
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 }
