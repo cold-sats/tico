@@ -97,7 +97,7 @@ jobs:
           persist-credentials: false
       - name: Runtime and disposable capacity preflight
         run: python3 validation-control/scripts/hosted_release_check.py prepare
-      # Caches hold downloads only (pip wheels, npm tarballs, browsers, compiled Cargo dependencies); every job still
+      # Caches hold downloads only (npm tarballs, browsers, compiled Cargo dependencies); every job still
       # installs from the candidate's pinned lock files and builds the candidate's own crates from source.
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
@@ -109,19 +109,29 @@ jobs:
           # uv installs the same pinned lock as pip, in seconds instead of about a minute.
           python3 -m pip install --disable-pip-version-check uv==0.13.1
           python3 -m uv pip install --python "$RUNNER_TEMP/release-venv/bin/python" -r backend/requirements-dev.txt
-      - if: matrix.part == 'browser'
+      # The browser VM runs the browser tests; for a candidate frozen before --part existed, the helper runs its whole
+      # gate on the product VM instead, so that VM needs browsers too.
+      - name: Does this VM run browser tests
+        id: browsers
+        run: |
+          needed=false
+          if [ "$TICO_RELEASE_PART" = browser ]; then needed=true
+          elif [ "$TICO_RELEASE_PART" = product ] && ! grep -q "add_argument('--part'" candidate/scripts/release_checks.py
+          then needed=true; fi
+          echo "needed=$needed" >> "$GITHUB_OUTPUT"
+      - if: steps.browsers.outputs.needed == 'true'
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: candidate/package-lock.json
-      - if: matrix.part == 'browser'
+      - if: steps.browsers.outputs.needed == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('candidate/package-lock.json') }}
       - name: Install browsers
-        if: matrix.part == 'browser'
+        if: steps.browsers.outputs.needed == 'true'
         working-directory: candidate
         run: |
           npm ci
