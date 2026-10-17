@@ -221,3 +221,39 @@ def test_a_report_on_retry_and_a_stacked_manager_keep_the_90_minute_wait(api, mo
         updates.post(c, "ops", "- The team closed the books", day="2026-09-29")
     job("ops", "completed")
     assert tick() == "cpo", "the manager above is asked once its report posts"
+
+
+def test_the_assistant_drafts_a_persons_update_from_what_the_team_can_see_and_never_over_their_own(api, monkeypatch):
+    """After the bots, the Assistant is asked for each person's draft: their shared tasks, never a private
+    one; it posts at once, labelled, only while asked; the person's own words are never drafted over;
+    drafting turns off per person."""
+    monkeypatch.setattr(updates, "today", lambda at=None: "2026-09-29")
+    post(api, "tasks", {"owner": "human:ana", "title": "Ship the pricing page", "body": "x"})
+    post(api, "tasks", {"owner": "human:ana", "title": "Secret raise plan", "body": "x", "private": True})
+    post(api, "humans/ben", {"update_draft": False})
+    store = api.app.state.store
+    with store.transaction() as c:
+        updates.build_queue(c, "2026-09-29", "daily", "coo")
+        people = {r["bot"] for r in c.execute("SELECT bot FROM update_queue WHERE bot LIKE 'human:%'")}
+        assert "human:ana" in people and "human:ben" not in people, "drafting turns off per person"
+        c.execute("UPDATE update_queue SET state='posted' WHERE bot<>'human:ana'")
+        c.execute("DELETE FROM jobs WHERE bot='coo'")
+        assert updates.dispatch(c, MORNING, "coo") == "human:ana"
+        ask = c.execute("SELECT m.body, m.to_actor FROM update_queue q JOIN messages m ON m.id=q.message_id "
+                        "WHERE q.bot='human:ana'").fetchone()
+    assert ask["to_actor"] == "bot:coo" and "Ship the pricing page" in ask["body"]
+    assert "Secret raise plan" not in ask["body"], "a private task never reaches a company-wide draft"
+    r, msg, attempt = setup_attempt(api, "coo")
+    coo = {"Authorization": "Bearer " + attempt["token"]}
+    draft = api.post("/api/v2/updates", json={"body": "- Shipped the pricing page", "for_person": "human:ana"},
+                     headers={**coo, "Idempotency-Key": "d1"})
+    assert draft.status_code == 200, draft.text
+    assert draft.json()["update"]["bot"] == "human:ana" and draft.json()["update"]["drafted_by"] == "coo"
+    r, msg, other = setup_attempt(api, "ops")
+    posing = api.post("/api/v2/updates", json={"body": "- x", "for_person": "human:ana"},
+                      headers={"Authorization": "Bearer " + other["token"], "Idempotency-Key": "d2"})
+    assert posing.status_code == 403, "only the Assistant drafts for a person"
+    post(api, "updates", {"body": "- Shipped the pricing page and the FAQ"})
+    again = api.post("/api/v2/updates", json={"body": "- Shipped it", "for_person": "human:ana"},
+                     headers={**coo, "Idempotency-Key": "d3"})
+    assert again.status_code == 409, "never over the person's own words"

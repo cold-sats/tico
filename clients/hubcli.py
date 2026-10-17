@@ -1456,6 +1456,7 @@ def parser():
     s.add_argument("--slides-file", help="a week in review: JSON {goal, kpis, done, focus, blockers}")
     s.add_argument("--kind", choices=("daily", "weekly"))
     s.add_argument("--day", help="YYYY-MM-DD, only when Tico asks you to redo a past day")
+    s.add_argument("--for", dest="for_person", help="human:<id>: the Assistant's draft of that person's update, when Tico asks")
     s.set_defaults(fn="update create")
     s = upd.add_parser("redo", help="ask the bots again for a past day's update in the current shape (owner)")
     s.add_argument("--day", required=True)

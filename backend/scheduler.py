@@ -151,7 +151,7 @@ class Scheduler:
         try:
             from . import updates
             with self.store.transaction() as c:
-                updates.dispatch(c, at)
+                updates.dispatch(c, at, self.store.settings.assistant_bot)
         except Exception as exc:
             failures.append({"updates": type(exc).__name__})
         # The nightly learning run (backend/learnings.py): one row per night claims it; the work runs

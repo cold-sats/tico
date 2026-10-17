@@ -22087,6 +22087,17 @@
             ],
             "title": "Notify Slack Bot Messages"
           },
+          "update_draft": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Update Draft"
+          },
           "slack_muted_bots": {
             "anyOf": [
               {

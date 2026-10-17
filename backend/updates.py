@@ -27,6 +27,11 @@ sensitive so it can take a while."
   once each direct report has posted, missed or been skipped, or `MANAGER_WAIT_S` after its first
   report was asked, whichever comes first. Its request carries its direct reports' updates (not
   theirs below: each manager already summed those up), and names who had none.
+- A person's update is drafted by the Assistant: after the bots, the queue holds a row per person
+  (`human:<id>`) whose drafting is on, sent to the Assistant once their reports are in. The draft
+  posts at once as theirs, labelled; they edit or replace it any time that day. Its facts are only
+  what the team can already see (their non-private tasks and goals, their reports' updates), never
+  their private Assistant chat, so a draft never carries a private word to the company.
 """
 import json
 import re
@@ -208,9 +213,10 @@ def _label(c, author):
 
 
 # ----------------------------------------------------------------------------- the queue
-def build_queue(c, day, kind):
+def build_queue(c, day, kind, assistant=None):
     """Today's requests, once: every active bot whose switch for `kind` is on, the deepest on the
-    org chart first and the quietest first among equals."""
+    org chart first and the quietest first among equals; then, with an `assistant`, a draft for each
+    person whose drafting is on."""
     if c.execute("SELECT 1 FROM update_queue WHERE day=? LIMIT 1", (day,)).fetchone():
         return 0
     rows = c.execute(
@@ -223,7 +229,17 @@ def build_queue(c, day, kind):
     for rank, row in enumerate(order):
         c.execute("INSERT INTO update_queue(id,bot,kind,day,rank,state) VALUES(?,?,?,?,?,'queued')",
                   (H.new_id(), row["slug"], kind, day, rank))
-    return len(order)
+    people = drafted_people(c) if assistant and (H.bot(c, assistant) or {}).get("state") == "active" else []
+    for rank, author in enumerate(people, len(order)):
+        c.execute("INSERT INTO update_queue(id,bot,kind,day,rank,state) VALUES(?,?,?,?,?,'queued')",
+                  (H.new_id(), author, kind, day, rank))
+    return len(order) + len(people)
+
+
+def drafted_people(c):
+    """The people on the chart whose Assistant drafts their update, as `human:<id>`."""
+    from . import people as P
+    return [H.human_actor(p["id"]) for p in P.visible_people(_chart(c)[0]) if p.get("update_draft") is not False]
 
 
 def _busy(c, bot):
@@ -372,8 +388,61 @@ def request_text(c, bot, kind, day, redo=False):
     return "\n".join(ask + facts)
 
 
-def send_request(c, row):
+def draft_text(c, author, kind, day):
+    """What the Assistant is asked to draft a person's update from: only what the team can already
+    see. Private tasks, and every chat, stay out; the Assistant is told not to use its private room."""
+    name = _label(c, author)
+    week = kind == "weekly"
+    since = H.shift(H.now(), days=-7 if week else -1)
+    done = c.execute("SELECT title FROM tasks WHERE owner=? AND coalesce(private,1)=0 AND status IN ('done','closed') AND updated>=? "
+                     "ORDER BY updated DESC LIMIT 12", (author, since)).fetchall()
+    open_ = c.execute("SELECT title, status FROM tasks WHERE owner=? AND coalesce(private,1)=0 AND status IN "
+                      "('open','doing','waiting','review','ready') ORDER BY updated DESC LIMIT 12", (author,)).fetchall()
+    asked = c.execute("SELECT title, owner FROM tasks WHERE requester=? AND coalesce(private,1)=0 AND owner<>? AND status IN "
+                      "('open','doing','waiting') ORDER BY updated DESC LIMIT 8", (author, author)).fetchall()
+    goals = c.execute("SELECT title FROM goals WHERE owner=? AND (status IS NULL OR status NOT IN "
+                      "('done','dropped')) ORDER BY rank LIMIT 5", (author,)).fetchall()
+    line = lambda rows, f: "\n".join("- " + f(r) for r in rows) or "- (none)"
+    how = (SLIDES_SHAPE + " Pass them as `slides`.") if week else (
+        "Write one to five bullets in plain English and nothing else: no title, headings or task ids. "
+        f"At most {LIMITS[kind]['bullet']} words a bullet and {LIMITS[kind]['words']} in all.")
+    ask = [f"Draft {name}'s {'week in review' if week else 'daily update'} ({day}) and post it with hub_update_create "
+           f"and for_person {author} (or `hub update create --for {author}`), then carry on.",
+           "It posts at once as theirs, labelled Drafted by Assistant, and they can edit or replace it all day. "
+           "Write it as they would, in the first person, about what they did, do next and wait on.",
+           "Use only the facts below and what they said where their team could see it. Never use anything from "
+           "their private chats with you: their update is read by the whole company.", "", how]
+    facts = ["", f"Finished {'this week' if week else 'since yesterday'}:", line(done, lambda r: r["title"]),
+             "Open:", line(open_, lambda r: f"{r['title']} ({r['status']})"),
+             "Waiting on someone else:", line(asked, lambda r: f"{r['title']} ({_label(c, r['owner'] if is_person(r['owner']) else H.actor_id(r['owner']))})"),
+             "Their goals:", line(goals, lambda r: r["title"])]
+    team, missing = team_updates(c, author, kind, day)
+    if team or missing:
+        facts += ["Their team's " + ("weeks in review" if week else "updates") + " today:"]
+        facts += [f"{_label(c, u['bot'])}:\n{u['body']}" for u in team] or ["- (none yet)"]
+        if missing:
+            facts.append("No update from: " + ", ".join(_label(c, a) for a in missing))
+    return "\n".join(ask + facts)
+
+
+def may_draft(c, assistant, author, day):
+    """The Assistant drafts a person's update only while Tico's request for it is out, and never over
+    words the person wrote themselves."""
+    if not c.execute("SELECT 1 FROM update_queue WHERE bot=? AND day=? AND state='sent'", (author, day)).fetchone():
+        raise Problem("draft", "Draft a person's update only when Tico asks for it", 409)
+    mine = c.execute("SELECT drafted_by, edited_by FROM updates WHERE bot=? AND day=?", (author, day)).fetchone()
+    if mine and (not mine["drafted_by"] or mine["edited_by"]):
+        raise Problem("draft", "They already wrote their own update today", 409)
+
+
+def send_request(c, row, assistant=None):
     redo = bool(row["redo"]) if "redo" in row.keys() else False
+    if is_person(row["bot"]):
+        message = H.say(c, H.KEEPER, H.bot_actor(assistant), draft_text(c, row["bot"], row["kind"], row["day"]),
+                        kind="notice", refs={"update_request": row["id"], "wake": "update", "draft_for": row["bot"]})
+        c.execute("UPDATE update_queue SET state='sent', message_id=?, sent_at=? WHERE id=?",
+                  (message["id"], H.now(), row["id"]))
+        return message
     message = H.say(c, H.KEEPER, H.bot_actor(row["bot"]), request_text(c, row["bot"], row["kind"], row["day"], redo),
                     kind="notice", refs={"update_request": row["id"], "wake": "update"})
     c.execute("UPDATE update_queue SET state='sent', message_id=?, sent_at=? WHERE id=?",
@@ -381,13 +450,14 @@ def send_request(c, row):
     return message
 
 
-def dispatch(c, at=None):
+def dispatch(c, at=None, assistant=None):
     """One step, from the scheduler's tick: build today's queue after 05:00, settle the request
-    that is out, and send the next one. At most one request is out at a time."""
+    that is out, and send the next one. At most one request is out at a time. People's drafts go
+    to `assistant` once no bot can be asked."""
     local = local_now(at)
     day = local.date().isoformat()
     if local.hour >= START_HOUR:
-        build_queue(c, day, kind_for(day))
+        build_queue(c, day, kind_for(day), assistant)
     out = c.execute("SELECT * FROM update_queue WHERE state='sent' ORDER BY sent_at LIMIT 1").fetchone()
     if out and settle_sent(c, out):
         return None
@@ -406,6 +476,19 @@ def dispatch(c, at=None):
         if waits_on_reports(c, row):
             continue                      # asked once its reports are in, or the wait is up
         send_request(c, row)
+        return row["bot"]
+    drafting = set(drafted_people(c))
+    for row in c.execute("SELECT * FROM update_queue WHERE state='queued' AND day=? AND bot LIKE 'human:%' "
+                         "ORDER BY rank", (day,)).fetchall():
+        if c.execute("SELECT 1 FROM updates WHERE bot=? AND kind=? AND day=?", (row["bot"], row["kind"], day)).fetchone():
+            _finish(c, row, "posted", "they posted their own")
+            continue
+        if row["bot"] not in drafting or not assistant or (H.bot(c, assistant) or {}).get("state") != "active":
+            _finish(c, row, "skipped", "drafting is off")
+            continue
+        if _busy(c, assistant) or waits_on_reports(c, row):
+            continue
+        send_request(c, row, assistant)
         return row["bot"]
     # A day that ends with bots never free leaves their requests behind; they are missed.
     for row in c.execute("SELECT * FROM update_queue WHERE state='queued' AND day<? AND redo=0", (day,)).fetchall():

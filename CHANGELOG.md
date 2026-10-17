@@ -18,6 +18,11 @@ All notable changes to Tico are recorded here. The format follows
   request carries its reports' updates and names who had none, so its update sums up the team in its own words and
   links the updates it was written from. Friday's week in review rolls up the same way. Redoing a past day can take
   the managers above too (`hub update redo --bot X --with-managers`).
+- The Assistant drafts each person's update. Once the bots and the person's reports are in, Tico asks it for a draft
+  built from what the team can already see: their shared tasks and goals and their reports' updates. Private tasks and
+  private Assistant chats stay out. The draft posts at once as theirs, labelled **Drafted by Assistant**, and they can
+  edit or replace it all day; it never goes over words they wrote. **Assistant drafts my update** on a person's
+  page turns it off.
 - Beta features carry a small **Beta** pill where they appear: Market, Message bots, Listening, Live meetings, chat
   goals and steering, the Slack gateway, a computer's Screen, Behaviour replay and the computer Performance page,
   Windows through WSL 2, external agents (Hermes, OpenClaw, Grok Bot, Dots, Muse sync) and the Mac app. Help lists
