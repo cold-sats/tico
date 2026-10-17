@@ -24,7 +24,7 @@ from . import go_live as pending_go_lives
 from . import repo_waits
 from . import built_on
 from . import agents, batch, external_sync, inbox_isolation, mcp_oauth, harness_actions, model_login, oidc, personal_tokens, views
-from . import check_models, team_rules, usage_limits
+from . import check_models, team_rules, update_feeds, usage_limits
 from . import task_privacy as privacy
 from . import task_relations as TR
 from . import task_roles as TRo
@@ -190,6 +190,8 @@ def create_app(settings=None):
                     # A bot left in setup for a day: its person hears once (backend/setup_stuck.py).
                     from . import setup_stuck
                     await asyncio.to_thread(setup_stuck.tick, store)
+                    # Subscribed updates for bots, as quiet notes; nothing is fetched while no bot subscribes.
+                    await asyncio.to_thread(update_feeds.tick, store)
                 except Exception as exc:
                     telemetry.capture("scheduler", exc)
                     import logging
@@ -1613,6 +1615,7 @@ def create_app(settings=None):
                         "private_tasks_default": H.private_tasks_default(c, "bot:" + bot["slug"], rows.declared),
                         "template": declared.get("template") or "",
                         "template_version": declared.get("template_version") or "",
+                        "update_subscriptions": update_feeds.chosen(declared),
                         "shared": bool(declared.get("shared")),
                         "shared_from": str(declared.get("shared_from") or ""),
                         "temp": bool(declared.get("temp")),

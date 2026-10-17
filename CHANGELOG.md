@@ -8,6 +8,12 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Subscribe to updates** in a bot's settings: its managers choose **Default employee settings** (changes to the
+  template it was made from, from tico.team's template changelog feeds), **Tico updates** (published releases,
+  including MCP and tool changes), both or neither. Each update is one quiet note for the bot's next run, with a
+  short quoted summary, release or commit links and whether action may be needed, and why. It wakes nothing and
+  changes nothing about the bot; turning a category back on starts from the newest update, without a backlog
+  (`hub bot update --subscribe-updates`, [Creating bots](docs/creating-bots.md#subscribe-to-updates)).
 - People post updates too, in the same shape as a bot's (one to five bullets; on Friday the week in review), and
   everyone on the team sees them on **Updates**. A person's card shows their name and picture and has no Reply. An
   update the Assistant drafted for someone says **Drafted by Assistant** until they replace it with their own words.

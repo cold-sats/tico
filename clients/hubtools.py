@@ -1902,6 +1902,9 @@ def routine_run(api, args):
                                        "check model; own (default): its own model"},
        "capture_stream": {"type": "string", "enum": ["on", "off"],
                           "description": "on (owner only): keep each run's raw provider stream a week; off (default): not"},
+       "update_subscriptions": {"type": "array", "items": {"type": "string", "enum": ["templates", "tico"]},
+                                "description": "Subscribe to updates, as quiet notes for its next run: templates "
+                                               "(its template's changes), tico (Tico releases); [] for none"},
        "status": {"type": "string", "enum": ["active", "paused", "planned"]}},
       required=("slug",), writes=True)
 def bot_set(api, args):
@@ -1913,7 +1916,7 @@ def bot_set(api, args):
         row = api.get(f"bots/{args['slug']}/access", **({"on_behalf_of": on_behalf} if delegated else {}))
         if not row:
             raise ValueError("No bot " + args["slug"])
-    change = {k: args[k] for k in ("reports_to", "display_name", "description", "template", "repo", "status", "shared", "session", "subtask_session", "task_goal", "review_model", "capture_stream") if args.get(k) is not None}
+    change = {k: args[k] for k in ("reports_to", "display_name", "description", "template", "repo", "status", "shared", "session", "subtask_session", "task_goal", "review_model", "capture_stream", "update_subscriptions") if args.get(k) is not None}
     return api.post(f"bots/{args['slug']}/definition",
                     {**change, "expected_revision": row["revision"],
                      **({"on_behalf_of": on_behalf} if delegated else {})}, key=_key(args))
