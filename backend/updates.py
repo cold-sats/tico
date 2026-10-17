@@ -496,7 +496,8 @@ def post(c, bot, body, kind=None, day=None, slides=None, drafted_by=None, inputs
     """Store an update by `bot` (a bot slug or `human:<id>`). A daily is its bullets; a week in review
     is its slides, with the goal KPIs added, and a markdown copy in `body`. `headline` keeps one line,
     for places that show one (MCP summaries). `drafted_by` posts a draft for a person; the person
-    posting over it is an edit of that draft, or with `replace_draft` their own words."""
+    posting over it is an edit of that draft, or with `replace_draft` their own words. A draft never
+    lands over words the person wrote or edited that day."""
     day = day or today()
     kind = kind or ("weekly" if slides else kind_for(day))
     if kind not in KINDS:
@@ -521,8 +522,10 @@ def post(c, bot, body, kind=None, day=None, slides=None, drafted_by=None, inputs
         first = body.splitlines()[0]
         headline = MD_LINK.sub(r"\1", re.sub(r"^\s*[-*•]\s+", "", first))[:200]
     now = H.now()
-    existing = c.execute("SELECT id, drafted_by, inputs_json FROM updates WHERE bot=? AND kind=? AND day=?",
+    existing = c.execute("SELECT id, drafted_by, edited_by, inputs_json FROM updates WHERE bot=? AND kind=? AND day=?",
                          (bot, kind, day)).fetchone()
+    if drafted_by and existing and (not existing["drafted_by"] or existing["edited_by"]):
+        raise Problem("own_update", "They wrote their own update today; a draft does not replace it", 409)
     inputs_json = json.dumps(list(inputs)) if inputs is not None else (existing["inputs_json"] if existing else None)
     if drafted_by:
         draft, edited = drafted_by, None

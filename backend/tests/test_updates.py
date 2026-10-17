@@ -5,6 +5,7 @@ message in the bot's chat."""
 from datetime import datetime, timezone
 
 from backend import updates
+from backend.store import H, Problem, digest
 from backend.tests.test_api import api, get, headers, post, setup_attempt  # noqa: F401
 
 MORNING = datetime(2026, 9, 29, 13, 0, tzinfo=timezone.utc)      # Tuesday 06:00 Pacific
@@ -121,6 +122,12 @@ def test_people_post_their_own_update_and_alerts_come_only_from_direct_reports(a
     assert edited["bot"] == "human:ben" and edited["drafted_by"] == "coo" and edited["edited_by"] == "human:ben"
     own = post(api, "updates", {"body": "- Met three customers", "replace_draft": True}, token="ben-test")["update"]
     assert own["drafted_by"] is None and own["edited_by"] is None
+    with store.transaction() as c:
+        try:
+            updates.post(c, "human:ben", "- Redrafted", day="2026-09-29", drafted_by="coo")
+            raise AssertionError("a draft landed over the person's own words")
+        except Problem as e:
+            assert e.status == 409
     seen = {u["bot"] for u in get(api, "updates")["updates"]}
     assert {"boss", "analyst", "human:ben"} <= seen, "a person's update is for the whole company"
     post(api, f"updates/{own['id']}/reply", {"text": "Nice"}, expected=422)
@@ -128,3 +135,13 @@ def test_people_post_their_own_update_and_alerts_come_only_from_direct_reports(a
     assert "boss" in direct and "analyst" not in direct, "only one level down alerts"
     assert get(api, "updates/unread?scope=direct")["unread"] == len(direct)
     get(api, "updates?scope=everyone", expected=422)
+    # An external agent is outside the company: it sees its own bot's update, no person's.
+    with store.transaction() as c:
+        c.execute("INSERT INTO agents(bot,harness,token_hash,created,created_by,last_seen) VALUES(?,?,?,?,?,?)",
+                  ("analyst", "hermes", digest("agent-test"), H.now(), "human:ana", H.now()))
+    outside = {u["bot"] for u in get(api, "updates", token="agent-test")["updates"]}
+    assert "analyst" in outside and not any(updates.is_person(a) for a in outside)
+    # The Assistant acting for ben in his chat posts no update for him: his update is his own.
+    from backend.tests.test_assistant import asked, assistant_turn
+    _, attempt = assistant_turn(api, "ben-test", "Post my update")
+    asked(api, "updates", {"body": "- From my chat"}, attempt["token"], "turn", expected=403)
