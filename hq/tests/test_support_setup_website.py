@@ -158,6 +158,14 @@ def test_each_field_is_checked_at_its_limit(client, judged):
         r = post(client, ip=f"198.51.100.{n + 150}", **{"email": f"v{n}@example.com", **change})
         assert r.status_code == 200, change
     assert len(rows(client)) == len(accepted)
+    # The same limits written the longest way JSON allows (\\u00e9, \\ud83d\\ude00, \\n) still fit the request ceiling.
+    lines = PLAN + "\n" * (32 * 1024 - len(PLAN.encode()))
+    for n, plan in enumerate([big_plan, lines]):
+        longest = json.dumps(ask(email=f"w{n}@example.com", plan=plan, note="\U0001F600" * 1000))
+        assert len(longest) > 40 * 1024 and post_raw(client, longest, f"198.51.100.{n + 170}").status_code == 200
+    over = json.dumps(ask(email="w2@example.com", plan=lines + "\n"))
+    assert post_raw(client, over, "198.51.100.172").json() == {"error": "invalid"}       # one byte over is refused as any
+    assert post_raw(client, longest + " " * len(longest), "198.51.100.173").json() == {"error": "too_large"}
 
 
 def test_only_tico_team_may_file_one_or_read_the_answer(client):

@@ -94,7 +94,9 @@ PLAN_FORMAT = re.compile(r"^version:[ \t]*[\"']?0\.2[\"']?[ \t]*(?:#.*)?$", re.M
 MAX_NOTE = 1000                   # characters
 MAX_PLAN = 32 * 1024              # bytes of tico.company.yaml; the full starter pack is about 8 KB
 MAX_TURNS = 1000
-MAX_SETUP_REQUEST = MAX_PLAN + 8 * 1024
+# The raw body, before the fields are checked. JSON may write each two-byte character as a six-byte \uXXXX, and each
+# character beyond U+FFFF as twelve, so a plan and a note that are within their limits can take this much.
+MAX_SETUP_REQUEST = 3 * MAX_PLAN + 12 * MAX_NOTE + 4 * 1024
 SETUP_DAILY_CAP = 50              # HQ_SETUP_TICKETS_DAILY_CAP: setup-website tickets a day across all addresses
 PUBLIC_URL = "https://updates.tico.team"     # https://HQ_DOMAIN when set: where the reply page is, for the link in the answer
 
