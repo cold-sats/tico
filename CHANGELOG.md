@@ -115,6 +115,13 @@ All notable changes to Tico are recorded here. The format follows
   `docker compose down`, run `docker compose up -d` first).
 
 ### Fixed
+- BotOps and Assistant Confirm cards read in plain words: a repository change says who gets what and what they lose
+  ("Security Engineer: read-only on tico (was write). Loses access to tico-marketing-site and tico-recorder."), never
+  `PUT /api/v2/...` or a word like "chosen" or "all"; any other card without a sentence of its own gets a plain one, and
+  a card made before this reads plainly too, its old line kept under Details. The method, path and fields are under a
+  closed **Details**; the words a message, comment or support request sends stay on the card. Confirm or Cancel on one
+  card no longer makes the chat jump: the other cards stay exactly as they were, with any **Show more** or Details you
+  opened still open, and focus stays where it was.
 - Usage prices each model request at its own rate when the model charges more for long prompts (Claude Haiku 5.5, over
   100,000 tokens). It used to price a whole run at the lower rate, so a Haiku 5.5 run could read up to five times too
   low. A run from a runner that doesn't report each request (update the runner) says **estimate, may be low**.
