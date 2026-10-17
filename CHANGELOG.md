@@ -7,6 +7,13 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Letting Tico support in, off until its security review (`TICO_SUPPORT_ACCESS=on`): from one of their open support
+  requests, an owner or admin gives the Tico team **App only** access (an admin's reads and setup changes) or, the owner
+  only, **Full access**, for a time they choose (24 hours by default). A banner shows on every screen while it lasts, Stop
+  ends it at once, and every request support makes is listed under the request. The install dials out to Tico HQ; nothing
+  connects in. The team rule **Owners and admins may let Tico support in** turns it off ([support](docs/support.md#letting-tico-support-in)).
+
 ### Changed
 - Roadmaps: a database that ran an unreleased build of roadmaps from main has the internal text it copied into public
   text cleared once more, now field by field, so a rewritten public title keeps its task public while a copied summary
@@ -15,6 +22,10 @@ All notable changes to Tico are recorded here. The format follows
   `docker compose down`, run `docker compose up -d` first).
 
 ### Fixed
+- A Claude bot that answered while its subagents or background commands were still running now reads a follow-up at
+  once and answers it. It used to stop taking messages after its answer: the run stayed Working until that work
+  ended or someone pressed Stop, and the follow-up showed only "follow-up added". Every bot's instructions also say
+  not to wait inside a long poll or sleep loop, where a follow-up waits until the command returns.
 - A task page's "Working" line no longer slows to one update every 15 seconds after you come back to its browser tab;
   it keeps its own pace.
 
@@ -82,11 +93,6 @@ All notable changes to Tico are recorded here. The format follows
   Tico support? [y/N]" and on yes sends the redacted failing checks as a `setup` request, then prints a link where
   replies show up (a new HQ page, `/support/<ticket>`; the secret stays after the `#`). `--no-support` or
   `TICO_SUPPORT=off` turns the question off. The Support Agent template now checks HQ tickets every minute.
-- Letting Tico support in, off until its security review (`TICO_SUPPORT_ACCESS=on`): from one of their open support
-  requests, an owner or admin gives the Tico team **App only** access (an admin's reads and setup changes) or, the owner
-  only, **Full access**, for a time they choose (24 hours by default). A banner shows on every screen while it lasts, Stop
-  ends it at once, and every request support makes is listed under the request. The install dials out to Tico HQ; nothing
-  connects in. The team rule **Owners and admins may let Tico support in** turns it off ([support](docs/support.md#letting-tico-support-in)).
 - A bot waiting on a linked pull request can end its turn instead of polling: `hub task link <task> <pr url>
   --wake-once` (or `wake_once` on `hub_task_link`) wakes the task once, in its conversation, when the PR's checks
   finish (pass or fail), it is approved or gets changes requested, or a release ships it (or it merges in a
@@ -203,10 +209,6 @@ All notable changes to Tico are recorded here. The format follows
   stores and logs no token. The grant on the computer keeps no secret.
 
 ### Fixed
-- A Claude bot that answered while its subagents or background commands were still running now reads a follow-up at
-  once and answers it. It used to stop taking messages after its answer: the run stayed Working until that work
-  ended or someone pressed Stop, and the follow-up showed only "follow-up added". Every bot's instructions also say
-  not to wait inside a long poll or sleep loop, where a follow-up waits until the command returns.
 - The keeper's "no progress after a status check" question closes when its task is done, and one already left on a
   done task no longer keeps that task in Needs you or in a bot's number in the sidebar.
 - Another bot's turn in a task's room (the requester answering there, say) no longer ends the task owner's goal:
