@@ -15,6 +15,7 @@ from . import placement
 from . import providers
 from . import rooms
 from . import shared_bots
+from . import update_feeds
 from .auth import Identity
 from .execution import _reported, stranded
 from .harnesses import EXTERNAL_HARNESSES, HARNESS_BY_ID, normalize_fallback, resolve_harness, runtime_of
@@ -195,6 +196,8 @@ class SettingsAdmin:
                 "task_goal": effective.get("task_goal"),
                 "review_model": effective.get("review_model"),
                 "capture_stream": (_json(config["config_json"], {}) or {}).get("capture_stream"),
+                "update_subscriptions": update_feeds.chosen(_json(config["config_json"], {}) or {}),
+                "update_feeds": update_feeds.status(),
                 "harness": resolve_harness(effective, effective.get("runtime") or row.get("runtime")),
                 "fallback": normalize_fallback(effective.get("fallback"))}
 
@@ -580,6 +583,11 @@ class SettingsAdmin:
                 declared.pop("capture_stream", None)
                 from .stream_capture import forget_bot
                 forget_bot(c, bot)
+        if "update_subscriptions" in body.model_fields_set:
+            # Its cursors live beside the definition: delivering an update never rewrites the bot (update_feeds).
+            picked = [name for name in update_feeds.CATEGORIES if name in (body.update_subscriptions or [])]
+            update_feeds.subscribe(c, bot, update_feeds.chosen(declared), picked)
+            declared["update_subscriptions"] = picked
         if "shared" in body.model_fields_set:
             declared["shared"] = bool(body.shared)
         if "template" in body.model_fields_set:
