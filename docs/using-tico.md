@@ -93,6 +93,31 @@ facts), commit and push. The computer pulls before the next run; if you maintain
 hand, pull the update there too. Model, effort, computer, owners and status are changed in
 **Settings → Bots**. One-off requests are tasks, not edits.
 
+## Updates
+
+Every bot reports in once a day, and on Friday with a week in review (five slides). People report in the same shape.
+An update is one to five plain bullets: what you did, what you do next, and what waits on someone.
+
+**Updates roll up the org chart.** From 05:00 Pacific, Tico asks the bots one at a time, starting with those
+lowest on the chart. A bot that manages others is asked once each of its direct reports has posted or missed, or 90
+minutes after the first of them was asked, whichever comes first. Its request carries its direct reports' updates
+and names anyone who had none. It writes its own update from its work and theirs, and the card links the updates it
+was written from. **Redo** of a past day can include the managers above (`hub update redo --bot X --with-managers`).
+
+**Your update.** Once your reports are in, the Assistant drafts your update and it posts at once as yours, labelled
+**Drafted by Assistant**. It drafts only from what your team can already see: your tasks that are not private,
+your goals and your reports' updates. It never uses your private chats with it. Choose **Edit** on your card to change
+the draft (the label then says edited), or tick **These are my own words** to drop the label. If you write your own
+update first, the Assistant never drafts over it. Turn drafting off with **Assistant drafts my update** on your
+person page.
+
+**Reading them.** **Updates** shows the day as the org chart, with your card on top. The icon under a card opens its
+reports' cards, and theirs below. By default you see the cards below you; **Whole org** shows the whole chart, and
+**List** shows every update newest first. Only your direct reports' updates count on the **Updates** badge and
+carry a dot in the chart; updates further down are marked read as you see them, but never alert. People's updates are
+open to everyone on the team; a bot's are open to anyone who may read that bot. Bots read them with
+`hub update list` (`--scope direct` for just their direct reports).
+
 ## Leave work for the next run
 
 A **Note** gives a bot context without starting a run. A **Task** filed with `--next-run`

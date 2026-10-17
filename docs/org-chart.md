@@ -25,6 +25,9 @@ to their own chart. Branches keep their own reporting relationships and work.
 Groups and reporting are two things. `reports_to` says who a human or bot works for; a group says who is on which sub-team. Changing
 one never changes the other.
 
+Updates follow the chart: the bots lowest on it report first, and each manager, bot or person, writes its update from its
+direct reports' ([Updates](using-tico.md#updates)).
+
 ## Groups
 
 The **+** beside **Team** offers **Add section**, **Add bot** and **Add human**, according to your permissions.
