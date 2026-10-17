@@ -492,6 +492,13 @@ def test_a_subscription_signed_in_from_the_browser_counts_without_a_restart(api,
     computer.config.write_text(json.dumps(registration))
     until(lambda: "spare" not in computer.profiles(), "the profile taken out, gone from the heartbeat", timeout=40)
     assert signed("chris-chatgpt") is True
+    # The subscription left in place still takes turns after another one is taken out.
+    again = post(api, "chat/ops", {"text": "Please answer again on Chris's subscription"})
+    assert until(lambda: len(computer.attempts()) == 2 and computer.attempts()[-1]["result"],
+                 "the second turn's completion")["profile_used"] == "chris-chatgpt"
+    assert "answer again" in computer.prompts()[-1]["prompt"]
+    assert computer.prompts()[-1]["env"]["CODEX_HOME"] == str(home)
+    assert reply_to(api, again["conversation_id"])
     assert not computer.died()
 
 
