@@ -684,7 +684,9 @@ impl ClaudeHost {
             }
             "system" if msg["subtype"] == "background_tasks_changed" => {
                 if let Some(p) = self.inner().pipe.as_mut() {
-                    p.background = msg["tasks"].as_array().map_or(0, |t| t.len());
+                    // Claude does not wait for an ambient watcher or a task already awaited, so neither holds the turn.
+                    let held = |t: &&Value| t["ambient"] != true && t["awaited"] != true;
+                    p.background = msg["tasks"].as_array().map_or(0, |t| t.iter().filter(held).count());
                     p.close_if_done();
                 }
             }
@@ -1225,6 +1227,10 @@ mod tests {
     async fn the_turn_ends_when_its_background_work_does() {
         let first = format!("{BG_STARTED}\n{}\n", result_line("Started."));
         let (got, _) = background_turn(&first, "", &format!("{BG_DONE}\n"), false).await;
+        assert!(got.iter().any(|e| e["kind"] == "turn_completed"), "{got:?}");
+        // An ambient watcher alone does not hold it: Claude does not wait for one.
+        let ambient = r#"{"type": "system", "subtype": "background_tasks_changed", "tasks": [{"task_id": "w1", "task_type": "monitor_ws", "ambient": true}]}"#;
+        let (got, _) = background_turn(&format!("{ambient}\n{}\n", result_line("Watching.")), "", "", false).await;
         assert!(got.iter().any(|e| e["kind"] == "turn_completed"), "{got:?}");
         // A turn with no background task ends at its `result`, as before.
         let (got, _) = background_turn(&format!("{}\n", result_line("Done.")), "", "", false).await;
