@@ -99,19 +99,26 @@ Every bot reports in once a day, and on Friday with a week in review (five slide
 An update is one to five plain bullets: what you did, what you do next, and what waits on someone.
 
 **Updates roll up the org chart.** From 05:00 Pacific, Tico asks the bots one at a time, starting with those
-lowest on the chart. A bot that manages others is asked once each of its direct reports has posted or missed, or 90
-minutes after it was first held for them, whichever comes first. A report asked again after a failed run does not
-restart that wait. Its request carries its direct reports' updates
-and names anyone who had none. It writes its own update from its work and theirs, and the card links the updates it
-was written from. **Redo** of a past day can include the managers above (`hub update redo --bot X --with-managers`).
+lowest on the chart. A bot that manages others is asked once each of its direct reports has posted, missed or been
+skipped, or 90 minutes after it was first held for them, whichever comes first. A report asked again after a failed
+run does not restart that wait. Its request carries its direct reports' updates
+and names anyone who had none. It writes its own update from its work and theirs. Its card says **From:** with the
+updates it was written from, each a link: in the chart it opens that card (and the cards above it) and goes to it, in
+**List** it goes to that update. You only see the links to updates you may read, and `hub update show` lists them
+as `inputs`. **Redo** of a past day can include the managers above (`hub update redo --bot X --with-managers`).
 
 **Your update.** Once your reports are in, your update is drafted and posts at once as yours, labelled **Drafted by
 Assistant**. Tico writes the draft with one call to your company's own model, and that call gets only what everyone
-in the company can already see: your tasks that are not private, your goals and your reports' updates. It leaves out
-anything involving a bot not everyone may read. The draft is not written in an Assistant chat, so your private chats
+in the company can already see: your tasks that are not private and your goals; the status changes you made and the
+comments you left and the questions you answered on those tasks; the meetings you were in that are not
+private (a short part of each); and your reports' updates. It leaves out approvals, and anything involving a private
+task or a bot not everyone may read. The draft is not written in an Assistant chat, so your private chats
 with the Assistant never reach it. With no model provider key on the server, there are no drafts. Choose **Edit** on your card to change
-the draft (the label then says edited), or tick **These are my own words** to drop the label. If you write your own
-update first, the Assistant never drafts over it. Turn drafting off with **Assistant drafts my update** on your
+the draft (the label then says edited), or tick **These are my own words** to drop the label. Once you have posted
+words of your own that day, a daily or a week in review, the Assistant does not draft for you that day. **Friday** is
+the week in review: on the **Weekly** tab, **Write your update** or **Edit** opens it as its slides (a one-sentence
+goal, one to five things done, one to three to focus on next, up to three blockers, and KPIs if you like), one per
+line. Turn drafting off with **Assistant drafts my update** on your
 person page.
 
 **Reading them.** **Updates** shows the day as the org chart, with your card on top. The icon under a card opens its
