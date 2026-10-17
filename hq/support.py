@@ -44,7 +44,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
 from . import cors, judge as judge_module, support_page
-from .company_file.keys import PATTERNS as KEY_PATTERNS, scrub
+from .company_file.keys import scrub
 from .limits import Limiter
 
 MAX_MESSAGES = 60                 # a ticket's thread, both sides
@@ -88,6 +88,8 @@ UNTRUSTED_LABEL = "Untrusted public input"
 SETUP_MODES = ("browser", "server")
 SETUP_STEPS = ("company", "chart", "goals", "team", "rules", "file")     # the page's tabs
 SESSION_ID = re.compile(r"[A-Za-z0-9_-]{16,64}")
+# What the page sends (crypto.randomUUID), which is random enough that the key filter would take it for a key.
+UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 PLAN_FORMAT = re.compile(r"^version:[ \t]*[\"']?0\.2[\"']?[ \t]*(?:#.*)?$", re.M)
 MAX_NOTE = 1000                   # characters
 MAX_PLAN = 32 * 1024              # bytes of tico.company.yaml; the full starter pack is about 8 KB
@@ -223,7 +225,7 @@ def parse_setup_website(data):
             or step not in SETUP_STEPS or mode not in SETUP_MODES \
             or not isinstance(turns, int) or isinstance(turns, bool) or not 0 <= turns <= MAX_TURNS \
             or not isinstance(session_id, str) or not SESSION_ID.fullmatch(session_id) \
-            or any(pattern.search(session_id) for pattern in KEY_PATTERNS):      # a key is never hashed into a limit
+            or not UUID.fullmatch(session_id) and scrub(session_id)[1]:      # a key is never hashed into a limit
         raise Invalid("fields")
     note, plan = data.get("note"), data.get("plan")
     if note is not None:

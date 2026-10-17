@@ -233,7 +233,7 @@ characters), and their plan (tico.company.yaml, up to 32 KB) only if they ticked
 for it. Key-shaped strings (API keys, tokens, passwords) are removed from the note and the plan before anything is checked
 or kept, and the page says so when one was. HQ keeps the email, the tab, the mode and the count as the ticket's text, and
 the note and plan apart from it as an attachment marked Untrusted public input. The visit's id is used in memory only, as a
-salted hash, to allow one ticket per visit; HQ also allows 3 a day per address and per email address, and a daily total
+salted hash, to allow one ticket per visit (an id shaped like a key is refused, never hashed); HQ also allows 3 a day per address and per email address, and a daily total
 (`HQ_SETUP_TICKETS_DAILY_CAP`, 50 by default). It is a support ticket like the others: kept until someone deletes it, as
 below, not with the setup page's 7-day conversation log. The answer is a link to the request's page, with its secret after
 the `#`, where the team's reply shows and where the visitor can answer or delete it.

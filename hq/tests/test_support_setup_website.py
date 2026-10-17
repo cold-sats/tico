@@ -146,12 +146,14 @@ def test_each_field_is_checked_at_its_limit(client, judged):
     assert len(big_plan.encode()) == 32 * 1024
     refused = [{"email": None}, {"email": "ana@"}, {"email": "a@" + "b" * 250 + ".com"}, {"note": "n" * 1001},
                {"plan": big_plan + "é"}, {"session_id": "s" * 15}, {"session_id": "s" * 65}, {"session_id": "a b" * 8},
-               {"session_id": SLACK}, {"turns": -1}, {"turns": 1001}, {"turns": 7.0}, {"step": "billing"}]
+               {"session_id": SLACK}, {"session_id": "aZ3kP9qL7mX2vB8nR4tY6wC1dF5gH0jK2sE7uI9o"},
+               {"turns": -1}, {"turns": 1001}, {"turns": 7.0}, {"step": "billing"}]
     for n, change in enumerate(refused):
         assert post(client, ip=f"198.51.100.{n + 100}", **change).json() == {"error": "invalid"}, change
     assert rows(client) == [] and judged == []
-    accepted = [{"email": "a@" + "b" * 248 + ".com"}, {"note": "n" * 1000}, {"plan": big_plan}, {"session_id": "s" * 16}, {"session_id": "s" * 64},
-                {"turns": 0}, {"turns": 1000}]
+    accepted = [{"email": "a@" + "b" * 248 + ".com"}, {"note": "n" * 1000}, {"plan": big_plan}, {"turns": 0},
+                {"turns": 1000}, {"session_id": "s" * 16}, {"session_id": "s" * 64},
+                {"session_id": "3f2a9c1e-5b7d-4e8f-a1b2-c3d4e5f6a7b8"}]           # the page's crypto.randomUUID()
     for n, change in enumerate(accepted):
         r = post(client, ip=f"198.51.100.{n + 150}", **{"email": f"v{n}@example.com", **change})
         assert r.status_code == 200, change
