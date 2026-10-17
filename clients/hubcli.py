@@ -1601,6 +1601,9 @@ def parser():
                         "for a reviewer bot; own (default): its own model")
     s.add_argument("--capture-stream", choices=("on", "off"),
                    help="on (owner only): keep each run's raw provider stream a week for hub run export; off (default): not")
+    s.add_argument("--subscribe-updates", metavar="templates,tico|none",
+                   help="Subscribe to updates, as quiet notes for its next run: templates (its template's changes), "
+                        "tico (Tico releases), both, or none")
     s.add_argument("--shared", action=argparse.BooleanOptionalAction, default=None, help="allow branches")
     s.set_defaults(fn="bot update")
     s = bot.add_parser("check", help="what preflight would still refuse about that repository")

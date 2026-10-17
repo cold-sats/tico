@@ -8,6 +8,12 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Subscribe to updates** in a bot's settings: its managers choose **Default employee settings** (changes to the
+  template it was made from, from tico.team's template changelog feeds), **Tico updates** (published releases,
+  including MCP and tool changes), both or neither. Each update is one quiet note for the bot's next run, with a
+  short quoted summary, release or commit links and whether action may be needed, and why. It wakes nothing and
+  changes nothing about the bot; turning a category back on starts from the newest update, without a backlog
+  (`hub bot update --subscribe-updates`, [Creating bots](docs/creating-bots.md#subscribe-to-updates)).
 - Tico HQ answers the setup page on tico.team before its assistant launches: `GET /v1/onboarding/health` says
   `{"ok": false}`, and `POST /v1/onboarding/event` takes the page's download and message counts. Counts are kept only when
   `HQ_ONBOARDING_COUNTS=on`: one row per planning session with the furthest step, whether the file was downloaded,
