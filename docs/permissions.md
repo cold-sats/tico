@@ -127,6 +127,8 @@ Administration: write ([GitHub App](github-app.md#when-the-app-cannot-create-rep
 Create product repositories is a wider reach than bot repositories, so:
 - **Only the Owner turns it on.** Only the Owner creates product repositories themselves, so an admin cannot hand that to a
   bot; the Owner's request carried by BotOps or the Assistant is refused too. Taking it away narrows a bot, so an admin may.
+- **Creating takes the Owner's own request, or the bot's own turn.** A bot's turn acting for someone (BotOps, the
+  Assistant) or an external agent cannot preview or create one, even for the Owner.
 - **No bot has it by default**, by its name, role or template; not BotOps either. The Owner switches it on per bot, for
   example for Head of Engineering and DevOps.
 - **Private only.** A bot cannot create a public repository: making one public is publishing, which needs a person. Bots

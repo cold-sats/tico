@@ -178,7 +178,8 @@ name rules, once the Owner turns on **Create product repositories** in that bot'
 (`PUT /api/v2/bots/<bot>/repositories {"create_product_repositories": true}`; only the Owner's own request may
 turn it on, an admin may turn it off). No bot has it by default, BotOps included. Without it the preview and the
 create answer `403` naming the right: *Creating a product repository needs the Owner, or a bot with the Create
-product repositories right.* The rules are in [Permissions](permissions.md#bots-that-create-repositories).
+product repositories right.* A bot's turn acting for someone (BotOps' on-behalf-of, the Assistant) or an external
+agent gets `403` on both, even for the Owner. The rules are in [Permissions](permissions.md#bots-that-create-repositories).
 
 - **Private and empty only.** `visibility` must be `private`; a public repository is publishing and stays a
   person's step. Bots never delete, rename, transfer or change the visibility of a repository.

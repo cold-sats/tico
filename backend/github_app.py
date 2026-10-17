@@ -886,11 +886,17 @@ def install_github_app(app, settings, store):
 
     def product_creator(request):
         """The Owner, or a bot's own run with Create product repositories (`can_create_product_repositories`).
-        Connecting or disconnecting the App stays the Owner's (`owner`)."""
+        Connecting or disconnecting the App stays the Owner's (`owner`). Never a carried identity: a bot's turn acting
+        for the Owner (BotOps' on-behalf-of, the Assistant) or an external agent would create without any bot's right,
+        name rule, grant or notice."""
         who = request.state.identity
+        if who.task_actor or who.agent:
+            raise Problem("forbidden", "A bot's turn acting for someone, or an external agent, does not create product "
+                          "repositories. The Owner creates one in Tico, or a bot with the Create product repositories "
+                          "right in its own turn.", 403)
         if who.role == "owner":
             return who
-        if who.role == "bot" and not who.agent and not who.task_actor:
+        if who.role == "bot":
             from .repositories import can_create_product_repositories
             with store.read() as c:
                 validate_identity(c, who)

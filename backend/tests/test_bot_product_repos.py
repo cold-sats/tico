@@ -176,6 +176,59 @@ def test_an_external_agent_of_a_granted_bot_cannot_create(api, gh):
     assert not creates(gh)
 
 
+CARRIED = "acting for someone"
+
+
+def nothing_made(api, gh):
+    assert not creates(gh)
+    with api.app_state.store.read() as c:
+        assert c.execute("SELECT COUNT(*) FROM github_product_repo_operations").fetchone()[0] == 0
+        assert c.execute("SELECT COUNT(*) FROM events WHERE action='github.product_repo_created'").fetchone()[0] == 0
+        assert c.execute("SELECT COUNT(*) FROM repositories WHERE full_name='Acme/tico-services'").fetchone()[0] == 0
+        assert c.execute("SELECT COUNT(*) FROM messages WHERE to_actor='human:ana' AND kind='notice'").fetchone()[0] == 0
+
+
+def test_an_owner_origin_botops_turn_cannot_preview_or_create_a_product_repo(api, gh):
+    from backend import rooms
+    ready(api, gh)
+    botops_turn(api)
+    with api.app_state.store.transaction() as c:
+        conversation = rooms.personal_room(c, "human:ana", "botops")
+        c.execute("UPDATE messages SET from_actor='human:ana',conversation_id=?,kind='say',"
+                  "body='Make the tico-services repository' WHERE id='m-botops'", (conversation["id"],))
+        c.execute("INSERT INTO attempt_conversations VALUES('a2',?)", (conversation["id"],))
+    turn = {**auth("botops-test"), "X-Tico-On-Behalf-Of": "turn"}
+    preview = api.get(PREVIEW, params={"name": "tico-services"}, headers=turn)
+    assert preview.status_code == 403 and CARRIED in preview.json()["error"]["detail"], preview.text
+    made = api.post("/api/v2/github/product-repos", json=BODY, headers={**turn, "Idempotency-Key": "botops-turn"})
+    assert made.status_code == 403 and CARRIED in made.json()["error"]["detail"], made.text
+    nothing_made(api, gh)
+    # The Owner's own click still previews and creates.
+    assert api.get(PREVIEW, params={"name": "tico-services"}, headers=auth()).status_code == 200
+    assert product_repo_request(api, BODY, key="owner-direct").status_code == 200
+    assert len(creates(gh)) == 1
+
+
+def test_a_carried_owner_identity_cannot_preview_or_create_a_product_repo(api, gh):
+    ready(api, gh)
+    botops_turn(api)
+    assert grant(api).status_code == 200                      # cmo has the right; carried as the Owner it still can't
+    carried = {"owner-via-botops": Identity("human:ana", "owner", "ana@acme.example", runner_id="r1", attempt_id="a2",
+                                            via="botops", task_actor="bot:botops", confirmed=True),
+               "owner-via-cmo": Identity("human:ana", "owner", "ana@acme.example", runner_id="r1", attempt_id="a1",
+                                         via="botops", task_actor="bot:cmo", confirmed=True)}
+    api.app_state.store.settings.test_identities.update(carried)
+    for token in carried:
+        preview = api.get(PREVIEW, params={"name": "tico-services"}, headers=auth(token))
+        assert preview.status_code == 403 and CARRIED in preview.text, (token, preview.text)
+        made = product_repo_request(api, BODY, actor=token, key="carried-" + token)
+        assert made.status_code == 403 and CARRIED in made.text, (token, made.text)
+    nothing_made(api, gh)
+    # The granted bot in its own turn still creates.
+    assert product_repo_request(api, BODY, actor="bot-test", key="own-turn").status_code == 200
+    assert len(creates(gh)) == 1
+
+
 def test_connecting_and_disconnecting_github_stay_the_owners(api, gh):
     ready(api, gh)
     assert grant(api).status_code == 200
