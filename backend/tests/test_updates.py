@@ -2,6 +2,7 @@
 the week in review; read state is per person; a reply is both a comment on the update and a
 message in the bot's chat."""
 
+import json
 from datetime import datetime, timezone
 
 from backend import updates
@@ -118,16 +119,20 @@ def test_people_post_their_own_update_and_alerts_come_only_from_direct_reports(a
         updates.post(c, "boss", "- Planned the launch", day="2026-09-29")
         updates.post(c, "analyst", "- Sized the market", day="2026-09-29")
         updates.post(c, "human:ben", "- Met two customers", day="2026-09-29", drafted_by="coo")
+
+    def redraft():
+        with store.transaction() as c:
+            try:
+                updates.post(c, "human:ben", "- Redrafted", day="2026-09-29", drafted_by="coo")
+                raise AssertionError("a draft landed over the person's own words")
+            except Problem as e:
+                assert e.status == 409
     edited = post(api, "updates", {"body": "- Met three customers"}, token="ben-test")["update"]
     assert edited["bot"] == "human:ben" and edited["drafted_by"] == "coo" and edited["edited_by"] == "human:ben"
+    redraft()                                   # over the words they edited
     own = post(api, "updates", {"body": "- Met three customers", "replace_draft": True}, token="ben-test")["update"]
     assert own["drafted_by"] is None and own["edited_by"] is None
-    with store.transaction() as c:
-        try:
-            updates.post(c, "human:ben", "- Redrafted", day="2026-09-29", drafted_by="coo")
-            raise AssertionError("a draft landed over the person's own words")
-        except Problem as e:
-            assert e.status == 409
+    redraft()                                   # over their own words
     seen = {u["bot"] for u in get(api, "updates")["updates"]}
     assert {"boss", "analyst", "human:ben"} <= seen, "a person's update is for the whole company"
     post(api, f"updates/{own['id']}/reply", {"text": "Nice"}, expected=422)
@@ -145,6 +150,9 @@ def test_people_post_their_own_update_and_alerts_come_only_from_direct_reports(a
     from backend.tests.test_assistant import asked, assistant_turn
     _, attempt = assistant_turn(api, "ben-test", "Post my update")
     asked(api, "updates", {"body": "- From my chat"}, attempt["token"], "turn", expected=403)
+    # Nor as a card for him to confirm: posting an update is not a route the Assistant can propose.
+    post(api, "assistant/actions", {"summary": "Post my update", "path": "/api/v2/updates",
+                                    "body": {"body": "- From my chat"}}, token=attempt["token"], expected=422)
 
 
 def test_updates_roll_up_the_org_chart_with_reports_updates_in_the_managers_request(api):
@@ -214,36 +222,71 @@ def test_a_report_on_retry_and_a_stacked_manager_keep_the_90_minute_wait(api, mo
         held = dict(c.execute("SELECT bot, held_at FROM update_queue WHERE bot IN ('ops','cpo')").fetchall())
     assert held["ops"] and not held["cpo"], "the manager above has not started its clock"
     assert tick(60) is None, "an hour after the manager was held"
-    assert tick(31) == "ops", "91 minutes after it was held, the manager writes with what is in"
+    post(api, "chat/ops", {"text": "Check the close"})    # the manager is busy with a run when its wait is up
+    assert tick(31) is None
+    with store.transaction() as c:
+        assert c.execute("SELECT held_at FROM update_queue WHERE bot='cpo'").fetchone()[0], \
+            "a report whose own wait is over counts as released: the clock above starts, not a day's wait"
+        c.execute("UPDATE jobs SET state='completed' WHERE bot='ops'")
+    assert tick() == "ops", "91 minutes after it was held, the manager writes with what is in"
     with store.transaction() as c:
         assert "No update from: " + updates._label(c, other) in c.execute(
             "SELECT m.body FROM update_queue q JOIN messages m ON m.id=q.message_id WHERE q.bot='ops'").fetchone()[0]
         updates.post(c, "ops", "- The team closed the books", day="2026-09-29")
     job("ops", "completed")
     assert tick() == "cpo", "the manager above is asked once its report posts"
+    with store.transaction() as c:                 # a reports_to loop is followed once, never forever
+        c.execute("UPDATE bot_config SET reports_to='product-design' WHERE bot='cpo'")
+        c.execute("UPDATE update_queue SET state='queued', held_at=NULL WHERE bot IN ('cpo','ops','product-design')")
+        updates.waits_on_reports(c, c.execute("SELECT * FROM update_queue WHERE bot='cpo'").fetchone())
 
 
 def test_a_persons_draft_is_written_from_only_what_everyone_can_see_and_never_over_their_own(api, monkeypatch):
     """After the bots, each person whose drafting is on is drafted, deepest first, by one call to the
-    company's model. The call carries their shared tasks, goals and open reports' updates; a private task
-    (open, finished or asked of someone), a restricted bot's task or update, and their private Assistant
-    chat never reach it. The draft posts labelled, is tried once more on a failure, and never lands
-    over their own words."""
+    company's model. The call carries their shared tasks, goals, decisions, answers and comments, the
+    shared meetings they were in and open reports' updates; a private task (open, finished, asked of
+    someone, decided or commented on), a restricted bot's task (as owner or requester) or update, a
+    private, pending or deleted meeting, an approval and their private Assistant chat never reach it.
+    The draft posts labelled, is tried once more on any failure, and never lands over or beside their
+    own words; on Friday it is the week in review, which they edit or replace."""
     from backend.tests.test_api import restrict
     from backend.tests.test_assistant import say
     monkeypatch.setattr(updates, "today", lambda at=None: "2026-09-29")
     post(api, "humans/ben", {"reports_to": "ana"})
     post(api, "humans/cara", {"update_draft": False})
     post(api, "tasks", {"owner": "human:ana", "title": "Ship the pricing page", "body": "x"})
-    post(api, "tasks", {"owner": "human:ana", "title": "Secret raise plan", "body": "x", "private": True})
+    raise_plan = post(api, "tasks", {"owner": "human:ana", "title": "Secret raise plan", "body": "x", "private": True})
     done = post(api, "tasks", {"owner": "human:ana", "title": "Secret finished offer", "body": "x", "private": True})
     post(api, "tasks", {"owner": "human:ben", "title": "Secret ask of Ben", "body": "x", "private": True})
-    post(api, "tasks", {"owner": "bot:finance", "title": "Restricted audit", "body": "x"})
+    audit = post(api, "tasks", {"owner": "bot:finance", "title": "Restricted audit", "body": "x"})
+    budget = post(api, "tasks", {"owner": "bot:ops", "title": "Approve the ad budget", "body": "x"})
     say(api, "My salary talks are next week")             # her private Assistant chat
     store = api.app.state.store
     with store.transaction() as c:
+        ask = H.say(c, "bot:ops", "human:ana", "Search or social first?", kind="ask",
+                    conversation_id=H.task(c, budget["id"])["conversation_id"], refs={"task": budget["id"]})
+        H.answer(c, "human:ana", ask["id"], "Search ads first")
+        H.answer(c, "human:ana", H.say(c, "bot:ops", "human:ana", "Lunch?", kind="ask")["id"], "Chat answer, no task")
+    for task in (budget, raise_plan, audit):               # her decisions and comments, on each kind of task
+        post(api, f"tasks/{task['id']}/comments", {"text": "Comment on " + task["title"]})
+        post(api, f"tasks/{task['id']}", {"version": get(api, f"tasks/{task['id']}")["task"]["version"], "status": "done"})
+    meeting = lambda mid, notes, review="live", **meta: c.execute(
+        "INSERT INTO meetings(id,title,owner,metadata_json,notes,created,updated,review_state) VALUES(?,?,?,?,?,?,?,?)",
+        (mid, mid, "ben@acme.example", json.dumps({"kind": "meeting", **meta}), notes, H.now(), H.now(), review))
+    with store.transaction() as c:
         c.execute("UPDATE tasks SET status='done', updated=? WHERE id=?", (H.now(), done["id"]))
         restrict(c, "finance", people=["ana"])
+        H.task_create(c, "bot:finance", "Restricted request", "x", "human:ana")
+        attended = {"calendar": {"attendees": ["ANA@acme.example"]}}
+        meeting("Launch sync", "Agreed the launch date. " + "More detail. " * 80, **attended)
+        meeting("Board prep", "Private board notes", private=True, **attended)
+        meeting("Pending import", "Pending import notes", "pending", **attended)
+        meeting("Old sync", "Deleted meeting notes", **attended)
+        c.execute("INSERT INTO media_control(meeting_id,deleted_at) VALUES('Old sync',?)", (H.now(),))
+        meeting("Ben's one-to-one", "Not her meeting notes", participants=[{"email": "cara@acme.example"}])
+        c.execute("INSERT INTO approvals(id,kind,task_id,payload_json,requested_by,decided_by,decision,decided_at,created) "
+                  "VALUES('ap1','send',?,?,'bot:ops','human:ana','approved',?,?)",
+                  (budget["id"], json.dumps({"text": "Approval payload to the vendor"}), H.now(), H.now()))
         c.execute("UPDATE bot_config SET reports_to='human:ana' WHERE bot IN ('finance','ops')")
         updates.post(c, "ops", "- Ops shipped the runbook", day="2026-09-29")
         updates.post(c, "finance", "- Restricted numbers moved", day="2026-09-29")
@@ -264,7 +307,13 @@ def test_a_persons_draft_is_written_from_only_what_everyone_can_see_and_never_ov
     draft = updates.write_draft(store, "human:ana", write, "coo")
     assert draft["bot"] == "human:ana" and draft["drafted_by"] == "coo"
     assert "Ship the pricing page" in seen[0] and "Ops shipped" in seen[0] and "Met two customers" in seen[0]
-    for secret in ("Secret raise", "Secret finished", "Secret ask", "Restricted audit", "Restricted numbers", "salary"):
+    for shared in ("Approve the ad budget: done", "Comment on Approve the ad budget", "Search ads first",
+                   "Launch sync: Agreed the launch date"):
+        assert shared in seen[0], shared + " is shared and belongs in the draft"
+    assert len(seen[0].split("Launch sync: ")[1].split("\n")[0]) <= updates.MEETING_CHARS + 1, "a summary is trimmed"
+    for secret in ("Secret raise", "Secret finished", "Secret ask", "Restricted audit", "Restricted request",
+                   "Restricted numbers", "salary", "Private board", "Pending import", "Deleted meeting",
+                   "Not her meeting", "Approval payload", "Chat answer"):
         assert secret not in seen[0], secret + " reached a company-wide draft"
     with store.transaction() as c:
         assert c.execute("SELECT state FROM update_queue WHERE bot='human:ana'").fetchone()[0] == "posted"
@@ -282,6 +331,44 @@ def test_a_persons_draft_is_written_from_only_what_everyone_can_see_and_never_ov
     assert updates.write_draft(store, "human:ana", write, "coo") is None, "never over her own words"
     with store.read() as c:
         assert c.execute("SELECT body FROM updates WHERE bot='human:ana'").fetchone()[0] == "- Signed the lease"
+
+    # Friday: a person's row is the week in review. Their own words, in either kind, close it.
+    friday = "2026-10-02"
+    monkeypatch.setattr(updates, "today", lambda at=None: friday)
+    with store.transaction() as c:
+        updates.build_queue(c, friday, "weekly", "coo")
+        c.execute("UPDATE update_queue SET state='posted' WHERE day=? AND bot NOT LIKE 'human:%'", (friday,))
+    post(api, "updates", {"body": "- Met the auditors", "kind": "daily"}, token="ben-test")
+    with store.transaction() as c:
+        c.execute("UPDATE update_queue SET state='sent', sent_at=? WHERE bot='human:ben' AND day=?", (H.now(), friday))
+    calls = len(seen)
+    assert updates.write_draft(store, "human:ben", write, "coo") is None and len(seen) == calls, "not even a model call"
+    with store.transaction() as c:
+        assert c.execute("SELECT state, reason FROM update_queue WHERE bot='human:ben' AND day=?",
+                         (friday,)).fetchone()[:] == ("posted", updates.OWN)
+        assert not c.execute("SELECT 1 FROM updates WHERE bot='human:ben' AND kind='weekly'").fetchone(), \
+            "no week in review is drafted beside his own daily"
+        try:
+            updates.post(c, "human:ben", None, kind="weekly", day=friday, slides=SLIDES, drafted_by="coo")
+            raise AssertionError("a draft landed beside his own words")
+        except Problem as e:
+            assert e.status == 409
+        c.execute("UPDATE update_queue SET state='queued' WHERE bot='human:ben' AND day=?", (friday,))
+        assert updates.dispatch(c, FRIDAY, "coo") == "human:ana", "the queue closes his row the same way"
+        assert c.execute("SELECT reason FROM update_queue WHERE bot='human:ben' AND day=?", (friday,)).fetchone()[0] == updates.OWN
+    # With no words of her own, a model answer of any shape (slides as a string) is asked again...
+    assert updates.write_draft(store, "human:ana", lambda system, user: {"slides": "Shipped it"}, "coo") is None
+    with store.transaction() as c:
+        assert c.execute("SELECT state, tries FROM update_queue WHERE bot='human:ana' AND day=?",
+                         (friday,)).fetchone()[:] == ("queued", 1)
+        c.execute("UPDATE update_queue SET state='sent', sent_at=? WHERE bot='human:ana' AND day=?", (H.now(), friday))
+    # ...and her draft is a week in review she edits, then replaces with her own words.
+    week = updates.write_draft(store, "human:ana", lambda system, user: {"slides": SLIDES}, "coo")
+    assert week["kind"] == "weekly" and week["drafted_by"] == "coo" and week["slides"]["goal"] == SLIDES["goal"]
+    edited = post(api, "updates", {"kind": "weekly", "slides": {**SLIDES, "goal": "Grow signups; at 320."}})["update"]
+    assert edited["id"] == week["id"] and edited["drafted_by"] == "coo" and edited["edited_by"] == "human:ana"
+    own = post(api, "updates", {"kind": "weekly", "slides": SLIDES, "replace_draft": True})["update"]
+    assert own["id"] == week["id"] and own["drafted_by"] is None and own["edited_by"] is None
 
 
 def test_the_tree_nests_a_days_updates_by_the_org_chart_and_only_direct_reports_alert(api, monkeypatch):
