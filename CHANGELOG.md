@@ -12,7 +12,7 @@ All notable changes to Tico are recorded here. The format follows
   everyone on the team sees them on **Updates**. A person's card shows their name and picture and has no Reply. An
   update the Assistant drafted for someone says **Drafted by Assistant** until they replace it with their own words.
   `hub update list --scope direct` (and `scope=direct` on the API) keeps only your direct reports on the org chart,
-  the one level that will raise alerts once updates roll up the chart.
+  the one level that raises alerts.
 - Updates roll up the org chart. Tico asks the bots lowest on the chart first. A manager is asked once each of its
   direct reports has posted, missed or skipped, or 90 minutes after it was first held for them, whichever comes first. Its
   request carries its reports' updates and names who had none, so its update sums up the team in its own words and
