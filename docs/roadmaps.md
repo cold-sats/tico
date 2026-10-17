@@ -2,7 +2,7 @@
 
 Roadmaps use tasks, types, labels, comments and parent relations. The Product roadmap type runs
 Suggested → Exploring → Spec → Approved → Building → Shipped (or Declined); Engineering (or an existing Dev tickets
-type) uses the development flow. Every type starts private. A task is public only once someone publishes it with a
+type, as in [The software factory](software-factory.md)) uses the development flow. Every type starts private. A task is public only once someone publishes it with a
 public title written for it: the internal title and body are never copied into the public text. A type set to
 default public publishes a new task only when its public title is given at creation; without one the task starts
 private. A bot (or the Assistant or BotOps acting for a person) cannot create a task with public text or as public;
