@@ -282,3 +282,23 @@ def test_a_persons_draft_is_written_from_only_what_everyone_can_see_and_never_ov
     assert updates.write_draft(store, "human:ana", write, "coo") is None, "never over her own words"
     with store.read() as c:
         assert c.execute("SELECT body FROM updates WHERE bot='human:ana'").fetchone()[0] == "- Signed the lease"
+
+
+def test_the_tree_nests_a_days_updates_by_the_org_chart_and_only_direct_reports_alert(api, monkeypatch):
+    from backend.tests.test_bot_contact import bot
+    monkeypatch.setattr(updates, "today", lambda at=None: "2026-09-29")
+    bot(api, "boss", "Manager", reports_to="human:ana")
+    bot(api, "analyst", "Analyst", reports_to="boss")
+    with api.app.state.store.transaction() as c:
+        updates.post(c, "boss", "- Planned the launch", day="2026-09-29")
+        updates.post(c, "analyst", "- Sized the market", day="2026-09-29")
+    t = get(api, "updates/tree")
+    assert t["scope"] == "below" and [r["key"] for r in t["roots"]] == ["p:ana"], "below you, by default"
+    find = lambda nodes, key: next((n for n in nodes if n["key"] == key), None) or next(
+        (hit for n in nodes if (hit := find(n["children"], key))), None)
+    boss, analyst = find(t["roots"], "b:boss"), find(t["roots"], "b:analyst")
+    assert boss["direct"] and boss["update"]["body"] == "- Planned the launch"
+    assert analyst in boss["children"] and not analyst["direct"], "a report's report nests under it and never alerts"
+    assert t["unread"] == 1
+    assert get(api, "updates/tree?scope=all")["scope"] == "all"
+    get(api, "updates/tree?scope=mine", expected=422)

@@ -9,9 +9,23 @@
 // the last feed paints at once from this tab's cache, reads are marked as cards are seen and sent
 // in small batches, and a reply shows the moment it is sent. j / k move, r replies, u flips read,
 // o opens the bot, ← / → turn a week's slides (desktop).
+// "Update cards nested by org chart": by default the page is one day's updates as the org chart, your card
+// on top and an icon on each card opening the cards of its reports; Below me or Whole org; only direct
+// reports' updates alert (backend/updates.py tree). List keeps the plain newest-first feed.
 let UPD = null;
 const UPD_DRAFTS = new Map();
-const UPD_CACHE = state => `tico.updates.${state.kind}.${state.view}.${state.mine ? 'mine' : 'all'}`;
+const UPD_CACHE = state => updIsTree(state) ? `tico.updates.tree.${state.kind}.${state.scope || 'auto'}`
+  : `tico.updates.${state.kind}.${state.view}.${state.mine ? 'mine' : 'all'}`;
+const updIsTree = state => state.view !== 'archive' && state.layout !== 'list';
+function updPrefs() {
+  const out = {mine: true, layout: 'tree', scope: null};
+  try {
+    out.mine = localStorage.getItem('tico.updates.mine') !== '0';
+    out.layout = localStorage.getItem('tico.updates.layout') === 'list' ? 'list' : 'tree';
+    out.scope = ['below', 'all'].includes(localStorage.getItem('tico.updates.scope')) ? localStorage.getItem('tico.updates.scope') : null;
+  } catch {}
+  return out;
+}
 function updCacheRead(state) {
   try { return JSON.parse(sessionStorage.getItem(UPD_CACHE(state)) || 'null'); } catch { return null; }
 }
@@ -33,10 +47,9 @@ function pageUpdates() {
   const params = new URLSearchParams(S.route.split('?')[1] || '');
   const kind = params.get('kind') === 'weekly' ? 'weekly' : 'daily';
   const view = params.get('view') === 'archive' ? 'archive' : 'inbox';
-  // "a filter at the top, on by default, to only show my bots" (the bots I own).
-  let mine = true;
-  try { mine = localStorage.getItem('tico.updates.mine') !== '0'; } catch {}
-  const state = UPD = {kind, view, mine, data: null, open: new Set(), threads: {}, pending: new Set(), manualUnread: new Set(),
+  // "a filter at the top, on by default, to only show my bots" (the bots I own), in List and Archive.
+  const {mine, layout, scope} = updPrefs();
+  const state = UPD = {kind, view, mine, layout, scope, expanded: null, editing: false, data: null, open: new Set(), threads: {}, pending: new Set(), manualUnread: new Set(),
                        archivePending: new Set(), loadSeq: 0, mutationSeq: 0, sel: -1, loading: true, fromCache: false};
   const cached = state.data = updCacheRead(state);
   state.loading = !cached; state.fromCache = !!cached;
@@ -49,7 +62,9 @@ function pageUpdates() {
         <button type="button" role="tab" data-upd-kind="weekly" aria-selected="${kind === 'weekly'}" aria-label="Weekly" title="Weekly"><span class="nav-icon" aria-hidden="true">date_range</span><span class="upd-lbl">Weekly</span></button>
       </div>
       <span class="spacer"></span>
-      <button type="button" class="upd-chip" id="upd-mine" aria-pressed="${state.mine}" aria-label="My bots" title="My bots"><span class="nav-icon" aria-hidden="true">person</span><span class="upd-lbl">My bots</span></button>
+      <button type="button" class="upd-chip" id="upd-scope" aria-pressed="${state.scope === 'all'}" aria-label="Whole org" title="Whole org: off shows only the cards below you"${updIsTree(state) ? '' : ' hidden'}><span class="nav-icon" aria-hidden="true">groups</span><span class="upd-lbl">Whole org</span></button>
+      <button type="button" class="upd-chip" id="upd-mine" aria-pressed="${state.mine}" aria-label="My bots" title="My bots"${updIsTree(state) ? ' hidden' : ''}><span class="nav-icon" aria-hidden="true">person</span><span class="upd-lbl">My bots</span></button>
+      <button type="button" class="upd-chip" id="upd-layout" aria-pressed="${state.layout === 'list'}" aria-label="List" title="List: every update, newest first"${view === 'archive' ? ' hidden' : ''}><span class="nav-icon" aria-hidden="true">view_agenda</span><span class="upd-lbl">List</span></button>
       <button type="button" class="upd-chip upd-view" id="upd-view" aria-label="${view === 'archive' ? 'Open inbox' : 'Open archive'}" title="${view === 'archive' ? 'Inbox' : 'Archive'}"><span class="nav-icon" aria-hidden="true">${view === 'archive' ? 'inbox' : 'archive'}</span><span class="upd-lbl">${view === 'archive' ? 'Inbox' : 'Archive'}</span></button>
       <button type="button" class="ghost upd-allread" id="upd-allread"${view === 'archive' ? ' hidden' : ''}>Mark all read</button>
     </div>
@@ -76,6 +91,14 @@ function pageUpdates() {
     updRender(state);
     void updLoad(state);                          // its own count and order
   };
+  $('#upd-layout').onclick = () => {
+    try { localStorage.setItem('tico.updates.layout', state.layout === 'list' ? 'tree' : 'list'); } catch {}
+    pageUpdates();
+  };
+  $('#upd-scope').onclick = () => {
+    try { localStorage.setItem('tico.updates.scope', state.scope === 'all' ? 'below' : 'all'); } catch {}
+    pageUpdates();
+  };
   $('#upd-allread').onclick = async () => {
     for (const u of state.data?.updates || []) u.read = true;
     updRender(state); updBadge(0);
@@ -86,6 +109,11 @@ function pageUpdates() {
   void updLoad(state);
 }
 function updFeedPath(state, more = false) {
+  if (updIsTree(state)) {
+    const q = new URLSearchParams({kind: state.kind});
+    if (state.scope) q.set('scope', state.scope);
+    return '/v2/updates/tree?' + q;
+  }
   const q = new URLSearchParams({kind: state.kind, limit: '40'});
   if (state.mine) q.set('mine', 'true');           // the count and the feed agree with My bots
   if (state.view === 'archive') q.set('archive', 'true');
@@ -96,9 +124,7 @@ function updFeedPath(state, more = false) {
 function updPrefetch() {
   if (!(location.hash === UPDATES || location.hash.startsWith(UPDATES + '?'))) return;
   const params = new URLSearchParams(location.hash.split('?')[1] || '');
-  let mine = true;
-  try { mine = localStorage.getItem('tico.updates.mine') !== '0'; } catch {}
-  getPrefetch(updFeedPath({kind: params.get('kind') === 'weekly' ? 'weekly' : 'daily', mine, view: params.get('view') === 'archive' ? 'archive' : 'inbox'}));
+  getPrefetch(updFeedPath({...updPrefs(), kind: params.get('kind') === 'weekly' ? 'weekly' : 'daily', view: params.get('view') === 'archive' ? 'archive' : 'inbox'}));
 }
 async function updLoad(state, more = false) {
   const request = ++state.loadSeq;
@@ -107,7 +133,8 @@ async function updLoad(state, more = false) {
   if (UPD !== state || request !== state.loadSeq || mutation !== state.mutationSeq) return;
   state.loading = false;
   if (!r) { if (!state.data) $('#upd-feed').innerHTML = '<div class="empty">Could not load the updates yet; trying again…</div>'; setTimeout(() => UPD === state && updLoad(state, more), 4000); return; }
-  if (more && state.data) state.data = {...r, updates: [...state.data.updates, ...r.updates], missed: state.data.missed};
+  if (r.roots) { state.data = updFromTree(r); updCacheWrite(state, state.data); state.fromCache = false; }
+  else if (more && state.data) state.data = {...r, updates: [...state.data.updates, ...r.updates], missed: state.data.missed};
   else { state.data = r; updCacheWrite(state, r); state.fromCache = false; }
   updOrder(state, !more);
   updBadge(r.unread);
@@ -148,15 +175,17 @@ function updCard(u, i, state) {
   const open = state.open.has(u.id);
   const thread = state.threads[u.id];
   const body = String(u.body || '').trim();
-  return `<article class="upd-card${u.read ? '' : ' unread'}${!u.slides && state.view === 'inbox' ? ' swipeable' : ''}${open ? ' open' : ''}${i === state.sel ? ' sel' : ''}" data-upd="${esc(u.id)}" data-i="${i}" tabindex="-1">
+  const alert = !u.read && !u.quiet;
+  return `<article class="upd-card${alert ? ' unread' : ''}${!u.read && u.quiet ? ' upd-quiet' : ''}${!u.slides && state.view === 'inbox' ? ' swipeable' : ''}${open ? ' open' : ''}${i === state.sel ? ' sel' : ''}" data-upd="${esc(u.id)}" data-i="${i}" tabindex="-1">
     <div class="upd-av">${who.avatar}</div>
     <div class="upd-main">
       <div class="upd-meta"><a href="${who.href}" class="upd-name" data-upd-bot>${who.name}</a>
         ${u.kind === 'weekly' ? '<span class="upd-pill">Week in review</span>' : ''}${updDraftPill(u)}
-        <span class="muted">· ${esc(ago(u.updated || u.created))}</span>${u.read ? '' : '<span class="upd-dot" aria-label="Unread"></span>'}</div>
+        <span class="muted">· ${esc(ago(u.updated || u.created))}</span>${alert ? '<span class="upd-dot" aria-label="Unread"></span>' : ''}</div>
       ${u.slides ? updDeck(u, state) : body ? `<div class="upd-body md">${safeMd(body, {shortLinks: true})}</div>` : ''}
       <div class="upd-actions">
         ${who.person ? '' : `<button type="button" class="upd-act" data-upd-reply><span class="nav-icon" aria-hidden="true">chat_bubble</span>${u.replies ? u.replies : 'Reply'}</button>`}
+        ${u.own && !u.slides ? '<button type="button" class="upd-act" data-upd-write><span class="nav-icon" aria-hidden="true">edit</span>Edit</button>' : ''}
         <button type="button" class="upd-act" data-upd-toggle>${u.read ? 'Mark unread' : 'Mark read'}</button>
         <button type="button" class="upd-act" data-upd-archive aria-label="${state.view === 'archive' ? 'Restore update' : 'Archive update'}"${state.archivePending.has(u.id) ? ' disabled' : ''}>${state.view === 'archive' ? 'Restore' : 'Archive'}</button>
       </div>
@@ -229,11 +258,85 @@ function updDecksBind(state) {
     track.addEventListener('scroll', () => { clearTimeout(t); t = setTimeout(() => updDeckMark(deck, state), 60); }, {passive: true});
   }
 }
+// The tree's updates, flat, so reading, replies and keys work on them as on the feed. A report's report
+// is `quiet`: it is read when seen but never alerts.
+function updFromTree(tree) {
+  const updates = [];
+  const walk = (nodes, depth) => { for (const n of nodes) {
+    if (n.update) { n.update.quiet = !n.direct; n.update.own = n.key === tree.me; updates.push(n.update); }
+    walk(n.children, depth + 1);
+  } };
+  walk(tree.roots, 0);
+  return {tree, updates, unread: tree.unread, next_before: null};
+}
+function updKids(n) {
+  let count = 0, unread = false;
+  for (const k of n.children) { count++; if (k.direct && k.update && !k.update.read) unread = true; }
+  return {count, unread};
+}
+function updTreeHTML(state) {
+  const {tree} = state.data, items = [];
+  if (!state.expanded) {          // your card and the one level that alerts start open
+    state.expanded = new Set(tree.roots.map(n => n.key));
+    const mark = nodes => { for (const n of nodes) { if (n.children.some(k => k.direct)) state.expanded.add(n.key); mark(n.children); } };
+    mark(tree.roots);
+  }
+  const node = (n, depth) => {
+    const kids = updKids(n), open = state.expanded.has(n.key);
+    const u = n.update ? state.data.updates.find(x => x.id === n.update.id) : null;
+    const own = n.key === tree.me;
+    let card;
+    if (own && state.editing) card = updEditor(u, n);
+    else if (u) { card = updCard(u, items.length, state); items.push(u); }
+    else {
+      const who = updAuthor(n.author);
+      card = `<div class="upd-none" data-upd-node="${esc(n.key)}"><span class="upd-av">${who.avatar}</span><a href="${who.href}" class="upd-name">${who.name}</a>
+        <span class="muted">No update yet</span>${own && state.kind === 'daily' ? '<button type="button" class="ghost upd-write" data-upd-write>Write your update</button>' : ''}</div>`;
+    }
+    const toggle = kids.count ? `<button type="button" class="upd-kids" data-upd-kids="${esc(n.key)}" aria-expanded="${open}" title="${open ? 'Hide' : 'Show'} the cards of ${esc(n.name)}'s reports">
+        <span class="nav-icon" aria-hidden="true">${open ? 'expand_less' : 'expand_more'}</span>${kids.count} report${kids.count === 1 ? '' : 's'}${kids.unread ? '<span class="upd-dot" aria-label="Unread"></span>' : ''}</button>` : '';
+    const below = kids.count && open ? `<div class="upd-sub">${n.children.map(k => node(k, depth + 1)).join('')}</div>` : '';
+    return `<div class="upd-node" data-depth="${depth}">${card}${toggle}${below}</div>`;
+  };
+  const html = tree.roots.map(n => node(n, 0)).join('');
+  state.list = items;
+  return html || '<div class="upd-empty"><span class="nav-icon" aria-hidden="true">account_tree</span><b>No one on the org chart yet.</b></div>';
+}
+// Your own card: write your update, or edit the one you or the Assistant posted today. Words you write
+// yourself drop the Assistant's label; an edit keeps it, marked edited.
+function updEditor(u, n) {
+  const drafted = u?.drafted_by && !u?.edited_by;
+  return `<form class="upd-card upd-edit" data-upd-editor>
+    <div class="upd-main"><div class="upd-meta"><b>${updAuthor(n.author).name}</b><span class="muted">· today's update</span></div>
+      <textarea rows="4" aria-label="Your update" placeholder="- One to five bullets: what you did, do next, or wait on">${esc(u?.body || '')}</textarea>
+      ${drafted ? '<label class="upd-own"><input type="checkbox" data-upd-own> These are my own words (drop the Drafted by Assistant label)</label>' : ''}
+      <div class="upd-actions"><button class="primary" type="submit">Post</button><button type="button" class="ghost" data-upd-cancel>Cancel</button></div>
+      <div class="err" role="status" data-upd-edit-err></div></div></form>`;
+}
+async function updPostOwn(state, form) {
+  const body = form.querySelector('textarea').value.trim(), err = form.querySelector('[data-upd-edit-err]');
+  if (!body) { err.textContent = 'Write at least one bullet.'; return; }
+  const button = form.querySelector('[type=submit]'); button.disabled = true; err.textContent = '';
+  try {
+    const r = await post('/v2/updates', {body, replace_draft: !!form.querySelector('[data-upd-own]')?.checked});
+    if (UPD !== state) return;
+    if (r.update?.warning) toast(r.update.warning);
+    state.editing = false;
+    await updLoad(state);
+  } catch (e) { err.textContent = e.message || 'Could not post it.'; button.disabled = false; }
+}
 function updRender(state) {
   const feed = $('#upd-feed'); if (!feed || UPD !== state) return;
   updSaveDrafts();
   const data = state.data;
   if (!data) { feed.innerHTML = '<div class="upd-skel"></div><div class="upd-skel"></div><div class="upd-skel"></div>'; return; }
+  if (data.tree && updIsTree(state)) {
+    feed.innerHTML = updTreeHTML(state);
+    updDecksBind(state);
+    const allRead = $('#upd-allread'); if (allRead) allRead.hidden = !state.list.some(u => !u.read && !u.quiet);
+    updWatch(state);
+    return;
+  }
   const meId = S.me?.id;
   const isMine = slug => { const e = S.emps.find(x => x.name === slug); return !e || e.operator === meId || (!e.operator && S.me?.role === 'owner'); };
   // Unread first, then newest to oldest; the order is set when the page opens
@@ -266,16 +369,16 @@ function updWatch(state) {
       else if (!seen) { clearTimeout(e.target._t); e.target._t = null; }
     }
   }, {threshold: [0, 0.25, 0.5, 0.6, 0.75, 1]});
-  for (const el of document.querySelectorAll('#upd-feed .upd-card.unread')) state.io.observe(el);
+  for (const el of document.querySelectorAll('#upd-feed .upd-card.unread, #upd-feed .upd-card.upd-quiet')) state.io.observe(el);
 }
 function updSeen(state, id) {
   const u = state.data?.updates?.find(x => x.id === id);
   if (!u || u.read || state.manualUnread.has(id) || UPD !== state) return;
   u.read = true; state.pending.add(id);
   const el = document.querySelector(`#upd-feed [data-upd="${CSS.escape(id)}"]`);
-  el?.classList.remove('unread'); el?.querySelector('.upd-dot')?.remove();
+  el?.classList.remove('unread', 'upd-quiet'); el?.querySelector('.upd-dot')?.remove();
   const t = el?.querySelector('[data-upd-toggle]'); if (t) t.textContent = 'Mark unread';
-  updBadge(Math.max(0, (S.updUnread || 1) - 1));
+  if (!u.quiet) updBadge(Math.max(0, (S.updUnread || 1) - 1));
   clearTimeout(state.flush);
   state.flush = setTimeout(() => updFlush(state), 900);
 }
@@ -323,7 +426,7 @@ async function updToggle(state, id) {
   if (u.read) state.manualUnread.delete(id);
   else { state.manualUnread.add(id); state.pending.delete(id); }
   updCacheWrite(state, state.data);
-  updBadge(Math.max(0, (S.updUnread || 0) + (u.read ? -1 : 1)));
+  if (!u.quiet) updBadge(Math.max(0, (S.updUnread || 0) + (u.read ? -1 : 1)));
   updRender(state);
   try { await post('/v2/updates/read', {ids: [id], read: u.read}); } catch (e) { toast(e.message || 'Could not save', true); }
 }
@@ -381,6 +484,17 @@ function updBind(state) {
     }
     if (state.ignoreClick && Date.now() >= state.ignoreClick.until) state.ignoreClick = null;
     if (ev.target.closest('[data-upd-more]')) { void updLoad(state, true); return; }
+    const kids = ev.target.closest('[data-upd-kids]');
+    if (kids) {
+      const key = kids.dataset.updKids;
+      if (state.expanded.has(key)) state.expanded.delete(key); else state.expanded.add(key);
+      updRender(state); return;
+    }
+    if (ev.target.closest('[data-upd-write]')) {
+      state.editing = true; updRender(state);
+      document.querySelector('#upd-feed [data-upd-editor] textarea')?.focus(); return;
+    }
+    if (ev.target.closest('[data-upd-cancel]')) { state.editing = false; updRender(state); return; }
     if (!card || ev.target.closest('[data-upd-bot], a, textarea, form')) return;
     const deck = ev.target.closest('[data-upd-deck]');
     if (deck) {
@@ -395,6 +509,8 @@ function updBind(state) {
     if (ev.target.closest('.upd-body') && !ev.target.closest('a')) return void updOpen(state, id);
   });
   feed.addEventListener('submit', ev => {
+    const editor = ev.target.closest('[data-upd-editor]');
+    if (editor) { ev.preventDefault(); void updPostOwn(state, editor); return; }
     const form = ev.target.closest('[data-upd-form]'); if (!form) return;
     ev.preventDefault();
     const ta = form.querySelector('textarea'), text = ta.value;
@@ -449,10 +565,9 @@ function updBind(state) {
   document.addEventListener('keydown', state.keys);
 }
 // The badge on the rail and the phone's bar, from the 30 s refresh (one small count).
+// Only your direct reports' updates alert, one level down the org chart.
 async function updUnreadRefresh() {
-  let mine = true;
-  try { mine = localStorage.getItem('tico.updates.mine') !== '0'; } catch {}
-  const r = await v2Get('/v2/updates/unread' + (mine ? '?mine=true' : ''));
+  const r = await v2Get('/v2/updates/unread?scope=direct');
   if (r) { updBadge(r.unread); meetPendingBadge(r.meetings_pending || 0); }
   return r;
 }

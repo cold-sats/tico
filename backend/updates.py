@@ -992,6 +992,66 @@ def count_unread(c, actor, readable, kind=None):
                      (actor, actor, H.shift(H.now(), days=-14), *values, *([kind] if kind else []))).fetchone()[0]
 
 
+def tree(c, actor, readable, kind, day=None, scope=None):
+    """One day's updates nested by the org chart, for the Updates page: each person and bot the
+    caller may read, its update or none, and the ones below it. `scope` below starts at the caller
+    (the default when someone reports to them), all at the top of the chart. Only direct reports
+    are `direct`, the one level that alerts; `unread` counts just those."""
+    from . import people as P
+    roster, entries, archived = _chart(c)
+    view = P.org_view(roster, entries, archived)
+    me = ("p:" if H.actor_kind(actor) == "human" else "b:") + H.actor_id(actor)
+    parent_of, nodes = {}, {}
+    names = {r["slug"]: r["display_name"] or r["slug"] for r in c.execute("SELECT slug, display_name FROM bots")}
+    for g in view["org_groups"]:
+        parent_of["g:" + g["id"]] = g["org_parent"]
+    for p in view["people"]:
+        parent_of["p:" + p["id"]] = p["org_parent"]
+        if H.human_actor(p["id"]) in readable:
+            nodes["p:" + p["id"]] = {"key": "p:" + p["id"], "author": H.human_actor(p["id"]), "name": p["name"] or p["id"]}
+    for b in view["bots"]:
+        parent_of["b:" + b["id"]] = b["org_parent"]
+        if b["id"] in readable:
+            nodes["b:" + b["id"]] = {"key": "b:" + b["id"], "author": b["id"], "name": names.get(b["id"]) or b["id"]}
+    authors = [n["author"] for n in nodes.values()]
+    marks = ",".join("?" * len(authors)) or "''"
+    if not day:
+        day = c.execute(f"SELECT max(day) FROM updates WHERE kind=? AND bot IN ({marks})", (kind, *authors)).fetchone()[0] or today()
+    rows = {r["bot"]: r for r in c.execute(
+        f"SELECT u.*, r.read_at FROM updates u LEFT JOIN update_reads r ON r.update_id=u.id AND r.actor=? "
+        f"WHERE u.kind=? AND u.day=? AND u.bot IN ({marks})", (actor, kind, day, *authors))}
+    direct = set(direct_reports(c, author_of(actor))) & set(authors)
+    children = {}
+    for key, node in nodes.items():
+        parent, seen = parent_of.get(key, ""), {key}
+        while parent and parent not in nodes and parent not in seen:   # past groups and hidden bots
+            seen.add(parent)
+            parent = parent_of.get(parent, "")
+        node["parent"] = parent if parent in nodes else ""
+        children.setdefault(node["parent"], []).append(key)
+    def build(key, seen):
+        node = nodes[key]
+        row = rows.get(node["author"])
+        update = None
+        if row:
+            update = _decode(row)
+            update["read"] = bool(update.pop("read_at"))
+        kids = [build(k, seen | {k}) for k in sorted(children.get(key, []), key=lambda k: (k[0] != "p", nodes[k]["name"].lower()))
+                if k not in seen]
+        return {"key": key, "author": node["author"], "name": node["name"], "direct": node["author"] in direct,
+                "update": update, "children": kids}
+    if scope not in ("below", "all"):
+        scope = "below" if children.get(me) else "all"
+    tops = [me] if scope == "below" and me in nodes else sorted(children.get("", []), key=lambda k: nodes[k]["name"].lower())
+    return {"kind": kind, "day": day, "scope": scope, "me": me, "roots": [build(k, {k}) for k in tops],
+            "unread": count_unread(c, actor, direct, kind)}
+
+
+def author_of(actor):
+    """The author key an actor posts as: `human:<id>` for a person, the slug for a bot."""
+    return actor if H.actor_kind(actor) == "human" else H.actor_id(actor)
+
+
 def set_archived(c, actor, ids, archived=True):
     """Set this reader's archive choice. Restoring a globally superseded update creates a
     per-reader exception; restoring a current update simply removes the manual archive."""

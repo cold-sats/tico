@@ -2067,6 +2067,20 @@ def create_app(settings=None):
             return {"unread": updates.count_unread(c, who.actor, update_visible(c, who, mine, update_scope(scope))),
                     "meetings_pending": pending_count(c, who)}
 
+    @app.get("/api/v2/updates/tree")
+    def updates_tree(request: Request, kind: str = "daily", day: str | None = None, scope: str | None = None):
+        """One day's updates nested by the org chart: below you by default, or the whole chart."""
+        who = request.state.identity
+        auth.domain(who)
+        if kind not in updates.KINDS:
+            raise Problem("kind", "kind is daily or weekly", 422)
+        if scope not in (None, "", "below", "all"):
+            raise Problem("scope", "scope is below or all", 422)
+        if day and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+            raise Problem("day", "day is YYYY-MM-DD", 422)
+        with store.read() as c:
+            return updates.tree(c, who.actor, update_visible(c, who), kind, day or None, scope or None)
+
     @app.get("/api/v2/updates/{uid}")
     def update_show(request: Request, uid: str):
         who = request.state.identity

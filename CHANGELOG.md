@@ -23,6 +23,10 @@ All notable changes to Tico are recorded here. The format follows
   already see: their shared tasks and goals and their reports' updates. Private tasks, restricted bots and Assistant
   chats are never part of it. The draft posts at once as theirs, and they can edit or replace it all day; it never
   goes over words they wrote. **Assistant drafts my update** on a person's page turns it off.
+- **Updates** shows the day as the org chart. Your card is on top, with **Write your update** or **Edit**. Each card
+  with reports has a small icon that opens its reports' cards, and theirs below. You see the cards below you by
+  default, and **Whole org** shows the chart from the top (the choice is kept). The badge and unread dots count only
+  your direct reports, so a report's report never alerts. **List** keeps the plain newest-first feed.
 - Beta features carry a small **Beta** pill where they appear: Market, Message bots, Listening, Live meetings, chat
   goals and steering, the Slack gateway, a computer's Screen, Behaviour replay and the computer Performance page,
   Windows through WSL 2, external agents (Hermes, OpenClaw, Grok Bot, Dots, Muse sync) and the Mac app. Help lists
