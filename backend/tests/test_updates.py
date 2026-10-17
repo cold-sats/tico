@@ -267,6 +267,10 @@ def test_a_persons_draft_is_written_from_only_what_everyone_can_see_and_never_ov
                     conversation_id=H.task(c, budget["id"])["conversation_id"], refs={"task": budget["id"]})
         H.answer(c, "human:ana", ask["id"], "Search ads first")
         H.answer(c, "human:ana", H.say(c, "bot:ops", "human:ana", "Lunch?", kind="ask")["id"], "Chat answer, no task")
+        # Her answer names the shared budget but replies on the private raise plan: every task it names must be shared.
+        on_raise = H.say(c, "bot:ops", "human:ana", "Can the raise wait?", kind="ask", refs={"task": raise_plan["id"]},
+                         conversation_id=H.task(c, raise_plan["id"])["conversation_id"])
+        H.answer(c, "human:ana", on_raise["id"], "Mixed answer about the raise", comment_refs={"task": budget["id"]})
     for task in (budget, raise_plan, audit):               # her decisions and comments, on each kind of task
         post(api, f"tasks/{task['id']}/comments", {"text": "Comment on " + task["title"]})
         post(api, f"tasks/{task['id']}", {"version": get(api, f"tasks/{task['id']}")["task"]["version"], "status": "done"})
@@ -313,7 +317,7 @@ def test_a_persons_draft_is_written_from_only_what_everyone_can_see_and_never_ov
     assert len(seen[0].split("Launch sync: ")[1].split("\n")[0]) <= updates.MEETING_CHARS + 1, "a summary is trimmed"
     for secret in ("Secret raise", "Secret finished", "Secret ask", "Restricted audit", "Restricted request",
                    "Restricted numbers", "salary", "Private board", "Pending import", "Deleted meeting",
-                   "Not her meeting", "Approval payload", "Chat answer"):
+                   "Not her meeting", "Approval payload", "Chat answer", "Mixed answer"):
         assert secret not in seen[0], secret + " reached a company-wide draft"
     with store.transaction() as c:
         assert c.execute("SELECT state FROM update_queue WHERE bot='human:ana'").fetchone()[0] == "posted"
