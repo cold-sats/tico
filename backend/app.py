@@ -2097,15 +2097,9 @@ def create_app(settings=None):
     def update_post(request: Request, body: M.UpdatePost):
         who = request.state.identity
         def work(c):
-            # A bot posts its own; a person posts their own, for today, as `human:<id>`; the
-            # Assistant posts a person's draft while Tico's request for it is out.
-            drafted_by = None
-            if body.for_person:
-                if who.role != "bot" or H.actor_id(who.actor) != settings.assistant_bot:
-                    raise Problem("identity", "Only the " + settings.assistant_name + " drafts a person's update", 403)
-                author, drafted_by = body.for_person, settings.assistant_bot
-                updates.may_draft(c, drafted_by, author, updates.today())
-            elif who.role == "bot":
+            # A bot posts its own; a person posts their own, for today, as `human:<id>`. A person's
+            # draft is written by the server (updates.write_draft), never posted through here.
+            if who.role == "bot":
                 author = H.actor_id(who.actor)
             elif who.role in ("owner", "human") and not who.via:
                 author = who.actor
@@ -2114,7 +2108,7 @@ def create_app(settings=None):
             slides = body.slides.model_dump(exclude_none=True) if body.slides else None
             updates.check_day(c, author, body.day)
             return {"update": updates.post(c, author, body.body, kind=body.kind, day=body.day, slides=slides,
-                                           drafted_by=drafted_by, replace_draft=body.replace_draft)}
+                                           replace_draft=body.replace_draft)}
         return mutate(request, body, work)
 
     @app.post("/api/v2/updates/redo")

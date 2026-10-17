@@ -1865,7 +1865,6 @@ class UpdatePost(Contract):
     slides: UpdateSlides | None = None                                 # a week in review
     day: Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$")] | None = None   # only a day Tico asked to redo
     replace_draft: bool = False                                        # a person's own words over their Assistant draft
-    for_person: Annotated[str, Field(pattern=r"^human:[A-Za-z0-9._@+-]{1,80}$")] | None = None   # the Assistant's draft for them
 
 
 class UpdateRedo(Contract):

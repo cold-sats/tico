@@ -2800,8 +2800,7 @@ _SLIDES = {
       {"body": _s("A daily: one to five lines, each starting with '- '"),
        "slides": _SLIDES,
        "kind": _s("daily or weekly; Tico picks from the day when omitted", enum=["daily", "weekly"]),
-       "day": _s("YYYY-MM-DD, only when Tico asks you to redo a past day"),
-       "for_person": _s("human:<id>: the Assistant drafting that person's update, when Tico asks for it")},
+       "day": _s("YYYY-MM-DD, only when Tico asks you to redo a past day")},
       writes=True)
 def update_post(api, args):
     slides = args.get("slides")
@@ -2809,8 +2808,7 @@ def update_post(api, args):
         slides = json.loads(Path(args["slides_file"]).read_text())
     if isinstance(slides, str):
         slides = json.loads(slides)
-    fields = (("body", args.get("body")), ("slides", slides), ("kind", args.get("kind")), ("day", args.get("day")),
-              ("for_person", args.get("for_person")))
+    fields = (("body", args.get("body")), ("slides", slides), ("kind", args.get("kind")), ("day", args.get("day")))
     return api.post("updates", {k: v for k, v in fields if v is not None}, key=_key(args))["update"]
 
 

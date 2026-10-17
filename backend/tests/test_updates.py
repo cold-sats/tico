@@ -223,37 +223,62 @@ def test_a_report_on_retry_and_a_stacked_manager_keep_the_90_minute_wait(api, mo
     assert tick() == "cpo", "the manager above is asked once its report posts"
 
 
-def test_the_assistant_drafts_a_persons_update_from_what_the_team_can_see_and_never_over_their_own(api, monkeypatch):
-    """After the bots, the Assistant is asked for each person's draft: their shared tasks, never a private
-    one; it posts at once, labelled, only while asked; the person's own words are never drafted over;
-    drafting turns off per person."""
+def test_a_persons_draft_is_written_from_only_what_everyone_can_see_and_never_over_their_own(api, monkeypatch):
+    """After the bots, each person whose drafting is on is drafted, deepest first, by one call to the
+    company's model. The call carries their shared tasks, goals and open reports' updates; a private task
+    (open, finished or asked of someone), a restricted bot's task or update, and their private Assistant
+    chat never reach it. The draft posts labelled, is tried once more on a failure, and never lands
+    over their own words."""
+    from backend.tests.test_api import restrict
+    from backend.tests.test_assistant import say
     monkeypatch.setattr(updates, "today", lambda at=None: "2026-09-29")
+    post(api, "humans/ben", {"reports_to": "ana"})
+    post(api, "humans/cara", {"update_draft": False})
     post(api, "tasks", {"owner": "human:ana", "title": "Ship the pricing page", "body": "x"})
     post(api, "tasks", {"owner": "human:ana", "title": "Secret raise plan", "body": "x", "private": True})
-    post(api, "humans/ben", {"update_draft": False})
+    done = post(api, "tasks", {"owner": "human:ana", "title": "Secret finished offer", "body": "x", "private": True})
+    post(api, "tasks", {"owner": "human:ben", "title": "Secret ask of Ben", "body": "x", "private": True})
+    post(api, "tasks", {"owner": "bot:finance", "title": "Restricted audit", "body": "x"})
+    say(api, "My salary talks are next week")             # her private Assistant chat
     store = api.app.state.store
     with store.transaction() as c:
+        c.execute("UPDATE tasks SET status='done', updated=? WHERE id=?", (H.now(), done["id"]))
+        restrict(c, "finance", people=["ana"])
+        c.execute("UPDATE bot_config SET reports_to='human:ana' WHERE bot IN ('finance','ops')")
+        updates.post(c, "ops", "- Ops shipped the runbook", day="2026-09-29")
+        updates.post(c, "finance", "- Restricted numbers moved", day="2026-09-29")
         updates.build_queue(c, "2026-09-29", "daily", "coo")
-        people = {r["bot"] for r in c.execute("SELECT bot FROM update_queue WHERE bot LIKE 'human:%'")}
-        assert "human:ana" in people and "human:ben" not in people, "drafting turns off per person"
-        c.execute("UPDATE update_queue SET state='posted' WHERE bot<>'human:ana'")
-        c.execute("DELETE FROM jobs WHERE bot='coo'")
-        assert updates.dispatch(c, MORNING, "coo") == "human:ana"
-        ask = c.execute("SELECT m.body, m.to_actor FROM update_queue q JOIN messages m ON m.id=q.message_id "
-                        "WHERE q.bot='human:ana'").fetchone()
-    assert ask["to_actor"] == "bot:coo" and "Ship the pricing page" in ask["body"]
-    assert "Secret raise plan" not in ask["body"], "a private task never reaches a company-wide draft"
-    r, msg, attempt = setup_attempt(api, "coo")
-    coo = {"Authorization": "Bearer " + attempt["token"]}
-    draft = api.post("/api/v2/updates", json={"body": "- Shipped the pricing page", "for_person": "human:ana"},
-                     headers={**coo, "Idempotency-Key": "d1"})
-    assert draft.status_code == 200, draft.text
-    assert draft.json()["update"]["bot"] == "human:ana" and draft.json()["update"]["drafted_by"] == "coo"
-    r, msg, other = setup_attempt(api, "ops")
-    posing = api.post("/api/v2/updates", json={"body": "- x", "for_person": "human:ana"},
-                      headers={"Authorization": "Bearer " + other["token"], "Idempotency-Key": "d2"})
-    assert posing.status_code == 403, "only the Assistant drafts for a person"
-    post(api, "updates", {"body": "- Shipped the pricing page and the FAQ"})
-    again = api.post("/api/v2/updates", json={"body": "- Shipped it", "for_person": "human:ana"},
-                     headers={**coo, "Idempotency-Key": "d3"})
-    assert again.status_code == 409, "never over the person's own words"
+        people = [r["bot"] for r in c.execute("SELECT bot FROM update_queue WHERE bot LIKE 'human:%' ORDER BY rank")]
+        assert "human:cara" not in people, "drafting turns off per person"
+        assert people.index("human:ben") < people.index("human:ana"), "a person's reports are drafted first"
+        c.execute("UPDATE update_queue SET state='posted' WHERE bot NOT LIKE 'human:%'")
+    post(api, "updates", {"body": "- Met two customers"}, token="ben-test")
+    with store.transaction() as c:
+        assert updates.dispatch(c, MORNING, "coo") == "human:ana", "ben wrote his own; ana's draft is next"
+        assert updates.dispatch(c, MORNING, "coo") is None, "one at a time: nothing more while her draft is out"
+    seen = []
+
+    def write(system, user):
+        seen.append(system + "\n" + user)
+        return {"body": "- Shipped the pricing page"}
+    draft = updates.write_draft(store, "human:ana", write, "coo")
+    assert draft["bot"] == "human:ana" and draft["drafted_by"] == "coo"
+    assert "Ship the pricing page" in seen[0] and "Ops shipped" in seen[0] and "Met two customers" in seen[0]
+    for secret in ("Secret raise", "Secret finished", "Secret ask", "Restricted audit", "Restricted numbers", "salary"):
+        assert secret not in seen[0], secret + " reached a company-wide draft"
+    with store.transaction() as c:
+        assert c.execute("SELECT state FROM update_queue WHERE bot='human:ana'").fetchone()[0] == "posted"
+
+    def fails(system, user):
+        raise OSError("down")
+    with store.transaction() as c:
+        c.execute("UPDATE update_queue SET state='sent', sent_at=? WHERE bot='human:ana'", (H.now(),))
+    assert updates.write_draft(store, "human:ana", fails, "coo") is None
+    with store.transaction() as c:
+        assert c.execute("SELECT state, tries FROM update_queue WHERE bot='human:ana'").fetchone()[:] == ("queued", 1)
+    post(api, "updates", {"body": "- Signed the lease", "replace_draft": True})
+    with store.transaction() as c:
+        c.execute("UPDATE update_queue SET state='sent', sent_at=? WHERE bot='human:ana'", (H.now(),))
+    assert updates.write_draft(store, "human:ana", write, "coo") is None, "never over her own words"
+    with store.read() as c:
+        assert c.execute("SELECT body FROM updates WHERE bot='human:ana'").fetchone()[0] == "- Signed the lease"
