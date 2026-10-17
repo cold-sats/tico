@@ -74,6 +74,8 @@ All notable changes to Tico are recorded here. The format follows
   Someone who may only see the bot is told its computer isn't shown to them. The row and the button follow each refresh.
 
 ### Changed
+- **What's new** clears on its own: opening the changelog marks the product updates it shows as read, older ones
+  too as you load them, and they stay listed as **New** until you leave. The **Mark shown as read** button is gone.
 - Bots: hovering the small harness mark beside a bot's name reads harness, model and effort, such as
   "Codex GPT 6.1 Sol High" or "Claude Code Opus 5.5 Med", with nothing after the model when the bot has no effort
   set (it used to say "Runs on Codex · gpt-6.1-sol (this bot's own choice)"). GPT models are written "GPT 6.1 Sol"
