@@ -1862,6 +1862,7 @@ class UpdatePost(Contract):
     kind: Literal["daily", "weekly"] | None = None
     slides: UpdateSlides | None = None                                 # a week in review
     day: Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$")] | None = None   # only a day Tico asked to redo
+    replace_draft: bool = False                                        # a person's own words over their Assistant draft
 
 
 class UpdateRedo(Contract):

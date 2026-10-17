@@ -19,6 +19,10 @@ sensitive so it can take a while."
   their sparklines, frozen when it posts, so an old week shows that week's numbers. `body` keeps a
   plain-markdown copy for places that show one block of text.
 - An owner can ask every bot to redo a past day (`redo`), and a redone request is sent like a new one.
+- People post in the same shape. An update's author (the `bot` column) is a bot slug, or `human:<id>`
+  for a person, the key `reports_to` already uses. `drafted_by` is the bot that wrote a draft the
+  author has not replaced, `edited_by` the author once they changed it, and `inputs_json` the
+  reports' updates it was written from.
 """
 import json
 import re
@@ -140,6 +144,18 @@ def ensure_schema(c):
     H.add_column(c, "update_queue", "tries", "INTEGER NOT NULL DEFAULT 0")
     H.add_column(c, "update_queue", "redo", "INTEGER NOT NULL DEFAULT 0")
     H.add_column(c, "updates", "slides_json", "TEXT")
+    H.add_column(c, "updates", "drafted_by", "TEXT")
+    H.add_column(c, "updates", "edited_by", "TEXT")
+    H.add_column(c, "updates", "inputs_json", "TEXT")
+
+
+def is_person(author):
+    return str(author or "").startswith("human:")
+
+
+def author_actor(author):
+    """The actor an update's author key stands for."""
+    return author if is_person(author) else H.bot_actor(author)
 
 
 def _retry_or_miss(c, row, reason):
@@ -327,13 +343,13 @@ def kpi_snapshot(c, bot):
     from . import botkpis, kpis as K
     goal_ids = [r["id"] for r in c.execute(
         "SELECT id FROM goals WHERE owner=? AND (status IS NULL OR status NOT IN ('done','dropped')) ORDER BY rank LIMIT 5",
-        (H.bot_actor(bot),))]
+        (author_actor(bot),))]
     views, seen = [], set()
     for gid, items in K.goal_views(c, goal_ids).items() if goal_ids else ():
         for v in items:
             if v["id"] not in seen:
                 seen.add(v["id"]); views.append(v)
-    if not views:
+    if not views and not is_person(bot):
         views = [v for v in botkpis.for_bot(c, bot) if v.get("latest")]
     out = []
     for v in views[:TRACKED_MAX]:
@@ -427,6 +443,9 @@ def _decode(row):
     item = dict(row)
     raw = item.pop("slides_json", None)
     item["slides"] = json.loads(raw) if raw else None
+    if "inputs_json" in item:
+        inputs = item.pop("inputs_json")
+        item["inputs"] = json.loads(inputs) if inputs else []
     return item
 
 
@@ -473,10 +492,11 @@ def check_day(c, bot, day):
         raise Problem("day", "An update is for today, or for the day Tico asked you to redo", 422)
 
 
-def post(c, bot, body, kind=None, day=None, slides=None):
-    """Store a bot's update. A daily is its bullets; a week in review is its slides, with the goal
-    KPIs added, and a markdown copy in `body`. `headline` keeps one line, for places that show one
-    (MCP summaries)."""
+def post(c, bot, body, kind=None, day=None, slides=None, drafted_by=None, inputs=None, replace_draft=False):
+    """Store an update by `bot` (a bot slug or `human:<id>`). A daily is its bullets; a week in review
+    is its slides, with the goal KPIs added, and a markdown copy in `body`. `headline` keeps one line,
+    for places that show one (MCP summaries). `drafted_by` posts a draft for a person; the person
+    posting over it is an edit of that draft, or with `replace_draft` their own words."""
     day = day or today()
     kind = kind or ("weekly" if slides else kind_for(day))
     if kind not in KINDS:
@@ -501,16 +521,25 @@ def post(c, bot, body, kind=None, day=None, slides=None):
         first = body.splitlines()[0]
         headline = MD_LINK.sub(r"\1", re.sub(r"^\s*[-*•]\s+", "", first))[:200]
     now = H.now()
-    existing = c.execute("SELECT id FROM updates WHERE bot=? AND kind=? AND day=?", (bot, kind, day)).fetchone()
+    existing = c.execute("SELECT id, drafted_by, inputs_json FROM updates WHERE bot=? AND kind=? AND day=?",
+                         (bot, kind, day)).fetchone()
+    inputs_json = json.dumps(list(inputs)) if inputs is not None else (existing["inputs_json"] if existing else None)
+    if drafted_by:
+        draft, edited = drafted_by, None
+    elif existing and existing["drafted_by"] and not replace_draft:
+        draft, edited = existing["drafted_by"], bot
+    else:
+        draft, edited = None, None
     if existing:
-        c.execute("UPDATE updates SET headline=?, body=?, slides_json=?, updated=? WHERE id=?",
-                  (headline, body, stored, now, existing["id"]))
+        c.execute("UPDATE updates SET headline=?, body=?, slides_json=?, updated=?, drafted_by=?, edited_by=?, "
+                  "inputs_json=? WHERE id=?", (headline, body, stored, now, draft, edited, inputs_json, existing["id"]))
         c.execute("DELETE FROM update_reads WHERE update_id=?", (existing["id"],))   # changed: unread again
         uid = existing["id"]
     else:
         uid = H.new_id()
-        c.execute("INSERT INTO updates(id,bot,kind,day,headline,body,slides_json,created,updated) VALUES(?,?,?,?,?,?,?,?,?)",
-                  (uid, bot, kind, day, headline, body, stored, now, now))
+        c.execute("INSERT INTO updates(id,bot,kind,day,headline,body,slides_json,created,updated,drafted_by,edited_by,"
+                  "inputs_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (uid, bot, kind, day, headline, body, stored, now, now, draft, edited, inputs_json))
         # A new latest logical day supersedes updates this reader previously restored. A backdated
         # redo must not revoke a restore: there is already a newer day, and this post did not
         # supersede it. Removing just restore overrides keeps manual archives intact. Same-day
@@ -520,7 +549,7 @@ def post(c, bot, body, kind=None, day=None, slides=None):
         if not has_newer:
             c.execute("DELETE FROM update_archive_overrides WHERE state='restored' AND update_id IN "
                       "(SELECT id FROM updates WHERE bot=? AND kind=? AND day<?)", (bot, kind, day))
-    H.event(c, H.bot_actor(bot), "update.post", uid, {"kind": kind, "day": day, **({"warning": problem} if problem else {})})
+    H.event(c, H.bot_actor(drafted_by) if drafted_by else author_actor(bot), "update.post", uid, {"kind": kind, "day": day, **({"warning": problem} if problem else {})})
     posted = one(c, uid)
     return {**posted, "warning": problem} if problem else posted
 

@@ -2822,14 +2822,16 @@ def update_redo(api, args):
     return api.post("updates/redo", {k: v for k, v in fields if v is not None}, key=_key(args))
 
 
-@tool("hub_update_list", "The bots' updates, newest first, with your read state: what each bot did, does "
-      "next and needs from you. `unread` for what you have not read; `missed` lists bots that did not report.",
-      {"kind": _s("daily or weekly", enum=["daily", "weekly"]), "bot": _s("One bot's updates"),
+@tool("hub_update_list", "Updates from bots and people, newest first, with your read state: what each did, does "
+      "next and needs from you. `unread` for what you have not read; `missed` lists bots that did not report; "
+      "`scope` direct for only your direct reports on the org chart.",
+      {"kind": _s("daily or weekly", enum=["daily", "weekly"]), "bot": _s("One author's updates: a bot slug or human:<id>"),
+       "scope": _s("all (default) or direct: only your direct reports", enum=["all", "direct"]),
        "unread": {"type": "boolean", "description": "Only what you have not read"},
        "before": _s("Older than this created time (paging)"),
        "limit": {"type": "integer", "minimum": 1, "maximum": 100}})
 def updates_list(api, args):
-    return api.get("updates", kind=args.get("kind"), bot=args.get("bot"),
+    return api.get("updates", kind=args.get("kind"), bot=args.get("bot"), scope=args.get("scope"),
                    unread=("true" if args.get("unread") else None), before=args.get("before"), limit=args.get("limit"))
 
 

@@ -8,6 +8,11 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- People post updates too, in the same shape as a bot's (one to five bullets; on Friday the week in review), and
+  everyone on the team sees them on **Updates**. A person's card shows their name and picture and has no Reply. An
+  update the Assistant drafted for someone says **Drafted by Assistant** until they replace it with their own words.
+  `hub update list --scope direct` (and `scope=direct` on the API) keeps only your direct reports on the org chart,
+  the one level that will raise alerts once updates roll up the chart.
 - Beta features carry a small **Beta** pill where they appear: Market, Message bots, Listening, Live meetings, chat
   goals and steering, the Slack gateway, a computer's Screen, Behaviour replay and the computer Performance page,
   Windows through WSL 2, external agents (Hermes, OpenClaw, Grok Bot, Dots, Muse sync) and the Mac app. Help lists
