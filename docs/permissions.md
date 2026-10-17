@@ -113,6 +113,33 @@ Settings > Humans (**Bot limit per member**). Past it, adding a bot answers `409
 ([Finish setup](onboarding.md#what-create-does)) is parked, does nothing on its own and costs nothing, so it does not count; it counts once
 it says it is set up, and that call answers `bot_limit` when the member is already at their limit.
 
+## Bots that create repositories
+
+Two switches in a bot's **Settings → Repositories** let it create GitHub repositories in the connected organization. Each is
+kept outside the bot's editable definition, so a bot never turns one on for itself, and both need the GitHub App's
+Administration: write ([GitHub App](github-app.md#when-the-app-cannot-create-repositories)).
+
+| Switch | Lets the bot create | Who turns it on | Who turns it off | Built in |
+| --- | --- | --- | --- | --- |
+| **Create bot repositories** | `<org>/bot-<slug>` for a bot that exists | the Owner or an admin | the Owner or an admin | BotOps, always |
+| **Create product repositories** | a private repository with any other name ([GitHub App](github-app.md#bots-that-create-product-repositories)) | the Owner only, in their own click | the Owner or an admin | nobody |
+
+Create product repositories is a wider reach than bot repositories, so:
+- **Only the Owner turns it on.** Only the Owner creates product repositories themselves, so an admin cannot hand that to a
+  bot; the Owner's request carried by BotOps or the Assistant is refused too. Taking it away narrows a bot, so an admin may.
+- **No bot has it by default**, by its name, role or template; not BotOps either. The Owner switches it on per bot, for
+  example for Head of Engineering and DevOps.
+- **Private only.** A bot cannot create a public repository: making one public is publishing, which needs a person. Bots
+  cannot delete, rename, transfer or change the visibility of a repository either.
+- A bot never creates a `bot-` or `emp-` name, or a name a bot's repository already uses: write to it would reach that
+  bot's Instructions.
+- **The bot gets write to what it made, and the Owner is told** in a notice, for example *Head of Engineering created
+  private repo tico-services (acme/tico-services). Head of Engineering has write access to it.* Granting write ticks the
+  repository for the team, so bots set to **All ticked repos** reach it too; the notice names them. Every creation is
+  recorded as `github.product_repo_created` with the bot as the actor, and the grant as `bot.repos_changed`.
+
+Connecting, disconnecting and replacing the GitHub App stay the Owner's alone, as does deleting a repository.
+
 ## Bot owners
 
 Each bot has owners: its **creator** (added automatically) and any others added. Whoever the bot reports up to on
