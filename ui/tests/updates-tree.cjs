@@ -2,7 +2,8 @@
 // Every request is intercepted; this test never contacts the hub or a bot.
 // "Update cards nested by org chart. Manager card on top, an icon expands subordinate cards. By default you
 // see only cards below you in the org chart, with a toggle for the whole org chart. Unread alerts only for
-// direct reports (one level below you), not deeper." Your own card lets you write or edit your update.
+// direct reports (one level below you), not deeper." Your own card lets you write or edit your update, on
+// Friday the week in review too, and a manager's card links the reports' updates it was written from.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const {html, uiFile} = require('./support/page.cjs');
@@ -12,16 +13,25 @@ const now = Date.now(), iso = ms => new Date(now + ms).toISOString(), hour = 360
 const today = new Date(now).toLocaleDateString('en-CA', {timeZone: 'America/Los_Angeles'});
 const bots = [['cmo', 'AI CMO'], ['seo', 'AI SEO']].map(([name, display_name]) =>
   ({name, display_name, host: 'keeper', status: 'active', can_chat: true, team: 'marketing', operator: 'ana'}));
-const update = (id, bot, body, read) => ({id, bot, kind: 'daily', day: today, headline: body.slice(2), body, read,
-  created: iso(-hour), updated: iso(-hour), replies: 0, drafted_by: null, edited_by: null, slides: null, inputs: []});
+const update = (id, bot, body, read, more = {}) => ({id, bot, kind: 'daily', day: today, headline: body.slice(2), body, read,
+  created: iso(-hour), updated: iso(-hour), replies: 0, drafted_by: null, edited_by: null, slides: null, inputs: [], ...more});
+// Noon on the queue's clock (Pacific), for the Friday checks.
+const THURSDAY = '2026-10-15', FRIDAY = '2026-10-16', noon = day => new Date(`${day}T19:00:00Z`);
+const drafted = {goal: 'Open the Northwind office by November', done: ['Signed the lease'], focus: ['Hire an office manager'], blockers: [],
+  kpis: [{name: 'Leases signed', value: '1', unit: 'lease', note: 'Northwind'}]};
 
 (async () => {
   const browser = await chromium.launch({channel: process.env.TICO_BROWSER_CHANNEL ?? 'chrome', headless: true});
   const asked = [], posted = [];
-  let mine = null, unreadCount = 2, allSeen = false;   // one more from a direct report on another day
-  const tree = scope => {
+  let mine = null, mineWeek = null, unreadCount = 2, allSeen = false;   // one more from a direct report on another day
+  const tree = (scope, kind) => {
+    if (kind === 'weekly') {
+      return {kind, day: FRIDAY, scope: 'below', me: 'p:ana', unread: 0,
+              roots: [{key: 'p:ana', author: 'human:ana', name: 'Ana', direct: false, update: mineWeek, children: []}]};
+    }
     const seo = {key: 'b:seo', author: 'seo', name: 'AI SEO', direct: false, update: update('u-seo', 'seo', '- Published the checklist page', allSeen), children: []};
-    const cmo = {key: 'b:cmo', author: 'cmo', name: 'AI CMO', direct: true, update: update('u-cmo', 'cmo', '- The team shipped the checklist', allSeen), children: [seo]};
+    const cmo = {key: 'b:cmo', author: 'cmo', name: 'AI CMO', direct: true,
+                 update: update('u-cmo', 'cmo', '- The team shipped the checklist', allSeen, {inputs: [{id: 'u-seo', author: 'seo'}]}), children: [seo]};
     const ana = {key: 'p:ana', author: 'human:ana', name: 'Ana', direct: false, update: mine, children: [cmo]};
     return {kind: 'daily', day: today, scope: scope || 'below', me: 'p:ana', unread: 1,
             roots: scope === 'all' ? [{key: 'p:boss', author: 'human:boss', name: 'Bo', direct: false, update: null, children: [ana]}] : [ana]};
@@ -45,10 +55,14 @@ const update = (id, bot, body, read) => ({id, bot, kind: 'daily', day: today, he
       if (p === '/api/v2/status') return json({bots: []});
       if (p === '/api/humans') return json({people: [{id: 'ana', name: 'Ana'}, {id: 'boss', name: 'Bo'}]});
       if (p === '/api/v2/updates/unread') { asked.push(url.search); return json({unread: unreadCount}); }
-      if (p === '/api/v2/updates/tree') { asked.push(p + url.search); return json(tree(url.searchParams.get('scope'))); }
+      if (p === '/api/v2/updates/tree') { asked.push(p + url.search); return json(tree(url.searchParams.get('scope'), url.searchParams.get('kind'))); }
       if (p === '/api/v2/updates/read') { posted.push({path: p, body: req.postDataJSON()}); return json({marked: 1, read: true}); }
       if (p === '/api/v2/updates' && req.method() === 'POST') {
         const body = req.postDataJSON(); posted.push({path: p, body});
+        if (body.kind === 'weekly') {
+          mineWeek = update('u-ana-week', 'human:ana', '', true, {kind: 'weekly', day: FRIDAY, slides: body.slides, edited_by: body.replace_draft ? null : 'human:ana'});
+          return json({update: mineWeek});
+        }
         mine = update('u-ana', 'human:ana', body.body, true);
         return json({update: mine});
       }
@@ -78,6 +92,15 @@ const update = (id, bot, body, read) => ({id, bot, kind: 'daily', day: today, he
     for (let i = 0; i < 50 && !(read('u-seo') && read('u-cmo')); i++) await page.waitForTimeout(100);
     assert.ok(read('u-seo') && read('u-cmo'), 'cards are read when seen, a deeper one too');
     assert.equal(await page.locator('[data-upd-badge]').first().textContent(), '1', 'reading a deeper card leaves the badge alone');
+    // The manager's card links the update it was written from; the link opens that card under it and goes to it.
+    await kids.click();
+    await seo.waitFor({state: 'detached'});
+    const from = cmo.locator('.upd-from [data-upd-input="u-seo"]');
+    assert.equal(await from.innerText(), 'AI SEO');
+    await from.click();
+    await page.locator('#upd-feed [data-upd="u-seo"].sel').waitFor();
+    assert.equal(await page.locator('#upd-feed [data-upd-kids="b:cmo"]').getAttribute('aria-expanded'), 'true');
+    assert.match(page.url(), /#\/updates$/, 'the link stays on the page');
     if (shots) await page.screenshot({path: `${shots}/updates-tree.png`});
     // Whole org shows the chart from the top; the choice is kept.
     await page.locator('#upd-scope').click();
@@ -102,8 +125,51 @@ const update = (id, bot, body, read) => ({id, bot, kind: 'daily', day: today, he
     await later.page.locator('#upd-feed [data-upd="u-cmo"]').waitFor();
     await later.page.locator('#upd-allread:not([hidden])').click();
     assert.equal(await later.page.locator('[data-upd-badge]').first().isHidden(), true, 'the badge clears');
+    assert.equal(await later.page.locator('#upd-allread').isHidden(), true, 'nothing left to mark: the button goes again');
     assert.ok(posted.some(x => x.path === '/api/v2/updates/read' && x.body.all), 'every unread one is marked');
     await later.page.close();
+    // The Weekly tab: you write your week in review on Friday only, as slides, and edit it that day.
+    const week = await open({width: 1280, height: 900});
+    await week.page.clock.setFixedTime(noon(THURSDAY));
+    await week.page.goto('http://tico-ui.test/#/updates');
+    await week.page.locator('#upd-feed [data-upd="u-cmo"]').waitFor();
+    assert.equal(await week.page.locator('#upd-feed [data-upd-write]').count(), 1, 'the daily any day');
+    await week.page.locator('[data-upd-kind="weekly"]').click();
+    const ownNone = week.page.locator('#upd-feed .upd-none', {hasText: 'Ana'});
+    await ownNone.waitFor();
+    assert.equal(await week.page.locator('#upd-feed [data-upd-write]').count(), 0, 'no week in review before Friday');
+    await week.page.clock.setFixedTime(noon(FRIDAY));
+    await week.page.locator('[data-upd-kind="daily"]').click();
+    await week.page.locator('#upd-feed [data-upd="u-cmo"]').waitFor();
+    await week.page.locator('[data-upd-kind="weekly"]').click();
+    await ownNone.locator('[data-upd-write]').click();
+    const editor = week.page.locator('#upd-feed [data-upd-editor][data-upd-kind="weekly"]');
+    await editor.locator('[data-upd-slide="goal"]').fill('Open the Northwind office by November');
+    await editor.locator('[data-upd-slide="done"]').fill('- Signed the lease\n\nMoved the desks in');
+    await editor.locator('[data-upd-slide="focus"]').fill('Hire an office manager');
+    await editor.locator('[data-upd-slide="kpis"]').fill('Leases signed: 1');
+    await editor.locator('[type=submit]').click();
+    await week.page.locator('#upd-feed [data-upd="u-ana-week"]').waitFor();
+    assert.deepEqual(posted.filter(x => x.path === '/api/v2/updates').at(-1).body, {kind: 'weekly', replace_draft: false, slides: {
+      goal: 'Open the Northwind office by November', done: ['Signed the lease', 'Moved the desks in'], focus: ['Hire an office manager'],
+      blockers: [], kpis: [{name: 'Leases signed', value: '1'}]}});
+    // The Assistant's draft: Edit opens it filled in, and your own words drop its label.
+    mineWeek = update('u-ana-week', 'human:ana', '', true, {kind: 'weekly', day: FRIDAY, slides: drafted, drafted_by: 'assistant'});
+    await week.page.locator('[data-upd-kind="daily"]').click();
+    await week.page.locator('#upd-feed [data-upd="u-cmo"]').waitFor();
+    await week.page.locator('[data-upd-kind="weekly"]').click();
+    await week.page.locator('#upd-feed [data-upd="u-ana-week"] [data-upd-write]').click();
+    assert.equal(await editor.locator('[data-upd-slide="goal"]').inputValue(), drafted.goal);
+    assert.equal(await editor.locator('[data-upd-slide="done"]').inputValue(), 'Signed the lease');
+    assert.equal(await editor.locator('[data-upd-slide="kpis"]').inputValue(), 'Leases signed: 1 lease');
+    await editor.locator('[data-upd-slide="blockers"]').fill('Waiting on the landlord for keys');
+    await editor.locator('[data-upd-own]').check();
+    await editor.locator('[type=submit]').click();
+    await editor.waitFor({state: 'detached'});
+    assert.deepEqual(posted.filter(x => x.path === '/api/v2/updates').at(-1).body, {kind: 'weekly', replace_draft: true,
+      slides: {...drafted, blockers: ['Waiting on the landlord for keys']}}, 'an unchanged KPI line keeps its unit and note');
+    assert.deepEqual(week.errors, []);
+    await week.page.close();
     // A phone: the nested cards fit the screen.
     const phone = await open({width: 360, height: 760});
     await phone.page.goto('http://tico-ui.test/#/updates');
@@ -112,7 +178,7 @@ const update = (id, bot, body, read) => ({id, bot, kind: 'daily', day: today, he
     assert.ok(wide <= 360, `no sideways scroll on a phone (${wide}px)`);
     if (shots) await phone.page.screenshot({path: `${shots}/updates-tree-phone.png`});
     assert.deepEqual(phone.errors, []);
-    console.log('PASS: Updates nested by the org chart: your card on top, direct reports open and alerting, an icon opens deeper cards that never alert, Whole org from the top of the chart (kept), the badge from direct reports only, writing your own update from your card (as a daily), Mark all read for a badge from another day, and a phone that fits.');
+    console.log('PASS: Updates nested by the org chart: your card on top, direct reports open and alerting, an icon opens deeper cards that never alert, Whole org from the top of the chart (kept), the badge from direct reports only, writing your own update from your card (as a daily), From links that open the report\'s card, Mark all read for a badge from another day (gone once read), the week in review on Friday (written and edited as slides), and a phone that fits.');
   } finally {
     await browser.close();
   }

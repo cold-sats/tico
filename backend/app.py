@@ -2104,6 +2104,7 @@ def create_app(settings=None):
                         rooms_ok[cid] = False
                 return rooms_ok[cid]
             thread = [m for m in updates.thread(c, uid) if readable(m)]
+            row = updates.with_inputs(c, row, update_visible(c, who))
             return {"update": {**row, "read": bool(read), "archived": updates.archived(c, who.actor, uid)},
                     "thread": thread}
 

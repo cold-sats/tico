@@ -157,8 +157,9 @@ function updOrder(state, fresh) {
 function updBadge(n) {
   S.updUnread = n;
   for (const el of document.querySelectorAll('[data-upd-badge]')) { el.textContent = n > 99 ? '99+' : String(n || ''); el.hidden = !n; }
+  // In the tree the badge also counts direct reports' updates from other days: the button follows it both ways.
   const allRead = $('#upd-allread');
-  if (allRead && n > 0 && UPD && updIsTree(UPD)) allRead.hidden = false;
+  if (allRead && UPD && updIsTree(UPD)) allRead.hidden = !(n > 0) && !(UPD.list || []).some(u => !u.read && !u.quiet);
 }
 // An update's author is a bot slug or `human:<id>` for a person, who posts in the same shape.
 function updAuthor(key) {
@@ -166,6 +167,18 @@ function updAuthor(key) {
   if (!person) return {person, name: empName(key), label: botDisplayName(key), avatar: avatar(key, 36), href: `#/bot/${encodeURIComponent(key)}`};
   const id = String(key).slice(6), p = (S.people || []).find(x => x.id === id);
   return {person, name: esc(p?.name || id), label: p?.name || id, avatar: personAvatar(p || {id, name: id}, 36), href: `#/person/${encodeURIComponent(id)}`};
+}
+// Today on the queue's clock (backend/updates.py ZONE). Friday's update is the week in review, so your own
+// is written on the Daily tab any day and on the Weekly tab on Friday.
+const updToday = () => new Date().toLocaleDateString('en-CA', {timeZone: 'America/Los_Angeles'});
+const updCanWrite = state => state.kind === 'daily' || new Date(updToday() + 'T12:00:00Z').getUTCDay() === 5;
+// A manager's card links the reports' updates it was written from (only those you may read come back).
+function updFrom(u) {
+  if (!u.inputs?.length) return '';
+  return `<div class="upd-from muted">From: ${u.inputs.map(i => {
+    const who = updAuthor(i.author);
+    return `<a href="${who.href}" data-upd-input="${esc(i.id)}" data-upd-input-author="${esc(i.author)}">${esc(who.label)}</a>`;
+  }).join(', ')}</div>`;
 }
 // A person's update the Assistant drafted says so until they replace it with their own words.
 function updDraftPill(u) {
@@ -185,9 +198,10 @@ function updCard(u, i, state) {
         ${u.kind === 'weekly' ? '<span class="upd-pill">Week in review</span>' : ''}${updDraftPill(u)}
         <span class="muted">· ${esc(ago(u.updated || u.created))}</span>${alert ? '<span class="upd-dot" aria-label="Unread"></span>' : ''}</div>
       ${u.slides ? updDeck(u, state) : body ? `<div class="upd-body md">${safeMd(body, {shortLinks: true})}</div>` : ''}
+      ${updFrom(u)}
       <div class="upd-actions">
         ${who.person ? '' : `<button type="button" class="upd-act" data-upd-reply><span class="nav-icon" aria-hidden="true">chat_bubble</span>${u.replies ? u.replies : 'Reply'}</button>`}
-        ${u.own && !u.slides ? '<button type="button" class="upd-act" data-upd-write><span class="nav-icon" aria-hidden="true">edit</span>Edit</button>' : ''}
+        ${u.own && updCanWrite(state) ? `<button type="button" class="upd-act" data-upd-write><span class="nav-icon" aria-hidden="true">edit</span>${u.day === updToday() ? 'Edit' : 'Write today\'s'}</button>` : ''}
         <button type="button" class="upd-act" data-upd-toggle>${u.read ? 'Mark unread' : 'Mark read'}</button>
         <button type="button" class="upd-act" data-upd-archive aria-label="${state.view === 'archive' ? 'Restore update' : 'Archive update'}"${state.archivePending.has(u.id) ? ' disabled' : ''}>${state.view === 'archive' ? 'Restore' : 'Archive'}</button>
       </div>
@@ -288,12 +302,12 @@ function updTreeHTML(state) {
     const u = n.update ? state.data.updates.find(x => x.id === n.update.id) : null;
     const own = n.key === tree.me;
     let card;
-    if (own && state.editing) card = updEditor(u, n);
+    if (own && state.editing) card = updEditor(u?.day === updToday() ? u : null, n, state);
     else if (u) { card = updCard(u, items.length, state); items.push(u); }
     else {
       const who = updAuthor(n.author);
       card = `<div class="upd-none" data-upd-node="${esc(n.key)}"><span class="upd-av">${who.avatar}</span><a href="${who.href}" class="upd-name">${who.name}</a>
-        <span class="muted">No update yet</span>${own && state.kind === 'daily' ? '<button type="button" class="ghost upd-write" data-upd-write>Write your update</button>' : ''}</div>`;
+        <span class="muted">No update yet</span>${own && updCanWrite(state) ? '<button type="button" class="ghost upd-write" data-upd-write>Write your update</button>' : ''}</div>`;
     }
     const toggle = kids.count ? `<button type="button" class="upd-kids" data-upd-kids="${esc(n.key)}" aria-expanded="${open}" title="${open ? 'Hide' : 'Show'} the cards of ${esc(n.name)}'s reports">
         <span class="nav-icon" aria-hidden="true">${open ? 'expand_less' : 'expand_more'}</span>${kids.count} report${kids.count === 1 ? '' : 's'}${kids.unread ? '<span class="upd-dot" aria-label="Unread"></span>' : ''}</button>` : '';
@@ -305,28 +319,77 @@ function updTreeHTML(state) {
   return html || '<div class="upd-empty"><span class="nav-icon" aria-hidden="true">account_tree</span><b>No one on the org chart yet.</b></div>';
 }
 // Your own card: write your update, or edit the one you or the Assistant posted today. Words you write
-// yourself drop the Assistant's label; an edit keeps it, marked edited.
-function updEditor(u, n) {
-  const drafted = u?.drafted_by && !u?.edited_by;
-  return `<form class="upd-card upd-edit" data-upd-editor>
-    <div class="upd-main"><div class="upd-meta"><b>${updAuthor(n.author).name}</b><span class="muted">· today's update</span></div>
-      <textarea rows="4" aria-label="Your update" placeholder="- One to five bullets: what you did, do next, or wait on">${esc(u?.body || '')}</textarea>
-      ${drafted ? '<label class="upd-own"><input type="checkbox" data-upd-own> These are my own words (drop the Drafted by Assistant label)</label>' : ''}
+// yourself drop the Assistant's label; an edit keeps it, marked edited. On the Weekly tab it is the week in
+// review's slides (the same shape a bot posts), one bullet per line.
+const UPD_WEEK = [['done', 'Done last week', 'one to five'], ['focus', 'Focus next week', 'one to three'], ['blockers', 'Biggest blockers', 'up to three, or none']];
+const updKpiLine = k => `${k.name}: ${[k.value, k.unit].filter(Boolean).join(' ')}`;
+function updEditor(u, n, state) {
+  const week = state.kind === 'weekly', s = u?.slides || {};
+  const fields = week
+    ? `<label class="upd-field">Goal <span class="muted">one sentence: what you work toward and where it stands</span>
+        <input type="text" data-upd-slide="goal" maxlength="300" value="${esc(s.goal || '')}"></label>
+      ${UPD_WEEK.map(([key, label, hint]) => `<label class="upd-field">${label} <span class="muted">${hint}, one per line</span>
+        <textarea rows="3" data-upd-slide="${key}">${esc((s[key] || []).join('\n'))}</textarea></label>`).join('')}
+      <label class="upd-field">KPIs <span class="muted">optional, one per line as Name: value</span>
+        <textarea rows="2" data-upd-slide="kpis">${esc((s.kpis || []).map(updKpiLine).join('\n'))}</textarea></label>`
+    : `<textarea rows="4" aria-label="Your update" placeholder="- One to five bullets: what you did, do next, or wait on">${esc(u?.body || '')}</textarea>`;
+  return `<form class="upd-card upd-edit" data-upd-editor data-upd-kind="${week ? 'weekly' : 'daily'}">
+    <div class="upd-main"><div class="upd-meta"><b>${updAuthor(n.author).name}</b><span class="muted">· ${week ? 'this week in review' : "today's update"}</span></div>
+      ${fields}
+      ${u?.drafted_by ? '<label class="upd-own"><input type="checkbox" data-upd-own> These are my own words (drop the Drafted by Assistant label)</label>' : ''}
       <div class="upd-actions"><button class="primary" type="submit">Post</button><button type="button" class="ghost" data-upd-cancel>Cancel</button></div>
       <div class="err" role="status" data-upd-edit-err></div></div></form>`;
 }
+// The editor's slides: bullets one per line, and KPIs as "Name: value", keeping a KPI's chart and note when
+// its line is unchanged.
+function updEditorSlides(form, old) {
+  const lines = key => form.querySelector(`[data-upd-slide="${key}"]`).value.split('\n').map(l => l.replace(/^\s*[-*•]\s*/, '').trim()).filter(Boolean);
+  const kpis = lines('kpis').map(line => {
+    const same = (old?.kpis || []).find(k => updKpiLine(k) === line);
+    if (same) return same;
+    const at = line.indexOf(':');
+    return at > 0 ? {name: line.slice(0, at).trim(), value: line.slice(at + 1).trim()} : null;
+  }).filter(k => k?.name && k.value);
+  return {goal: form.querySelector('[data-upd-slide="goal"]').value.trim(), done: lines('done'), focus: lines('focus'), blockers: lines('blockers'), kpis};
+}
 async function updPostOwn(state, form) {
-  const body = form.querySelector('textarea').value.trim(), err = form.querySelector('[data-upd-edit-err]');
-  if (!body) { err.textContent = 'Write at least one bullet.'; return; }
+  const err = form.querySelector('[data-upd-edit-err]'), week = form.dataset.updKind === 'weekly';
+  const replace_draft = !!form.querySelector('[data-upd-own]')?.checked;
+  let payload;
+  if (week) {
+    const old = state.data?.updates?.find(x => x.own)?.slides;
+    const slides = updEditorSlides(form, old);
+    if (!slides.goal || !slides.done.length) { err.textContent = 'Write your goal and at least one thing done.'; return; }
+    payload = {kind: 'weekly', slides, replace_draft};
+  } else {
+    const body = form.querySelector('textarea').value.trim();
+    if (!body) { err.textContent = 'Write at least one bullet.'; return; }
+    // Always a daily: on a Friday the server would otherwise take it for a week in review.
+    payload = {body, kind: 'daily', replace_draft};
+  }
   const button = form.querySelector('[type=submit]'); button.disabled = true; err.textContent = '';
   try {
-    // Always a daily: on a Friday the server would otherwise take it for a week in review.
-    const r = await post('/v2/updates', {body, kind: 'daily', replace_draft: !!form.querySelector('[data-upd-own]')?.checked});
+    const r = await post('/v2/updates', payload);
     if (UPD !== state) return;
     if (r.update?.warning) toast(r.update.warning);
     state.editing = false;
     await updLoad(state);
   } catch (e) { err.textContent = e.message || 'Could not post it.'; button.disabled = false; }
+}
+// A "From:" link: in the tree, open that report's card (its managers' cards too) and go to it; in List, go to
+// its card when it is on the page, else to its author.
+function updGoInput(state, link) {
+  const id = link.dataset.updInput;
+  if (state.data?.tree && updIsTree(state)) {
+    const path = [], find = nodes => nodes.some(n => (n.update?.id === id || find(n.children)) && path.push(n.key));
+    if (find(state.data.tree.roots)) {
+      path.slice(1).forEach(key => state.expanded.add(key));
+      updRender(state);
+    }
+  }
+  const i = (state.list || []).findIndex(u => u.id === id);
+  if (i < 0) { location.hash = link.getAttribute('href'); return; }
+  updSelect(state, i);
 }
 function updRender(state) {
   const feed = $('#upd-feed'); if (!feed || UPD !== state) return;
@@ -496,9 +559,11 @@ function updBind(state) {
     }
     if (ev.target.closest('[data-upd-write]')) {
       state.editing = true; updRender(state);
-      document.querySelector('#upd-feed [data-upd-editor] textarea')?.focus(); return;
+      document.querySelector('#upd-feed [data-upd-editor] textarea, #upd-feed [data-upd-editor] input[type=text]')?.focus(); return;
     }
     if (ev.target.closest('[data-upd-cancel]')) { state.editing = false; updRender(state); return; }
+    const input = ev.target.closest('[data-upd-input]');
+    if (input) { ev.preventDefault(); updGoInput(state, input); return; }
     if (!card || ev.target.closest('[data-upd-bot], a, textarea, form')) return;
     const deck = ev.target.closest('[data-upd-deck]');
     if (deck) {
