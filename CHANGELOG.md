@@ -16,6 +16,8 @@ All notable changes to Tico are recorded here. The format follows
   ([Tasks](docs/tasks.md#stale-ticket-review))
 
 ### Fixed
+- A bot's usage-limit cooldown survives other task turns starting, restoring a lease or finishing. Queued work
+  waits for recovery instead of repeatedly retrying an exhausted subscription.
 - A check or review subtask held by its model's usage limit no longer waits unseen. After 12 hours with every turn on
   it stopped on the limit, the Health Monitor files one setup finding naming the bot, the model, since when and the
   task, with the fix: wait for the reset, file the check again on another model, or drop it. And a held check whose
