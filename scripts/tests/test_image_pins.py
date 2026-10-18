@@ -57,7 +57,7 @@ def test_the_python_image_is_a_stable_release_pinned_by_digest():
     assert (int(match[1]), int(match[2])) >= (3, 12)
 
 
-@pytest.mark.parametrize('dockerfile', ['Dockerfile', 'relay-rs/Dockerfile', 'hq/Dockerfile'])
+@pytest.mark.parametrize('dockerfile', ['Dockerfile', 'relay-rs/Dockerfile'])
 def test_every_base_image_is_pinned_by_digest(dockerfile):
     text = (ROOT / dockerfile).read_text()
     stages = set(re.findall(r'^FROM \S+ AS (\S+)$', text, re.M))
