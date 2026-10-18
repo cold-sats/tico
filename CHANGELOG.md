@@ -8,6 +8,12 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- A private task between bots, or a bot's private task to itself, can now reach one person. The first time its
+  owning bot gives them a subtask under it, asks them a question on it or sets it waiting on them, they become its
+  guest: they read that task (and their own subtask), and nobody else gains anything. A hand-off to a second person
+  is refused, naming the guest; the requesting bot can't add one, and reassigning the task ends it. Before, every
+  such hand-off was refused and the work sat unread. Task questions from private work now go through, and
+  `POST /api/v2/tasks/dry-run` returns the same privacy refusal the create does ([tasks](docs/tasks.md)).
 - **Idea triage** for the public roadmap's suggestion form (off unless `TICO_DECISIONS_IDEA_TRIAGE=1`). Before a new
   idea is handed out, Decide reads it: a confident bug or small change goes to Head of Engineering instead of
   product, and when the idea matches an open roadmap item the new task names that item and is linked to it. Routing
