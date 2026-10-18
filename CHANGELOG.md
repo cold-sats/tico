@@ -61,6 +61,9 @@ All notable changes to Tico are recorded here. The format follows
   quarantined bot is kept and runs when it is back, and the sender is told when that is. A new task or hand-off to
   one is refused as `target_inactive`, saying when the bot is back. That refusal opens no review of the sender and
   never counts as a repeat toward its quarantine; it counts only toward the 30 refusals a day that stop a loop.
+- A person's new Slack thread to a bot that is paused or quarantined is kept and runs when the bot is back, as a reply
+  in an existing thread already was, instead of being dropped. The person is told in the thread that the bot is held
+  and when it is back, with no need to resend.
 
 ## [0.3.54] - 2026-10-17
 
