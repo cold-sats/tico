@@ -512,7 +512,7 @@ fn restore(moved: &[Moved], env: &Env) -> Result<(), String> {
 
 /// The commit point of a switch: tell the server it is `finishing` and wait for it to agree. Once it has, a cancel is
 /// refused there, so the new login can go in; a cancel that came first wins, and so does no answer.
-fn confirm_switch(s: &Session) -> Result<(), (String, String)> {
+fn confirm_switch(s: &Session, late: &str) -> Result<(), (String, String)> {
     let cancelled = || ("cancelled".to_string(), "Cancelled".to_string());
     {
         let mut i = s.inner.lock().unwrap();
@@ -530,7 +530,7 @@ fn confirm_switch(s: &Session) -> Result<(), (String, String)> {
             return Err(cancelled());
         }
         if Instant::now() > until {
-            return Err(("failed".into(), "Tico did not confirm the switch in time, so the old account stays".into()));
+            return Err(("failed".into(), late.into()));
         }
         std::thread::sleep(Duration::from_millis(50));
     }
@@ -653,7 +653,7 @@ fn run_session(s: Arc<Session>, runner: Arc<Runner>, config: Config, lifetime: D
             let (home, side) = switch.as_ref().unwrap();
             let files = login.files.clone();
             match signed_in(&s.runtime, &exe, &env, false) {
-                (true, _) => match confirm_switch(&s) {
+                (true, _) => match confirm_switch(&s, "Tico did not confirm the switch in time, so the old account stays") {
                     Err(verdict) => verdict,
                     Ok(()) => match adopt_files(&files, home, side, &real_env) {
                         Ok(moved) => match signed_in(&s.runtime, &exe, &real_env, false) {
@@ -811,15 +811,47 @@ fn run_clear_key(s: Arc<Session>, runner: Arc<Runner>, config: Config) {
     }
 }
 
+/// The manifest's `api_key_login` (Codex: `login --with-api-key`) run in `env` with `key` on stdin, never in
+/// arguments or logs; whether it exited cleanly in time.
+fn login_with_key(exe: &str, args: &[String], key: &str, env: &Env) -> bool {
+    use std::io::Write;
+    let argv: Vec<&str> = args.iter().map(String::as_str).collect();
+    let Ok(mut child) = model_command(exe, &argv, env).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() else {
+        return false;
+    };
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = writeln!(stdin, "{key}");
+    }
+    let until = Instant::now() + Duration::from_secs(30);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) if Instant::now() < until => std::thread::sleep(Duration::from_millis(50)),
+            _ => {
+                kill(&mut child);
+                return false;
+            }
+        }
+    }
+}
+
 /// A use_key job: the key a person just added in the app for this computer takes the place of its own key for
-/// `runtime`, and is checked (a login the CLI stores from it must sign in). Fetched for this job by its id, never
-/// sent in the queue. A key that does not work leaves the old one in use; one that works deletes the old key from
-/// the terminal.
+/// `runtime`. Fetched for this job by its id, never sent in the queue. A CLI that turns the key into a login of its own
+/// signs in with it on the side, as a switch does; until it has and Tico agrees it goes in (`finishing`), nothing on
+/// this computer changes, so a key that does not work, a cancel or a check that runs out leaves the old key and login
+/// as they were. The regular key fetch and key login wait meanwhile. Once in, the old key from the terminal goes.
 fn run_use_key(s: Arc<Session>, runner: Arc<Runner>, config: Config, handle: tokio::runtime::Handle) {
     let default = profile_for(&config, "").map(|p| p.name).unwrap_or_default();
     let sign = &runner.sign_in;
+    let finish = |state: &str, message: &str| s.finish(state, message, &runner, &default);
+    let left = || if sign.headless_secret(&s.runtime).is_some() { "the old key is still in use" } else { "still no key" };
+    let Some(change) = sign.begin_key_change(&s.runtime, crate::signin::KEY_LOGIN_DRAIN) else {
+        return finish("failed", &format!("{} key is already changing on this computer; try again in a minute", s.runtime));
+    };
+    if !sign.wait_for_key_logins(&s.runtime, crate::signin::KEY_LOGIN_DRAIN) {
+        return finish("failed", &format!("{} is still signing in with a key on this computer; try again in a minute", s.runtime));
+    }
     let names = crate::signin::headless_names(&s.runtime);
-    let (old, was_out) = sign.computer_keys(&s.runtime);
     let query = [("runtime", s.runtime.clone()), ("login", s.id.clone())];
     let reply = handle.block_on(runner.client.get_query("runner-model-credentials", &query)).unwrap_or_default();
     let mut new = Env::new();
@@ -829,47 +861,79 @@ fn run_use_key(s: Arc<Session>, runner: Arc<Runner>, config: Config, handle: tok
             new.insert(k, v);
         }
     }
-    if new.is_empty() {
-        return s.finish("failed", "The new key was not found; add it again", &runner, &default);
-    }
+    let Some(key) = new.values().next().cloned() else {
+        return finish("failed", "The new key was not found; add it again");
+    };
     let caps = crate::harness_tools::caps(&s.runtime, "");
-    let (cli, missing) = match (!caps.api_key_login.is_empty()).then(|| login_env(&s.runtime, &config, "")).transpose() {
-        Ok(cli) => (cli, None),
-        Err(e) => (None, Some(e)),
-    };
-    // The old key and sign-out back as they were; a stored login the new key broke is made again with the old key.
-    let fail = |reason: String| {
-        let back = sign.set_computer_keys(&s.runtime, &old).and_then(|_| if was_out { sign.mark_signed_out(&s.runtime) } else { sign.unmark_signed_out(&s.runtime) });
-        if let Err(e) = back {
-            log(&format!("Tico runner: {} key could not be put back ({:?})", s.runtime, e.kind()));
+    let files = crate::harness_tools::login_command(&s.runtime).map(|l| l.files).unwrap_or_default();
+    // (executable, the login's environment, its home, the side home it signed in on with the new key)
+    let mut side = None;
+    if !caps.api_key_login.is_empty() {
+        let (exe, env, _) = match login_env(&s.runtime, &config, "") {
+            Ok(found) => found,
+            Err(e) => return finish("failed", &format!("{e}; {}", left())),
+        };
+        let (home, dir) = match begin_switch(&s.runtime, &s.id, &env) {
+            Ok(found) => found,
+            Err(e) => return finish("failed", &format!("{e}; {}", left())),
+        };
+        let mut on_side = env.clone();
+        on_side.insert(caps.profile_home.clone(), dir.display().to_string());
+        let works = login_with_key(&exe, &caps.api_key_login, &key, &on_side) && matches!(signed_in(&s.runtime, &exe, &on_side, false), (true, d) if by_key(&d));
+        side = Some((exe, env, home, dir));
+        if !works {
+            discard_side(&s.runtime, side.as_ref());
+            return finish("failed", &format!("The new key did not sign {} in; {}", s.runtime, left()));
         }
-        if let Some((exe, env, _)) = &cli {
-            if sign.headless_secret(&s.runtime).is_some() && !signed_in(&s.runtime, exe, env, false).0 {
-                sign.retry_key_login(&s.runtime);
-                handle.block_on(sign.key_login(&s.runtime, std::path::Path::new(exe)));
+    }
+    if let Err((state, message)) = confirm_switch(&s, "Tico did not confirm the new key in time") {
+        discard_side(&s.runtime, side.as_ref());
+        return finish(&state, &if state == "cancelled" { message } else { format!("{message}; {}", left()) });
+    }
+    // Past the commit point: Tico holds the new key as this computer's.
+    let mut moved_in = true;
+    if let Some((exe, env, home, dir)) = &side {
+        moved_in = match adopt_files(&files, home, dir, env) {
+            Ok(_) if signed_in(&s.runtime, exe, env, false).0 => true,
+            Ok(moved) => {
+                if let Err(e) = restore(&moved, env) {
+                    log(&format!("Tico runner: {} old login could not be put back: {e}", s.runtime));
+                }
+                false
             }
-        }
-        let left = if sign.headless_secret(&s.runtime).is_some() { "the old key is still in use" } else { "still no key" };
-        s.finish("failed", &format!("{reason}; {left}"), &runner, &default);
-    };
-    if let Some(e) = missing {
-        return fail(e);
+            Err(e) => {
+                log(&format!("Tico runner: {} new key login could not be put in place: {e}", s.runtime));
+                false
+            }
+        };
     }
-    if let Err(e) = sign.set_computer_keys(&s.runtime, &new).and_then(|_| sign.unmark_signed_out(&s.runtime)) {
-        return fail(format!("The new key could not be saved ({:?})", e.kind()));
-    }
-    // A runtime that reads the key on each turn is checked by the key being stored; one that turns it into a login of
-    // its own must be signed in by it.
-    if let Some((exe, env, _)) = &cli {
-        sign.retry_key_login(&s.runtime);
-        if !handle.block_on(sign.key_login(&s.runtime, std::path::Path::new(exe))) || !signed_in(&s.runtime, exe, env, false).0 {
-            return fail(format!("The new key did not sign {} in", s.runtime));
-        }
-    }
+    discard_side(&s.runtime, side.as_ref());
+    let saved = sign.set_computer_keys(&s.runtime, &new).and_then(|_| sign.unmark_signed_out(&s.runtime));
     if let Err(e) = sign.forget_hand_keys(&s.runtime) {
         log(&format!("Tico runner: {} old key could not be deleted from _shared.env ({:?})", s.runtime, e.kind()));
     }
-    s.finish("done", "The new key is in use", &runner, &default);
+    drop(change);
+    if let Err(e) = saved {
+        sign.refresh_now(&s.runtime);
+        return finish("failed", &format!("The new key could not be saved on this computer ({:?}); it is fetched again at its next check", e.kind()));
+    }
+    if let (false, Some((exe, ..))) = (moved_in, &side) {
+        // The login could not be moved into place: made from the saved key the way the regular key login makes one.
+        sign.retry_key_login(&s.runtime);
+        if !handle.block_on(sign.key_login(&s.runtime, std::path::Path::new(exe))) {
+            return finish("failed", &format!("The new key is saved but did not sign {} in here", s.runtime));
+        }
+    }
+    finish("done", "The new key is in use");
+}
+
+/// Delete the side home a use_key job signed in on, if it made one.
+fn discard_side(runtime: &str, side: Option<&(String, Env, std::path::PathBuf, std::path::PathBuf)>) {
+    if let Some((_, env, _, dir)) = side {
+        if let Err(e) = file_command(&["rm", "-rf", &dir.display().to_string()], env) {
+            log(&format!("Tico runner: {runtime} new key left {}: {e}", dir.display()));
+        }
+    }
 }
 
 /// The browser sign-ins this runner is running, kept in step with the server's list.
@@ -1138,18 +1202,23 @@ exit 2
         let (s2, r2, c2) = (s.clone(), runner.clone(), config.clone());
         let running = std::thread::spawn(move || run_session(s2, r2, c2, Duration::from_secs(20)));
         if let Some(confirm) = server {
-            let s3 = s.clone();
-            std::thread::spawn(move || {
-                let until = Instant::now() + Duration::from_secs(15);
-                while state(&s3).0 != "finishing" && s3.live() && Instant::now() < until {
-                    std::thread::sleep(Duration::from_millis(20));
-                }
-                if state(&s3).0 == "finishing" {
-                    if confirm { s3.confirmed.store(true, Ordering::SeqCst) } else { s3.cancelled.store(true, Ordering::SeqCst) }
-                }
-            });
+            answer_finishing(&s, confirm);
         }
         (s, running)
+    }
+
+    /// Stand in for Tico's answer once the runner says `s` is finishing (true: confirmed; false: it had been cancelled).
+    fn answer_finishing(s: &Arc<Session>, confirm: bool) {
+        let s3 = s.clone();
+        std::thread::spawn(move || {
+            let until = Instant::now() + Duration::from_secs(15);
+            while state(&s3).0 != "finishing" && s3.live() && Instant::now() < until {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            if state(&s3).0 == "finishing" {
+                if confirm { s3.confirmed.store(true, Ordering::SeqCst) } else { s3.cancelled.store(true, Ordering::SeqCst) }
+            }
+        });
     }
 
     #[test]
@@ -1356,12 +1425,25 @@ exit 2
         let (auth, runs) = (root.join("codex/auth.json"), root.join("runs"));
         let (computer, hand, team) = (secrets.join(COMPUTER_KEYS_FILE), secrets.join(HAND_KEYS_FILE), secrets.join(TEAM_KEYS_FILE));
         let key_logins = || std::fs::read_to_string(&runs).unwrap_or_default().lines().filter(|l| *l == "login --with-api-key").count();
-        let use_key = |reply: &str| {
+        // A use_key job on its own thread, with Tico's answer once it is finishing (None: no answer).
+        let start_use_key = |reply: &str, server: Option<bool>| {
             replies.lock().unwrap().1 = reply.into();
             let s = session("use_key");
-            run_use_key(s.clone(), runner.clone(), config.clone(), rt.handle().clone());
+            let (s2, r2, c2, h) = (s.clone(), runner.clone(), config.clone(), rt.handle().clone());
+            let running = std::thread::spawn(move || run_use_key(s2, r2, c2, h));
+            if let Some(confirm) = server {
+                answer_finishing(&s, confirm);
+            }
+            (s, running)
+        };
+        let use_key = |reply: &str| {
+            let (s, running) = start_use_key(reply, Some(true));
+            running.join().unwrap();
             state(&s)
         };
+        let next = r#"{"credentials":[{"env":"OPENAI_API_KEY","value":"sk-next-0123456789","source":"computer"}]}"#;
+        let (hold, probing, release) = (root.join("hold-probe"), root.join("probing"), root.join("release"));
+        let no_side = || std::fs::read_dir(root.join("codex")).unwrap().flatten().all(|e| !e.file_name().to_string_lossy().starts_with(".tico-switch-"));
 
         // Clear: every copy of the key on this computer goes, and the login it made; the terminal's other lines stay.
         std::fs::write(&hand, "OPENAI_API_KEY=sk-hand-0123456789\nKEEP=me\n# a note\n").unwrap();
@@ -1410,11 +1492,61 @@ exit 2
         assert!(!sign.signed_out("codex"));
         assert_eq!(sign.key_source("codex"), Some(("OPENAI_API_KEY".into(), "computer")));
 
+        // While the next key is checked nothing here changes: the regular fetch and key login wait, runs and the CLI
+        // keep the old key. A cancel that reaches Tico first leaves all of it, the terminal's key too.
+        std::fs::write(&hand, "OPENAI_API_KEY=sk-hand-0123456789\n").unwrap();
+        replies.lock().unwrap().0 = r#"{"credentials":[{"env":"OPENAI_API_KEY","value":"sk-other-0123456789","source":"computer"}]}"#.into();
+        std::fs::write(&hold, "").unwrap();
+        let (cancelled, running) = start_use_key(next, Some(false));
+        wait_for(|| probing.exists());
+        let (fetched, logged) = (fetches(), key_logins());
+        sign.refresh_now("codex");
+        assert!(!rt.block_on(sign.team_model_keys(&runner.client, "codex")));
+        assert!(!rt.block_on(sign.key_login("codex", &root.join("bin/codex"))));
+        assert_eq!((fetches(), key_logins()), (fetched, logged), "the regular fetch or key login ran during a key change");
+        assert_eq!(sign.headless_secret("codex").unwrap().1, "sk-new-0123456789");
+        assert_eq!(std::fs::read_to_string(&auth).unwrap(), "apikey sk-new-0123456789\n");
+        std::fs::write(&release, "").unwrap();
+        running.join().unwrap();
+        assert_eq!(state(&cancelled), ("cancelled".into(), "Cancelled".into()));
+        assert_eq!(read_env(&computer)["OPENAI_API_KEY"], "sk-new-0123456789");
+        assert_eq!(std::fs::read_to_string(&auth).unwrap(), "apikey sk-new-0123456789\n");
+        assert_eq!(read_env(&hand)["OPENAI_API_KEY"], "sk-hand-0123456789");
+        assert!(no_side());
+        for f in [&probing, &release] {
+            std::fs::remove_file(f).unwrap();
+        }
+
+        // Run out on Tico while it is checked (the next poll no longer lists it): the same.
+        let (expired, running) = start_use_key(next, None);
+        wait_for(|| probing.exists());
+        expired.cancelled.store(true, Ordering::SeqCst);
+        std::fs::write(&release, "").unwrap();
+        running.join().unwrap();
+        assert_eq!(state(&expired).0, "cancelled");
+        assert_eq!(std::fs::read_to_string(&auth).unwrap(), "apikey sk-new-0123456789\n");
+        assert_eq!(read_env(&computer)["OPENAI_API_KEY"], "sk-new-0123456789");
+        assert!(no_side());
+        for f in [&hold, &probing, &release] {
+            std::fs::remove_file(f).unwrap();
+        }
+
+        // Tico agrees: the CLI login, the key file and what Tico now hands out are the same key, and the fetch after
+        // it changes nothing.
+        assert_eq!(use_key(next), ("done".into(), "The new key is in use".into()));
+        assert_eq!(read_env(&computer)["OPENAI_API_KEY"], "sk-next-0123456789");
+        assert_eq!(std::fs::read_to_string(&auth).unwrap(), "apikey sk-next-0123456789\n");
+        assert!(!read_env(&hand).contains_key("OPENAI_API_KEY") && no_side());
+        replies.lock().unwrap().0 = next.into();
+        sign.refresh_now("codex");
+        assert!(!rt.block_on(sign.team_model_keys(&runner.client, "codex")));
+        assert_eq!(read_env(&computer)["OPENAI_API_KEY"], "sk-next-0123456789");
+
         // A new key the provider refuses: the old key and its login are back.
         let refused = use_key(r#"{"credentials":[{"env":"OPENAI_API_KEY","value":"sk-bad-0123456789","source":"computer"}]}"#);
         assert_eq!(refused, ("failed".into(), "The new key did not sign codex in; the old key is still in use".into()));
-        assert_eq!(read_env(&computer)["OPENAI_API_KEY"], "sk-new-0123456789");
-        assert_eq!(std::fs::read_to_string(&auth).unwrap(), "apikey sk-new-0123456789\n");
+        assert_eq!(read_env(&computer)["OPENAI_API_KEY"], "sk-next-0123456789");
+        assert_eq!(std::fs::read_to_string(&auth).unwrap(), "apikey sk-next-0123456789\n");
         assert!(!sign.signed_out("codex"));
 
         // From a cleared key, a refused one leaves it cleared and signed out.
@@ -1425,6 +1557,11 @@ exit 2
         assert_eq!(refused, ("failed".into(), "The new key did not sign codex in; still no key".into()));
         assert!(sign.signed_out("codex") && !read_env(&computer).contains_key("OPENAI_API_KEY"));
         assert!(sign.headless_secret("codex").is_none());
+        // From a cleared key, a cancel leaves it cleared, signed out and with no login.
+        let (cancelled, running) = start_use_key(next, Some(false));
+        running.join().unwrap();
+        assert_eq!(state(&cancelled).0, "cancelled");
+        assert!(sign.signed_out("codex") && !read_env(&computer).contains_key("OPENAI_API_KEY") && !auth.exists() && no_side());
 
         // No key staged for the job, or a shared one: nothing changes.
         let missing = use_key(r#"{"credentials":[{"env":"OPENAI_API_KEY","value":"sk-team-0123456789","source":"shared"}]}"#);
@@ -1444,15 +1581,16 @@ exit 2
         std::fs::write(&team, "OPENAI_API_KEY=sk-team-0123456789\n").unwrap();
         std::fs::write(&auth, "apikey sk-team-0123456789\n").unwrap();
         replies.lock().unwrap().0 = r#"{"credentials":[],"signed_out":true,"clear_key":true}"#.into();
+        let fetched = fetches();
         assert!(rt.block_on(sign.team_model_keys(&runner.client, "codex")));
-        assert_eq!(fetches(), 1);
+        assert_eq!(fetches(), fetched + 1);
         assert!(sign.signed_out("codex") && sign.headless_secret("codex").is_none());
         assert!(!read_env(&team).contains_key("OPENAI_API_KEY") && !auth.exists());
         sign.refresh_now("codex");
         assert!(!rt.block_on(sign.team_model_keys(&runner.client, "codex")));
         let before = key_logins();
         assert!(!rt.block_on(sign.key_login("codex", &root.join("bin/codex"))));
-        assert_eq!((fetches(), key_logins()), (1, before));
+        assert_eq!((fetches(), key_logins()), (fetched + 1, before));
     }
 
     #[test]

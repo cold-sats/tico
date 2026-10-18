@@ -130,7 +130,10 @@ async fn sign_in_state(
     if computer_key && profile.is_none() && (from_app(sign) || (status.check != "command" && status.check != "json")) {
         changed = sign.team_model_keys(client, runtime).await;
     }
-    if caps.api_key_in_turn && profile.is_none_or(|p| p.share_operator) {
+    // A key added for this computer in the app signs in a CLI that reads it on each turn (execute.rs turn_key), in
+    // place of any login of its own.
+    let own_key = computer_key && caps.api_key_login.is_empty() && sign.key_source(runtime).is_some_and(|(_, source)| source == "computer");
+    if (caps.api_key_in_turn || own_key) && profile.is_none_or(|p| p.share_operator) {
         if profile.is_some() {
             sign.team_model_keys(client, runtime).await;
         }

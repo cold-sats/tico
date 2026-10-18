@@ -79,6 +79,24 @@ pub struct SignIn {
     /// one starts only while the runtime is not signed out, and a sign-out waits for those already running.
     keys: Mutex<HashMap<String, usize>>,
     key_login_ended: Condvar,
+    /// Per runtime, how many key changes (a use_key job, a clear from the app) have begun, and whether one is running:
+    /// while it runs the regular key fetch and key login leave the runtime's key alone, and a fetch that began
+    /// before it writes nothing. Locked after `keys`, never before.
+    changes: Mutex<HashMap<String, (u64, bool)>>,
+}
+
+/// A key change running for `runtime` (`SignIn::begin_key_change`): over however it ends.
+pub struct KeyChange<'a> {
+    sign: &'a SignIn,
+    runtime: String,
+}
+
+impl Drop for KeyChange<'_> {
+    fn drop(&mut self) {
+        if let Some(c) = self.sign.changes.lock().unwrap_or_else(|e| e.into_inner()).get_mut(&self.runtime) {
+            c.1 = false;
+        }
+    }
 }
 
 /// A key login running for `runtime`: counted until it ends, however it ends.
@@ -107,6 +125,7 @@ impl SignIn {
             dirty: Default::default(),
             keys: Mutex::new(HashMap::new()),
             key_login_ended: Condvar::new(),
+            changes: Mutex::new(HashMap::new()),
         }
     }
 
@@ -238,6 +257,37 @@ impl SignIn {
         Ok(())
     }
 
+    /// Begin changing `runtime`'s key, waiting at most `limit` for a change already running to end; None if it has not.
+    pub fn begin_key_change(&self, runtime: &str, limit: Duration) -> Option<KeyChange<'_>> {
+        let until = Instant::now() + limit;
+        loop {
+            if let Some(change) = self.key_change_after(runtime, None) {
+                return Some(change);
+            }
+            if Instant::now() > until {
+                return None;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    /// Begin changing `runtime`'s key if none is running and, given `seen`, none has begun since `seen` changes.
+    fn key_change_after(&self, runtime: &str, seen: Option<u64>) -> Option<KeyChange<'_>> {
+        let _keys = self.keys.lock().unwrap_or_else(|e| e.into_inner());
+        let mut changes = self.changes.lock().unwrap_or_else(|e| e.into_inner());
+        let c = changes.entry(runtime.to_string()).or_default();
+        if c.1 || seen.is_some_and(|n| n != c.0) {
+            return None;
+        }
+        *c = (c.0 + 1, true);
+        Some(KeyChange { sign: self, runtime: runtime.to_string() })
+    }
+
+    /// (key changes begun for `runtime`, whether one is running).
+    fn key_changes(&self, runtime: &str) -> (u64, bool) {
+        self.changes.lock().unwrap_or_else(|e| e.into_inner()).get(runtime).copied().unwrap_or_default()
+    }
+
     /// Wait until no key login for `runtime` is running, at most `limit`. After `mark_signed_out` none starts, so
     /// once this is true no key login can write a login back after the CLI's logout. False when one is still running.
     pub fn wait_for_key_logins(&self, runtime: &str, limit: Duration) -> bool {
@@ -313,12 +363,13 @@ impl SignIn {
     /// company's into TEAM_KEYS_FILE, and a key no longer given taken out of its file (other names in each file kept).
     /// Asked when there is no key, at most every TEAM_KEY_RETRY (and so again when the provider refused one from the
     /// app, in case it was rotated), and every KEY_REFRESH while a key from the app signs it in. Never while signed out,
-    /// nor while a key from the terminal signs it in. A key cleared from the app while this computer was away is
-    /// cleared here as a clear_key job would (login.rs clear_key). Written owner-only, never logged. True when a key
-    /// for `runtime` changed.
+    /// while a key from the terminal signs it in, or while a key change runs. A key cleared from the app while this
+    /// computer was away is cleared here as a clear_key job would (login.rs clear_key). Written owner-only, never
+    /// logged. True when a key for `runtime` changed.
     pub async fn team_model_keys(&self, client: &Client, runtime: &str) -> bool {
         let names = headless_names(runtime);
-        if names.is_empty() || self.signed_out(runtime) {
+        let (changes, changing) = self.key_changes(runtime);
+        if names.is_empty() || self.signed_out(runtime) || changing {
             return false;
         }
         let wait = match self.key_source(runtime) {
@@ -340,10 +391,13 @@ impl SignIn {
                 return false;
             }
         };
+        // A key change that began while this fetch was out decides the key; this reply may be older than it.
+        let overtaken = || self.key_changes(runtime) != (changes, false);
         if reply["clear_key"] == true {
             if self.signed_out(runtime) {
                 return false;
             }
+            let Some(_change) = self.key_change_after(runtime, Some(changes)) else { return false };
             let cli = crate::login::key_cli(runtime);
             match blocking(|| crate::login::clear_key(self, runtime, cli.as_ref().map(|(exe, env)| (exe.as_str(), env)))) {
                 Ok(()) => log(&format!("Key for {runtime} cleared from the app")),
@@ -378,7 +432,7 @@ impl SignIn {
         // The fetch took a while: decide on the files as they are now, under the lock. A person may have signed this
         // runtime out meanwhile, or another runtime's key may have changed.
         let _keys = self.keys.lock().unwrap_or_else(|e| e.into_inner());
-        if self.signed_out(runtime) {
+        if self.signed_out(runtime) || overtaken() {
             return false;
         }
         let mut changed = false;
@@ -446,16 +500,6 @@ impl SignIn {
         self.drop_names(HAND_KEYS_FILE, &headless_names(runtime))
     }
 
-    /// `runtime`'s keys in the computer's own key file, and whether it is signed out: what a key change that does not
-    /// work puts back.
-    pub fn computer_keys(&self, runtime: &str) -> (Env, bool) {
-        let _keys = self.keys.lock().unwrap_or_else(|e| e.into_inner());
-        let names = headless_names(runtime);
-        let mut keys = self.computer();
-        keys.retain(|k, _| names.contains(k));
-        (keys, self.signed_out(runtime))
-    }
-
     /// Put `keys` in place of `runtime`'s keys in the computer's own key file, other runtimes' kept.
     pub fn set_computer_keys(&self, runtime: &str, keys: &Env) -> std::io::Result<()> {
         let _keys = self.keys.lock().unwrap_or_else(|e| e.into_inner());
@@ -488,7 +532,8 @@ impl SignIn {
         // one marked after it waits for it to end before logging out.
         let _running = {
             let mut running = self.keys.lock().unwrap_or_else(|e| e.into_inner());
-            if self.signed_out(runtime) {
+            // A key change running for this runtime checks its new key itself and puts it in place.
+            if self.signed_out(runtime) || self.key_changes(runtime).1 {
                 return false;
             }
             *running.entry(runtime.to_string()).or_default() += 1;

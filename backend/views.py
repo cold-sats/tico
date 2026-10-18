@@ -1524,8 +1524,8 @@ def install_views(app, store, auth, mutate, task_view):
             _, assigned = providers.runtimes_needed(c, store.settings)
             default = {providers.default_runtime(providers.load(c, store.settings))} - {""}
             run_on = providers.runtimes_run_on(c, store.settings)
-            from .computer_keys import shared_listing
-            shared_keys = shared_listing(c)
+            from .computer_keys import shared_all, shared_listing
+            shared_keys = shared_all(c)
             for row in c.execute("SELECT id,label,operator,last_seen,revoked_at,platform,version,capacity,readiness_json,"
                                  "accepts_member_bots,screen,performance,capabilities_json,readiness_at FROM runners ORDER BY created"):
                 if not auth.bot_admin(who) and who.actor != "human:" + row["operator"]:
@@ -1564,7 +1564,8 @@ def install_views(app, store, auth, mutate, task_view):
                                  "signed_out": cleared_logins(c, row["id"]),
                                  # {runtime: {env, preview}}: its own keys stored from here, and the company's shared
                                  # ones, for the rows a key signs in (backend/computer_keys.py). Never a value.
-                                 "keys": computer_key_listing(c, row["id"]), "shared_keys": shared_keys,
+                                 "keys": computer_key_listing(c, row["id"]),
+                                 "shared_keys": shared_listing(shared_keys, value["readiness"]),
                                  "bot_runtimes": sorted(run_on.get(row["id"], ())),
                                  "update": runner_versions.view(fleet.get(row["id"])),
                                  "harness_actions": recent(c, row["id"]) if who.role == "owner" else [],

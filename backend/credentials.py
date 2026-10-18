@@ -679,6 +679,8 @@ def install_credentials(app,store,delegate=None,propose=None):
             require_admin(c,who,vault.admins)
             row=vault.row(c,cid)
             grants=c.execute('SELECT count(*) FROM credential_grants WHERE credential_id=?',(cid,)).fetchone()[0]
+            from .computer_keys import before_delete
+            before_delete(c,who,cid)
             c.execute('DELETE FROM credential_grants WHERE credential_id=?',(cid,))
             c.execute('DELETE FROM credentials WHERE id=?',(cid,))
             H.event(c,who.actor,'credential.deleted',cid,{'name':row['name'],'env':row['env'],'grants':grants})

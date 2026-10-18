@@ -98,10 +98,13 @@ login with none. The Computer must be online and on a current runner; an older o
 
 - **Add key** and **Replace key** take the key in a password field. It goes once to Tico's credential vault, sealed
   like any other credential, for that Computer alone, and is never shown again in full. The Computer fetches it over its
-  own connection (the sign-in queue never carries a key), checks it (Codex signs in with it; the others read it on each
-  turn), and only then is it in use: the key it replaces is deleted from the vault, and a key set on the computer is
-  taken out of `secrets/_shared.env`. A key that does not work, a cancel, or a check that runs out of time deletes the
-  new key and leaves the old one in use. Runs that start afterwards use the new key.
+  own connection (the sign-in queue never carries a key) and checks it (Codex signs in with it; the others read it on
+  each turn). Until the check passes and Tico agrees the key goes in, the old key stays in use for runs and in the
+  Computer's key files, and the Computer's regular key fetch leaves them alone. From Tico's yes the change can no longer
+  be cancelled: the key it replaces is deleted from the vault, and a key set on the computer is taken out of
+  `secrets/_shared.env`. A key that does not work, a cancel, or a check that runs out of time deletes the new key and
+  leaves the old one in use (for Codex, signed in again with it). Runs that start afterwards use the new key; for Claude
+  Code, a key added here is used even when the computer also has a browser login.
 - **Clear key** first names the bots that stop, like **Sign out**. The Computer then deletes the key from its key files
   (and, for Codex, logs out a login the key made; a browser or subscription login is not the key's and stays), and
   Tico deletes this computer's key from the vault. Bots and assignments stay. Afterwards the row reads **Signed out**
@@ -115,12 +118,20 @@ them**, listing every Computer it signs in and which of them are offline.
 - *This computer only*: Replace gives this Computer a key of its own, which signs it in before the shared one; Clear
   stops this Computer using the shared key. The others keep it.
 - *All of them*, Replace: the shared credential's value is replaced, in **Credentials** too. Only someone who may manage
-  credentials can do this. Online Computers fetch it at once; an offline one gets it when it is next online.
+  credentials can do this. Online Computers fetch it at once; an offline one gets it when it is next online. Claude
+  Code takes an OAuth token or an API key, each its own credential: the **Kind** chosen is the one replaced (by default
+  the one this Computer runs on), and a kind that is not shared is refused rather than written into the other.
 - *All of them*, Clear: offered only to someone who may change every Computer listed (otherwise Tico names the ones they
   may not). Each online Computer clears its copy as above. **An offline Computer keeps its copy only until it is next
   online**: Tico marks it cleared at once, so its first key fetch when it comes back (at start-up, then every ten
-  minutes) tells it to clear the key, and it does, with no one needing to act. A computer that
+  minutes) tells it to clear the key, and it does, with no one needing to act. That needs a current runner: while any
+  Computer listed, online or offline, runs one too old to clear its key, **All of them** is not offered and Tico answers
+  `Update <computer> to clear its key from here, or delete the shared key in Credentials`. A computer that
   joins later still gets the shared key, which stays in **Credentials**.
+
+A Computer's own key is also a credential in **Credentials**. Deleting it there works like deleting any credential: the
+Computer falls back to the shared key, if there is one, at its next key fetch (use **Clear key** for none). A key a
+Computer is still checking cannot be deleted there; cancel **Replace key** or let the check end first.
 
 `GET /api/v2/runners/{runner_id}/keys?runtime=codex` says which key signs it in (`source`, `preview`) and, for the
 shared key, the Computers it serves. `POST /api/v2/runners/{runner_id}/keys` with `{"runtime":"codex","secret":"…",

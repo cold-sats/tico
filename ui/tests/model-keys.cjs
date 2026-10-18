@@ -31,9 +31,11 @@ const {html, uiFile, harnesses} = require('./support/page.cjs');
         harnesses: {codex: chip('Codex', 'codex'), claude: chip('Claude Code', 'claude'), 'cursor-agent': chip('Cursor Agent', 'cursor')}},
       profiles: []});
     // GET /v2/computers/{id}/keys (backend/model_login.py key_info)
+    let oldBox = false;
     const info = runtime => runtime === 'codex'
       ? {runtime, source: 'shared', name: 'OPENAI_API_KEY', preview: 'sk-…xyz', cleared: false, names: ['OPENAI_API_KEY'], can_replace_all: false,
-        computers: [{id: 'box', label: 'Team box', online: true, may: true}, {id: 'far', label: 'Far box', online: false, may: true}]}
+        computers: [{id: 'box', label: 'Team box', online: true, may: true, updated: true}, {id: 'far', label: 'Far box', online: false, may: true, updated: true},
+          ...(oldBox ? [{id: 'old', label: 'Old box', online: false, may: true, updated: false}] : [])]}
       : runtime === 'claude'
         ? {runtime, source: 'computer', name: 'ANTHROPIC_API_KEY', preview: 'sk-…abc', cleared: false, names: ['ANTHROPIC_API_KEY'], computers: [], can_replace_all: false}
         : {runtime, source: null, name: '', preview: '', cleared: false, names: ['CURSOR_API_KEY'], computers: [], can_replace_all: false};
@@ -150,6 +152,16 @@ const {html, uiFile, harnesses} = require('./support/page.cjs');
     assert.match(await dialog.locator('[data-key-scope]').innerText(), /Far box \(offline: gets the new key when it is next online\)/);
     await dialog.locator('[data-close]').first().click();
 
+    // An older runner, offline or not, cannot clear its copy: All of them waits for its update.
+    oldBox = true;
+    await own('codex').getByRole('button', {name: 'Clear key'}).click();
+    await dialog.locator('[data-key-scope]').waitFor();
+    assert.ok(await dialog.locator('input[name=key-scope][value=all]').isDisabled());
+    assert.match(await dialog.locator('[data-key-scope]').innerText(), /Old box \(needs a runner update to clear it from here\)/);
+    assert.match(await dialog.locator('[data-key-scope]').innerText(), /Update Old box first, or delete the shared key in Credentials/);
+    await dialog.locator('[data-close]').first().click();
+    oldBox = false;
+
     // Add key where none signs it in.
     await own('cursor').getByRole('button', {name: 'Add key'}).click();
     await dialog.locator('h2', {hasText: 'Add a Cursor Agent key on Team box'}).waitFor();
@@ -161,6 +173,6 @@ const {html, uiFile, harnesses} = require('./support/page.cjs');
     const other = await open('cara');
     assert.equal(await other.page.locator('#set-machines [data-model-key-replace], #set-machines [data-model-key-clear], #set-machines [data-model-key-add]').count(), 0);
     assert.deepEqual(other.errors, []);
-    console.log('PASS: key previews, clear with the bots named and the this/all ask (offline clears when next online), replace through a password field, admin-only replace-all, add key, rights');
+    console.log('PASS: key previews, clear with the bots named and the this/all ask (offline clears when next online, an older runner waits for its update), replace through a password field, admin-only replace-all, add key, rights');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exit(1); });

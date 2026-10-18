@@ -292,9 +292,13 @@
   function scopeHTML(info, verb, here) {
     if (info.source !== 'shared') return '';
     const later = verb === 'clear' ? 'clears its copy when it is next online' : 'gets the new key when it is next online';
-    const rows = (info.computers || []).map(c => `<li data-scope-computer="${text(c.id)}">${text(c.label)}${c.online ? '' : ` <span class="muted">(offline: ${later})</span>`}${c.may ? '' : ' <span class="muted">(not yours to change)</span>'}</li>`).join('');
-    const all = verb === 'replace' && !info.can_replace_all ? ' disabled' : verb === 'clear' && (info.computers || []).some(c => !c.may) ? ' disabled' : '';
-    const why = all ? `<span class="muted"> Only ${verb === 'replace' ? 'a credential administrator' : 'someone who may change every one of them'} can do this.</span>` : '';
+    // An older runner cannot clear its copy, online or not (`updated` false), so All of them waits for its update.
+    const stale = verb === 'clear' ? (info.computers || []).filter(c => c.updated === false) : [];
+    const rows = (info.computers || []).map(c => `<li data-scope-computer="${text(c.id)}">${text(c.label)}${stale.includes(c) ? ' <span class="muted">(needs a runner update to clear it from here)</span>' : c.online ? '' : ` <span class="muted">(offline: ${later})</span>`}${c.may ? '' : ' <span class="muted">(not yours to change)</span>'}</li>`).join('');
+    const all = verb === 'replace' && !info.can_replace_all ? ' disabled' : verb === 'clear' && ((info.computers || []).some(c => !c.may) || stale.length) ? ' disabled' : '';
+    const why = !all ? '' : verb === 'clear' && stale.length && !(info.computers || []).some(c => !c.may)
+      ? `<span class="muted"> Update ${text(stale.map(c => c.label).join(', '))} first, or delete the shared key in Credentials.</span>`
+      : `<span class="muted"> Only ${verb === 'replace' ? 'a credential administrator' : 'someone who may change every one of them'} can do this.</span>`;
     return `<fieldset class="model-key-scope" data-key-scope><legend>This key is shared with ${(info.computers || []).length} computers:</legend>
       <ul>${rows}</ul>
       <label><input type="radio" name="key-scope" value="this" checked> This computer only${here ? ` (${text(here)})` : ''}: ${verb === 'clear' ? 'it stops using the shared key; the others keep it' : 'it gets its own key; the others keep the shared one'}</label>
