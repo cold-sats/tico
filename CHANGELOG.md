@@ -21,6 +21,11 @@ All notable changes to Tico are recorded here. The format follows
   before. `--support off` turns Support off. The Gateway invite comes from `TICO_GATEWAY_INVITE` in the environment and
   is never printed. The quick start, your own domain and sign-in, and your own keys install as before.
   ([Install](docs/install.md#recommended-setup))
+- **Owner sign-in link for servers Tico hosts**: the setup wizard's `--hosted own|invited` signs the owner in with a
+  link our team sends. It works once and for a week at most, only on an https domain under our zone, and is never
+  printed or logged; `python3 -m setup owner-link` makes a new one and can sign the owner out everywhere. With
+  `--preset recommended` the hosted server gets the recommended setup and its own computer. Every other sign-in is
+  unchanged. ([Install](docs/install.md#sign-in))
 
 ### Fixed
 - **Clear** on a bot's chat now really starts the bot over. Before, it only trimmed the history Tico sends, and on

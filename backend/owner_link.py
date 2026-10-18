@@ -9,7 +9,7 @@ no proxy or access log in front of the server sees it either. Opening the link s
 puts the fragment into the form. Pressing it spends the link and starts an ordinary session in `oidc_sessions`, which
 holds a random id in a Secure, HttpOnly, SameSite=Lax cookie. The button stops mail scanners that fetch links from
 using the link up. A link that was used, replaced or is too old gets a page that says to ask
-Tico for a new one. `python -m backend.owner_link replace HASH [--sign-out]` puts a new link in place of the old one
+Tico for a new one. `python -m backend.owner_link replace DATABASE HASH [--sign-out]` puts a new link in place of the old one
 and can also sign out every owner session; the installer runs it (`python3 -m setup owner-link`).
 """
 
@@ -60,7 +60,9 @@ def place(c, token_hash, owner_email, *, sign_out=False, only_if_none=False):
     if only_if_none and c.execute("SELECT 1 FROM owner_links LIMIT 1").fetchone():
         return False
     now = H.now()
-    c.execute("UPDATE owner_links SET revoked_at=? WHERE used_at IS NULL AND revoked_at IS NULL", (now,))
+    # Every other unused link stops working; the same hash placed again (a retried command) stays live.
+    c.execute("UPDATE owner_links SET revoked_at=? WHERE used_at IS NULL AND revoked_at IS NULL AND token_hash<>?",
+              (now, token_hash))
     c.execute("INSERT OR IGNORE INTO owner_links(token_hash,created,expires_at) VALUES(?,?,?)",
               (token_hash, now, H.shift(now, days=LINK_DAYS)))
     if sign_out:
@@ -196,23 +198,33 @@ def register(app, auth):
 
 
 def main(argv=None):
-    """`replace HASH [--sign-out]`, run inside the server container by the installer (python3 -m setup owner-link)."""
+    """`replace DATABASE HASH [--sign-out]`, run in the server container by the installer (python3 -m setup owner-link).
+    Offline like `backend.manage`: `docker compose exec` has no entrypoint, so the database is named, not read from
+    the server's settings."""
+    from pathlib import Path
     p = argparse.ArgumentParser(prog="python -m backend.owner_link")
     p.add_argument("command", choices=["replace"])
+    p.add_argument("database", type=Path)
     p.add_argument("hash")
     p.add_argument("--sign-out", action="store_true", help="also end every session of the owner")
     args = p.parse_args(argv)
     if not HASH_RE.fullmatch(args.hash):
         print("The hash must be 64 lowercase hex characters.", file=sys.stderr)
         return 2
-    from .config import Settings
-    from .store import Store
-    settings = Settings.from_env()
-    if settings.proxy_kind != KIND:
+    import os
+    if os.environ.get("TICO_AUTH_PROXY", "").strip().lower() != KIND:
         print("This server does not use the owner sign-in link (TICO_AUTH_PROXY=owner-link).", file=sys.stderr)
         return 2
-    with Store(settings).transaction() as c:
-        place(c, args.hash, settings.owner_email, sign_out=args.sign_out)
+    from .auth import Auth
+    from .config import Settings
+    from .manage import registry_dir
+    from .store import Store
+    store = Store(Settings(db_path=args.database, registry_dir=registry_dir()))
+    store.initialize()
+    auth = Auth(store)
+    with store.transaction() as c:
+        auth.sync_access(c)   # the owner stored in the database, as the server signs them in
+        place(c, args.hash, auth.owner_email, sign_out=args.sign_out)
     print("The new owner sign-in link is in place; older unused links no longer work"
           + (", and the owner is signed out everywhere." if args.sign_out else "."))
     return 0

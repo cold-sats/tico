@@ -108,6 +108,7 @@ def test_a_new_link_kills_the_old_unused_one_and_sign_out_ends_the_owners_sessio
     first, second, third = new_token(), new_token(), new_token()
     hosted.place(first)
     hosted.place(second)
+    hosted.place(second)                                           # a retried command keeps the link it placed
     assert hosted.press(first).status_code == 410                 # replaced before it was used
     assert hosted.press(second).status_code == 303 and hosted.me().status_code == 200
     hosted.place(third)                                            # without --sign-out the session stays
@@ -121,14 +122,16 @@ def test_the_replace_command_puts_a_new_link_in_place(hosted, monkeypatch, capsy
     old, new = new_token(), new_token()
     hosted.place(old)
     assert hosted.press(old).status_code == 303
-    monkeypatch.setattr(Settings, "from_env", classmethod(lambda cls: hosted.settings))
-    assert owner_link.main(["replace", digest(new), "--sign-out"]) == 0
+    db = str(hosted.settings.db_path)
+    monkeypatch.setenv("TICO_REGISTRY_DIR", str(hosted.settings.registry_dir))
+    monkeypatch.setenv("TICO_AUTH_PROXY", "owner-link")
+    assert owner_link.main(["replace", db, digest(new), "--sign-out"]) == 0
     said = capsys.readouterr()
     assert "signed out everywhere" in said.out and new not in said.out + said.err
     assert hosted.me().status_code == 401 and hosted.press(new).status_code == 303
-    assert owner_link.main(["replace", "not-a-hash"]) == 2
-    hosted.settings.auth_proxy = "oidc"
-    assert owner_link.main(["replace", digest(new_token())]) == 2
+    assert owner_link.main(["replace", db, "not-a-hash"]) == 2
+    monkeypatch.setenv("TICO_AUTH_PROXY", "oidc")
+    assert owner_link.main(["replace", db, digest(new_token())]) == 2
 
 
 def test_the_first_start_places_the_installers_link_once(hosted):
