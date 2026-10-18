@@ -129,9 +129,11 @@ them**, listing every Computer it signs in and which of them are offline.
   `Update <computer> to clear its key from here, or delete the shared key in Credentials`. A computer that
   joins later still gets the shared key, which stays in **Credentials**.
 
-A Computer's own key is also a credential in **Credentials**. Deleting it there works like deleting any credential: the
-Computer falls back to the shared key, if there is one, at its next key fetch (use **Clear key** for none). A key a
-Computer is still checking cannot be deleted there; cancel **Replace key** or let the check end first.
+A Computer's own key is also a credential in **Credentials**. Deleting it there: the Computer falls back to the shared
+key at its next key fetch (Codex signs in again with it). With no shared key, the deletion is **Clear key** on that
+Computer: its next key fetch deletes its copies and logs out the login the key made, and the row reads **Signed out**
+with **Add key**. A key a Computer is still checking cannot be deleted there; cancel **Replace key** or let the check
+end first.
 
 `GET /api/v2/runners/{runner_id}/keys?runtime=codex` says which key signs it in (`source`, `preview`) and, for the
 shared key, the Computers it serves. `POST /api/v2/runners/{runner_id}/keys` with `{"runtime":"codex","secret":"…",

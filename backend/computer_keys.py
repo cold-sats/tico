@@ -95,7 +95,7 @@ def delete(c, runner_id, runtime):
 
 def before_delete(c, who, credential_id):
     """Credentials > Delete on a computer's own key. One in use goes like any credential: the computer falls back to
-    the shared key, if there is one, at its next key fetch (a person who wants none uses Clear key). One a computer is
+    the shared key at its next key fetch, or, with none, the key is cleared there as Clear key does. One a computer is
     still checking is refused, so a check never confirms a key that is gone; it is cancelled or ends first."""
     from .model_login import ACTIVE_SQL
     row = c.execute("SELECT k.*, r.label FROM computer_keys k JOIN runners r ON r.id=k.runner_id "
@@ -107,7 +107,14 @@ def before_delete(c, who, credential_id):
         raise Problem("state", f"{row['label']} is still checking this key; cancel Replace key there, or wait for it "
                       "to finish", 409)
     c.execute("DELETE FROM computer_keys WHERE credential_id=?", (credential_id,))
-    H.event(c, who.actor, "computer_key.deleted", row["runner_id"], {"runtime": row["runtime"], "credential": credential_id})
+    # With no shared key to sign in with next, deleting the key in use is Clear key: the computer is told to delete its
+    # copies and log out the login the key made, or that login would keep working on a key that is gone.
+    cleared = row["state"] == ACTIVE and not shared(c, row["runtime"])
+    if cleared:
+        from .model_login import mark_key_cleared
+        mark_key_cleared(c, who, row["runner_id"], row["runtime"])
+    H.event(c, who.actor, "computer_key.deleted", row["runner_id"],
+            {"runtime": row["runtime"], "credential": credential_id, "cleared": cleared})
 
 
 def active(c, runner_id, runtime):

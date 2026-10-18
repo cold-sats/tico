@@ -448,14 +448,20 @@ def _clear_here(c, who, runner, runtime, queue):
         if not new:
             return row
     computer_keys.delete(c, rid, runtime)
+    mark_key_cleared(c, who, rid, runtime)
+    H.event(c, who.actor, "computer_key.cleared", rid, {"runtime": runtime, "queued": bool(row)})
+    return row
+
+
+def mark_key_cleared(c, who, rid, runtime):
+    """No key signs `runtime` in on this computer again until a person adds one or chooses the shared key, and its next
+    key fetch tells it to delete its copies and log out a login a key made (`clear_key`)."""
     now = H.now()
     c.execute("INSERT INTO model_login_cleared(runner_id,runtime,profile,cleared_at,cleared_by,clear_key) "
               "VALUES(?,?,?,?,?,1) ON CONFLICT(runner_id,runtime,profile) DO UPDATE SET cleared_at=excluded.cleared_at, "
               "cleared_by=excluded.cleared_by, clear_key=1", (rid, runtime, "", now, who.actor))
     from .subscription_refresh import invalidate_signin
     invalidate_signin(c, rid, "", runtime, now)
-    H.event(c, who.actor, "computer_key.cleared", rid, {"runtime": runtime, "queued": bool(row)})
-    return row
 
 
 def clear_key(c, who, rid, runtime, scope="this", auth=None):

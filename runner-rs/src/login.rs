@@ -1576,6 +1576,19 @@ exit 2
         assert_eq!(state(&logins.sessions["lprofile"]).0, "failed");
         assert_eq!(state(&logins.sessions["lgemini"]), ("failed".into(), "This computer does not hold a key for gemini".into()));
 
+        // Its own key deleted in Credentials with no shared key behind it: Tico answers the next fetch as for Clear key,
+        // and the login that key made stops working here.
+        sign.unmark_signed_out("codex").unwrap();
+        std::fs::write(&computer, "OPENAI_API_KEY=sk-mine-0123456789\n").unwrap();
+        std::fs::write(&auth, "apikey sk-mine-0123456789\n").unwrap();
+        assert_eq!(sign.key_source("codex"), Some(("OPENAI_API_KEY".into(), "computer")));
+        replies.lock().unwrap().0 = r#"{"credentials":[],"signed_out":true,"clear_key":true}"#.into();
+        sign.refresh_now("codex");
+        assert!(rt.block_on(sign.team_model_keys(&runner.client, "codex")));
+        assert!(!auth.exists() && sign.headless_secret("codex").is_none() && !read_env(&computer).contains_key("OPENAI_API_KEY"));
+        let codex = root.join("bin/codex").display().to_string();
+        assert!(!signed_in("codex", &codex, &key_cli("codex").unwrap().1, false).0, "the deleted key's login still works");
+
         // Cleared in the app while this computer was away: the next fetch clears it here, and none follows.
         sign.unmark_signed_out("codex").unwrap();
         std::fs::write(&team, "OPENAI_API_KEY=sk-team-0123456789\n").unwrap();

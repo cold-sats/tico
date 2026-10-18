@@ -371,3 +371,22 @@ def test_a_computer_key_is_deleted_in_credentials_unless_it_is_being_checked(env
     call(api, "DELETE", f"credentials/{late['key']['id']}")
     with api.app.state.store.read() as c:
         assert c.execute("SELECT count(*) FROM computer_keys").fetchone()[0] == 0
+
+
+def test_deleting_the_only_key_in_credentials_clears_it_on_the_computer(environment):
+    """Review 2: with no shared key to fall back to, deleting a computer's key in Credentials is Clear key there, so
+    the login the key made is logged out at the computer's next fetch, not left working on a key that is gone."""
+    api = setup(environment)
+    box = computer(api, "Team box", source="terminal")
+    rid = box["runner_id"]
+    added = call(api, "POST", f"runners/{rid}/keys", {"runtime": "codex", "secret": "sk-proj-own-key-0123456789"})
+    report(api, box, added["id"], "done")
+    with api.app.state.store.read() as c:
+        own = c.execute("SELECT credential_id FROM computer_keys WHERE runner_id=?", (rid,)).fetchone()[0]
+    call(api, "DELETE", f"credentials/{own}")
+    assert fetch(api, box) == {"credentials": [], "signed_out": True, "clear_key": True}
+    assert listed(api, box)["signed_out"]
+    # Adding a key ends it, as after Clear key.
+    again = call(api, "POST", f"runners/{rid}/keys", {"runtime": "codex", "secret": "sk-proj-again-0123456789"})
+    report(api, box, again["id"], "done")
+    assert fetch(api, box)["credentials"][0]["value"] == "sk-proj-again-0123456789"
