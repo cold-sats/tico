@@ -9,6 +9,11 @@ All notable changes to Tico are recorded here. The format follows
 
 ### Added
 
+- The Overview shows **Bot hours vs human hours**: bot hours per human hour over the last 7 days, and a weekly line for
+  up to 12 weeks (Monday to Sunday, Pacific time) with a dashed Parity line at 1× and the current week dotted as "so far".
+  Hover or tap a week for its numbers; click the card for the table by week. Bot hours are the time bot runs spent
+  working, with silences over 30 minutes inside a run left out; human hours are the people on the org chart × 40 h a
+  week. Totals only, for every person who can open the Overview.
 - The owner can change their own sign-in email and stay the same person, with every task, approval, bot and role:
   **Settings > Humans**, the ⋯ menu on their own row, **Change my sign-in email**, typed twice. One step moves the
   address everywhere Tico keeps it (the roster, the owner record with the old address in its history, the allow list,
