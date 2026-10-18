@@ -26,6 +26,11 @@ All notable changes to Tico are recorded here. The format follows
 
 - On Python 3.14 and later the server compresses API JSON with zstd for clients that accept it (browsers over
   HTTPS, behind Caddy): 8-14x less CPU than gzip at the same or smaller size. Python 3.12 keeps gzip.
+- The server, runner and updater images run Python 3.15 on Debian trixie with SQLite 3.54.1, built in and checked
+  when the image is built (Debian's own copy is 3.46.1). The update pulls the images, and Tico's own mail venv rebuilds
+  itself on first use. A runner's home volume survives the update, so anything a bot or person built there with the old
+  Python 3.12 (a project's venv, `pip install --user` packages under `~/.local/lib/python3.12`) does not run on 3.15:
+  rebuild it ([updates.md](docs/updates.md#python-environments-on-a-docker-runner) lists them and how).
 - Tico HQ's code (the service at `https://updates.tico.team`) moved out of this repository. Installs talk to
   `https://updates.tico.team` as before, with one fix: with `TICO_SUPPORT=off`, in a rehearsal or in demo mode, a live
   support session now ends without the install telling HQ (it used to send the end notice), so with support off nothing
