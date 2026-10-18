@@ -23,6 +23,9 @@ server-side caller (this route, listening, learnings, live meetings, the Slack g
 off. Each of them gets its model from `server_engine`, so Jev's one short try and the fallback are the same for all. The caps per role are settings
 (`TICO_DECISIONS_DAILY_CALLS_OWNER`, `_HUMAN`, `_BOT`); the Slack gateway's routing counts against the
 sender's, and the market ask (`market.ask` events) has its own count under the same caps.
+
+`GET /api/v2/decisions/readout` reads the audit back per question set: calls, cost, Jev or fallback, answer spread
+and the month's spend against the cap (backend/decide_readout.py).
 """
 
 import json
@@ -126,8 +129,8 @@ def tokens(usage):
 # The dearest list price in `providers.PRICES` (USD per 1M input, output tokens): what a call to a model with no known
 # price is counted at, so no paid call counts $0 toward the cap.
 CEILING = (max(p[0] for p in providers.PRICES.values()), max(p[2] for p in providers.PRICES.values()))
-# A call's output is at most the transports' max_tokens; the reservation for a call in flight assumes all of it.
-MAX_OUTPUT_TOKENS = 4096
+# A call's output is at most what every transport asks for (clients/judge.py); a call in flight is held at all of it.
+MAX_OUTPUT_TOKENS = J.MAX_OUTPUT_TOKENS
 
 
 def priced(settings, model):
@@ -192,11 +195,14 @@ def reservation(settings, models, state, questions):
 def metered(store, models, state, questions, label, call):
     """One paid decision call under the team's monthly cap, for every caller (server and Slack gateway alike).
 
-    Under one lock per process: read the month's spend from the audit, add the reservations of calls in flight here,
-    refuse `spend_cap` at or over the cap, else reserve this call's most. After the call its real cost is written as a
-    `judge.spend` row before the reservation is released, so the next check sees one or the other. Another process
-    (the Slack gateway's container) sees this one's calls once they are written; that is the most the cap can be
-    passed by: the other process's calls in flight, each at most its reservation."""
+    Under one lock per process: read the month's spend from the audit, add the reservations of calls in flight here
+    and this call's own most, refuse `spend_cap` if that is over the cap, else reserve it. After the call its real cost
+    is written as a `judge.spend` row before the reservation is released, so the next check sees one or the other.
+    Another process (the Slack gateway's container) sees this one's calls once they are written, and admits its own
+    only if they fit too; so the cap can be passed by at most one process's calls in flight, each at most its
+    reservation. That bound is for the two processes that ask today, the server and the Slack gateway: each further
+    process with its own meter can add its own calls in flight on top. A call stays within its reservation because
+    every transport caps the answer at MAX_OUTPUT_TOKENS; a provider's own reported cost can still be higher."""
     settings = store.settings
     cap = float(settings.decisions_monthly_usd or 0)
     reserved = reservation(settings, models, state, questions) if cap > 0 else 0.0
@@ -204,8 +210,8 @@ def metered(store, models, state, questions, label, call):
         if cap > 0:
             with store.read() as c:
                 spent = spent_this_month(c)
-            if spent + _RESERVED[0] >= cap:
-                _skip("every caller", f"the month's decision spend ${spent:.2f} has reached the ${cap:.2f} cap")
+            if spent + _RESERVED[0] + reserved > cap:
+                _skip("every caller", f"the month's decision spend ${spent:.2f} leaves no room under the ${cap:.2f} cap")
                 raise J.JudgeError("spend_cap", f"Decide has cost ${spent:.2f} this month; the team's cap is "
                                    f"${cap:.2f} until the 1st (UTC)", 429)
         _RESERVED[0] += reserved
@@ -317,6 +323,18 @@ def install_judge(app, store, auth):
                 "daily_calls": daily_cap(settings, who.role), "used_today": used,
                 "monthly_usd": float(settings.decisions_monthly_usd or 0), "spent_this_month_usd": round(spent, 4),
                 "max_questions": J.MAX_QUESTIONS, "max_state_chars": J.MAX_STATE_CHARS}
+
+    @app.get("/api/v2/judge/readout")
+    def readout(request: Request, days: int = 7):
+        """The Decide readout over the last `days` (backend/decide_readout.py): the same readers as the config above,
+        since it names no caller, no state and no free-text label."""
+        from .decide_readout import MAX_DAYS, readout as build
+        who = request.state.identity
+        auth.domain(who)
+        if not 1 <= days <= MAX_DAYS:
+            raise Problem("invalid", f"days is 1 to {MAX_DAYS}", 422)
+        with store.read() as c:
+            return build(c, settings, days)
 
     @app.post("/api/v2/judge")
     def ask(request: Request, body: Ask):
