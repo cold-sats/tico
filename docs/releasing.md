@@ -26,7 +26,9 @@ only marks the merged PR links the running release contains as Shipped (backend/
 
 ## Tests on a PR
 
-Tests run on your computer, not in CI: nothing in GitHub Actions runs the suite on a push or a pull request. Write unit
+Run tests on your computer while you work. The PR checks workflow also runs the default suite (pytest without `slow`,
+plus the core browser scripts) on every pull request to main and every push to main, so a failure shows on the pull
+request. Write unit
 tests while you build and run them as you go; once the change passes, keep only the highest-value ones. Before merging,
 run the test files for what you touched and the checks the change obviously affects, not the full suite. The full
 suite runs as late as possible: once, right before a release.
@@ -46,10 +48,10 @@ That is the default suite: pytest in parallel without the tests marked `@pytest.
 core browser scripts (`CORE` in `scripts/ui-tests.cjs`) with the load-aware concurrency described below. The check records wall time and load and fails
 if the combined run reaches 300 seconds; it should take about two minutes. This is a hard budget for any suite that runs on merge or on a schedule. Keep it by keeping few tests, the ones
 that guard security and privacy boundaries, data safety and core contracts, and by cutting one when you add one. The Docker workflow builds the three images for a `v*` tag and the Release workflow publishes the
-GitHub release. The manual Release validation workflow runs the full gate only when explicitly dispatched;
-there are no push or PR test triggers. The manual screenshots workflow
-generates documentation images from the Actions tab (Run workflow). `--release` runs this suite too, so a
-release is the one place it runs.
+GitHub release. The PR checks workflow runs this default suite on every pull request to main and every push to main. The manual
+Release validation workflow runs the full gate only when explicitly dispatched. The manual screenshots workflow
+generates documentation images from the Actions tab (Run workflow). `--release` runs this suite too, along with the
+slow tests and every browser script, so a release is the one place the full suite runs.
 
 ## Hosted release validation
 
