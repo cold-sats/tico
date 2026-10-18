@@ -5,6 +5,7 @@ import re
 import secrets
 import sqlite3
 import time
+from datetime import timezone
 
 from clients import sessions
 
@@ -588,19 +589,28 @@ def bot_refusal(c, settings, runner_id, bot):
     """Why `runner_id`'s next claim would give none of `bot`'s queued work, by the claim's own rules (claim_refusal,
     the interrupted-work fence, job_refusal) and the busy lists the runner sent with its latest claim; None when it
     could take one. For Health, about a bot with no leased or running attempt: the reason of its oldest held job."""
+    return bot_claimable(c, settings, runner_id, bot)[0]
+
+
+def bot_claimable(c, settings, runner_id, bot):
+    """(reason, first, person) for `bot`'s queued work on `runner_id`'s next claim: `reason` as bot_refusal says it;
+    otherwise None with `first`, when the job the claim would hand out next was queued, and `person`, True when a
+    person sent it. The scan keeps the claim's own order (Execution.candidate: a redirect, then a person's message, then
+    the longest waiting), so Health ages the job the claim would take: an old held job beside a young free one is
+    neither held nor slow, and neither is an old free job behind a young chat the claim takes first."""
     from .shared_bots import follow
     runner = c.execute("SELECT * FROM runners WHERE id=?", (runner_id,)).fetchone()
     row = c.execute(f"SELECT bc.config_json,{DRAINING_SQL.replace('a.bot', 'bc.bot')} draining FROM bot_config bc "
                     "WHERE bc.bot=?", (bot,)).fetchone()
     if not runner:
-        return None
+        return None, None, None
     if not row:
-        return "config"            # the claim reads only bots with a configuration
+        return "config", None, None            # the claim reads only bots with a configuration
     held_bots, held_lanes = claimed_busy(runner_id)
     ready = readiness_document(runner["readiness_json"])
     why, config = claim_refusal(c, settings, runner, bot, row["config_json"], row["draining"], ready, held_bots)
     if why:
-        return why
+        return why, None, None
     lanes, roots = lanes_on(runner), roots_on(runner)
     busy = {(r["bot"], r["lane"]) for r in c.execute(
         "SELECT bot,lane FROM attempts WHERE state IN ('leased','running')")} | held_lanes
@@ -608,20 +618,23 @@ def bot_refusal(c, settings, runner_id, bot):
     # message is never held behind them.
     mine = sum(1 for b, _ in held_lanes if b == bot)
     at_share = mine and mine >= turn_limit(turn_share(c, runner_id, runner["capacity"]), runner["capacity"], False)
-    followed, first = follow(c, bot, config), None
+    followed, refused = follow(c, bot, config), None     # refused: (created, reason) of the oldest held job
     for job in c.execute(f"SELECT j.*,m.from_actor,{unfenced_sql()} free FROM jobs j JOIN messages m ON m.id=j.message_id "
                          "JOIN conversations cv ON cv.id=m.conversation_id WHERE j.bot=? AND j.state='queued' AND j.held=0 "
-                         "ORDER BY j.created,j.id", (bot,)).fetchall():
+                         "ORDER BY j.redirect DESC,CASE WHEN m.from_actor LIKE 'human:%' THEN 0 ELSE 1 END,j.created,j.id",
+                         (bot,)).fetchall():
+        person = str(job["from_actor"]).startswith("human:")
         if not job["free"]:
             why = "uncertain"
-        elif at_share and not str(job["from_actor"]).startswith("human:"):
+        elif at_share and not person:
             why = "lane_held"
         else:
             why = job_refusal(c, job, followed, ready, busy, lanes, roots)
         if why is None:
-            return None
-        first = first or why
-    return first
+            return None, job["created"], person
+        if refused is None or job["created"] < refused[0]:
+            refused = (job["created"], why)
+    return (refused[1] if refused else None), None, None
 
 
 class Execution:
@@ -797,6 +810,14 @@ class Execution:
             self.readiness_reported(c, who.runner_id, readiness)
         if body.release:
             runner_versions.record(c, who.runner_id, body)
+        # A restart under way is kept until the heartbeat that no longer carries it: the restarted runner's first. A time
+        # ahead of the server's clock reads as now.
+        if body.restart:
+            since = H.parse_ts(body.restart.since)
+            since = since.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ") if since and since.tzinfo else now
+            c.execute("UPDATE runners SET restart_since=? WHERE id=? AND restart_since IS NULL", (min(since, now), who.runner_id))
+        else:
+            c.execute("UPDATE runners SET restart_since=NULL WHERE id=? AND restart_since IS NOT NULL", (who.runner_id,))
         if body.checkout:
             # How long it has been behind is the server's to remember: a runner checks every ten minutes.
             checkout = body.checkout.model_dump()
