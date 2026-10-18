@@ -8,6 +8,11 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- A check or review subtask held by its model's usage limit no longer waits unseen. After 12 hours with every turn on
+  it stopped on the limit, the Health Monitor files one setup finding naming the bot, the model, since when and the
+  task, with the fix: wait for the reset, file the check again on another model, or drop it. And a held check whose
+  task is done, closed or declined has its queued turn let go, instead of retrying after every reset and running once
+  on a finished task; checks already in that state are let go on the first scheduler tick after the update.
 - A bot's turn finishes when a comment it had taken in was deleted while it ran. Finishing such a turn failed with a
   server error on every retry; now the turn and its reply are recorded as usual, and the deleted comment is never held
   for review or run again.
