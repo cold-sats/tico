@@ -26,6 +26,10 @@ All notable changes to Tico are recorded here. The format follows
 - A bot's turn finishes when a comment it had taken in was deleted while it ran. Finishing such a turn failed with a
   server error on every retry; now the turn and its reply are recorded as usual, and the deleted comment is never held
   for review or run again.
+- A comment taken back while a bot was working on it no longer breaks or shows through that turn. A bot checking for
+  new comments got a server error each time once the comment that started its turn was deleted; now it carries on.
+  Its reply is no longer posted under the deleted comment, and a reply no longer lists a deleted comment among those
+  it answered.
 - **Clear** on a bot's chat now really starts the bot over. Before, it only trimmed the history Tico sends, and on
   the computer Claude Code, Codex and the other harnesses kept resuming the old provider thread, so the bot still
   remembered the cleared chat and every turn still paid for it. Each turn now carries its conversation's session
