@@ -58,6 +58,9 @@ All notable changes to Tico are recorded here. The format follows
 
 ### Fixed
 
+- On a phone, the Support pop-up fits the space above the keyboard while you type: the box, Send and the newest
+  reply stay on screen, and the page behind no longer shows below it or scrolls under it. With the keyboard down it is
+  the usual bottom sheet again.
 - Health no longer says a bot that ran out of quota has no fallback when the company fallback (*Fall back when a plan
   runs out*, **Settings > AI providers**) covers it. And Health now says when a computer's default login for an AI tool
   (the one bots without a subscription use) is out of quota, e.g. "Team box's default Codex login is out of quota":
