@@ -32,10 +32,11 @@ prints the owner sign-in link, as the quick start does. What is left is one step
 Computers > Server computer > Sign in**, to Claude and to ChatGPT.
 
 - `--support off` turns Tico Support off (`TICO_SUPPORT=off`: the **?** chat sends nothing; [PRIVACY.md](../PRIVACY.md)).
-  With Support on, its tickets are tied to this install.
+  With Support on, its tickets are tied to this install. On an installed Tico, `sh install.sh --local --support off`
+  (or `on`) saves the switch and restarts; every other setting stays as it is.
 - The Gateway is enrolled from an invite whoever runs the install puts in the environment, `TICO_GATEWAY_INVITE`; you
-  never type it, and the installer never prints it. Without one the install still runs, on your subscriptions, and says
-  the Gateway is not set up.
+  never type it, and the installer never prints it. With one, the Gateway connects on Tico's first start; without one
+  the install still runs, on your subscriptions, and says the Gateway is not set up.
 - If the server computer cannot start, Tico keeps running and the installer says how to add it from **Settings >
   Computers > Add computer**.
 - It writes `TICO_INSTALL_PRESET=recommended`, `TICO_SAMPLE_COMPANY=on`, `TICO_MODELS_PRESET=subscriptions-gateway` and

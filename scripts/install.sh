@@ -205,6 +205,8 @@ case $SUPPORT in
   *) die 2 "--support is on or off." ;;
 esac
 [ -z "$SUPPORT" ] || [ -n "$LOCAL" ] || die 2 "--support goes with --local or --recommended (the team install's wizard takes --no-support)."
+# Given on the command line, the switch is also saved on an existing install; the preset's default is for new ones.
+SUPPORT_GIVEN=$SUPPORT
 [ -n "$SUPPORT" ] || [ -z "$RECOMMENDED" ] || SUPPORT=on
 # Support off also keeps this script and the wizard from offering to send an install error.
 [ "$SUPPORT" != off ] || { TICO_SUPPORT=off; export TICO_SUPPORT; }
@@ -568,7 +570,7 @@ run_local() {
   say "Recover the sign-in token: cd $DIR && docker compose exec server cat /data/local-owner.token"
   if [ -n "$RECOMMENDED" ]; then
     say "The sample company is loaded and Tico Support is ${SUPPORT}."
-    if [ -n "$GATEWAY_INVITE" ]; then say "Tico Gateway: set up from the invite this install was given."
+    if [ -n "$GATEWAY_INVITE" ]; then say "Tico Gateway: it connects on the first start, from the invite this install was given."
     else say "Tico Gateway: not set up (this install was given no invite). Bots use your Claude and ChatGPT subscriptions."; fi
     say "One step is left: in the app, Settings > Computers > Server computer > Sign in, to Claude and to ChatGPT."
   else
@@ -742,12 +744,17 @@ if [ -f "$DIR/.env" ]; then
       say "Already at $VERSION: repairing and restarting; your .env is kept."
     fi
   fi
-  if [ -n "$PORT" ]; then
+  # --port and --support given again are saved; every other line of .env stays as it is.
+  if [ -n "$PORT$SUPPORT_GIVEN" ]; then
+    drop=; [ -z "$PORT" ] || drop=PORT; [ -z "$SUPPORT_GIVEN" ] || drop=${drop:+$drop|}SUPPORT
     env_tmp=$(mktemp)
     ( umask 077
-      { as_root cat "$DIR/.env" | sed '/^TICO_PORT=/d'; printf 'TICO_PORT=%s\n' "$PORT"; } > "$env_tmp" )
+      { as_root cat "$DIR/.env" | sed -E "/^TICO_($drop)=/d"
+        [ -z "$PORT" ] || printf 'TICO_PORT=%s\n' "$PORT"
+        [ -z "$SUPPORT_GIVEN" ] || printf 'TICO_SUPPORT=%s\n' "$SUPPORT_GIVEN"; } > "$env_tmp" )
     as_root install -m 0600 "$env_tmp" "$DIR/.env"
     rm -f "$env_tmp"
+    [ -z "$SUPPORT_GIVEN" ] || say "Tico Support is now $SUPPORT_GIVEN (saved in $DIR/.env)."
   fi
   start_stack
   say ""

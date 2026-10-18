@@ -3,6 +3,7 @@ release with docker, curl and the host checks stubbed (the `box` of test_install
 import os
 import pty
 import stat
+import subprocess
 import time
 
 import pytest
@@ -67,7 +68,8 @@ def test_recommended_writes_the_choices_and_the_invite_and_never_shows_the_invit
     assert stat.S_IMODE((server["dir"] / ".env").stat().st_mode) == 0o600
     # The invite is in .env only: never in what the install prints, nor on any command line it ran.
     assert INVITE not in r.stdout + r.stderr and INVITE not in server["log"].read_text()
-    assert "Tico Gateway: set up from the invite" in r.stdout
+    # Dev 210 enrolls on the first start, so the install says it will connect, not that it has.
+    assert "Tico Gateway: it connects on the first start, from the invite this install was given." in r.stdout
     # The link is the only sign-in, and the one step left is the two subscription sign-ins.
     assert f"/api/v2/local-signin?token={TOKEN}" in r.stdout
     assert "One step is left: in the app, Settings > Computers > Server computer > Sign in, to Claude and to ChatGPT." in r.stdout
@@ -147,6 +149,25 @@ def test_support_off_is_written_for_the_server_and_the_quick_start_and_byo_choic
     assert r.returncode == 0 and env_of(server["dir"] / ".env")["TICO_SUPPORT"] == "off"
 
 
+def test_support_given_again_on_an_installed_tico_is_saved_and_nothing_else_changes(server):
+    r = run(server, "--recommended", "--owner-email", "ana@example.com", TICO_GATEWAY_INVITE=INVITE)
+    assert r.returncode == 0, r.stdout + r.stderr
+    env_file = server["dir"] / ".env"
+    before = env_of(env_file)
+    assert before["TICO_SUPPORT"] == "on"
+    for switch in ("off", "on", "off"):
+        r = run(server, "--local", "--support", switch)
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert "repairing and restarting; your .env is kept" in r.stdout and f"Tico Support is now {switch}" in r.stdout
+        assert env_of(env_file) == {**before, "TICO_SUPPORT": switch}
+        assert env_file.read_text().count("TICO_SUPPORT=") == 1 and stat.S_IMODE(env_file.stat().st_mode) == 0o600
+    # Not given, the saved switch stays, even under --recommended, whose own default is on.
+    for args in (("--local",), ("--recommended",)):
+        r = run(server, *args)
+        assert r.returncode == 0 and env_of(env_file)["TICO_SUPPORT"] == "off" and "Tico Support is now" not in r.stdout
+    assert INVITE not in r.stdout + r.stderr
+
+
 @pytest.mark.parametrize("args, wanted", [(("--recommended", "--support", "maybe"), "--support is on or off"),
                                           (("--support", "off"), "--support goes with --local or --recommended"),
                                           (("--recommended", "--tunnel"), "--local cannot be combined")])
@@ -196,7 +217,24 @@ def test_on_a_terminal_with_nothing_chosen_the_install_asks_and_the_recommended_
     assert env_of(server["dir"] / ".env").get("TICO_INSTALL_PRESET") == preset
 
 
-def test_the_question_is_not_asked_without_a_terminal_with_yes_or_on_an_existing_install(server):
+def test_with_nothing_chosen_and_no_terminal_nothing_is_asked_and_the_wizard_runs_on_flags_as_before(server):
+    # A fresh install, no mode and no --yes: only the missing terminal keeps the question away. Its own session has none.
+    variables = {"PATH": f"{server['stubs']}:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin",
+                 "HOME": str(server["tmp"]), "STUB_LOG": str(server["log"]),
+                 "TICO_INSTALL_RELEASES_URL": "file://" + str(server["rel"]),
+                 "TICO_INSTALL_MEMINFO": str(server["tmp"] / "meminfo"), **server["env"]}
+    script = server["rel"] / "download" / "v0.2.0" / "install.sh"
+    r = subprocess.run(["sh", str(script), "--dir", str(server["dir"])], env=variables, stdin=subprocess.DEVNULL,
+                       capture_output=True, text=True, timeout=120, start_new_session=True)
+    assert "How should Tico be set up?" not in r.stdout and "Choose [1]" not in r.stdout
+    assert "Setting up your team" in r.stdout
+    assert "No terminal to ask questions on; the wizard runs with flags only" in r.stderr
+    env = server["dir"] / ".env"
+    assert not env.exists() or "TICO_INSTALL_PRESET" not in env.read_text()
+    assert "enrollments" not in server["log"].read_text()
+
+
+def test_the_question_is_not_asked_with_a_mode_with_yes_or_on_an_existing_install(server):
     r = run(server, "--local", "--owner-email", "ana@example.com")
     assert r.returncode == 0 and "How should Tico be set up?" not in r.stdout
     code, out = on_a_terminal(server, "1")                      # an existing .env: the upgrade path, as before
