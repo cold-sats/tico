@@ -7,6 +7,15 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- A synced Grok Bot can be delivered through the Grok Mac app: set **Deliver through the app on** in its settings
+  to one of your own Macs where Grok is ready, and a message to it reaches it within a minute, it shows as working,
+  its reply streams in, and what it says on its own in Grok reaches its Tico chat within minutes. The Mac's native
+  runner works only through Accessibility (`tico-appdriver`, shipped separately): it never moves the pointer, types
+  or brings Grok forward. **Settings → Computers** shows a **Desktop apps** row per app, Health names a signed-out
+  app, missing permission or changed layout, and a reply that needs you in Grok becomes a question in your Needs
+  you. Off by default; with it off nothing changes, and no message is handed to the daily sync twice.
+
 ### Changed
 - Screen: the first time a new computer offers its screen, its **Screen** setting in Settings > Computers starts at
   **Control** instead of **View**, so its operator or an admin can drive it at once. Who may open a screen is
