@@ -24,6 +24,8 @@ All notable changes to Tico are recorded here. The format follows
   and when it is back, with no need to resend.
 - The Overview campus moves a bot's desk as soon as its status changes, while live updates are connected, instead of at
   the next refresh (up to two minutes).
+- An Overview replay that plays to its end goes back to the live desks, as Back to live does, instead of staying on
+  the day's last states while the bots have moved on.
 - Health no longer says a bot that ran out of quota has no fallback when the company fallback (*Fall back when a plan
   runs out*, **Settings > AI providers**) covers it. And Health now says when a computer's default login for an AI tool
   (the one bots without a subscription use) is out of quota, e.g. "Team box's default Codex login is out of quota":
