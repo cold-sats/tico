@@ -40,6 +40,9 @@ All notable changes to Tico are recorded here. The format follows
   rebuild it ([updates.md](docs/updates.md#python-environments-on-a-docker-runner) lists them and how).
 
 ### Fixed
+- A pull request a release merged and then reverted (a change dropped after QA failed) is no longer marked
+  shipped, and its task gets no "Shipped" notice. Tico now checks with GitHub that the pull request's own lines are
+  still in the running release, not only that its merge commit comes before it.
 - Automatic fallback no longer sends a bot to a login that is out of quota. When a login on a computer fails a turn
   on its usage limit, the runner skips it for fallback until the provider's reset time, or for 30 minutes when the
   provider gives none, and takes the next of the company's providers instead. A fallback that hits its own limit
