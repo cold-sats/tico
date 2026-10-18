@@ -7,6 +7,12 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- PRIVACY.md now names OpenRouter: a bot set to Tico Cheap, Mid or Power sends its model calls through Tico HQ to
+  OpenRouter. It lists what is sent (the messages and tools, never the gateway key, its label or the install ID), that
+  HQ keeps none of the call's text (only the key's label and per-call counts), that zero retention is enforced only when
+  a call asks for it (OpenRouter's policy still allows in-memory prompt caching), and that the region is not confirmed.
+
 ## [0.3.58] - 2026-10-18
 
 ### Added
