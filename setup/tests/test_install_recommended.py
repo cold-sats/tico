@@ -111,6 +111,22 @@ def test_an_invite_that_is_not_one_stops_before_anything_is_installed_and_is_not
     assert bad not in r.stdout + r.stderr and not (server["dir"] / ".env").exists()
 
 
+@pytest.mark.parametrize("bad", [
+    "inv_ok-12345678\nTICO_SIGN_IN=open",          # a valid first line, then a line of its own for .env
+    "TICO_SIGN_IN=open\ninv_ok-12345678",          # the valid line last
+    "inv_ok-12345678\r",                           # a carriage return on the end
+    "inv_ok-12345678\n",                           # a trailing newline alone
+    "x" * 201,
+    "inv_ok-",                                     # one short of 8
+])
+def test_an_invite_is_checked_whole_so_another_line_never_reaches_the_env_file(server, bad):
+    r = run(server, "--recommended", "--owner-email", "ana@example.com", TICO_GATEWAY_INVITE=bad)
+    assert r.returncode == 2 and "TICO_GATEWAY_INVITE is not an invite code" in r.stderr, r.stdout + r.stderr
+    assert not (server["dir"] / ".env").exists()
+    shown = r.stdout + r.stderr
+    assert all(part not in shown for part in bad.split() if part)
+
+
 def test_support_off_is_written_for_the_server_and_the_quick_start_and_byo_choices_are_unchanged(server):
     r = run(server, "--recommended", "--support", "off", "--owner-email", "ana@example.com", TICO_GATEWAY_INVITE=INVITE)
     assert r.returncode == 0, r.stdout + r.stderr

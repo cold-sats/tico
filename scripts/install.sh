@@ -212,8 +212,15 @@ esac
 GATEWAY_INVITE=
 if [ -n "$RECOMMENDED" ]; then
   GATEWAY_INVITE=${TICO_GATEWAY_INVITE:-}
-  [ -z "$GATEWAY_INVITE" ] || printf '%s' "$GATEWAY_INVITE" | grep -Eq '^[A-Za-z0-9_-]{8,200}$' \
-    || die 2 "TICO_GATEWAY_INVITE is not an invite code (8 to 200 letters, digits, - and _). It is not shown here."
+  # The whole value is checked, not line by line: it goes into .env as one line, so a newline must never pass.
+  if [ -n "$GATEWAY_INVITE" ]; then
+    case $GATEWAY_INVITE in
+      *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-]*) invite_ok= ;;
+      *) invite_ok=1; [ ${#GATEWAY_INVITE} -ge 8 ] && [ ${#GATEWAY_INVITE} -le 200 ] || invite_ok= ;;
+    esac
+    [ -n "$invite_ok" ] \
+      || die 2 "TICO_GATEWAY_INVITE is not an invite code (8 to 200 letters, digits, - and _). It is not shown here."
+  fi
 fi
 
 # The default runner is `tico-runner` in /opt/tico-runner. --name adds `tico-runner-<slug>` in /opt/tico-runner-<slug>.
