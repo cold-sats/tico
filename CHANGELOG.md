@@ -21,6 +21,10 @@ All notable changes to Tico are recorded here. The format follows
   **Control** instead of **View**, so its operator or an admin can drive it at once. Who may open a screen is
   unchanged (the computer's operator and admins), a Screen setting someone already chose stays (View and Off
   included), and a computer that already offered its screen keeps its setting.
+- Screen: on a bot's page, when its computer's screen is off in Tico, the operator's or an admin's **Turn on** button
+  now reads **Turn on (Control)** and turns the screen on at Control, matching a new computer's default, so they can
+  drive it at once. View and Off stay choices in Settings > Computers; who sees the button and who may change the
+  setting are unchanged.
 - The server, runner and updater images run Python 3.15 on Debian trixie with SQLite 3.54.1, built in and checked
   when the image is built (Debian's own copy is 3.46.1). The update pulls the images, and Tico's own mail venv rebuilds
   itself on first use. A runner's home volume survives the update, so anything a bot or person built there with the old
