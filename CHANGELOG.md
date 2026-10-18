@@ -7,6 +7,17 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Add key**, **Replace key** and **Clear key** for a computer's model API key (Codex, Claude Code, Cursor Agent,
+  Muse Code), from Settings > Computers, with no terminal. The row shows whose key it is by its preview only. A new key
+  goes to the credential vault for that computer alone and is checked on the computer before the old one is deleted;
+  one that doesn't work leaves the old key in use. Clear key names the bots that stop first, and the key given to every
+  computer doesn't sign it back in. For that shared key, both ask **this computer only** or **all of them**, listing the
+  computers; an offline computer clears its copy (or takes the new key) when it is next online. Replacing the shared key
+  for all of them needs credential rights. Needs a current runner on the computer
+  ([subscriptions](docs/subscriptions.md#api-keys-on-a-computer)).
+
 ### Changed
 - Screen: the first time a new computer offers its screen, its **Screen** setting in Settings > Computers starts at
   **Control** instead of **View**, so its operator or an admin can drive it at once. Who may open a screen is
@@ -49,14 +60,6 @@ All notable changes to Tico are recorded here. The format follows
   in at once and never joins as a new person. Set up the new address in Cloudflare Access first. If you are locked
   out, `python -m backend.manage owner-email <db> --to <address> --apply` on the server changes it back without a
   sign-in ([Humans and access](docs/people.md#change-the-owners-sign-in-email)).
-- **Add key**, **Replace key** and **Clear key** for a computer's model API key (Codex, Claude Code, Cursor Agent,
-  Muse Code), from Settings > Computers, with no terminal. The row shows whose key it is by its preview only. A new key
-  goes to the credential vault for that computer alone and is checked on the computer before the old one is deleted;
-  one that doesn't work leaves the old key in use. Clear key names the bots that stop first, and the key given to every
-  computer doesn't sign it back in. For that shared key, both ask **this computer only** or **all of them**, listing the
-  computers; an offline computer clears its copy (or takes the new key) when it is next online. Replacing the shared key
-  for all of them needs credential rights. Needs a current runner on the computer
-  ([subscriptions](docs/subscriptions.md#api-keys-on-a-computer)).
 
 ### Changed
 
