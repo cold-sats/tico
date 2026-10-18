@@ -8,6 +8,9 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- A queued job whose message its bot can no longer read (a private task or conversation it was taken off) no longer
+  sits queued for ever. No claim ever takes it, so it aged Health's "queued since" warning. The scheduler now cancels
+  it within a minute and records why (a `job.suppress` event, reason `unreadable`); the message itself stays.
 - A bot no longer gets a second turn on a task while its first is still running there when the task was moved under
   another of its tasks mid-turn. A wake about a task the bot is working on goes into that turn, or waits for the next
   turn on the task; it never starts one beside it. Another bot's turn on the same task (the requester woken by the
