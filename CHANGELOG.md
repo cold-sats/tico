@@ -19,6 +19,10 @@ All notable changes to Tico are recorded here. The format follows
 
 ### Changed
 
+- Tico HQ's code (the service at `https://updates.tico.team`) moved out of this repository. Installs talk to
+  `https://updates.tico.team` as before, with one fix: with `TICO_SUPPORT=off`, in a rehearsal or in demo mode, a live
+  support session now ends without the install telling HQ (it used to send the end notice), so with support off nothing
+  is sent.
 - Bots can create private repositories by default; the Owner can switch it off per bot. **Create product
   repositories** is on for every bot, BotOps and new bots included. The Owner or an admin switches it off in the bot's
   **Settings → Repositories**; an off stays off, and only the Owner switches it back on. A bot's turn acting for

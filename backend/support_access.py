@@ -2,7 +2,7 @@
 "Letting Tico support in"), and the Tico team, or its Support Agent, uses this app through Tico HQ until it ends.
 
 An install is behind NAT or on loopback, so nothing dials in: while a session is live this server long-polls HQ
-(`POST <TICO_HQ_URL>/v1/support/<ticket>/access/<session>/pull`, hq/support_access.py, with the ticket's secret), runs
+(`POST <TICO_HQ_URL>/v1/support/<ticket>/access/<session>/pull`, docs/tico-hq.md, with the ticket's secret), runs
 each request it is handed against itself in-process with the session's own token, and posts the answer back. Every
 request is logged on the session, and the person who started it reads the log beside the ticket.
 
@@ -279,7 +279,8 @@ def pull_once(app, wait=PULL_WAIT):
     if not row:
         return False
     if row["expires_at"] <= H.now() or reason:
-        if end(store, row, "", "expired" if not reason else "turned_off"):
+        # Support itself off (TICO_SUPPORT, demo, rehearsal) sends nothing at all; HQ ends its side at the session's time.
+        if end(store, row, "", "expired" if not reason else "turned_off") and not support.off_reason(settings):
             _tell_hq_ended(app, row)
         return False
     ticket = _ticket(store, row)
