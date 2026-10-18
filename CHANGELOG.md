@@ -7,6 +7,34 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Screen: the first time a new computer offers its screen, its **Screen** setting in Settings > Computers starts at
+  **Control** instead of **View**, so its operator or an admin can drive it at once. Who may open a screen is
+  unchanged (the computer's operator and admins), a Screen setting someone already chose stays (View and Off
+  included), and a computer that already offered its screen keeps its setting.
+- The server, runner and updater images run Python 3.15 on Debian trixie with SQLite 3.54.1, built in and checked
+  when the image is built (Debian's own copy is 3.46.1). The update pulls the images, and Tico's own mail venv rebuilds
+  itself on first use. A runner's home volume survives the update, so anything a bot or person built there with the old
+  Python 3.12 (a project's venv, `pip install --user` packages under `~/.local/lib/python3.12`) does not run on 3.15:
+  rebuild it ([updates.md](docs/updates.md#python-environments-on-a-docker-runner) lists them and how).
+
+### Fixed
+- A person's new Slack thread to a bot that is paused or quarantined is kept and runs when the bot is back, as a reply
+  in an existing thread already was, instead of being dropped. The person is told in the thread that the bot is held
+  and when it is back, with no need to resend.
+- The Overview campus moves a bot's desk as soon as its status changes, while live updates are connected, instead of at
+  the next refresh (up to two minutes).
+- Health no longer says a bot that ran out of quota has no fallback when the company fallback (*Fall back when a plan
+  runs out*, **Settings > AI providers**) covers it. And Health now says when a computer's default login for an AI tool
+  (the one bots without a subscription use) is out of quota, e.g. "Team box's default Codex login is out of quota":
+  turns there keep stopping on a usage limit with no reset time, so bots that fall back to it fail. It clears once a
+  turn on that login completes or the reset time passes.
+- On a phone, the Support pop-up fits the space above the keyboard while you type: the box, Send and the newest
+  reply stay on screen, and the page behind no longer shows below it or scrolls under it. With the keyboard down it is
+  the usual bottom sheet again.
+
+## [0.3.55] - 2026-10-18
+
 ### Added
 
 - The Overview shows **Bot hours vs human hours**: bot hours per human hour over the last 7 days, and a weekly line for
@@ -63,8 +91,6 @@ All notable changes to Tico are recorded here. The format follows
   of "No current status available" until the next refresh (up to two minutes).
 - The Librarian no longer turns a team's own "runner" into "Computer" because a Tico word turns up later in the
   sentence, after a semicolon: "the runner pulls a hamstring; read the stretching instructions" stays as written.
-- The Overview campus moves a bot's desk as soon as its status changes, while live updates are connected, instead of at
-  the next refresh (up to two minutes).
 - One bot's quarantine no longer spreads to the bots that work with it. A message or task comment to a paused or
   quarantined bot is kept and runs when it is back, and the sender is told when that is. A new task or hand-off to
   one is refused as `target_inactive`, saying when the bot is back. That refusal opens no review of the sender and
@@ -3243,7 +3269,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.54...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.55...HEAD
+[0.3.55]: https://github.com/ticoteam/tico/compare/v0.3.54...v0.3.55
 [0.3.54]: https://github.com/ticoteam/tico/compare/v0.3.52...v0.3.54
 [0.3.52]: https://github.com/ticoteam/tico/compare/v0.3.50...v0.3.52
 [0.3.50]: https://github.com/ticoteam/tico/compare/v0.3.49...v0.3.50
