@@ -44,6 +44,9 @@ All notable changes to Tico are recorded here. The format follows
   (the one bots without a subscription use) is out of quota, e.g. "Team box's default Codex login is out of quota":
   turns there keep stopping on a usage limit with no reset time, so bots that fall back to it fail. It clears once a
   turn on that login completes or the reset time passes.
+- A check or review subtask whose model's default login on its computer is out of quota (the Health finding above) now
+  moves to the next check model at once, instead of retrying that login every 30 minutes. It goes back to the model
+  it asked for once that login works again or its reset time passes; with no other check model, it waits as before.
 - On a phone, the Support pop-up fits the space above the keyboard while you type: the box, Send and the newest
   reply stay on screen, and the page behind no longer shows below it or scrolls under it. With the keyboard down it is
   the usual bottom sheet again.
