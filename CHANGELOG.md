@@ -55,6 +55,9 @@ All notable changes to Tico are recorded here. The format follows
   rebuild it ([updates.md](docs/updates.md#python-environments-on-a-docker-runner) lists them and how).
 
 ### Fixed
+- **Save bot** in the bot editor no longer drops a Model or Fallback you picked but didn't Apply. A picked Fallback is
+  saved with the bot; a picked Model opens its change dialog first, and if you cancel it the editor stays open and
+  says the model change wasn't applied. If the fallback can't be saved, the editor stays open with the reason.
 - A bot can read any computer's performance by its name or id with `hub computer performance`, as the docs say. It
   used to look the computer up in the computer list first, which shows a bot only some computers, so most bots got "No
   computer named".
