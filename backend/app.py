@@ -25,6 +25,7 @@ from . import go_live as pending_go_lives
 from . import repo_waits
 from . import built_on
 from . import agents, app_delivery, batch, external_sync, inbox_isolation, mcp_oauth, harness_actions, model_login, oidc, personal_tokens, views
+from . import owner_link
 from . import check_models, run_triggers, team_rules, update_feeds, usage_limits, wake_presets
 from . import task_privacy as privacy
 from . import task_relations as TR
@@ -420,6 +421,11 @@ def create_app(settings=None):
             # secret and is refused outright unless local sign-in is configured.
             if request.url.path in (LOCAL_SIGNIN_PATH, LOGOUT_PATH, *oidc.AUTH_PATHS) and request.method == "GET":
                 return await call_next(request)
+            # The hosted owner's sign-in link: the page with its button, and the press that spends it (backend/owner_link.py).
+            if request.url.path == owner_link.LINK_PATH and request.method in ("GET", "POST"):
+                return await call_next(request)
+            if request.url.path == owner_link.SCRIPT_PATH and request.method == "GET":
+                return await call_next(request)
             # A frontend's one-time sign-in code, exchanged with its PKCE verifier (backend/oidc.py).
             if request.url.path == oidc.TOKEN_PATH and request.method == "POST":
                 return await call_next(request)
@@ -644,6 +650,11 @@ def create_app(settings=None):
                 back = path + ("?" + request.url.query if request.url.query else "")
                 return RedirectResponse(oidc.LOGIN_PATH + "?" + urlencode({"next": oidc.safe_next(back)}),
                                         status_code=302)
+            if (exc.status == 401 and auth.proxy and auth.proxy.name == owner_link.KIND
+                    and request.method in ("GET", "HEAD") and not hasattr(request.state, "identity")
+                    and not path.startswith(("/api", "/mcp")) and "authorization" not in request.headers
+                    and "text/html" in request.headers.get("accept", "")):
+                return RedirectResponse(owner_link.LINK_PATH, status_code=302)
             response = await problem_handler(request, exc)
             if exc.status == 401 and path == mcp_oauth.MCP_PATH:
                 # Where an agent with no token can sign in (backend/mcp_oauth.py, RFC 9728).
@@ -1540,6 +1551,7 @@ def create_app(settings=None):
         return response
 
     oidc.register(app, auth)
+    owner_link.register(app, auth)
     mcp_oauth.register(app, auth, store)
 
     @app.get(LOGOUT_PATH)
