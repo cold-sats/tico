@@ -33,6 +33,8 @@ TRIXIE_RENAMED = ('libasound2', 'libatk-bridge2.0-0', 'libatk1.0-0', 'libatspi2.
 # Pins with no wheel for the image's Python that the venv stage builds (it has a compiler and their headers).
 BUILT_IN_THE_VENV_STAGE = {'pyyaml': 'libyaml-dev'}
 DIGEST = re.compile(r'@sha256:[0-9a-f]{64}$')
+# The images ship for both (.github/workflows/docker.yml); a pin needs a wheel for each.
+ARCHES = ('x86_64', 'aarch64')
 
 
 def python_image():
@@ -106,6 +108,37 @@ def test_packages_built_in_the_venv_stage_get_their_headers_and_runtime_library(
     assert 'yaml.CSafeLoader' in stage('source'), 'the build must fail if PyYAML lost its C loader'
 
 
+def installs_on_the_image(tags, minor, arch):
+    """Whether pip in the image (CPython 3.<minor>, glibc Debian, <arch>) can install a wheel with these tags."""
+    python, abi, platform = tags
+    pythons, platforms = python.split('.'), platform.split('.')
+    cp = f'cp3{minor}'
+    abi3 = abi == 'abi3' and any(p.startswith('cp3') and p[3:].isdigit() and int(p[3:]) <= minor for p in pythons)
+    pure = abi == 'none' and any(p in ('py3', f'py3{minor}', cp) for p in pythons)
+    native = abi == cp and cp in pythons
+    return ((pure or abi3 or native)
+            and ('any' in platforms or any(p.startswith('manylinux') and p.endswith(f'_{arch}') for p in platforms)))
+
+
+@pytest.mark.parametrize('wheel, x86_64, aarch64', [
+    ('py3-none-any', True, True),
+    ('py2.py3-none-any', True, True),
+    ('py3-none-win_amd64', False, False),
+    ('py3-none-macosx_11_0_arm64', False, False),
+    ('cp315-cp315-manylinux_2_17_x86_64.manylinux2014_x86_64', True, False),
+    ('cp315-cp315-manylinux_2_17_aarch64.manylinux2014_aarch64', False, True),
+    ('cp315-cp315-musllinux_1_2_x86_64', False, False),
+    ('cp315-cp315-win_amd64', False, False),
+    ('cp314-cp314-manylinux_2_17_x86_64', False, False),
+    ('cp315-cp315t-manylinux_2_17_x86_64', False, False),
+    ('cp39-abi3-manylinux_2_28_x86_64', True, False),
+    ('cp316-abi3-manylinux_2_28_x86_64', False, False),
+])
+def test_wheel_tags_match_only_the_images_python_and_platforms(wheel, x86_64, aarch64):
+    tags = tuple(wheel.split('-'))
+    assert (installs_on_the_image(tags, 15, 'x86_64'), installs_on_the_image(tags, 15, 'aarch64')) == (x86_64, aarch64)
+
+
 @pytest.mark.slow
 def test_the_pinned_sqlite_builds_with_every_option_python_sees(tmp_path):
     if sys.platform != 'linux' or not shutil.which('gcc'):
@@ -150,16 +183,10 @@ def test_every_pin_has_a_wheel_for_the_images_python(requirements):
             files = json.load(response)['urls']
         return name, {tuple(f['filename'][:-4].split('-')[-3:]) for f in files if f['filename'].endswith('.whl')}
 
-    def runs_on_linux(tags):
-        python, abi, platform = tags
-        pythons = python.split('.')
-        abi3 = abi == 'abi3' and any(p.startswith('cp3') and int(p[3:]) <= int(minor) for p in pythons)
-        return (('py3' in pythons and abi == 'none')
-                or (tag in pythons or abi3) and ('manylinux' in platform or platform == 'any'))
-
     with ThreadPoolExecutor(16) as pool:
-        missing = sorted(name for name, wheels in pool.map(wheel_tags, pins)
-                         if not any(runs_on_linux(w) for w in wheels) and name.lower() not in BUILT_IN_THE_VENV_STAGE)
+        missing = sorted(f'{name} ({arch})' for name, wheels in pool.map(wheel_tags, pins) for arch in ARCHES
+                         if not any(installs_on_the_image(w, int(minor), arch) for w in wheels)
+                         and name.lower() not in BUILT_IN_THE_VENV_STAGE)
     assert not missing, f'no {tag} Linux wheel: {missing}; add it to BUILT_IN_THE_VENV_STAGE with its headers'
 
 

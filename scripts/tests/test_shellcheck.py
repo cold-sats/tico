@@ -1,8 +1,8 @@
 """Every shell script the images and the release gate run passes shellcheck.
 
 A mistake in docker/*.sh shows up only when an image is built or started, and one in the gate scripts only during
-Release validation. shellcheck finds most of them in a second. GitHub's Ubuntu runners have it; elsewhere
-`pip install shellcheck-py` provides it.
+Release validation. shellcheck finds most of them in a second. GitHub's Ubuntu runners have 0.9.0; elsewhere
+`pip install shellcheck-py==0.9.0.6` provides the same version, so local results match CI.
 """
 import shutil
 import subprocess
