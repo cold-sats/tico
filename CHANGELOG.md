@@ -24,6 +24,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ### Changed
 
+- On Python 3.14 and later the server compresses API JSON with zstd for clients that accept it (browsers over
+  HTTPS, behind Caddy): 8-14x less CPU than gzip at the same or smaller size. Python 3.12 keeps gzip.
 - The server, runner and updater images run Python 3.15 on Debian trixie with SQLite 3.54.1, built in and checked
   when the image is built (Debian's own copy is 3.46.1). The update pulls the images, and Tico's own mail venv rebuilds
   itself on first use. A runner's home volume survives the update, so anything a bot or person built there with the old
@@ -49,6 +51,10 @@ All notable changes to Tico are recorded here. The format follows
   says so and links the app's permissions page, where the Owner turns it on once. Connecting and disconnecting GitHub
   stay the Owner's ([Permissions](docs/permissions.md#bots-that-create-repositories),
   [GitHub App](docs/github-app.md#bots-that-create-product-repositories)).
+- Screen: the first time a new computer offers its screen, its **Screen** setting in Settings > Computers starts at
+  **Control** instead of **View**, so its operator or an admin can drive it at once. Who may open a screen is
+  unchanged (the computer's operator and admins), a Screen setting someone already chose stays (View and Off
+  included), and a computer that already offered its screen keeps its setting.
 
 ### Fixed
 
@@ -64,6 +70,9 @@ All notable changes to Tico are recorded here. The format follows
   quarantined bot is kept and runs when it is back, and the sender is told when that is. A new task or hand-off to
   one is refused as `target_inactive`, saying when the bot is back. That refusal opens no review of the sender and
   never counts as a repeat toward its quarantine; it counts only toward the 30 refusals a day that stop a loop.
+- A person's new Slack thread to a bot that is paused or quarantined is kept and runs when the bot is back, as a reply
+  in an existing thread already was, instead of being dropped. The person is told in the thread that the bot is held
+  and when it is back, with no need to resend.
 
 ## [0.3.54] - 2026-10-17
 
