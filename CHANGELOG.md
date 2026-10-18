@@ -19,6 +19,10 @@ All notable changes to Tico are recorded here. The format follows
   rebuild it ([updates.md](docs/updates.md#python-environments-on-a-docker-runner) lists them and how).
 
 ### Fixed
+- Automatic fallback no longer sends a bot to a login that is out of quota. When a login on a computer fails a turn
+  on its usage limit, the runner skips it for fallback until the provider's reset time, or for 30 minutes when the
+  provider gives none, and takes the next of the company's providers instead. A fallback that hits its own limit
+  mid-turn moves the turn on to the next provider rather than ending it.
 - A person's new Slack thread to a bot that is paused or quarantined is kept and runs when the bot is back, as a reply
   in an existing thread already was, instead of being dropped. The person is told in the thread that the bot is held
   and when it is back, with no need to resend.
