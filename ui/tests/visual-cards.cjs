@@ -28,6 +28,10 @@ print(json.dumps(out))
   short: ['<!doctype html><html><head><title>Short</title></head><body style="margin:0"><h1 style="margin:0;height:150px">Short page</h1>'
     + '<a id="out" href="https://outside.test/read">Read more</a></body></html>', true],
   tall: ['<!doctype html><html><body style="margin:0"><div style="height:2000px;background:linear-gradient(#0a0,#00a)">Tall page</div></body></html>', true],
+  // Sized by the screen, not by their content: one as tall as the frame, one always taller than it (a heading, then
+  // min-height 100dvh, inside the default margins).
+  vh: ['<!doctype html><html><body style="margin:0"><div style="height:100vh;overflow:hidden;background:#0a0">Full screen</div></body></html>', true],
+  dvh: ['<!doctype html><html><body><h1>Report</h1><main style="min-height:100dvh;background:#00a;color:#fff">Fills the screen</main></body></html>', true],
   // Not cleaned on purpose: the frame's sandbox and the content policy alone must stop all of it.
   hostile: ['<!doctype html><html><body style="margin:0"><p style="height:90px">Hostile page</p>'
     + '<script>parent.postMessage({ticoVisualHeight: 5}, "*"); fetch("https://evil.test/fetch"); window.open("https://evil.test/popup");'
@@ -47,7 +51,7 @@ const A = (id, kind, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1'
   const browser = process.env.TICO_BROWSER === 'webkit' ? await webkit.launch({headless: true})
     : await chromium.launch({channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined, headless: true});
   const now = new Date().toISOString();
-  const messages = [
+  const MESSAGES = [
     {id: 'm1', from_actor: 'bot:designer', body: 'Here is the chart, the logo and two pages.', created: now, refs: {attachments: [
       A('f-chart', 'image', {width: 800, height: 400}), A('f-logo', 'svg'), A('f-short', 'page'), A('f-tall', 'page')]}},
     {id: 'm2', from_actor: 'bot:designer', body: 'Six pictures.', created: now, refs: {attachments:
@@ -56,13 +60,17 @@ const A = (id, kind, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1'
       A('f-moved', 'image', {width: 400, height: 200, current_version: 3}), A('f-gone', 'page', {removed: true, src: undefined, current_version: null}),
       A('f-bad', 'page'), A('f-nosrc', 'image', {src: null, width: 400, height: 200}), A('f-hostile', 'page')]}},
     {id: 'm4', from_actor: 'human:ana', body: 'My photo', created: now, refs: {attachments: [A('f-mine', 'image', {width: 300, height: 300, title: 'Ana photo'})]}},
+    {id: 'm5', from_actor: 'bot:designer', body: 'Two full-screen pages.', created: now, refs: {attachments: [A('f-vh', 'page'), A('f-dvh', 'page')]}},
   ];
   const run = async ({viewport, hasTouch = false, label}) => {
     const context = await browser.newContext({viewport, hasTouch, isMobile: hasTouch, serviceWorkers: 'block'});
     await context.addCookies([{name: 'tico_session', value: 'secret', domain: 'tico-ui.test', path: '/', secure: true, httpOnly: true}]);
     const page = await context.newPage();
-    const errors = [], outside = [], visualReqs = [], fileReqs = [];
-    let hold = null;
+    const errors = [], outside = [], visualReqs = [], fileReqs = [], held = [];
+    // The snapshot as the server sends it: each read signs every visual's address afresh (gen), as on a live update.
+    const messages = [...MESSAGES];
+    let hold = null, gen = 1;
+    const signed = () => gen === 1 ? messages : messages.map(m => ({...m, refs: {...m.refs, attachments: m.refs.attachments.map(a => a.src ? {...a, src: `${a.src}.${gen}`} : a)}}));
     page.on('pageerror', e => { if (!/sandboxed/i.test(e.message)) errors.push(e.message); });
     await context.route('**/*', async route => {
       const req = route.request(), url = new URL(req.url()), p = url.pathname;
@@ -71,11 +79,11 @@ const A = (id, kind, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1'
       if (url.hostname === 'outside.test') return route.fulfill({contentType: 'text/html', body: '<p>Outside</p>'});
       if (url.hostname === 'visuals.test') {
         visualReqs.push({path: p, cookie: req.headers().cookie || ''});
-        const id = p.replace('/visuals/tok-', '');
+        const id = p.replace('/visuals/tok-', '').replace(/\.\d+$/, '');
         if (hold && id === 'f-chart') await hold;
         const headers = {'Cross-Origin-Resource-Policy': 'cross-origin', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff'};
         if (id === 'f-bad' || id === 'f-gone') return route.fulfill({status: 404, headers: {...headers, 'Content-Security-Policy': "default-src 'none'; sandbox"}, body: ''});
-        const page = {'f-short': 'short', 'f-tall': 'tall', 'f-hostile': 'hostile'}[id];
+        const page = {'f-short': 'short', 'f-tall': 'tall', 'f-hostile': 'hostile', 'f-vh': 'vh', 'f-dvh': 'dvh', 'f-live-page': 'short'}[id];
         if (page) return route.fulfill({contentType: 'text/html', headers: {...headers, 'Content-Security-Policy': server.policy}, body: server.pages[page]});
         if (id === 'f-logo') return route.fulfill({contentType: 'image/svg+xml', headers: {...headers, 'Content-Security-Policy': server.svg_policy}, body: SVG});
         return route.fulfill({contentType: 'image/png', headers, body: PNG});
@@ -88,8 +96,9 @@ const A = (id, kind, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1'
       if (p === '/api/employees') return json([{name: 'designer', display_name: 'Designer', host: 'keeper', status: 'active', can_chat: true, schedules: []}]);
       if (p === '/api/issues') return json([]);
       if (p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
+      if (p === '/api/v2/events') { held.push(route); return; }      // live events (ui/app/live.js), held open
       if (p === '/api/v2/conversations') return json({conversations: url.searchParams.get('chat_with') ? [{id: 'c-designer', kind: 'chat', scope: 'personal', participants: ['human:ana', 'bot:designer']}] : []});
-      if (p === '/api/v2/conversations/c-designer/snapshot') return json({messages, execution: null});
+      if (p === '/api/v2/conversations/c-designer/snapshot') return json({messages: signed(), execution: null});
       if (p === '/api/v2/tasks' && req.method() === 'GET') return json({tasks: [task], next_offset: null});
       if (p === '/api/v2/tasks/t1/files') return json({files: taskFiles});
       if (p === '/api/v2/tasks/t1') return json({task, comments: taskComments, events: [], children: [], parent: null, mover: true, messages: [], can_comment: true});
@@ -164,6 +173,19 @@ const A = (id, kind, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1'
     assert(hh >= 90, `${label}: the page's own height message never runs (got ${hh})`);
     // people's attachments too
     assert.equal(await page.locator('[data-message="m4"] figure.vcard img').getAttribute('alt'), 'Ana photo');
+    // a page sized by the screen (100vh, 100dvh) settles at the cap with Expand: no sliver, no grow/shrink loop
+    // between the reporter and the frame (lead, Oct 19: a known limit; bot builders size pages by content)
+    const m5 = page.locator('[data-message="m5"]');
+    for (const id of ['f-vh', 'f-dvh']) {
+      const card = m5.locator(`figure.vcard[data-file="${id}"]`);
+      await m5.locator(`figure.vcard.capped[data-file="${id}"] .vcard-body.ready`).waitFor({timeout: 5000});
+      const size = () => card.evaluate(c => [c.querySelector('.vcard-body'), c.querySelector('iframe')].map(e => Math.round(e.getBoundingClientRect().height)));
+      const first = await size();
+      await page.waitForTimeout(600);
+      assert.deepEqual(await size(), first, `${label} ${id}: the height settles`);
+      assert(Math.abs(first[0] - cap) <= 1 && Math.abs(first[1] - cap) <= 1, `${label} ${id}: shown at the cap ${first} (cap ${cap})`);
+      assert(await card.locator('.vcard-expand').isVisible(), `${label} ${id}: Expand is offered`);
+    }
     await noSideways('chat');
 
     // ---- a link in a page opens a new tab only when clicked; the conversation stays
@@ -215,6 +237,21 @@ const A = (id, kind, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1'
       return [old.isConnected, b.children[0] !== was, b.children[1] === was, was.dataset.freshSrc];
     });
     assert.deepEqual(kept, [true, true, true, 'fresh']);
+
+    // ---- live: a new message comes on the event stream; the snapshot read again signs every address afresh. A card
+    // already on screen keeps its node and its height and takes the new address; the new message's cards show.
+    const was = await tall.evaluate(c => { c.dataset.mark = 'kept'; return c.querySelector('.vcard-body').getBoundingClientRect().height; });
+    for (let i = 0; !held.length && i < 100; i++) await page.waitForTimeout(50);
+    assert(held.length, `${label}: the page follows the live event stream`);
+    gen = 2;
+    messages.push({id: 'm6', from_actor: 'bot:designer', body: 'Live one.', created: now, refs: {attachments: [A('f-live', 'image', {width: 400, height: 200}), A('f-live-page', 'page')]}});
+    await held.at(-1).fulfill({contentType: 'text/event-stream', body: `id: 9\nevent: messages\ndata: ${JSON.stringify({seq: 9, conversation_id: 'c-designer'})}\n\n`});
+    const m6 = page.locator('[data-message="m6"]');
+    await m6.locator('figure.vcard[data-kind="page"] .vcard-body.ready').waitFor();
+    assert.deepEqual(await m6.locator('img.vcard-img, iframe.vcard-frame').evaluateAll(els => els.map(e => e.getAttribute('src'))),
+      [VIS + 'tok-f-live.2', VIS + 'tok-f-live-page.2'], `${label}: a live message's cards show from their visual address`);
+    assert.deepEqual(await tall.evaluate(c => [c.dataset.mark, c.dataset.freshSrc, Math.round(c.querySelector('.vcard-body').getBoundingClientRect().height)]),
+      ['kept', VIS + 'tok-f-tall.2', Math.round(was)], `${label}: a card on screen is kept through a live update, with the fresh address`);
 
     // cards never read the signed-in file route (visuals 5 and 6 and the one with no visual address are chips, which still do)
     assert.deepEqual(fileReqs.filter(r => !/f-(six[56]|nosrc)\b/.test(r)), [], `${label}: a card read /api/v2/files`);

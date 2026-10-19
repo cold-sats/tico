@@ -10,6 +10,8 @@ const VISUAL_PAGE_SANDBOX = 'allow-scripts allow-popups allow-popups-to-escape-s
 const VISUAL_PAGE_MAX = 20000;               // px: a reported height is clamped to this
 const VISUAL_PAGE_WAIT = 2500;               // ms after the frame loads with no height: it did not render
 const VISUAL_PAGE_H = new Map();             // "<file>@<version>" -> the height its page last reported (no jump on redraw)
+const VISUAL_PAGE_FILL = new Set();          // "<file>@<version>" of pages sized by the screen (visualPageFill)
+const VISUAL_PAGE_ECHO = 1000;               // ms: a report this soon after the frame changed height answers that change
 
 const visualTip = f => esc(visualTitle(f));
 function visualPictureBody(f) {
@@ -60,17 +62,28 @@ function visualPageWire(card) {
     clearTimeout(frame.visualWait);
     frame.visualWait = setTimeout(() => { if (!frame.visualHeight && card.isConnected) visualRetry(card, frame); }, VISUAL_PAGE_WAIT);
   });
-  const known = VISUAL_PAGE_H.get(`${card.dataset.file}@${card.dataset.version}`);
-  if (known) visualPageSize(card, frame, known);
+  const ref = `${card.dataset.file}@${card.dataset.version}`, known = VISUAL_PAGE_H.get(ref);
+  if (VISUAL_PAGE_FILL.has(ref)) visualPageFill(card, frame);
+  else if (known) visualPageSize(card, frame, known);
 }
 VISUAL_WIRE.page = visualPageWire;
-function visualPageSize(card, frame, h) {
+function visualPageSize(card, frame, h, fill = false) {
   const body = card.querySelector('.vcard-body');
+  if (frame.visualHeight !== h) frame.visualResized = performance.now();
   frame.visualHeight = h;
   frame.style.height = h + 'px';             // the whole page: no scrollbar inside the frame
   body.style.height = h + 'px';              // the card: up to the cap (max-height), then fade + Expand
   body.classList.add('ready');
-  card.classList.toggle('capped', h > visualCap(body) + 1);
+  card.classList.toggle('capped', fill || h > visualCap(body) + 1);
+}
+// A page sized by the screen (height or min-height 100vh / 100dvh) has no height of its own in a frame: it is as tall
+// as whatever the frame is, or taller, so following its reports would leave it a sliver or grow the card without end.
+// It shows at the cap with the fade and Expand, which opens it at a real screen's height, and its reports are no longer
+// followed. Bot builders are told to size pages by their content (Visual replies 2/4, lead Oct 19: a known limit).
+function visualPageFill(card, frame) {
+  VISUAL_PAGE_FILL.add(`${card.dataset.file}@${card.dataset.version}`);
+  frame.visualFill = true;
+  visualPageSize(card, frame, Math.round(visualCap(card.querySelector('.vcard-body'))), true);
 }
 // The height a page reports, taken only from a card's own frame, as a number, clamped.
 window.addEventListener('message', ev => {
@@ -78,8 +91,17 @@ window.addEventListener('message', ev => {
   if (typeof n !== 'number' || !Number.isFinite(n) || !ev.source) return;
   const frame = [...document.querySelectorAll('iframe.vcard-frame')].find(x => x.contentWindow === ev.source);
   const card = frame?.closest('figure.vcard');
-  if (!card) return;
-  const h = Math.max(24, Math.min(Math.ceil(n), VISUAL_PAGE_MAX));
+  if (!card || frame.visualFill) return;
+  // Sized by the screen: from its first 1px frame it measured next to nothing, or twice running it answered the
+  // frame's new height by growing to that height or more. A page sized by its content does not grow when only its
+  // frame changes (it may say the same height again: the reporter speaks on load and when it starts watching).
+  const raw = Math.ceil(n), was = frame.visualHeight;
+  if (raw === frame.visualLast && was) return;
+  const echo = was && raw >= was && raw > (frame.visualLast || 0) && performance.now() - (frame.visualResized || 0) < VISUAL_PAGE_ECHO;
+  frame.visualLast = raw;
+  frame.visualEchoes = echo ? (frame.visualEchoes || 0) + 1 : 0;
+  if ((!was && raw < 24) || frame.visualEchoes >= 2) { visualPageFill(card, frame); return; }
+  const h = Math.max(24, Math.min(raw, VISUAL_PAGE_MAX));
   VISUAL_PAGE_H.set(`${card.dataset.file}@${card.dataset.version}`, h);
   visualPageSize(card, frame, h);
 });
