@@ -40,6 +40,13 @@ All notable changes to Tico are recorded here. The format follows
   failed check (over 1.5 s) sends the message in the same session with no line.
 
 ### Fixed
+- **The sidebar around first-run setup**: while the setup wizard is open, the sidebar shows only **Finish setup** and
+  the team, not the app's pages or **What's new** (on a phone the bottom bar drops Tasks and Updates). A new company's
+  owner starts with nothing unread in What's new. In the team list, words a bot's name shares with another bot's (the
+  "Head of" in "Head of Product") drop out first when the row is narrow, so each row keeps the part that tells it
+  apart; hovering a bot shows its whole name, and **Needs setup** is a small gear beside the name. The anonymous
+  usage-count notice no longer sits over the wizard or the screen after **Create**: it appears on the first other page,
+  and nothing is counted until it has.
 - **First-run wizard**: **Next** on **Your team chart** works again when the team includes BotOps. Its instructions
   (24,048 characters) were over the setup save's 20,000-character limit, so the wizard stopped with a raw field error.
   Bot instructions now have one limit of 50,000 characters wherever they are sent (the wizard, **Add from catalog**
