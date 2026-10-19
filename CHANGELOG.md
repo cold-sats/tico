@@ -8,6 +8,15 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Tico AI Gateway** in Settings > AI providers: the owner saves the gateway key Tico gives them (or the server's
+  `TICO_GATEWAY_KEY` sets it, and wins), Decide asks the Gateway with that same key, and bots can then pick **Tico Cheap, Mid and Power 1.0** (Claude Haiku, Sonnet and Opus
+  5.5 underneath) like any other model, streamed through the Gateway on pi. The key is sealed and never shown after
+  save. No bot holds it: the computer running a bot on a Tico model passes its model calls on with the key, so Tico
+  models run only on a computer that runs bots as their own user (Tico's Docker runner); elsewhere a bot on one says
+  so once. The owner sees the 80% monthly cap warning and a key the Gateway doesn't
+  recognise. A bot stopped by the cap says "Gateway cap reached" and waits for next month; every other Gateway
+  refusal reads plainly and is retried only when retrying can help, and a reply cut off mid-stream is posted with a
+  note ([Tico AI Gateway](docs/ai-gateway.md)).
 - **Sign in on a Tico we host**: with `TICO_HOSTED` set (`own` or `invited`), **Sign in** for Claude Code and
   Codex (ChatGPT) in Settings > Computers shows only the provider's link and code, never what else the computer
   printed and never a terminal, and closes by itself once signed in or cancelled. Any other value of `TICO_HOSTED`
