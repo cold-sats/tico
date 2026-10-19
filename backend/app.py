@@ -836,9 +836,9 @@ def create_app(settings=None):
     @app.get('/api/v2/bots/{bot}/routines')
     def bot_routines(bot: str, request: Request, include_deleted: bool = False):
         who = request.state.identity
-        if not (who.actor == "bot:" + bot or who.role in ('human', 'owner')):
-            raise Problem('forbidden', 'Only people and the bot itself read its routines', 403)
         with store.read() as c:
+            if not (who.actor == "bot:" + bot or who.role in ('human', 'owner') or auth.bot_above(c, who, bot)):
+                raise Problem('forbidden', 'Only people, the bot itself and the bots above it read its routines', 403)
             auth.require_read(c, who, bot)
             return {'routines': routines.listing(c, bot, include_deleted)}
 
@@ -925,10 +925,10 @@ def create_app(settings=None):
     @app.get('/api/v2/routines/{schedule_id}/occurrences')
     def routine_occurrences(schedule_id: str, request: Request, limit: int = 50):
         who = request.state.identity
-        if who.role not in ('human', 'owner'):
-            raise Problem('forbidden', 'This endpoint is available only to people', 403)
         with store.read() as c:
             row = c.execute('SELECT bot FROM schedules WHERE id=?', (schedule_id,)).fetchone()
+            if who.role not in ('human', 'owner') and not (row and auth.bot_above(c, who, row['bot'])):
+                raise Problem('forbidden', 'This endpoint is available only to people and the bots above the routine\'s bot', 403)
             if not row:
                 raise Problem('not_found', 'Routine not found', 404)
             auth.require_read(c, who, row['bot'], 'Routine not found')
