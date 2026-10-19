@@ -4,9 +4,9 @@ A subscription profile is a named provider login on a Computer. Credentials stay
 
 ## Names and weekly allowance
 
-Open **Settings → AI providers → Subscriptions** to name and sign in subscriptions, choose group defaults, and see weekly allowance. Names are labels; Tico does not record who owns a subscription, only which provider account a login reports (below). Each bot can override its group's subscription in Bot settings. Logins and credentials remain on the selected Computer.
+Open a computer on **Settings → Computers** to name and sign in subscriptions and see how much weekly allowance is left; each row's chips show it at a glance. Names are labels; Tico does not record who owns a subscription, only which provider account a login reports (below). Each bot can choose one in Bot settings; without a choice it runs on its computer's own login. Logins and credentials remain on the selected Computer.
 
-Open **Manage subscription**, edit **Name**, and choose **Save name** to change its display name without moving credential directories, changing assignments, or rewriting run history. Each Computer and local profile key has a distinct, stable connection ID, even when names match. Only the Computer operator or an administrator can rename it. Group defaults still use the immutable local profile key across their Computers; a display rename does not redirect them.
+In the computer's pop-up on **Settings → Computers**, open **Manage** on the subscription's line, edit **Name**, and choose **Save name** to change its display name without moving credential directories, changing assignments, or rewriting run history. Each Computer and local profile key has a distinct, stable connection ID, even when names match. Only the Computer operator or an administrator can rename it.
 
 Usage groups and filters subscriptions by this connection ID, showing the current display name and Computer. Recorded runs retain their execution Computer and local profile key, so moving a bot or renaming a subscription cannot move past usage to another connection. Older runs without an execution Computer are labelled **computer not recorded** instead of guessed from today's assignment.
 
@@ -16,7 +16,7 @@ Weekly reports are scoped to a Computer, profile and runtime. Codex reports its 
 
 The last provider report includes its observation time and reset. Reports older than a day are labelled as possibly out of date. After reset they stay labelled as the previous week, never automatically become zero. Reports survive a runner restart on the server. An updated computer can refresh Codex weekly usage directly; other providers need a supported subscription-backed run or a manual provider reading. Shorter windows are shown on **Settings → Computers**, not here. An unnamed computer-default login has no named subscription snapshot; it remains unknown rather than being assigned to another profile. When that default login keeps stopping on a usage limit, **Settings → Health** says it is out of quota ([Health Monitor](health-monitor.md), `default_login_limited`).
 
-A Computer operator or administrator can open **Manage subscription** and use the provider’s **manual weekly report** form to copy the provider's percentage used and reset time. This is a labelled manual observation, not an editable provider quota. The newest manual or provider observation is shown. Clear manual report restores the last provider report, or unknown if none exists. This neither changes provider limits nor schedules or blocks bots, and introduces no new permissions.
+A Computer operator or administrator can open **Manage** on the subscription's line and use the provider's manual weekly reading form to copy the percentage left and the reset time. This is a labelled manual observation, not an editable provider quota. The newest manual or provider observation is shown. Clear manual report restores the last provider report, or unknown if none exists. This neither changes provider limits nor schedules or blocks bots, and introduces no new permissions.
 
 
 ### Signed-in account and usage windows
@@ -29,11 +29,11 @@ Next to the weekly window, a profile reports Codex's 5-hour window (`five_hour`,
 
 The Computer's own login (the one its bots use when no profile is assigned) reports the same two windows on its runtime row in readiness (`weekly`, `five_hour`), checked against the same limits and shown to the same people as its account. Claude reads them from each turn's `rate_limit_event`: Claude Code 2.1.30x sends both windows in `unifiedWindows` with a 0–1 `utilization`, which becomes the percentage used. That field is undocumented, so a missing or out-of-range value reads "percentage unavailable", never 0% or 100%, and an older CLI reports only the reset as before. Until a Claude turn runs on that login, the row says "Weekly usage unavailable · reported after a Claude Code turn on this computer": Tico never starts a turn just to read usage. Codex's windows come from the same background app-server session that reads its account (at most every ten minutes, `account/rateLimits/read`, no turn and no paid request), for the own login and each named profile; an API-key login has no plan usage and is not asked. A server from before this change refuses the two runtime fields; the runner then leaves them out for ten minutes and sends the rest.
 
-Assign a profile to a group to use it for that group's bots and nested groups. A bot assignment overrides the nearest group's assignment. With no server assignment, the Computer keeps its local `bot_profiles` and `default_profile` behavior. Removing an assignment restores inheritance; it does not delete a login.
+Groups do not choose a subscription: a bot runs on its own choice, or else on its Computer's default. With no server assignment, the Computer keeps its local `bot_profiles` and `default_profile` behavior. Removing an assignment does not delete a login. Group assignments saved by an earlier release are kept but no longer read; they are not moved to the bots.
 
-`GET /api/v2/subscriptions` returns `profiles_by_computer` and `assignments`. Set or clear an assignment with `PUT /api/v2/subscriptions`, for example `{"scope":"group","target":"engineering","profile":"engineering"}`; use `profile: null` to clear it. Owners and admins change group assignments; the bot's Computer operator, owners and admins change its override. `GET /api/v2/bots/{bot}/subscription` returns the effective profile, its source, Computer and sign-in state for the model picker. Unknown sign-in state is `null`.
+`GET /api/v2/subscriptions` returns `profiles_by_computer` and `assignments`. Set or clear an assignment with `PUT /api/v2/subscriptions`, for example `{"scope":"bot","target":"builder","profile":"engineering"}`; use `profile: null` to clear it. A `group` scope is refused (422). The bot's Computer operator, owners and admins change it. `GET /api/v2/bots/{bot}/subscription` returns the effective profile, its source, Computer and sign-in state for the model picker. Unknown sign-in state is `null`.
 
-The Computer operator can manage sign-in on their own Computer; owners and admins can manage it on any Computer. To sign in a named profile, use the existing Computer sign-in flow: `POST /api/v2/runners/{runner_id}/logins` with `{"runtime":"codex","profile":"engineering"}` (or `claude`). A current Computer creates the named profile if needed beside its registration (`profiles/<name>`, or beside its state directory on isolated Docker Computers when no registration path is available (inside state otherwise)). The profile is private and stays outside the team workspace. On an isolated Docker Computer the sign-in and turns run as the bot user, so each runtime's home in the profile belongs to the bot user, while the profile folder and `profile.json` stay the supervisor's (the folder is traversable only). Adding a profile does not change the local default. The browser relays the provider's link and code; the provider writes its credentials locally. A group spanning several Computers needs the same named login on each.
+The Computer operator can manage sign-in on their own Computer; owners and admins can manage it on any Computer. To sign in a named profile, use the existing Computer sign-in flow: `POST /api/v2/runners/{runner_id}/logins` with `{"runtime":"codex","profile":"engineering"}` (or `claude`). A current Computer creates the named profile if needed beside its registration (`profiles/<name>`, or beside its state directory on isolated Docker Computers when no registration path is available (inside state otherwise)). The profile is private and stays outside the team workspace. On an isolated Docker Computer the sign-in and turns run as the bot user, so each runtime's home in the profile belongs to the bot user, while the profile folder and `profile.json` stay the supervisor's (the folder is traversable only). Adding a profile does not change the local default. The browser relays the provider's link and code; the provider writes its credentials locally.
 
 Computers report their profiles on heartbeat. A bot with a server-assigned profile waits when that profile is missing or signed out; it never runs on another profile, the local default or the operator's login. Health and subscription status show `Subscription <name> isn't on <computer>` or `Subscription <name> isn't signed in on <computer>`. The server also holds these bots on older Computers that cannot report profiles, with `Update <computer> to use subscriptions`. Bots without an assignment keep their local profile and default behavior.
 
@@ -51,8 +51,9 @@ The Engineering Manager template gives owners and admins an initial read grant t
 
 ### Signing out and switching accounts
 
-On **Settings → Computers** a signed-in Codex or Claude Code login, the Computer's own or a named subscription's, has
-**Switch account** and **Sign out**; **Manage subscription** on **AI providers** has the same for each signed-in runtime.
+In a Computer's pop-up on **Settings → Computers** each signed-in Codex or Claude Code login, the Computer's own or a
+named subscription's, has **Switch account** and **Sign out**. A line that is both the Computer's login and a
+subscription on the same account names which login each pair acts on.
 The same people who may sign a login in see them: the Computer's operator, owners and admins. The Computer must be online
 and on a current runner; an older one answers `Update <computer> to sign out from here` and is never asked.
 
@@ -89,7 +90,7 @@ then sign in. Codex switches on a Mac as anywhere.
 
 After a sign-in, switch, sign-out or **Use the shared key**, the page looks again until the Computer has reported since
 the change finished (its heartbeat; `readiness_at` on the computer in `GET /api/v2/operations`) and that report shows
-the change, redrawing **Settings → Computers** and **AI providers** together, for about a minute.
+the change, redrawing **Settings → Computers**, for about a minute.
 
 ### API keys on a Computer
 
@@ -148,7 +149,7 @@ for one that is offline. A named subscription holds no key, so **Manage subscrip
 
 ### Refreshing weekly allowance
 
-On **AI providers**, a computer operator or administrator can choose **Refresh weekly
+In a Computer's pop-up on **Settings → Computers**, a computer operator or administrator can choose **Refresh
 usage** for a named Codex subscription. The computer reads the Codex app-server's
 [`account/rateLimits/read`](https://learn.chatgpt.com/docs/app-server) endpoint in that
 profile. It does not start a model turn, consume a reset credit, change a subscription,

@@ -38,6 +38,17 @@ All notable changes to Tico are recorded here. The format follows
   If it does, the bot's session is cleared the same way Clear does, and the chat shows a quiet **Topic changed** line
   above your message. A chat with an active goal, a running turn or fewer than 3 turns is never checked, and a slow or
   failed check (over 1.5 s) sends the message in the same session with no line.
+- **Settings → Computers** shows one compact row per computer: name, Tico version (with **Update** only when one is
+  waiting), operator, bots, a chip for each AI connection, and status. A chip shows the tool, a thin bar and the share
+  of the weekly allowance that is left; hover for when it resets and how old the reading is. A red dot means bots
+  depend on a connection that is signed out or rejected. Click a row for everything else: its connections (the
+  computer's own login and a named subscription on the same account show as one), Screen, the bots on it and the
+  connection each one actually runs on, versions and updates, and settings, including **Keep for inbox bots only**
+  and **Revoke computer**. Its **Add connection** signs in an installed tool (in the browser, or with the command to
+  copy and run on the computer for a tool such as Grok Build that signs in only from a terminal) or adds a named
+  subscription. Subscriptions moved here from **Settings → AI providers**, and usage reads as "% left"
+  everywhere. Every member now sees every computer; only an admin or the computer's operator sees its signed-in
+  accounts and changes anything on it.
 
 ### Fixed
 - Work waiting while its computer updates now says so: once a computer due an update stops taking new work (20
@@ -89,6 +100,14 @@ All notable changes to Tico are recorded here. The format follows
   button (**Add a computer** while there is none). Bots are listed in the team chart's groups and order with one status
   each, *Waiting for a computer* is said once at the top, and the tour waits for **Show me around** instead of
   covering the screen.
+- **Sign out** and **Switch account** moved into each computer's pop-up on **Settings > Computers**, on each connection
+  line, for the computer's own login and each named subscription (they were on the tool table and in Manage subscription
+  on AI providers). A subscription is now signed in from a computer on **Settings > Computers**. **Replace key**,
+  **Clear key** and **Add key**, the note that several bots share a sign-in, the desktop apps table and the
+  restarting note moved there too; a member sees which kind of key a computer uses but not its preview.
+- Groups no longer give their bots a subscription: a bot runs on its own choice, or else on its computer's own login.
+  The bot editor's **Connection** line says "Runs on <tool> · <connection> on <computer>". Existing group choices
+  are not moved to the bots; choose one per bot where it is needed.
 - **First run, the form steps**: the progress row uses short names (Providers, Names, About, Team, Computer, Agent,
   Review) on one line; on a phone it shows dots and the current step's name. Step titles are larger, and the form
   cards match the team chart's. A fresh install starts with an empty **Company name** (placeholder *Acme Inc.*), not
