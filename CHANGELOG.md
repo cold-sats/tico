@@ -114,6 +114,10 @@ All notable changes to Tico are recorded here. The format follows
   ([Computers](docs/computers.md#remove-a-subscription)).
 
 ### Fixed
+- **Computers: a cleared key reads "No key · Add key"**, not "Signed out · Sign in", in a computer's pop-up, and its
+  chip's hover says No key. On an offline computer, a connection's **Replace key**, **Clear key**, **Switch to
+  subscription**, **Sign out** and **Switch account** stay on the line, disabled, with "Computer is offline", instead
+  of disappearing ([Computers](docs/computers.md#api-keys-on-a-computer)).
 - **A bot's finished answer is no longer lost or given twice when its computer stalls before handing it in.** A
   turn's lease now renews on a thread of its own, so busy work on the computer can't stop it. If a finished
   answer still comes in late, after its run was dismissed or cancelled, it is kept: the run ends completed and the
