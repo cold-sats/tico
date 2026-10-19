@@ -8,6 +8,14 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **"Sign in with Tico account" on hosted servers, through the ordinary OpenID Connect sign-in**: a new optional
+  `TICO_OIDC_LABEL` puts one "Sign in with <label>" button in front of any OpenID Connect provider (unset, sign-in goes
+  straight to the provider as before). The setup wizard's new `--auth oidc --issuer <url> --client-id <id>
+  [--signin-label <name>]` takes any issuer, with the client secret only from `TICO_OIDC_CLIENT_SECRET` in the
+  environment, never printed. With `--hosted`, the owner email is the owner, invited teammates sign in as members, and
+  the owner sign-in link stays as break-glass beside it: it works while the issuer is down, and people already
+  signed in stay signed in. Google, Microsoft, Cloudflare Access and the other sign-in options work as before.
+  ([Install](docs/install.md#sign-in))
 - **Quiet work stays visible and comes back**: a task filed for a bot's next run now says where it stands, on the task
   and in `hub task show` (`quiet`): eligible (the next run carries it), delivered (which run took it and when, and
   until what it was deferred) or queued (a run of its own). A run that will not do a carried task now says when to
