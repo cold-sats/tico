@@ -77,6 +77,8 @@ class ChatCreate(Contract):
     text: Text
     refs: dict = Field(default_factory=dict)
     attachments: list[Attachment] = Field(default_factory=list, max_length=10)
+    # With files uploaded alongside (POST /api/v2/uploads/chat/{bot}): each one's caption, in upload order.
+    titles: list[Annotated[StrictStr, Field(max_length=200)]] = Field(default_factory=list, max_length=10)
 
 
 class BatchStart(Contract):

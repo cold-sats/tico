@@ -249,3 +249,34 @@ def test_a_visual_origin_equal_to_the_app_origin_is_refused():
         pass
     else:
         raise AssertionError("the app's own origin was accepted as the visual origin")
+
+
+def test_a_persons_chat_upload_is_a_titled_versioned_visual_too(api):
+    """Choice 2: a picture a person sends is a visual like a bot's; older clients keep the blob id and url."""
+    r = api.post("/api/v2/uploads/chat/ops", data={"text": "My sketch", "titles": '["Sketch"]'},
+                 files={"files": ("sketch.png", PNG, "image/png")}, headers=headers("ben-test", "k-visual-1"))
+    assert r.status_code == 200, r.text
+    message = r.json()["message"]
+    read = api.get("/api/v2/messages/" + message["id"], headers=headers("ben-test")).json()
+    [item] = read["refs"]["attachments"]
+    assert item["url"] == "/api/v2/files/" + item["id"]                     # unchanged for today's chips
+    assert (item["title"], item["kind"], item["version"]) == ("Sketch", "image", 1)
+    assert item["file_id"] != item["id"] and api.get(item["src"]).status_code == 200
+    with api.app.state.store.read() as c:
+        scope = c.execute("SELECT scope FROM bot_files WHERE id=?", (item["file_id"],)).fetchone()["scope"]
+    assert scope == "conversation:" + message["conversation_id"]
+    for other in ("cara", "ana"):                   # the company owner included: a personal chat is not theirs
+        assert api.get("/api/v2/files/" + item["file_id"], headers=headers(other + "-test")).status_code == 404
+        token = V.mint(api.app.state.visual_key, "human:" + other, item["file_id"], 1)
+        assert api.get("/visuals/" + token).status_code == 404
+
+
+def test_a_file_from_one_chat_cannot_be_posted_into_another_by_someone_who_can_read_both(api):
+    """The conversation check stands alone: Ben can open his ops chat's file, and still can't post it to cpo."""
+    r = api.post("/api/v2/uploads/chat/ops", data={"text": "Sketch"},
+                 files={"files": ("sketch.png", PNG, "image/png")}, headers=headers("ben-test", "k-visual-2"))
+    fid = r.json()["message"]["refs"]["attachments"][0]["file_id"]
+    assert api.get("/api/v2/files/" + fid, headers=headers("ben-test")).status_code == 200
+    moved = api.post("/api/v2/chat/cpo", json={"text": "Look", "attachments": [f"{fid}@1"]},
+                     headers=headers("ben-test", "k-visual-3"))
+    assert moved.status_code == 404, moved.text

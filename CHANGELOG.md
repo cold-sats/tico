@@ -8,6 +8,15 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Visuals in replies (API, part 1 of 4)**: a bot or a person attaches a picture, SVG, self-contained HTML page,
+  video or audio clip to a chat reply or a task comment with a title (`--visual PATH --title "…"` on `hub message
+  send`, `hub chat send` and `hub task comment`; `visuals` on the same MCP tools; `attachments: [{ref, title}]` in the
+  API). It is a normal versioned file on that conversation or task, and the message keeps the version it was posted
+  with. A page's local images and fonts are embedded when it is attached; remote images and styles are never loaded,
+  and the result lists each one. Too big or another type, it is attached as a normal file. Visuals are shown from a
+  signed address apart from the app's sign-in (`TICO_VISUAL_ORIGIN` for a host of their own), with a policy that
+  blocks scripts and network loads, and only to people who can read that conversation, checked again on every
+  request. Until part 2 they still show as file chips.
 - **The company on Goals**: with the CEO Bot switch on, Goals opens with a **Company** section: the Vision (one or
   two sentences) and the Description (a short paragraph). The owner and admins edit it, everyone else reads it, and
   **History** lists every change with who made it and when. Each goal shows a one-line **Why** tying it to the

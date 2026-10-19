@@ -17260,6 +17260,15 @@
             "type": "array",
             "maxItems": 10,
             "title": "Attachments"
+          },
+          "titles": {
+            "items": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "type": "array",
+            "maxItems": 10,
+            "title": "Titles"
           }
         },
         "additionalProperties": false,
