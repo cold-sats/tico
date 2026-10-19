@@ -57,6 +57,11 @@ All notable changes to Tico are recorded here. The format follows
   newest), says "This visual was removed" when the file was removed and "Couldn't show this visual" when it can't
   render. Up to 4 per message; the rest stay file chips
   ([Visuals in replies](docs/visuals.md#in-a-chat-or-task-conversation)).
+- **Video and audio in replies (part 3 of 4)**: a video or audio clip attached to a chat reply or task comment plays
+  in the conversation: a video with its first frame, play, seek, volume and full screen (also in the desktop app on
+  a Mac), an audio clip as a compact player that keeps playing while you scroll. Nothing starts by itself, starting
+  one clip pauses the other, and seeking a long clip loads only that part. A clip the device can't play shows why,
+  with Download.
 - **The company on Goals**: with the CEO Bot switch on, Goals opens with a **Company** section: the Vision (one or
   two sentences) and the Description (a short paragraph). The owner and admins edit it, everyone else reads it, and
   **History** lists every change with who made it and when. Each goal shows a one-line **Why** tying it to the
