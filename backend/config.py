@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # and TICO_ASSISTANT_NAME; nothing below carries a company's name, domain or people.
 PRODUCT_NAME = "Tico"
 ASSISTANT_NAME = "Assistant"        # what the assistant is called until a company names it
+DEFAULT_COMPANY_NAME = "Company"   # the team name when TICO_TEAM_NAME is unset: no one's real name
 
 
 def _release_origin():
@@ -121,7 +122,7 @@ class Settings:
     # <registry_dir>/integrations.
     company_integrations_dir: Path | None = None
     environment_id: str = ""
-    company_name: str = "Company"
+    company_name: str = DEFAULT_COMPANY_NAME
     app_name: str = PRODUCT_NAME
     assistant_name: str = ASSISTANT_NAME
     assistant_bot: str = "coo"
@@ -133,6 +134,12 @@ class Settings:
     local_owner_email: str = ""
     local_owner_token: str = field(default="", repr=False)
     public_url: str = "http://127.0.0.1:8765"
+    # Where visuals in replies are shown from (backend/visuals.py): a host of their own, never the app's, so a
+    # visual page sits apart from the app's cookies. Empty: inline display is off and visuals show as file chips,
+    # except on a loopback install or with TICO_VISUAL_SAME_ORIGIN=1, where the app's own address serves them with
+    # the page sandboxed (backend/visuals.py inline_on).
+    visual_origin: str = ""
+    visual_same_origin: bool = False
     runner_url: str = ""
     screen_relay_url: str = ""
     screen_relay_key: str = field(default="", repr=False)
@@ -245,6 +252,9 @@ class Settings:
     enabled_providers: tuple[str, ...] = ()
     default_runtime: str = ""
     default_model: str = ""
+    # The models choice the installer asks for (backend/models_preset.py; scripts/install.sh writes
+    # TICO_MODELS_PRESET=subscriptions-gateway for the recommended setup). First boot only, like the three above.
+    models_preset: str = ""
     credential_kms_key: str = ""
     # The Slack gateway (backend/slack_gateway.py): off unless the server configuration says so.
     # The thresholds are the routing rules in docs/slack-gateway.md; the tokens are read by
@@ -291,6 +301,8 @@ class Settings:
         from clients import s3links
         self.s3_view_urls = s3links.parse(self.s3_view_urls, private_bucket=self.blob_bucket)
         self.public_url = self.public_url.rstrip("/")
+        from .visuals import check_origin
+        self.visual_origin = check_origin(self)
         self.auth_proxy = self.auth_proxy.strip().lower()
         from . import cors
         self.cors_origins = cors.parse(self.cors_origins)
@@ -339,6 +351,8 @@ class Settings:
     def environment(self):
         """What a client needs to render this environment: names, links and sign-in mode."""
         return {"environment_id": self.environment_id, "company_name": self.company_name,
+                # No TICO_TEAM_NAME: "Company" is a stand-in, so the first-run wizard leaves its name field empty.
+                "company_name_default": self.company_name == DEFAULT_COMPANY_NAME,
                 "app_name": self.app_name, "assistant_name": self.assistant_name,
                 "assistant_bot": self.assistant_bot, "public_url": self.public_url,
                 "runner_url": self.runner_url, "github_owner": self.github_owner,
@@ -380,7 +394,7 @@ class Settings:
             company_integrations_dir=Path(os.environ["TICO_INTEGRATIONS_DIR"]) if os.environ.get("TICO_INTEGRATIONS_DIR") else None,
             catalog_dir=Path(os.environ["TICO_CATALOG_DIR"]) if os.environ.get("TICO_CATALOG_DIR") else ROOT / "templates" / "catalog",
             environment_id=environment_id,
-            company_name=company or "Company",
+            company_name=company or DEFAULT_COMPANY_NAME,
             app_name=os.environ.get("TICO_APP_NAME", "").strip() or PRODUCT_NAME,
             assistant_name=os.environ.get("TICO_ASSISTANT_NAME", "").strip() or ASSISTANT_NAME,
             assistant_bot=os.environ.get("TICO_ASSISTANT_BOT", "").strip() or "coo",
@@ -394,6 +408,8 @@ class Settings:
             local_owner_token=os.environ.get("TICO_LOCAL_OWNER_TOKEN", "").strip(),
             public_url=(os.environ.get("TICO_PUBLIC_URL") or
                         "http://127.0.0.1:" + os.environ.get("TICO_PORT", "8765")).rstrip("/"),
+            visual_origin=os.environ.get("TICO_VISUAL_ORIGIN", "").strip(),
+            visual_same_origin=os.environ.get("TICO_VISUAL_SAME_ORIGIN", "0").strip() == "1",
             owner_name=os.environ.get("TICO_OWNER_NAME", "").strip(),
             compose_project=os.environ.get("TICO_COMPOSE_PROJECT", "tico"),
             server_network=os.environ.get("TICO_SERVER_NETWORK", "tico_default"),
@@ -465,6 +481,7 @@ class Settings:
                                     os.environ.get("TICO_ENABLED_PROVIDERS", "").split(",") if part.strip()),
             default_runtime=os.environ.get("TICO_DEFAULT_RUNTIME", "").strip().lower(),
             default_model=os.environ.get("TICO_DEFAULT_MODEL", "").strip(),
+            models_preset=os.environ.get("TICO_MODELS_PRESET", "").strip().lower(),
             credential_kms_key=os.environ.get("TICO_CREDENTIAL_KMS_KEY", ""),
             slack_gateway_enabled=not rehearsal and os.environ.get("TICO_SLACK_GATEWAY_ENABLED", "0") == "1",
             slack_team_id=os.environ.get("SLACK_TEAM_ID", "").strip(),

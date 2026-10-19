@@ -276,6 +276,12 @@ pub async fn runtime_report(config: &Config, sign: &SignIn, client: &Client, ass
         }
         for (name, status) in targets.iter_mut() {
             let profile = used.get(name).cloned().flatten();
+            // A profile whose turns use the computer's own login on this runtime (`share_operator`): the server holds
+            // that login once, not once per name (backend/login_holds.py canonical). Only to a server that keeps
+            // login holds, since an older one refuses a field it does not know.
+            if !name.is_empty() && crate::fallback::server_keeps_holds() && crate::fallback::login(runtime, "", profile.as_ref()).is_some_and(|l| l.is_empty()) {
+                status.as_object_mut().unwrap().insert("shared_login".into(), json!(true));
+            }
             if status["installed"] != true {
                 continue;
             }
@@ -558,6 +564,9 @@ pub fn document(runtimes: &Map<String, Value>, checks: &[Map<String, Value>], st
     // `worktree_waits`: a worktree the server reserves for a waiting task is prepared here while its bot is
     // idle (worktrees.rs prepare), so the server records a wait instead of refusing a task at its limit.
     let mut doc = json!({"schema_version": 1, "runtimes": runtimes, "bots": bots, "worktrees": true, "worktree_waits": true});
+    // Bots run as their own user here, so the server may hand this computer a turn on a Tico model
+    // (backend/models_preset.py); without it the server keeps such turns away (gateway_relay.rs refuses them).
+    doc["isolated"] = json!(crate::isolation::enabled());
     if let Some((total, free)) = disk_usage(state_dir) {
         doc["disk"] = json!({"total_bytes": total, "free_bytes": free});
     }

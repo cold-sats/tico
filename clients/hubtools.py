@@ -49,7 +49,7 @@ TASK_STATUSES = ("open", "doing", "waiting", "review", "ready", "done", "closed"
 APPROVAL_KINDS = ("send", "spend", "publish", "merge", "support")
 GOAL_STATUSES = ("red", "yellow", "green", "done", "dropped")     # what a person or bot sets by hand
 GOAL_FILTERS = GOAL_STATUSES + ("gray",)                        # gray is the automatic "no data"
-PROPOSAL_KINDS = ("goal_wording", "goal_kpi", "kpi_definition", "kpi_target", "flag")
+PROPOSAL_KINDS = ("goal_wording", "goal_kpi", "kpi_definition", "kpi_target", "flag", "goal_why")
 
 # What an agent reads on connect: the hub in one line, then the skill a person's own agent
 # follows to work their bots (clients/agent_skill.py). Bots ignore the skill; it is for people.
@@ -121,9 +121,64 @@ def whoami(api, args):
     return api.get("me")
 
 
+VISUALS = {"type": "array", "maxItems": 10, "description": (
+    "Visuals to show with this message, in order: a picture, SVG, self-contained HTML page, video or audio. Each is "
+    "{path, title} for a file in your checkout (on your Computer: a page's local images and fonts are embedded first) "
+    "or {file: \"<file id>@<version>\", title} for a file already on this task or conversation. Remote images in a page "
+    "are not loaded; the result lists them. Too big or another type: it shows as a normal file."),
+    "items": {"type": "object", "additionalProperties": False, "properties": {
+        "path": _s("A file in your checkout"), "file": _s("<file id>@<version> already on this task or conversation"),
+        "title": {"type": "string", "maxLength": 200, "description": "The caption people see"}}}}
+
+
+def _visuals(api, items, upload):
+    """(attachments for the API, what stayed unembedded locally) from `visuals` items. `upload(index, name, data)` puts
+    one local file's bytes where the message goes and returns "<file id>@<version>". The bytes go as they are (a raw
+    body or multipart), never base64 in JSON, which grows them by a third past the path's request limit. `index` is
+    the item's place in the list: it names that upload in the operation's idempotency key, so two files sharing a name
+    are two uploads, and a retry of the same send repeats each one's own key."""
+    out, local = [], []
+    for index, item in enumerate(items or []):
+        title = str(item.get("title") or "")
+        if item.get("file"):
+            out.append({"ref": item["file"], "title": title})
+            continue
+        if not item.get("path"):
+            raise ValueError("A visual names a path or a file")
+        if not hasattr(api, "post_multipart"):
+            raise ValueError("Attach local files with the hub CLI on your Computer, or name a file already in Tico")
+        from . import bot_files as BF, visual_embed
+        root = BF.checkout_root()
+        path, name = BF.local_file(root, item["path"])
+        if visual_embed.is_page(name):
+            data, _, unembedded = visual_embed.embed(root, item["path"])
+            local.append({"path": item["path"], "unembedded": unembedded})
+        else:
+            data = path.read_bytes()
+        out.append({"ref": upload(str(index), path.name, data), "title": title})
+    return out, local
+
+
+def _posted_file(api, path, name, data, key):
+    """One file to a multipart route (a task's files): bytes as they are, up to the server's file limit."""
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="tico-visual-") as folder:
+        local = Path(folder) / name
+        local.write_bytes(data)
+        return api.post_multipart(path, {"file": local}, {"name": name}, key=key)
+
+
+def _uploaded(made):
+    file = made.get("file") or {}
+    if made.get("file_id"):
+        return f"{made['file_id']}@{made['version']}"
+    return f"{file['id']}@{file.get('version') or file.get('current_version')}"
+
+
 @tool("hub_message_send", "Send a message to a bot or a human. Bot-to-human messages are linted "
       "(a nonempty first line, under 120 words) and capped at 10 unsolicited a day. `fyi` expects no reply. "
-      "An ordinary bot-to-bot message does not deliver the recipient's final reply. "
+      "An ordinary bot-to-bot message does not deliver the recipient's final reply, and waits for the recipient's "
+      "next run unless needs_action. "
       "Use hub_question_ask when you need an answer. Use in_reply_to or steer for a correction to an active run; "
       "it is queued until the Computer applies it.",
       {"to": _s("Recipient: a bot slug, `bot:<slug>`, or a human id"),
@@ -136,7 +191,11 @@ def whoami(api, args):
        "steer": {"type": "boolean", "description": "Apply a correction to your active request; with refs "
                  "`task:<id>` you requested, it goes into its owner's running turn on that task"},
        "refs": {"type": "array", "items": {"type": "string"},
-                "description": "References like `task:<id>` or `approval:<id>`"}},
+                "description": "References like `task:<id>` or `approval:<id>`"},
+       "visuals": VISUALS,
+       "needs_action": {"type": "boolean", "default": False,
+                        "description": "To a bot: wake it now. Without this a bot's message to a bot waits for that "
+                        "bot's next run, whatever starts it"}},
       required=("to", "text"), writes=True)
 def message_send(api, args):
     # Free text a person reads: an s3:// URI becomes its view URL first (clients/s3links.py); a command goes verbatim.
@@ -150,12 +209,20 @@ def _message_send(api, args):
         return assistant_send(api, args)
     if args.get("fyi"):
         return api.post("messages", {"to": args["to"], "text": args["text"], "kind": "notice",
-                                     "conversation_id": None, "refs": {}}, key=_key(args))
-    return api.post("messages", {"to": args["to"], "text": args["text"], "kind": "steer" if args.get("steer") else "say",
+                                     "conversation_id": None, "refs": {},
+                                     **({"needs_action": True} if args.get("needs_action") else {})}, key=_key(args))
+    attachments, local = _visuals(api, args.get("visuals"), lambda index, name, data: _uploaded(api.request(
+        "POST", "/api/v2/files/uploads?name=" + quote(name, safe=""), raw=data, key=_key(args, ":visual:" + index))))
+    sent = api.post("messages", {"to": args["to"], "text": args["text"], "kind": "steer" if args.get("steer") else "say",
                                  "conversation_id": args.get("conversation_id"),
                                  "in_reply_to": args.get("in_reply_to"),
                                  "refs": _refs(args.get("refs")),
-                                 **({"command": True} if args.get("command") else {})}, key=_key(args))
+                                 **({"attachments": attachments} if attachments else {}),
+                                 **({"command": True} if args.get("command") else {}),
+                                 **({"needs_action": True} if args.get("needs_action") else {})}, key=_key(args))
+    if local and isinstance(sent, dict):
+        sent = {**sent, "visuals_local": local}
+    return sent
 
 
 @tool("hub_chat_goal", "Read or change the native goal pinned to a bot conversation. Read also returns its supported commands.",
@@ -174,7 +241,7 @@ def chat_goal(api, args):
 @tool("hub_chat_send", "Send a message or a headless slash command to a bot.",
       {"to": _s("The bot"), "text": _s("The message or command"),
        "conversation_id": _s("Continue this conversation"),
-       "command": {"type": "boolean", "default": False}}, required=("to", "text"), writes=True)
+       "command": {"type": "boolean", "default": False}, "visuals": VISUALS}, required=("to", "text"), writes=True)
 def chat_send(api, args):
     return message_send(api, args)
 
@@ -661,7 +728,9 @@ def task_ask(api, args):
 @tool("hub_task_question", "Put one decision to a person as a small task, in one call: a pick between 2 to 6 "
       "options (an option may carry an image or file) or, with no options, Yes / No. The task is yours and waits on "
       "them; asked from a run on one of your tasks it is filed under that task. Their answer wakes you and you mark it "
-      "done. One decision per task; write the question so it makes sense on its own.",
+      "done. One decision per task; write the question so it makes sense on its own. One open question per topic: "
+      "asked again while your earlier one on the same topic (same `topic`, else the same parent task) still waits on "
+      "them, it updates that one (`folded: true`) instead of adding a second; give a different decision its own topic.",
       {"question": _s("The question, readable with no other context", maxLength=300),
        "on": _s("The person who decides: their id"),
        "options": {"type": "array", "minItems": 2, "maxItems": 6, "description": "The choices; omit for Yes / No",
@@ -672,6 +741,8 @@ def task_ask(api, args):
        "title": _s("Task title; defaults to the question"),
        "body": _s("What the decision is for; defaults to the question"),
        "parent": _s("Parent task id, when this decision is part of a bigger task"),
+       "topic": _s("A short key for what this decides, e.g. backup-model: your open question to them with the same key, "
+                   "under any task, is updated rather than a second one opened", maxLength=80),
        "private": {"type": "boolean", "description": "Only you and the person may read it; they must already "
                    "read the private task you are working on, and the parent"},
        "if_no_answer": {"type": "object", "additionalProperties": False, "required": ["do", "kind"],
@@ -701,7 +772,7 @@ def task_question(api, args):
             local, _ = BF.local_file(BF.checkout_root(), path)
             option["file"] = {"name": Path(path).name, "content_base64": base64.b64encode(local.read_bytes()).decode()}
     body = {"question": args["question"], "on": args["on"], "options": options}
-    for field in ("title", "body", "parent", "private"):
+    for field in ("title", "body", "parent", "private", "topic"):
         if args.get(field) is not None:
             body[field] = args[field]
     default = args.get("if_no_answer")
@@ -837,12 +908,21 @@ def task_type_delete(api, args):
        "public": {"type": "boolean"}, "approval_id": _s("Exact publish approval for a bot public reply"),
        "attachments": {"type": "array", "items": {"type": "string"}, "description": "File versions as file_id@version: on this task, or (a person) a chat file "
                        "you can open as its id@1, which the comment shares to the task"},
-       "on_behalf_of": ASKED},
+       "visuals": VISUALS, "on_behalf_of": ASKED,
+       "needs_action": {"type": "boolean", "default": False,
+                        "description": "To a bot: wake it now. Without this a bot's message to a bot waits for that "
+                        "bot's next run, whatever starts it"}},
       required=("id", "text"), writes=True)
 def task_comment(api, args):
-    body = {k: args[k] for k in ("text", "ask", "attachments", "public", "approval_id") if k in args}
+    body = {k: args[k] for k in ("text", "ask", "attachments", "public", "approval_id", "needs_action") if k in args}
+    local = []
+    if args.get("visuals"):
+        added, local = _visuals(api, args["visuals"], lambda index, name, data: _uploaded(_posted_file(
+            api, f"tasks/{args['id']}/files", name, data, _key(args, ":visual:" + index))))
+        body["attachments"] = list(body.get("attachments") or []) + added
     links = s3links.apply(api, body, ("text",))
-    return s3links.annotate(_asked(api, args).post(f"tasks/{args['id']}/comments", body, key=_key(args)), links)
+    result = s3links.annotate(_asked(api, args).post(f"tasks/{args['id']}/comments", body, key=_key(args)), links)
+    return {**result, "visuals_local": local} if local and isinstance(result, dict) else result
 
 
 @tool("hub_task_answers", "List all structured answers on a task, oldest first.",
@@ -1191,7 +1271,8 @@ def kpi_log(api, args):
 @tool("hub_proposal_create", "Propose a change you may not make yourself, for the owner to confirm: clearer "
       "goal wording (goal_wording: payload title/body), a KPI for a goal (goal_kpi: payload kpi or kpi_id, and "
       "target), a new definition (kpi_definition), a target (kpi_target: payload is the target fields), or a "
-      "flag (flag: payload issue vague|duplicate|unmeasured). The Goal Manager cannot change a definition "
+      "flag (flag: payload issue vague|duplicate|unmeasured), or, where the CEO Bot is on, a goal's Why (goal_why: "
+      "payload why, one line tying the goal to the company's vision). The Goal Manager cannot change a definition "
       "or a target it is judged against without one.",
       {"kind": {"type": "string", "enum": list(PROPOSAL_KINDS)}, "goal_id": _s("The goal it is about"),
        "kpi_id": _s("The KPI it is about"), "payload": {"type": "object", "description": "The proposed change"},

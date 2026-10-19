@@ -8,6 +8,213 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Recommended setup** in the installer: `sh install.sh --recommended` is the quick start with the sample company,
+  your Claude and ChatGPT subscriptions plus Tico Gateway, Tico Support on and a computer on the server, so the only
+  setup left is signing in to Claude and ChatGPT in Settings > Computers. Run on a terminal with no options, the
+  installer asks which setup to use and offers this one first; with any option, or without a terminal, it does what it did
+  before. `--support off` turns Support off. The Gateway invite comes from `TICO_GATEWAY_INVITE` in the environment and
+  is never printed. The quick start, your own domain and sign-in, and your own keys install as before.
+  ([Install](docs/install.md#recommended-setup))
+- **Owner sign-in link for servers Tico hosts**: the setup wizard's `--hosted own|invited` signs the owner in with a
+  link our team sends. It works once and for a week at most, only on an https domain under our zone, and is never
+  printed or logged; `python3 -m setup owner-link` makes a new one and can sign the owner out everywhere. When a
+  session ends, Sign in again shows the link page, not an error. With
+  `--preset recommended` the hosted server gets the recommended setup and its own computer. Every other sign-in is
+  unchanged. ([Install](docs/install.md#sign-in))
+- **Visuals in replies outside Tico (part 4 of 4)**: a bot's reply with visuals that reaches Slack keeps its text
+  and adds one line, "1 visual - view in Tico" (or "N visuals"), linking to that message: in its task, or in the chat
+  room it was sent in. A task-done post does the same for the owner's result comment when it has visuals. The link
+  opens only for people who can read the conversation, and nothing from a private task is sent to Slack. No visual
+  is shown in Slack itself. Every bot's instructions now say to add a visual (chart, table, diagram, mockup,
+  screenshot, clip or recording) when it makes the answer clearer, never for a plain answer, with the text answer
+  complete on its own; brand assets, designed graphics and edited video still go to Design and Video Producer.
+- **A usage limit holds the login, once**: a run that hits a subscription's usage limit now holds that provider
+  login on that computer, for every bot signed in with it, until the reset the provider names (Claude's "resets
+  2:40am (UTC)" is read too), or 30, 60 and then 120 minutes when it names none. The hold is saved on the server, so
+  a restart does not lift it, and when it ends one queued run tries first while the others wait for its result,
+  instead of every waiting run starting at once. A bot with a ready fallback that is not held itself runs there
+  meanwhile instead of waiting. Health names the provider whose limit it is.
+- **Visuals in replies (API, part 1 of 4)**: a bot or a person attaches a titled picture, SVG, HTML page, video or
+  audio clip to a chat reply or task comment (`--visual PATH --title "…"` on `hub message send`, `hub chat send` and
+  `hub task comment`; `visuals` over MCP; `attachments: [{ref, title}]` in the API). It is a versioned file there,
+  shown only to that conversation's readers. A page's local images and fonts are embedded; remote ones are removed
+  and listed. Self-hosters set `TICO_VISUAL_ORIGIN`, a separate site. Video and audio still show as file chips until part 3
+  ([Visuals in replies](docs/visuals.md)).
+- **Visuals in replies (part 2 of 4): pictures, SVG and visual pages show inline** under a chat message or a task
+  comment, a person's attachments too. Each is a card the width of the message, never wider than the screen, with its
+  title as the caption and a menu: Expand, Open in file viewer, Download. A visual page shows at its own height up to
+  480 px (60% of a phone screen), then fades with **Expand**; it cannot run its own scripts, open forms, load anything
+  or reach the app, and a link in it opens a new tab only when clicked. Expand (or a tap) opens it full screen: zoom on
+  pictures, scroll in pages; Close, Esc, swipe down or Back return to the same place. SVG and pages sit on a light card
+  in dark mode. A card holds its space while it loads, keeps the version it was posted with ("Newer version" links the
+  newest), says "This visual was removed" when the file was removed and "Couldn't show this visual" when it can't
+  render. Up to 4 per message; the rest stay file chips
+  ([Visuals in replies](docs/visuals.md#in-a-chat-or-task-conversation)).
+- **The company on Goals**: with the CEO Bot switch on, Goals opens with a **Company** section: the Vision (one or
+  two sentences) and the Description (a short paragraph). The owner and admins edit it, everyone else reads it, and
+  **History** lists every change with who made it and when. Each goal shows a one-line **Why** tying it to the
+  vision: the CEO Bot proposes it and a person accepts it as it is, edits it or writes their own. A goal with none
+  says "Not tied to the vision". No bot can change the Vision or the Description or accept a Why, the CEO Bot
+  included. With the switch off none of this shows.
+- **How bots get their models**, at the top of Settings > AI providers and the first setup step: **Your Claude and
+  ChatGPT subscriptions, plus Tico Gateway** (recommended, and what Tico's installer sets with
+  `TICO_MODELS_PRESET=subscriptions-gateway`), subscriptions only, Tico Gateway only, or your company's plans or API
+  keys. Under the recommended choice bots do their main work on your Claude and ChatGPT subscriptions; until you sign
+  in they run on Tico Mid 1.0 through the Gateway and move over on their next turn once you do, and a used-up plan
+  finishes on the Gateway, last. Decide and update drafts run on the Gateway. The owner sees one Needs you item, "Sign
+  in to Claude and ChatGPT, or add API keys", until both are signed in; where no computer runs bots as their own user
+  (a Mac), bots wait for the sign-in instead, the item says why, and the model list marks Tico models "not on this
+  computer". A bot on a Tico model waits there too, with Health saying why, rather than stopping. Health says
+  plainly when a used-up login has bots on the Gateway. Gateway usage records keep which gateway key and install
+  paid, never the key. The other three choices, and a team that never picks one, keep working
+  as before ([Tico AI Gateway](docs/ai-gateway.md#choose-how-bots-get-their-models)).
+- **Start fresh when the topic changes** (Settings > Team; off by default, an owner or an admin turns it on): in a
+  long or idle direct chat with a bot, Tico asks Decide whether your new message starts a new topic before it is sent.
+  If it does, the bot's session is cleared the same way Clear does, and the chat shows a quiet **Topic changed** line
+  above your message. A chat with an active goal, a running turn or fewer than 3 turns is never checked, and a slow or
+  failed check (over 1.5 s) sends the message in the same session with no line.
+- **Settings → Computers** shows one compact row per computer: name, Tico version (with **Update** only when one is
+  waiting), operator, bots, a chip for each AI connection, and status. A chip shows the tool, a thin bar and the share
+  of the weekly allowance that is left; hover for when it resets and how old the reading is. A red dot means bots
+  depend on a connection that is signed out or rejected. Click a row for everything else: its connections (the
+  computer's own login and a named subscription on the same account show as one), Screen, the bots on it and the
+  connection each one actually runs on, versions and updates, and settings, including **Keep for inbox bots only**
+  and **Revoke computer**. Its **Add connection** signs in an installed tool (in the browser, or with the command to
+  copy and run on the computer for a tool such as Grok Build that signs in only from a terminal) or adds a named
+  subscription. Subscriptions moved here from **Settings → AI providers**, and usage reads as "% left"
+  everywhere. Every member now sees every computer; only an admin or the computer's operator sees its signed-in
+  accounts and changes anything on it.
+- **Switch to subscription** on a computer's own Codex or Claude Code login that runs on an API key, in the computer's
+  pop-up on Settings > Computers. The key stays in use until the subscription has signed in and is in place, so a cancel
+  or failure changes nothing; then the key is removed from that login as **Clear key** removes it (the company's
+  "Every computer" key is not applied to it again, nor put in its turns) until someone adds a key or chooses **Use the
+  shared key**. Bots keep the connection. Needs a
+  current runner ([Computers](docs/computers.md#signing-out-and-switching-accounts)).
+- A signed-out connection in the computer pop-up reads **Signed out · Sign in** and its chip gets a red dot, and the
+  sign-out confirmation names the bots in a line ("Reviewer 1, QA and 2 more will stop running until this is signed in
+  again").
+- **Add connection** in each computer's pop-up on Settings > Computers: pick an AI tool installed there, then Subscription
+  or API key; a subscription is named and signed in with the provider in the same pop-up, and its chip appears on the
+  computer's row without a restart. API key opens **Add key** for a tool that takes a key of the computer's own, and
+  points to Credentials for the others. Each subscription line gets **Rename** and **Remove**; Remove is refused while
+  bots run on it, naming them and offering the Bots page. Remove needs a current runner
+  ([Computers](docs/computers.md#remove-a-subscription)).
+
+### Fixed
+- **A bot's finished answer is no longer lost or given twice when its computer stalls before handing it in.** A
+  turn's lease now renews on a thread of its own, so busy work on the computer can't stop it. If a finished
+  answer still comes in late, after its run was dismissed or cancelled, it is kept: the run ends completed and the
+  answer shows where the person asked, and a closed task stays closed. A run whose lease lapsed is not started again
+  for 90 minutes while its own answer may still arrive.
+- **Updates tree keeps archived cards out after a reload**: a card you archive on Updates no longer comes back in
+  the tree when the page reloads, and Restore brings it back for good. Archive stays yours alone: others still see the
+  card. A manager whose own card you archived stays in the tree with "No update yet" and their reports below. The
+  tree endpoint (`GET /api/v2/updates/tree`) now applies the same archive rule as the Inbox, so an explicit past `day`
+  leaves out that day's cards a newer day has replaced, unless you restored them.
+- A computer's performance report no longer holds the database's write lock while it reads every turn that computer
+  ever ran. During an open overload each report did, and on Oct 19 on a slow disk that held the lock about 100 s, so
+  heartbeats, claims and lease renewals waited and got "storage unavailable". It now reads only the turns of the
+  overload's window. A write that holds the lock 5 s or more is logged with its route and code line (server log,
+  flight file, and a `long_hold` event in the server metrics), and the metrics keep a minute's rows when the lock is
+  busy instead of skipping them, or name the minutes they lost in a `recorder_gap` event.
+- **The sidebar around first-run setup**: while the setup wizard is open, the sidebar shows only **Finish setup** and
+  the team, not the app's pages or **What's new** (on a phone the bottom bar drops Tasks and Updates). A new company's
+  owner starts with nothing unread in What's new. In the team list, words a bot's name shares with another bot's (the
+  "Head of" in "Head of Product") drop out first when the row is narrow, so each row keeps the part that tells it
+  apart; hovering a bot shows its whole name, and **Needs setup** is a small gear beside the name. The anonymous
+  usage-count notice no longer sits over the wizard or the screen after **Create**: it appears on the first other page,
+  and nothing is counted until it has.
+- **Clear** on a bot's chat now really starts the bot over. Before, it only trimmed the history Tico sends, and on
+  the computer Claude Code, Codex and the other harnesses kept resuming the old provider thread, so the bot still
+  remembered the cleared chat and every turn still paid for it. Each turn now carries its conversation's session
+  epoch (`session_epoch`) and its bot's (`bot_session_epoch`), moved by Clear and by the session resets after a
+  model, placement or thread-mode change; when the one for its thread moves, the runner starts a new provider thread
+  from Tico's history. The thread a bot's direct chats share starts over on the next turn of any of them, while each
+  other chat keeps its own history. Without a clear the bot resumes its thread as before. After the upgrade, a thread
+  that may have been cleared or reset before its first turn on the new runner starts over once. A runner or Hub from
+  before this keeps today's behaviour ([sessions](docs/sessions.md)).
+
+### Changed
+- **A waiting task sleeps, and a bot's own writes never wake it** (token saving): news about a task that waits on
+  another task (blocked by) or on a pull request's checks (wake once), such as a step move, a relation change or a
+  comment, no longer starts a run; the task wakes when its blocker finishes or its checks come back. A notice that a
+  bot's own write caused never wakes that same bot. Nothing is dropped: the notice stays in the task's room and is
+  handed to the bot's next run, whatever starts it, in order. A person's message, comment, approval or answer, an
+  ask, a needs-action message, a gate verdict, an assignment, a finished subtask and a sweep still wake at once.
+  Each skipped wake is logged as `wake.skipped` in `events` for the weekly audit ([hub sql](docs/hub-sql.md)).
+- **Health Monitor: seeing a finding again only counts**: each hourly scan that sees a finding adds one to its count
+  and moves its last-seen time, and no bot runs for it. Only a new finding, one whose severity rises (a computer on a
+  release the server cannot work with is `bad`, an older one `warn`), or one back after its task was finished wakes
+  the Health Monitor. **Settings > Health** shows each finding as "seen N times, last ...". A finding no longer
+  wakes it again just because a day has passed since its last wake.
+- **Bot-to-bot messages wait for the next run** (token saving): a plain message or task comment one bot sends
+  another no longer starts a run. It is kept in its room and handed to that bot's next run, whatever starts it,
+  in the order sent, and marked read then. The sender wakes it at once with `--needs-action`
+  (`hub message send`, `hub task comment`, or `needs_action` in the API and tools). Asks, answers, steers,
+  approvals, gate verdicts, replies the other bot waits on, and anything from a person or Tico still wake at once.
+- **One open question per topic**: a bot that asks a person again on a topic it already has an open question about
+  (the same `--topic` key, or the same task) now updates that question instead of filing a second one. The person
+  sees one card with the latest wording and the earlier asks listed under it, gets no new Needs you item or Slack
+  line, and has the team's days from the latest wording before any default goes ahead. A different topic still opens
+  its own question, and once a question is answered or closed the next one opens normally.
+- **Sign out** and **Switch account** moved into each computer's pop-up on **Settings > Computers**, on each connection
+  line, for the computer's own login and each named subscription (they were on the tool table and in Manage subscription
+  on AI providers). A subscription is now signed in from a computer on **Settings > Computers**. **Replace key**,
+  **Clear key** and **Add key**, the note that several bots share a sign-in, the desktop apps table and the
+  restarting note moved there too; a member sees which kind of key a computer uses but not its preview.
+- Groups no longer give their bots a subscription: a bot runs on its own choice, or else on its computer's own login.
+  The bot editor's **Connection** line says "Runs on <tool> · <connection> on <computer>". Existing group choices
+  are not moved to the bots; choose one per bot where it is needed.
+- **First run, the form steps**: the progress row uses short names (Providers, Names, About, Team, Computer, Agent,
+  Review) on one line; on a phone it shows dots and the current step's name. Step titles are larger, and the form
+  cards match the team chart's. A fresh install starts with an empty **Company name** (placeholder *Acme Inc.*), not
+  the server's stand-in "Company", and **Next** asks for one. The external agent step says why you might connect one,
+  with **Connect** as a secondary button and **Next** as the only primary. The Support box opened by **Want help
+  setting up?** grows to show the whole message, never past the room left above a phone keyboard, so **Send** stays
+  on screen.
+- PDF upload and reading use pypdf 6.21.1, the latest patch release of 6.21.
+
+## [0.3.63] - 2026-10-19
+
+### Added
+- **CEO Bot switch** (off by default; one per install, no release needed): an owner or admin turns it on with
+  `POST /api/v2/ceo-bot {"on": true}` (`hub api POST ceo-bot '{"on": true}'`), never a bot. On, the Goal Manager is
+  named the CEO Bot in the bot list, the org chart, Goals and its messages, and sits on the org chart under the owner
+  with the Heads (in their departments) and the bots that report to no one under it; the Assistant, the other
+  built-ins and message bots stay apart. It keeps its slug, so its KPI readings, goal history and old messages stay its own. Only the chart moves:
+  nobody's `reports_to` and nobody's access changes. Turning it off gives back the Goal Manager's name and the chart as
+  they were.
+
+### Fixed
+- Work waiting while its computer updates now says so: once a computer due an update stops taking new work (20
+  minutes after the update fell due, until its running turns end), a message or task for its bots shows **Waiting for
+  the computer to update** in the chat and on the task instead of Queued, and Health says since when the computer has
+  taken no new work. How the update waits is unchanged ([Updates](docs/updates.md)).
+- **First-run wizard**: **Next** on **Your team chart** works again when the team includes BotOps. Its instructions
+  (24,048 characters) were over the setup save's 20,000-character limit, so the wizard stopped with a raw field error.
+  Bot instructions now have one limit of 50,000 characters wherever they are sent (the wizard, **Add from catalog**
+  and registering a bot), and a test checks every shipped template against it. If the wizard cannot save a step it
+  now says so in plain words and what to do, never the field the server named.
+- **First-run wizard**: suggested bots no longer show one-word 'Matches' reasons (now a real phrase from your
+  answer, 'Common in <team>', or none); the live chart shows placeholder cards for the group you're answering, and
+  long bot names wrap with the full name on hover.
+
+### Changed
+- **Updates cards use icons**: Reply, Mark unread (or read) and Archive (Restore in the Archive) are icons, named by a
+  tooltip, a long press on a phone and screen readers. A card's reports open from **8** and a chevron at the right end
+  of its icon row, in place of the **8 reports** row under it and its broken glyph, and open reports hang from the
+  card on one line with an elbow into each card, the same at every level.
+- **First run, computer step**: one numbered path (make the code, then the line that uses it), with the plain
+  `docker run` alternative behind **Other ways**, closed. After **Add computer** the one-time code shows in large type
+  on the screen, not only in a toast. Commands wrap inside their box on a phone and on a desktop, with **Copy** in the box.
+- **First run, after Create**: the screen says **Your team is created** and offers one next step as its only primary
+  button (**Add a computer** while there is none). Bots are listed in the team chart's groups and order with one status
+  each, *Waiting for a computer* is said once at the top, and the tour waits for **Show me around** instead of
+  covering the screen.
+
+## [0.3.62] - 2026-10-19
+
+### Added
 - **Tico AI Gateway** in Settings > AI providers: the owner saves the gateway key Tico gives them (or the server's
   `TICO_GATEWAY_KEY` sets it, and wins), Decide asks the Gateway with that same key, and bots can then pick **Tico Cheap, Mid and Power 1.0** (Claude Haiku, Sonnet and Opus
   5.5 underneath) like any other model, streamed through the Gateway on pi. The key is sealed and never shown after
@@ -26,31 +233,6 @@ All notable changes to Tico are recorded here. The format follows
   first task that takes minutes and ends by asking the owner a Yes/No approval in Needs you; nothing is sent outside
   the company. Start it from the first-run welcome's **Start with a sample company**, or at install with
   `TICO_SAMPLE_COMPANY=on`. ([The sample company](docs/sample-company.md))
-- **Recommended setup** in the installer: `sh install.sh --recommended` is the quick start with the sample company,
-  your Claude and ChatGPT subscriptions plus Tico Gateway, Tico Support on and a computer on the server, so the only
-  setup left is signing in to Claude and ChatGPT in Settings > Computers. Run on a terminal with no options, the
-  installer asks which setup to use and offers this one first; with any option, or without a terminal, it does what it did
-  before. `--support off` turns Support off. The Gateway invite comes from `TICO_GATEWAY_INVITE` in the environment and
-  is never printed. The quick start, your own domain and sign-in, and your own keys install as before.
-  ([Install](docs/install.md#recommended-setup))
-- **CEO Bot switch** (off by default; one per install, no release needed): an owner or admin turns it on with
-  `POST /api/v2/ceo-bot {"on": true}` (`hub api POST ceo-bot '{"on": true}'`), never a bot. On, the Goal Manager is
-  named the CEO Bot in the bot list, the org chart, Goals and its messages, and sits on the org chart under the owner
-  with the Heads (in their departments) and the bots that report to no one under it; the Assistant, the other
-  built-ins and message bots stay apart. It keeps its slug, so its KPI readings, goal history and old messages stay its own. Only the chart moves:
-  nobody's `reports_to` and nobody's access changes. Turning it off gives back the Goal Manager's name and the chart as
-  they were.
-- **Start fresh when the topic changes** (Settings > Team; off by default, an owner or an admin turns it on): in a
-  long or idle direct chat with a bot, Tico asks Decide whether your new message starts a new topic before it is sent.
-  If it does, the bot's session is cleared the same way Clear does, and the chat shows a quiet **Topic changed** line
-  above your message. A chat with an active goal, a running turn or fewer than 3 turns is never checked, and a slow or
-  failed check (over 1.5 s) sends the message in the same session with no line.
-- **Owner sign-in link for servers Tico hosts**: the setup wizard's `--hosted own|invited` signs the owner in with a
-  link our team sends. It works once and for a week at most, only on an https domain under our zone, and is never
-  printed or logged; `python3 -m setup owner-link` makes a new one and can sign the owner out everywhere. When a
-  session ends, Sign in again shows the link page, not an error. With
-  `--preset recommended` the hosted server gets the recommended setup and its own computer. Every other sign-in is
-  unchanged. ([Install](docs/install.md#sign-in))
 
 ### Fixed
 - **Claude sign-in on a subscription profile stays in that profile.** A runner whose own environment set
@@ -60,15 +242,6 @@ All notable changes to Tico are recorded here. The format follows
   `CLAUDE_CONFIG_DIR` is a reserved variable name, so a credential can no longer be granted under it.
 - Opening a card in **Needs you** (an approval, a task, a question) no longer sends a failing request for issue
   "NaN" in the background. Only an issues inbox card fetches its full request.
-- **Clear** on a bot's chat now really starts the bot over. Before, it only trimmed the history Tico sends, and on
-  the computer Claude Code, Codex and the other harnesses kept resuming the old provider thread, so the bot still
-  remembered the cleared chat and every turn still paid for it. Each turn now carries its conversation's session
-  epoch (`session_epoch`) and its bot's (`bot_session_epoch`), moved by Clear and by the session resets after a
-  model, placement or thread-mode change; when the one for its thread moves, the runner starts a new provider thread
-  from Tico's history. The thread a bot's direct chats share starts over on the next turn of any of them, while each
-  other chat keeps its own history. Without a clear the bot resumes its thread as before. After the upgrade, a thread
-  that may have been cleared or reset before its first turn on the new runner starts over once. A runner or Hub from
-  before this keeps today's behaviour ([sessions](docs/sessions.md)).
 
 ### Changed
 - **Codex signed in with ChatGPT runs one turn at a time per login**, as OpenAI's terms for a ChatGPT sign-in
@@ -3548,7 +3721,9 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.61...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.63...HEAD
+[0.3.63]: https://github.com/ticoteam/tico/compare/v0.3.62...v0.3.63
+[0.3.62]: https://github.com/ticoteam/tico/compare/v0.3.61...v0.3.62
 [0.3.61]: https://github.com/ticoteam/tico/compare/v0.3.60...v0.3.61
 [0.3.60]: https://github.com/ticoteam/tico/compare/v0.3.59...v0.3.60
 [0.3.59]: https://github.com/ticoteam/tico/compare/v0.3.58...v0.3.59

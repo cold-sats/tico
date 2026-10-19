@@ -50,6 +50,15 @@ class ConversationCreate(Contract):
     subject: str = Field(default="", max_length=300)
 
 
+class VisualRef(Contract):
+    """A file version attached to a message with the title it shows under (backend/visuals.py)."""
+    ref: Annotated[StrictStr, Field(pattern=r"^[^@]+@[1-9][0-9]*$")]
+    title: Annotated[StrictStr, Field(max_length=200)] = ""
+
+
+Attachment = Annotated[StrictStr, Field(pattern=r"^[^@]+@[1-9][0-9]*$")] | VisualRef
+
+
 class MessageCreate(Contract):
     command: bool = False
     to: ID
@@ -59,12 +68,19 @@ class MessageCreate(Contract):
     refs: dict = Field(default_factory=dict)
     in_reply_to: ID | None = None
     wait_s: int | None = Field(default=None, ge=0, le=300)
+    # Versions of files in this conversation, shown with the message (backend/visuals.py), in this order.
+    attachments: list[Attachment] = Field(default_factory=list, max_length=10)
+    # A bot's message to a bot waits for that bot's next run unless it needs action now (backend/bot_to_bot.py).
+    needs_action: bool = False
 
 
 class ChatCreate(Contract):
     command: bool = False
     text: Text
     refs: dict = Field(default_factory=dict)
+    attachments: list[Attachment] = Field(default_factory=list, max_length=10)
+    # With files uploaded alongside (POST /api/v2/uploads/chat/{bot}): each one's caption, in upload order.
+    titles: list[Annotated[StrictStr, Field(max_length=200)]] = Field(default_factory=list, max_length=10)
 
 
 class BatchStart(Contract):
@@ -289,6 +305,9 @@ class TaskQuestion(Contract):
     parent: ID | None = None
     private: StrictBool | None = None
     if_no_answer: IfNoAnswer | None = None
+    # One open question per topic: a second question to the same person on this topic, while the first is open, is
+    # folded into it (hubdb.open_question). Without one, an earlier question under the same parent task with no topic.
+    topic: Annotated[StrictStr, Field(min_length=1, max_length=80)] | None = None
 
     @model_validator(mode="after")
     def unique_labels(self):
@@ -356,10 +375,12 @@ class FileVersionEdit(Contract):
 
 class TaskComment(Contract):
     public: bool = False
+    # As MessageCreate.needs_action: a bot's comment to a bot wakes it now only when this is set.
+    needs_action: bool = False
     approval_id: ID | None = None
     text: Text
     ask: ReviewAsk | None = None
-    attachments: list[Annotated[StrictStr, Field(pattern=r"^[^@]+@[1-9][0-9]*$")]] = Field(default_factory=list, max_length=10)
+    attachments: list[Attachment] = Field(default_factory=list, max_length=10)
 
 
 class TaskAskResolve(Contract):
@@ -496,7 +517,7 @@ class KpiReading(Contract):
 
 
 class GoalProposalCreate(Contract):
-    kind: Literal["goal_wording", "goal_kpi", "kpi_definition", "kpi_target", "flag"]
+    kind: Literal["goal_wording", "goal_kpi", "kpi_definition", "kpi_target", "flag", "goal_why"]
     goal_id: str | None = Field(default=None, max_length=200)
     kpi_id: str | None = Field(default=None, max_length=200)
     payload: dict = Field(default_factory=dict)
@@ -509,6 +530,17 @@ GoalProposal = GoalProposalCreate
 class GoalProposalDecision(Contract):
     decision: Literal["confirm", "reject"]
     note: str = Field(default="", max_length=1000)
+    why: str | None = Field(default=None, max_length=1000)    # a Why proposal confirmed as edited
+
+
+# The company at the top of Goals (backend/company.py): only the fields sent change.
+class CompanyUpdate(Contract):
+    vision: str | None = Field(default=None, max_length=4000)
+    description: str | None = Field(default=None, max_length=10_000)
+
+
+class GoalWhy(Contract):
+    why: str = Field(default="", max_length=1000)     # "" clears it: the goal is not tied to the vision
 
 
 # Market (backend/market.py). Reporters send prose. The Librarian (the curator) and the owner write the graph.
@@ -776,6 +808,9 @@ class ProfileReadiness(GoalReadiness):
     models: list[ID] = Field(default_factory=list, max_length=50)
     controls: list[Literal["interrupt", "new-session"]] = Field(default_factory=list)
     detail: str = Field(default="", max_length=500)
+    # Its turns on this runtime use the computer's own login (a profile that shares the operator's): one login, held
+    # once (backend/login_holds.py canonical).
+    shared_login: bool | None = None
 
 
 class HarnessReadiness(GoalReadiness):
@@ -820,6 +855,7 @@ class RuntimeReadiness(GoalReadiness):
     # One machine may hold several subscriptions for the same runtime. The runtime row keeps
     # the profile that needs attention first; this is the per-profile breakdown behind it.
     profiles: dict[str, ProfileReadiness] = Field(default_factory=dict, max_length=50)
+    shared_login: bool | None = None    # the one profile's row shown as the runtime's (ProfileReadiness)
     # The computer's own login's account, beside a ready sign-in. Shown only to an administrator or the
     # computer's operator (backend/views.py computer_details, /api/v2/operations).
     account: Account = None
@@ -996,6 +1032,8 @@ class StructuredReadiness(Contract):
     worktree_waits: bool | None = None
     schema_version: Literal[1] = 1
     disk: DiskReadiness | None = None
+    # Bots run as their own user here (runner-rs/src/isolation.rs), so a Tico model may run (backend/models_preset.py).
+    isolated: bool | None = None
     runtimes: dict[str, RuntimeReadiness] = Field(default_factory=dict)
     bots: dict[str, BotReadiness] = Field(default_factory=dict)
     harnesses: dict[str, HarnessReadiness] = Field(default_factory=dict, max_length=50)
@@ -1062,7 +1100,8 @@ class ComputerProfile(Contract):
 
 
 class SubscriptionAssignment(Contract):
-    scope: Literal["group", "bot"]
+    # Only a bot chooses a subscription; a group no longer gives its bots one.
+    scope: Literal["bot"] = "bot"
     target: str = Field(min_length=1, max_length=100)
     profile: str | None = Field(default=None, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$", max_length=80)
 
@@ -1095,7 +1134,7 @@ class Heartbeat(Contract):
     platform: str = Field(max_length=100)
     capacity: int = Field(default=4, ge=1, le=256)
     # The assignment_* values name the retired temporary assignments (#420); an older runner still sends them.
-    capabilities: list[Literal["assignment_instances_v1", "assignment_cleanup_v1", "task_lanes_v1", "task_lanes_v2", "session_roots_v1", "task_goals_v1", "screen_v1", "model_sign_out_v1", "model_keys_v1"]] = Field(default_factory=list, max_length=20)
+    capabilities: list[Literal["assignment_instances_v1", "assignment_cleanup_v1", "task_lanes_v1", "task_lanes_v2", "session_roots_v1", "task_goals_v1", "screen_v1", "model_sign_out_v1", "model_keys_v1", "model_switch_type_v1", "model_remove_v1"]] = Field(default_factory=list, max_length=20)
     # The bool map remains accepted during runner rollout. The server normalizes both
     # shapes before storing them, so every read path sees one structured document.
     readiness: StructuredReadiness | dict[str, bool] = Field(default_factory=dict)
@@ -1202,6 +1241,12 @@ class BotAccess(Contract):
     on_behalf_of: ID | None = None
 
 
+# A bot's instructions (its AGENT.md) as a person reviewed them, one limit wherever they are sent: registering a bot,
+# adding one from the catalog and the first-run wizard. The longest shipped template is about half of it, and
+# backend/tests/test_onboarding.py checks every one against it.
+INSTRUCTIONS_MAX = 50_000
+
+
 class BotRegister(Contract):
     """Register a bot with the server, planned, before BotOps builds its repository. Left out, the slug is
     picked from the name (or the template's name)."""
@@ -1210,7 +1255,7 @@ class BotRegister(Contract):
     description: str = Field(default="", max_length=2000)
     reports_to: ID | None = None
     template: str = Field(default="", max_length=80)
-    instructions: str = Field(default="", max_length=50000)
+    instructions: str = Field(default="", max_length=INSTRUCTIONS_MAX)
     title_prefix: str = Field(default="", max_length=100)
     model: ID | None = None
     build: bool = False
@@ -1320,7 +1365,7 @@ class BotDefinitionCreate(Contract):
     # "Add from catalog": the template this bot is built from and the instructions a person
     # reviewed for it. Both are empty for a bot typed in by hand.
     template: str = Field(default="", max_length=80)
-    instructions: str = Field(default="", max_length=20_000)
+    instructions: str = Field(default="", max_length=INSTRUCTIONS_MAX)
 
 
 class BotBranch(Contract):
@@ -1546,6 +1591,8 @@ class ProvidersUpdate(Contract):
     # What review and check subtasks run on, best first (`runtime` or `runtime:model`); None keeps the saved order,
     # [] follows the enabled providers' order.
     check_models: list[Annotated[str, Field(min_length=1, max_length=140)]] | None = Field(default=None, max_length=10)
+    # The models choice (backend/models_preset.py): one of its four, '' for none; None keeps the saved one.
+    preset: str | None = Field(default=None, max_length=40)
 
 
 class SystemUpdate(Contract):
@@ -1685,7 +1732,7 @@ class OnboardingSelection(Contract):
     """One bot the person chose: which template builds it, and what they named and told it."""
     template: str = Field(min_length=1, max_length=80)
     display_name: str = Field(min_length=1, max_length=100)
-    instructions: str = Field(default="", max_length=20_000)
+    instructions: str = Field(default="", max_length=INSTRUCTIONS_MAX)
     # Who it reports to: `human:<id>` or a bot slug. Empty is the company owner.
     reports_to: str = Field(default="", max_length=120)
 
@@ -1799,6 +1846,7 @@ class Completion(Contract):
     retryable: bool = False  # the runtime could not renew its sign-in; the turn never started
     fallback: str | None = Field(default=None, max_length=80)  # harness that actually ran the turn
     primary_limited: bool = False  # the bot's own runtime hit its usage limit and the company's default `fallback` ran the turn
+    primary_held: bool = False  # the claim held the bot's own login (config `primary_held`): the runner never tried it
     auth_rejected: AuthRejected | None = None  # the provider refused this computer's key or sign-in
     usage: RunUsage | None = None  # the run's token counts and the model that ran it
     # Inputs this run took from `attempts/{aid}/inputs` but never gave the runtime (the turn ended between
@@ -1966,11 +2014,18 @@ class LoginStart(Contract):
     profile: Annotated[str, Field(pattern=r"^(?:[a-z0-9]+(?:-[a-z0-9]+)*)?$", max_length=80)] = ""
     # Sign in to another account in place: the old login keeps working until the new one has finished.
     switch: bool = False
+    # Switch type: "subscription" moves the computer's own login off its API key, once the sign-in has worked.
+    to: Literal["", "subscription"] = ""
 
 
 class LogoutStart(Contract):
     runtime: Annotated[str, Field(pattern=r"^[a-z][a-z0-9-]*$", max_length=40)]
     profile: Annotated[str, Field(pattern=r"^(?:[a-z0-9]+(?:-[a-z0-9]+)*)?$", max_length=80)] = ""
+
+
+class RemovalStart(Contract):
+    runtime: Annotated[str, Field(pattern=r"^[a-z][a-z0-9-]*$", max_length=40)]
+    profile: Annotated[str, Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$", max_length=80)]
 
 
 class SharedKeyUse(Contract):
