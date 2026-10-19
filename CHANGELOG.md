@@ -49,6 +49,15 @@ All notable changes to Tico are recorded here. The format follows
   subscription. Subscriptions moved here from **Settings → AI providers**, and usage reads as "% left"
   everywhere. Every member now sees every computer; only an admin or the computer's operator sees its signed-in
   accounts and changes anything on it.
+- **Switch to subscription** on a computer's own Codex or Claude Code login that runs on an API key, in the computer's
+  pop-up on Settings > Computers. The key stays in use until the subscription has signed in and is in place, so a cancel
+  or failure changes nothing; then the key is removed from that login as **Clear key** removes it (the company's
+  "Every computer" key is not applied to it again, nor put in its turns) until someone adds a key or chooses **Use the
+  shared key**. Bots keep the connection. Needs a
+  current runner ([Computers](docs/computers.md#signing-out-and-switching-accounts)).
+- A signed-out connection in the computer pop-up reads **Signed out · Sign in** and its chip gets a red dot, and the
+  sign-out confirmation names the bots in a line ("Reviewer 1, QA and 2 more will stop running until this is signed in
+  again").
 
 ### Fixed
 - **Updates tree keeps archived cards out after a reload**: a card you archive on Updates no longer comes back in
