@@ -40,6 +40,11 @@ All notable changes to Tico are recorded here. The format follows
   failed check (over 1.5 s) sends the message in the same session with no line.
 
 ### Fixed
+- **Claude sign-in on a subscription profile stays in that profile.** A runner whose own environment set
+  `CLAUDE_CONFIG_DIR` signed Claude Code in there (Settings > Computers and `tico-runner profile login`) and checked
+  it there, while turns read the profile's `HOME`: sign-in looked done but turns were signed out or ran on another
+  login. A profile's Claude now never gets an inherited `CLAUDE_CONFIG_DIR`, no Claude turn runs with one, and
+  `CLAUDE_CONFIG_DIR` is a reserved variable name, so a credential can no longer be granted under it.
 - Opening a card in **Needs you** (an approval, a task, a question) no longer sends a failing request for issue
   "NaN" in the background. Only an issues inbox card fetches its full request.
 - **Clear** on a bot's chat now really starts the bot over. Before, it only trimmed the history Tico sends, and on
