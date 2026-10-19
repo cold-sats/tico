@@ -142,6 +142,3 @@ dialog.tmodal.over{outline:2px dashed var(--accent);outline-offset:-6px}
 @media (hover:none){.pin-x{opacity:1}}
 .tl-pin[aria-pressed="true"]{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 50%,var(--line))}
 .tf-rm{font-size:var(--t-sm);padding:2px 8px}
-/* Visual replies 3/4: a video or audio card the device can't play shows the reason and Download */
-.vm-cant{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
-.vm-cant .vm-reason{margin:0;flex:1 1 200px;color:var(--muted)}

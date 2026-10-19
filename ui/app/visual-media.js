@@ -3,7 +3,7 @@
 // adds the video and audio bodies, one clip at a time, and a player that recovers from an expired address.
 // Media loads only from the attachment's isolated `src` (no app sign-in, range requests), never through a blob URL,
 // so seeking a large file asks for that part only. Nothing here ever calls play(): a clip starts when a person
-// presses play. Classic script, loaded after visual-cards.js.
+// presses play. Classic script, loaded right after visual-cards.js.
 'use strict';
 const VM_TYPE = {'video/mp4': 'MP4', 'video/webm': 'WebM', 'video/quicktime': 'MOV', 'video/x-m4v': 'M4V',
   'audio/mpeg': 'MP3', 'audio/mp4': 'M4A', 'audio/x-m4a': 'M4A', 'audio/wav': 'WAV', 'audio/x-wav': 'WAV',
@@ -14,48 +14,59 @@ function vmUnplayable(kind, type) {
   if (!type) return false;
   return document.createElement(kind === 'video' ? 'video' : 'audio').canPlayType(type) === '';
 }
-// The card body when the device can't play the clip: the reason and the signed-in download (a click, like a chip).
-const vmDownload = f => f.url || `${API}/v2/files/${encodeURIComponent(f.file_id || f.id)}${f.version ? `?v=${Number(f.version)}` : ''}`;
-const vmCantPlayHTML = (href, name, reason) =>
-  `<div class="vm-cant"><p class="vm-reason">${esc(reason)}</p><a class="pill" href="${esc(href)}" download="${esc(name || '')}">Download</a></div>`;
 function vmReason(kind, type, code) {
   const word = VM_TYPE[type] || '';
   if (code === 2) return `Couldn't load this ${vmWord(kind)}. Check the connection, or download it.`;
   return `This device can't play ${word ? word + ' ' : 'this '}${vmWord(kind)}.`;
 }
+// The card body. A video sits in a box of its own shape no taller than the card's cap (a portrait clip is narrower,
+// never cropped); the frame's held space gives way to it (visual-cards.css, .vcard[data-kind=video]).
 function vmBodyHTML(f) {
-  const kind = f.kind === 'audio' ? 'audio' : 'video';
-  const src = visualSrc(f);
-  if (vmUnplayable(kind, f.content_type)) return vmCantPlayHTML(vmDownload(f), f.name, vmReason(kind, f.content_type, 4));
-  const at = ` data-vm-src="${esc(src)}" data-vm-type="${esc(f.content_type || '')}" data-vm-dl="${esc(vmDownload(f))}" data-vm-name="${esc(f.name || '')}"`;
+  const kind = f.kind === 'audio' ? 'audio' : 'video', src = visualSrc(f);
+  if (vmUnplayable(kind, f.content_type)) return `<div class="vm-cant" data-vm-reason="${esc(vmReason(kind, f.content_type, 4))}"></div>`;
+  const at = ` data-vm-src="${esc(src)}" data-vm-type="${esc(f.content_type || '')}"`;
   if (kind === 'audio') return `<div class="tf-media audio media-skel vm"><audio src="${esc(src)}"${at} controls preload="metadata"></audio></div>`;
-  const ratio = f.width && f.height ? ` style="aspect-ratio:${Number(f.width)}/${Number(f.height)}"` : '';
-  const poster = f.poster_url ? ` poster="${esc(f.poster_url)}"` : '';
-  return `<div class="tf-media video media-skel vm${f.poster_url ? ' ready' : ''}"${ratio}><video src="${esc(src)}"${at}${poster} controls playsinline preload="metadata"></video></div>`;
+  const w = Number(f.width) > 0 && Number(f.height) > 0 ? Number(f.width) : 16, h = w === 16 ? 9 : Number(f.height);
+  const poster = visualSrc(f, 'poster_url');
+  return `<div class="tf-media video media-skel vm${poster ? ' ready' : ''}" style="aspect-ratio:${w}/${h};width:min(100%,calc(var(--vcard-cap) * ${w} / ${h}))"><video src="${esc(src)}"${at}${poster ? ` poster="${esc(poster)}"` : ''} controls playsinline preload="metadata"></video></div>`;
+}
+// A clip this device can't play: the frame's failed card with the reason, and Download right there (the menu's
+// signed-in download, a click like a chip's).
+function vmFail(card, reason) {
+  visualFail(card, reason);
+  const dl = card.querySelector('.vcard-menu-list a[download]');
+  if (dl) card.querySelector('.vcard-note')?.insertAdjacentHTML('beforeend',
+    `<a class="link" href="${esc(dl.getAttribute('href'))}" download="${esc(dl.getAttribute('download') || '')}">Download</a>`);
 }
 // After the card is in the page: ready on metadata; on an error, first try the newest address the thread handed
-// the card (visualKeep keeps a playing card and writes the new tree's src to data-fresh-src) at the same position
+// the card (visualKeep keeps a playing card and copies the new tree's src to data-fresh-src) at the same position
 // and play state; only then show the reason and Download.
 function vmWire(card) {
+  const cant = card.querySelector('.vm-cant');
+  if (cant) return vmFail(card, cant.dataset.vmReason);
   const m = card.querySelector('video[data-vm-src], audio[data-vm-src]');
-  if (!m || m.dataset.vmWired) return;
-  m.dataset.vmWired = '1';
-  const wrap = m.closest('.tf-media');
-  m.addEventListener('loadedmetadata', () => wrap.classList.add('ready'));
+  if (!m) return;
+  const body = card.querySelector('.vcard-body'), wrap = m.closest('.tf-media');
+  const ready = () => { wrap.classList.add('ready'); body.classList.add('ready'); };
+  if (wrap.classList.contains('ready') || m.readyState >= 1) ready();
+  m.addEventListener('loadedmetadata', ready);
   // Whether the person has it playing. A failed load pauses the element just before its error event, so a pause
   // only counts once the turn has passed without an error.
   m.addEventListener('play', () => { m.dataset.vmPlaying = '1'; });
+  // Where the person is: a failed load can read 0 by the time its error arrives, so keep the last place it showed.
+  const mark = () => { if (m.currentTime) m.dataset.vmAt = m.currentTime; };
+  m.addEventListener('timeupdate', mark);
+  m.addEventListener('seeking', mark);
   m.addEventListener('pause', () => setTimeout(() => { if (!m.error) delete m.dataset.vmPlaying; }));
   m.addEventListener('error', () => {
     if (vmRecover(m, card)) return;
-    const kind = m.tagName === 'AUDIO' ? 'audio' : 'video', d = m.dataset;
-    wrap.outerHTML = vmCantPlayHTML(d.vmDl, d.vmName, vmReason(kind, d.vmType, m.error && m.error.code));
+    vmFail(card, vmReason(m.tagName === 'AUDIO' ? 'audio' : 'video', m.dataset.vmType, m.error && m.error.code));
   });
 }
 function vmRecover(m, card) {
   const fresh = card.dataset.freshSrc;
   if (!fresh || fresh === m.dataset.vmSrc || m.dataset.vmTried === fresh) return false;
-  const at = m.currentTime, playing = !m.ended && (!m.paused || m.dataset.vmPlaying === '1');
+  const at = m.currentTime || Number(m.dataset.vmAt) || 0, playing = !m.ended && (!m.paused || m.dataset.vmPlaying === '1');
   m.dataset.vmTried = fresh;
   m.dataset.vmSrc = fresh;
   m.addEventListener('loadedmetadata', () => {
@@ -69,5 +80,5 @@ function vmRecover(m, card) {
 document.addEventListener('play', e => {
   for (const m of document.querySelectorAll('video, audio')) if (m !== e.target && !m.paused) m.pause();
 }, true);
-if (typeof VISUAL_BODY === 'object') VISUAL_BODY.video = VISUAL_BODY.audio = vmBodyHTML;
-if (typeof VISUAL_WIRE === 'object') VISUAL_WIRE.video = VISUAL_WIRE.audio = vmWire;
+VISUAL_BODY.video = VISUAL_BODY.audio = vmBodyHTML;
+VISUAL_WIRE.video = VISUAL_WIRE.audio = vmWire;

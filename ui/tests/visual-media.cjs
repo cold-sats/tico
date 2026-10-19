@@ -1,8 +1,9 @@
-// Video and audio cards in a conversation (Visual replies 3/4), on ui/app/visual-media.js with a stand-in card frame:
-// neither starts by itself (preload metadata, no autoplay, the isolated address, never a blob or the signed-in file
+// Video and audio cards in a conversation (Visual replies 3/4): ui/app/visual-media.js inside the real card frame
+// (visual-cards.js), on a bare page. Neither starts by itself (preload metadata, no autoplay, the isolated address, never a blob or the signed-in file
 // URL); seeking far into a long clip asks for that part by range instead of the whole file; starting one clip pauses
 // the other; an address that expires mid-play is swapped for the card's newest one at the same position, still
-// playing; a type the device can't play, or a clip it can't decode, shows the reason and Download.
+// playing; a playing clip keeps playing through a thread redraw (visualSwap); a type the device can't play, or a clip
+// it can't decode, shows the reason and Download; a portrait video fits under the cap instead of being cropped.
 // Every request is intercepted; the clips are WAV files made here, so the test needs no media files.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
@@ -24,7 +25,7 @@ const SHORT = wav(20);
 const CHUNK = 64 * 1024;                        // the stand-in server answers at most this much per request
 
 const APP = 'https://app.test', VIS = 'https://visuals.test';
-const UI = path.join(__dirname, '..', 'app', 'visual-media.js');
+const UI = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
 
 (async () => {
   const browser = await chromium.launch({channel: process.env.TICO_BROWSER_CHANNEL ?? 'chrome', headless: true,
@@ -33,7 +34,8 @@ const UI = path.join(__dirname, '..', 'app', 'visual-media.js');
     const page = await browser.newPage({viewport: {width: 390, height: 844}, serviceWorkers: 'block'});
     const errors = [], served = [], expired = new Set();
     page.on('pageerror', e => errors.push(e.message));
-    const bodies = {'long-1': LONG, 'long-2': LONG, 'short-1': SHORT, 'bad-1': Buffer.from('not a wav file at all'.repeat(40))};
+    const bodies = {'long-1': LONG, 'long-2': LONG, 'short-1': SHORT, 'bad-1': Buffer.from('not a wav file at all'.repeat(40)),
+      'short-2': SHORT, 'video-1': SHORT, 'tall-1': SHORT};     // a video element plays a sound-only clip; enough for its controls and seeking
     await page.route(`${VIS}/**`, route => {
       const req = route.request(), token = new URL(req.url()).pathname.split('/').pop(), body = bodies[token];
       const range = req.headers().range || '';
@@ -48,47 +50,46 @@ const UI = path.join(__dirname, '..', 'app', 'visual-media.js');
     });
     await page.route(`${APP}/**`, route => route.fulfill({status: 200, contentType: 'text/html', body: '<!doctype html><main id="thread"></main>'}));
     await page.goto(`${APP}/chat`);
-    // The stand-in frame: what visual-cards.js provides (escape, API, VISUAL_BODY, VISUAL_WIRE, visualSrc).
-    await page.addScriptTag({content: `
+    // The real frame and players, on a page with only what they read from the rest of the app (core.js's esc, API).
+    await page.addStyleTag({content: `:root{--line:#ccc;--surface:#fff;--surface2:#eee;--muted:#666} ${UI('styles/task-files.css')} ${UI('styles/task-modal.css')} ${UI('styles/visual-cards.css')} ${UI('styles/visual-media.css')}`});
+    await page.addScriptTag({content: `'use strict';
       const API = '/api';
-      const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'})[c]);
-      const VISUAL_BODY = {}, VISUAL_WIRE = {};
-      const visualSrc = f => f.src;
-      window.card = (key, f) => {
-        const fig = document.createElement('figure');
-        fig.className = 'vcard'; fig.dataset.visualKey = key; fig.dataset.kind = f.kind;
-        fig.innerHTML = VISUAL_BODY[f.kind](f) + '<figcaption>' + esc(f.title) + '</figcaption>';
-        document.getElementById('thread').append(fig);
-        VISUAL_WIRE[f.kind]?.(fig);
-        return fig;
-      };`});
-    await page.addScriptTag({content: fs.readFileSync(UI, 'utf8')});
+      const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'})[c]);`});
+    await page.addScriptTag({content: UI('app/visual-cards.js')});
+    await page.addScriptTag({content: UI('app/visual-media.js')});
+    // A thread drawn the way chat and task comments draw it: every message's cards, swapped in whole (visualSwap).
+    await page.addScriptTag({content: `
+      window.messages = [];
+      window.draw = () => visualSwap(document.getElementById('thread'), messages.map(m =>
+        '<div class="msg" data-m="' + m.id + '">' + visualCardsHTML(m.files, {key: m.id, chips: rest => rest.map(f => '<a class="pill">' + esc(f.name) + '</a>').join('')}) + '</div>').join(''));
+      window.card = (key, f) => { const [id] = key.split(':'); messages.push({id, files: [f]}); draw(); return document.querySelector('[data-visual-key="' + key + '"]'); };`});
     assert.deepEqual(await page.evaluate(() => [typeof VISUAL_BODY.video, typeof VISUAL_BODY.audio, typeof VISUAL_WIRE.audio]),
       ['function', 'function', 'function'], 'video and audio register with the frame');
 
     const file = (id, extra) => ({file_id: id, version: 1, name: `${id}.wav`, title: `Clip ${id}`, kind: 'audio',
       content_type: 'audio/wav', size: LONG.length, url: `/api/v2/files/${id}?v=1`, src: `${VIS}/visuals/${id}-1`, ...extra});
-    await page.evaluate(([a, b, v]) => { card('m1:a@1', a); card('m1:b@1', b); card('m2:v@1', v); },
+    await page.evaluate(([a, b, v]) => { card('m1:long@1', a); card('m1b:short@1', b); card('m2:v@1', v); },
       [file('long', {src: `${VIS}/visuals/long-1`}), file('short', {src: `${VIS}/visuals/short-1`, size: SHORT.length}),
        {file_id: 'v', version: 1, name: 'cut.mp4', title: 'The cut', kind: 'video', content_type: 'video/mp4', width: 1280, height: 720,
         url: '/api/v2/files/v?v=1', src: `${VIS}/visuals/video-1`, poster_url: `${VIS}/visuals/video-1-poster`}]);
 
     // ---- test 12: nothing plays by itself; the players are the task-files ones, on the isolated address
-    const long = page.locator('[data-visual-key="m1:a@1"] audio'), short = page.locator('[data-visual-key="m1:b@1"] audio');
+    const long = page.locator('[data-visual-key="m1:long@1"] audio'), short = page.locator('[data-visual-key="m1b:short@1"] audio');
     await long.evaluate(m => m.readyState >= 1 || new Promise(r => m.addEventListener('loadedmetadata', r, {once: true})));
     for (const sel of ['audio', 'video']) {
       for (const m of await page.locator(`.vcard ${sel}`).all()) {
         assert.equal(await m.getAttribute('autoplay'), null, `${sel} has no autoplay`);
         assert.equal(await m.getAttribute('preload'), 'metadata');
         assert.equal(await m.getAttribute('controls'), '');
-        assert.match(await m.getAttribute('src'), /^https:\/\/visuals\.test\/visuals\//, `${sel} loads from the isolated address`);
+        assert.match(await m.getAttribute('src'), /^https:\/\/visuals\.test\/visuals\/[\w-]+$/, `${sel} loads from the isolated address`);
       }
     }
     const video = page.locator('.vcard video');
-    if (await video.count()) {        // a browser that can play MP4 shows the player; Chromium without H.264 shows the reason
+    {
+      assert.equal(await video.count(), 1, 'an MP4 the browser may play gets a player');
       assert.equal(await video.getAttribute('playsinline'), '');
       assert.equal(await video.getAttribute('poster'), `${VIS}/visuals/video-1-poster`);
-      assert.equal(await video.evaluate(m => m.parentElement.getAttribute('style')), 'aspect-ratio:1280/720', 'the card holds the video\'s shape');
+      assert.match(await video.evaluate(m => m.parentElement.getAttribute('style')), /^aspect-ratio:1280\/720;/, 'the card holds the video\'s shape');
     }
     await page.waitForTimeout(500);
     assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('audio, video')].map(m => m.paused)),
@@ -107,39 +108,70 @@ const UI = path.join(__dirname, '..', 'app', 'visual-media.js');
 
     // ---- test 14: starting another clip pauses the first
     await short.evaluate(m => m.play());
-    await page.waitForFunction(() => document.querySelector('[data-visual-key="m1:a@1"] audio').paused);
+    await page.waitForFunction(() => document.querySelector('[data-visual-key="m1:long@1"] audio').paused);
     assert.equal(await short.evaluate(m => m.paused), false, 'the clip just started plays');
+    // ---- test 14: the thread redraws (a poll, a new message) while it plays: the same player keeps playing, in place
+    await short.evaluate(m => { m.dataset.mark = 'kept'; });
+    const before = await short.evaluate(m => m.currentTime);
+    await page.evaluate(() => { messages.push({id: 'm9', files: [{file_id: 'x', version: 1, name: 'notes.txt', kind: 'file'}]}); draw(); });
+    assert.equal(await page.locator('audio[data-mark="kept"]').count(), 1, 'the redraw kept the playing audio element');
+    await page.waitForFunction(t => { const m = document.querySelector('audio[data-mark="kept"]'); return !m.paused && m.currentTime > t; }, before);
     await short.evaluate(m => m.pause());
 
     // ---- an address that runs out mid-play: the card's newest address takes over, same place, still playing
     await long.evaluate(m => m.play());
-    await page.evaluate(() => { document.querySelector('[data-visual-key="m1:a@1"]').dataset.freshSrc = 'https://visuals.test/visuals/long-2'; });
+    await page.evaluate(() => { messages[0].files[0].src = 'https://visuals.test/visuals/long-2'; draw(); });   // the next read's address
+    assert.equal(await page.locator('[data-visual-key="m1:long@1"]').getAttribute('data-fresh-src'), 'https://visuals.test/visuals/long-2');
+    assert.equal(await long.evaluate(m => m.paused), false, 'the redraw did not stop it');
     expired.add('long-1');
     await long.evaluate(m => new Promise(r => { m.addEventListener('seeking', r, {once: true}); m.currentTime = 30; }));
-    await page.waitForFunction(() => document.querySelector('[data-visual-key="m1:a@1"] audio')?.src.endsWith('/long-2'), null, {timeout: 10000});
-    await page.waitForFunction(() => { const m = document.querySelector('[data-visual-key="m1:a@1"] audio'); return m.readyState >= 1 && !m.paused && m.currentTime >= 29; }, null, {timeout: 10000});
+    await page.waitForFunction(() => document.querySelector('[data-visual-key="m1:long@1"] audio')?.src.endsWith('/long-2'), null, {timeout: 10000});
+    await page.waitForFunction(() => { const m = document.querySelector('[data-visual-key="m1:long@1"] audio'); return m.readyState >= 1 && !m.paused && m.currentTime >= 29; }, null, {timeout: 10000});
     assert.ok(served.some(s => s.token === 'long-2'), 'the new address was asked');
-    assert.equal(await page.locator('[data-visual-key="m1:a@1"] .vm-cant').count(), 0, 'no error card while a newer address works');
+    assert.equal(await page.locator('[data-visual-key="m1:long@1"]').getAttribute('data-state'), 'ready', 'no failed card while a newer address works');
     await long.evaluate(m => m.pause());
+    // the same when the address runs out with nothing pending: the player itself goes back to where it was
+    await short.evaluate(m => m.play());
+    await short.evaluate(m => new Promise(r => { m.addEventListener('seeked', r, {once: true}); m.currentTime = 12; }));
+    await page.evaluate(() => { messages[1].files[0].src = 'https://visuals.test/visuals/short-2'; draw(); });
+    await short.evaluate(m => m.dispatchEvent(new Event('error')));
+    await page.waitForFunction(() => { const m = document.querySelector('[data-visual-key="m1b:short@1"] audio');
+      return m.src.endsWith('/short-2') && m.readyState >= 1 && !m.paused && m.currentTime >= 11.5; }, null, {timeout: 10000});
+    await short.evaluate(m => m.pause());
 
     // ---- test 24: an address that runs out with no newer one shows the reason and Download (never a broken player)
     expired.add('long-2');
     await long.evaluate(m => { m.currentTime = 110; });
-    await page.locator('[data-visual-key="m1:a@1"] .vm-cant').waitFor({timeout: 10000});
-    assert.equal(await page.locator('[data-visual-key="m1:a@1"] .vm-cant a').getAttribute('href'), '/api/v2/files/long?v=1', 'Download is the signed-in download');
+    await page.locator('[data-visual-key="m1:long@1"][data-state="failed"]').waitFor({timeout: 10000});
+    assert.match(await page.locator('[data-visual-key="m1:long@1"] .vcard-note').textContent(), /^Couldn't load this audio\. Check the connection, or download it\./);
+    assert.equal(await page.locator('[data-visual-key="m1:long@1"] .vcard-note a[download]').getAttribute('href'), '/api/v2/files/long?v=1', 'Download is the signed-in download');
 
     // ---- test 24: a clip the device can't decode, and a type it can't play at all
     await page.evaluate(f => card('m3:bad@1', f), file('bad', {src: `${VIS}/visuals/bad-1`}));
-    await page.locator('[data-visual-key="m3:bad@1"] .vm-cant').waitFor({timeout: 10000});
-    assert.equal(await page.locator('[data-visual-key="m3:bad@1"] .vm-reason').textContent(), 'This device can\'t play WAV audio.');
-    await page.evaluate(() => card('m4:odd@1', {file_id: 'odd', version: 2, name: 'old.flv', title: 'Old', kind: 'video',
-      content_type: 'video/x-flv', url: '/api/v2/files/odd?v=2', src: 'https://visuals.test/visuals/odd-2'}));
-    assert.equal(await page.locator('[data-visual-key="m4:odd@1"] video').count(), 0, 'no player for a type the device can\'t play');
-    assert.equal(await page.locator('[data-visual-key="m4:odd@1"] .vm-reason').textContent(), 'This device can\'t play this video.');
-    assert.equal(await page.locator('[data-visual-key="m4:odd@1"] .vm-cant a').getAttribute('download'), 'old.flv');
+    await page.locator('[data-visual-key="m3:bad@1"][data-state="failed"]').waitFor({timeout: 10000});
+    assert.match(await page.locator('[data-visual-key="m3:bad@1"] .vcard-note').textContent(), /^This device can't play WAV audio\. Open in file viewer\s*Download$/);
+    await page.evaluate(() => card('m4:odd@2', {file_id: 'odd', version: 2, name: 'old.mov', title: 'Old', kind: 'video',
+      content_type: 'video/quicktime', url: '/api/v2/files/odd?v=2', src: 'https://visuals.test/visuals/odd-2'}));
+    assert.equal(await page.locator('[data-visual-key="m4:odd@2"] video').count(), 0, 'no player for a type the device can\'t play');
+    assert.match(await page.locator('[data-visual-key="m4:odd@2"] .vcard-note').textContent(), /^This device can't play MOV video\./);
+    assert.equal(await page.locator('[data-visual-key="m4:odd@2"] .vcard-note a[download]').getAttribute('download'), 'old.mov');
     assert.ok(!served.some(s => s.token === 'odd-2'), 'nothing is fetched for a type the device can\'t play');
 
-    assert.ok(!(await page.content()).includes('blob:'), 'no blob URLs');
+    // ---- test 6: a portrait video is narrower, never taller than the cap or cropped; nothing scrolls sideways
+    await page.evaluate(() => card('m5:tall@1', {file_id: 'tall', version: 1, name: 'tall.mp4', title: 'Phone clip', kind: 'video',
+      content_type: 'video/mp4', width: 1080, height: 1920, url: '/api/v2/files/tall?v=1', src: 'https://visuals.test/visuals/tall-1'}));
+    const box = await page.locator('[data-visual-key="m5:tall@1"] .vcard-body').boundingBox();
+    const cap = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--vcard-cap')) / 100 * innerHeight || 480);
+    {
+      assert.equal(await page.locator('[data-visual-key="m5:tall@1"] video').count(), 1);
+      assert.ok(box.height <= cap + 1, `the portrait video's card body is ${box.height}px, under the ${cap}px cap`);
+      const clip = await page.locator('[data-visual-key="m5:tall@1"] .tf-media').boundingBox();
+      assert.ok(Math.abs(clip.width / clip.height - 1080 / 1920) < 0.02 && clip.height <= box.height + 1, 'it keeps its shape, inside the card');
+    }
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no sideways scroll at phone width');
+
+    assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('#thread video, #thread audio, #thread img')]
+      .flatMap(m => [m.src, m.poster].filter(u => u && !/^https:\/\/visuals\.test\/visuals\//.test(u)))), [], 'media load only from the isolated address (no blob:, no /api)');
     assert.deepEqual(errors, []);
     console.log('visual-media: ok');
   } finally {
