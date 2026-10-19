@@ -8,6 +8,10 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Sign in on a Tico we host**: with `TICO_HOSTED` set (`own` or `invited`), **Sign in** for Claude Code and
+  Codex (ChatGPT) in Settings > Computers shows only the provider's link and code, never what else the computer
+  printed and never a terminal, and closes by itself once signed in or cancelled. Any other value of `TICO_HOSTED`
+  stops the server with a one-line error. A self-hosted Tico signs in as before.
 - **Sample company**: a new Tico can start as Sample Co, a made-up team of five bots (Assistant, Head of Product,
   Builder, Support Agent and Content Marketer) spread over the Claude and ChatGPT subscriptions. Each has a goal and a
   first task that takes minutes and ends by asking the owner a Yes/No approval in Needs you; nothing is sent outside
