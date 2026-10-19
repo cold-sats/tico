@@ -50,6 +50,15 @@ class ConversationCreate(Contract):
     subject: str = Field(default="", max_length=300)
 
 
+class VisualRef(Contract):
+    """A file version attached to a message with the title it shows under (backend/visuals.py)."""
+    ref: Annotated[StrictStr, Field(pattern=r"^[^@]+@[1-9][0-9]*$")]
+    title: Annotated[StrictStr, Field(max_length=200)] = ""
+
+
+Attachment = Annotated[StrictStr, Field(pattern=r"^[^@]+@[1-9][0-9]*$")] | VisualRef
+
+
 class MessageCreate(Contract):
     command: bool = False
     to: ID
@@ -59,6 +68,8 @@ class MessageCreate(Contract):
     refs: dict = Field(default_factory=dict)
     in_reply_to: ID | None = None
     wait_s: int | None = Field(default=None, ge=0, le=300)
+    # Versions of files in this conversation, shown with the message (backend/visuals.py), in this order.
+    attachments: list[Attachment] = Field(default_factory=list, max_length=10)
     # A bot's message to a bot waits for that bot's next run unless it needs action now (backend/bot_to_bot.py).
     needs_action: bool = False
 
@@ -67,6 +78,9 @@ class ChatCreate(Contract):
     command: bool = False
     text: Text
     refs: dict = Field(default_factory=dict)
+    attachments: list[Attachment] = Field(default_factory=list, max_length=10)
+    # With files uploaded alongside (POST /api/v2/uploads/chat/{bot}): each one's caption, in upload order.
+    titles: list[Annotated[StrictStr, Field(max_length=200)]] = Field(default_factory=list, max_length=10)
 
 
 class BatchStart(Contract):
@@ -366,7 +380,7 @@ class TaskComment(Contract):
     approval_id: ID | None = None
     text: Text
     ask: ReviewAsk | None = None
-    attachments: list[Annotated[StrictStr, Field(pattern=r"^[^@]+@[1-9][0-9]*$")]] = Field(default_factory=list, max_length=10)
+    attachments: list[Attachment] = Field(default_factory=list, max_length=10)
 
 
 class TaskAskResolve(Contract):
