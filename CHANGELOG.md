@@ -125,6 +125,11 @@ All notable changes to Tico are recorded here. The format follows
   ([Computers](docs/computers.md#remove-a-subscription)).
 
 ### Fixed
+- **A finished answer is no longer held up on a busy computer.** After a turn, the runner's secret scrub of the
+  changed files, its git checks and its local database writes now run on threads of their own. Two slow turns can
+  no longer stop every other turn's progress and answers on that computer. The runner's flight file now times each
+  hand-in step (model done, scrubbed, saved, events sent, result posted) and every slow scrub git command, so
+  `tico-runner flight summary` names the slow step.
 - **A task's chat shows your message being answered, whichever bot answers it.** After you send a message on a task,
   the task's chat shows the same line as a bot's chat: Sent, Queued (and why, when the bot is busy or at a limit),
   Starting, "<Bot> is working" with its latest step, then the reply, or "Reply failed" when the turn errors. This now
