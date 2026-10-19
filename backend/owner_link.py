@@ -168,21 +168,26 @@ def register(app, auth):
         return auth.proxy
 
     @app.get(LINK_PATH)
-    def owner_link_page(request: Request, signed_out: str = ""):
+    def owner_link_page(request: Request, signed_out: str = "", next: str = ""):
         active()
         if signed_out:
             return oidc._page(settings, 200, "Signed out", "You are signed out. " + ASK)
-        if request.url.query:
-            # The secret goes after #, never in the query, where logs in front of the server would keep it.
+        if set(request.query_params) - {"next"}:
+            # The secret goes after #, never in the query, where logs in front of the server would keep it. The app's
+            # own `next` (ui/app/session.js: where to come back to) is the one thing a query may carry.
             return oidc._page(settings, 400, "This sign-in link is not valid", ASK)
+        back = oidc.safe_next(next)
         form = ('<form method="post" action="' + LINK_PATH + '"><input type="hidden" id="owner-link-token" name="token">'
+                + ('<input type="hidden" name="next" value="' + html.escape(back) + '">' if back != "/" else "") +
                 '<button class="b" id="owner-link-button" type="submit" disabled>Sign in</button></form>'
                 '<script src="' + SCRIPT_PATH + '"></script>')
         page = oidc._page(settings, 200, "Sign in to " + settings.app_name,
                           "Open the sign-in link Tico sent you, then sign in as " + html.escape(settings.owner_email)
                           + ". The link works once; if it was used or is a week old, " + ASK[0].lower() + ASK[1:] + form)
         page.headers["Cache-Control"] = "no-store"
-        page.headers["Referrer-Policy"] = "no-referrer"
+        # same-origin, not no-referrer: under no-referrer a browser sends the press with `Origin: null`, which the
+        # cross-site check below refuses. A referrer never carries the fragment, and this page has no secret in its query.
+        page.headers["Referrer-Policy"] = "same-origin"
         return page
 
     @app.get(SCRIPT_PATH)
@@ -191,7 +196,7 @@ def register(app, auth):
         return Response(SCRIPT, media_type="text/javascript", headers={"Cache-Control": "no-cache"})
 
     @app.post(LINK_PATH)
-    def owner_link_sign_in(request: Request, token: str = Form("", max_length=128)):
+    def owner_link_sign_in(request: Request, token: str = Form("", max_length=128), next: str = Form("", max_length=2048)):
         proxy = active()
         # The app's cross-site check is for signed-in writes; this press comes before any sign-in, so it checks itself.
         origin = request.headers.get("origin")
@@ -207,7 +212,8 @@ def register(app, auth):
         if not ok:
             proxy.failures.note(ip)
             return oidc._page(settings, 410, "This sign-in link has been used or has expired", ASK)
-        response = RedirectResponse("/", status_code=303)
+        # Back where the app was, a same-origin path only (oidc.safe_next: never another site, never //, \\ or a scheme).
+        response = RedirectResponse(oidc.safe_next(next), status_code=303)
         proxy.set_cookie(response, proxy.cookie, sid, settings.session_absolute_seconds)
         response.headers["Cache-Control"] = "no-store"
         return response

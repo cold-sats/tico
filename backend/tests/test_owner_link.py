@@ -58,7 +58,7 @@ def test_the_link_shows_one_button_and_pressing_it_signs_the_owner_in_with_a_sec
     page = hosted.browser.get(owner_link.LINK_PATH)
     assert page.status_code == 200 and 'method="post"' in page.text and "disabled>Sign in</button>" in page.text
     assert f'<script src="{owner_link.SCRIPT_PATH}"></script>' in page.text and OWNER in page.text
-    assert page.headers["cache-control"] == "no-store" and page.headers["referrer-policy"] == "no-referrer"
+    assert page.headers["cache-control"] == "no-store" and page.headers["referrer-policy"] == "same-origin"
     script = hosted.browser.get(owner_link.SCRIPT_PATH)
     assert script.status_code == 200 and script.headers["content-type"].startswith("text/javascript")
     assert "location.hash" in script.text and "history.replaceState" in script.text
@@ -194,6 +194,32 @@ def test_a_browser_without_a_session_is_sent_to_the_link_page_and_the_api_names_
     assert refused.status_code == 401 and refused.json()["error"]["sign_in"] == owner_link.LINK_PATH
     signed_out = hosted.browser.get(owner_link.LINK_PATH, params={"signed_out": "1"})
     assert ASK in signed_out.text
+
+
+def test_the_apps_next_is_taken_and_the_owner_comes_back_there_but_a_query_secret_is_still_refused(hosted):
+    # ui/app/session.js sends a lapsed or first-401 browser to sign_in + "?next=" + where it was.
+    here = "/?a=1#/tasks"
+    landing = hosted.browser.get(owner_link.LINK_PATH, params={"next": here})
+    assert landing.status_code == 200 and "Open the sign-in link Tico sent you" in landing.text
+    assert '<input type="hidden" name="next" value="/?a=1#/tasks">' in landing.text
+    token = new_token()
+    for query in ({"next": here, "token": token}, {"token": token}, {"next": here, "t": token}):
+        refused = hosted.browser.get(owner_link.LINK_PATH, params=query)
+        assert refused.status_code == 400 and token not in refused.text
+    hosted.place(token)
+    signed = hosted.browser.post(owner_link.LINK_PATH, data={"token": token, "next": here}, follow_redirects=False)
+    assert signed.status_code == 303 and signed.headers["location"] == here
+
+
+@pytest.mark.parametrize("next_", ["//evil.example/x", "https://evil.example/", "/\\evil.example",
+                                   "/ok\r\nSet-Cookie: x=1", "/auth/owner-link"])
+def test_a_next_that_leaves_the_site_or_the_path_goes_home_instead(hosted, next_):
+    page = hosted.browser.get(owner_link.LINK_PATH, params={"next": next_})
+    assert page.status_code == 200 and 'name="next"' not in page.text
+    token = new_token()
+    hosted.place(token)
+    signed = hosted.browser.post(owner_link.LINK_PATH, data={"token": token, "next": next_}, follow_redirects=False)
+    assert signed.status_code == 303 and signed.headers["location"] == "/"
 
 
 def test_sign_out_ends_the_session_and_lands_on_the_link_page(hosted):
