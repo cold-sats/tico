@@ -4,6 +4,7 @@
 // Media loads only from the attachment's isolated `src` (no app sign-in, range requests), never through a blob URL,
 // so seeking a large file asks for that part only. Nothing here ever calls play(): a clip starts when a person
 // presses play. Classic script, loaded after visual-cards.js.
+'use strict';
 const VM_TYPE = {'video/mp4': 'MP4', 'video/webm': 'WebM', 'video/quicktime': 'MOV', 'video/x-m4v': 'M4V',
   'audio/mpeg': 'MP3', 'audio/mp4': 'M4A', 'audio/x-m4a': 'M4A', 'audio/wav': 'WAV', 'audio/x-wav': 'WAV',
   'audio/wave': 'WAV', 'audio/ogg': 'OGG', 'audio/aac': 'AAC'};
