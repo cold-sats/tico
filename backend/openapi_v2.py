@@ -641,7 +641,10 @@ SCHEMAS = {
                     "held_by_bot": {"type": ["string", "null"], "description":
                                     "Set while an enabled routine waits on its bot rather than its own switch: the "
                                     "bot's state (paused, planned, quarantined, archived) or needs_setup. The routine "
-                                    "stays enabled and fires again once the bot is active and set up."}},
+                                    "stays enabled and fires again once the bot is active and set up."},
+                    "model": {"type": "string", "description": "The model its runs use instead of the bot's own, in a "
+                              "session of their own; empty runs it on the bot's model"},
+                    "effort": "s", "harness": "s"},
                    required=["id", "bot", "title", "cron", "on", "kind", "timezone", "enabled", "active"]),
     "RoutineList": obj({"routines": items(ref("Routine"))}, required=["routines"]),
     "Audience": obj({"everyone": "b", "people": items({"type": "string"}), "teams": items({"type": "string"}),

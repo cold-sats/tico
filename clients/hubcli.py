@@ -1410,6 +1410,12 @@ def parser():
     s.add_argument("id", help="the tool id from `hub tool list --bot`")
     s.set_defaults(fn="tool remove")
 
+    def routine_model_flags(s):
+        s.add_argument("--model", help="a model its runs use instead of the bot's (hub bot model <bot> lists them); "
+                                       "'' puts it back on the bot's own. A person who manages the bot sets it")
+        s.add_argument("--effort", help="that model's reasoning effort; its default when left out")
+        s.add_argument("--harness", help="the harness that runs it; the model's own when left out")
+
     routine = sub.add_parser("routine", help="what this bot is told on a schedule (docs/routines.md)").add_subparsers(dest="sub")
     s = routine.add_parser("list")
     s.add_argument("--bot", help="another bot's routines; yours by default")
@@ -1424,6 +1430,7 @@ def parser():
     s.add_argument("--timezone")
     s.add_argument("--bot", help="set it on another bot you own; yourself by default")
     s.add_argument("--disabled", action="store_true", help="keep it, but do not run it yet")
+    routine_model_flags(s)
     s.set_defaults(fn="routine set")
     s = routine.add_parser("update", help="change one routine by its id or key; --enable or --disable turns it on or off")
     s.add_argument("id", help="the routine id from `hub routine list`, or its key")
@@ -1434,6 +1441,7 @@ def parser():
     s.add_argument("--on")
     s.add_argument("--timezone")
     s.add_argument("--bot", help="the bot it belongs to, when it is not yours")
+    routine_model_flags(s)
     switch = s.add_mutually_exclusive_group()
     switch.add_argument("--enable", action="store_true")
     switch.add_argument("--disable", action="store_true")

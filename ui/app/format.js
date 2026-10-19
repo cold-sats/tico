@@ -63,6 +63,8 @@ function routineHowHTML(r, hideBot) {
   if (!hideBot) bits.push(empName(r.employee || r.bot));
   bits.push(esc(cadenceWords(r)));
   if (r.timezone && !r.on) bits.push(esc(r.timezone));
+  // A routine with a model of its own says so: "Claude Fable 5.1 · xhigh".
+  if (r.model) bits.push(esc(modelChoiceWords(r.model, r.effort)));
   const boxes = (r.inbox && r.inbox.mailboxes) || [];
   return `<span class="when">${bits.join(' · ')}${inboxHowHTML(r)}</span>`
     + (boxes.length ? `<span class="boxes" title="${esc(boxes.join(', '))}">${esc(boxes.join(', '))}</span>` : '');

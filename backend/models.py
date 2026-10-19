@@ -1496,6 +1496,11 @@ class RoutineCreate(Contract):
     timezone: str = Field(default="", max_length=100)
     enabled: bool = True
     key: RoutineKey | None = None
+    # The model its runs use instead of the bot's (backend/routines.py `run_on`): a model id, or `<runtime>:<model>`.
+    # Empty puts it back on the bot's own model; left out, it stays as it is.
+    model: str | None = Field(default=None, max_length=100)
+    effort: str | None = Field(default=None, max_length=20)
+    harness: str | None = Field(default=None, max_length=100)
 
 
 class RoutineUpdate(Contract):
@@ -1505,6 +1510,9 @@ class RoutineUpdate(Contract):
     on: str | None = Field(default=None, max_length=100)
     timezone: str | None = Field(default=None, max_length=100)
     enabled: bool | None = None
+    model: str | None = Field(default=None, max_length=100)
+    effort: str | None = Field(default=None, max_length=20)
+    harness: str | None = Field(default=None, max_length=100)
 
 
 class PersonUpdate(Contract):

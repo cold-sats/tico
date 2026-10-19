@@ -85,6 +85,23 @@ the routine's text, then the trigger's name, then the request body, fenced as da
   `secret` sets one of 16+ characters, `off: true` stops checking), `GET /api/v2/triggers/<id>/deliveries`,
   `POST /api/v2/triggers/<id>/delete`.
 
+## A routine's own model
+
+A routine can run on another model than its bot, with its own effort: a weekly review on the
+strongest model while the bot's daily work stays on a cheaper one. `hub routine set <key> ...
+--model <id> [--effort <level>] [--harness <harness>]`, the same fields on the API and the MCP
+tools; `--model ''` puts it back on the bot's own model. Only a person who manages the bot names
+one (or BotOps as that person), because it changes what the bot runs on and costs; the bot may
+still set up its own routines and say again the model one already has. The model must be from a
+provider the company has on (Settings > AI providers), and the bot's computer must be able to run
+it.
+
+A run of that routine works the way a check subtask does ([Tasks](tasks.md)): the bot's
+repository, tools and credentials, on the routine's model, in a session of the run's own, with no
+fallback to another provider; a usage limit on that model holds the run rather than moving it.
+The bot's chats and other tasks keep its own model and session. The model is taken when the task
+opens, as the text is. The routine's line shows it: "Claude Fable 5.1 · xhigh".
+
 ## What happens when one is due
 
 The scheduler ticks every ten seconds and reads the table. Each row runs independently: a failed

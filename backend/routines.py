@@ -58,10 +58,33 @@ def require_trigger(c, event):
 
 
 def row(c, sid):
-    found = c.execute("SELECT s.*,coalesce(sc.timezone,?) AS timezone,coalesce(sc.enabled,1) AS enabled "
+    found = c.execute("SELECT s.*,coalesce(sc.timezone,?) AS timezone,coalesce(sc.enabled,1) AS enabled,"
+                      "coalesce(sc.model,'') AS model,coalesce(sc.effort,'') AS effort,coalesce(sc.harness,'') AS harness "
                       "FROM schedules s LEFT JOIN schedule_config sc ON sc.schedule_id=s.id WHERE s.id=?",
                       (DEFAULT_ZONE, sid)).fetchone()
     return dict(found) if found else None
+
+
+def set_run_on(c, actor, sid, run_on):
+    """The model, effort and harness this routine's runs use instead of the bot's, already checked
+    (check_models.routine_choice; the API checks who may name one). All empty puts it back on the bot's own model."""
+    if run_on is None:
+        return
+    values = tuple(str(run_on.get(k) or "") for k in ("model", "effort", "harness"))
+    c.execute("UPDATE schedule_config SET model=?,effort=?,harness=? WHERE schedule_id=?", (*values, sid))
+    H.event(c, actor, "routine.model", sid, dict(zip(("model", "effort", "harness"), values)))
+
+
+def run_on(c, sid):
+    """The check model a routine's task runs on (backend/check_models.py, role `routine`), or None for the bot's own."""
+    found = c.execute("SELECT model,effort,harness FROM schedule_config WHERE schedule_id=?", (sid,)).fetchone()
+    if not found or not found["model"]:
+        return None
+    from . import providers
+    from .harnesses import runtime_of
+    runtime = (providers.MODEL_BY_ID.get(found["model"]) or {}).get("runtime") or runtime_of(found["harness"])
+    return {"runtime": runtime, "model": found["model"], "harness": found["harness"], "effort": found["effort"],
+            "role": "routine"}
 
 
 def create(c, actor, bot, fields, *, key=None, at=None):
@@ -86,6 +109,7 @@ def create(c, actor, bot, fields, *, key=None, at=None):
     c.execute("INSERT INTO schedule_config(schedule_id,timezone,enabled) VALUES(?,?,?)",
               (sid, entry["timezone"], 1 if fields.get("enabled", True) else 0))
     H.event(c, actor, "routine.created", sid, {"bot": bot, "cron": entry["cron"], "on": entry["on"]})
+    set_run_on(c, actor, sid, fields.get("run_on"))
     return row(c, sid)
 
 
@@ -121,7 +145,9 @@ def update(c, actor, sid, changes, *, at=None, restore=False):
     enabled = current["enabled"] if changes.get("enabled") is None else (1 if changes["enabled"] else 0)
     c.execute("INSERT INTO schedule_config(schedule_id,timezone,enabled) VALUES(?,?,?) ON CONFLICT(schedule_id) "
               "DO UPDATE SET timezone=excluded.timezone,enabled=excluded.enabled", (sid, entry["timezone"], enabled))
-    H.event(c, actor, "routine.updated", sid, {k: v for k, v in changes.items() if v is not None and k != "text"})
+    H.event(c, actor, "routine.updated", sid, {k: v for k, v in changes.items()
+                                               if v is not None and k not in ("text", "run_on")})
+    set_run_on(c, actor, sid, changes.get("run_on"))
     return row(c, sid)
 
 
@@ -219,6 +245,13 @@ def open_task(c, auth, schedule, heading, body, now, trigger="schedule", sweep=F
     task = H.task_create(c, H.KEEPER, heading[:300], body, owner, deduplicate=False,
                          conversation_id=conversation_id, wake_refs={"sweep": schedule["id"]} if sweep else None,
                          trigger=trigger, trigger_source=schedule["id"])
+    # A routine with a model of its own runs it the way a check subtask runs its model: the bot's repository, tools
+    # and credentials, on that model, in a session of the run's own (check_models.apply at the claim). Taken when the
+    # task opens, as its text is: a change reaches the next occurrence, never a task already open.
+    model = run_on(c, schedule["id"])
+    if model:
+        from . import check_models
+        check_models.record(c, owner, task["id"], model)
     c.execute("UPDATE schedules SET last_fired=? WHERE id=?", (now, schedule["id"]))
     return task
 
@@ -473,6 +506,7 @@ def listing(c, bot=None, include_deleted=False, summary=False):
     """`summary` drops the text: the overview and employee views only need the schedule, not
     hundreds of KB of prose."""
     rows = c.execute('SELECT s.*,b.state,coalesce(sc.timezone,?) AS timezone,coalesce(sc.enabled,1) AS enabled,'
+                     "coalesce(sc.model,'') AS model,coalesce(sc.effort,'') AS effort,coalesce(sc.harness,'') AS harness,"
                      'bc.onboarding_state FROM schedules s JOIN bots b ON b.slug=s.bot '
                      'LEFT JOIN schedule_config sc ON sc.schedule_id=s.id LEFT JOIN bot_config bc ON bc.bot=s.bot '
                      'WHERE (? IS NULL OR s.bot=?) AND (? OR s.deleted_at IS NULL) ORDER BY s.title,s.id',
@@ -492,6 +526,8 @@ def listing(c, bot=None, include_deleted=False, summary=False):
                  'enabled': bool(found['enabled']), 'text': found['playbook'] or '',
                  'last_fired': found['last_fired'], 'next_due': found['next_due'], 'next': found['next_due'],
                  'deleted_at': found['deleted_at'], 'updated_at': found['updated_at'],
+                 # Its own model, or empty for the bot's (run_on).
+                 'model': found['model'], 'effort': found['effort'], 'harness': found['harness'],
                  'inbox': inboxes.get(found['bot']) or {'mailboxes': [], 'org_read': False},
                  'held_by_bot': held,
                  'active': bool(found['enabled']) and not found['deleted_at'] and not held}

@@ -1232,6 +1232,10 @@ class Store:
                 # Unversioned like stop_requested; an older release must be drained before it runs again,
                 # since its per-bot index cannot be built over two active attempts.
                 H.add_column(c, "attempts", "lane", "TEXT NOT NULL DEFAULT 'main'")
+                # A routine's own model, effort and harness (backend/routines.py `run_on`); empty runs it on the bot's.
+                # Unversioned like the lane: an older release never reads them and runs every routine on the bot's model.
+                for column in ("model", "effort", "harness"):
+                    H.add_column(c, "schedule_config", column, "TEXT NOT NULL DEFAULT ''")
                 c.execute("DROP INDEX IF EXISTS one_active_attempt_per_bot")
                 c.execute("CREATE UNIQUE INDEX IF NOT EXISTS one_active_attempt_per_lane ON attempts(bot,lane) "
                           "WHERE state IN ('leased','running')")

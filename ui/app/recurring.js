@@ -158,6 +158,7 @@ function routineEditorOpen(r = null, bot = '') {
         <label data-routine-event>Trigger<select name="on" ${off}></select></label>
         <p class="settings-cell-note bot-editor-wide" data-routine-event>Webhooks are added in <a href="#/triggers" data-routine-close>Settings › Triggers</a>.</p>
         <label class="bot-editor-wide">Instruction<textarea name="text" maxlength="100000" placeholder="Go through the messages and…" ${off}>${esc(r?.text || '')}</textarea></label>
+        ${r?.model ? `<p class="settings-cell-note bot-editor-wide">Runs on ${esc(modelChoiceWords(r.model, r.effort))} instead of the bot's own model (<code>hub routine update ${esc(r.id)} --model ''</code> puts it back).</p>` : ''}
       </div>
       <div class="row" style="margin-top:16px">${may ? `<button class="primary" type="submit">${editing ? 'Save routine' : 'Add routine'}</button>` : ''}<button class="ghost" type="button" data-routine-close>${may ? 'Cancel' : 'Close'}</button>
         <span class="muted" data-routine-status></span>

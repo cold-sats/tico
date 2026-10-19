@@ -80,6 +80,11 @@ All notable changes to Tico are recorded here. The format follows
   server. Settings > Computers offers **Hosted computer (we run it)**. The installer supports server-only installs,
   bounded AWS runner recovery and the same 4- and 8-core sizes on both machines, with 100 and 200 GB disks.
   HQ registers only a join code's hash through scoped SSM; no owner token or join secret crosses that control plane.
+- **A routine can run on its own model**: `hub routine set <key> --model <id> --effort <level>` (and the API and
+  MCP tools) runs that routine on another model than its bot, in a session of its own, while the bot's chats and other
+  work stay on its model. A weekly review can run on the strongest model and the daily checks on a cheaper one. Only a
+  person who manages the bot names it; `--model ''` puts it back. The routine's line shows the model
+  ([Routines](docs/routines.md#a-routines-own-model)).
 
 ### Changed
 - **Updates: per-update reader check for assistant-drafted updates.** Each drafted update is checked against its

@@ -478,3 +478,40 @@ def test_a_held_check_handed_to_another_bot_is_its_ordinary_task_when_it_closes(
     with api.app.state.store.transaction() as c:
         assert api.app.state.execution.hold_unrunnable(c) == []
         assert c.execute("SELECT state FROM jobs WHERE message_id=?", (follow_up,)).fetchone()[0] == "queued"
+
+
+def test_a_routine_runs_on_its_own_model_and_only_a_person_who_manages_the_bot_names_it(api):
+    company(api, "anthropic", "xai")
+    with api.app.state.store.transaction() as c:
+        config = json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot='ops'").fetchone()[0])
+        config.update(runtime="claude", harness="claude", model="claude-sonnet-5-5")
+        c.execute("UPDATE bot_config SET config_json=? WHERE bot='ops'", (json.dumps(config),))
+    machine = runner(api)
+    assign(api, machine, "ops")
+    heartbeat(api, machine)
+    weekly = {"key": "weekly", "title": "Weekly review", "text": "Review the week.", "cron": "0 16 * * 0"}
+    made = post(api, "bots/ops/routines", {**weekly, "model": "grok-4.6", "effort": "high"})["routine"]
+    assert (made["model"], made["effort"], made["harness"]) == ("grok-4.6", "high", "grok")
+    post(api, "routines/ops:weekly", {"effort": "ultra"}, expected=422)
+    # The bot sets up its own routines and may say them again, but not give one another model.
+    post(api, "chat/ops", {"text": "Set up your routines."})
+    turn = claim(api, machine)
+    post(api, "bots/ops/routines", weekly, turn["token"])
+    post(api, "bots/ops/routines", {**weekly, "model": "grok-4.6", "effort": "high"}, turn["token"])
+    post(api, "routines/ops:weekly", {"model": "claude-sonnet-5-5"}, turn["token"], expected=403)
+    assert get(api, "bots/ops/routines")["routines"][0]["model"] == "grok-4.6"
+    finish(api, machine, turn)
+
+    post(api, "routines/ops:weekly/run", {})
+    run = claim(api, machine)
+    assert run["routine"]["id"] == "ops:weekly"
+    config = run["config"]
+    assert (config["runtime"], config["model"], config["harness"], config["reasoning_effort"]) == \
+        ("grok", "grok-4.6", "grok", "high")
+    assert config["session"] == "task" and run["lane"] == "task:" + run["task"]["id"]
+    finish(api, machine, run, GROK)
+    post(api, "chat/ops", {"text": "And your own work?"})
+    own = claim(api, machine)
+    assert (own["config"]["runtime"], own["config"]["model"]) == ("claude", "claude-sonnet-5-5")
+    finish(api, machine, own)
+    assert post(api, "routines/ops:weekly", {"model": ""})["routine"]["model"] == ""

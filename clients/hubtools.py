@@ -1987,6 +1987,13 @@ def routine_list(api, args):
     return _routine_api(api, bot).get(f"bots/{bot}/routines")["routines"]
 
 
+# A routine's own model (docs/routines.md): only a person who manages the bot names one; the bot keeps what it has.
+ROUTINE_MODEL = {"model": _s("A model its runs use instead of the bot's, from hub_bot_model's list (or "
+                             "<runtime>:<model>); an empty string puts it back on the bot's own"),
+                 "effort": _s("That model's reasoning effort; its default when left out"),
+                 "harness": _s("The harness that runs it; the model's own when left out")}
+
+
 @tool("hub_routine_set", "Create a routine, or update the one with this key. Tico opens a "
       "task with `text` each time it is due; a bot sets up its own, an operator sets a bot's. "
       "Give `cron` (five fields, in `timezone`) or `on` (a Tico event), never both.",
@@ -1997,26 +2004,28 @@ def routine_list(api, args):
        "on": _s("A Tico event instead of a time: `meeting.ready`, or `webhook.<id>` for a trigger in hub_trigger_list"),
        "timezone": _s("IANA zone for the cron; America/Los_Angeles by default"),
        "enabled": {"type": "boolean", "default": True},
-       "bot": _s("Set it on another bot you operate; yourself by default")},
+       "bot": _s("Set it on another bot you operate; yourself by default"),
+       **ROUTINE_MODEL},
       required=("key", "title"), writes=True)
 def routine_set(api, args):
     body = {"key": args["key"], "title": args["title"], "text": args.get("text") or "",
             "cron": args.get("cron") or "", "on": args.get("on") or "", "timezone": args.get("timezone") or "",
-            "enabled": args.get("enabled", True)}
+            "enabled": args.get("enabled", True), **{k: args[k] for k in ROUTINE_MODEL if args.get(k) is not None}}
     bot = _bot_of(api, args)
     return _routine_api(api, bot).post(f"bots/{bot}/routines", body, key=_key(args))["routine"]
 
 
-@tool("hub_routine_update", "Change one routine: title, text, cron, on, timezone, or `enabled` to turn it on or off. "
+@tool("hub_routine_update", "Change one routine: title, text, cron, on, timezone, model, or `enabled` to turn it on or off. "
       "Name it by its id or its key. For another bot's routine (`bot`) it acts as the person who asked you, with their "
       "rights (BotOps).",
       {"id": _s("The routine's id from hub_routine_list, or its key"), "title": _s("New title"), "text": _s("New text"),
        "cron": _s("New five-field cron"), "on": _s("New event"), "timezone": _s("New zone"),
        "enabled": {"type": "boolean", "description": "true turns it on, false turns it off"},
-       "bot": _s("The bot it belongs to, when it is not yours")},
+       "bot": _s("The bot it belongs to, when it is not yours"),
+       **ROUTINE_MODEL},
       required=("id",), writes=True)
 def routine_update(api, args):
-    body = {k: args.get(k) for k in ("title", "text", "cron", "on", "timezone", "enabled")}
+    body = {k: args.get(k) for k in ("title", "text", "cron", "on", "timezone", "enabled", *ROUTINE_MODEL)}
     ident = args["id"]
     bot = args.get("bot") or (str(ident).split(":", 1)[0] if ":" in str(ident) else _bot_of(api, {}))
     who = _routine_api(api, bot)

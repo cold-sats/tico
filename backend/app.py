@@ -750,6 +750,41 @@ def create_app(settings=None):
             return
         raise Problem("forbidden", "You cannot change this bot's routines", 403)
 
+    def routine_run_on(c, who, bot, body, current=None):
+        """The model, effort and harness a routine is set to run on, checked, or None when the request leaves them
+        as they are. Naming one changes what the bot runs on, so it takes the rights the bot's own model does: a person
+        who manages the bot, or BotOps as that person. The bot sets up its own routines, but not their model; saying
+        again the model a routine already has needs nothing."""
+        asked = {k: getattr(body, k) for k in ("model", "effort", "harness")}
+        if all(v is None for v in asked.values()):
+            return None
+        # A new model takes its own default effort and harness unless they are named; an effort or harness alone
+        # changes the model the routine already has.
+        kept = (current or {}) if asked["model"] is None else {}
+        model = asked["model"] if asked["model"] is not None else kept.get("model") or ""
+        effort = asked["effort"] if asked["effort"] is not None else kept.get("effort")
+        harness = asked["harness"] if asked["harness"] is not None else kept.get("harness")
+        if not model.strip():
+            if (effort or "").strip() or (harness or "").strip():
+                raise Problem("routine_model", "Name the routine's model along with its effort or harness", 422)
+            chosen = {"model": "", "effort": "", "harness": ""}
+        else:
+            try:
+                chosen = check_models.routine_choice(c, settings, bot, model, effort, harness)
+            except check_models.CheckModelError as exc:
+                raise Problem(exc.code, str(exc), 422)
+        if current is not None and all((current.get(k) or "") == chosen[k] for k in ("model", "effort", "harness")):
+            return None
+        person = who
+        if who.actor == "bot:" + BOTOPS:
+            try:
+                person = delegated_identity(c, who, "turn")
+            except Problem:
+                person = None
+        if person is None or person.role not in ("human", "owner") or not auth.bot_manager(c, person, bot):
+            raise Problem("forbidden", "Only a person who manages this bot names the model its routines run on", 403)
+        return chosen
+
     @app.middleware("http")
     async def request_timing(request, call_next):
         started = time.perf_counter()
@@ -847,8 +882,11 @@ def create_app(settings=None):
         who = request.state.identity
         def work(c):
             may_edit_routines(c, who, bot)
+            existing = c.execute("SELECT id FROM schedules WHERE bot=? AND routine_key=?", (bot, body.key)).fetchone() \
+                if body.key else None
+            run_on = routine_run_on(c, who, bot, body, routines.row(c, existing["id"]) if existing else None)
             try:
-                return {'routine': routines.create(c, who.actor, bot, body.model_dump(), key=body.key)}
+                return {'routine': routines.create(c, who.actor, bot, {**body.model_dump(), "run_on": run_on}, key=body.key)}
             except ValueError as exc:
                 raise Problem('routine', str(exc), 422)
         return mutate(request, body, work)
@@ -864,9 +902,10 @@ def create_app(settings=None):
     def routine_update(request: Request, schedule_id: str, body: M.RoutineUpdate):
         who = request.state.identity
         def work(c):
-            routine_owner(c, who, schedule_id)
+            bot = routine_owner(c, who, schedule_id)
+            run_on = routine_run_on(c, who, bot, body, routines.row(c, schedule_id) or {})
             try:
-                return {'routine': routines.update(c, who.actor, schedule_id, body.model_dump())}
+                return {'routine': routines.update(c, who.actor, schedule_id, {**body.model_dump(), "run_on": run_on})}
             except ValueError as exc:
                 raise Problem('routine', str(exc), 422)
         return mutate(request, body, work)

@@ -98,6 +98,33 @@ def choose(c, settings, bot, spec, role, authors=()):
             "effort": str(row.get("default_effort") or ""), "role": role}
 
 
+def routine_choice(c, settings, bot, spec, effort=None, harness=None):
+    """The model a routine of `bot` may run on, or CheckModelError: as a check's (an enabled provider, a current model,
+    a runtime the bot's computer does not report signed out), with an effort and a harness that model offers. Its turns
+    then run as a check's do (`apply`): that model, no fallback to another provider, a session of the run's own."""
+    record_ = providers.load(c, settings)
+    runtime, model = parse(spec)
+    try:
+        runtime, model = providers.complete_choice(record_["enabled"], runtime, model)
+    except providers.ProviderError as exc:
+        raise CheckModelError("routine_model", str(exc).replace("default model", "routine's model")) from None
+    if not runtime:
+        raise CheckModelError("routine_model", "Enable an AI provider in Settings before naming a routine's model")
+    row = providers.MODEL_BY_ID.get(model) or {}
+    efforts = tuple(row.get("efforts") or ())
+    effort = str(effort or "").strip() or str(row.get("default_effort") or "")
+    if efforts and effort not in efforts:
+        raise CheckModelError("routine_model", f"{model} takes the effort {', '.join(efforts)}, not {effort}")
+    harnesses = tuple(row.get("harnesses") or (runtime,))
+    harness = str(harness or "").strip() or next((h for h in harnesses if runtime_of(h) == runtime), harnesses[0])
+    if harness not in harnesses:
+        raise CheckModelError("routine_model", f"{model} runs in {', '.join(harnesses)}, not {harness}")
+    can = can_run(c, bot, runtime, harness=harness, model=model)
+    if can.get("can_run") is False:
+        raise CheckModelError("runner_not_ready", can.get("problem") or f"{runtime} cannot run on this bot's computer")
+    return {"runtime": runtime, "model": model, "harness": harness, "effort": effort}
+
+
 def record(c, actor, task_id, check):
     c.execute("INSERT INTO task_check_models(task_id,runtime,model,harness,effort,role,created_by,created) "
               "VALUES(?,?,?,?,?,?,?,?)", (task_id, check["runtime"], check["model"], check["harness"],
@@ -147,7 +174,9 @@ def move_on(c, settings, bot, task_id, check, runner_id):
     from .task_relations import parent_of
     first = H.check_model(c, task_id, bot)
     out = {x["runtime"] for x in out_of_quota_logins(c, settings) if x["runner_id"] == runner_id}
-    if not first or check["runtime"] not in out or not _default_login(c, bot, check, runner_id):
+    # A routine's model is the one its people named: a usage limit holds it, as any check's, rather than moving it
+    # onto the company's check order, which is for reviewing someone else's work.
+    if not first or first["role"] == "routine" or check["runtime"] not in out or not _default_login(c, bot, check, runner_id):
         return None
     authors = authors_of(c, settings, parent_of(c, task_id))
     for row in providers.check_order(providers.load(c, settings)):
