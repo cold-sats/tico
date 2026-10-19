@@ -41,7 +41,9 @@ Open the link in your browser: the app opens on **Finish setup**. Then:
 
 1. **Choose AI providers** (optional): leave them all unticked to do it later. Bots need one to run; until then each bot says
    "Add an AI provider", and Settings > AI providers adds it. With a gateway key from Tico, the
-   [Tico AI Gateway](ai-gateway.md) card there adds Tico Cheap, Mid and Power 1.0.
+   [Tico AI Gateway](ai-gateway.md) card there adds Tico Cheap, Mid and Power 1.0. The step starts with how bots get
+   their models; **Your Claude and ChatGPT subscriptions, plus Tico Gateway** is recommended
+   ([the four choices](ai-gateway.md#choose-how-bots-get-their-models)).
 2. **Name the team**, say what it does, and pick its groups. A few bots are suggested for each group. For the first result
    below, pick **Marketing** and keep **Content Marketer** (`content`) checked; untick the other suggestions if you want only it.
 3. **Add computer**: choose *A Linux or cloud server (Docker)*, press **Add computer**, and run the line it shows on this computer.
@@ -246,7 +248,7 @@ Then it shows the plan and asks "Go ahead?". `--dry-run` prints the plan and cha
 
 ```
 $ python3 -m setup --dry-run --non-interactive --target local --front-door caddy --domain tico.example.com \
-    --server-ip 203.0.113.7 --auth google --client-id 1234-abc.apps.googleusercontent.com --team-name Acme --owner-email you@example.com
+    --server-ip 203.0.113.7 --auth google --client-id 1234-abc.apps.googleusercontent.com --company Acme --owner-email you@example.com
 tico setup (dry run: nothing will be created or changed)
 Sign-in: create a Google OAuth client at https://console.cloud.google.com/auth/clients/create
   with redirect URI exactly https://tico.example.com/auth/callback
@@ -301,12 +303,12 @@ they never appear in a process list:
 
 ```
 TICO_OIDC_CLIENT_SECRET=... sh install.sh --yes --version vX.Y.Z -- --domain tico.example.com --front-door caddy \
-  --server-ip 203.0.113.7 --auth google --client-id 1234-abc.apps.googleusercontent.com --team-name Acme \
+  --server-ip 203.0.113.7 --auth google --client-id 1234-abc.apps.googleusercontent.com --company Acme \
   --owner-email you@example.com --backup local
 ```
 
 Flags: `--domain`, `--front-door caddy|cloudflared`, `--server-ip`, `--tico-version`, `--auth google|microsoft|cloudflare`,
-`--tenant`, `--client-id`, `--allowed-domain`, `--team-name` (`--company` remains an alias), `--owner-email`, `--decisions-provider` (the old `--judge-provider` still works), `--backup`,
+`--tenant`, `--client-id`, `--allowed-domain`, `--company` (the team name), `--owner-email`, `--decisions-provider` (the old `--judge-provider` still works), `--backup`,
 `--backup-url`, `--backup-endpoint`, `--backup-region`, `--no-updater`, `--dns-timeout MINUTES`, `--skip-dns-wait`.
 Credentials: `TICO_OIDC_CLIENT_SECRET`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_TUNNEL_TOKEN`, `OPENAI_API_KEY` (or
 `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`). `python3 -m setup --help` lists all of them.
@@ -366,12 +368,16 @@ No open ports, and Cloudflare Access can do the sign-in. The wizard creates the 
    `TICO_AUTH_PROXY=cloudflare`, `TICO_ACCESS_ISSUER=<team URL>`, `TICO_ACCESS_AUDIENCE=<AUD tag>`.
 5. `docker compose up -d`
 
-**How long a sign-in lasts.** The Access application's Session Duration (24 hours unless you change it) decides how
-often people sign in again; behind Access, Tico keeps no session of its own. When it ends, Cloudflare sends the app's next
+**How long a sign-in lasts.** Cloudflare Access controls when people must sign in again; behind Access, Tico has no
+sign-in timeout of its own. The Access application's session duration (24 hours unless you change it) sets how long its
+session lasts, and a policy's own session duration overrides it. When that session ends, Cloudflare sends the app's next
 request to its login page, which a page cannot follow in the background, and Cloudflare offers no way to renew the
 session from the page. Tico then stops reconnecting and shows "You've been signed out" with **Sign in again**: Access's
-login opens in the same window, and afterwards the page comes back where it was, with any text typed in an open box. The
-desktop app's Dock badge shows "!" until then. To sign in less often, lengthen the Session Duration.
+login opens in the same window, and afterwards the page comes back where it was, with any text typed in an open box.
+While the global Access session (also 24 hours by default) is still valid, that login goes straight through without
+asking your identity provider again. The desktop app's Dock badge shows "!" until then. To see the signed-out screen
+less often, lengthen the application's session duration (and the policy's, if it sets one); to be asked by your identity
+provider less often, lengthen the global session duration in Zero Trust settings.
 
 **Which route wins.** cloudflared prefers the configuration Cloudflare holds for the tunnel. A tunnel you created in the
 dashboard, or that setup created through the API, is remotely managed and keeps the **Public Hostname** route you set
@@ -434,16 +440,16 @@ A subscription login (a ChatGPT or Claude plan) cannot be copied. If that is how
 "*computer name*: sign in to Codex" (or Claude Code) for each new computer that needs it. Sign it in from Settings > Computers, or ask
 BotOps to start it, then finish the sign-in in your browser.
 
-To change the account a computer uses, choose **Switch account** next to it in Settings > Computers: the new account is
+To change the account a computer uses, open it in Settings > Computers and choose **Switch account** on its connection: the new account is
 signed in on the side, and the old one keeps working until that finishes (or if you cancel). **Sign out** names the bots
 that stop first; they wait until someone signs in again. A computer you signed out is not signed back in by the model key
-given to every computer until you sign in or choose **Use the shared key**. See [subscriptions](subscriptions.md#signing-out-and-switching-accounts).
+given to every computer until you sign in or choose **Use the shared key**. See [Computers](computers.md#signing-out-and-switching-accounts).
 
-A computer can also run on a model API key of its own, with no terminal: **Add key** (or **Replace key**) next to it in
+A computer can also run on a model API key of its own, with no terminal: **Add key** (or **Replace key**) on its connection in
 Settings > Computers keeps the key in Tico's credential vault for that computer alone, and the computer checks it before
 the old one goes. **Clear key** names the bots that stop, then takes the key off the computer. For the key given to every
 computer, both ask whether to change **this computer only** or **all of them**; an offline computer clears its copy when
-it is next online. See [subscriptions](subscriptions.md#api-keys-on-a-computer).
+it is next online. See [Computers](computers.md#api-keys-on-a-computer).
 
 ### Linux or cloud server (Docker)
 

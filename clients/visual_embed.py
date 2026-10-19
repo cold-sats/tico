@@ -18,8 +18,10 @@ EMBED_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
 PAGE_TYPES = {".html": "text/html", ".htm": "text/html", ".svg": "image/svg+xml"}
 MAX_EMBED = 10 * 1024 * 1024
 # Where a page names another file: src/href/poster/xlink:href attribute values, srcset entries and CSS url().
-ATTRIBUTE = re.compile(r"""(\b(?:src|href|poster|xlink:href)\s*=\s*)(["'])(.*?)\2""", re.I | re.S)
-SRCSET = re.compile(r"""(\bsrcset\s*=\s*)(["'])(.*?)\2""", re.I | re.S)
+# A value is quoted, or unquoted as HTML allows (up to whitespace or `>`).
+_VALUE = r"""(?:(["'])(.*?)\2|([^\s"'=<>`]+))"""
+ATTRIBUTE = re.compile(r"""((?<![\w-])(?:src|href|poster|xlink:href)\s*=\s*)""" + _VALUE, re.I | re.S)
+SRCSET = re.compile(r"""((?<![\w-])srcset\s*=\s*)""" + _VALUE, re.I | re.S)
 CSS_URL = re.compile(r"""url\(\s*(['"]?)(.*?)\1\s*\)""", re.I | re.S)
 REMOTE = re.compile(r"^(?:[a-z][a-z0-9+.\-]*:|//)", re.I)
 
@@ -66,18 +68,21 @@ def embed(root, rel):
             unembedded.append(raw)
         return uri
 
+    def value(match):
+        quote = match.group(2) or ""
+        return quote, match.group(3) if quote else match.group(4)
+
     def attribute(match):
-        uri = inline(match.group(3))
-        return match.group(0) if uri is None else match.group(1) + match.group(2) + uri + match.group(2)
+        quote, raw = value(match)
+        uri = inline(raw)
+        return match.group(0) if uri is None else match.group(1) + '"' + uri + '"'
 
     def srcset(match):
+        quote, raw = value(match)
         parts = []
-        for candidate in match.group(3).split(", "):
-            bits = candidate.strip().split(None, 1)
-            if bits:
-                uri = inline(bits[0])
-                parts.append(" ".join([uri or bits[0], *bits[1:]]))
-        return match.group(1) + match.group(2) + ", ".join(parts) + match.group(2)
+        for url, descriptor in srcset_candidates(raw):
+            parts.append((inline(url) or url) + (" " + descriptor if descriptor else ""))
+        return match.group(1) + '"' + ", ".join(parts) + '"'
 
     def css(match):
         uri = inline(match.group(2))
@@ -85,6 +90,29 @@ def embed(root, rel):
 
     text = CSS_URL.sub(css, SRCSET.sub(srcset, ATTRIBUTE.sub(attribute, text)))
     return text.encode("utf-8"), embedded, unembedded
+
+
+def srcset_candidates(text):
+    """[(url, descriptor)] from a srcset value, split as HTML does: a URL runs to whitespace (trailing commas end it),
+    and its descriptor runs to the next comma, so `a.png 1x,b.png 2x` is two candidates (and `a.png,b.png` one URL,
+    as a browser reads it). The server parses srcset the same way (backend/visuals.py)."""
+    out, at = [], 0
+    while at < len(text):
+        while at < len(text) and (text[at].isspace() or text[at] == ","):
+            at += 1
+        start = at
+        while at < len(text) and not text[at].isspace():
+            at += 1
+        url, descriptor = text[start:at], ""
+        if url.endswith(","):
+            url = url.rstrip(",")
+        else:
+            end = text.find(",", at)
+            end = len(text) if end < 0 else end
+            descriptor, at = text[at:end].strip(), end
+        if url:
+            out.append((url, descriptor))
+    return out
 
 
 def guess_type(name):
