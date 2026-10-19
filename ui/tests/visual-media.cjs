@@ -117,12 +117,27 @@ const UI = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
     await short.evaluate(m => m.play());
     await page.waitForFunction(() => document.querySelector('[data-visual-key="m1:long@1"] audio').paused);
     assert.equal(await short.evaluate(m => m.paused), false, 'the clip just started plays');
-    // ---- test 14: the thread redraws (a poll, a new message) while it plays: the same player keeps playing, in place
+    // ---- test 14: the thread redraws (a poll, a new message) while it plays: the same player keeps playing, in place,
+    // where it was. Both ways the frame redraws: moving the card in place (moveBefore), and where a browser has no
+    // moveBefore (Safari, the desktop app's webviews), taking it out and putting it back.
     await short.evaluate(m => { m.dataset.mark = 'kept'; });
-    const before = await short.evaluate(m => m.currentTime);
-    await page.evaluate(() => { messages.push({id: 'm9', files: [{file_id: 'x', version: 1, name: 'notes.txt', kind: 'file'}]}); draw(); });
-    assert.equal(await page.locator('audio[data-mark="kept"]').count(), 1, 'the redraw kept the playing audio element');
-    await page.waitForFunction(t => { const m = document.querySelector('audio[data-mark="kept"]'); return !m.paused && m.currentTime > t; }, before);
+    assert.equal(await page.evaluate(() => typeof Element.prototype.moveBefore), 'function', 'this browser moves nodes in place');
+    for (const [way, at] of [['moveBefore', 8], ['no moveBefore', 14]]) {
+      await short.evaluate((m, at) => new Promise(r => { m.addEventListener('seeked', r, {once: true}); m.currentTime = at; }), at);
+      const kept = await page.evaluate(([way, n]) => {
+        const mb = Element.prototype.moveBefore;
+        if (way === 'no moveBefore') delete Element.prototype.moveBefore;
+        try { messages.push({id: 'm9' + n, files: [{file_id: 'x' + n, version: 1, name: 'notes.txt', kind: 'file'}]}); draw(); }
+        finally { Element.prototype.moveBefore = mb; }
+        const m = document.querySelector('[data-visual-key="m1b:short@1"] audio');
+        return [m.dataset.mark, m.currentTime, m.paused];
+      }, [way, at]);
+      assert.equal(kept[0], 'kept', `${way}: the redraw kept the playing audio element`);
+      assert.ok(kept[1] >= at && !kept[2], `${way}: right after the redraw it is at ${kept[1]}s (not before ${at}s) and playing`);
+      await page.waitForTimeout(400);
+      const later = await short.evaluate(m => [m.dataset.mark, m.currentTime, m.paused]);
+      assert.ok(later[0] === 'kept' && later[1] > at && !later[2], `${way}: it plays on from ${at}s (${later})`);
+    }
     await short.evaluate(m => m.pause());
 
     // ---- an address that runs out mid-play: the card's newest address takes over, same place, still playing

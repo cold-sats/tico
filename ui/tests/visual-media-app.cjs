@@ -95,23 +95,37 @@ const A = (id, kind, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1'
     const r = await page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
     assert.ok(r[0] <= r[1], `no sideways scroll at phone width ${r}`);
 
-    // ---- a live update redraws the thread with newly signed addresses: the playing clip keeps playing, in place
+    // ---- a live update redraws the thread with newly signed addresses: the playing clip keeps playing, in place, where
+    // it was. Both ways the frame redraws: moving the card in place (moveBefore), and where a browser has no
+    // moveBefore (Safari, the desktop app's webviews), taking it out and putting it back.
     await voice.evaluate(m => m.play());
     await voice.evaluate(m => { m.dataset.mark = 'kept'; });
-    const t0 = await voice.evaluate(m => m.currentTime);
-    for (let i = 0; !held.length && i < 100; i++) await page.waitForTimeout(50);
-    assert.ok(held.length, 'the page follows the live event stream');
-    gen = 2;
-    messages.push({id: 'm4', from_actor: 'bot:editor', body: 'One more.', created: now, refs: {attachments: [A('f-more', 'audio')]}});
-    await held.at(-1).fulfill({contentType: 'text/event-stream', body: `id: 9\nevent: messages\ndata: ${JSON.stringify({seq: 9, conversation_id: 'c-editor'})}\n\n`});
-    await page.locator('[data-message="m4"] figure.vcard audio').waitFor();
-    assert.equal(await page.locator('audio[data-mark="kept"]').count(), 1, 'the playing audio element survived the redraw');
-    assert.equal(await m1.locator('figure.vcard[data-kind="audio"]').getAttribute('data-fresh-src'), VIS + 'tok-f-voice.2', 'it holds the new address for later');
-    await page.waitForFunction(t => { const m = document.querySelector('audio[data-mark="kept"]'); return m && !m.paused && m.currentTime > t; }, t0);
+    assert.equal(await page.evaluate(() => typeof Element.prototype.moveBefore), 'function', 'this browser moves nodes in place');
+    let answered = 0;
+    for (const [way, at, id] of [['moveBefore', 20, 'm4'], ['no moveBefore', 35, 'm5']]) {
+      await voice.evaluate((m, at) => new Promise(r => { m.addEventListener('seeked', r, {once: true}); m.currentTime = at; }), at);
+      for (let i = 0; held.length <= answered && i < 100; i++) await page.waitForTimeout(50);
+      assert.ok(held.length > answered, 'the page follows the live event stream (and reconnects after each event)');
+      const stream = held.at(-1);
+      answered = held.length;
+      if (way === 'no moveBefore') await page.evaluate(() => { window.__mb = Element.prototype.moveBefore; delete Element.prototype.moveBefore; });
+      gen += 1;
+      messages.push({id, from_actor: 'bot:editor', body: 'One more.', created: now, refs: {attachments: [A('f-more-' + id, 'audio')]}});
+      const seq = 8 + gen;
+      await stream.fulfill({contentType: 'text/event-stream', body: `id: ${seq}\nevent: messages\ndata: ${JSON.stringify({seq, conversation_id: 'c-editor'})}\n\n`});
+      await page.locator(`[data-message="${id}"] figure.vcard audio`).waitFor();
+      const kept = await page.evaluate(() => { const m = document.querySelector('[data-message="m1"] figure.vcard[data-kind="audio"] audio');
+        return [m.dataset.mark, m.currentTime, m.paused]; });
+      if (way === 'no moveBefore') await page.evaluate(() => { Element.prototype.moveBefore = window.__mb; });
+      assert.equal(kept[0], 'kept', `${way}: the playing audio element survived the redraw`);
+      assert.ok(kept[1] >= at && !kept[2], `${way}: right after the live redraw it is at ${kept[1]}s (not before ${at}s) and playing`);
+      assert.equal(await m1.locator('figure.vcard[data-kind="audio"]').getAttribute('data-fresh-src'), `${VIS}tok-f-voice.${gen}`, 'it holds the new address for later');
+      await page.waitForFunction(at => { const m = document.querySelector('audio[data-mark="kept"]'); return m && !m.paused && m.currentTime > at + 0.2; }, at);
+    }
     // starting the new clip pauses it
-    await page.locator('[data-message="m4"] figure.vcard audio').evaluate(m => m.play());
+    await page.locator('[data-message="m5"] figure.vcard audio').evaluate(m => m.play());
     await page.waitForFunction(() => document.querySelector('audio[data-mark="kept"]').paused);
-    await page.locator('[data-message="m4"] figure.vcard audio').evaluate(m => m.pause());
+    await page.locator('[data-message="m5"] figure.vcard audio').evaluate(m => m.pause());
 
     // ---- task comments: the same player
     await page.goto('https://tico-ui.test/#/tasks?view=board');
