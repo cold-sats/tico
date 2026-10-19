@@ -15,10 +15,12 @@ and can also sign out every owner session; the installer runs it (`python3 -m se
 
 import argparse
 import html
+import ipaddress
 import re
 import sys
 import threading
 import time
+from urllib.parse import urlsplit
 
 from fastapi import Form, Request
 from fastapi.responses import RedirectResponse, Response
@@ -44,14 +46,28 @@ CREATE TABLE IF NOT EXISTS owner_links(
 
 def check(settings):
     """A reachable server takes this sign-in only as a hosted install on https, with a link to start from."""
-    if not settings.public_url.startswith("https://") or settings.loopback:
-        raise RuntimeError("TICO_AUTH_PROXY=owner-link needs an https address (TICO_DOMAIN); it is for servers Tico hosts")
+    if not settings.public_url.startswith("https://") or settings.loopback or not _is_domain(settings.public_url):
+        raise RuntimeError("TICO_AUTH_PROXY=owner-link needs an https address on a domain name (TICO_DOMAIN), not an IP "
+                           "address; it is for servers Tico hosts")
     if settings.hosted not in HOSTED:
         raise RuntimeError("TICO_AUTH_PROXY=owner-link is for a hosted install: set TICO_HOSTED to own or invited")
     if settings.owner_link_hash and not HASH_RE.fullmatch(settings.owner_link_hash):
         raise RuntimeError("TICO_OWNER_LINK_HASH must be the 64-character sha256 of the link's secret")
     if not settings.owner_email:
         raise RuntimeError("TICO_AUTH_PROXY=owner-link needs TICO_OWNER_EMAIL")
+
+
+def _is_domain(url):
+    """An https address our zone names: a host name, never an IPv4 or IPv6 literal (no certificate of ours covers one)."""
+    try:
+        host = urlsplit(url).hostname or ""
+    except ValueError:
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return False
+    except ValueError:
+        return bool(host) and "." in host
 
 
 def place(c, token_hash, owner_email, *, sign_out=False, only_if_none=False):

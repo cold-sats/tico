@@ -213,6 +213,11 @@ def test_the_link_page_is_not_there_on_any_other_server(api):  # noqa: F811
 @pytest.mark.parametrize("change, wanted", [
     ({"public_url": "http://acme.hosted.example"}, "needs an https address"),
     ({"public_url": "https://127.0.0.1:8765"}, "needs an https address"),
+    ({"public_url": "https://203.0.113.7"}, "not an IP address"),
+    ({"public_url": "https://203.0.113.7:8443"}, "not an IP address"),
+    ({"public_url": "https://[2001:db8::7]"}, "not an IP address"),
+    ({"public_url": "https://[2001:db8::7]:8443"}, "not an IP address"),
+    ({"public_url": "https://[::ffff:203.0.113.7]"}, "not an IP address"),
     ({"hosted": ""}, "set TICO_HOSTED to own or invited"),
     ({"owner_link_hash": "abc"}, "64-character sha256"),
     ({"owner_email": ""}, "needs TICO_OWNER_EMAIL"),

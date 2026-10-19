@@ -44,6 +44,8 @@ SECRET_KEYS = frozenset({
     "TICO_OIDC_CLIENT_SECRET", "CLOUDFLARE_TUNNEL_TOKEN", "LITESTREAM_SECRET_ACCESS_KEY", "TICO_GATEWAY_INVITE",
     *DECISIONS_KEYS.values(),
 })
+# Sent to the server only: the private copy of the .env setup keeps on this computer leaves these out.
+SERVER_ONLY_KEYS = frozenset({"TICO_GATEWAY_INVITE"})
 
 # Order they appear in the written .env.
 ENV_ORDER = (

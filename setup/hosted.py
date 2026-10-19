@@ -53,7 +53,8 @@ def gather(args, s: Settings, dry: bool) -> None:
     s.hosted_zone = zone
     if preset:
         s.support = "off" if getattr(args, "no_support", False) else "on"
-        invite = os.environ.get("TICO_GATEWAY_INVITE", "") or s.gateway_invite
+        # Only from the environment: setup's saved copy of the .env never holds it (contract.SERVER_ONLY_KEYS).
+        invite = os.environ.get("TICO_GATEWAY_INVITE", "")
         if invite and not st.INVITE_RE.fullmatch(invite):
             raise MissingInput("TICO_GATEWAY_INVITE is not an invite code (8 to 200 letters, digits, - and _). It is not shown here.")
         s.gateway_invite = invite
@@ -77,7 +78,7 @@ def plan_lines(s: Settings) -> list[str]:
         out.append("Recommended setup: the sample company, your Claude and ChatGPT subscriptions plus Tico Gateway, "
                    f"Tico Support {s.support or 'on'}, and a computer on the server (the Docker runner). "
                    + ("The Gateway invite is in the environment; it connects on the first start."
-                      if s.gateway_invite else "No Gateway invite: the Gateway is not set up."))
+                      if s.gateway_invite else "No Gateway invite in the environment (TICO_GATEWAY_INVITE): the Gateway is not set up by this run."))
     return out
 
 

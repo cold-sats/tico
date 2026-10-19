@@ -66,8 +66,10 @@ def test_hosted_own_with_the_preset_writes_the_mark_the_choices_and_only_the_lin
     # The link and the invite reach no output and no command; the invite only the server's .env, on stdin.
     cmds = "\n".join(shell.cmds())
     assert token not in out and token not in cmds and INVITE not in out and INVITE not in cmds
+    # The invite stays on the server: setup's own saved copy of the .env leaves it out.
     saved, saved_env = state.load(DOMAIN)
-    assert token not in json.dumps(saved) + saved_env and INVITE not in json.dumps(saved)
+    assert token not in json.dumps(saved) + saved_env and INVITE not in json.dumps(saved) + saved_env
+    assert "TICO_GATEWAY_INVITE" not in saved_env and envfile.parse(saved_env)["TICO_HOSTED"] == "own"
     assert f"The owner's sign-in link is in {hosted.link_file(DOMAIN)} (0600): send it to ana@acme.example" in out
     assert "Open https://" not in out
     # The server's own computer: the Docker runner on the server's network, with a code that is never printed.
@@ -197,3 +199,21 @@ def test_the_owner_link_command_is_refused_on_an_install_without_it():
     state.save("tico.example.com", {"target": "ssh", "domain": "tico.example.com", "auth": "google"}, "")
     code, out = go(["owner-link", "--domain", "tico.example.com"])
     assert code == 2 and "does not use the owner sign-in link" in out
+
+
+def test_the_invite_is_not_kept_on_this_computer_after_a_new_link_either(monkeypatch):
+    monkeypatch.setenv("TICO_GATEWAY_INVITE", INVITE)
+    argv = ["--target", "ssh", "--ssh", "root@203.0.113.7", "--yes", "--hosted", "own", "--preset", "recommended", *HOSTED]
+    first = FakeShell()
+    assert go(argv, deps=over_ssh(first))[0] == 0
+    assert env_sent(first)["TICO_GATEWAY_INVITE"] == INVITE
+    code, out = go(["owner-link", "--domain", DOMAIN], deps=over_ssh(FakeShell()))
+    assert code == 0, out
+    _, saved_env = state.load(DOMAIN)
+    assert INVITE not in saved_env and "TICO_GATEWAY_INVITE" not in saved_env
+    assert envfile.parse(saved_env)["TICO_OWNER_LINK_HASH"] == hashlib.sha256(link_token().encode()).hexdigest()
+    # A later run takes the invite from the environment only; without it, none is sent.
+    monkeypatch.delenv("TICO_GATEWAY_INVITE")
+    again = FakeShell()
+    assert go(argv, deps=over_ssh(again))[0] == 0
+    assert "TICO_GATEWAY_INVITE" not in env_sent(again)
