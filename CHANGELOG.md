@@ -69,6 +69,12 @@ All notable changes to Tico are recorded here. The format follows
 - A signed-out connection in the computer pop-up reads **Signed out · Sign in** and its chip gets a red dot, and the
   sign-out confirmation names the bots in a line ("Reviewer 1, QA and 2 more will stop running until this is signed in
   again").
+- **Add connection** in each computer's pop-up on Settings > Computers: pick an AI tool installed there, then Subscription
+  or API key; a subscription is named and signed in with the provider in the same pop-up, and its chip appears on the
+  computer's row without a restart. API key opens **Add key** for a tool that takes a key of the computer's own, and
+  points to Credentials for the others. Each subscription line gets **Rename** and **Remove**; Remove is refused while
+  bots run on it, naming them and offering the Bots page. Remove needs a current runner
+  ([Computers](docs/computers.md#remove-a-subscription)).
 
 ### Fixed
 - **Updates tree keeps archived cards out after a reload**: a card you archive on Updates no longer comes back in
