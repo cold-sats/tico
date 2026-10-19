@@ -66,8 +66,8 @@ function visualCardsHTML(files, {key = '', chips = () => ''} = {}) {
 
 // Both threads redraw with a whole new tree. Before the swap, a card whose key is in both trees keeps its old node,
 // so a loaded page or a playing clip is not torn down; it takes the new tree's fresh address (data-fresh-src) for
-// a renderer whose address ran out. Media survive the move (it happens in one task). A frame reloads when its node
-// moves unless the browser can move it in place (moveBefore), so page renderers keep their measured height.
+// a renderer whose address ran out. Media survive the move (it happens in one task); a frame reloads when its node
+// moves, so page renderers keep their measured height and nothing jumps.
 function visualKeep(oldRoot, newRoot) {
   const old = new Map();
   for (const card of oldRoot.querySelectorAll('figure.vcard[data-visual-key]')) old.set(card.dataset.visualKey, card);
