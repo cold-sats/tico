@@ -136,7 +136,7 @@ const UI = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
       assert.ok(kept[1] >= at && !kept[2], `${way}: right after the redraw it is at ${kept[1]}s (not before ${at}s) and playing`);
       await page.waitForTimeout(400);
       const later = await short.evaluate(m => [m.dataset.mark, m.currentTime, m.paused]);
-      assert.ok(later[0] === 'kept' && later[1] > at && !later[2], `${way}: it plays on from ${at}s (${later})`);
+      assert.ok(later[0] === 'kept' && later[1] > kept[1] && !later[2], `${way}: it plays on from ${kept[1]}s (${later})`);
     }
     await short.evaluate(m => m.pause());
 

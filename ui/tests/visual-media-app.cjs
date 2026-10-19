@@ -120,7 +120,7 @@ const A = (id, kind, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1'
       assert.equal(kept[0], 'kept', `${way}: the playing audio element survived the redraw`);
       assert.ok(kept[1] >= at && !kept[2], `${way}: right after the live redraw it is at ${kept[1]}s (not before ${at}s) and playing`);
       assert.equal(await m1.locator('figure.vcard[data-kind="audio"]').getAttribute('data-fresh-src'), `${VIS}tok-f-voice.${gen}`, 'it holds the new address for later');
-      await page.waitForFunction(at => { const m = document.querySelector('audio[data-mark="kept"]'); return m && !m.paused && m.currentTime > at + 0.2; }, at);
+      await page.waitForFunction(t => { const m = document.querySelector('audio[data-mark="kept"]'); return m && !m.paused && m.currentTime > t; }, kept[1]);
     }
     // starting the new clip pauses it
     await page.locator('[data-message="m5"] figure.vcard audio').evaluate(m => m.play());
