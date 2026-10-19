@@ -170,12 +170,12 @@ def register(app, auth):
     @app.get(LINK_PATH)
     def owner_link_page(request: Request, signed_out: str = "", next: str = ""):
         active()
+        if set(request.query_params) - {"next", "signed_out"}:
+            # The secret goes after #, never in the query, where logs in front of the server would keep it. The app's
+            # own `next` (ui/app/session.js: where to come back to) and sign-out's marker are all a query may carry.
+            return oidc._page(settings, 400, "This sign-in link is not valid", ASK)
         if signed_out:
             return oidc._page(settings, 200, "Signed out", "You are signed out. " + ASK)
-        if set(request.query_params) - {"next"}:
-            # The secret goes after #, never in the query, where logs in front of the server would keep it. The app's
-            # own `next` (ui/app/session.js: where to come back to) is the one thing a query may carry.
-            return oidc._page(settings, 400, "This sign-in link is not valid", ASK)
         back = oidc.safe_next(next)
         form = ('<form method="post" action="' + LINK_PATH + '"><input type="hidden" id="owner-link-token" name="token">'
                 + ('<input type="hidden" name="next" value="' + html.escape(back) + '">' if back != "/" else "") +

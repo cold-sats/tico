@@ -203,7 +203,8 @@ def test_the_apps_next_is_taken_and_the_owner_comes_back_there_but_a_query_secre
     assert landing.status_code == 200 and "Open the sign-in link Tico sent you" in landing.text
     assert '<input type="hidden" name="next" value="/?a=1#/tasks">' in landing.text
     token = new_token()
-    for query in ({"next": here, "token": token}, {"token": token}, {"next": here, "t": token}):
+    for query in ({"next": here, "token": token}, {"token": token}, {"next": here, "t": token},
+                  {"signed_out": "1", "token": token}):
         refused = hosted.browser.get(owner_link.LINK_PATH, params=query)
         assert refused.status_code == 400 and token not in refused.text
     hosted.place(token)

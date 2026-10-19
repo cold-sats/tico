@@ -7,6 +7,7 @@
 //  - the first 401 of a page that has loaded nothing yet: straight to the link page, ?next= and all, the same.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const path = require('node:path');
 const readline = require('node:readline');
 const {spawn, execFileSync} = require('node:child_process');
@@ -90,12 +91,14 @@ async function hosted(context, tico, seen, {page: own} = {}) {
       const text = await page.textContent('body');
       assert.ok(text.includes(LANDING) && !text.includes(NOT_VALID), text);
       console.log('a lapsed session: Sign in again shows the page that says to open the link, with ?next= kept');
+      await context.unrouteAll({behavior: 'ignoreErrors'});   // the signed-in app is still fetching
       await context.close();
     }
     // The first 401 of a page that has loaded nothing: session.js goes straight to the sign-in page.
     {
       const context = await browser.newContext({viewport: {width: 390, height: 844}, serviceWorkers: 'block'});
-      await hosted(context, tico, [], {page: html});
+      const seen = [];
+      await hosted(context, tico, seen, {page: html});
       const page = await context.newPage();
       const landing = page.waitForResponse(r => new URL(r.url()).pathname === '/auth/owner-link', {timeout: t(20000)});
       await page.goto(tico.public + '/?a=1#/tasks');
@@ -106,7 +109,20 @@ async function hosted(context, tico, seen, {page: own} = {}) {
       const text = await page.textContent('body');
       assert.ok(text.includes(LANDING) && !text.includes(NOT_VALID), text);
       assert.equal(await page.getAttribute('input[name="next"]', 'value'), '/?a=1#/tasks');
-      console.log('the first 401: straight to the link page, which keeps where the app was');
+      // A link opened on that page (its secret after #) signs in and comes back to where the app was.
+      const token = crypto.randomBytes(32).toString('base64url');
+      execFileSync(PYTHON, ['-m', 'backend.owner_link', 'replace', tico.db, crypto.createHash('sha256').update(token).digest('hex')],
+                   {cwd: ROOT, env: {...process.env, TICO_AUTH_PROXY: 'owner-link', TICO_REGISTRY_DIR: tico.registry}});
+      const linkPage = page.url();
+      await page.goto('about:blank');   // a new load, as opening the link is, not a same-page hash change
+      await page.goto(linkPage + '#' + token);
+      await page.waitForSelector('#owner-link-button:not([disabled])');
+      seen.redirects = [];
+      await page.click('#owner-link-button');
+      await page.waitForURL(tico.public + '/?a=1#/tasks');
+      assert.deepEqual(seen.redirects, [{from: 'POST /auth/owner-link', status: 303, to: '/?a=1#/tasks'}]);
+      console.log('the first 401: straight to the link page, which keeps where the app was and comes back there');
+      await context.unrouteAll({behavior: 'ignoreErrors'});   // the signed-in app is still fetching
       await context.close();
     }
   } finally {

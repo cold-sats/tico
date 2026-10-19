@@ -48,7 +48,7 @@ All notable changes to Tico are recorded here. The format follows
 - **Owner sign-in link for servers Tico hosts**: the setup wizard's `--hosted own|invited` signs the owner in with a
   link our team sends. It works once and for a week at most, only on an https domain under our zone, and is never
   printed or logged; `python3 -m setup owner-link` makes a new one and can sign the owner out everywhere. When a
-  session ends, Sign in again shows the link page, and a new link brings the owner back to the page they were on. With
+  session ends, Sign in again shows the link page, not an error. With
   `--preset recommended` the hosted server gets the recommended setup and its own computer. Every other sign-in is
   unchanged. ([Install](docs/install.md#sign-in))
 
