@@ -247,11 +247,14 @@ const A = (id, kind, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1'
     await page.waitForTimeout(200);
     assert.deepEqual(await frameH(), settled, `${label}: a height that is not a finite number is ignored, even from the card's own frame`);
     // the height a message sets is the one recorded first: the page then answers its new size with its real height
-    // (1/4's reporter reports again on resize), which it settles at
+    // (1/4's reporter reports again on resize), which it settles at. Each check waits until the page has stopped
+    // answering (no report for 500 ms), so a late answer cannot land in the next one.
+    await page.evaluate(() => { window.vhReports = 0; addEventListener('message', ev => { if (ev.data && 'ticoVisualHeight' in ev.data) window.vhReports++; }); });
+    const quiet = () => page.evaluate(() => new Promise(done => { let n = -1; const t = setInterval(() => { if (window.vhReports === n) { clearInterval(t); done(); } n = window.vhReports; }, 500); }));
     const clampTo = async v => {
       await hostile.evaluate(c => { const f = c.querySelector('iframe'); f.seen = []; f.mo = new MutationObserver(() => f.seen.push(f.style.height)); f.mo.observe(f, {attributes: true, attributeFilter: ['style']}); });
       await hostileFrame.evaluate(`parent.postMessage({ticoVisualHeight: ${v}}, '*')`);
-      await page.waitForTimeout(300);
+      await quiet();
       return hostile.evaluate(c => { const f = c.querySelector('iframe'); f.mo.disconnect(); return f.seen[0]; });
     };
     assert.equal(await clampTo('1e9'), '20000px', `${label}: a huge height is clamped to 20000`);
@@ -390,7 +393,7 @@ const A = (id, kind, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1'
     await noMove(false);
     const shortCard = m1.locator('figure.vcard[data-file="f-short"]');
     await shortCard.scrollIntoViewIfNeeded();
-    await page.waitForFunction(() => { const f = document.querySelector('[data-message="m1"] figure.vcard[data-file="f-short"] iframe'); return !f.visualRemeasure && f.getBoundingClientRect().height > 1; }, null, {timeout: 5000}).catch(() => {});
+    await page.waitForFunction(() => { const f = document.querySelector('[data-message="m1"] figure.vcard[data-file="f-short"] iframe'); return f.getBoundingClientRect().height > 1; }, null, {timeout: 5000}).catch(() => {});
     const settledShort = await shortCard.evaluate(c => [c.querySelector('.vcard-body'), c.querySelector('iframe')].map(e => Math.round(e.getBoundingClientRect().height)));
     console.log(`${label}: without moveBefore, the frame loaded ${rounds.map(r => r.loads)} time(s) over ten redraws; heights ${[...new Set(rounds.flatMap(r => r.heights))]}, then ${settledShort}`);
     assert(rounds.every(r => r.same && r.heights.every(h => Math.abs(h - moved.before) <= 1)) && settledShort.every(h => Math.abs(h - moved.before) <= 1),
@@ -404,7 +407,7 @@ const A = (id, kind, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1'
     const down = await redrawPage();
     await noMove(false);
     await shortCard.scrollIntoViewIfNeeded();
-    await page.waitForFunction(() => { const f = document.querySelector('[data-message="m1"] figure.vcard[data-file="f-short"] iframe'); return !f.visualRemeasure && f.getBoundingClientRect().height > 1; }, null, {timeout: 5000}).catch(() => {});
+    await page.waitForFunction(() => { const f = document.querySelector('[data-message="m1"] figure.vcard[data-file="f-short"] iframe'); return f.getBoundingClientRect().height > 1; }, null, {timeout: 5000}).catch(() => {});
     const downTo = await shortCard.evaluate(c => [c.querySelector('.vcard-body'), c.querySelector('iframe')].map(e => Math.round(e.getBoundingClientRect().height)));
     assert(down.heights.every(h => h === 200 || Math.abs(h - moved.before) <= 1) && downTo.every(h => Math.abs(h - moved.before) <= 1),
       `${label}: without moveBefore, a card pinned at 200 comes back down to ${moved.before} after a redraw ${JSON.stringify(down)} ${downTo}`);

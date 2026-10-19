@@ -92,13 +92,12 @@ function visualPageFill(card, frame) {
   visualPageSize(card, frame, Math.round(visualCap(card.querySelector('.vcard-body'))), true);
 }
 // Put back without moveBefore, a page's frame loads again: it waits without its address until it is laid out
-// (visualPageLoad), then loads 1px tall as at first while the card keeps its height, and the page's next report sets
-// the height again, down as well as up.
+// (visualPageLoad), then loads 1px tall as at first while the card keeps its height. What the page said before is
+// forgotten, so its next report sets the height again, down as well as up.
 VISUAL_MOVED.page = card => {
   const frame = card.querySelector('iframe.vcard-frame'), src = frame?.getAttribute('src');
   if (!src || frame.visualFill) return;
   frame.removeAttribute('src');
-  frame.visualRemeasure = true;
   frame.visualLast = undefined; frame.visualAsked = false; frame.visualEchoes = 0;
   frame.style.height = '1px';
   visualPageLoad(frame, src);
@@ -115,8 +114,7 @@ window.addEventListener('message', ev => {
   // (content, however small, measures its own height), or twice running it answered the frame taking the height it
   // said by saying more (content says the same height again, or nothing). The answer may come late: a frame off
   // screen is not laid out again until it is scrolled to.
-  const raw = Math.ceil(n), was = frame.visualRemeasure ? undefined : frame.visualHeight;
-  frame.visualRemeasure = false;
+  const raw = Math.ceil(n), was = frame.visualHeight;
   if (raw === frame.visualLast && was) return;
   const echo = frame.visualAsked && was && raw > was;
   frame.visualAsked = false;
