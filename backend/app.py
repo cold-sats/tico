@@ -718,7 +718,8 @@ def create_app(settings=None):
         request.state.auth_ms = 0.0
         app.state.timing.begin()
         # This request's SQL time and write-lock wait, added to by the threads it runs on (backend/flight.py).
-        cost, cost_token = flight.request_started() if recorder is not None else (None, None)
+        cost, cost_token = (flight.request_started(request.method, request.scope) if recorder is not None
+                            else (None, None))
         route = request.url.path
         response = None
         try:
@@ -1181,6 +1182,8 @@ def create_app(settings=None):
         refs = dict(body.refs or {})
         if body.command:
             refs["command"] = True
+        if body.needs_action:
+            refs["needs_action"] = True
         if in_assistant_room:
             refs["assistant"] = True           # the server's mark: this turn acts for the person
         conversation_id = body.conversation_id
@@ -1338,8 +1341,8 @@ def create_app(settings=None):
         def work(c):
             before, after = Providers.save(c, who.actor, body.model_dump(), H.now())
             H.event(c, who.actor, "providers.updated", "",
-                    {"before": {k: before[k] for k in ("enabled", "runtime", "model", "revision", "auto_fallback", "check_models")},
-                     "after": {k: after[k] for k in ("enabled", "runtime", "model", "revision", "auto_fallback", "check_models")}})
+                    {"before": {k: before[k] for k in ("enabled", "runtime", "model", "revision", "auto_fallback", "check_models", "preset")},
+                     "after": {k: after[k] for k in ("enabled", "runtime", "model", "revision", "auto_fallback", "check_models", "preset")}})
             return Providers.view(after)
         return mutate(request, body, work)
 
@@ -3177,9 +3180,13 @@ def create_app(settings=None):
             if ask:
                 wake = who.role == "bot" or who.actor in (row["owner"], row["requester"]) or moves
             else:
-                wake = H.comment_wakes(c, who.actor, row, body.text, mover=moves)
+                wake = H.comment_wakes(c, who.actor, row, body.text, mover=moves) or (
+                    who.role == "bot" and body.needs_action)
+            extra = {"attachments": attached, "files": [a["ref"] for a in attached]} if attached else {}
+            if body.needs_action:
+                extra["needs_action"] = True
             msg = H.task_comment(c, who.actor, task_id, body.text, wake=wake, ask=ask, public=body.public, approval_id=body.approval_id,
-                                 extra_refs={"attachments": attached, "files": [a["ref"] for a in attached]} if attached else None)
+                                 extra_refs=extra or None)
             for person in people:
                 H.task_comment(c, who.actor, task_id, body.text, wake=False, ask=H.mention_ask(body.text, person))
             for item in attached:
@@ -3190,7 +3197,8 @@ def create_app(settings=None):
             comments = visual_view(c, who, H.task_comments(c, task_id, actor=privacy.actor(request.state.identity)))
             msg = next(m for m in comments if m["id"] == msg["id"])
             held = H.held_note(c, msg.get("to_actor"))
-            return {"comment": msg, "comments": comments, "woke": bool(wake), **({"warning": held} if held else {}),
+            return {"comment": msg, "comments": comments,
+                    "woke": bool(wake) and not (msg.get("refs") or {}).get("can_wait"), **({"warning": held} if held else {}),
                     **({"visuals": report} if report else {})}
         result = mutate(request, body, work)
         if body.attachments:
@@ -3285,7 +3293,8 @@ def create_app(settings=None):
             from .task_review import comment_rights
             comment_rights(c, auth, who, row["id"])
             msg = H.task_comment_edit(c, who.actor, row["id"], mid, body.text, approval_id=body.approval_id)
-            return {"comment": msg, "comments": visual_view(c, request.state.identity, H.task_comments(
+            return {"comment": visual_view(c, request.state.identity, [msg])[0],
+                    "comments": visual_view(c, request.state.identity, H.task_comments(
                 c, row["id"], actor=privacy.actor(request.state.identity))), "woke": False}
         return mutate(request, body, work, check=lambda c: own_comment(c, who, tid, mid, allow_deleted=True))
 
@@ -3296,7 +3305,8 @@ def create_app(settings=None):
         def work(c):
             row = own_comment(c, who, tid, mid)
             msg = H.task_comment_delete(c, who.actor, row["id"], mid)
-            return {"comment": msg, "comments": visual_view(c, request.state.identity, H.task_comments(
+            return {"comment": visual_view(c, request.state.identity, [msg])[0],
+                    "comments": visual_view(c, request.state.identity, H.task_comments(
                 c, row["id"], actor=privacy.actor(request.state.identity))), "woke": False}
         return mutate(request, body, work, check=lambda c: own_comment(c, who, tid, mid, allow_deleted=True))
 
@@ -3316,7 +3326,7 @@ def create_app(settings=None):
         def work(c):
             row = readable(c)
             out = H.task_ask_resolve(c, who.actor, row["id"], mid, body.quote)
-            return {"comment": out["answer"] or out["ask"],
+            return {"comment": visual_view(c, who, [out["answer"] or out["ask"]])[0],
                     "comments": visual_view(c, who, H.task_comments(c, row["id"], actor=privacy.actor(who))), "woke": False}
         return mutate(request, body, work, check=readable)
 

@@ -22,7 +22,7 @@ VISUAL_SPACE.image = () => 'min-height:120px';
 VISUAL_SPACE.svg = () => 'aspect-ratio:4/3';
 // The frame starts 1px tall while the card holds the space: a page measures itself no smaller than its frame
 // (scrollHeight), so the first height it reports is its own, and a short page gets no blank below it.
-VISUAL_BODY.page = f => `<iframe class="vcard-frame" title="${visualTip(f)}" sandbox="${VISUAL_PAGE_SANDBOX}" credentialless referrerpolicy="no-referrer" scrolling="no" style="height:${VISUAL_PAGE_H.get(visualRef(f)) || 1}px" src="${esc(visualSrc(f))}"></iframe>
+VISUAL_BODY.page = f => `<iframe class="vcard-frame" title="${visualTip(f)}" sandbox="${VISUAL_PAGE_SANDBOX}" credentialless referrerpolicy="no-referrer" scrolling="no" style="height:${VISUAL_PAGE_H.get(visualRef(f)) || 1}px" data-src="${esc(visualSrc(f))}"></iframe>
   <div class="vcard-fade" aria-hidden="true"></div><button type="button" class="vcard-expand" data-vcard-act="expand">Expand</button>
   <button type="button" class="vcard-tap" data-vcard-act="expand" aria-label="Expand ${visualTip(f)}"></button>`;
 VISUAL_SPACE.page = f => {
@@ -64,6 +64,13 @@ function visualPageWire(card) {
   const ref = `${card.dataset.file}@${card.dataset.version}`, known = VISUAL_PAGE_H.get(ref);
   if (VISUAL_PAGE_FILL.has(ref)) visualPageFill(card, frame);
   else if (known) visualPageSize(card, frame, known);
+  visualPageLoad(frame, frame.dataset.src);
+}
+// A page's frame gets its address only once the page around it is laid out. Chromium can otherwise load the page
+// before the frame has its size, at 0x0 (a frame off screen, or put back by a redraw), where the page measures
+// taller (its lines wrap), and the frame taking that height then pins it there: a page measures at least its frame.
+function visualPageLoad(frame, src) {
+  requestAnimationFrame(() => requestAnimationFrame(() => { if (src && !frame.hasAttribute('src')) frame.setAttribute('src', src); }));
 }
 VISUAL_WIRE.page = visualPageWire;
 function visualPageSize(card, frame, h, fill = false) {
@@ -84,13 +91,24 @@ function visualPageFill(card, frame) {
   frame.visualFill = true;
   visualPageSize(card, frame, Math.round(visualCap(card.querySelector('.vcard-body'))), true);
 }
+// Put back without moveBefore, a page's frame loads again: it waits without its address until it is laid out
+// (visualPageLoad), then loads 1px tall as at first while the card keeps its height. What the page said before is
+// forgotten, so its next report sets the height again, down as well as up.
+VISUAL_MOVED.page = card => {
+  const frame = card.querySelector('iframe.vcard-frame'), src = frame?.getAttribute('src');
+  if (!src || frame.visualFill) return;
+  frame.removeAttribute('src');
+  frame.visualLast = undefined; frame.visualAsked = false; frame.visualEchoes = 0;
+  frame.style.height = '1px';
+  visualPageLoad(frame, src);
+};
 // The height a page reports, taken only from a card's own frame, as a number, clamped.
 window.addEventListener('message', ev => {
   const n = ev.data && typeof ev.data === 'object' ? ev.data.ticoVisualHeight : undefined;
   if (typeof n !== 'number' || !Number.isFinite(n) || !ev.source) return;
   const frame = [...document.querySelectorAll('iframe.vcard-frame')].find(x => x.contentWindow === ev.source);
   const card = frame?.closest('figure.vcard');
-  if (!card || frame.visualFill) return;
+  if (!card || frame.visualFill || !frame.offsetWidth) return;   // a frame shown at no width measures nothing real
   // A page measures at least its frame (scrollHeight), so a page smaller than its frame says the frame's height, as a
   // 100vh page does. What tells a page sized by the screen apart: in its first 1px frame it measured exactly 1px
   // (content, however small, measures its own height), or twice running it answered the frame taking the height it

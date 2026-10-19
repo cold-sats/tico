@@ -246,15 +246,27 @@ const A = (id, kind, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1'
     for (const v of ["'5000'", 'NaN', 'Infinity', '-Infinity', 'null', '{}', '[900]']) await hostileFrame.evaluate(`parent.postMessage({ticoVisualHeight: ${v}}, '*')`);
     await page.waitForTimeout(200);
     assert.deepEqual(await frameH(), settled, `${label}: a height that is not a finite number is ignored, even from the card's own frame`);
-    await hostileFrame.evaluate("parent.postMessage({ticoVisualHeight: 1e9}, '*')");
-    await page.waitForFunction(() => document.querySelector('figure.vcard[data-file="f-hostile"] iframe').visualHeight !== undefined
-      && document.querySelector('figure.vcard[data-file="f-hostile"] iframe').visualHeight > 1000, null, {timeout: 3000}).catch(() => {});
-    assert.deepEqual(await frameH(), [20000, 20000], `${label}: a huge height is clamped to 20000`);
-    await hostileFrame.evaluate("parent.postMessage({ticoVisualHeight: -50}, '*')");
+    // the height a message sets is the one recorded first: the page then answers its new size with its real height
+    // (1/4's reporter reports again on resize), which it settles at. Each check waits until the page has stopped
+    // answering (no report for 500 ms), so a late answer cannot land in the next one.
+    await page.evaluate(() => { window.vhReports = 0; addEventListener('message', ev => { if (ev.data && 'ticoVisualHeight' in ev.data) window.vhReports++; }); });
+    const quiet = () => page.evaluate(() => new Promise(done => { let n = -1; const t = setInterval(() => { if (window.vhReports === n) { clearInterval(t); done(); } n = window.vhReports; }, 500); }));
+    const clampTo = async v => {
+      await hostile.evaluate(c => { const f = c.querySelector('iframe'); f.seen = []; f.mo = new MutationObserver(() => f.seen.push(f.style.height)); f.mo.observe(f, {attributes: true, attributeFilter: ['style']}); });
+      await hostileFrame.evaluate(`parent.postMessage({ticoVisualHeight: ${v}}, '*')`);
+      await quiet();
+      return hostile.evaluate(c => { const f = c.querySelector('iframe'); f.mo.disconnect(); return f.seen[0]; });
+    };
+    assert.equal(await clampTo('1e9'), '20000px', `${label}: a huge height is clamped to 20000`);
+    assert.equal(await clampTo('-50'), '24px', `${label}: a negative height is clamped to 24`);
+    // a frame shown at no width measures nothing real: its report is dropped
+    const shown = await hostile.evaluate(c => c.querySelector('iframe').visualHeight);
+    await hostile.evaluate(c => { c.style.display = 'none'; });
+    await hostileFrame.evaluate("parent.postMessage({ticoVisualHeight: 900}, '*')");
     await page.waitForTimeout(200);
-    assert.deepEqual(await frameH(), [24, 24], `${label}: a negative height is clamped to 24`);
-    await hostileFrame.evaluate(`parent.postMessage({ticoVisualHeight: ${settled[0]}}, '*')`);
-    await page.waitForTimeout(200);
+    const hidden = await hostile.evaluate(c => c.querySelector('iframe').visualHeight);
+    await hostile.evaluate(c => { c.style.display = ''; });
+    assert.equal(hidden, shown, `${label}: a height from a frame shown at no width is dropped`);
     await noSideways('chat');
 
     // ---- a link in a page opens a new tab only when clicked; the conversation stays
@@ -373,11 +385,32 @@ const A = (id, kind, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1'
     const moved = await redrawPage();
     console.log(`${label}: a kept page card's frame loaded ${moved.loads} time(s) on a redraw (moveBefore); heights ${moved.heights}`);
     assert.deepEqual([moved.same, moved.loads, moved.heights], [true, 0, [moved.before]], `${label}: a kept page card is the same frame, not loaded again, and holds its height through a redraw ${JSON.stringify(moved)}`);
+    // without moveBefore (WebKit: iPhone Safari, the Mac app) the frame loads again on each redraw, and the card still
+    // holds its height through ten of them; the page, scrolled to, settles at its own height again (lead, Oct 19)
     await noMove(true);
-    const putBack = await redrawPage();
+    const rounds = [];
+    for (let i = 0; i < 10; i++) rounds.push(await redrawPage());
     await noMove(false);
-    console.log(`${label}: without moveBefore, a kept page card's frame loaded ${putBack.loads} time(s) on a redraw; heights ${putBack.before} -> ${putBack.heights}`);
-    assert(putBack.same, `${label}: without moveBefore, a kept page card is still the same frame`);
+    const shortCard = m1.locator('figure.vcard[data-file="f-short"]');
+    await shortCard.scrollIntoViewIfNeeded();
+    await page.waitForFunction(() => { const f = document.querySelector('[data-message="m1"] figure.vcard[data-file="f-short"] iframe'); return f.getBoundingClientRect().height > 1; }, null, {timeout: 5000}).catch(() => {});
+    const settledShort = await shortCard.evaluate(c => [c.querySelector('.vcard-body'), c.querySelector('iframe')].map(e => Math.round(e.getBoundingClientRect().height)));
+    console.log(`${label}: without moveBefore, the frame loaded ${rounds.map(r => r.loads)} time(s) over ten redraws; heights ${[...new Set(rounds.flatMap(r => r.heights))]}, then ${settledShort}`);
+    assert(rounds.every(r => r.same && r.heights.every(h => Math.abs(h - moved.before) <= 1)) && settledShort.every(h => Math.abs(h - moved.before) <= 1),
+      `${label}: without moveBefore, a page card at ${moved.before} holds it through ten redraws and settles there ${JSON.stringify(rounds)} ${settledShort}`);
+    // and the page loaded again sets the height down as well as up: a card pinned taller than its page (200, as a page
+    // measured at no width would leave it) comes back to the page's own height after a redraw, holding 200 until then
+    const shortFrame = page.frames().find(f => f.url().includes('tok-f-short'));
+    await shortFrame.evaluate("parent.postMessage({ticoVisualHeight: 200}, '*')");
+    await page.waitForFunction(() => document.querySelector('[data-message="m1"] figure.vcard[data-file="f-short"] iframe').visualHeight === 200, null, {timeout: 3000});
+    await noMove(true);
+    const down = await redrawPage();
+    await noMove(false);
+    await shortCard.scrollIntoViewIfNeeded();
+    await page.waitForFunction(() => { const f = document.querySelector('[data-message="m1"] figure.vcard[data-file="f-short"] iframe'); return f.getBoundingClientRect().height > 1; }, null, {timeout: 5000}).catch(() => {});
+    const downTo = await shortCard.evaluate(c => [c.querySelector('.vcard-body'), c.querySelector('iframe')].map(e => Math.round(e.getBoundingClientRect().height)));
+    assert(down.heights.every(h => h === 200 || Math.abs(h - moved.before) <= 1) && downTo.every(h => Math.abs(h - moved.before) <= 1),
+      `${label}: without moveBefore, a card pinned at 200 comes back down to ${moved.before} after a redraw ${JSON.stringify(down)} ${downTo}`);
 
     // ---- live: a new message comes on the event stream; the snapshot read again signs every address afresh. A card
     // already on screen keeps its node and its height and takes the new address; the new message's cards show.

@@ -16,6 +16,7 @@ import secrets
 import stat
 import time
 from html.parser import HTMLParser
+from pathlib import Path
 from urllib.parse import urlsplit
 
 # What may show inline, by stored type; anything else, or bigger, is a normal file chip.
@@ -52,6 +53,9 @@ def kind_of(mime, size, head=b""):
 LOADS = {"src", "srcset", "poster", "background", "data", "action", "formaction", "codebase", "cite", "longdesc",
          "manifest", "ping", "lowsrc", "dynsrc", "archive", "imagesrcset"}
 DROPPED_TAGS = {"script", "iframe", "frame", "frameset", "object", "embed", "applet", "base", "noscript"}
+# Of those, the ones whose whole subtree goes too. embed, frame and base are void: they have no end tag, so dropping
+# one drops only that tag and the page after it stays.
+SKIPPED_SUBTREES = DROPPED_TAGS - {"embed", "frame", "base"}
 CSS_URL = re.compile(r"""url\(\s*(['"]?)(.*?)\1\s*\)""", re.I | re.S)
 CSS_IMPORT = re.compile(r"""@import\s+(?:url\(\s*)?(['"]?)([^'")\s;]+)\1\s*\)?[^;]*;?""", re.I)
 ATTR = re.compile(r"""(\s+)([^\s=/>"']+)(?:(\s*=\s*)("[^"]*"|'[^']*'|[^\s>"']+))?""")
@@ -65,7 +69,8 @@ def loads_nothing(value):
 class _Cleaner(HTMLParser):
     def __init__(self, base_target):
         super().__init__(convert_charrefs=False)
-        self.out, self.unembedded, self.skip, self.style = [], [], 0, 0
+        # `skip`: the dropped containers still open, innermost last; content is dropped while any is open.
+        self.out, self.unembedded, self.skip, self.style = [], [], [], 0
         self.base_target = base_target
         self.based = False
         self.case = {}                                      # SVG is XML: end tags keep their start tag's case
@@ -119,8 +124,8 @@ class _Cleaner(HTMLParser):
                 for _, key, _, value in ATTR.findall(raw[len(name) + 1:]):
                     if key.lower() == "href" and value and not loads_nothing(value.strip("\"'")):
                         self.note(value.strip("\"'"))
-            elif not closing and lowered not in ("base",):
-                self.skip += 1
+            elif not closing and lowered in SKIPPED_SUBTREES:
+                self.skip.append(lowered)
             return
         if lowered == "meta" and re.search(r"http-equiv\s*=\s*['\"]?\s*refresh", raw, re.I):
             return
@@ -178,8 +183,8 @@ class _Cleaner(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         if self.skip:
-            if tag in DROPPED_TAGS and tag != "base":
-                self.skip += 1
+            if tag in SKIPPED_SUBTREES:
+                self.skip.append(tag)
             return
         text, name = self.raw_name()
         self.tag(text, name, False)
@@ -192,8 +197,8 @@ class _Cleaner(HTMLParser):
 
     def handle_endtag(self, tag):
         if tag in DROPPED_TAGS:
-            if tag != "base" and self.skip:
-                self.skip -= 1
+            if tag in self.skip:                            # closes it and anything left open inside it
+                del self.skip[len(self.skip) - 1 - self.skip[::-1].index(tag):]
             return
         if self.skip:
             return
@@ -249,10 +254,10 @@ def loading_references(data):
 
 # ---------------------------------------------------------------------------------------------- reporter
 # The one script a visual page runs (lead, Oct 19): it tells the frame around it how tall the page is. Its hash is
-# the only script the page's content policy allows, so the page's own scripts and inline handlers stay dead.
-REPORTER = ("(function(){function s(){parent.postMessage({ticoVisualHeight:Math.ceil("
-            "document.documentElement.scrollHeight)},'*')}addEventListener('load',s);"
-            "if(window.ResizeObserver)new ResizeObserver(s).observe(document.documentElement)})();")
+# the only script the page's content policy allows, so the page's own scripts and inline handlers stay dead. A frame
+# laid out at zero width reports an inflated height the app cannot shrink back from, so it sends nothing until the
+# page has a width and reports again on every resize (ui/tests/visual-reporter.cjs runs the same file).
+REPORTER = Path(__file__).with_name("visual-reporter.js").read_text().strip()
 REPORTER_HASH = "sha256-" + base64.b64encode(hashlib.sha256(REPORTER.encode()).digest()).decode()
 
 
@@ -394,6 +399,8 @@ def attach(c, who, files, blobs, items, *, task_id=None, conversation_id=None):
         digest = version.get("digest")
         mime = (version.get("mime") or "").split(";", 1)[0].strip().lower()
         kind = kind_of(mime, version.get("size"), _head(blobs, digest) if digest else b"")
+        if not c.execute("SELECT 1 FROM bot_files WHERE id=?", (fid,)).fetchone():
+            kind = "file"           # a legacy task attachment (task_assets) is not a versioned file: it stays a chip
         unembedded = []
         if kind in ("page", "svg"):
             data = blobs.get(digest)

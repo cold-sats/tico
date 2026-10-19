@@ -682,8 +682,9 @@ class Store:
             c.executescript(_watchers.SCHEMA)
             from . import health_monitor as _health_monitor
             c.executescript(_health_monitor.SCHEMA)
-            # When a finding last woke the Health Monitor: a return within a day counts but wakes nothing.
+            # When a finding last woke the Health Monitor, and how bad it is: a rise wakes it (backend/health_monitor.py).
             H.add_column(c, "health_findings", "last_woke", "TEXT NOT NULL DEFAULT ''")
+            H.add_column(c, "health_findings", "severity", "TEXT NOT NULL DEFAULT 'warn'")
             from . import slack_channels as _slack_channels
             c.executescript(_slack_channels.SCHEMA)
             from . import flight as _flight
@@ -1198,6 +1199,10 @@ class Store:
                 # Who asked a running turn to stop (backend/execution.py stop); the runner reads it on its next
                 # lease renewal. Unversioned like the key scope: an older release never reads the column.
                 H.add_column(c, "attempts", "stop_requested", "TEXT")
+                # Which gateway key the attempt's runner was handed (gateway_connection.run_credentials_for): what its
+                # Gateway segments are recorded under, even if the key is rotated or cleared before the run ends.
+                # NULL with none handed. Unversioned like stop_requested.
+                H.add_column(c, "attempts", "gateway_key_id", "TEXT")
                 # A queued message a person sent with Stop and redirect (backend/execution.py stop): it is claimed
                 # before the bot's other queued work once the stopped turn ends. Unversioned like stop_requested.
                 H.add_column(c, "jobs", "redirect", "INTEGER NOT NULL DEFAULT 0")
@@ -1239,6 +1244,9 @@ class Store:
                                    ("attempts_bot_finished", "attempts(bot, finished)"),
                                    ("attempts_job", "attempts(job_id)"),
                                    ("attempts_runner_state", "attempts(runner_id, state)"),
+                                   # The turns a computer ran in a window, read under the write lock by an
+                                   # open overload (backend/performance.py `_runs`).
+                                   ("attempts_runner_finished", "attempts(runner_id, finished)"),
                                    # A computer asking after the tasks its session checkouts are kept for.
                                    ("attempts_bot_lane", "attempts(bot, lane)"),
                                    ("events_action_target", "events(action, target, ts)"),
