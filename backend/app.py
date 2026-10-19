@@ -3292,7 +3292,8 @@ def create_app(settings=None):
             from .task_review import comment_rights
             comment_rights(c, auth, who, row["id"])
             msg = H.task_comment_edit(c, who.actor, row["id"], mid, body.text, approval_id=body.approval_id)
-            return {"comment": msg, "comments": visual_view(c, request.state.identity, H.task_comments(
+            return {"comment": visual_view(c, request.state.identity, [msg])[0],
+                    "comments": visual_view(c, request.state.identity, H.task_comments(
                 c, row["id"], actor=privacy.actor(request.state.identity))), "woke": False}
         return mutate(request, body, work, check=lambda c: own_comment(c, who, tid, mid, allow_deleted=True))
 
@@ -3303,7 +3304,8 @@ def create_app(settings=None):
         def work(c):
             row = own_comment(c, who, tid, mid)
             msg = H.task_comment_delete(c, who.actor, row["id"], mid)
-            return {"comment": msg, "comments": visual_view(c, request.state.identity, H.task_comments(
+            return {"comment": visual_view(c, request.state.identity, [msg])[0],
+                    "comments": visual_view(c, request.state.identity, H.task_comments(
                 c, row["id"], actor=privacy.actor(request.state.identity))), "woke": False}
         return mutate(request, body, work, check=lambda c: own_comment(c, who, tid, mid, allow_deleted=True))
 
@@ -3323,7 +3325,7 @@ def create_app(settings=None):
         def work(c):
             row = readable(c)
             out = H.task_ask_resolve(c, who.actor, row["id"], mid, body.quote)
-            return {"comment": out["answer"] or out["ask"],
+            return {"comment": visual_view(c, who, [out["answer"] or out["ask"]])[0],
                     "comments": visual_view(c, who, H.task_comments(c, row["id"], actor=privacy.actor(who))), "woke": False}
         return mutate(request, body, work, check=readable)
 

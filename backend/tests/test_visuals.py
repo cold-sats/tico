@@ -175,6 +175,25 @@ def test_a_reader_who_loses_access_loses_the_address_on_the_next_request(api):
     assert item["removed"] and "src" not in item
 
 
+def test_a_reader_taken_off_a_private_task_is_refused_the_next_range_with_their_old_address(api):
+    """The claim Review 2 and Security lean on: the address is checked against the reader's access on every request,
+    each byte range included, so losing access ends it at once, not when the token expires."""
+    tid = post(api, "tasks", {"owner": "ops", "title": "Cara's chart", "body": "x", "private": True}, "cara-test")["id"]
+    made = api.post(f"/api/v2/tasks/{tid}/files", json={"name": "chart.png", "content_base64": base64.b64encode(PNG).decode()},
+                    headers=headers("cara-test"))
+    assert made.status_code == 200, made.text
+    r = api.post(f"/api/v2/tasks/{tid}/comments", json={"text": "chart", "attachments": [
+        f"{made.json()['file_id']}@{made.json()['version']}"]}, headers=headers("cara-test"))
+    assert r.status_code == 200, r.text
+    src = r.json()["comment"]["refs"]["attachments"][0]["src"]
+    assert api.get(src, headers={"Range": "bytes=0-1"}).status_code == 206
+    with api.app.state.store.transaction() as c:                # the task is handed to Ben: Cara no longer reads it
+        c.execute("UPDATE tasks SET requester='human:ben' WHERE id=?", (tid,))
+    assert api.get(f"/api/v2/tasks/{tid}/comments", headers=headers("cara-test")).status_code in (403, 404)
+    for request in ({"Range": "bytes=0-1"}, {"Range": "bytes=4-9"}, {}):
+        assert api.get(src, headers=request).status_code == 404
+
+
 def test_a_chat_visual_is_refused_to_everyone_outside_the_chat(api):
     _, attempt = turn(api)
     fid, _ = png(api, attempt)
@@ -238,6 +257,59 @@ def test_the_snapshot_and_the_live_stream_give_each_reader_the_visual_and_nobody
                          and (e["data"].get("message") or {}).get("id") == sent["comment"]["id"])
     [item] = event["data"]["message"]["refs"]["attachments"]
     assert item["title"] == "Next" and item["removed"] is False and api.get(item["src"]).status_code == 200
+
+
+def test_dropping_an_embed_or_frame_keeps_the_rest_of_the_page():
+    """embed and frame have no end tag: dropping one must not drop what follows, alone or inside a dropped object."""
+    for page in ('<p>before</p><embed src="old.pdf"><p>after</p>',
+                 '<p>before</p><object data="x.swf"><embed src="y.swf"><p>fallback</p></object><p>after</p>',
+                 '<p>before</p><frame src="f.html"><p>after</p>'):
+        cleaned, unembedded = V.clean(page.encode(), "page", base=False)
+        assert b"<p>before</p>" in cleaned and b"<p>after</p>" in cleaned, cleaned
+        assert b"embed" not in cleaned and b"frame" not in cleaned and b"object" not in cleaned
+        assert b"fallback" not in cleaned                    # a dropped container's own content still goes
+
+
+def test_unquoted_src_and_both_srcset_forms_are_embedded_and_survive_the_server(tmp_path):
+    """Spec 2 for ordinary HTML: every local image a browser would load ends up a data: URI the server keeps."""
+    from clients import visual_embed
+    (tmp_path / "a.png").write_bytes(PNG)
+    other = b"\x89PNG\r\n\x1a\n" + b"\x01" * 64
+    (tmp_path / "b.png").write_bytes(other)
+    (tmp_path / "page.html").write_text('<img src=a.png><img src=\'b.png\'><img srcset="a.png 1x,b.png 2x">'
+                                        '<img srcset="b.png 1x, a.png 2x">')
+    data, embedded, unembedded = visual_embed.embed(tmp_path, "page.html")
+    assert unembedded == [] and b"a.png" not in data and b"b.png" not in data
+    cleaned, removed = V.clean(data, "page", base=False)
+    assert removed == []
+    for image in (PNG, other):
+        assert cleaned.count(base64.b64encode(image).decode().encode()) == 3
+
+
+def test_an_older_task_attachment_stays_a_plain_file(api):
+    """A task attachment from before versioned files (task_assets) is still attached, as the plain file it was:
+    a picture, a clean page and a page cleaning would change all post, none becomes a visual or is marked removed."""
+    from backend.auth import Identity
+    from backend.blobs import register
+    tid = post(api, "tasks", {"owner": "ops", "title": "Old files", "body": "x", "private": False}, "ben-test")["id"]
+    refs = []
+    for name, data, mime in (("old.png", PNG, "image/png"), ("clean.html", b"<p>report</p>", "text/html"),
+                             ("remote.html", b'<img src="remote.png"><p>report</p>', "text/html")):
+        digest = api.app.state.blobs.put(data, mime)
+        with api.app.state.store.transaction() as c:
+            old = register(c, Identity("human:ben", "admin"), digest, len(data), name, mime)
+            c.execute("INSERT INTO task_assets VALUES(?,?)", (tid, old["id"]))
+        refs.append(f"{old['id']}@1")
+    r = api.post(f"/api/v2/tasks/{tid}/comments", json={"text": "old ones", "attachments": refs},
+                 headers=headers("ben-test"))
+    assert r.status_code == 200, r.text
+    listed = api.get(f"/api/v2/tasks/{tid}/comments", headers=headers("ben-test")).json()["comments"]
+    for read in (r.json()["comment"], next(m for m in listed if m["id"] == r.json()["comment"]["id"])):
+        items = read["refs"]["attachments"]
+        assert [a["ref"] for a in items] == refs and {a["kind"] for a in items} == {"file"}
+        assert not any("src" in a or a.get("removed") for a in items)
+    for ref in refs:                                             # the bytes are as they were: nothing was rewritten
+        assert api.get("/api/v2/files/" + ref.split("@")[0], headers=headers("ben-test")).status_code == 200
 
 
 # ---------------------------------------------------------------------------------------------- serving (22)
@@ -332,6 +404,8 @@ def test_a_persons_chat_upload_is_a_titled_versioned_visual_too(api):
                  files={"files": ("sketch.png", PNG, "image/png")}, headers=headers("ben-test", "k-visual-1"))
     assert r.status_code == 200, r.text
     message = r.json()["message"]
+    [now] = message["refs"]["attachments"]                                    # the upload's own response
+    assert now["src"].startswith("/visuals/") and (now["current_version"], now["removed"]) == (1, False)
     read = api.get("/api/v2/messages/" + message["id"], headers=headers("ben-test")).json()
     [item] = read["refs"]["attachments"]
     assert item["url"] == "/api/v2/files/" + item["id"]                     # unchanged for today's chips

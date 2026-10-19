@@ -52,6 +52,9 @@ def kind_of(mime, size, head=b""):
 LOADS = {"src", "srcset", "poster", "background", "data", "action", "formaction", "codebase", "cite", "longdesc",
          "manifest", "ping", "lowsrc", "dynsrc", "archive", "imagesrcset"}
 DROPPED_TAGS = {"script", "iframe", "frame", "frameset", "object", "embed", "applet", "base", "noscript"}
+# Of those, the ones whose whole subtree goes too. embed, frame and base are void: they have no end tag, so dropping
+# one drops only that tag and the page after it stays.
+SKIPPED_SUBTREES = DROPPED_TAGS - {"embed", "frame", "base"}
 CSS_URL = re.compile(r"""url\(\s*(['"]?)(.*?)\1\s*\)""", re.I | re.S)
 CSS_IMPORT = re.compile(r"""@import\s+(?:url\(\s*)?(['"]?)([^'")\s;]+)\1\s*\)?[^;]*;?""", re.I)
 ATTR = re.compile(r"""(\s+)([^\s=/>"']+)(?:(\s*=\s*)("[^"]*"|'[^']*'|[^\s>"']+))?""")
@@ -65,7 +68,8 @@ def loads_nothing(value):
 class _Cleaner(HTMLParser):
     def __init__(self, base_target):
         super().__init__(convert_charrefs=False)
-        self.out, self.unembedded, self.skip, self.style = [], [], 0, 0
+        # `skip`: the dropped containers still open, innermost last; content is dropped while any is open.
+        self.out, self.unembedded, self.skip, self.style = [], [], [], 0
         self.base_target = base_target
         self.based = False
         self.case = {}                                      # SVG is XML: end tags keep their start tag's case
@@ -119,8 +123,8 @@ class _Cleaner(HTMLParser):
                 for _, key, _, value in ATTR.findall(raw[len(name) + 1:]):
                     if key.lower() == "href" and value and not loads_nothing(value.strip("\"'")):
                         self.note(value.strip("\"'"))
-            elif not closing and lowered not in ("base",):
-                self.skip += 1
+            elif not closing and lowered in SKIPPED_SUBTREES:
+                self.skip.append(lowered)
             return
         if lowered == "meta" and re.search(r"http-equiv\s*=\s*['\"]?\s*refresh", raw, re.I):
             return
@@ -178,8 +182,8 @@ class _Cleaner(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         if self.skip:
-            if tag in DROPPED_TAGS and tag != "base":
-                self.skip += 1
+            if tag in SKIPPED_SUBTREES:
+                self.skip.append(tag)
             return
         text, name = self.raw_name()
         self.tag(text, name, False)
@@ -192,8 +196,8 @@ class _Cleaner(HTMLParser):
 
     def handle_endtag(self, tag):
         if tag in DROPPED_TAGS:
-            if tag != "base" and self.skip:
-                self.skip -= 1
+            if tag in self.skip:                            # closes it and anything left open inside it
+                del self.skip[len(self.skip) - 1 - self.skip[::-1].index(tag):]
             return
         if self.skip:
             return
@@ -394,6 +398,8 @@ def attach(c, who, files, blobs, items, *, task_id=None, conversation_id=None):
         digest = version.get("digest")
         mime = (version.get("mime") or "").split(";", 1)[0].strip().lower()
         kind = kind_of(mime, version.get("size"), _head(blobs, digest) if digest else b"")
+        if not c.execute("SELECT 1 FROM bot_files WHERE id=?", (fid,)).fetchone():
+            kind = "file"           # a legacy task attachment (task_assets) is not a versioned file: it stays a chip
         unembedded = []
         if kind in ("page", "svg"):
             data = blobs.get(digest)

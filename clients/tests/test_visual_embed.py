@@ -67,3 +67,46 @@ def test_a_server_side_tool_never_reads_a_local_path():
         hubtools._visuals(ServerApi(), [{"path": "/etc/passwd"}], lambda *a: None)
     assert hubtools._visuals(ServerApi(), [{"file": "f@1", "title": "T"}], lambda *a: None) == \
         ([{"ref": "f@1", "title": "T"}], [])
+
+
+def test_two_files_sharing_a_name_are_two_uploads_and_a_retry_repeats_each(tmp_path, monkeypatch):
+    """With an operation id, each visual's upload has its own idempotency key: two chart.png files from different
+    folders both upload (the server refuses a key reused for other bytes), and resending the same operation repeats
+    each upload's own key, so it gets the same files back."""
+    import hashlib
+    import json
+    from clients import bot_files as BF
+    (tmp_path / "before").mkdir()
+    (tmp_path / "after").mkdir()
+    (tmp_path / "before" / "chart.png").write_bytes(PNG)
+    (tmp_path / "after" / "chart.png").write_bytes(PNG + b"after")
+    monkeypatch.setattr(BF, "checkout_root", lambda: tmp_path)
+
+    class Api:                                              # the server's mutation rule: one key, one request body
+        def __init__(self):
+            self.seen, self.uploads = {}, 0
+
+        def post_multipart(self, *a, **k):
+            raise AssertionError("not used")
+
+        def post(self, path, body, key=None):
+            digest = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
+            if key in self.seen:
+                if self.seen[key][0] != digest:
+                    raise RuntimeError("409 idempotency key reused with a different request")
+                return self.seen[key][1]
+            if path == "files/uploads":
+                self.uploads += 1
+                result = {"file_id": f"file-{self.uploads}", "version": 1}
+            else:
+                result = {"id": "m1", "attachments": body.get("attachments")}
+            if key:
+                self.seen[key] = (digest, result)
+            return result
+
+    api = Api()
+    args = {"to": "human:ben", "text": "Before and after", "operation_id": "op-1",
+            "visuals": [{"path": "before/chart.png", "title": "Before"}, {"path": "after/chart.png", "title": "After"}]}
+    first = hubtools._message_send(api, dict(args))
+    assert first["attachments"] == [{"ref": "file-1@1", "title": "Before"}, {"ref": "file-2@1", "title": "After"}]
+    assert hubtools._message_send(api, dict(args)) == first and api.uploads == 2

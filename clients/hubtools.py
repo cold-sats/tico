@@ -132,10 +132,12 @@ VISUALS = {"type": "array", "maxItems": 10, "description": (
 
 
 def _visuals(api, items, upload):
-    """(attachments for the API, what stayed unembedded locally) from `visuals` items. `upload(name, body)` puts one
-    local file where the message goes and returns "<file id>@<version>"."""
+    """(attachments for the API, what stayed unembedded locally) from `visuals` items. `upload(index, body)` puts one
+    local file where the message goes and returns "<file id>@<version>". `index` is the item's place in the list: it
+    names that upload in the operation's idempotency key, so two files sharing a name are two uploads, and a retry of
+    the same send repeats each one's own key."""
     out, local = [], []
-    for item in items or []:
+    for index, item in enumerate(items or []):
         title = str(item.get("title") or "")
         if item.get("file"):
             out.append({"ref": item["file"], "title": title})
@@ -156,7 +158,7 @@ def _visuals(api, items, upload):
             body = {"name": path.name, "text": data.decode("utf-8")}
         except UnicodeDecodeError:
             body = {"name": path.name, "content_base64": base64.b64encode(data).decode()}
-        out.append({"ref": upload(path.name, body), "title": title})
+        out.append({"ref": upload(str(index), body), "title": title})
     return out, local
 
 
@@ -204,8 +206,8 @@ def _message_send(api, args):
                                      "conversation_id": None, "refs": {},
                                      **({"needs_action": True} if args.get("needs_action") else {})}, key=_key(args))
     attachments, local = _visuals(api, args.get("visuals"),
-                                  lambda name, body: _uploaded(api.post("files/uploads", body,
-                                                                        key=_key(args, ":visual:" + name))))
+                                  lambda index, body: _uploaded(api.post("files/uploads", body,
+                                                                         key=_key(args, ":visual:" + index))))
     sent = api.post("messages", {"to": args["to"], "text": args["text"], "kind": "steer" if args.get("steer") else "say",
                                  "conversation_id": args.get("conversation_id"),
                                  "in_reply_to": args.get("in_reply_to"),
@@ -910,8 +912,8 @@ def task_comment(api, args):
     body = {k: args[k] for k in ("text", "ask", "attachments", "public", "approval_id", "needs_action") if k in args}
     local = []
     if args.get("visuals"):
-        added, local = _visuals(api, args["visuals"], lambda name, made: _uploaded(
-            api.post(f"tasks/{args['id']}/files", made, key=_key(args, ":visual:" + name))))
+        added, local = _visuals(api, args["visuals"], lambda index, made: _uploaded(
+            api.post(f"tasks/{args['id']}/files", made, key=_key(args, ":visual:" + index))))
         body["attachments"] = list(body.get("attachments") or []) + added
     links = s3links.apply(api, body, ("text",))
     result = s3links.annotate(_asked(api, args).post(f"tasks/{args['id']}/comments", body, key=_key(args)), links)

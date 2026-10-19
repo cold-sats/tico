@@ -474,7 +474,7 @@ def install_media(app, store, auth, mutate, send_message, task_create):
                 refs = {**message["refs"], "attachments": items}
                 c.execute("UPDATE messages SET refs_json=? WHERE id=?", (encode(refs), message["id"]))
             return {"conversation": H.conversation(c, message["conversation_id"]),
-                    "message": H.message(c, message["id"])}
+                    "message": visuals.for_reader(app, store.settings, c, who, [H.message(c, message["id"])])[0]}
         return await asyncio.to_thread(write, request, body, uploads, work)
 
     @app.post("/api/v2/uploads/tasks", openapi_extra=upload_contract(M.TaskCreate))
