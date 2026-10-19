@@ -8,6 +8,13 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Quiet work stays visible and comes back**: a task filed for a bot's next run now says where it stands, on the task
+  and in `hub task show` (`quiet`): eligible (the next run carries it), delivered (which run took it and when, and
+  until what it was deferred) or queued (a run of its own). A run that will not do a carried task now says when to
+  pick it up with `hub task defer <id> --after <task> | --at <time> | --next-run`, and the task gets one run of its own
+  then. A run that ends without working a carried task or saying when hands it back to the next run instead of
+  keeping it. The Health Monitor names a quiet task handed to a run over two hours ago and not worked since
+  ([Leave work for the next run](docs/using-tico.md#leave-work-for-the-next-run)).
 - **Recommended setup** in the installer: `sh install.sh --recommended` is the quick start with the sample company,
   your Claude and ChatGPT subscriptions plus Tico Gateway, Tico Support on and a computer on the server, so the only
   setup left is signing in to Claude and ChatGPT in Settings > Computers. Run on a terminal with no options, the
