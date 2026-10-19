@@ -125,6 +125,12 @@ All notable changes to Tico are recorded here. The format follows
   ([Computers](docs/computers.md#remove-a-subscription)).
 
 ### Fixed
+- **A task's chat shows your message being answered, whichever bot answers it.** After you send a message on a task,
+  the task's chat shows the same line as a bot's chat: Sent, Queued (and why, when the bot is busy or at a limit),
+  Starting, "<Bot> is working" with its latest step, then the reply, or "Reply failed" when the turn errors. This now
+  follows the bot your message went to, such as the bot that asked you on a task you own, not only the task's owner.
+  Before you send, the message box says when no bot will get the message, or when it waits for the bot's next run on
+  the task.
 - **Computers: a cleared key reads "No key · Add key"**, not "Signed out · Sign in", in a computer's pop-up, and its
   chip's hover says No key. On an offline computer, a connection's **Replace key**, **Clear key**, **Switch to
   subscription**, **Sign out** and **Switch account** stay on the line, disabled, with "Computer is offline", instead
