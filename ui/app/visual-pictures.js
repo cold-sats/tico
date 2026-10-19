@@ -11,7 +11,6 @@ const VISUAL_PAGE_MAX = 20000;               // px: a reported height is clamped
 const VISUAL_PAGE_WAIT = 2500;               // ms after the frame loads with no height: it did not render
 const VISUAL_PAGE_H = new Map();             // "<file>@<version>" -> the height its page last reported (no jump on redraw)
 const VISUAL_PAGE_FILL = new Set();          // "<file>@<version>" of pages sized by the screen (visualPageFill)
-const VISUAL_PAGE_ECHO = 1000;               // ms: a report this soon after the frame changed height answers that change
 
 const visualTip = f => esc(visualTitle(f));
 function visualPictureBody(f) {
@@ -69,7 +68,7 @@ function visualPageWire(card) {
 VISUAL_WIRE.page = visualPageWire;
 function visualPageSize(card, frame, h, fill = false) {
   const body = card.querySelector('.vcard-body');
-  if (frame.visualHeight !== h) frame.visualResized = performance.now();
+  if (frame.visualHeight !== h) frame.visualAsked = true;     // the page's next report answers this change
   frame.visualHeight = h;
   frame.style.height = h + 'px';             // the whole page: no scrollbar inside the frame
   body.style.height = h + 'px';              // the card: up to the cap (max-height), then fade + Expand
@@ -92,18 +91,33 @@ window.addEventListener('message', ev => {
   const frame = [...document.querySelectorAll('iframe.vcard-frame')].find(x => x.contentWindow === ev.source);
   const card = frame?.closest('figure.vcard');
   if (!card || frame.visualFill) return;
-  // Sized by the screen: from its first 1px frame it measured next to nothing, or twice running it answered the
-  // frame's new height by growing to that height or more. A page sized by its content does not grow when only its
-  // frame changes (it may say the same height again: the reporter speaks on load and when it starts watching).
+  // A page measures at least its frame (scrollHeight), so a page smaller than its frame says the frame's height, as a
+  // 100vh page does. What tells a page sized by the screen apart: in its first 1px frame it measured exactly 1px
+  // (content, however small, measures its own height), or twice running it answered the frame taking the height it
+  // said by saying more (content says the same height again, or nothing). The answer may come late: a frame off
+  // screen is not laid out again until it is scrolled to.
   const raw = Math.ceil(n), was = frame.visualHeight;
   if (raw === frame.visualLast && was) return;
-  const echo = was && raw >= was && raw > (frame.visualLast || 0) && performance.now() - (frame.visualResized || 0) < VISUAL_PAGE_ECHO;
+  const echo = frame.visualAsked && was && raw > was;
+  frame.visualAsked = false;
   frame.visualLast = raw;
   frame.visualEchoes = echo ? (frame.visualEchoes || 0) + 1 : 0;
-  if ((!was && raw < 24) || frame.visualEchoes >= 2) { visualPageFill(card, frame); return; }
+  if ((!was && raw <= 1) || frame.visualEchoes >= 2) { visualPageFill(card, frame); return; }
   const h = Math.max(24, Math.min(raw, VISUAL_PAGE_MAX));
   VISUAL_PAGE_H.set(`${card.dataset.file}@${card.dataset.version}`, h);
   visualPageSize(card, frame, h);
+});
+// The cap follows the screen (480px, or 60% of a phone's height): after a resize each page card is cut, or not, again.
+let visualRecapSoon = 0;
+window.addEventListener('resize', () => {
+  cancelAnimationFrame(visualRecapSoon);
+  visualRecapSoon = requestAnimationFrame(() => {
+    for (const frame of document.querySelectorAll('figure.vcard iframe.vcard-frame')) {
+      const card = frame.closest('figure.vcard');
+      if (frame.visualFill) visualPageFill(card, frame);
+      else if (frame.visualHeight) visualPageSize(card, frame, frame.visualHeight);
+    }
+  });
 });
 
 // ---- Expand: full screen over the conversation. Pictures zoom (click/tap, pinch, ctrl+wheel), pages scroll.
@@ -139,6 +153,7 @@ function visualExpand(card) {
     ? `<iframe class="vcard-full-frame" title="${esc(title)}" sandbox="${VISUAL_PAGE_SANDBOX}" credentialless referrerpolicy="no-referrer" src="${esc(src)}"></iframe>`
     : `<img class="vcard-full-img" alt="${esc(title)}" src="${esc(src)}" draggable="false">`;
   d.visualFrom = {card, opener: document.activeElement, scroll: visualScrollers(card)};
+  visualZoomReset(d);
   if (kind !== 'page') visualZoom(d, body.querySelector('img'));
   history.pushState({...(history.state || {}), vcardFull: 1}, '');
   d.showModal();
@@ -147,8 +162,15 @@ function visualExpand(card) {
 VISUAL_EXPAND.image = visualExpand;
 VISUAL_EXPAND.svg = visualExpand;
 VISUAL_EXPAND.page = visualExpand;
+// The dialog is reused: the next visual opens fitted, with swipe down working, and the last one's zoom gestures gone.
+function visualZoomReset(d) {
+  d.zoomAbort?.abort(); d.zoomAbort = null;
+  d.zoomed = false;
+  d.classList.remove('zoomed');
+}
 function visualFullClosed(d) {
   const from = d.visualFrom; d.visualFrom = null;
+  visualZoomReset(d);
   d.querySelector('.vcard-full-body').innerHTML = '';
   if (history.state?.vcardFull) history.back();
   if (!from) return;
@@ -178,7 +200,7 @@ function visualFullSwipe(d) {
 }
 // Fitted at 1; a click or tap toggles 2x at that point; pinch and ctrl+wheel (a trackpad pinch) scale between 1 and 6.
 function visualZoom(d, img) {
-  const body = d.querySelector('.vcard-full-body');
+  const body = d.querySelector('.vcard-full-body'), signal = (d.zoomAbort = new AbortController()).signal;
   let scale = 1;
   const set = (next, x = body.clientWidth / 2, y = body.clientHeight / 2) => {
     const was = scale;
@@ -191,10 +213,10 @@ function visualZoom(d, img) {
     body.scrollLeft = fx * scale - x; body.scrollTop = fy * scale - y;
   };
   const at = ev => { const r = body.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; };
-  img.addEventListener('click', ev => set(scale > 1 ? 1 : 2, ...at(ev)));
-  body.addEventListener('wheel', ev => { if (!ev.ctrlKey) return; ev.preventDefault(); set(scale * Math.exp(-ev.deltaY / 200), ...at(ev)); }, {passive: false});
+  img.addEventListener('click', ev => set(scale > 1 ? 1 : 2, ...at(ev)), {signal});
+  body.addEventListener('wheel', ev => { if (!ev.ctrlKey) return; ev.preventDefault(); set(scale * Math.exp(-ev.deltaY / 200), ...at(ev)); }, {passive: false, signal});
   const touches = new Map(); let pinch = null;
-  body.addEventListener('pointerdown', ev => { if (ev.pointerType === 'touch') touches.set(ev.pointerId, ev); });
+  body.addEventListener('pointerdown', ev => { if (ev.pointerType === 'touch') touches.set(ev.pointerId, ev); }, {signal});
   body.addEventListener('pointermove', ev => {
     if (!touches.has(ev.pointerId)) return;
     touches.set(ev.pointerId, ev);
@@ -203,7 +225,7 @@ function visualZoom(d, img) {
     if (!pinch) { pinch = {dist, scale}; return; }
     const r = body.getBoundingClientRect();
     set(pinch.scale * dist / pinch.dist, (a.clientX + b.clientX) / 2 - r.left, (a.clientY + b.clientY) / 2 - r.top);
-  });
+  }, {signal});
   const up = ev => { touches.delete(ev.pointerId); if (touches.size < 2) pinch = null; };
-  body.addEventListener('pointerup', up); body.addEventListener('pointercancel', up);
+  body.addEventListener('pointerup', up, {signal}); body.addEventListener('pointercancel', up, {signal});
 }

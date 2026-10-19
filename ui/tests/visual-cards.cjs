@@ -31,6 +31,9 @@ print(json.dumps(out))
   // Sized by the screen, not by their content: one as tall as the frame, one always taller than it (a heading, then
   // min-height 100dvh, inside the default margins).
   vh: ['<!doctype html><html><body style="margin:0"><div style="height:100vh;overflow:hidden;background:#0a0">Full screen</div></body></html>', true],
+  // Sized by their content: one under the 24px minimum, one between the phone cap and the desktop cap.
+  tiny: ['<!doctype html><html><body style="margin:0"><div style="height:10px;font-size:8px;line-height:10px">Hi</div></body></html>', true],
+  mid: ['<!doctype html><html><body style="margin:0"><div style="height:400px;background:#eee">Mid page</div></body></html>', true],
   dvh: ['<!doctype html><html><body><h1>Report</h1><main style="min-height:100dvh;background:#00a;color:#fff">Fills the screen</main></body></html>', true],
   // Not cleaned on purpose: the frame's sandbox and the content policy alone must stop all of it.
   hostile: ['<!doctype html><html><body style="margin:0"><p style="height:90px">Hostile page</p>'
@@ -60,7 +63,7 @@ const A = (id, kind, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1'
       A('f-moved', 'image', {width: 400, height: 200, current_version: 3}), A('f-gone', 'page', {removed: true, src: undefined, current_version: null}),
       A('f-bad', 'page'), A('f-nosrc', 'image', {src: null, width: 400, height: 200}), A('f-hostile', 'page')]}},
     {id: 'm4', from_actor: 'human:ana', body: 'My photo', created: now, refs: {attachments: [A('f-mine', 'image', {width: 300, height: 300, title: 'Ana photo'})]}},
-    {id: 'm5', from_actor: 'bot:designer', body: 'Two full-screen pages.', created: now, refs: {attachments: [A('f-vh', 'page'), A('f-dvh', 'page')]}},
+    {id: 'm5', from_actor: 'bot:designer', body: 'Two full-screen pages.', created: now, refs: {attachments: [A('f-vh', 'page'), A('f-dvh', 'page'), A('f-tiny', 'page'), A('f-mid', 'page')]}},
   ];
   const run = async ({viewport, hasTouch = false, label}) => {
     const context = await browser.newContext({viewport, hasTouch, isMobile: hasTouch, serviceWorkers: 'block'});
@@ -83,7 +86,7 @@ const A = (id, kind, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1'
         if (hold && id === 'f-chart') await hold;
         const headers = {'Cross-Origin-Resource-Policy': 'cross-origin', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff'};
         if (id === 'f-bad' || id === 'f-gone') return route.fulfill({status: 404, headers: {...headers, 'Content-Security-Policy': "default-src 'none'; sandbox"}, body: ''});
-        const page = {'f-short': 'short', 'f-tall': 'tall', 'f-hostile': 'hostile', 'f-vh': 'vh', 'f-dvh': 'dvh', 'f-live-page': 'short'}[id];
+        const page = {'f-short': 'short', 'f-tall': 'tall', 'f-hostile': 'hostile', 'f-vh': 'vh', 'f-dvh': 'dvh', 'f-tiny': 'tiny', 'f-mid': 'mid', 'f-live-page': 'short'}[id];
         if (page) return route.fulfill({contentType: 'text/html', headers: {...headers, 'Content-Security-Policy': server.policy}, body: server.pages[page]});
         if (id === 'f-logo') return route.fulfill({contentType: 'image/svg+xml', headers: {...headers, 'Content-Security-Policy': server.svg_policy}, body: SVG});
         return route.fulfill({contentType: 'image/png', headers, body: PNG});
@@ -178,6 +181,7 @@ const A = (id, kind, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1'
     const m5 = page.locator('[data-message="m5"]');
     for (const id of ['f-vh', 'f-dvh']) {
       const card = m5.locator(`figure.vcard[data-file="${id}"]`);
+      await card.scrollIntoViewIfNeeded();                         // a frame off screen is laid out once it is scrolled to
       await m5.locator(`figure.vcard.capped[data-file="${id}"] .vcard-body.ready`).waitFor({timeout: 5000});
       const size = () => card.evaluate(c => [c.querySelector('.vcard-body'), c.querySelector('iframe')].map(e => Math.round(e.getBoundingClientRect().height)));
       const first = await size();
@@ -186,6 +190,59 @@ const A = (id, kind, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1'
       assert(Math.abs(first[0] - cap) <= 1 && Math.abs(first[1] - cap) <= 1, `${label} ${id}: shown at the cap ${first} (cap ${cap})`);
       assert(await card.locator('.vcard-expand').isVisible(), `${label} ${id}: Expand is offered`);
     }
+    // a page sized by its content stays its own size, however small: the 24px minimum, not the cap (Review 1, item 1)
+    const pageLook = card => card.evaluate(c => [Math.round(c.querySelector('.vcard-body').getBoundingClientRect().height), c.classList.contains('capped'),
+      getComputedStyle(c.querySelector('.vcard-expand')).display !== 'none', getComputedStyle(c.querySelector('.vcard-fade')).display !== 'none']);
+    const tiny = m5.locator('figure.vcard[data-file="f-tiny"]'), mid = m5.locator('figure.vcard[data-file="f-mid"]'), vhCard = m5.locator('figure.vcard[data-file="f-vh"]');
+    await tiny.scrollIntoViewIfNeeded();
+    await tiny.locator('.vcard-body.ready').waitFor();
+    await page.waitForTimeout(600);                                // its frame resized: any answer has come
+    assert.deepEqual(await pageLook(tiny), [24, false, false, false], `${label}: a tiny content page is not taken for a full-screen one`);
+    // the cap follows the screen: the same card is cut, and offers Expand, or not, as the window changes (item 3)
+    if (!hasTouch) {
+      await mid.locator('.vcard-body.ready').waitFor();
+      assert.deepEqual(await pageLook(mid), [400, false, false, false], `${label}: a 400px page under the 480px cap`);
+      await page.setViewportSize({width: 390, height: 500});
+      await page.waitForTimeout(300);
+      assert.deepEqual(await pageLook(mid), [300, true, true, true], `${label}: the same page under a 300px phone cap is cut, with fade and Expand`);
+      assert.deepEqual((await pageLook(vhCard)).slice(0, 2), [300, true], `${label}: a full-screen page follows the cap down`);
+      await page.setViewportSize(viewport);
+      await page.waitForTimeout(300);
+      assert.deepEqual(await pageLook(mid), [400, false, false, false], `${label}: back under the 480px cap, whole again`);
+      assert.deepEqual((await pageLook(vhCard)).slice(0, 2), [480, true], `${label}: a full-screen page follows the cap up`);
+    }
+    // guards (item 4): only the visual route is ever a card's address
+    assert.deepEqual(await page.evaluate(() => ['https://visuals.test/visuals/tok-a', '/api/v2/files/f-chart?v=1', 'https://visuals.test/api/v2/files/f?v=1',
+      'blob:https://tico-ui.test/0f0e', 'data:image/png;base64,AA', 'javascript:alert(1)', 'https://visuals.test/visuals/tok?x=1',
+      'https://visuals.test/visuals/a/b', 'ftp://visuals.test/visuals/tok', 'not a url', 42].map(src => visualSrc({src}))),
+      ['https://visuals.test/visuals/tok-a', null, null, null, null, null, null, null, null, null, null], `${label}: visualSrc takes only /visuals/<token>`);
+    assert.equal(await page.evaluate(() => visualCardsHTML([{file_id: 'f', version: 1, kind: 'image', src: '/api/v2/files/f?v=1'}], {chips: rest => `chips:${rest.length}`})),
+      'chips:1', 'the app file route is a chip, never a card');
+    // a card is kept only while its key, state and newest version all stay the same
+    assert.deepEqual(await page.evaluate(() => [
+      ['data-state="ready"', 'data-state="removed"'], ['data-state="failed"', 'data-state="ready"'], ['data-state="ready"', 'data-state="ready" data-current="2"'],
+      ['data-state="ready" data-current="2"', 'data-state="ready" data-current="3"'], ['data-state="ready"', 'data-state="ready"'],
+    ].map(([a, b]) => {
+      const one = document.createElement('div'), two = document.createElement('div');
+      one.innerHTML = `<figure class="vcard" data-visual-key="m:f@1" ${a}></figure>`; two.innerHTML = `<figure class="vcard" data-visual-key="m:f@1" ${b}></figure>`;
+      const was = one.firstChild; visualKeep(one, two); return two.firstChild === was;
+    })), [false, false, false, false, true], `${label}: a same-key card whose state or newest version changed is redrawn`);
+    // a height from the card's own frame: a number, finite, clamped to 24..20000
+    const hostileFrame = page.frames().find(f => f.url().includes('tok-f-hostile'));
+    const frameH = () => hostile.evaluate(c => [c.querySelector('iframe').visualHeight, Math.round(c.querySelector('iframe').getBoundingClientRect().height)]);
+    const settled = await frameH();
+    for (const v of ["'5000'", 'NaN', 'Infinity', '-Infinity', 'null', '{}', '[900]']) await hostileFrame.evaluate(`parent.postMessage({ticoVisualHeight: ${v}}, '*')`);
+    await page.waitForTimeout(200);
+    assert.deepEqual(await frameH(), settled, `${label}: a height that is not a finite number is ignored, even from the card's own frame`);
+    await hostileFrame.evaluate("parent.postMessage({ticoVisualHeight: 1e9}, '*')");
+    await page.waitForFunction(() => document.querySelector('figure.vcard[data-file="f-hostile"] iframe').visualHeight !== undefined
+      && document.querySelector('figure.vcard[data-file="f-hostile"] iframe').visualHeight > 1000, null, {timeout: 3000}).catch(() => {});
+    assert.deepEqual(await frameH(), [20000, 20000], `${label}: a huge height is clamped to 20000`);
+    await hostileFrame.evaluate("parent.postMessage({ticoVisualHeight: -50}, '*')");
+    await page.waitForTimeout(200);
+    assert.deepEqual(await frameH(), [24, 24], `${label}: a negative height is clamped to 24`);
+    await hostileFrame.evaluate(`parent.postMessage({ticoVisualHeight: ${settled[0]}}, '*')`);
+    await page.waitForTimeout(200);
     await noSideways('chat');
 
     // ---- a link in a page opens a new tab only when clicked; the conversation stays
@@ -203,11 +260,23 @@ const A = (id, kind, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1'
     await m1.locator('figure.vcard[data-kind="image"] .vcard-hit').click();
     const full = page.locator('#vcard-full[open]');
     await full.locator('img.vcard-full-img').waitFor();
-    const top = await thread.evaluate(el => el.scrollTop);        // where the reader was (the click scrolled to the card)
     assert.equal(await full.locator('img').getAttribute('src'), VIS + 'tok-f-chart');
+    await full.locator('img').click();
+    assert(await full.evaluate(d => d.classList.contains('zoomed')), 'a click or tap zooms in');
+    await full.locator('[data-vfull-close]').click();
+    await page.locator('#vcard-full').waitFor({state: 'hidden'});
+    // opened again after closing zoomed: fitted, its own gestures only, and swipe down still closes it (Review 1, item 2)
+    await m1.locator('figure.vcard[data-kind="image"] .vcard-hit').click();
+    await full.locator('img.vcard-full-img').waitFor();
+    const top = await thread.evaluate(el => el.scrollTop);        // where the reader was (the click scrolled to the card)
+    const fitted = () => full.evaluate(d => {
+      const b = d.querySelector('.vcard-full-body'), i = d.querySelector('img').getBoundingClientRect();
+      return [d.classList.contains('zoomed'), !!d.zoomed, i.width <= b.clientWidth + 1 && i.height <= b.clientHeight + 1];
+    });
+    assert.deepEqual(await fitted(), [false, false, true], `${label}: reopened fitted, not zoomed`);
+    await full.evaluate(d => d.querySelector('.vcard-full-body').dispatchEvent(new WheelEvent('wheel', {ctrlKey: true, deltaY: 50, clientX: 100, clientY: 100, bubbles: true, cancelable: true})));
+    assert.deepEqual(await fitted(), [false, false, true], `${label}: a pinch out on a fitted picture leaves it fitted (no gestures left from the last one)`);
     if (!hasTouch) {
-      await full.locator('img').click();
-      assert(await full.evaluate(d => d.classList.contains('zoomed')), 'a click zooms in');
       await page.keyboard.press('Escape');
     } else {
       await full.evaluate(d => {
