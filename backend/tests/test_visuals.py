@@ -115,9 +115,16 @@ def test_six_attachments_come_back_all_in_order(api):
     for i in range(6):
         made = api.post(f"/api/v2/tasks/{tid}/files", json={"name": f"p{i}.html", "text": f"<p>{i}</p>"},
                         headers=headers("ben-test")).json()
-        refs.append(f"{made['file_id']}@{made['version']}")
+        refs.append({"ref": f"{made['file_id']}@{made['version']}", "title": f"Page {i}"})
     r = api.post(f"/api/v2/tasks/{tid}/comments", json={"text": "x", "attachments": refs}, headers=headers("ben-test"))
-    assert [a["ref"] for a in r.json()["comment"]["refs"]["attachments"]] == refs
+    assert r.status_code == 200, r.text
+    wanted = [(a["ref"], a["title"], "page") for a in refs]
+    comment = next(m for m in api.get(f"/api/v2/tasks/{tid}/comments", headers=headers("ben-test")).json()["comments"]
+                   if m["id"] == r.json()["comment"]["id"])
+    for read in (r.json()["comment"], comment):
+        items = read["refs"]["attachments"]
+        assert [(a["ref"], a["title"], a["kind"]) for a in items] == wanted
+        assert all(a["src"].startswith("/visuals/") for a in items)
 
 
 # ---------------------------------------------------------------------------------------------- access (18, 19)
@@ -150,6 +157,9 @@ def test_a_non_private_tasks_visual_is_open_to_its_readers(api):
     assert listed.status_code == 200
     [item] = next(m for m in listed.json()["comments"] if m["id"] == comment["id"])["refs"]["attachments"]
     assert api.get(item["src"]).status_code == 200
+    page = api.get(f"/api/v2/tasks/{tid}", headers=headers("cara-test")).json()     # the task page reads them too
+    [item] = next(m for m in page["comments"] if m["id"] == comment["id"])["refs"]["attachments"]
+    assert api.get(item["src"]).status_code == 200
 
 
 def test_a_reader_who_loses_access_loses_the_address_on_the_next_request(api):
@@ -177,6 +187,7 @@ def test_a_chat_visual_is_refused_to_everyone_outside_the_chat(api):
 def test_the_public_roadmap_never_shows_a_private_tasks_visual(api):
     """Spec 19: nothing of a private task's visual (file id, title, address) reaches a public roadmap response."""
     tid, fid, comment = visual_on_task(api, private=True)
+    assert comment["refs"]["attachments"][0]["src"].startswith("/visuals/")     # a reader does see it
     from backend import public_roadmaps
     from backend.store import H
     with api.app.state.store.transaction() as c:

@@ -2849,7 +2849,8 @@ def create_app(settings=None):
                     "children": children,
                     # The task page reads as its session's chat: each bot reply carries the run behind it (`run`,
                     # the steps one click away) and `execution` is the owner's run while it works.
-                    "comments": turn_work.annotate(c, auth, who, H.task_comments(c, tid, actor=privacy.actor(who))),
+                    "comments": visual_view(c, who, turn_work.annotate(c, auth, who,
+                                                                          H.task_comments(c, tid, actor=privacy.actor(who)))),
                     "execution": task_execution(c, who, row),
                     "mover": mover(c, request.state.identity),
                     "waiting_for": task_wait(c, tid, settings),
