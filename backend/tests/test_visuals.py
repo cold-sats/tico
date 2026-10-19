@@ -1,0 +1,251 @@
+"""Visual replies 1/4 (Dev 245): a visual attached to a chat reply or a task comment, its clean-up, its signed
+cookie-free address and who may open it. Spec tests 1-4, 18, 19 and 22 (Product roadmap "Visual replies")."""
+import base64
+import re
+
+from backend import visuals as V
+from backend.tests.test_api import api, assign, claim, headers, post, ready, runner  # noqa: F401  (fixtures)
+from backend.tests.test_files import publish, turn
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+DOT = "data:image/png;base64," + base64.b64encode(PNG).decode()
+
+
+def png(api, attempt, name="chart.png", data=PNG):
+    made = publish(api, attempt, name=name, text=None, content_base64=base64.b64encode(data).decode())
+    assert made.status_code == 200, made.text
+    return made.json()["file"]["id"], 1
+
+
+def bot_reply(api, attempt, to="human:ben", **body):
+    conversation = attempt["conversation_id"] if "conversation_id" in attempt else attempt["message"]["conversation_id"]
+    return api.post("/api/v2/messages", json={"to": to, "text": "Here is the chart", "conversation_id": conversation,
+                                              **body}, headers=headers(attempt["token"]))
+
+
+def test_a_bots_chat_reply_carries_a_titled_versioned_visual_and_reading_returns_it(api):
+    """Spec 1: stored as a versioned file on that conversation with its title; reading the message returns it."""
+    _, attempt = turn(api)
+    fid, _ = png(api, attempt)
+    sent = bot_reply(api, attempt, attachments=[{"ref": f"{fid}@1", "title": "Weekly signups"}])
+    assert sent.status_code == 200, sent.text
+    message = sent.json()
+    for read in (api.get("/api/v2/messages/" + message["id"], headers=headers("ben-test")).json(),
+                 next(m for m in api.get(f"/api/v2/conversations/{message['conversation_id']}/messages",
+                                         headers=headers("ben-test")).json()["messages"] if m["id"] == message["id"])):
+        [item] = read["refs"]["attachments"]
+        assert (item["file_id"], item["version"], item["title"], item["kind"]) == (fid, 1, "Weekly signups", "image")
+        assert (item["name"], item["content_type"], item["size"]) == ("chart.png", "image/png", len(PNG))
+        assert item["url"] == f"/api/v2/files/{fid}?v=1" and item["current_version"] == 1 and not item["removed"]
+        assert item["src"].startswith("/visuals/")
+    with api.app.state.store.read() as c:
+        row = c.execute("SELECT scope FROM bot_files WHERE id=?", (fid,)).fetchone()
+    assert row["scope"] == "conversation:" + message["conversation_id"]
+
+
+def test_a_chat_reply_cannot_attach_a_file_from_another_conversation(api):
+    _, attempt = turn(api)
+    fid, _ = png(api, attempt)
+    _, other = turn(api, bot="cpo", who="cara-test")
+    sent = bot_reply(api, other, to="human:cara", attachments=[f"{fid}@1"])
+    assert sent.status_code == 404, sent.text
+
+
+def task_with_file(api, *, private, name="page.html", text="<p>hi</p>"):
+    task_with_file.n = getattr(task_with_file, "n", 0) + 1
+    task = post(api, "tasks", {"owner": "ops", "title": f"Chart {task_with_file.n}", "body": "x", "private": private},
+                "ben-test")
+    tid = task["id"]
+    made = api.post(f"/api/v2/tasks/{tid}/files", json={"name": name, "text": text}, headers=headers("ben-test"))
+    assert made.status_code == 200, made.text
+    return tid, made.json()["file_id"], made.json()["version"]
+
+
+def test_a_task_comment_page_gets_its_local_images_embedded_and_reports_nothing_unembedded(api):
+    """Spec 2: a page whose two images are embedded data: URIs stays as it is and reports zero unembedded."""
+    page = f'<html><body><img src="{DOT}"><div style="background:url({DOT})"></div></body></html>'
+    tid, fid, number = task_with_file(api, private=False, text=page)
+    r = api.post(f"/api/v2/tasks/{tid}/comments", json={"text": "See the page",
+                 "attachments": [{"ref": f"{fid}@{number}", "title": "Funnel"}]}, headers=headers("ben-test"))
+    assert r.status_code == 200, r.text
+    assert r.json()["visuals"] == [{"ref": f"{fid}@{number}", "kind": "page", "unembedded": []}]
+    [item] = r.json()["comment"]["refs"]["attachments"]
+    assert item["title"] == "Funnel" and item["kind"] == "page" and item["version"] == number
+
+
+def test_a_remote_reference_is_named_and_the_stored_page_loads_nothing(api):
+    """Spec 3: the attach result names each remote reference; the stored file has none that loads."""
+    page = ('<html><head><link rel="stylesheet" href="https://cdn.example/a.css"><style>@import "https://f.example/x.css";'
+            'body{background:url(https://img.example/bg.png)}</style></head><body><img src="https://img.example/a.png">'
+            '<img srcset="//img.example/b.png 2x"><script src="https://js.example/x.js"></script>'
+            '<a href="https://example.com/more">more</a></body></html>')
+    tid, fid, number = task_with_file(api, private=False, text=page)
+    r = api.post(f"/api/v2/tasks/{tid}/comments", json={"text": "Page", "attachments": [f"{fid}@{number}"]},
+                 headers=headers("ben-test"))
+    assert r.status_code == 200, r.text
+    [report] = r.json()["visuals"]
+    assert report["unembedded"] == ["https://cdn.example/a.css", "https://f.example/x.css",
+                                    "https://img.example/bg.png", "https://img.example/a.png", "//img.example/b.png"]
+    [item] = r.json()["comment"]["refs"]["attachments"]
+    assert item["version"] == number + 1                    # the cleaned copy is the version posted
+    stored = api.get(f"/api/v2/files/{fid}/versions/{item['version']}", headers=headers("ben-test"))
+    assert stored.status_code == 200
+    assert V.loading_references(stored.content) == [] and b"<script" not in stored.content
+    assert b'href="https://example.com/more"' in stored.content       # a link is a click, not a load
+
+
+def test_over_the_limit_or_another_type_is_a_plain_file_never_a_visual(api, monkeypatch):
+    """Spec 4: too big, or a type that is not a visual, is a file chip; a refused name is a plain refusal."""
+    monkeypatch.setitem(V.LIMITS, "page", 10)
+    tid, fid, number = task_with_file(api, private=False, text="<p>" + "x" * 50 + "</p>")
+    tid2, fid2, number2 = task_with_file(api, private=False, name="notes.csv", text="a,b")
+    for t, f, n in ((tid, fid, number), (tid2, fid2, number2)):
+        r = api.post(f"/api/v2/tasks/{t}/comments", json={"text": "x", "attachments": [f"{f}@{n}"]},
+                     headers=headers("ben-test"))
+        assert r.status_code == 200, r.text
+        [item] = r.json()["comment"]["refs"]["attachments"]
+        assert item["kind"] == "file" and "src" not in item
+    # Bytes that are not the picture their name says: a chip.
+    assert V.kind_of("image/png", 10, b"GIF89a....") == "file" and V.kind_of("application/zip", 1) == "file"
+
+
+def test_six_attachments_come_back_all_in_order(api):
+    tid = post(api, "tasks", {"owner": "ops", "title": "Six", "body": "x", "private": False}, "ben-test")["id"]
+    refs = []
+    for i in range(6):
+        made = api.post(f"/api/v2/tasks/{tid}/files", json={"name": f"p{i}.html", "text": f"<p>{i}</p>"},
+                        headers=headers("ben-test")).json()
+        refs.append(f"{made['file_id']}@{made['version']}")
+    r = api.post(f"/api/v2/tasks/{tid}/comments", json={"text": "x", "attachments": refs}, headers=headers("ben-test"))
+    assert [a["ref"] for a in r.json()["comment"]["refs"]["attachments"]] == refs
+
+
+# ---------------------------------------------------------------------------------------------- access (18, 19)
+def visual_on_task(api, private):
+    tid, fid, number = task_with_file(api, private=private, name="chart.html", text="<p>chart</p>")
+    r = api.post(f"/api/v2/tasks/{tid}/comments", json={"text": "chart", "attachments": [f"{fid}@{number}"]},
+                 headers=headers("ben-test"))
+    assert r.status_code == 200, r.text
+    return tid, fid, r.json()["comment"]
+
+
+def test_a_private_tasks_visual_is_refused_to_a_reader_without_access(api):
+    """Spec 18: the message, the file and the direct link are each refused."""
+    tid, fid, comment = visual_on_task(api, private=True)
+    [item] = comment["refs"]["attachments"]
+    assert api.get(item["src"]).status_code == 200                      # the reader's own address works
+    for path in (f"/api/v2/messages/{comment['id']}", f"/api/v2/tasks/{tid}/comments",
+                 f"/api/v2/files/{fid}", f"/api/v2/files/{fid}/versions/{item['version']}"):
+        assert api.get(path, headers=headers("cara-test")).status_code in (403, 404), path
+    # A token minted for a reader without access opens nothing.
+    forged = V.mint(api.app.state.visual_key, "human:cara", fid, item["version"])
+    assert api.get("/visuals/" + forged).status_code == 404
+    # A tampered token opens nothing.
+    assert api.get(item["src"][:-3] + "abc").status_code == 404
+
+
+def test_a_non_private_tasks_visual_is_open_to_its_readers(api):
+    tid, fid, comment = visual_on_task(api, private=False)
+    listed = api.get(f"/api/v2/tasks/{tid}/comments", headers=headers("cara-test"))
+    assert listed.status_code == 200
+    [item] = next(m for m in listed.json()["comments"] if m["id"] == comment["id"])["refs"]["attachments"]
+    assert api.get(item["src"]).status_code == 200
+
+
+def test_a_reader_who_loses_access_loses_the_address_on_the_next_request(api):
+    tid, fid, comment = visual_on_task(api, private=False)
+    src = comment["refs"]["attachments"][0]["src"]
+    assert api.get(src).status_code == 200
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_files SET archived=1 WHERE id=?", (fid,))
+    assert api.get(src).status_code == 404
+    listed = api.get(f"/api/v2/tasks/{tid}/comments", headers=headers("ben-test")).json()["comments"]
+    [item] = next(m for m in listed if m["id"] == comment["id"])["refs"]["attachments"]
+    assert item["removed"] and "src" not in item
+
+
+def test_a_chat_visual_is_refused_to_everyone_outside_the_chat(api):
+    _, attempt = turn(api)
+    fid, _ = png(api, attempt)
+    message = bot_reply(api, attempt, attachments=[f"{fid}@1"]).json()
+    for other in ("cara-test",):
+        assert api.get("/api/v2/messages/" + message["id"], headers=headers(other)).status_code in (403, 404)
+        assert api.get(f"/api/v2/files/{fid}", headers=headers(other)).status_code == 404
+        assert api.get("/visuals/" + V.mint(api.app.state.visual_key, "human:cara", fid, 1)).status_code == 404
+
+
+def test_the_public_roadmap_never_shows_a_private_tasks_visual(api):
+    """Spec 19: nothing of a private task's visual (file id, title, address) reaches a public roadmap response."""
+    tid, fid, comment = visual_on_task(api, private=True)
+    from backend import public_roadmaps
+    from backend.store import H
+    with api.app.state.store.transaction() as c:
+        # Even marked public and on a task made public, the comment's visual does not travel.
+        c.execute("UPDATE messages SET public=1 WHERE id=?", (comment["id"],))
+        c.execute("UPDATE tasks SET visibility='public', public_title='Chart' WHERE id=?", (tid,))
+        row = H.task(c, tid)
+        shown = repr(public_roadmaps.comments(c, row)) + repr(public_roadmaps.output(c, row))
+    assert comment["id"] in shown
+    assert fid not in shown and "/visuals/" not in shown and "chart.html" not in shown
+
+
+# ---------------------------------------------------------------------------------------------- serving (22)
+def test_the_visual_route_is_apart_from_the_sign_in_with_a_policy_that_blocks_scripts_and_loads(api):
+    """Spec 22: the response carries a policy with no network loads and only the height reporter's script hash;
+    it never sets a cookie, and the app's own sign-in does not open it."""
+    tid, fid, comment = visual_on_task(api, private=False)
+    src = comment["refs"]["attachments"][0]["src"]
+    r = api.get(src)
+    rule = r.headers["content-security-policy"]
+    assert "default-src 'none'" in rule and "connect-src 'none'" in rule and "form-action 'none'" in rule
+    assert re.search(r"script-src 'sha256-[A-Za-z0-9+/=]+';", rule) and "unsafe-inline' data:; connect" in rule
+    assert "'unsafe-inline'" not in rule.split("script-src", 1)[1].split(";", 1)[0]
+    assert "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox" in rule
+    assert "allow-same-origin" not in rule and "allow-forms" not in rule and "allow-top-navigation" not in rule
+    assert "set-cookie" not in r.headers and r.headers["referrer-policy"] == "no-referrer"
+    assert r.headers["cross-origin-resource-policy"] == "cross-origin"
+    assert b'<base target="_blank">' in r.content and V.REPORTER.encode() in r.content
+    # The signed-in app has no way in without the token, and the token needs no cookie.
+    assert api.get("/visuals/", headers=headers("ben-test")).status_code == 404
+    assert api.get("/visuals/nonsense", headers=headers("ben-test")).status_code == 404
+
+
+def test_video_on_the_visual_route_serves_byte_ranges(api):
+    """3/4 test 13 needs seeking: bytes=0-1, a mid-file range, and a range past the end."""
+    _, attempt = turn(api)
+    data = bytes(range(256)) * 8
+    made = publish(api, attempt, name="clip.mp4", text=None, content_base64=base64.b64encode(data).decode())
+    assert made.status_code == 200, made.text
+    fid = made.json()["file"]["id"]
+    message = bot_reply(api, attempt, attachments=[{"ref": f"{fid}@1", "title": "Clip"}]).json()
+    read = api.get("/api/v2/messages/" + message["id"], headers=headers("ben-test")).json()
+    [item] = read["refs"]["attachments"]
+    assert item["kind"] == "video"
+    first = api.get(item["src"], headers={"Range": "bytes=0-1"})
+    assert first.status_code == 206 and first.headers["content-range"] == f"bytes 0-1/{len(data)}"
+    assert first.content == data[:2]
+    middle = api.get(item["src"], headers={"Range": "bytes=1000-1099"})
+    assert middle.status_code == 206 and middle.content == data[1000:1100]
+    assert api.get(item["src"], headers={"Range": f"bytes={len(data) + 5}-"}).status_code == 416
+    assert "sandbox" in middle.headers["content-security-policy"] and "set-cookie" not in middle.headers
+
+
+def test_tokens_are_signed_expire_and_stay_stable_within_half_their_life():
+    key = b"k" * 32
+    token = V.mint(key, "human:ben", "f", 3, now=0)
+    assert V.read(key, token, now=0) == ("human:ben", "f", 3, "")
+    assert V.read(key, token, now=V.LIFE) is None
+    assert V.read(b"x" * 32, token, now=0) is None
+    assert V.mint(key, "human:ben", "f", 3, now=V.LIFE // 2 - 1) == token
+    assert V.mint(key, "human:ben", "f", 3, now=V.LIFE // 2) != token
+
+
+def test_a_visual_origin_equal_to_the_app_origin_is_refused():
+    class S:
+        public_url, visual_origin = "https://tico.example", "https://tico.example/"
+    try:
+        V.check_origin(S)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("the app's own origin was accepted as the visual origin")
