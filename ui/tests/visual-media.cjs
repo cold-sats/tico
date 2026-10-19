@@ -48,7 +48,8 @@ const UI = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
       return route.fulfill({status: 206, body: body.subarray(start, end + 1), headers: {'content-type': 'audio/wav',
         'accept-ranges': 'bytes', 'content-range': `bytes ${start}-${end}/${body.length}`}});
     });
-    await page.route(`${APP}/**`, route => route.fulfill({status: 200, contentType: 'text/html', body: '<!doctype html><main id="thread"></main>'}));
+    const signedIn = [];        // anything the cards ask of the app's own (signed-in) file addresses
+    await page.route(`${APP}/**`, route => (new URL(route.request().url()).pathname.startsWith('/api/') && signedIn.push(route.request().url()), route.fulfill({status: 200, contentType: 'text/html', body: '<!doctype html><main id="thread"></main>'})));
     await page.goto(`${APP}/chat`);
     // The real frame and players, on a page with only what they read from the rest of the app (core.js's esc, API).
     await page.addStyleTag({content: `:root{--line:#ccc;--surface:#fff;--surface2:#eee;--muted:#666} ${UI('styles/task-files.css')} ${UI('styles/task-modal.css')} ${UI('styles/visual-cards.css')} ${UI('styles/visual-media.css')}`});
@@ -159,7 +160,9 @@ const UI = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
 
     // ---- test 6: a portrait video is narrower, never taller than the cap or cropped; nothing scrolls sideways
     await page.evaluate(() => card('m5:tall@1', {file_id: 'tall', version: 1, name: 'tall.mp4', title: 'Phone clip', kind: 'video',
-      content_type: 'video/mp4', width: 1080, height: 1920, url: '/api/v2/files/tall?v=1', src: 'https://visuals.test/visuals/tall-1'}));
+      content_type: 'video/mp4', width: 1080, height: 1920, url: '/api/v2/files/tall?v=1', src: 'https://visuals.test/visuals/tall-1',
+      poster_url: '/api/v2/files/tall/poster?v=1'}));     // a poster that is not on the isolated address is left out
+    assert.equal(await page.locator('[data-visual-key="m5:tall@1"] video').getAttribute('poster'), null);
     const box = await page.locator('[data-visual-key="m5:tall@1"] .vcard-body').boundingBox();
     const cap = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--vcard-cap')) / 100 * innerHeight || 480);
     {
@@ -172,6 +175,7 @@ const UI = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
 
     assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('#thread video, #thread audio, #thread img')]
       .flatMap(m => [m.src, m.poster].filter(u => u && !/^https:\/\/visuals\.test\/visuals\//.test(u)))), [], 'media load only from the isolated address (no blob:, no /api)');
+    assert.deepEqual(signedIn, [], 'no card media is asked of the signed-in /api file address');
     assert.deepEqual(errors, []);
     console.log('visual-media: ok');
   } finally {
