@@ -344,6 +344,15 @@ def check_origin(settings):
     return visual
 
 
+def inline_on(settings):
+    """Whether visuals are shown inline at all. In production that needs a separate visual origin; without one they
+    are plain file chips and /visuals refuses (lead decision, Oct 19). The app's own address, with the page sandboxed,
+    serves them only on a loopback install (dev and tests) or when a self-hoster opts in with
+    TICO_VISUAL_SAME_ORIGIN=1. A missing setting never stops the server."""
+    return bool(getattr(settings, "visual_origin", "")) or settings.loopback or bool(
+        getattr(settings, "visual_same_origin", False))
+
+
 # ---------------------------------------------------------------------------------------------- attach
 def parse(item):
     """(file id, version, title) from an attachment given as "<file id>@<version>" or {ref, title}."""
@@ -421,7 +430,8 @@ INLINE = ("image", "svg", "page", "video", "audio")
 
 def decorate(c, who, files, key, base, messages):
     """Each visual on these messages, as this reader sees it now: the file's current version, whether it was removed,
-    its size in pixels, and fresh addresses on the visual route (the picture and, for a video, its poster)."""
+    its size in pixels, and fresh addresses on the visual route (the picture and, for a video, its poster). With
+    `base` None inline display is off (inline_on): `src` and `poster_url` are null and the reader sees a file chip."""
     from . import task_privacy as privacy
     cache, rows = {}, {}
     for message in messages:
@@ -444,11 +454,11 @@ def decorate(c, who, files, key, base, messages):
                     "current_version": None if removed else row["current_version"]}
             if v is not None:
                 actor = privacy.actor(who)
-                view["src"] = base + "/visuals/" + mint(key, actor, fid, number)
+                view["src"] = None if base is None else base + "/visuals/" + mint(key, actor, fid, number)
                 for field in ("width", "height", "duration_ms"):
                     if v[field] is not None:
                         view[field] = v[field]
-                if a["kind"] == "video" and v["poster_blob_id"]:
+                if a["kind"] == "video" and v["poster_blob_id"] and base is not None:
                     view["poster_url"] = base + "/visuals/" + mint(key, actor, fid, number, "poster")
             fresh.append(view)
         message["refs"] = {**message["refs"], "attachments": fresh}
@@ -456,14 +466,15 @@ def decorate(c, who, files, key, base, messages):
 
 
 # ---------------------------------------------------------------------------------------------- serve
-def serve(request, store, auth, files, blobs, key, ancestors, token):
-    """GET /visuals/<token>: one visual for the reader the token names, checked again on every request."""
+def serve(request, store, auth, files, blobs, key, ancestors, token, on=True):
+    """GET /visuals/<token>: one visual for the reader the token names, checked again on every request. Refused
+    outright while inline display is off (`on`, inline_on)."""
     from fastapi.responses import Response
     from .auth import Identity
     from .store import H, Problem
     from .file_delivery import serve as deliver
     gone = Response(status_code=404, headers=_headers("default-src 'none'; sandbox"))
-    found = read(key, token)
+    found = read(key, token) if on else None
     if not found:
         return gone
     actor, fid, number, part = found

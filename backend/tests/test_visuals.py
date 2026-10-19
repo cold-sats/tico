@@ -262,6 +262,30 @@ def test_a_visual_origin_equal_to_the_app_origin_is_refused():
         raise AssertionError("the app's own origin was accepted as the visual origin")
 
 
+def test_production_without_a_visual_origin_shows_chips_and_serves_nothing(api, monkeypatch):
+    """Lead decision: a production server with no separate visual origin still starts, but inline display is off:
+    no src, no poster, /visuals refuses. The same-origin sandbox runs only on loopback or with an explicit opt-in."""
+    tid, fid, comment = visual_on_task(api, private=False)
+    token = comment["refs"]["attachments"][0]["src"].rsplit("/", 1)[1]
+    settings = api.app.state.store.settings
+    monkeypatch.setattr(settings, "public_url", "https://tico.example")
+
+    def read():
+        listed = api.get(f"/api/v2/tasks/{tid}/comments", headers=headers("ben-test")).json()["comments"]
+        [item] = next(m for m in listed if m["id"] == comment["id"])["refs"]["attachments"]
+        return item
+
+    item = read()
+    assert item["src"] is None and "poster_url" not in item
+    assert (item["file_id"], item["kind"], item["url"]) == (fid, "page", f"/api/v2/files/{fid}?v=1")   # the chip
+    assert api.get("/visuals/" + token).status_code == 404
+    monkeypatch.setattr(settings, "visual_same_origin", True)          # a self-hoster's explicit opt-in
+    assert read()["src"].startswith("/visuals/") and api.get("/visuals/" + token).status_code == 200
+    monkeypatch.setattr(settings, "visual_same_origin", False)
+    monkeypatch.setattr(settings, "visual_origin", "https://visuals.example")
+    assert read()["src"].startswith("https://visuals.example/visuals/")
+
+
 def test_a_persons_chat_upload_is_a_titled_versioned_visual_too(api):
     """Choice 2: a picture a person sends is a visual like a bot's; older clients keep the blob id and url."""
     r = api.post("/api/v2/uploads/chat/ops", data={"text": "My sketch", "titles": '["Sketch"]'},
