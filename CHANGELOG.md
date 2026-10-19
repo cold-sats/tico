@@ -8,6 +8,10 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Sign in on a Tico we host**: with `TICO_HOSTED` set (`own` or `invited`), **Sign in** for Claude Code and
+  Codex (ChatGPT) in Settings > Computers shows only the provider's link and code, never what else the computer
+  printed and never a terminal, and closes by itself once signed in or cancelled. Any other value of `TICO_HOSTED`
+  stops the server with a one-line error. A self-hosted Tico signs in as before.
 - **Sample company**: a new Tico can start as Sample Co, a made-up team of five bots (Assistant, Head of Product,
   Builder, Support Agent and Content Marketer) spread over the Claude and ChatGPT subscriptions. Each has a goal and a
   first task that takes minutes and ends by asking the owner a Yes/No approval in Needs you; nothing is sent outside
@@ -20,6 +24,11 @@ All notable changes to Tico are recorded here. The format follows
   before. `--support off` turns Support off. The Gateway invite comes from `TICO_GATEWAY_INVITE` in the environment and
   is never printed. The quick start, your own domain and sign-in, and your own keys install as before.
   ([Install](docs/install.md#recommended-setup))
+- **Start fresh when the topic changes** (Settings > Team; off by default, an owner or an admin turns it on): in a
+  long or idle direct chat with a bot, Tico asks Decide whether your new message starts a new topic before it is sent.
+  If it does, the bot's session is cleared the same way Clear does, and the chat shows a quiet **Topic changed** line
+  above your message. A chat with an active goal, a running turn or fewer than 3 turns is never checked, and a slow or
+  failed check (over 1.5 s) sends the message in the same session with no line.
 - **Owner sign-in link for servers Tico hosts**: the setup wizard's `--hosted own|invited` signs the owner in with a
   link our team sends. It works once and for a week at most, only on an https domain under our zone, and is never
   printed or logged; `python3 -m setup owner-link` makes a new one and can sign the owner out everywhere. With
