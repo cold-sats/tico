@@ -1,0 +1,187 @@
+/* ui/app/visual-pictures.js — Picture, SVG and visual page cards (Visual replies 2/4) and Expand, full screen.
+   Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them.
+   Every one shows from 1/4's sign-in-free address (visualSrc, ui/app/visual-cards.js), never the app's file route. */
+'use strict';
+
+// A visual page runs in a frame on the visual address with no same-origin, forms, top navigation or modals: the only
+// script it can run is the server's height reporter (backend/visuals.py REPORTER, allowed by hash), and a link opens a
+// new tab only when clicked. Lead, Oct 19: these four tokens and nothing else.
+const VISUAL_PAGE_SANDBOX = 'allow-scripts allow-popups allow-popups-to-escape-sandbox';
+const VISUAL_PAGE_MAX = 20000;               // px: a reported height is clamped to this
+const VISUAL_PAGE_WAIT = 2500;               // ms after the frame loads with no height: it did not render
+const VISUAL_PAGE_H = new Map();             // "<file>@<version>" -> the height its page last reported (no jump on redraw)
+
+const visualTip = f => esc(visualTitle(f));
+function visualPictureBody(f) {
+  return `<button type="button" class="vcard-hit" data-vcard-act="expand" aria-label="Expand ${visualTip(f)}"><img class="vcard-img" alt="${visualTip(f)}" src="${esc(visualSrc(f))}" decoding="async"></button>`;
+}
+VISUAL_BODY.image = visualPictureBody;
+VISUAL_BODY.svg = visualPictureBody;         // an <img>: an SVG never runs scripts or loads anything there
+VISUAL_SPACE.image = () => 'min-height:120px';
+VISUAL_SPACE.svg = () => 'aspect-ratio:4/3';
+// The frame starts 1px tall while the card holds the space: a page measures itself no smaller than its frame
+// (scrollHeight), so the first height it reports is its own, and a short page gets no blank below it.
+VISUAL_BODY.page = f => `<iframe class="vcard-frame" title="${visualTip(f)}" sandbox="${VISUAL_PAGE_SANDBOX}" credentialless referrerpolicy="no-referrer" scrolling="no" style="height:${VISUAL_PAGE_H.get(visualRef(f)) || 1}px" src="${esc(visualSrc(f))}"></iframe>
+  <div class="vcard-fade" aria-hidden="true"></div><button type="button" class="vcard-expand" data-vcard-act="expand">Expand</button>
+  <button type="button" class="vcard-tap" data-vcard-act="expand" aria-label="Expand ${visualTip(f)}"></button>`;
+VISUAL_SPACE.page = f => {
+  const h = VISUAL_PAGE_H.get(visualRef(f));
+  return h ? `height:${h}px` : 'height:var(--vcard-cap)';
+};
+
+// Once: a broken address gets the newest one the thread read (data-fresh-src, visualKeep), then the card says so.
+function visualRetry(card, el, attr = 'src') {
+  const fresh = card.dataset.freshSrc;
+  if (fresh && !card.dataset.retried && fresh !== el.getAttribute(attr)) { card.dataset.retried = '1'; el.setAttribute(attr, fresh); return true; }
+  visualFail(card);
+  return false;
+}
+function visualPictureWire(card) {
+  const img = card.querySelector('img.vcard-img'), body = card.querySelector('.vcard-body');
+  if (!img) return;
+  const ready = () => {
+    body.classList.add('ready');
+    // Size not known before: the picture's own, from now on.
+    if (!/aspect-ratio/.test(body.getAttribute('style') || '') && img.naturalWidth && img.naturalHeight)
+      body.style.cssText = `aspect-ratio:${img.naturalWidth}/${img.naturalHeight};--vcard-w:${img.naturalWidth}px`;
+  };
+  img.addEventListener('load', ready);
+  img.addEventListener('error', () => visualRetry(card, img));
+  if (img.complete) img.naturalWidth ? ready() : visualRetry(card, img);
+}
+VISUAL_WIRE.image = visualPictureWire;
+VISUAL_WIRE.svg = visualPictureWire;
+
+function visualCap(body) { return parseFloat(getComputedStyle(body).maxHeight) || 480; }
+function visualPageWire(card) {
+  const frame = card.querySelector('iframe.vcard-frame');
+  if (!frame) return;
+  frame.addEventListener('load', () => {
+    clearTimeout(frame.visualWait);
+    frame.visualWait = setTimeout(() => { if (!frame.visualHeight && card.isConnected) visualRetry(card, frame); }, VISUAL_PAGE_WAIT);
+  });
+  const known = VISUAL_PAGE_H.get(`${card.dataset.file}@${card.dataset.version}`);
+  if (known) visualPageSize(card, frame, known);
+}
+VISUAL_WIRE.page = visualPageWire;
+function visualPageSize(card, frame, h) {
+  const body = card.querySelector('.vcard-body');
+  frame.visualHeight = h;
+  frame.style.height = h + 'px';             // the whole page: no scrollbar inside the frame
+  body.style.height = h + 'px';              // the card: up to the cap (max-height), then fade + Expand
+  body.classList.add('ready');
+  card.classList.toggle('capped', h > visualCap(body) + 1);
+}
+// The height a page reports, taken only from a card's own frame, as a number, clamped.
+window.addEventListener('message', ev => {
+  const n = ev.data && typeof ev.data === 'object' ? ev.data.ticoVisualHeight : undefined;
+  if (typeof n !== 'number' || !Number.isFinite(n) || !ev.source) return;
+  const frame = [...document.querySelectorAll('iframe.vcard-frame')].find(x => x.contentWindow === ev.source);
+  const card = frame?.closest('figure.vcard');
+  if (!card) return;
+  const h = Math.max(24, Math.min(Math.ceil(n), VISUAL_PAGE_MAX));
+  VISUAL_PAGE_H.set(`${card.dataset.file}@${card.dataset.version}`, h);
+  visualPageSize(card, frame, h);
+});
+
+// ---- Expand: full screen over the conversation. Pictures zoom (click/tap, pinch, ctrl+wheel), pages scroll.
+// Close, Esc, swipe down or Back return to the same place in the conversation.
+function visualFullDialog() {
+  let d = $('#vcard-full');
+  if (d) return d;
+  d = document.createElement('dialog');
+  d.id = 'vcard-full'; d.className = 'vcard-full';
+  d.innerHTML = `<div class="vcard-full-bar"><span class="vcard-full-title"></span><button type="button" class="ghost vcard-full-close" data-vfull-close aria-label="Close">Close</button></div><div class="vcard-full-body"></div>`;
+  d.addEventListener('click', ev => { if (ev.target.closest('[data-vfull-close]')) d.close(); });
+  d.addEventListener('close', () => visualFullClosed(d));
+  visualFullSwipe(d);
+  document.body.append(d);
+  return d;
+}
+function visualScrollers(el) {
+  const out = [];
+  for (let x = el.parentElement; x; x = x.parentElement) if (x.scrollHeight > x.clientHeight) out.push([x, x.scrollTop]);
+  const doc = document.scrollingElement;
+  if (doc) out.push([doc, doc.scrollTop]);
+  return out;
+}
+function visualExpand(card) {
+  const d = visualFullDialog(), src = card.dataset.freshSrc, kind = card.dataset.kind;
+  if (!src) return;
+  const title = card.querySelector('.vcard-title')?.textContent || 'Visual';
+  d.querySelector('.vcard-full-title').textContent = title;
+  d.setAttribute('aria-label', title);
+  d.dataset.kind = kind;
+  const body = d.querySelector('.vcard-full-body');
+  body.innerHTML = kind === 'page'
+    ? `<iframe class="vcard-full-frame" title="${esc(title)}" sandbox="${VISUAL_PAGE_SANDBOX}" credentialless referrerpolicy="no-referrer" src="${esc(src)}"></iframe>`
+    : `<img class="vcard-full-img" alt="${esc(title)}" src="${esc(src)}" draggable="false">`;
+  d.visualFrom = {card, opener: document.activeElement, scroll: visualScrollers(card)};
+  if (kind !== 'page') visualZoom(d, body.querySelector('img'));
+  history.pushState({...(history.state || {}), vcardFull: 1}, '');
+  d.showModal();
+  d.querySelector('.vcard-full-close').focus({preventScroll: true});
+}
+VISUAL_EXPAND.image = visualExpand;
+VISUAL_EXPAND.svg = visualExpand;
+VISUAL_EXPAND.page = visualExpand;
+function visualFullClosed(d) {
+  const from = d.visualFrom; d.visualFrom = null;
+  d.querySelector('.vcard-full-body').innerHTML = '';
+  if (history.state?.vcardFull) history.back();
+  if (!from) return;
+  for (const [el, top] of from.scroll) el.scrollTop = top;
+  const back = from.opener?.isConnected ? from.opener : from.card.querySelector('summary, .vcard-hit, .vcard-expand');
+  back?.focus?.({preventScroll: true});
+  for (const [el, top] of from.scroll) el.scrollTop = top;
+}
+window.addEventListener('popstate', () => {
+  const d = $('#vcard-full');
+  if (d?.open && !history.state?.vcardFull) d.close();
+});
+function visualFullSwipe(d) {
+  let start = null;
+  d.addEventListener('pointerdown', ev => {
+    if (ev.pointerType === 'mouse' || d.zoomed) { start = null; return; }
+    const body = d.querySelector('.vcard-full-body');
+    start = body.scrollTop <= 0 ? {x: ev.clientX, y: ev.clientY} : null;
+  });
+  d.addEventListener('pointerup', ev => {
+    if (!start) return;
+    const dx = ev.clientX - start.x, dy = ev.clientY - start.y;
+    start = null;
+    if (dy > 80 && Math.abs(dx) < dy * 0.6) d.close();
+  });
+  d.addEventListener('pointercancel', () => { start = null; });
+}
+// Fitted at 1; a click or tap toggles 2x at that point; pinch and ctrl+wheel (a trackpad pinch) scale between 1 and 6.
+function visualZoom(d, img) {
+  const body = d.querySelector('.vcard-full-body');
+  let scale = 1;
+  const set = (next, x = body.clientWidth / 2, y = body.clientHeight / 2) => {
+    const was = scale;
+    scale = Math.max(1, Math.min(6, next));
+    d.zoomed = scale > 1;
+    d.classList.toggle('zoomed', d.zoomed);
+    const fx = (body.scrollLeft + x) / was, fy = (body.scrollTop + y) / was;
+    img.style.width = scale > 1 ? `${scale * 100}%` : '';
+    img.style.height = scale > 1 ? `${scale * 100}%` : '';
+    body.scrollLeft = fx * scale - x; body.scrollTop = fy * scale - y;
+  };
+  const at = ev => { const r = body.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; };
+  img.addEventListener('click', ev => set(scale > 1 ? 1 : 2, ...at(ev)));
+  body.addEventListener('wheel', ev => { if (!ev.ctrlKey) return; ev.preventDefault(); set(scale * Math.exp(-ev.deltaY / 200), ...at(ev)); }, {passive: false});
+  const touches = new Map(); let pinch = null;
+  body.addEventListener('pointerdown', ev => { if (ev.pointerType === 'touch') touches.set(ev.pointerId, ev); });
+  body.addEventListener('pointermove', ev => {
+    if (!touches.has(ev.pointerId)) return;
+    touches.set(ev.pointerId, ev);
+    if (touches.size !== 2) return;
+    const [a, b] = [...touches.values()], dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+    if (!pinch) { pinch = {dist, scale}; return; }
+    const r = body.getBoundingClientRect();
+    set(pinch.scale * dist / pinch.dist, (a.clientX + b.clientX) / 2 - r.left, (a.clientY + b.clientY) / 2 - r.top);
+  });
+  const up = ev => { touches.delete(ev.pointerId); if (touches.size < 2) pinch = null; };
+  body.addEventListener('pointerup', up); body.addEventListener('pointercancel', up);
+}
