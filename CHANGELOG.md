@@ -40,6 +40,11 @@ All notable changes to Tico are recorded here. The format follows
   failed check (over 1.5 s) sends the message in the same session with no line.
 
 ### Fixed
+- **First-run wizard**: **Next** on **Your team chart** works again when the team includes BotOps. Its instructions
+  (24,048 characters) were over the setup save's 20,000-character limit, so the wizard stopped with a raw field error.
+  Bot instructions now have one limit of 50,000 characters wherever they are sent (the wizard, **Add from catalog**
+  and registering a bot), and a test checks every shipped template against it. If the wizard cannot save a step it
+  now says so in plain words and what to do, never the field the server named.
 - **Claude sign-in on a subscription profile stays in that profile.** A runner whose own environment set
   `CLAUDE_CONFIG_DIR` signed Claude Code in there (Settings > Computers and `tico-runner profile login`) and checked
   it there, while turns read the profile's `HOME`: sign-in looked done but turns were signed out or ran on another
