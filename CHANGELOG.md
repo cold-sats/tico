@@ -136,6 +136,9 @@ All notable changes to Tico are recorded here. The format follows
   follows the bot your message went to, such as the bot that asked you on a task you own, not only the task's owner.
   Before you send, the message box says when no bot will get the message, or when it waits for the bot's next run on
   the task.
+- **Tico AI Gateway calls are no longer refused at the edge**: Decide's questions, writing on a Tico model and the key check in
+  Settings > AI providers now send Tico's own user agent (`Tico-Client/<version>`). Without it Python's default one was
+  refused before the call reached the Gateway, so a server on a gateway key got no answers from Decide.
 - **Computers: a cleared key reads "No key · Add key"**, not "Signed out · Sign in", in a computer's pop-up, and its
   chip's hover says No key. On an offline computer, a connection's **Replace key**, **Clear key**, **Switch to
   subscription**, **Sign out** and **Switch account** stay on the line, disabled, with "Computer is offline", instead
