@@ -8,6 +8,12 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **AWS setup: `--name`, `--aws-permissions-boundary` and `destroy --dns`**: `--name` now names a new AWS server (its
+  resources are `tico-<name>`, tagged `tico-setup-name=<name>`, its `.env` in `/tico/<name>/env`), not only the one
+  destroy removes. `--aws-permissions-boundary <arn>` creates the server's IAM role under that boundary, with both
+  tags in the same call, for accounts that only allow that. `destroy --dns` also deletes the domain's Route 53 A and
+  AAAA records, first and only while they still point at the server, and deletes nothing if Route 53 can't be read.
+  ([Advanced install](docs/install-advanced.md#the-aws-server))
 - **"Sign in with Tico account" on hosted servers, through the ordinary OpenID Connect sign-in**: a new optional
   `TICO_OIDC_LABEL` puts one "Sign in with <label>" button in front of any OpenID Connect provider (unset, sign-in goes
   straight to the provider as before). The setup wizard's new `--auth oidc --issuer <url> --client-id <id>
