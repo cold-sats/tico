@@ -66,27 +66,40 @@ function visualCardsHTML(files, {key = '', chips = () => ''} = {}) {
 
 // Both threads redraw with a whole new tree. Before the swap, a card whose key is in both trees keeps its old node,
 // so a loaded page or a playing clip is not torn down; it takes the new tree's fresh address (data-fresh-src) for
-// a renderer whose address ran out. Media survive the move (it happens in one task); a frame reloads when its node
-// moves, so page renderers keep their measured height and nothing jumps.
-function visualKeep(oldRoot, newRoot) {
-  const old = new Map();
+// a renderer whose address ran out. visualKept pairs them (old node, its place in the new tree); visualKeep puts
+// each old node in its place.
+function visualKept(oldRoot, newRoot) {
+  const old = new Map(), pairs = [];
   for (const card of oldRoot.querySelectorAll('figure.vcard[data-visual-key]')) old.set(card.dataset.visualKey, card);
-  if (!old.size) return;
-  for (const card of [...newRoot.querySelectorAll('figure.vcard[data-visual-key]')]) {
+  if (!old.size) return pairs;
+  for (const card of newRoot.querySelectorAll('figure.vcard[data-visual-key]')) {
     const was = old.get(card.dataset.visualKey);
     if (!was || was.dataset.state !== card.dataset.state || was.dataset.current !== card.dataset.current) continue;
     old.delete(card.dataset.visualKey);
     if (card.dataset.freshSrc) was.dataset.freshSrc = card.dataset.freshSrc;
-    card.replaceWith(was);
+    pairs.push([was, card]);
   }
+  return pairs;
 }
-// root.innerHTML = html, keeping the cards both trees share (visualKeep).
+function visualKeep(oldRoot, newRoot) {
+  for (const [was, card] of visualKept(oldRoot, newRoot)) card.replaceWith(was);
+}
+// root.innerHTML = html, keeping the cards both trees share. The new tree is brought into this document first: a
+// node moved through the template's own document reloads (a playing clip back to 0:00). Where the browser can move
+// a node without taking it out (moveBefore), the new tree goes in and each kept card moves into it, so a page's
+// frame is not loaded again either. Elsewhere the kept card is taken out and put back in the same task: a clip
+// plays on, a page's frame loads again.
 function visualSwap(root, html) {
   if (!root.querySelector('figure.vcard')) { root.innerHTML = html; return; }
   const t = document.createElement('template');
   t.innerHTML = html;
-  visualKeep(root, t.content);
-  root.replaceChildren(t.content);
+  const fresh = document.importNode(t.content, true);
+  if (!root.moveBefore) { visualKeep(root, fresh); root.replaceChildren(fresh); return; }
+  const pairs = visualKept(root, fresh), old = [...root.childNodes];
+  root.append(fresh);
+  for (const [was, card] of pairs) { card.parentNode.moveBefore(was, card); card.remove(); }
+  const kept = new Set(pairs.map(([was]) => was));
+  for (const node of old) if (!kept.has(node)) node.remove();
 }
 function visualWire(root = document) {
   for (const card of root.querySelectorAll('figure.vcard:not([data-wired])')) {

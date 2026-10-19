@@ -46,6 +46,13 @@ print(json.dumps(out))
 const PNG = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010806000000' + '1f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082', 'hex');
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100"><text x="10" y="60" font-size="40">Hi</text></svg>';
 const VIS = 'https://visuals.test/visuals/';
+// A 60 s silent clip (8 kHz, 8-bit mono WAV), for the redraw check on a playing clip.
+const CLIP = (() => {
+  const n = 8000 * 60, b = Buffer.alloc(44 + n, 0x80);
+  b.write('RIFF', 0); b.writeUInt32LE(36 + n, 4); b.write('WAVEfmt ', 8); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22);
+  b.writeUInt32LE(8000, 24); b.writeUInt32LE(8000, 28); b.writeUInt16LE(1, 32); b.writeUInt16LE(8, 34); b.write('data', 36); b.writeUInt32LE(n, 40);
+  return b;
+})();
 const A = (id, kind, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1', title: 'Title ' + id, kind, name: id + ({image: '.png', svg: '.svg', page: '.html'}[kind] || ''),
   size: 1000, content_type: {image: 'image/png', svg: 'image/svg+xml', page: 'text/html'}[kind], url: `/api/v2/files/${id}?v=1`, removed: false,
   current_version: 1, src: VIS + 'tok-' + id, ...over});
@@ -88,6 +95,11 @@ const A = (id, kind, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1'
         if (id === 'f-bad' || id === 'f-gone') return route.fulfill({status: 404, headers: {...headers, 'Content-Security-Policy': "default-src 'none'; sandbox"}, body: ''});
         const page = {'f-short': 'short', 'f-tall': 'tall', 'f-hostile': 'hostile', 'f-vh': 'vh', 'f-dvh': 'dvh', 'f-tiny': 'tiny', 'f-mid': 'mid', 'f-live-page': 'short'}[id];
         if (page) return route.fulfill({contentType: 'text/html', headers: {...headers, 'Content-Security-Policy': server.policy}, body: server.pages[page]});
+        if (id === 'f-clip') {
+          const m = /bytes=(\d+)-(\d*)/.exec(req.headers().range || ''), from = m ? +m[1] : 0, to = m && m[2] ? +m[2] : CLIP.length - 1;
+          return route.fulfill({status: m ? 206 : 200, contentType: 'audio/wav', body: CLIP.subarray(from, to + 1),
+            headers: {...headers, 'Accept-Ranges': 'bytes', ...(m ? {'Content-Range': `bytes ${from}-${to}/${CLIP.length}`} : {})}});
+        }
         if (id === 'f-logo') return route.fulfill({contentType: 'image/svg+xml', headers: {...headers, 'Content-Security-Policy': server.svg_policy}, body: SVG});
         return route.fulfill({contentType: 'image/png', headers, body: PNG});
       }
@@ -314,6 +326,58 @@ const A = (id, kind, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1'
       return [old.isConnected, b.children[0] !== was, b.children[1] === was, was.dataset.freshSrc];
     });
     assert.deepEqual(kept, [true, true, true, 'fresh']);
+    // the redraw keeps a playing clip where it was: the same element, still playing, not back at 0:00 (frame defect
+    // from 3/4: a kept node moved through another document reloads). Both ways: moving the card in place
+    // (moveBefore) and, where a browser has no moveBefore, taking it out and putting it back.
+    const noMove = on => page.evaluate(on => { if (on) { window.__mb = Element.prototype.moveBefore; delete Element.prototype.moveBefore; } else Element.prototype.moveBefore = window.__mb; }, on);
+    for (const way of ['moveBefore', 'no moveBefore']) {
+      await page.evaluate(src => {
+        const card = `<figure class="vcard" data-visual-key="m:clip@1" data-state="ready"><audio src="${src}" muted preload="auto"></audio></figure>`;
+        const root = document.createElement('div');
+        root.id = 'clip-root'; root.dataset.card = card; document.body.append(root);
+        visualSwap(root, card);
+      }, VIS + 'tok-f-clip');
+      await page.evaluate(async () => {
+        const a = document.querySelector('#clip-root audio');
+        await a.play();
+        a.currentTime = 40;
+        await new Promise(r => a.addEventListener('seeked', r, {once: true}));
+      });
+      if (way === 'no moveBefore') await noMove(true);
+      const clip = await page.evaluate(async () => {
+        const root = document.querySelector('#clip-root'), a = root.querySelector('audio');
+        visualSwap(root, '<p>Another message</p>' + root.dataset.card);
+        const now = [root.querySelector('audio') === a, a.currentTime >= 39, !a.paused];
+        await new Promise(r => setTimeout(r, 500));
+        const later = [root.querySelector('audio') === a, a.currentTime >= 39, !a.paused];
+        root.remove();
+        return [now, later];
+      });
+      if (way === 'no moveBefore') await noMove(false);
+      assert.deepEqual(clip, [[true, true, true], [true, true, true]], `${label} (${way}): a clip at 40 s is the same element, at >= 39 s and playing after a redraw`);
+    }
+    // the same for a page card: the kept frame is the same element, and whether it loads again is recorded. Moved in
+    // place it does not, and its card holds its height through the redraw: no collapse, no jump.
+    const redrawPage = () => page.evaluate(async () => {
+      const card = document.querySelector('[data-message="m1"] figure.vcard[data-file="f-short"]'), f = card.querySelector('iframe'), body = card.querySelector('.vcard-body');
+      const h = () => Math.round(body.getBoundingClientRect().height), before = h(), seen = [];
+      let loads = 0;
+      f.addEventListener('load', () => loads++);
+      V2C.html = ''; v2ChatRender(V2C);
+      const same = document.querySelector('[data-message="m1"] figure.vcard[data-file="f-short"] iframe') === f;
+      for (let i = 0; i < 40; i++) { seen.push(h()); await new Promise(r => requestAnimationFrame(r)); }
+      await new Promise(r => setTimeout(r, 800));
+      seen.push(h());
+      return {same, loads, before, heights: [...new Set(seen)]};
+    });
+    const moved = await redrawPage();
+    console.log(`${label}: a kept page card's frame loaded ${moved.loads} time(s) on a redraw (moveBefore); heights ${moved.heights}`);
+    assert.deepEqual([moved.same, moved.loads, moved.heights], [true, 0, [moved.before]], `${label}: a kept page card is the same frame, not loaded again, and holds its height through a redraw ${JSON.stringify(moved)}`);
+    await noMove(true);
+    const putBack = await redrawPage();
+    await noMove(false);
+    console.log(`${label}: without moveBefore, a kept page card's frame loaded ${putBack.loads} time(s) on a redraw; heights ${putBack.before} -> ${putBack.heights}`);
+    assert(putBack.same, `${label}: without moveBefore, a kept page card is still the same frame`);
 
     // ---- live: a new message comes on the event stream; the snapshot read again signs every address afresh. A card
     // already on screen keeps its node and its height and takes the new address; the new message's cards show.
