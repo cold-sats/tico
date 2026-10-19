@@ -465,6 +465,20 @@ def decorate(c, who, files, key, base, messages):
     return messages
 
 
+def key_for(app, settings):
+    """The signing key, read once per server."""
+    if not getattr(app.state, "visual_key", None):
+        app.state.visual_key = secret(settings)
+    return app.state.visual_key
+
+
+def for_reader(app, settings, c, who, messages):
+    """decorate() for any path that hands messages to a reader: the conversation page and snapshot, a single message,
+    task comments, the task page, the assistant room and the live event stream all go through here."""
+    base = settings.visual_origin if inline_on(settings) else None
+    return decorate(c, who, app.state.files, key_for(app, settings), base, messages)
+
+
 # ---------------------------------------------------------------------------------------------- serve
 def serve(request, store, auth, files, blobs, key, ancestors, token, on=True):
     """GET /visuals/<token>: one visual for the reader the token names, checked again on every request. Refused

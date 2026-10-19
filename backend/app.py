@@ -1091,13 +1091,10 @@ def create_app(settings=None):
     def visual_view(c, who, rows):
         """Messages with each visual as this reader sees it now: fresh addresses on /visuals (backend/visuals.py), or
         none at all while inline display is off (a file chip)."""
-        base = settings.visual_origin if visuals.inline_on(settings) else None
-        return visuals.decorate(c, who, app.state.files, visual_key(), base, rows)
+        return visuals.for_reader(app, settings, c, who, rows)
 
     def visual_key():
-        if not getattr(app.state, "visual_key", None):
-            app.state.visual_key = visuals.secret(settings)
-        return app.state.visual_key
+        return visuals.key_for(app, settings)
 
     def visual_ancestors():
         from .visuals import origin_of
@@ -2041,7 +2038,7 @@ def create_app(settings=None):
                     auth.conversation(c, who, conv["id"])
                 except Problem:
                     continue
-                messages = privacy.page(c, who, conv["id"])["messages"]
+                messages = visual_view(c, who, privacy.page(c, who, conv["id"])["messages"])
                 bot = H.bot(c, row["bot"]) or {}
                 threads.append({"bot": row["bot"], "display_name": bot.get("display_name") or row["bot"],
                                 "conversation_id": conv["id"], "channel": row["channel"],
@@ -3288,7 +3285,8 @@ def create_app(settings=None):
             from .task_review import comment_rights
             comment_rights(c, auth, who, row["id"])
             msg = H.task_comment_edit(c, who.actor, row["id"], mid, body.text, approval_id=body.approval_id)
-            return {"comment": msg, "comments": H.task_comments(c, row["id"], actor=privacy.actor(request.state.identity)), "woke": False}
+            return {"comment": msg, "comments": visual_view(c, request.state.identity, H.task_comments(
+                c, row["id"], actor=privacy.actor(request.state.identity))), "woke": False}
         return mutate(request, body, work, check=lambda c: own_comment(c, who, tid, mid, allow_deleted=True))
 
     @app.post("/api/v2/tasks/{tid}/comments/{mid}/delete")
@@ -3298,7 +3296,8 @@ def create_app(settings=None):
         def work(c):
             row = own_comment(c, who, tid, mid)
             msg = H.task_comment_delete(c, who.actor, row["id"], mid)
-            return {"comment": msg, "comments": H.task_comments(c, row["id"], actor=privacy.actor(request.state.identity)), "woke": False}
+            return {"comment": msg, "comments": visual_view(c, request.state.identity, H.task_comments(
+                c, row["id"], actor=privacy.actor(request.state.identity))), "woke": False}
         return mutate(request, body, work, check=lambda c: own_comment(c, who, tid, mid, allow_deleted=True))
 
     @app.post("/api/v2/tasks/{tid}/comments/{mid}/resolve")
@@ -3318,7 +3317,7 @@ def create_app(settings=None):
             row = readable(c)
             out = H.task_ask_resolve(c, who.actor, row["id"], mid, body.quote)
             return {"comment": out["answer"] or out["ask"],
-                    "comments": H.task_comments(c, row["id"], actor=privacy.actor(who)), "woke": False}
+                    "comments": visual_view(c, who, H.task_comments(c, row["id"], actor=privacy.actor(who))), "woke": False}
         return mutate(request, body, work, check=readable)
 
     @app.post("/api/v2/tasks/{tid}/delete")

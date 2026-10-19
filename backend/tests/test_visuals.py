@@ -6,6 +6,7 @@ import re
 from backend import visuals as V
 from backend.tests.test_api import api, assign, claim, headers, post, ready, runner  # noqa: F401  (fixtures)
 from backend.tests.test_files import publish, turn
+from backend.tests.test_events import live  # noqa: F401  (fixture)
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
 DOT = "data:image/png;base64," + base64.b64encode(PNG).decode()
@@ -198,6 +199,45 @@ def test_the_public_roadmap_never_shows_a_private_tasks_visual(api):
         shown = repr(public_roadmaps.comments(c, row)) + repr(public_roadmaps.output(c, row))
     assert comment["id"] in shown
     assert fid not in shown and "/visuals/" not in shown and "chart.html" not in shown
+
+
+def snapshot_item(api, cid, mid, who):
+    got = api.get(f"/api/v2/conversations/{cid}/snapshot", headers=headers(who))
+    if got.status_code != 200:
+        return got.status_code
+    [item] = next(m for m in got.json()["messages"] if m["id"] == mid)["refs"]["attachments"]
+    return item
+
+
+def test_the_snapshot_and_the_live_stream_give_each_reader_the_visual_and_nobody_else(api, live):
+    """The conversation snapshot (what the app opens a chat or task with) and the live stream (a new comment arriving)
+    carry the same fresh address as the message routes, for a private task's comment and a chat reply alike."""
+    _, attempt = turn(api)
+    png_id, _ = png(api, attempt)
+    reply = bot_reply(api, attempt, attachments=[{"ref": f"{png_id}@1", "title": "Signups"}])
+    assert reply.status_code == 200, reply.text
+    reply = reply.json()
+    tid, fid, comment = visual_on_task(api, private=True)
+    with api.app.state.store.read() as c:
+        room = c.execute("SELECT conversation_id FROM tasks WHERE id=?", (tid,)).fetchone()[0]
+    for cid, mid, file_id in ((room, comment["id"], fid),
+                              (reply["conversation_id"], reply["id"], png_id)):
+        item = snapshot_item(api, cid, mid, "ben-test")
+        assert (item["file_id"], item["current_version"], item["removed"]) == (file_id, 1, False)
+        assert api.get(item["src"]).status_code == 200
+        assert snapshot_item(api, cid, mid, "cara-test") in (403, 404)       # not a reader: no snapshot at all
+
+    stream = live("ben-test", f"?topics=messages&conversation={room}")
+    assert stream.status == 200
+    stream.until(lambda e: e["event"] in ("keepalive", "cursor", "messages"))
+    made = api.post(f"/api/v2/tasks/{tid}/files", json={"name": "next.html", "text": "<p>next</p>"},
+                    headers=headers("ben-test")).json()
+    sent = api.post(f"/api/v2/tasks/{tid}/comments", json={"text": "next", "attachments": [
+        {"ref": f"{made['file_id']}@{made['version']}", "title": "Next"}]}, headers=headers("ben-test")).json()
+    event = stream.until(lambda e: e["event"] == "messages"
+                         and (e["data"].get("message") or {}).get("id") == sent["comment"]["id"])
+    [item] = event["data"]["message"]["refs"]["attachments"]
+    assert item["title"] == "Next" and item["removed"] is False and api.get(item["src"]).status_code == 200
 
 
 # ---------------------------------------------------------------------------------------------- serving (22)
