@@ -76,6 +76,10 @@ All notable changes to Tico are recorded here. The format follows
   before this keeps today's behaviour ([sessions](docs/sessions.md)).
 
 ### Changed
+- **Updates cards use icons**: Reply, Mark unread (or read) and Archive (Restore in the Archive) are icons, named by a
+  tooltip, a long press on a phone and screen readers. A card's reports open from **8** and a chevron at the right end
+  of its icon row, in place of the **8 reports** row under it and its broken glyph, and open reports hang from the
+  card on one line with an elbow into each card, the same at every level.
 - **First run, computer step**: one numbered path (make the code, then the line that uses it), with the plain
   `docker run` alternative behind **Other ways**, closed. After **Add computer** the one-time code shows in large type
   on the screen, not only in a toast. Commands wrap inside their box on a phone and on a desktop, with **Copy** in the box.
