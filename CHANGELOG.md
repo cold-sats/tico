@@ -8,6 +8,13 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Visuals in replies outside Tico (part 4 of 4)**: a bot's reply with visuals that reaches Slack keeps its text
+  and adds one line, "1 visual - view in Tico" (or "N visuals"), linking to that message: in its task, or in the chat
+  room it was sent in. A task-done post does the same for the owner's result comment when it has visuals. The link
+  opens only for people who can read the conversation, and nothing from a private task is sent to Slack. No visual
+  is shown in Slack itself. Every bot's instructions now say to add a visual (chart, table, diagram, mockup,
+  screenshot, clip or recording) when it makes the answer clearer, never for a plain answer, with the text answer
+  complete on its own; brand assets, designed graphics and edited video still go to Design and Video Producer.
 - **A usage limit holds the login, once**: a run that hits a subscription's usage limit now holds that provider
   login on that computer, for every bot signed in with it, until the reset the provider names (Claude's "resets
   2:40am (UTC)" is read too), or 30, 60 and then 120 minutes when it names none. The hold is saved on the server, so
@@ -18,7 +25,7 @@ All notable changes to Tico are recorded here. The format follows
   audio clip to a chat reply or task comment (`--visual PATH --title "…"` on `hub message send`, `hub chat send` and
   `hub task comment`; `visuals` over MCP; `attachments: [{ref, title}]` in the API). It is a versioned file there,
   shown only to that conversation's readers. A page's local images and fonts are embedded; remote ones are removed
-  and listed. Self-hosters set `TICO_VISUAL_ORIGIN`, a separate site. Visuals still show as file chips until part 2
+  and listed. Self-hosters set `TICO_VISUAL_ORIGIN`, a separate site. Video and audio still show as file chips until part 3
   ([Visuals in replies](docs/visuals.md)).
 - **Visuals in replies (part 2 of 4): pictures, SVG and visual pages show inline** under a chat message or a task
   comment, a person's attachments too. Each is a card the width of the message, never wider than the screen, with its
@@ -28,7 +35,8 @@ All notable changes to Tico are recorded here. The format follows
   pictures, scroll in pages; Close, Esc, swipe down or Back return to the same place. SVG and pages sit on a light card
   in dark mode. A card holds its space while it loads, keeps the version it was posted with ("Newer version" links the
   newest), says "This visual was removed" when the file was removed and "Couldn't show this visual" when it can't
-  render. Up to 4 per message; the rest stay file chips.
+  render. Up to 4 per message; the rest stay file chips
+  ([Visuals in replies](docs/visuals.md#in-a-chat-or-task-conversation)).
 - **Video and audio in replies (part 3 of 4)**: a video or audio clip attached to a chat reply or task comment plays
   in the conversation: a video with its first frame, play, seek, volume and full screen (also in the desktop app on
   a Mac), an audio clip as a compact player that keeps playing while you scroll. Nothing starts by itself, starting
@@ -85,6 +93,11 @@ All notable changes to Tico are recorded here. The format follows
   ([Computers](docs/computers.md#remove-a-subscription)).
 
 ### Fixed
+- **A bot's finished answer is no longer lost or given twice when its computer stalls before handing it in.** A
+  turn's lease now renews on a thread of its own, so busy work on the computer can't stop it. If a finished
+  answer still comes in late, after its run was dismissed or cancelled, it is kept: the run ends completed and the
+  answer shows where the person asked, and a closed task stays closed. A run whose lease lapsed is not started again
+  for 90 minutes while its own answer may still arrive.
 - **Updates tree keeps archived cards out after a reload**: a card you archive on Updates no longer comes back in
   the tree when the page reloads, and Restore brings it back for good. Archive stays yours alone: others still see the
   card. A manager whose own card you archived stays in the tree with "No update yet" and their reports below. The
