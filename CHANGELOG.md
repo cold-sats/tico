@@ -17,6 +17,11 @@ All notable changes to Tico are recorded here. The format follows
   signed address apart from the app's sign-in (`TICO_VISUAL_ORIGIN` for a host of their own), with a policy that
   blocks scripts and network loads, and only to people who can read that conversation, checked again on every
   request. Until part 2 they still show as file chips.
+- **Video and audio in replies (part 3 of 4)**: a video or audio clip attached to a chat reply or task comment plays
+  in the conversation: a video with its first frame, play, seek, volume and full screen (also in the desktop app on
+  a Mac), an audio clip as a compact player that keeps playing while you scroll. Nothing starts by itself, starting
+  one clip pauses the other, and seeking a long clip loads only that part. A clip the device can't play shows why,
+  with Download.
 - **The company on Goals**: with the CEO Bot switch on, Goals opens with a **Company** section: the Vision (one or
   two sentences) and the Description (a short paragraph). The owner and admins edit it, everyone else reads it, and
   **History** lists every change with who made it and when. Each goal shows a one-line **Why** tying it to the
