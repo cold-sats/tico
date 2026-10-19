@@ -84,6 +84,11 @@ All notable changes to Tico are recorded here. The format follows
   before this keeps today's behaviour ([sessions](docs/sessions.md)).
 
 ### Changed
+- **Health Monitor: seeing a finding again only counts**: each hourly scan that sees a finding adds one to its count
+  and moves its last-seen time, and no bot runs for it. Only a new finding, one whose severity rises (a computer on a
+  release the server cannot work with is `bad`, an older one `warn`), or one back after its task was finished wakes
+  the Health Monitor. **Settings > Health** shows each finding as "seen N times, last ...". A finding no longer
+  wakes it again just because a day has passed since its last wake.
 - **Bot-to-bot messages wait for the next run** (token saving): a plain message or task comment one bot sends
   another no longer starts a run. It is kept in its room and handed to that bot's next run, whatever starts it,
   in the order sent, and marked read then. The sender wakes it at once with `--needs-action`
