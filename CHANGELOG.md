@@ -71,8 +71,9 @@ All notable changes to Tico are recorded here. The format follows
 - **Start fresh when the topic changes** (Settings > Team; off by default, an owner or an admin turns it on): in a
   long or idle direct chat with a bot, Tico asks Decide whether your new message starts a new topic before it is sent.
   If it does, the bot's session is cleared the same way Clear does, and the chat shows a quiet **Topic changed** line
-  above your message. A chat with an active goal, a running turn or fewer than 3 turns is never checked, and a slow or
-  failed check (over 1.5 s) sends the message in the same session with no line.
+  above your message. A chat with an active goal, a running turn or fewer than 3 turns, and a message with files
+  attached, are never checked, and a slow or failed check (over 1.5 s) sends the message in the same session with no
+  line.
 - **Settings → Computers** shows one compact row per computer: name, Tico version (with **Update** only when one is
   waiting), operator, bots, a chip for each AI connection, and status. A chip shows the tool, a thin bar and the share
   of the weekly allowance that is left; hover for when it resets and how old the reading is. A red dot means bots
