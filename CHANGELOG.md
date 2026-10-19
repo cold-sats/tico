@@ -63,6 +63,10 @@ All notable changes to Tico are recorded here. The format follows
   before this keeps today's behaviour ([sessions](docs/sessions.md)).
 
 ### Changed
+- **First run, after Create**: the screen says **Your team is created** and offers one next step as its only primary
+  button (**Add a computer** while there is none). Bots are listed in the team chart's groups and order with one status
+  each, *Waiting for a computer* is said once at the top, and the tour waits for **Show me around** instead of
+  covering the screen.
 - **Codex signed in with ChatGPT runs one turn at a time per login**, as OpenAI's terms for a ChatGPT sign-in
   require. When two bots on one computer share its ChatGPT login, one Codex turn runs and the other shows
   *Waiting for this computer's ChatGPT login to be free (busy with <bot>)* in the chat, the task and **Runs**, then
