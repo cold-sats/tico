@@ -14,9 +14,11 @@ All notable changes to Tico are recorded here. The format follows
   API). It is a normal versioned file on that conversation or task, and the message keeps the version it was posted
   with. A page's local images and fonts are embedded when it is attached; remote images and styles are never loaded,
   and the result lists each one. Too big or another type, it is attached as a normal file. Visuals are shown from a
-  signed address apart from the app's sign-in (`TICO_VISUAL_ORIGIN` for a host of their own), with a policy that
-  blocks scripts and network loads, and only to people who can read that conversation, checked again on every
-  request. Until part 2 they still show as file chips.
+  signed address apart from the app's sign-in, with a policy that blocks scripts and network loads, and only to
+  people who can read that conversation, checked again on every request. They need `TICO_VISUAL_ORIGIN`, a separate
+  site of their own (never the app's address); without it a server stays up and visuals are file chips. A local
+  install, or a self-hoster who sets `TICO_VISUAL_SAME_ORIGIN=1`, serves them from the app's address with the page
+  sandboxed. Until part 2 they still show as file chips.
 - **Visuals in replies (part 2 of 4): pictures, SVG and visual pages show inline** under a chat message or a task
   comment, a person's attachments too. Each is a card the width of the message, never wider than the screen, with its
   title as the caption and a menu: Expand, Open in file viewer, Download. A visual page shows at its own height up to

@@ -6,6 +6,7 @@ import re
 from backend import visuals as V
 from backend.tests.test_api import api, assign, claim, headers, post, ready, runner  # noqa: F401  (fixtures)
 from backend.tests.test_files import publish, turn
+from backend.tests.test_events import live  # noqa: F401  (fixture)
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
 DOT = "data:image/png;base64," + base64.b64encode(PNG).decode()
@@ -200,6 +201,45 @@ def test_the_public_roadmap_never_shows_a_private_tasks_visual(api):
     assert fid not in shown and "/visuals/" not in shown and "chart.html" not in shown
 
 
+def snapshot_item(api, cid, mid, who):
+    got = api.get(f"/api/v2/conversations/{cid}/snapshot", headers=headers(who))
+    if got.status_code != 200:
+        return got.status_code
+    [item] = next(m for m in got.json()["messages"] if m["id"] == mid)["refs"]["attachments"]
+    return item
+
+
+def test_the_snapshot_and_the_live_stream_give_each_reader_the_visual_and_nobody_else(api, live):
+    """The conversation snapshot (what the app opens a chat or task with) and the live stream (a new comment arriving)
+    carry the same fresh address as the message routes, for a private task's comment and a chat reply alike."""
+    _, attempt = turn(api)
+    png_id, _ = png(api, attempt)
+    reply = bot_reply(api, attempt, attachments=[{"ref": f"{png_id}@1", "title": "Signups"}])
+    assert reply.status_code == 200, reply.text
+    reply = reply.json()
+    tid, fid, comment = visual_on_task(api, private=True)
+    with api.app.state.store.read() as c:
+        room = c.execute("SELECT conversation_id FROM tasks WHERE id=?", (tid,)).fetchone()[0]
+    for cid, mid, file_id in ((room, comment["id"], fid),
+                              (reply["conversation_id"], reply["id"], png_id)):
+        item = snapshot_item(api, cid, mid, "ben-test")
+        assert (item["file_id"], item["current_version"], item["removed"]) == (file_id, 1, False)
+        assert api.get(item["src"]).status_code == 200
+        assert snapshot_item(api, cid, mid, "cara-test") in (403, 404)       # not a reader: no snapshot at all
+
+    stream = live("ben-test", f"?topics=messages&conversation={room}")
+    assert stream.status == 200
+    stream.until(lambda e: e["event"] in ("keepalive", "cursor", "messages"))
+    made = api.post(f"/api/v2/tasks/{tid}/files", json={"name": "next.html", "text": "<p>next</p>"},
+                    headers=headers("ben-test")).json()
+    sent = api.post(f"/api/v2/tasks/{tid}/comments", json={"text": "next", "attachments": [
+        {"ref": f"{made['file_id']}@{made['version']}", "title": "Next"}]}, headers=headers("ben-test")).json()
+    event = stream.until(lambda e: e["event"] == "messages"
+                         and (e["data"].get("message") or {}).get("id") == sent["comment"]["id"])
+    [item] = event["data"]["message"]["refs"]["attachments"]
+    assert item["title"] == "Next" and item["removed"] is False and api.get(item["src"]).status_code == 200
+
+
 # ---------------------------------------------------------------------------------------------- serving (22)
 def test_the_visual_route_is_apart_from_the_sign_in_with_a_policy_that_blocks_scripts_and_loads(api):
     """Spec 22: the response carries a policy with no network loads and only the height reporter's script hash;
@@ -260,6 +300,30 @@ def test_a_visual_origin_equal_to_the_app_origin_is_refused():
         pass
     else:
         raise AssertionError("the app's own origin was accepted as the visual origin")
+
+
+def test_production_without_a_visual_origin_shows_chips_and_serves_nothing(api, monkeypatch):
+    """Lead decision: a production server with no separate visual origin still starts, but inline display is off:
+    no src, no poster, /visuals refuses. The same-origin sandbox runs only on loopback or with an explicit opt-in."""
+    tid, fid, comment = visual_on_task(api, private=False)
+    token = comment["refs"]["attachments"][0]["src"].rsplit("/", 1)[1]
+    settings = api.app.state.store.settings
+    monkeypatch.setattr(settings, "public_url", "https://tico.example")
+
+    def read():
+        listed = api.get(f"/api/v2/tasks/{tid}/comments", headers=headers("ben-test")).json()["comments"]
+        [item] = next(m for m in listed if m["id"] == comment["id"])["refs"]["attachments"]
+        return item
+
+    item = read()
+    assert item["src"] is None and "poster_url" not in item
+    assert (item["file_id"], item["kind"], item["url"]) == (fid, "page", f"/api/v2/files/{fid}?v=1")   # the chip
+    assert api.get("/visuals/" + token).status_code == 404
+    monkeypatch.setattr(settings, "visual_same_origin", True)          # a self-hoster's explicit opt-in
+    assert read()["src"].startswith("/visuals/") and api.get("/visuals/" + token).status_code == 200
+    monkeypatch.setattr(settings, "visual_same_origin", False)
+    monkeypatch.setattr(settings, "visual_origin", "https://visuals.example")
+    assert read()["src"].startswith("https://visuals.example/visuals/")
 
 
 def test_a_persons_chat_upload_is_a_titled_versioned_visual_too(api):
