@@ -276,6 +276,14 @@ const A = (id, kind, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1'
     assert.deepEqual(await fitted(), [false, false, true], `${label}: reopened fitted, not zoomed`);
     await full.evaluate(d => d.querySelector('.vcard-full-body').dispatchEvent(new WheelEvent('wheel', {ctrlKey: true, deltaY: 50, clientX: 100, clientY: 100, bubbles: true, cancelable: true})));
     assert.deepEqual(await fitted(), [false, false, true], `${label}: a pinch out on a fitted picture leaves it fitted (no gestures left from the last one)`);
+    if (browser.browserType().name() === 'chromium') {           // the last picture's zoom gestures are gone, not stacked
+      const cdp = await context.newCDPSession(page);
+      const {result} = await cdp.send('Runtime.evaluate', {expression: "document.querySelector('#vcard-full .vcard-full-body')"});
+      const {listeners} = await cdp.send('DOMDebugger.getEventListeners', {objectId: result.objectId});
+      assert.deepEqual(['wheel', 'pointerdown', 'pointermove', 'pointerup', 'pointercancel'].map(t => listeners.filter(l => l.type === t).length), [1, 1, 1, 1, 1],
+        `${label}: one set of zoom gestures on the reopened view`);
+      await cdp.detach();
+    }
     if (!hasTouch) {
       await page.keyboard.press('Escape');
     } else {
