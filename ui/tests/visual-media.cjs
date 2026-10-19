@@ -32,21 +32,27 @@ const UI = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
     args: ['--autoplay-policy=no-user-gesture-required']});
   try {
     const page = await browser.newPage({viewport: {width: 390, height: 844}, serviceWorkers: 'block'});
-    const errors = [], served = [], expired = new Set();
+    const errors = [], served = [], expired = new Set(), hold = new Set(), holding = [];
     page.on('pageerror', e => errors.push(e.message));
     const bodies = {'long-1': LONG, 'long-2': LONG, 'short-1': SHORT, 'bad-1': Buffer.from('not a wav file at all'.repeat(40)),
-      'short-2': SHORT, 'video-1': SHORT, 'tall-1': SHORT};     // a video element plays a sound-only clip; enough for its controls and seeking
+      'short-2': SHORT, 'video-1': SHORT, 'tall-1': SHORT, 'race-1': SHORT, 'race-2': SHORT, 'zero-1': LONG, 'zero-2': LONG,
+      'still-1': LONG, 'still-2': LONG};     // a video element plays a sound-only clip; enough for its controls and seeking
     await page.route(`${VIS}/**`, route => {
       const req = route.request(), token = new URL(req.url()).pathname.split('/').pop(), body = bodies[token];
       const range = req.headers().range || '';
-      served.push({token, range});
-      if (!body || expired.has(token)) return route.fulfill({status: 403, body: ''});
-      const m = /bytes=(\d+)-(\d*)/.exec(range);
-      if (!m) return route.fulfill({status: 200, headers: {'content-type': 'audio/wav', 'accept-ranges': 'bytes'}, body});
-      const start = Number(m[1]), end = Math.min(m[2] ? Number(m[2]) : body.length - 1, start + CHUNK - 1, body.length - 1);
-      served[served.length - 1].bytes = end - start + 1;
-      return route.fulfill({status: 206, body: body.subarray(start, end + 1), headers: {'content-type': 'audio/wav',
-        'accept-ranges': 'bytes', 'content-range': `bytes ${start}-${end}/${body.length}`}});
+      const asked = {token, range};
+      served.push(asked);
+      const answer = () => {
+        if (!body || expired.has(token)) return route.fulfill({status: 403, body: ''});
+        const m = /bytes=(\d+)-(\d*)/.exec(range);
+        if (!m) return route.fulfill({status: 200, headers: {'content-type': 'audio/wav', 'accept-ranges': 'bytes'}, body});
+        const start = Number(m[1]), end = Math.min(m[2] ? Number(m[2]) : body.length - 1, start + CHUNK - 1, body.length - 1);
+        asked.bytes = end - start + 1;
+        return route.fulfill({status: 206, body: body.subarray(start, end + 1), headers: {'content-type': 'audio/wav',
+          'accept-ranges': 'bytes', 'content-range': `bytes ${start}-${end}/${body.length}`}});
+      };
+      if (hold.has(token)) return void holding.push(answer);     // answered when the test releases it
+      return answer();
     });
     const signedIn = [];        // anything the cards ask of the app's own (signed-in) file addresses
     await page.route(`${APP}/**`, route => (new URL(route.request().url()).pathname.startsWith('/api/') && signedIn.push(route.request().url()), route.fulfill({status: 200, contentType: 'text/html', body: '<!doctype html><main id="thread"></main>'})));
@@ -139,6 +145,46 @@ const UI = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
     await page.waitForFunction(() => { const m = document.querySelector('[data-visual-key="m1b:short@1"] audio');
       return m.src.endsWith('/short-2') && m.readyState >= 1 && !m.paused && m.currentTime >= 11.5; }, null, {timeout: 10000});
     await short.evaluate(m => m.pause());
+
+    // ---- recovery never overrules the person: a clip reloading from its newer address stays paused when another
+    // clip was started meanwhile (the newer address answers only after the other clip is playing)
+    await page.evaluate(f => card('m6:race@1', f) && true, file('race', {src: `${VIS}/visuals/race-1`, size: SHORT.length}));
+    const raced = page.locator('[data-visual-key="m6:race@1"] audio');
+    await raced.evaluate(m => m.readyState >= 1 || new Promise(r => m.addEventListener('loadedmetadata', r, {once: true})));
+    await raced.evaluate(m => m.play());
+    await page.evaluate(() => { messages.find(m => m.id === 'm6').files[0].src = 'https://visuals.test/visuals/race-2'; draw(); });
+    hold.add('race-2');
+    await raced.evaluate(m => m.dispatchEvent(new Event('error')));
+    await page.waitForFunction(() => document.querySelector('[data-visual-key="m6:race@1"] audio').src.endsWith('/race-2'));
+    for (let i = 0; !holding.length && i < 100; i++) await page.waitForTimeout(50);
+    assert.ok(holding.length, 'the newer address was asked and is held');
+    await short.evaluate(m => m.play());
+    hold.delete('race-2');
+    holding.splice(0).forEach(answer => answer());
+    await raced.evaluate(m => m.readyState >= 1 || new Promise(r => m.addEventListener('loadedmetadata', r, {once: true})));
+    await page.waitForTimeout(300);
+    assert.deepEqual(await page.evaluate(() => [document.querySelector('[data-visual-key="m6:race@1"] audio').paused,
+      document.querySelector('[data-visual-key="m1b:short@1"] audio').paused]), [true, false], 'the clip started last keeps playing');
+    await short.evaluate(m => m.pause());
+    // ---- a seek back to the start is a place too: an address that runs out on that seek recovers at the start,
+    // playing if it was, paused if it was
+    for (const [key, id, playing] of [['m7:zero@1', 'zero', true], ['m8:still@1', 'still', false]]) {
+      await page.evaluate(([k, f]) => card(k, f) && true, [key, file(id, {src: `${VIS}/visuals/${id}-1`})]);
+      const clip = page.locator(`[data-visual-key="${key}"] audio`);
+      await clip.evaluate(m => m.readyState >= 1 || new Promise(r => m.addEventListener('loadedmetadata', r, {once: true})));
+      await page.evaluate(([k, id]) => { messages.find(m => m.id === k.split(':')[0]).files[0].src = `https://visuals.test/visuals/${id}-2`; draw(); }, [key, id]);
+      if (playing) await clip.evaluate(m => m.play());
+      await clip.evaluate(m => new Promise(r => { m.addEventListener('seeked', r, {once: true}); m.currentTime = 40; }));
+      await page.waitForTimeout(300);
+      // the old address fails on the seek itself, before the clip has shown any time past the start
+      await clip.evaluate(m => { m.addEventListener('seeking', () => m.dispatchEvent(new Event('error')), {once: true}); m.currentTime = 0; });
+      await page.waitForFunction(id => { const m = [...document.querySelectorAll('audio')].find(a => a.src.endsWith(`/${id}-2`)); return m && m.readyState >= 1; }, id);
+      await page.waitForTimeout(300);
+      const [paused, at] = await clip.evaluate(m => [m.paused, m.currentTime]);
+      assert.equal(paused, !playing, `the ${playing ? 'playing' : 'paused'} clip is ${playing ? 'still playing' : 'still paused'}`);
+      assert.ok(at < 2, `the ${playing ? 'playing' : 'paused'} clip came back at the start, not at ${at}s`);
+      if (playing) await clip.evaluate(m => m.pause());
+    }
 
     // ---- test 24: an address that runs out with no newer one shows the reason and Download (never a broken player)
     expired.add('long-2');

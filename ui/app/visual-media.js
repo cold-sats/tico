@@ -53,10 +53,10 @@ function vmWire(card) {
   // Whether the person has it playing. A failed load pauses the element just before its error event, so a pause
   // only counts once the turn has passed without an error.
   m.addEventListener('play', () => { m.dataset.vmPlaying = '1'; });
-  // Where the person is: a failed load can read 0 by the time its error arrives, so keep the last place it showed.
-  const mark = () => { if (m.currentTime) m.dataset.vmAt = m.currentTime; };
-  m.addEventListener('timeupdate', mark);
-  m.addEventListener('seeking', mark);
+  // Where the person is. A seek is where they chose, the start included; a time update at 0 is a load or a failed
+  // load resetting the clip (it can read 0 by the time its error arrives), so that keeps the last place it showed.
+  m.addEventListener('timeupdate', () => { if (m.currentTime) m.dataset.vmAt = m.currentTime; });
+  m.addEventListener('seeking', () => { m.dataset.vmAt = m.currentTime; });
   m.addEventListener('pause', () => setTimeout(() => { if (!m.error) delete m.dataset.vmPlaying; }));
   m.addEventListener('error', () => {
     if (vmRecover(m, card)) return;
@@ -66,19 +66,30 @@ function vmWire(card) {
 function vmRecover(m, card) {
   const fresh = card.dataset.freshSrc;
   if (!fresh || fresh === m.dataset.vmSrc || m.dataset.vmTried === fresh) return false;
-  const at = m.currentTime || Number(m.dataset.vmAt) || 0, playing = !m.ended && (!m.paused || m.dataset.vmPlaying === '1');
+  const at = m.currentTime || Number(m.dataset.vmAt) || 0;
+  // It was playing when the address ran out: it resumes, unless the person starts another clip meanwhile (the
+  // one-clip listener drops the resume, since the new address loads paused and that listener skips paused clips).
+  if (!m.ended && (!m.paused || m.dataset.vmPlaying === '1')) m.dataset.vmResume = '1';
+  else delete m.dataset.vmResume;
   m.dataset.vmTried = fresh;
   m.dataset.vmSrc = fresh;
   m.addEventListener('loadedmetadata', () => {
     if (at) m.currentTime = at;
-    if (playing) m.play().catch(() => {});                // it was playing when the address ran out: keep playing
+    if (m.dataset.vmResume === '1') m.play().catch(() => {});
+    delete m.dataset.vmResume;
   }, {once: true});
   m.src = fresh;
   return true;
 }
-// One clip at a time: starting any video or audio on the page pauses the one already playing.
+// One clip at a time: starting any video or audio on the page pauses the one already playing, and a clip that is
+// reloading from a newer address no longer resumes when it loads.
 document.addEventListener('play', e => {
-  for (const m of document.querySelectorAll('video, audio')) if (m !== e.target && !m.paused) m.pause();
+  for (const m of document.querySelectorAll('video, audio')) {
+    if (m === e.target) continue;
+    delete m.dataset.vmResume;
+    delete m.dataset.vmPlaying;
+    if (!m.paused) m.pause();
+  }
 }, true);
 VISUAL_BODY.video = VISUAL_BODY.audio = vmBodyHTML;
 VISUAL_WIRE.video = VISUAL_WIRE.audio = vmWire;
