@@ -141,6 +141,8 @@ as_root() {
   if [ "$(id -u)" = 0 ] || [ -n "$MAC" ]; then "$@"; else sudo "$@"; fi
 }
 
+# Whether the install was started with any argument at all: the setup question is only for a bare `sh install.sh`.
+ARGC=$#
 while [ $# -gt 0 ]; do
   case $1 in
     --version) [ $# -ge 2 ] || { usage >&2; die 2 "--version needs a value"; }; VERSION=$2; FORCED=1; shift 2 ;;
@@ -183,9 +185,9 @@ done
 # The wizard's --no-support also keeps this script from offering.
 case " $* " in *" --no-support "*) TICO_SUPPORT=off; export TICO_SUPPORT ;; esac
 
-# Nothing chosen on a terminal (no mode, no --yes, no wizard flags, nothing installed yet): ask, with the recommended setup first.
+# Nothing chosen on a terminal (no arguments at all, nothing installed yet): ask, with the recommended setup first.
 # Without a terminal nothing is asked and the install does what it always did.
-if [ -z "$LOCAL$RUNNER$DOCKER_ONLY$TUNNEL$YES" ] && [ $# -eq 0 ] && [ ! -f "$DIR/.env" ] && ( : </dev/tty ) 2>/dev/null; then
+if [ "$ARGC" -eq 0 ] && [ -z "$LOCAL$RUNNER$DOCKER_ONLY$TUNNEL$YES" ] && [ ! -f "$DIR/.env" ] && ( : </dev/tty ) 2>/dev/null; then
   say "How should Tico be set up?"
   say "  1) Recommended: Tico on this computer with a sample company, your Claude and ChatGPT subscriptions plus"
   say "     Tico Gateway, and Tico Support on. No domain or sign-in setup; you sign in to Claude and ChatGPT afterwards."
@@ -593,9 +595,14 @@ add_server_computer() {
   if [ -z "$code" ]; then warn "The server did not give a computer code. $later"; return 0; fi
   rm -rf "$work"
   # A subshell: the runner install sets its own directory and options, and its failure must not stop this one.
-  ( RUNNER=1 LOCAL= RUNNER_URL=http://server:8765 RUNNER_CODE=$code RUNNER_LABEL="Server computer" SERVER_NETWORK=tico_default
-    DIR=$DIR-runner
-    run_runner ) || warn "The server computer did not start. $later"
+  ( server_computer_runner "$code" ) || warn "The server computer did not start. $later"
+}
+
+# The runner install's own settings for the server's computer; add_server_computer runs it in a subshell, so they stay there.
+server_computer_runner() {
+  RUNNER=1; LOCAL=''; RUNNER_URL=http://server:8765; RUNNER_CODE=$1; RUNNER_LABEL="Server computer"
+  SERVER_NETWORK=tico_default; DIR=$DIR-runner
+  run_runner
 }
 
 # A runner started with a bare `docker run -v tico-runner:/home/runner` keeps its login and repositories in that
