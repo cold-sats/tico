@@ -177,14 +177,15 @@ def test_preset_flags_refuse_what_does_not_go_together(server, args, wanted):
 
 
 def on_a_terminal(box, answer: str, *args, stop_at: bytes = b"") -> tuple[int, str]:
-    """install.sh with a controlling terminal, typing `answer` at the first question; stopped once `stop_at` shows."""
+    """install.sh with a controlling terminal, typing `answer` at the first question; stopped once `stop_at` shows.
+    The directory comes from TICO_INSTALL_DIR, so with no `args` the install has no arguments at all."""
     variables = {"PATH": f"{box['stubs']}:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin",
                  "HOME": str(box["tmp"]), "STUB_LOG": str(box["log"]), "TICO_INSTALL_RELEASES_URL": "file://" + str(box["rel"]),
-                 "TICO_INSTALL_MEMINFO": str(box["tmp"] / "meminfo"), **box["env"]}
+                 "TICO_INSTALL_MEMINFO": str(box["tmp"] / "meminfo"), "TICO_INSTALL_DIR": str(box["dir"]), **box["env"]}
     script = box["rel"] / "download" / "v0.2.0" / "install.sh"
     pid, fd = pty.fork()
     if pid == 0:
-        os.execve("/bin/sh", ["sh", str(script), "--dir", str(box["dir"]), *args], variables)
+        os.execve("/bin/sh", ["sh", str(script), *args], variables)
     out, sent, deadline = b"", False, time.monotonic() + 120
     while time.monotonic() < deadline:
         try:
@@ -222,9 +223,10 @@ def test_with_nothing_chosen_and_no_terminal_nothing_is_asked_and_the_wizard_run
     variables = {"PATH": f"{server['stubs']}:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin",
                  "HOME": str(server["tmp"]), "STUB_LOG": str(server["log"]),
                  "TICO_INSTALL_RELEASES_URL": "file://" + str(server["rel"]),
-                 "TICO_INSTALL_MEMINFO": str(server["tmp"] / "meminfo"), **server["env"]}
+                 "TICO_INSTALL_MEMINFO": str(server["tmp"] / "meminfo"), "TICO_INSTALL_DIR": str(server["dir"]),
+                 **server["env"]}
     script = server["rel"] / "download" / "v0.2.0" / "install.sh"
-    r = subprocess.run(["sh", str(script), "--dir", str(server["dir"])], env=variables, stdin=subprocess.DEVNULL,
+    r = subprocess.run(["sh", str(script)], env=variables, stdin=subprocess.DEVNULL,
                        capture_output=True, text=True, timeout=120, start_new_session=True)
     assert "How should Tico be set up?" not in r.stdout and "Choose [1]" not in r.stdout
     assert "Setting up your team" in r.stdout
@@ -242,3 +244,15 @@ def test_the_question_is_not_asked_with_a_mode_with_yes_or_on_an_existing_instal
     (server["dir"] / ".env").unlink()
     code, out = on_a_terminal(server, "1", "--yes", stop_at=b"Setting up your team")   # --yes: the team install, as before
     assert "Setting up your team" in out and "How should Tico be set up?" not in out
+
+
+@pytest.mark.parametrize("given, shown", [
+    (["--dir", "<dir>"], "Setting up your team"),
+    (["--version", "v0.2.0"], "Setting up your team"),
+    (["--owner-email", "ana@example.com"], "--owner-email, --owner-name and --team-name go with --local"),
+])
+def test_on_a_terminal_any_argument_at_all_keeps_the_question_away(server, given, shown):
+    # Options that choose no setup still make it a scripted install: it does what it did before, with no question.
+    args = [str(server["dir"]) if a == "<dir>" else a for a in given]
+    code, out = on_a_terminal(server, "1", *args, stop_at=b"Setting up your team")
+    assert shown in out and "How should Tico be set up?" not in out and "Choose [1]" not in out

@@ -27,7 +27,8 @@ computer*). There is no domain, DNS or sign-in provider to set up:
 curl -fsSL https://github.com/ticoteam/tico/releases/latest/download/install.sh -o install.sh && sh install.sh --recommended --owner-email you@example.com
 ```
 
-Run on a terminal with no options, the installer asks which setup you want and offers this one first (press Enter). It
+Run on a terminal with no options, the installer asks which setup you want and offers this one first (press Enter); with
+any option, or piped without a terminal, it asks nothing and installs as before. It
 prints the owner sign-in link, as the quick start does. What is left is one step: open the link, then **Settings >
 Computers > Server computer > Sign in**, to Claude and to ChatGPT.
 
