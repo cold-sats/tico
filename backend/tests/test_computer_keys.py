@@ -390,3 +390,44 @@ def test_deleting_the_only_key_in_credentials_clears_it_on_the_computer(environm
     again = call(api, "POST", f"runners/{rid}/keys", {"runtime": "codex", "secret": "sk-proj-again-0123456789"})
     report(api, box, again["id"], "done")
     assert fetch(api, box)["credentials"][0]["value"] == "sk-proj-again-0123456789"
+
+
+def test_a_member_sees_another_persons_computer_without_its_key_previews(environment):
+    """Every person now sees every working computer (#610), but only an administrator or its operator reads which key
+    it signs in with: a member gets each key's kind and no preview."""
+    api = setup(environment)
+    grant(api, store(api, "OPENAI_API_KEY", SHARED), "computers")
+    box = computer(api, "Team box", source="shared")
+    job = call(api, "POST", f"runners/{box['runner_id']}/keys", {"runtime": "codex", "secret": "sk-proj-own-0123456789"})
+    report(api, box, job["id"], "done")
+    owner = listed(api, box)
+    assert owner["keys"]["codex"]["preview"] == "sk-…789" and owner["shared_keys"]["codex"]["preview"] == "sk-…789"
+    quinn = as_person(api, "quinn")   # neither an administrator nor its operator
+    member = next(m for m in call(api, "GET", "operations", who=quinn)["computers"] if m["id"] == box["runner_id"])
+    assert member["may_manage"] is False
+    assert member["keys"] == {"codex": {k: v for k, v in owner["keys"]["codex"].items() if k != "preview"}}
+    assert member["shared_keys"] == {"codex": {"env": "OPENAI_API_KEY"}}
+    assert "sk-" not in json.dumps(member)
+
+
+def test_switch_to_subscription_deletes_the_computers_own_key_and_a_key_added_later_is_in_use_again(environment):
+    """Switch to subscription removes the old key, the computer's own one included; Add key afterwards is the person
+    choosing a key again, so it is checked with that job and then handed out as before."""
+    api = setup(environment)
+    box = computer(api, "Team box", source="computer", capabilities=CAPABLE + ["model_switch_type_v1"])
+    rid = box["runner_id"]
+    own = call(api, "POST", f"runners/{rid}/keys", {"runtime": "codex", "secret": "sk-proj-own-key-0123456789"})
+    report(api, box, own["id"], "done")
+    switch = call(api, "POST", f"runners/{rid}/logins", {"runtime": "codex", "to": "subscription"})
+    report(api, box, switch["id"], "finishing")
+    assert fetch(api, box)["credentials"][0]["value"] == "sk-proj-own-key-0123456789", "in use until it worked"
+    report(api, box, switch["id"], "signed_in")
+    assert fetch(api, box) == {"credentials": [], "key_off": True}
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM credentials WHERE source=?", ("computer:" + rid,)).fetchone()[0] == 0
+    assert listed(api, box)["keys"] == {}
+    added = call(api, "POST", f"runners/{rid}/keys", {"runtime": "codex", "secret": "sk-proj-added-0123456789"})
+    assert fetch(api, box, added["id"])["credentials"][0]["value"] == "sk-proj-added-0123456789", "its own job checks it"
+    report(api, box, added["id"], "done")
+    assert fetch(api, box)["credentials"] == [{"env": "OPENAI_API_KEY", "value": "sk-proj-added-0123456789",
+                                               "source": "computer"}]
