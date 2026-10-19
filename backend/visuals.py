@@ -16,6 +16,7 @@ import secrets
 import stat
 import time
 from html.parser import HTMLParser
+from pathlib import Path
 from urllib.parse import urlsplit
 
 # What may show inline, by stored type; anything else, or bigger, is a normal file chip.
@@ -253,10 +254,10 @@ def loading_references(data):
 
 # ---------------------------------------------------------------------------------------------- reporter
 # The one script a visual page runs (lead, Oct 19): it tells the frame around it how tall the page is. Its hash is
-# the only script the page's content policy allows, so the page's own scripts and inline handlers stay dead.
-REPORTER = ("(function(){function s(){parent.postMessage({ticoVisualHeight:Math.ceil("
-            "document.documentElement.scrollHeight)},'*')}addEventListener('load',s);"
-            "if(window.ResizeObserver)new ResizeObserver(s).observe(document.documentElement)})();")
+# the only script the page's content policy allows, so the page's own scripts and inline handlers stay dead. A frame
+# laid out at zero width reports an inflated height the app cannot shrink back from, so it sends nothing until the
+# page has a width and reports again on every resize (ui/tests/visual-reporter.cjs runs the same file).
+REPORTER = Path(__file__).with_name("visual-reporter.js").read_text().strip()
 REPORTER_HASH = "sha256-" + base64.b64encode(hashlib.sha256(REPORTER.encode()).digest()).decode()
 
 
