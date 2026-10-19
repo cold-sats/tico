@@ -9,8 +9,9 @@ const VISUAL_INLINE_MAX = 4;
 // Renderers by kind: VISUAL_BODY[kind](file, card) -> the HTML that fills the card's body, inside the space the
 // frame already holds for it. VISUAL_WIRE[kind](card) runs once per card after it is in the page. VISUAL_EXPAND[kind]
 // (card) opens it full screen; a kind without one gets no Expand item. VISUAL_SPACE[kind](file) -> CSS for the body
-// before it loads, when width/height do not say.
-const VISUAL_BODY = {}, VISUAL_WIRE = {}, VISUAL_EXPAND = {}, VISUAL_SPACE = {};
+// before it loads, when width/height do not say. VISUAL_MOVED[kind](card) runs on a kept card just before a redraw
+// puts it back without moveBefore (visualSwap): taken out of the page, it loads again once back.
+const VISUAL_BODY = {}, VISUAL_WIRE = {}, VISUAL_EXPAND = {}, VISUAL_SPACE = {}, VISUAL_MOVED = {};
 
 // The address a card shows from: 1/4's signed, sign-in-free `src` on /visuals/<token> (backend/visuals.py). Never
 // the signed-in /api/v2/files address and never a blob: URL. No `src` (inline serving off, or a file this reader can
@@ -88,13 +89,17 @@ function visualKeep(oldRoot, newRoot) {
 // node moved through the template's own document reloads (a playing clip back to 0:00). Where the browser can move
 // a node without taking it out (moveBefore), the new tree goes in and each kept card moves into it, so a page's
 // frame is not loaded again either. Elsewhere the kept card is taken out and put back in the same task: a clip
-// plays on, a page's frame loads again.
+// plays on, a page's frame loads again (VISUAL_MOVED).
 function visualSwap(root, html) {
   if (!root.querySelector('figure.vcard')) { root.innerHTML = html; return; }
   const t = document.createElement('template');
   t.innerHTML = html;
   const fresh = document.importNode(t.content, true);
-  if (!root.moveBefore) { visualKeep(root, fresh); root.replaceChildren(fresh); return; }
+  if (!root.moveBefore) {
+    for (const [was, card] of visualKept(root, fresh)) { card.replaceWith(was); VISUAL_MOVED[was.dataset.kind]?.(was); }
+    root.replaceChildren(fresh);
+    return;
+  }
   const pairs = visualKept(root, fresh), old = [...root.childNodes];
   root.append(fresh);
   for (const [was, card] of pairs) { card.parentNode.moveBefore(was, card); card.remove(); }

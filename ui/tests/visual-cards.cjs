@@ -255,6 +255,12 @@ const A = (id, kind, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1'
     assert.deepEqual(await frameH(), [24, 24], `${label}: a negative height is clamped to 24`);
     await hostileFrame.evaluate(`parent.postMessage({ticoVisualHeight: ${settled[0]}}, '*')`);
     await page.waitForTimeout(200);
+    // a frame shown at no width measures nothing real: its report is dropped
+    await hostile.evaluate(c => { c.style.display = 'none'; });
+    await hostileFrame.evaluate("parent.postMessage({ticoVisualHeight: 900}, '*')");
+    await page.waitForTimeout(200);
+    await hostile.evaluate(c => { c.style.display = ''; });
+    assert.deepEqual(await frameH(), settled, `${label}: a height from a frame shown at no width is dropped`);
     await noSideways('chat');
 
     // ---- a link in a page opens a new tab only when clicked; the conversation stays
@@ -373,11 +379,19 @@ const A = (id, kind, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1'
     const moved = await redrawPage();
     console.log(`${label}: a kept page card's frame loaded ${moved.loads} time(s) on a redraw (moveBefore); heights ${moved.heights}`);
     assert.deepEqual([moved.same, moved.loads, moved.heights], [true, 0, [moved.before]], `${label}: a kept page card is the same frame, not loaded again, and holds its height through a redraw ${JSON.stringify(moved)}`);
+    // without moveBefore (WebKit: iPhone Safari, the Mac app) the frame loads again on each redraw, and the card still
+    // holds its height through ten of them; the page, scrolled to, settles at its own height again (lead, Oct 19)
     await noMove(true);
-    const putBack = await redrawPage();
+    const rounds = [];
+    for (let i = 0; i < 10; i++) rounds.push(await redrawPage());
     await noMove(false);
-    console.log(`${label}: without moveBefore, a kept page card's frame loaded ${putBack.loads} time(s) on a redraw; heights ${putBack.before} -> ${putBack.heights}`);
-    assert(putBack.same, `${label}: without moveBefore, a kept page card is still the same frame`);
+    const shortCard = m1.locator('figure.vcard[data-file="f-short"]');
+    await shortCard.scrollIntoViewIfNeeded();
+    await page.waitForFunction(() => { const f = document.querySelector('[data-message="m1"] figure.vcard[data-file="f-short"] iframe'); return !f.visualRemeasure && f.getBoundingClientRect().height > 1; }, null, {timeout: 5000}).catch(() => {});
+    const settledShort = await shortCard.evaluate(c => [c.querySelector('.vcard-body'), c.querySelector('iframe')].map(e => Math.round(e.getBoundingClientRect().height)));
+    console.log(`${label}: without moveBefore, the frame loaded ${rounds.map(r => r.loads)} time(s) over ten redraws; heights ${[...new Set(rounds.flatMap(r => r.heights))]}, then ${settledShort}`);
+    assert(rounds.every(r => r.same && r.heights.every(h => Math.abs(h - moved.before) <= 1)) && settledShort.every(h => Math.abs(h - moved.before) <= 1),
+      `${label}: without moveBefore, a page card at ${moved.before} holds it through ten redraws and settles there ${JSON.stringify(rounds)} ${settledShort}`);
 
     // ---- live: a new message comes on the event stream; the snapshot read again signs every address afresh. A card
     // already on screen keeps its node and its height and takes the new address; the new message's cards show.
