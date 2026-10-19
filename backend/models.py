@@ -1010,6 +1010,8 @@ class StructuredReadiness(Contract):
     worktree_waits: bool | None = None
     schema_version: Literal[1] = 1
     disk: DiskReadiness | None = None
+    # Bots run as their own user here (runner-rs/src/isolation.rs), so a Tico model may run (backend/models_preset.py).
+    isolated: bool | None = None
     runtimes: dict[str, RuntimeReadiness] = Field(default_factory=dict)
     bots: dict[str, BotReadiness] = Field(default_factory=dict)
     harnesses: dict[str, HarnessReadiness] = Field(default_factory=dict, max_length=50)
@@ -1566,6 +1568,8 @@ class ProvidersUpdate(Contract):
     # What review and check subtasks run on, best first (`runtime` or `runtime:model`); None keeps the saved order,
     # [] follows the enabled providers' order.
     check_models: list[Annotated[str, Field(min_length=1, max_length=140)]] | None = Field(default=None, max_length=10)
+    # The models choice (backend/models_preset.py): one of its four, '' for none; None keeps the saved one.
+    preset: str | None = Field(default=None, max_length=40)
 
 
 class SystemUpdate(Contract):
