@@ -49,8 +49,10 @@ def test_a_server_update_recreates_only_the_server_never_the_updater(monkeypatch
     (tmp_path / ".env").write_text("TICO_URL=x\n")
     updater.update("v0.2.0")
     assert updater.status["state"] == "healthy"
-    # the snapshot (`exec server python ...`) and the switch (`up ... server`) touch the server, never the updater service
-    assert all("server" in a for a in calls) and not any("updater" in a for a in calls)
+    # Discovering an existing front door reads config; all mutations still touch only the server here.
+    assert ("config", "--services") in calls
+    assert all(a == ("config", "--services") or (a[0] in {"pull", "exec", "up"} and "server" in a)
+               for a in calls) and not any("updater" in a for a in calls)
     assert "TICO_TAG=v0.2.0" in (tmp_path / ".env").read_text()
 
 

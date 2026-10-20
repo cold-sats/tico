@@ -169,7 +169,9 @@ class Containers:
         self.steps.append({"image_id": image["Id"], "architecture": image["Architecture"],
                            "os": image["Os"], "source": manifest["commit"], "repository": manifest["repository"]})
         self.network = self.prefix
-        self.network = self.docker("network", "create", "--internal", "--label", "tico.caddy.qa=" + self.prefix, self.prefix).stdout.strip()
+        # Match the shipped edge's ordinary bridge: internal-only Docker networks do not publish host ports.
+        # This synthetic HTTP fixture disables ACME and binds its sole host port explicitly to loopback.
+        self.network = self.docker("network", "create", "--driver", "bridge", "--label", "tico.caddy.qa=" + self.prefix, self.prefix).stdout.strip()
         for suffix in ("generated", "data", "config"):
             name = self.prefix + "-" + suffix
             self.volumes.append(name)
@@ -224,11 +226,15 @@ class Containers:
         self.caddy = self.create(self.vendor, flags, command)
         self.docker("start", self.caddy)
         info = self.inspect()
+        self.steps.append({"started_container": self.caddy, "state": info["State"],
+                           "requested_ports": info["HostConfig"]["PortBindings"],
+                           "published_ports": info["NetworkSettings"]["Ports"]})
         vendor = json.loads(self.docker("image", "inspect", self.vendor).stdout)[0]
         assert vendor["Os"] == "linux"
         if os.environ.get("TICO_CADDY_EXPECTED_ARCH"):
             assert vendor["Architecture"] == os.environ["TICO_CADDY_EXPECTED_ARCH"]
-        bindings = info["NetworkSettings"]["Ports"]["8080/tcp"]
+        bindings = info["NetworkSettings"]["Ports"].get("8080/tcp")
+        assert bindings, "fixture loopback port was not published; see retained startup state"
         assert {port for port, rows in info["NetworkSettings"]["Ports"].items() if rows} == {"8080/tcp"}
         assert len(bindings) == 1 and bindings[0]["HostIp"] == "127.0.0.1"
         self.port = int(bindings[0]["HostPort"])
