@@ -177,6 +177,10 @@ All notable changes to Tico are recorded here. The format follows
   ([Computers](docs/computers.md#remove-a-subscription)).
 
 ### Fixed
+- **Subtask results resume the parent task**: completed reviews and other delegated work return to the
+  immediate parent's working session, without a separate session to relay the result. Review verdicts posted
+  as a comment, completion note and final reply are delivered once; managers hear when their own child task
+  finishes. Private-task boundaries and independent reviewer sessions are preserved.
 - **Tasks: a subtask saved from its parent's peek stays open**: opening a parent from a filtered list, then one of
   its subtasks, and saving a change that takes the subtask out of the list (Done, a new status or owner) moved the peek
   on to the list's next row, often a sibling, so the next edit landed on the wrong task. The peek now stays on the
