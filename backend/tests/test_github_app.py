@@ -95,7 +95,7 @@ class FakeGitHub:
             if self.refuse_actions_write and body.get("permissions", {}).get("actions") == "write" or any(
                     name in body.get("permissions", {}) and (name not in (self.permissions or {}) or
                    body["permissions"][name] == "write" and self.permissions[name] != "write")
-                   for name in ("actions", "checks", "statuses")):
+                   for name in ("actions", "checks", "statuses", "deployments")):
                 return httpx.Response(422, json={"message": "The permissions requested are not granted to this installation."})
             if body and any(name in self.missing for name in body.get("repositories", [])):
                 return httpx.Response(403 if self.forbidden else 422, json={"message": "Validation Failed"})
@@ -348,11 +348,11 @@ def test_turn_token_reads_pull_request_checks_and_statuses(api, gh):
     assert {"checks", "statuses"} <= manifest(api)["manifest"]["default_permissions"].keys()
     connect(api)
     runner_token(api, "cpo")
-    gh.permissions = {"actions": "read", "checks": "read", "statuses": "read"}
+    gh.permissions = {"actions": "read", "checks": "read", "statuses": "read", "deployments": "read"}
     assert turn_token(api).status_code == 200
     asked = gh.of("/access_tokens")[-1][2]["permissions"]
     assert asked == {"contents": "write", "pull_requests": "write", "issues": "write", "metadata": "read",
-                     "actions": "read", "checks": "read", "statuses": "read"}
+                     "actions": "read", "checks": "read", "statuses": "read", "deployments": "read"}
 
 
 def test_turn_token_asks_only_for_the_reads_the_installation_accepted(api, gh):
@@ -371,7 +371,8 @@ def test_turn_token_asks_only_for_the_reads_the_installation_accepted(api, gh):
 def test_turn_token_stops_when_github_refuses_even_the_base(api, gh):
     connect(api)
     runner_token(api, "cpo")
-    gh.permissions = {"actions": "read", "checks": "read", "statuses": "read"}
+    gh.permissions = {"actions": "read", "checks": "read", "statuses": "read", "pull_requests": "write",
+                      "issues": "write", "deployments": "read"}
     gh.refuse = (422, "The permissions requested are not granted to this installation.")
     assert turn_token(api).status_code == 409
     assert len(gh.of("/access_tokens")) == 2

@@ -129,6 +129,10 @@ All notable changes to Tico are recorded here. The format follows
   ([Tico AI Gateway](docs/ai-gateway.md)). The web app's Add bot form preselects a current model when the team
   default is Cheap 1.0, since a new bot is a new pick. The pi runner now reports each model request, so Usage prices
   each one at its own rate.
+- **A bot with read access to a repository can read its pull requests, their comments and its deployments**
+  (`gh pr view`, `gh pr diff`, a preview's link), still without changing any of them. Deployments need the GitHub
+  App's Deployments permission set to Read-only and accepted on the installation; until then tokens leave it out
+  ([GitHub App](docs/github-app.md#permissions-and-why)).
 
 ### Fixed
 - **Milestone waits follow the blocked_by rules.** Adding or removing a wait for a pull request or release now needs
