@@ -8,6 +8,17 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Shared connections on the Computers page (part 4 of 4)**: an API key added from a computer's Add connection can be
+  shared with other computers by name ("Shared with: [computers]"), or a key already shared can be picked instead of
+  pasting one; both are a credential administrator's change, and an operator still adds a key for this computer only.
+  A shared key, the "Every computer" key in Credentials included, shows on each computer it serves, its line marked
+  Shared and listing those computers, also before the computer has used it. Clear key and Replace key on it ask "This
+  computer only" or "All listed computers", naming them, and warn that the second changes every one. A key shared
+  with one computer by name comes before the "Every computer" key there, and the key picked or shared last for a tool
+  replaces the one shared with it before. A computer cleared or switched to a subscription from here takes the shared
+  key again when it is given one (refused, naming it, while it is offline). A shared key's name and preview show only
+  to credential administrators; a computer's operator sees which computers it serves. Credentials names each computer
+  it is shared with, and revoking one there stops sharing it with that computer.
 - **AWS setup: `--name`, `--aws-permissions-boundary` and `destroy --dns`**: `--name` now names a new AWS server (its
   resources are `tico-<name>`, tagged `tico-setup-name=<name>`, its `.env` in `/tico/<name>/env`), not only the one
   destroy removes. `--aws-permissions-boundary <arn>` creates the server's IAM role under that boundary, with both
