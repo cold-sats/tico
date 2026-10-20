@@ -8,6 +8,11 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Optional separate visual site on Caddy**: `TICO_CADDY_VISUALS=1` serves only signed visual reads on a distinct
+  HTTPS `TICO_VISUAL_ORIGIN`, stripping browser credentials and response cookies while the backend checks access.
+  Atomic generated configuration and a private health check remove stale visual listeners when settings change.
+  The updater recreates an existing Caddy service after server health on updates and rollback; external CDNs and
+  the default app proxy work without opting in. ([Install](docs/install.md#caddy-and-a-separate-visual-site))
 - **CEO Bot level 2, Suggests actions**: a red or stalled goal gets a recovery in its owner's Needs you, with the
   evidence, up to 4 options of bot-task changes and the CEO Bot's pick. Approving an option applies exactly that one,
   in the CEO Bot's name; what can't be done says why and comes back as a new recovery. Several bots asking one person

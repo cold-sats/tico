@@ -392,6 +392,33 @@ exported in a shell would change on the next update. Empty storage settings are 
 
 See [File storage](files.md#storage) for bucket permissions and Health warnings.
 
+### Caddy and a separate visual site
+
+With `COMPOSE_PROFILES=caddy,updater`, Caddy serves the app on `TICO_DOMAIN` with automatic HTTPS.
+An external visual CDN still works with `TICO_VISUAL_ORIGIN` alone. To serve signed visuals from this Caddy
+instead, set `TICO_CADDY_VISUALS=1` and an HTTPS `TICO_VISUAL_ORIGIN`, for example
+`https://assets.acme.example`, whose hostname differs from the app and runner. Point both DNS names at this
+server and allow ports 80 and 443. This setting creates no DNS records and configures no CDN or Access policy.
+
+The visual site accepts only GET and HEAD for an exact signed `/visuals/<token>` path; queries, encoded path
+variants and other routes get 404. It removes browser credentials before proxying and removes response cookies.
+The backend still checks the token, its expiry and the reader's permission, including range requests. App routes
+keep their ordinary authentication and proxy behavior. Caddy does not add full-app aliases or a runner site.
+
+The server writes an atomic configuration generation into the `tico-caddy` volume before becoming healthy.
+Caddy reads that volume read-only; its supervisor stops the previous listener, validates a private snapshot and
+starts the replacement. Health requires that exact generation to answer on a container-private loopback endpoint.
+Removing the opt-in, an invalid optional visual origin or runner URL, or an invalid/missing generated file retires
+the old visual listener; an invalid required app name refuses server startup. Certificates stay in the existing
+`caddy-data` and `caddy-config` volumes.
+
+After editing these settings in `.env`, run `docker compose up -d server`, wait for the server to become healthy,
+then run `docker compose up -d --no-deps --force-recreate --wait caddy`. Install the feature-aware updater before
+enabling the visual site. It recreates an existing Caddy service after server health on updates and rollback,
+using that bundle's Compose file. A manual rollback with an older updater must also recreate Caddy from the
+restored Compose file: `docker compose up -d --no-deps --force-recreate caddy`. A pre-feature bundle restores its
+ordinary app-only proxy; its running state does not prove visual-site readiness.
+
 ### Cloudflare Tunnel
 
 No open ports, and Cloudflare Access can do the sign-in. The wizard creates the tunnel when you give it a token; by hand:
@@ -462,7 +489,8 @@ request with a 503 while its container showed as running. `python3 -m setup doct
 line, and says what to run: `docker compose pull && docker compose up -d` in `/opt/tico`.
 
 `TICO_DOMAIN_ALIASES` changes only the locally generated tunnel config; add explicit app and restricted visual
-routes in Cloudflare for a remotely managed tunnel. Caddy continues to serve only `TICO_DOMAIN`.
+routes in Cloudflare for a remotely managed tunnel. Caddy app aliases are unchanged; its optional restricted visual
+site is configured separately above.
 
 **A runner hostname without Access.** To keep Access on the team hostname and let computers and external agents in
 without a bypass, add a second proxied CNAME, `runner.<domain>`, to the same tunnel (`<tunnel id>.cfargotunnel.com`),

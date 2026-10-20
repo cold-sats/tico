@@ -350,6 +350,32 @@ aws_identity() {
   log "$confirmed"
 }
 
+caddy_config() {
+  python - <<'PY'
+import os
+from pathlib import Path
+import tempfile
+from backend import caddy_assets
+
+directory = Path(os.environ.get("TICO_CADDY_DIR", "/caddy-generated"))
+if directory.is_dir() and os.access(directory, os.W_OK):
+    # Directory mounts expose atomic replacements; a single-file bind could retain an older inode.
+    source = Path(caddy_assets.__file__).resolve().parent.parent / "docker" / "caddy-supervisor.sh"
+    descriptor, temporary = tempfile.mkstemp(prefix=".supervisor-", dir=directory)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(source.read_bytes())
+            handle.flush()
+            os.fsync(handle.fileno())
+            os.fchmod(handle.fileno(), 0o644)
+        os.replace(temporary, directory / "supervisor.sh")
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+caddy_assets.prepare()
+PY
+}
+
 prepare() {  # everything `server` does before it starts serving: also what the tests run
   server_environment
   for arg in "$@"; do
@@ -359,6 +385,7 @@ prepare() {  # everything `server` does before it starts serving: also what the 
   seed
   environment_identity
   tunnel_config
+  caddy_config
   backup_configuration || true
   # After the restore above, which only reads the backup: from here nothing is written to it.
   if rehearsal; then export TICO_BACKUP_MODE=rehearsal; fi
@@ -463,6 +490,7 @@ case "${1:-server}" in
   server) shift; server "$@" ;;
   prepare) shift; prepare "$@" ;;
   tunnel-config) tunnel_config ;;
+  caddy-config) caddy_config ;;
   aws-identity) aws_identity ;;
   demo) demo "$@" ;;
   restore) shift; restore "$@" ;;
