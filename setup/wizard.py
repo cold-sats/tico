@@ -165,14 +165,18 @@ def gather_runner_host(io: IO, args, s: Settings, zone: dnsmod.Zone | None, dry:
         if given and given != "none":
             raise MissingInput("--runner-hostname needs --front-door cloudflared: with Caddy, computers connect to the domain itself")
         s.runner_host = ""
+        if given == "none":
+            s.runner_url = ""
         return
-    if s.auth == "cloudflare" or given:
+    if (s.auth == "cloudflare" or given) and not (s.runner_url and getattr(args, "runner_host", None) is None):
         default = "" if s.domain.startswith("<") else st.default_runner_host(s.domain, zone.name if zone else "")
         Asker(io, args, s, dry).get("runner_host", "Runner hostname, served without Access for computers and outside agents ('none' to skip)",
                                     flag="--runner-hostname", required=False, default=default,
                                     validate=lambda v: v.lower() == "none" or bool(st.DOMAIN_RE.match(v.lower())))
     s.runner_host = s.runner_host.lower()
     s.runner_given = bool(given) and given != "none"
+    if getattr(args, "runner_host", None) is not None:
+        s.runner_url = f"https://{s.runner()}" if s.runner() else ""
     host = s.runner()
     if host == s.domain:
         raise MissingInput("--runner-hostname must differ from --domain")
@@ -412,6 +416,7 @@ def run(args, io: IO, deps: Deps) -> int:
         io.say(f"Resuming from the last run for {domain_hint} (secrets kept in {state.home() / domain_hint}).")
     gather(io, args, s, dry)
     hosted.gather(args, s, dry)
+    st.gather_runtime(args, s)
     gather_identity(io, args, s, dry)
     gather_backup(io, args, s, dry)
     s.updater = not args.no_updater
@@ -424,6 +429,7 @@ def run(args, io: IO, deps: Deps) -> int:
     if zone:
         io.say(f"  {zone.name}: {zone.provider.name}  ({', '.join(zone.nameservers)})")
     gather_runner_host(io, args, s, zone, dry)
+    st.gather_runtime(args, s, final=True)
     if s.target == "ssh" and s.front_door == "caddy":
         default_ip = ""
         try:
@@ -543,11 +549,16 @@ def _tunnel(io: IO, args, s: Settings, deps: Deps, zone, cf: Cloudflare | None) 
         if not z:
             raise SystemExit("That Cloudflare token cannot see a zone for this domain (needs Zone > DNS > Edit on it).")
         tid, token = cf.ensure_tunnel(z["account_id"], f"tico-{awsmod.slug(s.domain)}")
-        cf.configure_tunnel(z["account_id"], tid, s.domain, s.runner())
+        cf.configure_tunnel(z["account_id"], tid, s.domain, s.effective_runner_host(),
+                            aliases=st.aliases(s.domain_aliases, s.domain), visual_origin=s.visual_origin)
         s.tunnel_token, s.tunnel_id = token, tid
         io.say(f"  tunnel {tid} ready, routing {s.domain} to http://server:8765"
                + (f", and {s.runner()} for /api/v2 and /download" if s.runner() else ""))
         return tid
+    from .cloudflare import ingress_config
+    io.say("\nRequired tunnel configuration in the dashboard (including removal of old routes):")
+    io.say(json.dumps(ingress_config(s.domain, s.effective_runner_host(), aliases=st.aliases(s.domain_aliases, s.domain),
+                                   visual_origin=s.visual_origin), indent=2))
     if not s.tunnel_token:
         io.say("\nCloudflare tunnel (dashboard steps)")
         steps = DASHBOARD_STEPS + ([RUNNER_DASHBOARD_STEP] if s.runner() else [])
