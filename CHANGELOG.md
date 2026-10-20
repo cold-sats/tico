@@ -205,6 +205,8 @@ All notable changes to Tico are recorded here. The format follows
   telling its bot to retry setup; only the turns of the bot that owns the task hold a finished tree; a fault reading
   turns is raised instead of read as "no live turn"; and a new push clears the earlier "stale push cleared" note, so a
   release no longer names an old push.
+- **An @mention on a task with no bot on it shows once.** The comment itself is the mentioned person's question,
+  as on any task where it wakes no bot; it no longer also saves a second copy that showed the comment twice.
 
 ## [0.3.71] - 2026-10-21
 
