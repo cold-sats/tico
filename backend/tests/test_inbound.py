@@ -134,3 +134,69 @@ def test_native_and_registered_agents_share_inboxes_but_lose_access_when_paused(
     with svc.store.transaction() as c:c.execute("UPDATE bots SET state='paused' WHERE slug='ops'")
     with pytest.raises(Problem):svc.list_inboxes(external)
     assert api.get('/api/v2/inbound/messages',headers=headers(attempt['token'])).status_code==409
+
+
+@pytest.mark.parametrize('outage',[False,True],ids=['key_absent','hq_outage'])
+def test_bodies_and_codes_expire_at_90_days_without_hq(api,monkeypatch,outage):
+    svc=seed(api);start=1_800_000_000.0
+    monkeypatch.setattr(inbound,'now',lambda:start)
+    old=page(1,ident='ses:old:ibx_b');old['deliveries'][0]['received_at']=start
+    svc.ingest(old)
+    calls=[]
+    if outage:
+        svc.off=False
+        def remote(method,path,body=None):
+            calls.append(path);raise Problem('inbound_unavailable','HQ down',503)
+        svc.remote=remote
+    else:
+        assert svc.off and not svc.key
+    def listed(q=''):
+        return api.get('/api/v2/inbound/messages'+('?q='+q if q else ''),headers=headers()).json()['messages']
+    # One second before the cutoff the content is readable.
+    monkeypatch.setattr(inbound,'now',lambda:start+inbound.RETENTION-1)
+    assert api.get('/api/v2/inbound/messages/ses:old:ibx_b/code',headers=headers()).json()['code']=='123456'
+    assert listed('verification')[0]['has_code']
+    # Past the cutoff reads refuse before any purge or HQ call, and listing masks preview and code.
+    monkeypatch.setattr(inbound,'now',lambda:start+inbound.RETENTION+1)
+    rows=listed()
+    assert rows[0]['retention_removed'] and rows[0]['preview']=='' and not rows[0]['has_code']
+    assert listed('verification')==[]
+    assert api.get('/api/v2/inbound/messages?has_code=true',headers=headers()).json()['messages']==[]
+    for path in ('ses:old:ibx_b','ses:old:ibx_b/code'):
+        refused=api.get('/api/v2/inbound/messages/'+path,headers=headers())
+        assert refused.status_code==410 and refused.json()['error']['code']=='retention'
+    # The background tick purges stored content although sync is off or failing; metadata stays.
+    with svc.store.transaction() as c:c.execute('UPDATE inbound_messages SET retention_removed=0,body=?,code=?,preview=?',
+                                                ('Your verification code is 123456.','123456','x'))
+    svc.purged_at=0
+    if outage:
+        with pytest.raises(Problem):svc.tick()
+        assert calls==['inboxes']
+    else:
+        svc.tick()
+    with svc.store.read() as c:
+        row=dict(c.execute('SELECT * FROM inbound_messages').fetchone())
+    assert row['body'] is None and row['code'] is None and row['preview']=='' and row['retention_removed']==1
+    assert row['sender'] and row['subject']=='Sign in'
+
+
+def test_search_pages_to_older_matches_with_before(monkeypatch,api):
+    svc=seed(api)
+    for seq in range(1,6):
+        svc.ingest(page(seq,ident=f'ses:m{seq}:ibx_b',body=f'Login code is 12345{seq}.' if seq!=3 else 'Unrelated note'))
+    class API:
+        def get(self,path,**query):
+            return api.get('/api/v2/'+path,params=query,headers=headers()).json()
+    monkeypatch.setattr(remotecli,"Client",lambda *a,**kw:API())
+    monkeypatch.setenv("HUB_API_URL","https://hub.example.test")
+    def cli(*extra):
+        return remotecli.run(hubcli.parser().parse_args(['inbound','search','Login','--limit','2',*extra]))
+    first=cli()
+    second=cli('--before',str(first['next']))
+    assert [m['message_id'] for m in first['messages']]==['ses:m5:ibx_b','ses:m4:ibx_b']
+    assert [m['message_id'] for m in second['messages']]==['ses:m2:ibx_b','ses:m1:ibx_b'] and second['next'] is None
+    # MCP takes the same continuation.
+    tool=hubtools.BY_NAME['hub_inbound_search']
+    assert 'before' in tool['inputSchema']['properties']
+    again=tool['fn'](API(),{'q':'Login','limit':2,'before':first['next']})
+    assert again['messages']==second['messages']

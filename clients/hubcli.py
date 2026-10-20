@@ -535,8 +535,9 @@ def parser():
             item.add_argument('--after', type=int, required=action=='wait')
             item.add_argument('--limit', type=int)
         if action == 'wait': item.add_argument('--timeout', type=int)
-        if action == 'list':
+        if action in ('list', 'search'):
             item.add_argument('--before', type=int)
+        if action == 'list':
             item.add_argument('--spam', action='store_true', default=None)
     for action in ('read', 'code'):
         item = inbound.add_parser(action); item.set_defaults(fn='inbound '+action)

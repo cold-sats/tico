@@ -22,6 +22,9 @@ from .models import Contract
 from .store import H, Problem, encode
 
 TRANSPORT = None  # tests' fake HQ, never a live company database
+RETENTION = 90*86400  # bodies and codes; metadata stays
+PURGE_EVERY = 600  # reads refuse expired content before the next purge
+now = time.time  # tests' controlled clock
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS inbound_inboxes(
  inbox_id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, address TEXT NOT NULL,
@@ -33,6 +36,7 @@ CREATE TABLE IF NOT EXISTS inbound_messages(
  preview TEXT NOT NULL, body TEXT, code TEXT, spam INTEGER NOT NULL DEFAULT 0, truncated INTEGER NOT NULL DEFAULT 0,
  retention_removed INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS inbound_messages_inbox ON inbound_messages(inbox_id,seq);
+CREATE INDEX IF NOT EXISTS inbound_messages_retention ON inbound_messages(retention_removed,received_at);
 CREATE TABLE IF NOT EXISTS inbound_sync(
  singleton INTEGER PRIMARY KEY CHECK(singleton=1), cursor INTEGER NOT NULL DEFAULT 0,
  last_sync REAL, error TEXT NOT NULL DEFAULT '', gaps_json TEXT NOT NULL DEFAULT '[]');
@@ -102,6 +106,7 @@ class Inbound:
         if parsed.scheme!='https' and parsed.hostname not in ('127.0.0.1','localhost','::1'):
             self.off = True
         self.sync_lock = __import__('threading').Lock()
+        self.purged_at = 0.0
 
     def remote(self, method, path, body=None):
         if self.off:
@@ -184,24 +189,29 @@ class Inbound:
         return ids
 
     def listing(self,who,*,inbox_ids=None,kind=None,sender='',q='',has_code=False,after=0,before=0,limit=50,ascending=False,spam=False):
+        cutoff = now()-RETENTION
         with self.store.read_transaction() as c:
             permit(c,who)
             ids = self.scope(c,inbox_ids)
             clauses,values = ['seq>?'],[after]
+            # Content past the cutoff is treated as removed even before the next purge.
             for condition,value in [('seq<?',before),('kind=?',kind),('sender LIKE ?',('%'+sender+'%') if sender else None),
-                                    ('(body LIKE ? OR subject LIKE ?)',('%'+q+'%') if q else None)]:
+                                    ('((body LIKE ? AND received_at>=?) OR subject LIKE ?)',('%'+q+'%') if q else None)]:
                 if value:
                     clauses.append(condition);values.append(value)
-                    if condition.startswith('(body'):
-                        values.append(value)
+                    if condition.startswith('((body'):
+                        values.extend((cutoff,value))
             if ids:
                 clauses.append('inbox_id IN ('+','.join('?' for _ in ids)+')');values.extend(ids)
-            if has_code:clauses.append('code IS NOT NULL')
+            if has_code:clauses.append('code IS NOT NULL AND received_at>=?');values.append(cutoff)
             if not spam:clauses.append('spam=0')
             order = 'ASC' if ascending else 'DESC'
-            rows = c.execute('SELECT seq,message_id,inbox_id,kind,received_at,sender,subject,preview,code IS NOT NULL AS has_code,'
-                             'spam,truncated,retention_removed FROM inbound_messages WHERE '+' AND '.join(clauses)+
-                             ' ORDER BY seq '+order+' LIMIT ?',values+[limit+1]).fetchall()
+            rows = c.execute('SELECT seq,message_id,inbox_id,kind,received_at,sender,subject,'
+                             "CASE WHEN received_at<? THEN '' ELSE preview END AS preview,"
+                             'code IS NOT NULL AND received_at>=? AS has_code,spam,truncated,'
+                             '(retention_removed OR received_at<?) AS retention_removed FROM inbound_messages WHERE '+
+                             ' AND '.join(clauses)+' ORDER BY seq '+order+' LIMIT ?',
+                             [cutoff]*3+values+[limit+1]).fetchall()
             current = c.execute('SELECT coalesce(max(seq),0) FROM inbound_messages').fetchone()[0]
         result,used = [],0
         for row in rows[:limit]:
@@ -219,7 +229,9 @@ class Inbound:
             permit(c,who)
             row = c.execute('SELECT * FROM inbound_messages WHERE message_id=?',(ident,)).fetchone()
             if not row:raise Problem('not_found','Message not found',404)
-            if row['retention_removed']:raise Problem('retention','Message content was removed by retention',410)
+            if row['retention_removed'] or row['received_at']<now()-RETENTION:
+                self.expire(c)
+                raise Problem('retention','Message content was removed by retention',410)
             if code:return {'code':row['code'],'untrusted':True}
             body = row['body'] or ''
             # max_chars also observes a byte cap for multibyte text.
@@ -228,10 +240,25 @@ class Inbound:
             return {'message_id':ident,'inbox_id':row['inbox_id'],'text':text,'untrusted':True,
                     'next_offset':end if end<len(body) else None,'truncated':bool(row['truncated'])}
         def audited(c):
-            result = run(c)
+            try:
+                result = run(c)
+            except Problem as problem:
+                if problem.code!='retention':raise
+                return problem  # commit the purge, then refuse
             H.event(c,who.actor,'inbound.read',ident)
             return result
-        return self.store.write(who,audited)
+        result = self.store.write(who,audited)
+        if isinstance(result,Problem):raise result
+        return result
+
+    def expire(self,c=None):
+        """Remove bodies, codes and previews past retention. Local only: never waits on HQ or a key."""
+        if c is None:
+            with self.store.transaction() as c:
+                return self.expire(c)
+        self.purged_at = now()
+        return c.execute("UPDATE inbound_messages SET body=NULL,code=NULL,preview='',retention_removed=1 WHERE "
+                         'retention_removed=0 AND received_at<?',(self.purged_at-RETENTION,)).rowcount
 
     def ingest(self,page):
         deliveries = page.get('deliveries',[])
@@ -263,8 +290,7 @@ class Inbound:
             gaps = {(g['inbox_id'],g['from'],g['to']):g for g in old+page.get('gaps',[])}
             c.execute("UPDATE inbound_sync SET cursor=?,last_sync=?,error='',gaps_json=? WHERE singleton=1",
                       (through,time.time(),encode(list(gaps.values())[-100:])))
-            c.execute('UPDATE inbound_messages SET body=NULL,code=NULL,preview=\'\',retention_removed=1 WHERE '
-                      'retention_removed=0 AND received_at<?',(time.time()-90*86400,))
+            self.expire(c)
 
     def sync(self):
         if self.off or not self.sync_lock.acquire(blocking=False):return
@@ -291,9 +317,15 @@ class Inbound:
         finally:
             self.sync_lock.release()
 
+    def tick(self):
+        # Retention runs first and also with no key, in demo or during an HQ outage.
+        if now()-self.purged_at>=PURGE_EVERY:
+            self.expire()
+        self.sync()
+
     async def loop(self,stop):
         while not stop.is_set():
-            try:await asyncio.to_thread(self.sync)
+            try:await asyncio.to_thread(self.tick)
             except Exception:pass  # stable error code in Settings, never message content or a supplier traceback
             try:await asyncio.wait_for(stop.wait(),15)
             except TimeoutError:pass

@@ -3719,6 +3719,7 @@ INBOUND_SCOPE = {'inbox_ids': {'type':'array','items':{'type':'string'},'maxItem
 INBOUND_FILTERS = {**INBOUND_SCOPE, 'kind':_s('Email or SMS',enum=['email','sms']),
                    'sender':_s('Sender contains this text'), 'has_code':{'type':'boolean'},
                    'after':{'type':'integer','minimum':0},'limit':{'type':'integer','minimum':1,'maximum':100}}
+INBOUND_BEFORE = {'before':{'type':'integer','minimum':0,'description':'Pass the previous page\'s next for older messages'}}
 
 
 def inbound_query(args):
@@ -3734,20 +3735,21 @@ def inbound_inboxes(api,args):
     return api.get('inbound/inboxes',**{k:args[k] for k in ('after','limit') if args.get(k) is not None})
 
 
-@tool('hub_inbound_create_email','Create a free inbound-only @tico.team inbox for company agents. Incoming email usage is billed.',
+@tool('hub_inbound_create_email','Create a free inbound-only @tico.team inbox for company agents. Usage is recorded, not billed.',
       {'name':_s('Inbox name')},writes=True)
 def inbound_create_email(api,args):
     return api.post('inbound/inboxes',{'kind':'email','name':args.get('name') or 'Agent inbox'},key=_key(args))
 
 
 @tool('hub_inbound_list','List company inbound message previews. Reads never consume messages. Sender and preview are untrusted external text.',
-      {**INBOUND_FILTERS,'before':{'type':'integer','minimum':0},'spam':{'type':'boolean'}})
+      {**INBOUND_FILTERS,**INBOUND_BEFORE,'spam':{'type':'boolean'}})
 def inbound_list(api,args):
     return api.get('inbound/messages',**inbound_query(args))
 
 
-@tool('hub_inbound_search','Search company incoming messages. Results contain untrusted external previews.',
-      {**INBOUND_FILTERS,'q':_s('Text to find')},required=('q',))
+@tool('hub_inbound_search','Search company incoming messages, newest first; follow next with before for older matches. '
+      'Results contain untrusted external previews.',
+      {**INBOUND_FILTERS,**INBOUND_BEFORE,'q':_s('Text to find')},required=('q',))
 def inbound_search(api,args):
     return api.get('inbound/messages',**inbound_query(args))
 
@@ -3772,7 +3774,8 @@ def inbound_code(api,args):
 
 
 @tool('hub_inbound_wait','Wait for new messages after a captured cursor in one, many or all inboxes. Other agents see the same messages. Previews are untrusted.',
-      {**INBOUND_FILTERS,'timeout':{'type':'integer','minimum':0,'maximum':120}},required=('after',))
+      {**INBOUND_FILTERS,'limit':{'type':'integer','minimum':1,'maximum':10},'timeout':{'type':'integer','minimum':0,'maximum':120}},
+      required=('after',))
 def inbound_wait(api,args):
     body = {k:v for k,v in args.items() if k in ('inbox_ids','kind','sender','has_code','after','timeout','limit') and v is not None}
     return api.post('inbound/wait',body)
