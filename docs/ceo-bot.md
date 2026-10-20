@@ -15,8 +15,8 @@ starts at level 1.
 | 2 | **Suggests actions** | Also suggests how your bots could recover a goal that falls behind, as items in **Needs you** that you approve one by one. |
 | 3 | **Acts on its own** | Also makes, reorders and closes bot tasks itself to recover a goal, each with an Undo. |
 
-Levels 2 and 3 can be chosen today, but they do not do more yet. Until they arrive in a later release, both do what
-level 1 does, and their sentences say so.
+Level 3 can be chosen today, but it does not do more yet. Until it arrives in a later release, it does what level 2
+does, and its sentence says so.
 
 ## Change the level
 
@@ -47,10 +47,28 @@ Over the API, `GET /api/v2/ceo-bot` shows `level` and `level_history`, and `POST
 - **Changes no tasks.** At level 1 it creates, reorders, reassigns and closes nothing of anyone's. The only tasks it
   files are questions to a person.
 
+## What the CEO Bot does at level 2
+
+Everything in level 1, plus:
+- **Suggests a recovery** when a goal is red or stalled, as one **Needs you** item for the goal's owner in place of
+  "check why it is off track". It shows the evidence, up to 4 options and the CEO Bot's pick. Each option is a few
+  changes to bots' tasks: a new task for a bot, a bot's task moved to the top of its queue, or a clash between two
+  bots' tasks settled. A person's tasks are never in it.
+- **Changes nothing without your yes.** **Approve** on an option applies exactly that option, in the CEO Bot's name.
+  **Reject** drops them all. Where part of an option can't be done (a bot is paused, a task finished meanwhile, or you
+  may not reorder bots' queues), it says why in plain words and comes back to you as a new recovery. Nothing is
+  dropped. Lowering the level to 1 withdraws the recoveries waiting.
+- **Makes the same question one item.** When several bots ask you the same thing, you see one item instead of each.
+  Your one answer goes to every bot that asked. If the item ends without an answer, their asks come back as they were.
+- **Offers level 3 once you trust it.** After 10 recoveries in a row approved with its pick unchanged, the Monday note
+  offers level 3, at most once a month. It never raises its own level; only you do, in Settings.
+
+More on recoveries and merged asks: [Goals and KPIs](goals-and-kpis.md#recoveries-and-merged-asks).
+
 ### At most 5 items a day
 
 At every level, the CEO Bot puts at most 5 items a day in one person's **Needs you**. The day runs on UTC, and the
-count includes the asks Tico files in its name. The most important come first, with the vision before everything else;
+count includes the asks Tico files in its name, recoveries and merged items. The most important come first, with the vision before everything else;
 the rest wait for the next day. The server refuses a sixth.
 
 ## What stays yours
