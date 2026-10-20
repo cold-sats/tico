@@ -4857,6 +4857,8 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     if status in ("done", "declined") and row["status"] != status and not closing_step:
         answered = {tid for tid in TR.blocked_ids(conn, task_id) if _answered(conn, actor, tid, after, subtask_told)}
     if status == "done":
+        if subtask_told:
+            answered.add(TR.parent_of(conn, task_id))  # the result also satisfies this parent's blocker notice
         _unblock(conn, after, told=answered)
     # A decline always goes back: nobody is doing the work, which is news whoever asked for it.
     if notify_requester:
@@ -5141,6 +5143,8 @@ def task_close(conn, actor, task_id, note="", quiet=False, *, type=None, step=No
     answered = set()
     if row["status"] not in ("done", "declined"):
         answered = {tid for tid in TR.blocked_ids(conn, task_id) if _answered(conn, actor, tid, after, subtask_told)}
+    if subtask_told:
+        answered.add(TR.parent_of(conn, task_id))
     _unblock(conn, after, told=answered)
     said = (f"Closed: {after['title']}" + (f"\n{note}" if note else "")
             + (f"\nStill open: {'; '.join(still_open)}" if still_open else ""))

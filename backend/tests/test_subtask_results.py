@@ -1,4 +1,5 @@
 """Delegated results return to the waiting task, with no requester session on the child's task."""
+from backend import task_relations as TR
 from backend.store import H
 from backend.tests.test_api import api, claim, post  # noqa: F401
 from backend.tests.test_task_lanes import task_bot
@@ -40,6 +41,8 @@ def test_nested_reviews_return_once_to_the_live_builder_then_builder_returns_to_
         with api.app.state.store.transaction() as c:
             review = H.task_create(c, "bot:ops", "Review the import", "Review this change.", "bot:" + reviewer,
                                    parent_id=build["id"], lint=False)
+            TR.relate(c, "bot:ops", review["id"], build["id"], "blocks")
+            H.task_update(c, "bot:ops", build["id"], status="waiting")
         checking = start(api, machine, review["id"], reviewer + "-review")
         verdict = "No blocking findings.\nVERDICT: approve PR #12 head " + "a" * 40
         post(api, f"tasks/{review['id']}/comments", {"text": verdict}, checking["token"])
