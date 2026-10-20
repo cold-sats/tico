@@ -193,6 +193,7 @@ All notable changes to Tico are recorded here. The format follows
   ([Computers](docs/computers.md#remove-a-subscription)).
 
 ### Fixed
+- Release checks follow the original attempt when an out-of-quota turn retries, avoiding a false fallback-usage failure.
 - Busy-lane expiry checks use an explicitly stale timestamp, including on newly booted CI computers.
 - Tico Recruit keeps role details out of the page URL when Continue is pressed while the template catalog loads.
 - Resuming a paused bot in Settings now clears its pause control, so queued work starts again.
