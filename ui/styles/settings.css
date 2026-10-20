@@ -589,3 +589,10 @@ fieldset.brepo>.repo-name+p{margin:-4px 0 4px 24px;font-size:var(--t-xs);line-he
 .settings-team-rule > span{display:flex;flex-direction:column;gap:2px}
 /* The rules share one card on General: room between them. */
 .settings-team-rule ~ .settings-team-rule{margin-top:14px}
+/* Settings > CEO Bot (ui/app/settings-ceo-bot.js): three levels, one sentence each, a Confirm before a change. */
+.ceo-levels{display:grid;gap:8px;margin:10px 0}
+.ceo-level{display:grid;gap:4px;text-align:left;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:none;color:inherit;font:inherit;cursor:pointer}
+.ceo-level span{font-size:var(--t-sm);color:var(--muted)}
+.ceo-level[aria-checked="true"]{border-color:var(--accent)}
+.ceo-confirm{padding:10px 12px;border:1px solid var(--accent);border-radius:8px;margin-bottom:8px}
+.ceo-confirm p{margin:0 0 8px}

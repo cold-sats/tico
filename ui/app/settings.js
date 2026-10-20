@@ -45,13 +45,14 @@ function pageSettings() {
   // A repeat visit to the page already on screen (a refresh, a same-route redraw) keeps it: rebuilding
   // it would snap back to the default tab and drop whatever is half typed in a form.
   const built = $('#settings-tabs');
-  if (built && built.dataset.role === (S.me?.role || '')) { settingsShow(SETTINGS_TAB); loadSettings(); return; }
+  if (built && built.dataset.role === (S.me?.role || '') && built.dataset.ceo === String(settingsCeoBotShown())) { settingsShow(SETTINGS_TAB); loadSettings(); return; }
   $('#main').innerHTML = `<div class="meeting-head"><div><h1>Settings</h1>${settingsVersionHTML()}</div>${settingsThemeHTML()}</div>
     <div id="settings-issues"></div>
-    <div class="tabs settings-tabs" id="settings-tabs" data-role="${esc(S.me?.role || '')}" role="tablist" aria-label="Settings">
+    <div class="tabs settings-tabs" id="settings-tabs" data-role="${esc(S.me?.role || '')}" data-ceo="${settingsCeoBotShown()}" role="tablist" aria-label="Settings">
       <button type="button" data-settings-tab="general" role="tab">General</button>
       ${settingsIsAdmin() ? '<button type="button" data-settings-tab="people" role="tab">Humans</button>' : ''}
       <button type="button" data-settings-tab="bots" role="tab">Bots</button>
+      ${settingsCeoBotShown() ? '<button type="button" data-settings-tab="ceo" role="tab">CEO Bot</button>' : ''}
       <button type="button" data-settings-tab="devices" role="tab">Computers</button>
       <button type="button" data-settings-tab="repos" role="tab">Repositories</button>
       <button type="button" data-settings-tab="tasks" role="tab">Tasks</button>
@@ -118,6 +119,7 @@ function pageSettings() {
       ${S.me?.role === 'owner' ? '<div class="theme-seg" id="settings-history-view" role="radiogroup" aria-label="History"><button type="button" role="radio" data-history-view="runs">Runs</button><button type="button" role="radio" data-history-view="changes">Changes</button></div>' : ''}</header>
       <div id="set-runs">${skelRows(3, {card: true, dot: false})}</div>
       ${S.me?.role === 'owner' ? `<div id="set-history" hidden>${skelRows(3, {card: true, dot: false})}</div>` : ''}</section></div>
+    ${settingsCeoBotShown() ? `<div class="settings-pane" id="settings-ceo" role="tabpanel" hidden><section class="card"><header><h2>How much your CEO Bot does</h2></header><div id="set-ceo-bot">${skelRows(3, {card: true, dot: false})}</div></section></div>` : ''}
     <dialog class="tmodal" id="people-dialog" aria-label="Humans"></dialog>
     <dialog class="owner-picker" id="owner-picker" aria-labelledby="owner-picker-title"></dialog>
     <dialog class="bot-editor" id="bot-editor" aria-labelledby="bot-editor-title"></dialog>
@@ -174,7 +176,7 @@ function settingsShow(tab) {
   const tabs = [...document.querySelectorAll('#settings-tabs [data-settings-tab]')];
   // Tab names come from the navigation; recheck access in case this person's role just changed.
   const owner = S.me?.role === 'owner';
-  const access = {people: settingsIsAdmin()};
+  const access = {people: settingsIsAdmin(), ceo: settingsCeoBotShown()};
   SETTINGS_TAB = access[tab] !== false && tabs.some(button => button.dataset.settingsTab === tab) ? tab : 'devices';
   try { sessionStorage.setItem(SETTINGS_TAB_KEY, SETTINGS_TAB); } catch { /* private window: the tab is just not remembered */ }
   if (['health', 'history', 'recurring', 'triggers', 'inbound'].includes(SETTINGS_TAB)) $('#settings-more').open = true;
@@ -210,6 +212,8 @@ function settingsShow(tab) {
   }
   const peoplePane = $('#settings-people');
   if (peoplePane) { peoplePane.hidden = SETTINGS_TAB !== 'people'; if (SETTINGS_TAB === 'people' && !formBusy(peoplePane)) void renderSettingsPeople(); }
+  const ceoPane = $('#settings-ceo');
+  if (ceoPane) { ceoPane.hidden = SETTINGS_TAB !== 'ceo'; if (SETTINGS_TAB === 'ceo') void renderSettingsCeoBot(); }
   const healthPane = $('#settings-health');
   if (healthPane) { healthPane.hidden = SETTINGS_TAB !== 'health'; if (SETTINGS_TAB === 'health') window.hlMount?.(); }
   const inboundPane = $('#settings-inbound');
