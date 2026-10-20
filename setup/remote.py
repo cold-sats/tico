@@ -183,6 +183,102 @@ def docker_install_lines(os_family: str, need_aws_cli: bool) -> list[str]:
     return lines + (["command -v aws >/dev/null || snap install aws-cli --classic"] if need_aws_cli else [])
 
 
+# Executed by the existing bootstrap only after ordinary app startup succeeds.
+# Keeping the finite source here also lets tests exercise the real installer
+# boundary with an in-memory release archive and no Docker or network authority.
+VISUAL_BOOTSTRAP = r'''
+import hashlib,io,json,os,pathlib,re,subprocess,tarfile,tempfile,urllib.parse,urllib.request
+
+def pairs(items):
+    value={}
+    for key,item in items:
+        if key in value:raise ValueError()
+        value[key]=item
+    return value
+
+def fetch(url,limit):
+    # GitHub serves release bytes through its fixed asset host. Only that
+    # credential-free HTTPS redirect is allowed, never a caller destination.
+    class ReleaseRedirect(urllib.request.HTTPRedirectHandler):
+        max_redirections=3
+        def redirect_request(self,request,fp,code,message,headers,url):
+            target=urllib.parse.urlsplit(url)
+            if target.scheme!='https' or target.hostname!='release-assets.githubusercontent.com' or target.username or target.password or target.port not in (None,443):raise ValueError()
+            return super().redirect_request(request,fp,code,message,headers,url)
+    opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),ReleaseRedirect())
+    with opener.open(url,timeout=5) as response:
+        raw=response.read(limit+1)
+        if len(raw)>limit:raise ValueError()
+        return raw
+
+def install(directory,version,runtime,fetch=fetch):
+    root=pathlib.Path(directory)
+    if not re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.]+)?',version):raise ValueError()
+    if not isinstance(runtime,dict) or set(runtime)!={'revision','runtime_files'} or not re.fullmatch(r'[0-9a-f]{40}',runtime['revision']):raise ValueError()
+    if root.resolve()!=root or root.stat().st_uid!=os.geteuid() or root.stat().st_mode&0o022:raise ValueError()
+    name='tico-bundle-'+version+'.tar.gz'
+    base='https://github.com/ticoteam/tico/releases/download/'+version+'/'
+    sums=fetch(base+'SHA256SUMS',1048576).decode('ascii')
+    matches=[line.split()[0] for line in sums.splitlines() if len(line.split())==2 and line.split()[1].lstrip('*')==name]
+    if len(matches)!=1 or not re.fullmatch(r'[0-9a-f]{64}',matches[0]):raise ValueError()
+    blob=fetch(base+name,8388608)
+    if hashlib.sha256(blob).hexdigest()!=matches[0]:raise ValueError()
+    files={}
+    with tarfile.open(fileobj=io.BytesIO(blob),mode='r:gz') as archive:
+        total=0
+        for member in archive:
+            if not member.isfile() or member.name in files or member.name.startswith('/') or '..' in member.name.split('/'):raise ValueError()
+            total+=member.size
+            if member.size>2097152 or total>8388608:raise ValueError()
+            files[member.name]=archive.extractfile(member).read()
+    manifest=json.loads(files['installer-manifest.json'],object_pairs_hook=pairs)
+    if set(manifest)!={'protocol','revision','files','runtime_files'} or manifest['protocol']!='tico-hosted-assets-v1':raise ValueError()
+    if manifest['revision']!=runtime['revision'] or manifest['runtime_files']!=runtime['runtime_files']:raise ValueError()
+    required={'compose.yaml','setup/__init__.py','setup/visual_config.py','setup/visual_contract.py','setup/envfile.py','setup/contract.py','setup/cli.py','setup/settings.py'}
+    if not isinstance(manifest['files'],dict) or not required<=set(manifest['files']) or len(manifest['files'])>100:raise ValueError()
+    for path,digest in manifest['files'].items():
+        if not (path=='compose.yaml' or re.fullmatch(r'setup/[a-z_]+\.py',path)):raise ValueError()
+        if hashlib.sha256(files[path]).hexdigest()!=digest:raise ValueError()
+    if files.get('VERSION',b'').decode().strip()!=version[1:]:raise ValueError()
+    # The app's existing Compose selection and environment remain authoritative.
+    # A differing embedded Compose is not silently replaced by this optional step.
+    if (root/'compose.yaml').is_symlink() or (root/'compose.yaml').read_bytes()!=files['compose.yaml']:raise ValueError()
+    if (root/'setup').is_symlink():raise ValueError()
+    selected={path:files[path] for path in manifest['files'] if path.startswith('setup/')}
+    selected['installer-manifest.json']=files['installer-manifest.json']
+    # Validate every destination before writing any file. Interrupted exact
+    # installs can resume; existing unrelated/different source is never replaced.
+    for path,data in selected.items():
+        target=root/path
+        if target.is_symlink() or (target.exists() and (not target.is_file() or target.read_bytes()!=data)):raise ValueError()
+    (root/'setup').mkdir(mode=0o755,exist_ok=True)
+    for path,data in selected.items():
+        target=root/path
+        descriptor,temporary=tempfile.mkstemp(prefix='.visual-bundle-',dir=target.parent)
+        try:
+            with os.fdopen(descriptor,'wb') as output:
+                os.fchmod(output.fileno(),0o644)
+                output.write(data);output.flush();os.fsync(output.fileno())
+            os.replace(temporary,target)
+        finally:
+            if os.path.exists(temporary):os.unlink(temporary)
+    return True
+
+def selected_runtime(directory):
+    def run(args,limit=65536):
+        result=subprocess.run(args,cwd=directory,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=8,
+                              env={'PATH':'/usr/local/bin:/usr/bin:/bin','HOME':'/root'})
+        if result.returncode or len(result.stdout)>limit:raise ValueError()
+        return result.stdout
+    container=run(['docker','compose','ps','-q','server'],256).decode().strip()
+    if not re.fullmatch(r'[0-9a-f]{64}',container):raise ValueError()
+    labels=json.loads(run(['docker','inspect','--format','{{json .Config.Labels}}',container]),object_pairs_hook=pairs)
+    runtime=json.loads(run(['docker','exec',container,'python','-B','-m','backend.visual_config','capabilities']),object_pairs_hook=pairs)
+    if labels.get('org.opencontainers.image.revision')!=runtime.get('revision'):raise ValueError()
+    return labels.get('org.opencontainers.image.version',''),runtime
+'''
+
+
 def bootstrap_script(*, os_family: str, domain: str, front_door: str, compose: bytes | None, compose_url: str,
                      env_b64: str = "", env_param: tuple[str, str] | None = None, wait_for_ip: str = "") -> str:
     """One script that installs Docker and starts Tico. Used as EC2 user-data (env from a SecureString parameter)
@@ -208,7 +304,13 @@ def bootstrap_script(*, os_family: str, domain: str, front_door: str, compose: b
     if front_door == "caddy" and wait_for_ip:
         L += ["# Caddy asks for its certificate at first start; wait until the name points here or that fails.",
               f"for i in $(seq 1 80); do getent hosts {q(domain)} | grep -q {q(wait_for_ip)} && break; sleep 15; done"]
-    L += [f"cd {d} && docker compose pull --quiet && docker compose up -d", f"touch {d}/.bootstrapped", "echo tico-setup: done"]
+    L += [f"cd {d} && docker compose pull --quiet && docker compose up -d",
+          "# Optional operator source follows the actual running release; failure does not gate the app.",
+          "if command -v python3 >/dev/null 2>&1; then", "python3 -B - <<'TICO_VISUAL_BUNDLE' || true",
+          VISUAL_BOOTSTRAP,
+          "try:", f"    version,runtime=selected_runtime({d!r})", f"    install({d!r},version,runtime)",
+          "except Exception:", "    print('tico-setup: optional visual operator pending')",
+          "TICO_VISUAL_BUNDLE", "fi", f"touch {d}/.bootstrapped", "echo tico-setup: done"]
     return "\n".join(L) + "\n"
 
 
