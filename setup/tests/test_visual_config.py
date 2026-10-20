@@ -191,7 +191,7 @@ def test_multiline_and_duplicate_managed_environment_cannot_change_unrelated_byt
 
 
 def test_installer_manifest_and_actual_runtime_must_match_not_just_revision(tmp_path):
-    names = ("setup/__init__.py", "setup/cli.py", "setup/settings.py", "setup/envfile.py", "setup/contract.py",
+    names = ("setup/__init__.py", "setup/cli.py", "setup/settings.py", "setup/envfile.py", "setup/contract.py", "setup/route53.py",
              "setup/visual_contract.py", "setup/visual_config.py", "compose.yaml")
     for name in names:
         p = tmp_path / name

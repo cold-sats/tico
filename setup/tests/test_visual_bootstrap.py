@@ -10,7 +10,7 @@ from setup import remote, visual_config, visual_contract as wire
 
 
 def bundle(*, revision="a" * 40, manifest=True):
-    names = ("setup/__init__.py", "setup/cli.py", "setup/settings.py", "setup/envfile.py", "setup/contract.py",
+    names = ("setup/__init__.py", "setup/cli.py", "setup/settings.py", "setup/envfile.py", "setup/contract.py", "setup/route53.py",
              "setup/visual_config.py", "setup/visual_contract.py", "compose.yaml")
     files = {name: (b"name: tico\n" if name == "compose.yaml" else b"fictional source\n") for name in names}
     runtime = {"revision": revision, "runtime_files": {n: "b" * 64 for n in wire.RUNTIME_FILES}}

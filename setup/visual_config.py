@@ -61,7 +61,7 @@ def installer_capability(root):
     if not required <= set(value["files"]) or len(value["files"]) > 100:
         raise wire.Pending("installer_source_unsupported")
     for name, digest in value["files"].items():
-        if (not (name == "compose.yaml" or wire.matches(r"setup/[a-z_]+\.py", name))
+        if (not (name == "compose.yaml" or wire.matches(r"setup/[a-z_][a-z0-9_]*\.py", name))
                 or not wire.matches(wire.HEX, digest)
                 or hashlib.sha256(read_file(root / name, 2 * 1024 * 1024)).hexdigest() != digest):
             raise wire.Pending("installer_source_modified")

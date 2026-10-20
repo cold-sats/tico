@@ -237,7 +237,7 @@ def install(directory,version,runtime,fetch=fetch):
     required={'compose.yaml','setup/__init__.py','setup/visual_config.py','setup/visual_contract.py','setup/envfile.py','setup/contract.py','setup/cli.py','setup/settings.py'}
     if not isinstance(manifest['files'],dict) or not required<=set(manifest['files']) or len(manifest['files'])>100:raise ValueError()
     for path,digest in manifest['files'].items():
-        if not (path=='compose.yaml' or re.fullmatch(r'setup/[a-z_]+\.py',path)):raise ValueError()
+        if not (path=='compose.yaml' or re.fullmatch(r'setup/[a-z_][a-z0-9_]*\.py',path)):raise ValueError()
         if hashlib.sha256(files[path]).hexdigest()!=digest:raise ValueError()
     if files.get('VERSION',b'').decode().strip()!=version[1:]:raise ValueError()
     # The app's existing Compose selection and environment remain authoritative.
