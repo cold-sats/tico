@@ -15,6 +15,8 @@ import httpx
 from fastapi import Query, Request
 from pydantic import Field
 
+from clients.gateway import user_agent
+
 from .auth import validate_identity
 from .models import Contract
 from .store import H, Problem, encode
@@ -107,7 +109,7 @@ class Inbound:
         try:
             with httpx.Client(transport=TRANSPORT,timeout=35,follow_redirects=False) as client:
                 response = client.request(method,self.url+'/v1/inbound/'+path,json=body,
-                                          headers={'Authorization':'Bearer '+self.key})
+                                          headers={"Authorization":"Bearer "+self.key,"User-Agent": user_agent()})
                 if not response.is_success:
                     error = response.json().get('error','inbound_unavailable')
                     allowed = {'email_unavailable','email_quota','creator_rate_limit','sms_unavailable','sms_purchases_disabled',
