@@ -1672,6 +1672,18 @@ def create_app(settings=None):
         who = request.state.identity
         return mutate(request, body, lambda c: onboarding.complete(c, who))
 
+    @app.post("/api/v2/onboarding/company/preview")
+    def onboarding_company_preview(request: Request, body: M.OnboardingCompanyFile):
+        from . import company_import
+        with store.read() as c:
+            return company_import.preview(onboarding, c, request.state.identity, body.company_yaml)
+
+    @app.post("/api/v2/onboarding/company/import")
+    def onboarding_company_import(request: Request, body: M.OnboardingCompanyImport):
+        from . import company_import
+        return mutate(request, body, lambda c: company_import.apply(
+            onboarding, c, request.state.identity, body.company_yaml, body.fingerprint))
+
     @app.post("/api/v2/onboarding/sample")
     def onboarding_sample(request: Request, body: M.Empty):
         """Start as Tico's sample company (backend/sample_company.py): five bots with short starter tasks. The owner,
