@@ -2284,7 +2284,7 @@ def say(conn, actor, to_actor, body, conversation_id=None, kind="say", refs=None
         refs.update(quiet=True, **{bot_to_bot.MARK: bot_to_bot.RULE})
     msg = _write_message(conn, actor, target, body, conv, kind, refs, in_reply_to, wait_s)
     if result_key:
-        _deliver_subtask_result(conn, result_task, result_parent, body, result_key, source=msg["id"])
+        _deliver_subtask_result(conn, result_task, result_parent, body, result_key, source=msg["id"], resume_hint=True)
     if waits:
         bot_to_bot.hold(conn, msg, task(conn, on_task) if isinstance(on_task, str) and on_task else None)
     _close_open_asks(conn, actor, target, kind, msg)
@@ -3809,7 +3809,7 @@ def _subtask_result_cycle(conn, row):
     return f"{reopened}:"
 
 
-def _deliver_subtask_result(conn, row, parent, text, key=None, *, source=None, quiet=False):
+def _deliver_subtask_result(conn, row, parent, text, key=None, *, source=None, quiet=False, resume_hint=False):
     """Record a result on its immediate parent once; an ended parent never starts a worker for it."""
     if key and _one(conn, "SELECT 1 FROM messages WHERE conversation_id=? AND to_actor=? "
                          "AND json_extract(refs_json,'$.subtask')=? "
@@ -3824,9 +3824,10 @@ def _deliver_subtask_result(conn, row, parent, text, key=None, *, source=None, q
             refs["inputs"] = [source]
             refs.update({k: v for k, v in original["refs"].items() if k in ("turn_id", "run")})
     silent = quiet or parent["status"] in ("done", "closed", "declined")
-    delivered = ("Subtask result returned to this task's session. Continue this task here; the result needs "
-                 "no relay, separate delivery turn or task run command.\n\n" + text)
-    _wake(conn, parent, parent["owner"], delivered, refs=refs, source=source or row["id"],
+    if resume_hint:
+        text = ("Subtask result returned to this task's session. Continue this task here; the result needs "
+                "no relay, separate delivery turn or task run command.\n\n" + text)
+    _wake(conn, parent, parent["owner"], text, refs=refs, source=source or row["id"],
           quiet_bots=silent, quiet=silent)
 
 
@@ -3878,7 +3879,7 @@ def _subtask_wake(conn, actor, row, previous, note=None, quiet=False):
               "AND json_extract(refs_json,'$.subtask')=? "
               "AND json_extract(refs_json,'$.subtask_result') LIKE ? LIMIT 1",
         (parent["conversation_id"], bot, row["id"], _subtask_result_cycle(conn, row) + "%"))
-    _deliver_subtask_result(conn, row, parent, text, key, quiet=bool(delivered_verdict))
+    _deliver_subtask_result(conn, row, parent, text, key, quiet=bool(delivered_verdict), resume_hint=by_worker)
     return bot
 
 
