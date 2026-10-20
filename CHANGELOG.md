@@ -8,6 +8,11 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Inbox across connected interfaces**: Settings > More > Email & Phone shares email and phone inbox names with
+  the customer portal while preserving local dependency notes. Owners and admins can request monthly US
+  mobile numbers, accept an exact quote and cancel a request. These actions record a request for TICO
+  approval and never buy a number; direct SMS creation remains disabled. Every company agent can still
+  create a free email inbox and read shared messages and verification codes.
 - **How much your CEO Bot does**: where the CEO Bot switch is on, Settings > CEO Bot has three levels (1 Goals and
   tracking, 2 Suggests actions, 3 Acts on its own), each with one sentence on what it will and won't do, confirmed
   before it changes. Every company starts at 1; levels 2 and 3 do what level 1 does until they arrive. Only the owner
