@@ -51,6 +51,15 @@ All notable changes to Tico are recorded here. The format follows
   the owner sign-in link stays as break-glass beside it: it works while the issuer is down, and people already
   signed in stay signed in. Google, Microsoft, Cloudflare Access and the other sign-in options work as before.
   ([Install](docs/install.md#sign-in))
+- **Tico AI Gateway connects by itself**: an install whose install command carries a Tico invite code
+  (`TICO_GATEWAY_INVITE`) gets its own gateway key at start, with nothing to paste, and replaces it every 30 days.
+  The invite is only needed for that first sign-up; after it, the install keeps its key without one.
+  Settings > AI providers says "Tico AI Gateway: connected automatically"; a pasted or environment key still wins, and
+  Clear key / Connect automatically turn it off and on. If Tico turns the install off, Health says so plainly and the
+  install stops asking. Decide and Tico-model bot runs name their bot to the Gateway by an opaque id (never its name),
+  so each call is counted per install, key and bot. A running attempt keeps working across key rotation for up to
+  24 hours; longer runs are limited just below that grace, including fallback, with the reason in their run details.
+  Install revocation still stops every key immediately. Needs the matching Tico HQ release.
 - **Quiet work stays visible and comes back**: a task filed for a bot's next run now says where it stands, on the task
   and in `hub task show` (`quiet`): eligible (the next run carries it), delivered (which run took it and when, and
   until what it was deferred) or queued (a run of its own). A run that will not do a carried task now says when to
