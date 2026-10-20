@@ -15,7 +15,8 @@ COMMANDS = ("run", "doctor", "destroy", "runner", "backup-storage", "support", "
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="tico setup", description="Set up Tico on one Docker server, from a domain to a signed-in app.",
                                 epilog="Secrets are never taken as flags: set TICO_OIDC_CLIENT_SECRET, CLOUDFLARE_API_TOKEN, "
-                                       "CLOUDFLARE_TUNNEL_TOKEN or OPENAI_API_KEY (ANTHROPIC_/GEMINI_) in the environment.")
+                                       "CLOUDFLARE_TUNNEL_TOKEN, TICO_INBOUND_KEY or OPENAI_API_KEY (ANTHROPIC_/GEMINI_) "
+                                       "in the environment. Optional server endpoint: TICO_INBOUND_URL.")
     p.add_argument("command", nargs="?", choices=COMMANDS, default="run",
                    help="run (default): set up the server; runner: add a Linux computer that runs bots; doctor: re-run the checks; "
                         "destroy: remove what setup created on AWS; backup-storage: from a laptop with AWS credentials, create the "

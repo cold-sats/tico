@@ -20,11 +20,12 @@ def test_render_orders_and_omits_empty_and_doubles_dollars():
 
 
 def test_redact_masks_every_secret_key_and_only_those():
-    x = s(decisions_provider="openai", decisions_key="sk-abc123", front_door="cloudflared", tunnel_token="tok-999")
+    x = s(decisions_provider="openai", decisions_key="sk-abc123", front_door="cloudflared", tunnel_token="tok-999",
+          inbound_key="tin-private-123", inbound_url="https://inbox.private.example")
     red = envfile.redact_env(envfile.render(x.to_env()))
-    for secret in ("S3cret", "sk-abc123", "tok-999"):
+    for secret in ("S3cret", "sk-abc123", "tok-999", "tin-private-123", "https://inbox.private.example"):
         assert secret not in red
-    assert "TICO_OIDC_CLIENT_ID=cid" in red and red.count("********") == 3
+    assert "TICO_OIDC_CLIENT_ID=cid" in red and red.count("********") == 5
 
 
 def test_scrub_removes_secret_values_from_free_text():

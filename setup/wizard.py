@@ -403,6 +403,9 @@ def run(args, io: IO, deps: Deps) -> int:
     s = st.from_saved(saved, saved_env) if saved else Settings()
     s.cf_token = os.environ.get("CLOUDFLARE_API_TOKEN", "")
     s.tunnel_token = os.environ.get("CLOUDFLARE_TUNNEL_TOKEN", "") or s.tunnel_token
+    # Long-lived server settings stay in the private .env on retries without fresh operator input.
+    s.inbound_key = os.environ.get("TICO_INBOUND_KEY", "") or s.inbound_key
+    s.inbound_url = os.environ.get("TICO_INBOUND_URL", "") or s.inbound_url
     io.say("tico setup" + (" (dry run: nothing will be created or changed)" if dry else ""))
     io.say(USAGE_NOTICE + " Details: PRIVACY.md in the Tico repository.")
     if saved:

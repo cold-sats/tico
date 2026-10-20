@@ -341,6 +341,12 @@ Flags: `--domain`, `--front-door caddy|cloudflared`, `--server-ip`, `--tico-vers
 Credentials: `TICO_OIDC_CLIENT_SECRET`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_TUNNEL_TOKEN`, `OPENAI_API_KEY` (or
 `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`). `python3 -m setup --help` lists all of them.
 
+To connect an already enrolled company Inbox, set `TICO_INBOUND_KEY` in the installer's environment; setup does not issue
+or rotate keys. Optional `TICO_INBOUND_URL` keeps the server's existing HTTPS or loopback endpoint rules; omit it to use
+the server's HQ default. Both settings go through the private server `.env` (SSM SecureString on AWS), are masked in
+plans and diagnostics, and stay in setup's 0600 private environment copy for retries without fresh values. They are
+excluded from public setup state and runner settings. An explicit nonempty environment value replaces its saved value.
+
 **cloud-init.** `infra/cloud-init/tico-server.yaml` and `tico-runner.yaml` are paste-ready user data for any Ubuntu 24.04
 cloud that accepts it (Hetzner, DigitalOcean, AWS, Vultr, Linode, OCI). Edit the block between the two `inputs` markers
 (release, domain, owner email, team name, sign-in). They write `/opt/tico/.env` from it, turn on `ufw`, keep containers away
