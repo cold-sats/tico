@@ -63,6 +63,21 @@ def test_ssh_run_stops_before_docker_when_dns_never_goes_live():
     assert shell.calls == []
 
 
+def test_private_inbox_values_are_scrubbed_from_failed_server_command_output(monkeypatch):
+    key, url = "tin_private-0123456789abcdefghijklmnopqrstuv", "http://localhost:8080"
+    monkeypatch.setenv("TICO_INBOUND_KEY", key)
+    monkeypatch.setenv("TICO_INBOUND_URL", url)
+    shell = FakeShell({"docker compose pull": Result(1, "", f"failed with {key} at {url}")})
+    d = fakes.deps(records={("tico.example.com", dns.A): ["203.0.113.7"]})
+    d.ssh_shell = lambda *a: shell
+    code, out = go(["--target", "ssh", "--ssh", "root@h", "--server-ip", "203.0.113.7", "--yes", *BASE], deps=d)
+    assert code == 1 and "Failed:" in out
+    assert key not in out and url not in out
+    assert key not in "\n".join(shell.cmds()) and url not in "\n".join(shell.cmds())
+    private_input = next(i for c, i in shell.calls if i and b"TICO_DOMAIN" in i)
+    assert key.encode() in private_input and url.encode() in private_input
+
+
 def test_cloudflare_tunnel_flow_creates_tunnel_and_uses_its_token(monkeypatch):
     from setup.tests.test_cloudflare import Api
     api = Api({("GET", "/zones?name=tico.example.com"): [],

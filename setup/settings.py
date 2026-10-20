@@ -32,7 +32,8 @@ PRESETS = ("recommended",)
 INVITE_RE = re.compile(r"[A-Za-z0-9_-]{8,200}")
 
 # Not persisted to state.json: they live in the private .env copy or come from the environment.
-SECRET_FIELDS = ("client_secret", "decisions_key", "cf_token", "tunnel_token", "backup_secret", "gateway_invite")
+SECRET_FIELDS = ("client_secret", "decisions_key", "cf_token", "tunnel_token", "backup_secret", "gateway_invite",
+                 "inbound_key", "inbound_url")
 # This run's only, never saved: a re-run without the flag must not inherit permission to repoint a record.
 TRANSIENT_FIELDS = ("runner_given",)
 
@@ -95,6 +96,8 @@ class Settings:
     preset: str = ""               # recommended: the sample company, subscriptions plus Gateway, Support
     support: str = ""              # with the preset: on, or off with --no-support
     gateway_invite: str = ""
+    inbound_key: str = ""          # existing company Inbox credential; setup never issues one
+    inbound_url: str = ""          # optional server endpoint; blank keeps the server's HQ default
 
     def public(self) -> dict:
         return {k: v for k, v in asdict(self).items() if k not in SECRET_FIELDS + TRANSIENT_FIELDS}
@@ -131,6 +134,10 @@ class Settings:
             # The same choices as scripts/install.sh --recommended, read on the server's first start.
             e.update(TICO_INSTALL_PRESET="recommended", TICO_SAMPLE_COMPANY="on", TICO_MODELS_PRESET="subscriptions-gateway",
                      TICO_SUPPORT=self.support or "on", TICO_GATEWAY_INVITE=self.gateway_invite)
+        if self.inbound_key:
+            e["TICO_INBOUND_KEY"] = self.inbound_key
+        if self.inbound_url:
+            e["TICO_INBOUND_URL"] = self.inbound_url
         if self.decisions_key and self.decisions_provider:
             e[contract.DECISIONS_KEYS[self.decisions_provider]] = self.decisions_key
         if self.backup_url:
@@ -140,7 +147,7 @@ class Settings:
 
     def secrets(self) -> list[str]:
         return [v for v in (self.client_secret, self.decisions_key, self.cf_token, self.tunnel_token, self.backup_secret,
-                            self.gateway_invite) if v]
+                            self.gateway_invite, self.inbound_key, self.inbound_url) if v]
 
 
 def default_runner_host(domain: str, zone: str = "") -> str:
@@ -160,6 +167,8 @@ def from_saved(saved: dict, env_text: str) -> Settings:
     s.client_secret = e.get("TICO_OIDC_CLIENT_SECRET", "")
     s.tunnel_token = e.get("CLOUDFLARE_TUNNEL_TOKEN", "")
     s.gateway_invite = e.get("TICO_GATEWAY_INVITE", "")
+    s.inbound_key = e.get("TICO_INBOUND_KEY", "")
+    s.inbound_url = e.get("TICO_INBOUND_URL", "")
     runner = urllib.parse.urlsplit(e.get("TICO_RUNNER_URL", "")).hostname or ""
     if not s.runner_host and runner and runner != s.domain:
         s.runner_host = runner
