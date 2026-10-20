@@ -284,3 +284,123 @@ def test_search_pages_to_older_matches_with_before(monkeypatch,api):
     assert 'before' in tool['inputSchema']['properties']
     again=tool['fn'](API(),{'q':'Login','limit':2,'before':first['next']})
     assert again['messages']==second['messages']
+
+
+def test_wait_transport_budget_is_exact_route_and_valid_integer_only():
+    from clients.tico import inbound_wait_timeout
+    path='/api/v2/inbound/wait'
+    assert inbound_wait_timeout('POST',path,{},30)==35
+    for wait,expected in ((0,30),(120,130)):
+        assert inbound_wait_timeout('POST',path,{'timeout':wait},30)==expected
+    assert inbound_wait_timeout('POST',path,{'timeout':120},200)==200
+    assert inbound_wait_timeout('POST',path,{'timeout':120},30,query={'x':1})==30
+    for value in (True,False,None,'120',120.0,float('nan'),float('inf'),-1,121):
+        assert inbound_wait_timeout('POST',path,{'timeout':value},30)==30
+    for method,target,body in (('GET',path,{'timeout':120}),('POST',path+'/',{'timeout':120}),
+            ('POST',path+'?x=1',{'timeout':120}),('POST','/api/v2/other',{'timeout':120}),('POST',path,None)):
+        assert inbound_wait_timeout(method,target,body,30)==30
+
+
+def test_stdio_mcp_wait_covers_server_deadline_without_changing_ordinary_timeout(monkeypatch):
+    import io
+    from clients import hubmcp, tico
+    calls=[]
+    class VirtualServer:
+        def open(self,request,timeout):
+            calls.append((request.full_url,timeout))
+            if request.full_url.endswith('/me'):
+                value={'actor':'bot:ops','kind':'bot'}
+            else:
+                assert request.full_url.endswith('/inbound/wait')
+                assert json.loads(request.data)['timeout']==120
+                if timeout<121:raise TimeoutError('synthetic timeout')
+                value={'messages':[],'cursor':0,'next':None}
+            return io.BytesIO(json.dumps(value).encode())
+    monkeypatch.setattr(tico.urllib.request,'build_opener',lambda *args:VirtualServer())
+    monkeypatch.setattr(tico.time,'sleep',lambda _:None)
+    monkeypatch.setenv('HUB_API_URL','https://hub.example.test')
+    monkeypatch.setenv('HUB_TOKEN','synthetic-lease')
+    stdin=io.StringIO(json.dumps({'jsonrpc':'2.0','id':1,'method':'tools/call','params':{
+        'name':'hub_inbound_wait','arguments':{'after':0,'timeout':120}}})+'\n')
+    stdout=io.StringIO()
+    assert hubmcp.main(stdin,stdout)==0
+    result=json.loads(stdout.getvalue())['result']
+    assert result['isError'] is False and result['structuredContent']['messages']==[]
+    assert calls==[('https://hub.example.test/api/v2/me',30),('https://hub.example.test/api/v2/inbound/wait',130)]
+    assert 'synthetic-lease' not in stdout.getvalue()
+
+
+def _http_wait_probe(monkeypatch, *, deadline=False):
+    """Real MCP HTTP→Protocol→ASGI call, using a virtual response deadline."""
+    import asyncio
+    import threading
+    from types import SimpleNamespace
+    from fastapi import FastAPI,Request
+    from fastapi.testclient import TestClient
+    from backend import mcp
+    app=FastAPI();app.state.auth=SimpleNamespace();entered=threading.Event();cancelled=threading.Event()
+    budgets=[];futures=[];actual=mcp.asyncio.run_coroutine_threadsafe
+    @app.middleware('http')
+    async def identity(request,call_next):
+        request.state.identity=SimpleNamespace(role='bot',actor='bot:ops',agent='',via='')
+        return await call_next(request)
+    @app.post('/api/v2/inbound/wait')
+    async def wait(request:Request):
+        body=await request.json();entered.set()
+        if deadline:
+            try:await asyncio.Event().wait()
+            except asyncio.CancelledError:cancelled.set();raise
+        return {'messages':[],'cursor':body['after'],'next':None}
+    @app.get('/api/v2/inbound/cursor')
+    async def cursor():return {'cursor':0}
+    class Future:
+        def __init__(self,raw):self.raw=raw;self.cancel_calls=0
+        def result(self,timeout):
+            budgets.append(timeout)
+            if deadline:
+                assert entered.wait(2)
+                raise TimeoutError('synthetic timeout')
+            result=self.raw.result(5)
+            # The first response represents121 virtual seconds. No wall-clock
+            # race: scheduler load must not turn a budget regression into a flake.
+            if len(budgets)==1 and timeout<121:raise TimeoutError('synthetic timeout')
+            return result
+        def cancel(self):
+            self.cancel_calls+=1
+            return self.raw.cancel()
+    def schedule(coroutine,loop):
+        raw=actual(coroutine,loop)
+        if coroutine.__name__!='go':return raw
+        future=Future(raw);futures.append(future);return future
+    monkeypatch.setattr(mcp.asyncio,'run_coroutine_threadsafe',schedule)
+    monkeypatch.setattr(mcp,'record_call',lambda *args:None)
+    mcp.install_mcp(app,SimpleNamespace(public_url='https://hub.example.test'))
+    try:
+        with TestClient(app,raise_server_exceptions=False) as client:
+            response=client.post('/api/v2/mcp',json={'jsonrpc':'2.0','id':1,'method':'tools/call',
+                'params':{'name':'hub_inbound_wait','arguments':{'after':0,'timeout':120}}})
+            if deadline:assert cancelled.wait(2)
+            else:
+                ordinary=client.post('/api/v2/mcp',json={'jsonrpc':'2.0','id':2,'method':'tools/call',
+                    'params':{'name':'hub_inbound_cursor','arguments':{}}})
+                assert ordinary.status_code==200 and not ordinary.json()['result']['isError']
+            return response,budgets,[future.cancel_calls for future in futures]
+    finally:
+        for future in futures:future.raw.cancel()
+
+
+def test_http_mcp_honors_long_wait_and_keeps_other_request_budget(monkeypatch):
+    response,budgets,cancelled=_http_wait_probe(monkeypatch)
+    assert response.status_code==200
+    assert response.json()['result']['structuredContent']=={'messages':[],'cursor':0,'next':None}
+    assert response.json()['result']['isError'] is False
+    assert budgets==[135,65] and cancelled==[0,0]
+
+
+def test_http_mcp_cancels_timed_out_wait_and_returns_typed_retryable_error(monkeypatch):
+    response,budgets,cancelled=_http_wait_probe(monkeypatch,deadline=True)
+    assert response.status_code==200 and budgets==[135] and cancelled==[1]
+    result=response.json()['result']
+    assert result['isError'] is True
+    assert result['structuredContent']['error']=='unavailable' and result['structuredContent']['retryable'] is True
+    assert 'synthetic timeout' not in response.text

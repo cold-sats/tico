@@ -188,6 +188,8 @@ All notable changes to Tico are recorded here. The format follows
   ([Computers](docs/computers.md#remove-a-subscription)).
 
 ### Fixed
+- Inbox waits over MCP honor the full requested wait, up to 120 seconds, through both the local and HTTP transports.
+  An internal request that exceeds its deadline is cancelled and returns a retryable tool error.
 - **Subtask results resume the parent task**: completed reviews and other delegated work return to the
   immediate parent's working session, without a separate session to relay the result. Review verdicts posted
   as a comment, completion note and final reply are delivered once; managers hear when their own child task
