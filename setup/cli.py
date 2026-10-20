@@ -36,6 +36,13 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--dns-name", help="hosted AWS/Caddy: exact operational Route 53 hostname; defaults to --domain")
     p.add_argument("--dns-zone", help="hosted AWS/Caddy: authoritative zone of --dns-name; no public URL or certificate change")
     p.add_argument("--front-door", choices=list(st.FRONT_DOORS))
+    p.add_argument("--domain-aliases", help="cloudflared: comma-separated full-app hosts; empty clears saved aliases")
+    p.add_argument("--public-url", help="canonical HTTPS origin on --domain; empty clears the saved override")
+    p.add_argument("--cors-origins", help="explicit comma-separated app origins; empty clears, never adds visual trust")
+    p.add_argument("--hq-url", help="public HQ HTTPS origin; omitted keeps the saved/default endpoint")
+    p.add_argument("--visual-origin", help="isolated HTTPS visual origin; empty clears, without acquiring DNS authority")
+    p.add_argument("--visual-same-origin", choices=("0", "1"), help="explicitly retain or disable legacy same-origin visuals")
+    p.add_argument("--caddy-visuals", choices=("0", "1"), help="explicit local Caddy visual serving; default off")
     p.add_argument("--runner-hostname", dest="runner_host", metavar="HOST",
                    help="cloudflared: a hostname without Access where computers and outside agents connect (only /api/v2 and "
                         "/download are routed there); default with --auth cloudflare: runner.<domain>, or <name>-runner.<zone> "
