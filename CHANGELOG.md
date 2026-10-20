@@ -8,6 +8,11 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Tico HQ's nightly billing check on the Tico team's Health page**: on the one server that holds HQ's read-only
+  staff key (`TICO_HQ_STAFF_READ_KEY`), the server reads HQ's nightly ledger check every hour and the owner's Health
+  page shows each mismatch in red, naming the company's install id and the difference in dollars. A check that missed
+  a night, or that cannot be read for three hours, is red too; a clean check shows nothing. It only reads; every other
+  install sends nothing.
 - **Shared connections on the Computers page (part 4 of 4)**: an API key added from a computer's Add connection can be
   shared with other computers by name ("Shared with: [computers]"), or a key already shared can be picked instead of
   pasting one; both are a credential administrator's change, and an operator still adds a key for this computer only.
