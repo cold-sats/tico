@@ -16,6 +16,11 @@ from clients import hubcli, hubtools, remotecli
 def no_live_inbound(monkeypatch):
     monkeypatch.delenv('TICO_INBOUND_KEY',raising=False)
     monkeypatch.setenv('TICO_INBOUND_URL','https://hq.example.test')
+    # Isolate before the API fixture starts: replacing tick later cannot stop an already-submitted callback.
+    # These contract tests exercise sync/tick explicitly, with no concurrent timer competing for their state.
+    async def idle_loop(self,stop):
+        await stop.wait()
+    monkeypatch.setattr(inbound.Inbound,'loop',idle_loop)
     # These tests invoke sync/tick explicitly; the app's real timer must not race their fake HQ.
     async def no_background_sync(self,stop):pass
     monkeypatch.setattr(inbound.Inbound,'loop',no_background_sync)
@@ -207,9 +212,6 @@ def test_native_and_registered_agents_share_inboxes_but_lose_access_when_paused(
 @pytest.mark.parametrize('outage',[False,True],ids=['key_absent','hq_outage'])
 def test_bodies_and_codes_expire_at_90_days_without_hq(api,monkeypatch,outage):
     svc=seed(api);start=1_800_000_000.0
-    # The server's 15-second loop would tick on its own thread and race this test's tick (an extra HQ call, or the
-    # sync lock taken so this tick skips), so the loop's tick does nothing here and the test calls the real one.
-    monkeypatch.setattr(svc,'tick',lambda:None)
     monkeypatch.setattr(inbound,'now',lambda:start)
     old=page(1,ident='ses:old:ibx_b');old['deliveries'][0]['received_at']=start
     svc.ingest(old)
@@ -241,10 +243,10 @@ def test_bodies_and_codes_expire_at_90_days_without_hq(api,monkeypatch,outage):
                                                 ('Your verification code is 123456.','123456','x'))
     svc.purged_at=0
     if outage:
-        with pytest.raises(Problem):inbound.Inbound.tick(svc)
+        with pytest.raises(Problem):svc.tick()
         assert calls==['inboxes']
     else:
-        inbound.Inbound.tick(svc)
+        svc.tick()
     with svc.store.read() as c:
         row=dict(c.execute('SELECT * FROM inbound_messages').fetchone())
     assert row['body'] is None and row['code'] is None and row['preview']=='' and row['retention_removed']==1
