@@ -111,9 +111,13 @@ sudo python3 -B -m setup.visual_config status
 sudo python3 -B -m setup.visual_config apply --request "$persisted_request_base64url"
 ```
 
-Discovery reads source and the existing Caddy supervisor; it does not initialize the backend, read/allocate
-census state, create locks or write data. A successful capability object contains exactly `protocol`,
+Discovery verifies selected source, the running server's generated configuration and shared supervisor,
+and the existing census in read-only mode. It does not initialize the backend, allocate census state,
+create locks or write data. A successful capability object contains exactly `protocol`,
 `installer_revision`, `runtime_revision`, `initial_flags`, `same_instance_apply` and `applied_receipt`.
+The booleans describe supported operations; they do not assert current Caddy health or prove application.
+An existing stopped or unhealthy Caddy can remain a recovery target. Actual applied-generation, health
+and TLS checks are still required before a receipt, and an absent Caddy service remains unsupported.
 Runtime verification requires an existing instance; initial-install flags remain pending before that target
 can be proved. `apply` accepts only the exact versioned, nonsecret request as unpadded base64url of compact
 ASCII JSON (maximum 4096 decoded bytes). It independently reads EC2 IMDSv2 and the persisted census UUID.
@@ -170,6 +174,10 @@ Compose arguments, the installed release and `--pull never --no-build`. Its Dock
 150 seconds; the bounded SSM call may return pending sooner. The operation's process identity, deadline,
 stage and any uncertain Docker client identity are visible in `status`. Repeat the **same** request after
 the owner settles; do not allocate another operation, lease, server or identity because a response was lost.
+If the server restart is durably complete and the Caddy restart has not been dispatched, that same
+operation can reach its owed fixed Caddy restart even when Caddy is stopped or its applied marker is
+missing. Source/instance/census and journal continuity are checked before the restart; missing applied
+health is not proof of success and cannot bypass uncertain dispatch fencing.
 
 After a lost Docker response, that same operation can advance without issuing the mutation again only
 when its exact recorded client has exited and a fresh healthy target container proves the expected current

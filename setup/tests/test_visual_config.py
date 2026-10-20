@@ -205,8 +205,9 @@ def test_installer_manifest_and_actual_runtime_must_match_not_just_revision(tmp_
     class Runtime:
         def runtime(self, verb):
             return {"revision": "a" * 40, "runtime_files": manifest["runtime_files"]}
-        def caddy(self):
-            return "b" * 64, {}
+        def container(self, service):
+            assert service == "caddy"
+            return "f" * 64
     assert control.supported(tmp_path, Runtime())["runtime_revision"] == "a" * 40
     manifest["runtime_files"]["backend/visual_config.py"] = "c" * 64
     with pytest.raises(wire.Pending, match="selected_runtime_unsupported"):
@@ -214,3 +215,90 @@ def test_installer_manifest_and_actual_runtime_must_match_not_just_revision(tmp_
     (tmp_path / "setup/cli.py").write_bytes(b"modified\n")
     with pytest.raises(wire.Pending, match="installer_source_modified"):
         control.installer_capability(tmp_path)
+
+
+@pytest.mark.parametrize('stopped', [False, True])
+def test_real_discovery_and_journaled_recovery_do_not_require_caddy_already_healthy(tmp_path, monkeypatch, stopped):
+    names = ("setup/__init__.py", "setup/cli.py", "setup/settings.py", "setup/envfile.py", "setup/contract.py",
+             "setup/visual_contract.py", "setup/visual_config.py", "compose.yaml")
+    for name in names:
+        path = tmp_path / name
+        path.parent.mkdir(exist_ok=True)
+        path.write_bytes(b"selected source\n")
+    manifest = {"protocol": wire.PROTOCOL, "revision": "e" * 40,
+        "files": {name: hashlib.sha256((tmp_path / name).read_bytes()).hexdigest() for name in names},
+        "runtime_files": {name: "d" * 64 for name in wire.RUNTIME_FILES}}
+    (tmp_path / "installer-manifest.json").write_bytes(wire.encoded(manifest))
+    raw = b'TICO_DOMAIN=acme.tico.dev\nPRIVATE=preserved\n'
+    journal = control.load(tmp_path)
+    operation = control.select(journal, request(), raw)
+    desired = control.patch_environment(raw, wire.configuration(request()))
+    (tmp_path / ".env").write_bytes(desired)
+    (tmp_path / ".env").chmod(0o600)
+    (tmp_path / ".visual-probe.json").write_bytes(b'{}')
+    (tmp_path / ".visual-probe.json").chmod(0o600)
+    operation.update(stage="server_started", unrelated_digest="f" * 64)
+    control.save(tmp_path, journal)
+    monkeypatch.setattr(control, "instance_id", lambda: request()["instance_id"])
+
+    class Boundary(control.Docker):
+        def __init__(self):
+            super().__init__(tmp_path)
+            self.caddy_healthy, self.calls, self.absent = False, [], False
+            self.stopped = stopped
+
+        def compose(self, *args, **kwargs):
+            if args[0] == 'ps':
+                assert args in (("ps", "--all", "-q", args[-1]), ("ps", "-q", args[-1]))
+                missing = self.absent or (self.stopped and '--all' not in args)
+                return b'' if missing and args[-1] == "caddy" else ("1" * 64).encode()
+            assert args == ("up", "-d", "--no-deps", "--force-recreate", "--pull", "never", "--no-build",
+                            "--wait", "--wait-timeout", "45", "caddy")
+            self.calls.append(args)
+            kwargs['on_start']({'pid':99999999, 'start':'1'})
+            self.caddy_healthy, self.stopped = True, False
+
+        def runtime(self, verb, payload=None):
+            capability = {"revision":manifest['revision'], "runtime_files":manifest['runtime_files']}
+            if verb == "capabilities":
+                return capability
+            assert verb in ("observe", "probe")
+            return capability | {"install_id":ID, "public_hostname":"acme.tico.dev",
+                "configuration":wire.configuration(request()), "unrelated_digest":"f" * 64,
+                "generation":wire.digest(wire.configuration(request())), "file_sha256":"c" * 64}
+
+        def run(self, args, **kwargs):
+            if args[3:] == ["sha256sum", "/generated/supervisor.sh"]:
+                return ("d" * 64 + "  /generated/supervisor.sh\n").encode()
+            if args[3:] == ["/bin/sh", "/generated/supervisor.sh", "health"]:
+                if not self.caddy_healthy:
+                    raise wire.Pending("runtime_pending")
+                return b''
+            assert args[3:] == ["cat", "/tmp/tico-caddy/applied"]
+            return wire.encoded({"generation":wire.digest(wire.configuration(request())),
+                                 "file_sha256":"c" * 64, "pid":10, "supervisor_pid":9})
+
+    docker = Boundary()
+    # This is the actual discovery command's control flow, also called by the
+    # Services adapter before retry. It reports code support, not a receipt.
+    capability = control.supported(tmp_path, docker)
+    assert capability['same_instance_apply'] and 'checks' not in capability
+    assert docker.calls == [] and not docker.caddy_healthy
+    # Uncertain dispatch remains fenced even when source discovery succeeds.
+    operation['mutation_pending'] = {'service':'caddy', 'before':'1' * 64, 'client':None}
+    control.save(tmp_path, journal)
+    with pytest.raises(wire.Pending, match="mutation_outcome_unknown"):
+        control.apply(request(), tmp_path, docker=docker, launch=False)
+    assert docker.calls == []
+    with pytest.raises(wire.Pending, match="prior_operation_unsettled"):
+        control.apply(request(operation_id="operation_b", revision=2), tmp_path, docker=docker, launch=False)
+    operation['mutation_pending'] = False
+    control.save(tmp_path, journal)
+    result = control.apply(request(), tmp_path, docker=docker, launch=False)
+    assert len(docker.calls) == 1 and result == wire.receipt(request(), wire.digest(wire.configuration(request())))
+    assert (tmp_path / ".env").read_bytes() == desired
+    assert control.load(tmp_path)['operations']['operation_a']['stage'] == 'verified'
+    docker.absent = True
+    with pytest.raises(wire.Pending, match="existing_service_required"):
+        control.supported(tmp_path, docker)
+    assert len(docker.calls) == 1

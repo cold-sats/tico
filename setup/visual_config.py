@@ -261,7 +261,9 @@ class Docker:
                          "-f", str(self.root / "compose.yaml"), *args], **kwargs)
 
     def container(self, service):
-        identity = self.compose("ps", "-q", service, limit=256).decode().strip()
+        # An existing stopped Caddy is still the recorded operation's repair
+        # target. Absence remains distinct and never activates a new service.
+        identity = self.compose("ps", "--all", "-q", service, limit=256).decode().strip()
         if not wire.matches(r"[0-9a-f]{64}", identity):
             raise wire.Pending("existing_service_required")
         return identity
@@ -295,9 +297,17 @@ class Docker:
 def supported(root, docker):
     selected = installer_capability(root)
     running = docker.runtime("capabilities")
-    if (running != {"revision": selected["revision"], "runtime_files": selected["runtime_files"]}
-            or docker.caddy()[0] != selected["runtime_files"]["docker/caddy-supervisor.sh"]):
+    expected = {"revision": selected["revision"], "runtime_files": selected["runtime_files"]}
+    if running != expected:
         raise wire.Pending("selected_runtime_unsupported")
+    # observe verifies the generated configuration and shared supervisor bytes
+    # against the selected running image, without requiring Caddy to have applied
+    # them already. Discovery describes supported code, never applied health.
+    # Requiring that health here would prevent an owed same-operation repair.
+    observed = docker.runtime("observe")
+    if any(observed.get(key) != value for key, value in expected.items()):
+        raise wire.Pending("selected_runtime_unsupported")
+    docker.container("caddy")
     return {"protocol": wire.PROTOCOL, "installer_revision": selected["revision"],
             "runtime_revision": running["revision"], "initial_flags": True,
             "same_instance_apply": True, "applied_receipt": True}
