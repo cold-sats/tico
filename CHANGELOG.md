@@ -150,6 +150,12 @@ All notable changes to Tico are recorded here. The format follows
   ([Computers](docs/computers.md#remove-a-subscription)).
 
 ### Fixed
+- **Finished worktrees free themselves even when nobody linked or reopened the pull request.** A pull request opened
+  from a task worktree's branch is linked to the task automatically (both repositories of a two-repository task), and a
+  background pass every few minutes refreshes worktree tasks' pull request state, closed and unread tasks included, so a
+  missed GitHub webhook no longer keeps a finished tree counted against the bot's limit. A tree whose pushed commits no
+  pull request carries is held with the reason shown, gets a draft pull request even when the push webhook was
+  missed, and a move to any review step or to done names the unlinked branch ([Task worktrees](docs/worktrees.md)).
 - **A stopped run that holds up work can be reviewed again**: when a bot's unreviewed stopped run keeps its other
   queued work on that task or chat from running, it is now something that needs you: Settings → System checks and
   Needs you list it with its Review stopped runs button, and say how many requests wait and on which tasks. So is a
