@@ -2,6 +2,7 @@
 import hashlib
 import io
 import os
+import subprocess
 import tarfile
 
 import pytest
@@ -91,3 +92,26 @@ def test_destination_conflicts_and_source_symlinks_refuse_before_any_write(tmp_p
     with pytest.raises(ValueError):
         installer()(tmp_path, "v1.2.3", runtime, fetch=fetch)
     assert not (tmp_path / "installer-manifest.json").exists()
+
+
+def test_generated_bootstrap_app_readiness_precedes_optional_source_failure(tmp_path, monkeypatch):
+    root, commands = tmp_path / "install", tmp_path / "commands"
+    commands.mkdir()
+    monkeypatch.setattr(remote.contract, "REMOTE_DIR", str(root))
+    monkeypatch.setattr(remote, "docker_install_lines", lambda *args, **kwargs: [])
+    (commands / "docker").write_text("#!/bin/sh\nexit 0\n")
+    # The optional child fails, but records whether the real readiness marker
+    # already exists. No Docker, network, host log or provider is accessible.
+    (commands / "python3").write_text('#!/bin/sh\nif [ -f "' + str(root / '.bootstrapped') + '" ]; then '
+        'touch "' + str(tmp_path / 'optional_observed_ready') + '"; fi\nexit 9\n')
+    for path in commands.iterdir():
+        path.chmod(0o755)
+    script = remote.bootstrap_script(os_family="ubuntu", domain="acme.tico.dev", front_door="caddy",
+                                     compose=b"name: tico\n", compose_url="", env_b64=remote.env_b64("PRIVATE=unchanged\n"))
+    # Relocate only the fixed host log sink into this fixture's filesystem.
+    script = script.replace("/var/log/tico-setup.log", str(tmp_path / "bootstrap.log"))
+    result = subprocess.run(["bash"], input=script.encode(), env={**os.environ, "PATH": str(commands) + os.pathsep + os.defpath},
+                            capture_output=True, timeout=5)
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "optional_observed_ready").exists()
+    assert (root / ".env").read_text() == "PRIVATE=unchanged\n"

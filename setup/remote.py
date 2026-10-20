@@ -304,13 +304,16 @@ def bootstrap_script(*, os_family: str, domain: str, front_door: str, compose: b
     if front_door == "caddy" and wait_for_ip:
         L += ["# Caddy asks for its certificate at first start; wait until the name points here or that fails.",
               f"for i in $(seq 1 80); do getent hosts {q(domain)} | grep -q {q(wait_for_ip)} && break; sleep 15; done"]
-    L += [f"cd {d} && docker compose pull --quiet && docker compose up -d",
+    L += [f"cd {d} && docker compose pull --quiet && docker compose up -d", f"touch {d}/.bootstrapped",
+          "echo tico-setup: done",
           "# Optional operator source follows the actual running release; failure does not gate the app.",
           "if command -v python3 >/dev/null 2>&1; then", "python3 -B - <<'TICO_VISUAL_BUNDLE' || true",
           VISUAL_BOOTSTRAP,
+          "import signal", "def expired(_signum,_frame): raise TimeoutError()",
+          "signal.signal(signal.SIGALRM,expired)", "signal.alarm(40)",
           "try:", f"    version,runtime=selected_runtime({d!r})", f"    install({d!r},version,runtime)",
           "except Exception:", "    print('tico-setup: optional visual operator pending')",
-          "TICO_VISUAL_BUNDLE", "fi", f"touch {d}/.bootstrapped", "echo tico-setup: done"]
+          "finally:", "    signal.alarm(0)", "TICO_VISUAL_BUNDLE", "fi"]
     return "\n".join(L) + "\n"
 
 
