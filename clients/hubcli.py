@@ -528,7 +528,7 @@ def parser():
         item = inbound.add_parser(action); item.set_defaults(fn='inbound '+action)
         item.add_argument('--inbox-id', dest='inbox_ids', action='append')
         if action == 'search': item.add_argument('q')
-        if action != 'cursor':
+        if action in ('list', 'search', 'wait'):
             item.add_argument('--kind', choices=('email','sms'))
             item.add_argument('--from', dest='sender')
             item.add_argument('--has-code', action='store_true', default=None)
