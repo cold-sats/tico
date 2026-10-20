@@ -12,7 +12,7 @@ from backend.store import H, Problem, encode
 from backend.tests.test_sample_company import OWNER_EMAIL, PEOPLE, SEED, environment, machine, rows, settings_for, signed_in
 
 
-def company_text(reverse_builtins=False):
+def company_text(reverse_builtins=False, through_new_parent=False):
     draft = C.Turn(C.blank()).finish()
     draft["company"].update(name="Acme Finance", about="We help small firms manage their books.")
     draft["bots"] = [b for b in draft["bots"] if b["template"] in {"coo", "botops", "finance-lead", "bookkeeping"}]
@@ -23,6 +23,8 @@ def company_text(reverse_builtins=False):
             bot["routine"] = "Review the books each week"
         if reverse_builtins and bot["template"] == "coo":
             bot["reports_to"] = "botops"
+        if through_new_parent and bot["template"] in ("coo", "finance-lead"):
+            bot["reports_to"] = "finance-lead" if bot["template"] == "coo" else "botops"
     return C.to_yaml(draft) + "models:\n  source: gateway\n  by_department:\n    finance: mid\n"
 
 
@@ -98,23 +100,32 @@ def test_import_never_replaces_an_existing_paused_employee(environment):
     assert rows(api, "SELECT config_json FROM bot_config WHERE bot='bookkeeping'") == original
 
 
-def test_install_bootstrap_uses_selected_team_once_and_never_falls_back_to_sample(tmp_path):
+@pytest.mark.parametrize("through_new_parent", [False, True], ids=["reverse-builtins", "new-parent-chain"])
+@pytest.mark.parametrize("bootstrap", [False, True], ids=["owner-api", "installer-bootstrap"])
+def test_install_bootstrap_uses_selected_team_once_and_never_falls_back_to_sample(tmp_path, through_new_parent, bootstrap):
     from clients.environments import seed_registry
     seed_registry(tmp_path, "Owner", OWNER_EMAIL,
                   {"company_name": "Acme Finance", "app_name": "Tico", "assistant_name": "Assistant"})
-    text = company_text(reverse_builtins=True)
+    text = company_text(reverse_builtins=not through_new_parent, through_new_parent=through_new_parent)
     settings = settings_for(tmp_path)
     app = create_app(settings)
     app.state.store.initialize()
     app.state.store.seed()
     with TestClient(app) as api:
         preview = api.post("/api/v2/setup/company/preview", json={"company_yaml": text}, headers=signed_in()).json()
+        if not bootstrap:
+            applied = api.post("/api/v2/setup/company/import", json={"company_yaml": text, "fingerprint": preview["fingerprint"]},
+                               headers=signed_in())
+            assert applied.status_code == 200, applied.text
     settings.company_file_data, settings.sample_company = starter.pack(text), True
     with TestClient(create_app(settings)) as api:
         assert rows(api, "SELECT display_name FROM bots WHERE slug='bookkeeping'")[0]["display_name"] == "Acme Bookkeeper"
         assert not rows(api, "SELECT slug FROM bots WHERE slug IN ('builder','head-of-product')")
         parents = {r["bot"]: r["reports_to"] for r in rows(api, "SELECT bot,reports_to FROM bot_config")}
         assert {b["id"]: parents[b["id"]] for b in preview["employees"]} == {
+            b["id"]: b["reports_to"] for b in preview["employees"]}
+        record = api.get("/api/v2/setup", headers=signed_in()).json()
+        assert {slug: choice["reports_to"] for slug, choice in record["selected"].items()} == {
             b["id"]: b["reports_to"] for b in preview["employees"]}
         machine(api)
         assert rows(api, "SELECT state FROM bots WHERE slug='bookkeeping'")[0]["state"] == "paused"

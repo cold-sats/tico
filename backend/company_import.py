@@ -101,7 +101,14 @@ def apply(onboarding, c, who, text, fingerprint):
     existing = [r[0] for r in c.execute("SELECT slug FROM bots") if r[0] not in builtins]
     if record["completed"] or existing:
         raise Problem("company_already_setup", "This company is already set up; import cannot replace its team", 409)
-    onboarding.save(c, who, body)
+    # Create definitions under the owner before installing the desired graph.
+    # Otherwise complete() can see a temporary cycle through the old seed while
+    # it resolves a newly-created parent. Neither staging nor a partial chart is
+    # visible outside this transaction; the confirmed choices are restored below.
+    home = "human:" + onboarding.auth.owner_id(c)
+    staging = body.model_copy(update={"selected": {
+        slug: choice.model_copy(update={"reports_to": home}) for slug, choice in body.selected.items()}})
+    onboarding.save(c, who, staging)
     onboarding.complete(c, who)
     # complete() preserves existing definitions, including the seeded built-ins'
     # managers. Apply the confirmed chart after all targets exist, parents first
@@ -119,6 +126,7 @@ def apply(onboarding, c, who, text, fingerprint):
         revision = c.execute("SELECT revision FROM bot_config WHERE bot=?", (slug,)).fetchone()[0]
         onboarding.admin.update_bot(c, who, slug, M.BotDefinitionUpdate(status="paused", expected_revision=revision))
     record = O.load(c)
+    record["selected"] = {slug: choice.model_dump() for slug, choice in body.selected.items()}
     record["company_import"] = {"fingerprint": fingerprint, "imported_at": H.now(), "by": who.actor,
                                 "deferred": summary["deferred"], "later": later}
     onboarding._store(c, record, who.actor)
