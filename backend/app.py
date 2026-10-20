@@ -161,6 +161,8 @@ def create_app(settings=None):
             telemetry.capture("support_access", exc)
         telemetry.start()
         stop = asyncio.Event()
+        # Always runs: local 90-day retention must not depend on the inbound key or HQ (sync itself stays off).
+        inbound_task = asyncio.create_task(app.state.inbound.loop(stop))
         screen_relay_task = None
         if settings.screen_relay_url:
             await asyncio.to_thread(screen_sessions.start)
@@ -247,6 +249,8 @@ def create_app(settings=None):
             yield
         finally:
             stop.set()
+            if inbound_task:
+                await inbound_task
             if screen_relay_task:
                 await screen_relay_task
             else:
@@ -5474,6 +5478,8 @@ def create_app(settings=None):
     install_report_order(app, store, auth, mutate)
     from .support import install as install_support
     install_support(app, store, settings, census)
+    from .inbound import install as install_inbound
+    install_inbound(app, store, settings, auth)
     from .support_access import install as install_support_access
     install_support_access(app, store, settings, auth)
     from .watchers import install as install_watchers
