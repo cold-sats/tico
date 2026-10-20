@@ -4,15 +4,13 @@ The file describes a team, never an identity or permission grant. The same adapt
 serves the owner's file upload and the installer. Its caller owns the transaction.
 """
 import hashlib
-import json
-
-import yaml
 from pydantic import ValidationError
 
 from . import company_file as C
 from . import models as M
 from . import onboarding as O
 from .company_file import draft as D
+from .company_file import starter
 from .company_file.yamlfile import tool_list
 from .store import H, Problem, encode
 
@@ -23,15 +21,10 @@ def plan(onboarding, c, who, text):
     """Validate and translate without changing the company or trusting file owner IDs."""
     onboarding._owner(who)
     try:
-        draft = C.from_yaml(text)
+        saved = starter.load(text)
     except C.DraftError as exc:
         raise Problem("company_file", str(exc), 422) from None
-    if any(b["existing"] for b in draft["bots"]):
-        raise Problem("company_file", "Connect existing agents in Tico after importing the starter team", 422)
-    if len(draft["people"]) > 1:
-        raise Problem("company_file", "This import supports the owner and AI employees; add coworkers in Tico first", 422)
-    if draft["rules"]["mode"] != "defaults":
-        raise Problem("company_file", "Review custom rules in Tico; this starter import uses the default rules", 422)
+    draft = saved
     owner = onboarding.auth.owner_id(c)
     if not owner or not H.human(c, owner):
         raise Problem("company_file", "Sign in as this company's owner before importing its starter team", 409)
@@ -71,20 +64,6 @@ def plan(onboarding, c, who, text):
                                  selected=selected)
     except ValidationError:
         raise Problem("company_file", "A company name, title or instruction is too long for this Tico setup", 422) from None
-    # Keep the normalized plan for finishing optional setup later, without chat,
-    # undo history, credentials or authority-bearing browser/account identifiers.
-    saved = {k: draft[k] for k in D.TOP}
-    document = yaml.safe_load(text)
-    if "models" in document:
-        models = document["models"]
-        if not isinstance(models, dict) or models.get("source") not in ("gateway", "own"):
-            raise Problem("company_file", "The company file's model choices are not supported", 422)
-        models, _ = C.scrub_all(models)
-        try:
-            json.dumps(models, allow_nan=False)
-        except (ValueError, TypeError, RecursionError):
-            raise Problem("company_file", "The company file's model choices are not supported", 422) from None
-        saved["models"] = models
     fingerprint = hashlib.sha256(encode(saved).encode()).hexdigest()
     deferred = []
     if "models" in saved:
@@ -95,6 +74,8 @@ def plan(onboarding, c, who, text):
         deferred.append("tool_connections")
     if any(b.get("first_job") for b in draft["bots"]):
         deferred.append("first_jobs")
+    if any(b.get("routine") for b in draft["bots"]):
+        deferred.append("routines")
     summary = {"fingerprint": fingerprint, "company_name": names.company_name,
                "employees": [{"id": slug, "template": choice.template, "title": choice.display_name,
                               "reports_to": choice.reports_to, "start": "later" if slug in later else "now"}
@@ -117,8 +98,8 @@ def apply(onboarding, c, who, text, fingerprint):
     if previous.get("fingerprint") == fingerprint:
         return onboarding.view(c, who)
     builtins = set(summary["builtins"])
-    active = [r[0] for r in c.execute("SELECT slug FROM bots WHERE state='active'") if r[0] not in builtins]
-    if record["completed"] or active:
+    existing = [r[0] for r in c.execute("SELECT slug FROM bots") if r[0] not in builtins]
+    if record["completed"] or existing:
         raise Problem("company_already_setup", "This company is already set up; import cannot replace its team", 409)
     onboarding.save(c, who, body)
     onboarding.complete(c, who)
@@ -134,3 +115,17 @@ def apply(onboarding, c, who, text, fingerprint):
     H.event(c, who.actor, "onboarding.company_imported", "", {"fingerprint": fingerprint,
                                                               "bots": sorted(body.selected), "later": later})
     return onboarding.view(c, who)
+
+
+def load_on_start(onboarding, c):
+    """The installer-configured plan is applied before any generic sample company.
+
+    A changed plan never replaces a configured company. Errors stop startup so a
+    failed import cannot look like a successful installation of a different team.
+    """
+    draft = starter.unpack(onboarding.settings.company_file_data)
+    if (O.load(c).get("company_import") or {}).get("fingerprint") == hashlib.sha256(encode(draft).encode()).hexdigest():
+        return None
+    who = onboarding.auth.owner_identity(c)
+    summary = preview(onboarding, c, who, draft)
+    return apply(onboarding, c, who, draft, summary["fingerprint"])

@@ -8,6 +8,11 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Start with your selected company chart**: the first setup screen previews and imports a company YAML file,
+  keeping its selected catalog employees, titles, reporting lines and paused-later choices alongside Tico's built-ins.
+  `tico setup --company-file PATH` carries the same plan privately into a self-hosted or cloud install and applies it
+  once on first startup. Imports refuse to replace an existing team; goals, routines, first jobs, tool connections
+  and model choices are retained and listed for later setup. ([Setup](docs/onboarding.md))
 - **Roadmap items move with their Dev tickets by rule**: a Product roadmap item counts the Dev tickets linked to
   it as children and as blocked by alike. Linking alone moves nothing: it is **Building** once the first ticket is In
   Progress or later, at the new **Ready to ship** step (right after Building, shown publicly as "In progress") once

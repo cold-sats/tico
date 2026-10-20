@@ -30,7 +30,7 @@ team or setup tasks, and an import cannot replace a company whose setup is compl
 
 This starter import supports one owner and catalog AI employees with the default rules. The signed-in owner remains
 the owner; a file does not add sign-in accounts. Additional people, existing external agents and custom rules are
-refused with an explanation. Goals, first jobs, model choices and tool connections are saved for later setup and
+refused with an explanation. Goals, first jobs, routines, model choices and tool connections are saved for later setup and
 listed in the preview; the team uses its currently configured AI providers. Bots follow their normal setup and
 computer-enrollment flow after import.
 
