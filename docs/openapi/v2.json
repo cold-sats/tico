@@ -18485,6 +18485,10 @@
           "version": {
             "type": "string"
           },
+          "visual_origin": {
+            "type": "string",
+            "description": "Configured non-secret visual origin, or empty when absent or invalid; grants no native IPC permission."
+          },
           "s3_view_urls": {
             "type": "object",
             "additionalProperties": {

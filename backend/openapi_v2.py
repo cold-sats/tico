@@ -631,6 +631,8 @@ SCHEMAS = {
     "Me": obj({"actor": "s", "role": "s", "email": "s"}),
     "Config": obj({"company_name": "s", "app_name": "s", "assistant_name": "s", "assistant_bot": "s",
                    "public_url": "s", "owner_email": "s", "version": "s",
+                   "visual_origin": {"type": "string", "description": "Configured non-secret visual origin, or empty "
+                                     "when absent or invalid; grants no native IPC permission."},
                    "s3_view_urls": {"type": "object", "additionalProperties": {"type": "string"},
                                     "description": "Signed-in callers: bucket -> https base an s3://bucket/key opens at "
                                                    "(base + '/' + key, each segment URL-encoded; TICO_S3_VIEW_URLS)"}},
