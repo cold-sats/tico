@@ -473,9 +473,20 @@ def test_linux_generation_removal_failure_recovery_and_legacy_command_rollback(c
     # The stale enabled file remains in the named volume; the old direct app-only command cannot serve it.
     qa.start_caddy(legacy=True)
     qa.wait(lambda: qa.request(APP, "/healthz")[0] == 200, "restored legacy direct proxy")
+    legacy = qa.inspect()
+    assert legacy["Config"]["Entrypoint"] == ["/usr/bin/caddy"]
+    assert legacy["Config"]["Cmd"] == ["reverse-proxy", "--from", "http://" + APP + ":8080", "--to", "server:8765"]
+    assert all(mount["Destination"] != "/generated" for mount in legacy["Mounts"])
+    assert legacy["State"].get("Health") is None and qa.applied() is None
     before = qa.backend_count()
-    qa.expect(VISUAL, SIGNED_PATH, 404)
+    # The vendor CLI has no fallback handler: an unmatched host gets an empty
+    # 200, never the stale generated visual site or a forwarded backend read.
+    _, headers, body = qa.expect(VISUAL, SIGNED_PATH, 200)
+    assert body == b"" and "x-qa-method" not in headers and "set-cookie" not in headers
     assert qa.backend_count() == before
     assert qa.docker("exec", qa.caddy, "cat", "/data/qa-marker", "/config/qa-marker").stdout == marker * 2
     qa.steps.append({"certificate_volume_markers_preserved": True, "marker_sha256": digest(marker)})
+    qa.steps.append({"legacy_running": True, "entrypoint": legacy["Config"]["Entrypoint"],
+                     "command": legacy["Config"]["Cmd"], "applied_generation": False,
+                     "asset_host_not_forwarded": True, "asset_response_bytes": len(body)})
     qa.passed = True
