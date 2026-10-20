@@ -139,6 +139,9 @@ All notable changes to Tico are recorded here. The format follows
   ([Computers](docs/computers.md#remove-a-subscription)).
 
 ### Fixed
+- **Bots on Tico models are not refused at the edge**: the runner's Gateway relay now sends Tico's own user agent
+  (`Tico-Client/<runner version>`) instead of the harness's, so a turn's model calls are not blocked by Cloudflare in
+  front of the Tico AI Gateway.
 - **A finished answer is no longer held up on a busy computer.** After a turn, the runner's secret scrub of the
   changed files, its git checks and its local database writes now run on threads of their own. Two slow turns can
   no longer stop every other turn's progress and answers on that computer. The runner's flight file now times each
