@@ -188,6 +188,7 @@ All notable changes to Tico are recorded here. The format follows
   ([Computers](docs/computers.md#remove-a-subscription)).
 
 ### Fixed
+- Resuming a paused bot in Settings now clears its pause control, so queued work starts again.
 - Inbox waits over MCP honor the full requested wait, up to 120 seconds, through both the local and HTTP transports.
   An internal request that exceeds its deadline is cancelled and returns a retryable tool error.
 - **Subtask results resume the parent task**: completed reviews and other delegated work return to the
