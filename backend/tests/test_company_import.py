@@ -12,7 +12,7 @@ from backend.store import H, Problem, encode
 from backend.tests.test_sample_company import OWNER_EMAIL, PEOPLE, SEED, environment, machine, rows, settings_for, signed_in
 
 
-def company_text():
+def company_text(reverse_builtins=False):
     draft = C.Turn(C.blank()).finish()
     draft["company"].update(name="Acme Finance", about="We help small firms manage their books.")
     draft["bots"] = [b for b in draft["bots"] if b["template"] in {"coo", "botops", "finance-lead", "bookkeeping"}]
@@ -21,6 +21,8 @@ def company_text():
         if bot["template"] == "bookkeeping":
             bot["title"] = "Acme Bookkeeper"
             bot["routine"] = "Review the books each week"
+        if reverse_builtins and bot["template"] == "coo":
+            bot["reports_to"] = "botops"
     return C.to_yaml(draft) + "models:\n  source: gateway\n  by_department:\n    finance: mid\n"
 
 
@@ -39,6 +41,8 @@ def test_import_preserves_selected_team_builtins_and_later_choice_across_retry_a
     assert bots["bookkeeping"]["state"] == "paused"
     assert "builder" not in bots and "head-of-product" not in bots
     parents = {r["bot"]: r["reports_to"] for r in rows(api, "SELECT bot,reports_to FROM bot_config")}
+    assert {bot["id"]: parents[bot["id"]] for bot in preview.json()["employees"]} == {
+        bot["id"]: bot["reports_to"] for bot in preview.json()["employees"]}
     assert parents["bookkeeping"] == "finance-lead"
     assert parents["finance-lead"] == "human:owner"
     templates = rows(api, "SELECT json_extract(config_json,'$.template') AS template FROM bot_config")
@@ -98,21 +102,53 @@ def test_install_bootstrap_uses_selected_team_once_and_never_falls_back_to_sampl
     from clients.environments import seed_registry
     seed_registry(tmp_path, "Owner", OWNER_EMAIL,
                   {"company_name": "Acme Finance", "app_name": "Tico", "assistant_name": "Assistant"})
-    settings = settings_for(tmp_path, company_file_data=starter.pack(company_text()), sample_company=True)
+    text = company_text(reverse_builtins=True)
+    settings = settings_for(tmp_path)
     app = create_app(settings)
     app.state.store.initialize()
     app.state.store.seed()
     with TestClient(app) as api:
+        preview = api.post("/api/v2/setup/company/preview", json={"company_yaml": text}, headers=signed_in()).json()
+    settings.company_file_data, settings.sample_company = starter.pack(text), True
+    with TestClient(create_app(settings)) as api:
         assert rows(api, "SELECT display_name FROM bots WHERE slug='bookkeeping'")[0]["display_name"] == "Acme Bookkeeper"
         assert not rows(api, "SELECT slug FROM bots WHERE slug IN ('builder','head-of-product')")
+        parents = {r["bot"]: r["reports_to"] for r in rows(api, "SELECT bot,reports_to FROM bot_config")}
+        assert {b["id"]: parents[b["id"]] for b in preview["employees"]} == {
+            b["id"]: b["reports_to"] for b in preview["employees"]}
         machine(api)
         assert rows(api, "SELECT state FROM bots WHERE slug='bookkeeping'")[0]["state"] == "paused"
         initial = api.get("/api/v2/setup", headers=signed_in()).json()["company_import"]
-        initial_bots = rows(api, "SELECT slug,display_name,state FROM bots ORDER BY slug")
+        initial_bots = rows(api, "SELECT b.slug,b.display_name,b.state,bc.reports_to FROM bots b JOIN bot_config bc ON bc.bot=b.slug ORDER BY b.slug")
     with TestClient(create_app(settings)) as api:
         assert api.get("/api/v2/setup", headers=signed_in()).json()["company_import"] == initial
-        assert rows(api, "SELECT slug,display_name,state FROM bots ORDER BY slug") == initial_bots
+        assert rows(api, "SELECT b.slug,b.display_name,b.state,bc.reports_to FROM bots b JOIN bot_config bc ON bc.bot=b.slug ORDER BY b.slug") == initial_bots
     settings.company_file_data = starter.pack(company_text().replace("Acme Finance", "Another Company"))
     with pytest.raises(Problem, match="already set up"):
         with TestClient(create_app(settings)):
             pass
+
+
+def test_reserved_alias_cannot_replace_a_custom_named_assistant_now_or_later(environment):
+    api = environment(seed_roster=False, assistant_bot="ace")
+    seed = {"ace": {"name": "ace", "status": "planned", "template": "assistant"},
+            "botops": {"name": "botops", "status": "planned", "template": "botops"}}
+    with api.app.state.store.transaction() as c:
+        H.sync_registry(c, seed, PEOPLE)
+        for slug, config in seed.items():
+            c.execute("INSERT INTO bot_config(bot,config_json,operator,repo) VALUES(?,?,?,?)",
+                      (slug, encode(config), "owner", "bot-" + slug))
+    before = rows(api, "SELECT bot,config_json FROM bot_config ORDER BY bot")
+    draft = C.from_yaml(company_text())
+    draft["bots"] = [b for b in draft["bots"] if b["template"] != "coo"]
+    employee = next(b for b in draft["bots"] if b["template"] == "bookkeeping")
+    employee["id"] = "coo"
+    for start in (True, False):
+        employee["start"] = start
+        body = {"company_yaml": C.to_yaml(draft)}
+        preview = api.post("/api/v2/setup/company/preview", json=body, headers=signed_in())
+        assert preview.status_code == 422 and "conflicts" in preview.text
+        result = api.post("/api/v2/setup/company/import", json={**body, "fingerprint": "0" * 64}, headers=signed_in())
+        assert result.status_code == 422 and "conflicts" in result.text
+        assert rows(api, "SELECT bot,config_json FROM bot_config ORDER BY bot") == before
+    assert len(rows(api, "SELECT bot FROM bot_config WHERE json_extract(config_json,'$.template')='assistant'")) == 1

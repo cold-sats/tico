@@ -36,7 +36,7 @@ def plan(onboarding, c, who, text):
         card = by_name.get(bot["template"])
         if card is None:
             raise Problem("company_file", "An employee's template is not installed in this Tico catalog", 422)
-        slug = onboarding._bot_slug(card["slug"]) if card["required"] else bot["id"]
+        slug = onboarding._bot_slug(card["slug"] if card["required"] else bot["id"])
         if slug in picked or slug in required and required[slug] != card["template"]:
             raise Problem("company_file", "An employee ID conflicts with another employee or a built-in role", 422)
         ids[bot["id"]] = slug
@@ -103,6 +103,18 @@ def apply(onboarding, c, who, text, fingerprint):
         raise Problem("company_already_setup", "This company is already set up; import cannot replace its team", 409)
     onboarding.save(c, who, body)
     onboarding.complete(c, who)
+    # complete() preserves existing definitions, including the seeded built-ins'
+    # managers. Apply the confirmed chart after all targets exist, parents first
+    # so replacing the old seed hierarchy cannot create a temporary cycle.
+    def parent_rank(slug):
+        parent = body.selected[slug].reports_to
+        return 1 + parent_rank(parent) if parent in body.selected else 0
+
+    for slug in sorted(body.selected, key=parent_rank):
+        row = c.execute("SELECT reports_to,revision FROM bot_config WHERE bot=?", (slug,)).fetchone()
+        parent = body.selected[slug].reports_to
+        if row["reports_to"] != parent:
+            onboarding.admin.update_bot(c, who, slug, M.BotDefinitionUpdate(reports_to=parent, expected_revision=row["revision"]))
     for slug in later:
         revision = c.execute("SELECT revision FROM bot_config WHERE bot=?", (slug,)).fetchone()[0]
         onboarding.admin.update_bot(c, who, slug, M.BotDefinitionUpdate(status="paused", expected_revision=revision))
