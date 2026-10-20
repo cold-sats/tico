@@ -51,7 +51,7 @@ const {unrouted} = require('./support/routes.cjs');
       if(p.endsWith('/watch'))return route.fulfill({contentType:'text/event-stream',body:': fixture\n\n'});
       return json(unrouted(p));
     });
-    await page.goto('https://tico-ui.test/#/settings/inbox');
+    await page.goto('https://tico-ui.test/#/settings/company-inbox');
     await page.locator('[data-inbound-read]').waitFor();
     assert.match(await page.locator('#inbound-messages').innerText(),/onerror/);
     assert.equal(await page.locator('#inbound-messages img').count(),0);
