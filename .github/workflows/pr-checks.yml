@@ -86,7 +86,6 @@ jobs:
       TICO_CADDY_CONTAINER_QA: '1'
       TICO_CADDY_EXPECTED_ARCH: ${{ matrix.arch }}
       TICO_CADDY_TEST_IMAGE: tico-caddy-qa:current
-      TICO_CADDY_TEST_OUTPUT: ${{ runner.temp }}/caddy-runtime-evidence
       DOCKER_BUILD_RECORD_UPLOAD: 'false'
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -115,6 +114,8 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/caddy-venv"
           "$RUNNER_TEMP/caddy-venv/bin/python" -m pip install -r backend/requirements-dev.txt
       - name: Actual pinned Linux Caddy runtime and lifecycle
+        env:
+          TICO_CADDY_TEST_OUTPUT: ${{ runner.temp }}/caddy-runtime-evidence
         run: '"$RUNNER_TEMP/caddy-venv/bin/python" -m pytest -q -m slow -n 0 backend/tests/test_caddy_container.py'
       - name: Preserve fixture receipts and redacted failure logs
         if: always()
