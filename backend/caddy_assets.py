@@ -134,16 +134,25 @@ def _runner_host(value, app):
         raise ValueError("runner_url_invalid")
     try:
         parsed = urlsplit(value)
-        host = _hostname(parsed.hostname)
+        host = parsed.hostname
+        try:
+            ipaddress.ip_address(host)
+            is_ip = True
+        except (ValueError, TypeError):
+            host = _hostname(host)
+            is_ip = False
+        authority = "[" + host + "]" if ":" in host else host
         if (parsed.scheme not in ("https", "http") or parsed.username is not None
                 or parsed.password is not None or parsed.port == 0
                 or parsed.path not in ("", "/") or parsed.query or parsed.fragment
                 or "?" in value or "#" in value
-                or parsed.netloc.lower() != (host if parsed.port is None else host + ":" + str(parsed.port))):
+                or parsed.netloc.lower() != (authority if parsed.port is None else authority + ":" + str(parsed.port))):
             raise ValueError("runner_url_invalid")
     except (ValueError, TypeError):
         raise ValueError("runner_url_invalid") from None
-    return "" if host == app else host
+    # Visual origins are DNS-only, so a valid IP runner endpoint cannot collide.
+    # Its endpoint is only inspected here; no runner URL or route is changed.
+    return "" if is_ip or host == app else host
 
 
 def prepare(environ=os.environ):

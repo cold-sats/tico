@@ -663,7 +663,9 @@ def settle(tag, outcome):
                 now = [cid for cid, (oneoff, _) in containers_of_service().items() if not oneoff]
                 if len(now) == 1 and now[0] not in before:
                     back = healthy(HEALTH_SECONDS)
-                    if back and caddy:
+                    if caddy:
+                        if not back:
+                            raise RuntimeError("the restored server is not healthy; Caddy settlement remains pending")
                         reconcile_caddy(tag)
                     set_status(state="rolled_back" if back else "failed", settle_tag="", settle_outcome="", settle_caddy=False,
                                message="%s. Docker then confirmed the %s on %s%s." % (

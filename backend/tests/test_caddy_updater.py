@@ -130,8 +130,12 @@ def test_rollback_recreates_the_restored_prefeature_direct_proxy(monkeypatch, tm
     assert docker.outcomes == [("rolled_back", set())]
 
 
-def test_uncertain_front_door_holds_until_the_restored_recreate_is_confirmed(monkeypatch, tmp_path):
+@pytest.mark.parametrize("first_settled_health", [True, False])
+def test_uncertain_front_door_holds_until_the_restored_recreate_is_confirmed(monkeypatch, tmp_path, first_settled_health):
     updater, docker = installed(monkeypatch, tmp_path, failure="uncertain")
+    # Initial target and ordinary rollback health pass. A failed settlement check
+    # must keep the Caddy debt until a later healthy server and fresh front door.
+    docker.health_answers = iter([True, True, first_settled_health, True])
     updater.update("v0.2.0")
     assert updater.status["state"] == "rolled_back" and updater.status["front_door"] == "legacy_running"
     first, restored = docker.caddy_ups()
@@ -139,6 +143,9 @@ def test_uncertain_front_door_holds_until_the_restored_recreate_is_confirmed(mon
     # No blind Caddy mutation in the ordinary rollback while the original operation's outcome is unknown.
     assert restored[1:] == ("v0.1.0", "legacy\n", "uncertain")
     assert "--force-recreate" in restored[0] and not docker.pending
+    settled_servers = [call for call in docker.calls if "up" in call[0] and call[0][-1] == "server"
+                       and call[3] == "uncertain"]
+    assert len(settled_servers) == (1 if first_settled_health else 2)
     assert docker.outcomes == [("rolled_back", set())]
     saved = json.loads((tmp_path / updater.STATUS_FILE).read_text())
     assert saved["settle_caddy"] is False and saved["settle_tag"] == ""

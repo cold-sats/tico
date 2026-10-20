@@ -210,7 +210,7 @@ class Containers:
 
     def start_caddy(self, *, legacy=False):
         flags = ["--network", self.network, "--read-only", "--tmpfs", "/tmp", "--init",
-                 "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
+                 "--cap-drop", "ALL", "--cap-add", "NET_BIND_SERVICE", "--security-opt", "no-new-privileges:true",
                  "--mount", "type=volume,src=" + self.data + ",dst=/data",
                  "--mount", "type=volume,src=" + self.config + ",dst=/config",
                  "--publish", "127.0.0.1::8080"]
@@ -227,6 +227,7 @@ class Containers:
         self.docker("start", self.caddy)
         info = self.inspect()
         self.steps.append({"started_container": self.caddy, "state": info["State"],
+                           "cap_drop": info["HostConfig"]["CapDrop"], "cap_add": info["HostConfig"]["CapAdd"],
                            "requested_ports": info["HostConfig"]["PortBindings"],
                            "published_ports": info["NetworkSettings"]["Ports"]})
         vendor = json.loads(self.docker("image", "inspect", self.vendor).stdout)[0]

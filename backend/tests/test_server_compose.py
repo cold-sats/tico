@@ -1,6 +1,7 @@
 """The server compose file pins its updater to the release, and an update leaves the updater running."""
 import importlib.util
 from pathlib import Path
+import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -42,6 +43,15 @@ def test_a_server_update_recreates_only_the_server_never_the_updater(monkeypatch
     spec.loader.exec_module(updater)
     calls = []
     monkeypatch.setattr(updater, "compose", lambda *a, tag=None, **k: calls.append(a) or "")
+    docker_calls = []
+    def docker_run(argv, **kwargs):
+        docker_calls.append(tuple(argv))
+        if argv[:3] == ["docker", "image", "ls"]:
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        if argv[:2] == ["docker", "inspect"]:
+            raise OSError("the fixture has no updater container")
+        raise AssertionError("unexpected Docker mutation")
+    monkeypatch.setattr(updater, "docker_run", docker_run)
     monkeypatch.setattr(updater, "running_image", lambda: ("sha256:old", "v0.1.0"))
     monkeypatch.setattr(updater, "healthy", lambda seconds: True)
     monkeypatch.setattr(updater, "pinned_services", lambda version: [])
@@ -53,6 +63,8 @@ def test_a_server_update_recreates_only_the_server_never_the_updater(monkeypatch
     assert ("config", "--services") in calls
     assert all(a == ("config", "--services") or (a[0] in {"pull", "exec", "up"} and "server" in a)
                for a in calls) and not any("updater" in a for a in calls)
+    assert docker_calls and all(a[:3] == ("docker", "image", "ls") or a[:2] == ("docker", "inspect")
+                                for a in docker_calls)
     assert "TICO_TAG=v0.2.0" in (tmp_path / ".env").read_text()
 
 

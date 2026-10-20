@@ -95,6 +95,9 @@ def test_runner_collision_validation_preserves_canonical_runner_and_refuses_ambi
     env = {"TICO_CADDY_DIR": str(tmp_path), "TICO_DOMAIN": APP, "TICO_CADDY_VISUALS": "1",
            "TICO_VISUAL_ORIGIN": "https://" + VISUAL}
     assert assets.prepare({**env, "TICO_RUNNER_URL": "https://" + APP})["serve_visuals"]
+    for runner_url in ("http://127.0.0.1:8765", "http://[::1]:8765"):
+        assert assets.prepare({**env, "TICO_RUNNER_URL": runner_url})["serve_visuals"]
+        assert hosts(json.loads((tmp_path / "caddy.json").read_bytes())) == [APP, VISUAL]
     assert not assets.prepare({**env, "TICO_RUNNER_URL": "https://" + VISUAL})["serve_visuals"]
     marker = "synthetic-private-runner"
     result = assets.prepare({**env, "TICO_RUNNER_URL": "https://" + marker + "@" + RUNNER})
