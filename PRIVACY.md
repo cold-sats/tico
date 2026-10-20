@@ -403,3 +403,24 @@ A Tico from before this feature, or a server whose updater is not the Docker one
 from the programs' own messages, which avoid task and message text, and go through the same redactor as everything else. The
 redactor is a filter, not a guarantee: read the preview, and untick the box if you would rather not send it. The Tico team's Support
 bot reads the bundle before the ticket. It is kept with the ticket until the ticket is deleted; there is no separate expiry.
+
+### Optional company Email & Phone inboxes
+
+When an owner configures `TICO_INBOUND_KEY`, Tico HQ receives inbound email and SMS for the
+company's allocated addresses and rented numbers. This is separate from connected human Google
+mail, tico.dev login/transactional mail and the provider-profile magic-link service. No outbound
+email or SMS is sent by this feature. Textverified handles monthly-or-longer physical-SIM US
+number rentals; SES handles the allocated `@tico.team` email namespace.
+
+HQ holds the message content to deliver it to this company's server. Normalized content remains
+seven days after acknowledgment, at most thirty days without acknowledgment. Raw email objects
+are deleted once all routed deliveries are acknowledged or expire, with a 35-day storage backstop.
+Delivery tombstones and record-only usage estimates remain thirteen months. HQ staff endpoints
+return health and usage counts, never bodies, codes, subjects or recipient addresses. Supplier
+credentials stay at HQ. Each company's server keeps its own inbound key; HQ stores only its hash.
+
+The company server keeps bodies and extracted codes for 90 days, then leaves metadata and an
+explicit retention marker. Every current company member and agent can read the company inbox;
+reading does not hide a message. Each body/code read is audited by identity and message id, with
+no content in the audit. Attachments are not downloaded to the install, remote content is not
+loaded, and messages are rendered as text. Demo and rehearsal modes never call this service.
