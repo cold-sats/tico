@@ -26,6 +26,9 @@ All notable changes to Tico are recorded here. The format follows
   each one at its own rate.
 
 ### Fixed
+- **Recovering an AWS bot computer waits for Systems Manager.** Resuming an interrupted install waits up to five
+  minutes for its agent before sending recovery, tolerates a registration race and keeps the same computer on
+  failure. An accepted recovery command is never sent again by that wait.
 - **A bot's message to a bot says when it was held.** A plain message or task comment from one bot to another waits
   for that bot's next run; the send now answers `woke: false` with a `held` reason, and `hub` prints it: held for
   that bot's next run, add `--needs-action` to wake it now. Before, a held escalation read as delivered.
