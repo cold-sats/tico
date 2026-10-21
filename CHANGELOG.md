@@ -7,6 +7,12 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Hosted bot computers.** Hosting can run bots on a separate computer, keeping their work away from the Tico
+  server. Settings > Computers offers **Hosted computer (we run it)**. The installer supports server-only installs,
+  bounded AWS runner recovery and the same 4- and 8-core sizes on both machines, with 100 and 200 GB disks.
+  HQ registers only a join code's hash through scoped SSM; no owner token or join secret crosses that control plane.
+
 ### Changed
 - **Tico AI Gateway: Tico Cheap 1.1 replaces Cheap 1.0** in every model list. It costs the same for a prompt up to
   100,000 tokens; above that the whole request is $0.75 per 1M input, $0.075 cached and $3.75 output, and Usage
