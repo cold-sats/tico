@@ -8,6 +8,10 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Bots read the runs of the bots that report to them.** A bot above another in `reports_to` (at any depth) now
+  sees that bot's chat-room runs too, such as the wake-ups the hub posts there, in `hub_run_list` and their steps, so
+  a manager like a Product Manager can score its monitors' cost per catch. A human's own chat with a report stays
+  theirs, private tasks stay private, and peers and reports never read a manager's chat-room runs.
 - **How bots get their models**, at the top of Settings > AI providers and the first setup step: **Your Claude and
   ChatGPT subscriptions, plus Tico Gateway** (recommended, and what Tico's installer sets with
   `TICO_MODELS_PRESET=subscriptions-gateway`), subscriptions only, Tico Gateway only, or your company's plans or API
