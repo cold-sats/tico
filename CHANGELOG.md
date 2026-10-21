@@ -21,11 +21,15 @@ All notable changes to Tico are recorded here. The format follows
   Hosted install) no longer sets its goals aside: the owner's goals become company goals, each bot's goal sits under
   that bot, and a goal's measure becomes a KPI with the file's baseline and target. The file carries no readings, so
   a new KPI starts with no history.
-- **Gateway turns retry when their rate window resets.** The computer carries the Gateway's requested wait back to
-  the server, so a busy minute does not hold starter bots for an hour or claim their address sent refused keys.
 - **No "Claude login required" while the Tico AI Gateway runs the bot.** Under the recommended choice a bot whose
   Claude or ChatGPT is not signed in yet shows as ready, its card says "Using Tico AI Gateway; sign in to Claude to use
   your subscription", and its model check and chat no longer ask for a login. With no Gateway either, it still does.
+
+## [0.3.71] - 2026-10-21
+
+### Fixed
+- **Gateway turns retry when their rate window resets.** The computer carries the Gateway's requested wait back to
+  the server, so a busy minute does not hold starter bots for an hour or claim their address sent refused keys.
 
 ## [0.3.70] - 2026-10-21
 
@@ -4038,7 +4042,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.70...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.71...HEAD
+[0.3.71]: https://github.com/ticoteam/tico/compare/v0.3.70...v0.3.71
 [0.3.70]: https://github.com/ticoteam/tico/compare/v0.3.69...v0.3.70
 [0.3.69]: https://github.com/ticoteam/tico/compare/v0.3.68...v0.3.69
 [0.3.68]: https://github.com/ticoteam/tico/compare/v0.3.67...v0.3.68
