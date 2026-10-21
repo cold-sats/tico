@@ -26,6 +26,8 @@ All notable changes to Tico are recorded here. The format follows
   each one at its own rate.
 
 ### Fixed
+- Choosing a bot's model connection refreshes its computer's readiness and queued work immediately, including
+  when the previous connection is signed out.
 - **Recovering an AWS bot computer waits for Systems Manager.** Resuming an interrupted install waits up to five
   minutes for its agent before sending recovery, tolerates a registration race and keeps the same computer on
   failure. An accepted recovery command is never sent again by that wait.
