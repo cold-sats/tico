@@ -77,6 +77,10 @@ def test_a_cancelled_or_signed_out_subscription_does_not_occupy_the_tool_and_key
     second = sign_in(api, machine, "keep", runtime="codex")
     report(api, machine, second["id"], state="signed_in")
     out = post(api, f"runners/{machine['runner_id']}/logouts", {"runtime": "codex", "profile": "keep"})
+    sign_in(api, machine, "too-early", runtime="codex", expected=409)
+    report(api, machine, out["id"], state="failed")
+    sign_in(api, machine, "still-connected", runtime="codex", expected=409)
+    out = post(api, f"runners/{machine['runner_id']}/logouts", {"runtime": "codex", "profile": "keep"})
     report(api, machine, out["id"], state="signed_out")
     # Even if an old heartbeat still says signed in, explicit sign-out wins.
     heartbeat(api, machine, profiles=[{"name": "keep", "runtimes": {"codex": {"signed_in": True}}}])

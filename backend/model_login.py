@@ -228,19 +228,24 @@ def _one_subscription(c, runner, runtime, profile):
             logins[stored["profile"]] = True
     # Completion can arrive before the next heartbeat; don't let that gap admit a second login.
     latest = set()
-    for job in c.execute("SELECT profile,state,updated FROM model_logins WHERE runner_id=? AND runtime=? "
+    for job in c.execute("SELECT profile,state,updated,kind FROM model_logins WHERE runner_id=? AND runtime=? "
                          "ORDER BY created DESC,rowid DESC", (runner["id"], runtime)):
         name = job["profile"]
-        if name in latest:
+        # A failed or cancelled operation did not replace the last committed login state.
+        if name in latest or job["state"] not in ("signed_in", "signed_out", "done"):
             continue
         latest.add(name)
-        if job["state"] == "signed_in" and job["updated"] >= (runner["last_seen"] or ""):
-            logins[name] = True
+        if job["updated"] >= (runner["last_seen"] or ""):
+            if job["state"] == "signed_in":
+                logins[name] = True
+            elif job["state"] == "signed_out" or job["kind"] in ("remove", "to_key"):
+                logins[name] = False
     connected = {name for name, signed in logins.items() if signed and not cleared(c, runner["id"], runtime, name)}
     if profile in connected:
         return
+    # A sign-out's mark is immediate, but its CLI may still fail: reserve the tool until it actually ends.
     pending = c.execute("SELECT 1 FROM model_logins WHERE runner_id=? AND runtime=? AND profile<>? "
-                        f"AND kind IN ('sign_in','switch','to_subscription') AND {ACTIVE_SQL} LIMIT 1",
+                        f"AND kind IN ('sign_in','switch','to_subscription','sign_out','remove') AND {ACTIVE_SQL} LIMIT 1",
                         (runner["id"], runtime, profile)).fetchone()
     if connected or pending:
         tool = (manifests.get(runtime) or {}).get("name") or runtime
