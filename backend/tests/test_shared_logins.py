@@ -76,3 +76,19 @@ def test_a_turns_login_class_puts_release_blockers_first_then_reviews_and_a_pers
     # A standing watch never jumps the queue, labelled or not.
     assert login_class(c, release, {"from_actor": "keeper", "refs": {"wake": "next-run"}}, None) == "other"
     assert login_class(c, release, person, {"id": "r1"}) == "other"
+
+
+def test_a_turn_that_gave_its_login_up_at_the_cap_goes_back_in_the_queue_unanswered_and_not_held_for_review(api):
+    from backend.tests.test_api import claim, setup_attempt
+    r, origin, a = setup_attempt(api)
+    # The lease names the turn's class: the runner yields only for a server that takes the turn back.
+    assert a["login_class"] == "review"
+    post(api, f"attempts/{a['id']}/started", {"thread_id": "thread"}, r["token"])
+    post(api, f"attempts/{a['id']}/complete", {"outcome": "interrupted", "yielded": True, "last_seq": 0,
+                                               "text": "Pushed my work in progress; next: the summary table."}, r["token"])
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT state FROM jobs WHERE message_id=?", (origin["id"],)).fetchone()[0] == "queued"
+        assert not c.execute("SELECT 1 FROM messages WHERE in_reply_to=?", (origin["id"],)).fetchone()
+    # It continues on the next claim, as the same work.
+    again = claim(api, r)
+    assert again["job_id"] == a["job_id"] and again["id"] != a["id"]
