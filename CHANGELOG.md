@@ -34,6 +34,8 @@ All notable changes to Tico are recorded here. The format follows
   larger one is imported on the first setup screen instead.
 
 ### Fixed
+- **Questions the CEO Bot merged no longer show again in Tasks > Needs you.** The merged item names the questions it
+  stands for, and the Tasks page leaves them out, as the server's Needs you already did.
 - `hub task comment --public --approval-id` and `hub task comment-edit --approval-id` now send the public flag
   and the approval, so a bot can post or edit a public reply once a person approves its publish request. Before, the
   command dropped both: the reply went out as an internal comment, and an edit of a public reply was refused.
