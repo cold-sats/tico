@@ -275,12 +275,32 @@ def test_a_run_waiting_for_its_chatgpt_login_says_so_and_names_the_holder_only_t
     assert (run["state"], run["waiting"], run["moved"]) == ("running", line, None)
     [run] = get(api, f"tasks/{tid}/run-view", "ben-test")["attempts"]
     assert run["waiting"] == "Waiting for this computer's ChatGPT login to be free (busy with another bot)"
+    # A runner that knows the queue names the holder's task, since when, and the place; the task only to a reader
+    # who may read the holder's run, and a holder that is no live run is flagged for Health.
+    from backend import login_waits
+    place = {"waiting": line, "login": "this computer's ChatGPT login", "holder": "finance", "holder_attempt": aid,
+             "holder_task": "#12 Close the books", "since": 1_760_900_760, "position": 2}
+    events(api, machine, aid, [("status", place)], first=2)
+    [run] = get(api, f"tasks/{tid}/run-view")["attempts"]
+    assert run["waiting"] == "Waiting for this computer's ChatGPT login (held by finance on #12 Close the books since 19:06Z; position 2)"
+    [run] = get(api, f"tasks/{tid}/run-view", "ben-test")["attempts"]
+    assert run["waiting"] == "Waiting for this computer's ChatGPT login (held by another bot since 19:06Z; position 2)"
+    with api.app.state.store.read() as c:
+        assert not login_waits.unknown_holder(c, aid)
+    # The bot's status says it waits and on whom; Health counts it as busy, not stuck.
+    [status] = [s for s in get(api, "status")["bots"] if s and s["bot"] == "ops"]
+    assert status["focus"] == status["waiting"] == (
+        "Waiting for this computer's ChatGPT login (held by finance on #12 Close the books since 19:06Z; position 2)")
+    assert not [r for r in get(api, "health")["stuck"] if r["bot"] == "ops"]
+    events(api, machine, aid, [("status", {**place, "holder_attempt": "gone"})], first=3)
+    [row] = [r for r in get(api, "health")["stuck"] if r["bot"] == "ops"]
+    assert row["reason"] == "login_holder_unknown"
     # Once the login is its own the wait is over; a turn that ran on its fallback instead says where and why.
     events(api, machine, aid, [("status", {"waiting": ""}),
                                ("diagnostic", {"text": "ChatGPT login busy with finance; running this turn on claude",
                                                "fallback": "claude",
                                                "busy": {"login": "this computer's ChatGPT login", "holder": "finance"}})],
-           first=2)
+           first=4)
     [run] = get(api, f"tasks/{tid}/run-view")["attempts"]
     assert (run["waiting"], run["moved"]) == (None, "ChatGPT login busy with finance; ran this turn on claude")
     [run] = get(api, f"tasks/{tid}/run-view", "ben-test")["attempts"]
