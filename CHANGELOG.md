@@ -14,6 +14,9 @@ All notable changes to Tico are recorded here. The format follows
   HQ registers only a join code's hash through scoped SSM; no owner token or join secret crosses that control plane.
 
 ### Changed
+- **One new subscription per AI tool on each computer.** Adding a second subscription for the same tool is refused
+  with a Switch account message, including while the first sign-in is pending. Different tools and computers stay
+  independent; existing connections and API keys are kept.
 - **Tico AI Gateway: Tico Cheap 1.1 replaces Cheap 1.0** in every model list. It costs the same for a prompt up to
   100,000 tokens; above that the whole request is $0.75 per 1M input, $0.075 cached and $3.75 output, and Usage
   estimates it that way. Cheap 1.0 is retired: bots and a default model already on it keep it and keep running at its
@@ -23,6 +26,11 @@ All notable changes to Tico are recorded here. The format follows
   each one at its own rate.
 
 ### Fixed
+- Choosing a bot's model connection refreshes its computer's readiness and queued work immediately, including
+  when the previous connection is signed out.
+- **Recovering an AWS bot computer waits for Systems Manager.** Resuming an interrupted install waits up to five
+  minutes for its agent before sending recovery, tolerates a registration race and keeps the same computer on
+  failure. An accepted recovery command is never sent again by that wait.
 - **A bot's message to a bot says when it was held.** A plain message or task comment from one bot to another waits
   for that bot's next run; the send now answers `woke: false` with a `held` reason, and `hub` prints it: held for
   that bot's next run, add `--needs-action` to wake it now. Before, a held escalation read as delivered.
