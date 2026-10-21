@@ -14,6 +14,9 @@ All notable changes to Tico are recorded here. The format follows
   HQ registers only a join code's hash through scoped SSM; no owner token or join secret crosses that control plane.
 
 ### Changed
+- **One new subscription per AI tool on each computer.** Adding a second subscription for the same tool is refused
+  with a Switch account message, including while the first sign-in is pending. Different tools and computers stay
+  independent; existing connections and API keys are kept.
 - **Tico AI Gateway: Tico Cheap 1.1 replaces Cheap 1.0** in every model list. It costs the same for a prompt up to
   100,000 tokens; above that the whole request is $0.75 per 1M input, $0.075 cached and $3.75 output, and Usage
   estimates it that way. Cheap 1.0 is retired: bots and a default model already on it keep it and keep running at its
