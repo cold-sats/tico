@@ -7,6 +7,10 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Gateway turns retry when their rate window resets.** The computer carries the Gateway's requested wait back to
+  the server, so a busy minute does not hold starter bots for an hour or claim their address sent refused keys.
+
 ## [0.3.70] - 2026-10-21
 
 ### Added
