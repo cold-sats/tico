@@ -2200,6 +2200,7 @@ class Execution:
         # when that turn produced no message and used no tool. Nothing happened, so requeue it
         # rather than blocking the bot behind an uncertain job until a person clears it.
         retryable = body.outcome != "completed" and body.retryable and not limited and not stopped
+        yielded = body.outcome == "interrupted" and body.yielded and not stopped
         # The general case of the same thing: a turn that failed having streamed nothing at all,
         # no text, no tool, no token count, only the runtime's own error. When a runtime
         # answered every turn of several bots with "Internal error" at the first event, the
@@ -2244,7 +2245,7 @@ class Execution:
             silent = False
         # What the bot says about a run the Gateway refused, in its words rather than as a crash.
         refused = gateway.run_status(tico_code, tico_error) if tico_code and not (limited or retryable or rejected) else ""
-        requeue = not rejected_acted if rejected else limited or retryable or silent
+        requeue = not rejected_acted if rejected else limited or retryable or silent or yielded
         c.execute("UPDATE jobs SET state=? WHERE id=?",
                   ("completed" if body.outcome == "completed" else "cancelled" if stopped
                    else "queued" if requeue else "uncertain", row["job_id"]))
@@ -2329,7 +2330,7 @@ class Execution:
             elif not checkpoint_safe(c, aid, checkpoint_task):
                 c.execute("UPDATE tasks SET checkpoint_blocked=1 WHERE id=?", (checkpoint_task["id"],))
                 checkpoint_task = None
-        if body.outcome == "completed" and body.text and checkpoint_task:
+        if (body.outcome == "completed" or yielded) and body.text and checkpoint_task:
             # Where the task stood after this turn: a later turn that cannot resume this session
             # starts from it (runner prompt). It is not the task's activity, so `updated` stays.
             c.execute("UPDATE tasks SET checkpoint=?,checkpoint_at=?,checkpoint_by=? WHERE id=?",

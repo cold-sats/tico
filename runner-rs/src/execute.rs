@@ -495,15 +495,18 @@ pub(crate) struct Drove {
     pub(crate) retryable: bool,
     /// The turn running when the drive ended (a goal's continuation, a carried input's turn).
     pub(crate) turn: String,
+    /// The turn stopped at the shared login's hold cap so a waiting turn could have it (crate::login_turns): its
+    /// job goes back in the queue to continue, not to review. `outcome` is "completed" when it reached a safe point
+    /// itself and "interrupted" when the grace ran out.
+    pub(crate) yielded: bool,
 }
 
 impl Drove {
     fn interrupted() -> Drove {
-        Drove { outcome: "interrupted".into(), reply: String::new(), tokens: json!({}), limited: false, retryable: false, turn: String::new() }
+        Drove { outcome: "interrupted".into(), reply: String::new(), tokens: json!({}), limited: false, retryable: false, turn: String::new(), yielded: false }
     }
 }
 
-/// One cold Claude sign-in renewal at a time on this computer (service.py claude_cold_start).
 /// A turn as the login queue knows it (crate::login_turns): its bot, its task as a person reads it, the class the
 /// server gave it (`login_class`), the work it is for (its task, else its chat) and its attempt.
 fn login_turn(attempt: &Value) -> crate::login_turns::Turn {
@@ -517,6 +520,13 @@ fn login_turn(attempt: &Value) -> crate::login_turns::Turn {
     crate::login_turns::Turn::new(&text_of(&attempt["bot"]), &label, class).of(&work, &text_of(&attempt["id"]))
 }
 
+/// The login a turn may give up at the cap: only a server that names the turn's `login_class` takes a `yielded`
+/// turn back into the queue (an older one refuses the field).
+fn yields(attempt: &Value, held: &Option<crate::login_turns::Held>) -> Option<crate::login_turns::Cap> {
+    held.as_ref().filter(|_| attempt.get("login_class").is_some()).map(|h| h.cap())
+}
+
+/// One cold Claude sign-in renewal at a time on this computer (service.py claude_cold_start).
 fn claude_cold_start() -> &'static tokio::sync::Mutex<()> {
     static L: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
     L.get_or_init(Default::default)
@@ -1066,7 +1076,7 @@ impl Runner {
                 self.state.repo_rules(&th, Some(&digest))?;
             }
             turn = Some(t.clone());
-            let d = Drive { aid: &aid, host: h, thread: &th, effort: effort.as_deref(), limit, flags: &flags, wake: &wake, redactor: redactor.as_ref(), runtime: &runtime };
+            let d = Drive { aid: &aid, host: h, thread: &th, effort: effort.as_deref(), limit, flags: &flags, wake: &wake, redactor: redactor.as_ref(), runtime: &runtime, login: yields(&attempt, &login_held) };
             drove = self.drive(&d, &mut rx, t, segments.last_mut().unwrap(), &mut carried, &mut auth_rejected, &mut goal).await?;
             turn = Some(drove.turn.clone());
             keep_session(&self.state, &bot, &conv, &session_runtime, &h.session_id(&th)).await?;
@@ -1218,6 +1228,7 @@ impl Runner {
                     wake: &wake,
                     redactor: redactor.as_ref(),
                     runtime: &hop.runtime,
+                    login: yields(&attempt, &login_held),
                 };
                 drove = self.drive(&d, &mut rx, t, segments.last_mut().unwrap(), &mut carried, &mut auth_rejected, &mut goal).await?;
                 turn = Some(drove.turn.clone());
@@ -1288,7 +1299,12 @@ impl Runner {
                 self.warm.release(warm, drove.outcome == "completed").await;
             }
         }
-        // The host has stopped: the next turn waiting for this ChatGPT login starts now.
+        // The host has stopped: the next turn waiting for this ChatGPT login starts now, and one that gave it up at
+        // the cap continues right after it.
+        if let Some(held) = login_held.as_ref().filter(|_| drove.yielded) {
+            held.give_way();
+            let _ = self.state.append(&aid, "status", &json!({"yielded": held.yielded()}));
+        }
         drop(login_held.take());
         if drove.outcome != "completed" && !crate::harness_tools::caps(&runtime, "").resume_after_interrupt && !goal.controlled {
             if let Some(th) = &thread {
@@ -1342,13 +1358,19 @@ impl Runner {
             }
         }
         if let Some(g) = goal.chat_goal.as_ref().filter(|g| g["status"] == "active") {
-            if drove.outcome != "completed" && !drove.limited && !drove.retryable {
+            if drove.outcome != "completed" && !drove.limited && !drove.retryable && !drove.yielded {
                 let note = goal.failure.clone().unwrap_or_else(|| format!("The harness run {}", drove.outcome));
                 let _ = self.state.append(&aid, "goal", &json!({"goal_id": g["id"], "revision": g["updated_at"], "status": "stopped", "note": note}));
             }
         }
         let mut completion = Map::new();
-        completion.insert("outcome".into(), json!(drove.outcome));
+        if drove.yielded {
+            // Back in the queue to continue: neither answered nor held for review (backend/execution.py complete).
+            completion.insert("outcome".into(), json!("interrupted"));
+            completion.insert("yielded".into(), json!(true));
+        } else {
+            completion.insert("outcome".into(), json!(drove.outcome));
+        }
         completion.insert("text".into(), json!(reply));
         completion.insert("tokens_in".into(), drove.tokens.get("input").cloned().unwrap_or(Value::Null));
         completion.insert("tokens_out".into(), drove.tokens.get("output").cloned().unwrap_or(Value::Null));
@@ -1547,7 +1569,7 @@ impl Runner {
 
     /// The assigned subscription cannot run here: a failed, retryable result that names it, and a heartbeat now.
     fn settle_unavailable(&self, aid: &str, u: &crate::profiles::Unavailable, drove: &mut Drove, rejected: &mut Option<(String, String)>, out: &mut Option<Value>) {
-        *drove = Drove { outcome: "failed".into(), reply: u.problem.clone(), tokens: json!({}), limited: false, retryable: true, turn: drove.turn.clone() };
+        *drove = Drove { outcome: "failed".into(), reply: u.problem.clone(), tokens: json!({}), limited: false, retryable: true, turn: drove.turn.clone(), yielded: false };
         *rejected = None;
         let _ = self.state.append(aid, "diagnostic", &json!({"text": u.problem, "detail": {"runtime": u.runtime}}));
         *out = Some(u.detail());
@@ -1841,6 +1863,84 @@ mod tests {
     #[tokio::test]
     async fn an_expired_gateway_fallback_is_refused_before_its_harness_starts() {
         expired_gateway_harness_is_not_started(true).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_turn_past_the_hold_cap_while_another_waits_stops_at_a_safe_point_and_its_continuation_runs_next() {
+        use crate::login_turns::{Class, Turn};
+        use std::os::unix::fs::PermissionsExt;
+        let key = "codex:test-drive-yield";
+        crate::login_turns::cap_for_test(key, Duration::ZERO);
+        let (url, _seen, server) = recording_server().await;
+        let (runner, dir) = runner_at(&url, "drive-yield");
+        // A stand-in app-server: the turn runs until it is steered, then ends at a safe point on its own.
+        let program = dir.join("codex");
+        std::fs::write(&program, r#"#!/usr/bin/env python3
+import json, os, sys
+def say(m): print(json.dumps(m), flush=True)
+for line in sys.stdin:
+    msg = json.loads(line)
+    method, p = msg.get("method"), msg.get("params") or {}
+    if method == "initialize":
+        say({"id": msg["id"], "result": {}})
+    elif method == "turn/start":
+        say({"id": msg["id"], "result": {"turn": {"id": "t1"}}})
+        say({"method": "turn/started", "params": {"threadId": "th1", "turn": {"id": "t1"}}})
+    elif method == "turn/steer":
+        open(os.environ["FAKE_STEERS"], "a").write(p["input"][0]["text"] + "\n")
+        say({"id": msg["id"], "result": {"turnId": "t1"}})
+        say({"method": "item/completed", "params": {"threadId": "th1", "turnId": "t1", "item": {"type": "agentMessage", "id": "m1", "phase": "final_answer", "text": "Pushed my work in progress; stopping here."}}})
+        say({"method": "turn/completed", "params": {"threadId": "th1", "turn": {"id": "t1", "status": "completed"}}})
+    elif "id" in msg:
+        say({"id": msg["id"], "result": {}})
+"#).unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let steers = dir.join("steers");
+        let env: crate::env::Env = [("PATH".to_string(), format!("{}:{}", dir.display(), std::env::var("PATH").unwrap_or_default())),
+                                    ("FAKE_STEERS".to_string(), steers.display().to_string())].into_iter().collect();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let host = Host::Codex(crate::hosts::codex::CodexHost::on_home(env, tx, None));
+        host.start().await.unwrap();
+
+        let ops = Turn::new("ops", "#7 Release notes", Class::Other).of("task-7", "a-ops");
+        let mut held = crate::login_turns::try_take(key, &ops).unwrap();
+        held.bind(host.clone());
+        let wait = |turn: Turn| tokio::spawn(async move { crate::login_turns::take(key, &turn).await });
+        let review = wait(Turn::new("reviewer", "#8 Review 1", Class::Review).of("task-8", "a-review"));
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let qa = wait(Turn::new("qa", "#9 QA: PR #12", Class::Release).of("task-9", "a-qa"));
+        while !held.cap().due(Instant::now()) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let t = host.start_turn("th1", "Write the release notes", None).await.unwrap();
+        let flags = Flags { lost: AtomicBool::new(false), stopped: AtomicBool::new(false), done: AtomicBool::new(false),
+                            done_notify: Notify::new(), deadline: Mutex::new(Instant::now() + Duration::from_secs(60)) };
+        let wake = Notify::new();
+        let d = crate::drive::Drive { aid: "a-ops", host: &host, thread: "th1", effort: None, limit: Instant::now() + Duration::from_secs(60), flags: &flags,
+                                      wake: &wake, redactor: None, runtime: "codex", login: Some(held.cap()) };
+        let mut segment = crate::drive::Segment { meter: Meter::default(), config: json!({}), profile: None, billing: "subscription" };
+        let mut goal = crate::drive::GoalRun { chat_goal: None, controlled: false, failure: None, paused: None, tries_key: ("ops".into(), "task-7".into()) };
+        let drove = tokio::time::timeout(Duration::from_secs(20), runner.drive(&d, &mut rx, t, &mut segment, &mut BTreeMap::new(), &mut None, &mut goal))
+            .await.expect("the turn ended at its safe point").unwrap();
+        assert!(drove.yielded && drove.outcome == "completed", "{}", drove.outcome);
+        assert_eq!(drove.reply, "Pushed my work in progress; stopping here.");
+        assert!(std::fs::read_to_string(&steers).unwrap().contains("commit and push your work in progress"));
+        assert!(goal.failure.is_none());
+
+        // The release QA goes first; the yielded turn's continuation comes right after it, ahead of the review.
+        held.give_way();
+        drop(held);
+        let qa_held = tokio::time::timeout(Duration::from_secs(15), qa).await.expect("the waiting QA turn got the login").unwrap();
+        assert_eq!(crate::login_turns::holder(key).as_deref(), Some("qa"));
+        let again = wait(ops);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        drop(qa_held);
+        let continued = tokio::time::timeout(Duration::from_secs(5), again).await.expect("the continuation ran next").unwrap();
+        assert!(!review.is_finished(), "the review went ahead of the continuation");
+        drop(continued);
+        drop(tokio::time::timeout(Duration::from_secs(5), review).await.unwrap().unwrap());
+        server.abort();
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[tokio::test(flavor = "multi_thread")]

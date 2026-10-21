@@ -274,13 +274,14 @@ impl Held {
         self.host = Some(Box::new(host));
     }
 
-    /// Whether this turn should give the login to a waiting turn: it has held it HOLD_CAP or longer (as of `now`)
-    /// and another turn waits for it.
-    pub fn due(&self, now: Instant) -> bool {
-        let slots = slots().lock().unwrap();
-        slots.get(&self.key).is_some_and(|s| {
-            !s.waiters.is_empty() && s.holder.as_ref().is_some_and(|h| now.saturating_duration_since(h.since) >= HOLD_CAP)
-        })
+    /// The run's note when this turn gave the login to the next waiter at the cap.
+    pub fn yielded(&self) -> String {
+        self.cap().yielded()
+    }
+
+    /// What the turn's drive loop watches for the cap while the turn runs.
+    pub fn cap(&self) -> Cap {
+        Cap { key: self.key.clone() }
     }
 
     /// This turn gives way at the cap: its continuation takes the login right after the next waiter's turn.
@@ -292,6 +293,48 @@ impl Held {
             }
         }
     }
+}
+
+/// A held login's cap, as the turn holding it watches it.
+#[derive(Clone, Debug)]
+pub struct Cap {
+    key: String,
+}
+
+impl Cap {
+    /// Whether the turn should give the login to a waiting turn: it has held it HOLD_CAP or longer (as of `now`) and
+    /// another turn waits for it.
+    pub fn due(&self, now: Instant) -> bool {
+        let slots = slots().lock().unwrap();
+        slots.get(&self.key).is_some_and(|s| {
+            !s.waiters.is_empty() && s.holder.as_ref().is_some_and(|h| now.saturating_duration_since(h.since) >= hold_cap(&self.key))
+        })
+    }
+
+    pub fn yielded(&self) -> String {
+        let (runtime, login) = self.key.split_once(':').unwrap_or((&self.key, ""));
+        Login::new(runtime, login).yielded()
+    }
+}
+
+#[cfg(test)]
+fn test_caps() -> &'static Mutex<HashMap<String, Duration>> {
+    static C: OnceLock<Mutex<HashMap<String, Duration>>> = OnceLock::new();
+    C.get_or_init(Default::default)
+}
+
+/// A shorter cap for one test login, so a drive test need not run twenty minutes.
+#[cfg(test)]
+pub fn cap_for_test(key: &str, cap: Duration) {
+    test_caps().lock().unwrap().insert(key.into(), cap);
+}
+
+fn hold_cap(_key: &str) -> Duration {
+    #[cfg(test)]
+    if let Some(cap) = test_caps().lock().unwrap().get(_key) {
+        return *cap;
+    }
+    HOLD_CAP
 }
 
 impl Drop for Held {
@@ -874,12 +917,12 @@ time.sleep(60)
         let key = "codex:test-cap";
         let held = try_take(key, &t("builder")).unwrap();
         let start = Instant::now();
-        assert!(!held.due(start + HOLD_CAP + Duration::from_secs(3600)), "nobody waits: no cap");
+        assert!(!held.cap().due(start + HOLD_CAP + Duration::from_secs(3600)), "nobody waits: no cap");
         let waiter = tokio::spawn(async move { drop(take(key, &t("qa")).await) });
         tokio::time::sleep(Duration::from_millis(10)).await;
-        assert!(!held.due(Instant::now()), "someone waits, but the cap is not reached");
-        assert!(!held.due(start + HOLD_CAP - Duration::from_secs(1)));
-        assert!(held.due(start + HOLD_CAP));
+        assert!(!held.cap().due(Instant::now()), "someone waits, but the cap is not reached");
+        assert!(!held.cap().due(start + HOLD_CAP - Duration::from_secs(1)));
+        assert!(held.cap().due(start + HOLD_CAP));
         drop(held);
         waiter.await.unwrap();
         assert_eq!(holder(key), None);
