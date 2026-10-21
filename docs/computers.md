@@ -94,7 +94,7 @@ Click a row to open its pop-up. Its sections, top to bottom:
    **Replace key** and **Clear key** for a key; for a subscription, **Refresh usage** (Codex) and **Manage** (rename,
    manual weekly reading), **Rename** and **Remove**. **Add connection** at the end opens its own pop-up to sign in an
    installed tool, add a named subscription or add a key.
-2. **Screen**: **Off**, **View** or **Control** (Beta), as described in [Install](install.md#screen).
+2. **Screen**: an on/off switch, then **View** or **Control** when enabled (Beta). Enabling a screen that needs setup reveals the runner command, as described in [Install](install.md#screen).
 3. **Bots on this computer**: each bot with the connection it actually runs on, read-only. **Assign on the Bots page**
    opens Settings → Bots, where a bot's computer and connection are chosen.
 4. **Versions and updates**: Tico, the OS and runner, each AI tool's version with **Installed** and **Enabled**, and
