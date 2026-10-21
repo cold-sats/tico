@@ -7,6 +7,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.71] - 2026-10-21
+
 ### Fixed
 - **Gateway turns retry when their rate window resets.** The computer carries the Gateway's requested wait back to
   the server, so a busy minute does not hold starter bots for an hour or claim their address sent refused keys.
@@ -4022,7 +4024,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.70...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.71...HEAD
+[0.3.71]: https://github.com/ticoteam/tico/compare/v0.3.70...v0.3.71
 [0.3.70]: https://github.com/ticoteam/tico/compare/v0.3.69...v0.3.70
 [0.3.69]: https://github.com/ticoteam/tico/compare/v0.3.68...v0.3.69
 [0.3.68]: https://github.com/ticoteam/tico/compare/v0.3.67...v0.3.68
