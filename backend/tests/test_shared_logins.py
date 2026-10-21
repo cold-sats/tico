@@ -54,3 +54,16 @@ def test_a_key_login_or_one_whose_kind_is_unknown_is_not_listed_as_shared(api):
         assert shared(api, r) == [], detail
     beat(api, r, {"ops": "", "finance": ""})
     assert shared(api, r)[0]["count"] == 2
+
+
+def test_a_turns_login_class_puts_release_blockers_first_then_reviews_and_a_persons_chat_and_watches_last():
+    from backend.execution import login_class
+    tag = lambda *keys: {"id": "t1", "tags": [{"key": k} for k in keys]}  # noqa: E731
+    person, bot = {"from_actor": "human:ana"}, {"from_actor": "bot:lead"}
+    assert login_class(None, tag("release-blocker"), bot, None) == "release"
+    assert login_class(None, tag("critical-path"), bot, None) == "review"
+    assert login_class(None, None, person, None) == "review"
+    assert login_class(None, tag(), bot, None) == "other"
+    # A standing watch never jumps the queue, labelled or not.
+    assert login_class(None, tag("release-blocker"), {"from_actor": "keeper", "refs": {"wake": "next-run"}}, None) == "other"
+    assert login_class(None, tag("release-blocker"), person, {"id": "r1"}) == "other"

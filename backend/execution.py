@@ -443,6 +443,27 @@ def reset_cooldown(c, attempt_id, finished, cooldown, resets_at=None):
     return cooldown
 
 
+LOGIN_CLASS_LABELS = {"release-blocker": "release", "critical-path": "review"}
+
+
+def login_class(c, task, msg, routine):
+    """The class a turn waits in for a shared login that serves one turn at a time: "release" for a task labelled
+    release-blocker, "review" for one labelled critical-path and for a turn a person's own message started, "other"
+    for the rest. A routine's or a timed wake's turn is "other" whatever its labels, so standing watches never jump the
+    queue. The labels count on the task or the task whose session it continues."""
+    msg = msg or {}
+    if routine or (not H.is_human(msg.get("from_actor")) and (msg.get("refs") or {}).get("wake")):
+        return "other"
+    labels = set(H.task_labels(task))
+    root = (task or {}).get("session_task_id")
+    if root and root != task["id"]:
+        labels |= set(H.task_labels(H.task(c, root)))
+    for label, cls in LOGIN_CLASS_LABELS.items():
+        if label in labels:
+            return cls
+    return "review" if H.is_human(msg.get("from_actor")) else "other"
+
+
 def release_limits(c):
     """Lift each usage limit whose hold has passed: the bot shows it is back, and the status change tells
     its computer to ask for the queued work now rather than at its next backup poll."""
@@ -1661,6 +1682,8 @@ class Execution:
             # Another bot's turn in the room (the requester answering) works without the owner's goal.
             chat_goal = None
         return {"attempt": {"chat_goal": chat_goal, "routine": routine, "id": aid,
+                            # Which waiting turn takes a shared one-turn login first (runner-rs/src/login_turns.rs).
+                            "login_class": login_class(c, task, msg, routine),
                             "profile": effective(c, row["bot"])[0],
                             "computer_label": runner["label"],
                             # A starter bot's chat while it is `needs_setup` is its setup (runner prompt).
