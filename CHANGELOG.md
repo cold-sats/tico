@@ -16,6 +16,11 @@ All notable changes to Tico are recorded here. The format follows
   default is Cheap 1.0, since a new bot is a new pick. The pi runner now reports each model request, so Usage prices
   each one at its own rate.
 
+### Fixed
+- **No "Claude login required" while the Tico AI Gateway runs the bot.** Under the recommended choice a bot whose
+  Claude or ChatGPT is not signed in yet shows as ready, its card says "Using Tico AI Gateway; sign in to Claude to use
+  your subscription", and its model check and chat no longer ask for a login. With no Gateway either, it still does.
+
 ## [0.3.71] - 2026-10-21
 
 ### Fixed
