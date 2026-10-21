@@ -8,6 +8,10 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Shared ChatGPT login queue.** A turn waiting for a shared ChatGPT login says who holds it, on what, since when and
+  its place, on the run, the task, the bot's status and in Health (waiting, not stuck). Release-blocking work goes
+  first, then reviews and a person's own chat, with no waiter passed over more than twice. A turn that holds the login
+  20 minutes while another waits pauses at a safe point and continues right after; a waiter whose task is closed is skipped.
 - **Hosted bot computers.** Hosting can run bots on a separate computer, keeping their work away from the Tico
   server. Settings > Computers offers **Hosted computer (we run it)**. The installer supports server-only installs,
   bounded AWS runner recovery and the same 4- and 8-core sizes on both machines, with 100 and 200 GB disks.
