@@ -254,14 +254,17 @@ fn own_folder(name: &str) -> PathBuf {
     crate::isolation::bot_state(&state).join("musecode").join(name)
 }
 
-/// Muse Code's XDG_DATA_HOME (sessions, their locks and logs) beside its config home: `data` in a subscription
-/// profile's folder, else the runner's own `musecode/data`. Never `~/.local/share`, which turns made as another
-/// user before isolation may still own.
+/// Muse Code's XDG_DATA_HOME (sessions, their locks and logs): the runner's own `musecode/data`, or
+/// `musecode/profiles/<name>/data` for a subscription profile with a home of its own, so two logins never share
+/// sessions. Never `~/.local/share`, which turns made as another user before isolation may still own, and never
+/// inside a config home: those are handed to the bot user whole (`prepare_config`, `profiles::hand_to_bot`), which
+/// would take over a folder this check must refuse.
 pub fn data_home(profile: Option<&crate::profiles::Profile>) -> PathBuf {
-    if let Some(home) = profile.and_then(|p| p.home("musecode")) {
-        return home.join("data");
+    match profile.filter(|p| p.home("musecode").is_some()) {
+        Some(p) if crate::profiles::valid_name(&p.name) => own_folder("profiles").join(&p.name).join("data"),
+        Some(p) => own_folder("profiles").join(p.name.bytes().map(|b| format!("{b:02x}")).collect::<String>()).join("data"),
+        None => own_folder("data"),
     }
-    own_folder("data")
 }
 
 /// Whether the user a turn runs as may create entries in directory `path`: judged from its owner and mode under
@@ -274,8 +277,15 @@ fn turn_can_write(path: &Path) -> bool {
         return unsafe { libc::access(c.as_ptr(), libc::W_OK | libc::X_OK) } == 0;
     };
     let Ok(m) = std::fs::metadata(path) else { return false };
-    let bits = if m.uid() == uid { 0o300 } else if m.gid() == gid { 0o030 } else { 0o003 };
-    m.mode() & bits == bits
+    can_write(m.mode(), (m.uid(), m.gid()), (uid, gid))
+}
+
+/// The kernel's rule for a directory `mode` owned by `owner`, for a user with no supplementary groups (turns run
+/// with `--clear-groups`): the owner's bits alone when it owns it, else the group's when it is in that group, else
+/// the others'. Creating an entry needs write and search.
+fn can_write(mode: u32, owner: (u32, u32), user: (u32, u32)) -> bool {
+    let bits = if owner.0 == user.0 { 0o300 } else if owner.1 == user.1 { 0o030 } else { 0o003 };
+    mode & bits == bits
 }
 
 /// The first folder of Muse's data home that a turn's user cannot write (the home, `muse` and `muse/sessions`,
@@ -535,8 +545,9 @@ impl MuseCodeHost {
                 return Err(failed("muse host already has a turn running"));
             }
             let settings = inner.threads.get(thread_id).cloned().ok_or_else(|| failed(format!("unknown muse thread {thread_id}")))?;
-            prepare_config(&self.0.config_home)?;
+            // The data folder first: nothing is handed to the bot user before a folder it must not have is refused.
             prepare_data(&self.0.data_home)?;
+            prepare_config(&self.0.config_home)?;
             let env = self.env(&settings);
             let offset = session_log(&env, thread_id).and_then(|p| std::fs::metadata(p).ok()).map_or(0, |m| m.len());
             let prompt = self.prompt_file(text).map_err(|e| failed(format!("could not start muse: {e}")))?;
@@ -1008,13 +1019,18 @@ mod tests {
         use crate::profiles::Profile;
         let dir = temp("muse-data");
         let (a, b) = (Profile::new("a", &dir.join("a").display().to_string(), false), Profile::new("b", &dir.join("b").display().to_string(), false));
-        assert_eq!(data_home(Some(&a)), dir.join("a/musecode/data"));
+        assert_eq!(data_home(Some(&a)), config_home(None).with_file_name("profiles").join("a/data"));
         assert_ne!(data_home(Some(&a)), data_home(Some(&b)));
+        assert_eq!(data_home(Some(&Profile::new("mine", "~", true))), data_home(None)); // the operator's own logins
         assert_eq!(data_home(None).parent(), config_home(None).parent());
         assert_ne!(data_home(None), config_home(None));
+        // Never inside a folder that is handed to the bot user whole: a config home or the profile's own folder.
+        for (p, home) in [(Some(&a), &dir.join("a")), (Some(&b), &dir.join("b")), (None, &config_home(None))] {
+            assert!(!data_home(p).starts_with(home) && !data_home(p).starts_with(config_home(p)), "{p:?}");
+        }
         let mut env = Env::new();
         assert!(crate::hosts::use_own_config_home("musecode", Some(&b), &mut env));
-        assert_eq!(env["XDG_DATA_HOME"], dir.join("b/musecode/data").display().to_string());
+        assert_eq!(env["XDG_DATA_HOME"], data_home(Some(&b)).display().to_string());
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -1049,6 +1065,8 @@ mod tests {
             assert!(error.contains(&sessions.display().to_string()) && error.contains("can't write"), "{error}");
             assert_eq!(problem.as_deref(), Some(error.as_str()));
             assert!(!dir.join("ran").exists(), "muse never started");
+            // Refused before the config home was prepared, so nothing was handed to the bot user first.
+            assert!(!dir.join("config").exists(), "config home prepared before the data check");
             assert_eq!(crate::hosts::data_problem("claude", None), None);
         }
         let _ = std::fs::remove_dir_all(dir);
@@ -1068,5 +1086,28 @@ mod tests {
         assert!(problem.contains(&data.display().to_string()), "{problem}");
         assert!(prepare_data(&data).unwrap_err().to_string().contains(&data.display().to_string()));
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The data check follows the kernel for a turn's user with no supplementary groups: the owner's bits alone decide
+    /// for the owner (even where group or others could write), then the group's, then the others'; and making an
+    /// entry needs both write and search.
+    #[test]
+    fn the_data_check_follows_owner_then_group_then_other() {
+        let (bot, other_group) = ((10003, 10002), (10003, 20000));
+        for (mode, owner, user, writable) in [
+            (0o700, (10003, 10002), bot, true),          // owner
+            (0o077, (10003, 10002), bot, false),         // owner precedence: group and others' bits don't count
+            (0o500, (10003, 10002), bot, false),         // owner, no write
+            (0o600, (10003, 10002), bot, false),         // owner, no search
+            (0o770, (10002, 10002), bot, true),          // group
+            (0o707, (10002, 10002), bot, false),         // group precedence: others' bits don't count
+            (0o750, (10002, 10002), bot, false),         // group, no write (the pre-isolation ~/.local/share/muse)
+            (0o760, (10002, 10002), bot, false),         // group, no search
+            (0o777, (10002, 10002), other_group, true),  // other
+            (0o775, (10002, 10002), other_group, false), // other, no write
+            (0o776, (10002, 10002), other_group, false), // other, no search
+        ] {
+            assert_eq!(can_write(mode, owner, user), writable, "{mode:o} owner {owner:?} user {user:?}");
+        }
     }
 }

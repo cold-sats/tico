@@ -42,7 +42,8 @@ never use the operator's `~/.config/muse`: they run with `XDG_CONFIG_HOME` set t
 subscription profile's `musecode/`, else the runner's host state), and any servers in it are removed before each
 run. A bot run gets only the hub, its bot.yaml servers and the repository's own MCP config. Its sessions (and each session's
 lock and log) go to a data folder of Tico's own as well, `XDG_DATA_HOME` beside that config folder (`musecode/data`
-in the runner's host state, or `data` in a profile's `musecode/`), never `~/.local/share/muse`: on a computer that runs
+in the runner's host state, or `musecode/profiles/<profile>/data` there for a subscription profile, outside every
+folder handed to the bot user), never `~/.local/share/muse`: on a computer that runs
 bots as their own user, that folder may belong to another user. If the data folder is there but the bot user can't
 write it, readiness shows Muse Code as not ready and names the folder.
 The download is about 340 MB. The sign-in is `muse/auth.json` in that folder (sign in from Settings; a
