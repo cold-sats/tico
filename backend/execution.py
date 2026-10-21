@@ -450,14 +450,23 @@ def login_class(c, task, msg, routine):
     """The class a turn waits in for a shared login that serves one turn at a time: "release" for a task labelled
     release-blocker, "review" for one labelled critical-path and for a turn a person's own message started, "other"
     for the rest. A routine's or a timed wake's turn is "other" whatever its labels, so standing watches never jump the
-    queue. The labels count on the task or the task whose session it continues."""
+    queue. The labels count on the task or on the work it serves (its parents, the tasks it blocks)."""
     msg = msg or {}
     if routine or (not H.is_human(msg.get("from_actor")) and (msg.get("refs") or {}).get("wake")):
         return "other"
     labels = set(H.task_labels(task))
-    root = (task or {}).get("session_task_id")
-    if root and root != task["id"]:
-        labels |= set(H.task_labels(H.task(c, root)))
+    if task:
+        # Tags are set when a task is made, so a step subtask filed without one takes its class from the work it
+        # serves: its parents, the tasks it blocks, and the same for the task whose session it continues.
+        from .task_relations import ancestors, blocked_ids
+        ids = set()
+        for one in {task["id"], task.get("session_task_id") or task["id"]}:
+            ids |= {one, *ancestors(c, one), *blocked_ids(c, one)}
+        ids.discard(task["id"])
+        if ids:
+            marks = ",".join("?" * len(ids))
+            labels |= {r[0] for r in c.execute(f"SELECT tags.key FROM task_tags JOIN tags ON tags.id=task_tags.tag_id "
+                                               f"WHERE task_tags.task_id IN ({marks})", tuple(ids))}
     for label, cls in LOGIN_CLASS_LABELS.items():
         if label in labels:
             return cls

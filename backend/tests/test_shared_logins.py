@@ -56,14 +56,23 @@ def test_a_key_login_or_one_whose_kind_is_unknown_is_not_listed_as_shared(api):
     assert shared(api, r)[0]["count"] == 2
 
 
-def test_a_turns_login_class_puts_release_blockers_first_then_reviews_and_a_persons_chat_and_watches_last():
+
+def test_a_turns_login_class_puts_release_blockers_first_then_reviews_and_a_persons_chat_and_watches_last(tmp_path):
     from backend.execution import login_class
-    tag = lambda *keys: {"id": "t1", "tags": [{"key": k} for k in keys]}  # noqa: E731
+    from backend.store import H
+    from backend.tests.test_hubdb import ANA, CMO, EMPLOYEES, PEOPLE
+    c = H.connect(tmp_path / "hub.db")
+    H.sync_registry(c, EMPLOYEES, PEOPLE)
+    make = lambda title, **kw: H.task(c, H.task_create(c, ANA, title, "Check it.", CMO, lint=False, **kw)["id"])  # noqa: E731
     person, bot = {"from_actor": "human:ana"}, {"from_actor": "bot:lead"}
-    assert login_class(None, tag("release-blocker"), bot, None) == "release"
-    assert login_class(None, tag("critical-path"), bot, None) == "review"
-    assert login_class(None, None, person, None) == "review"
-    assert login_class(None, tag(), bot, None) == "other"
+    release, critical, plain = make("Release v1", labels=["release-blocker"]), make("PR 7", labels=["critical-path"]), make("Chore")
+    assert login_class(c, release, bot, None) == "release"
+    assert login_class(c, critical, bot, None) == "review"
+    assert login_class(c, None, person, None) == "review"
+    assert login_class(c, plain, bot, None) == "other"
+    # An unlabelled step subtask takes the class of the work it serves.
+    assert login_class(c, make("QA: v1", parent_id=release["id"]), bot, None) == "release"
+    assert login_class(c, make("Review 1: PR 7", parent_id=critical["id"]), bot, None) == "review"
     # A standing watch never jumps the queue, labelled or not.
-    assert login_class(None, tag("release-blocker"), {"from_actor": "keeper", "refs": {"wake": "next-run"}}, None) == "other"
-    assert login_class(None, tag("release-blocker"), person, {"id": "r1"}) == "other"
+    assert login_class(c, release, {"from_actor": "keeper", "refs": {"wake": "next-run"}}, None) == "other"
+    assert login_class(c, release, person, {"id": "r1"}) == "other"
