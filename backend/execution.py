@@ -446,6 +446,19 @@ def reset_cooldown(c, attempt_id, finished, cooldown, resets_at=None):
 LOGIN_CLASS_LABELS = {"release-blocker": "release", "critical-path": "review"}
 
 
+def finished_before_start(c, row):
+    """Whether a turn that has not started (it waits for its shared login: runner-rs/src/login_turns.rs) is for a task
+    that was marked done or closed after the message that started it: it is skipped rather than run."""
+    if row["state"] != "leased":
+        return False
+    msg = H.message(c, c.execute("SELECT message_id FROM jobs WHERE id=?", (row["job_id"],)).fetchone()[0],
+                    include_deleted=True)
+    task_id = H.message_task_id(msg, H.conversation(c, msg["conversation_id"])) if msg else None
+    task = H.task(c, task_id) if task_id else None
+    ended = task and task["status"] in ("done", "closed") and (task.get("closed_at") or task.get("done_at"))
+    return bool(ended and ended >= msg["created"])
+
+
 def login_class(c, task, msg, routine):
     """The class a turn waits in for a shared login that serves one turn at a time: "release" for a task labelled
     release-blocker, "review" for one labelled critical-path and for a turn a person's own message started, "other"
@@ -1871,7 +1884,7 @@ class Execution:
         c.execute("UPDATE attempts SET lease_until=? WHERE id=?", (until, aid))
         # The runner renews every few seconds, so a person's Stop rides on the answer it already reads.
         return {"lease_until": until, "lease_seconds": self.store.settings.lease_seconds,
-                **({"stop": True} if row["stop_requested"] else {})}
+                **({"stop": True} if row["stop_requested"] or finished_before_start(c, row) else {})}
 
     def stop(self, c, who, bot, attempt_id=None, redirect=None):
         """A person who manages the bot asks its running turn to stop. The runner interrupts the turn
@@ -2097,9 +2110,13 @@ class Execution:
         # NOT_ISOLATED). Settled now, so the bot says why once rather than its lease lapsing into a retry.
         # Likewise a turn sent away from a held login (`primary_held`) that found no fallback ready after all: nothing
         # ran, and it goes back to wait out the hold (backend/login_holds.py after_turn).
+        # And a turn stopped while it waited for its shared login, by a person or because its task was done or closed
+        # meanwhile (`skipped`): nothing ran, and its job ends with it.
+        skipped = body.outcome == "interrupted" and not row["stop_requested"] and finished_before_start(c, row)
         unstarted = (row["state"] == "leased" and body.outcome == "failed"
                      and (any(gateway.run_code(error) == gateway.NOT_ISOLATED for error in limit_errors(c, aid))
-                          or body.primary_held and body.limited and not body.fallback))
+                          or body.primary_held and body.limited and not body.fallback)
+                     or row["state"] == "leased" and body.outcome == "interrupted" and bool(row["stop_requested"] or skipped))
         if not late and row["state"] != "running" and not unstarted:
             raise Problem("not_started", "Acknowledge start before completing work", 409)
         if row["last_seq"] != body.last_seq:
@@ -2193,7 +2210,7 @@ class Execution:
         # a third limit in a row waits longer and tells a person in Needs attention. Only
         # interrupted or failed work, which may have acted, is held for review.
         # A turn a person stopped is over by their choice: nothing to retry and nothing to review.
-        stopped = bool(row["stop_requested"]) and body.outcome != "completed"
+        stopped = bool(row["stop_requested"]) and body.outcome != "completed" or skipped
         limited = body.outcome != "completed" and body.limited and not stopped
         # Same reasoning, different cause: the runner reports `retryable` when the runtime was
         # refused before the turn began because it could not renew its own sign-in, and only
@@ -2365,7 +2382,10 @@ class Execution:
                     {"bot": row["bot"], "job_id": row["job_id"], "primary_runtime": runtime, "fallback": body.fallback,
                      "model": (ran.model or None) if ran else None,
                      "outcome": body.outcome, **({"primary_limited": True} if body.primary_limited else {})})
-        if stopped:
+        if skipped:
+            settle_status(c, row["bot"], "idle", "", claimed=row["created"])
+            H.event(c, H.KEEPER, "attempt.skipped", aid, {"bot": row["bot"], "job_id": row["job_id"]})
+        elif stopped:
             person = row["stop_requested"]
             name = (H.human(c, H.actor_id(person)) or {}).get("name") or H.actor_id(person)
             settle_status(c, row["bot"], "idle", "", claimed=row["created"])

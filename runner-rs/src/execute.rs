@@ -804,6 +804,10 @@ impl Runner {
             wake.notify_one();
         };
         let got = crate::login_turns::wait_for(&login.key, turn, || self.login_wait_over(flags, login), say, Duration::from_secs(1)).await;
+        if got.is_err() && flags.stopped.load(Ordering::SeqCst) {
+            // Stopped, or its task was done or closed meanwhile (the server's `stop`): the work keeps no place.
+            crate::login_turns::forget(&login.key, turn);
+        }
         if waited {
             let _ = self.state.append(aid, "status", &json!({"waiting": ""}));
             wake.notify_one();

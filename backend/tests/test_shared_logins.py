@@ -92,3 +92,22 @@ def test_a_turn_that_gave_its_login_up_at_the_cap_goes_back_in_the_queue_unanswe
     # It continues on the next claim, as the same work.
     again = claim(api, r)
     assert again["job_id"] == a["job_id"] and again["id"] != a["id"]
+
+
+def test_a_turn_waiting_for_its_login_whose_task_is_closed_meanwhile_is_skipped_cleanly(api):
+    from backend.tests.test_api import claim, ready
+    r = runner(api)
+    assign(api, r, "ops")
+    ready(api, r, ["ops"])
+    tid = post(api, "tasks", {"owner": "ops", "title": "Count the words", "body": "Count them."})["id"]
+    a = claim(api, r)
+    assert "stop" not in post(api, f"attempts/{a['id']}/renew", {}, r["token"])
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET status='closed',closed_at=? WHERE id=?", ("9999-01-01T00:00:00Z", tid))
+    # The runner hears stop on its next renewal, leaves the queue and reports the turn it never started.
+    assert post(api, f"attempts/{a['id']}/renew", {}, r["token"])["stop"] is True
+    post(api, f"attempts/{a['id']}/complete", {"outcome": "interrupted", "last_seq": 0}, r["token"])
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT state FROM jobs WHERE id=?", (a["job_id"],)).fetchone()[0] == "cancelled"
+        assert not c.execute("SELECT 1 FROM messages WHERE kind='notice' AND body LIKE 'Stopped by%'").fetchone()
+    assert claim(api, r) is None
