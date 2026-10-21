@@ -21,6 +21,10 @@ All notable changes to Tico are recorded here. The format follows
   paid, never the key. The other three choices, and a team that never picks one, keep working
   as before ([Tico AI Gateway](docs/ai-gateway.md#choose-how-bots-get-their-models)).
 
+### Fixed
+- A goal's automatic colour follows its worst KPI: red takes priority over yellow and green, and yellow over green.
+  The note explains that KPI; a colour set by a person stays in place until handed back to the Goal Manager.
+
 ## [0.3.68] - 2026-10-20
 
 ### Added
