@@ -29,6 +29,9 @@ pub const YIELD_GRACE: Duration = Duration::from_secs(5 * 60);
 pub const MAX_SKIPS: u32 = 2;
 /// How long a turn that gave way keeps its place right after the next waiter, for its continuation to arrive.
 const RESERVED_FOR: Duration = Duration::from_secs(30 * 60);
+/// How long a waiter whose wait ended without the login (its lease lapsed while renewals failed) keeps its place:
+/// the same work queued again within it goes back where it was, not to the back.
+const PLACE_KEPT_FOR: Duration = Duration::from_secs(10 * 60);
 
 /// Which waiting turn takes a login when it comes free (Dev 278): release-blocking QA and validation, then reviews and
 /// a person's own chat turn, then the rest; first come, first served within a class. The server sets it on the
@@ -50,17 +53,30 @@ impl Class {
     }
 }
 
-/// A turn that wants a login: its bot, the task it works as a person reads it ("" for none), its class.
+/// A turn that wants a login: its bot, the task it works as a person reads it ("" for none), its class, the work it
+/// is for (the task's or the chat's id: a lapsed waiter queued again for it keeps its place) and its attempt.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Turn {
     pub bot: String,
     pub task: String,
     pub class: Class,
+    pub work: String,
+    pub attempt: String,
 }
 
 impl Turn {
     pub fn new(bot: &str, task: &str, class: Class) -> Turn {
-        Turn { bot: bot.into(), task: task.into(), class }
+        Turn { bot: bot.into(), task: task.into(), class, work: String::new(), attempt: String::new() }
+    }
+
+    pub fn of(mut self, work: &str, attempt: &str) -> Turn {
+        self.work = work.into();
+        self.attempt = attempt.into();
+        self
+    }
+
+    fn same_work(&self, other: &Turn) -> bool {
+        !self.work.is_empty() && self.bot == other.bot && self.work == other.work
     }
 }
 
@@ -69,6 +85,8 @@ impl Turn {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Waiting {
     pub holder: String,
+    /// The holder's attempt, so a holder is always a run a person can find ("" when it named none).
+    pub attempt: String,
     pub task: String,
     pub since: f64,
     pub position: usize,
@@ -129,6 +147,8 @@ struct Holding {
 
 struct Waiter {
     id: u64,
+    /// When it asked, in queue order: kept across a lapsed lease (Kept).
+    seq: u64,
     turn: Turn,
     skipped: u32,
     grant: Option<oneshot::Sender<Held>>,
@@ -140,12 +160,20 @@ struct Reserved {
     until: Instant,
 }
 
+/// The place of a waiter whose wait ended without the login, for PLACE_KEPT_FOR.
+struct Kept {
+    turn: Turn,
+    seq: u64,
+    skipped: u32,
+    until: Instant,
+}
+
 #[derive(Default)]
 struct Slot {
     holder: Option<Holding>,
-    /// In the order they asked.
     waiters: Vec<Waiter>,
     reserved: Option<Reserved>,
+    kept: Vec<Kept>,
     next_id: u64,
 }
 
@@ -161,11 +189,11 @@ impl Slot {
         at.sort_by_key(|&i| {
             let w = &self.waiters[i];
             if w.skipped >= MAX_SKIPS {
-                (0, 0, i)
+                (0, 0, w.seq)
             } else if self.reserved_for(&w.turn) {
-                (1, 0, i)
+                (1, 0, w.seq)
             } else {
-                (2, w.turn.class as u8, i)
+                (2, w.turn.class as u8, w.seq)
             }
         });
         at
@@ -174,7 +202,7 @@ impl Slot {
     fn waiting(&self, id: u64) -> Option<Waiting> {
         let h = self.holder.as_ref()?;
         let position = self.order().iter().position(|&i| self.waiters[i].id == id)? + 1;
-        Some(Waiting { holder: h.turn.bot.clone(), task: h.turn.task.clone(), since: h.at, position })
+        Some(Waiting { holder: h.turn.bot.clone(), attempt: h.turn.attempt.clone(), task: h.turn.task.clone(), since: h.at, position })
     }
 
     fn hold(&mut self, turn: Turn) {
@@ -196,7 +224,7 @@ fn release(key: &str) {
         let Some(&first) = slot.order().first() else { return };
         let mut w = slot.waiters.remove(first);
         // Everyone who asked before it was passed over once more.
-        for other in &mut slot.waiters[..first] {
+        for other in slot.waiters.iter_mut().filter(|o| o.seq < w.seq) {
             other.skipped += 1;
         }
         if slot.reserved_for(&w.turn) {
@@ -308,11 +336,21 @@ fn take_or_queue(key: &str, turn: &Turn, queue: bool) -> Result<Held, (Option<(u
     let (tx, rx) = oneshot::channel();
     slot.next_id += 1;
     let id = slot.next_id;
-    slot.waiters.push(Waiter { id, turn: turn.clone(), skipped: 0, grant: Some(tx) });
+    let now = Instant::now();
+    slot.kept.retain(|k| now < k.until);
+    let (seq, skipped) = match slot.kept.iter().position(|k| k.turn.same_work(turn)) {
+        Some(i) => {
+            let k = slot.kept.remove(i);
+            (k.seq, k.skipped)
+        }
+        None => (id, 0),
+    };
+    slot.waiters.push(Waiter { id, seq, turn: turn.clone(), skipped, grant: Some(tx) });
     Err((Some((id, rx)), holder))
 }
 
-/// A turn's place in a login's queue: leaving it (the wait was given up or is over) takes the turn out.
+/// A turn's place in a login's queue: leaving it (the wait was given up or is over) takes the turn out. Left
+/// without the login, its place is kept a while for the same work (a lease that lapsed and is leased again).
 struct Queued {
     key: String,
     id: u64,
@@ -321,8 +359,20 @@ struct Queued {
 impl Drop for Queued {
     fn drop(&mut self) {
         if let Some(slot) = slots().lock().unwrap().get_mut(&self.key) {
-            slot.waiters.retain(|w| w.id != self.id);
+            if let Some(i) = slot.waiters.iter().position(|w| w.id == self.id) {
+                let w = slot.waiters.remove(i);
+                if !w.turn.work.is_empty() {
+                    slot.kept.push(Kept { turn: w.turn, seq: w.seq, skipped: w.skipped, until: Instant::now() + PLACE_KEPT_FOR });
+                }
+            }
         }
+    }
+}
+
+/// The work whose wait for `key` should not keep its place (its task is done or closed, or a person stopped it).
+pub fn forget(key: &str, turn: &Turn) {
+    if let Some(slot) = slots().lock().unwrap().get_mut(key) {
+        slot.kept.retain(|k| !k.turn.same_work(turn));
     }
 }
 
@@ -383,6 +433,7 @@ pub fn holder(key: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
@@ -676,20 +727,20 @@ time.sleep(60)
         let computer = Login::new("codex", "");
         assert_eq!(computer.key, "codex:");
         let since = 20_000.0 * 86_400.0 + 19.0 * 3600.0 + 6.0 * 60.0;
-        let w = Waiting { holder: "pr-reviewer-sol".into(), task: "Review 1: PR #1005".into(), since, position: 2 };
+        let w = Waiting { holder: "pr-reviewer-sol".into(), attempt: String::new(), task: "Review 1: PR #1005".into(), since, position: 2 };
         assert_eq!(computer.waiting(&w, "qa-engineer"),
                    "Waiting for this computer's ChatGPT login (held by pr-reviewer-sol on Review 1: PR #1005 since 19:06Z; position 2)");
         assert_eq!(computer.busy("builder", "support"), "ChatGPT login busy with builder");
         let work = Login::new("codex", "work");
-        let own = Waiting { holder: "support".into(), task: String::new(), since: since + 59.0 * 60.0, position: 1 };
+        let own = Waiting { holder: "support".into(), attempt: String::new(), task: String::new(), since: since + 59.0 * 60.0, position: 1 };
         assert_eq!(work.waiting(&own, "support"), "Waiting for ChatGPT login \"work\" (held by another turn of this bot since 20:05Z; position 1)");
         assert_eq!(work.busy("builder", "support"), "ChatGPT login \"work\" busy with builder");
         assert_eq!(work.yielded(), "Paused after 20 min so the next turn could use ChatGPT login \"work\"; resumes next");
     }
 
-    /// `waiters` queue on `key` one after the other while `holder` holds it; each, once it has the login, notes itself
+    /// `waiters` queue on `key` one after the other while `held_by` holds it; each, once it has the login, notes itself
     /// and lets go. The order they had it in.
-    async fn served(key: &'static str, holder: Held, waiters: Vec<Turn>) -> Vec<String> {
+    async fn served(key: &'static str, held_by: Held, waiters: Vec<Turn>) -> Vec<String> {
         let order = Arc::new(Mutex::new(vec![]));
         let mut turns = vec![];
         for turn in waiters {
@@ -701,7 +752,7 @@ time.sleep(60)
             }));
             tokio::time::sleep(Duration::from_millis(10)).await; // each one asks after the last
         }
-        drop(holder);
+        drop(held_by);
         for t in turns {
             t.await.unwrap();
         }
@@ -712,8 +763,8 @@ time.sleep(60)
     #[tokio::test]
     async fn a_release_blocking_qa_turn_goes_ahead_of_earlier_reviews_and_reviews_ahead_of_the_rest() {
         let key = "codex:test-class";
-        let holder = try_take(key, &t("builder")).unwrap();
-        let order = served(key, holder, vec![
+        let held_by = try_take(key, &t("builder")).unwrap();
+        let order = served(key, held_by, vec![
             Turn::new("support", "Weekly digest", Class::Other),
             Turn::new("pr-reviewer-sol", "Review 1: PR #1005", Class::Review),
             Turn::new("qa-engineer", "QA: PR #987", Class::Release),
@@ -725,9 +776,9 @@ time.sleep(60)
     #[tokio::test]
     async fn an_ordinary_turn_passed_over_twice_goes_next_whatever_waits_behind_it() {
         let key = "codex:test-starve";
-        let holder = try_take(key, &t("builder")).unwrap();
+        let held_by = try_take(key, &t("builder")).unwrap();
         let release = |bot: &str| Turn::new(bot, "QA: PR #1", Class::Release);
-        let order = served(key, holder, vec![t("support"), release("qa-1"), release("qa-2"), release("qa-3"), release("qa-4")]).await;
+        let order = served(key, held_by, vec![t("support"), release("qa-1"), release("qa-2"), release("qa-3"), release("qa-4")]).await;
         assert_eq!(MAX_SKIPS, 2);
         assert_eq!(order, ["qa-1", "qa-2", "support", "qa-3", "qa-4"]);
     }
@@ -735,7 +786,7 @@ time.sleep(60)
     #[tokio::test]
     async fn a_waiting_turn_hears_who_holds_the_login_on_what_and_its_place_as_they_change() {
         let key = "codex:test-place";
-        let holder = try_take(key, &Turn::new("pr-reviewer-sol", "Review 1: PR #1005", Class::Review)).unwrap();
+        let held_by = try_take(key, &Turn::new("pr-reviewer-sol", "Review 1: PR #1005", Class::Review)).unwrap();
         let heard = Arc::new(Mutex::new(Vec::<Waiting>::new()));
         let h = heard.clone();
         let review = tokio::spawn(async move {
@@ -756,13 +807,66 @@ time.sleep(60)
         });
         tokio::time::sleep(Duration::from_millis(20)).await;
         assert_eq!(heard.lock().unwrap().last().map(|w| w.position), Some(2));
-        drop(holder);
+        drop(held_by);
         qa.await.unwrap();
         let held = review.await.unwrap().expect("the review has the login");
         assert_eq!(holder(key).as_deref(), Some("reviewer-2"));
         let last = heard.lock().unwrap().last().cloned().unwrap();
         assert_eq!((last.holder.as_str(), last.task.as_str(), last.position), ("qa-engineer", "QA: PR #987", 1));
         drop(held);
+    }
+
+    #[tokio::test]
+    async fn a_waiter_whose_lease_lapses_and_is_leased_again_keeps_its_place() {
+        let key = "codex:test-lapse";
+        let held_by = try_take(key, &Turn::new("builder", "Dev 278", Class::Other).of("task-278", "att-1")).unwrap();
+        let review = Turn::new("pr-reviewer-sol", "Review 1: PR #1009", Class::Review).of("task-1009", "att-2");
+        let lapsed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let l = lapsed.clone();
+        let (r, place) = (review.clone(), Arc::new(Mutex::new(0)));
+        let p = place.clone();
+        let first = tokio::spawn(async move {
+            wait_for(key, &r, move || l.load(Ordering::SeqCst).then(|| "Lease expired".to_string()), move |w| *p.lock().unwrap() = w.position, Duration::from_millis(2)).await
+        });
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        let later = tokio::spawn(async move { drop(take(key, &Turn::new("support", "Digest", Class::Review).of("task-9", "att-3")).await) });
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert_eq!(*place.lock().unwrap(), 1);
+        lapsed.store(true, Ordering::SeqCst);
+        assert!(first.await.unwrap().is_err(), "the lapsed wait ends");
+        // Leased again as a new attempt of the same work: still first, ahead of the review that asked after it.
+        let again = review.clone().of("task-1009", "att-4");
+        let (p, heard) = (Arc::new(Mutex::new(0)), Arc::new(Mutex::new(String::new())));
+        let (p2, h2) = (p.clone(), heard.clone());
+        let back = tokio::spawn(async move {
+            let held = wait_for(key, &again, || None, move |w| *p2.lock().unwrap() = w.position, Duration::from_millis(2)).await.unwrap();
+            *h2.lock().unwrap() = holder(key).unwrap_or_default();
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            drop(held);
+        });
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert_eq!(*p.lock().unwrap(), 1);
+        drop(held_by);
+        back.await.unwrap();
+        later.await.unwrap();
+        assert_eq!(*heard.lock().unwrap(), "pr-reviewer-sol");
+        // Work whose task is done or closed is forgotten: queued again, it goes to the back.
+        forget(key, &review);
+    }
+
+    #[tokio::test]
+    async fn the_holders_attempt_is_named_to_waiters() {
+        let key = "codex:test-attempt";
+        let held = try_take(key, &Turn::new("pr-reviewer-sol", "Review 1", Class::Review).of("task-1", "att-holder")).unwrap();
+        let heard = Arc::new(Mutex::new(String::new()));
+        let h = heard.clone();
+        let w = tokio::spawn(async move {
+            wait_for(key, &t("qa"), || None, move |w| *h.lock().unwrap() = w.attempt.clone(), Duration::from_millis(2)).await.map(drop)
+        });
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert_eq!(*heard.lock().unwrap(), "att-holder");
+        drop(held);
+        w.await.unwrap().unwrap();
     }
 
     #[tokio::test]

@@ -504,6 +504,19 @@ impl Drove {
 }
 
 /// One cold Claude sign-in renewal at a time on this computer (service.py claude_cold_start).
+/// A turn as the login queue knows it (crate::login_turns): its bot, its task as a person reads it, the class the
+/// server gave it (`login_class`), the work it is for (its task, else its chat) and its attempt.
+fn login_turn(attempt: &Value) -> crate::login_turns::Turn {
+    let task = &attempt["task"];
+    let label = match (text_of(&task["number"]), text_of(&task["title"])) {
+        (n, t) if !n.is_empty() && !t.is_empty() => format!("#{n} {t}"),
+        (_, t) => t,
+    };
+    let work = [&task["session_task_id"], &task["id"], &attempt["conversation"]["id"]].into_iter().map(text_of).find(|w| !w.is_empty()).unwrap_or_default();
+    let class = crate::login_turns::Class::parse(&text_of(&attempt["login_class"]));
+    crate::login_turns::Turn::new(&text_of(&attempt["bot"]), &label, class).of(&work, &text_of(&attempt["id"]))
+}
+
 fn claude_cold_start() -> &'static tokio::sync::Mutex<()> {
     static L: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
     L.get_or_init(Default::default)
@@ -766,17 +779,21 @@ impl Runner {
     /// the task's Runs show (a wait, not a failure), renamed when the holder changes and cleared once the wait is
     /// over. A lost lease, a person's Stop or the computer stopping ends the wait, and a turn cancelled just as the
     /// login came free never starts on it (crate::login_turns::wait_for).
-    async fn take_login(&self, aid: &str, bot: &str, login: &crate::login_turns::Login, flags: &Flags, wake: &Notify) -> Result<crate::login_turns::Held, Fail> {
+    async fn take_login(&self, aid: &str, turn: &crate::login_turns::Turn, login: &crate::login_turns::Login, flags: &Flags, wake: &Notify) -> Result<crate::login_turns::Held, Fail> {
         let mut waited = false;
-        let say = |holder: &str| {
+        let bot = &turn.bot;
+        let say = |w: &crate::login_turns::Waiting| {
             waited = true;
-            let line = login.waiting(holder, bot);
+            let line = login.waiting(w, bot);
             log(&format!("Tico runner: {bot}: {line}"));
-            // The server words it for each reader: the holder is named only to whoever may see that bot.
-            let _ = self.state.append(aid, "status", &json!({"waiting": line, "login": login.label, "holder": holder}));
+            // The server words it for each reader: the holder and its task are named only to whoever may see them.
+            let _ = self.state.append(aid, "status", &json!({
+                "waiting": line, "login": login.label, "holder": w.holder, "holder_attempt": w.attempt,
+                "holder_task": w.task, "since": w.since, "position": w.position,
+            }));
             wake.notify_one();
         };
-        let got = crate::login_turns::wait_for(&login.key, bot, || self.login_wait_over(flags, login), say, Duration::from_secs(1)).await;
+        let got = crate::login_turns::wait_for(&login.key, turn, || self.login_wait_over(flags, login), say, Duration::from_secs(1)).await;
         if waited {
             let _ = self.state.append(aid, "status", &json!({"waiting": ""}));
             wake.notify_one();
@@ -874,10 +891,10 @@ impl Runner {
                 if let Some(why) = self.login_wait_over(&flags, &login) {
                     return Err(Fail::runtime(why));
                 }
-                match crate::login_turns::try_take(&login.key, &bot) {
+                match crate::login_turns::try_take(&login.key, &login_turn(&attempt)) {
                     Ok(held) => login_held = Some(held),
                     Err(holder) if self.moves_off_busy_login(&attempt, &config, goal.chat_goal.as_ref()) => busy = Some((login, holder)),
-                    Err(_) => login_held = Some(self.take_login(&aid, &bot, &login, &flags, &wake).await?),
+                    Err(_) => login_held = Some(self.take_login(&aid, &login_turn(&attempt), &login, &flags, &wake).await?),
                 }
             }
             segments.push(Segment {
@@ -1147,7 +1164,7 @@ impl Runner {
                 };
                 let _ = self.state.append(&aid, "diagnostic", &note);
                 if let Some(login) = self.serial_login(&hop.runtime, &hop.harness, selected.as_ref()) {
-                    login_held = Some(self.take_login(&aid, &bot, &login, &flags, &wake).await?);
+                    login_held = Some(self.take_login(&aid, &login_turn(&attempt), &login, &flags, &wake).await?);
                 }
                 // The primary's promise to report every tool call ends here; the fallback host makes its own.
                 let _ = self.state.append(&aid, "status", &json!({"tool_events": false}));
@@ -1637,8 +1654,8 @@ mod tests {
         let turn = |command: bool| json!({"id": "a1", "bot": "finance", "config": config, "message": {"refs": if command { json!({"command": true}) } else { json!({}) }}});
         let active = json!({"id": "g1", "status": "active", "objective": "Keep the Acme summary current"});
         let paused = json!({"id": "g1", "status": "paused", "objective": "Keep the Acme summary current"});
-        let ops = crate::login_turns::try_take("codex:", "ops").expect("the computer's ChatGPT login is free");
-        assert_eq!(crate::login_turns::try_take("codex:", "finance").map(|_| ()).err().as_deref(), Some("ops"));
+        let ops = crate::login_turns::try_take("codex:", &crate::login_turns::Turn::new("ops", "", crate::login_turns::Class::Other)).expect("the computer's ChatGPT login is free");
+        assert_eq!(crate::login_turns::try_take("codex:", &crate::login_turns::Turn::new("finance", "", crate::login_turns::Class::Other)).map(|_| ()).err().as_deref(), Some("ops"));
         assert!(runner.moves_off_busy_login(&turn(false), &config, None), "an ordinary turn takes the ready fallback");
         assert!(runner.moves_off_busy_login(&turn(false), &config, Some(&paused)), "a goal that is not active does not hold it");
         assert!(!runner.moves_off_busy_login(&turn(true), &config, None), "a command waits");
