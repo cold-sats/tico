@@ -55,6 +55,12 @@ All notable changes to Tico are recorded here. The format follows
   each one at its own rate.
 
 ### Fixed
+- **A bot's answer that finished while its computer slept now arrives.** When a computer was asleep or paused past a
+  turn's lease, the runner woke to the hub refusing the lease and dropped the answer the model had already finished,
+  so the person saw "No reply" and the run ended interrupted. The runner now reads out what the model already said
+  for up to ten seconds after that refusal and hands it in completed; the hub settles it as before (Dev 242). A model
+  still working is not waited for, and nothing new starts in that window. A person's Stop still stands: a late answer
+  from a stopped turn is kept on its run, not posted.
 - **A task blocked only by its own quiet subtask no longer waits silently.** Relating a subtask as its parent's
   blocker returns a warning, and when that subtask (a bot's hold or acknowledgement) goes quiet waiting on nothing
   else, the parent counts as stalled even while waiting: its bot is woken with the way out, and BotOps sees it stuck.
