@@ -8,6 +8,12 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **A bot's tasks can run on another model.** A bot now has a task model (harness, model and effort) beside its own,
+  set with `POST /api/v2/bots/{bot}/task-model` (null clears it back to "same as the bot"). A turn in a task's own
+  session runs on it; chat with the bot stays on the bot's model, and changing the bot's model leaves the task model
+  alone. A review or check subtask keeps its check model. When the task model can't run (retired, its provider off,
+  not installed or not signed in on the bot's computer), the task runs on the bot's own model and effort instead of waiting, and the
+  task's history says so and why. A task's Runs now show the effort beside each model, and the note on what ran.
 - **Optional login queue (dormant for Codex).** A harness that opts in can show who holds a login, on what, since when and
   its place, on the run, the task, the bot's status and in Health (waiting, not stuck). Release-blocking work goes
   first, then reviews and a person's own chat, with no waiter passed over more than twice. A turn that holds the login
