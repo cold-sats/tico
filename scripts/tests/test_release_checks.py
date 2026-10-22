@@ -175,6 +175,21 @@ def test_python_shards_balance_by_recorded_seconds_and_still_run_unrecorded_file
     assert [release_checks.shard_files(index, 3, {}) for index in (1, 2, 3)] == [['a.py'], ['b.py'], ['c.py', 'd.py']]
 
 
+def test_an_unrecorded_file_weighs_its_tests_at_the_recorded_seconds_per_test(tmp_path, monkeypatch):
+    import json
+    timings = tmp_path / 'test-timings.json'
+    timings.write_text(json.dumps({'default': {'a.py': 10, 'b.py': 10, 'z.py': 0.0}}))
+    monkeypatch.setattr(release_checks, 'TIMINGS', timings)
+    listing = '\n'.join(['a.py::t', 'b.py::t', 'z.py::t', 'new.py::t0', 'new.py::t1', 'new.py::t2'])
+    monkeypatch.setattr(release_checks, 'subprocess', SimpleNamespace(
+        run=lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=listing, stderr='')))
+    # new.py's 3 tests at 20 s / 3 recorded tests weigh 20 s, the heaviest, so it goes first; at 1 s a test it would
+    # go last. z.py's recorded 0.0 is a record, not a missing one.
+    assert [release_checks.shard_files(index, 3, {}, selection=()) for index in (1, 2, 3)] == [
+        ['new.py'], ['a.py', 'z.py'], ['b.py']]
+    assert release_checks.file_weights({'z.py': 1, 'new.py': 3}, {'z.py': 0.0, 'a.py': 1})[1] == ['new.py']
+
+
 def test_recorded_timings_split_into_three_shards_within_ten_percent_of_the_mean(monkeypatch):
     """The checked-in record: on its own seconds, the slowest of the three shards is within 10% of the mean."""
     import json

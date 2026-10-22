@@ -200,7 +200,9 @@ RELEASE_SELECTION = ('-m', 'slow or not slow', f'--ignore={ISOLATION_FILE}')
 
 
 # Each test file's recorded seconds, per selection ('default' for PR checks, 'release' for the release Python step), so
-# shards balance by time. Refresh with --record-timings after a full run with junit output (see record_timings).
+# shards balance by time. Refresh with --record-timings after a full run with junit output (see record_timings)
+# when the shard logs show many unrecorded files or shard times drift apart: a stale record never drops a test, it
+# only unbalances the shards.
 TIMINGS = ROOT / 'scripts' / 'test-timings.json'
 
 
@@ -229,7 +231,7 @@ def shard_files(index, total, env, selection=RELEASE_SELECTION):
         groups[lightest].append(name)
     mine = groups[index - 1]
     print(f'Python shard {index}/{total}: {len(mine)} files, {sum(counts[name] for name in mine)} of '
-          f'{sum(counts.values())} tests, about {loads[index - 1]:.0f} of {sum(loads):.0f} recorded seconds '
+          f'{sum(counts.values())} tests, about {loads[index - 1]:.0f} of {sum(loads):.0f} seconds, recorded or estimated '
           f'({len(unrecorded)} of {len(counts)} files unrecorded, weighed by test count)', flush=True)
     return sorted(mine)
 
@@ -246,7 +248,7 @@ def recorded_timings(kind):
 def file_weights(counts, timings):
     """Each collected file's weight: its recorded seconds, or for a file with no record its test count times the
     recorded files' seconds per test (1 when nothing is recorded). Also the unrecorded files."""
-    recorded = [name for name in counts if timings.get(name, 0) > 0]
+    recorded = [name for name in counts if name in timings]   # a recorded 0.0 (a file under 5 ms) is a record
     tests = sum(counts[name] for name in recorded)
     per_test = sum(timings[name] for name in recorded) / tests if tests else 1.0
     weights = {name: timings[name] if name in recorded else counts[name] * per_test for name in counts}
