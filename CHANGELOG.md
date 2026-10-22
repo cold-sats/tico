@@ -207,6 +207,10 @@ All notable changes to Tico are recorded here. The format follows
   current bot turn to finish" whenever a retry was running, so the bot stayed stuck on its spent model. The change now
   applies at once and takes effect from the next turn; the limit lifts, and a turn still running on the old model no
   longer puts the limit back on the new one.
+- **Worktree release follow-ups.** A stuck `pending` worktree whose pull requests finished is released without first
+  telling its bot to retry setup; only the turns of the bot that owns the task hold a finished tree; a fault reading
+  turns is raised instead of read as "no live turn"; and a new push clears the earlier "stale push cleared" note, so a
+  release no longer names an old push.
 
 ## [0.3.71] - 2026-10-21
 
