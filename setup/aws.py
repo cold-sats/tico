@@ -165,13 +165,14 @@ class Deployer:
             raise ValueError("a starter plan key is plans/<this server's name>/<sha256>")
         s3.put_object(Bucket=self.p.plan_bucket, Key=key, Body=data.encode("ascii"), ContentType="text/plain")
 
-    def delete_plan(self, s3, key: str) -> None:
-        """Once the server is up and has its copy. A plan already gone (S3 expires them after a day) is fine."""
+    def delete_plan(self, s3, key: str) -> str:
+        """Once the server is up and has its copy. Returns "" when deleted, else the error code: the server is already
+        working, and the bucket's lifecycle rule deletes a plan left behind within a day."""
         try:
             s3.delete_object(Bucket=self.p.plan_bucket, Key=key)
-        except Exception as e:  # botocore ClientError, without importing botocore here
-            if getattr(e, "response", {}).get("Error", {}).get("Code") not in ("NoSuchKey", "404"):
-                raise
+        except Exception as e:  # botocore ClientError, a network error; without importing botocore here
+            return str(getattr(e, "response", {}).get("Error", {}).get("Code") or type(e).__name__)
+        return ""
 
     def ensure_role(self) -> str:
         n = f"tico-{self.p.name}"
@@ -312,6 +313,12 @@ class Deployer:
             info = self.ssm.describe_instance_information(Filters=[{"Key": "InstanceIds", "Values": [iid]}])
             if info["InstanceInformationList"] and runner.run(f"test -f {self.p.marker}").returncode == 0:
                 return True
+            # A boot that stopped itself (the starter plan's sha256, say) never writes the marker: no need to wait it out.
+            if info["InstanceInformationList"]:
+                failed = runner.run("grep -m1 'tico-setup: FAILED' /var/log/tico-setup.log")
+                if failed.returncode == 0:
+                    self.say("  " + failed.stdout.strip()[:300])
+                    return False
             self.sleep(15)
         return False
 

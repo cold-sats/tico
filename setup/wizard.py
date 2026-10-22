@@ -5,6 +5,7 @@ import base64
 import json
 import os
 import re
+import shlex
 import shutil
 import socket
 import time
@@ -142,7 +143,13 @@ def gather(io: IO, args, s: Settings, dry: bool) -> Settings:
         s.plan_bucket = s.plan_bucket_region = ""
         from backend.company_file import starter
         if len(s.company_file_data) > starter.ENV_PACKED:
-            raise MissingInput(starter.TOO_LARGE)
+            if getattr(args, "company_file", None):
+                raise MissingInput(starter.TOO_LARGE)
+            # The plan saved here by that AWS run would refuse every re-run, so it stays behind; the app imports it.
+            s.company_file_data = ""
+            io.say("The starter plan saved by the earlier AWS setup is too large for this server, so setup leaves it "
+                   "out: on the first Welcome step in Tico, under \"Already chose your team?\", choose the company "
+                   "file and click \"Use this team\".")
     if s.target in cloudmod.PROVIDERS:
         pv = cloudmod.PROVIDERS[s.target]
         a.get("cloud_location", f"{pv.label} location", flag="--cloud-location", choices=pv.locations, default=pv.default_location)
@@ -660,13 +667,17 @@ def _aws(io, args, s, deps, zone, records, cf, env_text, compose, url, timeout) 
         return None
     if not created:
         io.say("  Existing server: refreshing .env and restarting.")
-        res = runner.run(f"{contract.REMOTE_DIR}/pull-env.sh && cd {contract.REMOTE_DIR} && docker compose up -d")
+        # A server made before --plan-bucket has a pull-env.sh without the plan's copy step, so it runs here too.
+        copy = (f" && sh -c {shlex.quote(chr(10).join(['set -eu', 'umask 077', *remote.company_file_dir_lines(), *remote.plan_copy_lines()]))}"
+                if plan_s3 else "")
+        res = runner.run(f"{contract.REMOTE_DIR}/pull-env.sh{copy} && cd {contract.REMOTE_DIR} && docker compose up -d")
         if res.returncode:
             io.say(envfile.scrub(res.stderr[-400:], s.secrets()))
             return None
     if plan_s3:
-        d.delete_plan(plan_s3, s.plan_key())
-        io.say("  The server has its copy of the starter plan; deleted it from the plan bucket.")
+        code = d.delete_plan(plan_s3, s.plan_key())
+        io.say(f"  Could not delete the starter plan from the plan bucket ({code}); S3 deletes it within a day." if code else
+               "  The server has its copy of the starter plan; deleted it from the plan bucket.")
     return runner, records
 
 

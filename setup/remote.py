@@ -248,7 +248,12 @@ def plan_copy_lines() -> list[str]:
             f"  plan_region=$(sed -n 's/^TICO_COMPANY_FILE_S3_REGION=//p' {d}/.env)",
             f'  if [ "$(sha256sum {f} 2>/dev/null | cut -d" " -f1)" != "$plan_sha" ]; then',
             f'    rm -f {f}.new',
-            f'    aws s3 cp --only-show-errors --region "$plan_region" "$plan_src" {f}.new',
+            # A role just given the read (a reused server) can take a few seconds to be allowed it.
+            '    plan_try=1',
+            f'    until aws s3 cp --only-show-errors --region "$plan_region" "$plan_src" {f}.new; do',
+            '      [ "$plan_try" -ge 6 ] && { echo "tico-setup: FAILED: cannot copy the starter plan from $plan_src" >&2; exit 4; }',
+            '      plan_try=$((plan_try + 1)); sleep 10',
+            '    done',
             f'    plan_got=$(sha256sum {f}.new | cut -d" " -f1)',
             '    if [ "$plan_got" != "$plan_sha" ]; then',
             f'      rm -f {f}.new',

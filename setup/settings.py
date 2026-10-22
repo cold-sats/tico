@@ -178,6 +178,9 @@ class Settings:
              "TICO_TAG": self.tag if self.tag != "latest" else "", "TICO_UPDATER_URL": contract.UPDATER_URL if self.updater else ""}
         if self.front_door == "cloudflared":
             e["CLOUDFLARE_TUNNEL_TOKEN"] = self.tunnel_token
+        if self.target == "aws":
+            # Absolute, for compose.yaml's starter plan mount: the updater's Compose resolves ./ against its own /project.
+            e["TICO_COMPANY_FILE_DIR"] = f"{contract.REMOTE_DIR}/{contract.COMPANY_FILE_DIR}"
         e.update({key: getattr(self, name) for name, key in RUNTIME_ENV.items() if getattr(self, name)})
         if self.effective_runner_url():
             e["TICO_RUNNER_URL"] = self.effective_runner_url()

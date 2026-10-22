@@ -144,8 +144,10 @@ services:
       # Complete Caddy generations and its supervisor, produced before the server becomes healthy.
       - tico-caddy:/caddy-generated
       # The starter plan setup copied here at first boot, when it was too big for the env (TICO_COMPANY_FILE). A folder,
-      # read-only, so a server without one (or an update from before it) still starts.
-      - ./company-file:/run/tico/company-file:ro
+      # read-only, so a server without one (or an update from before it) still starts. Setup names the host folder by
+      # its absolute path: the updater runs Compose with another project directory, where ./ is not this folder.
+      # Without the setting it is an empty volume, so no install gets a host folder it never asked for.
+      - ${TICO_COMPANY_FILE_DIR:-tico-company-file}:/run/tico/company-file:ro
     # Loopback only: for health checks and TICO_AUTH_PROXY=none test installs.
     ports: ["127.0.0.1:${TICO_PORT:-8765}:8765"]
     networks: [default, edge]
@@ -316,6 +318,7 @@ networks:
 
 volumes:
   tico-data:
+  tico-company-file:
   tico-backups:
   tico-control:
   tico-tunnel:

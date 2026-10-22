@@ -50,14 +50,14 @@ def big(tmp_path_factory):
     return path
 
 
-def hosted(path, *extra):
+def hosted(path, *extra, fail=None):
     d, ec2, iam, ssm, r53 = world()
     log, regions = [], []
 
     def s3(region, profile):
         regions.append(region)
         log.append(("instances so far", len(ec2.called("run_instances"))))
-        return FakeS3(region, log)
+        return FakeS3(region, log, fail)
     d.aws_s3 = s3
     code, out = go([*CREATE, "--company-file", str(path), *extra], d)
     return code, out, ec2, iam, ssm, log, regions
@@ -119,6 +119,9 @@ def test_a_server_set_up_before_the_plan_bucket_gets_the_read_of_its_plan_on_reu
     code, out = go([*CREATE, "--company-file", str(big), "--plan-bucket", BUCKET], d)
     assert code == 0, out
     assert len(ec2.called("run_instances")) == 1 and "reusing it" in out
+    # Its pull-env.sh may predate the copy step, so the re-run copies the plan itself before Compose starts.
+    (refresh,) = [c for c in ssm.commands if "pull-env.sh" in c and "docker compose up" in c]
+    assert refresh.index("pull-env.sh") < refresh.index("aws s3 cp") < refresh.index("docker compose up")
     statements = json.loads(iam.called("put_role_policy")[-1]["PolicyDocument"])["Statement"]
     assert {"Effect": "Allow", "Action": "s3:GetObject", "Resource": f"arn:aws:s3:::{BUCKET}/plans/{NAME}/*"} in statements
 
@@ -137,6 +140,10 @@ def test_a_saved_plan_bucket_does_not_follow_a_re_run_off_aws(big):
     s = wizard.gather(CaptureIO(), args, saved(small), False)
     assert s.target == "ssh" and s.plan_bucket == s.plan_bucket_region == ""
     assert "TICO_COMPANY_FILE_S3" not in s.to_env() and s.to_env()["TICO_COMPANY_FILE_B64"] == small
+    io = CaptureIO()
+    s = wizard.gather(io, args, saved(wizard_pack(big)), False)               # the saved plan stays behind, said once
+    assert s.company_file_data == "" and "TICO_COMPANY_FILE_B64" not in s.to_env() and "Use this team" in io.text
+    args.company_file = "tico.company.yaml"                                   # one passed again is refused
     with pytest.raises(MissingInput, match="without --company-file"):
         wizard.gather(CaptureIO(), args, saved(wizard_pack(big)), False)
 
@@ -172,14 +179,30 @@ def test_the_plan_bucket_is_for_aws_only_and_takes_bucket_and_region_names(big):
     assert code != 0 and "for a server on AWS" in out
 
 
-def test_deleting_a_plan_already_gone_is_fine_and_any_other_failure_is_not():
+def test_a_plan_the_bucket_will_not_delete_leaves_the_working_server_up_and_says_so(big):
+    code, out, *_ = hosted(big, "--plan-bucket", BUCKET, fail=ClientError("AccessDenied"))
+    assert code == 0, out
+    assert "Could not delete the starter plan from the plan bucket (AccessDenied); S3 deletes it within a day" in out
     deployer = aws.Deployer(aws.plan_aws(domain="a.example", front_door="caddy", region="us-east-1", name=NAME,
                                          plan_bucket=BUCKET), None, None, None, "123456789012")
-    deployer.delete_plan(FakeS3("us-west-2", [], ClientError("NoSuchKey")), f"plans/{NAME}/x")
-    with pytest.raises(ClientError):
-        deployer.delete_plan(FakeS3("us-west-2", [], ClientError("AccessDenied")), f"plans/{NAME}/x")
     with pytest.raises(ValueError):
         deployer.put_plan(FakeS3("us-west-2", []), "plans/pv-other/x", "data")
+
+
+def test_a_boot_that_stopped_itself_ends_the_wait_with_its_line():
+    from setup.tests.fakes import FakeSSM
+
+    class Stopped(FakeSSM):
+        def get_command_invocation(self, **kw):
+            line = "tico-setup: FAILED: the starter plan from s3://b/k has sha256 x, not y; not starting Tico"
+            if "grep" in self.commands[-1]:
+                return {"Status": "Success", "ResponseCode": 0, "StandardOutputContent": line, "StandardErrorContent": ""}
+            return {"Status": "Failed", "ResponseCode": 1, "StandardOutputContent": "", "StandardErrorContent": ""}
+    said = []
+    deployer = aws.Deployer(aws.plan_aws(domain="a.example", front_door="caddy", region="us-east-1", name=NAME),
+                            None, None, Stopped(), "123456789012", say=said.append, sleep=lambda _: None)
+    deployer.find_instance = lambda: {"InstanceId": "i-0abc"}
+    assert deployer.wait_ready(timeout=5) is False and "not starting Tico" in said[-1]
 
 
 # --- the copy at first boot, run here: pull-env.sh's plan lines with a stand-in `aws` and `chown` -----------------------
@@ -191,7 +214,10 @@ def boot(tmp_path, monkeypatch, plan: bytes, sha: str, existing: bytes | None = 
     bin_dir.mkdir()
     source.write_bytes(plan)
     # aws s3 cp --only-show-errors --region R SRC DST: the bucket object is `source`; it logs each call.
-    (bin_dir / "aws").write_text(f'#!/bin/sh\necho "$@" >> {tmp_path}/aws.log\ncp {source} "$7"\n')
+    (bin_dir / "aws").write_text(f'#!/bin/sh\necho "$@" >> {tmp_path}/aws.log\n'
+                                 'f="$TICO_TEST_AWS_FAIL_ONCE"; if [ -n "$f" ] && [ ! -e "$f" ]; then : > "$f"; exit 1; fi\n'
+                                 f'cp {source} "$7"\n')
+    (bin_dir / "sleep").write_text("#!/bin/sh\nexit 0\n")
     (bin_dir / "chown").write_text(f'#!/bin/sh\necho "$@" >> {tmp_path}/chown.log\n')
     for f in bin_dir.iterdir():
         f.chmod(0o755)
@@ -216,6 +242,14 @@ def test_the_server_copies_the_plan_once_private_and_read_only(tmp_path, monkeyp
     assert (tmp_path / "chown.log").read_text().split() == ["10001:10001", str(copy) + ".new"]
     assert calls.split() == ["s3", "cp", "--only-show-errors", "--region", "us-west-2", f"s3://{BUCKET}/plans/{NAME}/"
                              + hashlib.sha256(plan).hexdigest(), str(copy) + ".new"]
+
+
+def test_the_copy_waits_out_a_role_that_is_not_allowed_yet(tmp_path, monkeypatch):
+    plan = b"H4sIAAAAAAAA/plan"
+    monkeypatch.setenv("TICO_TEST_AWS_FAIL_ONCE", str(tmp_path / "failed-once"))
+    run, copy, calls = boot(tmp_path, monkeypatch, plan, hashlib.sha256(plan).hexdigest())
+    assert run.returncode == 0, run.stderr
+    assert copy.read_bytes() == plan and calls.count("s3 cp") == 2
 
 
 def test_a_sha256_mismatch_fails_the_boot_loudly_and_leaves_no_plan(tmp_path, monkeypatch):
