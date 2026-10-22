@@ -13,7 +13,13 @@ All notable changes to Tico are recorded here. The format follows
   12 KB) had to be imported in the app afterwards. With `--plan-bucket`, setup now puts the packed plan in a private S3
   bucket at `plans/<name>/<sha256>`, the server's own role copies it once at first boot (to `company-file/plan.b64`,
   0400, checked against its sha256; a mismatch stops the boot), the app reads it from `TICO_COMPANY_FILE`, and setup
-  deletes the object once the server is up. Self-install keeps the env path and its 7 KB limit.
+  deletes the object once the server is up (S3 expires one left behind within a day). Self-install keeps the env path and its 7 KB limit.
+- **System routines in Settings > Routines**: a read-only System section above the bot routines lists every job Tico
+  runs on its own timers, in four groups (Checks that suggest, Learning, Reminders and deadlines, Housekeeping), each
+  with what it does, its schedule, its last run in words ("9 checked, 2 suggestions", or "Failed: <reason>" in red) and
+  its next run. Stale ticket review and nightly learnings also show which route answered Decide (Gateway, company key or
+  company AI), "Ran on your own key: Gateway unavailable" when the Gateway did not answer, and this month's AI spend.
+  Housekeeping rows say Tico needs them. `GET /api/v2/system-routines`; the Decide fallback order is unchanged.
 - **Five company models for the setup org chart** replace the one 22-bot starter pack: Everything (73 seats), Software
   company (51), Services firm (38), Local service business (41) and Online store (39), with Legal, People, Operations
   and Leadership and bigger Finance, Sales, Marketing and Support teams. The first chart starts from the model the
