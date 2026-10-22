@@ -84,6 +84,9 @@ All notable changes to Tico are recorded here. The format follows
   each one at its own rate.
 
 ### Fixed
+- **Milestone waits follow the blocked_by rules.** Adding or removing a wait for a pull request or release now needs
+  the same permission as a blocked_by (the task's owner, or a person on a team that moves tasks), a deleted task
+  keeps its waits and gets them back when restored, and a message held while a task waits says what it waits for.
 - **A run whose only work was a git push counts as acting.** The computer reports the pushes a run made from its
   task's worktrees with its result, so in `hub sql` the run reads `acted` with `did_nothing` 0 instead of
   `no_change`. Pushes from another task's worktree are not counted, and older runs read as before.

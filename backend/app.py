@@ -3551,7 +3551,8 @@ def create_app(settings=None):
             else:
                 H._writer(c, who.actor)
                 H._task_private_writer(c, who.actor, row)
-                TR._mine(c, who.actor, row, mover(c, who))
+                # The same gate as a blocked_by: a wait parks the task's news just as a blocker does.
+                TR._blocker_gate(c, who.actor, row, TR._mover(c, who.actor, mover(c, who) or None))
                 def resolve(value):
                     other = auth.resolve_task(c, who, value)
                     auth.task(c, who, other)
