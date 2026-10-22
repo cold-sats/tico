@@ -218,11 +218,12 @@ def state_of(conn, task_row):
                 "CASE WHEN r.from_task=? THEN r.to_task ELSE r.from_task END "
                 "WHERE ? IN (r.from_task, r.to_task) ORDER BY r.kind, r.from_task, r.to_task", (tid, tid))],
             "asks": [a["id"] for a in H.open_task_asks(conn, row)],
-            "comments": [r[0] for r in conn.execute(
-                "SELECT id FROM messages WHERE conversation_id=? AND from_actor<>? AND deleted_at IS NULL "
+            "comments": [list(r) for r in conn.execute(
+                "SELECT id, edited_at FROM messages WHERE conversation_id=? AND from_actor<>? AND deleted_at IS NULL "
                 "ORDER BY rowid", (row["conversation_id"], H.KEEPER))],
             "links": [list(r) for r in conn.execute(
-                "SELECT kind, url, state, pr_sha, checks, mergeable, review_state, pending_comments FROM task_links "
+                "SELECT kind, url, state, pr_sha, json_extract(detail_json,'$.head_sha'), "
+                "checks, mergeable, review_state, pending_comments FROM task_links "
                 "WHERE task_id=? ORDER BY created, id", (tid,))],
         }
         return hashlib.sha256(json.dumps(parts, sort_keys=True, default=str).encode()).hexdigest()[:32]
@@ -239,10 +240,20 @@ def settled_state(conn, task_row, bot, started):
         if conn.execute("SELECT 1 FROM task_events WHERE task_id=? AND ts>? AND actor<>? LIMIT 1",
                         (task_row["id"], started, me)).fetchone():
             return None
+        # The hash includes related tasks' states too. Their events live on those tasks, not this one;
+        # a change during the turn must not be saved as if the bot had already seen it.
+        if conn.execute("SELECT 1 FROM task_events WHERE task_id IN ("
+                        "SELECT CASE WHEN from_task=? THEN to_task ELSE from_task END FROM task_relations "
+                        "WHERE ? IN (from_task,to_task)) AND ts>? AND actor<>? LIMIT 1",
+                        (task_row["id"], task_row["id"], started, me)).fetchone():
+            return None
         if conn.execute("SELECT 1 FROM messages WHERE conversation_id=? AND created>? AND from_actor NOT IN (?,?) "
                         "LIMIT 1", (task_row["conversation_id"], started, me, H.KEEPER)).fetchone():
             return None
-        if conn.execute("SELECT 1 FROM task_links WHERE task_id=? AND coalesce(updated,created)>? LIMIT 1",
+        # Starting a task lane records this turn's own session link after claim. That is known
+        # to this turn; explicit edits by someone else are already caught by task_events above.
+        if conn.execute("SELECT 1 FROM task_links WHERE task_id=? AND kind<>'session' "
+                        "AND coalesce(updated,created)>? LIMIT 1",
                         (task_row["id"], started)).fetchone():
             return None
         return state_of(conn, task_row)

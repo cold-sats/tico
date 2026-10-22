@@ -26,12 +26,18 @@ def setup(api):
 def checkpointed(api, r, title="Build 3/9"):
     """A task of cpo's whose last completed turn left a checkpoint; returns the task id."""
     task = post(api, "tasks", {"owner": "cpo", "title": title, "body": "Build it."})
+    complete_task(api, r, task["id"])
+    return task["id"]
+
+
+def complete_task(api, r, tid, during=None):
     attempt = post(api, "jobs/claim", {"next_run": True, "bot": "cpo"}, token=r["token"])["attempt"]
-    assert attempt["task"]["id"] == task["id"]
+    assert attempt["task"]["id"] == tid
     post(api, f"attempts/{attempt['id']}/started", {"thread_id": "t1"}, token=r["token"])
+    if during:
+        during()
     post(api, f"attempts/{attempt['id']}/complete", {"outcome": "completed", "text": "Waiting on review.",
                                                      "last_seq": 0}, token=r["token"])
-    return task["id"]
 
 
 def check(c, tid, wake="status_check"):
@@ -104,6 +110,7 @@ def changes(c, tid):
     def relation_state():
         relation()
         c.execute("DELETE FROM jobs WHERE id NOT IN (SELECT job_id FROM attempts)")
+        c.execute("UPDATE tasks SET checkpoint_state=? WHERE id=?", (W.state_of(c, H.task(c, tid)), tid))
         c.execute("UPDATE tasks SET status='done' WHERE id=?", (other["id"],))
 
     def pr_head():
@@ -185,3 +192,98 @@ def test_another_bots_task_is_not_held_for_this_bots_checkpoint(api):
         task = H.task(c, tid)
         H._wake(c, task, "bot:ops", "Status check", {"wake": "status_check"}, trigger="stall_check")
         assert jobs(c, "ops") == 1
+
+
+def test_synchronizing_an_existing_pr_head_with_unchanged_checks_runs_the_next_check(api):
+    from backend import github as G
+    r = setup(api)
+    task = post(api, "tasks", {"owner": "cpo", "title": "Review code", "body": "Build it."})
+    tid = task["id"]
+    url = "https://github.com/acme/widget/pull/9"
+    with api.app.state.store.transaction() as c:
+        H.task_link(c, "human:ana", tid, url, kind="pr")
+        G.pull_request(c, {"action": "opened", "pull_request": {
+            "html_url": url, "head": {"sha": "a" * 40}, "mergeable": None}})
+    complete_task(api, r, tid)
+    with api.app.state.store.transaction() as c:
+        before = dict(c.execute("SELECT * FROM task_links WHERE task_id=?", (tid,)).fetchone())
+        assert before["checks"] == "pending" and before["mergeable"] == "unknown"
+        assert before["pr_sha"] is None
+        G.pull_request(c, {"action": "synchronize", "pull_request": {
+            "html_url": url, "head": {"sha": "b" * 40}, "mergeable": None}})
+        after = dict(c.execute("SELECT * FROM task_links WHERE task_id=?", (tid,)).fetchone())
+        assert json.loads(after["detail_json"])["head_sha"] == "b" * 40
+        assert [after[k] for k in ("pr_sha", "checks", "mergeable")] == [
+            before[k] for k in ("pr_sha", "checks", "mergeable")]
+        assert jobs(c, "cpo") == 0       # synchronize itself is quiet
+        assert W.state_of(c, H.task(c, tid)) != H.task(c, tid)["checkpoint_state"]
+        check(c, tid)
+        assert jobs(c, "cpo") == 1
+
+
+def test_editing_an_existing_comment_through_the_api_runs_the_next_check(api):
+    r = setup(api)
+    task = post(api, "tasks", {"owner": "cpo", "title": "Use the correction", "body": "Build it."})
+    tid = task["id"]
+    comment = post(api, f"tasks/{tid}/comments", {"text": "Use blue."})["comment"]
+    complete_task(api, r, tid)
+    with api.app.state.store.read() as c:
+        before = H.task(c, tid)
+        assert W.state_of(c, before) == before["checkpoint_state"]
+    edited = post(api, f"tasks/{tid}/comments/{comment['id']}", {"text": "Correction: use green."})
+    assert edited["woke"] is False and edited["comment"]["id"] == comment["id"]
+    with api.app.state.store.transaction() as c:
+        assert H.task(c, tid)["version"] == before["version"]
+        assert W.state_of(c, H.task(c, tid)) != before["checkpoint_state"]
+        check(c, tid)
+        assert jobs(c, "cpo") == 1
+
+
+def test_an_existing_related_task_changing_mid_turn_is_not_checkpointed_unseen(api):
+    r = setup(api)
+    other = post(api, "tasks", {"owner": "ops", "title": "Related work", "body": "Do it."})
+    task = post(api, "tasks", {"owner": "cpo", "title": "Parent work", "body": "Build it."})
+    tid = task["id"]
+    with api.app.state.store.transaction() as c:
+        H.TR.relate(c, "human:ana", tid, other["id"], "related")
+        parent_version = H.task(c, tid)["version"]
+    complete_task(api, r, tid, during=lambda: post(api, f"tasks/{other['id']}", {
+        "status": "doing", "version": other["version"]}))
+    with api.app.state.store.transaction() as c:
+        assert H.task(c, other["id"])["status"] == "doing"
+        assert H.task(c, tid)["version"] == parent_version
+        assert H.task(c, tid)["checkpoint"] == "Waiting on review."
+        assert H.task(c, tid)["checkpoint_state"] is None
+        check(c, tid)
+        assert jobs(c, "cpo") == 1
+
+
+def test_scheduler_skips_never_become_retries_or_diagnostics(api, monkeypatch):
+    from backend.execution import LANES
+    r = setup(api)
+    post(api, "runners/heartbeat", {"version": "test", "platform": "test", "capabilities": [LANES],
+                                  "readiness": {"cpo": True, "ops": True}}, token=r["token"])
+    tid = checkpointed(api, r)
+    with api.app.state.store.transaction() as c:
+        # Both the idle stall and the recent-session spot-check paths see the same settled task.
+        assert H.task(c, tid)["checkpoint_state"]
+        start = H.now()
+        for spot_only in (False, True):
+            if spot_only:
+                c.execute("UPDATE tasks SET next_run=0 WHERE id=?", (tid,))
+                monkeypatch.setattr(H, "stalled_tasks", lambda *a: [])
+            next_run = H.task(c, tid)["next_run"]
+            for minutes in (31, 62, 93, 124):
+                at = H.shift(start, seconds=minutes * 60)
+                monkeypatch.setattr(H, "now", lambda: at)
+                candidates = H.spot_check_tasks(c, at) if spot_only else H.stalled_tasks(c, at)
+                assert tid in [t["id"] for t in candidates], (spot_only, minutes)
+                result = H.wake_stalled(c, at)
+                assert all(not ids for ids in result.values()), result
+                assert jobs(c, "cpo") == 0
+                assert H.task(c, tid)["next_run"] == next_run
+        assert [s["detail"]["rule"] for s in skips(c)] == ["same_state"] * 8
+        assert c.execute("SELECT count(*) FROM events WHERE target=? AND action IN "
+                         "('task.stall_wake','task.stuck_retry','task.stuck','task.stall_escalated')",
+                         (tid,)).fetchone()[0] == 0
+        assert c.execute("SELECT count(*) FROM tasks WHERE title LIKE 'Find why %'").fetchone()[0] == 0

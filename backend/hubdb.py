@@ -6116,6 +6116,7 @@ def wake_stalled(conn, at=None):
     (spot_check_tasks) that is not stalled gets one status check per quiet stretch; a status check or a
     stall wake with still no progress SPOT_STUCK_MINUTES later retries its bot once, and SPOT_STUCK_MINUTES after
     that reports it stuck to BotOps (_report_stuck), never to a person. Returns what it did."""
+    from . import wake_rules
     at = at or now()
     woke, escalated, checked, stuck, held, retried_ids = [], [], [], [], [], []
     stalled = {row["id"]: row for row in stalled_tasks(conn, at)}
@@ -6169,14 +6170,14 @@ def wake_stalled(conn, at=None):
                 # A spot check: one status check into the task's session per quiet stretch.
                 if nudged:
                     continue
-                _wake(conn, row, row["owner"], STATUS_CHECK, {"wake": "status_check"}, trigger="stall_check")
+                msg = _wake(conn, row, row["owner"], STATUS_CHECK, {"wake": "status_check"}, trigger="stall_check")
+                if msg and msg["refs"].get(wake_rules.MARK) == "same_state":
+                    continue     # no attempted wake for the retry/escalation machinery to count
                 event(conn, KEEPER, "task.stall_wake", row["id"],
                       {"bot": actor_id(row["owner"]), "quiet_minutes": row["quiet_minutes"], "wake": count + 1,
                        "kind": "status_check"})
                 checked.append(row["id"])
                 continue
-            if row.get("next_run"):
-                conn.execute("UPDATE tasks SET next_run=0 WHERE id=?", (row["id"],))
             if row.get("own_blockers"):
                 own = ", ".join(row["own_blockers"])
                 text = (f"Stalled {row['quiet_minutes']} min: {row['title']}. It is blocked only by its own subtask "
@@ -6188,7 +6189,11 @@ def wake_stalled(conn, at=None):
                 text = (f"Stalled {row['quiet_minutes']} min: {row['title']}. Nothing is set to move it. Carry it on now, "
                         f"or, when someone else must act, file a subtask for them (hub task create --parent {row['id']} "
                         "--owner <bot or person>) and set this waiting; finishing the subtask wakes it.")
-            _wake(conn, row, row["owner"], text, {"wake": "stalled"}, trigger="stall_check")
+            msg = _wake(conn, row, row["owner"], text, {"wake": "stalled"}, trigger="stall_check")
+            if msg and msg["refs"].get(wake_rules.MARK) == "same_state":
+                continue
+            if row.get("next_run"):
+                conn.execute("UPDATE tasks SET next_run=0 WHERE id=?", (row["id"],))
             event(conn, KEEPER, "task.stall_wake", row["id"],
                   {"bot": actor_id(row["owner"]), "quiet_minutes": row["quiet_minutes"], "wake": count + 1})
             woke.append(row["id"])
