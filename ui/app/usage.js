@@ -279,8 +279,10 @@ function useDefaultDialog(limits, done) {
 function usePoolDialog(limits, done) {
   const pools = limits?.pools || {company: {}, groups: {}};
   const groups = Object.entries(pools.groups || {});
-  const depth = id => { let n = 0, at = pools.groups[id]?.parent; while (at && n < 8) { n++; at = pools.groups[at]?.parent; } return n; };
-  const scopes = [['company', 'The whole team', pools.company], ...groups.sort((a, b) => a[1].name.localeCompare(b[1].name))
+  // Each group under its parent: ordered by the names from the top group down.
+  const chain = id => { const out = []; let at = id; while (at && pools.groups[at] && out.length < 8) { out.unshift(pools.groups[at].name); at = pools.groups[at].parent; } return out; };
+  const depth = id => chain(id).length - 1;
+  const scopes = [['company', 'The whole team', pools.company], ...groups.sort((a, b) => chain(a[0]).join('\u0000').localeCompare(chain(b[0]).join('\u0000')))
     .map(([id, g]) => ['group:' + id, '\u00a0\u00a0'.repeat(depth(id) + 1) + g.name, g])];
   const spent = pool => USE_PERIODS.filter(([key]) => pool?.[key]).map(([key, , , label]) =>
     `${useMoney(pool[label + '_spent'] || 0)} of ${useCap(pool[key])} this ${label}`).join(' · ');
