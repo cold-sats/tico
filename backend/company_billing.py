@@ -14,7 +14,8 @@ micro-dollars end to end: an answer with a float anywhere is refused rather than
 request's header, only to a URL `clients/gateway.py safe_base` allows, and never follows a redirect.
 
 What the page shows when it can't show billing (`state`): `no_gateway` (this install has no gateway key: billing comes
-with Tico AI Gateway), `no_account` (HQ knows the key but no company bill for it yet: the empty state), `refused` (HQ
+with Tico AI Gateway), `no_account` (HQ knows the key but no company bill for it yet: the empty state, with HQ's
+booking link), `refused` (HQ
 refused the key) and `unreachable`.
 """
 
@@ -70,13 +71,23 @@ def _get(key, base, path):
     return status, body, kind
 
 
-def _code(body):
+def _payload(body):
     try:
-        payload = json.loads(body or b"{}")
+        payload = json.loads(body or b"{}", parse_float=_no_float, parse_constant=_no_float)
     except ValueError:
-        return ""
-    error = payload.get("error") if isinstance(payload, dict) else None
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _code(body):
+    error = _payload(body).get("error")
     return error if isinstance(error, str) else ""
+
+
+def _booking(value):
+    """The booking link "Talk to us to add credit" opens: https only, or None."""
+    return value if isinstance(value, str) and value.startswith("https://") and len(value) <= 300 \
+        and not any(ch.isspace() for ch in value) else None
 
 
 def _ask(key, base, path):
@@ -92,7 +103,7 @@ def _ask(key, base, path):
         return (body, kind), None
     code = _code(body) if isinstance(status, int) else ""
     if status == 404 and code in ("no_account", "unknown_account"):
-        return None, {"state": "no_account"}
+        return None, {"state": "no_account", "booking_url": _booking(_payload(body).get("booking_url"))}
     if status == 401 or code in REFUSED:
         return None, {"state": "refused"}
     if status == 422:
@@ -141,9 +152,6 @@ def parse(body):
     data = json.loads(body, parse_float=_no_float, parse_constant=_no_float)
     if not isinstance(data, dict) or data.get("state") not in STATES:
         raise ValueError("not a billing answer")
-    booking = data.get("booking_url")
-    booking = booking if isinstance(booking, str) and booking.startswith("https://") and len(booking) <= 300 \
-        and not any(ch.isspace() for ch in booking) else None
     months = [m for m in data.get("months") or [] if isinstance(m, str) and MONTH.fullmatch(m)][:24]
     grace = data.get("grace_until")
     return {"state": data["state"], "balance_micros": _micros(data.get("balance_micros")),
@@ -153,7 +161,7 @@ def parse(body):
             "month": str(data.get("month") or ""), "months": months,
             "credits": [_credit(row) for row in data.get("credits") or []],
             "usage": [_period(row, 10) for row in data.get("usage") or []],
-            "statement": _statement(data.get("statement")), "booking_url": booking}
+            "statement": _statement(data.get("statement")), "booking_url": _booking(data.get("booking_url"))}
 
 
 def read(key, base, month=""):

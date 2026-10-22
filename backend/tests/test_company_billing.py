@@ -101,7 +101,10 @@ def test_a_month_or_day_that_is_not_one_never_reaches_hq(api, hq):  # noqa: F811
 
 def test_no_gateway_key_no_account_and_a_refused_key_say_so(api, hq, monkeypatch):  # noqa: F811
     hq.answers["/billing"] = (404, {"error": "no_account"}, "application/json")
-    assert get(api, "billing") == {"state": "no_account"}
+    assert get(api, "billing") == {"state": "no_account", "booking_url": None}
+    # a new company's empty page still offers HQ's booking link
+    hq.answers["/billing"] = (404, {"error": "no_account", "booking_url": "https://cal.acme.example/tico"}, "application/json")
+    assert get(api, "billing") == {"state": "no_account", "booking_url": "https://cal.acme.example/tico"}
     hq.answers["/billing"] = (401, {"error": "revoked_key"}, "application/json")
     assert get(api, "billing") == {"state": "refused"}
     monkeypatch.delenv("TICO_GATEWAY_KEY")

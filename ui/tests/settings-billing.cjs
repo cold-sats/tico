@@ -31,7 +31,8 @@ const shots = process.env.TICO_SHOTS || '';
         {product: 'gateway', sku: 'tico-mid-1.0:input', amount_micros: 1_250_000},
         {product: 'gateway', sku: 'tico-cheap-1.1:output', amount_micros: 3}]}],
       statement};
-    let billing = full, role = 'owner';
+    let billing = full, role = 'owner', hoursDown = true;
+    const slow = {};                                       // month -> ms its answer waits
     const asked = [];
     await page.route('**/*', route => {
       const url = new URL(route.request().url()), p = url.pathname;
@@ -48,9 +49,14 @@ const shots = process.env.TICO_SHOTS || '';
       if (p === '/api/v2/config') return json(config);
       if (p.startsWith('/api/v2/billing')) {
         asked.push(p + url.search);
-        if (p === '/api/v2/billing/usage') return json({state: 'ok', day: '2026-11-02', hours: [
-          {period: '2026-11-02T09', total_micros: 1_250_003, lines: billing.usage[0].lines}]});
-        return json(billing);
+        if (p === '/api/v2/billing/usage') {
+          if (hoursDown) { hoursDown = false; return json({state: 'unreachable'}); }   // the first read fails
+          return json({state: 'ok', day: '2026-11-02', hours: [
+            {period: '2026-11-02T09', total_micros: 1_250_003, lines: billing.usage[0].lines}]});
+        }
+        const month = url.searchParams.get('month') || billing.month;
+        const answer = billing.statement ? {...billing, month, statement: {...billing.statement, month}} : billing;
+        return new Promise(done => setTimeout(done, slow[month] || 0)).then(() => json(answer));
       }
       if (p === '/api/employees' || p === '/api/issues') return json([]);
       if (p === '/api/humans' || p === '/api/people') return json({people: [{id: 'ana', name: 'Ana'}], teams: {}});
@@ -81,6 +87,10 @@ const shots = process.env.TICO_SHOTS || '';
     // a day opens into hours; under a cent says so, the day's total is to the cent
     const day = host.locator('[data-billing-day="2026-11-02"]');
     assert.match((await day.locator('summary').innerText()).replace(/\s+/g, ' '), /2026-11-02 \$1\.25/);
+    // HQ not answering says so, and the day asks again when it is opened again
+    await day.locator('summary').click();
+    await day.getByText('Tico HQ did not answer. Try again in a minute.').waitFor();
+    await day.locator('summary').click();
     await day.locator('summary').click();
     await day.locator('.billing-hour').waitFor();
     assert.match((await day.innerText()).replace(/\s+/g, ' '), /Tico models tico-cheap-1\.1 <\$0\.01/);
@@ -97,10 +107,15 @@ const shots = process.env.TICO_SHOTS || '';
     assert.equal(await talk.getAttribute('target'), '_blank');
     assert.equal(await host.locator('input, form').count(), 0);
     for (const mode of ['dark', 'light']) { await theme(mode); await shot(`billing-desktop-${mode}`); }
-    // another month
+    // months picked quickly: the older answer arriving last does not replace the newer month
+    slow['2026-10'] = 800;
     await host.locator('[data-billing-month]').selectOption('2026-10');
-    for (let i = 0; i < 100 && !asked.includes('/api/v2/billing?month=2026-10'); i++) await page.waitForTimeout(50);
+    await page.evaluate(() => { BILLING_MONTH = '2026-11'; void renderSettingsBilling(); });
+    for (let i = 0; i < 100 && !asked.includes('/api/v2/billing?month=2026-11'); i++) await page.waitForTimeout(50);
+    await page.waitForTimeout(1200);
     assert(asked.includes('/api/v2/billing?month=2026-10'), asked.join());
+    assert.equal(await host.locator('[data-billing-csv]').getAttribute('href'), '/api/v2/billing/statements/2026-11.csv');
+    assert.equal(await host.locator('[data-billing-month]').inputValue(), '2026-11');
     // the status lines
     const status = async (state, extra = {}) => {
       billing = {...full, state, ...extra};
@@ -117,15 +132,22 @@ const shots = process.env.TICO_SHOTS || '';
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no sideways scroll on a phone');
     for (const mode of ['dark', 'light']) { await theme(mode); await shot(`billing-phone-${mode}`); }
     await page.setViewportSize({width: 1280, height: 800});
-    // empty: no credit yet, record-only says usage is recorded but not charged
+    // no credit yet on a record-only account: its balance, the record-only line and the empty-state text
     billing = {...full, state: 'active', record_only: true, balance_micros: 0, credits: [], usage: []};
     await page.evaluate(() => renderSettingsBilling());
     assert.match((await host.innerText()).replace(/\s+/g, ' '),
-      /^No credit yet\. Tico models and Hosting start once credit is added\. Usage is recorded but not charged yet\. Talk to us to add credit/);
-    billing = {state: 'no_account'};
+      /^\$0\.00 Active Usage is recorded but not charged yet\. Talk to us to add credit Credits No credit yet\. Tico models and Hosting start once credit is added\./);
+    // no credit, but an enforced account below a negative minimum in Hosting's grace: balance and status still show
+    billing = {...full, state: 'grace', grace_until: '2026-11-04T09:00:00.000000Z', balance_micros: -5_000_000,
+      min_balance_micros: -5_000_000, credits: []};
+    await page.evaluate(() => renderSettingsBilling());
+    assert.equal(await host.locator('.billing-balance').innerText(), '-$5.00');
+    assert.match(await host.locator('.billing-status').innerText(), /^Hosting grace period: servers stop on November 4, 2026/);
+    // no account at HQ yet: the empty state, with HQ's booking link
+    billing = {state: 'no_account', booking_url: 'https://cal.acme.example/tico'};
     await page.evaluate(() => renderSettingsBilling());
     assert.match(await host.innerText(), /No credit yet/);
-    assert.equal(await host.locator('[data-billing-talk]').count(), 1);
+    assert.equal(await host.locator('[data-billing-talk]').getAttribute('href'), 'https://cal.acme.example/tico');
     // a member: no Billing tab, and the page never asks for billing
     role = 'human';
     const before = asked.length;

@@ -4,7 +4,7 @@
 
 // Owners and admins only (backend/company_billing.py reads Tico HQ; the server refuses everyone else). Money arrives
 // as whole micro-dollars and is written here with integers only: a float would round a statement wrong.
-let BILLING_MONTH = '';
+let BILLING_MONTH = '', BILLING_ASKED = 0;
 const billingCents = micros => {
   const sign = micros < 0 ? '-' : '', abs = Math.abs(micros), cents = Math.floor((abs + 5000) / 10000);
   return `${sign}$${Math.floor(cents / 100).toLocaleString('en-US')}.${String(cents % 100).padStart(2, '0')}`;
@@ -54,6 +54,7 @@ function billingStatement(s) {
   return `<table class="billing-table billing-statement"><tbody>${lines.map(([label, micros], i) =>
     `<tr${i === 0 || i === lines.length - 1 ? ' class="billing-total"' : ''}><td>${esc(label)}</td><td class="num">${billingCents(micros)}</td></tr>`).join('')}</tbody></table>`;
 }
+const BILLING_NO_CREDIT = 'No credit yet. Tico models and Hosting start once credit is added.';
 const BILLING_EMPTY = {
   no_gateway: 'Billing shows here once this install is connected to Tico AI Gateway (Settings › Computers).',
   refused: 'Tico HQ did not accept this install’s gateway key. Check it in Settings › Computers.',
@@ -62,16 +63,20 @@ const BILLING_EMPTY = {
 async function renderSettingsBilling() {
   const host = $('#set-billing');
   if (!host) return;
+  // Months picked quickly can answer out of order: only the newest read draws the page.
+  const asked = ++BILLING_ASKED;
   let v;
-  try { v = await get('/v2/billing' + (BILLING_MONTH ? `?month=${encodeURIComponent(BILLING_MONTH)}` : '')); } catch (e) { host.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  try { v = await get('/v2/billing' + (BILLING_MONTH ? `?month=${encodeURIComponent(BILLING_MONTH)}` : '')); }
+  catch (e) { if (asked === BILLING_ASKED) host.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  if (asked !== BILLING_ASKED) return;
   if (BILLING_EMPTY[v.state]) { host.innerHTML = `<div class="empty">${esc(BILLING_EMPTY[v.state])}</div>`; return; }
   const talk = url => url ? `<a class="primary btn" href="${esc(url)}" target="_blank" rel="noopener noreferrer" data-billing-talk>Talk to us to add credit</a>`
     : '<button class="primary" type="button" disabled data-billing-talk title="Tico has not set up its booking link yet">Talk to us to add credit</button>';
-  if (v.state === 'no_account' || !v.credits.length) {
-    host.innerHTML = `<div class="billing-empty"><p>No credit yet. Tico models and Hosting start once credit is added.</p>
-      ${v.state === 'no_account' || v.record_only ? '<p class="muted">Usage is recorded but not charged yet.</p>' : ''}
-      <div class="row">${talk(v.booking_url)}</div></div>${v.state === 'no_account' ? '' : billingUsageHTML(v)}`;
-    billingBind(host, v);
+  // No account at HQ yet: the empty state alone. An account with no credit still shows its balance and status (staff
+  // may have set a minimum below $0, so it can have usage, be paused or be in Hosting's grace).
+  if (v.state === 'no_account') {
+    host.innerHTML = `<div class="billing-empty"><p>${BILLING_NO_CREDIT}</p><p class="muted">Usage is recorded but not charged yet.</p>
+      <div class="row">${talk(v.booking_url)}</div></div>`;
     return;
   }
   const [tone, line] = billingStatus(v);
@@ -79,7 +84,7 @@ async function renderSettingsBilling() {
       <p class="billing-status" data-tone="${tone}" role="status">${esc(line)}</p>
       ${v.record_only ? '<p class="muted">Usage is recorded but not charged yet.</p>' : ''}</div>
       <div class="row">${talk(v.booking_url)}</div></div>
-    <h3>Credits</h3>${billingCredits(v.credits)}
+    <h3>Credits</h3>${v.credits.length ? billingCredits(v.credits) : `<p class="billing-empty">${BILLING_NO_CREDIT}</p>`}
     ${billingUsageHTML(v)}`;
   billingBind(host, v);
 }
@@ -101,6 +106,8 @@ function billingBind(host, v) {
     hours.innerHTML = '<p class="muted">Loading hours…</p>';
     try {
       const r = await get(`/v2/billing/usage?day=${encodeURIComponent(day.dataset.billingDay)}`);
+      // HQ refused or did not answer: say so, and ask again the next time the day opens.
+      if (r.state !== 'ok') { hours.innerHTML = `<p class="muted">${esc(BILLING_EMPTY[r.state] || BILLING_EMPTY.unreachable)}</p>`; delete hours.dataset.loaded; return; }
       hours.innerHTML = r.hours?.length ? `<h4>By hour</h4>${r.hours.map(h => `<div class="billing-hour"><div class="billing-hour-head"><span>${esc(h.period.slice(11))}:00 UTC</span><span class="num">${billingCents(h.total_micros)}</span></div>
         <table class="billing-table"><tbody>${billingSplit(h.lines)}</tbody></table></div>`).join('')}` : '<p class="muted">No hours to show.</p>';
     } catch (e) { hours.innerHTML = `<p class="muted">${esc(e.message)}</p>`; delete hours.dataset.loaded; }
