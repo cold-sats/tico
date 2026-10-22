@@ -354,7 +354,8 @@ them again only when they change. A bot's chat and its own thread use the local
 `bot-<slug>` checkout one turn at a time; with a session per task, each task's turns run in that
 task's own worktree (`sessions/bot-<slug>/<task>`), beside the bot's other tasks. A bot never has two turns on
 one task at once: a wake about a task its turn is on goes into that turn, or waits for the next one there. A task a bot
-files for itself during a turn starts its own turn once that turn ends, and not at all if that turn finished it. Only that
+files for itself during a turn starts its own turn once that turn ends (or after 5 minutes), and not at all if that
+turn finished or declined it. Only that
 computer knows which thread
 it is. Tico never ends a thread, never asks the bot for a checkpoint before a model or computer
 change, and never rebuilds history into a prompt (a fresh session on a task starts from the task's last

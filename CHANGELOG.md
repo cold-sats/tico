@@ -85,11 +85,12 @@ All notable changes to Tico are recorded here. The format follows
 
 ### Fixed
 - **A bot no longer repeats "nothing changed" into a person's chat.** A task a bot files for itself during one of
-  its turns now starts its own turn only after that turn ends, and not at all when the filing turn already finished
-  it; before, a standing order filed and marked done in one turn started a second turn that re-checked and replied
+  its turns now waits for that turn to end (at most 5 minutes), and starts no turn at all when the filing turn
+  already finished or declined it; before, a standing order filed and marked done in one turn started a second turn that re-checked and replied
   again. A turn Tico woke on a task that was already finished, and that changed nothing, no longer posts its reply to
   the person: the text stays on the run, and `hub sql` shows a `reply.withheld` event for it. A person's own
-  messages, and any turn that wrote something, reply as before.
+  messages (including one that arrives during the turn), approvals and answers, and any turn that wrote or pushed
+  something, reply as before.
 - **A run whose only work was a git push counts as acting.** The computer reports the pushes a run made from its
   task's worktrees with its result, so in `hub sql` the run reads `acted` with `did_nothing` 0 instead of
   `no_change`. Pushes from another task's worktree are not counted, and older runs read as before.

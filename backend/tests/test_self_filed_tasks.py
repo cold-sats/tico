@@ -100,3 +100,73 @@ def test_an_answer_on_an_open_task_still_reaches_the_person(api):
     start(api, r, attempt)
     finish(api, r, attempt, "The Monzo feed, by two days.")
     assert replies(api, task) == ["The Monzo feed, by two days."]
+
+
+def finished_and_woken(api, refs=None):
+    """A task ops finished, and a later Tico wake about it whose turn is started: (runner, task, that turn)."""
+    r = machine(api)
+    task = post(api, "tasks", {"owner": "ops", "title": "Hold the spec", "body": "Hold it until routines land."})
+    first = claim(api, r)
+    start(api, r, first)
+    done(api, task["id"], first["token"])
+    finish(api, r, first, "Held.")
+    with api.app.state.store.transaction() as c:
+        H._wake(c, H.task(c, task["id"]), "bot:ops", "Still held?", refs)
+    again = claim(api, r)
+    start(api, r, again)
+    return r, task, again
+
+
+def test_a_persons_message_folded_into_a_recheck_still_gets_its_answer(api):
+    r, task, again = finished_and_woken(api)
+    person = post(api, f"tasks/{task['id']}/comments", {"text": "Is the spec still on hold?"})["comment"]
+    assert person["id"] in [m["id"] for m in post(api, f"attempts/{again['id']}/inputs", {}, r["token"])["messages"]]
+    finish(api, r, again, "Yes, until routines land.")
+    assert replies(api, task)[-1] == "Yes, until routines land."
+
+
+def test_a_decided_approval_or_a_reported_push_still_reports(api):
+    r, task, again = finished_and_woken(api, {"approval": "a1"})
+    finish(api, r, again, "Approved and sent.")
+    assert replies(api, task)[-1] == "Approved and sent."
+    with api.app.state.store.transaction() as c:
+        H._wake(c, H.task(c, task["id"]), "bot:ops", "Still held?")
+    third = claim(api, r)
+    start(api, r, third)
+    post(api, f"attempts/{third['id']}/complete", {"outcome": "completed", "last_seq": 0, "text": "Pushed the fix.",
+                                                   "pushes": [{"path": "tasks/x/app", "count": 1}]}, r["token"])
+    assert replies(api, task)[-1] == "Pushed the fix."
+
+
+def test_a_task_a_bot_files_for_another_bot_starts_at_once(api):
+    machine = task_bot(api, lanes=True, others=("finance",))
+    active = busy(api, machine)
+    theirs = post(api, "tasks", {"owner": "finance", "title": "Pay the invoice", "body": "Due today."},
+                  token=active["token"])
+    after = claim(api, machine)
+    assert (after["bot"], H.message_task_id(after["message"])) == ("finance", theirs["id"])
+
+
+def test_the_hold_ends_after_a_few_minutes_even_while_the_filing_turn_runs(api):
+    from backend import execution
+    machine = task_bot(api, lanes=True)
+    active = busy(api, machine)
+    mine = post(api, "tasks", {"owner": "ops", "title": "Build the docs", "body": "In parallel."},
+                token=active["token"])
+    assert claim(api, machine) is None
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE messages SET created=? WHERE to_actor='bot:ops' AND body LIKE 'New task from %Build the docs'",
+                  (H.shift(H.now(), seconds=-execution.FILER_HOLD_S - 1),))
+    assert H.message_task_id(claim(api, machine)["message"]) == mine["id"]
+
+
+def test_a_task_the_filing_turn_declined_starts_no_turn(api):
+    machine = task_bot(api, lanes=True)
+    active = busy(api, machine)
+    order = post(api, "tasks", {"owner": "ops", "title": "Maybe tidy", "body": "Only if needed."},
+                 token=active["token"])
+    assert claim(api, machine) is None
+    version = get(api, "tasks/" + order["id"], active["token"])["task"]["version"]
+    post(api, "tasks/" + order["id"], {"version": version, "status": "declined"}, active["token"])
+    complete(api, machine, active)
+    assert claim(api, machine) is None

@@ -221,7 +221,8 @@ Replies Tico did not post: a turn woken by Tico on a task already finished that 
 `reply.withheld` event (`target` is the run; `bot`, `task`, `to`); its text stays on the run (`attempts.final_text`):
 
 ```sql
-SELECT ts, json_extract(detail_json, '$.bot') AS bot, json_extract(detail_json, '$.task') AS task, target AS run
+SELECT ts, json_extract(detail_json, '$.bot') AS bot, json_extract(detail_json, '$.task') AS task,
+       json_extract(detail_json, '$.to') AS to_person, target AS run
 FROM events WHERE action = 'reply.withheld' ORDER BY ts DESC LIMIT 50
 ```
 
