@@ -1611,7 +1611,7 @@ class UsageCount(Contract):
     enabled: bool
 
 
-class CeoBotSwitch(Contract):
+class CeoBotChecks(Contract):
     on: bool
 
 

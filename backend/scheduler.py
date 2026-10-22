@@ -93,8 +93,12 @@ class Scheduler:
                                            (row["id"], when)).fetchone()
                         if not exists:
                             from . import routines
-                            existing, skip = routines.latest_task(c, row["id"]), None
-                            if existing:
+                            from . import ceo_bot
+                            existing = routines.latest_task(c, row["id"])
+                            # Regular checks off: no new KPI pass and no wake to continue an unfinished one.
+                            if skip := ceo_bot.held_routine(c, row):
+                                tid, outcome = None, "skipped"
+                            elif existing:
                                 tid, outcome = existing["id"], "coalesced_into_existing_task"
                                 # An absorbed occurrence still wakes the owner, or an open task
                                 # would swallow every later run in silence; a waiting task is
@@ -220,7 +224,7 @@ class Scheduler:
             except Exception as exc:
                 failures.append({"goal_asks": type(exc).__name__})
             try:
-                # The CEO Bot's Monday note, started once on an install whose switch was already on (backend/ceo_bot.py).
+                # The CEO Bot's Monday note: started once above Passive, paused at Passive (backend/ceo_bot.py `reconcile`).
                 from . import ceo_bot
                 with self.store.transaction() as c:
                     ceo_bot.reconcile(c)
