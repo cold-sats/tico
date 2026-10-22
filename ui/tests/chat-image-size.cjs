@@ -99,8 +99,15 @@ const A = (id, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1', titl
     assert(thumb.w <= Math.min(thumb.col, 800) * 0.3 && thumb.w >= 60, `${label}: the fallback thumbnail is about a quarter of the column ${JSON.stringify(thumb)}`);
     assert(Math.abs(thumb.ratio - 700 / 2100) < 0.03 || thumb.fit === 'contain', `${label}: the fallback thumbnail is whole, not cropped ${JSON.stringify(thumb)}`);
 
+    // a thumbnail's menu, wider than the thumbnail, opens on the screen from the leftmost one
+    await m1.locator('figure.vcard').first().locator('.vcard-menu > summary').click();
+    const menu = await m1.locator('figure.vcard').first().locator('.vcard-menu-list').evaluate(l => [l.getBoundingClientRect().left, l.getBoundingClientRect().right, innerWidth]);
+    assert(menu[0] >= 0 && menu[1] <= menu[2], `${label}: the leftmost thumbnail's menu is on the screen ${menu}`);
+    await m1.locator('figure.vcard').first().locator('.vcard-menu > summary').click();
+    assert.equal(await m1.locator('details.vcard-menu[open]').count(), 0, `${label}: the menu closes again`);
+
     // ---- the viewer: opens fitted, zooms, pans, back to fitted
-    const view = async ({open, dialog, body, img, nw, nh}) => {
+    const view = async ({open, dialog, body, bar, img, nw, nh}) => {
       await open();
       const d = page.locator(dialog);
       await d.locator(img).waitFor();
@@ -134,6 +141,26 @@ const A = (id, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1', titl
       await page.mouse.down(); await page.mouse.move(b.x + b.width / 2 + 60, b.y + b.height / 2 + 40, {steps: 4}); await page.mouse.up();
       const panned = await box();
       assert(Math.abs(panned.il - in2.il) > 5 || Math.abs(panned.it - in2.it) > 5, `${label} ${dialog}: a drag pans ${JSON.stringify([in2, panned])}`);
+      assert(Math.abs(panned.iw - in2.iw) < 1, `${label} ${dialog}: a drag's click does not toggle the zoom`);
+      // a drag let go over the bar, or past the viewer (its backdrop), ends there: back over the picture with no
+      // button held, nothing moves, and the viewer stays open
+      const barBox = await d.locator(bar).boundingBox(), dlg = await d.boundingBox();
+      const outside = [[barBox.x + 20, barBox.y + barBox.height / 2]];
+      if (dlg.x > 6) outside.push([dlg.x - 4, dlg.y + dlg.height / 2]);
+      for (const [x, y] of outside) {
+        await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+        await page.mouse.down(); await page.mouse.move(x, y, {steps: 6}); await page.mouse.up();
+        const let_go = await box();
+        await page.mouse.move(b.x + b.width / 2 - 50, b.y + b.height / 2 + 50, {steps: 4});
+        const hover = await box();
+        assert(Math.abs(hover.il - let_go.il) < 1 && Math.abs(hover.it - let_go.it) < 1, `${label} ${dialog}: no pan after a release at ${x},${y} ${JSON.stringify([let_go, hover])}`);
+        assert(await page.locator(dialog).isVisible(), `${label} ${dialog}: still open after a release at ${x},${y}`);
+      }
+      // zoomed, a two-finger scroll (a plain wheel) moves around the picture without zooming
+      const before = await box();
+      await d.locator(body).evaluate(el => el.dispatchEvent(new WheelEvent('wheel', {deltaX: 30, deltaY: 30, clientX: el.getBoundingClientRect().left + 40, clientY: el.getBoundingClientRect().top + 40, bubbles: true, cancelable: true})));
+      const scrolled = await box();
+      assert(Math.abs(scrolled.iw - before.iw) < 1 && (Math.abs(scrolled.il - before.il) > 1 || Math.abs(scrolled.it - before.it) > 1), `${label} ${dialog}: a scroll pans a zoomed picture ${JSON.stringify([before, scrolled])}`);
       await d.locator('[data-zoom="fit"]').click();
       const back = await box();
       assert(Math.abs(back.iw - fit.iw) < 1 && Math.abs(back.il - fit.il) < 1, `${label} ${dialog}: Fit is fitted again ${JSON.stringify([fit, back])}`);
@@ -141,12 +168,34 @@ const A = (id, over = {}) => ({id, file_id: id, version: 1, ref: id + '@1', titl
       await d.locator(body).evaluate(el => el.dispatchEvent(new WheelEvent('wheel', {deltaY: -200, clientX: el.getBoundingClientRect().left + 40, clientY: el.getBoundingClientRect().top + 40, bubbles: true, cancelable: true})));
       assert((await box()).iw > fit.iw * 1.3, `${label} ${dialog}: the wheel zooms in`);
       await d.locator('[data-zoom="fit"]').click();
+      // a click or tap on the picture zooms to 2x there, and another goes back to fitted
+      await d.locator(img).click();
+      assert((await box()).iw > fit.iw * 1.8, `${label} ${dialog}: a click zooms in`);
+      await d.locator(img).click();
+      assert(Math.abs((await box()).iw - fit.iw) < 1, `${label} ${dialog}: a second click is fitted again`);
+      // two fingers apart zoom in; one lifted, the other pans on
+      const pinched = await d.locator(body).evaluate(el => {
+        const r = el.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+        const ev = (type, id, x) => el.dispatchEvent(new PointerEvent(type, {bubbles: true, cancelable: true, pointerType: 'touch', pointerId: id, isPrimary: id === 21, button: 0, buttons: type === 'pointerup' ? 0 : 1, clientX: x, clientY: cy}));
+        ev('pointerdown', 21, cx - 20); ev('pointerdown', 22, cx + 20);
+        for (const s of [20, 40, 60, 80]) { ev('pointermove', 21, cx - s); ev('pointermove', 22, cx + s); }
+        const w1 = el.querySelector('img').getBoundingClientRect().width;
+        ev('pointerup', 22, cx + 80);
+        const l1 = el.querySelector('img').getBoundingClientRect().left;
+        ev('pointermove', 21, cx - 40);
+        const l2 = el.querySelector('img').getBoundingClientRect().left;
+        ev('pointerup', 21, cx - 40);
+        return [w1, l1, l2];
+      });
+      assert(pinched[0] > fit.iw * 1.5, `${label} ${dialog}: a pinch zooms in ${pinched}`);
+      assert(Math.abs(pinched[2] - pinched[1]) > 5, `${label} ${dialog}: the finger left after a pinch pans ${pinched}`);
+      await d.locator('[data-zoom="fit"]').click();
       await page.keyboard.press('Escape');
       await page.locator(dialog).waitFor({state: 'hidden'});
     };
-    await view({open: () => m1.locator('figure.vcard[data-file="f-tall"] .vcard-hit').click(), dialog: '#vcard-full', body: '.vcard-full-body', img: 'img.vcard-full-img', nw: 600, nh: 2400});
-    await view({open: () => m1.locator('figure.vcard[data-file="f-wide"] .vcard-hit').click(), dialog: '#vcard-full', body: '.vcard-full-body', img: 'img.vcard-full-img', nw: 1600, nh: 900});
-    await view({open: () => t.click(), dialog: '#doc-viewer', body: '.doc-viewer-body', img: 'img.viewer-img', nw: 700, nh: 2100});
+    await view({open: () => m1.locator('figure.vcard[data-file="f-tall"] .vcard-hit').click(), dialog: '#vcard-full', body: '.vcard-full-body', bar: '.vcard-full-bar', img: 'img.vcard-full-img', nw: 600, nh: 2400});
+    await view({open: () => m1.locator('figure.vcard[data-file="f-wide"] .vcard-hit').click(), dialog: '#vcard-full', body: '.vcard-full-body', bar: '.vcard-full-bar', img: 'img.vcard-full-img', nw: 1600, nh: 900});
+    await view({open: () => t.click(), dialog: '#doc-viewer', body: '.doc-viewer-body', bar: '.doc-viewer-head', img: 'img.viewer-img', nw: 700, nh: 2100});
     assert.deepEqual(errors, [], label);
     await context.close();
   };

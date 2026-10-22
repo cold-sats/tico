@@ -156,13 +156,17 @@ document.addEventListener('click', ev => {
   else if (what === 'newer') visualOpen(card, Number(card.dataset.current));
   else if (what === 'open') visualOpen(card);
 });
-// A thumbnail's menu is wider than the thumbnail (Dev 338): one that would open past the screen's left edge opens to the right.
-document.addEventListener('toggle', ev => {
-  const list = ev.target.matches?.('details.vcard-menu[open]') && ev.target.querySelector('.vcard-menu-list');
-  if (!list) return;
+// A thumbnail's menu is wider than the thumbnail (Dev 338): one that would open past the screen's left edge opens to
+// the right. The menu is opened here, then sided, before the next frame, so it never shows on the wrong side.
+document.addEventListener('click', ev => {
+  const menu = ev.target.closest?.('details.vcard-menu > summary')?.parentElement;
+  if (!menu || menu.open) return;
+  ev.preventDefault();
+  menu.open = true;
+  const list = menu.querySelector('.vcard-menu-list');
   list.classList.remove('toward-right');
   if (list.getBoundingClientRect().left < 4) list.classList.add('toward-right');
-}, true);
+});
 // One menu open at a time; a click elsewhere closes it.
 document.addEventListener('click', ev => {
   for (const m of document.querySelectorAll('details.vcard-menu[open]')) if (!m.contains(ev.target)) m.removeAttribute('open');
