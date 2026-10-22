@@ -129,7 +129,8 @@ def paused(c, aid, state, result_json):
         result = {}
     if not isinstance(result, dict) or not result.get("yielded"):
         return None
-    return _named(_payload(c, aid, "status", "yielded").get("yielded")) or PAUSED
+    line = _payload(c, aid, "status", "yielded").get("yielded")
+    return clip(line, 200) if isinstance(line, str) and line.strip() else PAUSED
 
 
 def moved(c, aid, bot, who=None, auth=None):

@@ -2531,6 +2531,12 @@ class Execution:
                           claimed=row["created"])
             H.event(c, H.KEEPER, "attempt.no_effect_retry", aid,
                     {"bot": row["bot"], "job_id": row["job_id"], "runtime": runtime})
+        elif yielded:
+            # Paused at its hold cap so another turn could use the shared login: it is back in the queue and
+            # continues next, so the bot is idle with the pause line, not crashed until the continuation starts.
+            from .login_waits import paused
+            settle_status(c, row["bot"], "idle", paused(c, aid, "interrupted", '{"yielded": true}'),
+                          claimed=row["created"])
         elif retryable:
             # Not a crash and not a limit: the box's sign-in lapsed. Say so plainly, leave the
             # bot claimable, and let the requeued job run again as soon as it is handed out.
