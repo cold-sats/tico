@@ -110,6 +110,9 @@ All notable changes to Tico are recorded here. The format follows
   each one at its own rate.
 
 ### Fixed
+- **Milestone waits follow the blocked_by rules.** Adding or removing a wait for a pull request or release now needs
+  the same permission as a blocked_by (the task's owner, or a person on a team that moves tasks), a deleted task
+  keeps its waits and gets them back when restored, and a message held while a task waits says what it waits for.
 - **Questions that close on their own leave every count right.** The hourly sweep closes each leftover question on
   its own, so one that fails stays for the next sweep instead of undoing the rest. When questions close in bulk (a
   task above ends, the hourly sweep, the weekday "Still needed?" batch), the bot that asked them has its "needs a
