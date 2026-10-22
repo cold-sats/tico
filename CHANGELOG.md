@@ -77,6 +77,9 @@ All notable changes to Tico are recorded here. The format follows
   each one at its own rate.
 
 ### Fixed
+- **A run whose only work was a git push counts as acting.** The computer reports the pushes a run made from its
+  task's worktrees with its result, so in `hub sql` the run reads `acted` with `did_nothing` 0 instead of
+  `no_change`. Pushes from another task's worktree are not counted, and older runs read as before.
 - **No more rare empty 502s from the server.** About once in a few hundred API requests, a request reused a connection
   to the backend just as the backend closed it for being idle, and the app or a bot got a bare 502. The server's front
   door now drops idle connections before the backend does.
