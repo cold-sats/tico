@@ -391,16 +391,17 @@ def after_turn(c, runner_id, bot, profile, runtime, body, attempt_id, hit):
         if limited:
             if n == 0 and body.primary_held:
                 continue                # never tried: its hold stands as it is
-            reset = reset_from_text(notice, hit) or (body.limit_resets_at if last else None)
             if gateway.out_of_credit(notice) or gateway.rate_limited(notice):
                 # The Tico AI Gateway paused the company's Tico models for want of credit, or the key met its minute's
                 # rate limit: the Gateway's wait, not a spent login, so the login is held only for its Retry-After (or a
                 # minute), never the backoff. A turn that ended here waits that minute too, even while its primary's own
-                # hold is longer. A reset already past (a runner's clock behind) is a minute too, not the backoff. A
-                # rate limit the turn ended on with no Retry-After keeps execution.reset_cooldown's safe hour.
+                # hold is longer. A reset already past (a runner's clock behind) counts as none reported. With none, a
+                # minute, except a rate limit the turn ended on: that keeps execution.reset_cooldown's safe hour.
                 reported = believable(body.limit_resets_at, hit) if last else None
                 unsaid = last and not gateway.out_of_credit(notice)
                 reset = reported or H.shift(hit, seconds=gateway.RETRY_AFTER if unsaid else gateway.GATEWAY_WAIT)
+            else:
+                reset = reset_from_text(notice, hit) or (body.limit_resets_at if last else None)
             hold = record(c, runner_id, login, rt, hit, reset, attempt_id, bot, error=notice or "")
             if last:
                 # The login the turn ended on: the one its bot waits for (for_attempt), when a turn held two.

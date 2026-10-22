@@ -613,6 +613,10 @@ def test_a_gateway_reset_already_past_is_its_minute_not_the_backoff(api, monkeyp
         past = Body(limited=True, limit_resets_at="2026-10-19T01:46:00.000000Z")
         login_holds.after_turn(c, "r1", "ops", "", "pi", past, aid, HIT)
         assert login_holds.get(c, "r1", "", "pi")["until"].startswith("2026-10-19T01:47:47")
+        # A rate limit the turn ended on with no Retry-After keeps the safe hour: early tries can't reach the Gateway.
+        aid = attempt_with(c, [("error", RATED)])
+        login_holds.after_turn(c, "r2", "ops", "", "pi", Body(limited=True), aid, HIT)
+        assert login_holds.get(c, "r2", "", "pi")["until"].startswith("2026-10-19T02:46:47")
 
 
 def test_a_primary_held_for_hours_with_its_tico_fallback_out_of_credit_waits_only_the_gateways_minute(
