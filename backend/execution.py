@@ -534,6 +534,52 @@ def reset_cooldown(c, attempt_id, finished, cooldown, resets_at=None):
     return cooldown
 
 
+LOGIN_CLASS_LABELS = {"release-blocker": "release", "critical-path": "review"}
+
+
+def finished_before_start(c, row):
+    """Whether a turn that has not started (it waits for its shared login: runner-rs/src/login_turns.rs) is for a task
+    that was marked done or closed after the message that started it: it is skipped rather than run. A person's own
+    message is never skipped: their words still get an answer."""
+    if row["state"] != "leased":
+        return False
+    msg = H.message(c, c.execute("SELECT message_id FROM jobs WHERE id=?", (row["job_id"],)).fetchone()[0],
+                    include_deleted=True)
+    if msg and H.is_human(msg.get("from_actor")):
+        return False
+    task_id = H.message_task_id(msg, H.conversation(c, msg["conversation_id"])) if msg else None
+    task = H.task(c, task_id) if task_id else None
+    ended = task and task["status"] in ("done", "closed") and (task.get("closed_at") or task.get("done_at"))
+    return bool(ended and ended >= msg["created"])
+
+
+def login_class(c, task, msg, routine):
+    """The class a turn waits in for a shared login that serves one turn at a time: "release" for a task labelled
+    release-blocker, "review" for one labelled critical-path and for a turn a person's own message started, "other"
+    for the rest. A routine's or a timed wake's turn is "other" whatever its labels, so standing watches never jump the
+    queue. The labels count on the task or on the work it serves (its parents, the tasks it blocks)."""
+    msg = msg or {}
+    if routine or (not H.is_human(msg.get("from_actor")) and (msg.get("refs") or {}).get("wake")):
+        return "other"
+    labels = set(H.task_labels(task))
+    if task:
+        # Tags are set when a task is made, so a step subtask filed without one takes its class from the work it
+        # serves: its parents, the tasks it blocks, and the same for the task whose session it continues.
+        from .task_relations import ancestors, blocked_ids
+        ids = set()
+        for one in {task["id"], task.get("session_task_id") or task["id"]}:
+            ids |= {one, *ancestors(c, one), *blocked_ids(c, one)}
+        ids.discard(task["id"])
+        if ids:
+            marks = ",".join("?" * len(ids))
+            labels |= {r[0] for r in c.execute(f"SELECT tags.key FROM task_tags JOIN tags ON tags.id=task_tags.tag_id "
+                                               f"WHERE task_tags.task_id IN ({marks})", tuple(ids))}
+    for label, cls in LOGIN_CLASS_LABELS.items():
+        if label in labels:
+            return cls
+    return "review" if H.is_human(msg.get("from_actor")) else "other"
+
+
 def release_limits(c):
     """Lift each usage limit whose hold has passed: the bot shows it is back, and the status change tells
     its computer to ask for the queued work now rather than at its next backup poll."""
@@ -1756,6 +1802,8 @@ class Execution:
             # Another bot's turn in the room (the requester answering) works without the owner's goal.
             chat_goal = None
         return {"attempt": {"chat_goal": chat_goal, "routine": routine, "id": aid,
+                            # Which waiting turn takes a shared one-turn login first (runner-rs/src/login_turns.rs).
+                            "login_class": login_class(c, task, msg, routine),
                             "profile": effective(c, row["bot"])[0],
                             "computer_label": runner["label"],
                             # A starter bot's chat while it is `needs_setup` is its setup (runner prompt).
@@ -1934,9 +1982,11 @@ class Execution:
         row = self.attempt(c, who, aid)
         until = H.shift(H.now(), seconds=self.store.settings.lease_seconds)
         c.execute("UPDATE attempts SET lease_until=? WHERE id=?", (until, aid))
-        # The runner renews every few seconds, so a person's Stop rides on the answer it already reads.
+        # The runner renews every few seconds, so a person's Stop rides on the answer it already reads. A turn whose
+        # task ended meanwhile is stopped only while it waits for its login; one preparing or under way runs on.
+        from .login_waits import wait
         return {"lease_until": until, "lease_seconds": self.store.settings.lease_seconds,
-                **({"stop": True} if row["stop_requested"] else {})}
+                **({"stop": True} if row["stop_requested"] or finished_before_start(c, row) and wait(c, aid) else {})}
 
     def stop(self, c, who, bot, attempt_id=None, redirect=None):
         """A person who manages the bot asks its running turn to stop. The runner interrupts the turn
@@ -2134,8 +2184,9 @@ class Execution:
         # Late output is archived with its historical attempt, never applied to current work.
         row = self.attempt(c, who, aid, active=False)
         seq = row["last_seq"]
+        from .login_waits import stored
         for event in body.events:
-            payload = encode(event.payload)
+            payload = encode(stored(event.kind, event.payload))
             existing = c.execute("SELECT kind,payload_json FROM attempt_events WHERE attempt_id=? AND seq=?",
                                  (aid, event.seq)).fetchone()
             if existing:
@@ -2200,9 +2251,13 @@ class Execution:
         # NOT_ISOLATED). Settled now, so the bot says why once rather than its lease lapsing into a retry.
         # Likewise a turn sent away from a held login (`primary_held`) that found no fallback ready after all: nothing
         # ran, and it goes back to wait out the hold (backend/login_holds.py after_turn).
+        # And a turn stopped while it waited for its shared login, by a person or because its task was done or closed
+        # meanwhile (`skipped`): nothing ran, and its job ends with it.
+        skipped = body.outcome == "interrupted" and not row["stop_requested"] and finished_before_start(c, row)
         unstarted = (row["state"] == "leased" and body.outcome == "failed"
                      and (any(gateway.run_code(error) == gateway.NOT_ISOLATED for error in limit_errors(c, aid))
-                          or body.primary_held and body.limited and not body.fallback))
+                          or body.primary_held and body.limited and not body.fallback)
+                     or row["state"] == "leased" and body.outcome == "interrupted" and bool(row["stop_requested"] or skipped))
         if not late and row["state"] != "running" and not unstarted:
             raise Problem("not_started", "Acknowledge start before completing work", 409)
         if row["last_seq"] != body.last_seq:
@@ -2296,13 +2351,14 @@ class Execution:
         # a third limit in a row waits longer and tells a person in Needs attention. Only
         # interrupted or failed work, which may have acted, is held for review.
         # A turn a person stopped is over by their choice: nothing to retry and nothing to review.
-        stopped = bool(row["stop_requested"]) and body.outcome != "completed"
+        stopped = bool(row["stop_requested"]) and body.outcome != "completed" or skipped
         limited = body.outcome != "completed" and body.limited and not stopped
         # Same reasoning, different cause: the runner reports `retryable` when the runtime was
         # refused before the turn began because it could not renew its own sign-in, and only
         # when that turn produced no message and used no tool. Nothing happened, so requeue it
         # rather than blocking the bot behind an uncertain job until a person clears it.
         retryable = body.outcome != "completed" and body.retryable and not limited and not stopped
+        yielded = body.outcome == "interrupted" and body.yielded and not stopped
         # The general case of the same thing: a turn that failed having streamed nothing at all,
         # no text, no tool, no token count, only the runtime's own error. When a runtime
         # answered every turn of several bots with "Internal error" at the first event, the
@@ -2347,7 +2403,7 @@ class Execution:
             silent = False
         # What the bot says about a run the Gateway refused, in its words rather than as a crash.
         refused = gateway.run_status(tico_code, tico_error) if tico_code and not (limited or retryable or rejected) else ""
-        requeue = not rejected_acted if rejected else limited or retryable or silent
+        requeue = not rejected_acted if rejected else limited or retryable or silent or yielded
         c.execute("UPDATE jobs SET state=? WHERE id=?",
                   ("completed" if body.outcome == "completed" else "cancelled" if stopped
                    else "queued" if requeue else "uncertain", row["job_id"]))
@@ -2434,7 +2490,7 @@ class Execution:
             elif not checkpoint_safe(c, aid, checkpoint_task):
                 c.execute("UPDATE tasks SET checkpoint_blocked=1 WHERE id=?", (checkpoint_task["id"],))
                 checkpoint_task = None
-        if body.outcome == "completed" and body.text and checkpoint_task:
+        if (body.outcome == "completed" or yielded) and body.text and checkpoint_task:
             # Where the task stood after this turn: a later turn that cannot resume this session
             # starts from it (runner prompt). It is not the task's activity, so `updated` stays.
             c.execute("UPDATE tasks SET checkpoint=?,checkpoint_at=?,checkpoint_by=? WHERE id=?",
@@ -2473,7 +2529,10 @@ class Execution:
                     {"bot": row["bot"], "job_id": row["job_id"], "primary_runtime": runtime, "fallback": body.fallback,
                      "model": (ran.model or None) if ran else None,
                      "outcome": body.outcome, **({"primary_limited": True} if body.primary_limited else {})})
-        if stopped:
+        if skipped:
+            settle_status(c, row["bot"], "idle", "", claimed=row["created"])
+            H.event(c, H.KEEPER, "attempt.skipped", aid, {"bot": row["bot"], "job_id": row["job_id"]})
+        elif stopped:
             person = row["stop_requested"]
             name = (H.human(c, H.actor_id(person)) or {}).get("name") or H.actor_id(person)
             settle_status(c, row["bot"], "idle", "", claimed=row["created"])
@@ -2595,6 +2654,12 @@ class Execution:
                           claimed=row["created"])
             H.event(c, H.KEEPER, "attempt.no_effect_retry", aid,
                     {"bot": row["bot"], "job_id": row["job_id"], "runtime": runtime})
+        elif yielded:
+            # Paused at its hold cap so another turn could use the shared login: it is back in the queue and
+            # continues next, so the bot is idle with the pause line, not crashed until the continuation starts.
+            from .login_waits import paused
+            settle_status(c, row["bot"], "idle", paused(c, aid, "interrupted", '{"yielded": true}'),
+                          claimed=row["created"])
         elif retryable:
             # Not a crash and not a limit: the box's sign-in lapsed. Say so plainly, leave the
             # bot claimable, and let the requeued job run again as soon as it is handed out.

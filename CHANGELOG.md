@@ -8,6 +8,11 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Shared ChatGPT login queue.** A turn waiting for a shared ChatGPT login says who holds it, on what, since when and
+  its place, on the run, the task, the bot's status and in Health (waiting, not stuck). Release-blocking work goes
+  first, then reviews and a person's own chat, with no waiter passed over more than twice. A turn that holds the login
+  20 minutes while another waits pauses at a safe point and continues right after; a waiter whose task is closed is skipped,
+  unless a person's own message started it.
 - **Hourly and weekly spend limits, and limits for a group and the whole team.** Beside daily and monthly, a bot's limit
   and the team default can now cap an hour (the UTC clock hour) and a week (from Monday 00:00 UTC). New pooled limits cap
   the combined spend of every bot (Usage > **Team and group limits**) or of a group's bots, nested groups included; over
