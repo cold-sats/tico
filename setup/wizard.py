@@ -93,7 +93,7 @@ def gather_company_file(args, s):
                 raise DraftError("the company file is too large")
             s.company_file_data = starter.pack(raw.decode("utf-8"), limit)
         elif len(s.company_file_data) > limit:
-            raise DraftError("the starter plan is too large for automatic setup; import the file in the app instead")
+            raise DraftError(starter.TOO_LARGE)
         plan = starter.unpack(s.company_file_data)
     except ImportError:
         raise MissingInput("--company-file needs PyYAML: install python3-yaml or run python3 -m pip install PyYAML") from None
@@ -142,7 +142,7 @@ def gather(io: IO, args, s: Settings, dry: bool) -> Settings:
         s.plan_bucket = s.plan_bucket_region = ""
         from backend.company_file import starter
         if len(s.company_file_data) > starter.ENV_PACKED:
-            raise MissingInput("the starter plan is too large for automatic setup; import the file in the app instead")
+            raise MissingInput(starter.TOO_LARGE)
     if s.target in cloudmod.PROVIDERS:
         pv = cloudmod.PROVIDERS[s.target]
         a.get("cloud_location", f"{pv.label} location", flag="--cloud-location", choices=pv.locations, default=pv.default_location)

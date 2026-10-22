@@ -137,7 +137,7 @@ def test_a_saved_plan_bucket_does_not_follow_a_re_run_off_aws(big):
     s = wizard.gather(CaptureIO(), args, saved(small), False)
     assert s.target == "ssh" and s.plan_bucket == s.plan_bucket_region == ""
     assert "TICO_COMPANY_FILE_S3" not in s.to_env() and s.to_env()["TICO_COMPANY_FILE_B64"] == small
-    with pytest.raises(MissingInput, match="import the file in the app instead"):
+    with pytest.raises(MissingInput, match="without --company-file"):
         wizard.gather(CaptureIO(), args, saved(wizard_pack(big)), False)
 
 
@@ -148,7 +148,7 @@ def wizard_pack(path):
 def test_without_the_plan_bucket_a_chart_over_the_env_limit_is_refused_before_any_cloud_change(big):
     d, ec2, iam, ssm, r53 = world()
     code, out = go([*CREATE, "--company-file", str(big)], d)
-    assert code != 0 and "import the file in the app instead" in out
+    assert code != 0 and "without --company-file" in out
     assert not ssm.called("put_parameter") and not ec2.called("run_instances")
 
 
