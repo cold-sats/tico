@@ -205,6 +205,10 @@ All notable changes to Tico are recorded here. The format follows
   telling its bot to retry setup; only the turns of the bot that owns the task hold a finished tree; a fault reading
   turns is raised instead of read as "no live turn"; and a new push clears the earlier "stale push cleared" note, so a
   release no longer names an old push.
+- **A manager bot reads its reports' routines**: a bot above another in the `reports_to` chain now reads that bot's
+  routines and their occurrences in its own run, as the permissions page already said. It was refused ("Only people
+  and the bot itself read its routines"), so a manager bot reviewing its reports could not see what each one runs.
+  It still cannot change them ([Routines](docs/routines.md)).
 
 ## [0.3.71] - 2026-10-21
 
