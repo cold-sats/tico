@@ -279,6 +279,7 @@ class Tally:
         self.engine, self.lock = engine, threading.Lock()
         self.calls, self.fallbacks, self.models = 0, 0, Counter()
         self.usage, self.cost, self.routes, self.fallback = Counter(), 0.0, Counter(), None
+        self.answers = []       # one `J.summary` per call, for the readout's answer spread
 
     def __call__(self, state, questions, label=None):
         result = self.engine(state, questions, label)
@@ -293,12 +294,13 @@ class Tally:
             self.usage.update({k: v for k, v in (result.get("usage") or {}).items()
                                if isinstance(v, int) and not isinstance(v, bool)})
             self.cost += result.get("cost_usd") or 0.0
+            self.answers.append(J.summary(result.get("answers")))
         return result
 
     def detail(self):
         return {"calls": self.calls, "fallbacks": self.fallbacks, "models": dict(self.models),
                 "model": self.models.most_common(1)[0][0] if self.models else "", "usage": dict(self.usage),
-                "cost_usd": round(self.cost, 6)}
+                "cost_usd": round(self.cost, 6), "answers": list(self.answers)}
 
 
 def question_set(settings):

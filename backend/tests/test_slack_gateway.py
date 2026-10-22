@@ -634,6 +634,15 @@ def test_routing_counts_against_the_senders_daily_cap_and_over_it_the_assistant_
     audit = rows(hub, "SELECT actor,target,detail_json FROM events WHERE action='judge.call'")
     assert [(r["actor"], r["target"]) for r in audit] == [("human:ben", G.JUDGE_LABEL)]
     assert json.loads(audit[0]["detail_json"])["via"] == "slack" and "vendor" not in audit[0]["detail_json"]
+    kept = json.loads(audit[0]["detail_json"])["answers"]
+    assert kept["bot:legal"] == {"type": "noul", "value": 0.9, "confidence": 0.8}
+    assert kept["asks"] == {"type": "noul", "value": 0.9, "confidence": 0.8}
+    from backend.decide_readout import readout
+    with hub.read() as c:
+        out = readout(c, hub.settings)
+    (row,) = [r for r in out["sets"] if r["set"] == "slack-route"]
+    assert row["answers"]["asks"] == {"0.7 and over": 1} and row["answers"]["(other questions)"]["0.7 and over"] >= 1
+    assert "not kept" not in out["text"]
     calls = len(gateway.engine.calls)
     second = send(gateway, "and the NDA too", channel=DM, kind="message", user="U2")
     assert len(gateway.engine.calls) == calls, "over the cap the decision model is not asked"
