@@ -57,6 +57,14 @@ All notable changes to Tico are recorded here. The format follows
   HQ registers only a join code's hash through scoped SSM; no owner token or join secret crosses that control plane.
 
 ### Changed
+- **The stopped-run card is now just the decision.** Each stopped run shows one line on what stopped ("Stopped 8:12
+  AM after using Bash."), one recommendation, and two buttons with the recommended one first: **Try again** leads
+  only for a run Tico's own retry rule calls safe (it only read, on a host that reports every call, first stop);
+  **Don't retry** leads for one that may have changed something, used an approval, left no full record or stopped
+  more than once. The
+  request, saved output, tool calls and the optional note are folded under **Details**. The Needs you line is
+  shorter: what stopped and what waits on it. The review API adds `stopped` (`changed`, `read`, `twice` or `unknown`) and
+  `acted` to each run.
 - **A bot's tasks are one Tasks section with four tabs.** The right rail's Needs you, Active and Done sections become
   tabs, each with its count: **Needs You** (what the bot needs from you), **Doing** (every open task it holds, of every
   type, newest first), **Blocked** (each task saying who or what it waits on) and **Done Recently** (the last 14 days).
