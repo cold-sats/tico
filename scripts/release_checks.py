@@ -269,7 +269,8 @@ def record_timings(default_report, slow_report):
     """Rewrite TIMINGS from two junit reports of one machine: the default suite (`pytest -o junit_family=xunit1
     --junitxml=default.xml`) and the slow tests the release step adds (`pytest -m slow --ignore=<isolation file>
     -o junit_family=xunit1 --junitxml=slow.xml`). 'default' is the first; 'release' is both, per file."""
-    default, release = junit_seconds(default_report), junit_seconds(default_report)
+    default = junit_seconds(default_report)
+    release = dict(default)
     for name, seconds in junit_seconds(slow_report).items():
         release[name] = release.get(name, 0.0) + seconds
     timings = {kind: {name: round(seconds, 2) for name, seconds in sorted(table.items())}
