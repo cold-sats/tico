@@ -8,6 +8,13 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Settings › Billing.** Owners and admins see the company's balance in dollars and cents with one status line
+  (Active; Low balance; Tico models paused; or Hosting's grace period with when servers stop, UTC), credits with what is
+  left and when each ends (used-up and expired ones under Show past credits, with what expired), usage by day opening
+  into hours split by product and model ("<$0.01" under a cent), and each month's statement with a CSV download.
+  "Talk to us to add credit" opens Tico's booking link; there is no card form. It is read from Tico HQ with the
+  install's Tico AI Gateway key (`GET /api/v2/billing`, `/billing/usage?day=`, `/billing/statements/YYYY-MM.csv`);
+  other members don't see the page and its API refuses them. Needs Tico HQ with company billing reads.
 - **Shared ChatGPT login queue.** A turn waiting for a shared ChatGPT login says who holds it, on what, since when and
   its place, on the run, the task, the bot's status and in Health (waiting, not stuck). Release-blocking work goes
   first, then reviews and a person's own chat, with no waiter passed over more than twice. A turn that holds the login
