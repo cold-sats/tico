@@ -84,6 +84,10 @@ All notable changes to Tico are recorded here. The format follows
   each one at its own rate.
 
 ### Fixed
+- **A Tico AI Gateway rate limit no longer keeps a bot off Tico models for 30 minutes.** When the Gateway rate-limited
+  a bot's Tico model and its other model finished the turn, the Tico login was held for 30 minutes, then an hour, then
+  two hours. It is now held for a minute, so the bot is back on Tico models after the Gateway's wait. A Gateway reset
+  that a computer with a slow clock reports as already past is also a minute, not 30 (Dev 351).
 - **A run whose only work was a git push counts as acting.** The computer reports the pushes a run made from its
   task's worktrees with its result, so in `hub sql` the run reads `acted` with `did_nothing` 0 instead of
   `no_change`. Pushes from another task's worktree are not counted, and older runs read as before.
