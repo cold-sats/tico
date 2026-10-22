@@ -8,6 +8,13 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Visuals show without a visual address.** A company with no separate visual address now sees pictures, video and
+  audio inline in chat and task conversations, served from the app's own address as media only. A visual page or an
+  SVG is a card with its title, a still preview when there is one, and **Open**, which shows it in the file viewer;
+  pages and SVG are never served inline from the app's own address. There is no switch: Settings › General shows one
+  read-only line, "Visuals: full" or "Visuals: pictures, video and audio only (no separate visual address)".
+  `TICO_VISUAL_SAME_ORIGIN` is no longer read, and a local install uses the same fallback. A `TICO_VISUAL_ORIGIN` on
+  the app's own hostname, with any scheme or port, now stops the server; without it such a setup gets the fallback.
 - **A Claude bot's turn no longer waits an hour on its own background commands**: once the bot has answered and the
   turn is only waiting on background shells (a test suite, `gh pr checks --watch`, `gh run watch`) for 5 minutes
   (`background_wait_s` in bot.yaml, 0 for off), the runner ends the turn as completed and the commands keep running.
