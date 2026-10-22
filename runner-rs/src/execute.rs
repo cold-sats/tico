@@ -1021,13 +1021,15 @@ impl Runner {
             // A thread grown past the bot's limit is left for a fresh one, told only what the room said since its
             // last turn (crate::rotate). A command (/compact) is for the thread it names, so it keeps it.
             let mut since: Option<String> = None;
+            let mut left: Option<String> = None;
             if let Some(prev) = previous.clone().filter(|_| !truthy(refs.get("command"))) {
                 if let Some(r) = crate::rotate::due(&config, self.state.session_size(&prev)?) {
                     log(&format!("Tico runner: {bot}: {}", r.diagnostic()));
                     let _ = self.state.append(&aid, "diagnostic", &json!({"text": r.diagnostic(), "rotated": r.report()}));
                     since = self.state.cursor(&prev, None)?;
-                    self.state.forget_session(&bot, &conv, &session_runtime, &prev)?;
-                    previous = None;
+                    // Forgotten only once the fresh thread is saved: a turn that fails before then leaves it, so
+                    // its retry rotates again with the same seed and record.
+                    left = previous.take();
                     rotated = Some(r);
                 }
             }
@@ -1075,6 +1077,9 @@ impl Runner {
             }
             let th = thread.clone().unwrap();
             self.state.save_session(&bot, &conv, &session_runtime, &th)?;
+            if let Some(old) = left.as_deref().filter(|old| *old != th) {
+                self.state.forget_session(&bot, &conv, &session_runtime, old)?;
+            }
             if flags.lost.load(Ordering::SeqCst) || Instant::now() >= *flags.deadline.lock().unwrap() {
                 return Err(Fail::runtime("Lease expired while preparing runtime"));
             }
@@ -1087,9 +1092,10 @@ impl Runner {
             let names = self.names().await;
             let after = if resumed { self.state.cursor(&th, None)? } else { since.clone() };
             attempt["_stale_playbook"] = json!(crate::playbook::note(&crate::readiness::local_path(&self.config, &bot), &attempt));
+            attempt["_rotated"] = json!(rotated.is_some());
             let mut prompt = crate::prompt::prompt(&attempt, &names, after.as_deref(), resumed);
             if let Some(r) = &rotated {
-                prompt = format!("{prompt}\n\n{}", r.prompt_note(truthy(Some(&attempt["task"]))));
+                prompt = format!("{prompt}\n\n{}", r.prompt_note(truthy(Some(&attempt["task"]["checkpoint"]))));
             }
             if let Some(line) = crate::afterwatch::still_running(&bot, &key) {
                 prompt = format!("{prompt}\n\n{line}");
@@ -1121,9 +1127,13 @@ impl Runner {
             turn = Some(drove.turn.clone());
             let saved = h.session_id(&th);
             keep_session(&self.state, &bot, &conv, &session_runtime, &saved).await?;
-            // What this turn read, so the next one knows whether to resume the thread (crate::rotate).
-            let read = segments.last().map_or(0, |s| s.meter.read());
-            self.state.off(move |s| s.note_turn(&saved, read)).await?;
+            // What this turn read, so the next one knows whether to resume the thread (crate::rotate). Only a turn that
+            // completed counts: one stopped or out of time leaves no checkpoint, and its continuation needs the thread
+            // that holds its partial work.
+            if drove.outcome == "completed" {
+                let read = segments.last().map_or(0, |s| s.meter.read());
+                self.state.off(move |s| s.note_turn(&saved, read)).await?;
+            }
             // A runtime that cannot sign itself in is as unavailable as one out of quota: a bot with a fallback
             // harness runs the turn there instead of losing it.
             unavailable = drove.limited || drove.retryable;
@@ -1948,9 +1958,10 @@ mod tests {
         assert_eq!(json!(replayed), fixture["events"], "{events:?}");
     }
 
-    /// Two turns on one task's session through a fake pi that reads 348 input tokens a turn (runner/tests/fixtures/pi):
-    /// (session id of each turn, prompt of each turn, the second turn's diagnostics).
-    async fn two_task_turns(rotate_at: i64) -> (Vec<String>, Vec<String>, Vec<Value>) {
+    /// Turns on one session through a fake pi that reads 348 input tokens a turn (runner/tests/fixtures/pi), one per
+    /// (message id, refs) in `turns`, on a task's room or (`task` false) the bot's main chat: (session id of each
+    /// turn, prompt of each turn, the second turn's diagnostics).
+    async fn rotating_turns(rotate_at: i64, task: bool, turns: &[(&str, Value)]) -> (Vec<String>, Vec<String>, Vec<Value>) {
         let _controls = RunControls;
         let dir = std::env::temp_dir().join(format!("tico-rotate-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(dir.join("projects/bot-ops")).unwrap(); // the bot's checkout, where its harness starts
@@ -1966,22 +1977,30 @@ mod tests {
         let runner = Arc::new(Runner::new(config, client, crate::state::State::open(&dir.join("state")).unwrap()));
         let history = json!([
             {"id": "m1", "from_actor": "human:ana@acme.example", "body": "Watch the Acme release.", "refs": {}},
-            {"id": "m2", "from_actor": "bot:qa", "body": "Release build 41 failed its smoke test.", "refs": {}},
-            {"id": "m3", "from_actor": "human:ana@acme.example", "body": "Next", "refs": {}},
+            {"id": "m2", "from_actor": "bot:ops", "body": "Here's the draft. Send it Friday?", "refs": {}},
+            {"id": "m3", "from_actor": "bot:qa", "body": "Release build 41 failed its smoke test.", "refs": {}},
+            {"id": "m4", "from_actor": "human:ana@acme.example", "body": "Yes, send it Friday", "refs": {}},
+            {"id": "m5", "from_actor": "human:ana@acme.example", "body": "/compact", "refs": {"command": "compact"}},
         ]);
-        let task = json!({"id": "t-watch", "title": "Watch the Acme release", "requester": "human:ana@acme.example",
-                          "checkpoint": "Build 40 green; waiting on build 41.", "checkpoint_at": "2026-10-22T08:00:00Z"});
-        for (n, message) in ["m1", "m3"].iter().enumerate() {
+        let room = if task { json!({"id": "c-watch", "kind": "task"}) } else { json!({"id": "c-main", "kind": "chat"}) };
+        let task = if task {
+            json!({"id": "t-watch", "title": "Watch the Acme release", "requester": "human:ana@acme.example",
+                   "checkpoint": "Build 40 green; waiting on build 41.", "checkpoint_at": "2026-10-22T08:00:00Z"})
+        } else {
+            Value::Null
+        };
+        for (n, (message, refs)) in turns.iter().enumerate() {
+            let body = history.as_array().unwrap().iter().find(|m| m["id"] == *message).map_or(json!("Next"), |m| m["body"].clone());
             let attempt = json!({"id": format!("a-rotate-{n}"), "job_id": format!("j{n}"), "bot": "ops", "token": "synthetic-turn",
-                                 "lease_seconds": 120, "conversation": {"id": "c-watch", "kind": "task"}, "task": task,
-                                 "message": {"id": message, "from_actor": "human:ana@acme.example", "body": "Next", "refs": {}},
+                                 "lease_seconds": 120, "conversation": room, "task": task,
+                                 "message": {"id": message, "from_actor": "human:ana@acme.example", "body": body, "refs": refs},
                                  "history": history, "config": {"runtime": "pi", "harness": "pi", "model": "kimi-k3", "rotate_at": rotate_at}});
             tokio::time::timeout(Duration::from_secs(60), runner.clone().execute(attempt)).await.expect("the turn did not end").unwrap();
         }
         server.abort();
         let sessions = std::fs::read_to_string(dir.join("args.log")).unwrap().lines()
             .map(|l| l.split_whitespace().skip_while(|a| *a != "--session-id").nth(1).unwrap_or_default().to_string()).collect();
-        let prompts = (0..2).map(|n| std::fs::read_to_string(dir.join(format!("prompt-{n}"))).unwrap_or_default()).collect();
+        let prompts = (0..turns.len()).map(|n| std::fs::read_to_string(dir.join(format!("prompt-{n}"))).unwrap_or_default()).collect();
         let diagnostics = runner.state.with(|c| {
             c.prepare("SELECT payload FROM events WHERE attempt_id='a-rotate-1' AND kind='diagnostic' ORDER BY seq")?
                 .query_map([], |r| r.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()
@@ -1992,12 +2011,12 @@ mod tests {
 
     #[tokio::test]
     async fn a_session_past_its_limit_starts_the_next_turn_fresh_with_the_tasks_checkpoint() {
-        let (sessions, prompts, diagnostics) = two_task_turns(300).await;
+        let (sessions, prompts, diagnostics) = rotating_turns(300, true, &[("m1", json!({})), ("m4", json!({}))]).await;
         assert_eq!(sessions.len(), 2, "{sessions:?}");
         assert_ne!(sessions[0], sessions[1], "the second turn resumed the large session");
         let fresh = &prompts[1];
         assert!(fresh.contains("Where this task stood after its last turn (2026-10-22T08:00:00Z):\nBuild 40 green; waiting on build 41."), "{fresh}");
-        assert!(fresh.contains("bot:qa [m2]: Release build 41 failed its smoke test."), "what was said since is missing: {fresh}");
+        assert!(fresh.contains("[m3]: Release build 41 failed its smoke test."), "what was said since is missing: {fresh}");
         assert!(!fresh.contains("[m1]"), "the fresh session is given only what came after the last turn: {fresh}");
         assert!(fresh.contains("Fresh session:") && fresh.contains("348 input tokens"), "{fresh}");
         let rotated: Vec<&Value> = diagnostics.iter().filter(|d| d.get("rotated").is_some()).collect();
@@ -2006,11 +2025,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_session_under_its_limit_resumes() {
-        let (sessions, prompts, diagnostics) = two_task_turns(1000).await;
+    async fn a_rotated_main_chat_sees_the_bots_own_last_reply() {
+        // No task, so no checkpoint: what the bot itself said last is all the fresh session has of its old one.
+        let (sessions, prompts, _) = rotating_turns(300, false, &[("m1", json!({})), ("m4", json!({}))]).await;
+        assert_ne!(sessions[0], sessions[1]);
+        let fresh = &prompts[1];
+        assert!(fresh.contains("[m2]: Here's the draft. Send it Friday?"), "the bot's own last reply is missing: {fresh}");
+        assert!(fresh.contains("hub conversation show c-main"), "no pointer to the older messages: {fresh}");
+        assert!(!fresh.contains("Where this task stood") && fresh.contains("only the conversation since your last turn"), "{fresh}");
+    }
+
+    #[tokio::test]
+    async fn a_session_under_its_limit_resumes_and_compact_keeps_a_large_one() {
+        let (sessions, prompts, diagnostics) = rotating_turns(1000, true, &[("m1", json!({})), ("m4", json!({}))]).await;
         assert_eq!(sessions.len(), 2, "{sessions:?}");
         assert_eq!(sessions[0], sessions[1]);
         assert!(!prompts[1].contains("Where this task stood") && !prompts[1].contains("Fresh session:"), "{}", prompts[1]);
+        assert!(!diagnostics.iter().any(|d| d.get("rotated").is_some()), "{diagnostics:?}");
+        // /compact is for the thread it names, however large.
+        let (sessions, _, diagnostics) = rotating_turns(300, true, &[("m1", json!({})), ("m5", json!({"command": "compact"}))]).await;
+        assert_eq!(sessions[0], sessions[1], "/compact left its thread");
         assert!(!diagnostics.iter().any(|d| d.get("rotated").is_some()), "{diagnostics:?}");
     }
 

@@ -69,17 +69,17 @@ impl Rotation {
         format!("Started a fresh session instead of resuming the last one: {}.", self.because())
     }
 
-    /// Told to the fresh thread, after the rest of its prompt.
-    pub fn prompt_note(&self, task: bool) -> String {
-        let seed = if task {
-            "the task above with where it stood after its last turn, and the conversation since that turn"
+    /// Told to the fresh thread, after the rest of its prompt (`checkpoint`: the prompt gives the task's).
+    pub fn prompt_note(&self, checkpoint: bool) -> String {
+        let seed = if checkpoint {
+            "this prompt gives where the task stood after its last turn and the conversation since that turn"
         } else {
-            "the conversation since your last turn"
+            "this prompt gives only the conversation since your last turn, your own replies included"
         };
         format!(
             "Fresh session: your previous session here had grown large ({}), so this turn starts a new one without its \
-             transcript, to save tokens. What you need is in this prompt: {seed}. Read state.md and memory/ before acting; \
-             `hub task show` and `hub conversation show` have anything older.",
+             transcript, to save tokens; {seed}. Read state.md and memory/ before acting; `hub task show` and \
+             `hub conversation show` have anything older.",
             self.because()
         )
     }
