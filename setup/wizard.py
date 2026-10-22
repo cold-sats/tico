@@ -82,13 +82,18 @@ def gather_company_file(args, s):
     if not path and not s.company_file_data:
         return
     from backend.company_file import DraftError, starter
+    # By the plan bucket the plan reaches the server as a file, so only the plan's own size bounds it; in the env it
+    # must stay small (starter.ENV_PACKED).
+    limit = starter.MAX_PACKED if getattr(args, "plan_bucket", None) or s.plan_bucket else starter.ENV_PACKED
     try:
         if path:
             with Path(path).expanduser().open("rb") as stream:
                 raw = stream.read(starter.MAX_BYTES + 1)
             if len(raw) > starter.MAX_BYTES:
                 raise DraftError("the company file is too large")
-            s.company_file_data = starter.pack(raw.decode("utf-8"))
+            s.company_file_data = starter.pack(raw.decode("utf-8"), limit)
+        elif len(s.company_file_data) > limit:
+            raise DraftError("the starter plan is too large for automatic setup; import the file in the app instead")
         plan = starter.unpack(s.company_file_data)
     except ImportError:
         raise MissingInput("--company-file needs PyYAML: install python3-yaml or run python3 -m pip install PyYAML") from None
@@ -124,8 +129,14 @@ def gather(io: IO, args, s: Settings, dry: bool) -> Settings:
         s.aws_permissions_boundary = (getattr(args, "aws_permissions_boundary", None) or s.aws_permissions_boundary or "").strip()
         if s.aws_permissions_boundary and not awsmod.POLICY_ARN_RE.fullmatch(s.aws_permissions_boundary):
             raise MissingInput("--aws-permissions-boundary is an IAM policy ARN (arn:aws:iam::<account>:policy/<name>)")
-    elif getattr(args, "name", None) or getattr(args, "aws_permissions_boundary", None):
-        raise MissingInput("--name and --aws-permissions-boundary are for a server on AWS (--cloud aws)")
+        s.plan_bucket = (getattr(args, "plan_bucket", None) or s.plan_bucket or "").strip()
+        s.plan_bucket_region = (getattr(args, "plan_bucket_region", None) or s.plan_bucket_region or "").strip()
+        if s.plan_bucket and not awsmod.BUCKET_RE.fullmatch(s.plan_bucket):
+            raise MissingInput("--plan-bucket is an S3 bucket name (3 to 63 lowercase letters, digits, dots and dashes)")
+        if s.plan_bucket_region and not awsmod.REGION_RE.fullmatch(s.plan_bucket_region):
+            raise MissingInput("--plan-bucket-region is an AWS region name, for example us-west-2")
+    elif getattr(args, "name", None) or getattr(args, "aws_permissions_boundary", None) or getattr(args, "plan_bucket", None):
+        raise MissingInput("--name, --aws-permissions-boundary and --plan-bucket are for a server on AWS (--cloud aws)")
     if s.target in cloudmod.PROVIDERS:
         pv = cloudmod.PROVIDERS[s.target]
         a.get("cloud_location", f"{pv.label} location", flag="--cloud-location", choices=pv.locations, default=pv.default_location)
@@ -271,7 +282,8 @@ def provision_backup(io: IO, s: Settings, deps: Deps, cf: Cloudflare | None) -> 
 
 def aws_plan(s: Settings) -> awsmod.AwsPlan:
     return awsmod.plan_aws(domain=s.domain, front_door=s.front_door, region=s.aws_region, instance_type=s.aws_instance_type,
-                           os_family=s.aws_os, name=s.aws_name, boundary=s.aws_permissions_boundary)
+                           os_family=s.aws_os, name=s.aws_name, boundary=s.aws_permissions_boundary,
+                           plan_bucket=s.plan_bucket if s.company_file_data else "")
 
 
 def cloudname(s: Settings) -> str:
@@ -458,7 +470,7 @@ def run(args, io: IO, deps: Deps) -> int:
         io.say(f"  {zone.name}: {zone.provider.name}  ({', '.join(zone.nameservers)})")
     gather_runner_host(io, args, s, zone, dry)
     st.gather_runtime(args, s, final=True)
-    if s.target == "aws" and s.company_file_data and len(envfile.render(s.to_env()).encode()) > 8000:
+    if s.target == "aws" and s.company_file_data and not s.plan_bucket and len(envfile.render(s.to_env()).encode()) > 8000:
         raise MissingInput("The starter plan and install settings exceed AWS Parameter Store's 8 KB limit; shorten the plan or import it in the app")
     if s.target == "ssh" and s.front_door == "caddy":
         default_ip = ""
@@ -514,7 +526,7 @@ def run(args, io: IO, deps: Deps) -> int:
         # has none).
         s.owner_link_hash = hosted.new_link(s)
     env_text = envfile.render(s.to_env())
-    state.save(s.domain, s.public(), env_text)
+    state.save(s.domain, s.public(), private_copy(s, env_text))
     scrub = lambda t: envfile.scrub(t, s.secrets())
     compose = deps.compose_local()
     url = contract.compose_url(s.compose_ref)
@@ -557,6 +569,14 @@ def run(args, io: IO, deps: Deps) -> int:
         return _command(io, args, s, deps, zone, records, cf, env_text, compose, url, timeout)
 
     return finish(io, s, deps, records, runner, args)
+
+
+def private_copy(s: Settings, env_text: str) -> str:
+    """The .env this computer keeps. With --plan-bucket the server's env names only the plan's key, so the copy here keeps
+    the plan itself too, for a re-run without --company-file."""
+    if s.company_file_data and s.plan_bucket:
+        return env_text + envfile.render({"TICO_COMPANY_FILE_B64": s.company_file_data}).split("\n", 1)[1]
+    return env_text
 
 
 def runner_record_free(s: Settings, cf: Cloudflare) -> None:
@@ -605,7 +625,11 @@ def _aws(io, args, s, deps, zone, records, cf, env_text, compose, url, timeout) 
     io.say("\nAWS")
     ec2, iam, ssm, account = deps.aws_clients(s.aws_region, s.aws_profile)
     d = awsmod.Deployer(plan, ec2, iam, ssm, account, say=io.say, sleep=deps.sleep)
-    d.put_env(env_text, company_file=bool(s.company_file_data))
+    d.put_env(env_text, company_file=bool(s.company_file_data) and not plan.plan_bucket)
+    plan_s3 = deps.aws_s3(s.plan_bucket_region or s.aws_region, s.aws_profile) if plan.plan_bucket else None
+    if plan_s3:
+        # Before launch: the server copies it at first boot. A re-run puts it again, for pull-env.sh below.
+        d.put_plan(plan_s3, s.plan_key(), s.company_file_data)
     prep = d.prepare()
     ip = prep["public_ip"]
     if s.front_door == "caddy":
@@ -617,7 +641,7 @@ def _aws(io, args, s, deps, zone, records, cf, env_text, compose, url, timeout) 
                                      env_param=(d.param_name, s.aws_region), wait_for_ip=ip)
     iid, created = d.launch_or_reuse(prep, script)
     s.aws_instance_id = iid
-    state.save(s.domain, {**s.public(), "aws_name": plan.name}, env_text)
+    state.save(s.domain, {**s.public(), "aws_name": plan.name}, private_copy(s, env_text))
     runner = remote.SSMShell(ssm, iid, deps.sleep)
     if s.front_door == "caddy" and not args.skip_dns_wait:
         io.say("\nWaiting for public DNS (the server holds back Caddy until this is true) ...")
@@ -642,6 +666,9 @@ def _aws(io, args, s, deps, zone, records, cf, env_text, compose, url, timeout) 
         if res.returncode:
             io.say(envfile.scrub(res.stderr[-400:], s.secrets()))
             return None
+    if plan_s3:
+        d.delete_plan(plan_s3, s.plan_key())
+        io.say("  The server has its copy of the starter plan; deleted it from the plan bucket.")
     return runner, records
 
 

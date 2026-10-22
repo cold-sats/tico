@@ -31,6 +31,8 @@ EBS_GB_MONTH, PUBLIC_IPV4_HOUR, HOURS = 0.08, 0.005, 730
 
 # --name: what slug() makes, so tico-<name> fits every AWS name limit (IAM roles allow 64).
 NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?")
+BUCKET_RE = re.compile(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]")
+REGION_RE = re.compile(r"[a-z]{2}(?:-[a-z]+)+-\d{1,2}")
 POLICY_ARN_RE = re.compile(r"arn:aws[a-z-]*:iam::\d{12}:policy/[A-Za-z0-9+=,.@/_-]{1,512}")
 SSM_CORE = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 
@@ -52,6 +54,7 @@ class AwsPlan:
     role: str = "server"
     warnings: list[str] = field(default_factory=list)
     boundary: str = ""      # the permissions boundary the IAM role is created under, when the account requires one
+    plan_bucket: str = ""   # --plan-bucket: the role may read its own starter plan there, plans/<name>/*
 
     @property
     def volume_gib(self) -> int:
@@ -76,6 +79,8 @@ class AwsPlan:
             "Instance metadata: IMDSv2 required, hop limit 1 (containers and bots cannot reach the instance role)",
             "Shell access through SSM (IAM role tico-%s with AmazonSSMManagedInstanceCore); no SSH key, no port 22" % self.name,
             *([f"The IAM role is created under the permissions boundary {self.boundary}"] if self.boundary else []),
+            *([f"The starter plan goes to the server by S3 bucket {self.plan_bucket} (plans/{self.name}/, read by the "
+               "server's role once at first boot, deleted once it is up)"] if self.plan_bucket else []),
             f"SSM SecureString /tico/{self.name}/env holds the " + ("one-time join code" if self.role == "runner" else ".env") + " for the instance to fetch at boot",
             ("Elastic IP so the DNS record survives a stop/start" if self.elastic_ip else "No Elastic IP: nothing connects in"),
             f"Tags on everything: {MANAGED_TAG[0]}={MANAGED_TAG[1]}, {NAME_TAG}={self.name}",
@@ -84,13 +89,15 @@ class AwsPlan:
 
 
 def plan_aws(*, domain: str, front_door: str, region: str, instance_type: str = "t4g.small",
-             os_family: str = "ubuntu", name: str = "", role: str = "server", boundary: str = "") -> AwsPlan:
+             os_family: str = "ubuntu", name: str = "", role: str = "server", boundary: str = "",
+             plan_bucket: str = "") -> AwsPlan:
     if instance_type not in HOURLY:
         raise ValueError(f"instance type must be one of {', '.join(HOURLY)}")
     if os_family not in AMI_PARAMS:
         raise ValueError("os must be ubuntu or al2023")
     p = AwsPlan(name or slug(domain), region, instance_type, os_family, front_door, domain,
-                ports=[80, 443] if front_door == "caddy" else [], elastic_ip=front_door == "caddy", role=role, boundary=boundary)
+                ports=[80, 443] if front_door == "caddy" else [], elastic_ip=front_door == "caddy", role=role, boundary=boundary,
+                plan_bucket=plan_bucket)
     if role == "runner":
         p.warnings.append(f"Plan on about 0.5-1 GiB of RAM per bot working at the same time: {instance_type} "
                           f"({MEMORY_GIB[instance_type]} GiB) suits roughly {max(1, MEMORY_GIB[instance_type] - 1)} at once.")
@@ -151,6 +158,21 @@ class Deployer:
         self.ssm.put_parameter(Name=self.param_name, Value=env_text, Type="SecureString", Overwrite=True, **tier)
         self.ssm.add_tags_to_resource(ResourceType="Parameter", ResourceId=self.param_name, Tags=tags(self.p.name))
 
+    def put_plan(self, s3, key: str, data: str) -> None:
+        """The packed starter plan, for the server to copy once at first boot (remote.bootstrap_script). Plan only:
+        the env names the key and its sha256, never the plan."""
+        if not key.startswith(f"plans/{self.p.name}/"):
+            raise ValueError("a starter plan key is plans/<this server's name>/<sha256>")
+        s3.put_object(Bucket=self.p.plan_bucket, Key=key, Body=data.encode("ascii"), ContentType="text/plain")
+
+    def delete_plan(self, s3, key: str) -> None:
+        """Once the server is up and has its copy. A plan already gone (S3 expires them after a day) is fine."""
+        try:
+            s3.delete_object(Bucket=self.p.plan_bucket, Key=key)
+        except Exception as e:  # botocore ClientError, without importing botocore here
+            if getattr(e, "response", {}).get("Error", {}).get("Code") not in ("NoSuchKey", "404"):
+                raise
+
     def ensure_role(self) -> str:
         n = f"tico-{self.p.name}"
         trust = {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Principal": {"Service": "ec2.amazonaws.com"},
@@ -166,6 +188,10 @@ class Deployer:
         self.iam.attach_role_policy(RoleName=n, PolicyArn=SSM_CORE)
         arn = self.ssm_param_arn()
         pol = {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Action": "ssm:GetParameter", "Resource": arn}]}
+        if self.p.plan_bucket:
+            # Its own plan only; a boundary, when there is one, only limits this and grants nothing.
+            pol["Statement"].append({"Effect": "Allow", "Action": "s3:GetObject",
+                                     "Resource": f"arn:aws:s3:::{self.p.plan_bucket}/plans/{self.p.name}/*"})
         self.iam.put_role_policy(RoleName=n, PolicyName="tico-env", PolicyDocument=json.dumps(pol))
         try:
             self.iam.create_instance_profile(InstanceProfileName=n, Tags=tags(self.p.name))

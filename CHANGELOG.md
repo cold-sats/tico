@@ -8,6 +8,12 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Tico's hosted servers start with the whole setup chart, up to 300 seats.** A chart from the setup chat used to
+  reach a hosted server only when it packed into 7 KB, so most company models (the 73-seat Everything model packs to
+  12 KB) had to be imported in the app afterwards. With `--plan-bucket`, setup now puts the packed plan in a private S3
+  bucket at `plans/<name>/<sha256>`, the server's own role copies it once at first boot (to `company-file/plan.b64`,
+  0400, checked against its sha256; a mismatch stops the boot), the app reads it from `TICO_COMPANY_FILE`, and setup
+  deletes the object once the server is up. Self-install keeps the env path and its 7 KB limit.
 - **Five company models for the setup org chart** replace the one 22-bot starter pack: Everything (73 seats), Software
   company (51), Services firm (38), Local service business (41) and Online store (39), with Legal, People, Operations
   and Leadership and bigger Finance, Sales, Marketing and Support teams. The first chart starts from the model the

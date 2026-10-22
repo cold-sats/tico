@@ -207,7 +207,7 @@ def bootstrap_script(*, os_family: str, domain: str, front_door: str, compose: b
     q = shlex.quote
     L = ["#!/bin/bash", "set -eu", "exec > >(tee -a /var/log/tico-setup.log) 2>&1", "echo tico-setup: start $(date -u)"]
     L += docker_install_lines(os_family, need_aws_cli=bool(env_param))
-    L += [f"mkdir -p {d}"]
+    L += [f"mkdir -p {d}", *company_file_dir_lines()]
     if compose is not None:
         L += [f"echo {_b64gz(compose)} | base64 -d | gunzip > {d}/compose.yaml"]
     else:
@@ -216,7 +216,8 @@ def bootstrap_script(*, os_family: str, domain: str, front_door: str, compose: b
         name, region = env_param
         L += [f"cat > {d}/pull-env.sh <<'EOS'", "#!/bin/sh", "set -eu", "umask 077",
               f"aws ssm get-parameter --region {q(region)} --name {q(name)} --with-decryption "
-              f"--query Parameter.Value --output text > {d}/.env.new && mv {d}/.env.new {d}/.env", "EOS",
+              f"--query Parameter.Value --output text > {d}/.env.new && mv {d}/.env.new {d}/.env",
+              *plan_copy_lines(), "EOS",
               f"chmod 700 {d}/pull-env.sh", f"{d}/pull-env.sh"]
     else:
         L += ["umask 077", f"echo {env_b64} | base64 -d > {d}/.env"]
@@ -226,6 +227,38 @@ def bootstrap_script(*, os_family: str, domain: str, front_door: str, compose: b
               f"for i in $(seq 1 80); do getent hosts {q(domain)} | grep -q {q(wait_for_ip)} && break; sleep 15; done"]
     L += [f"cd {d} && docker compose pull --quiet && docker compose up -d", f"touch {d}/.bootstrapped", "echo tico-setup: done"]
     return "\n".join(L) + "\n"
+
+
+def company_file_dir_lines() -> list[str]:
+    """The folder compose.yaml mounts read-only into the server (contract.COMPANY_FILE_MOUNT), there even without a plan,
+    readable only by the server's user (10001, Dockerfile)."""
+    f = f"{contract.REMOTE_DIR}/{contract.COMPANY_FILE_DIR}"
+    return [f"mkdir -p {f}", f"chown 10001:10001 {f}", f"chmod 700 {f}"]
+
+
+def plan_copy_lines() -> list[str]:
+    """pull-env.sh, after the .env: with TICO_COMPANY_FILE_S3 set (--plan-bucket), copy the starter plan once with the
+    server's role and check its sha256. A mismatch stops the boot, so a wrong team never installs. A copy already in
+    place with the right sha256 is kept: setup deletes the bucket's copy once the server is up."""
+    d = contract.REMOTE_DIR
+    f = f"{d}/{contract.COMPANY_FILE_DIR}/{contract.COMPANY_FILE_NAME}"
+    return [f"plan_src=$(sed -n 's/^TICO_COMPANY_FILE_S3=//p' {d}/.env)",
+            'if [ -n "$plan_src" ]; then',
+            f"  plan_sha=$(sed -n 's/^TICO_COMPANY_FILE_SHA256=//p' {d}/.env)",
+            f"  plan_region=$(sed -n 's/^TICO_COMPANY_FILE_S3_REGION=//p' {d}/.env)",
+            f'  if [ "$(sha256sum {f} 2>/dev/null | cut -d" " -f1)" != "$plan_sha" ]; then',
+            f'    rm -f {f}.new',
+            f'    aws s3 cp --only-show-errors --region "$plan_region" "$plan_src" {f}.new',
+            f'    plan_got=$(sha256sum {f}.new | cut -d" " -f1)',
+            '    if [ "$plan_got" != "$plan_sha" ]; then',
+            f'      rm -f {f}.new',
+            '      echo "tico-setup: FAILED: the starter plan from $plan_src has sha256 $plan_got, not $plan_sha; '
+            'not starting Tico" >&2',
+            '      exit 3',
+            '    fi',
+            f'    chown 10001:10001 {f}.new && chmod 0400 {f}.new && mv -f {f}.new {f}',
+            '  fi',
+            'fi']
 
 
 def env_b64(env_text: str) -> str:

@@ -138,3 +138,12 @@ def test_the_server_gets_the_visual_settings():
     for key in ("TICO_VISUAL_ORIGIN", "TICO_VISUAL_SECRET"):
         assert key in environment and environment[key] is None, key
     assert "TICO_VISUAL_SAME_ORIGIN" not in environment
+
+
+def test_the_server_reads_a_starter_plan_file_from_a_read_only_folder_setup_fills():
+    import yaml
+    server = yaml.safe_load((ROOT / "compose.yaml").read_text())["services"]["server"]
+    assert server["environment"]["TICO_COMPANY_FILE"] is None and server["environment"]["TICO_COMPANY_FILE_B64"] is None
+    assert "./company-file:/run/tico/company-file:ro" in server["volumes"]
+    from setup import contract
+    assert f"./{contract.COMPANY_FILE_DIR}:{contract.COMPANY_FILE_MOUNT}:ro" in server["volumes"]
