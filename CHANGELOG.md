@@ -38,6 +38,10 @@ All notable changes to Tico are recorded here. The format follows
   HQ registers only a join code's hash through scoped SSM; no owner token or join secret crosses that control plane.
 
 ### Changed
+- **A bot's tasks are one Tasks section with four tabs.** The right rail's Needs you, Active and Done sections become
+  tabs, each with its count: **Needs You** (what the bot needs from you), **Doing** (every open task it holds, of every
+  type, newest first), **Blocked** (each task saying who or what it waits on) and **Done Recently** (the last 14 days).
+  Assigned to others, Updates, Files and Routines stay below.
 - **Long runs of task updates in a bot's chat fold.** Four or more task status rows in a row show the oldest, a
   "...N more..." line with the exact number hidden, and the newest. Three or fewer show as before; a message starts a new run.
 - **The CEO Bot is on every install, Passive by default, and only the owner sets it up**: the Goal Manager is the CEO
