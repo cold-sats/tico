@@ -121,6 +121,10 @@ All notable changes to Tico are recorded here. The format follows
 - **No "Claude login required" while the Tico AI Gateway runs the bot.** Under the recommended choice a bot whose
   Claude or ChatGPT is not signed in yet shows as ready, its card says "Using Tico AI Gateway; sign in to Claude to use
   your subscription", and its model check and chat no longer ask for a login. With no Gateway either, it still does.
+- **A rate-limited bot can be moved to another model.** Settings > Bots refused the change with "Wait for the
+  current bot turn to finish" whenever a retry was running, so the bot stayed stuck on its spent model. The change now
+  applies at once and takes effect from the next turn; the limit lifts, and a turn still running on the old model no
+  longer puts the limit back on the new one.
 
 ## [0.3.71] - 2026-10-21
 
