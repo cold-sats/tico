@@ -2489,8 +2489,12 @@ def _write_message(conn, actor, target, body, conv, kind, refs, in_reply_to, wai
         body = librarian_text(body)
     if VIA.get() and is_human(actor):
         refs = {**(refs or {}), "via": VIA.get()}         # the Assistant wrote this for the person
-    # Token saving 2/9: a wake its bot's own write caused, or news about a parked task, waits for the next run.
     from . import wake_rules
+    if actor == KEEPER and str(target).startswith("bot:") and is_human(wake_rules.CAUSE.get()):
+        # Tico's notice of a person's own act keeps who acted: the request's cause ends with it, and the reply
+        # rule at the turn's end (execution.quiet_recheck) must still see that a person is owed the answer.
+        refs = {**(refs or {}), wake_rules.CAUSED_BY: wake_rules.CAUSE.get()}
+    # Token saving 2/9: a wake its bot's own write caused, or news about a parked task, waits for the next run.
     held = wake_rules.gate(conn, actor, target, kind, refs, body, conv, in_reply_to)
     if held:
         refs = {**(refs or {}), "quiet": True, wake_rules.MARK: held}

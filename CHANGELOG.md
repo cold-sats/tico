@@ -97,12 +97,13 @@ All notable changes to Tico are recorded here. The format follows
 
 ### Fixed
 - **A bot no longer repeats "nothing changed" into a person's chat.** A task a bot files for itself during one of
-  its turns now waits for that turn to end (at most 5 minutes), and starts no turn at all when the filing turn
-  already finished or declined it; before, a standing order filed and marked done in one turn started a second turn that re-checked and replied
-  again. A turn Tico woke on a task that was already finished, and that changed nothing, no longer posts its reply to
-  the person: the text stays on the run, and `hub sql` shows a `reply.withheld` event for it. A person's own
-  messages (including one that arrives during the turn), approvals and answers, and any turn that wrote or pushed
-  something, reply as before.
+  its turns now waits for that turn to end (at most 5 minutes). It starts no turn at all when the filing turn
+  finished, declined or parked it (waiting, blocked or snoozed: what it waits for wakes it). Before, a standing
+  order filed and marked done in one turn started a second turn that re-checked and replied again. A turn Tico woke
+  on a task that was already finished, and that changed nothing, no longer posts its reply to the person: the text
+  stays on the run, and `hub sql` shows a `reply.withheld` event for it. A person's own messages (including one
+  that arrives during the turn), Tico's notice of a person's own act (such as marking the task done with a
+  question in the note), approvals and answers, and any turn that wrote or pushed something, reply as before.
 - **The scheduler no longer blocks the server for seconds at a time on a busy hub.** Its 10-second pass used to run
   in one write transaction and read every task to find due dates, so on a hub with many tasks and routines requests
   waited behind it and runners saw 503s. Each step, routine and batch of due-date reminders now commits on its own,

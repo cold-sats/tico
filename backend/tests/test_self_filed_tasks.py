@@ -170,3 +170,38 @@ def test_a_task_the_filing_turn_declined_starts_no_turn(api):
     post(api, "tasks/" + order["id"], {"version": version, "status": "declined"}, active["token"])
     complete(api, machine, active)
     assert claim(api, machine) is None
+
+
+def test_a_person_who_finishes_the_task_with_a_question_gets_the_answer(api):
+    """The bot learns of a person's own act (done, with a note) only from Tico's notice: the notice keeps who acted,
+    so the bot's answer is posted although its turn wrote nothing."""
+    r = machine(api)
+    task = post(api, "tasks", {"owner": "ops", "title": "Send the contract", "body": "For signature."})
+    first = claim(api, r)
+    start(api, r, first)
+    version = get(api, "tasks/" + task["id"], first["token"])["task"]["version"]
+    post(api, "tasks/" + task["id"], {"version": version, "status": "review"}, first["token"])
+    finish(api, r, first, "Sent for signature.")
+    version = get(api, "tasks/" + task["id"])["task"]["version"]
+    post(api, "tasks/" + task["id"], {"version": version, "status": "done", "note": "Signed. Which draft went out?"})
+    again = claim(api, r)
+    assert again["message"]["from_actor"] == "keeper"
+    start(api, r, again)
+    finish(api, r, again, "Draft 3, the one with the new rates.")
+    assert replies(api, task)[-1] == "Draft 3, the one with the new rates."
+
+
+def test_a_task_the_filing_turn_left_waiting_starts_no_turn(api):
+    """A standing order parked by the turn that filed it is woken by what it waits for, not by its first notice."""
+    machine = task_bot(api, lanes=True)
+    active = busy(api, machine)
+    order = post(api, "tasks", {"owner": "ops", "title": "Spec to top when routines land", "body": "Standing order."},
+                 token=active["token"])
+    version = get(api, "tasks/" + order["id"], active["token"])["task"]["version"]
+    post(api, "tasks/" + order["id"], {"version": version, "status": "waiting",
+                                        "note": "Waiting on routines Part 2 to land."}, active["token"])
+    assert claim(api, machine) is None
+    complete(api, machine, active)
+    assert claim(api, machine) is None
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM turns WHERE task_id=?", (order["id"],)).fetchone()[0] == 0
