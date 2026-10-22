@@ -82,6 +82,9 @@ All notable changes to Tico are recorded here. The format follows
   HQ registers only a join code's hash through scoped SSM; no owner token or join secret crosses that control plane.
 
 ### Changed
+- **Subscription runs count toward spend limits by default.** Runs on a ChatGPT or Claude sign-in now count their
+  API-equivalent toward every limit unless the team turns off "Count subscription runs" (Usage > **Default limit**). A
+  team that saved the default with the box off keeps it off.
 - **Updates: per-update reader check for assistant-drafted updates.** Each drafted update is checked against its
   reader on every read, so some drafts show to fewer readers than before.
 - **The stopped-run card is now just the decision.** Each stopped run shows one line on what stopped ("Stopped 8:12

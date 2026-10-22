@@ -1885,7 +1885,7 @@ class UsageLimit(Contract):
 
 
 class UsageDefault(UsageLimit):
-    count_subscription: bool = False
+    count_subscription: bool = True
 
 
 class SubscriptionUnavailable(Contract):
