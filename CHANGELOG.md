@@ -38,6 +38,8 @@ All notable changes to Tico are recorded here. The format follows
   HQ registers only a join code's hash through scoped SSM; no owner token or join secret crosses that control plane.
 
 ### Changed
+- **Long runs of task updates in a bot's chat fold.** Four or more task status rows in a row show the oldest, a
+  "...N more..." line with the exact number hidden, and the newest. Three or fewer show as before; a message starts a new run.
 - **The CEO Bot is on every install, Passive by default, and only the owner sets it up**: the Goal Manager is the CEO
   Bot everywhere, at the top of the org chart, with its KPI history and old messages kept; there is no On/Off switch
   any more. At the new default level, **Passive**, it keeps the **regular checks** running (KPI readings and the
