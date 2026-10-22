@@ -43,7 +43,9 @@ A `--company-file` normally travels in the `.env` parameter, so it must pack to 
 plan at `plans/<name>/<sha256>` in that bucket before launch, grants the server's role `s3:GetObject` on
 `plans/<name>/*` only, and names the key and its sha256 in the `.env`. At first boot the server copies it to
 `/opt/tico/company-file/plan.b64` (0400, the server's user), refuses to start on a sha256 mismatch, and the app reads it
-from `TICO_COMPANY_FILE`. Setup deletes the object once the server is up. Charts up to 300 seats fit.
+from `TICO_COMPANY_FILE` (the server mounts that folder by its absolute path, `TICO_COMPANY_FILE_DIR`). Setup deletes the
+object once the server is up; if S3 refuses, setup says so and the bucket expires it within a day. Charts up to 300
+seats fit.
 
 ```
 python3 -m setup destroy --domain tico.example.com --dry-run   # list what carries both tags
