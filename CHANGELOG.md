@@ -216,6 +216,8 @@ All notable changes to Tico are recorded here. The format follows
   routines and their occurrences in its own run, as the permissions page already said. It was refused ("Only people
   and the bot itself read its routines"), so a manager bot reviewing its reports could not see what each one runs.
   It still cannot change them ([Routines](docs/routines.md)).
+- **An @mention on a task with no bot on it shows once.** The comment itself is the mentioned person's question,
+  as on any task where it wakes no bot; it no longer also saves a second copy that showed the comment twice.
 
 ## [0.3.71] - 2026-10-21
 
