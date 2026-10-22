@@ -38,7 +38,8 @@ from . import models as M
 from .auth import LOCAL_COOKIE, LOCAL_COOKIE_DAYS, LOCAL_SIGNIN_PATH, LOGOUT_PATH, Auth, Identity
 from .config import Settings
 from .observability import Observability, browser_config, staff_display_name
-from .execution import Execution, bot_repository, bump_bot_session_epoch, clear_limits, own_login_hold
+from .execution import (Execution, bot_repository, bump_bot_session_epoch, clear_limits, lift_after_model_change,
+                        model_choice, own_login_hold)
 from .onboarding import BOTOPS, Onboarding
 from .recruit import Recruiter
 from . import rooms
@@ -5242,14 +5243,15 @@ def create_app(settings=None):
                         "readiness": absolute_link(can_run(c, bot, runtime, harness=harness, model=choice["id"]), settings.public_url)}
             before = settings_admin.snapshot(c, bot, "model")
             execution.expire(c)
-            active = c.execute("SELECT 1 FROM attempts WHERE bot=? AND state IN ('leased','running')", (bot,)).fetchone()
-            if active:
-                raise Problem("busy", "Wait for the current run to finish before changing models", 409)
+            # A turn that is out finishes on the model its claim handed it and the next runs on the new one, as in
+            # Settings (settings_admin._apply): a person must be able to move a rate-limited bot off its spent model
+            # while a retry runs (Dev 353).
             # The same check a prepared change makes (settings_admin._target): a model the bot's computer reports it
             # cannot run is refused with the fix, not saved for a bot that then never runs.
             can = absolute_link(can_run(c, bot, runtime, harness=harness, model=choice["id"]), settings.public_url)
             if can["can_run"] is False:
                 raise Problem("runner_not_ready", can["problem"], 409, extra={"fix": can["fix"], "link": can["link"]})
+            was = model_choice(c, settings, bot)
             config.update({"model": choice["id"], "runtime": runtime, "harness": harness,
                            "reasoning_effort": effort,
                            "model_managed_by": "cloud"})
@@ -5259,6 +5261,7 @@ def create_app(settings=None):
                       (choice["id"], runtime, effort, bot))
             # Its shared copies follow it, so any bot may have moved onto another tool.
             model_login.hold_removals(c, settings)
+            lift_after_model_change(c, settings, who.actor, bot, was)
             reset = reset_bot_sessions(c, bot)
             settings_admin.record(c, who.actor, bot, "model", before,
                                   settings_admin.snapshot(c, bot, "model"))

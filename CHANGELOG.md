@@ -138,6 +138,12 @@ All notable changes to Tico are recorded here. The format follows
   ([GitHub App](docs/github-app.md#permissions-and-why)).
 
 ### Fixed
+- **The hub and MCP model change also moves a rate-limited bot while a turn runs.** `hub bot model` and the MCP
+  model tool refused with "Wait for the current run to finish before changing models"; they now follow the Settings
+  rule: the change applies at once, from the next turn, and lifts the old model's limit. A move onto a model that uses
+  the same spent login, or another Tico model after the Gateway key's limit, keeps Rate limited and says why instead of
+  "queued work resumes". A turn now records the model it was handed, so an effort-only change or a move away and back
+  while it runs keeps that model's real limit.
 - **Milestone waits follow the blocked_by rules.** Adding or removing a wait for a pull request or release now needs
   the same permission as a blocked_by (the task's owner, or a person on a team that moves tasks), a deleted task
   keeps its waits and gets them back when restored, and a message held while a task waits says what it waits for.
