@@ -8,6 +8,18 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Five company models for the setup org chart** replace the one 22-bot starter pack: Everything (73 seats), Software
+  company (51), Services firm (38), Local service business (41) and Online store (39), with Legal, People, Operations
+  and Leadership and bigger Finance, Sales, Marketing and Support teams. The first chart starts from the model the
+  company's signals point to (new signals: sells services, on-site jobs, sells products; none of them is Everything),
+  adds every department head it lacks and the roles that fit what the visitor said, and drops nothing. New setup
+  actions switch the chart to a model (`model_use`; "show me everything" is Everything) and put a person in a seat
+  (`seat_fill`, "Ana runs our cap table"). Controller, Equity Manager, Fundraising Manager, Scheduling & Bookings and
+  Quality & Inspections are seats with no bot yet: a person can hold one, and importing the company file makes no bot
+  for it or for any seat a person holds (the coworkers who hold seats stay in the saved plan; they join in Tico). The
+  cap table moves from the Corporate Secretary's description to the Equity Manager's. A whole model chart is over the
+  8 KB the installer can carry today, so `setup` refuses it before anything is set up and names the step: run setup
+  without `--company-file`, then import the file on Tico's first Welcome step (**Already chose your team?**).
 - **Visuals show without a visual address.** A company with no separate visual address now sees pictures, video and
   audio inline in chat and task conversations, served from the app's own address as media only. A visual page or an
   SVG is a card with its title, a still preview when there is one, and **Open**, which shows it in the file viewer;
@@ -49,6 +61,14 @@ All notable changes to Tico are recorded here. The format follows
   whole at about a quarter of the message column, several to a row, on a computer and a phone, so the reply's words
   keep the room. Tap or click opens it fitted to the screen, never cut off or scrolled; zoom with the wheel, a click,
   a pinch or the - Fit + buttons (or the - 0 + keys), and drag or scroll to look around.
+- **The stopped-run card is now just the decision.** Each stopped run shows one line on what stopped ("Stopped 8:12
+  AM after using Bash."), one recommendation, and two buttons with the recommended one first: **Try again** leads
+  only for a run Tico's own retry rule calls safe (it only read, on a host that reports every call, first stop);
+  **Don't retry** leads for one that may have changed something, used an approval, left no full record or stopped
+  more than once. The
+  request, saved output, tool calls and the optional note are folded under **Details**. The Needs you line is
+  shorter: what stopped and what waits on it. The review API adds `stopped` (`changed`, `read`, `twice` or `unknown`) and
+  `acted` to each run.
 - **A bot's tasks are one Tasks section with four tabs.** The right rail's Needs you, Active and Done sections become
   tabs, each with its count: **Needs You** (what the bot needs from you), **Doing** (every open task it holds, of every
   type, newest first), **Blocked** (each task saying who or what it waits on) and **Done Recently** (the last 14 days).
@@ -88,6 +108,18 @@ All notable changes to Tico are recorded here. The format follows
   each one at its own rate.
 
 ### Fixed
+- **Questions that close on their own leave every count right.** The hourly sweep closes each leftover question on
+  its own, so one that fails stays for the next sweep instead of undoing the rest. When questions close in bulk (a
+  task above ends, the hourly sweep, the weekday "Still needed?" batch), the bot that asked them has its "needs a
+  person" count updated at once, and "Still needed?" keeps a task waiting on a person while another question to them
+  is still open on it. A stuck task gets no extra stall wake between its retry and its report to BotOps, and BotOps's
+  "Find why" task says how many wake-ups it really got that day.
+- **The scheduler no longer blocks the server for seconds at a time on a busy hub.** Its 10-second pass used to run
+  in one write transaction and read every task to find due dates, so on a hub with many tasks and routines requests
+  waited behind it and runners saw 503s. Each step, routine and batch of due-date reminders now commits on its own,
+  the due-date and deferred-task lookups use new indexes (migration 61), and Health's scheduler entry shows the
+  pass's longest single hold (`hold_ms`, with `hold_step`) and its longest wait behind other writers (`wait_ms`)
+  next to `tick_ms`. These cover the 10-second pass; the minute and hourly sweeps take their own transactions.
 - **A run whose only work was a git push counts as acting.** The computer reports the pushes a run made from its
   task's worktrees with its result, so in `hub sql` the run reads `acted` with `did_nothing` 0 instead of
   `no_change`. Pushes from another task's worktree are not counted, and older runs read as before.
