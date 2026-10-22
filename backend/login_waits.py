@@ -6,7 +6,9 @@ The runner streams a `status` event `{"waiting": line, "login": label, "holder":
 `{"yielded": line}` when a turn gave the login up at its hold cap, and a `diagnostic` `{"text", "fallback": harness,
 "busy": {"login", "holder"}}` when the bot's own fallback took the turn instead. The chat, the task's Runs, the bot's
 status and Health read them here. The bot that holds the login is named only to a reader who may see that bot (anyone
-else reads "another bot"), and its task only to a reader who may read the holder's run.
+else reads "another bot"), and its task only to a reader who may read the holder's run. Every event goes out raw on
+the changes feed and the run's own event lists to whoever reads the waiting run, so a wait is stored without the
+holder's task or the runner's worded line (stored); the task is looked up from the holder's run when it is worded.
 """
 
 import json
@@ -52,6 +54,28 @@ def _clock(epoch):
         return ""
 
 
+def stored(kind, payload):
+    """A runner event as it is kept: a login wait loses the holder's task and the runner's line, which name what a
+    reader of the waiting run may not see; `waiting()` words it for each reader."""
+    if kind != "status" or not isinstance(payload, dict) or not payload.get("waiting"):
+        return payload
+    login = _named(payload.get("login"))
+    kept = {k: v for k, v in payload.items() if k != "holder_task"}
+    kept["waiting"] = f"Waiting for {login} to be free" if login else "Waiting for its ChatGPT login to be free"
+    return kept
+
+
+def _task(c, run):
+    """The task the holder's run works on, "#<number> <title>" as the runner names it, or ""."""
+    row = c.execute("SELECT j.message_id FROM attempts a JOIN jobs j ON j.id=a.job_id WHERE a.id=?", (run,)).fetchone()
+    msg = H.message(c, row[0], include_deleted=True) if row else None
+    task_id = H.message_task_id(msg, H.conversation(c, msg["conversation_id"])) if msg else None
+    task = H.task(c, task_id) if task_id else None
+    if not task:
+        return ""
+    return _named(f"#{task['number']} {task['title']}" if task.get("number") else task.get("title"))
+
+
 def wait(c, aid):
     """The attempt's newest login wait as the runner reported it, or None once the login is its own."""
     payload = _payload(c, aid, "status", "waiting")
@@ -72,10 +96,11 @@ def waiting(c, aid, bot, who=None, auth=None):
     position = payload.get("position")
     if not isinstance(position, int) or isinstance(position, bool) or position < 1:
         return f"Waiting for {login} to be free (busy with {named})"
-    task, run = _named(payload.get("holder_task")), payload.get("holder_attempt")
-    if task and who is not None and not (named == holder and isinstance(run, str) and run
+    run = payload.get("holder_attempt")
+    task = ""
+    if isinstance(run, str) and run and (who is None or named == holder
                                          and privacy.attempt_readable(c, privacy.actor(who), run)):
-        task = ""
+        task = _task(c, run)
     since = _clock(payload.get("since"))
     return (f"Waiting for {login} (held by {named}{' on ' + task if task else ''}"
             f"{' since ' + since if since else ''}; position {position})")

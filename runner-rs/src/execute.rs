@@ -507,6 +507,15 @@ impl Drove {
     }
 }
 
+/// Err when the turn was stopped before it acknowledged its start (a person's Stop, or its task done or closed while it
+/// waited for its login): it ends unstarted, so its job ends with nothing run, not as an uncertain turn the drive stops.
+fn unstopped(flags: &Flags) -> Result<(), Fail> {
+    if flags.stopped.load(Ordering::SeqCst) {
+        return Err(Fail::runtime("Execution interrupted after stop before the turn started"));
+    }
+    Ok(())
+}
+
 /// A turn as the login queue knows it (crate::login_turns): its bot, its task as a person reads it, the class the
 /// server gave it (`login_class`), the work it is for (its task, else its chat) and its attempt.
 fn login_turn(attempt: &Value) -> crate::login_turns::Turn {
@@ -796,10 +805,11 @@ impl Runner {
             waited = true;
             let line = login.waiting(w, bot);
             log(&format!("Tico runner: {bot}: {line}"));
-            // The server words it for each reader: the holder and its task are named only to whoever may see them.
+            // The server words it for each reader (backend/login_waits.py): the event goes out raw to whoever reads
+            // this run, so it names the holder's run, never its task, and the line here names neither.
             let _ = self.state.append(aid, "status", &json!({
-                "waiting": line, "login": login.label, "holder": w.holder, "holder_attempt": w.attempt,
-                "holder_task": w.task, "since": w.since, "position": w.position,
+                "waiting": format!("Waiting for {} to be free", login.label), "login": login.label, "holder": w.holder,
+                "holder_attempt": w.attempt, "since": w.since, "position": w.position,
             }));
             wake.notify_one();
         };
@@ -1063,6 +1073,7 @@ impl Runner {
             if flags.lost.load(Ordering::SeqCst) || Instant::now() >= *flags.deadline.lock().unwrap() {
                 return Err(Fail::runtime("Lease expired while preparing runtime"));
             }
+            unstopped(&flags)?;
             // Acknowledge before execution. Any later crash is explicitly uncertain.
             self.client.post(&format!("attempts/{aid}/started"), &json!({"thread_id": th}), Some(&format!("started:{aid}"))).await?;
             self.state.phase(&aid, "running")?;
@@ -1227,6 +1238,7 @@ impl Runner {
                 if busy.is_some() || held.is_some() {
                     // The primary never started (its login was busy, or held by the server), so this host
                     // acknowledges the turn instead, before it acts.
+                    unstopped(&flags)?;
                     self.client.post(&format!("attempts/{aid}/started"), &json!({"thread_id": th}), Some(&format!("started:{aid}"))).await?;
                     self.state.phase(&aid, "running")?;
                     acked = true;
@@ -1396,7 +1408,10 @@ impl Runner {
         } else {
             completion.insert("outcome".into(), json!(drove.outcome));
         }
-        completion.insert("text".into(), json!(reply));
+        // A turn interrupted at the end of its grace stopped at no safe point: its partial answer stays in the run's
+        // events but does not become the task's checkpoint (backend/execution.py complete).
+        let unsafe_yield = drove.yielded && drove.outcome != "completed";
+        completion.insert("text".into(), json!(if unsafe_yield { "" } else { reply.as_str() }));
         completion.insert("tokens_in".into(), drove.tokens.get("input").cloned().unwrap_or(Value::Null));
         completion.insert("tokens_out".into(), drove.tokens.get("output").cloned().unwrap_or(Value::Null));
         if !carried.is_empty() {
@@ -1964,6 +1979,71 @@ for line in sys.stdin:
         assert!(!review.is_finished(), "the review went ahead of the continuation");
         drop(continued);
         drop(tokio::time::timeout(Duration::from_secs(5), review).await.unwrap().unwrap());
+        server.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_turn_that_ignores_the_ask_to_stop_at_the_cap_is_interrupted_once_its_grace_ends() {
+        use crate::login_turns::{Class, Turn};
+        use std::os::unix::fs::PermissionsExt;
+        let key = "codex:test-drive-grace";
+        crate::login_turns::cap_for_test(key, Duration::ZERO);
+        crate::login_turns::grace_for_test(key, Duration::from_millis(300));
+        let (url, _seen, server) = recording_server().await;
+        let (runner, dir) = runner_at(&url, "drive-grace");
+        // A stand-in app-server whose turn takes the steer and runs on; only an interrupt ends it.
+        let program = dir.join("codex");
+        std::fs::write(&program, r#"#!/usr/bin/env python3
+import json, os, sys
+def say(m): print(json.dumps(m), flush=True)
+for line in sys.stdin:
+    msg = json.loads(line)
+    method = msg.get("method")
+    if method == "initialize":
+        say({"id": msg["id"], "result": {}})
+    elif method == "turn/start":
+        say({"id": msg["id"], "result": {"turn": {"id": "t1"}}})
+        say({"method": "turn/started", "params": {"threadId": "th1", "turn": {"id": "t1"}}})
+    elif method == "turn/steer":
+        say({"id": msg["id"], "result": {"turnId": "t1"}})
+    elif method == "turn/interrupt":
+        open(os.environ["FAKE_INTERRUPTS"], "a").write("t1\n")
+        say({"id": msg["id"], "result": {}})
+        say({"method": "turn/completed", "params": {"threadId": "th1", "turn": {"id": "t1", "status": "interrupted"}}})
+    elif "id" in msg:
+        say({"id": msg["id"], "result": {}})
+"#).unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let interrupts = dir.join("interrupts");
+        let env: crate::env::Env = [("PATH".to_string(), format!("{}:{}", dir.display(), std::env::var("PATH").unwrap_or_default())),
+                                    ("FAKE_INTERRUPTS".to_string(), interrupts.display().to_string())].into_iter().collect();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let host = Host::Codex(crate::hosts::codex::CodexHost::on_home(env, tx, None));
+        host.start().await.unwrap();
+
+        let mut held = crate::login_turns::try_take(key, &Turn::new("ops", "#7 Release notes", Class::Other).of("task-7", "a-ops")).unwrap();
+        held.bind(host.clone());
+        let review = tokio::spawn(async move { crate::login_turns::take(key, &Turn::new("reviewer", "#8 Review 1", Class::Review)).await });
+        while !held.cap().due(Instant::now()) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let t = host.start_turn("th1", "Write the release notes", None).await.unwrap();
+        let flags = Flags { lost: AtomicBool::new(false), stopped: AtomicBool::new(false), done: AtomicBool::new(false),
+                            done_notify: Notify::new(), deadline: Mutex::new(Instant::now() + Duration::from_secs(60)) };
+        let wake = Notify::new();
+        let d = crate::drive::Drive { aid: "a-ops", host: &host, thread: "th1", effort: None, limit: Instant::now() + Duration::from_secs(60), flags: &flags,
+                                      wake: &wake, redactor: None, runtime: "codex", bot: "ops", session: "th1", login: Some(held.cap()) };
+        let mut segment = crate::drive::Segment { meter: Meter::default(), config: json!({}), profile: None, billing: "subscription" };
+        let mut goal = crate::drive::GoalRun { chat_goal: None, controlled: false, failure: None, paused: None, tries_key: ("ops".into(), "task-7".into()) };
+        let drove = tokio::time::timeout(Duration::from_secs(20), runner.drive(&d, &mut rx, t, &mut segment, &mut BTreeMap::new(), &mut None, &mut goal))
+            .await.expect("the turn was interrupted at the end of its grace").unwrap();
+        // Paused, not stopped or failed: it goes back in the queue and continues after the waiter.
+        assert!(drove.yielded && drove.outcome == "interrupted", "{}", drove.outcome);
+        assert!(goal.failure.is_none());
+        assert!(std::fs::read_to_string(&interrupts).unwrap().contains("t1"), "the turn was never interrupted");
+        drop(held);
+        drop(tokio::time::timeout(Duration::from_secs(5), review).await.expect("the waiter got the login").unwrap());
         server.abort();
         std::fs::remove_dir_all(&dir).ok();
     }

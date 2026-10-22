@@ -275,22 +275,30 @@ def test_a_run_waiting_for_its_chatgpt_login_says_so_and_names_the_holder_only_t
     assert (run["state"], run["waiting"], run["moved"]) == ("running", line, None)
     [run] = get(api, f"tasks/{tid}/run-view", "ben-test")["attempts"]
     assert run["waiting"] == "Waiting for this computer's ChatGPT login to be free (busy with another bot)"
-    # A runner that knows the queue names the holder's task, since when, and the place; the task only to a reader
-    # who may read the holder's run, and a holder that is no live run is flagged for Health.
+    # A runner that knows the queue names the holder's run, since when, and the place. The holder's task is looked up
+    # from its run, only for a reader who may read that run, and is never stored with the wait: every event goes out
+    # raw to whoever reads the waiting run (the changes feed, the run's events), so neither the task an old runner
+    # sends nor its worded line is kept. A holder that is no live run is flagged for Health.
     from backend import login_waits
-    place = {"waiting": line, "login": "this computer's ChatGPT login", "holder": "finance", "holder_attempt": aid,
-             "holder_task": "#12 Close the books", "since": 1_760_900_760, "position": 2}
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET title='Close the books', number=12 WHERE id=?", (tid,))
+    held = "#12 Close the books"
+    worded = f"Waiting for this computer's ChatGPT login (held by finance on {held} since 19:06Z; position 2)"
+    place = {"waiting": worded, "login": "this computer's ChatGPT login", "holder": "finance", "holder_attempt": aid,
+             "holder_task": held, "since": 1_760_900_760, "position": 2}
     events(api, machine, aid, [("status", place)], first=2)
     [run] = get(api, f"tasks/{tid}/run-view")["attempts"]
-    assert run["waiting"] == "Waiting for this computer's ChatGPT login (held by finance on #12 Close the books since 19:06Z; position 2)"
+    assert run["waiting"] == worded
     [run] = get(api, f"tasks/{tid}/run-view", "ben-test")["attempts"]
     assert run["waiting"] == "Waiting for this computer's ChatGPT login (held by another bot since 19:06Z; position 2)"
+    with api.app.state.store.read() as c:
+        kept = " ".join(r[0] for r in c.execute("SELECT payload_json FROM attempt_events WHERE attempt_id=?", (aid,)))
+    assert "Close the books" not in kept and "held by" not in kept
     with api.app.state.store.read() as c:
         assert not login_waits.unknown_holder(c, aid)
     # The bot's status says it waits and on whom; Health counts it as busy, not stuck.
     [status] = [s for s in get(api, "status")["bots"] if s and s["bot"] == "ops"]
-    assert status["focus"] == status["waiting"] == (
-        "Waiting for this computer's ChatGPT login (held by finance on #12 Close the books since 19:06Z; position 2)")
+    assert status["focus"] == status["waiting"] == worded
     assert not [r for r in get(api, "health")["stuck"] if r["bot"] == "ops"]
     events(api, machine, aid, [("status", {**place, "holder_attempt": "gone"})], first=3)
     [row] = [r for r in get(api, "health")["stuck"] if r["bot"] == "ops"]

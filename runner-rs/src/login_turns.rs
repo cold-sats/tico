@@ -154,9 +154,12 @@ struct Waiter {
     grant: Option<oneshot::Sender<Held>>,
 }
 
+/// The continuation a turn that gave way at the cap comes back as: the same bot on the same work (its task, or its
+/// chat: a bot's chat turns share the task label ""), or on the same task label when the work is unknown.
 struct Reserved {
     bot: String,
     task: String,
+    work: String,
     until: Instant,
 }
 
@@ -179,7 +182,9 @@ struct Slot {
 
 impl Slot {
     fn reserved_for(&self, turn: &Turn) -> bool {
-        self.reserved.as_ref().is_some_and(|r| r.bot == turn.bot && r.task == turn.task && Instant::now() < r.until)
+        self.reserved.as_ref().is_some_and(|r| {
+            r.bot == turn.bot && (if r.work.is_empty() { r.task == turn.task } else { r.work == turn.work }) && Instant::now() < r.until
+        })
     }
 
     /// The waiters in the order they take the login: one passed over MAX_SKIPS times first, then a continuation
@@ -289,7 +294,7 @@ impl Held {
         let mut slots = slots().lock().unwrap();
         if let Some(slot) = slots.get_mut(&self.key) {
             if let Some(turn) = slot.holder.as_ref().map(|h| h.turn.clone()) {
-                slot.reserved = Some(Reserved { bot: turn.bot, task: turn.task, until: Instant::now() + RESERVED_FOR });
+                slot.reserved = Some(Reserved { bot: turn.bot, task: turn.task, work: turn.work, until: Instant::now() + RESERVED_FOR });
             }
         }
     }
@@ -311,6 +316,15 @@ impl Cap {
         })
     }
 
+    /// How long the turn may run on to a safe point once asked to give the login up (YIELD_GRACE).
+    pub fn grace(&self) -> Duration {
+        #[cfg(test)]
+        if let Some(grace) = test_graces().lock().unwrap().get(&self.key) {
+            return *grace;
+        }
+        YIELD_GRACE
+    }
+
     pub fn yielded(&self) -> String {
         let (runtime, login) = self.key.split_once(':').unwrap_or((&self.key, ""));
         Login::new(runtime, login).yielded()
@@ -327,6 +341,18 @@ fn test_caps() -> &'static Mutex<HashMap<String, Duration>> {
 #[cfg(test)]
 pub fn cap_for_test(key: &str, cap: Duration) {
     test_caps().lock().unwrap().insert(key.into(), cap);
+}
+
+#[cfg(test)]
+fn test_graces() -> &'static Mutex<HashMap<String, Duration>> {
+    static G: OnceLock<Mutex<HashMap<String, Duration>>> = OnceLock::new();
+    G.get_or_init(Default::default)
+}
+
+/// A shorter grace for one test login, so a turn that never reaches a safe point is interrupted in the test's time.
+#[cfg(test)]
+pub fn grace_for_test(key: &str, grace: Duration) {
+    test_graces().lock().unwrap().insert(key.into(), grace);
 }
 
 fn hold_cap(_key: &str) -> Duration {

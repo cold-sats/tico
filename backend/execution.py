@@ -1883,9 +1883,11 @@ class Execution:
         row = self.attempt(c, who, aid)
         until = H.shift(H.now(), seconds=self.store.settings.lease_seconds)
         c.execute("UPDATE attempts SET lease_until=? WHERE id=?", (until, aid))
-        # The runner renews every few seconds, so a person's Stop rides on the answer it already reads.
+        # The runner renews every few seconds, so a person's Stop rides on the answer it already reads. A turn whose
+        # task ended meanwhile is stopped only while it waits for its login; one preparing or under way runs on.
+        from .login_waits import wait
         return {"lease_until": until, "lease_seconds": self.store.settings.lease_seconds,
-                **({"stop": True} if row["stop_requested"] or finished_before_start(c, row) else {})}
+                **({"stop": True} if row["stop_requested"] or finished_before_start(c, row) and wait(c, aid) else {})}
 
     def stop(self, c, who, bot, attempt_id=None, redirect=None):
         """A person who manages the bot asks its running turn to stop. The runner interrupts the turn
@@ -2079,8 +2081,9 @@ class Execution:
         # Late output is archived with its historical attempt, never applied to current work.
         row = self.attempt(c, who, aid, active=False)
         seq = row["last_seq"]
+        from .login_waits import stored
         for event in body.events:
-            payload = encode(event.payload)
+            payload = encode(stored(event.kind, event.payload))
             existing = c.execute("SELECT kind,payload_json FROM attempt_events WHERE attempt_id=? AND seq=?",
                                  (aid, event.seq)).fetchone()
             if existing:

@@ -104,10 +104,31 @@ def test_a_turn_waiting_for_its_login_whose_task_is_closed_meanwhile_is_skipped_
     assert "stop" not in post(api, f"attempts/{a['id']}/renew", {}, r["token"])
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE tasks SET status='closed',closed_at=? WHERE id=?", ("9999-01-01T00:00:00Z", tid))
+    # Only a turn waiting for its login is stopped: one still preparing runs on, as before there was a queue.
+    assert "stop" not in post(api, f"attempts/{a['id']}/renew", {}, r["token"])
+    wait = {"waiting": "Waiting for this computer's ChatGPT login to be free", "login": "this computer's ChatGPT login",
+            "holder": "finance", "position": 1}
+    post(api, f"attempts/{a['id']}/events", {"events": [{"seq": 1, "kind": "status", "payload": wait}]}, r["token"])
     # The runner hears stop on its next renewal, leaves the queue and reports the turn it never started.
     assert post(api, f"attempts/{a['id']}/renew", {}, r["token"])["stop"] is True
-    post(api, f"attempts/{a['id']}/complete", {"outcome": "interrupted", "last_seq": 0}, r["token"])
+    post(api, f"attempts/{a['id']}/complete", {"outcome": "interrupted", "last_seq": 1}, r["token"])
     with api.app.state.store.read() as c:
         assert c.execute("SELECT state FROM jobs WHERE id=?", (a["job_id"],)).fetchone()[0] == "cancelled"
         assert not c.execute("SELECT 1 FROM messages WHERE kind='notice' AND body LIKE 'Stopped by%'").fetchone()
     assert claim(api, r) is None
+
+
+def test_a_person_stopping_a_turn_before_it_started_ends_it_unstarted(api):
+    from backend.tests.test_api import claim, ready
+    r = runner(api)
+    assign(api, r, "ops")
+    ready(api, r, ["ops"])
+    post(api, "tasks", {"owner": "ops", "title": "Count the words", "body": "Count them."})
+    a = claim(api, r)
+    post(api, "bots/ops/stop", {"attempt_id": a["id"]})
+    assert post(api, f"attempts/{a['id']}/renew", {}, r["token"])["stop"] is True
+    # The runner stops before it acknowledges the start (waiting for its login, or preparing): nothing ran.
+    post(api, f"attempts/{a['id']}/complete", {"outcome": "interrupted", "last_seq": 0}, r["token"])
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT state FROM jobs WHERE id=?", (a["job_id"],)).fetchone()[0] == "cancelled"
+        assert c.execute("SELECT 1 FROM messages WHERE kind='notice' AND body='Stopped by Ana'").fetchone()

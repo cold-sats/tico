@@ -325,9 +325,10 @@ task lane of the same bot, that wants the same login waits its turn. When the lo
 by class, set by the server on the lease (`login_class`): a task labelled `release-blocker` first, then one labelled
 `critical-path` and a turn a person's own message started, then the rest; first come, first served within a class. A
 subtask takes the label of the work it serves (its parents, the tasks it blocks), and routines and timed wakes are
-always last. A waiter passed over twice by later arrivals goes next whatever its class. While it waits, its run streams a
-`status` event `{"waiting", "login", "holder", "holder_attempt", "holder_task", "since", "position"}`, and the chat, the
-task, **Runs** and the bot's status show *Waiting for <login> (held by <bot> on <task> since <HH:MMZ>; position N)*. A
+always in the last class, whatever their labels. A waiter passed over twice by later arrivals goes next whatever its class. While it waits, its run streams a
+`status` event `{"waiting", "login", "holder", "holder_attempt", "since", "position"}`, and the chat, the
+task, **Runs** and the bot's status show *Waiting for <login> (held by <bot> on <task> since <HH:MMZ>; position N)*,
+the task looked up from the holder's run for a reader who may read that run (the event itself never names it). A
 waiting run counts toward the computer's capacity and is busy, not stuck, in Health; Health flags a holder that is no
 live run. A turn that has held the login 20 minutes while another waits is asked to stop at a safe point (push its work,
 note where it stopped) and is interrupted 5 minutes later if it has not. It ends *paused*, not failed: its job goes

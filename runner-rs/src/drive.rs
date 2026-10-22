@@ -351,7 +351,7 @@ impl Runner {
                         }
                     }
                     if let Some(held) = d.login.as_ref().filter(|h| !complete && yielding.is_none() && pausing.is_none() && !clearing && h.due(Instant::now())) {
-                        yielding = Some(Instant::now() + crate::login_turns::YIELD_GRACE);
+                        yielding = Some(Instant::now() + held.grace());
                         let note = held.yielded();
                         self.state.append(aid, "status", &json!({"yielding": note}))?;
                         d.wake.notify_one();
