@@ -810,9 +810,24 @@ def job_refusal(c, job, followed, ready, busy, lanes, roots, live=frozenset()):
         return "check_model"                # hold_unrunnable cancels it on the scheduler's next tick
     config = check_models.apply(followed, wanted)
     if ((job["bot"], job_lane(c, job["bot"], config, message, conversation, lanes, roots)) in busy
-            or (job["bot"], task_id) in live):
+            or (job["bot"], task_id) in live or filer_live(c, message)):
         return "lane_held"
     return None
+
+
+def quiet_recheck(c, aid, body):
+    """Whether turn `aid` changed nothing Tico counts: no hub write with its token and no push reported with it."""
+    row = c.execute("SELECT coalesce(writes,0) FROM turns WHERE id=?", (aid,)).fetchone()
+    return bool(row) and not row[0] and not body.pushes
+
+
+def filer_live(c, message):
+    """Whether this is the first notice of a task its bot filed for itself in a turn still out (refs.filed_in,
+    H.task_create). It starts the task's turn once that turn ends; a task the filing turn finished by then is
+    cancelled by the claim's obsolete-notice check instead, so the bot never runs twice on one thought (Dev 359)."""
+    filed_in = (message.get("refs") or {}).get("filed_in")
+    return bool(filed_in) and message["from_actor"] == H.KEEPER and c.execute(
+        "SELECT 1 FROM attempts WHERE id=? AND state IN ('leased','running')", (filed_in,)).fetchone() is not None
 
 
 def bot_refusal(c, settings, runner_id, bot):
@@ -2170,6 +2185,12 @@ class Execution:
                     else:
                         replyable = actor == task["owner"] and (
                             task["status"] == "done" or (late and task["status"] == "closed"))
+                    # Woken by Tico on a task already finished, a turn that wrote nothing has no news: the person
+                    # would only read "nothing changed" again. Its text stays on the run (Dev 359).
+                    if replyable and task["status"] in ("done", "closed", "declined") and quiet_recheck(c, aid, body):
+                        replyable = False
+                        H.event(c, H.KEEPER, "reply.withheld", aid, {"bot": row["bot"], "task": task["id"],
+                                                                     "to": target, "reason": "no_change"})
                 if target not in (H.KEEPER, actor) and replyable:
                     refs = {"turn_id": aid, **({"task": task["id"]} if task else {}),
                             **({"warnings": notices} if notices and msg["kind"] != "ask" else {})}

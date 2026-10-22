@@ -4682,8 +4682,13 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     ], "guidance": "Check for overlap. Reuse shared work; keep distinct decisions and deliverables separate."} if related else None
     if started_in:
         _task_started(conn, task(conn, row["id"]), started_in)
+    # A task a bot files for itself in one of its turns starts its own turn only once that turn has ended
+    # (execution.job_refusal): the filing turn may finish it first, and the claim then cancels the notice
+    # rather than start a turn that finds nothing left to do (Dev 359).
+    filed_in = RUN.get() if is_bot(target) and target == actor else ""
     _wake(conn, task(conn, row["id"]), target, f"New task from {actor}: {title}",
-          {**({"reconcile": reconcile} if reconcile else {}), **(wake_refs or {})} or None,
+          {**({"reconcile": reconcile} if reconcile else {}), **({"filed_in": filed_in} if filed_in else {}),
+           **(wake_refs or {})} or None,
           quiet_bots=next_run, quiet=next_run, trigger=trigger, source=trigger_source)
     if parent and is_bot(parent["owner"]) and is_human(target):
         # A bot's task now waits on a person: one line in the bot's main chat.
