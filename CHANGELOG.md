@@ -11,7 +11,8 @@ All notable changes to Tico are recorded here. The format follows
 - **Shared ChatGPT login queue.** A turn waiting for a shared ChatGPT login says who holds it, on what, since when and
   its place, on the run, the task, the bot's status and in Health (waiting, not stuck). Release-blocking work goes
   first, then reviews and a person's own chat, with no waiter passed over more than twice. A turn that holds the login
-  20 minutes while another waits pauses at a safe point and continues right after; a waiter whose task is closed is skipped.
+  20 minutes while another waits pauses at a safe point and continues right after; a waiter whose task is closed is skipped,
+  unless a person's own message started it.
 - **A Claude bot's turn no longer waits an hour on its own background commands**: once the bot has answered and the
   turn is only waiting on background shells (a test suite, `gh pr checks --watch`, `gh run watch`) for 5 minutes
   (`background_wait_s` in bot.yaml, 0 for off), the runner ends the turn as completed and the commands keep running.

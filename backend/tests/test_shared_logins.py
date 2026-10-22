@@ -123,6 +123,19 @@ def test_a_turn_waiting_for_its_login_whose_task_is_closed_meanwhile_is_skipped_
         assert c.execute("SELECT state FROM jobs WHERE id=?", (a["job_id"],)).fetchone()[0] == "cancelled"
         assert not c.execute("SELECT 1 FROM messages WHERE kind='notice' AND body LIKE 'Stopped by%'").fetchone()
     assert claim(api, r) is None
+    # A person's own comment waiting behind the login is never skipped: their words still get an answer.
+    tid = post(api, "tasks", {"owner": "ops", "title": "Count the lines", "body": "Count them."})["id"]
+    post(api, f"tasks/{tid}/comments", {"text": "@ops count the blank ones too"})
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE jobs SET state='cancelled' WHERE state='queued' AND message_id IN "
+                  "(SELECT id FROM messages WHERE from_actor NOT LIKE 'human:%')")
+    b = claim(api, r)
+    with api.app.state.store.transaction() as c:
+        assert c.execute("SELECT m.from_actor FROM jobs j JOIN messages m ON m.id=j.message_id WHERE j.id=?",
+                         (b["job_id"],)).fetchone()[0].startswith("human:")
+        c.execute("UPDATE tasks SET status='closed',closed_at=? WHERE id=?", ("9999-01-01T00:00:00Z", tid))
+    post(api, f"attempts/{b['id']}/events", {"events": [{"seq": 1, "kind": "status", "payload": wait}]}, r["token"])
+    assert "stop" not in post(api, f"attempts/{b['id']}/renew", {}, r["token"])
 
 
 def test_a_person_stopping_a_turn_before_it_started_ends_it_unstarted(api):

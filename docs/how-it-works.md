@@ -333,7 +333,7 @@ waiting run counts toward the computer's capacity and is busy, not stuck, in Hea
 live run. A turn that has held the login 20 minutes while another waits is asked to stop at a safe point (push its work,
 note where it stopped) and is interrupted 5 minutes later if it has not. It ends *paused*, not failed: its job goes
 back in the queue and continues right after the next waiter's turn. A waiting turn whose task is marked done or closed
-meanwhile is skipped. If the bot has a fallback
+meanwhile is skipped, unless a person's own message started it. If the bot has a fallback
 of its own that is ready, the turn runs there instead of waiting. Its diagnostic says *ChatGPT login busy with
 <bot>; running this turn on <harness>*, and the run reports `fallback` as with a usage limit. A command or an active
 native goal always waits. The company's default fallback is not used for a busy login, because the login is

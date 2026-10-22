@@ -448,11 +448,14 @@ LOGIN_CLASS_LABELS = {"release-blocker": "release", "critical-path": "review"}
 
 def finished_before_start(c, row):
     """Whether a turn that has not started (it waits for its shared login: runner-rs/src/login_turns.rs) is for a task
-    that was marked done or closed after the message that started it: it is skipped rather than run."""
+    that was marked done or closed after the message that started it: it is skipped rather than run. A person's own
+    message is never skipped: their words still get an answer."""
     if row["state"] != "leased":
         return False
     msg = H.message(c, c.execute("SELECT message_id FROM jobs WHERE id=?", (row["job_id"],)).fetchone()[0],
                     include_deleted=True)
+    if msg and H.is_human(msg.get("from_actor")):
+        return False
     task_id = H.message_task_id(msg, H.conversation(c, msg["conversation_id"])) if msg else None
     task = H.task(c, task_id) if task_id else None
     ended = task and task["status"] in ("done", "closed") and (task.get("closed_at") or task.get("done_at"))

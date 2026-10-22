@@ -294,13 +294,18 @@ def test_a_run_waiting_for_its_chatgpt_login_says_so_and_names_the_holder_only_t
     with api.app.state.store.read() as c:
         kept = " ".join(r[0] for r in c.execute("SELECT payload_json FROM attempt_events WHERE attempt_id=?", (aid,)))
     assert "Close the books" not in kept and "held by" not in kept
+    # Held by another turn of the same bot: a reader who may see that run still learns its task.
+    events(api, machine, aid, [("status", {**place, "holder": "ops"})], first=3)
+    [run] = get(api, f"tasks/{tid}/run-view")["attempts"]
+    assert run["waiting"] == worded.replace("held by finance", "held by another turn of this bot")
+    events(api, machine, aid, [("status", place)], first=4)
     with api.app.state.store.read() as c:
         assert not login_waits.unknown_holder(c, aid)
     # The bot's status says it waits and on whom; Health counts it as busy, not stuck.
     [status] = [s for s in get(api, "status")["bots"] if s and s["bot"] == "ops"]
     assert status["focus"] == status["waiting"] == worded
     assert not [r for r in get(api, "health")["stuck"] if r["bot"] == "ops"]
-    events(api, machine, aid, [("status", {**place, "holder_attempt": "gone"})], first=3)
+    events(api, machine, aid, [("status", {**place, "holder_attempt": "gone"})], first=5)
     [row] = [r for r in get(api, "health")["stuck"] if r["bot"] == "ops"]
     assert row["reason"] == "login_holder_unknown"
     # Once the login is its own the wait is over; a turn that ran on its fallback instead says where and why.
@@ -308,7 +313,7 @@ def test_a_run_waiting_for_its_chatgpt_login_says_so_and_names_the_holder_only_t
                                ("diagnostic", {"text": "ChatGPT login busy with finance; running this turn on claude",
                                                "fallback": "claude",
                                                "busy": {"login": "this computer's ChatGPT login", "holder": "finance"}})],
-           first=4)
+           first=6)
     [run] = get(api, f"tasks/{tid}/run-view")["attempts"]
     assert (run["waiting"], run["moved"]) == (None, "ChatGPT login busy with finance; ran this turn on claude")
     [run] = get(api, f"tasks/{tid}/run-view", "ben-test")["attempts"]

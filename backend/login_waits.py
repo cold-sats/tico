@@ -98,7 +98,8 @@ def waiting(c, aid, bot, who=None, auth=None):
         return f"Waiting for {login} to be free (busy with {named})"
     run = payload.get("holder_attempt")
     task = ""
-    if isinstance(run, str) and run and (who is None or named == holder
+    # Visibility is of the holder bot itself, before "another turn of this bot" words it.
+    if isinstance(run, str) and run and (who is None or auth is not None and auth.visible_bot(c, who, holder)
                                          and privacy.attempt_readable(c, privacy.actor(who), run)):
         task = _task(c, run)
     since = _clock(payload.get("since"))
