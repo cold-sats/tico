@@ -96,6 +96,12 @@ All notable changes to Tico are recorded here. The format follows
   each one at its own rate.
 
 ### Fixed
+- **Questions that close on their own leave every count right.** The hourly sweep closes each leftover question on
+  its own, so one that fails stays for the next sweep instead of undoing the rest. When questions close in bulk (a
+  task above ends, the hourly sweep, the weekday "Still needed?" batch), the bot that asked them has its "needs a
+  person" count updated at once, and "Still needed?" keeps a task waiting on a person while another question to them
+  is still open on it. A stuck task gets no extra stall wake between its retry and its report to BotOps, and BotOps's
+  "Find why" task says how many wake-ups it really got that day.
 - **The scheduler no longer blocks the server for seconds at a time on a busy hub.** Its 10-second pass used to run
   in one write transaction and read every task to find due dates, so on a hub with many tasks and routines requests
   waited behind it and runners saw 503s. Each step, routine and batch of due-date reminders now commits on its own,
