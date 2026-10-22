@@ -4374,10 +4374,11 @@ def create_app(settings=None):
         # `usage_requests`: a run's usage may carry each model request's tokens (an older one refuses the field).
         # `usage_request_main`: ... and a fourth count marking the bot's own requests (an older one refuses it).
         # `run_pushes`: a run's result may list the pushes its task worktrees made (an older one refuses the field).
+        # `run_rotation`: a run's result may say it started a fresh session and why (an older one refuses the field).
         return {**runner_versions.desired(), "features": {"task_files_multipart": True, "runner_commit": True,
                                                           "screen_v1": True, "limit_resets_at": True,
                                                           "usage_requests": True, "usage_request_main": True,
-                                                          "run_pushes": True}}
+                                                          "run_pushes": True, "run_rotation": True}}
 
     @app.get("/api/v2/runners/assignments")
     def assigned(request: Request):

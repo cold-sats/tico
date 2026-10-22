@@ -118,6 +118,11 @@ impl Meter {
         }
     }
 
+    /// All the input the segment's requests read, cached reads included: what its thread re-reads (crate::rotate).
+    pub(crate) fn read(&self) -> i64 {
+        self.input
+    }
+
     /// Whether the segment used any tokens: one that used none is left out of the completion's usage.
     pub(crate) fn used(&self) -> bool {
         self.input != 0 || self.output != 0
@@ -140,6 +145,14 @@ impl Meter {
             m.insert("requests".into(), json!(requests));
         }
         Some(m)
+    }
+}
+
+/// That the turn left its thread for a fresh one, and why (`rotated`), for a server that takes it (`run_rotation`;
+/// an older one refuses the field, and a refused result would never arrive).
+fn rotation_field(completion: &mut Map<String, Value>, rotated: Option<&crate::rotate::Rotation>, feature: impl Fn(&str) -> bool) {
+    if let Some(r) = rotated.filter(|_| feature("run_rotation")) {
+        completion.insert("rotated".into(), r.report());
     }
 }
 
@@ -863,6 +876,8 @@ impl Runner {
         let mut selected: Option<Profile> = None;
         let mut subscription_unavailable: Option<Value> = None;
         let mut fallback: Option<String> = None;
+        // The thread this turn left for a fresh one because it had grown too large, and why (crate::rotate).
+        let mut rotated: Option<crate::rotate::Rotation> = None;
         // The ChatGPT login this turn's host runs on, held until the host stops (crate::login_turns), and why the turn
         // went to its fallback instead when another bot's turn had it.
         let mut login_held: Option<crate::login_turns::Held> = None;
@@ -997,11 +1012,24 @@ impl Runner {
                     log(&format!("Tico runner: {bot}: session cleared in Tico; starting a new {session_runtime} thread"));
                 }
             }
-            let previous = self.state.session(&bot, &conv, &session_runtime)?;
+            let mut previous = self.state.session(&bot, &conv, &session_runtime)?;
             let limit = self.run_deadline(&aid, &config, vault.relay.as_ref())?;
             prepared = true;
             if busy.is_some() || held.is_some() {
                 return Ok(()); // the fallback takes the turn below; this harness never starts
+            }
+            // A thread grown past the bot's limit is left for a fresh one, told only what the room said since its
+            // last turn (crate::rotate). A command (/compact) is for the thread it names, so it keeps it.
+            let mut since: Option<String> = None;
+            if let Some(prev) = previous.clone().filter(|_| !truthy(refs.get("command"))) {
+                if let Some(r) = crate::rotate::due(&config, self.state.session_size(&prev)?) {
+                    log(&format!("Tico runner: {bot}: {}", r.diagnostic()));
+                    let _ = self.state.append(&aid, "diagnostic", &json!({"text": r.diagnostic(), "rotated": r.report()}));
+                    since = self.state.cursor(&prev, None)?;
+                    self.state.forget_session(&bot, &conv, &session_runtime, &prev)?;
+                    previous = None;
+                    rotated = Some(r);
+                }
             }
             let (tx, mut rx) = unbounded_channel();
             let own = tx.clone();
@@ -1057,9 +1085,12 @@ impl Runner {
             let digest = p.rules_digest.clone();
             attempt["_repo_rules_changed"] = json!(!digest.is_empty() && self.state.repo_rules(&th, None)?.as_deref() != Some(digest.as_str()));
             let names = self.names().await;
-            let after = if resumed { self.state.cursor(&th, None)? } else { None };
+            let after = if resumed { self.state.cursor(&th, None)? } else { since.clone() };
             attempt["_stale_playbook"] = json!(crate::playbook::note(&crate::readiness::local_path(&self.config, &bot), &attempt));
             let mut prompt = crate::prompt::prompt(&attempt, &names, after.as_deref(), resumed);
+            if let Some(r) = &rotated {
+                prompt = format!("{prompt}\n\n{}", r.prompt_note(truthy(Some(&attempt["task"]))));
+            }
             if let Some(line) = crate::afterwatch::still_running(&bot, &key) {
                 prompt = format!("{prompt}\n\n{line}");
             }
@@ -1088,7 +1119,11 @@ impl Runner {
             let d = Drive { aid: &aid, host: h, thread: &th, effort: effort.as_deref(), limit, flags: &flags, wake: &wake, redactor: redactor.as_ref(), runtime: &runtime, bot: &bot, session: &key };
             drove = self.drive(&d, &mut rx, t, segments.last_mut().unwrap(), &mut carried, &mut auth_rejected, &mut goal).await?;
             turn = Some(drove.turn.clone());
-            keep_session(&self.state, &bot, &conv, &session_runtime, &h.session_id(&th)).await?;
+            let saved = h.session_id(&th);
+            keep_session(&self.state, &bot, &conv, &session_runtime, &saved).await?;
+            // What this turn read, so the next one knows whether to resume the thread (crate::rotate).
+            let read = segments.last().map_or(0, |s| s.meter.read());
+            self.state.off(move |s| s.note_turn(&saved, read)).await?;
             // A runtime that cannot sign itself in is as unavailable as one out of quota: a bot with a fallback
             // harness runs the turn there instead of losing it.
             unavailable = drove.limited || drove.retryable;
@@ -1384,6 +1419,7 @@ impl Runner {
                 completion.insert("pushes".into(), json!(pushed));
             }
         }
+        rotation_field(&mut completion, rotated.as_ref(), crate::follow::feature);
         let profile_used = selected.as_ref().filter(|_| host.is_some()).map(|p| p.name.clone());
         if let Some(name) = &profile_used {
             completion.insert("profile_used".into(), json!(name));
@@ -1910,6 +1946,82 @@ mod tests {
         let replayed: Vec<Value> = events.iter().filter(|e| ["diagnostic", "error"].contains(&e["kind"].as_str().unwrap_or_default()))
             .map(|e| json!({"kind": e["kind"], "payload": e["payload"]})).collect();
         assert_eq!(json!(replayed), fixture["events"], "{events:?}");
+    }
+
+    /// Two turns on one task's session through a fake pi that reads 348 input tokens a turn (runner/tests/fixtures/pi):
+    /// (session id of each turn, prompt of each turn, the second turn's diagnostics).
+    async fn two_task_turns(rotate_at: i64) -> (Vec<String>, Vec<String>, Vec<Value>) {
+        let _controls = RunControls;
+        let dir = std::env::temp_dir().join(format!("tico-rotate-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(dir.join("projects/bot-ops")).unwrap(); // the bot's checkout, where its harness starts
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../runner/tests/fixtures/pi/turn.jsonl");
+        let script = format!("n=$(ls '{d}' | grep -c '^prompt-'); echo \"$@\" >> '{d}/args.log'; cat > '{d}/prompt-'$n; cat '{f}'",
+                             d = dir.display(), f = fixture.display());
+        HOST_COMMAND.with(|command| *command.borrow_mut() = Some(vec!["/bin/sh".into(), "-c".into(), script, "pi".into()]));
+        let (url, _seen, server) = recording_server().await;
+        let path = dir.join("runner.json");
+        std::fs::write(&path, json!({"url": url, "token": "synthetic", "runner_id": "r1", "projects_dir": dir.join("projects")}).to_string()).unwrap();
+        let config = crate::config::Config::load(&path).unwrap();
+        let client = crate::client::Client::new(&config.url(), &config.token(), 5, 0).unwrap();
+        let runner = Arc::new(Runner::new(config, client, crate::state::State::open(&dir.join("state")).unwrap()));
+        let history = json!([
+            {"id": "m1", "from_actor": "human:ana@acme.example", "body": "Watch the Acme release.", "refs": {}},
+            {"id": "m2", "from_actor": "bot:qa", "body": "Release build 41 failed its smoke test.", "refs": {}},
+            {"id": "m3", "from_actor": "human:ana@acme.example", "body": "Next", "refs": {}},
+        ]);
+        let task = json!({"id": "t-watch", "title": "Watch the Acme release", "requester": "human:ana@acme.example",
+                          "checkpoint": "Build 40 green; waiting on build 41.", "checkpoint_at": "2026-10-22T08:00:00Z"});
+        for (n, message) in ["m1", "m3"].iter().enumerate() {
+            let attempt = json!({"id": format!("a-rotate-{n}"), "job_id": format!("j{n}"), "bot": "ops", "token": "synthetic-turn",
+                                 "lease_seconds": 120, "conversation": {"id": "c-watch", "kind": "task"}, "task": task,
+                                 "message": {"id": message, "from_actor": "human:ana@acme.example", "body": "Next", "refs": {}},
+                                 "history": history, "config": {"runtime": "pi", "harness": "pi", "model": "kimi-k3", "rotate_at": rotate_at}});
+            tokio::time::timeout(Duration::from_secs(60), runner.clone().execute(attempt)).await.expect("the turn did not end").unwrap();
+        }
+        server.abort();
+        let sessions = std::fs::read_to_string(dir.join("args.log")).unwrap().lines()
+            .map(|l| l.split_whitespace().skip_while(|a| *a != "--session-id").nth(1).unwrap_or_default().to_string()).collect();
+        let prompts = (0..2).map(|n| std::fs::read_to_string(dir.join(format!("prompt-{n}"))).unwrap_or_default()).collect();
+        let diagnostics = runner.state.with(|c| {
+            c.prepare("SELECT payload FROM events WHERE attempt_id='a-rotate-1' AND kind='diagnostic' ORDER BY seq")?
+                .query_map([], |r| r.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()
+        }).unwrap().iter().map(|p| serde_json::from_str(p).unwrap()).collect();
+        std::fs::remove_dir_all(&dir).ok();
+        (sessions, prompts, diagnostics)
+    }
+
+    #[tokio::test]
+    async fn a_session_past_its_limit_starts_the_next_turn_fresh_with_the_tasks_checkpoint() {
+        let (sessions, prompts, diagnostics) = two_task_turns(300).await;
+        assert_eq!(sessions.len(), 2, "{sessions:?}");
+        assert_ne!(sessions[0], sessions[1], "the second turn resumed the large session");
+        let fresh = &prompts[1];
+        assert!(fresh.contains("Where this task stood after its last turn (2026-10-22T08:00:00Z):\nBuild 40 green; waiting on build 41."), "{fresh}");
+        assert!(fresh.contains("bot:qa [m2]: Release build 41 failed its smoke test."), "what was said since is missing: {fresh}");
+        assert!(!fresh.contains("[m1]"), "the fresh session is given only what came after the last turn: {fresh}");
+        assert!(fresh.contains("Fresh session:") && fresh.contains("348 input tokens"), "{fresh}");
+        let rotated: Vec<&Value> = diagnostics.iter().filter(|d| d.get("rotated").is_some()).collect();
+        assert_eq!(rotated.len(), 1, "{diagnostics:?}");
+        assert_eq!(rotated[0]["rotated"], json!({"reason": "tokens", "tokens": 348, "turns": 1, "limit": 300}));
+    }
+
+    #[tokio::test]
+    async fn a_session_under_its_limit_resumes() {
+        let (sessions, prompts, diagnostics) = two_task_turns(1000).await;
+        assert_eq!(sessions.len(), 2, "{sessions:?}");
+        assert_eq!(sessions[0], sessions[1]);
+        assert!(!prompts[1].contains("Where this task stood") && !prompts[1].contains("Fresh session:"), "{}", prompts[1]);
+        assert!(!diagnostics.iter().any(|d| d.get("rotated").is_some()), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn the_result_says_it_rotated_only_to_a_server_that_takes_it() {
+        let r = crate::rotate::Rotation { why: "tokens", tokens: 612_000, turns: 4, limit: 400_000 };
+        let mut sent = Map::new();
+        rotation_field(&mut sent, Some(&r), |_| false);
+        assert!(sent.is_empty());
+        rotation_field(&mut sent, Some(&r), |name| name == "run_rotation");
+        assert_eq!(sent["rotated"], r.report());
     }
 
     #[test]

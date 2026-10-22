@@ -8,6 +8,10 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **A bot's session starts fresh once it grows large.** When a bot's last turn on a session read 400,000 input tokens
+  or more (`rotate_at` in its run config; `rotate_after_turns` caps turns, off by default), the next turn starts a new
+  AI session given the task's checkpoint and what was said since, instead of re-reading the whole old transcript.
+  The run records that it rotated and why (`turns.rotated`, counted in `run_weekly`).
 - **Five company models for the setup org chart** replace the one 22-bot starter pack: Everything (73 seats), Software
   company (51), Services firm (38), Local service business (41) and Online store (39), with Legal, People, Operations
   and Leadership and bigger Finance, Sales, Marketing and Support teams. The first chart starts from the model the

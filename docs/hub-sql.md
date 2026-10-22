@@ -101,8 +101,8 @@ Timestamps are ISO-8601 UTC text (`2026-09-15T21:40:12.931675Z`); compare them w
 | `approvals` | `id, kind, task_id, message_id, payload_json, requested_by, decided_by, decision, decided_at, consumed_at, created` | `kind`: send, spend, publish, merge |
 | `jobs` | `id, message_id, bot, state, created, attempt_id` | one per message a bot has to act on; `state`: queued, leased, running, input, completed, failed, uncertain, cancelled |
 | `attempts` | `id, job_id, bot, runner_id, state, lease_until, created, started, finished, result_json, final_text` | a run (`state`: leased, running, input, completed, failed, interrupted, expired); its streamed output is `attempt_events(attempt_id, seq, kind, payload_json, created)` |
-| `turns` | `id, bot, started, finished, trigger, message_id, task_id, exit, tokens_in, tokens_out, cost, summary, input_tokens, cached_tokens, output_tokens, model, provider, est_cost_usd, billing, trigger_kind, trigger_source, writes, outcome, did_nothing` | one per run (`id` = the run's attempt id); `exit` is null while running. `tokens_in` is all input, `cached_tokens` the cached part of it and `input_tokens` the rest. `trigger_kind`, `writes` and `outcome` are explained under [What woke each run](#what-woke-each-run-and-what-it-did) |
-| `run_weekly` | `week, bot, trigger, runs, input_tokens, cached_input_tokens, output_tokens, acted, no_change, nothing_to_do, unknown, did_nothing, acted_pct, no_change_pct, nothing_to_do_pct, unknown_pct` | a read-only view: runs per week, bot and trigger, every attempt counted ([below](#what-woke-each-run-and-what-it-did)) |
+| `turns` | `id, bot, started, finished, trigger, message_id, task_id, exit, tokens_in, tokens_out, cost, summary, input_tokens, cached_tokens, output_tokens, model, provider, est_cost_usd, billing, trigger_kind, trigger_source, writes, outcome, did_nothing, rotated` | one per run (`id` = the run's attempt id); `exit` is null while running. `tokens_in` is all input, `cached_tokens` the cached part of it and `input_tokens` the rest. `trigger_kind`, `writes` and `outcome` are explained under [What woke each run](#what-woke-each-run-and-what-it-did) |
+| `run_weekly` | `week, bot, trigger, runs, input_tokens, cached_input_tokens, output_tokens, acted, no_change, nothing_to_do, unknown, did_nothing, rotated, acted_pct, no_change_pct, nothing_to_do_pct, unknown_pct` | a read-only view: runs per week, bot and trigger, every attempt counted ([below](#what-woke-each-run-and-what-it-did)) |
 | `schedules` | `id, bot, routine_key, title, cron, event_name, playbook, timezone and enabled (schedule_config), last_fired, next_due, deleted_at` | routines (`docs/routines.md`); `schedule_occurrences(schedule_id, occurrence, task_id, outcome)` says what each firing did |
 | `events` | `ts, actor, action, target, detail_json` | the audit log; `action` such as `task.create`, `sql.query` |
 | `slack_posts` | `message_id, bot, state, attempts, next_attempt, slack_ts, created, updated` | Owner-only outbound queue status for messages the Owner may read; message text, destination and raw errors are hidden. Join `messages` and filter `json_extract(messages.refs_json, '$.task')` for one task. Other callers receive no rows. |
@@ -185,6 +185,11 @@ Every run records what woke it (`turns.trigger_kind`), its tokens, and whether i
 - **`did_nothing`**: 1 when `writes` is 0, else 0: the exact flag to measure against. It sees every write that
   reaches Tico with the run's token, and every push from its task's worktrees; a push from anywhere else (the
   bot's own checkout, another task's worktree) is not counted.
+
+- **`rotated`**: `tokens` or `turns` when the run started a fresh AI session instead of resuming the bot's last
+  one, because that one had grown past the bot's limit (`rotate_at` input tokens in its newest turn, default
+  400,000; or `rotate_after_turns`, off by default); NULL otherwise. The fresh session gets the task's checkpoint
+  and what was said since the last turn, not the old transcript. `run_weekly` counts these runs as `rotated`.
 
 A run from before this was recorded has none of these, and reads `unknown`; so does an attempt that never got
 a `turns` row (one that failed or expired before it started), counted with no tokens and no outcome. `run_weekly` adds them up per week
