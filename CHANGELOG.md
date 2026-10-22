@@ -8,6 +8,14 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **A Claude bot's turn no longer waits an hour on its own background commands**: once the bot has answered and the
+  turn is only waiting on background shells (a test suite, `gh pr checks --watch`, `gh run watch`) for 5 minutes
+  (`background_wait_s` in bot.yaml, 0 for off), the runner ends the turn as completed and the commands keep running.
+  When the last one ends, the bot gets one message on the same task with each command's exit code and the end of
+  its output; one still running at the run's time limit is killed and says so. A new turn on that session meanwhile
+  is told which commands still run. The run's events record "Turn ended: background wait" with the minutes saved,
+  and the wake counts as `background_done` in `hub sql`. On a Mac the exit code reads "unknown". A turn still
+  working, or running a subagent, waits as before.
 - **One question card** in Decide and in a task's Needs you box: who asked (the bot, or Tico), how long ago and what
   it holds up; the question and why it matters; every pick with what happens; several picks as ticked boxes with
   **Yes to all** and **Send ticked** (the bot hears "Not this one" for the rest); the fallback small at the foot.
@@ -61,6 +69,10 @@ All notable changes to Tico are recorded here. The format follows
   each one at its own rate.
 
 ### Fixed
+- **A resumed Claude session keeps reading follow-ups**: Claude answers a resumed session with an empty result
+  before it reads the new prompt. The runner took that as the turn's answer and stopped reading follow-up
+  messages for the rest of the turn; it now waits for the answer to the prompt. This applies to every resumed
+  Claude turn.
 - **A bot's answer that finished while its computer slept now arrives.** When a computer was asleep or paused past a
   turn's lease, the runner woke to the hub refusing the lease and dropped the answer the model had already finished,
   so the person saw "No reply" and the run ended interrupted. The runner now reads out what the model already said
