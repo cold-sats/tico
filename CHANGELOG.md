@@ -26,6 +26,9 @@ All notable changes to Tico are recorded here. The format follows
   each one at its own rate.
 
 ### Fixed
+- **A task blocked only by its own quiet subtask no longer waits silently.** Relating a subtask as its parent's
+  blocker returns a warning, and when that subtask (a bot's hold or acknowledgement) goes quiet waiting on nothing
+  else, the parent counts as stalled even while waiting: its bot is woken with the way out, and BotOps sees it stuck.
 - **Muse Code turns work again on a Docker computer that runs bots as their own user.** Each Muse login now keeps
   its sessions in a folder of Tico's own (per subscription profile too), so a turn, including an automatic fallback
   to Muse, no longer fails at once with "failed to create session lock directory ... Permission denied". If that
