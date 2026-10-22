@@ -14,6 +14,10 @@ All notable changes to Tico are recorded here. The format follows
   HQ registers only a join code's hash through scoped SSM; no owner token or join secret crosses that control plane.
 
 ### Changed
+- **Pictures in chat are thumbnails.** A picture in a chat message (yours or a bot's, uploads and screenshots) shows
+  whole at about a quarter of the message column, several to a row, on a computer and a phone, so the reply's words
+  keep the room. Tap or click opens it fitted to the screen, never cut off or scrolled; zoom with the wheel, a click,
+  a pinch or the - Fit + buttons (or the - 0 + keys), and drag to look around.
 - **One new subscription per AI tool on each computer.** Adding a second subscription for the same tool is refused
   with a Switch account message, including while the first sign-in is pending. Different tools and computers stay
   independent; existing connections and API keys are kept.
