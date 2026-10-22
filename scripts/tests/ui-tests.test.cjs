@@ -70,7 +70,7 @@ test('one CPU-idle policy, explicit overrides and shared context/page timeouts',
   assert.deepEqual(calls, [['context', 60000], ['context-navigation', 60000]]);
 });
 
-test('a browser script that never exits is stopped at its timeout and named; one that ends is not', async () => {
+test('a browser script that never exits is stopped at its timeout and named; one that ends is not', {timeout: 30000}, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ui-tests-'));
   try {
     const preload = path.join(dir, 'preload.cjs');
@@ -89,7 +89,7 @@ test('a browser script that never exits is stopped at its timeout and named; one
   }
 });
 
-test('newPage and page.close fail with their name instead of waiting forever', async () => {
+test('newPage and page.close fail with their name instead of waiting forever', {timeout: 30000}, async () => {
   const never = () => new Promise(() => {});
   const page = {setDefaultTimeout() {}, setDefaultNavigationTimeout() {}, close: never};
   const context = {setDefaultTimeout() {}, setDefaultNavigationTimeout() {}, on: (event, callback) => { context.onPage = callback; },
