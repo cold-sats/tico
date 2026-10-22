@@ -815,10 +815,15 @@ def job_refusal(c, job, followed, ready, busy, lanes, roots, live=frozenset()):
     return None
 
 
-def quiet_recheck(c, aid, body):
-    """Whether turn `aid` changed nothing Tico counts: no hub write with its token and no push reported with it."""
-    row = c.execute("SELECT coalesce(writes,0) FROM turns WHERE id=?", (aid,)).fetchone()
-    return bool(row) and not row[0] and not body.pushes
+def quiet_recheck(c, aid, body, task):
+    """Whether turn `aid` only looked again at `task`, finished (done or closed) before the turn started, and changed
+    nothing Tico counts: no hub write with its token and no push reported with it. A task finished during the turn is
+    not a recheck: that turn's answer is the last word in its room."""
+    finished = min([t for t in (task.get("done_at"), task.get("closed_at")) if t] or [""])
+    row = c.execute("SELECT coalesce(t.writes,0),a.started FROM turns t JOIN attempts a ON a.id=t.id WHERE t.id=?",
+                    (aid,)).fetchone()
+    return (task["status"] in ("done", "closed") and bool(finished) and bool(row) and bool(row[1])
+            and finished < row[1] and not row[0] and not body.pushes)
 
 
 def filer_live(c, message):
@@ -2185,9 +2190,9 @@ class Execution:
                     else:
                         replyable = actor == task["owner"] and (
                             task["status"] == "done" or (late and task["status"] == "closed"))
-                    # Woken by Tico on a task already finished, a turn that wrote nothing has no news: the person
-                    # would only read "nothing changed" again. Its text stays on the run (Dev 359).
-                    if replyable and task["status"] in ("done", "closed", "declined") and quiet_recheck(c, aid, body):
+                    # Woken by Tico on a task finished before it started, a turn that wrote nothing has no news: the
+                    # person would only read "nothing changed" again. Its text stays on the run (Dev 359).
+                    if replyable and quiet_recheck(c, aid, body, task):
                         replyable = False
                         H.event(c, H.KEEPER, "reply.withheld", aid, {"bot": row["bot"], "task": task["id"],
                                                                      "to": target, "reason": "no_change"})
