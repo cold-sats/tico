@@ -71,6 +71,8 @@ All notable changes to Tico are recorded here. The format follows
   HQ registers only a join code's hash through scoped SSM; no owner token or join secret crosses that control plane.
 
 ### Changed
+- **Updates: per-update reader check for assistant-drafted updates.** Each drafted update is checked against its
+  reader on every read, so some drafts show to fewer readers than before.
 - **The stopped-run card is now just the decision.** Each stopped run shows one line on what stopped ("Stopped 8:12
   AM after using Bash."), one recommendation, and two buttons with the recommended one first: **Try again** leads
   only for a run Tico's own retry rule calls safe (it only read, on a host that reports every call, first stop);
