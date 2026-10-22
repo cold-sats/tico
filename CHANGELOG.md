@@ -96,6 +96,10 @@ All notable changes to Tico are recorded here. The format follows
   each one at its own rate.
 
 ### Fixed
+- **Self-install setup says exactly how to import a chart it cannot carry.** A company-model chart is too big for the
+  installer today, and the refusal said only "import the file in the app". It now says to run setup again without
+  `--company-file`, then on Tico's first setup screen, under "Already chose your team?", choose the file under
+  "Company YAML file" and press "Use this team". Carrying the whole chart to a self-install follows separately.
 - **The scheduler no longer blocks the server for seconds at a time on a busy hub.** Its 10-second pass used to run
   in one write transaction and read every task to find due dates, so on a hub with many tasks and routines requests
   waited behind it and runners saw 503s. Each step, routine and batch of due-date reminders now commits on its own,
