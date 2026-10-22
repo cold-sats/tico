@@ -844,7 +844,7 @@ def _said(response):
 
 def manifest(settings, name, administration):
     public = settings.public_url
-    permissions = {**TURN_PERMISSIONS, **TURN_READS}
+    permissions = {**TURN_READS, **TURN_PERMISSIONS}       # a write a bot needs wins over the same read
     if administration:
         permissions["administration"] = "write"
     return {"name": name[:34], "url": public, "redirect_url": public + "/api/v2/github/app/callback",

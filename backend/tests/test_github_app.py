@@ -345,7 +345,9 @@ def test_turn_token_reads_workflow_runs_once_the_installation_allows_it(api, gh)
 
 def test_turn_token_reads_pull_request_checks_and_statuses(api, gh):
     # `gh pr checks` reads check runs and commit statuses; a private repository refuses both without them.
-    assert {"checks", "statuses"} <= manifest(api)["manifest"]["default_permissions"].keys()
+    asked = manifest(api)["manifest"]["default_permissions"]
+    assert {"checks", "statuses", "deployments"} <= asked.keys()
+    assert asked["pull_requests"] == asked["issues"] == asked["contents"] == "write"     # a bot still opens PRs and issues
     connect(api)
     runner_token(api, "cpo")
     gh.permissions = {"actions": "read", "checks": "read", "statuses": "read", "deployments": "read"}
