@@ -8,6 +8,10 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Token saving 3/9: no run for a check when nothing moved.** A stall or status check on a task that stands exactly as at
+  its bot's last checkpoint (status, step, relations and their states, comments, open asks, pull request head and checks)
+  starts no run and is logged as `wake.skipped` with rule `same_state`. A change, no checkpoint, or anyone asking still
+  runs the turn. (Dev 141)
 - **Hourly and weekly spend limits, and limits for a group and the whole team.** Beside daily and monthly, a bot's limit
   and the team default can now cap an hour (the UTC clock hour) and a week (from Monday 00:00 UTC). New pooled limits cap
   the combined spend of every bot (Usage > **Team and group limits**) or of a group's bots, nested groups included; over

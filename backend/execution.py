@@ -9,7 +9,7 @@ from datetime import timezone
 
 from clients import gateway, sessions
 
-from . import app_delivery, check_models, gateway_connection, inbox_isolation, login_holds, models_preset, providers, quiet_work, routines, run_triggers, runner_versions, screen, usage_limits, wake_presets
+from . import app_delivery, check_models, gateway_connection, inbox_isolation, login_holds, models_preset, providers, quiet_work, routines, run_triggers, runner_versions, screen, usage_limits, wake_presets, wake_rules
 from . import task_privacy as privacy
 from .auth import Identity
 from .batch_work import isolated
@@ -2375,8 +2375,10 @@ class Execution:
         if body.outcome == "completed" and body.text and checkpoint_task:
             # Where the task stood after this turn: a later turn that cannot resume this session
             # starts from it (runner prompt). It is not the task's activity, so `updated` stays.
-            c.execute("UPDATE tasks SET checkpoint=?,checkpoint_at=?,checkpoint_by=? WHERE id=?",
+            started = (c.execute("SELECT started FROM turns WHERE id=?", (aid,)).fetchone() or [None])[0]
+            c.execute("UPDATE tasks SET checkpoint=?,checkpoint_at=?,checkpoint_by=?,checkpoint_state=? WHERE id=?",
                       (split_runner_notices(body.text)[0].strip()[:CHECKPOINT_CHARS], H.now(), actor,
+                       wake_rules.settled_state(c, checkpoint_task, row["bot"], started) if started else None,
                        checkpoint_task["id"]))
         usage_limits.after_run(c, row["bot"], self.store.settings.owner_email)
         config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()

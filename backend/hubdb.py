@@ -1015,6 +1015,8 @@ def migrate(conn, adopt_legacy=False):
     add_column(conn, "tasks", "checkpoint", "TEXT")
     add_column(conn, "tasks", "checkpoint_at", "TEXT")
     add_column(conn, "tasks", "checkpoint_by", "TEXT")
+    # Where the task stood by the others' changes when that checkpoint was left (wake_rules.state_of, token saving 3/9).
+    add_column(conn, "tasks", "checkpoint_state", "TEXT")
     add_column(conn, "tasks", "stale_asked_at", "TEXT")
     # Set once a turn in the task's own session took in another private task: that session may
     # carry it from then on, so no later turn's reply becomes the checkpoint (execution.complete).

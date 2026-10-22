@@ -977,6 +977,7 @@ def create_app(settings=None):
         # The stored condition is in `quiet.resume`; a board of 500 tasks does not carry the column besides.
         value.pop("resume_json", None)
         value.pop("labels_json", None)
+        value.pop("checkpoint_state", None)     # wake_rules.state_of, for the server only
         if pipelines is None:
             if c is None:
                 with store.read() as pipeline_conn:
