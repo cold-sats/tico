@@ -148,8 +148,8 @@ class Deployer:
         tier = {"Tier": "Advanced"} if company_file else {}
         if company_file and len(env_text.encode()) > 8192:
             from backend.company_file import starter
-            raise SystemExit("The starter plan and install settings exceed AWS Parameter Store's 8 KB limit; "
-                             f"shorten the plan, or {starter.IMPORT_IN_APP}")
+            raise SystemExit("The starter plan and install settings exceed AWS Parameter Store's 8 KB limit. "
+                             + starter.IMPORT_IN_APP)
         self.ssm.put_parameter(Name=self.param_name, Value=env_text, Type="SecureString", Overwrite=True, **tier)
         self.ssm.add_tags_to_resource(ResourceType="Parameter", ResourceId=self.param_name, Tags=tags(self.p.name))
 
