@@ -96,6 +96,10 @@ All notable changes to Tico are recorded here. The format follows
   each one at its own rate.
 
 ### Fixed
+- **A browser test that hangs no longer holds the browser check for 30 minutes.** The runner stops any script still
+  running after 2 minutes (times the load slowdown; `TICO_UI_SCRIPT_TIMEOUT`) and reports it by name, opening and
+  closing a page now fail after the normal timeout instead of waiting forever, and the People settings test no longer
+  opens a page while another one reloads.
 - **The scheduler no longer blocks the server for seconds at a time on a busy hub.** Its 10-second pass used to run
   in one write transaction and read every task to find due dates, so on a hub with many tasks and routines requests
   waited behind it and runners saw 503s. Each step, routine and batch of due-date reminders now commits on its own,
