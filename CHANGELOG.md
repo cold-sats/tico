@@ -82,6 +82,9 @@ All notable changes to Tico are recorded here. The format follows
   HQ registers only a join code's hash through scoped SSM; no owner token or join secret crosses that control plane.
 
 ### Changed
+- **Subscription runs count toward spend limits by default.** Runs on a ChatGPT or Claude sign-in now count their
+  API-equivalent toward every limit unless the team turns off "Count subscription runs" (Usage > **Default limit**). A
+  team that saved the default with the box off keeps it off.
 - **Updates: per-update reader check for assistant-drafted updates.** Each drafted update is checked against its
   reader on every read, so some drafts show to fewer readers than before.
 - **The stopped-run card is now just the decision.** Each stopped run shows one line on what stopped ("Stopped 8:12
@@ -205,6 +208,10 @@ All notable changes to Tico are recorded here. The format follows
   telling its bot to retry setup; only the turns of the bot that owns the task hold a finished tree; a fault reading
   turns is raised instead of read as "no live turn"; and a new push clears the earlier "stale push cleared" note, so a
   release no longer names an old push.
+- **A manager bot reads its reports' routines**: a bot above another in the `reports_to` chain now reads that bot's
+  routines and their occurrences in its own run, as the permissions page already said. It was refused ("Only people
+  and the bot itself read its routines"), so a manager bot reviewing its reports could not see what each one runs.
+  It still cannot change them ([Routines](docs/routines.md)).
 - **An @mention on a task with no bot on it shows once.** The comment itself is the mentioned person's question,
   as on any task where it wakes no bot; it no longer also saves a second copy that showed the comment twice.
 
