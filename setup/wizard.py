@@ -137,6 +137,12 @@ def gather(io: IO, args, s: Settings, dry: bool) -> Settings:
             raise MissingInput("--plan-bucket-region is an AWS region name, for example us-west-2")
     elif getattr(args, "name", None) or getattr(args, "aws_permissions_boundary", None) or getattr(args, "plan_bucket", None):
         raise MissingInput("--name, --aws-permissions-boundary and --plan-bucket are for a server on AWS (--cloud aws)")
+    else:
+        # A bucket saved by an earlier AWS run names a role this server does not have; its plan goes in the env instead.
+        s.plan_bucket = s.plan_bucket_region = ""
+        from backend.company_file import starter
+        if len(s.company_file_data) > starter.ENV_PACKED:
+            raise MissingInput("the starter plan is too large for automatic setup; import the file in the app instead")
     if s.target in cloudmod.PROVIDERS:
         pv = cloudmod.PROVIDERS[s.target]
         a.get("cloud_location", f"{pv.label} location", flag="--cloud-location", choices=pv.locations, default=pv.default_location)
@@ -526,7 +532,7 @@ def run(args, io: IO, deps: Deps) -> int:
         # has none).
         s.owner_link_hash = hosted.new_link(s)
     env_text = envfile.render(s.to_env())
-    state.save(s.domain, s.public(), private_copy(s, env_text))
+    state.save(s.domain, s.public(), s.private_env(env_text))
     scrub = lambda t: envfile.scrub(t, s.secrets())
     compose = deps.compose_local()
     url = contract.compose_url(s.compose_ref)
@@ -569,14 +575,6 @@ def run(args, io: IO, deps: Deps) -> int:
         return _command(io, args, s, deps, zone, records, cf, env_text, compose, url, timeout)
 
     return finish(io, s, deps, records, runner, args)
-
-
-def private_copy(s: Settings, env_text: str) -> str:
-    """The .env this computer keeps. With --plan-bucket the server's env names only the plan's key, so the copy here keeps
-    the plan itself too, for a re-run without --company-file."""
-    if s.company_file_data and s.plan_bucket:
-        return env_text + envfile.render({"TICO_COMPANY_FILE_B64": s.company_file_data}).split("\n", 1)[1]
-    return env_text
 
 
 def runner_record_free(s: Settings, cf: Cloudflare) -> None:
@@ -641,7 +639,7 @@ def _aws(io, args, s, deps, zone, records, cf, env_text, compose, url, timeout) 
                                      env_param=(d.param_name, s.aws_region), wait_for_ip=ip)
     iid, created = d.launch_or_reuse(prep, script)
     s.aws_instance_id = iid
-    state.save(s.domain, {**s.public(), "aws_name": plan.name}, private_copy(s, env_text))
+    state.save(s.domain, {**s.public(), "aws_name": plan.name}, s.private_env(env_text))
     runner = remote.SSMShell(ssm, iid, deps.sleep)
     if s.front_door == "caddy" and not args.skip_dns_wait:
         io.say("\nWaiting for public DNS (the server holds back Caddy until this is true) ...")

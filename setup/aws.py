@@ -293,6 +293,8 @@ class Deployer:
         if inst:
             self.say(f"  instance {inst['InstanceId']} already exists; reusing it.")
             iid, created = inst["InstanceId"], False
+            if self.p.plan_bucket:
+                self.ensure_role()  # a server set up before --plan-bucket gets the read of its own plan
         else:
             iid, created = self.launch(user_data, self.ensure_role(), prep["sg"], prep.get("subnet", "")), True
             self.say(f"  launched {iid}")

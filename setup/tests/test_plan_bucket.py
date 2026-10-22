@@ -100,6 +100,51 @@ def test_the_retry_keeps_the_plan_on_this_computer_and_puts_it_again(big, monkey
     assert envfile.parse(envfile.render(resumed.to_env()))["TICO_COMPANY_FILE_S3"].startswith(f"s3://{BUCKET}/plans/{NAME}/")
 
 
+def test_a_new_owner_link_keeps_the_plan_on_this_computer(big, monkeypatch, tmp_path):
+    monkeypatch.setenv("TICO_SETUP_HOME", str(tmp_path))
+    from setup import state
+    d, *_ = world()
+    d.aws_s3 = lambda region, profile: FakeS3(region, [])
+    assert go([*CREATE, "--company-file", str(big), "--plan-bucket", BUCKET], d)[0] == 0
+    code, out = go(["owner-link", "--domain", f"{NAME}.preview.example"], d)
+    assert code == 0, out
+    resumed = settings.from_saved(*state.load(f"{NAME}.preview.example"))
+    assert resumed.plan_bucket == BUCKET and len(starter.unpack(resumed.company_file_data)["bots"]) == 300
+
+
+def test_a_server_set_up_before_the_plan_bucket_gets_the_read_of_its_plan_on_reuse(big):
+    d, ec2, iam, ssm, r53 = world()
+    assert go(CREATE, d)[0] == 0
+    d.aws_s3 = lambda region, profile: FakeS3(region, [])
+    code, out = go([*CREATE, "--company-file", str(big), "--plan-bucket", BUCKET], d)
+    assert code == 0, out
+    assert len(ec2.called("run_instances")) == 1 and "reusing it" in out
+    statements = json.loads(iam.called("put_role_policy")[-1]["PolicyDocument"])["Statement"]
+    assert {"Effect": "Allow", "Action": "s3:GetObject", "Resource": f"arn:aws:s3:::{BUCKET}/plans/{NAME}/*"} in statements
+
+
+def test_a_saved_plan_bucket_does_not_follow_a_re_run_off_aws(big):
+    from setup import cli
+    from setup.tests.fakes import CaptureIO
+    args = cli.parser().parse_args(["--target", "ssh", "--ssh", "root@203.0.113.9", "--domain", "tico.acme.example",
+                                    "--non-interactive", "--yes"])
+    saved = lambda data: settings.Settings(target="aws", plan_bucket=BUCKET, plan_bucket_region="us-west-2",
+                                           company_file_data=data)
+    from backend.tests.test_company_file import chart
+    draft = chart(3)
+    draft["company"].update(name="Acme Finance", about="We help small firms manage their books.")
+    small = starter.pack(C.to_yaml(draft), starter.ENV_PACKED)
+    s = wizard.gather(CaptureIO(), args, saved(small), False)
+    assert s.target == "ssh" and s.plan_bucket == s.plan_bucket_region == ""
+    assert "TICO_COMPANY_FILE_S3" not in s.to_env() and s.to_env()["TICO_COMPANY_FILE_B64"] == small
+    with pytest.raises(MissingInput, match="import the file in the app instead"):
+        wizard.gather(CaptureIO(), args, saved(wizard_pack(big)), False)
+
+
+def wizard_pack(path):
+    return starter.pack(path.read_text(), starter.MAX_PACKED)
+
+
 def test_without_the_plan_bucket_a_chart_over_the_env_limit_is_refused_before_any_cloud_change(big):
     d, ec2, iam, ssm, r53 = world()
     code, out = go([*CREATE, "--company-file", str(big)], d)
@@ -147,7 +192,7 @@ def boot(tmp_path, monkeypatch, plan: bytes, sha: str, existing: bytes | None = 
     source.write_bytes(plan)
     # aws s3 cp --only-show-errors --region R SRC DST: the bucket object is `source`; it logs each call.
     (bin_dir / "aws").write_text(f'#!/bin/sh\necho "$@" >> {tmp_path}/aws.log\ncp {source} "$7"\n')
-    (bin_dir / "chown").write_text("#!/bin/sh\nexit 0\n")
+    (bin_dir / "chown").write_text(f'#!/bin/sh\necho "$@" >> {tmp_path}/chown.log\n')
     for f in bin_dir.iterdir():
         f.chmod(0o755)
     folder = root / contract.COMPANY_FILE_DIR
@@ -168,6 +213,7 @@ def test_the_server_copies_the_plan_once_private_and_read_only(tmp_path, monkeyp
     run, copy, calls = boot(tmp_path, monkeypatch, plan, hashlib.sha256(plan).hexdigest())
     assert run.returncode == 0, run.stderr
     assert copy.read_bytes() == plan and stat.S_IMODE(copy.stat().st_mode) == 0o400
+    assert (tmp_path / "chown.log").read_text().split() == ["10001:10001", str(copy) + ".new"]
     assert calls.split() == ["s3", "cp", "--only-show-errors", "--region", "us-west-2", f"s3://{BUCKET}/plans/{NAME}/"
                              + hashlib.sha256(plan).hexdigest(), str(copy) + ".new"]
 
@@ -189,5 +235,5 @@ def test_every_aws_boot_makes_the_folder_compose_mounts_even_without_a_plan():
     script = remote.bootstrap_script(os_family="ubuntu", domain="a.example", front_door="caddy", compose=None,
                                      compose_url="https://example.com/compose.yaml", env_param=("/tico/a/env", "us-east-1"))
     folder = f"{contract.REMOTE_DIR}/{contract.COMPANY_FILE_DIR}"
-    assert f"mkdir -p {folder}" in script and f"chmod 700 {folder}" in script
+    assert f"mkdir -p {folder}" in script and f"chown 10001:10001 {folder}" in script and f"chmod 700 {folder}" in script
     assert script.index("pull-env.sh\n") < script.index("docker compose up")

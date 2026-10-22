@@ -133,6 +133,13 @@ class Settings:
     caddy_address: str = ""
     cloudflared_address: str = ""
 
+    def private_env(self, env_text: str) -> str:
+        """The .env this computer keeps. With --plan-bucket the server's env names only the plan's key, so the copy here
+        keeps the plan itself too, for a re-run without --company-file."""
+        if self.company_file_data and self.plan_bucket:
+            return env_text + envfile.render({"TICO_COMPANY_FILE_B64": self.company_file_data}).split("\n", 1)[1]
+        return env_text
+
     def public(self) -> dict:
         validate_runtime(self)
         return {k: v for k, v in asdict(self).items() if k not in SECRET_FIELDS + TRANSIENT_FIELDS}
