@@ -63,18 +63,23 @@ def replies(api, task):
                                         "'human:%' AND conversation_id=? ORDER BY rowid", (task["conversation_id"],))]
 
 
-def test_a_tico_wake_on_a_finished_task_that_changed_nothing_posts_no_reply(api):
-    r = machine(api)
-    task = post(api, "tasks", {"owner": "ops", "title": "Hold the spec", "body": "Hold it until routines land."})
-    first = claim(api, r)
-    start(api, r, first)
-    done(api, task["id"], first["token"])
-    finish(api, r, first, "Held: it moves when routines land.")
-    assert replies(api, task) == ["Held: it moves when routines land."]
+def recheck_after_claim(api, r, task, body="Still held?", refs=None):
+    """A task finishes after the automatic notice is claimed but before the process starts. Queued notices on
+    already finished tasks are now suppressed for every kind; this race still needs the no-change reply guard."""
     with api.app.state.store.transaction() as c:
-        H._wake(c, H.task(c, task["id"]), "bot:ops", "Unblocked: Hold the spec")
+        H.task_update(c, "bot:ops", task["id"], status="review", mover=True)
+        H._wake(c, H.task(c, task["id"]), "bot:ops", body, refs)
     again = claim(api, r)
+    assert again is not None, "the task was open when its automatic wake was claimed"
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, "bot:ops", task["id"], status="done", mover=True)
     start(api, r, again)
+    return again
+
+
+def test_a_tico_wake_on_a_finished_task_that_changed_nothing_posts_no_reply(api):
+    r, task, again = finished_and_woken(api, first_text="Held: it moves when routines land.")
+    assert replies(api, task) == ["Held: it moves when routines land."]
     finish(api, r, again, "Nothing changed: still holding.")
     assert replies(api, task) == ["Held: it moves when routines land."]
     with api.app.state.store.read() as c:
@@ -83,10 +88,7 @@ def test_a_tico_wake_on_a_finished_task_that_changed_nothing_posts_no_reply(api)
         assert c.execute("SELECT count(*) FROM events WHERE action='reply.withheld' AND target=?",
                          (again["id"],)).fetchone()[0] == 1
     # A turn that wrote something still reports it.
-    with api.app.state.store.transaction() as c:
-        H._wake(c, H.task(c, task["id"]), "bot:ops", "Routines landed")
-    third = claim(api, r)
-    start(api, r, third)
+    third = recheck_after_claim(api, r, task, "Routines landed")
     post(api, f"tasks/{task['id']}/comments", {"text": "Moved to Approved."}, third["token"])
     finish(api, r, third, "Moved it to Approved.")
     assert replies(api, task)[-1] == "Moved it to Approved."
@@ -102,18 +104,15 @@ def test_an_answer_on_an_open_task_still_reaches_the_person(api):
     assert replies(api, task) == ["The Monzo feed, by two days."]
 
 
-def finished_and_woken(api, refs=None):
-    """A task ops finished, and a later Tico wake about it whose turn is started: (runner, task, that turn)."""
+def finished_and_woken(api, refs=None, first_text="Held."):
+    """A completed task and a later recheck claimed before its finishing transition: (runner, task, turn)."""
     r = machine(api)
     task = post(api, "tasks", {"owner": "ops", "title": "Hold the spec", "body": "Hold it until routines land."})
     first = claim(api, r)
     start(api, r, first)
     done(api, task["id"], first["token"])
-    finish(api, r, first, "Held.")
-    with api.app.state.store.transaction() as c:
-        H._wake(c, H.task(c, task["id"]), "bot:ops", "Still held?", refs)
-    again = claim(api, r)
-    start(api, r, again)
+    finish(api, r, first, first_text)
+    again = recheck_after_claim(api, r, task, refs=refs)
     return r, task, again
 
 
@@ -129,10 +128,7 @@ def test_a_decided_approval_or_a_reported_push_still_reports(api):
     r, task, again = finished_and_woken(api, {"approval": "a1"})
     finish(api, r, again, "Approved and sent.")
     assert replies(api, task)[-1] == "Approved and sent."
-    with api.app.state.store.transaction() as c:
-        H._wake(c, H.task(c, task["id"]), "bot:ops", "Still held?")
-    third = claim(api, r)
-    start(api, r, third)
+    third = recheck_after_claim(api, r, task)
     post(api, f"attempts/{third['id']}/complete", {"outcome": "completed", "last_seq": 0, "text": "Pushed the fix.",
                                                    "pushes": [{"path": "tasks/x/app", "count": 1}]}, r["token"])
     assert replies(api, task)[-1] == "Pushed the fix."

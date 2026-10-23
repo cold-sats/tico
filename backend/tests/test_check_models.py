@@ -460,7 +460,7 @@ def test_a_held_check_that_leaves_the_board_lets_its_queued_turn_go(api, monkeyp
     assert claim(api, machine)["job_id"] == person, "only the person's message is handed out"
 
 
-def test_a_declined_check_is_not_handed_out_and_the_claim_lets_it_go(api, monkeypatch):
+def test_a_declined_checks_notice_is_cancelled_on_claim_without_waiting_for_the_tick(api, monkeypatch):
     machine, sub, check = limited_check(api)
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE tasks SET status='declined' WHERE id=?", (sub["id"],))
