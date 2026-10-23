@@ -269,13 +269,11 @@ pub async fn runtime_report(config: &Config, sign: &SignIn, client: &Client, ass
     let mut report = Map::new();
     for runtime in crate::harness_tools::runtimes() {
         let runtime = runtime.as_str();
+        // Every bot runs on the computer's own login (its default profile, when it has one).
         let mut used: std::collections::BTreeMap<String, Option<Profile>> = Default::default();
-        for entry in assignments {
-            let requested = text_of(&entry["profile"]);
-            let profile = profiles::select(&config.data, Some(&text_of(&entry["bot"])), Some(&requested));
-            if text_of(&entry["config"]["runtime"]) == runtime && (profile.is_some() || requested.is_empty()) {
-                used.entry(profile.as_ref().map(|p| p.name.clone()).unwrap_or_default()).or_insert(profile);
-            }
+        let own = profiles::computer_login(&config.data);
+        if assignments.iter().any(|entry| text_of(&entry["config"]["runtime"]) == runtime) {
+            used.insert(own.as_ref().map(|p| p.name.clone()).unwrap_or_default(), own);
         }
         let mut targets = Map::new();
         if used.keys().all(|k| k.is_empty()) {
@@ -408,11 +406,9 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
         let app = crate::appdriver::delivery(expected).is_some();
         let known = app || crate::harness_tools::runtimes().contains(&runtime);
         let path = crate::sessions::local_path(config, &bot, expected);
-        let requested = text_of(&entry["profile"]);
-        let computer = text_of(&entry["computer_label"]);
-        let profile = profiles::select(&config.data, Some(&bot), Some(&requested));
+        let profile = profiles::computer_login(&config.data);
         let profile_name = profile.as_ref().map(|p| p.name.clone()).unwrap_or_default();
-        // This bot's own subscription, not the worst of the machine's: a signed-out profile blocks its own bots only.
+        // The computer's login row for this tool.
         let status = runtimes
             .get(&runtime)
             .and_then(|r| r["profiles"].get(&profile_name).cloned())
@@ -426,16 +422,9 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
                 Some(rows) => rows.get(&profile_name).cloned(),
                 None => Some(r.clone()),
             })
-            .filter(|_| requested.is_empty() || profile.is_some())
             .and_then(|r| r["data_problem"].as_str().map(String::from));
         let mut problems: Vec<String> = vec![];
         let mut warnings: Vec<String> = crate::readiness_extra::credential_warnings(&bot);
-        if !requested.is_empty() && !profiles::covers(expected) {
-            problems.push(format!("Subscription {requested} doesn't cover {runtime}"));
-        }
-        if !profiles::missing(&config.data, &requested).is_empty() {
-            problems.push(profiles::subscription_problem(&config.data, assignments, &requested, false, &computer));
-        }
         let repository_present = path.join("AGENT.md").is_file();
         if !repository_present && !app {
             problems.push(crate::product_files::problem(&bot).or_else(|| crate::fetchrepo::problem(&bot)).unwrap_or_else(|| "Missing bot repository or AGENT.md".into()));
@@ -450,13 +439,6 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
                 }
             }
         }
-        let signed_out = |detail: String| {
-            if !requested.is_empty() {
-                profiles::subscription_problem(&config.data, assignments, &requested, true, &computer)
-            } else {
-                detail
-            }
-        };
         if app {
             // Its app's state stands for install and sign-in (above).
         } else if runtime.is_empty() {
@@ -478,11 +460,11 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
             // Signed in, but its turns can't save a session: the folder is the problem, not the sign-in.
             problems.push(problem.clone());
         } else if status["authenticated"] == "rejected" {
-            problems.push(signed_out(text_of(&status["detail"])));
+            problems.push(text_of(&status["detail"]));
         } else if status["authenticated"] == "missing" || status["authenticated"] == "failed" {
             let d = text_of(&status["detail"]);
             let d = if d.is_empty() { "Runtime sign-in is not ready".to_string() } else { d };
-            problems.push(signed_out(if profile_name.is_empty() { d } else { format!("{profile_name}: {d}") }));
+            problems.push(if profile_name.is_empty() { d } else { format!("{profile_name}: {d}") });
         }
         for need in unsupported(entry) {
             problems.push(format!("This computer's runner does not run {need}; choose another harness for this bot"));

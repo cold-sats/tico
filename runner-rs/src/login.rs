@@ -251,11 +251,7 @@ impl Session {
 }
 
 fn profile_for(config: &Config, name: &str) -> Option<crate::profiles::Profile> {
-    if name.is_empty() {
-        crate::profiles::select(&config.data, None, None)
-    } else {
-        crate::profiles::select(&config.data, None, Some(name))
-    }
+    crate::profiles::select(&config.data, Some(name))
 }
 
 // Login and its verdict must use the same user as runtime readiness and bot turns, as well as the same home.
@@ -1291,12 +1287,15 @@ impl Logins {
     fn begin(&mut self, runner: &Arc<Runner>, work: &Value) {
         let s = Session::new(work);
         // Read again: a profile `profile add` (or a sign-in) made since start is in the file, not in memory.
-        let mut config = runner.config_now();
+        let config = runner.config_now();
         let default = profile_for(&config, "").map(|p| p.name).unwrap_or_default();
         let named = (!s.profile.is_empty()).then(|| profile_for(&config, &s.profile)).flatten();
         // A key job runs for a runtime with no browser sign-in too, and only on the computer's own login.
         let key_job = ["clear_key", "use_key", "to_key"].contains(&s.kind.as_str());
-        if key_job && !s.profile.is_empty() {
+        if !s.profile.is_empty() && ["sign_in", "switch", "to_subscription"].contains(&s.kind.as_str()) {
+            // One login per tool per computer, used by all its bots: no named subscription signs in any more.
+            s.finish("failed", "Each computer has one login per AI tool; sign in the computer's login, or add another runner for a different account", runner, &default);
+        } else if key_job && !s.profile.is_empty() {
             s.finish("failed", &format!("Subscription {} holds no key of this computer's; only its own login has one", s.profile), runner, &default);
         } else if key_job && crate::signin::headless_names(&s.runtime).is_empty() {
             s.finish("failed", &format!("This computer does not hold a key for {}", s.runtime), runner, &default);
@@ -1326,8 +1325,6 @@ impl Logins {
         } else if named.as_ref().is_some_and(|p| p.share_operator) && !crate::harness_tools::caps(&s.runtime, "").own_config_home {
             // A host with its own config folder never uses the operator's login, so a shared profile still signs in to Tico's own.
             s.finish("failed", &format!("Profile {} shares the operator's own logins; sign in normally", s.profile), runner, &default);
-        } else if s.kind == "to_subscription" && !s.profile.is_empty() {
-            s.finish("failed", "Switch to subscription is for the computer's own login", runner, &default);
         } else if (s.kind == "switch" || s.kind == "to_subscription")
             && crate::harness_tools::login_command(&s.runtime).is_some_and(|l| l.keychain.iter().any(|p| p == crate::runner::platform()))
         {
@@ -1351,16 +1348,6 @@ impl Logins {
             let (s2, r2) = (s.clone(), runner.clone());
             std::thread::spawn(move || run_sign_out(s2, r2, config));
         } else {
-            if !s.profile.is_empty() && named.is_none() {
-                if let Err(e) = crate::profiles::add_profile(&config, &s.profile) {
-                    s.finish("failed", &format!("Could not create subscription profile: {e}"), runner, &default);
-                    self.sessions.insert(s.id.clone(), s);
-                    return;
-                }
-                config = runner.config_now();
-                // Listed at the next heartbeat as not signed in; a failed or abandoned sign-in leaves it so, never hidden.
-                runner.events.ask(&["heartbeat"]);
-            }
             let (s2, r2, lifetime) = (s.clone(), runner.clone(), self.lifetime);
             std::thread::spawn(move || run_session(s2, r2, config, lifetime));
         }
@@ -2405,8 +2392,9 @@ exit 2
         let mut logins = Logins::default();
         let held = Session::new(&json!({"id": "lheld", "runtime": "codex", "kind": "remove", "profile": "work"}));
         logins.sessions.insert(held.id.clone(), held);
+        // A named subscription never signs in any more: one login per tool per computer.
         logins.begin(&runner, &json!({"id": "lin", "runtime": "claude", "kind": "sign_in", "profile": "work"}));
-        assert_eq!(state(&logins.sessions["lin"]), ("failed".into(), "Something else is running on work; try again when it ends".into()));
+        assert!(state(&logins.sessions["lin"]).1.starts_with("Each computer has one login per AI tool"));
         assert!(claude.exists() && listed());
 
         // Every other tool surely signed out: the subscription leaves runner.json and its folder goes.

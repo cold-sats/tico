@@ -442,7 +442,7 @@ def test_the_runners_report_of_a_fallback_that_never_started_requeues_the_job_an
 
 
 def test_profiles_sharing_the_computers_own_login_share_its_hold_and_probe(api, monkeypatch):
-    from backend import execution, subscriptions
+    from backend import execution
     at(monkeypatch, "2026-10-19T01:46:47.000000Z")
     machine = runner(api)
     assign(api, machine, "ops")
@@ -461,10 +461,9 @@ def test_profiles_sharing_the_computers_own_login_share_its_hold_and_probe(api, 
         # One hold for the computer's own login, whichever alias met the limit, and the runner hears it under "".
         assert login_holds.get(c, rid, "", "fake")["until"].startswith("2026-10-19T02:40") and not \
             login_holds.get(c, rid, "team-a", "fake")
-        for profile, held in (("", "held"), ("team-b", "held"), ("solo", None)):
-            monkeypatch.setattr(subscriptions, "effective", lambda c, bot, ctx=None, p=profile: (p,))
-            key = execution.login_key(c, api.app.state.store.settings, rid, "ops", {"runtime": "fake"})
-            assert login_holds.holding(c, *key) == held, profile
+        # A bot runs on the computer's own login (#1259), so its turns wait on that hold.
+        key = execution.login_key(c, api.app.state.store.settings, rid, "ops", {"runtime": "fake"})
+        assert login_holds.holding(c, *key) == "held"
     assert get(api, "config", machine["token"])["login_holds"][0]["profile"] == ""
 
 

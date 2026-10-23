@@ -17,7 +17,7 @@ use tokio::sync::Notify;
 use crate::client::ApiError;
 use crate::drive::{from_person, tries, Drive, GoalRun, Segment};
 use crate::goals;
-use crate::profiles::{Profile, Unavailable};
+use crate::profiles::Profile;
 use crate::env::{Env, EnvContext, Vault};
 use crate::hosts::{self, antigravity::AntigravityHost, claude::ClaudeHost, codex::CodexHost, gemini::GeminiHost, Host, HostError, Settings};
 use crate::redact::{self, Redactor};
@@ -42,35 +42,29 @@ pub struct Fail {
     pub kind: &'static str,
     pub text: String,
     pub api: Option<ApiError>,
-    /// The turn's subscription cannot run here (SubscriptionUnavailable).
-    pub subscription: Option<Unavailable>,
 }
 
 impl Fail {
     pub(crate) fn runtime(text: impl Into<String>) -> Fail {
-        Fail { kind: "RuntimeError", text: text.into(), api: None, subscription: None }
-    }
-
-    pub(crate) fn unavailable(u: Unavailable) -> Fail {
-        Fail { kind: "SubscriptionUnavailable", text: u.problem.clone(), api: None, subscription: Some(u) }
+        Fail { kind: "RuntimeError", text: text.into(), api: None }
     }
 }
 
 impl From<ApiError> for Fail {
     fn from(e: ApiError) -> Fail {
-        Fail { kind: "APIError", text: e.detail.clone(), api: Some(e), subscription: None }
+        Fail { kind: "APIError", text: e.detail.clone(), api: Some(e) }
     }
 }
 
 impl From<HostError> for Fail {
     fn from(e: HostError) -> Fail {
-        Fail { kind: "HostError", text: e.to_string(), api: None, subscription: None }
+        Fail { kind: "HostError", text: e.to_string(), api: None }
     }
 }
 
 impl From<String> for Fail {
     fn from(text: String) -> Fail {
-        Fail { kind: "OperationalError", text, api: None, subscription: None }
+        Fail { kind: "OperationalError", text, api: None }
     }
 }
 
@@ -742,11 +736,9 @@ impl Runner {
         by_key.then_some((name, key))
     }
 
-    fn turn_profile(&self, attempt: &Value) -> Result<Option<Profile>, Fail> {
-        let rows = self.runtime_rows.lock().unwrap().clone();
-        let assignments = self.assignments_seen();
-        let rejected = |runtime: &str, p: &Profile| self.sign_in.rejection(runtime, Some(p)).is_some();
-        crate::profiles::turn_profile(&self.config_now().data, attempt, &rows, &assignments, &rejected).map_err(Fail::unavailable)
+    /// The login a turn runs on: the computer's own for its tool, whatever profile an older server names.
+    fn turn_profile(&self) -> Option<Profile> {
+        crate::profiles::computer_login(&self.config_now().data)
     }
 
     /// The login a turn of `runtime` (`harness`) on `profile` holds while its host runs, when that CLI serves one turn
@@ -761,12 +753,9 @@ impl Runner {
 
     /// Whether a turn whose login another turn holds can run on the bot's own fallback now instead of waiting: one is
     /// set, it is signed in and ready here, and its own login is not busy too.
-    fn busy_fallback(&self, attempt: &Value, config: &Value) -> bool {
+    fn busy_fallback(&self, config: &Value) -> bool {
         let Some(hop) = crate::fallback::configured(config) else { return false };
-        let mut hop_attempt = attempt.clone();
-        hop_attempt["config"] = hop.config(config);
-        hop_attempt["fallback"] = json!(hop.harness);
-        let Ok(profile) = self.turn_profile(&hop_attempt) else { return false };
+        let profile = self.turn_profile();
         self.fallback_ready(&hop.runtime, profile.as_ref())
             && self.serial_login(&hop.runtime, &hop.harness, profile.as_ref()).is_none_or(|l| crate::login_turns::holder(&l.key).is_none())
     }
@@ -790,7 +779,7 @@ impl Runner {
     /// command, nor for a turn under an active native goal: those belong to this harness, so they wait their turn.
     fn moves_off_busy_login(&self, attempt: &Value, config: &Value, chat_goal: Option<&Value>) -> bool {
         let control = truthy(attempt["message"]["refs"].get("command")) || chat_goal.is_some_and(|g| g["status"] == "active");
-        !control && self.busy_fallback(attempt, config)
+        !control && self.busy_fallback(config)
     }
 
     /// `login` for this turn: at once when it is free, else once the turns that asked first are done with it. While
@@ -902,7 +891,6 @@ impl Runner {
         let mut carried: BTreeMap<String, Value> = BTreeMap::new();
         let mut auth_rejected: Option<(String, String)> = None;
         let mut selected: Option<Profile> = None;
-        let mut subscription_unavailable: Option<Value> = None;
         let mut fallback: Option<String> = None;
         // The ChatGPT login this turn's host runs on, held until the host stops (crate::login_turns), and why the turn
         // went to its fallback instead when another bot's turn had it.
@@ -925,7 +913,7 @@ impl Runner {
             // lane works in its own worktree and takes the checkout only to refresh it (sessions.rs).
             let p = place.insert(self.enter_lanes(&attempt, &flags.lost).await.map_err(Fail::runtime)?);
             execution_path = p.main_path.clone();
-            selected = self.turn_profile(&attempt)?;
+            selected = self.turn_profile();
             if let Some(login) = self.serial_login(&runtime, &text_of(&config["harness"]), selected.as_ref()).filter(|_| !persistent && held.is_none()) {
                 // One turn at a time on a ChatGPT login: taken before the checkout is brought up to date, so a turn
                 // that waits starts on a fresh one. Busy: the bot's own fallback takes the turn when it is ready (not
@@ -1144,13 +1132,8 @@ impl Runner {
         }
 
         if let Err(e) = &ran {
-            if let Some(u) = &e.subscription {
-                self.settle_unavailable(&aid, u, &mut drove, &mut auth_rejected, &mut subscription_unavailable);
-                unavailable = false;
-            } else {
-                self.report_failure(&aid, &bot, e, redactor.as_ref(), &vault, &token, "execution interrupted");
-                unavailable = !OWN_INTERRUPT.iter().any(|p| e.text.contains(p));
-            }
+            self.report_failure(&aid, &bot, e, redactor.as_ref(), &vault, &token, "execution interrupted");
+            unavailable = !OWN_INTERRUPT.iter().any(|p| e.text.contains(p));
         }
         let native_control = truthy(refs.get("command")) || goal.chat_goal.as_ref().is_some_and(|g| g["status"] == "active");
         let mut pending = if unavailable && !native_control { crate::fallback::configured(&config) } else { None };
@@ -1201,10 +1184,7 @@ impl Runner {
             let primary = Some(text_of(&config["harness"])).filter(|h| !h.is_empty()).unwrap_or_else(|| runtime.clone());
             let hopped: Result<(), Fail> = async {
                 let hop_config = hop.config(&config);
-                let mut hop_attempt = attempt.clone();
-                hop_attempt["config"] = hop_config.clone();
-                hop_attempt["fallback"] = json!(hop.harness);
-                selected = self.turn_profile(&hop_attempt)?;
+                selected = self.turn_profile();
                 segments.push(Segment {
                     meter: Meter::default(),
                     config: hop_config.clone(),
@@ -1301,11 +1281,7 @@ impl Runner {
             }
             .await;
             if let Err(e) = hopped {
-                if let Some(u) = &e.subscription {
-                    self.settle_unavailable(&aid, u, &mut drove, &mut auth_rejected, &mut subscription_unavailable);
-                } else {
-                    self.diagnose(&aid, &format!("{}: fallback harness interrupted; inspect local runner", e.kind));
-                }
+                self.diagnose(&aid, &format!("{}: fallback harness interrupted; inspect local runner", e.kind));
             }
             crate::fallback::settle_limit(&hop.runtime, &hop.harness, selected.as_ref(), drove.limited, drove.outcome == "completed");
             // That login is out of quota too: the next of the company's providers takes the turn. Only while at most
@@ -1328,7 +1304,6 @@ impl Runner {
             drove.reply = why;
             drove.limited = true;
             fallback = None;
-            subscription_unavailable = None;
         }
         let ran_on = fallback.clone().unwrap_or_else(|| runtime.clone());
         if let Some((rt, reason)) = auth_rejected.as_ref().filter(|_| drove.outcome == "failed") {
@@ -1338,7 +1313,7 @@ impl Runner {
         }
         if drove.limited {
             log(&format!("Tico runner: {bot} hit a {ran_on} usage limit; the cloud will retry later"));
-        } else if drove.retryable && subscription_unavailable.is_none() {
+        } else if drove.retryable {
             log(&format!("Tico runner: {bot}: {ran_on} could not renew its sign-in and the turn never started; the cloud will retry it"));
         }
 
@@ -1499,9 +1474,6 @@ impl Runner {
                 completion.insert("primary_limited".into(), json!(true));
             }
         }
-        if let Some(u) = &subscription_unavailable {
-            completion.insert("subscription_unavailable".into(), u.clone());
-        }
         if let Some((rt, reason)) = auth_rejected.as_ref().filter(|_| drove.outcome == "failed") {
             completion.insert("auth_rejected".into(), json!({"runtime": rt, "reason": hosts::rejection_reason(reason)}));
         }
@@ -1636,15 +1608,6 @@ impl Runner {
             }
         }
         Ok(h.start_turn(th, prompt, effort).await?)
-    }
-
-    /// The assigned subscription cannot run here: a failed, retryable result that names it, and a heartbeat now.
-    fn settle_unavailable(&self, aid: &str, u: &crate::profiles::Unavailable, drove: &mut Drove, rejected: &mut Option<(String, String)>, out: &mut Option<Value>) {
-        *drove = Drove { outcome: "failed".into(), reply: u.problem.clone(), tokens: json!({}), limited: false, retryable: true, turn: drove.turn.clone(), yielded: false };
-        *rejected = None;
-        let _ = self.state.append(aid, "diagnostic", &json!({"text": u.problem, "detail": {"runtime": u.runtime}}));
-        *out = Some(u.detail());
-        self.events.ask(&["heartbeat"]);
     }
 
     /// The cause, not just its type, with granted values, the turn's token and URL credentials taken out.

@@ -1,6 +1,8 @@
 //! Subscription profiles (runner/profiles.py): one directory on this machine per provider login, named in
-//! runner.json (`profiles`, `default_profile`, `bot_profiles`). A turn on a profile runs with that profile's
-//! HOME (Claude) or CODEX_HOME (Codex); `share_operator` keeps the operator's own logins.
+//! runner.json (`profiles`, `default_profile`). Every bot's turn runs on the computer's one login per tool: the
+//! `default_profile` when there is one (that profile's HOME for Claude, CODEX_HOME for Codex), else the operator's
+//! own. A bot never has a login of its own (`bot_profiles` and a server-named profile are not read); a different
+//! account means another runner. `share_operator` keeps the operator's own logins.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -30,24 +32,6 @@ pub fn login_command(runtime: &str) -> Option<Vec<String>> {
 pub fn valid_name(name: &str) -> bool {
     static R: OnceLock<regex::Regex> = OnceLock::new();
     R.get_or_init(|| regex::Regex::new(r"^[a-z0-9]+(?:-[a-z0-9]+)*$").unwrap()).is_match(name) && name.len() <= 80
-}
-
-/// An assigned subscription that cannot run this turn here (SubscriptionUnavailable).
-#[derive(Clone, Debug)]
-pub struct Unavailable {
-    pub problem: String,
-    pub profile: String,
-    pub runtime: String,
-}
-
-impl Unavailable {
-    pub fn detail(&self) -> Value {
-        json!({"profile": self.profile, "runtime": self.runtime, "problem": self.problem})
-    }
-}
-
-pub fn covers(config: &Value) -> bool {
-    crate::harness_tools::caps_of(config).subscription_profiles
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -104,19 +88,12 @@ impl Profile {
     }
 }
 
-/// The server-requested profile, or the local assignment and default when none is requested. None means the
-/// requested profile is not on this computer, or no local profile is configured.
-pub fn select(config: &Map<String, Value>, bot: Option<&str>, requested: Option<&str>) -> Option<Profile> {
+/// The named profile, or with none the computer's own login (`default_profile`). None means that profile is not on
+/// this computer, or the computer's login is the operator's own.
+pub fn select(config: &Map<String, Value>, requested: Option<&str>) -> Option<Profile> {
     let profiles = config.get("profiles").filter(|p| p.is_object()).cloned().unwrap_or(json!({}));
-    let mut name = bot.and_then(|b| config.get("bot_profiles").and_then(|m| m.get(b))).map(text_of).filter(|n| !n.is_empty());
-    if let Some(r) = requested.filter(|r| !r.is_empty()) {
-        let entry = &profiles[r];
-        if !entry.is_object() || !truthy(entry.get("dir")) {
-            return None;
-        }
-        name = Some(r.to_string());
-    }
-    let name = name.unwrap_or_else(|| config.get("default_profile").map(text_of).unwrap_or_default());
+    let name = requested.filter(|r| !r.is_empty()).map(String::from)
+        .unwrap_or_else(|| config.get("default_profile").map(text_of).unwrap_or_default());
     let entry = &profiles[&name];
     if name.is_empty() || !entry.is_object() || !truthy(entry.get("dir")) {
         return None;
@@ -124,59 +101,9 @@ pub fn select(config: &Map<String, Value>, bot: Option<&str>, requested: Option<
     Some(Profile::new(&name, &text_of(&entry["dir"]), truthy(entry.get("share_operator"))))
 }
 
-pub fn missing(config: &Map<String, Value>, requested: &str) -> String {
-    let entry = config.get("profiles").and_then(|p| p.get(requested));
-    if !requested.is_empty() && !entry.is_some_and(|e| e.is_object() && truthy(e.get("dir"))) {
-        format!("profile {requested} not on this computer")
-    } else {
-        String::new()
-    }
-}
-
-/// "Subscription X isn't (signed in) on <computer>" (service.py subscription_problem).
-pub fn subscription_problem(config: &Map<String, Value>, assignments: &[Value], name: &str, signed_out: bool, computer: &str) -> String {
-    let label = [computer.to_string(), config.get("label").map(text_of).unwrap_or_default()]
-        .into_iter()
-        .chain(assignments.iter().map(|r| text_of(&r["computer_label"])))
-        .find(|l| !l.is_empty())
-        .unwrap_or_else(|| "this computer".into());
-    if signed_out { format!("Subscription {name} isn't signed in on {label}") } else { format!("Subscription {name} isn't on {label}") }
-}
-
-/// The profile this turn runs on (service.py turn_profile): None for the operator's own logins. A profile the
-/// server asked for that is missing here, does not cover the runtime, or is signed out is an error the turn
-/// reports instead of running on some other login.
-pub fn turn_profile(
-    config: &Map<String, Value>,
-    attempt: &Value,
-    runtime_rows: &Map<String, Value>,
-    assignments: &[Value],
-    rejected: &dyn Fn(&str, &Profile) -> bool,
-) -> Result<Option<Profile>, Unavailable> {
-    let requested = text_of(&attempt["profile"]);
-    let bot = text_of(&attempt["bot"]);
-    let profile = select(config, Some(&bot), Some(&requested));
-    if requested.is_empty() {
-        return Ok(profile);
-    }
-    let runtime = text_of(&attempt["config"]["runtime"]);
-    let fail = |problem: String| Unavailable { problem, profile: requested.clone(), runtime: runtime.clone() };
-    if !covers(&attempt["config"]) {
-        return Err(fail(format!("Subscription {requested} doesn't cover {runtime}")));
-    }
-    let computer = text_of(&attempt["computer_label"]);
-    let Some(profile) = profile else {
-        return Err(fail(subscription_problem(config, assignments, &requested, false, &computer)));
-    };
-    let status = &runtime_rows.get(&runtime).map(|r| r["profiles"][&profile.name].clone()).unwrap_or(Value::Null);
-    let signed_out = match reported_sign_in(&profile.name, &runtime) {
-        Some(login) => login == false,
-        None => status["authenticated"] == "missing" || status["authenticated"] == "rejected",
-    };
-    if signed_out || rejected(&runtime, &profile) {
-        return Err(fail(subscription_problem(config, assignments, &requested, true, &computer)));
-    }
-    Ok(Some(profile))
+/// The login every turn on this computer runs on: its own (select with no name).
+pub fn computer_login(config: &Map<String, Value>) -> Option<Profile> {
+    select(config, None)
 }
 
 /// Make `<root>/<name>` with a home per runtime (profiles.create); returns its runner.json entry.
@@ -292,8 +219,9 @@ pub fn configured(config: &Map<String, Value>) -> Vec<Profile> {
         .collect()
 }
 
-/// Persist a UI-made profile (service.py add_profile): created under `<config dir>/profiles`, added to
-/// runner.json without changing local assignments. Returns the entry.
+/// A named profile made under `<config dir>/profiles` and added to runner.json, as an earlier release's browser
+/// sign-in did. Returns the entry.
+#[cfg(test)]
 pub fn add_profile(config: &Config, name: &str) -> Result<Value, String> {
     let root = config.path.parent().unwrap_or(Path::new(".")).join("profiles");
     let entry = create(&root, name, false)?;
@@ -351,9 +279,9 @@ pub fn remove_profile(config: &Config, name: &str) -> Result<bool, String> {
     }
 }
 
-/// The `profile` subcommand: add, list, assign (runner/__main__.py profile_command). Writes runner.json the
+/// The `profile` subcommand: add, list (runner/__main__.py profile_command). Writes runner.json the
 /// way Python does: every key kept, two-space indent.
-pub fn command(config: &mut Config, action: &str, name: Option<&str>, share_operator: bool, bot: Option<&str>) -> Result<String, String> {
+pub fn command(config: &mut Config, action: &str, name: Option<&str>, share_operator: bool) -> Result<String, String> {
     match action {
         "add" => {
             let name = name.ok_or("profile add needs a name")?;
@@ -375,23 +303,8 @@ pub fn command(config: &mut Config, action: &str, name: Option<&str>, share_oper
         "list" => Ok(serde_json::to_string_pretty(&json!({
             "default_profile": config.data.get("default_profile").cloned().unwrap_or(json!("")),
             "profiles": config.data.get("profiles").cloned().unwrap_or(json!({})),
-            "bot_profiles": config.data.get("bot_profiles").cloned().unwrap_or(json!({})),
         }))
         .unwrap()),
-        "assign" => {
-            let name = name.ok_or("profile assign needs a profile")?;
-            let bot = bot.ok_or("profile assign needs a bot")?;
-            if !config.data.get("profiles").and_then(|p| p.get(name)).is_some_and(|e| truthy(Some(e))) {
-                return Err("No such profile on this registration; add it with `profile add`".into());
-            }
-            let map = config.data.entry("bot_profiles").or_insert(json!({}));
-            if !map.is_object() {
-                *map = json!({});
-            }
-            map[bot] = json!(name);
-            config.save()?;
-            Ok(format!("{bot} runs on subscription profile {name}"))
-        }
         other => Err(format!("unknown profile action {other}")),
     }
 }
@@ -493,13 +406,6 @@ pub fn forget_report() {
     let mut cache = report_cache().lock().unwrap();
     FORGOTTEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     *cache = None;
-}
-
-/// The cached login state of `profile` for `runtime` (`signed_in`), when the last report has it.
-pub fn reported_sign_in(profile: &str, runtime: &str) -> Option<Value> {
-    let cache = report_cache().lock().unwrap();
-    let rows = &cache.as_ref()?.rows;
-    rows.iter().find(|r| r["name"] == profile).map(|r| r["runtimes"][runtime]["signed_in"].clone())
 }
 
 /// The heartbeat's `profiles` list (service.py profile_report): each profile's sign-in where its CLI can say, probed
@@ -655,17 +561,16 @@ pub(crate) mod tests {
         let config = json!({"profiles": {"acme": {"dir": "/p/acme"}, "beta": {"dir": "/p/beta", "share_operator": true}},
                             "default_profile": "acme", "bot_profiles": {"sales": "beta"}});
         let c = config.as_object().unwrap();
-        assert_eq!(select(c, Some("ops"), None).unwrap().name, "acme");
-        assert_eq!(select(c, Some("sales"), None).unwrap().name, "beta");
-        assert_eq!(select(c, Some("ops"), Some("beta")).unwrap().name, "beta");
-        assert!(select(c, Some("ops"), Some("gone")).is_none());
-        assert!(select(json!({}).as_object().unwrap(), Some("ops"), None).is_none());
-        let acme = select(c, None, None).unwrap();
+        // One login per tool per computer: a bot's old local assignment is not read.
+        assert_eq!(computer_login(c).unwrap().name, "acme");
+        assert_eq!(select(c, Some("beta")).unwrap().name, "beta");
+        assert!(select(c, Some("gone")).is_none());
+        assert!(computer_login(json!({}).as_object().unwrap()).is_none());
+        let acme = computer_login(c).unwrap();
         let env = acme.environment("codex", &Env::new());
         assert_eq!(env["CODEX_HOME"], "/p/acme/codex");
         assert_eq!(acme.environment("claude", &Env::new())["HOME"], "/p/acme/claude");
-        assert!(select(c, Some("sales"), None).unwrap().environment("claude", &Env::new()).is_empty());
-        assert_eq!(missing(c, "gone"), "profile gone not on this computer");
+        assert!(select(c, Some("beta")).unwrap().environment("claude", &Env::new()).is_empty());
     }
 
     /// A stand-in `claude` that signs in where Claude Code would: CLAUDE_CONFIG_DIR when set, else `$HOME/.claude`.
@@ -835,20 +740,18 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn add_list_and_assign_write_the_registration() {
+    fn add_and_list_write_the_registration() {
         let dir = std::env::temp_dir().join(format!("tico-profiles-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("runner.json");
         std::fs::write(&path, r#"{"runner_id":"r1","keep":1}"#).unwrap();
         let mut config = Config::load(&path).unwrap();
-        let out: Value = serde_json::from_str(&command(&mut config, "add", Some("acme"), false, None).unwrap()).unwrap();
+        let out: Value = serde_json::from_str(&command(&mut config, "add", Some("acme"), false).unwrap()).unwrap();
         assert_eq!(out["default_profile"], "acme");
         let folder = PathBuf::from(text_of(&out["dir"]));
         assert!(folder.join("claude/.claude").is_dir() && folder.join("codex").is_dir() && folder.join("profile.json").is_file());
-        command(&mut config, "assign", Some("acme"), false, Some("sales")).unwrap();
-        assert!(command(&mut config, "assign", Some("nope"), false, Some("sales")).is_err());
+        assert!(command(&mut config, "assign", Some("acme"), false).is_err(), "a bot has no login of its own");
         let stored = Config::load(&path).unwrap();
-        assert_eq!(stored.data["bot_profiles"]["sales"], "acme");
         assert_eq!(stored.data["keep"], 1);
         assert!(create(&dir.join("profiles"), "Bad Name", false).is_err());
         let names: Vec<String> = configured(&stored.data).into_iter().map(|p| p.name).collect();

@@ -350,7 +350,7 @@ impl Runner {
         }
         if !crate::lanes::held_back("profiles") {
             let rejected = |runtime: &str, name: &str| {
-                let profile = crate::profiles::select(&config.data, None, Some(name));
+                let profile = crate::profiles::select(&config.data, Some(name));
                 profile.is_some_and(|p| self.sign_in.rejection(runtime, Some(&p)).is_some())
             };
             body["profiles"] = json!(crate::profiles::report(&config.data, &rejected).await);
@@ -934,10 +934,10 @@ mod tests {
         let client = Client::new(&config.url(), &config.token(), 1, 0).unwrap();
         let runner = Runner::new(config, client, State::open(&dir.join("state")).unwrap());
         assert!(crate::profiles::configured(&runner.config_now().data).is_empty());
-        // A browser sign-in for a new named subscription writes it to runner.json (login.rs begin).
+        // A profile written to runner.json while running (`profile add`, or a hand edit).
         crate::profiles::add_profile(&runner.config, "chris-chatgpt").unwrap();
         let now = runner.config_now();
-        assert_eq!(crate::profiles::select(&now.data, Some("ops"), Some("chris-chatgpt")).unwrap().name, "chris-chatgpt");
+        assert_eq!(crate::profiles::select(&now.data, Some("chris-chatgpt")).unwrap().name, "chris-chatgpt");
         assert!(crate::profiles::configured(&runner.config.data).is_empty(), "the start-up copy is unchanged");
         // A file caught unreadable keeps the profiles last read.
         let written = std::fs::read_to_string(&path).unwrap();

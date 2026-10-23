@@ -19,7 +19,6 @@ bot's missing key or another profile's sign-in never decides it.
 
 Callers refuse only on can_run False; None never blocks.
 """
-import json
 
 from . import models_preset
 from .harnesses import EXTERNAL_HARNESSES, bot_key, harness_caps, resolve_harness, runtime_of
@@ -127,20 +126,7 @@ def can_run(c, bot, runtime, runner=None, harness="", model=""):
             return verdict(False, "This bot has no " + name + " Credential", "Give the bot the " + name +
                            " Credential in Credentials", "#/credentials")
         return verdict(True)
-    from .subscriptions import covers, effective
-    profile = effective(c, bot)[0]
-    if profile and covers({"runtime": runtime, "harness": harness}):
-        stored = c.execute("SELECT runtimes_json FROM computer_profiles WHERE runner_id=? AND profile=?",
-                           (row["id"], profile)).fetchone()
-        signed = (json.loads(stored[0] or "{}") if stored else {}).get(runtime, {}).get("signed_in")
-        if signed is None:
-            signed = {"ready": True, **{k: False for k in SIGNED_OUT}}.get(
-                ((state.get("profiles") or {}).get(profile) or {}).get("authenticated"))
-        if signed is None:
-            return verdict(None, "The " + profile + " subscription has not reported " + str(runtime) + " on " + label)
-        return verdict(True) if signed else verdict(
-            False, "The " + profile + " subscription is not signed in to " + str(runtime) + " on " + label,
-            "Sign in the " + profile + " subscription to " + str(runtime) + " on " + label + " in Settings > Computers", sign_in=True)
+    # Every bot runs each tool on its computer's one login for it: a bot has no sign-in of its own.
     shared = (state.get("profiles") or {}).get("") or state
     signed = str(shared.get("authenticated") or "unknown")
     if signed == "ready":

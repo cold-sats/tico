@@ -1126,13 +1126,6 @@ class ComputerProfile(Contract):
     runtimes: dict[str, SubscriptionRuntime] = Field(default_factory=dict, max_length=20)
 
 
-class SubscriptionAssignment(Contract):
-    # Only a bot chooses a subscription; a group no longer gives its bots one.
-    scope: Literal["bot"] = "bot"
-    target: str = Field(min_length=1, max_length=100)
-    profile: str | None = Field(default=None, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$", max_length=80)
-
-
 class WorktreeStatus(Contract):
     repo: str | None = Field(default=None, max_length=200)
     last_activity: float | None = Field(default=None, ge=0)
