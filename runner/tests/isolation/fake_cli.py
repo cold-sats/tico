@@ -168,15 +168,16 @@ def pi():
 
 
 def grok():
-    session = "sess-" + uuid.uuid4().hex[:8]
+    session, cwd = "sess-" + uuid.uuid4().hex[:8], None
     for msg in lines():
-        method, rid = msg.get("method"), msg.get("id")
+        method, rid, params = msg.get("method"), msg.get("id"), msg.get("params") or {}
         if rid is None or method is None:
             continue
-        if method == "session/new":
-            say({"jsonrpc": "2.0", "id": rid, "result": {"sessionId": session}})
+        if method in ("session/new", "session/load"):
+            cwd = params.get("cwd") or cwd   # ACP names the working folder per session, not per process
+            say({"jsonrpc": "2.0", "id": rid, "result": {"sessionId": params.get("sessionId") or session}})
         elif method == "session/prompt":
-            text = probe(None)
+            text = probe(cwd)
             say({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": session, "update": {
                 "sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}})
             say({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
