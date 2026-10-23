@@ -14,6 +14,7 @@ def test_isolation_uses_the_candidate_image_only_after_successful_builds(tmp_pat
     monkeypatch.setattr(release_checks, 'tempfile', SimpleNamespace(mkdtemp=lambda **kwargs: str(tmp_path)))
     monkeypatch.setattr(release_checks, 'free_port', lambda: 12345)
     monkeypatch.setattr(release_checks, 'edge_networks', lambda: (True, 'edge networks: ok'))
+    monkeypatch.setattr(release_checks, 'desktop_buildable', lambda: False)
 
     for builds_ok, overrides, workers, browser_jobs in (
             (True, {}, '6', None), (False, {}, '6', None),
