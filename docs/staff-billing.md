@@ -1,5 +1,7 @@
 # Manage a company's billing (staff)
 
+**Unreleased Hosting update:** billing remains off. The Hosting rules below do not confirm deployment or activation.
+
 Only Tico staff see this page. Open **Customers** on the admin page, pick the company, then open **Billing**.
 The page sits behind Cloudflare Access, so customers never reach it, and HQ only takes these changes with
 the staff billing key. Customers cannot change their own minimum balance, grace period, or enforcement.
@@ -50,13 +52,25 @@ Raising the minimum to the balance or above pauses the company. In **Enforce** m
 stop within 5 minutes. Lowering the minimum below the balance, or adding credit so the balance ends
 above the minimum, lets them start again within 5 minutes.
 
+For Hosting in **Enforce** mode, raising the minimum to the balance or above starts grace when you save the change.
+Lowering it below the balance ends grace. Credit ends grace only when the balance is above the minimum.
+
 ### Hosting grace period (hours)
 
-A whole number of hours. The default is 72. Enter 0 and the company's servers stop at once when
-the balance reaches the minimum.
+A whole number of hours. The default is 72. Zero means no grace; waitlist servers stop within five minutes of reaching the minimum.
 
 The stop time counts from when the balance first reached the minimum. Changing the grace period
 recomputes that stop time from the same starting point.
+If the new deadline has already passed, servers stop at the next daily run at 00:05 UTC, rather than when you save.
+For example, shortening a 72-hour grace to 48 hours after 50 hours schedules the stop for that next daily run.
+
+Stops retain the servers' data. Grace notices are still pending: the design includes the stop time at grace start,
+a reminder 24 hours before stop, and a stop email. Delivered notices and **Needs you** items are not yet confirmed.
+
+For the daily charge and restart rules, see [Hosting grace and retained data](account.md#hosting-grace-and-retained-data)
+and [More credit and restarting](account.md#more-credit-and-restarting).
+Positive-grace accounts require manual owner restart; the guarded owner-start path is unfinished.
+Zero-grace waitlist recovery instead checks both servers together before automatically restarting either.
 
 ### Enforcement
 
@@ -79,3 +93,5 @@ select it: HQ makes the credit or change at most once.
 A company with no billing account yet shows only the Add credit and Change settings forms. Adding a
 credit or changing a setting opens the account with HQ's defaults: minimum $0.00, Hosting grace
 period 72 hours, Record only.
+
+*Hosting changes checked 2026-10-23: ticoteam/tico-services#138; Billing system spec v1.1, boundary rule and tests 7–8 and 19–23; waitlist spec v3.4, Answers 15–16. Owner-start safeguard (Dev 430) and grace notices (Dev 347) remain unfinished. Billing remains off.*
