@@ -1413,7 +1413,7 @@ mod updater_integration_tests {
     /// A Linux company app updating from what a release publishes: app/tests/update_hub.py publishes a signed
     /// candidate AppImage with scripts/app_release.py and serves it through the server's own download routes behind
     /// an Access gate. The app finds the update only with the hub session, downloads it through the server's
-    /// presigned storage redirect, refuses it under another updater key, and installs it over the running AppImage.
+    /// presigned storage redirect and installs it over the running AppImage, and refuses it under another updater key.
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     #[tokio::test]
     async fn company_app_finds_authenticates_downloads_verifies_and_installs_a_published_update() {
@@ -1477,16 +1477,18 @@ mod updater_integration_tests {
 
         let (signed_out, _) = run(updater(&public_key, None)).await;
         assert!(signed_out.is_err(), "without the hub session the feed is Access's sign-in page: {signed_out:?}");
-        let (wrong_key, offered) = run(updater(&other_key, Some(COOKIE))).await;
-        assert_eq!(offered.as_deref(), Some(CANDIDATE), "{wrong_key:?}");
-        assert!(wrong_key.as_ref().is_err_and(|e| e.starts_with("install failed")),
-                "an update signed by another key must not install: {wrong_key:?}");
-        assert_eq!(std::fs::read(&installed).unwrap(), previous, "a refused update must leave the app in place");
         let (updated, offered) = run(updater(&public_key, Some(COOKIE))).await;
         assert_eq!(offered.as_deref(), Some(CANDIDATE), "{updated:?}");
         assert_eq!(updated, Ok(true), "the published update did not install");
         assert_eq!(std::fs::read(&installed).unwrap(), candidate);
         assert_eq!(std::fs::metadata(&installed).unwrap().permissions().mode() & 0o777, 0o755);
+        // The same download under another updater key: only the signature check can refuse it now.
+        std::fs::write(&installed, previous).unwrap();
+        let (wrong_key, offered) = run(updater(&other_key, Some(COOKIE))).await;
+        assert_eq!(offered.as_deref(), Some(CANDIDATE), "{wrong_key:?}");
+        assert!(wrong_key.as_ref().is_err_and(|e| e.starts_with("install failed")),
+                "an update signed by another key must not install: {wrong_key:?}");
+        assert_eq!(std::fs::read(&installed).unwrap(), previous, "a refused update must leave the app in place");
 
         drop(feed.stdin.take());
         feed.wait().unwrap();
