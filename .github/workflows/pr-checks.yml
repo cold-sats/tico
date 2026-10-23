@@ -1,4 +1,6 @@
 # Read-only PR checks. Main keeps the full default suite; Release validation is independent.
+# Jobs run on RunsOn spot VMs in the tico-ci AWS account. Fork PRs stay on GitHub-hosted runners so outside code
+# never runs on our machines.
 name: PR checks
 
 on:
@@ -19,7 +21,7 @@ concurrency:
 
 jobs:
   plan:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork) && format('runs-on={0}/runner=2cpu-linux-x64/extras=s3-cache', github.run_id) || 'ubuntu-24.04' }}
     timeout-minutes: 12
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -64,7 +66,7 @@ jobs:
   tests:
     needs: plan
     name: ${{ matrix.suite }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork) && format('runs-on={0}/runner=4cpu-linux-x64/extras=s3-cache', github.run_id) || 'ubuntu-24.04' }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -137,7 +139,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.caddy == 'true'
     name: caddy-linux-${{ matrix.arch }}
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork) && format('runs-on={0}/runner=4cpu-linux-{1}/extras=s3-cache', github.run_id, matrix.arch == 'arm64' && 'arm64' || 'x64') || matrix.runner }}
     timeout-minutes: 35
     strategy:
       fail-fast: false
@@ -194,7 +196,7 @@ jobs:
     name: PR job timings
     if: always()
     needs: [plan, tests, caddy-linux]
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork) && format('runs-on={0}/runner=2cpu-linux-x64/extras=s3-cache', github.run_id) || 'ubuntu-24.04' }}
     timeout-minutes: 3
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
