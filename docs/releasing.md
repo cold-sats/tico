@@ -87,6 +87,34 @@ computer acceptance still need the corresponding Mac environment. The full Docke
 
 ## Before you tag
 
+Build the release task's evidence checklist from the candidate's merged PRs and their linked Dev tickets:
+
+```sh
+python scripts/release_checklist.py --head <candidate> --previous vX.Y.Z > checklist.md
+python scripts/release_checklist.py --head <candidate> --previous vX.Y.Z --json > checklist.json
+```
+
+Run in a checkout with fetched release tags, a `gh` login for the repository and a scoped `hub` login for
+the shared team API. No local team database is opened. Without `--previous`, it selects the earlier release
+tag using the freeze guard's rule. `--github owner/repository` overrides the checkout's origin.
+Attach the Markdown checklist to the release task; the JSON companion retains structured evidence and source
+message IDs. The checklist includes every PR found in the first-parent candidate range, each visible linked
+Dev ticket's current step, Review 1/2 verdicts and their full heads, test receipts, `qa` tag, QA verdicts and
+Technical Writer tasks and links. Security is outside the release pipeline; no Security result is required.
+
+Evidence comes from the ticket owner's messages and the owners of step children titled `Review 1:`,
+`Review 2:`, `QA:`, `Docs:`, `Documentation:` or `Technical Writer:`. Review 1 always requires a verdict;
+Review 2 requires one when its step child exists, and `qa` tickets require a QA approval and completed docs
+child. The latest verdict must approve the merged PR head; older heads are flagged for the Release Manager
+to resolve with the recorded review delta. A passing test receipt names the full PR head, tests and a passing
+result on the same line (for example, `Tests: head <full-sha>: 12 passed, 0 failed`). Other test messages remain
+visible as evidence. Unrecorded reviews, legacy evidence elsewhere and unreadable tickets stay gaps rather
+than being inferred as passes.
+
+Exit 0 means no evidence gaps were found, 1 means the report lists gaps, and 2 means collection failed
+(including incomplete pagination). This is a visible-evidence snapshot for the Release Manager to read;
+it does not run tests, authorize a release, move tickets, dispatch workflows or replace the freeze guard.
+
 At freeze, before asking for Release validation, check what the candidate carries since the previous tag:
 
 ```

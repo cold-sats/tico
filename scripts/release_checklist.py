@@ -24,6 +24,8 @@ ROLE = re.compile(r"^(Review [12]|QA|Docs|Documentation|Technical Writer)\s*:", 
 SHA = re.compile(r"\b[0-9a-f]{40}\b")
 PASS = re.compile(r"\b(pass(?:ed)?|green|success(?:ful)?)\b", re.I)
 TEST = re.compile(r"\b(tests?|pytest|cargo|browser|CI)\b", re.I)
+FAIL = re.compile(r"\b(?:[1-9]\d*\s*(?:fail(?:ed|ures?)?|errors?)|fail(?:ed|ure)?|not run|pending|"
+                  r"will|planned|0\s*passed|(?:no|not|without)\s+(?:pass(?:ed)?|green|success))\b", re.I)
 MAX_PAGES = 100
 
 
@@ -39,11 +41,17 @@ def hub(*args):
     return json.loads(command("hub", *args))
 
 
-def history(conversation):
+def history(task):
     messages, before, seen = [], None, set()
     for _ in range(MAX_PAGES):
-        page = hub("conversation", "show", conversation, *(["--before", before] if before else []))
-        messages.extend(page.get("messages", []))
+        page = hub("conversation", "show", task["conversation_id"], *(["--before", before] if before else []))
+        for message in page["messages"]:
+            refs = message.get("refs") or json.loads(message.get("refs_json") or "{}")
+            named = refs.get("task") or refs.get("task_id") or (page.get("conversation") or {}).get("task_id")
+            if isinstance(named, list):
+                named = next((v for v in named if isinstance(v, str) and v.strip()), None)
+            if named == task["id"]:
+                messages.append(message)
         if not page.get("has_more"):
             return messages
         before = page.get("next_before")
@@ -56,13 +64,13 @@ def history(conversation):
 def collect_ticket(tid):
     result = hub("task", "show", tid)
     task = result["task"]
-    task["messages"] = history(task["conversation_id"])
+    task["messages"] = history(task)
     task["children"] = []
     for child in result.get("children", []):
         if not ROLE.match(child["title"]):
             continue
         detail = hub("task", "show", child["id"])["task"]
-        detail["messages"] = history(detail["conversation_id"])
+        detail["messages"] = history(detail)
         task["children"].append(detail)
     return task
 
@@ -85,6 +93,8 @@ def source(task, message):
 
 
 def owner_messages(task):
+    if not task.get("owner"):
+        return []
     return sorted((m for m in task.get("messages", []) if m.get("from_actor") == task.get("owner")
                    and not any(m.get(k) for k in ("deleted_at", "hidden_at", "superseded_at"))),
                   key=lambda m: (m.get("created") or "", m.get("id") or ""))
@@ -103,15 +113,27 @@ def verdicts(task, role, number):
     return sorted(found, key=lambda r: (r["created"] or "", r["message"] or ""))
 
 
+def passing_test(text, head):
+    # A green receipt for some other head, or a plan to run tests, is not evidence.
+    # Match head and result on one line, so an old pass cannot bless a new failure.
+    return any(head in SHA.findall(line) and TEST.search(line) and PASS.search(line)
+               and not FAIL.search(re.sub(r"\b0\s*(?:failed|failures?|errors?)\b", "", line, flags=re.I))
+               for line in text.splitlines())
+
+
 def ticket_evidence(task, pr):
     number, head = pr["number"], pr["head"]
     gaps, reviews = [], {}
+    if not (task.get("step") or {}).get("name"):
+        gaps.append("Ticket: missing factory step")
+    qa = any((tag.get("key") if isinstance(tag, dict) else tag) == "qa" for tag in task.get("tags", []))
     for role in ("Review 1", "Review 2", "QA"):
         receipts = verdicts(task, role, number)
         reviews[role] = receipts
-        required = role == "Review 1" or (role == "QA" and "qa" in task.get("tags", []))
+        required = role == "Review 1" or (role == "QA" and qa)
         required |= role == "Review 2" and bool(receipts or any(
-            c["title"].lower().startswith("review 2:") for c in task.get("children", [])))
+            ROLE.match(c["title"]) and ROLE.match(c["title"])[1].lower() == "review 2"
+            for c in task.get("children", [])))
         if required:
             last = receipts[-1] if receipts else None
             if not last:
@@ -122,7 +144,7 @@ def ticket_evidence(task, pr):
                 gaps.append(f"{role}: changes requested")
     messages = owner_messages(task)
     tests = [source(task, m) for m in messages if TEST.search(m.get("body", ""))]
-    if not any(head in SHA.findall(r["text"]) and PASS.search(r["text"]) for r in tests):
+    if not any(passing_test(r["text"], head) for r in tests):
         gaps.append("Tests: no passing receipt naming the merged head")
     docs = []
     for child in task.get("children", []):
@@ -131,11 +153,13 @@ def ticket_evidence(task, pr):
             docs.append({"task": child["id"], "title": child["title"], "status": child["status"],
                          "links": child.get("links", []),
                          "receipts": [source(child, m) for m in owner_messages(child)]})
-    if "qa" in task.get("tags", []) and not any(d["status"] in ("done", "closed") for d in docs):
+    if qa and not docs:
         gaps.append("Docs: no completed Technical Writer task")
+    if any(d["status"] not in ("done", "closed") for d in docs):
+        gaps.append("Docs: incomplete Technical Writer task")
     return {"id": task["id"], "number": task.get("number"), "title": task["title"],
             "step": (task.get("step") or {}).get("name", "unknown"),
-            "qa": "qa" in task.get("tags", []), "reviews": reviews, "test_receipts": tests,
+            "qa": qa, "reviews": reviews, "test_receipts": tests,
             "docs": docs, "gaps": gaps}
 
 
@@ -164,7 +188,7 @@ def collect(repo, head, previous=None, slug=None):
     changes = freeze.first_parent_log(repo, f"{previous_sha}..{head}")
     if not changes:
         raise freeze.GuardError("empty release range; name an earlier release tag")
-    github, prs, tickets, seen = freeze.GitHub(slug), [], {}, set()
+    prs, tickets, seen = [], {}, set()
     for commit in reversed(changes):
         number = freeze.pr_number(repo, commit)
         if number is None:
@@ -175,7 +199,7 @@ def collect(repo, head, previous=None, slug=None):
         if number in seen:
             continue
         seen.add(number)
-        pr = github._api(f"pulls/{number}")
+        pr = json.loads(command("gh", "api", f"repos/{slug}/pulls/{number}"))
         if not pr.get("merged_at"):
             raise freeze.GuardError(f"PR #{number} is not merged")
         prs.append({"number": number, "title": pr["title"], "url": pr["html_url"],
@@ -215,12 +239,20 @@ def markdown(result):
         lines.extend(["", f"## PR #{pr['number']}", "", f"PR: {pr['url']}", "",
                       f"Merged head: `{pr['head']}`; landed commit: `{pr['merge_commit']}`", ""])
         for ticket in pr["tickets"]:
+            for role, receipts in ticket["reviews"].items():
+                for receipt in receipts:
+                    lines.extend([f"{role} evidence: task {receipt['task']}, message {receipt['message']}, "
+                                  f"actor {cell(receipt['actor'])}", "",
+                                  *["> " + cell(line) for line in receipt["text"].splitlines()], ""])
             for receipt in ticket["test_receipts"]:
                 lines.extend([f"Test evidence: task {receipt['task']}, message {receipt['message']}", "",
                               *["> " + cell(line) for line in receipt["text"].splitlines()], ""])
             for doc in ticket["docs"]:
                 lines.extend([f"Docs task: {doc['task']} ({doc['status']})", "",
                               *[cell(l.get("url", "")) for l in doc["links"]], ""])
+                for receipt in doc["receipts"]:
+                    lines.extend([f"Docs evidence: message {receipt['message']}", "",
+                                  *["> " + cell(line) for line in receipt["text"].splitlines()], ""])
     return "\n".join(lines) + "\n"
 
 
