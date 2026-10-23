@@ -470,6 +470,8 @@ def _bot_checks(c, settings=None):
     limited = {}
     for r in c.execute("SELECT detail_json FROM events WHERE action='attempt.limited' AND ts>?", (since,)):
         detail = json.loads(r["detail_json"] or "{}")
+        if (detail.get("source") or {}).get("kind") == login_holds.CAPACITY_KIND:
+            continue                    # a busy model for two minutes, not a spent subscription or spend limit
         if detail.get("bot"):
             limited[detail["bot"]] = limited.get(detail["bot"], 0) + 1
     record = providers.load(c, settings)

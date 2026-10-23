@@ -163,12 +163,13 @@ def record(c, runner_id, profile, runtime, hit, reset=None, attempt_id=None, bot
     hit_at = H.parse_ts(hit)
     if old and (old.get("until") or "") > _iso(hit_at) and (busy or not old.get("capacity")):
         # Met while the hold was still in force (a person's one try, or a turn sent to a fallback that was not ready
-        # after all): the same window, so neither the streak nor the end moves earlier, and a quota hold stays one. A
-        # quota notice during a capacity hold starts its own quota hold.
+        # after all): the same window, so neither the streak nor the end moves earlier, and a quota hold stays one, its
+        # end too: a busy model says nothing of the plan's reset. A quota notice during a capacity hold starts its own
+        # quota hold.
         streak = int(old.get("streak") or (0 if busy else 1))
         until = max(at or hit_at, H.parse_ts(old["until"]))
         if busy and not old.get("capacity"):
-            busy, at, error = False, old.get("reset"), old.get("error") or ""
+            busy, at, error, until = False, old.get("reset"), old.get("error") or "", H.parse_ts(old["until"])
     else:
         streak = int(old.get("streak") or 0) + (0 if busy else 1) if old else (0 if busy else 1)
         until = at or hit_at + timedelta(seconds=BACKOFF[min(streak, len(BACKOFF)) - 1])

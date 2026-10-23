@@ -287,6 +287,11 @@ impl Runner {
                     goal.failure = Some(if error.is_empty() { "The harness stopped".into() } else { scrub(&error) });
                     limited = truthy(event.get("limit"));
                     capacity = limited && hosts::is_capacity(&error);
+                    if capacity && acted {
+                        // A busy model after the bot acted is not a turn that never ran: no fallback or replay may
+                        // repeat what it did, so it ends as a failed run saved for review.
+                        (limited, capacity) = (false, false);
+                    }
                     // A sign-in the runtime could not renew refuses the turn before it starts, so the job can go
                     // back in the queue; `acted` guards a token that died after the bot had done something.
                     let rejected = hosts::is_auth_rejected(&error);

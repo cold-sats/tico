@@ -28,8 +28,12 @@ All notable changes to Tico are recorded here. The format follows
 - **A model at capacity no longer reads as spent quota.** A provider's "Selected model is at capacity", overloaded or
   503 refusal held the whole computer login for 30 to 60 minutes as an exhausted subscription, so every bot on it
   waited and Health called the login out of quota. It now holds that login for two minutes without growing the
-  limit streak, a fallback can still take the turn, and the bot's line says *temporary model capacity*. A real quota
-  or billing refusal ("Quota exceeded. Check your plan and billing details.") is still a full usage-limit hold.
+  limit streak, a fallback can still take the turn, and the bot's line says *temporary model capacity*; a check or task
+  model at capacity no longer counts as its login out of quota or moves the check to its next model, and a quota
+  hold in force keeps its provider's reset. A refusal after the run had sent a message or used a tool is never
+  replayed or sent to a fallback: it waits for review as uncertain work. A structured `overloaded_error` is
+  recognised too. A real quota or billing refusal ("Quota exceeded. Check your plan and billing details.") is still
+  a full usage-limit hold.
 - **A Docker runner at high capacity starts its turns.** The runner container allowed 2048 processes and threads,
   about 70 turns' worth, so a runner set above that failed to start new turns ("Resource temporarily unavailable")
   and kept claiming and dropping the same requests. The limit is now 12288, enough for the 256 a runner honours.
