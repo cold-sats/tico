@@ -1,7 +1,6 @@
 """A runner update returns unstarted claims, then resumes capped turns without publishing partial answers."""
 
 from backend import runner_versions
-from backend.store import H
 from backend.tests.test_api import api, assign, claim, get, post, ready, runner  # noqa: F401
 
 
@@ -58,8 +57,8 @@ def test_a_capped_turn_resumes_its_session_without_checkpointing_partial_output_
          "text": "", "last_seq": 2}, machine["token"])
     again = claim(api, machine, "ops")
     assert again["job_id"] == attempt["job_id"]
-    assert get(api, f"tasks/{task['id']}")["checkpoint"] == ""
     with api.app.state.store.read() as c:
+        assert not c.execute("SELECT checkpoint FROM tasks WHERE id=?", (task["id"],)).fetchone()[0]
         saved = c.execute("SELECT thread_id,final_text FROM attempts WHERE id=?", (attempt["id"],)).fetchone()
         assert tuple(saved) == ("saved-thread", "")
     post(api, "bots/ops/stop", {"attempt_id": again["id"]})
