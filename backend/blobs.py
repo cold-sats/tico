@@ -1,6 +1,7 @@
 """Immutable binary storage. Only opaque, authorized IDs are exposed over HTTP."""
 
 import base64
+import contextlib
 import io
 import errno
 import json
@@ -50,12 +51,17 @@ class Blobs:
         # Bumped by `configure`, so a copy or probe begun for one target never records against another.
         self._generation = 0
         self._loop = None
+        # Whether this disk's files are copied to a new place on their own, and why an upload is refused when the
+        # place can't take it (`configure`).
+        self._copy_disk, self._paused = True, ""
 
-    def configure(self, company=None, earlier=(), store=None, checked=False):
+    def configure(self, company=None, earlier=(), store=None, checked=False, copy_disk=True, paused=""):
         """Write to `company` ({bucket, prefix, region, keys}), or to the server's own storage when None, from now
         on, without a restart. Files keep their bytes where they are: reads also try each of `earlier` and the
-        server's own storage. With `store`, files on this computer's disk are then copied to the new place.
-        `checked`: the company's keys were just shown to write there, so writes need not wait for the probe."""
+        server's own storage. With `store`, files on this computer's disk are then copied to the new place, unless
+        `copy_disk` is False (Tico file hosting: the owner chooses Move existing files, backend/tico_storage.py).
+        `checked`: the company's keys were just shown to write there, so writes need not wait for the probe.
+        `paused`: the plain reason an upload is refused with when this place can't take it (`{reason}` is why)."""
         target = Location(self._base, **company) if company else self._base
         if company:
             # A client handed in for the server's own bucket (a backup's) cannot sign for the company's.
@@ -77,8 +83,9 @@ class Blobs:
             self._write_failed, self._write_error = False, ""
             self._s3_failed = set()
             self._earlier = readable
+            self._copy_disk, self._paused = copy_disk, paused
             self._generation += 1
-        if store is not None and self._loop is not None and target.blob_bucket:
+        if store is not None and self._loop is not None and target.blob_bucket and copy_disk:
             threading.Thread(target=self.storage_loop, args=(store, self._loop), name="tico-storage-copy", daemon=True).start()
 
     @property
@@ -116,6 +123,24 @@ class Blobs:
 
     def put_staged(self, stream, digest, size, content_type="application/octet-stream"):
         """The multipart parser already hashed and spooled this stream."""
+        with self._refused():
+            return self._put_staged(stream, digest, size, content_type)
+
+    def _refused(self):
+        """Turns a storage failure into the plain reason `configure` was given, while one is (credits out)."""
+        paused = self._paused
+
+        @contextlib.contextmanager
+        def plain():
+            try:
+                yield
+            except Problem as exc:
+                if not paused or exc.code != "blob_storage":
+                    raise
+                raise Problem("storage_paused", paused.format(reason=exc.detail.split(";")[0]), 503, True) from exc
+        return plain()
+
+    def _put_staged(self, stream, digest, size, content_type):
         if self.bucket and self.rehearsal:
             raise Problem("rehearsal", "Uploads are off in a rehearsal: attachments live in the company's bucket", 409)
         stream.seek(0)
@@ -129,14 +154,22 @@ class Blobs:
         return digest
 
     def put(self, data, content_type="application/octet-stream"):
+        with self._refused():
+            return self._put(data, content_type)
+
+    def _put(self, data, content_type):
         if self.bucket and not self.rehearsal:
             digest = hashlib.sha256(data).hexdigest()
             self._upload(io.BytesIO(data), digest, len(data), content_type, small_body=data)
             return digest
-        return self.put_stream(io.BytesIO(data), content_type)
+        return self._put_stream(io.BytesIO(data), content_type, None, 0, None)
 
     def put_stream(self, fileobj, content_type="application/octet-stream", max_bytes=None, rate_limit=0, stop=None):
         """Stage and hash in bounded chunks; staging files always leave with the request."""
+        with self._refused():
+            return self._put_stream(fileobj, content_type, max_bytes, rate_limit, stop)
+
+    def _put_stream(self, fileobj, content_type, max_bytes, rate_limit, stop):
         if self.bucket and self.rehearsal:
             raise Problem("rehearsal", "Uploads are off in a rehearsal: attachments live in the company's bucket", 409)
         try:
@@ -323,7 +356,7 @@ class Blobs:
             self.copy_local(store, stop)
 
     def copy_local(self, store, stop, interval=0.25):
-        if not self.bucket or self.rehearsal or stop.is_set():
+        if not self.bucket or self.rehearsal or stop.is_set() or not self._copy_disk:
             return
         generation, location = self._generation, self.location
         if not self.check_write(store, stop) or generation != self._generation:

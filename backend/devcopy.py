@@ -48,7 +48,7 @@ EMPTY = (
     "service_key_tasks", "owner_links",
     # credentials
     "credentials", "credential_keys", "credential_grants", "credential_requests", "credential_imports",
-    "directory_credentials", "company_storage",
+    "directory_credentials", "company_storage", "tico_storage",
     # mail, Slack, GitHub, Granola, meeting bots, support
     "mail_mailboxes", "bot_mail_settings", "google_connects", "google_mail_holders", "slack_credentials", "slack_posts", "slack_events", "slack_threads",
     "github_app", "github_app_states", "granola_connections", "meeting_importers", "live_meeting_bots",
@@ -87,7 +87,7 @@ KEEP = frozenset((
     "meeting_items", "meeting_versions", "meetings", "message_assets", "message_links", "message_links_dirty",
     "message_links_seen", "notes", "runner_load_samples", "perf_overloads", "perf_points", "perf_usage", "preferences", "rate_limits",
     "recording_source_refs", "recording_transcripts", "refusals", "registry_metadata", "repositories", "runners",
-    "service_health", "settings_changes", "slack_channels", "slack_digests", "slack_reads", "stale_judged",
+    "service_health", "settings_changes", "slack_channels", "slack_digests", "slack_reads", "stale_judged", "storage_moves",
     "stale_suggestions", "system_runs", "tags", "task_assets",
     "task_check_models", "task_delegations", "task_events", "task_file_reviews", "task_links", "task_relations",
     "task_roles", "task_steps", "task_tags", "task_trash", "task_trash_assets", "task_types", "tasks",

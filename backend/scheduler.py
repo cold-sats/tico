@@ -432,6 +432,9 @@ class Scheduler:
                         c, self.store.settings)
                 if due:
                     gateway_connection.check_soon(self.store, Vault(self.store), self.store.settings)
+                    # And whether this company uses Tico file hosting (backend/tico_storage.py).
+                    from . import tico_storage
+                    tico_storage.sync_later(self.store)
                 run.did("Checked" if due else "No Gateway key set")
         if self.billing_checked is None or at - self.billing_checked >= timedelta(hours=1):
             # Every hour, while this server holds HQ's read-only staff key (the Tico team's own install only): HQ's
