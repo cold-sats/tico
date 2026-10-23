@@ -15,10 +15,11 @@ candidate, roll back a migrating update). The journey starts installing the prev
 (EDGE, checked to be creatable side by side before any stack starts), so they run
 side by side; two release checks must not run at once, since the journey's candidate tags are fixed.
 
-`--part product|python|browser` runs one slice of the same gate so the hosted Release validation workflow can
+`--part product|python|browser|desktop` runs one slice of the same gate so the hosted Release validation workflow can
 spread it over several VMs: `product` is the journey, image builds, smoke, side-jobs and Docker isolation; `python`
 is the Python tests (with `--shard K/N`, the Kth of N file groups balanced by recorded time); `browser` is every browser
-test. Without `--part` the whole gate runs on this machine, as before.
+test; `desktop` is the Linux desktop app updating from a company feed (DESKTOP_TEST). Without `--part` the whole gate
+runs on this machine, as before, with the desktop part only where the Linux app builds.
 
 `--shard K/N` without `--release` runs the Kth of N file groups of the default Python suite (plain `pytest`, what PR
 checks run), balanced the same way, so the PR-check Python job can spread over several VMs. The N groups together run
@@ -41,6 +42,7 @@ import os
 from pathlib import Path
 import socket
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -184,7 +186,18 @@ def edge_networks(ranges=EDGE):
 
 
 ISOLATION_FILE = 'runner/tests/test_isolation_docker.py'
-PARTS = ('product', 'python', 'browser')
+PARTS = ('product', 'python', 'browser', 'desktop')
+# The desktop app's updater against a company feed served by this checkout's own publisher and download routes
+# (app/tests/update_hub.py). It builds the Tauri app's tests, so it needs WebKitGTK's development files.
+DESKTOP_TEST = ['cargo', 'test', '--locked', '--manifest-path', 'app/Cargo.toml', '--',
+                'company_app_finds_authenticates_downloads_verifies_and_installs_a_published_update']
+
+
+def desktop_buildable():
+    """The test covers the Linux app only, and the Tauri build needs WebKitGTK's development files."""
+    if sys.platform != 'linux' or not shutil.which('pkg-config') or not shutil.which('cargo'):
+        return False
+    return subprocess.run(['pkg-config', '--exists', 'webkit2gtk-4.1'], capture_output=True).returncode == 0
 
 
 def parse_shard(text):
@@ -348,6 +361,11 @@ def release(args):
         checks.append(Check(name, python_cmd, logs, test_env, tests=True))
     if runs('browser'):
         checks.append(Check('all-browser', ['node', 'scripts/ui-tests.cjs', '--all'], logs, test_env))
+    # Its own VM in the hosted gate; a whole local gate runs it where the app can build and says when it cannot.
+    if part == 'desktop' or part is None and desktop_buildable():
+        checks.append(Check('desktop-update', DESKTOP_TEST, logs, test_env, tests=True))
+    elif part is None:
+        not_run += ('desktop-update',)
     if runs('product') and built:
         local_env = {**base_env, 'TICO_IMAGE': 'tico-rc', 'TICO_TAG': 'local', 'TICO_RUNNER_IMAGE': 'tico-rc-runner',
                      'TICO_UPDATER_IMAGE': 'tico-rc-updater'}
@@ -363,7 +381,7 @@ def release(args):
                             tests=True))
     elif runs('product'):
         print('  isolation: not run (candidate image builds failed)', flush=True)
-        not_run = ('smoke', 'side-jobs', 'isolation')
+        not_run += ('smoke', 'side-jobs', 'isolation')
     failed = [check for check in builds + checks if check.join() != 0]
     for check in failed:
         print(f'\n--- {check.name} (last lines of {check.log}) ---\n{check.tail()}', flush=True)
