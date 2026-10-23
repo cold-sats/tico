@@ -23,6 +23,7 @@ use crate::util::{epoch_s, log, text_of};
 const STATUS_FILE: &str = "update-status.json";
 /// The Docker update this runner saw changing containers, until the updater reports how it ended (Follower::unsettled).
 const HOLD_FILE: &str = "docker-update-hold.json";
+const DRAIN_S: u64 = 20 * 60; // older servers retain their claim window
 const RETRY_AFTER_S: f64 = 6.0 * 3600.0;
 const STALE_UPDATING_S: f64 = 15.0 * 60.0;
 const CHECKOUT_EVERY: Duration = Duration::from_secs(600);
@@ -586,21 +587,22 @@ impl Follower {
 
     /// True while an update is due or under way; starts it once every claim has settled.
     pub async fn blocks_claims(&self, active: bool) -> bool {
-        let pending = {
+        let (pending, since, drain) = {
             let s = self.inner.lock().unwrap();
-            if s.running || s.restart_due {
+            let drain = s.features["runner_drain"] == true;
+            if s.running || (drain && s.restart_due) {
                 return true;
             }
             match &s.pending {
                 None => return false,
-                Some(p) => p.clone(),
+                Some(p) => (p.clone(), s.pending_since, drain),
             }
         };
         if !active {
             self.launch(&pending).await;
             return true;
         }
-        true
+        drain || since.is_some_and(|t| t.elapsed().as_secs() >= DRAIN_S)
     }
 
     async fn launch(&self, want: &str) {
@@ -809,6 +811,26 @@ mod tests {
         assert!(!behind("0.3.45", "v0.3.45"));
         assert!(!behind("0.3.46", "0.3.45"));
         assert!(!behind("0.3.45", "")); // a server with no release asks nothing
+    }
+
+    #[tokio::test]
+    async fn old_servers_keep_the_update_claim_window() {
+        let dir = std::env::temp_dir().join(format!("tico-follow-{}", uuid::Uuid::new_v4()));
+        let f = docker_follower(&dir, "http://127.0.0.1:9", "0.3.47");
+        {
+            let mut s = f.inner.lock().unwrap();
+            s.pending = Some("0.3.48".into());
+            s.pending_since = Some(Instant::now());
+        }
+        assert!(!f.blocks_claims(true).await);
+        f.inner.lock().unwrap().pending_since = Instant::now().checked_sub(Duration::from_secs(DRAIN_S));
+        assert!(f.blocks_claims(true).await);
+        {
+            let mut s = f.inner.lock().unwrap();
+            s.pending_since = Some(Instant::now());
+            s.features = json!({"runner_drain": true});
+        }
+        assert!(f.blocks_claims(true).await);
     }
 
     #[tokio::test]

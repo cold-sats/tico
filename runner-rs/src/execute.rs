@@ -883,7 +883,10 @@ impl Runner {
         });
         let wake = Arc::new(Notify::new());
         // On the lease thread, so blocking work on this runtime's two workers cannot starve it (Dev 242).
-        let renewer = crate::lease::spawn(&self.client, aid.clone(), flags.clone(), RENEW_INTERVAL);
+        let renew_every = RENEW_INTERVAL;
+        #[cfg(test)]
+        let renew_every = tests::RENEW_EVERY.with(|v| v.borrow().unwrap_or(renew_every));
+        let renewer = crate::lease::spawn(&self.client, aid.clone(), flags.clone(), renew_every);
         let streamer = tokio::spawn(self.clone().stream_loop(aid.clone(), wake.clone(), flags.clone()));
         let runtime = text_of(&config["runtime"]);
         // A harness that keeps one process per conversation between turns (crate::warm) has sessions of its own.
@@ -932,12 +935,12 @@ impl Runner {
         }
         crate::harness_tools::turn_runtimes(&aid, &uses);
 
-        let ran: Result<(), Fail> = self.during_drain(&aid, async {
+        let mut ran: Result<(), Fail> = async {
             // Pin the home before preparation: a server upgrade or a local edit cannot move a fallback to another account.
             selected = self.turn_profile(&attempt)?;
             // A lane runs one turn at a time. A main-lane turn holds the bot's checkout for the whole turn; a task
             // lane works in its own worktree and takes the checkout only to refresh it (sessions.rs).
-            let p = place.insert(self.enter_lanes(&attempt, &flags.lost).await.map_err(Fail::runtime)?);
+            let p = place.insert(self.during_drain(&aid, async { self.enter_lanes(&attempt, &flags.lost).await.map_err(Fail::runtime) }).await?);
             execution_path = p.main_path.clone();
             if let Some(login) = self.serial_login(&runtime, &text_of(&config["harness"]), selected.as_ref()).filter(|_| !persistent && held.is_none()) {
                 // One turn at a time on a ChatGPT login: taken before the checkout is brought up to date, so a turn
@@ -1148,17 +1151,19 @@ impl Runner {
             }
             turn = Some(t.clone());
             let d = Drive { limit_name: &limit_name, aid: &aid, host: h, thread: &th, effort: effort.as_deref(), limit, flags: &flags, wake: &wake, redactor: redactor.as_ref(), runtime: &runtime, bot: &bot, session: &key, login: yields(&attempt, &login_held) };
-            drove = self.drive(&d, rx, t, segments.last_mut().unwrap(), &mut carried, &mut auth_rejected, &mut goal).await?;
+            drove = self.during_drain(&aid, self.drive(&d, rx, t, segments.last_mut().unwrap(), &mut carried, &mut auth_rejected, &mut goal)).await?;
             turn = Some(drove.turn.clone());
             // A runtime that cannot sign itself in is as unavailable as one out of quota: a bot with a fallback
             // harness runs the turn there instead of losing it.
             unavailable = drove.limited || drove.retryable;
             Ok(())
-        }).await;
+        }.await;
         // Init can replace the requested thread ID while the model runs. Persist it outside the cancellable
         // future, before a fallback can stop this host or settlement applies the interrupt-resume capability.
         if let (Some(h), Some(th)) = (&host, &thread) {
-            keep_session(&self.state, &bot, &conv, &session_runtime, &h.session_id(th)).await?;
+            if let Err(e) = keep_session(&self.state, &bot, &conv, &session_runtime, &h.session_id(th)).await {
+                ran = Err(e.into());
+            }
         }
         if (busy.is_some() || held.is_some()) && ran.is_ok() {
             unavailable = true;
@@ -1223,7 +1228,7 @@ impl Runner {
             fallback = Some(hop.harness.clone());
             drove = Drove::interrupted();
             let primary = Some(text_of(&config["harness"])).filter(|h| !h.is_empty()).unwrap_or_else(|| runtime.clone());
-            let hopped: Result<(), Fail> = self.during_drain(&aid, async {
+            let hopped: Result<(), Fail> = async {
                 let hop_config = hop.config(&config);
                 let requested = text_of(&attempt["profile"]);
                 if !requested.is_empty() && !crate::profiles::covers(&hop_config) {
@@ -1320,7 +1325,7 @@ impl Runner {
                     session: &key,
                     login: yields(&attempt, &login_held),
                 };
-                drove = self.drive(&d, rx, t, segments.last_mut().unwrap(), &mut carried, &mut auth_rejected, &mut goal).await?;
+                drove = self.during_drain(&aid, self.drive(&d, rx, t, segments.last_mut().unwrap(), &mut carried, &mut auth_rejected, &mut goal)).await?;
                 turn = Some(drove.turn.clone());
                 let how = if drove.outcome == "completed" { String::new() } else { format!(" ({})", drove.outcome) };
                 let why = match &busy {
@@ -1329,7 +1334,7 @@ impl Runner {
                 };
                 log(&format!("Tico runner: {bot}: {why}; ran the turn on {}{how}", hop.harness));
                 Ok(())
-            }).await;
+            }.await;
             if let Err(e) = hopped {
                 if self.drain.returning(&aid) {
                     // The regular settlement below saves and hands the continuation back.
@@ -1649,9 +1654,10 @@ impl Runner {
         settled
     }
 
-    /// Drop the execution future on drain handback; settlement below still owns and stops its host.
-    async fn during_drain<F>(&self, aid: &str, work: F) -> Result<(), Fail>
-    where F: std::future::Future<Output = Result<(), Fail>> {
+    /// Cancel queue waits and model driving. Preparation's git mutations finish with their lane held, so a
+    /// handback cannot kill git while it owns an index lock. The start boundary still rejects a drained claim.
+    async fn during_drain<F, T>(&self, aid: &str, work: F) -> Result<T, Fail>
+    where F: std::future::Future<Output = Result<T, Fail>> {
         let result = tokio::select! {
             biased;
             line = self.drain.wait(aid) => Err(Fail::runtime(line)),
@@ -1748,6 +1754,7 @@ mod tests {
     use tokio::sync::mpsc::unbounded_channel;
 
     thread_local! {
+        pub(super) static RENEW_EVERY: RefCell<Option<Duration>> = const { RefCell::new(None) };
         pub(super) static RUN_CLOCK: RefCell<VecDeque<Instant>> = const { RefCell::new(VecDeque::new()) };
         pub(super) static RUN_RELAY: RefCell<Option<crate::gateway_relay::Relay>> = const { RefCell::new(None) };
         pub(super) static HOST_COMMAND: RefCell<Option<Vec<String>>> = const { RefCell::new(None) };
@@ -1757,6 +1764,7 @@ mod tests {
 
     impl Drop for RunControls {
         fn drop(&mut self) {
+            RENEW_EVERY.with(|v| v.borrow_mut().take());
             RUN_CLOCK.with(|clock| clock.borrow_mut().clear());
             RUN_RELAY.with(|relay| relay.borrow_mut().take());
             HOST_COMMAND.with(|command| command.borrow_mut().take());
@@ -2559,10 +2567,25 @@ for line in sys.stdin:
 
     #[tokio::test]
     async fn drain_execute_caps_a_host_blocked_in_inputs_and_resumes_its_canonical_session() {
+        capped_execute(false).await;
+    }
+
+    #[tokio::test]
+    async fn drain_execute_session_save_failure_still_settles_reaps_and_stops_renewing() {
+        capped_execute(true).await;
+    }
+
+    async fn capped_execute(fail_save: bool) {
         let _controls = RunControls;
+        RENEW_EVERY.with(|v| *v.borrow_mut() = Some(Duration::from_millis(20)));
         let held_inputs = Arc::new(Notify::new());
         let (url, seen, server) = recording_server_holding_inputs(Some(held_inputs.clone())).await;
         let (runner, dir) = drain_runner_on(&url, 1).await;
+        if fail_save {
+            // Only the canonical session write fails; the synthetic outbox remains writable.
+            let db = rusqlite::Connection::open(runner.state.directory.join("runner.sqlite")).unwrap();
+            db.execute_batch("CREATE TRIGGER fail_canonical BEFORE INSERT ON sessions WHEN NEW.thread = 'canonical-acme-session' BEGIN SELECT RAISE(FAIL, 'synthetic session save failure'); END;").unwrap();
+        }
         std::fs::create_dir_all(dir.join("projects/bot-ops")).unwrap();
         let script = dir.join("synthetic_claude.py");
         std::fs::write(&script, r#"import json, os, pathlib, signal, sys
@@ -2603,7 +2626,14 @@ else:
         assert_drain_settled(&runner, "a-active");
         assert_eq!(posted(&seen, "/attempts/a-active/started"), 1);
         assert_eq!(posted(&seen, "/attempts/a-active/complete"), 1);
-        assert_eq!(runner.state.session("ops", "bot", "claude").unwrap().as_deref(), Some("canonical-acme-session"));
+        if !fail_save {
+            assert_eq!(runner.state.session("ops", "bot", "claude").unwrap().as_deref(), Some("canonical-acme-session"));
+        }
+        assert!(posted(&seen, "/attempts/a-active/renew") > 0, "test did not exercise the lease renewer");
+        tokio::time::sleep(Duration::from_millis(50)).await; // settle any HTTP request already in flight
+        let renewals = posted(&seen, "/attempts/a-active/renew");
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        assert_eq!(posted(&seen, "/attempts/a-active/renew"), renewals, "settled attempt kept renewing");
         let events = seen.lock().unwrap().iter().filter(|(_, p, _)| p.ends_with("/attempts/a-active/events"))
             .flat_map(|(_, _, b)| b["events"].as_array().cloned().unwrap_or_default()).collect::<Vec<_>>();
         assert!(events.iter().any(|e| e["payload"]["text"] == "unfinished Acme summary"), "partial output missing from history: {events:?}");
@@ -2614,6 +2644,11 @@ else:
         let lane = runner.lanes.lane("ops", "main").try_lock_owned().expect("settlement retained its lane");
         let checkout = runner.lanes.checkout("ops").try_lock_owned().expect("settlement retained its checkout");
         drop((lane, checkout));
+        if fail_save {
+            server.abort();
+            std::fs::remove_dir_all(dir).ok();
+            return;
+        }
         // A new runner continues the real execute path using the durable session, with no manual session seed.
         let next = Arc::new(Runner::new(runner.config.clone(), runner.client.clone(), runner.state.clone()));
         let mut continuation = attempt;

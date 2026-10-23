@@ -820,6 +820,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn drain_keeps_a_native_goal_active_for_its_continuation() {
+        let (url, _) = lapsed_hub().await;
+        let (runner, dir) = runner_at(&url);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let host = Host::Claude(ClaudeHost::new("acme", vec![], tx));
+        runner.drain.register("acme-late");
+        assert!(runner.drain.start("acme-late"));
+        runner.drain.begin(Instant::now() - Duration::from_secs(crate::drain::DEFAULT_LIMIT_S));
+        let mut f = flags(false);
+        *f.deadline.get_mut().unwrap() = Instant::now() + Duration::from_secs(60);
+        let original = acme_goal();
+        let (result, _, goal) = drive_with(&runner, &host, &mut rx, &f, "th-drain", "codex", Some(original.clone()), BTreeMap::new()).await;
+        let result = result.unwrap();
+        assert_eq!(result.outcome, "interrupted");
+        assert!(result.yielded);
+        assert_eq!(goal.chat_goal, Some(original));
+        assert!(goal.failure.is_none() && goal.paused.is_none() && !goal.controlled);
+        assert!(!runner.state.pending("acme-late").unwrap().iter().any(|e| e["kind"] == "goal"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
     async fn a_codex_goal_that_runs_across_turns_is_not_continued_once_the_lease_is_lost() {
         // R1 delta 3: on Codex a completed turn under an active goal normally waits for the next continuation; read
         // out after a lost lease, it is the end. No goal-met or clear event comes to end it some other way.

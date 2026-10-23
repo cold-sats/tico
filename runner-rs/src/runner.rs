@@ -585,6 +585,10 @@ pub fn drains_on_stop() -> bool {
 }
 
 /// A restart under way rides on the heartbeat (an older server that refuses it gets it held back, lanes.rs ROOT_FIELDS).
+fn restart_blocks_claims(asked: Option<Instant>, now: Instant, drain: bool) -> bool {
+    asked.is_some_and(|at| drain || now.saturating_duration_since(at) >= Duration::from_secs(20 * 60))
+}
+
 fn add_restart(body: &mut Value, since: Option<&str>) {
     if let Some(since) = since {
         body["restart"] = json!({"since": since});
@@ -832,7 +836,7 @@ impl Runner {
         if self.shutdown.lock().unwrap().is_some() {
             return Ok(()); // stopping: the running turns finish, nothing new starts
         }
-        if self.restart.lock().unwrap().is_some() {
+        if restart_blocks_claims(*self.restart.lock().unwrap(), Instant::now(), crate::follow::feature("runner_drain")) {
             return Ok(()); // restarting: no new work, so the running turns finish
         }
         if let Some(follower) = crate::follow::shared() {
@@ -919,6 +923,16 @@ mod tests {
         assert!(seen[1].starts_with("POST /api/v2/runners/heartbeat") && !seen[1].contains("isolated"), "{}", seen[1]);
         assert!(seen[1].contains("\"ops\":{\"ready\":true}") && seen[1].contains("\"pi\":{\"installed\":true}"), "{}", seen[1]);
         assert!(seen[2].starts_with("POST /api/v2/jobs/claim"), "{}", seen[2]);
+    }
+
+    #[test]
+    fn old_servers_keep_the_restart_claim_window() {
+        let asked = Instant::now();
+        assert!(!restart_blocks_claims(None, asked, true));
+        assert!(!restart_blocks_claims(Some(asked), asked, false));
+        assert!(!restart_blocks_claims(Some(asked), asked + Duration::from_secs(1199), false));
+        assert!(restart_blocks_claims(Some(asked), asked + Duration::from_secs(1200), false));
+        assert!(restart_blocks_claims(Some(asked), asked, true));
     }
 
     #[test]

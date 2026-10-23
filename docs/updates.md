@@ -136,7 +136,7 @@ The runner is a git checkout. When the server's release is newer, the runner:
 1. stops taking new work and hands unstarted turns (including login, turn-share and usage waits) back to the
    queue immediately. Only turns already running are waited for. After five minutes, remaining turns are
    interrupted, their work and resumable session are saved, and they are queued to continue after the update. Each handback
-   appears in run history. Set `drain_timeout_seconds` in `runner.json` to change the five-minute limit.
+   appears in run history. Set `drain_timeout_seconds` in `runner.json` to change the five-minute limit. Health still warns after 34 minutes without a completed restart; choosing a long drain does not extend that warning. A Git operation already changing a checkout finishes before handback so the next runner does not inherit a lock.
    Queued work says **Waiting for the computer to update: N running, M handed back** in chat and on its task;
    Health shows the same progress. Counts contain no other task's name. Older runners keep their previous
    twenty-minute claim window until they update. A graceful container stop or a requested Restart uses the same
