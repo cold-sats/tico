@@ -132,7 +132,8 @@ start_runner() {  # image tag, then the join arguments: as docker/runner.compose
   # The fake harness: a `codex` on the runner's PATH that speaks the app-server protocol. The runner finds it, the
   # OPENAI_API_KEY given above satisfies its sign-in check, and no model or network is involved. The mode is set
   # before the copy: root here has no FOWNER, so it cannot chmod a file that keeps the host user as owner.
-  install -m 755 scripts/journey-fake-codex.py "$WORK/codex" && docker cp "$WORK/codex" "$RUNNER:/usr/local/bin/codex"
+  install -m 755 scripts/journey-fake-codex.py "$WORK/codex" && docker cp "$WORK/codex" "$RUNNER:/usr/local/bin/codex" &&
+    docker exec "$RUNNER" sh -c 'mkdir -p /home/runner/journey-threads && chmod 1777 /home/runner/journey-threads'
 }
 runner_online() { get getting-started | json 'sys.exit(0 if any(i["id"]=="computer" and i["done"] for i in d["items"]) else 1)'; }
 runner_id() { get operations | json 'd["machines"][0]["id"]'; }

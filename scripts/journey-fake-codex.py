@@ -24,7 +24,14 @@ def send(message):
     sys.stdout.flush()
 
 
+SHARED = "/home/runner/journey-threads"
+
+
 def threads_dir():
+    # A bot's turn runs as its own user, which cannot write in the runner's ~/.codex; the journey makes this one on
+    # the runner's volume, so threads survive a new runner container as sessions do.
+    if os.path.isdir(SHARED):
+        return SHARED
     home = os.environ.get("CODEX_HOME") or os.path.join(os.path.expanduser("~"), ".codex")
     return os.path.join(home, "journey-threads")
 
