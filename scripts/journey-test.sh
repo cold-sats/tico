@@ -470,6 +470,7 @@ failure_logs() {  # what the containers said last: the release gate's log is all
     printf '  --- %s\n' "$name"; dc logs --no-log-prefix --tail 15 "$name" 2>&1 | sed 's/^/    /'
   done
   printf '  --- runner\n'; docker logs --tail 15 "$RUNNER" 2>&1 | sed 's/^/    /'
+  docker exec "$RUNNER" cat /tmp/journey-fake-codex.log 2>/dev/null | tail -n 20 | sed 's/^/    fake codex: /'
 }
 
 printf 'journey: previous %s -> candidate %s (%s)\n' "$PREV" "$CAND" "$([ "$LOCAL" = 1 ] && echo "built from this checkout" || echo "published release")"

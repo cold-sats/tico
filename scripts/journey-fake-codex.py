@@ -121,4 +121,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except BaseException:
+        # The runner keeps only the tail of a harness's stderr in the run; the journey prints this file on a failure.
+        import traceback
+        with open("/tmp/journey-fake-codex.log", "a") as log:
+            log.write("%s %s\n%s" % (os.getuid(), sys.argv[1:], traceback.format_exc()))
+        raise
