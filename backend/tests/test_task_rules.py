@@ -51,6 +51,14 @@ def test_department_membership_defaults_and_server_permissions(api):
     marketing = post(api, 'task-rules', {'department': 'marketing'})['job']
     put(api, 'task-rules/' + marketing['key'], {'on': False}, token='cara-test', expected=403)
     put(api, 'task-rules/' + created['key'], {'department': 'marketing'}, token='cara-test', expected=403)
+    with api.app.state.store.read() as c:
+        before = R.get(c, marketing['key'])
+    put(api, 'task-rules/' + marketing['key'], {
+        'department': 'engineering', 'name': 'Taken rule', 'on': False,
+        'triggers': [{'key': 'done_untouched', 'hours': 48}], 'actions': ['close'],
+    }, token='cara-test', expected=403)
+    with api.app.state.store.read() as c:
+        assert R.get(c, marketing['key']) == before
     assert put(api, 'task-rules/' + marketing['key'], {'on': False}, token='ben-test')['job']['on'] is False
     post(api, 'task-rules', {'department': 'Web'}, expected=422)
     post(api, 'task-rules', {'department': 'engineering', 'actions': ['delete']}, expected=422)
@@ -156,3 +164,53 @@ def test_bot_department_rights_and_aged_holds_do_not_starve_eligible_tasks(api, 
     eligible = done(api, monkeypatch, 'Eligible after holds')
     assert not run(api)
     assert task(api, eligible['id'])['status'] == 'closed'
+
+
+def test_history_and_scoped_message_activity_with_old_task_timestamps(api, monkeypatch):
+    history = done(api, monkeypatch, 'History only')
+    scoped = [done(api, monkeypatch, name) for name in ('New message', 'Edited message', 'Deleted message')]
+    unrelated = done(api, monkeypatch, 'Unrelated shared conversation')
+    old = R.SR._stamp(AT - timedelta(hours=25))
+    recent = R.SR._stamp(AT - timedelta(hours=1))
+    shared = H.new_id()
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO conversations(id) VALUES(?)", (shared,))
+        for t in [history, *scoped, unrelated]:
+            c.execute("UPDATE tasks SET conversation_id=? WHERE id=?", (shared, t['id']))
+        # A step-only history touch and imported message metadata must protect without tasks.updated.
+        c.execute("INSERT INTO task_events(id,task_id,ts,actor,field,old,new,note) "
+                  "VALUES(?,?,?,'human:ana','step','before','after','')", (H.new_id(), history['id'], recent))
+        for t, field in zip(scoped, ('created', 'edited_at', 'deleted_at')):
+            times = {'created': old, 'edited_at': None, 'deleted_at': None, field: recent}
+            c.execute("INSERT INTO messages(id,conversation_id,from_actor,to_actor,kind,body,refs_json,created,edited_at,deleted_at) "
+                      "VALUES(?,?,'human:ana','human:ana','say','Fixture',?,?,?,?)",
+                      (H.new_id(), shared, json.dumps({'task': t['id']}), times['created'], times['edited_at'], times['deleted_at']))
+        # None of the message fixtures gets a recent history row; all task timestamps stay aged.
+        for t in [history, *scoped, unrelated]:
+            row = dict(c.execute('SELECT * FROM tasks WHERE id=?', (t['id'],)).fetchone())
+            assert all(not row.get(k) or row[k] <= old for k in ('created', 'updated', 'done_at', 'checkpoint_at'))
+        for t in [*scoped, unrelated]:
+            assert c.execute('SELECT max(ts) FROM task_events WHERE task_id=?', (t['id'],)).fetchone()[0] <= old
+    assert not run(api)
+    assert task(api, history['id'])['status'] == 'done'
+    assert [task(api, t['id'])['status'] for t in scoped] == ['done'] * 3
+    assert task(api, unrelated['id'])['status'] == 'closed'
+
+
+def test_close_budget_is_shared_by_two_due_rules(api, monkeypatch):
+    put(api, 'task-rules/' + R.DEFAULT, {'triggers': [{'key': 'done_untouched', 'hours': 48}]})
+    second = post(api, 'task-rules', {'department': 'engineering', 'name': 'Close after one day'})['job']
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE task_rules SET created='2020-01-01T00:00:00.000000Z' WHERE id=?", (R.DEFAULT,))
+        c.execute("UPDATE task_rules SET created='2020-01-02T00:00:00.000000Z' WHERE id=?", (second['key'],))
+    older = [done(api, monkeypatch, f'Older export {n}', hours=49) for n in range(20)]
+    younger = [done(api, monkeypatch, f'Younger export {n}', hours=25) for n in range(31)]
+    assert not run(api)
+    assert all(task(api, t['id'])['status'] == 'closed' for t in older)
+    assert sum(task(api, t['id'])['status'] == 'closed' for t in younger) == 30
+    with api.app.state.store.read() as c:
+        receipts = {r['job']: (r['ok'], r['result']) for r in c.execute('SELECT job,ok,result FROM system_runs')}
+        assert receipts[R.DEFAULT] == (1, '20 tasks closed')
+        assert receipts[second['key']] == (1, '30 tasks closed')
+        notes = c.execute("SELECT note,count(*) FROM task_events WHERE field='status' AND new='closed' GROUP BY note").fetchall()
+        assert dict(notes) == {"Closed by rule 'Close 24h after done'": 20, "Closed by rule 'Close after one day'": 30}
