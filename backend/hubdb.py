@@ -713,6 +713,18 @@ CREATE INDEX IF NOT EXISTS ceo_merges_original ON ceo_merges(original, state);
 CREATE INDEX IF NOT EXISTS ceo_merges_person ON ceo_merges(person, created);
 """
 
+# The CEO Bot log (backend/ceo_acts.py): each decision it made alone at level 3, or each thing it proposed because it
+# stays the owner's, and its Undo. Every task event one decision (or its Undo) wrote carries its action id.
+CEO_ACTIONS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS ceo_actions (
+  id TEXT PRIMARY KEY, created TEXT NOT NULL, actor TEXT NOT NULL, kind TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '',
+  goal_id TEXT, state TEXT NOT NULL, proposal_task TEXT, note TEXT NOT NULL DEFAULT '',
+  changes_json TEXT NOT NULL DEFAULT '{}', undone_at TEXT, undone_by TEXT, undo_json TEXT);
+CREATE INDEX IF NOT EXISTS ceo_actions_created ON ceo_actions(created);
+ALTER TABLE task_events ADD COLUMN action_id TEXT;
+CREATE INDEX IF NOT EXISTS task_events_action ON task_events(action_id);
+"""
+
 # One login per AI tool per computer (backend/subscriptions.py): a bot's own subscription choice goes, and the bot
 # runs on its computer's login. The table and the computers' profile reports stay, unread, for one release.
 ONE_LOGIN_PER_COMPUTER_SCHEMA = """
@@ -730,7 +742,7 @@ MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes us
               LIVE_MEETINGS_CHAT_ROUTING_SCHEMA, TASK_RELATIONS_SCHEMA, TRIGGERS_SCHEMA,
               TRIGGER_SIGNING_SCHEMA, CHECK_MODELS_SCHEMA, GOAL_ASKS_SCHEMA, RUN_TRIGGERS_SCHEMA,
               TASK_GUEST_SCHEMA, CEO_MERGES_SCHEMA, ONE_LOGIN_PER_COMPUTER_SCHEMA, RUN_PURPOSE_SCHEMA,
-              RUN_ROTATION_SCHEMA]
+              RUN_ROTATION_SCHEMA, CEO_ACTIONS_SCHEMA]
 
 
 class Refused(Exception):
@@ -5501,11 +5513,15 @@ def _task_event(conn, task_id, actor, field, old, new, note=""):
     via = VIA.get()
     if via and not any(r[1] == "via" for r in conn.execute("PRAGMA table_info(task_events)")):
         conn.execute("ALTER TABLE task_events ADD COLUMN via TEXT")
-    conn.execute("INSERT INTO task_events (id, task_id, ts, actor, field, old, new, note" + (", via" if via else "")
-                 + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?" + (", ?" if via else "") + ")",
+    # A CEO Bot decision (or its Undo) stamps each change it makes with its action id (backend/ceo_acts.py).
+    from .ceo_acts import ACTION
+    action = ACTION.get()
+    extra = (("via", via),) * bool(via) + (("action_id", action),) * bool(action)
+    conn.execute("INSERT INTO task_events (id, task_id, ts, actor, field, old, new, note"
+                 + "".join(", " + k for k, _ in extra) + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?" + ", ?" * len(extra) + ")",
                  (new_id(), task_id, now(), actor, field,
                   None if old is None else str(old), None if new is None else str(new), note,
-                  *((via,) if via else ())))
+                  *(v for _, v in extra)))
 
 
 def _task_ref(value):
