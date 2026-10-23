@@ -924,9 +924,50 @@ def job_refusal(c, job, followed, ready, busy, lanes, roots, live=frozenset()):
         return "check_model"                # hold_unrunnable cancels it on the scheduler's next tick
     config = check_models.apply(followed, wanted)
     if ((job["bot"], job_lane(c, job["bot"], config, message, conversation, lanes, roots)) in busy
-            or (job["bot"], task_id) in live):
+            or (job["bot"], task_id) in live or filer_live(c, message)):
         return "lane_held"
     return None
+
+
+def quiet_recheck(c, aid, body, task, msg):
+    """Whether turn `aid` only looked again at `task`, finished (done or closed) before the turn started, and changed
+    nothing Tico counts: no hub write with its token and no push reported with it. Never when a person is owed the
+    answer: a task finished during the turn (its answer is the last word in its room), a wake on the always-wake
+    list (an approval decided, an answer, a steer, Tico's notice of a person's own act: wake_rules.ALWAYS_WAKE), or a
+    person's message, or a notice of their act, folded into the turn (Execution.inputs)."""
+    finished = min([t for t in (task.get("done_at"), task.get("closed_at")) if t] or [""])
+    row = c.execute("SELECT coalesce(t.writes,0),a.started FROM turns t JOIN attempts a ON a.id=t.id WHERE t.id=?",
+                    (aid,)).fetchone()
+    if not (task["status"] in ("done", "closed") and bool(finished) and bool(row) and bool(row[1])
+            and finished < row[1] and not row[0] and not body.pushes):
+        return False
+    from . import wake_rules
+    refs = msg.get("refs") or {}
+    if wake_rules.always_wakes(c, msg["from_actor"], msg["to_actor"], msg["kind"], refs, msg["body"],
+                               cause=str(refs.get(wake_rules.CAUSED_BY) or ""), in_reply_to=msg.get("in_reply_to")):
+        return False
+    return c.execute("SELECT 1 FROM attempt_inputs i JOIN messages m ON m.id=i.message_id WHERE i.attempt_id=? "
+                     "AND m.deleted_at IS NULL AND (m.from_actor LIKE 'human:%' "
+                     f"OR json_extract(m.refs_json,'$.{wake_rules.CAUSED_BY}') LIKE 'human:%') LIMIT 1",
+                     (aid,)).fetchone() is None
+
+
+# How long a task a bot filed for itself waits for the turn that filed it. Long enough for that turn to finish or
+# drop it (on Oct 22 that took 9 s); short enough that work it meant to run beside itself is not held behind a long
+# build or a login wait.
+FILER_HOLD_S = 300
+
+
+def filer_live(c, message):
+    """Whether this is the first notice of a task its bot filed for itself in a turn still out (refs.filed_in,
+    H.task_create), filed under FILER_HOLD_S ago. It starts the task's turn once that turn ends or the hold passes; a
+    task the filing turn finished by then is cancelled by the claim's obsolete-notice check instead, so the bot never
+    runs twice on one thought (Dev 359)."""
+    filed_in = (message.get("refs") or {}).get("filed_in")
+    return (bool(filed_in) and message["from_actor"] == H.KEEPER
+            and message["created"] > H.shift(H.now(), seconds=-FILER_HOLD_S)
+            and c.execute("SELECT 1 FROM attempts WHERE id=? AND state IN ('leased','running')",
+                          (filed_in,)).fetchone() is not None)
 
 
 def bot_refusal(c, settings, runner_id, bot):
@@ -1595,14 +1636,22 @@ class Execution:
         awake_since = self.stamp(c, who, runner, now)
         # Any keeper notice can sit queued after its task finishes. Suppress obsolete automatic
         # wakes of every kind, while preserving people's messages and explicitly resumed jobs.
+        # A keeper notice of a person's own act still owes that person its answer (H._write_message).
+        # A self-filed task left parked when its filing turn ended waits for its actual trigger instead.
         obsolete = c.execute("SELECT j.id,j.message_id,t.id AS task_id FROM assignments x "
             "CROSS JOIN jobs j CROSS JOIN messages m "
             f"JOIN conversations cv ON cv.id=m.conversation_id JOIN tasks t ON t.id={H.MESSAGE_TASK_SQL} "
             "WHERE x.runner_id=? AND j.bot=x.bot AND j.state='queued' AND m.id=j.message_id "
             "AND m.from_actor=? AND m.kind='notice' "
-            "AND t.status IN ('done','closed','declined') "
+            "AND ((t.status IN ('done','closed','declined') "
+            "AND coalesce(json_extract(m.refs_json,'$.caused_by'),'') NOT LIKE 'human:%') "
+            "OR (m.body LIKE 'New task from %' AND m.to_actor=t.owner "
+            "AND json_extract(m.refs_json,'$.filed_in') IS NOT NULL "
+            "AND (t.status IN ('waiting','blocked') OR t.snoozed_until>?) "
+            "AND NOT EXISTS (SELECT 1 FROM attempts fa WHERE fa.id=json_extract(m.refs_json,'$.filed_in') "
+            "AND fa.state IN ('leased','running')))) "
             "AND NOT EXISTS (SELECT 1 FROM job_recovery r WHERE r.job_id=j.id "
-            "AND r.attempt_id=j.attempt_id AND r.decision='resume')", (who.runner_id,H.KEEPER)).fetchall()
+            "AND r.attempt_id=j.attempt_id AND r.decision='resume')", (who.runner_id,H.KEEPER,now)).fetchall()
         for old in obsolete:
             selected = None
             c.execute("UPDATE jobs SET state='cancelled' WHERE id=?", (old['id'],))
@@ -2392,6 +2441,12 @@ class Execution:
                     else:
                         replyable = actor == task["owner"] and (
                             task["status"] == "done" or (late and task["status"] == "closed"))
+                    # Woken by Tico on a task finished before it started, a turn that wrote nothing has no news: the
+                    # person would only read "nothing changed" again. Its text stays on the run (Dev 359).
+                    if replyable and quiet_recheck(c, aid, body, task, msg):
+                        replyable = False
+                        H.event(c, H.KEEPER, "reply.withheld", aid, {"bot": row["bot"], "task": task["id"],
+                                                                     "to": target, "reason": "no_change"})
                 if target not in (H.KEEPER, actor) and replyable:
                     refs = {"turn_id": aid, **({"task": task["id"]} if task else {}),
                             **({"warnings": notices} if notices and msg["kind"] != "ask" else {})}

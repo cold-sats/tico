@@ -71,8 +71,10 @@ HOLDABLE_TRIGGERS = ("comment", "status_or_relation")
 HOLDABLE_CLASSES = ("notice", "message")
 # The references news carries: a plain message's, the trigger stamp, a finished task's summary. Anything else (a
 # wake kind, a batch, an answer) is more than news, and so is a reference no rule here knows yet.
+# The person whose own act a keeper notice reports (H._write_message): kept on the message, after the request ends.
+CAUSED_BY = "caused_by"
 NEWS_REFS = frozenset({"task", "comment", "attachments", "files", "unsolicited", "turn_id", "warnings", "via",
-                       FLAG, "trigger", "trigger_source", "task_completion"})
+                       FLAG, "trigger", "trigger_source", "task_completion", CAUSED_BY})
 
 # The stall checks that only ask "has anything moved?"; same_state may hold these. A stuck run, a setup that is
 # held, a restated ask, a due date and a snooze ending are other news and keep waking.
