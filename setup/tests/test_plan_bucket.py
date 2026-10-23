@@ -10,6 +10,7 @@ import os
 import re
 import stat
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -157,9 +158,10 @@ def test_a_server_from_before_the_plan_bucket_gets_this_compose_and_image_before
     (refresh,) = [c for c in ssm.commands[sent:] if "pull-env.sh" in c]
     written = re.search(r"echo (\S+) \| base64 -d \| gunzip > \S+/compose\.yaml", refresh)
     assert written and gzip.decompress(base64.b64decode(written.group(1))) == new
-    # This compose, then the env and the plan, then this release's image, and the running app must read the plan.
+    # This compose, then the env and the plan, then this release's image, which must read the plan before it starts and
+    # once it runs.
     steps = [refresh.index(s) for s in (written.group(0), "pull-env.sh", "aws s3 cp", "docker compose pull",
-                                        "docker compose up", "_company_file_data")]
+                                        "docker compose run", "docker compose up", "docker compose exec")]
     assert steps == sorted(steps)
     assert [name for name, _ in log] == ["put_object", "delete_object"]
 
@@ -176,6 +178,24 @@ def test_a_re_run_that_cannot_copy_check_or_start_the_plan_keeps_it_in_the_bucke
         code, out = go([*CREATE, "--company-file", str(big), "--plan-bucket", BUCKET], d)
         assert code != 0 and line in out
         assert [name for name, _ in log] == ["put_object"]
+
+
+def test_without_a_compose_file_beside_setup_a_re_run_takes_a_pinned_commit_but_not_a_branch(big, monkeypatch, tmp_path):
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    for n, (ref, pinned) in enumerate(((sha, True), ("main", False), (sha[:12], False))):
+        monkeypatch.setenv("TICO_SETUP_HOME", str(tmp_path / str(n)))
+        d, ec2, iam, ssm, r53 = world()
+        assert go(CREATE, d)[0] == 0
+        d.compose_local = lambda: None
+        log, sent = [], len(ssm.commands)
+        d.aws_s3 = lambda region, profile: FakeS3(region, log)
+        code, out = go([*CREATE, "--company-file", str(big), "--plan-bucket", BUCKET, "--compose-ref", ref], d)
+        refresh = [c for c in ssm.commands[sent:] if "pull-env.sh" in c]
+        if pinned:
+            assert code == 0, out
+            assert contract.compose_url(sha) in refresh[0] and [name for name, _ in log] == ["put_object", "delete_object"]
+        else:
+            assert code != 0 and not refresh and [name for name, _ in log] == ["put_object"]
 
 
 def test_a_re_run_finishes_a_first_boot_that_could_not_copy_its_plan(big):
@@ -312,7 +332,7 @@ def test_a_boot_that_stopped_itself_ends_the_wait_with_its_line():
 
 # --- the copy at first boot, run here: pull-env.sh's plan lines with a stand-in `aws` and `chown` -----------------------
 
-def boot(tmp_path, monkeypatch, plan: bytes, sha: str, existing: bytes | None = None):
+def boot(tmp_path, monkeypatch, plan: bytes, sha: str, existing: bytes | None = None, fail: str = ""):
     root = tmp_path / "opt"
     monkeypatch.setattr(contract, "REMOTE_DIR", str(root))
     bin_dir, source = tmp_path / "bin", tmp_path / "bucket-object"
@@ -324,6 +344,8 @@ def boot(tmp_path, monkeypatch, plan: bytes, sha: str, existing: bytes | None = 
                                  f'cp {source} "$7"\n')
     (bin_dir / "sleep").write_text("#!/bin/sh\nexit 0\n")
     (bin_dir / "chown").write_text(f'#!/bin/sh\necho "$@" >> {tmp_path}/chown.log\n')
+    if fail:
+        (bin_dir / fail).write_text("#!/bin/sh\nexit 1\n")
     for f in bin_dir.iterdir():
         f.chmod(0o755)
     folder = root / contract.COMPANY_FILE_DIR
@@ -371,7 +393,7 @@ def test_a_copy_already_in_place_is_kept_once_the_bucket_object_is_gone(tmp_path
 
 
 def test_the_re_run_script_finishes_a_stopped_boot_only_once_the_app_reads_its_plan(tmp_path, monkeypatch):
-    plan = b"H4sIAAAAAAAA/plan"
+    old_plan, plan = b"H4sIAAAAAAAA/old-plan", b"H4sIAAAAAAAA/plan"
     sha = hashlib.sha256(plan).hexdigest()
     root, bin_dir, log = tmp_path / "opt", tmp_path / "bin", tmp_path / "tico-setup.log"
     monkeypatch.setattr(contract, "REMOTE_DIR", str(root))
@@ -381,27 +403,70 @@ def test_the_re_run_script_finishes_a_stopped_boot_only_once_the_app_reads_its_p
     (tmp_path / "object").write_bytes(plan)
     (root / "pull-env.sh").write_text(f"#!/bin/sh\nprintf 'TICO_COMPANY_FILE_S3=s3://{BUCKET}/k\\nTICO_COMPANY_FILE_S3_REGION=us-west-2\\n"
                                       f"TICO_COMPANY_FILE_SHA256={sha}\\n' > {root}/.env\n")
-    stubs = {"aws": f'cp {tmp_path}/object "$7"', "chown": ":", "sleep": ":",
-             "docker": f'echo "$@" >> {tmp_path}/docker.log; case "$2" in exec) [ -z "$TICO_TEST_OLD_IMAGE" ];; esac'}
+    # `docker compose run|exec ... -c CODE SHA` runs CODE with this checkout's app reader against the mounted folder;
+    # an image from before TICO_COMPANY_FILE cannot.
+    repo = Path(remote.__file__).resolve().parent.parent
+    plan_file = root / contract.COMPANY_FILE_DIR / contract.COMPANY_FILE_NAME
+    docker = (f'echo "$@" >> {tmp_path}/docker.log\ncase "$2" in run|exec)\n  [ -z "$TICO_TEST_OLD_IMAGE" ] || exit 1\n'
+              f'  while [ "$1" != "-c" ]; do shift; done\n  cd {repo} && TICO_COMPANY_FILE={plan_file} exec {sys.executable} "$@";;\nesac')
+    stubs = {"aws": f'cp {tmp_path}/object "$7"', "chown": '[ -z "$TICO_TEST_CHOWN_FAILS" ]', "sleep": ":", "docker": docker}
     for name, body in stubs.items():
         (bin_dir / name).write_text(f"#!/bin/sh\n{body}\n")
     for f in [*bin_dir.iterdir(), root / "pull-env.sh"]:
         f.chmod(0o755)
     script = remote.rerun_script(compose=b"name: tico\n", compose_url="", plan=True)
+    clean = {k: v for k, v in os.environ.items() if not k.startswith("TICO_")}
 
     def rerun(**extra):
         log.write_text("tico-setup: start\ntico-setup: FAILED: cannot copy the starter plan from s3://b/k\n")
+        (tmp_path / "docker.log").write_text("")
         return subprocess.run(["sh", "-c", script], capture_output=True, text=True,
-                              env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", **extra})
+                              env={**clean, "PATH": f"{bin_dir}:{os.environ['PATH']}", **extra})
+
+    def calls():
+        return (tmp_path / "docker.log").read_text().splitlines()
     old = rerun(TICO_TEST_OLD_IMAGE="1")                          # the image ignores TICO_COMPANY_FILE
     assert old.returncode == 6 and "does not read the starter plan" in old.stderr
+    assert "compose up -d" not in calls()                         # refused before it starts, not after
     assert not (root / ".bootstrapped").exists() and log.read_text().splitlines()[-1].startswith("tico-setup: FAILED")
+    plan_file.unlink()
+    plan_file.write_bytes(old_plan)                               # an older plan, and the new one cannot be made the server's
+    held = rerun(TICO_TEST_CHOWN_FAILS="1")
+    assert held.returncode != 0 and plan_file.read_bytes() == old_plan and "compose up -d" not in calls()
     done = rerun()
     assert done.returncode == 0, done.stderr
-    assert (root / "compose.yaml").read_bytes() == b"name: tico\n" and (root / "company-file" / "plan.b64").read_bytes() == plan
+    assert (root / "compose.yaml").read_bytes() == b"name: tico\n" and plan_file.read_bytes() == plan
     assert (root / ".bootstrapped").exists() and "finished by a re-run" in log.read_text().splitlines()[-1]
-    calls = (tmp_path / "docker.log").read_text().splitlines()
-    assert calls[-3:-1] == ["compose pull --quiet", "compose up -d"] and calls[-1].startswith("compose exec -T server")
+    steps = [c.split()[1] for c in calls()]
+    assert steps == ["pull", "run", "up", "exec"]
+
+
+def test_a_staged_plan_that_cannot_be_owned_or_locked_stops_the_boot_and_keeps_the_plan_before_it(tmp_path, monkeypatch):
+    old, new = b"H4sIAAAAAAAA/old-plan", b"H4sIAAAAAAAA/new-plan"
+    for tool in ("chown", "chmod"):
+        here = tmp_path / tool
+        here.mkdir()
+        run, copy, _ = boot(here, monkeypatch, new, hashlib.sha256(new).hexdigest(), existing=old, fail=tool)
+        assert run.returncode != 0 and "tico-setup: FAILED" in run.stderr
+        assert copy.read_bytes() == old and not Path(str(copy) + ".new").exists()
+
+
+def test_the_app_side_check_passes_only_on_the_selected_plan(tmp_path):
+    """remote.PLAN_READ as the server runs it: the app's own reader, checked against the plan's sha256."""
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.write_bytes(b"H4sIAAAAAAAA/plan-a")
+    b.write_bytes(b"H4sIAAAAAAAA/plan-b")
+    repo = Path(remote.__file__).resolve().parent.parent
+
+    def check(path, sha, **extra):
+        clean = {k: v for k, v in os.environ.items() if not k.startswith("TICO_")}
+        return subprocess.run([sys.executable, "-c", remote.PLAN_READ, sha], cwd=repo, capture_output=True,
+                              env={**clean, "TICO_COMPANY_FILE": str(path), **extra}).returncode
+    want = hashlib.sha256(b.read_bytes()).hexdigest()
+    assert check(b, want) == 0
+    assert check(a, want) != 0                                    # an older plan left in place
+    assert check(tmp_path / "missing", want) != 0
+    assert check(b, want, TICO_COMPANY_FILE_B64="H4sIAAAAAAAA/env-plan") != 0
 
 
 def test_every_aws_boot_makes_the_folder_compose_mounts_even_without_a_plan():

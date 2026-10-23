@@ -672,8 +672,9 @@ def _aws(io, args, s, deps, zone, records, cf, env_text, compose, url, timeout) 
         return None
     if not created:
         io.say("  Existing server: refreshing .env and restarting." if ready else "  Its first boot stopped; finishing it.")
-        if plan_s3 and compose is None and not cloudinit.VERSION_RE.match(s.compose_ref):
-            io.say(f"No compose.yaml beside setup, and --compose-ref {s.compose_ref} can change; pass --tico-version vX.Y.Z.")
+        if plan_s3 and compose is None and not (cloudinit.VERSION_RE.match(s.compose_ref) or re.fullmatch(r"[0-9a-f]{40}", s.compose_ref)):
+            io.say(f"No compose.yaml beside setup, and --compose-ref {s.compose_ref} can change; pass --tico-version vX.Y.Z "
+                   "or --compose-ref with a full commit SHA.")
             return None
         res = runner.run(f"sh -c {shlex.quote(remote.rerun_script(compose=compose, compose_url=url, plan=bool(plan_s3)))}")
         if res.returncode:

@@ -234,7 +234,7 @@ BOOT_LOG = "/var/log/tico-setup.log"
 
 def finish_boot_guard_lines() -> list[str]:
     """A re-run touches a server whose boot either finished (.bootstrapped) or stopped: its log's last tico-setup line is
-    its FAILED one. A boot still going is left alone, so two never write the same files at once."""
+    its FAILED one. A first boot still going is left alone. Not a lock: two re-runs started at once both pass it."""
     return [f"if [ ! -f {contract.REMOTE_DIR}/.bootstrapped ] && ! grep 'tico-setup:' {BOOT_LOG} 2>/dev/null | tail -n 1 "
             "| grep -q 'tico-setup: FAILED'; then",
             '  echo "tico-setup: the first boot is still running; not taking it over. Re-run setup once it ends." >&2',
@@ -255,7 +255,7 @@ def rerun_script(*, compose: bytes | None, compose_url: str, plan: bool) -> str:
     L += [f"{d}/pull-env.sh"]
     if plan:
         L += plan_copy_lines()
-    L += [f"cd {d}", *(["docker compose pull --quiet"] if plan else []), "docker compose up -d"]
+    L += [f"cd {d}", *(["docker compose pull --quiet", *plan_read_lines(running=False)] if plan else []), "docker compose up -d"]
     if plan:
         L += plan_read_lines()
     L += [f"if [ ! -f {d}/.bootstrapped ]; then",
@@ -263,14 +263,24 @@ def rerun_script(*, compose: bytes | None, compose_url: str, plan: bool) -> str:
     return "\n".join(L) + "\n"
 
 
-def plan_read_lines() -> list[str]:
-    """In the server's folder, after `docker compose up -d`: the running app reads the plan copied for it. An image from
-    before TICO_COMPANY_FILE would start without it, as some other team."""
-    read = "import sys; from backend.config import _company_file_data as f; sys.exit(0 if f() else 1)"
-    return ["plan_try=1",
-            f"until docker compose exec -T server python -c {shlex.quote(read)} >/dev/null 2>&1; do",
-            '  [ "$plan_try" -ge 12 ] && { echo "tico-setup: FAILED: the running app does not read the starter plan;'
-            ' it stays in the plan bucket" >&2; exit 6; }',
+# Run by the server's image with the plan's sha256: exits 0 only when the app's own reader returns exactly that plan, so
+# an image from before TICO_COMPANY_FILE, an older plan left in place or a plan in the env never passes.
+PLAN_READ = ("import hashlib, sys; from backend.config import _company_file_data as f; "
+             "sys.exit(0 if hashlib.sha256(f().encode('ascii')).hexdigest() == sys.argv[1] else 1)")
+
+
+def plan_read_lines(running: bool = True) -> list[str]:
+    """In the server's folder: the app reads the plan setup selected. Before `docker compose up -d` (running=False) a
+    one-off container of the pulled image checks it, so an image that cannot read it is never started; after, the running
+    server checks it."""
+    d, q = contract.REMOTE_DIR, shlex.quote
+    run = ("docker compose exec -T server python" if running else
+           "docker compose run --rm --no-deps -T --entrypoint python server")
+    return [f"plan_sha=$(sed -n 's/^TICO_COMPANY_FILE_SHA256=//p' {d}/.env)",
+            "plan_try=1",
+            f'until {run} -c {q(PLAN_READ)} "$plan_sha" >/dev/null 2>&1; do',
+            '  [ "$plan_try" -ge ' + ("12" if running else "1") + ' ] && { echo "tico-setup: FAILED: the '
+            + ("running app" if running else "image") + ' does not read the starter plan; it stays in the plan bucket" >&2; exit 6; }',
             "  plan_try=$((plan_try + 1)); sleep 10",
             "done"]
 
@@ -307,7 +317,10 @@ def plan_copy_lines() -> list[str]:
             'not starting Tico" >&2',
             '      exit 3',
             '    fi',
-            f'    chown 10001:10001 {f}.new && chmod 0400 {f}.new && mv -f {f}.new {f}',
+            # Each step fails on its own: under `set -e` a failure on the left of `&&` does not stop the script.
+            *[f'    {step} || {{ rm -f {f}.new; echo "tico-setup: FAILED: cannot {what} the starter plan; not starting Tico" >&2; exit 7; }}'
+              for step, what in ((f"chown 10001:10001 {f}.new", "give the server's user"),
+                                 (f"chmod 0400 {f}.new", "make read-only"), (f"mv -f {f}.new {f}", "put in place"))],
             '  fi',
             'fi']
 
