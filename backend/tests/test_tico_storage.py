@@ -40,10 +40,17 @@ def png():
 
 
 class Bucket(S3):
-    """Tico's bucket: keeps each object's type and disposition as S3 does, and answers them on HEAD."""
+    """Tico's bucket: keeps each object's type and disposition as S3 does, and answers them on HEAD. A file's bytes
+    leave it only through the edge (`Edge`): a direct read is refused, as reads there would go unmetered."""
     def __init__(self):
         super().__init__()
         self.meta = {}
+
+    def get_object(self, **kw):
+        from backend.company_storage import CHECK
+        if self.objects.get(kw['Key']) != CHECK:      # the write check reads back its few bytes itself
+            raise ClientError({'Error': {'Code': 'AccessDenied', 'Message': 'read it through the edge'}}, 'GetObject')
+        return super().get_object(**kw)
 
     def put_object(self, **kw):
         super().put_object(**kw)
@@ -85,6 +92,32 @@ class HQ:
             def __exit__(self, *exc):
                 return False
         return Answer(out)
+
+
+class Edge:
+    """Tico's edge for the company's address (DevOps R6): checks the link and serves the company's folder, counting
+    each byte it delivers by address, as Dev 316's meter does from the edge's logs."""
+    def __init__(self, bucket):
+        self.bucket, self.delivered, self.paths = bucket, {}, []
+
+    def __call__(self, request, timeout):
+        import urllib.error
+        link = urllib.parse.urlsplit(request.full_url)
+        query = dict(urllib.parse.parse_qsl(link.query))
+        mac = hmac.new(SIGNING.encode(), f"{link.netloc}\n{link.path}\n{query['e']}".encode(), hashlib.sha256).digest()
+        if (link.netloc != ADDRESS or query['s'] != base64.urlsafe_b64encode(mac).rstrip(b'=').decode()
+                or int(query['e']) < time.time()):
+            raise urllib.error.HTTPError(request.full_url, 403, "refused", {}, io.BytesIO(b''))
+        options = {'Key': 'c/acme' + link.path}
+        if request.get_header('Range'):
+            options['Range'] = request.get_header('Range')
+        try:
+            body = S3.get_object(self.bucket, Bucket='tico-files-us', **options)['Body'].read()
+        except ClientError:
+            raise urllib.error.HTTPError(request.full_url, 404, "missing", {}, io.BytesIO(b'')) from None
+        self.delivered[link.netloc] = self.delivered.get(link.netloc, 0) + len(body)
+        self.paths.append(link.path)
+        return io.BytesIO(body)
 
 
 class Owner:
@@ -130,6 +163,8 @@ def tico(api, monkeypatch):
     api.app.state.blobs._loop = None
     hq = HQ()
     hq.signed = signed
+    hq.edge = Edge(bucket)
+    monkeypatch.setattr(tico_storage, 'fetch', hq.edge)
     app = api.app
 
     def sync(answer=None, report=False):
@@ -295,7 +330,13 @@ def test_a_private_tasks_file_in_tico_storage_is_refused_to_a_person_without_acc
     # and anything that is not a picture, video or audio.
     assert download(api, early, follow_redirects=False).status_code == 200
     text = attach(api, tid, 'notes.txt', b'plain words')
-    assert download(api, text, follow_redirects=False).status_code == 200
+    delivered = hq.edge.delivered.get(ADDRESS, 0)
+    streamed = download(api, text, follow_redirects=False)
+    assert streamed.status_code == 200 and streamed.content == b'plain words'
+    part = api.get(f'/api/v2/files/{text}', headers={**headers('ana-test'), 'Range': 'bytes=6-'})
+    assert part.status_code == 206 and part.content == b'words'
+    assert hq.edge.delivered[ADDRESS] == delivered + len(b'plain words') + len(b'words'), \
+        "streamed from here, read through the company's address, where it is counted"
     key = f'c/acme/blobs/{digest[:2]}/{digest}'
     made[KEY].meta[key] = ('text/html', 'inline')
     api.app.state.blobs._edge_seen.clear()
@@ -353,6 +394,74 @@ def test_a_copy_that_does_not_verify_is_not_recorded(api, tico):
         assert not c.execute('SELECT 1 FROM blob_locations').fetchone()
 
 
+def test_a_move_records_a_copy_only_in_the_place_it_was_written_and_read_back(api, tico):
+    """Where new files go may change during a Move (credits run out, the owner stops): the copy under way is not
+    written anywhere else, nothing is recorded or counted for the old place, and a later Move still finds the file
+    missing there. New keys for the same place change nothing: the move carries on."""
+    made, hq, sync = tico
+    tid = task(api)
+    files = [b'first file!', b'second file']          # copied in digest order; the same size, so either is first
+    for n, data in enumerate(files):
+        attach(api, tid, f'{n}.txt', data)
+    sync(on())
+    store, blobs = api.app.state.store, api.app.state.blobs
+    # Each file's read waits until the test lets it go: reading[n] says file n is being read, go[n] lets it on.
+    reading, go = [threading.Event(), threading.Event()], [threading.Event(), threading.Event()]
+    original = blobs._open_elsewhere
+
+    def held(*args):
+        n = sum(r.is_set() for r in reading)
+        reading[n].set()
+        assert go[n].wait(60)
+        return original(*args)
+    blobs._open_elsewhere = held
+    try:
+        size = api.get('/api/v2/system/storage/move', headers=headers()).json()['estimate']['bytes']
+        # While the first file is read: new keys for the same place, then credits run out.
+        tico_storage.start_move(store, blobs, Owner(), size)
+        assert reading[0].wait(60)
+        sync(on(key=KEY2, token=TOKEN + "-2"))
+        go[0].set()
+        assert reading[1].wait(60), 'new keys for the same place: the move goes on to the next file'
+        # Another place that can take files at once (a company bucket whose keys were just checked) takes over.
+        blobs.configure({"bucket": "acme-own", "prefix": "", "region": "us-west-2",
+                         "keys": ("AKIAEXAMPLEGOOD0001", "example-secret")}, checked=True)
+        go[1].set()
+        thread = next(t for t in threading.enumerate() if t.name == 'tico-storage-move')
+        thread.join(60)
+    finally:
+        blobs._open_elsewhere = original
+    move = api.get('/api/v2/system/storage/move', headers=headers()).json()['move']
+    assert move['state'] == 'stopped' and (move['moved_files'], move['moved_bytes']) == (1, 11), move
+    first, second = sorted(files, key=lambda data: hashlib.sha256(data).hexdigest())
+    assert first in made[KEY].objects.values()
+    assert second not in made[KEY].objects.values() and second not in made['AKIAEXAMPLEGOOD0001'].objects.values()
+    with store.read() as c:
+        recorded = [tuple(r) for r in c.execute('SELECT bucket, digest FROM blob_locations')]
+    assert recorded == [('tico-files-us/c/acme', hashlib.sha256(first).hexdigest())]
+
+    # Back to Tico storage: the second file is still to move. A switch before its copy starts stops it the same way.
+    from backend import company_storage
+    company_storage.apply(store, api.app.state.vault, blobs, copy=False, checked=True)
+    estimate = api.get('/api/v2/system/storage/move', headers=headers()).json()['estimate']
+    assert estimate['files'] == 1, 'the second file is still to move'
+    move_now = tico_storage._move
+
+    def switched(*args):
+        sync(on(state='stopped'))
+        return move_now(*args)
+    tico_storage._move = switched
+    try:
+        tico_storage.start_move(store, blobs, Owner(), estimate['bytes'], wait=True)
+    finally:
+        tico_storage._move = move_now
+    move = api.get('/api/v2/system/storage/move', headers=headers()).json()['move']
+    assert move['state'] == 'stopped' and move['moved_files'] == 0, move
+    assert second not in made[KEY].objects.values() and second not in made['server'].objects.values()
+    with store.read() as c:
+        assert c.execute('SELECT COUNT(*) FROM blob_locations').fetchone()[0] == 1
+
+
 def test_stopping_offers_the_export_and_new_files_go_back_to_own_storage(api, tico):
     """Spec 5 (app half): export offered; new files to the company's own storage; Tico's files still open."""
     made, hq, sync = tico
@@ -367,8 +476,10 @@ def test_stopping_offers_the_export_and_new_files_go_back_to_own_storage(api, ti
 
     export = api.get('/api/v2/system/storage/export', headers=headers('ben-test'))
     assert export.status_code == 403, export.text
+    delivered = hq.edge.delivered.get(ADDRESS, 0)
     export = api.get('/api/v2/system/storage/export', headers=headers())
     assert export.status_code == 200 and export.headers['content-type'] == 'application/zip'
+    assert hq.edge.delivered[ADDRESS] == delivered + len(b'stored in tico'), 'the export reads through the address'
     archive = zipfile.ZipFile(io.BytesIO(export.content))
     contents = {archive.read(name) for name in archive.namelist()}
     assert {b'stored in tico', b'back on the disk'} <= contents and 'manifest.json' in archive.namelist()
@@ -376,6 +487,7 @@ def test_stopping_offers_the_export_and_new_files_go_back_to_own_storage(api, ti
     # Move files back: the same move, into the company's own storage, so nothing is lost to HQ's 30-day delete.
     estimate = api.get('/api/v2/system/storage/move', headers=headers()).json()['estimate']
     assert estimate['to'] == "this server's disk" and estimate['files'] == 1
+    delivered = hq.edge.delivered[ADDRESS]
     started = api.post('/api/v2/system/storage/move', json={'expect_bytes': estimate['bytes']}, headers=headers())
     assert started.status_code == 200, started.text
     for thread in threading.enumerate():
@@ -383,6 +495,7 @@ def test_stopping_offers_the_export_and_new_files_go_back_to_own_storage(api, ti
             thread.join(60)
     move = api.get('/api/v2/system/storage/move', headers=headers()).json()['move']
     assert move['state'] == 'done' and move['matches'], move
+    assert hq.edge.delivered[ADDRESS] == delivered + len(b'stored in tico'), 'so does Move files back'
     made[KEY].offline = True
     assert download(api, in_tico).content == b'stored in tico'
 

@@ -32,7 +32,10 @@ the usual access check the reader is sent (302) to a link on the company's addre
     https://<address><path>?e=<unix expiry>&k=<signing key id>&s=<sig>
 `<path>` is the file's key below the company's folder (`/blobs/<2 hex>/<sha256>`), and `<sig>` base64url (no
 padding) of HMAC-SHA256(signing secret, "<address>\\n<path>\\n<e>"). A file is linked only once the bucket was seen
-to hold it as this server would serve it (size, hash, type and disposition); anything else streams as before.
+to hold it as this server would serve it (size, hash, type and disposition); anything else streams from this server,
+which reads it through the same address (`edge_read`), as it does for the export, Move files back and the check of
+each moved copy. So every byte that leaves Tico's bucket passes Tico's edge, which counts it as delivered to the
+company (Dev 316 meters the edge's logs by address); nothing is read from the bucket directly.
 
 A 404 or `not_found` from HQ means it does not offer file hosting yet: nothing changes.
 """
@@ -90,6 +93,8 @@ PAUSED = ("Gateway credits have run out, so new files go to the company's own st
 REFRESH, EARLY = 300, 600
 # How long an edge link lasts, and how long a file the bucket doesn't hold (yet) streams before it is looked for again.
 LINK_SECONDS, MISS_SECONDS = 300, 60
+# How this server fetches from the edge (`edge_read`); a test hands in its own.
+fetch = urllib.request.urlopen
 LOG = logging.getLogger("tico.storage")
 # Each live server's file store, for the scheduler (backend/scheduler.py), which has only the store; when HQ is due
 # next (monotonic, None: hourly only); and whether an answer is being fetched now.
@@ -400,11 +405,33 @@ def edge_link(blobs, digest, size, mime, now=None):
         return None
     if not _held(blobs, found["location"], digest, size, mime):
         return None
-    path = "/" + blobs.key(digest)
+    return _signed(found, "/" + blobs.key(digest), now)
+
+
+def _signed(found, path, now=None):
     expires = int(now if now is not None else time.time()) + LINK_SECONDS
     mac = hmac.new(found["secret"].encode(), f"{found['address']}\n{path}\n{expires}".encode(), hashlib.sha256)
     sig = base64.urlsafe_b64encode(mac.digest()).rstrip(b"=").decode()
     return f"https://{found['address']}{path}?" + urllib.parse.urlencode({"e": expires, "k": found["key_id"], "s": sig})
+
+
+class EdgeRefused(Exception):
+    """The edge answered but would not serve the file (missing, or a refused link). It is an answer, so the place
+    counts as reachable (Blobs._open_earlier skips only a place that gave none)."""
+    def __init__(self, status):
+        super().__init__(f"{LABEL} answered {status}")
+        self.response = {"Error": {"Code": str(status)}}
+
+
+def edge_read(found, path, span=None):
+    """The body of the file at `path` (below the company's folder) fetched by this server through the company's
+    address on a fresh link, with `span`'s Range if any: Blobs._read, for every read of Tico-held bytes."""
+    request = urllib.request.Request(_signed(found, path), headers=dict(span or {}))
+    try:
+        return fetch(request, timeout=60)
+    except urllib.error.HTTPError as exc:
+        exc.close()
+        raise EdgeRefused(exc.code) from None
 
 
 def _held(blobs, location, digest, size, mime):
@@ -436,14 +463,15 @@ def _held(blobs, location, digest, size, mime):
 
 
 # ---------------------------------------------------------------------------------------------- move
-def _target(blobs):
-    """(label of the place new files go to, its bucket location or '' for this computer's disk)."""
-    return (blobs.location, blobs.location) if blobs.bucket else ("this server's disk", "")
+def _target(at):
+    """(label of the place `at` (Blobs.target), its bucket location or '' for this computer's disk)."""
+    from .blobs import location_of
+    return (location_of(at.settings),) * 2 if at.settings.blob_bucket else ("this server's disk", "")
 
 
-def pending(c, blobs):
-    """[(digest, size, content type)] of every file not yet verified in the place new files go to."""
-    _, location = _target(blobs)
+def pending(c, blobs, at=None):
+    """[(digest, size, content type)] of every file not yet verified in the place new files go to (or `at`)."""
+    _, location = _target(at or blobs.target())
     rows = c.execute("SELECT digest, MAX(size) AS size, MAX(content_type) AS content_type FROM blobs GROUP BY digest "
                      "ORDER BY digest").fetchall()
     if location:
@@ -454,8 +482,9 @@ def pending(c, blobs):
 
 
 def estimate(c, blobs):
-    items = pending(c, blobs)
-    label, _ = _target(blobs)
+    at = blobs.target()
+    items = pending(c, blobs, at)
+    label, _ = _target(at)
     size = sum(item[1] for item in items)
     return {"to": label, "files": len(items), "bytes": size, "gb": round(size / 1e9, 3)}
 
@@ -481,20 +510,23 @@ def interrupted(store):
 
 
 def start_move(store, blobs, who, expect_bytes, stop=None, wait=False):
+    # The place is fixed here, with the files the owner confirmed for it: if new files go elsewhere before or while
+    # the copy runs, the move stops, and nothing is recorded for a place that was not written and read back.
+    at = blobs.target()
     with store.transaction() as c:
         if c.execute("SELECT 1 FROM storage_moves WHERE state='running'").fetchone():
             raise Problem("move_running", "Files are already being moved", 409)
-        items = pending(c, blobs)
+        items = pending(c, blobs, at)
         total = sum(item[1] for item in items)
         if total != expect_bytes:
             raise Problem("estimate_changed", "The files to move changed since the estimate; check the new one", 409,
                           extra={"estimate": estimate(c, blobs)})
         move_id = H.new_id()
-        label, location = _target(blobs)
+        label, _ = _target(at)
         c.execute("INSERT INTO storage_moves(id,target,state,started,started_by,estimate_files,estimate_bytes) "
                   "VALUES(?,?,'running',?,?,?,?)", (move_id, label, H.now(), who.actor, len(items), total))
         H.event(c, who.actor, "storage.move", label, {"files": len(items), "bytes": total})
-    thread = threading.Thread(target=_move, args=(store, blobs, move_id, items, location, stop or threading.Event()),
+    thread = threading.Thread(target=_move, args=(store, blobs, move_id, items, at, stop or threading.Event()),
                               name="tico-storage-move", daemon=True)
     thread.start()
     if wait:
@@ -502,26 +534,32 @@ def start_move(store, blobs, who, expect_bytes, stop=None, wait=False):
     return move_id
 
 
-def _move(store, blobs, move_id, items, location, stop):
-    """Copy each file from where it is now into the place new files go to, verify the copy by reading it back whole
-    and hashing it, and only then record it there. Nothing is ever deleted: the source stays where it was."""
-    generation, moved, size, failed, error = blobs._generation, 0, 0, 0, ""
+def _move(store, blobs, move_id, items, at, stop):
+    """Copy each file from where it is now into the place `at` (where new files went when the move started), verify
+    the copy by reading it back whole from there and hashing it, and only then record it there, while new files
+    still go there. Nothing is ever deleted: the source stays where it was."""
+    _, location = _target(at)
+    moved, size, failed, error = 0, 0, 0, ""
     for digest, length, content_type in items:
-        if stop.is_set() or generation != blobs._generation:
+        if stop.is_set() or at.generation != blobs._generation:
             break
         try:
-            copy_one(blobs, digest, length, content_type or "application/octet-stream", location)
+            copy_one(blobs, digest, length, content_type or "application/octet-stream", at)
+            if at.generation != blobs._generation:
+                break
             if location:
                 with store.transaction() as c:
                     c.execute("INSERT OR REPLACE INTO blob_locations VALUES(?,?,?)", (digest, location, H.now()))
             moved, size = moved + 1, size + length
         except Exception as exc:
+            if at.generation != blobs._generation:
+                break
             failed += 1
             error = exc.detail if isinstance(exc, Problem) else "A file could not be copied: " + type(exc).__name__
         with store.transaction() as c:
             c.execute("UPDATE storage_moves SET moved_files=?, moved_bytes=?, failed=?, error=? WHERE id=?",
                       (moved, size, failed, error, move_id))
-    state = ("stopped" if stop.is_set() or generation != blobs._generation else "failed" if failed else "done")
+    state = ("stopped" if stop.is_set() or at.generation != blobs._generation else "failed" if failed else "done")
     if state == "stopped" and not error:
         error = "Where new files go changed during the move; start it again to finish"
     with store.transaction() as c:
@@ -530,7 +568,9 @@ def _move(store, blobs, move_id, items, location, stop):
                                                                "failed": failed})
 
 
-def copy_one(blobs, digest, length, content_type, location):
+def copy_one(blobs, digest, length, content_type, at):
+    """Copy one file into the place `at`, and read it back whole from there; `at` no longer being where new files
+    go stops it before anything is written (Blobs._upload)."""
     key = blobs.key(digest)
     with tempfile.TemporaryFile(dir=_staging(blobs)) as staged:
         source = blobs._open_elsewhere(key, digest, 0, {})
@@ -546,9 +586,9 @@ def copy_one(blobs, digest, length, content_type, location):
             raise Problem("blob_integrity", "A stored file failed its integrity check where it is now; it was not moved",
                           503)
         staged.seek(0)
-        if location:
-            blobs._upload(staged, digest, length, content_type)
-            blobs.verify_s3(digest)
+        if at.settings.blob_bucket:
+            blobs._upload(staged, digest, length, content_type, at=at)
+            blobs.verify_s3(digest, at=at)
         else:
             blobs._local(staged, digest)
             with (blobs.directory / key).open("rb") as written:

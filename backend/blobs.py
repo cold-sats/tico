@@ -1,6 +1,7 @@
 """Immutable binary storage. Only opaque, authorized IDs are exposed over HTTP."""
 
 import base64
+import collections
 import contextlib
 import io
 import errno
@@ -19,6 +20,8 @@ from . import blob_s3
 
 # How long an unreachable earlier place is skipped (Blobs._open_earlier).
 EARLIER_RETRY = 300
+# The place new files go to, fixed at one moment (`Blobs.target`): a copy that must land there whatever happens next.
+Target = collections.namedtuple("Target", "generation settings sources s3")
 
 
 class Blobs:
@@ -103,6 +106,12 @@ class Blobs:
                     sources.forget()
                     found = True
         return found
+
+    def target(self):
+        """The place new files go to now. `_upload` and `verify_s3` given it act on that place or not at all: once
+        `configure` points new files elsewhere, they refuse rather than act on the new place."""
+        with self._write_lock:
+            return Target(self._generation, self.settings, self._sources, self._s3)
 
     def place_at(self, location):
         """(settings, Sources) of the place new files go to or an earlier one at `location`, or None."""
@@ -217,10 +226,12 @@ class Blobs:
             detail = "File storage disk is full; free space or configure an S3 bucket and retry" if exc.errno == errno.ENOSPC else "File staging storage is unavailable; check disk space and permissions"
             raise Problem("blob_storage", detail, 503, True) from exc
 
-    def _upload(self, stream, digest, size, content_type, small_body=None, rate_limit=0, stop=None):
+    def _upload(self, stream, digest, size, content_type, small_body=None, rate_limit=0, stop=None, at=None):
         # Reads may use an unselected source; writes must wait for the probe.
         # Keep one identity for every part and cleanup even if a later check switches it.
         with self._write_lock:
+            if at is not None and at.generation != self._generation:
+                raise Problem("storage_changed", "Where new files go changed; the file was not copied", 409)
             if self._write_failed or self._sources.selected is None:
                 detail = self._write_error or "S3 storage write check is still pending"
                 raise Problem("blob_storage", detail + "; retry without discarding your file", 503, True)
@@ -301,9 +312,10 @@ class Blobs:
         finally:
             os.unlink(temporary)
 
-    def verify_s3(self, digest, rate_limit=0, stop=None):
-        response, _ = self.read_s3("get_object", Bucket=self.bucket, Key=self.s3_key(digest))
-        stream = response["Body"]
+    def verify_s3(self, digest, rate_limit=0, stop=None, at=None):
+        """Read the file back whole from the place new files go to (`at`, when the copy was made for that one)."""
+        at = at or self.target()
+        stream = self._read(at.settings, at.sources, at.s3, digest, {})
         try:
             sha = hashlib.sha256()
             paced = PacedReader(stream, rate_limit, stop)
@@ -318,10 +330,10 @@ class Blobs:
         """Open now (so failures precede headers); iterator closes even on disconnect."""
         key = self.key(digest)
         span = {"Range": f"bytes={start}-{end if end is not None else ''}"} if start or end is not None else {}
-        if self.bucket and digest not in self._s3_failed:
+        at = self.target()
+        if at.settings.blob_bucket and digest not in self._s3_failed:
             try:
-                response, _ = self.read_s3("get_object", Bucket=self.bucket, Key=self.s3_key(digest), **span)
-                stream = response["Body"]
+                stream = self._read(at.settings, at.sources, at.s3, digest, span)
             except Exception:
                 stream = self._open_elsewhere(key, digest, start, span)
         else:
@@ -355,13 +367,26 @@ class Blobs:
             if time.monotonic() - self._earlier_down.get(where, -EARLIER_RETRY) < EARLIER_RETRY:
                 continue
             try:
-                return sources.read_s3("get_object", Bucket=place.blob_bucket, Key=self.s3_key(digest, place), **span)[0]["Body"]
+                return self._read(place, sources, None, digest, span)
             except Exception as exc:
                 # Any answer from S3 means the bucket is reachable: without s3:ListBucket a missing file is
                 # AccessDenied, not NoSuchKey. Only a failure to get an answer (timeout, endpoint) marks it down.
                 if getattr(exc, "response", None) is None:
                     self._earlier_down[where] = time.monotonic()
         return None
+
+    def _read(self, place, sources, s3, digest, span):
+        """The file's body from `place`. Bytes in Tico file hosting's bucket come through the company's address,
+        where Tico's edge counts their delivery (backend/tico_storage.py `edge_read`); a read straight from that
+        bucket would be neither counted nor cheaper. Any other place is read from its bucket."""
+        found = self.edge
+        if found and location_of(place) == found["location"]:
+            from .tico_storage import edge_read
+            return edge_read(found, "/" + self.key(digest), span)
+        options = dict(Bucket=place.blob_bucket, Key=self.s3_key(digest, place), **span)
+        if s3 is not None:
+            return s3.get_object(**options)["Body"]
+        return sources.read_s3("get_object", **options)[0]["Body"]
 
     def _open_local(self, key, start):
         try:
