@@ -37,7 +37,8 @@ only marks the merged PR links the running release contains as Shipped (backend/
 
 Run tests on your computer while you work. The PR checks workflow uses audited affected-test mappings on pull requests to main. Unknown or shared changes
 (including conftest, workflows, dependencies and unmapped backend modules) fall back to the full default Python
-suite and core browser scripts. Main pushes always run that full default suite. Runner/harness changes also run
+suite and core browser scripts. Main pushes always run that full default suite, and a newer main push never
+cancels an earlier one; only a pull request's superseded run is cancelled. Runner/harness changes also run
 slow conformance on the Rust runner and all its fake harnesses; UI changes select their browser scripts, including
 imported-history for chat changes, or every browser script when the UI mapping is uncertain.
 
