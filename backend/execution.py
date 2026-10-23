@@ -758,8 +758,6 @@ def claim_refusal(c, settings, runner, bot, config_json, draining, ready, held_b
     this one rule, so Health never calls work the claim holds on purpose a Tico bug. `held_bots`: bots the runner
     says are busy (a lane runner sends only the bots whose worktrees it is maintaining) and, for a runner without
     lanes, every bot with a running turn. `ready` is the computer's readiness document."""
-    from .repositories import metadata
-    from .subscriptions import context, covers, effective, refusal
     if draining:
         return "draining", None
     if bot in held_bots:
@@ -770,20 +768,9 @@ def claim_refusal(c, settings, runner, bot, config_json, draining, ready, held_b
         config = None
     if not isinstance(config, dict):
         return "config", None
-    profile = effective(c, bot, subscription_context if subscription_context is not None else context(c))[0]
-    if profile:
-        if not metadata(c, "computer-profiles:" + runner["id"]).get("reported"):
-            return "profile", None
-        runtime = providers.bot_choice(c, settings, config)[0]
-        blocked = refusal(c, runner["id"], bot)
-        if not covers({**config, "runtime": runtime}) or (blocked.get("profile") == profile
-                and blocked.get("primary_runtime") == runtime
-                and blocked.get("primary_harness") == config.get("harness")):
-            return "profile", None
-        report = c.execute("SELECT runtimes_json FROM computer_profiles WHERE runner_id=? AND profile=?",
-                           (runner["id"], profile)).fetchone()
-        if not report or json.loads(report[0] or "{}").get(runtime, {}).get("signed_in") is False:
-            return "profile", None
+    from .subscriptions import login_upgrade
+    if login_upgrade(runner, ready, bot=bot):
+        return "login_upgrade", None
     record = providers.load(c, settings)
     filled = providers.fill(record, config)
     if gateway_connection.is_tico(filled.get("model")) and not models_preset.isolated(ready):
@@ -858,7 +845,6 @@ def fallback_choice(c, settings, runner_id, bot, config, job_id=None, ctx=None):
     anyway. The Gateway counts when the turn would be handed it (models_preset.with_gateway_fallback). A fallback
     turned off, none, or one the runner already found not ready in this hold window (`stuck`) means waiting."""
     from .harnesses import runtime_of
-    from .subscriptions import effective
     named = config.get("fallback") if isinstance(config.get("fallback"), dict) else {}
     if named.get("off"):
         return None
@@ -867,7 +853,6 @@ def fallback_choice(c, settings, runner_id, bot, config, job_id=None, ctx=None):
         return None
     row = c.execute("SELECT readiness_json FROM runners WHERE id=?", (runner_id,)).fetchone()
     ready = readiness_document(row["readiness_json"]) if row else {}
-    profile = effective(c, bot, ctx)[0] or ""
     if named.get("harness"):
         if not named.get("model"):
             return None
@@ -885,11 +870,9 @@ def fallback_choice(c, settings, runner_id, bot, config, job_id=None, ctx=None):
                 continue
             return "", choice["runtime"]
         signed = (ready.get("runtimes") or {}).get(choice["runtime"]) or {}
-        if profile:
-            signed = (signed.get("profiles") or {}).get(profile) or {}
         if signed.get("installed") is not True or signed.get("authenticated") != "ready":
             continue
-        login = login_holds.canonical(c, runner_id, profile, choice["runtime"])
+        login = login_holds.canonical(c, runner_id, "", choice["runtime"])
         why = login_wait(c, runner_id, login, choice["runtime"], bot, job_id)
         if why == "held":
             continue
@@ -899,9 +882,8 @@ def fallback_choice(c, settings, runner_id, bot, config, job_id=None, ctx=None):
 
 def login_key(c, settings, runner_id, bot, config, ctx=None):
     """(runner, login, runtime) of the bot's own login, as holds key it (login_holds.canonical)."""
-    from .subscriptions import effective
     runtime = providers.bot_choice(c, settings, config)[0]
-    return runner_id, login_holds.canonical(c, runner_id, effective(c, bot, ctx)[0] or "", runtime), runtime
+    return runner_id, login_holds.canonical(c, runner_id, "", runtime), runtime
 
 
 def unfenced_sql():
@@ -1245,8 +1227,6 @@ class Execution:
                          "JOIN bots b ON b.slug=a.bot JOIN bot_config bc ON bc.bot=a.bot "
                          "WHERE a.runner_id=? ORDER BY a.bot", (who.runner_id,)).fetchall()
         result = []
-        from .subscriptions import effective, context
-        subscription_context = context(c)
         from .views import roster
         people = roster(c)
         # The runner gets a concrete runtime and model; a bot that names none runs on the
@@ -1267,7 +1247,7 @@ class Execution:
             takes = runner['accepts_member_bots'] and self.auth.member_bot(c, row['bot'], configs.get(row['bot']), creators)
             if row['operator'] != runner['operator'] and runner['operator'] != owner and not takes:
                 continue
-            result.append({**dict(row), 'computer_label': runner['label'], 'profile': effective(c, row['bot'], subscription_context)[0],
+            result.append({**dict(row), 'computer_label': runner['label'], 'computer_logins_v1': True,
                            'config': app_delivery.job_config(providers.fill(company, follow(
                                c, row['bot'], json.loads(row['config_json']), configs.get))),
                            'repository': bot_repository(c, self.store.settings, row['bot'], configs.get, app),
@@ -1834,7 +1814,6 @@ class Execution:
         inbox = P.inbox_person(row["bot"], people)
         parked = c.execute("SELECT onboarding_state FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()
         from .chat_goals import current
-        from .subscriptions import effective
         from . import worktrees
         # A runner from before task goals would treat a task room's goal as running without ever setting it.
         chat_goal = current(c, conv["id"]) if not (conv.get("kind") == "task" and not task_goals_on(runner)) else None
@@ -1844,8 +1823,7 @@ class Execution:
         return {"attempt": {"chat_goal": chat_goal, "routine": routine, "id": aid,
                             # Which waiting turn takes a shared one-turn login first (runner-rs/src/login_turns.rs).
                             "login_class": login_class(c, task, msg, routine),
-                            "profile": effective(c, row["bot"])[0],
-                            "computer_label": runner["label"],
+                            "computer_label": runner["label"], "computer_logins_v1": True,
                             # A starter bot's chat while it is `needs_setup` is its setup (runner prompt).
                             "onboarding": (parked["onboarding_state"] if parked else "") or "",
                             # The mailboxes an inbox bot's turn may ask its runner for mail access to: the one it declares
@@ -2627,8 +2605,7 @@ class Execution:
         # own waits (reset_cooldown).
         gateway_wait = tico_code == gateway.RATE_LIMITED or any(gateway.cap_reached(e) for e in limit_errors(c, aid))
         if not check and not superseded and not stopped and not gateway_wait and (limited or body.outcome == "completed"):
-            from .subscriptions import effective
-            login_hold = login_holds.after_turn(c, row["runner_id"], row["bot"], effective(c, row["bot"])[0] or "",
+            login_hold = login_holds.after_turn(c, row["runner_id"], row["bot"], "",
                                                 runtime, body, aid, H.now())
         if rejected:
             self.mark_rejected(c, row["runner_id"], body.auth_rejected.runtime, body.auth_rejected.reason, body.profile_used)
@@ -2712,8 +2689,7 @@ class Execution:
                 # Whose limit it was, from the turn's own notes (backend/login_holds.py source): primary or fallback,
                 # which provider and login, and an API key's quota told apart from a plan's usage window. A fallback's
                 # quota is never reported as the bot's own runtime's (Dev 279).
-                from .subscriptions import effective
-                profile = effective(c, row["bot"])[0] or ""
+                profile = ""
                 own = login_holds.get(c, row["runner_id"], login_holds.canonical(c, row["runner_id"], profile, runtime),
                                       runtime)
                 src = login_holds.source(c, aid, runtime, body, profile, row["runner_id"],
