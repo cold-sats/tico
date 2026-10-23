@@ -272,7 +272,9 @@ def test_hqs_answer_is_checked_before_anything_changes(api, tico):
     for bad, field in ((on(prefix=''), 'prefix'), (on(address='evil.example'), 'address'),
                        ({**on(), "state": "maybe"}, 'state'), (on(bucket='Not A Bucket'), 'bucket'),
                        (on(expires=-1), 'credentials'), (on(writes=False), 'writes'), (on(access='none'), 'access'),
-                       (on(signing={"key_id": "k1", "secret": "short"}), 'signing')):
+                       (on(signing={"key_id": "k1", "secret": "short"}), 'signing'),
+                       # Neither may be left out: Tico's bucket would then be read directly, past the meter.
+                       (on(signing=None), 'signing'), (on(address=None), 'address')):
         view = sync(bad)
         assert not api.app.state.blobs.bucket, field
         assert field in view.get('error', field), field
@@ -364,6 +366,18 @@ def test_move_existing_files_copies_every_file_and_version_and_matches_the_estim
     assert api.post('/api/v2/system/storage/move', json={'expect_bytes': size}, headers=headers('ben-test')).status_code == 403
     changed = api.post('/api/v2/system/storage/move', json={'expect_bytes': size - 1}, headers=headers())
     assert changed.status_code == 409 and 'estimate' in changed.text
+    # Another start that gets in after the running check is refused the same way, not with a server error.
+    listed = tico_storage.pending
+    def raced(c, *args):
+        c.execute("INSERT INTO storage_moves(id,target,state,started,started_by,estimate_files,estimate_bytes) "
+                  "VALUES('other','x','running','2026-10-23T00:00:00Z','owner',0,0)")
+        return listed(c, *args)
+    tico_storage.pending = raced
+    try:
+        raced_start = api.post('/api/v2/system/storage/move', json={'expect_bytes': size}, headers=headers())
+    finally:
+        tico_storage.pending = listed
+    assert raced_start.status_code == 409 and 'move_running' in raced_start.text, raced_start.text
 
     delivered = dict(hq.edge.delivered)
     tico_storage.start_move(api.app.state.store, api.app.state.blobs, Owner(), size, wait=True)

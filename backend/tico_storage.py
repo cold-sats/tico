@@ -214,8 +214,9 @@ def parse(answer, now=None):
     out = {"state": state, "address": "", "keep_until": keep}
     if hq == "off":
         return out
+    # Without an address and a signing key, Tico's bucket could only be read directly, past the edge that meters it.
     address = str(answer.get("address") or "").strip().lower().removeprefix("https://").rstrip("/")
-    if address and not HOST.match(address):
+    if not HOST.match(address):
         raise ValueError("address")
     from .company_storage import ACCESS_KEY, BUCKET, PREFIX, REGION
     bucket = str(answer.get("bucket") or "").strip()
@@ -237,11 +238,10 @@ def parse(answer, now=None):
     if expires <= (now or datetime.now(timezone.utc)):
         raise ValueError("credentials")
     signing = answer.get("signing")
-    if signing is not None:
-        if (not isinstance(signing, dict) or not KEY_ID.match(str(signing.get("key_id") or ""))
-                or not isinstance(signing.get("secret"), str) or not 32 <= len(signing["secret"]) <= 256):
-            raise ValueError("signing")
-        signing = (signing["key_id"], signing["secret"])
+    if (not isinstance(signing, dict) or not KEY_ID.match(str(signing.get("key_id") or ""))
+            or not isinstance(signing.get("secret"), str) or not 32 <= len(signing["secret"]) <= 256):
+        raise ValueError("signing")
+    signing = (signing["key_id"], signing["secret"])
     out.update(address=address, bucket=bucket, region=region, prefix=prefix, keys=(key, secret, token),
                expires=expires.strftime("%Y-%m-%dT%H:%M:%SZ"), signing=signing)
     return out
@@ -478,8 +478,7 @@ def pending(c, blobs, at=None):
                      "ORDER BY digest").fetchall()
     if location:
         known = {r[0] for r in c.execute("SELECT digest FROM blob_locations WHERE bucket=?", (location,))}
-        if blobs.edge and location == blobs.edge["location"]:
-            known |= blobs._landed
+        known |= {digest for place, digest in blobs._landed if place == location}
         return [(r["digest"], r["size"], r["content_type"]) for r in rows if r["digest"] not in known]
     return [(r["digest"], r["size"], r["content_type"]) for r in rows
             if not (blobs.directory / blobs.key(r["digest"])).is_file()]
@@ -527,8 +526,11 @@ def start_move(store, blobs, who, expect_bytes, stop=None, wait=False):
                           extra={"estimate": estimate(c, blobs)})
         move_id = H.new_id()
         label, _ = _target(at)
-        c.execute("INSERT INTO storage_moves(id,target,state,started,started_by,estimate_files,estimate_bytes) "
-                  "VALUES(?,?,'running',?,?,?,?)", (move_id, label, H.now(), who.actor, len(items), total))
+        try:
+            c.execute("INSERT INTO storage_moves(id,target,state,started,started_by,estimate_files,estimate_bytes) "
+                      "VALUES(?,?,'running',?,?,?,?)", (move_id, label, H.now(), who.actor, len(items), total))
+        except sqlite3.IntegrityError:  # another start got in after the check above (storage_moves_one_running)
+            raise Problem("move_running", "Files are already being moved", 409) from None
         H.event(c, who.actor, "storage.move", label, {"files": len(items), "bytes": total})
     thread = threading.Thread(target=_move, args=(store, blobs, move_id, items, at, stop or threading.Event()),
                               name="tico-storage-move", daemon=True)
@@ -539,9 +541,9 @@ def start_move(store, blobs, who, expect_bytes, stop=None, wait=False):
 
 
 def _move(store, blobs, move_id, items, at, stop):
-    """Copy each file from where it is now into the place `at` (where new files went when the move started), verify
-    the copy by reading it back whole from there and hashing it, and only then record it there, while new files
-    still go there. Nothing is ever deleted: the source stays where it was."""
+    """Copy each file from where it is now into the place `at` (where new files went when the move started), check
+    the copy there (`copy_one`), and only then record it there, while new files still go there. Nothing is ever
+    deleted: the source stays where it was."""
     _, location = _target(at)
     moved, size, failed, error = 0, 0, 0, ""
     for digest, length, content_type in items:
@@ -729,8 +731,8 @@ def install(app, store, auth):
 
     @app.post("/api/v2/system/storage/move")
     def storage_move(request: Request, body: Move):
-        """Copy every file and every version into the place new files go to; each copy is read back and checked
-        before it counts, and nothing is deleted where it was."""
+        """Copy every file and every version into the place new files go to; each copy is checked before it counts,
+        and nothing is deleted where it was."""
         who = owner(request)
         if settings.rehearsal or settings.demo:
             raise Problem("rehearsal", "Files can't be moved in a rehearsal or the demo", 409)

@@ -35,7 +35,7 @@ async function renderStorageMove(host, t) {
   const {estimate: e, move} = m;
   const running = move && move.state === 'running';
   if (running) line.textContent = `Moving files: ${move.moved_files} of ${move.estimate_files} (${gb(move.moved_bytes)} of ${gb(move.estimate_bytes)}).`;
-  else if (move && move.state === 'done') line.textContent = `Moved ${move.moved_files} files, ${gb(move.moved_bytes)}${move.matches ? ', as estimated' : ''}. Every copy was read back and checked; nothing was deleted where it was.`;
+  else if (move && move.state === 'done') line.textContent = `Moved ${move.moved_files} files, ${gb(move.moved_bytes)}${move.matches ? ', as estimated' : ''}. Every copy was checked; nothing was deleted where it was.`;
   else if (move) line.textContent = `The last move stopped after ${move.moved_files} of ${move.estimate_files} files: ${move.error || 'start it again to finish'}.`;
   else line.textContent = '';
   if (!running && e.files) line.textContent += ` ${e.files} files (${gb(e.bytes)}) are not in ${t.state === 'on' ? 'Tico file hosting' : "the company's own storage"} yet.`;

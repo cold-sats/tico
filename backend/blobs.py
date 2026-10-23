@@ -301,7 +301,7 @@ class Blobs:
         if at is None and found and location_of(settings) == found["location"]:
             if len(self._landed) > 200_000:
                 self._landed.clear()
-            self._landed.add(digest)
+            self._landed.add((found["location"], digest))
 
     def holds_whole(self, digest, size, at):
         """Whether the place `at` holds the file whole, by S3's own SHA-256 of what it received (a `whole` upload):
