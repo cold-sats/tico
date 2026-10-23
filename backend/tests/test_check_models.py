@@ -486,8 +486,8 @@ def test_a_check_model_at_capacity_is_not_its_default_login_out_of_quota(api, mo
     from backend import health_monitor
     machine, sub, check = codex_check(api)
     start = H.now()
-    busy = {"seq": 1, "kind": "error", "payload": {"error": "Selected model is at capacity. Please try a different model.",
-                                                   "limit": True}}
+    notice = "Selected model is at capacity. Please try a different model."
+    busy = {"seq": 1, "kind": "error", "payload": {"error": notice, "limit": True}}
     for n in range(2):
         post(api, f"attempts/{check['id']}/started", {"thread_id": f"busy-{n}"}, machine["token"])
         post(api, f"attempts/{check['id']}/events", {"events": [busy]}, machine["token"])

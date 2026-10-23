@@ -2456,8 +2456,8 @@ class Execution:
         errors = limit_errors(c, aid)
         busy = (body.outcome != "completed" and not stopped and bool(errors)
                 and all(login_holds.capacity(error) for error in errors))
-        busy_acted = busy and c.execute("SELECT 1 FROM attempt_events WHERE attempt_id=? AND kind IN ('message','tool') "
-                                        "LIMIT 1", (aid,)).fetchone() is not None
+        busy_acted = busy and c.execute("SELECT 1 FROM attempt_events WHERE attempt_id=? "
+                                        "AND kind IN ('message','tool') LIMIT 1", (aid,)).fetchone() is not None
         if busy and body.limited:
             c.execute("UPDATE attempts SET result_json=json_set(result_json,'$.limit_source',json(?)) WHERE id=?",
                       (encode({"kind": login_holds.CAPACITY_KIND, "notice": errors[0][:300]}), aid))
@@ -2744,8 +2744,8 @@ class Execution:
                      "retry_after": retry, "provider_reset": bool(body.limit_resets_at),
                      **({"source": {k: v for k, v in src.items() if k != "notice"}} if src else {})})
         elif busy_acted:
-            settle_status(c, row["bot"], "crashed", f"{runtime} {login_holds.CAPACITY_KIND} at {H.now()[11:16]} after the "
-                          "run had acted; this run is saved for review", claimed=row["created"])
+            settle_status(c, row["bot"], "crashed", f"{runtime} {login_holds.CAPACITY_KIND} at {H.now()[11:16]} "
+                          "after the run had acted; this run is saved for review", claimed=row["created"])
         elif rejected and any(gateway.key_refused(error) for error in limit_errors(c, aid)):
             settle_status(c, row["bot"], "idle" if requeue else "crashed",
                           "The Tico AI Gateway key is not working; save a new one in Settings > Computers",
