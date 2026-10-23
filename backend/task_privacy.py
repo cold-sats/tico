@@ -467,14 +467,16 @@ def content_readable(c, actor, payload):
 
 def guard_write(c, who, path, auth):
     """A private execution has no automatic company-publication capability."""
+    # These controls already enforce their own run ownership and never publish company content.
+    if path.startswith(("/api/v2/attempts/", "/api/v2/jobs/")):
+        return
     if (who.role != "bot" and not getattr(who, "task_actor", "")) or not private_execution(c, who):
         return
     meetings = meeting_sources(c).attempt(who.attempt_id)
     if private_meetings(c, meetings):
         # A meeting turn is one scoped reply, not an ordinary task or company publisher.
         # Run artifacts retain their attempt provenance through the existing file/read fence.
-        if path in ("/api/v2/sql", "/api/v2/mcp") or path.startswith(
-                ("/api/v2/attempts/", "/api/v2/jobs/", "/api/v2/files/")):
+        if path in ("/api/v2/sql", "/api/v2/mcp", "/api/v2/files/uploads", "/api/v2/files/imports"):
             return
         scoped = re.fullmatch(r"/api/v2/live-meetings/([^/]+)/(chat|turns/[^/]+/claim)", path)
         if (scoped and meetings == {scoped[1]} and not any(
@@ -485,7 +487,7 @@ def guard_write(c, who, path, auth):
         return
     if path == "/api/v2/task-questions":
         return              # a private task of its own, to a person question_party lets read the run's work (media.py)
-    if path.startswith(("/api/v2/attempts/", "/api/v2/jobs/", "/api/v2/files/", "/api/v2/messages",
+    if path.startswith(("/api/v2/files/", "/api/v2/messages",
                         "/api/v2/conversations/", "/api/v2/chat/", "/api/v2/tasks")):
         task_path = re.fullmatch(r"/api/v2/tasks/([^/]+)(?:/.*)?", path)
         if task_path and task_path[1] not in ("dry-run", "labels", "stuck"):
