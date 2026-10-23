@@ -526,6 +526,10 @@ def reset_cooldown(c, attempt_id, finished, cooldown, resets_at=None):
         # The company is out of credit: the Gateway lets the next call through as soon as credit lands, so the bot
         # asks again after its Retry-After (a minute), never a login's 30-minute hold.
         return reported or gateway.OUT_OF_CREDIT_WAIT
+    if errors and all(login_holds.capacity(error) for error in errors):
+        # The provider was busy for the moment, not out of quota: a short retry (backend/login_holds.py CAPACITY_WAIT),
+        # never a reset the runner read from the plan's usage window.
+        return login_holds.CAPACITY_WAIT
     if any(gateway.rate_limited(error) for error in errors):
         # Retry-After covers both the key's minute window and an address block; older runners keep the safe default.
         return reported or max(cooldown, gateway.RETRY_AFTER)
@@ -2435,6 +2439,19 @@ class Execution:
         # A turn a person stopped is over by their choice: nothing to retry and nothing to review.
         stopped = bool(row["stop_requested"]) and body.outcome != "completed" or skipped
         limited = body.outcome != "completed" and body.limited and not stopped
+        # A model at capacity (backend/login_holds.py capacity) is a busy moment, not the login's quota: kept with the
+        # run, so Health and a check's next model never count it as quota. Only a refusal before the bot did anything
+        # is a turn that never ran; after a message or a tool it may have acted, and a replay could repeat that, so it
+        # is saved for review like any other failed run, whatever an older runner reported.
+        errors = limit_errors(c, aid)
+        busy = (body.outcome != "completed" and not stopped and bool(errors)
+                and all(login_holds.capacity(error) for error in errors))
+        busy_acted = busy and c.execute("SELECT 1 FROM attempt_events WHERE attempt_id=? "
+                                        "AND kind IN ('message','tool') LIMIT 1", (aid,)).fetchone() is not None
+        if busy and body.limited:
+            c.execute("UPDATE attempts SET result_json=json_set(result_json,'$.limit_source',json(?)) WHERE id=?",
+                      (encode({"kind": login_holds.CAPACITY_KIND, "notice": errors[0][:300]}), aid))
+        limited = limited and not busy_acted
         # Same reasoning, different cause: the runner reports `retryable` when the runtime was
         # refused before the turn began because it could not renew its own sign-in, and only
         # when that turn produced no message and used no tool. Nothing happened, so requeue it
@@ -2615,6 +2632,7 @@ class Execution:
                     {"bot": row["bot"], "job_id": row["job_id"], "primary_runtime": runtime, "fallback": body.fallback,
                      "model": (fallback_ran.model or None) if fallback_ran else None,
                      "outcome": body.outcome, **({"primary_limited": True} if body.primary_limited else {})})
+        what = login_holds.CAPACITY_KIND if busy else "usage limit"
         if skipped:
             settle_status(c, row["bot"], "idle", "", claimed=row["created"])
             H.event(c, H.KEEPER, "attempt.skipped", aid, {"bot": row["bot"], "job_id": row["job_id"]})
@@ -2638,7 +2656,7 @@ class Execution:
             hit = H.now()
             retry = H.shift(hit, seconds=reset_cooldown(c, aid, hit, LIMIT_COOLDOWN, body.limit_resets_at))
             check_models.hold(c, check_task, runtime, retry)
-            settle_status(c, row["bot"], "idle", f"{runtime} usage limit on a check at {hit[11:16]}; the check "
+            settle_status(c, row["bot"], "idle", f"{runtime} {what} on a check at {hit[11:16]}; the check "
                           f"retries after {retry[:10]} {retry[11:16]} UTC", claimed=row["created"])
             H.event(c, H.KEEPER, "attempt.check_limited", aid,
                     {"bot": row["bot"], "job_id": row["job_id"], "task_id": check_task, "runtime": runtime,
@@ -2649,7 +2667,7 @@ class Execution:
             hit = H.now()
             retry = login_hold.get("until") or H.shift(hit, seconds=reset_cooldown(c, aid, hit, LIMIT_COOLDOWN,
                                                                                     body.limit_resets_at))
-            settle_status(c, row["bot"], "idle", f"{runtime} usage limit on the bot's task model at {hit[11:16]}; its "
+            settle_status(c, row["bot"], "idle", f"{runtime} {what} on the bot's task model at {hit[11:16]}; its "
                           f"tasks run on its own model until {retry[:10]} {retry[11:16]} UTC", claimed=row["created"])
             H.event(c, H.KEEPER, "attempt.task_model_limited", aid,
                     {"bot": row["bot"], "job_id": row["job_id"], "runtime": runtime, "retry_after": retry})
@@ -2713,6 +2731,9 @@ class Execution:
                     {"bot": row["bot"], "job_id": row["job_id"], "runtime": runtime, "streak": streak,
                      "retry_after": retry, "provider_reset": bool(body.limit_resets_at),
                      **({"source": {k: v for k, v in src.items() if k != "notice"}} if src else {})})
+        elif busy_acted:
+            settle_status(c, row["bot"], "crashed", f"{runtime} {login_holds.CAPACITY_KIND} at {H.now()[11:16]} "
+                          "after the run had acted; this run is saved for review", claimed=row["created"])
         elif rejected and any(gateway.key_refused(error) for error in limit_errors(c, aid)):
             settle_status(c, row["bot"], "idle" if requeue else "crashed",
                           "The Tico AI Gateway key is not working; save a new one in Settings > Computers",

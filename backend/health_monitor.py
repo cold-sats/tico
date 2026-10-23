@@ -31,7 +31,7 @@ from datetime import timezone
 from fastapi import Request
 from pydantic import Field
 
-from . import diagnostics, models_preset, providers, runner_versions, team_rules
+from . import diagnostics, login_holds, models_preset, providers, runner_versions, team_rules
 from .auth import Identity
 from .models import Contract
 from .store import H, Problem
@@ -294,6 +294,8 @@ def out_of_quota_logins(c, settings=None):
                                                             "limits": 0, "since": "", "resets_at": None, "open": True})
         if not login["open"]:
             continue
+        if result.get("limited") and (result.get("limit_source") or {}).get("kind") == login_holds.CAPACITY_KIND:
+            continue                                                    # the provider was busy: nothing of quota
         if result.get("limited") and r["state"] != "completed":
             if not login["limits"]:
                 login["resets_at"] = result.get("limit_resets_at")    # the latest limit's reset is the one that counts
@@ -468,6 +470,8 @@ def _bot_checks(c, settings=None):
     limited = {}
     for r in c.execute("SELECT detail_json FROM events WHERE action='attempt.limited' AND ts>?", (since,)):
         detail = json.loads(r["detail_json"] or "{}")
+        if (detail.get("source") or {}).get("kind") == login_holds.CAPACITY_KIND:
+            continue                    # a busy model for two minutes, not a spent subscription or spend limit
         if detail.get("bot"):
             limited[detail["bot"]] = limited.get(detail["bot"], 0) + 1
     record = providers.load(c, settings)
