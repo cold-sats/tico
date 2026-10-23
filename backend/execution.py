@@ -2876,6 +2876,13 @@ class Execution:
                                       runtime)
                 src = login_holds.source(c, aid, runtime, body, profile, row["runner_id"],
                                          held=own if body.primary_held else None)
+                ran = (body.usage.segments or [body.usage])[-1] if body.usage else None
+                if ran is not None:
+                    # The model that returned the limit, for the run list (login_holds.failure_line).
+                    # Only a segment of the source that returned it: a fallback that fails at once leaves the primary's
+                    # segment last, and its model is not the fallback's.
+                    if ran.model and (not body.usage.segments or ran.runtime == src.get("runtime")):
+                        src["model"] = ran.model
                 # Kept with the run: its log and Health name this source after the bot's settings or the login's hold
                 # change.
                 c.execute("UPDATE attempts SET result_json=json_set(result_json,'$.limit_source',json(?)) WHERE id=?",
