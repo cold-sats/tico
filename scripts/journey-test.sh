@@ -24,8 +24,9 @@
 #   5 old runner  the previous release's runner, still running, against the candidate server: a turn in the same
 #                 session and a second worktree (v0.3.11, v0.3.36 and v0.3.37 broke exactly there)
 #   6 new runner  the computer moves to the candidate runner on the same volume: its turn still has the HUB_ variable
-#                 (v0.2.31 dropped them), continues the same session (v0.3.32 broke sessions after a move), the seeded
-#                 worktree is still there and the older releases' rows are intact
+#                 (v0.2.31 dropped them), continues the same session, the seeded worktree is still there and the
+#                 older releases' rows are intact; with the harness's saved sessions gone, the next turn still answers
+#                 on a fresh thread (v0.3.32 failed every turn after a move)
 #   7 rollback    an update to an image that migrates the database (with the real entrypoint's Litestream replicating
 #                 it) and never turns healthy is rolled back, and the pre-update snapshot brings the database back
 #   8 replica     after that rollback the data volume is wiped and the server restores from its Litestream replica: the
@@ -53,7 +54,7 @@ while [ $# -gt 0 ]; do
     --previous) PREV="$2"; shift 2 ;;
     --keep) KEEP=1; shift ;;
     --release) FAST=1; shift ;;
-    -h|--help) sed -n 2,45p "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n 2,46p "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
 done
@@ -135,7 +136,7 @@ start_runner() {  # image tag, then the join arguments: as docker/runner.compose
   # OPENAI_API_KEY given above satisfies its sign-in check, and no model or network is involved. The mode is set
   # before the copy: root here has no FOWNER, so it cannot chmod a file that keeps the host user as owner.
   install -m 755 scripts/journey-fake-codex.py "$WORK/codex" && docker cp "$WORK/codex" "$RUNNER:/usr/local/bin/codex" &&
-    docker exec "$RUNNER" sh -c 'mkdir -p /home/runner/journey-threads && chmod 1777 /home/runner/journey-threads'
+    docker exec "$RUNNER" sh -c 'mkdir -p /home/runner/journey-threads && chmod 777 /home/runner/journey-threads'
 }
 runner_online() { get getting-started | json 'sys.exit(0 if any(i["id"]=="computer" and i["done"] for i in d["items"]) else 1)'; }
 runner_id() { get operations | json 'd["machines"][0]["id"]'; }
@@ -371,6 +372,11 @@ step_new_runner() {
   state="$(worktree_state "$SEED_TASK" | tr '\n' ' ')"
   [ "$state" = "present on-disk " ] || { say "the worktree from before the upgrade is $state"; return 1; }
   fixture_intact || { say "the older releases' rows did not survive the upgrade"; return 1; }
+  # A computer that lost the harness's own sessions (a move, a new HOME, cleaned files) still answers, on a fresh
+  # thread, instead of failing every turn on the one it remembers.
+  docker exec "$RUNNER" find /home/runner/journey-threads -maxdepth 1 -name 'journey-*' -delete || return 1
+  ask moved || { say "the bot stopped answering once its saved session was gone"; return 1; }
+  [ "$(fact resumed)" = no ] && [ "$(fact thread)" != "$SEED_THREAD" ] || { say "the turn after the session was lost: $(cat "$WORK/reply")"; return 1; }
 }
 
 step_rollback() {
