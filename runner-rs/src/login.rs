@@ -301,10 +301,13 @@ fn sign_in_status(runtime: &str, exe: &str, env: &Env) -> Option<(bool, String)>
         "command" => {
             let (ok, out) = run(&args, timeout)?;
             let out = out.to_lowercase();
-            if ok && out.contains(&status.ready) && (status.not_ready.is_empty() || !out.contains(&status.not_ready)) {
+            if !status.not_ready.is_empty() && out.contains(&status.not_ready) {
+                // Some CLIs use a nonzero exit for their explicit signed-out answer.
+                Some((false, String::new()))
+            } else if ok && out.contains(&status.ready) {
                 Some((true, if out.contains("api key") { "Signed in with an API key".into() } else { status.ready_detail }))
             } else {
-                Some((false, String::new()))
+                None
             }
         }
         "json" => {
@@ -2470,9 +2473,12 @@ case "$*" in
     while test ! -f "$TICO_TEST_SUBSCRIPTION_CONTROLS/continue"; do sleep 0.02; done
     mkdir -p "$(dirname "$auth")"
     echo '{"https://accounts.x.ai/sign-in":{"auth_mode":"oidc","key":"new"}}' > "$auth" ;;
-  logout) echo '{}' > "$auth" ;;
+  logout)
+    if test -f "$TICO_TEST_SUBSCRIPTION_CONTROLS/logout-error"; then exit 2; fi
+    if test -f "$TICO_TEST_SUBSCRIPTION_CONTROLS/logout-corrupt"; then echo '{broken' > "$auth"; else echo '{}' > "$auth"; fi ;;
   status)
-    if test -f "$auth" && grep -q '"key"' "$auth"; then echo 'Logged in'; else echo 'Not logged in'; fi ;;
+    if test -f "$TICO_TEST_SUBSCRIPTION_CONTROLS/status-error"; then echo 'Internal service failure' >&2; exit 2; fi
+    if test -f "$auth" && grep -q '"key"' "$auth"; then echo 'Logged in'; else echo 'Not logged in'; exit 1; fi ;;
   --version) echo 1.0.0 ;;
   *) exit 2 ;;
 esac
@@ -2517,6 +2523,10 @@ esac
             let make = |kind: &str| Session::new(&json!({"id": uuid::Uuid::new_v4().simple().to_string(), "runtime": runtime, "kind": kind}));
             let (exe, env, p) = login_env(runtime, &config, "").unwrap();
             assert_eq!(sign_in_status(runtime, &exe, &env), Some((false, String::new())));
+            if use_default {
+                let ready = rt.block_on(crate::readiness::runtime_readiness(runtime, &runner.sign_in, &runner.client, &[], p.as_ref()));
+                assert_eq!(ready["authenticated"], "missing", "an inherited operator key is not the default home's login");
+            }
             std::fs::remove_file(root.join("continue")).ok();
             let login = make("sign_in");
             let (s2, r2, c2) = (login.clone(), runner.clone(), config.clone());
@@ -2540,6 +2550,30 @@ esac
                 assert!(!root.join("outside").exists());
             }
             std::fs::write(&auth, old).unwrap();
+            std::fs::write(root.join("logout-error"), "").unwrap();
+            std::fs::write(root.join("status-error"), "").unwrap();
+            let failed = make("sign_out");
+            run_sign_out(failed.clone(), runner.clone(), config.clone());
+            assert_eq!(state(&failed).0, "failed");
+            assert!(!runner.sign_in.signed_out(runtime));
+            assert_eq!(std::fs::read_to_string(&auth).unwrap(), old);
+            std::fs::remove_file(root.join("logout-error")).unwrap();
+            std::fs::remove_file(root.join("status-error")).unwrap();
+            if crate::harness_tools::caps(runtime, "").sign_in_status.check == "file" {
+                std::fs::write(root.join("logout-corrupt"), "").unwrap();
+                let corrupt = make("sign_out");
+                run_sign_out(corrupt.clone(), runner.clone(), config.clone());
+                assert_eq!(state(&corrupt).0, "failed");
+                assert!(state(&corrupt).1.contains("could not be checked"));
+                assert!(!runner.sign_in.signed_out(runtime));
+                assert_eq!(sign_in_status(runtime, &exe, &env), None);
+                std::fs::remove_file(root.join("logout-corrupt")).unwrap();
+                std::fs::write(&auth, r#"{"xai::api_key":{"auth_mode":"api_key","key":"stored-synthetic-key"}}"#).unwrap();
+                assert!(sign_in_status(runtime, &exe, &env).unwrap().0);
+                let ready = rt.block_on(crate::readiness::runtime_readiness(runtime, &runner.sign_in, &runner.client, &[], p.as_ref()));
+                assert_eq!(ready["authenticated"], "ready");
+                std::fs::write(&auth, old).unwrap();
+            }
             if !use_default {
                 let mut custom = env.clone();
                 for key in crate::harness_tools::caps(runtime, "").profile_home_overrides {

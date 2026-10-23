@@ -34,7 +34,9 @@ older version (Pin to this version pins the one installed).
 Grok Build and Cursor Agent sign in from **Settings > Computers**, using **Add connection** for the
 computer's login. Both offer **Sign out** and **Switch account**. Grok uses
 [`grok login --device-auth`](https://docs.x.ai/build/cli/reference), then reads its scoped `~/.grok/auth.json`
-store for sign-in state (an empty store is signed out). It has no status command. Cursor uses
+store for sign-in state, including saved API-key logins (an empty store is signed out). A bot granted
+`XAI_API_KEY` can run without a subscription store; an inherited operator key cannot sign in a separate default home.
+Grok has no status command. Cursor uses
 [`cursor-agent login`](https://cursor.com/docs/cli/reference/authentication) with `NO_OPEN_BROWSER=1`, and checks
 `cursor-agent status`. Neither flow asks for a code to paste into Tico.
 
@@ -386,7 +388,7 @@ another bot's home; all turns use the original login in its own home.
 | `api_keys` | Who holds `auth.api_key_env`: `computer` (one key signs every bot in; the company can give it to every computer) or `bot` (each bot's own Credential, the first name) | Keys are not wired by Tico |
 | `api_key_login` | The command that turns a computer's key into a stored login (key on stdin) | The key in the environment is the sign-in |
 | `api_key_check` | A command that asks the provider about the key in its environment, run in an empty home so no other login answers; it passes on exit 0 with no `"is_error": true` in its JSON. Switch to API key checks a key with it (or with `api_key_login`) before the subscription is signed out | Switch to API key is offered only with this or `api_key_login` |
-| `api_key_in_turn` | The computer's key is put in each turn's environment, which is the only place the CLI reads it, and wins over a stored login | Not put there |
+| `api_key_in_turn` | The CLI accepts a key in the turn's environment, ahead of a stored login; an explicit bot Credential grant can run without a subscription login. A computer key is passed when supported | No computer key passed per turn |
 | `subscription_marker` | Text in the sign-in detail that means a plan, so turns bill as `subscription` | Every turn bills as `api` |
 | `subscription_profiles` | Can run on a computer whose login is a profile folder (`default_profile`; `profile_home` is the variable pointed at the profile's folder; `profile_dirs` are made inside it) | Not covered by subscriptions |
 | `profile_home_overrides` | Variables the CLI reads ahead of `profile_home`; a profile's sign-in, sign-in check and runs never inherit them | Nothing dropped |

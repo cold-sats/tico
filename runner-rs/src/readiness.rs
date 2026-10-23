@@ -503,7 +503,10 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
             problems.push(problem.clone());
         } else if status["authenticated"] == "rejected" {
             problems.push(signed_out(text_of(&status["detail"])));
-        } else if status["authenticated"] == "missing" || status["authenticated"] == "failed" {
+        } else if (status["authenticated"] == "missing" || status["authenticated"] == "failed")
+            && !(caps.api_key_in_turn && crate::harness_tools::api_key_env(&runtime).iter().any(|key| crate::hosts::gemini::has_grant(&bot, key)))
+        {
+            // A turn's explicit credential grant is independent of its computer's stored subscription login.
             let d = text_of(&status["detail"]);
             let d = if d.is_empty() { "Runtime sign-in is not ready".to_string() } else { d };
             problems.push(signed_out(if profile_name.is_empty() { d } else { format!("{profile_name}: {d}") }));

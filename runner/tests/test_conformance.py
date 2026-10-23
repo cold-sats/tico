@@ -434,6 +434,29 @@ def test_a_second_message_reuses_the_warm_process_or_resumes_the_session(api, co
         assert settings["security"]["auth"]["selectedType"] == "gemini-api-key"
 
 
+@pytest.mark.parametrize("harness", ["grok"])
+def test_a_grok_key_grant_runs_without_a_computer_subscription(api, computer):
+    from backend.readiness import can_run
+    from backend.tests.test_credentials import create, setup
+    setup(api)
+    secret = "grok-synthetic-granted-key-408"
+    key = create(api, name="Grok API", env="XAI_API_KEY", secret=secret)
+    post(api, f"credentials/{key['id']}/grants", {"subject": "bot:ops"})
+    auth = Path(computer.env["HOME"]) / ".grok/auth.json"
+    auth.unlink()
+    computer.start()
+    with api.app.state.store.read() as c:
+        assert can_run(c, "ops", "grok")["can_run"] is True
+        # Another bot's grant cannot authorize a bot without the key.
+        assert can_run(c, "writer", "grok", runner=computer.registration["runner_id"])["can_run"] is False
+    message = post(api, "chat/ops", {"text": "Use the Grok API key"})
+    until(lambda: reply_to(api, message["conversation_id"]), "the key-only Grok reply")
+    until(lambda: computer.attempts()[-1]["result"], "the key-only Grok completion")
+    assert computer.attempts()[-1]["result"]["outcome"] == "completed"
+    assert computer.prompts()[-1]["env"]["XAI_API_KEY"] == secret
+    assert not auth.exists()
+
+
 def test_a_granted_credential_reaches_the_turn_and_never_the_transcript(api, computer):
     from backend.tests.test_credentials import create, setup
     if computer.harness not in GRANTED_KEYS:

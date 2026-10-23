@@ -42,7 +42,7 @@ pub fn signed_in(env: &Env) -> Option<bool> {
     let store = serde_json::from_str::<Value>(&text).ok()?;
     Some(store.as_object()?.values().any(|entry| {
         entry["key"].as_str().is_some_and(|k| !k.trim().is_empty())
-            && matches!(entry["auth_mode"].as_str(), Some("oidc" | "external"))
+            && matches!(entry["auth_mode"].as_str(), Some("oidc" | "external" | "api_key"))
     }))
 }
 

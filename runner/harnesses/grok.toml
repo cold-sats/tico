@@ -30,6 +30,7 @@ files = [".grok/auth.json"]
 
 # What Tico does differently for this CLI (docs/harnesses.md, Capabilities).
 [capabilities]
+api_key_in_turn = true
 terminal_login = ["login"]
 subscription_profiles = true
 profile_home = "HOME"
@@ -43,5 +44,5 @@ model_list_args = ["models"]
 
 [capabilities.sign_in_status]
 check = "file"
-ready_detail = "Signed in with a Grok account"
+ready_detail = "Signed in to Grok"
 missing_detail = "Grok sign-in required (sign in from Tico) or XAI_API_KEY"
