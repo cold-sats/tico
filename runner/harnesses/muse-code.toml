@@ -34,6 +34,8 @@ api_key_env = ["META_API_KEY"]
 [login]
 command = ["login"]
 terminal = true
+logout = ["logout"]
+files = ["muse/auth.json"]
 
 # The launcher updates itself on every run unless this is set; the runner updates the harness itself.
 [env]
@@ -53,7 +55,7 @@ mcp_transports = ["http"]
 resume_command = "muse resume"
 model_list = "host"
 
-# Muse has no status command: the login file in its config folder is the sign-in.
+# Muse has no status command: check its saved Meta credential in the config folder.
 [capabilities.sign_in_status]
 check = "file"
 ready_detail = "Signed in with a Meta account"
