@@ -222,6 +222,14 @@ WHERE ts > strftime('%s','now') - 3 * 3600 ORDER BY ts;
 SELECT datetime(ts,'unixepoch'), detail_json FROM flight_events WHERE kind='stall' ORDER BY id DESC LIMIT 5;
 ```
 
+Runner polls and writer admission use the same lock accounting: `wait_ms` includes the FIFO queue for
+writers in this server process and SQLite's wait behind another process. Only the next writer is woken;
+a scheduler's next transaction joins behind queued requests. SQLite WAL and FULL durability stay unchanged.
+A renew with at least two thirds of its lease remaining reads its actual deadline without writing; its reply
+reports the remaining seconds, never a fictitious extension. It still checks current assignment and credentials.
+Input polls and renewals near their deadline use short queued transactions. Heartbeat prepares live-run provenance in a read snapshot and reuses it only when
+`data_version` is unchanged under the write lock; otherwise it recomputes current state.
+
 ### The flight file
 
 The tables live in the database a stall is usually about, so everything is written first to an append-only file beside
@@ -288,3 +296,5 @@ seconds or more and every timeout, the scrub's included: verb, checkout folder n
 lost because the writer fell behind). Turns never wait on the disk. `TICO_FLIGHT_RECORDER=0` turns it off.
 `tico-runner flight summary --since 1h` (or `--dir <folder>` for a copied state folder) prints recent turns with their
 phase timings, the slowest phases, slow heartbeats and slow git commands.
+
+In-process writers wait FIFO for at most 30 seconds before reporting the existing database-locked error; SQLite's own 30-second busy timeout still covers a writer in another process. A request that exhausts both waits can therefore fail after about 60 seconds, rather than 30. Fresh lease polls can answer without a write. Diagnostic heartbeats are coalesced with lease writes, at most one minute apart while polling continues; a stalled diagnostic forces the next renewal through the write path to clear it.

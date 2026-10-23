@@ -35,7 +35,7 @@ from .statuses import is_parked
 from . import turns as turn_work
 from . import goals as G
 from . import models as M
-from .auth import LOCAL_COOKIE, LOCAL_COOKIE_DAYS, LOCAL_SIGNIN_PATH, LOGOUT_PATH, Auth, Identity
+from .auth import LOCAL_COOKIE, LOCAL_COOKIE_DAYS, LOCAL_SIGNIN_PATH, LOGOUT_PATH, Auth, Identity, validate_identity
 from .config import Settings
 from .observability import Observability, browser_config, staff_display_name
 from .execution import (Execution, bot_repository, bump_bot_session_epoch, clear_limits, lift_after_model_change,
@@ -4419,7 +4419,23 @@ def create_app(settings=None):
 
     @app.post("/api/v2/runners/heartbeat")
     def heartbeat(request: Request, body: M.Heartbeat):
-        return mutate(request, body, lambda c: execution.heartbeat(c, request.state.identity, body))
+        from .worktrees import live_turn_cache
+        # Keep the expensive, repeated provenance walks off the write lock. As for claim, a concurrent
+        # commit invalidates this selection and the write falls back to current state under its lock.
+        with store.read() as snapshot:
+            validate_identity(snapshot, request.state.identity)
+            execution.runner(snapshot, request.state.identity)
+            version = snapshot.execute("PRAGMA data_version").fetchone()[0]
+            snapshot.execute("BEGIN")
+            try:
+                selected = live_turn_cache(snapshot, request.state.identity.runner_id)
+            finally:
+                snapshot.rollback()
+            def work(c):
+                unchanged = snapshot.execute("PRAGMA data_version").fetchone()[0] == version
+                return execution.heartbeat(c, request.state.identity, body,
+                                           live_tasks=selected if unchanged else None)
+            return mutate(request, body, work)
 
     @app.get("/api/v2/runners/desired")
     def desired_runner_release(request: Request):
@@ -5447,6 +5463,12 @@ def create_app(settings=None):
 
     @app.post("/api/v2/attempts/{aid}/renew")
     def renew(request: Request, aid: str, body: M.Empty):
+        if 0 < len(request.headers.get("idempotency-key", "")) <= 200:
+            with store.read_transaction() as c:
+                validate_identity(c, request.state.identity)
+                fresh = execution.renew(c, request.state.identity, aid, if_fresh=True)
+                if fresh is not None:
+                    return fresh
         return mutate(request, body, lambda c: execution.renew(c, request.state.identity, aid))
 
     @app.post("/api/v2/attempts/{aid}/started")
