@@ -1557,10 +1557,10 @@ case "$1 $2" in
   "login status")
     case "$home" in
       *tico-switch-*) if [ -f "$HOME/hold-probe" ]; then : > "$HOME/probing"; n=0; while [ ! -f "$HOME/release" ] && [ $n -lt 200 ]; do sleep 0.05; n=$((n+1)); done; fi ;;
-      *) if [ -f "$HOME/refuse" ]; then echo "Not signed in"; exit 1; fi ;;
+      *) if [ -f "$HOME/refuse" ]; then echo "Not logged in"; exit 1; fi ;;
     esac
     if grep -q '^apikey' "$home/auth.json" 2>/dev/null; then echo "Logged in using an API key - sk-***"; exit 0; fi
-    if [ -f "$home/auth.json" ]; then echo "Logged in using ChatGPT"; exit 0; fi; echo "Not signed in"; exit 1 ;;
+    if [ -f "$home/auth.json" ]; then echo "Logged in using ChatGPT"; exit 0; fi; echo "Not logged in"; exit 1 ;;
   "logout ") [ -f "$HOME/stuck" ] || rm -f "$home/auth.json"; exit 0 ;;
   "login --with-api-key")
     read key
