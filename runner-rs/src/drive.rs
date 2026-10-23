@@ -807,21 +807,22 @@ mod tests {
 
     #[tokio::test]
     async fn a_buffered_codex_goal_clear_does_not_query_the_harness_before_the_answer_is_read() {
-        // R1 delta 2: Codex reports `thread/goal/cleared` with no turn id; checking it asks the app server, which can
+        // Codex reports `thread/goal/cleared` with no turn id; checking it asks the app server, which can
         // take two minutes or, with the process gone as here, fail. Neither may cost the answer queued behind it.
         let (url, _) = lapsed_hub().await;
         let (runner, dir) = runner_at(&url);
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        let host = Host::Codex(crate::hosts::codex::CodexHost::on_home(Default::default(), tx.clone(), None));
+        let codex = crate::hosts::codex::CodexHost::on_home(Default::default(), tx.clone(), None);
+        let host = Host::Codex(codex.clone());
         tx.send(json!({"kind": "goal", "thread_id": "th-11", "status": "cleared", "objective": "Finish the Acme renewal summary"})).unwrap();
         for ev in answer_events("th-11", "turn-1") {
             tx.send(ev).unwrap();
         }
-        let (f, began) = (flags(true), Instant::now());
+        let f = flags(true);
         let (drove, _, _) = drive_with(&runner, &host, &mut rx, &f, "th-11", "codex", Some(acme_goal()), BTreeMap::new()).await;
+        assert_eq!(codex.requests_started(), 0, "salvage must read the queued answer without asking the harness");
         let drove = drove.unwrap_or_else(|e| panic!("refused: {}", e.text));
         assert_eq!((drove.outcome.as_str(), drove.reply.as_str()), ("completed", "Acme's renewal summary is ready."));
-        assert!(began.elapsed() < SALVAGE, "{:?}", began.elapsed());
         std::fs::remove_dir_all(dir).ok();
     }
 
