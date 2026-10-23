@@ -1965,8 +1965,8 @@ class Execution:
         is still uncertain and still on this attempt, no review has decided it, and no other
         attempt is running in its lane, and no person pressed Stop on it: a Stop its runner never heard, because the
         computer slept through the lease, still stands over the answer the model went on to finish. A review — a person's or `auto_reconcile`'s — always
-        writes job_recovery and moves the job off `uncertain`, so a decision already taken wins
-        and a late result can never undo one. Elapsed time is what hands a job from the runner to
+        writes job_recovery, so a decision already taken wins even while it waits for an idle lane
+        with the job still `uncertain`, and a late result can never undo one. Elapsed time is what hands a job from the runner to
         the sweep; it is not what makes settling safe, and the longest turns are exactly the ones
         most likely to outlive a lease."""
         return bool(not row["stop_requested"] and self.holds(c, who, row))

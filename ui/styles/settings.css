@@ -660,7 +660,7 @@ a.primary.btn{display:inline-block;text-decoration:none;background:var(--accent)
 .stopped-run-actions{position:sticky;bottom:-16px;padding:12px 0 4px;background:var(--surface);border-top:1px solid var(--line);margin-top:12px}
 .stopped-run-actions .row{flex-wrap:wrap}
 .stopped-run-actions [data-result]{overflow-wrap:anywhere}
-.stopped-run-actions [data-result]:empty{display:none}
+.stopped-run-actions [data-result]:empty{margin:0}
 .computer-add-dialog .computer-add-where{margin:0 0 8px}
 .computer-add-dialog .computer-add-choices{padding:0}
 .computer-add-dialog .model-login-body{padding:0}

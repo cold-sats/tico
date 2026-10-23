@@ -96,6 +96,13 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
     assert.deepEqual(await card.locator('.stopped-run-actions .row button').allInnerTexts(), ['Don’t retry', 'Try again']);
     assert.equal(await card.locator('[data-details]').getAttribute('open'), null);
     assert.equal(await card.locator('textarea[name=note]').isVisible(), false);
+    assert.equal(await card.locator('[data-retry-warning]').isVisible(), true);
+    assert.notEqual(await card.locator('[data-result]').evaluate(el => getComputedStyle(el).display), 'none');
+    await page.setViewportSize({width: 390, height: 680});
+    const warning = await card.locator('[data-retry-warning]').boundingBox();
+    assert.ok(warning.y >= 0 && warning.y + warning.height <= 680, 'retry risk is visible with details folded');
+    await shot('stopped-phone-warning');
+    await page.setViewportSize({width: 1280, height: 800});
     assert.doesNotMatch(await card.innerText(), /Why Tico paused|Did an outside action finish|Merged #25/);
     await shot('stopped-desktop');
     await card.locator('button[value=dismiss]').click();
@@ -148,6 +155,7 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
     await result.filter({hasText: 'Queued to try again.'}).waitFor();
     assert.equal(decisions.at(-1).decision, 'resume');
     assert.equal(decisions.at(-1).attempt_id, 'a-j2');
+    assert.doesNotMatch(decisions.at(-1).note, /no outside action completed/, 'retry records a choice, not an unasked confirmation');
     assert.equal(await read.locator('button:enabled').count(), 0);
     await page.locator('dialog.stopped-runs-dialog [data-close]').click();
     deferred = true;

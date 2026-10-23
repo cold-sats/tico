@@ -412,6 +412,7 @@ async function executionReview(bot) {
         <label>Note for the bot <span class="muted">Optional</span><textarea name="note" aria-label="Details for Tico" maxlength="4000" placeholder="For example: the draft exists, but nothing was sent."></textarea></label>
       </details>
       <div class="stopped-run-actions">
+        ${retry ? '' : '<p data-retry-warning>Trying again could repeat work that already finished.</p>'}
         <div class="row">${retry ? button('resume', 'Try again') + button('dismiss', 'Don’t retry') : button('dismiss', 'Don’t retry') + button('resume', 'Try again')}</div>
         <p data-result role="status" aria-live="polite"></p>
       </div>
@@ -436,8 +437,8 @@ async function executionReview(bot) {
         try {
           const detail = form.elements.note.value.trim();
           const note = decision === 'resume'
-            ? 'The human said no outside action completed. Retry this request and check existing work before repeating any step.'
-            : 'The human said an outside action may have completed. Do not retry this delivery; inspect the task separately.';
+            ? 'The human chose to retry this request. Check existing work and external effects before repeating any step.'
+            : 'The human chose not to retry this delivery. Inspect the task separately.';
           const done = await post(`/v2/jobs/${encodeURIComponent(job.id)}/reconcile`, {
             attempt_id: job.attempt_id, decision, note: detail ? `${note} Details: ${detail}` : note,
             acknowledge_uncertain_effects: true
