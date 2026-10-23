@@ -402,6 +402,11 @@ fn login_env(runtime: &str, config: &Config, profile_name: &str) -> Result<(Stri
         Some(p) => p.environment(runtime, &process),
         None => process,
     };
+    if profile.as_ref().is_some_and(|p| !p.share_operator) {
+        for key in crate::harness_tools::api_key_env(runtime) {
+            env.remove(&key);
+        }
+    }
     if crate::harness_tools::caps(runtime, "").own_config_home {
         // Bot turns read this host's login from Tico's own config folder, never the operator's.
         crate::hosts::use_own_config_home(runtime, profile.as_ref(), &mut env);
@@ -442,6 +447,10 @@ fn login_home(runtime: &str, env: &Env) -> Option<std::path::PathBuf> {
 /// `seed` files copied in. The login command signs in there; the old login is untouched until `adopt_files`.
 fn begin_switch(runtime: &str, id: &str, env: &Env) -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
     let login = crate::harness_tools::login_command(runtime).ok_or("Switching accounts is not available")?;
+    let caps = crate::harness_tools::caps(runtime, "");
+    if caps.profile_home_overrides.iter().any(|k| env.get(k).is_some_and(|v| !v.is_empty())) {
+        return Err("Switching accounts with a custom login folder is not available; sign out and sign in instead".into());
+    }
     let home = login_home(runtime, env).ok_or("Switching accounts is not available for this runtime")?;
     let side = home.join(format!(".tico-switch-{}", id.chars().filter(|c| c.is_ascii_alphanumeric()).take(32).collect::<String>()));
     let (home_s, side_s) = (home.display().to_string(), side.display().to_string());
@@ -800,11 +809,17 @@ fn run_sign_out(s: Arc<Session>, runner: Arc<Runner>, config: Config) {
         }
     }
     log_out(&exe, &logout, &env);
-    if signed_in(&s.runtime, &exe, &env, false).0 {
-        if own {
-            let _ = runner.sign_in.unmark_signed_out(&s.runtime);
+    match sign_in_status(&s.runtime, &exe, &env) {
+        Some((false, _)) => {}
+        verdict => {
+            if own {
+                let _ = runner.sign_in.unmark_signed_out(&s.runtime);
+            }
+            return fail(&match verdict {
+                Some((true, _)) => format!("The logout finished but {} is still signed in", s.runtime),
+                _ => format!("The logout finished but {} sign-out could not be checked", s.runtime),
+            });
         }
-        return fail(&format!("The logout finished but {} is still signed in", s.runtime));
     }
     let account = profile.as_ref().map(|p| p.name.clone()).unwrap_or_default();
     crate::accounts::forget(&account, &s.runtime);
@@ -2414,6 +2429,130 @@ exit 2
         std::fs::write(&codex, "work\n").unwrap();
         assert_eq!(remove(true), ("done".into(), "Removed work".into()));
         assert!(!folder.exists() && !listed());
+    }
+
+    #[test]
+    fn grok_computer_and_named_subscription_account_controls() {
+        subscription_account_controls("grok", ".grok/auth.json", "login::tests::grok_computer_and_named_subscription_account_controls");
+    }
+
+    #[test]
+    fn cursor_computer_and_named_subscription_account_controls() {
+        let file = if cfg!(target_os = "macos") { ".cursor/auth.json" } else { ".config/cursor/auth.json" };
+        subscription_account_controls("cursor", file, "login::tests::cursor_computer_and_named_subscription_account_controls");
+    }
+
+    fn subscription_account_controls(runtime: &str, file: &str, test: &str) {
+        const CHILD: &str = "TICO_TEST_SUBSCRIPTION_CONTROLS";
+        let Some(root) = std::env::var_os(CHILD).map(std::path::PathBuf::from) else {
+            let root = std::env::temp_dir().join(format!("tico-subscription-controls-{}", uuid::Uuid::new_v4().simple()));
+            std::fs::create_dir_all(root.join("bin")).unwrap();
+            let exe = crate::harness_tools::executable_for(runtime);
+            crate::util::write_script(&root.join("bin").join(exe), r#"#!/bin/sh
+set -eu
+case "$(basename "$0")" in
+  grok) auth="${GROK_AUTH_PATH:-${GROK_HOME:-$HOME/.grok}/auth.json}"; login='login --device-auth' ;;
+  cursor-agent)
+    test "$AGENT_CLI_CREDENTIAL_STORE" = file
+    test "$NO_OPEN_BROWSER" = 1
+    case "$(uname)" in Darwin) auth="$HOME/.cursor/auth.json" ;; *) auth="${XDG_CONFIG_HOME:-$HOME/.config}/cursor/auth.json" ;; esac
+    login=login ;;
+esac
+case "$*" in
+  "$login")
+    echo 'Open https://login.example/device'; echo 'Enter code ABCD-1234'
+    while test ! -f "$TICO_TEST_SUBSCRIPTION_CONTROLS/continue"; do sleep 0.02; done
+    mkdir -p "$(dirname "$auth")"
+    echo '{"https://accounts.x.ai/sign-in":{"auth_mode":"oidc","key":"new"}}' > "$auth" ;;
+  logout) echo '{}' > "$auth" ;;
+  status)
+    if test -f "$auth" && grep -q '"key"' "$auth"; then echo 'Logged in'; else echo 'Not logged in'; fi ;;
+  --version) echo 1.0.0 ;;
+  *) exit 2 ;;
+esac
+"#);
+            let mut cmd = Command::new(std::env::current_exe().unwrap());
+            cmd.args(["--exact", test, "--nocapture"])
+                .env(CHILD, &root).env("PATH", format!("{}:/usr/bin:/bin", root.join("bin").display())).env("HOME", &root)
+                .env_remove(crate::isolation::UID_ENV).env_remove(crate::isolation::GID_ENV);
+            for key in ["GROK_HOME", "GROK_AUTH_PATH", "XDG_CONFIG_HOME", "CURSOR_CONFIG_DIR", "CURSOR_DATA_DIR", "XAI_API_KEY", "CURSOR_API_KEY"] {
+                cmd.env_remove(key);
+            }
+            let out = cmd.output().unwrap();
+            std::fs::remove_dir_all(&root).ok();
+            assert!(out.status.success(), "{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+            return;
+        };
+        std::fs::create_dir_all(root.join("projects")).unwrap();
+        let path = root.join("runner.json");
+        std::fs::write(&path, json!({"url": "http://127.0.0.1:9", "token": "synthetic", "runner_id": "r1", "projects_dir": root.join("projects")}).to_string()).unwrap();
+        let config = Config::load(&path).unwrap();
+        crate::profiles::add_profile(&config, "work").unwrap();
+        let config = Config::load(&path).unwrap();
+        assert!(crate::profiles::covers(&json!({"runtime": runtime})));
+        let client = crate::client::Client::new(&config.url(), &config.token(), 1, 0).unwrap();
+        let runner = Arc::new(Runner::new(config.clone(), client, crate::state::State::open(&root.join("state")).unwrap()));
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let old = r#"{"https://accounts.x.ai/sign-in":{"auth_mode":"oidc","key":"old"}}"#;
+        for profile in ["", "work"] {
+            if !profile.is_empty() {
+                // Inherited operator paths and keys cannot answer for a named subscription.
+                for key in ["GROK_HOME", "GROK_AUTH_PATH", "XDG_CONFIG_HOME", "CURSOR_CONFIG_DIR", "CURSOR_DATA_DIR", "XAI_API_KEY", "CURSOR_API_KEY"] {
+                    std::env::set_var(key, root.join("outside"));
+                }
+            }
+            let home = if profile.is_empty() { root.clone() } else { root.join("profiles/work").join(runtime) };
+            let auth = home.join(file);
+            let make = |kind: &str| Session::new(&json!({"id": uuid::Uuid::new_v4().simple().to_string(), "runtime": runtime, "profile": profile, "kind": kind}));
+            let (exe, env, p) = login_env(runtime, &config, profile).unwrap();
+            assert_eq!(sign_in_status(runtime, &exe, &env), Some((false, String::new())));
+            std::fs::remove_file(root.join("continue")).ok();
+            let login = make("sign_in");
+            let (s2, r2, c2) = (login.clone(), runner.clone(), config.clone());
+            let running = std::thread::spawn(move || run_session(s2, r2, c2, Duration::from_secs(5)));
+            wait_for(|| state(&login).0 == "waiting");
+            let report = login.report().unwrap();
+            assert_eq!(report["url"], "https://login.example/device");
+            assert_eq!(report["code"], "ABCD-1234");
+            std::fs::write(root.join("continue"), "").unwrap();
+            running.join().unwrap();
+            assert_eq!(state(&login).0, "signed_in", "{:?}", state(&login));
+            assert_eq!(sign_in_status(runtime, &exe, &env).unwrap().0, true);
+            let ready = rt.block_on(crate::readiness::runtime_readiness(runtime, &runner.sign_in, &runner.client, &[], p.as_ref()));
+            assert_eq!(ready["authenticated"], "ready");
+            if !profile.is_empty() {
+                let report = rt.block_on(crate::profiles::report(&config.data, &|_, _| false));
+                assert_eq!(report[0]["runtimes"][runtime]["signed_in"], true);
+                assert!(!root.join("outside").exists());
+            }
+            std::fs::write(&auth, old).unwrap();
+            if profile.is_empty() {
+                let mut custom = env.clone();
+                for key in crate::harness_tools::caps(runtime, "").profile_home_overrides {
+                    custom.insert(key, root.join("outside").display().to_string());
+                }
+                assert!(begin_switch(runtime, "custom", &custom).unwrap_err().contains("custom login folder"));
+                assert_eq!(std::fs::read_to_string(&auth).unwrap(), old);
+                assert!(!root.join("outside").exists());
+            }
+            let cancelled = make("switch");
+            answer_finishing(&cancelled, false);
+            run_session(cancelled.clone(), runner.clone(), config.clone(), Duration::from_secs(5));
+            assert_eq!(state(&cancelled).0, "cancelled", "{:?}", state(&cancelled));
+            assert_eq!(std::fs::read_to_string(&auth).unwrap(), old);
+            let switch = make("switch");
+            answer_finishing(&switch, true);
+            run_session(switch.clone(), runner.clone(), config.clone(), Duration::from_secs(5));
+            assert_eq!(state(&switch).0, "signed_in", "{:?}", state(&switch));
+            assert!(std::fs::read_to_string(&auth).unwrap().contains("\"new\""));
+            assert!(!std::fs::read_dir(&home).unwrap().flatten().any(|e| e.file_name().to_string_lossy().starts_with(".tico-switch-")));
+            let logout = make("sign_out");
+            run_sign_out(logout.clone(), runner.clone(), config.clone());
+            assert_eq!(state(&logout).0, "signed_out", "{:?}", state(&logout));
+            assert_eq!(sign_in_status(runtime, &exe, &env), Some((false, String::new())));
+            let ready = rt.block_on(crate::readiness::runtime_readiness(runtime, &runner.sign_in, &runner.client, &[], p.as_ref()));
+            assert_eq!(ready["authenticated"], "missing");
+        }
     }
 
     #[test]

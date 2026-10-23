@@ -159,7 +159,7 @@ In a computer's pop-up, **Add connection** (at the end of Connections) opens its
 1. **Which AI tool?** The tools installed on that computer. **Install another tool** goes to **Versions and updates**,
    where the owner installs one.
 2. **Subscription** or **API key** ([which to choose](#subscription-or-api-key)). A tool with no subscription sign-in from the browser has Subscription greyed out.
-   A tool that signs in only from a terminal (such as Grok Build or Cursor Agent) shows the command to run on the
+   A tool that signs in only from a terminal shows the command to run on the
    computer here, with **Copy**. A tool that signs in from the browser but has no named subscriptions offers
    **Computer's login** instead.
 3. - **Subscription**: type a name, then choose **Sign in**. The provider's sign-in follows in the same pop-up: the
@@ -178,6 +178,17 @@ In a computer's pop-up, **Add connection** (at the end of Connections) opens its
 The computer must be online ("Computer is offline" otherwise). Adding a subscription does not change the computer's
 default or move any bot: choose it for a bot in **Connection** in the bot's settings.
 
+| Tool | Sign in from Tico (computer login or named subscription) | Sign-in state |
+|---|---|---|
+| Grok Build | Open the link and enter the device code shown in the pop-up | The computer checks Grok's local login store |
+| Cursor Agent | Open the browser link shown in the pop-up and finish signing in | The computer runs Cursor's status command |
+
+Both tools support **Sign out** and **Switch account**, keeping the old login until a new account is confirmed.
+Cursor uses a file login so named subscriptions remain separate on macOS as well as Linux. If Cursor was signed in
+through the macOS Keychain, sign in once from Tico to create this login; the Keychain entry stays untouched.
+A computer login with a custom auth-folder override must sign out and sign in to change accounts; **Switch account**
+refuses before it starts. Named subscriptions use their own folders. See [harness sign-in details](harnesses.md#supported-harnesses).
+
 A new computer whose team signs in with a plan needs its own sign-in: a plan login cannot be copied between computers.
 Settings > Health shows "*computer name*: sign in to Codex" (or Claude Code) until it is done.
 
@@ -187,7 +198,7 @@ These are on each connection's line in a computer's pop-up, for the computer's o
 
 ### Signing out and switching accounts
 
-In a computer's pop-up each signed-in Codex or Claude Code login, the computer's own or a named subscription's, has
+In a computer's pop-up each signed-in Codex, Claude Code, Grok Build or Cursor Agent login, the computer's own or a named subscription's, has
 **Switch account** and **Sign out** on its line. A line that is both the Computer's login and a
 subscription on the same account names which login each pair acts on.
 The same people who may sign a login in see them: the Computer's operator, owners and admins. The Computer must be online
@@ -195,7 +206,7 @@ and on a current runner; an older one answers `Update <computer> to sign out fro
 
 - **Sign out** first names the bots that stop: the active bots assigned to that Computer whose runtime and subscription
   are that login. The button stays off until they are named; if they can't be looked up, the dialog says so and offers
-  **Try again**. The Computer then runs the CLI's own logout (`codex logout`, `claude auth logout`) as the user that
+  **Try again**. The Computer then runs the CLI's own logout (`codex logout`, `claude auth logout`, `grok logout`, `cursor-agent logout`) as the user that
   signs in, and checks the login again. If it is still signed in, the sign-out fails and the login is as it was. A
   shared-key sign-in already running there is waited for (up to 40 seconds) so it cannot sign the login back in; if it
   is still running, the sign-out fails with "try again in a minute". Bots and assignments stay: those bots wait, as for
@@ -421,7 +432,7 @@ The Computer operator can manage sign-in on their own Computer; owners and admin
 
 Computers report their profiles on heartbeat. A bot with a server-assigned profile waits when that profile is missing or signed out; it never runs on another profile, the local default or the operator's login. Health and subscription status show `Subscription <name> isn't on <computer>` or `Subscription <name> isn't signed in on <computer>`. The server also holds these bots on older Computers that cannot report profiles, with `Update <computer> to use subscriptions`. Bots without an assignment keep their local profile and default behavior.
 
-A current runner retries a rejected heartbeat without only the unsupported report: subscriptions, worktrees or repository clones. Other reports stay intact, and unrelated errors retain their original message. Invalid local profile names are omitted from reports. Provider sign-in probes are cached for one minute and refreshed after sign-in or a rejection. Turns and watcher scripts use the cached sign-in state without probing at every start. A probe timeout leaves sign-in unknown and allows a turn to try. A fallback harness uses the same assigned subscription and waits with `Subscription <name> isn't signed in on <computer>` when its login is missing. Start refusals record a diagnostic with the runtime in a detail field and requeue the job without posting a chat reply. The server waits for a fresh ready subscription report before handing it out again. Assigned profiles cover Codex, Claude Code, Grok and Gemini CLI. Other runtimes, including Cursor Agent, Pi and Antigravity, wait with `Subscription <name> doesn't cover <runtime>` in Health and the model picker. A rejection affects only that runtime on that profile. Claude profiles keep their existing HOME-based login layout. Completion and usage records include the selected profile when a turn starts; empty profile fields are omitted.
+A current runner retries a rejected heartbeat without only the unsupported report: subscriptions, worktrees or repository clones. Other reports stay intact, and unrelated errors retain their original message. Invalid local profile names are omitted from reports. Provider sign-in probes are cached for one minute and refreshed after sign-in or a rejection. Turns and watcher scripts use the cached sign-in state without probing at every start. A probe timeout leaves sign-in unknown and allows a turn to try. A fallback harness uses the same assigned subscription and waits with `Subscription <name> isn't signed in on <computer>` when its login is missing. Start refusals record a diagnostic with the runtime in a detail field and requeue the job without posting a chat reply. The server waits for a fresh ready subscription report before handing it out again. Assigned profiles cover Codex, Claude Code, Grok Build, Cursor Agent, Muse Code and Gemini CLI. Other runtimes, including Pi and Antigravity, wait with `Subscription <name> doesn't cover <runtime>` in Health and the model picker. A rejection affects only that runtime on that profile. Claude profiles keep their existing HOME-based login layout. Completion and usage records include the selected profile when a turn starts; empty profile fields are omitted.
 
 Each run pins its selected local profile directory before preparing the provider environment. Changes to a bot assignment, local default, or profile directory affect later runs, not an in-progress primary or fallback attempt. Environment, host setup, session reuse, usage and rejection attribution use the same binding; fallback still checks its runtime eligibility and known sign-in state. A run started on the unnamed operator login does not acquire a newly configured profile midway through execution. Changing a profile directory starts a separate provider session. The first run after upgrading to directory-bound session keys also starts a fresh provider session for named profiles; the Tico conversation remains intact. This pins the login slot, not the provider account inside it: avoid replacing credentials in a slot while it has active runs.
 

@@ -23,6 +23,29 @@ use super::{event, failed, is_limit, Events, HostError, Settings};
 use crate::env::Env;
 use crate::util::{log, text_of, truthy};
 
+/// Grok has no status subcommand. Its scoped auth store is the local sign-in; an empty store after logout is not.
+/// Paths and entry fields follow xai-org/grok-build's xai-grok-login storage.rs and model.rs.
+pub fn signed_in(env: &Env) -> Option<bool> {
+    let path = env.get("GROK_AUTH_PATH").filter(|v| !v.is_empty()).map(std::path::PathBuf::from).or_else(|| {
+        env.get("GROK_HOME").filter(|v| !v.is_empty()).map(std::path::PathBuf::from)
+            .or_else(|| env.get("HOME").map(|h| std::path::Path::new(h).join(".grok")))
+            .map(|h| h.join("auth.json"))
+    })?;
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Some(false),
+        Err(_) => return None,
+    };
+    if text.trim().is_empty() {
+        return Some(false);
+    }
+    let store = serde_json::from_str::<Value>(&text).ok()?;
+    Some(store.as_object()?.values().any(|entry| {
+        entry["key"].as_str().is_some_and(|k| !k.trim().is_empty())
+            && matches!(entry["auth_mode"].as_str(), Some("oidc" | "external"))
+    }))
+}
+
 const PROTOCOL_VERSION: i64 = 1;
 const REQUEST_TIMEOUT: u64 = 120;
 pub const DEFAULT_MODEL: &str = "grok-4.6";

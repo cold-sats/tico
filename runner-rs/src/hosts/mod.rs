@@ -747,6 +747,7 @@ pub fn data_problem(runtime: &str, profile: Option<&crate::profiles::Profile>) -
 pub fn file_signed_in(runtime: &str, env: &Env) -> Option<bool> {
     match runtime {
         "musecode" => musecode::signed_in(&musecode::auth_file(env)),
+        "grok" => grok::signed_in(env),
         _ => None,
     }
 }

@@ -15,8 +15,8 @@ and holds no harness.
 | Claude Code | `claude-code.toml` | Anthropic | npm `@anthropic-ai/claude-code` | Claude subscription (link and pasted code, from Settings), `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` |
 | Gemini CLI | `gemini-cli.toml` | Google | npm `@google/gemini-cli` | `GEMINI_API_KEY` |
 | Antigravity (Gemini variant) | `gemini-cli.toml` `[variants.antigravity]` | Google | Operator installs `agy`; the runner never installs or updates it | Google account, signed in by the operator in `agy`; readiness checks only that `agy` is on PATH, a real run checks the sign-in; no MCP servers |
-| Grok Build | `grok.toml` | xAI | npm `@xai-official/grok` (xAI's own package) | Grok subscription (`grok login` in a terminal) or `XAI_API_KEY` |
-| Cursor Agent | `cursor-agent.toml` | Cursor | Cursor's install script, run with `HOME` inside the tools directory | Cursor subscription (`cursor-agent login` in a terminal) or `CURSOR_API_KEY` |
+| Grok Build | `grok.toml` | xAI | npm `@xai-official/grok` (xAI's own package) | Grok subscription (device code, from Settings) or `XAI_API_KEY` |
+| Cursor Agent | `cursor-agent.toml` | Cursor | Cursor's install script, run with `HOME` inside the tools directory | Cursor subscription (browser link, from Settings) or `CURSOR_API_KEY` |
 | Muse Code | `muse-code.toml` | Meta | Meta's install script (`dev.meta.ai/install.sh`), run with `HOME` inside the tools directory | Meta account (device code, from Settings) or `META_API_KEY` |
 | pi (catch-all) | `pi.toml` | DeepSeek, Kimi (Moonshot), Mistral, OpenRouter | npm `@earendil-works/pi-coding-agent` | `OPENROUTER_API_KEY` |
 
@@ -30,6 +30,21 @@ run, with the prompt on stdin and the chat made by `cursor-agent create-chat`, s
 the model itself on `auto` (`cursor-auto` in the model list); a bot's config may name any other model Cursor offers.
 Cursor's installer only ever installs the newest release, so this harness follows `latest` and cannot be pinned to an
 older version (Pin to this version pins the one installed).
+
+Grok Build and Cursor Agent sign in from **Settings > Computers**, for the computer's own login or a named
+subscription added with **Add connection**. Both offer **Sign out** and **Switch account**. Grok uses
+[`grok login --device-auth`](https://docs.x.ai/build/cli/reference), then reads its scoped `~/.grok/auth.json`
+store for sign-in state (an empty store is signed out). It has no status command. Cursor uses
+[`cursor-agent login`](https://cursor.com/docs/cli/reference/authentication) with `NO_OPEN_BROWSER=1`, and checks
+`cursor-agent status`. Neither flow asks for a code to paste into Tico.
+
+Cursor commands in Tico use `AGENT_CLI_CREDENTIAL_STORE=file`, its supported
+[file credential mode](https://cursor.com/docs/release-notes), so named subscriptions and switches have separate
+credentials on macOS too. The CLI stores these in `~/.config/cursor/auth.json` on Linux or `~/.cursor/auth.json`
+on macOS. An existing macOS Keychain login needs a fresh sign-in from Tico; its Keychain entry is untouched.
+Named profiles use their own `HOME` and drop inherited config-path overrides. A computer login using a custom
+auth folder can still sign in and out; Switch account refuses that layout before starting, so it cannot overwrite
+an account outside the switch's private folder. Sign out and sign in instead, or use a named subscription.
 
 Muse Code is Meta's coding CLI (`muse`). Its runtime is `musecode`, because `muse` already names the Muse app synced
 in as an external agent. `runner-rs/src/hosts/musecode.rs` runs `muse exec --json --yolo` once per run with the prompt in a

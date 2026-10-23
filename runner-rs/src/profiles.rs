@@ -535,7 +535,7 @@ pub async fn report(config: &Map<String, Value>, rejected: &(dyn Fn(&str, &str) 
                     match status.check.as_str() {
                         "command" | "json" => {
                             if let (Some(exe), false) = (exe, budget.is_zero()) {
-                                let env = profile.environment(runtime, &clean);
+                                let env = profile.login_environment(runtime, &clean);
                                 // As the bot user, like readiness and turns: the CLI may write in the profile's home.
                                 let mut cmd = crate::isolation::command(exe);
                                 cmd.args(&status.args).env_clear().envs(&env).stdin(std::process::Stdio::null()).kill_on_drop(true);

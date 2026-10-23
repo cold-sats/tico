@@ -55,3 +55,17 @@ def test_nothing_token_like_is_stored_or_shown(api):
     assert shown["url"] == "" and shown["code"] == ""            # http and free text are refused
     assert "Enter code AB12-CD345" in shown["lines"]
     assert "\x1b" not in dump
+
+
+def test_cursor_named_subscription_can_be_created_and_controlled(api):
+    r = online(api)
+    post(api, "runners/heartbeat", {"version": "test", "platform": "linux", "readiness": {},
+                                 "capabilities": ["model_sign_out_v1"]}, token=r["token"])
+    login = post(api, f"computers/{r['runner_id']}/logins", {"runtime": "cursor", "profile": "work-cursor"})
+    assert login["profile"] == "work-cursor" and login["state"] == "requested"
+    report(api, r, login["id"], state="signed_in")
+    switch = post(api, f"computers/{r['runner_id']}/logins", {"runtime": "cursor", "profile": "work-cursor", "switch": True})
+    assert switch["kind"] == "switch"
+    post(api, f"computers/{r['runner_id']}/logins/{switch['id']}/cancel", {})
+    logout = post(api, f"computers/{r['runner_id']}/logouts", {"runtime": "cursor", "profile": "work-cursor"})
+    assert logout["kind"] == "sign_out"

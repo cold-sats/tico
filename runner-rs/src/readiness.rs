@@ -54,7 +54,14 @@ pub fn codex_models(home: Option<PathBuf>) -> Vec<String> {
 pub async fn runtime_readiness(runtime: &str, sign: &SignIn, client: &Client, assignments: &[Value], profile: Option<&Profile>) -> Map<String, Value> {
     let caps = crate::harness_tools::caps(runtime, "");
     let exe = if crate::harness_tools::runtimes().iter().any(|r| r == runtime) { executable(runtime) } else { None };
-    let env: Option<Env> = profile.map(|p| p.environment(runtime, &std::env::vars().collect()));
+    let mut process: Env = std::env::vars().collect();
+    if profile.is_some_and(|p| !p.share_operator) {
+        for key in crate::harness_tools::api_key_env(runtime) {
+            process.remove(&key);
+        }
+    }
+    process.extend(crate::harness_tools::env_for(runtime));
+    let env: Option<Env> = Some(profile.map_or_else(|| process.clone(), |p| p.environment(runtime, &process)));
     let env = env.as_ref();
     let mut version = String::new();
     let (authenticated, detail) = match &exe {
@@ -196,7 +203,7 @@ async fn sign_in_state(
         "none" => return ("unknown", "Authentication cannot be checked without starting the runtime".into()),
         "file" => {
             // The host's login file in the config folder its turns run with (its own one, when it keeps one).
-            let mut file_env: Env = std::env::vars().collect();
+            let mut file_env = env.cloned().unwrap_or_else(crate::env::process_environment);
             if caps.own_config_home {
                 crate::hosts::use_own_config_home(runtime, profile, &mut file_env);
             }

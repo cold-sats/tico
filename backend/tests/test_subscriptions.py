@@ -182,12 +182,12 @@ def test_subscription_refusal_requeues_until_fresh_ready_report(api):
         post(api, 'runners/heartbeat', heartbeat, token=r['token'])
 
 
-def test_subscription_picker_and_claim_refuse_unmapped_runtimes(api):
+def test_subscription_picker_and_claim_cover_cursor_but_refuse_unmapped_runtimes(api):
     r = runner(api)
     assign(api, r, 'ops')
     put(api, 'subscriptions', {'scope': 'bot', 'target': 'ops', 'profile': 'one'})
     post(api, 'chat/ops', {'text': 'Wait for a covered runtime'})
-    for runtime, harness in [('cursor', 'cursor-agent')]:
+    for runtime, harness in [('pi', 'pi')]:
         set_runtime(api, runtime, harness)
         post(api, 'runners/heartbeat', {'version': 'test', 'platform': 'test', 'readiness': {'ops': True},
              'profiles': [{'name': 'one', 'runtimes': {runtime: {'signed_in': True}}}]}, token=r['token'])
@@ -195,6 +195,13 @@ def test_subscription_picker_and_claim_refuse_unmapped_runtimes(api):
         assert sub['problem'] == f"Subscription one doesn't cover {runtime}"
         assert sub['signed_in'] is False
         assert claim(api, r) is None
+    set_runtime(api, 'cursor')
+    post(api, 'runners/heartbeat', {'version': 'test', 'platform': 'test', 'readiness': {'ops': True},
+         'profiles': [{'name': 'one', 'runtimes': {'cursor': {'signed_in': True}}}]}, token=r['token'])
+    sub = get(api, 'bots/ops/subscription')
+    assert sub['problem'] == '' and sub['signed_in'] is True
+    work = claim(api, r)
+    assert work['profile'] == 'one' and work['config']['runtime'] == 'cursor'
 
 
 def test_a_login_whose_turns_cannot_save_a_session_names_the_folder_not_a_sign_in(api):
