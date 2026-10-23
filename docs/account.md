@@ -106,7 +106,8 @@ Each row shows its address or label, **State**, and **Price**.
 
 ## Hosting grace and retained data
 
-**Unreleased:** Hosting billing remains off. These rules describe the billing update, whose deployment and activation are not confirmed.
+**Unreleased:** Hosting billing remains off. Stop-time change emails and renewed reminders are still under review.
+Merge, deployment, and activation are not confirmed.
 
 The default Hosting grace period is 72 hours. Tico staff can set a different period for your company.
 In **Enforce** mode with a positive grace period, grace starts when your balance reaches or falls below the staff-set minimum.
@@ -123,13 +124,18 @@ Lowering the minimum below your balance ends grace, as enough credit does.
 Changing the grace period keeps its original starting point.
 If staff shorten it past the time already elapsed, servers stop at the next daily run at 00:05 UTC.
 For example, changing a 72-hour grace to 48 hours after 50 hours schedules that stop for the next daily run.
+The change email names that next 00:05 UTC run, not the already-passed deadline.
 
 During grace, the company owner sees one **Needs you: add credit** card on this account page.
 It shows the stop time in UTC, says **Your data is kept**, and directs you to **Ask for more credit** below.
 The card appears only for the owner, not other company members, and stays on the account page outside your Tico.
 Refreshing the page does not create another card.
 
-The card follows changes to the stop time. It disappears when your balance rises above the minimum or the stop completes.
+A real stop-time change updates this same card and sends one **Stop time changed** email to the current owner.
+This applies to earlier and later moves, before or after a reminder has been sent.
+An edit that leaves the effective stop time unchanged sends nothing.
+The card disappears when your balance rises above the minimum or the stop completes.
+Credit or a lower minimum that ends grace sends no stop-time change email.
 Use [Ask for more credit](ask-for-credit.md) to request credit from staff. The card does not take a card payment.
 
 The grace emails go to the current company owner, using the account page’s company membership and profile email.
@@ -138,18 +144,25 @@ They do not rely on the original sign-up email.
 | Email | When it is sent | What it tells you |
 |---|---|---|
 | Grace started | When grace starts. | Your servers keep running until the UTC stop time unless credit is added. Your data is kept. |
-| Reminder | 24 hours before the stop, if the scheduled grace lasts more than 24 hours. | The stop time and how to sign in to request credit. |
-| Servers stopped | After the stop completes. | Your servers have stopped and your data is kept. |
+| Stop time changed | After a real stop-time move during grace. | The new UTC stop time and how to sign in to request credit. |
+| Reminder | 24 hours before the current stop, if it was more than 24 hours away when scheduled. | The stop time and how to sign in to request credit. |
+| Servers stopped | After the stop completes. | The actual successful stop time and confirmation that your data is kept. |
 
-A reminder is sent at most once per grace period. A grace of 24 hours or less has no separate reminder.
+After a change, a stop more than 24 hours away gets one reminder at the new stop time minus 24 hours.
+If the new stop is 24 hours away or less, the change email replaces the reminder.
+A reminder is sent at most once per stop time within the same grace period.
+Returning to an already-reminded stop time does not send another reminder for it.
+An initial grace of 24 hours or less has no separate reminder.
+
+The card and the start or change email must show the same current stop time.
+A complete start or change notice requires both the matching owner-only card and an accepted email.
 A failed or partial delivery is recorded as unsent and is not automatically retried.
-You may see the card without receiving an email, or receive an email when the card is unavailable.
 Check this account page for the current deadline.
 
 Zero-hour companies, including waitlist companies, receive no grace card or grace emails.
 Their separate [credit notices](#credit-notices) provide the one run-out email.
 **Record only** companies receive no grace notices.
-Delivered emails and live account-page behaviour remain unverified for this merged update.
+Delivered emails and live account-page behaviour remain unverified. Stop-time change emails and renewed reminders are not confirmed merged.
 
 When grace expires, Tico stops the servers and keeps their data. It does not delete them for running out of credit.
 Waitlist accounts have zero grace: both servers stop within five minutes of reaching the minimum.
@@ -188,3 +201,5 @@ The billing and account-page merges do not confirm their availability or enable 
 *Starting credit and notices checked 2026-10-23: waitlist spec v3.4 §§2–3 and Answers 14–16; services#132, hosting/approve.py (CREDIT_DAYS, approve, on_installed, _grant, SignupSetup, _send); Engineering’s accepted receipt ordering on Dev 344; services#130, portal/views.py (credit_notice). Restart-amount follow-ups services#142/admin#21 remain unmerged at this check. No live grant, email, server power action, or deployment verified.*
 
 *Grace notices checked 2026-10-23: [ticoteam/tico-services#147](https://github.com/ticoteam/tico-services/pull/147), billing/grace_notices.py (status, __call__), billing/hosting.py (grace_text, _grace_period, _grace_row), billing/credit_notices.py (OWNER_EMAIL, status), portal/account.py (summary), and portal/views.py (account); Billing system spec v1.1, tests 7 and 19. Synthetic receipts only; HQ deployment, daily billing activation, live card rendering, and email delivery not verified.*
+
+*Stop-time changes checked 2026-10-23: [ticoteam/tico-services#154](https://github.com/ticoteam/tico-services/pull/154), source 417ff739, billing/hosting.py (_grace_period, _scheduled_at, _has, grace_text) and billing/grace_notices.py (__call__); Billing system spec v1.2, tests 19, 21, and 24. Review 2 and test 24 QA remain required. Synthetic evidence only; merge, deployment, activation, live email, and power actions not confirmed.*

@@ -1,6 +1,7 @@
 # Manage a company's billing (staff)
 
-**Unreleased Hosting update:** billing remains off. The Hosting rules below do not confirm deployment or activation.
+**Unreleased Hosting update:** billing remains off. Stop-time change emails and renewed reminders are still under review.
+Merge, deployment, and activation are not confirmed.
 
 Only Tico staff see this page. Open **Customers** on the admin page, pick the company, then open **Billing**.
 The page sits behind Cloudflare Access, so customers never reach it, and HQ only takes these changes with
@@ -75,14 +76,22 @@ The stop time counts from when the balance first reached the minimum. Changing t
 recomputes that stop time from the same starting point.
 If the new deadline has already passed, servers stop at the next daily run at 00:05 UTC, rather than when you save.
 For example, shortening a 72-hour grace to 48 hours after 50 hours schedules the stop for that next daily run.
+The change email names that next 00:05 UTC run. The final stop email names the actual successful stop time.
 
 Stops retain the servers’ data. With positive grace in **Enforce** mode, the current owner gets the grace-start email,
 a 24-hour reminder where applicable, and the stopped/data-kept email.
 The owner’s account page shows one **Needs you: add credit** card with the UTC stop time and **Ask for more credit** direction.
-Changing the grace period updates that card. Recovery above the minimum or a completed stop removes it.
+Every real stop-time move sends one **Stop time changed** email and updates that same card.
+Earlier and later moves both count, whether or not the prior reminder was sent.
+If the new stop is more than 24 hours away at the change, one reminder follows at the new stop minus 24 hours.
+At 24 hours or less, the change email replaces the reminder.
+Reminders are at most once per stop time within the same grace period, including a return to an already-reminded time.
+An edit that leaves the effective stop time unchanged sends nothing.
+Recovery above the minimum ends grace without a change email. Recovery or a completed stop removes the card.
 See [Hosting grace and retained data](account.md#hosting-grace-and-retained-data) for the email timing and exclusions.
 
 The recipient comes from the current company owner’s membership and profile, not the original sign-up email.
+A complete start or change delivery requires an accepted email and an available current-owner card with the matching stop time.
 A failed or partial delivery is recorded as `unsent`, even if one channel succeeded.
 There is no automatic retry or outbox for grace notices. An unsent result does not prove that no email was accepted.
 Zero-hour companies, including waitlist companies, use their separate credit-notice run-out email instead.
@@ -100,6 +109,9 @@ Pick **Record only** or **Enforce**.
 **Record only** is the default for every company: usage and balance are recorded and shown, and
 nothing stops. Tico Team's own install always stays **Record only**. With **Enforce**, the company's
 Tico models stop at the minimum balance and its Hosting servers stop once the grace period ends.
+
+Do not switch any company to **Enforce** with Hosting grace above zero until changed-stop-time notices and reminders pass QA.
+This gate does not affect **Record only** or zero-hour waitlist companies.
 
 ## Settings history
 
@@ -119,3 +131,5 @@ period 72 hours, Record only.
 *Hosting changes checked 2026-10-23: ticoteam/tico-services#138; Billing system spec v1.1, boundary rule and tests 7–8 and 19–23; waitlist spec v3.4, Answers 15–16. Owner-start safeguard (Dev 430) remains separate; grace notices are covered below from services#147. Billing remains off.*
 
 *Grace notices and Gateway status checked 2026-10-23: [ticoteam/tico-services#147](https://github.com/ticoteam/tico-services/pull/147), billing/staff.py (staff_billing_account), billing/gateway_usage.py (live), billing/grace_notices.py, billing/hosting.py, and portal/views.py; Billing system spec v1.1, tests 7 and 19. Gateway labels checked in ticoteam/tico-internal admin/tico_admin/billing.py (standing), reviewed source 58bb5077. Fresh internal-repository access, separate admin installation, HQ deployment, daily billing activation, live email, and power actions not verified.*
+
+*Stop-time changes checked 2026-10-23: [ticoteam/tico-services#154](https://github.com/ticoteam/tico-services/pull/154), source 417ff739, billing/hosting.py (_grace_period, _scheduled_at, _has, grace_text) and billing/grace_notices.py (__call__); Billing system spec v1.2, tests 19, 21, and 24. Review 2 and test 24 QA remain required before guarded landing; positive-grace Enforce activation stays gated on test 24 QA. No live email, database, or power verification.*
