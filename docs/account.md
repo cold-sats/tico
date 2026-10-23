@@ -1,6 +1,8 @@
 # Your Tico account page
 
-**Unreleased:** this help describes the merged account-page update. Deployment is still being verified.
+**Unreleased:** this help covers the account page, waitlist approval, and credit notices.
+HQ deployment, the separate staff admin installation, and live acceptance are not confirmed.
+Hosting billing activation remains unverified.
 
 [app.tico.dev](https://app.tico.dev/) is your company’s account page, hosted by Tico on HQ.
 It stays available when your Tico server or bot computer stops.
@@ -12,6 +14,38 @@ The page shows only companies you belong to.
 While you wait, the page shows **You’re on the waitlist**.
 If staff decline your sign-up, it shows **We can’t offer a spot right now**.
 See [Joining the Tico waitlist](waitlist.md).
+
+## Your starting credit and what happens at $0
+
+Waitlist approval normally gives you **$20.00** of starting credit. Staff can approve a different amount.
+It pays for Hosting and Tico models. Approval provisions two **Starter** servers: your Tico server and your bot computer.
+It also issues your Tico models key.
+
+Your starting grant expires **30 days after approval**, at the UTC expiry shown on your account page.
+Setup retries keep that original expiry. They do not start another 30 days.
+For example, approval at 14:30 UTC on October 23 gives an expiry of 14:30 UTC on November 22.
+Unused credit expires by its remaining amount: if $6 is left, expiry lowers the balance by $6.
+An expiry that takes the balance to $0 triggers the normal pause below.
+
+Waitlist approval sets billing to **Enforce**, with a **$0 minimum balance** and **0-hour Hosting grace**.
+At exactly $0, the company is paused. A balance below $0 is paused too.
+
+| Service | What happens at $0 under these rules |
+|---|---|
+| Tico models | The Gateway refuses calls within five minutes, normally on the next call. |
+| Tico server and bot computer | Both stop within five minutes, with no Hosting grace. Your Tico goes dark. |
+| Your account page | [app.tico.dev](https://app.tico.dev/) stays available to check credit and ask for more. |
+| Your data | Kept for at least 30 days. Running out of credit does not delete it. |
+
+The Gateway uses a balance cached for at most five minutes and subtracts each process’s own call costs between refreshes.
+It refuses the next call when that cached balance is at or below the minimum.
+Other spending can take up to five minutes to reach that cache, allowing up to five minutes of extra usage.
+Hourly model debits record usage; they are not the pause-check interval.
+See [Gateway credit rules](ai-gateway.md#credit-and-the-minimum-balance).
+
+Adding credit must cover anything owed and leave the balance above $0.
+Models resume within five minutes. Both servers must also pass the separate [restart check](#more-credit-and-restarting).
+A positive balance can restore model access while both servers remain stopped.
 
 ## Balance and credit
 
@@ -26,6 +60,22 @@ If billing is still being set up, it shows **No credit yet**.
 
 The live balance can fall before the usage tables update. Credit remaining and balance can therefore differ.
 Expired unused credit no longer counts toward the balance.
+
+## Credit notices
+
+Below the warning threshold, the page shows **$X of credit left; things stop at $0**.
+The threshold defaults to $20, so the first spend from a $20 grant can trigger the warning.
+Staff can change the threshold. The warning email sends once per crossing and rearms when the balance returns to the threshold or above.
+If spending takes you straight to paused before a warning is sent, you get only the run-out email.
+
+At the minimum, **Paused: out of credit** shows the reported stop times for the Gateway key and both servers.
+**Not reported yet** means that service’s stop time is not available yet.
+The owner gets one run-out email with an **Ask for more credit** link for that pause.
+Waitlist credit notices do not create a card inside your Tico.
+After recovery, **Restarted** shows the restart time and the service times reported so far.
+
+These notices describe the merged update. Delivered emails and live status changes remain unverified.
+The separate message showing the amount needed to restart servers is still under review.
 
 ## Usage
 
@@ -94,7 +144,7 @@ Amounts already owed must also be covered. A positive balance alone may not cove
 
 | Account | Restart rule for the billing update |
 |---|---|
-| Waitlist account with zero grace | Both servers restart automatically only when the balance covers today’s uncharged costs for both and stays above the minimum. If either fails this check, neither restarts. |
+| Waitlist account with zero grace | Both servers restart automatically at the next billing run, normally within a minute, once the balance covers today’s uncharged costs for both. It must stay above the minimum. If either fails this check, neither restarts. |
 | Account with a positive grace period | Stopped servers need a manual owner restart. Each server must pass the same balance and daily-cost check. This owner-start path is still being completed. |
 
 For example, credit added on the same UTC day can reuse server charges already paid for that day.
@@ -104,9 +154,11 @@ This check does not change the separate model-recovery rule above.
 The intended manual-start safeguard refuses starts while paused or short of today’s server costs.
 Its owner control is unfinished, so this help does not provide a start procedure.
 
-**Unreleased dependencies:** the manual owner-start safeguard, grace notices, and credit-notice banners and restart-shortfall amounts remain separate work.
+**Unreleased dependencies:** the manual owner-start safeguard, grace notices, and restart-shortfall amounts remain separate work.
 The billing and account-page merges do not confirm their availability or enable billing.
 
-*Sources checked 2026-10-23: ticoteam/tico-services#127, portal/views.py (account, _ends, _usage), portal/account.py (summary), and hosting/preview.py (company_servers); spec v3.4 sections 2–3 and Answers 14–15. Banner dependency: Credit notices (Dev 346). Deployment and live sign-in not verified.*
+*Sources checked 2026-10-23: ticoteam/tico-services#127, portal/views.py (account, _ends, _usage), portal/account.py (summary), and hosting/preview.py (company_servers); spec v3.4 sections 2–3 and Answers 14–15. Credit notices are covered below from services#130. Deployment and live sign-in not verified.*
 
 *Hosting rules checked 2026-10-23: ticoteam/tico-services#138; Billing system spec v1.1, boundary rule, section 2, and tests 7–8 and 19–23; billing database design, Option A and Settled; waitlist spec v3.4, section 2 and Answers 15–16. Manual owner-start dependency: Dev 430. Grace notices: Dev 347. Billing remains off; deployment and live power actions not verified.*
+
+*Starting credit and notices checked 2026-10-23: waitlist spec v3.4 §§2–3 and Answers 14–16; services#132, hosting/approve.py (CREDIT_DAYS, approve, on_installed, _grant, SignupSetup, _send); Engineering’s accepted receipt ordering on Dev 344; services#130, portal/views.py (credit_notice). Restart-amount follow-ups services#142/admin#21 remain unmerged at this check. No live grant, email, server power action, or deployment verified.*
