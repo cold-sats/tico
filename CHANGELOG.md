@@ -30,6 +30,11 @@ All notable changes to Tico are recorded here. The format follows
   shows a warning that names the risk ("This bot sends messages for you. … may word things badly."). It still saves
   and its tasks still run on it, and each such run's note says it ran below the minimum for that bot.
 
+### Fixed
+- **A Docker runner at high capacity starts its turns.** The runner container allowed 2048 processes and threads,
+  about 70 turns' worth, so a runner set above that failed to start new turns ("Resource temporarily unavailable")
+  and kept claiming and dropping the same requests. The limit is now 12288, enough for the 256 a runner honours.
+
 ## [0.3.74] - 2026-10-22
 
 ### Added
