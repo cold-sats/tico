@@ -163,11 +163,11 @@ minutes and waiting on nothing of its own (no blocker, no unanswered question, n
 snooze, stored resume or milestone wait), the task counts as stalled even while `waiting`: its bot
 is woken with the way out, under the same limits, and BotOps's stuck list shows it with `own_blockers`.
 
-Task worktrees have a separate lifecycle. The 50-worktree limit stays in effect, and cleanup
+Task worktrees have a separate lifecycle. The 100-worktree limit stays in effect, and cleanup
 waits until the owning bot is idle so it cannot remove a checkout in use. A supported cleanup
-request continues to occupy its slot until the runner removes it. For merged work that is still
-awaiting release, request cleanup of the worktree link rather than marking the task Done or Closed
-just to free space.
+request continues to occupy its slot until the runner removes it. When all linked pull requests
+finish, clean worktrees are released even while the task awaits release or post-release QA.
+Trees with unpushed work stay and show the reason. Keep the task at its real step; do not mark it Done or Closed just to free space.
 
 ## Picking work back up
 
