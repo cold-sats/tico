@@ -1,10 +1,18 @@
 """Tico file hosting 1/2 (Dev 315): a company's files in Tico's bucket, handed over by Tico HQ, served from its
 ticofiles.com address. Spec tests 1, 4 and 7, and the app halves of 5 and 6 (Product roadmap "Tico file hosting
 through Gateway"). Fake S3 and a fake HQ only: no network."""
+import base64
+import hashlib
+import hmac
 import io
 import json
+import struct
 import threading
+import time
+import urllib.parse
 import zipfile
+import zlib
+from datetime import datetime, timedelta, timezone
 
 import boto3
 import pytest
@@ -16,8 +24,38 @@ from backend.tests.test_storage_delivery import S3, attach, task
 
 SECRET = "tico-hosting-secret-access-key-01"
 TOKEN = "tico-hosting-session-token-01"
-KEY = "AKIATICOHOSTING0001"
-ADDRESS = "https://acme.ticofiles.com"
+KEY, KEY2 = "AKIATICOHOSTING0001", "AKIATICOHOSTING0002"
+SIGNING = "0123456789abcdef0123456789abcdef0123456789abcdef"
+ADDRESS = "acme-files.ticofiles.com"
+OFF = {"state": "off", "writes": False, "reason": None, "access": "none", "address": None, "bucket": None,
+       "region": None, "prefix": None, "credentials": None, "signing": None, "keep_until": None}
+
+
+def png():
+    """A 1x1 picture."""
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(b"\x00\xff\x00\x00")) + chunk(b"IEND", b""))
+
+
+class Bucket(S3):
+    """Tico's bucket: keeps each object's type and disposition as S3 does, and answers them on HEAD."""
+    def __init__(self):
+        super().__init__()
+        self.meta = {}
+
+    def put_object(self, **kw):
+        super().put_object(**kw)
+        self.meta[kw['Key']] = (kw.get('ContentType'), kw.get('ContentDisposition'))
+
+    def complete_multipart_upload(self, **kw):
+        super().complete_multipart_upload(**kw)
+
+    def head_object(self, **kw):
+        found = super().head_object(**kw)
+        kind, how = self.meta.get(kw['Key'], (None, None))
+        return {**found, **({'ContentType': kind} if kind else {}), **({'ContentDisposition': how} if how else {})}
 
 
 class NoWrite(S3):
@@ -26,16 +64,17 @@ class NoWrite(S3):
 
 
 class HQ:
-    """Tico HQ's file-hosting endpoint: answers with `self.answer`, records what the app sent."""
+    """Tico HQ's file-hosting endpoints: GET /files answers `self.answer`; POST /files/total is recorded."""
     def __init__(self):
-        self.answer, self.status, self.asked = {"state": "off"}, 200, []
+        self.answer, self.status, self.asked = dict(OFF), 200, []
 
     def __call__(self, request, timeout):
-        self.asked.append((request.full_url, request.get_header("Authorization"), json.loads(request.data)))
+        body = json.loads(request.data) if request.data else None
+        self.asked.append((request.get_method(), request.full_url, request.get_header("Authorization"), body))
         if self.status != 200:
             import urllib.error
             raise urllib.error.HTTPError(request.full_url, self.status, "no", {}, io.BytesIO(b'{"error":"not_found"}'))
-        body = json.dumps(self.answer).encode()
+        out = json.dumps(self.answer if request.get_method() == "GET" else body).encode()
 
         class Answer(io.BytesIO):
             status = 200
@@ -45,64 +84,79 @@ class HQ:
 
             def __exit__(self, *exc):
                 return False
-        return Answer(body)
+        return Answer(out)
 
 
 class Owner:
     actor = 'human:ana'
 
 
-def on(state="on", **extra):
-    return {"state": state, "bucket": "tico-files-us", "prefix": "c/acme", "region": "us-east-1",
-            "access_key_id": KEY, "secret_access_key": SECRET, "session_token": TOKEN, "address": ADDRESS,
-            "price_gb_month": 0.033, **extra}
+def stamp(minutes):
+    return (datetime.now(timezone.utc) + timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def on(state="on", key=KEY, token=TOKEN, expires=60, **extra):
+    """HQ's answer (tico-services gateway/files.py) for the app's state `state`."""
+    hq, writes, reason, access = {"on": ("on", True, None, "read_write"),
+                                  "credits_out": ("on", False, "out_of_credit", "read_only"),
+                                  "stopped": ("stopped", False, "stopped", "read_only")}[state]
+    return {"state": hq, "writes": writes, "reason": reason, "access": access, "address": ADDRESS,
+            "bucket": "tico-files-us", "region": "us-east-1", "prefix": "c/acme/",
+            "credentials": {"access_key_id": key, "secret_access_key": SECRET, "session_token": token,
+                            "expires": stamp(expires)},
+            "signing": {"key_id": "k1", "secret": SIGNING}, "keep_until": stamp(30 * 24 * 60) if hq == "stopped" else None,
+            **extra}
 
 
 @pytest.fixture
 def tico(api, monkeypatch):
     """The Tico bucket (signed by HQ's keys and session token), the company's own bucket, the server's, and HQ."""
-    made = {KEY: S3(), 'AKIAEXAMPLEGOOD0001': S3(), 'AKIAEXAMPLENOWR0001': NoWrite(), 'server': S3()}
+    bucket = Bucket()
+    made = {KEY: bucket, KEY2: bucket, 'AKIAEXAMPLEGOOD0001': S3(), 'AKIAEXAMPLENOWR0001': NoWrite(), 'server': S3()}
     for s3 in made.values():
         s3.close = lambda: None
+    signed = []
 
     def client(service, **options):
         if 'aws_access_key_id' not in options:
             return made['server']
-        if options['aws_access_key_id'] == KEY:
-            assert options['aws_secret_access_key'] == SECRET and options['aws_session_token'] == TOKEN
+        if options['aws_access_key_id'] in (KEY, KEY2):
+            assert options['aws_secret_access_key'] == SECRET and options['aws_session_token'].startswith(TOKEN)
+            signed.append(options['aws_session_token'])
         return made[options['aws_access_key_id']]
     monkeypatch.setattr(boto3, 'client', client)
     monkeypatch.setenv('TICO_GATEWAY_KEY', 'gk_test_0123456789abcdef')
     monkeypatch.setenv('TICO_GATEWAY_URL', 'https://gateway.example')
     api.app.state.blobs._loop = None
     hq = HQ()
+    hq.signed = signed
     app = api.app
 
-    def sync(answer=None):
+    def sync(answer=None, report=False):
         if answer is not None:
             hq.answer = answer
-        return tico_storage.sync(app.state.store, app.state.vault, app.state.blobs, opener=hq)
+        return tico_storage.sync(app.state.store, app.state.vault, app.state.blobs, opener=hq, report=report)
     return made, hq, sync
 
 
-def download(api, fid, who='ana-test'):
-    return api.get(f'/api/v2/files/{fid}', headers=headers(who))
+def download(api, fid, who='ana-test', **options):
+    return api.get(f'/api/v2/files/{fid}', headers=headers(who), **options)
 
 
 def test_turning_it_on_stores_new_files_in_tico_storage_and_existing_files_still_open(api, tico):
-    """Spec 1: new files in Tico's storage, under the company's own folder; existing files still open; visuals in
-    full on its ticofiles.com address. Keys come from HQ, sealed, never shown."""
+    """Spec 1: new files in Tico's storage, under the company's own folder; existing files still open. Keys come
+    from HQ, sealed, never shown."""
     made, hq, sync = tico
     tid = task(api)
     before = attach(api, tid, 'before.txt', b'on the server disk before')
-    assert sync() == {"state": "off", "label": "Tico file hosting"}, 'not bought: nothing changes'
-    assert not api.app.state.blobs.bucket and api.app.state.store.settings.visual_origin == ''
+    assert sync(report=True) == {"state": "off", "label": "Tico file hosting"}, 'not bought: nothing changes'
+    assert not api.app.state.blobs.bucket
+    assert hq.asked == [("GET", "https://gateway.example/files", "Bearer gk_test_0123456789abcdef", None),
+                        ("POST", "https://gateway.example/files/total", "Bearer gk_test_0123456789abcdef",
+                         {"total_bytes": len(b'on the server disk before')})], 'HQ gets the total for its estimate'
 
     view = sync(on())
     assert view['state'] == 'on' and view['address'] == ADDRESS and view['location'] == 'tico-files-us/c/acme'
-    url, auth, body = hq.asked[-1]
-    assert url == 'https://gateway.example/file-hosting' and auth == 'Bearer gk_test_0123456789abcdef'
-    assert body == {"files": 1, "bytes": len(b'on the server disk before')}, 'HQ gets the total for its estimate'
     after = attach(api, tid, 'after.txt', b'in tico storage')
     bucket = made[KEY]
     assert any(k.startswith('c/acme/blobs/') and v == b'in tico storage' for k, v in bucket.objects.items())
@@ -111,29 +165,22 @@ def test_turning_it_on_stores_new_files_in_tico_storage_and_existing_files_still
     assert b'on the server disk before' not in bucket.objects.values(), 'existing files move only when asked'
     api.app.state.blobs.copy_local(api.app.state.store, threading.Event(), interval=0)
     assert b'on the server disk before' not in bucket.objects.values(), 'not even by the background disk copy'
-
-    # Visuals in full on the company's ticofiles.com address.
     settings = api.app.state.store.settings
-    assert settings.visual_origin == ADDRESS
-    from backend import visuals
-    assert visuals.mode(settings) == 'full'
+    assert settings.visual_origin == '', "the files address is not the visual address (Dev 314's is)"
 
     # The owner's storage page says so; the keys are sealed and never returned or logged.
     page = api.get('/api/v2/system/storage', headers=headers())
     assert page.status_code == 200 and page.json()['tico']['state'] == 'on'
     with api.app.state.store.read() as c:
         sealed = c.execute('SELECT secret FROM tico_storage').fetchone()['secret']
-        assert sealed.startswith('sealed:v1:') and SECRET not in sealed and TOKEN not in sealed
+        assert sealed.startswith('sealed:v1:') and SECRET not in sealed and TOKEN not in sealed and SIGNING not in sealed
         logged = json.dumps([dict(r) for r in c.execute('SELECT * FROM events')])
-    assert SECRET not in page.text + logged and TOKEN not in page.text + logged
+    for secret in (SECRET, TOKEN, SIGNING):
+        assert secret not in page.text + logged
 
     from backend import health
     with api.app.state.store.read() as c:
         assert health.storage_view(c, settings)['bucket'] == 'tico-files-us', 'Health names where files go now'
-
-    # HQ saying the same again, hourly, leaves the file store alone: uploads never wait on a fresh write check.
-    generation = api.app.state.blobs._generation
-    assert sync()['state'] == 'on' and api.app.state.blobs._generation == generation
 
     # A restart reads it back from the vault.
     from backend.blobs import Blobs
@@ -143,13 +190,58 @@ def test_turning_it_on_stores_new_files_in_tico_storage_and_existing_files_still
     assert again.bucket == 'tico-files-us' and again.s3_key('0' * 64).startswith('c/acme/blobs/')
 
 
+def test_new_keys_for_the_same_place_are_swapped_in_and_asked_for_before_they_end(api, tico):
+    """HQ's keys last an hour: each answer's keys are used from then on, with no new write check and nothing
+    interrupted, and HQ is asked again every 5 minutes, or sooner when the keys end first."""
+    made, hq, sync = tico
+    tid = task(api)
+    sync(on())
+    blobs, store = api.app.state.blobs, api.app.state.store
+    generation, probes = blobs._generation, len(made[KEY].calls)
+    assert 240 < tico_storage._due[id(store)] - time.monotonic() <= tico_storage.REFRESH
+
+    sync(on(key=KEY2, token=TOKEN + "-2", expires=12))
+    assert blobs._generation == generation, 'a move or copy under way carries on'
+    attach(api, tid, 'later.txt', b'signed with the new key')
+    assert hq.signed[-1] == TOKEN + "-2" and b'signed with the new key' in made[KEY].objects.values()
+    assert len(made[KEY].calls) == probes + 1, 'no new write check, only the upload'
+    assert tico_storage._due[id(store)] - time.monotonic() <= 120, '10 minutes before the keys end'
+
+    # The scheduler asks only when due, one answer at a time.
+    with tico_storage._lock:
+        tico_storage._live[id(store)] = (store, api.app.state.vault, blobs)
+        tico_storage._due[id(store)] = time.monotonic() + 100
+    assert tico_storage.sync_later(store, due_only=True) is None
+    hq.answer = OFF
+    with tico_storage._lock:
+        tico_storage._due[id(store)] = time.monotonic() - 1
+    import backend.tico_storage as T
+    asked = len(hq.asked)
+    original = T.ask
+    T.ask = lambda key, base, opener=None: original(key, base, hq)
+    try:
+        thread = tico_storage.sync_later(store, due_only=True)
+        assert thread is not None
+        thread.join(60)
+        assert not thread.is_alive()
+    finally:
+        T.ask = original
+    assert len(hq.asked) == asked + 1
+    # HQ keeps the files no longer: nothing is read from its bucket, and no more answers are due before the hour.
+    assert not blobs.bucket and blobs.place_at('tico-files-us/c/acme') is None and blobs.edge is None
+    assert tico_storage._due[id(store)] is None
+
+
 def test_hqs_answer_is_checked_before_anything_changes(api, tico):
     made, hq, sync = tico
-    for bad, field in ((on(prefix=''), 'prefix'), (on(address='https://evil.example'), 'address'),
-                       (on(state='maybe'), 'state'), (on(bucket='Not A Bucket'), 'bucket')):
-        sync(bad)
+    for bad, field in ((on(prefix=''), 'prefix'), (on(address='evil.example'), 'address'),
+                       ({**on(), "state": "maybe"}, 'state'), (on(bucket='Not A Bucket'), 'bucket'),
+                       (on(expires=-1), 'credentials'), (on(writes=False), 'writes'), (on(access='none'), 'access'),
+                       (on(signing={"key_id": "k1", "secret": "short"}), 'signing')):
+        view = sync(bad)
         assert not api.app.state.blobs.bucket, field
-        assert api.app.state.store.settings.visual_origin == ''
+        assert field in view.get('error', field), field
+    assert api.app.state.store.settings.visual_origin == ''
     # Keys that can't write are refused by the same check as the owner's own bucket, and nothing switches.
     made[KEY] = NoWrite()
     made[KEY].close = lambda: None
@@ -163,27 +255,51 @@ def test_hqs_answer_is_checked_before_anything_changes(api, tico):
 
 
 def test_a_private_tasks_file_in_tico_storage_is_refused_to_a_person_without_access(api, tico):
-    """Spec 7: the file, its version and its visual link are refused; the bucket is never handed out."""
+    """Spec 7: the file and its version are refused, and no link to the company's address is handed out; a reader
+    with access is sent to a five-minute signed link on it, checked again on every request."""
     made, hq, sync = tico
+    picture, tid = png(), task(api)
+    early = attach(api, tid, 'early.png', picture + b'early')
     sync(on())
     task_id = post(api, "tasks", {"owner": "ops", "title": "Private chart", "body": "x", "private": True}, "ben-test")["id"]
-    made_file = api.post(f"/api/v2/tasks/{task_id}/files", json={"name": "chart.html", "text": "<p>secret</p>"},
+    made_file = api.post(f"/api/v2/tasks/{task_id}/files", files={'file': ('chart.png', picture)},
                          headers=headers("ben-test"))
     assert made_file.status_code == 200, made_file.text
-    fid, number = made_file.json()["file_id"], made_file.json()["version"]
-    assert any(k.startswith('c/acme/blobs/') for k in made[KEY].objects)
-    comment = api.post(f"/api/v2/tasks/{task_id}/comments", json={"text": "chart", "attachments": [f"{fid}@{number}"]},
-                       headers=headers("ben-test"))
-    assert comment.status_code == 200, comment.text
-    [item] = comment.json()["comment"]["refs"]["attachments"]
-    assert item["src"].startswith(ADDRESS + "/visuals/")
-    assert api.get(item["src"]).status_code == 200                      # its reader's own signed link works
-    for path in (f"/api/v2/files/{fid}", f"/api/v2/files/{fid}/versions/{number}"):
-        assert api.get(path, headers=headers("cara-test")).status_code in (403, 404), path
+    fid = made_file.json()["file"]["id"]
+    digest = hashlib.sha256(picture).hexdigest()
+    assert f'c/acme/blobs/{digest[:2]}/{digest}' in made[KEY].objects
+
+    for who in ("cara-test",):
+        for path in (f"/api/v2/files/{fid}", f"/api/v2/files/{fid}?v=1"):
+            refused = api.get(path, headers=headers(who), follow_redirects=False)
+            assert refused.status_code in (403, 404) and 'location' not in refused.headers, path
+            assert ADDRESS not in refused.text and 'tico-files-us' not in refused.text
+
     from backend import visuals as V
-    forged = V.mint(api.app.state.visual_key, "human:cara", fid, number)
-    assert api.get(ADDRESS + "/visuals/" + forged).status_code == 404
-    assert 'tico-files-us' not in comment.text and 'amazonaws' not in comment.text
+    forged = V.mint(V.key_for(api.app, api.app.state.store.settings), "human:cara", fid, 1)
+    refused = api.get("/visuals/" + forged, follow_redirects=False)
+    assert refused.status_code == 404 and 'location' not in refused.headers, 'nor its visual link'
+
+    sent = api.get(f"/api/v2/files/{fid}", headers=headers("ben-test"), follow_redirects=False)
+    assert sent.status_code == 302, sent.text
+    link = urllib.parse.urlsplit(sent.headers['location'])
+    query = dict(urllib.parse.parse_qsl(link.query))
+    assert (link.scheme, link.netloc, link.path) == ("https", ADDRESS, f"/blobs/{digest[:2]}/{digest}")
+    assert 0 < int(query['e']) - time.time() <= tico_storage.LINK_SECONDS and query['k'] == 'k1'
+    mac = hmac.new(SIGNING.encode(), f"{ADDRESS}\n{link.path}\n{query['e']}".encode(), hashlib.sha256).digest()
+    assert query['s'] == base64.urlsafe_b64encode(mac).rstrip(b'=').decode()
+    assert sent.headers['cache-control'] == 'private, no-store'
+    assert 'tico-files-us' not in sent.headers['location'] and 'amazonaws' not in sent.headers['location']
+
+    # Everything else streams from here as before: a file not in Tico's bucket, one it holds under another type,
+    # and anything that is not a picture, video or audio.
+    assert download(api, early, follow_redirects=False).status_code == 200
+    text = attach(api, tid, 'notes.txt', b'plain words')
+    assert download(api, text, follow_redirects=False).status_code == 200
+    key = f'c/acme/blobs/{digest[:2]}/{digest}'
+    made[KEY].meta[key] = ('text/html', 'inline')
+    api.app.state.blobs._edge_seen.clear()
+    assert api.get(f"/api/v2/files/{fid}", headers=headers("ben-test"), follow_redirects=False).status_code == 200
 
 
 def test_move_existing_files_copies_every_file_and_version_and_matches_the_estimate(api, tico):
@@ -202,7 +318,6 @@ def test_move_existing_files_copies_every_file_and_version_and_matches_the_estim
     estimate = shown.json()['estimate']
     size = len(b'version one') + len(b'version two, longer') + len(b'another file')
     assert (estimate['files'], estimate['bytes'], estimate['to']) == (3, size, 'tico-files-us/c/acme')
-    assert 'monthly' in estimate
     assert api.post('/api/v2/system/storage/move', json={'expect_bytes': size}, headers=headers('ben-test')).status_code == 403
     changed = api.post('/api/v2/system/storage/move', json={'expect_bytes': size - 1}, headers=headers())
     assert changed.status_code == 409 and 'estimate' in changed.text
@@ -263,11 +378,10 @@ def test_stopping_offers_the_export_and_new_files_go_back_to_own_storage(api, ti
     assert estimate['to'] == "this server's disk" and estimate['files'] == 1
     started = api.post('/api/v2/system/storage/move', json={'expect_bytes': estimate['bytes']}, headers=headers())
     assert started.status_code == 200, started.text
-    for _ in range(200):
-        move = api.get('/api/v2/system/storage/move', headers=headers()).json()['move']
-        if move['state'] != 'running':
-            break
-        threading.Event().wait(0.02)
+    for thread in threading.enumerate():
+        if thread.name == 'tico-storage-move':
+            thread.join(60)
+    move = api.get('/api/v2/system/storage/move', headers=headers()).json()['move']
     assert move['state'] == 'done' and move['matches'], move
     made[KEY].offline = True
     assert download(api, in_tico).content == b'stored in tico'

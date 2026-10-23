@@ -16,8 +16,8 @@ const {unrouted} = require('./support/routes.cjs');
       let storage = {active: null, earlier: [], server: {mode: 'local', location: ''}, copy: {done: 0, total: 0, failed: 0, running: false},
         doc: 'https://example.test/docs/files.md', tico};
       let move = null;
-      const estimate = () => move ? {to: 'tico-files-us/c/acme', files: 0, bytes: 0, gb: 0, monthly: 0}
-        : {to: 'tico-files-us/c/acme', files: 3, bytes: 2500000000, gb: 2.5, monthly: 0.08};
+      const estimate = () => move ? {to: 'tico-files-us/c/acme', files: 0, bytes: 0, gb: 0}
+        : {to: 'tico-files-us/c/acme', files: 3, bytes: 2500000000, gb: 2.5};
       page.on('pageerror', e => errors.push(e.message));
       page.on('dialog', d => d.accept());
       await page.route('**/*', route => {
@@ -88,12 +88,12 @@ const {unrouted} = require('./support/routes.cjs');
     await v.ctx.close();
 
     // Tico file hosting on: nothing to type; Move existing files shows the estimate, confirms and reports it matched.
-    v = await visit({tico: {state: 'on', label: 'Tico file hosting', address: 'https://acme.ticofiles.com', location: 'tico-files-us/c/acme', error: ''}});
+    v = await visit({tico: {state: 'on', label: 'Tico file hosting', address: 'acme-files.ticofiles.com', location: 'tico-files-us/c/acme', error: ''}});
     const hosting = v.page.locator('[data-storage-tico]');
     await hosting.waitFor();
     assert.match(await v.page.locator('#set-storage').innerText(), /New files go to Tico file hosting; the company's own storage is this server's disk/);
-    assert.match(await hosting.innerText(), /Visuals show in full on https:\/\/acme\.ticofiles\.com/);
-    await v.page.waitForFunction(() => /3 files \(2\.50 GB\) are not in Tico file hosting yet, about \$0\.08 a month there/.test(document.querySelector('[data-move-line]')?.textContent));
+    assert.match(await hosting.innerText(), /Pictures, video and audio stored there open from acme-files\.ticofiles\.com/);
+    await v.page.waitForFunction(() => /3 files \(2\.50 GB\) are not in Tico file hosting yet\./.test(document.querySelector('[data-move-line]')?.textContent));
     assert.equal(await hosting.locator('[data-move]').innerText(), 'Move existing files');
     assert.equal(await hosting.locator('[data-export]').getAttribute('href'), '/api/v2/system/storage/export');
     await hosting.locator('[data-move]').click();
@@ -107,9 +107,9 @@ const {unrouted} = require('./support/routes.cjs');
     await v.ctx.close();
 
     // Stopped: the same move goes the other way.
-    v = await visit({tico: {state: 'stopped', label: 'Tico file hosting', address: '', location: 'tico-files-us/c/acme', error: ''}});
+    v = await visit({tico: {state: 'stopped', label: 'Tico file hosting', address: '', location: 'tico-files-us/c/acme', keep_until: '2026-11-22T00:00:00Z', error: ''}});
     await v.page.locator('[data-storage-tico]').waitFor();
-    assert.match(await v.page.locator('[data-storage-tico]').innerText(), /download them or move them back first/);
+    assert.match(await v.page.locator('[data-storage-tico]').innerText(), /keeps the files it holds until November 2\d, 2026 .*download them or move them back first/);
     await v.page.waitForFunction(() => document.querySelector('[data-move]')?.textContent === 'Move files back');
     await v.ctx.close();
 

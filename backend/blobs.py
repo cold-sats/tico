@@ -54,6 +54,9 @@ class Blobs:
         # Whether this disk's files are copied to a new place on their own, and why an upload is refused when the
         # place can't take it (`configure`).
         self._copy_disk, self._paused = True, ""
+        # Tico file hosting's edge links (backend/tico_storage.py `edge_link`), while its place holds files.
+        self.edge = None
+        self._edge_seen = {}
 
     def configure(self, company=None, earlier=(), store=None, checked=False, copy_disk=True, paused=""):
         """Write to `company` ({bucket, prefix, region, keys}), or to the server's own storage when None, from now
@@ -87,6 +90,27 @@ class Blobs:
             self._generation += 1
         if store is not None and self._loop is not None and target.blob_bucket and copy_disk:
             threading.Thread(target=self.storage_loop, args=(store, self._loop), name="tico-storage-copy", daemon=True).start()
+
+    def rekey(self, location, keys):
+        """New keys for the place at `location` (Tico file hosting's last an hour), swapped in where it is used: no
+        new write check, and a copy or move under way carries on; requests from now on sign with them. Whether a
+        place is there."""
+        found = False
+        with self._write_lock:
+            for place, sources in [(self.settings, self._sources), *self._earlier]:
+                if isinstance(place, Location) and location_of(place) == location:
+                    place.blob_keys = keys
+                    sources.forget()
+                    found = True
+        return found
+
+    def place_at(self, location):
+        """(settings, Sources) of the place new files go to or an earlier one at `location`, or None."""
+        with self._write_lock:
+            for place, sources in [(self.settings, self._sources), *self._earlier]:
+                if place.blob_bucket and location_of(place) == location:
+                    return place, sources
+        return None
 
     @property
     def s3(self):

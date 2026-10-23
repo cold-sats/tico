@@ -25,6 +25,12 @@ class Sources:
     def kind(self):
         return self.selected or kinds(self.settings)[0]
 
+    def forget(self):
+        """Drop the clients built so far: the next request builds one with the settings' keys as they are now."""
+        with self._lock:
+            self._clients.clear()
+            self._building.clear()
+
     def client_for(self, kind, reads=False, region_name=None):
         cache_key = (kind, reads) if region_name is None else (kind, reads, region_name)
         with self._lock:

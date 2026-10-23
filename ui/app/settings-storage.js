@@ -7,18 +7,19 @@
 // sent once, sealed there and never shown again. A bucket replaced or turned off is still read from.
 const storageWhere = place => `<code>s3://${esc(place.location)}</code> <span class="muted">· ${esc(place.region)}</span>`;
 // Tico file hosting (backend/tico_storage.py): bought and stopped on the Gateway page; Tico HQ hands over the bucket,
-// its keys and the company's ticofiles.com address, so there is nothing to type here.
+// its short-lived keys and the company's ticofiles.com address, so there is nothing to type here.
 const TICO_HOSTING = {
   on: 'New files go to Tico file hosting.',
   credits_out: "Gateway credits have run out: files in Tico file hosting still open, and new files go to the company's own storage below until credits are added.",
-  stopped: "Tico file hosting is stopped: new files go to the company's own storage below. Tico keeps the files it holds for 30 days and emails the owner before deleting them, so download them or move them back first.",
+  stopped: "Tico file hosting is stopped: new files go to the company's own storage below. Tico keeps the files it holds {until} and emails the owner before deleting them, so download them or move them back first.",
 };
+const keptUntil = t => t.keep_until ? `until ${new Date(t.keep_until).toLocaleDateString(undefined, {dateStyle: 'long'})}` : 'for 30 days';
 const gb = n => `${(n / 1e9).toFixed(n < 1e7 ? 3 : 2)} GB`;
 function storageTicoHtml(t) {
   if (!t || t.state === 'off') return '';
   return `<section class="storage-tico" data-storage-tico>
       <h4>${esc(t.label || 'Tico file hosting')}</h4>
-      <p>${esc(TICO_HOSTING[t.state] || '')}${t.address ? ` Visuals show in full on <code>${esc(t.address)}</code>.` : ''}</p>
+      <p>${esc((TICO_HOSTING[t.state] || '').replace('{until}', keptUntil(t)))}${t.address ? ` Pictures, video and audio stored there open from <code>${esc(t.address)}</code>.` : ''}</p>
       ${t.error ? `<p class="settings-cell-note" role="status">${esc(t.error)}</p>` : ''}
       <p class="settings-cell-note" data-move-line role="status"></p>
       <div class="row"><button class="primary" type="button" data-move hidden></button>
@@ -37,11 +38,11 @@ async function renderStorageMove(host, t) {
   else if (move && move.state === 'done') line.textContent = `Moved ${move.moved_files} files, ${gb(move.moved_bytes)}${move.matches ? ', as estimated' : ''}. Every copy was read back and checked; nothing was deleted where it was.`;
   else if (move) line.textContent = `The last move stopped after ${move.moved_files} of ${move.estimate_files} files: ${move.error || 'start it again to finish'}.`;
   else line.textContent = '';
-  if (!running && e.files) line.textContent += ` ${e.files} files (${gb(e.bytes)}) are not in ${t.state === 'on' ? 'Tico file hosting' : "the company's own storage"} yet${e.monthly !== undefined ? `, about $${e.monthly.toFixed(2)} a month there` : ''}.`;
+  if (!running && e.files) line.textContent += ` ${e.files} files (${gb(e.bytes)}) are not in ${t.state === 'on' ? 'Tico file hosting' : "the company's own storage"} yet.`;
   button.hidden = running || !e.files;
   button.textContent = t.state === 'on' ? 'Move existing files' : 'Move files back';
   button.onclick = async () => {
-    const cost = e.monthly !== undefined ? ` About $${e.monthly.toFixed(2)} a month in Gateway credits.` : '';
+    const cost = t.state === 'on' ? ' Tico file hosting bills what it stores in Gateway credits.' : '';
     if (!window.confirm(`Copy ${e.files} files (${gb(e.bytes)}), every version, to ${t.state === 'on' ? 'Tico file hosting' : "the company's own storage"}?${cost} Each copy is checked before it is used, and nothing is deleted where it is now.`)) return;
     try { await post('/v2/system/storage/move', {expect_bytes: e.bytes}); toast('Moving files'); } catch (err) { toast(err.message, true); }
     void renderStorageMove(host, t);

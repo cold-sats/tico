@@ -1,38 +1,57 @@
 """Tico file hosting (Gateway): a company's files in a bucket Tico runs, served from its ticofiles.com address.
 
 It is the company-bucket option (backend/company_storage.py) pointed at Tico's bucket and the company's own folder
-in it, with the keys and the address handed over by Tico HQ instead of typed by the owner. Whether the company uses it
-is HQ's word (the owner buys and stops it on the Gateway page, tico-services); the app asks with its gateway key at
-start, hourly and when the owner presses Check now, and applies the answer without a restart.
+in it, with short-lived keys and the address handed over by Tico HQ instead of typed by the owner. Whether the company
+uses it is HQ's word (the owner buys and stops it on the Gateway page, tico-services); the app asks with its gateway
+key and applies the answer without a restart.
 
-The handoff, agreed with HQ on Dev 315/316: `POST <gateway>/file-hosting`, `Authorization: Bearer <gateway key>`,
-body `{"files": <distinct files>, "bytes": <their total size>}` (HQ's estimate on the Gateway page). HQ answers
-`{"state", "bucket", "prefix", "region", "access_key_id", "secret_access_key", "session_token"?, "address",
-"price_gb_month"?}`, where `state` is:
-- `off`: not bought. Nothing changes; a company that never had it has nothing saved.
-- `on`: new files go to Tico's bucket. Files already stored keep opening where they are; Move existing files
-  copies them over (`Move`).
-- `credits_out`: Gateway credits ran out. Files in Tico's bucket keep opening; new files go to the company's own
-  storage (its bucket, else the server's storage). If that storage can't take a file, the upload is refused with a
-  plain reason (`PAUSED`).
-- `stopped`: the owner stopped it. Like `credits_out` for reads and writes; the export and Move files back are
-  offered. HQ keeps the files 30 days, emails the owner and deletes them (Dev 316); the app deletes nothing.
-Keys for `on` are checked by writing and reading back a small object first (company_storage.check), and are sealed
-with the credential vault like the company's own; no read returns them. `address` (https://<name>.ticofiles.com)
-becomes the visual address when the server has none of its own (TICO_VISUAL_ORIGIN), so visuals show in full there:
-every request on it still carries a signed, expiring token and is checked again (backend/visuals.py).
+The handoff, agreed with HQ on Dev 315/316 (tico-services gateway/files.py), each call with
+`Authorization: Bearer <gateway key>`:
+- `GET <gateway>/files`: at start and hourly, every 5 minutes while the company has file hosting, and 10 minutes
+  before its keys expire (`sync_later`). HQ answers `{state, writes, reason, access, address, bucket, region, prefix,
+  credentials {access_key_id, secret_access_key, session_token, expires}, signing {key_id, secret}, keep_until}`.
+- `POST <gateway>/files/total` `{"total_bytes": n}`, hourly: what this server stores, for HQ's estimate before buying.
+The state the app keeps (`STATES`) from HQ's state, writes and reason:
+- `off`: not bought, or HQ keeps the files no longer. Nothing is read from Tico's bucket; a company that never had it
+  has nothing saved.
+- `on` (writes): new files go to Tico's bucket. Files already stored keep opening where they are; Move existing
+  files copies them over (`Move`).
+- `credits_out` (on, no writes, out_of_credit): files in Tico's bucket keep opening; new files go to the company's
+  own storage (its bucket, else the server's storage). If that storage can't take a file, the upload is refused with
+  a plain reason (`PAUSED`).
+- `stopped`: the owner stopped it. Reads and writes as for `credits_out`; the export and Move files back are offered.
+  HQ keeps the files until `keep_until`, emails the owner and deletes them (Dev 316); the app deletes nothing.
+Keys last an hour at most. A new key for the same place is swapped in where it is used (`Blobs.rekey`): nothing is
+checked again and a Move under way carries on. A new place is checked first, while it takes new files, by writing
+and reading back a small object (company_storage.check). Keys are sealed with the credential vault like the
+company's own; no read returns them.
+
+Reads. A picture, video or audio file whose bytes are in Tico's bucket is not streamed through this server: after
+the usual access check the reader is sent (302) to a link on the company's address that lasts five minutes
+(`edge_link`), which Tico's edge checks before serving it from the bucket:
+    https://<address><path>?e=<unix expiry>&k=<signing key id>&s=<sig>
+`<path>` is the file's key below the company's folder (`/blobs/<2 hex>/<sha256>`), and `<sig>` base64url (no
+padding) of HMAC-SHA256(signing secret, "<address>\\n<path>\\n<e>"). A file is linked only once the bucket was seen
+to hold it as this server would serve it (size, hash, type and disposition); anything else streams as before.
 
 A 404 or `not_found` from HQ means it does not offer file hosting yet: nothing changes.
 """
 
+import base64
 import hashlib
+import hmac
 import json
 import logging
 import re
 import sqlite3
 import tempfile
 import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
 import zipfile
+from datetime import datetime, timezone
 
 from fastapi import Request
 from fastapi.responses import StreamingResponse
@@ -47,8 +66,9 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS tico_storage(
  id INTEGER PRIMARY KEY CHECK(id=1), state TEXT NOT NULL CHECK(state IN ('off','on','credits_out','stopped')),
  bucket TEXT NOT NULL DEFAULT '', prefix TEXT NOT NULL DEFAULT '', region TEXT NOT NULL DEFAULT '',
- access_key_id TEXT NOT NULL DEFAULT '', secret TEXT NOT NULL DEFAULT '', address TEXT NOT NULL DEFAULT '',
- price_gb_month REAL, changed TEXT, checked TEXT, error TEXT NOT NULL DEFAULT '');
+ access_key_id TEXT NOT NULL DEFAULT '', secret TEXT NOT NULL DEFAULT '', expires TEXT,
+ signing_key_id TEXT NOT NULL DEFAULT '', address TEXT NOT NULL DEFAULT '', keep_until TEXT,
+ changed TEXT, checked TEXT, error TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS storage_moves(
  id TEXT PRIMARY KEY, target TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('running','done','failed','stopped')),
  started TEXT NOT NULL, started_by TEXT NOT NULL, finished TEXT,
@@ -57,16 +77,23 @@ CREATE TABLE IF NOT EXISTS storage_moves(
  error TEXT NOT NULL DEFAULT '');
 CREATE UNIQUE INDEX IF NOT EXISTS storage_moves_one_running ON storage_moves(state) WHERE state='running';
 """
-PATH = "/file-hosting"
+PATH, TOTAL = "/files", "/files/total"
 CONTEXT = "tico_storage:keys"
 STATES = ("off", "on", "credits_out", "stopped")
-ADDRESS = re.compile(r"^https://[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.ticofiles\.com$")
+HOST = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.ticofiles\.com$")
+STAMP = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$")
+KEY_ID = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 LABEL = "Tico file hosting"
 PAUSED = ("Gateway credits have run out, so new files go to the company's own storage, and it can't take this one "
           "right now ({reason}). Add Gateway credits, or fix the company's storage in Settings › General, and try again.")
+# How often HQ is asked while the company has file hosting, and how long before its keys expire.
+REFRESH, EARLY = 300, 600
+# How long an edge link lasts, and how long a file the bucket doesn't hold (yet) streams before it is looked for again.
+LINK_SECONDS, MISS_SECONDS = 300, 60
 LOG = logging.getLogger("tico.storage")
-# Each live server's file store, for the hourly check (backend/scheduler.py), which has only the store.
-_live = {}
+# Each live server's file store, for the scheduler (backend/scheduler.py), which has only the store; when HQ is due
+# next (monotonic, None: hourly only); and whether an answer is being fetched now.
+_live, _due, _asking = {}, {}, set()
 _lock = threading.Lock()
 
 
@@ -84,20 +111,37 @@ def row(c):
     return dict(found) if found else None
 
 
-def _keys(c, vault, saved):
-    """(access key id, secret, session token) from the sealed record."""
-    secret, token = json.loads(vault.cipher.unseal(c, CONTEXT, saved["secret"]))
-    return (saved["access_key_id"], secret, token)
+def _sealed(c, vault, saved):
+    """((access key id, secret, session token), signing secret) from the sealed record."""
+    secret, token, signing = json.loads(vault.cipher.unseal(c, CONTEXT, saved["secret"]))
+    return (saved["access_key_id"], secret, token), signing
+
+
+def _location(saved):
+    return saved["bucket"] + ("/" + saved["prefix"] if saved["prefix"] else "")
 
 
 def place(c, vault):
     """(the Tico place {bucket, prefix, region, keys} or None, its state). The place is None until HQ has handed over
-    a bucket; it stays once handed over, whatever the state, so files written there keep opening."""
+    a bucket, and again once HQ says `off`; in between it stays whatever the state, so files written there keep
+    opening."""
     saved = row(c)
-    if not saved or not saved["bucket"] or not saved["secret"]:
+    if not saved or saved["state"] == "off" or not saved["bucket"] or not saved["secret"]:
         return None, saved["state"] if saved else "off"
     return ({"bucket": saved["bucket"], "prefix": saved["prefix"], "region": saved["region"],
-             "keys": _keys(c, vault, saved)}, saved["state"])
+             "keys": _sealed(c, vault, saved)[0]}, saved["state"])
+
+
+def edge(c, vault):
+    """What `edge_link` signs with ({location, address, key_id, secret}), or None without an address or key."""
+    saved = row(c)
+    if not saved or saved["state"] == "off" or not saved["bucket"] or not saved["secret"] or not saved["address"]:
+        return None
+    signing = _sealed(c, vault, saved)[1]
+    if not signing or not saved["signing_key_id"]:
+        return None
+    return {"location": _location(saved), "address": saved["address"], "key_id": saved["signing_key_id"],
+            "secret": signing}
 
 
 def active_location(c):
@@ -123,63 +167,52 @@ def arrange(active, earlier, hosting):
 
 
 def totals(c):
-    """{files, bytes}: every distinct file Tico stores, every version, picture still and recording included."""
+    """{files, bytes}: every distinct file this server stores, every version, picture still and recording included."""
     usage = c.execute("SELECT COUNT(*) AS files, COALESCE(SUM(size),0) AS bytes FROM "
                       "(SELECT digest, MAX(size) AS size FROM blobs GROUP BY digest)").fetchone()
     return {"files": usage["files"], "bytes": usage["bytes"]}
-
-
-def visual_address(settings, saved):
-    """HQ's address is the visual address while Tico file hosting is in use and the server has none of its own
-    (TICO_VISUAL_ORIGIN, or Dev 314's hosted address), which always wins."""
-    from .visuals import hostname
-    ours = getattr(settings, "_tico_visual_origin", "")
-    if settings.visual_origin and settings.visual_origin != ours:
-        return
-    address = saved["address"] if saved and saved["state"] != "off" else ""
-    if not ADDRESS.match(address or "") or hostname(address) == hostname(settings.public_url):
-        address = ""
-    if address or ours:
-        settings.visual_origin = settings._tico_visual_origin = address
 
 
 def view(c, settings):
     saved = row(c)
     if not saved:
         return {"state": "off", "label": LABEL}
-    location = saved["bucket"] + ("/" + saved["prefix"] if saved["prefix"] else "")
-    out = {"state": saved["state"], "label": LABEL, "address": saved["address"], "location": location,
-           "checked": saved["checked"], "changed": saved["changed"], "error": saved["error"]}
-    if saved["price_gb_month"] is not None:
-        out["price_gb_month"] = saved["price_gb_month"]
-    return out
+    return {"state": saved["state"], "label": LABEL, "address": saved["address"], "location": _location(saved),
+            "keep_until": saved["keep_until"], "checked": saved["checked"], "changed": saved["changed"],
+            "error": saved["error"]}
 
 
 # ---------------------------------------------------------------------------------------------- HQ's word
-def parse(answer):
+def _when(value, field):
+    if not isinstance(value, str) or not STAMP.match(value):
+        raise ValueError(field)
+    return datetime.fromisoformat(value).astimezone(timezone.utc)
+
+
+def parse(answer, now=None):
     """The checked fields of HQ's answer, or ValueError naming the field. Never echoes a secret."""
-    state = answer.get("state")
-    if state not in STATES:
+    hq, writes, reason, access = (answer.get(k) for k in ("state", "writes", "reason", "access"))
+    if hq not in ("off", "on", "stopped"):
         raise ValueError("state")
-    out = {"state": state, "address": "", "price_gb_month": None}
-    address = str(answer.get("address") or "").strip().rstrip("/").lower()
-    if address and not ADDRESS.match(address):
-        raise ValueError("address")
-    out["address"] = address
-    price = answer.get("price_gb_month")
-    if price is not None:
-        if not isinstance(price, (int, float)) or isinstance(price, bool) or not 0 <= price < 100:
-            raise ValueError("price_gb_month")
-        out["price_gb_month"] = float(price)
-    if not answer.get("bucket"):
-        if state == "on":
-            raise ValueError("bucket")
+    if access not in ("none", "read_only", "read_write") or (access == "none") != (hq == "off"):
+        raise ValueError("access")
+    if not isinstance(writes, bool) or writes != (hq == "on" and access == "read_write"):
+        raise ValueError("writes")
+    if reason not in (None, "out_of_credit", "stopped") or (reason is None) != (writes or hq == "off"):
+        raise ValueError("reason")
+    keep = answer.get("keep_until")
+    if keep is not None:
+        _when(keep, "keep_until")
+    state = "off" if hq == "off" else "on" if writes else "stopped" if hq == "stopped" else "credits_out"
+    out = {"state": state, "address": "", "keep_until": keep}
+    if hq == "off":
         return out
+    address = str(answer.get("address") or "").strip().lower().removeprefix("https://").rstrip("/")
+    if address and not HOST.match(address):
+        raise ValueError("address")
     from .company_storage import ACCESS_KEY, BUCKET, PREFIX, REGION
-    bucket = str(answer["bucket"]).strip()
+    bucket = str(answer.get("bucket") or "").strip()
     region, prefix = str(answer.get("region") or "").strip().lower(), str(answer.get("prefix") or "").strip().strip("/")
-    key, secret = str(answer.get("access_key_id") or ""), str(answer.get("secret_access_key") or "")
-    token = str(answer.get("session_token") or "")
     if not BUCKET.match(bucket) or ".." in bucket:
         raise ValueError("bucket")
     if not REGION.match(region):
@@ -187,19 +220,66 @@ def parse(answer):
     # A company's own folder: Tico's bucket is shared, so a place at its root would read other companies' files.
     if not prefix or not PREFIX.match(prefix) or any(part in ("", ".", "..") for part in prefix.split("/")):
         raise ValueError("prefix")
-    if not ACCESS_KEY.match(key) or not secret or len(secret) > 128 or len(token) > 4096:
-        raise ValueError("access_key_id")
-    out.update(bucket=bucket, region=region, prefix=prefix, keys=(key, secret, token))
+    given = answer.get("credentials")
+    given = given if isinstance(given, dict) else {}
+    key, secret = str(given.get("access_key_id") or ""), str(given.get("secret_access_key") or "")
+    token = str(given.get("session_token") or "")
+    if not ACCESS_KEY.match(key) or not secret or len(secret) > 128 or not token or len(token) > 4096:
+        raise ValueError("credentials")
+    expires = _when(given.get("expires"), "credentials")
+    if expires <= (now or datetime.now(timezone.utc)):
+        raise ValueError("credentials")
+    signing = answer.get("signing")
+    if signing is not None:
+        if (not isinstance(signing, dict) or not KEY_ID.match(str(signing.get("key_id") or ""))
+                or not isinstance(signing.get("secret"), str) or not 32 <= len(signing["secret"]) <= 256):
+            raise ValueError("signing")
+        signing = (signing["key_id"], signing["secret"])
+    out.update(address=address, bucket=bucket, region=region, prefix=prefix, keys=(key, secret, token),
+               expires=expires.strftime("%Y-%m-%dT%H:%M:%SZ"), signing=signing)
     return out
 
 
-def ask(key, base, body, opener=None):
+def ask(key, base, opener=None):
     """(status, answer, code) from HQ's file-hosting endpoint."""
-    return G._post(G.safe_base(base) + PATH, body, {"Authorization": "Bearer " + key}, G.TIMEOUT, opener)
+    request = urllib.request.Request(G.safe_base(base) + PATH, method="GET", headers={
+        "Authorization": "Bearer " + key, "Accept": "application/json"})
+    try:
+        with (opener or G._send)(request, timeout=G.TIMEOUT) as response:
+            payload = json.load(response)
+        return getattr(response, "status", 200), payload if isinstance(payload, dict) else {}, ""
+    except urllib.error.HTTPError as exc:
+        try:
+            code = G._code(exc.read())
+        except Exception:
+            code = ""
+        return exc.code, {}, code or str(exc.code)
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        return 0, {}, "unreachable"
 
 
-def sync(store, vault, blobs, settings=None, opener=None):
-    """Ask HQ and apply its answer. Returns the view, or None when this server has no gateway key."""
+def tell(key, base, total, opener=None):
+    """Hand HQ this server's stored total for its estimate. Best effort: (status, answer, code)."""
+    return G._post(G.safe_base(base) + TOTAL, {"total_bytes": int(total)}, {"Authorization": "Bearer " + key},
+                   G.TIMEOUT, opener)
+
+
+def _plan(store, saved):
+    """When HQ is asked next: every REFRESH while the company has file hosting, sooner when its keys end first."""
+    at = None
+    if saved and saved["state"] != "off":
+        wait = REFRESH
+        if saved["expires"]:
+            left = (datetime.fromisoformat(saved["expires"]) - datetime.now(timezone.utc)).total_seconds() - EARLY
+            wait = max(60, min(wait, left))
+        at = time.monotonic() + wait
+    with _lock:
+        _due[id(store)] = at
+
+
+def sync(store, vault, blobs, settings=None, opener=None, report=False):
+    """Ask HQ and apply its answer; with `report`, also hand it this server's total. Returns the view, or None when
+    this server has no gateway key."""
     from . import gateway_connection
     settings = settings or store.settings
     with store.read() as c:
@@ -207,12 +287,18 @@ def sync(store, vault, blobs, settings=None, opener=None):
     if not key or settings.rehearsal or settings.demo:
         return None
     try:
-        status, answer, code = ask(key, base, usage, opener)
+        status, answer, code = ask(key, base, opener)
     except ValueError:
         status, answer, code = 0, {}, "bad_url"
     if status == 404 or code == G.NOT_FOUND:
         with store.read() as c:
+            _plan(store, row(c))
             return view(c, settings)
+    if report and status == 200:
+        try:
+            tell(key, base, usage["bytes"], opener)
+        except ValueError:
+            pass
     error = "" if status == 200 else f"{LABEL}: Tico HQ didn't answer ({code or status}); files stay where they are"
     parsed = None
     if not error:
@@ -220,19 +306,19 @@ def sync(store, vault, blobs, settings=None, opener=None):
             parsed = parse(answer)
         except ValueError as exc:
             error = f"{LABEL}: Tico HQ's answer has an unusable {exc}; files stay where they are"
-    same = True
-    if parsed and parsed.get("keys"):
-        with store.read() as c:
-            saved = row(c)
-            same = bool(saved and saved["secret"] and saved["bucket"] == parsed["bucket"]
-                        and saved["prefix"] == parsed["prefix"] and saved["region"] == parsed["region"]
-                        and _keys(c, vault, saved) == parsed["keys"])
-        if parsed["state"] == "on" and not same:
-            from .company_storage import check
-            try:
-                check(settings, parsed["bucket"], parsed["prefix"], parsed["region"], parsed["keys"])
-            except Problem as exc:
-                error, parsed = f"{LABEL}: {exc.detail}; new files stay where they go now", None
+    with store.read() as c:
+        saved = row(c)
+    same = bool(parsed and saved and parsed.get("keys") and saved["state"] != "off" and saved["secret"]
+                and all(saved[k] == parsed[k] for k in ("bucket", "prefix", "region")))
+    checked = False
+    if parsed and parsed["state"] == "on" and parsed.get("keys") and not (same and saved["state"] == "on"):
+        # New files go there from now on: only once a small object was written and read back with these keys.
+        from .company_storage import check
+        try:
+            check(settings, parsed["bucket"], parsed["prefix"], parsed["region"], parsed["keys"])
+            checked = True
+        except Problem as exc:
+            error, parsed = f"{LABEL}: {exc.detail}; new files stay where they go now", None
     now, moved = H.now(), False
     with store.transaction() as c:
         saved = row(c)
@@ -244,16 +330,20 @@ def sync(store, vault, blobs, settings=None, opener=None):
         elif parsed["state"] == "off" and not saved:
             pass
         else:
-            fields = {"state": parsed["state"], "address": parsed["address"], "price_gb_month": parsed["price_gb_month"],
+            fields = {"state": parsed["state"], "address": parsed["address"], "keep_until": parsed["keep_until"],
                       "checked": now, "error": ""}
             if parsed.get("keys"):
+                signing = parsed["signing"] or ("", "")
                 fields.update(bucket=parsed["bucket"], prefix=parsed["prefix"], region=parsed["region"],
-                              access_key_id=parsed["keys"][0],
-                              secret=vault.cipher.seal(c, CONTEXT, json.dumps(list(parsed["keys"][1:]))))
+                              access_key_id=parsed["keys"][0], expires=parsed["expires"], signing_key_id=signing[0],
+                              secret=vault.cipher.seal(c, CONTEXT, json.dumps([*parsed["keys"][1:], signing[1]])))
+            elif parsed["state"] == "off":
+                # HQ keeps the files no longer: nothing is read from its bucket, and its keys are dropped.
+                fields.update(access_key_id="", secret="", expires=None, signing_key_id="")
             if not saved:
                 c.execute("INSERT INTO tico_storage(id,state) VALUES(1,'off')")
-            # Where files go changes only with the state or the place: an hourly answer saying the same again leaves
-            # the file store alone (reapplying it would make uploads wait for a fresh write check).
+            # Where files go changes only with the state or the place: an answer with new keys for the same place
+            # swaps them in (`Blobs.rekey`) and leaves the file store alone, so uploads and a Move carry on.
             moved = not saved or saved["state"] != parsed["state"] or not same
             if moved:
                 fields["changed"] = now
@@ -263,28 +353,86 @@ def sync(store, vault, blobs, settings=None, opener=None):
         saved = row(c)
     if moved:
         from . import company_storage
-        company_storage.apply(store, vault, blobs, checked=bool(parsed.get("keys") and parsed["state"] == "on"))
-    else:
-        visual_address(settings, saved)
+        company_storage.apply(store, vault, blobs, checked=checked)
+    elif parsed and parsed.get("keys"):
+        blobs.rekey(_location(parsed), parsed["keys"])
+        with store.read() as c:
+            blobs.edge = edge(c, vault)
+    _plan(store, saved)
     with store.read() as c:
         return view(c, settings)
 
 
-def sync_later(store):
-    """`sync` on a thread, for the hourly check. Nothing when this store has no live file store."""
+def sync_later(store, due_only=False, report=False):
+    """`sync` on a thread, for the scheduler: hourly with `report`, and each tick with `due_only`, which asks only
+    when `_plan` said so. Nothing when this store has no live file store, or an answer is being fetched already."""
     with _lock:
         live = _live.get(id(store))
-    if not live or live[0] is not store:
-        return None
+        if not live or live[0] is not store or id(store) in _asking:
+            return None
+        if due_only:
+            at = _due.get(id(store))
+            if at is None or time.monotonic() < at:
+                return None
+            _due[id(store)] = time.monotonic() + 60       # a failed ask is tried again in a minute
+        _asking.add(id(store))
     _, vault, blobs = live
+
     def run():
         try:
-            sync(store, vault, blobs)
+            sync(store, vault, blobs, report=report)
         except Exception:
             LOG.exception("Tico file hosting check failed")
+        finally:
+            with _lock:
+                _asking.discard(id(store))
     thread = threading.Thread(target=run, name="tico-file-hosting", daemon=True)
     thread.start()
     return thread
+
+
+# ---------------------------------------------------------------------------------------------- reads
+def edge_link(blobs, digest, size, mime, now=None):
+    """A five-minute link to the file on the company's address, or None to stream it from here. Only pictures (not
+    SVG), video and audio, and only once the bucket was seen to hold the file as this server would serve it."""
+    found = getattr(blobs, "edge", None)
+    if not found or not mime.startswith(("image/", "video/", "audio/")) or "svg" in mime or "xml" in mime:
+        return None
+    if not _held(blobs, found["location"], digest, size, mime):
+        return None
+    path = "/" + blobs.key(digest)
+    expires = int(now if now is not None else time.time()) + LINK_SECONDS
+    mac = hmac.new(found["secret"].encode(), f"{found['address']}\n{path}\n{expires}".encode(), hashlib.sha256)
+    sig = base64.urlsafe_b64encode(mac.digest()).rstrip(b"=").decode()
+    return f"https://{found['address']}{path}?" + urllib.parse.urlencode({"e": expires, "k": found["key_id"], "s": sig})
+
+
+def _held(blobs, location, digest, size, mime):
+    """Whether Tico's bucket holds `digest` whole, typed `mime` and with the disposition this server would give it.
+    A yes is kept (the bytes never change); a no is looked at again after MISS_SECONDS."""
+    from .blobs import disposition
+    seen = blobs._edge_seen
+    known = seen.get((location, digest, mime))
+    if known is not None and (known is True or time.monotonic() - known < MISS_SECONDS):
+        return known is True
+    at = blobs.place_at(location)
+    held = False
+    if at is not None:
+        settings, sources = at
+        try:
+            head = sources.read_s3("head_object", Bucket=settings.blob_bucket, Key=blobs.s3_key(digest, settings),
+                                   ChecksumMode="ENABLED")[0]
+            checksum = base64.b64encode(bytes.fromhex(digest)).decode()
+            held = (head.get("ContentLength") == size
+                    and (head.get("ChecksumSHA256") == checksum or head.get("Metadata", {}).get("sha256") == digest)
+                    and (head.get("ContentType") or "").split(";", 1)[0].strip().lower() == mime
+                    and (head.get("ContentDisposition") or "").split(";", 1)[0].strip().lower() == disposition(mime))
+        except Exception:
+            held = False
+    if len(seen) > 50_000:
+        seen.clear()
+    seen[(location, digest, mime)] = True if held else time.monotonic()
+    return held
 
 
 # ---------------------------------------------------------------------------------------------- move
@@ -305,14 +453,11 @@ def pending(c, blobs):
             if not (blobs.directory / blobs.key(r["digest"])).is_file()]
 
 
-def estimate(c, blobs, price=None):
+def estimate(c, blobs):
     items = pending(c, blobs)
     label, _ = _target(blobs)
     size = sum(item[1] for item in items)
-    out = {"to": label, "files": len(items), "bytes": size, "gb": round(size / 1e9, 3)}
-    if price is not None:
-        out["monthly"] = round(size / 1e9 * price, 2)
-    return out
+    return {"to": label, "files": len(items), "bytes": size, "gb": round(size / 1e9, 3)}
 
 
 def _move_view(found):
@@ -498,9 +643,6 @@ def export(store, blobs, auth, files, who):
 # ---------------------------------------------------------------------------------------------- routes
 def startup(store, vault, blobs):
     interrupted(store)
-    with store.read() as c:
-        saved = row(c)
-    visual_address(store.settings, saved)
 
 
 def install(app, store, auth):
@@ -529,9 +671,7 @@ def install(app, store, auth):
         """What Move existing files would copy into the place new files go to, and the latest move."""
         owner(request)
         with store.read() as c:
-            saved = row(c)
-            price = saved["price_gb_month"] if saved and saved["state"] == "on" else None
-            return {"estimate": estimate(c, blobs, price), "move": latest_move(c)}
+            return {"estimate": estimate(c, blobs), "move": latest_move(c)}
 
     @app.post("/api/v2/system/storage/move")
     def storage_move(request: Request, body: Move):

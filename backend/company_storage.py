@@ -200,12 +200,11 @@ def apply(store, vault, blobs, copy=True, checked=False):
     from . import tico_storage
     with store.read() as c:
         active, earlier = places(c, vault)
-        hosting = tico_storage.place(c, vault)
-        saved = tico_storage.row(c)
+        hosting, edge = tico_storage.place(c, vault), tico_storage.edge(c, vault)
     active, earlier, copy_disk, paused = tico_storage.arrange(active, earlier, hosting)
     blobs.configure(active, earlier, store if copy else None, checked=checked, copy_disk=copy_disk,
                     paused=tico_storage.PAUSED if paused else "")
-    tico_storage.visual_address(store.settings, saved)
+    blobs.edge = edge
 
 
 def startup(store, vault, blobs):
