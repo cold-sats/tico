@@ -5,14 +5,15 @@ installer bundle, checks the tag against [CHANGELOG.md](../CHANGELOG.md) and pub
 release. Running installations look for that release to show "New version" in the sidebar.
 The installed `CHANGELOG.md` also supplies the in-app, API and MCP product changelog, so each
 release's versioned notes automatically reach its users. No separate product announcement is required.
-Keep those versioned sections on `main` after publishing a tag; move only new work into Unreleased,
-so later builds retain the complete history and do not announce already shipped work again.
-PR checks refuse a pull request that adds or changes CHANGELOG lines outside `## [Unreleased]` once merged with main.
-The pull request that merges a release's notes back to `main`, or corrects a shipped section, passes by naming each
-released section it changes in a commit trailer: `Changelog-Release: vX.Y.Z`, one line per section. Every notes
-merge-back needs it, starting with the first one after this check was added. Between a tag and its merge-back,
-`main` has no section for that release yet; pull requests merged meanwhile keep their lines under Unreleased and
-stay green. Once the notes are back, a released section on `main` that differs from its tag fails the tests.
+Don't edit CHANGELOG.md in a PR. The Technical Writer writes each release's version section at the cut,
+then the Release Manager tags it once the release checks are green. Keep those versioned sections on `main`
+after publishing a tag, so later builds retain the complete history and do not announce already shipped work again.
+The existing CHANGELOG checks still guard the release commit and shipped history.
+The release cut normally lands as a direct, CHANGELOG-only commit on `main` before validation and tagging.
+If the cut lands by pull request instead, it needs review at its final head and a `Changelog-Release: vX.Y.Z`
+commit trailer for each version section it changes; preserve the trailers in the merged commit. A pull request
+that merges notes back to `main` or corrects a shipped section needs the same trailers. Once the notes are on
+`main`, a released section that differs from its tag fails the tests.
 
 **One release path.** On a team that runs Tico with a Release Manager bot, only the Release Manager publishes
 releases. A Claude Code session or any other outside session that finishes work hands it to the Release Manager on a
@@ -23,12 +24,14 @@ only marks the merged PR links the running release contains as Shipped (backend/
 ## The fast path
 
 1. **While building a PR**, run the focused tests for its changes; CI also runs the default suite (below).
-2. **Before you tag**, the release candidate must pass the full suite: the default suites, the opt-in tests and a short whole-product
+2. **Write release notes.** The Technical Writer writes the version section in `CHANGELOG.md` at the cut.
+3. **Before you tag**, the release candidate must pass the full suite: the default suites, the opt-in tests and a short whole-product
    check: the manually dispatched Release validation workflow across fresh GitHub-hosted Linux VMs, or
    `python scripts/release_checks.py --release` on a suitable local machine. The 8-minute target is report-only.
-3. **Tag and push.** The GitHub release is published about 2 minutes later, as soon as the Docker images exist.
-4. **Server rollout** starts at once: the canary install first, then the rest ("Update now", about 2 minutes each).
-5. **Desktop follows**: built only when the shell changed, and attached to the published release when it is done.
+4. **Tag and push.** The Release Manager tags the release with its notes committed and release checks green.
+   The GitHub release is published about 2 minutes later, as soon as the Docker images exist.
+5. **Server rollout** starts at once: the canary install first, then the rest ("Update now", about 2 minutes each).
+6. **Desktop follows**: built only when the shell changed, and attached to the published release when it is done.
 
 ## Tests on a PR
 
@@ -86,6 +89,35 @@ Targeted macOS compile/native checks can use a standard hosted Mac; desktop perm
 computer acceptance still need the corresponding Mac environment. The full Docker gate belongs on Linux.
 
 ## Before you tag
+
+Build the release task's evidence checklist from the candidate's merged PRs and their linked Dev tickets:
+
+```sh
+python scripts/release_checklist.py --head <candidate> --previous vX.Y.Z > checklist.md
+python scripts/release_checklist.py --head <candidate> --previous vX.Y.Z --json > checklist.json
+```
+
+Run in a checkout with fetched release tags, a `gh` login for the repository and a scoped `hub` login for
+the shared team API. No local team database is opened. Without `--previous`, it selects the earlier release
+tag using the freeze guard's rule. `--github owner/repository` overrides the checkout's origin.
+Attach the Markdown checklist to the release task; the JSON companion retains structured evidence and source
+message IDs. The checklist includes every PR found in the first-parent candidate range, each visible linked
+Dev ticket's current step, Review 1/2 verdicts and their full heads, test receipts, `qa` tag, QA verdicts and
+Technical Writer tasks and links. Security is outside the release pipeline; no Security result is required.
+
+Evidence comes from the ticket owner's messages and the owners of step children titled `Review 1:`,
+`Review 2:`, `QA:`, `Docs:`, `Documentation:` or `Technical Writer:`. Review 1 always requires a verdict;
+Review 2 requires one when its step child exists, and `qa` tickets require a QA approval and completed docs
+child. The latest verdict must approve the merged PR head; older heads are flagged for the Release Manager
+to resolve with the recorded review delta. A passing test receipt names the full PR head, tests and a passing
+result on the same line (for example, `Tests: head <full-sha>: 12 passed, 0 failed`). The latest receipt for that
+head must pass; a newer pending result remains a gap. Any recorded failure at that head stays a gap for the Release
+Manager to resolve, including after a passing rerun. Other test messages remain visible as evidence. Unrecorded reviews, legacy evidence elsewhere and unreadable tickets stay gaps rather
+than being inferred as passes.
+
+Exit 0 means no evidence gaps were found, 1 means the report lists gaps, and 2 means collection failed
+(including incomplete pagination). This is a visible-evidence snapshot for the Release Manager to read;
+it does not run tests, authorize a release, move tickets, dispatch workflows or replace the freeze guard.
 
 At freeze, before asking for Release validation, check what the candidate carries since the previous tag:
 
@@ -184,10 +216,12 @@ hosted gate.
 
 ## Tag
 
-1. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, add a fresh empty
-   `## [Unreleased]` above it, and update the link references at the bottom.
-2. Commit that to `main` once the release check is green.
-3. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+1. The Technical Writer writes the release's notes in `CHANGELOG.md` under
+   `## [X.Y.Z] - YYYY-MM-DD` at the cut, leaves a fresh empty `## [Unreleased]` above it,
+   and updates the link references at the bottom.
+2. Commit those notes to `main`, then run the release check on that exact candidate commit.
+3. Once the check is green, the Release Manager tags that validated commit and pushes:
+   `git tag vX.Y.Z <validated-commit> && git push origin vX.Y.Z`.
 
 The workflow then:
 
