@@ -269,6 +269,8 @@ class Stack:
             listed = docker("exec", self.hub, "ls", "/work/done").stdout.split()
             if all(f"{aid}.json" in listed for aid in ids) or time.monotonic() > deadline:
                 break
+            if docker("inspect", "-f", "{{.State.Running}}", self.runner).stdout.strip() != "true":
+                break  # the runner stopped: nothing more will finish
             time.sleep(2)
         return {aid: json.loads(self.must("exec", self.hub, "cat", f"/work/done/{aid}.json") or "null") or {}
                 for aid in ids if f"{aid}.json" in listed}
@@ -308,7 +310,8 @@ def stack(tmp_path):
 
 
 def registration(bots):
-    """What a fresh install leaves: the registration, and each bot's checkout cloned from its GitHub repository."""
+    """What an install on the two-user layout leaves: the registration, and each bot's checkout cloned from its
+    GitHub repository by the bot user."""
     config = json.dumps({"url": "http://hub:8765", "token": "acme-runner-token", "runner_id": "r1",
                          "projects_dir": "/home/runner/workspace", "self_update": False})
     clones = "".join(f"""
@@ -316,8 +319,10 @@ def registration(bots):
         git -C workspace/bot-{bot} config user.name 'Acme {bot}'; git -C workspace/bot-{bot} config user.email {bot}@acme.example
         chown -R 10003:10002 workspace/bot-{bot}; chmod -R g+rwX workspace/bot-{bot}""" for bot in bots)
     return f"""
+        : > .tico-two-user-layout; chown 10002:10002 .tico-two-user-layout
         printf '%s' '{config}' > runner.json; chmod 600 runner.json
-        mkdir -p workspace/secrets; echo ACME_LEGACY=1 > workspace/secrets/_shared.env{clones}
+        mkdir -p workspace/secrets; echo ACME_LEGACY=1 > workspace/secrets/_shared.env
+        chown 10002:10002 . workspace; chown -R 10002:10002 workspace/secrets{clones}
     """
 
 
