@@ -1745,6 +1745,7 @@ mod tests {
     use super::*;
     use std::cell::RefCell;
     use std::collections::VecDeque;
+    use tokio::sync::mpsc::unbounded_channel;
 
     thread_local! {
         pub(super) static RUN_CLOCK: RefCell<VecDeque<Instant>> = const { RefCell::new(VecDeque::new()) };
@@ -2491,7 +2492,7 @@ for line in sys.stdin:
         let flags = Flags { lost: AtomicBool::new(false), stopped: AtomicBool::new(false), done: AtomicBool::new(false),
                             done_notify: Notify::new(), deadline: Mutex::new(Instant::now() + Duration::from_secs(60)) };
         let wake = Notify::new();
-        let d = Drive { aid: "a-cap", host: &host, thread: &th, effort: None, limit: Instant::now() + Duration::from_secs(60), flags: &flags,
+        let d = Drive { aid: "a-cap", host: &host, thread: &th, effort: None, limit: Instant::now() + Duration::from_secs(60), limit_name: "synthetic drain", flags: &flags,
                         wake: &wake, redactor: None, runtime: "pi", bot: "ops", session: "c-cap", login: None };
         let mut segment = Segment { meter: Meter::default(), config: json!({}), profile: None, billing: "api" };
         let mut goal = GoalRun { chat_goal: None, controlled: false, failure: None, paused: None, tries_key: ("ops".into(), "c-cap".into()) };
