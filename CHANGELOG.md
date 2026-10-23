@@ -22,6 +22,11 @@ All notable changes to Tico are recorded here. The format follows
 - **A stopped browser check says where it hung and leaves nothing running.** When a browser script runs past its time
   limit, the report now names the browser call it was waiting on and the last calls it made. The runner also stops
   the browser, its helpers and any server the script started, so nothing is left running after the check.
+- **A Muse Code run that ends in a quota failure ends its task attempt.** When Muse Code reported its run over (a
+  quota or other terminal failure) but its process, or a child process still holding its output, stayed up, the
+  runner kept the turn open and renewed the attempt's lease, so the bot showed rate limited and busy at once and its
+  model could not be changed. The run's terminal record now ends the turn: the process gets five seconds to exit
+  and is then stopped, and the attempt finishes failed with the quota hold kept. Nothing is retried on its own.
 - **Task updates point to the closing command.** The CLI no longer offers `closed` on `hub task update --status`. Trying it tells you to use `hub task close <id>`. MCP also directs requesters to `hub_task_close`; filtering a task list by `closed` still works ([Tasks](docs/tasks.md)).
 
 ## [0.3.75] - 2026-10-23
