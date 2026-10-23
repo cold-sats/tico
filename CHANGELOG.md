@@ -19,20 +19,23 @@ All notable changes to Tico are recorded here. The format follows
 - **Cheaper task models show a warning for sensitive work.** A bot with send, spend or publish approval history, or write access beyond its own repository, warns when its task model costs less than its own model from the same provider. You can still save and run it; the run note records the warning ([Warning rules](docs/harnesses.md#a-warning-about-a-cheaper-task-model)).
 
 ### Fixed
-- **A bot no longer repeats "nothing changed" into a person's chat.** A task a bot files for itself during one of
-  its turns now waits for that turn to end (at most 5 minutes). It starts no turn at all when the filing turn
-  finished, declined or parked it (waiting, blocked or snoozed: what it waits for wakes it). Before, a standing
-  order filed and marked done in one turn started a second turn that re-checked and replied again. A turn Tico woke
-  on a task that was already finished, and that changed nothing, no longer posts its reply to the person: the text
-  stays on the run, and `hub sql` shows a `reply.withheld` event for it. A person's own messages (including one
-  that arrives during the turn), Tico's notice of a person's own act (such as marking the task done with a
-  question in the note), approvals and answers, and any turn that wrote or pushed something, reply as before.
 - **A Muse Code run that ends in a quota failure ends its task attempt.** When Muse Code reported its run over (a
   quota or other terminal failure) but its process, or a child process still holding its output, stayed up, the
   runner kept the turn open and renewed the attempt's lease, so the bot showed rate limited and busy at once and its
   model could not be changed. The run's terminal record now ends the turn: the process gets five seconds to exit
   and is then stopped, and the attempt finishes failed with the quota hold kept. Nothing is retried on its own.
 - **Task updates point to the closing command.** The CLI no longer offers `closed` on `hub task update --status`. Trying it tells you to use `hub task close <id>`. MCP also directs requesters to `hub_task_close`; filtering a task list by `closed` still works ([Tasks](docs/tasks.md)).
+
+### Changed
+- **One sign-in per AI tool per computer.** Every bot runs its tool on its computer's login for it; a bot can no longer
+  have a sign-in of its own. The bot editor's Connection picker is gone (its line now reads "Runs on *tool* ·
+  Computer's login on *computer*"), the computer pop-up shows one line per tool, and Add connection signs in the
+  computer's login or adds a key. To run bots on a different account, add another computer, which can be on the same
+  machine. `PUT /api/v2/subscriptions` is gone (405), `POST /api/v2/runners/{runner_id}/logins` with a `profile` is
+  refused (422 `one_login`), and a runner ignores `bot_profiles`, drops `profile assign` and refuses `profile login`
+  for any profile but its default. Upgrading deletes each bot's saved choice, so a bot that ran on a named
+  subscription runs on its computer's login, which must be signed in. Named subscriptions on a computer stay on disk
+  and in its reports for one release, unused and unshown.
 
 ## [0.3.75] - 2026-10-23
 
