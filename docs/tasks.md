@@ -659,6 +659,11 @@ later with still no progress its bot is retried once; thirty minutes after that,
 stuck in the main chat and BotOps gets a task to find out why. A stuck check never goes to a person as a question. These
 share the stall watcher's spacing and its cap of three a day, after which BotOps gets a task to find out why.
 
+An idle task unchanged since its owner's last settled checkpoint skips a plain automatic stall or status check.
+Changed state or a missing checkpoint leaves the check eligible under the usual wake rules. Human messages still
+wake the bot as before, and leased or running sessions keep their recovery checks
+([details](hub-sql.md#what-woke-each-run-and-what-it-did)).
+
 `task_goal: on` on a bot (`hub bot update <slug> --task-goal on`, `hub_bot_update`, or the bot definition API; off by
 default) works each task it owns as a goal: the turn carries `task.goal` (the title and its acceptance criteria), and
 the bot is told to keep at it until that holds, then mark the task done with a summary, or file a subtask for the
