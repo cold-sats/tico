@@ -1656,7 +1656,7 @@ impl Runner {
 
     /// Cancel queue waits and model driving. Preparation's git mutations finish with their lane held, so a
     /// handback cannot kill git while it owns an index lock. The start boundary still rejects a drained claim.
-    async fn during_drain<F, T>(&self, aid: &str, work: F) -> Result<T, Fail>
+    pub(crate) async fn during_drain<F, T>(&self, aid: &str, work: F) -> Result<T, Fail>
     where F: std::future::Future<Output = Result<T, Fail>> {
         let result = tokio::select! {
             biased;

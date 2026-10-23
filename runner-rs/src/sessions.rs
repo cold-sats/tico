@@ -929,7 +929,9 @@ impl Runner {
                 place.checkout = None;
                 let until = Instant::now() + Duration::from_secs(WORKTREE_WAIT_S);
                 while !problem.is_empty() && Instant::now() < until {
-                    if !pause(Duration::from_secs(WORKTREE_RETRY_S), lost).await {
+                    let aid = text_of(&attempt["id"]);
+                    let waited = self.during_drain(&aid, async { Ok(pause(Duration::from_secs(WORKTREE_RETRY_S), lost).await) }).await;
+                    if !waited.map_err(|e| e.text)? {
                         break;
                     }
                     if crate::product_files::unpushed(&place.bot) {
@@ -948,7 +950,9 @@ impl Runner {
                 // Without a worktree of its own the task's turn waits for the main checkout like any other.
                 crate::util::diagnostic(&format!("Tico runner: {}: task {} runs in the bot's checkout ({problem})", place.bot, place.task));
                 if place.checkout.is_none() {
-                    place.checkout = Some(self.lanes.hold_checkout(&place.bot, place.person, lost).await?);
+                    place.checkout = Some(self.during_drain(&text_of(&attempt["id"]), async {
+                        self.lanes.hold_checkout(&place.bot, place.person, lost).await.map_err(crate::execute::Fail::runtime)
+                    }).await.map_err(|e| e.text)?);
                     self.refresh_checkout(place, attempt, env).await;
                 }
             } else {
@@ -975,7 +979,10 @@ impl Runner {
             // The worktree would sync from an upstream without the refreshed product files.
             return (String::new(), "its refreshed product files are not pushed yet".into());
         }
-        let _git = self.lanes.git_lock(&place.main_path).lock_owned().await;
+        let lock = self.during_drain(&text_of(&attempt["id"]), async {
+            Ok(self.lanes.git_lock(&place.main_path).lock_owned().await)
+        }).await;
+        let _git = match lock { Ok(lock) => lock, Err(e) => return (String::new(), e.text) };
         let (tracked, problem) = ensure(&place.main_path, session, &place.task, env).await;
         if problem.is_empty() {
             attempt["branch_sync_problem"] = json!(sync_shared(session, env).await);
