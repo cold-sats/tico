@@ -15,6 +15,12 @@ All notable changes to Tico are recorded here. The format follows
   "Talk to us to add credit" opens Tico's booking link; there is no card form. It is read from Tico HQ with the
   install's Tico AI Gateway key (`GET /api/v2/billing`, `/billing/usage?day=`, `/billing/statements/YYYY-MM.csv`);
   other members don't see the page and its API refuses them. Needs Tico HQ with company billing reads.
+- **Hosted servers in Settings › Computers.** On a company Tico hosts, owners and admins see its Tico server and bot
+  computer, each on or stopped, with Start for a stopped one. While the company is paused for credit, Tico HQ refuses
+  the start and the row says "Paused: out of credit. Add credit to start this computer." with Ask for more credit
+  opening the company's account page. Read and started with the install's Tico AI Gateway key
+  (`GET /api/v2/hosted-servers`, `POST /api/v2/hosted-servers/{id}/start`); other members don't see the section, and an
+  install Tico doesn't host never shows it. Needs Tico HQ with the hosted server routes.
 - **Task model in Settings.** The bot editor has a Task model row (harness, model and effort; "Same as bot" until set),
   and Settings > Bots shows a small Tasks mark beside each bot's model, marked when its tasks run on another model.
   The mark opens a row under the bot with the same three pickers. Saving changes only what its tasks run on; the bot
