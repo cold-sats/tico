@@ -2496,10 +2496,13 @@ esac
         let client = crate::client::Client::new(&config.url(), &config.token(), 1, 0).unwrap();
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let old = r#"{"https://accounts.x.ai/sign-in":{"auth_mode":"oidc","key":"old"}}"#;
+        let legacy_auth = root.join("legacy-home").join(runtime).join(file);
+        std::fs::create_dir_all(legacy_auth.parent().unwrap()).unwrap();
+        std::fs::write(&legacy_auth, old).unwrap();
         for use_default in [false, true] {
             let mut config = Config::load(&path).unwrap();
             if use_default {
-                config.data.insert("profiles".into(), json!({"computer": {"dir": root.join("default-home")}, "other": {"dir": root.join("per-profile-home")}}));
+                config.data.insert("profiles".into(), json!({"computer": {"dir": root.join("default-home")}, "other": {"dir": root.join("per-profile-home")}, "legacy": {"dir": root.join("legacy-home")}}));
                 config.data.insert("default_profile".into(), json!("computer"));
                 config.save().unwrap();
                 // Inherited operator paths and keys cannot answer for the computer's isolated default login.
@@ -2566,6 +2569,7 @@ esac
             let mut sessions = Logins::default();
             sessions.begin(&runner, &json!({"id": "named", "runtime": runtime, "profile": "other", "kind": "sign_in"}));
             assert!(state(&sessions.sessions["named"]).1.starts_with("Each computer has one login"));
+            assert_eq!(std::fs::read_to_string(&legacy_auth).unwrap(), old);
             assert!(!root.join("per-profile-home").exists());
             assert!(!root.join("profiles").exists());
         }

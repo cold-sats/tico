@@ -73,4 +73,4 @@ def test_grok_and_cursor_computer_logins_can_be_controlled(api):
         assert logout["kind"] == "sign_out"
         report(api, r, logout["id"], state="signed_out")
         refused = post(api, f"{base}/logins", {"runtime": runtime, "profile": "other"}, expected=422)
-        assert refused["code"] == "one_login"
+        assert refused["error"]["code"] == "one_login"

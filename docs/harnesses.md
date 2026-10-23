@@ -31,7 +31,8 @@ the model itself on `auto` (`cursor-auto` in the model list); a bot's config may
 Cursor's installer only ever installs the newest release, so this harness follows `latest` and cannot be pinned to an
 older version (Pin to this version pins the one installed).
 
-Grok Build and Cursor Agent sign in from **Settings > Computers**, using **Add connection** for the computer's login. Both offer **Sign out** and **Switch account**. Grok uses
+Grok Build and Cursor Agent sign in from **Settings > Computers**, using **Add connection** for the
+computer's login. Both offer **Sign out** and **Switch account**. Grok uses
 [`grok login --device-auth`](https://docs.x.ai/build/cli/reference), then reads its scoped `~/.grok/auth.json`
 store for sign-in state (an empty store is signed out). It has no status command. Cursor uses
 [`cursor-agent login`](https://cursor.com/docs/cli/reference/authentication) with `NO_OPEN_BROWSER=1`, and checks
