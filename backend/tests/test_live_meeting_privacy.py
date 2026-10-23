@@ -7,7 +7,7 @@ from starlette.requests import Request
 from backend import live_meetings as meetings
 from backend import task_privacy
 from backend.auth import Identity
-from backend.store import H, encode
+from backend.store import H, Problem, encode
 from backend.tests.test_api import assign, get, headers, post, ready, runner
 from backend.tests.test_live_meetings import api, attach, chunk, live  # noqa: F401
 from backend.tests.test_sql import query
@@ -202,3 +202,107 @@ def test_room_provenance_is_reused_only_within_its_read_snapshot(live, derived):
     assert removed.status_code == 200, removed.text
     with live.app.state.store.read() as c:
         assert not any(task_privacy.message_readable(c, "bot:ops", row) for row in rows)
+
+
+def publication_responses(api, token):
+    team_task = post(api, "tasks", {"owner": "ops", "title": "Review synthetic team plan",
+                                   "body": "Check the synthetic plan.", "private": False})
+    writes = {
+        "human": ("messages", {"to": "ana", "kind": "ask", "text": "Synthetic meeting summary?"}),
+        "bot": ("messages", {"to": "finance", "text": "Review this synthetic meeting summary."}),
+        "task": ("tasks", {"owner": "finance", "title": "Review synthetic meeting plan",
+                           "body": "Review this synthetic summary.", "private": False}),
+        "comment": (f"tasks/{team_task['id']}/comments", {"text": "Synthetic meeting summary."}),
+        "status": ("bots/ops/status", {"focus": "Synthetic meeting summary."}),
+    }
+    return {name: api.post("/api/v2/" + path, json=body, headers=headers(token))
+            for name, (path, body) in writes.items()}
+
+
+def test_private_meeting_execution_cannot_publish_to_nonmembers_and_can_reply(live, derived):
+    mid, attempt = derived
+    responses = publication_responses(live, attempt["token"])
+    assert {name: r.status_code for name, r in responses.items()} == dict.fromkeys(responses, 403), {
+        name: (r.status_code, r.text) for name, r in responses.items()}
+    with live.app.state.store.read() as c:
+        who = Identity("bot:ops", "bot", attempt_id=attempt["id"])
+        assert task_privacy.private_execution(c, who)
+        for recipient in ("human:ana", "bot:finance"):
+            with pytest.raises(Problem) as refused:
+                task_privacy.require_destination(c, who, recipient, None, {})
+            assert refused.value.code == "privacy"
+    turn = attempt["message"]["refs"]["live_meeting"]["turn_id"]
+    reply = post(live, f"live-meetings/{mid}/chat", {"text": "Synthetic scoped response", "turn_id": turn},
+                 token=attempt["token"])
+    assert reply["message"]["text"] == "Synthetic scoped response"
+    assert get(live, f"live-meetings/{mid}", token="ben-test")["chat"][0]["text"] == "Synthetic scoped response"
+    made = post(live, "files/uploads", {"name": "synthetic-meeting.md", "text": "Synthetic scoped file"},
+                token=attempt["token"])
+    fid = made["file"]["id"]
+    assert live.get(f"/api/v2/files/{fid}", headers=headers("ben-test")).content == b"Synthetic scoped file"
+    get(live, f"files/{fid}", expected=404)
+
+
+def test_team_meeting_execution_keeps_ordinary_publication(live):
+    mid = post(live, "live-meetings", {"title": "Synthetic team plan"}, token="ben-test")["id"]
+    attach(live, mid, "ops", token="ben-test")
+    chunk(live, mid, 1, 0, 1000, "Ops, review this synthetic team plan", token="ben-test")
+    machine = runner(live)
+    assign(live, machine, "ops")
+    ready(live, machine, ["ops"])
+    attempt = post(live, "jobs/claim", {"bot": "ops"}, token=machine["token"])["attempt"]
+    assert attempt["message"]["refs"]["live_meeting"]["meeting_id"] == mid
+    responses = publication_responses(live, attempt["token"])
+    assert {name: r.status_code for name, r in responses.items()} == dict.fromkeys(responses, 200), {
+        name: (r.status_code, r.text) for name, r in responses.items()}
+
+
+@pytest.mark.parametrize("visibility", ["private", "team"])
+def test_meeting_context_read_does_not_allow_unscoped_room_writes(live, visibility):
+    mid = post(live, "live-meetings", {"title": "Synthetic scoped discussion", "visibility": visibility})["id"]
+    if visibility == "private":
+        post(live, f"live-meetings/{mid}/access", {"add": ["ben"]})
+    attach(live, mid, "ops")
+    chunk(live, mid, 1, 0, 1000, "Ops, review this synthetic plan")
+    with live.app.state.store.read() as c:
+        source = c.execute("SELECT * FROM messages WHERE json_extract(refs_json,'$.live_meeting.meeting_id')=?",
+                           (mid,)).fetchone()
+        cid, source_id = source["conversation_id"], source["id"]
+        before = c.execute("SELECT count(*) FROM messages").fetchone()[0]
+    assert get(live, f"conversations/{cid}/messages", token="ben-test")[0]["id"] == source_id
+
+    requests = [
+        ("messages", {"to": "ops", "text": "Synthetic ordinary write", "conversation_id": cid}),
+        (f"conversations/{cid}/messages", {"text": "Synthetic ordinary reply"}),
+        ("messages", {"to": "ops", "text": "Synthetic reply reference", "in_reply_to": source_id}),
+    ]
+    responses = [live.post("/api/v2/" + path, json=body, headers=headers("ben-test")) for path, body in requests]
+    assert [r.status_code for r in responses] == [403] * len(requests), [(r.status_code, r.text) for r in responses]
+    with live.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM messages").fetchone()[0] == before
+    assert get(live, f"conversations/{cid}/messages", token="ben-test")[0]["id"] == source_id
+
+
+def test_meeting_visibility_is_rechecked_under_the_write_lock(live, monkeypatch):
+    mid = post(live, "live-meetings", {"title": "Synthetic transition during request"}, token="ben-test")["id"]
+    attach(live, mid, "ops", token="ben-test")
+    chunk(live, mid, 1, 0, 1000, "Ops, review this synthetic plan", token="ben-test")
+    machine = runner(live)
+    assign(live, machine, "ops")
+    ready(live, machine, ["ops"])
+    attempt = post(live, "jobs/claim", {"bot": "ops"}, token=machine["token"])["attempt"]
+    task = post(live, "tasks", {"owner": "ops", "title": "Review synthetic team plan",
+                              "body": "Check the synthetic plan.", "private": False})
+    store = live.app.state.store
+    write = store.mutate
+    path = f"/api/v2/tasks/{task['id']}/comments"
+
+    def narrowed_before_write(identity, operation, key, body, fn, check=None):
+        if operation == path:
+            with store.transaction() as c:
+                c.execute("UPDATE live_meetings SET visibility='private' WHERE id=?", (mid,))
+        return write(identity, operation, key, body, fn, check=check)
+
+    monkeypatch.setattr(store, "mutate", narrowed_before_write)
+    response = live.post(path, json={"text": "Synthetic scoped context"}, headers=headers(attempt["token"]))
+    assert response.status_code == 403, response.text

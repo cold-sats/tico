@@ -26,6 +26,12 @@ shapes below are part of the contract; change them only with a reviewed contract
 - Meeting-derived conversations, messages and run artifacts retain the meeting's current access
   restriction, including on retries and after a bot is removed. Company-owner inspection does not
   override private meeting membership. An already downloaded copy cannot be retracted.
+- Private meeting executions can publish their scoped reply and retain files tied to that run;
+  they cannot publish ordinary messages, tasks, comments or company status from that context.
+  This server-side restriction does not change ordinary team-meeting executions.
+- Authorized meeting members can read a generated bot room's meeting-scoped prompt and reply
+  without broader bot Read access. This grants no posting or goal-setting authority in that room:
+  people use live meeting Chat, and bots name their claimed turn when replying there.
 - An attached bot can read this meeting's transcript and chat, and can post a reply attributed to
   itself. It cannot control the meeting or change its membership.
 

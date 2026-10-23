@@ -372,9 +372,15 @@ def require_attempt(c, who, aid):
         raise Problem("not_found", "Turn not found", 404)
 
 
+def private_meetings(c, ids):
+    # A removed source fails closed, just as it does for derived reads.
+    return {rid for rid in ids if not (row := c.execute(
+        "SELECT visibility FROM live_meetings WHERE id=?", (rid,)).fetchone()) or row["visibility"] != "team"}
+
+
 def private_execution(c, who):
-    return bool(who.attempt_id and any(H.task_private(c, H.task(c, tid))
-                                     for tid in attempt_tasks(c, who.attempt_id)))
+    return bool(who.attempt_id and (private_meetings(c, meeting_sources(c).attempt(who.attempt_id)) or
+                any(H.task_private(c, H.task(c, tid)) for tid in attempt_tasks(c, who.attempt_id))))
 
 
 def question_party(c, who, person, parent=None, guest=None):
@@ -463,6 +469,18 @@ def guard_write(c, who, path, auth):
     """A private execution has no automatic company-publication capability."""
     if (who.role != "bot" and not getattr(who, "task_actor", "")) or not private_execution(c, who):
         return
+    meetings = meeting_sources(c).attempt(who.attempt_id)
+    if private_meetings(c, meetings):
+        # A meeting turn is one scoped reply, not an ordinary task or company publisher.
+        # Run artifacts retain their attempt provenance through the existing file/read fence.
+        if path in ("/api/v2/sql", "/api/v2/mcp") or path.startswith(
+                ("/api/v2/attempts/", "/api/v2/jobs/", "/api/v2/files/")):
+            return
+        scoped = re.fullmatch(r"/api/v2/live-meetings/([^/]+)/(chat|turns/[^/]+/claim)", path)
+        if (scoped and meetings == {scoped[1]} and not any(
+                H.task_private(c, H.task(c, tid)) for tid in attempt_tasks(c, who.attempt_id))):
+            return
+        raise Problem("privacy", "Private meeting work can only reply to its meeting or retain scoped run files", 403)
     if path in ("/api/v2/sql", "/api/v2/mcp", "/api/v2/tasks/dry-run"):
         return
     if path == "/api/v2/task-questions":
@@ -500,13 +518,22 @@ def require_destination(c, who, to, conversation_id, refs, reply=None, guest=Non
     ids.update(message_tasks(c, reply) if reply else ())
     if who.attempt_id:
         ids.update(attempt_tasks(c, who.attempt_id))
+    meetings = meeting_sources(c)
+    meeting_ids = meetings.references(refs)
+    if reply:
+        meeting_ids.update(meetings.message(reply))
+    if who.attempt_id:
+        meeting_ids.update(meetings.attempt(who.attempt_id))
+    restricted_meetings = private_meetings(c, meeting_ids)
     private = [H.task(c, tid) for tid in ids if H.task_private(c, H.task(c, tid))]
-    if not private:
+    if not private and not restricted_meetings:
         return
     conv = H.conversation(c, conversation_id) if conversation_id else None
     audience = set((conv or {}).get("participants") or []) | {who.actor, to}
     if getattr(who, "task_actor", ""):
         audience.add(who.task_actor)
+    if not all(meetings.readable(actor, restricted_meetings) for actor in audience):
+        raise Problem("privacy", "Private meeting content stays with its current members", 403)
     target = (refs or {}).get("task") if isinstance(refs, dict) else None
     target = H.task(c, target) if isinstance(target, str) else None
     for row in private:
