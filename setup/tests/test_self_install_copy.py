@@ -7,6 +7,7 @@ import pytest
 
 from setup import contract, remote, settings
 from setup.tests.fakes import FakeShell
+from setup.tests.test_preview_flags import env  # noqa: F401 (synthetic install verification, autouse)
 
 
 def test_ssh_plan_copy_is_atomic_private_and_refuses_corrupt_stdin(tmp_path, monkeypatch):
