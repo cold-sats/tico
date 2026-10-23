@@ -24,9 +24,9 @@ ROLE = re.compile(r"^(Review [12]|QA|Docs|Documentation|Technical Writer)\s*:", 
 SHA = re.compile(r"\b[0-9a-f]{40}\b")
 PASS = re.compile(r"\b(pass(?:ed)?|green|success(?:ful)?)\b", re.I)
 TEST = re.compile(r"\b(tests?|pytest|cargo|browser|CI)\b", re.I)
-FAIL = re.compile(r"\b(?:[1-9]\d*\s*(?:fail(?:ed|ures?)?|errors?)|fail(?:ed|ure)?|not run|pending|"
+FAIL = re.compile(r"\b(?:[1-9]\d*\s*(?:fail(?:s|ing|ed|ures?)?|errors?)|fail(?:s|ing|ed|ures?)?|timed?\s*out|timeouts?|not run|pending|"
                   r"will|planned|0\s*passed|(?:no|not|without)\s+(?:pass(?:ed)?|green|success))\b", re.I)
-FAILED_RESULT = re.compile(r"\b(?:fail(?:ed|ures?)?|errors?)\b", re.I)
+FAILED_RESULT = re.compile(r"\b(?:fail(?:s|ing|ed|ures?)?|errors?|timed?\s*out|timeouts?)\b", re.I)
 MAX_PAGES = 100
 
 

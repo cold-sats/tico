@@ -157,6 +157,12 @@ def test_same_head_failure_stays_explicit_even_after_a_passing_rerun():
         message(task, f"Tests: head {HEAD}: 10 passed, 0 failed", ident="rerun", created="2026-01-04"),
     ]
     assert "Tests: recorded failure" in "\n".join(build(task)["prs"][0]["gaps"])
+    for failure in ("test_x failing", "browser job timed out"):
+        task["messages"] = complete()["messages"] + [
+            message(task, f"Tests: head {HEAD}: {failure}", ident="failed", created="2026-01-03"),
+            message(task, f"Tests: head {HEAD}: 10 passed, 0 failed", ident="rerun", created="2026-01-04"),
+        ]
+        assert "Tests: recorded failure" in "\n".join(build(task)["prs"][0]["gaps"])
     task["messages"] = complete()["messages"] + [
         message(task, f"CI: head {HEAD}: pending", ident="pending", created="2026-01-03")]
     assert "Tests: no current passing receipt" in "\n".join(build(task)["prs"][0]["gaps"])
