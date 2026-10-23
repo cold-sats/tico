@@ -5,7 +5,8 @@ import json
 import os
 import sqlite3
 import threading
-from contextlib import contextmanager
+from collections import deque
+from contextlib import ExitStack, contextmanager
 
 import yaml
 
@@ -194,6 +195,7 @@ CREATE TABLE IF NOT EXISTS attempts(
  result_json TEXT, final_text TEXT, last_seq INTEGER NOT NULL DEFAULT 0);
 -- Bound history reads by time before evaluating their visibility gates.
 CREATE INDEX IF NOT EXISTS attempts_created ON attempts(created);
+CREATE INDEX IF NOT EXISTS attempts_bot_state ON attempts(bot,state);
 CREATE TABLE IF NOT EXISTS attempt_events(
  id INTEGER PRIMARY KEY AUTOINCREMENT, attempt_id TEXT NOT NULL REFERENCES attempts(id),
  seq INTEGER NOT NULL, kind TEXT NOT NULL, payload_json TEXT NOT NULL, created TEXT NOT NULL,
@@ -621,6 +623,36 @@ def _pooled(base):
     return type("Pooled" + base.__name__, (base,), body)
 
 
+class WriterGate:
+    """FIFO admission: a scheduler opening its next transaction goes behind already waiting requests."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.queue = deque()
+
+    def acquire(self):
+        ready = threading.Event()
+        with self.lock:
+            self.queue.append(ready)
+            if len(self.queue) == 1:
+                ready.set()
+        try:
+            ready.wait()
+        except BaseException:
+            with self.lock:
+                first = self.queue[0] is ready
+                self.queue.remove(ready)
+                if first and self.queue:
+                    self.queue[0].set()
+            raise
+
+    def release(self):
+        with self.lock:
+            self.queue.popleft()
+            if self.queue:
+                self.queue[0].set()
+
+
 class Store:
     def __init__(self, settings, recorder=None):
         self.settings = settings
@@ -635,6 +667,9 @@ class Store:
         # which on a large install cost more than most reads themselves.
         self.pooled = _pooled(self.factory)
         self.pool, self.pool_file, self.pool_lock = [], None, threading.Lock()
+        # In-process writers queue before BEGIN instead of competing in SQLite's busy-handler sleeps.
+        # Reads still use independent WAL snapshots; other processes remain governed by busy_timeout.
+        self.writer = WriterGate()
 
     def connect(self, factory=None, check_same_thread=True):
         c = sqlite3.connect(str(self.settings.db_path), timeout=30, isolation_level=None,
@@ -1429,25 +1464,20 @@ class Store:
 
     @contextmanager
     def transaction(self):
-        with self.read() as c:
-            if self.recorder is None:
-                c.execute("BEGIN IMMEDIATE")
-                try:
-                    yield c
-                    message_links.refresh_dirty(c)
-                    c.commit()
-                except Exception:
-                    c.rollback()
-                    raise
-                return
-            # The flight recorder: how long the write lock took to get, and how long it was held.
-            from .flight import begin
-            done = begin(c, self.recorder)
+        from .flight import begin
+        # The gate is released only after commit/rollback, including message-link maintenance.
+        with ExitStack() as stack:
+            c = None
+            def checkout():
+                nonlocal c
+                c = stack.enter_context(self.read())
+                return c
+            done = begin(None, self.recorder, gate=self.writer, checkout=checkout)
             try:
                 yield c
                 message_links.refresh_dirty(c)
                 c.commit()
-            except Exception:
+            except BaseException:
                 c.rollback()
                 raise
             finally:

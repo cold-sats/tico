@@ -61,3 +61,24 @@ def test_a_replaced_database_file_drops_the_pool(tmp_path):
         assert second is not first
         assert schema_columns(second, s.settings.db_path).get("t") == ("y",)
 
+
+
+def test_failed_writer_releases_admission_and_rolls_back(tmp_path, monkeypatch):
+    import pytest
+    s = store(tmp_path)
+    take = s._take
+    def unavailable():
+        raise sqlite3.OperationalError("synthetic connection failure")
+    monkeypatch.setattr(s, "_take", unavailable)
+    with pytest.raises(sqlite3.OperationalError):
+        with s.transaction():
+            raise AssertionError("unreachable")
+    monkeypatch.setattr(s, "_take", take)
+    with pytest.raises(KeyboardInterrupt):
+        with s.transaction() as c:
+            c.execute("UPDATE t SET x=2")
+            raise KeyboardInterrupt
+    # Neither an acquisition failure nor an interrupted transaction can strand the next writer.
+    with s.transaction() as c:
+        assert c.execute("SELECT x FROM t").fetchone()[0] == 1
+        c.execute("UPDATE t SET x=3")

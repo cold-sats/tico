@@ -1084,7 +1084,7 @@ class Execution:
                 self.runner_enrolled(c, rid, row["operator"])
             return {"runner_id": rid, "token": token, "operator": row["operator"]}
 
-    def heartbeat(self, c, who, body):
+    def heartbeat(self, c, who, body, *, live_tasks=None):
         row = self.runner(c, who)
         now = H.now()
         awake_since = self.waking(row, now)
@@ -1200,10 +1200,11 @@ class Execution:
                           "bot_agent_instructions.runner_id<>excluded.runner_id",
                           (bot, content, who.runner_id, now))
         from . import worktrees
-        worktree_actions = worktrees.heartbeat(c, who, body.worktrees, readiness.get('worktrees', False), self.store.settings.github_owner)
+        worktree_actions = worktrees.heartbeat(c, who, body.worktrees, readiness.get('worktrees', False),
+                                               self.store.settings.github_owner, live_tasks=live_tasks)
         # A worktree whose task neither this computer nor its owning bot here can read is left out and counted, so one
         # such task cannot fail the whole readiness report (task_privacy.require_payload refuses the response).
-        sendable = [a for a in worktree_actions if privacy.worktree_action_readable(c, who, a)]
+        sendable = privacy.readable_worktree_actions(c, who, worktree_actions)
         skipped = len(worktree_actions) - len(sendable)
         # A Restart a person pressed goes to the runner once; it restarts when no turn is running.
         restart = c.execute("SELECT restart_requested,performance FROM runners WHERE id=?", (who.runner_id,)).fetchone()
@@ -2015,14 +2016,23 @@ class Execution:
         from .worktree_waits import cancel_for_attempt
         cancel_for_attempt(c, row["id"], f"Stopped by {name}")
 
-    def renew(self, c, who, aid):
-        row = self.attempt(c, who, aid)
-        until = H.shift(H.now(), seconds=self.store.settings.lease_seconds)
-        c.execute("UPDATE attempts SET lease_until=? WHERE id=?", (until, aid))
+    def renew(self, c, who, aid, *, if_fresh=False):
+        row = self.attempt(c, who, aid, active=not if_fresh)
+        now = H.now()
+        seconds = self.store.settings.lease_seconds
+        if if_fresh:
+            remaining = (H.parse_ts(row["lease_until"]) - H.parse_ts(now)).total_seconds()
+            if (row["state"] not in ("leased", "running") or not self.current_owner(c, who, row)
+                    or remaining < max(20, seconds * 2 / 3)):
+                return None
+            until, seconds = row["lease_until"], int(remaining)
+        else:
+            until = H.shift(now, seconds=seconds)
+            c.execute("UPDATE attempts SET lease_until=? WHERE id=?", (until, aid))
         # The runner renews every few seconds, so a person's Stop rides on the answer it already reads. A turn whose
         # task ended meanwhile is stopped only while it waits for its login; one preparing or under way runs on.
         from .login_waits import wait
-        return {"lease_until": until, "lease_seconds": self.store.settings.lease_seconds,
+        return {"lease_until": until, "lease_seconds": seconds,
                 **({"stop": True} if row["stop_requested"] or finished_before_start(c, row) and wait(c, aid) else {})}
 
     def stop(self, c, who, bot, attempt_id=None, redirect=None):
@@ -2106,6 +2116,13 @@ class Execution:
         settle_status(c, row["bot"], "running", "Responding to queued work",
                       claimed=row["created"], task_id=H.message_task_id(H.message(c, msg)) or "")
         return {"started": True}
+
+    @staticmethod
+    def input_reply(c, attempt):
+        aid = attempt["id"]
+        ids = c.execute("SELECT message_id FROM attempt_inputs WHERE attempt_id=? AND acked_at IS NULL", (aid,)).fetchall()
+        return {"attempt_id": aid, "messages": [m for row in ids if (m := H.message(c, row[0]))
+                             and privacy.message_readable(c, "bot:" + attempt["bot"], m)]}
 
     def inputs(self, c, who, aid):
         """Add eligible queued work to a running turn when its runtime can steer.
@@ -2201,12 +2218,10 @@ class Execution:
             c.execute("INSERT OR IGNORE INTO attempt_conversations VALUES(?,?)", (aid, row["conversation_id"]))
             c.execute("UPDATE jobs SET state='input',attempt_id=? WHERE message_id=?", (aid, row["id"]))
             taken += 1
-        ids = c.execute("SELECT message_id FROM attempt_inputs WHERE attempt_id=? AND acked_at IS NULL", (aid,)).fetchall()
         # `attempt_id` lets the response check read these as the bot, as for the turn itself:
         # each message was just checked readable by the bot, and a private task's message is
         # never readable by the computer's own identity.
-        return {"attempt_id": aid, "messages": [m for row in ids if (m := H.message(c, row[0]))
-                             and privacy.message_readable(c, "bot:" + attempt["bot"], m)]}
+        return self.input_reply(c, attempt)
 
     def release_undelivered(self, c, aid, ids):
         """Put inputs the runner says it never gave the runtime back in the queue, before anything below
@@ -2242,24 +2257,32 @@ class Execution:
         row = self.attempt(c, who, aid, active=False)
         seq = row["last_seq"]
         from .login_waits import stored
+        # Fetch only the sequences in this bounded request, not the attempt's output history.
+        existing_events = {r["seq"]: (r["kind"], r["payload_json"]) for r in c.execute(
+            "SELECT seq,kind,payload_json FROM attempt_events WHERE attempt_id=? AND seq IN (" +
+            ",".join("?" * len(body.events)) + ")", (aid, *(event.seq for event in body.events)))}
+        inserts, goals = [], []
+        now = H.now()
         for event in body.events:
             payload = encode(stored(event.kind, event.payload))
-            existing = c.execute("SELECT kind,payload_json FROM attempt_events WHERE attempt_id=? AND seq=?",
-                                 (aid, event.seq)).fetchone()
+            existing = existing_events.get(event.seq)
             if existing:
-                if existing["kind"] != event.kind or existing["payload_json"] != payload:
+                if existing != (event.kind, payload):
                     raise Problem("event_conflict", "An event sequence was reused with different content", 409)
                 continue
             if event.seq != seq + 1:
                 raise Problem("event_gap", f"Expected event {seq + 1}", 409)
             if row["state"] in ("completed", "failed", "interrupted"):
                 raise Problem("terminal", "Cannot append new output to a completed attempt", 409)
-            c.execute("INSERT INTO attempt_events(attempt_id,seq,kind,payload_json,created) VALUES(?,?,?,?,?)",
-                      (aid, event.seq, event.kind, payload, H.now()))
-            if event.kind == "goal" and row["lease_until"] > H.now() and row["state"] != "expired":
-                from .chat_goals import report
-                report(c, row, event.payload)
+            existing_events[event.seq] = (event.kind, payload)
+            inserts.append((aid, event.seq, event.kind, payload, now))
+            if event.kind == "goal" and row["lease_until"] > now and row["state"] != "expired":
+                goals.append(event.payload)
             seq = event.seq
+        c.executemany("INSERT INTO attempt_events(attempt_id,seq,kind,payload_json,created) VALUES(?,?,?,?,?)", inserts)
+        for payload in goals:
+            from .chat_goals import report
+            report(c, row, payload)
         c.execute("UPDATE attempts SET last_seq=? WHERE id=?", (seq, aid))
         return {"ack_seq": seq, "historical": row["lease_until"] <= H.now() or row["state"] == "expired"}
 

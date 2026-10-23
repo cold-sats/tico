@@ -30,6 +30,7 @@ Once an hour, while it is on, the server checks the install in plain code (`back
 | `worktree_fallback` | tico-bug | A task's turn ran in the bot's checkout because its worktree hit Permission denied |
 | `event_stream` | tico-bug | A runner lost its event stream three times in its last 50 error lines, not counting drops from 5 minutes before a server start (a deploy, an update, a restart) to 2 minutes after, nor drops the runner says were back within 30 seconds (a proxy or tunnel resetting the long-lived stream; the runner polls meanwhile and catches up on reconnect) |
 | `readiness_403` | tico-bug | A runner's readiness report keeps being refused |
+| `runner_route_latency` | tico-bug | Attempt input, renew or event requests exceed one second at p95 in the last fifteen minutes of recorded traffic; also shown on Health. Histograms are merged across minutes and callers, rather than averaging percentiles |
 | `server_cpu` | tico-bug | The server averaged 40% CPU or more for an hour while hardly used |
 
 Runner checks read the error lines each runner already sends with its heartbeat (`recent_errors`). The Health Monitor's

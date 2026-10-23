@@ -549,15 +549,21 @@ def _quiet_work_checks(c):
 
 def _server_checks(c):
     from . import flight
+    from .health import runner_route_latency
+    latency = runner_route_latency(c)
+    out = ([_finding("runner_route_latency", "runner_route_latency", BUG,
+                     "Runner requests are waiting too long", latency["summary"],
+                     "Inspect the flight recorder's route wait/work times and write-lock holders; shorten the longest transactions.")]
+           if latency else [])
     try:
         seen = flight.view(c, minutes=60, sections=("requests", "process", "sql"))
     except Exception:
-        return []                                   # no flight recorder on this server
+        return out                                  # no process samples on this server
     cpu, requests = (seen.get("process") or {}).get("cpu_avg"), (seen.get("requests") or {}).get("n") or 0
     if cpu is None or cpu < SERVER_CPU or requests >= QUIET_REQUESTS:
-        return []
+        return out
     top = [q["sql"][:120] for q in (seen.get("sql") or {}).get("queries", [])[:3]]
-    return [_finding("server_cpu", "server_cpu", BUG, f"The server used {cpu:g}% CPU for an hour while idle",
+    return out + [_finding("server_cpu", "server_cpu", BUG, f"The server used {cpu:g}% CPU for an hour while idle",
                      f"Average CPU {cpu:g}% over the last hour with {requests} requests. Busiest SQL: "
                      + ("; ".join(top) or "none recorded") + ".",
                      BUG_FIX["server_cpu"])]
