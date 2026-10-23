@@ -44,14 +44,14 @@ jobs:
           mkdir -p previous-timings
           run=$(gh run list --workflow pr-checks.yml --branch main --event push --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty') || run=''
           if [ -n "$run" ]; then
-            gh run download "$run" --name pr-python-timings --dir previous-timings || echo "No measured timings yet; use collected counts this run"
+            gh run download "$run" --pattern 'pr-python-timings*' --dir previous-timings || echo "No measured timings yet; use collected counts this run"
           fi
       - name: Select affected tests and four measured Python groups
         id: plan
         env:
           EVENT: ${{ github.event_name }}
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: '"$RUNNER_TEMP/venv/bin/python" scripts/pr_checks.py plan --event "$EVENT" --base "$BASE" --timings previous-timings/durations.json'
+        run: '"$RUNNER_TEMP/venv/bin/python" scripts/pr_checks.py plan --event "$EVENT" --base "$BASE" --timings previous-timings'
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pr-check-plan
@@ -60,6 +60,13 @@ jobs:
       - name: Selection receipt
         run: |
           { echo '### Test selection'; echo '```json'; cat ci-plan.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Per-job timings on this runner
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" | python3 scripts/pr_checks.py receipt >> "$GITHUB_STEP_SUMMARY"
+          echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> "$GITHUB_STEP_SUMMARY"
 
   tests:
     needs: plan
@@ -80,7 +87,8 @@ jobs:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: pr-check-plan
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - if: matrix.suite != 'selection'
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.15'
           cache: pip
@@ -111,6 +119,7 @@ jobs:
             -e 's|http://azure\.archive\.ubuntu\.com/ubuntu/|https://archive.ubuntu.com/ubuntu/|g' \
             /etc/apt/sources.list.d/ubuntu.sources
       - name: Install (five minutes per attempt, one retry)
+        if: matrix.suite != 'selection'
         timeout-minutes: 11
         env:
           SUITE: ${{ matrix.suite }}
@@ -124,7 +133,12 @@ jobs:
         env:
           SUITE: ${{ matrix.suite }}
           TICO_PYTHON: ${{ runner.temp }}/venv/bin/python
-        run: PATH="$RUNNER_TEMP/venv/bin:$PATH" "$RUNNER_TEMP/venv/bin/python" scripts/pr_checks.py run "$SUITE"
+        run: |
+          if [ "$SUITE" = selection ]; then
+            python3 scripts/pr_checks.py run "$SUITE"
+          else
+            PATH="$RUNNER_TEMP/venv/bin:$PATH" "$RUNNER_TEMP/venv/bin/python" scripts/pr_checks.py run "$SUITE"
+          fi
       - if: always() && startsWith(matrix.suite, 'python-')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -132,6 +146,22 @@ jobs:
           path: ci-results/*.xml
           retention-days: 7
           if-no-files-found: warn
+      - name: Record measured per-file times on this Python runner
+        if: github.event_name == 'push' && success() && startsWith(matrix.suite, 'python-')
+        run: python3 scripts/pr_checks.py durations
+      - if: github.event_name == 'push' && success() && startsWith(matrix.suite, 'python-')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pr-python-timings-${{ matrix.suite }}
+          path: durations.json
+          retention-days: 30
+      - name: Per-job timings on this runner
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" | python3 scripts/pr_checks.py receipt >> "$GITHUB_STEP_SUMMARY"
+          echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> "$GITHUB_STEP_SUMMARY"
 
   caddy-linux:
     needs: plan
@@ -189,45 +219,10 @@ jobs:
           name: caddy-runtime-${{ matrix.arch }}
           path: ${{ runner.temp }}/caddy-runtime-evidence/
           if-no-files-found: warn
-
-  timings:
-    name: PR job timings
-    if: always()
-    needs: [plan, tests, caddy-linux]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 3
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        continue-on-error: true
-        with:
-          pattern: results-python-*
-          path: ci-results
-          merge-multiple: true
-      - name: Per-job timings linked from the PR check
+      - name: Per-job timings on this runner
+        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" | python3 scripts/pr_checks.py receipt >> "$GITHUB_STEP_SUMMARY"
           echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> "$GITHUB_STEP_SUMMARY"
-      - name: Record measured per-file times
-        if: github.event_name == 'push' && needs.tests.result == 'success'
-        run: python3 scripts/pr_checks.py durations
-      - if: github.event_name == 'push' && needs.tests.result == 'success'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: pr-python-timings
-          path: durations.json
-          retention-days: 30
-      - name: Required checks passed
-        if: always()
-        env:
-          PLAN: ${{ needs.plan.result }}
-          TESTS: ${{ needs.tests.result }}
-          CADDY: ${{ needs.caddy-linux.result }}
-        run: |
-          test "$PLAN" = success
-          test "$TESTS" = success
-          case "$CADDY" in success|skipped) ;; *) exit 1 ;; esac
