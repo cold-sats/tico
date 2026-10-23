@@ -1211,7 +1211,12 @@ impl Runner {
                 Ok::<(), String>(())
             }.await;
             if let Err(e) = persisted {
-                ran = Err(e.into());
+                if drove.outcome == "completed" {
+                    // A local save failure cannot make completed work safe to execute a second time.
+                    self.diagnose(&aid, "Completed turn kept; local session or rotation state could not be saved. Inspect this computer's runner state before continuing.");
+                } else {
+                    ran = Err(e.into());
+                }
             }
         }
         if (busy.is_some() || held.is_some()) && ran.is_ok() {
@@ -1230,7 +1235,7 @@ impl Runner {
             }
         }
         let native_control = truthy(refs.get("command")) || goal.chat_goal.as_ref().is_some_and(|g| g["status"] == "active");
-        let mut pending = if unavailable && !native_control { crate::fallback::configured(&config) } else { None };
+        let mut pending = if unavailable && drove.outcome != "completed" && !native_control { crate::fallback::configured(&config) } else { None };
         let hit_limit = drove.limited;
         // Out of quota here until its reset (or for a while): no other bot's fallback picks this login meanwhile. A
         // model at capacity is the provider's moment, not the login's quota: the server's short hold covers it.
@@ -2716,6 +2721,54 @@ for line in sys.stdin:
         let place = tokio::time::timeout(Duration::from_secs(1), runner.enter_lanes(&attempt, &AtomicBool::new(false))).await.unwrap().unwrap();
         drop(place);
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn a_completed_turn_is_not_replayed_on_fallback_when_local_session_state_cannot_be_saved() {
+        let _controls = RunControls;
+        for (failure, trigger) in [
+            ("session", "CREATE TRIGGER fail_completed BEFORE INSERT ON sessions WHEN NEW.thread = 'canonical-acme-session' BEGIN SELECT RAISE(FAIL, 'synthetic completed session save failure'); END;"),
+            ("rotation", "CREATE TRIGGER fail_completed BEFORE INSERT ON session_sizes BEGIN SELECT RAISE(FAIL, 'synthetic rotation accounting failure'); END;"),
+        ] {
+            let (url, seen, server) = recording_server().await;
+            let (runner, dir) = drain_runner_on(&url, 300).await;
+            std::fs::create_dir_all(dir.join("projects/bot-ops")).unwrap();
+            let db = rusqlite::Connection::open(runner.state.directory.join("runner.sqlite")).unwrap();
+            db.execute_batch(trigger).unwrap();
+            let script = dir.join("completed_claude.py");
+            std::fs::write(&script, r#"import json, pathlib, signal, sys
+root = pathlib.Path(__file__).parent
+if '--version' in sys.argv:
+    print('2.1.999'); sys.exit(0)
+if '--help' in sys.argv:
+    sys.exit(0)
+signal.alarm(10)
+sys.stdin.readline()
+with (root / 'turns').open('a') as f:
+    f.write('started\n')
+print(json.dumps({'type':'system','subtype':'init','session_id':'canonical-acme-session'}), flush=True)
+print(json.dumps({'type':'result','subtype':'success','result':'Acme completed once.'}), flush=True)
+"#).unwrap();
+            HOST_COMMAND.with(|command| *command.borrow_mut() = Some(vec![crate::env::python().display().to_string(), script.display().to_string()]));
+            let attempt = json!({"id": "a-completed", "bot": "ops", "token": "synthetic", "lease_seconds": 120,
+                                 "conversation": {"id": "c1"}, "message": {"refs": {}},
+                                 "config": {"runtime": "claude", "harness": "claude", "model": "synthetic-primary", "session": "bot",
+                                            "fallback": {"harness": "claude", "model": "synthetic-fallback"}}});
+            tokio::time::timeout(Duration::from_secs(12), runner.clone().execute(attempt)).await.expect("completed turn did not settle").unwrap();
+            assert_eq!(std::fs::read_to_string(dir.join("turns")).unwrap().lines().count(), 1, "{failure} failure replayed completed work on fallback");
+            let seen = seen.lock().unwrap().clone();
+            let completions: Vec<_> = seen.iter().filter(|(_, p, _)| p.ends_with("/attempts/a-completed/complete")).map(|(_, _, b)| b).collect();
+            assert_eq!(completions.len(), 1, "{seen:?}");
+            assert_eq!(completions[0]["outcome"], "completed");
+            assert_eq!(completions[0]["text"], "Acme completed once.");
+            assert!(completions[0].get("fallback").is_none(), "{completions:?}");
+            let events: Vec<_> = seen.iter().filter(|(_, p, _)| p.ends_with("/attempts/a-completed/events"))
+                .flat_map(|(_, _, b)| b["events"].as_array().cloned().unwrap_or_default()).collect();
+            assert!(events.iter().any(|e| e["kind"] == "diagnostic" && text_of(&e["payload"]["text"]).contains("Completed turn kept")), "missing save diagnostic: {events:?}");
+            server.abort();
+            drop(db);
+            std::fs::remove_dir_all(dir).ok();
+        }
     }
 
     #[tokio::test]

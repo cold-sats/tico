@@ -133,10 +133,14 @@ Free space on that volume to retry. Base clones absent from the computer's repos
 
 The runner is a git checkout. When the server's release is newer, the runner:
 
-1. stops taking new work and hands unstarted turns (including login, turn-share and usage waits) back to the
-   queue immediately. Only turns already running are waited for. After five minutes, remaining turns are
-   interrupted, their work and resumable session are saved, and they are queued to continue after the update. Each handback
-   appears in run history. Set `drain_timeout_seconds` in `runner.json` to change the five-minute limit. Health still warns after 34 minutes without a completed restart; choosing a long drain does not extend that warning. A Git operation already changing a checkout finishes before handback so the next runner does not inherit a lock.
+1. stops taking new work and immediately returns turns parked in login, turn-share, usage or checkout queues.
+   Preparation already in progress (a pull, product-file refresh, sign-in or harness start) finishes before handback;
+   the start boundary prevents that turn from starting during the drain. A Git operation keeps its checkout lock
+   until it finishes so the next runner does not inherit a lock. Turns already running have five minutes to finish,
+   then are interrupted, their work and resumable session are saved, and they are queued to continue after the update.
+   Each handback appears in run history. Set `drain_timeout_seconds` in `runner.json` to change the five-minute active-turn
+   limit; it does not cancel preparation in progress. Health still warns after 34 minutes without a completed restart;
+   choosing a long drain does not extend that warning.
    Queued work says **Waiting for the computer to update: N running, M handed back** in chat and on its task;
    Health shows the same progress. Counts contain no other task's name. Older runners keep their previous
    twenty-minute claim window until they update. A graceful container stop or a requested Restart uses the same
@@ -281,7 +285,7 @@ still runs the side jobs (connectors, Close calls, meeting importers), the catal
 
 The runner computer's `docker/runner.compose.yaml` has an `updater` sidecar, the same image and code as the server's
 updater (`docker/updater.py`) in runner mode (`TICO_UPDATER_MODE=runner`). The runner drains the same way as a
-checkout: it returns unstarted claims immediately, waits up to five minutes for active turns, then saves and requeues
+checkout: it immediately returns claims parked in queues, finishes preparation already in progress, waits up to five minutes for active turns, then saves and requeues
 any remaining turns. Once all claims settle it asks the sidecar for the release its server names; it pulls `ghcr.io/ticoteam/tico-runner:vX.Y.Z`, replaces `runner.compose.yaml` with the release's copy (same checksum check, rolled back with the image), recreates the runner
 container, waits up to three minutes for the container's health check, and puts the old image back if it does not
 turn healthy. The runner then reports the outcome (`rolled_back`, `failed`) from the sidecar's `/status`, and does not
