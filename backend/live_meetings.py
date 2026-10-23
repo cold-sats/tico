@@ -143,12 +143,9 @@ def _meeting(c, rid):
 
 
 def _sees(c, who, row):
-    """Team meetings are open to every team human; private ones to the owner, added people and joiners."""
-    if row["visibility"] == "team" or who.actor == row["owner_actor"]:
-        return True
-    return bool(c.execute("SELECT 1 FROM live_meeting_access WHERE meeting_id=? AND actor=? UNION ALL "
-                          "SELECT 1 FROM live_meeting_humans WHERE meeting_id=? AND actor=?",
-                          (row["id"], who.actor, row["id"], who.actor)).fetchone())
+    """Joining is presence, not a lasting grant to a private meeting."""
+    from .live_privacy import member
+    return member(c, who.actor, row)
 
 
 def _require_read(c, auth, who, rid):
@@ -159,8 +156,9 @@ def _require_read(c, auth, who, rid):
             # A private meeting's existence is private too.
             raise Problem("not_found", "Live meeting not found", 404)
     elif who.role == "bot":
-        slug = H.actor_id(who.actor)
-        if not c.execute("SELECT 1 FROM live_meeting_bots WHERE meeting_id=? AND bot=?", (rid, slug)).fetchone():
+        if not _sees(c, who, row):
+            if row["visibility"] == "private":
+                raise Problem("not_found", "Live meeting not found", 404)
             raise Problem("forbidden", "This bot is not attached to the live meeting", 403)
     else:
         raise Problem("forbidden", "Live meetings are available to team members and attached bots", 403)
@@ -333,7 +331,7 @@ def _dispatch_turn(c, rid, turn_id, slug):
     """Put one scoped reply request on the existing durable runner job queue."""
     meeting = _meeting(c, rid)
     conv = H.open_conversation(c, H.KEEPER, ["bot:" + slug], kind="chat",
-                               subject="Live meeting: " + meeting["title"])
+                               subject="Live meeting: " + meeting["title"], room_key="live-meeting:" + rid)
     refs = {"live_meeting": {"meeting_id": rid, "turn_id": turn_id}}
     H.feed(c, "bot:" + slug, _turn_prompt(c, rid, turn_id, slug), conv, refs=refs)
 
@@ -841,7 +839,13 @@ def _reply(c, rid, who, turn_id, text, *, at_ms=None, transcript_seq=None):
     return dict(c.execute("SELECT * FROM live_meeting_chat WHERE id=?", (cid,)).fetchone())
 
 
-def install_live_meetings(app, store, auth, mutate):
+def install_live_meetings(app, store, auth, write):
+    def mutate(request, body, work):
+        # Store checks run under the write lock before looking up an idempotency receipt.
+        rid = request.path_params.get("rid")
+        check = (lambda c: _require_read(c, auth, request.state.identity, rid)) if rid else None
+        return write(request, body, work, check=check)
+
     @app.post("/api/v2/live-meetings")
     def connect(request: Request, body: Connect):
         who = request.state.identity
@@ -944,6 +948,16 @@ def install_live_meetings(app, store, auth, mutate):
             visibility = body.visibility or row["visibility"]
             if visibility != row["visibility"]:
                 c.execute("UPDATE live_meetings SET visibility=?,updated=? WHERE id=?", (visibility, H.now(), rid))
+            if visibility == "private":
+                # Implicit team participation cannot expand the newly private audience.
+                c.execute("DELETE FROM live_meeting_humans WHERE meeting_id=? AND actor<>? AND actor NOT IN "
+                          "(SELECT actor FROM live_meeting_access WHERE meeting_id=?)", (rid, row["owner_actor"], rid))
+                for bot in c.execute("SELECT bot FROM live_meeting_bots WHERE meeting_id=? AND joined_by<>?",
+                                     (rid, row["owner_actor"])).fetchall():
+                    for turn in c.execute("SELECT * FROM live_meeting_turns WHERE meeting_id=? AND bot=? "
+                                          "AND status IN ('pending','claimed')", (rid, bot["bot"])).fetchall():
+                        _finish_pass(c, rid, turn, "meeting_access_revoked")
+                c.execute("DELETE FROM live_meeting_bots WHERE meeting_id=? AND joined_by<>?", (rid, row["owner_actor"]))
             if added or removed or visibility != row["visibility"]:
                 _event(c, rid, "meeting.access", {"visibility": visibility, "added": added, "removed": removed,
                                                    "changed_by": who.actor})
@@ -1048,6 +1062,8 @@ def install_live_meetings(app, store, auth, mutate):
             human_only(who)
             auth.domain(who)
             meeting = _require_read(c, auth, who, rid)
+            if meeting["visibility"] == "private" and who.actor != meeting["owner_actor"]:
+                raise Problem("forbidden", "Only the person who connected a private meeting can attach bots", 403)
             if meeting["state"] not in ("live", "paused"):
                 raise Problem("meeting_state", "Bots can only be attached to a live or paused meeting", 409)
             if not c.execute("SELECT 1 FROM live_meeting_humans WHERE meeting_id=? AND actor=?",

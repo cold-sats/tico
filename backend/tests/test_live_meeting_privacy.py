@@ -1,0 +1,204 @@
+"""Current live-meeting membership also fences retained, derived work."""
+import asyncio
+
+import pytest
+from starlette.requests import Request
+
+from backend import live_meetings as meetings
+from backend import task_privacy
+from backend.auth import Identity
+from backend.store import H, encode
+from backend.tests.test_api import assign, get, headers, post, ready, runner
+from backend.tests.test_live_meetings import api, attach, chunk, live  # noqa: F401
+from backend.tests.test_sql import query
+
+
+def private(api, token="ana-test"):
+    return post(api, "live-meetings", {"title": "Synthetic restricted planning", "visibility": "private"}, token=token)["id"]
+
+
+def test_removed_human_cannot_replay_join_view(live):
+    mid = private(live)
+    chunk(live, mid, 1, 0, 1000, "Synthetic restricted transcript")
+    post(live, f"live-meetings/{mid}/access", {"add": ["ben"]})
+    receipt = post(live, f"live-meetings/{mid}/join", {}, token="ben-test", key="joined-once")
+    assert receipt["chunks"][0]["text"] == "Synthetic restricted transcript"
+    post(live, f"live-meetings/{mid}/access", {"remove": ["ben"]})
+    post(live, f"live-meetings/{mid}/join", {}, token="ben-test", key="joined-once", expected=404)
+
+
+def test_removed_bot_cannot_replay_turn_receipt(live):
+    mid = private(live)
+    attach(live, mid, "ops")
+    chunk(live, mid, 1, 0, 1000, "Ops, review this synthetic plan")
+    turn = get(live, f"live-meetings/{mid}/turns", token="ops-live")["turns"][0]
+    path = f"live-meetings/{mid}/turns/{turn['id']}/claim"
+    post(live, path, {}, token="ops-live", key="claimed-once")
+    removed = live.request("DELETE", f"/api/v2/live-meetings/{mid}/bots/ops", json={}, headers=headers())
+    assert removed.status_code == 200, removed.text
+    post(live, path, {}, token="ops-live", key="claimed-once", expected=404)
+
+
+def test_only_connector_expands_private_audience_and_team_members_keep_bot_attach(live):
+    mid = private(live)
+    post(live, f"live-meetings/{mid}/access", {"add": ["ben"]})
+    post(live, f"live-meetings/{mid}/join", {}, token="ben-test")
+    for body in ({"add": ["cara"]}, {"visibility": "team"}):
+        post(live, f"live-meetings/{mid}/access", body, token="ben-test", expected=403)
+    post(live, f"live-meetings/{mid}/bots", {"bots": ["ops"]}, token="ben-test", expected=403)
+    assert attach(live, mid, "ops")["added"] == ["ops"]
+    post(live, f"live-meetings/{mid}/access", {"add": ["cara"]}, token="ops-live", expected=403)
+    team = post(live, "live-meetings", {"title": "Synthetic team planning"})["id"]
+    post(live, f"live-meetings/{team}/join", {}, token="ben-test")
+    assert attach(live, team, "ops", token="ben-test")["added"] == ["ops"]
+    chunk(live, team, 1, 0, 1000, "Ops, review this synthetic team plan")
+    # Tightening the audience also revokes grants made by implicit team participants.
+    narrowed = post(live, f"live-meetings/{team}/access", {"visibility": "private"})
+    assert narrowed["router"]["turns"][0]["status"] == "skipped"
+    get(live, f"live-meetings/{team}", token="ops-live", expected=404)
+    # A retained pre-correction attachment made by an added human is removed on revocation.
+    with live.app.state.store.transaction() as c:
+        c.execute("INSERT INTO live_meeting_bots(meeting_id,bot,joined_by,joined_at) VALUES(?,?,?,?)",
+                  (mid, "finance", "human:ben", H.now()))
+    post(live, f"live-meetings/{mid}/access", {"remove": ["ben"]})
+    with live.app.state.store.read() as c:
+        assert not c.execute("SELECT 1 FROM live_meeting_bots WHERE meeting_id=? AND bot='finance'", (mid,)).fetchone()
+
+
+def test_team_to_private_retains_explicit_people_not_joiners_or_open_stream(live, monkeypatch):
+    mid = post(live, "live-meetings", {"title": "Synthetic audience transition"})["id"]
+    post(live, f"live-meetings/{mid}/access", {"add": ["cara"]})
+    for token in ("ben-test", "cara-test"):
+        post(live, f"live-meetings/{mid}/join", {}, token=token)
+    route = next(r for r in live.app.routes if getattr(r, "path", "") == "/api/v2/live-meetings/{rid}/events")
+    request = Request({"type": "http", "method": "GET", "path": f"/api/v2/live-meetings/{mid}/events",
+                       "headers": [(b"authorization", b"Bearer ben-test")], "query_string": b""})
+    request.state.identity = Identity("human:ben", "human", "ben@acme.example")
+
+    async def connected(_request):
+        return False
+
+    async def no_sleep(_seconds):
+        pass
+
+    monkeypatch.setattr(Request, "is_disconnected", connected)
+    monkeypatch.setattr(meetings.asyncio, "sleep", no_sleep)
+
+    async def transition():
+        response = await route.endpoint(request, mid)
+        iterator = response.body_iterator
+        while not (await iterator.__anext__()).startswith(": keep-alive"):
+            pass
+        changed = post(live, f"live-meetings/{mid}/access", {"visibility": "private"})
+        after = await iterator.__anext__()
+        await iterator.aclose()
+        return changed, after
+
+    changed, after = asyncio.run(transition())
+    assert after == "event: expired\ndata: {}\n\n"
+    assert {p["actor"] for p in changed["humans"]} == {"human:ana", "human:cara"}
+    assert mid not in {r["id"] for r in get(live, "live-meetings", token="ben-test")["meetings"]}
+    for suffix in ("", "/events"):
+        get(live, f"live-meetings/{mid}{suffix}", token="ben-test", expected=404)
+    # Pulling turns is bot-only regardless of whether a meeting exists.
+    get(live, f"live-meetings/{mid}/turns", token="ben-test", expected=403)
+    post(live, f"live-meetings/{mid}/join", {}, token="ben-test", expected=404)
+    assert get(live, f"live-meetings/{mid}", token="cara-test")["id"] == mid
+
+
+def test_unattached_bot_private_meeting_is_indistinguishable_from_unknown(live):
+    mid = private(live)
+    for suffix in ("", "/events", "/turns"):
+        known = get(live, f"live-meetings/{mid}{suffix}", token="finance-live", expected=404)
+        unknown = get(live, f"live-meetings/not-a-meeting{suffix}", token="finance-live", expected=404)
+        assert known == unknown
+
+
+@pytest.fixture
+def derived(live):
+    # The company owner is deliberately not a member of the connector's private meeting.
+    mid = private(live, token="ben-test")
+    attach(live, mid, "ops", token="ben-test")
+    chunk(live, mid, 1, 0, 1000, "Ops, review this synthetic restricted plan", token="ben-test")
+    machine = runner(live)
+    assign(live, machine, "ops")
+    ready(live, machine, ["ops"])
+    attempt = post(live, "jobs/claim", {"bot": "ops"}, token=machine["token"])["attempt"]
+    with live.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET team='engineering' WHERE bot='ops'")
+        c.execute("INSERT INTO attempt_captures(attempt_id,bot,provider,frames,truncated,dropped_bytes,bytes,created) "
+                  "VALUES(?,?,?,?,0,0,2,?)", (attempt["id"], "ops", "synthetic", "[]", H.now()))
+    return mid, attempt
+
+
+def test_private_derived_conversation_message_sql_and_run_hide_from_nonmember_owner(live, derived):
+    mid, attempt = derived
+    msg, aid = attempt["message"], attempt["id"]
+    cid = msg["conversation_id"]
+    assert cid not in {row["id"] for row in get(live, "conversations")}
+    get(live, f"conversations/{cid}/messages", expected=404)
+    get(live, f"messages/{msg['id']}", expected=404)
+    for table, identifier in (("conversations", cid), ("messages", msg["id"]), ("attempts", aid)):
+        assert query(live, f"SELECT * FROM {table} WHERE id=?", params=[identifier])["rows"] == []
+    get(live, f"attempts/{aid}/capture", expected=404)
+    get(live, f"turns/{aid}/steps", expected=404)
+    assert get(live, f"messages/{msg['id']}", token="ben-test")["id"] == msg["id"]
+    assert get(live, f"messages/{msg['id']}", token="ops-live")["id"] == msg["id"]
+    assert query(live, "SELECT id FROM conversations WHERE id=?", token="ben-test", params=[cid])["rows"] == [[cid]]
+    # Retained rooms created before the explicit binding still restrict owner inspection.
+    with live.app.state.store.transaction() as c:
+        c.execute("UPDATE conversations SET room_key=NULL WHERE id=?", (cid,))
+    assert cid not in {row["id"] for row in get(live, "conversations")}
+    assert query(live, "SELECT id FROM conversations WHERE id=?", params=[cid])["rows"] == []
+    assert get(live, f"messages/{msg['id']}", token="ops-live")["id"] == msg["id"]
+
+
+def test_removed_bot_loses_retained_derived_history_and_run(live, derived):
+    mid, attempt = derived
+    msg, aid = attempt["message"], attempt["id"]
+    assert get(live, f"messages/{msg['id']}", token="ops-live")["id"] == msg["id"]
+    assert get(live, f"attempts/{aid}/capture", token="ops-live")["attempt"]["id"] == aid
+    removed = live.request("DELETE", f"/api/v2/live-meetings/{mid}/bots/ops", json={}, headers=headers("ben-test"))
+    assert removed.status_code == 200, removed.text
+    get(live, f"conversations/{msg['conversation_id']}/messages", token="ops-live", expected=404)
+    get(live, f"messages/{msg['id']}", token="ops-live", expected=404)
+    get(live, f"attempts/{aid}/capture", token="ops-live", expected=404)
+    assert query(live, "SELECT id FROM messages WHERE id=?", token="ops-live", params=[msg["id"]])["rows"] == []
+    assert get(live, f"messages/{msg['id']}", token="ben-test")["id"] == msg["id"]
+
+
+def test_message_references_cannot_grant_membership_of_an_unrelated_room(live):
+    mid = post(live, "live-meetings", {"title": "Synthetic team discussion"})["id"]
+    post(live, "chat/ops", {"text": "Synthetic personal chat",
+                            "refs": {"live_meeting": {"meeting_id": mid}}}, expected=422)
+    # Retained synthetic data bypasses input validation to exercise the read boundary itself.
+    with live.app.state.store.transaction() as c:
+        conv = H.open_conversation(c, "human:ana", ["bot:ops"], kind="chat", subject="Synthetic personal chat")
+        message = H.say(c, "human:ana", "bot:ops", "Synthetic personal chat", conversation_id=conv["id"])
+        c.execute("UPDATE messages SET refs_json=? WHERE id=?", (encode({"live_meeting": {"meeting_id": mid}}), message["id"]))
+    cid = message["conversation_id"]
+    assert get(live, f"conversations/{cid}/messages", token="cara-test", expected=403)
+    assert query(live, "SELECT id FROM conversations WHERE id=?", token="cara-test", params=[cid])["rows"] == []
+
+
+def test_room_provenance_is_reused_only_within_its_read_snapshot(live, derived):
+    mid, attempt = derived
+    cid = attempt["message"]["conversation_id"]
+    with live.app.state.store.transaction() as c:
+        c.execute("UPDATE conversations SET room_key=NULL WHERE id=?", (cid,))
+        for n in range(30):
+            c.execute("INSERT INTO messages(id,conversation_id,from_actor,to_actor,kind,body,refs_json,created) "
+                      "VALUES(?,?,'bot:ops','keeper','say','Synthetic retained response','{}',?)",
+                      (f"synthetic-room-response-{n}", cid, H.now()))
+    statements = []
+    with live.app.state.store.read() as c:
+        c.set_trace_callback(statements.append)
+        rows = list(c.execute("SELECT * FROM messages WHERE conversation_id=?", (cid,)))
+        assert all(task_privacy.message_readable(c, "bot:ops", row, current=True) for row in rows)
+        c.set_trace_callback(None)
+    scans = [s for s in statements if "JOIN live_meeting_turns" in s]
+    assert len(scans) == 1, f"room provenance was scanned {len(scans)} times for one page"
+    removed = live.request("DELETE", f"/api/v2/live-meetings/{mid}/bots/ops", json={}, headers=headers("ben-test"))
+    assert removed.status_code == 200, removed.text
+    with live.app.state.store.read() as c:
+        assert not any(task_privacy.message_readable(c, "bot:ops", row) for row in rows)
