@@ -174,6 +174,8 @@ def _apply(c, change, goal_id, reason):
     before = _snapshot(row)
     if do == "reorder":
         H.task_update(c, CEO, row["id"], rank=H._queue_end(c, row["owner"], top=True), mover=True, quiet=True)
+        # A queue move writes no task event of its own; the log and Undo find it by the action id.
+        H._task_event(c, row["id"], CEO, "rank", before["rank"], H.task(c, row["id"])["rank"])
     elif do == "reassign":
         H.task_update(c, CEO, row["id"], owner=change["owner"], mover=True)
     else:
@@ -243,13 +245,15 @@ def _propose(c, reason, left):
         return None, (f"Not in Needs you: the {ceo_bot.name(c)} has put {ceo_bot.DAILY_CAP} items there today; "
                       "it stays here in the log")
     lines = "\n".join(f"- {x['text']}: {x['why']}" for x in left)
-    title = f"Decide what the {ceo_bot.name(c)} proposed"
+    # One item per thing proposed: the same thing tried again finds the item already waiting (a duplicate).
+    title = (f"Decide on the {ceo_bot.name(c)}'s proposal: {left[0]['text']}" if len(left) == 1 else
+             f"Decide on {len(left)} changes the {ceo_bot.name(c)} proposed: {reason}")[:200]
     body = (f"Please decide whether to make these changes yourself; the {ceo_bot.name(c)} may not make them.\n"
             + (f"Why it wanted them: {reason}\n" if reason else "") + lines +
             f"\nNothing changed. Make the change yourself if you agree, or close this to leave it.")
     c.execute("SAVEPOINT ceo_propose")
     try:
-        made = H.task_create(c, CEO, title, body, owner, lint=False, deduplicate=False)
+        made = H.task_create(c, CEO, title, body, owner, lint=False)
     except H.Refused as exc:
         c.execute("ROLLBACK TO ceo_propose")
         c.execute("RELEASE ceo_propose")
@@ -358,6 +362,7 @@ def _restore(c, actor, task, before, after):
             H.task_update(c, actor, task["id"], owner=before["owner"], mover=True)
         elif field == "rank":
             H.task_update(c, actor, task["id"], rank=before["rank"], mover=True, quiet=True)
+            H._task_event(c, task["id"], actor, "rank", after["rank"], before["rank"])
         else:
             H.task_update(c, actor, task["id"], status=before["status"], mover=True)
             c.execute("UPDATE tasks SET closed_at=?, closed_by=? WHERE id=?",

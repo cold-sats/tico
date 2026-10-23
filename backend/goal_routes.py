@@ -12,6 +12,7 @@ person confirms.
 from fastapi import Request
 
 from . import botkpis
+from . import ceo_acts as CA
 from . import ceo_bot
 from . import ceo_merge as CM
 from . import ceo_suggest as CS
@@ -119,8 +120,12 @@ def install(app, store, auth, mutate, settings):
             raise Problem("not_found", "Unknown KPI", 404)
         return record
 
-    def refuse_manager(c, who, what):
+    def refuse_manager(c, who, what, gated=""):
+        """`gated` says what was tried when it changes a goal or a target: the CEO Bot's try becomes the owner's
+        proposal (backend/ceo_acts.py)."""
         if is_manager(who):
+            if gated:
+                CA.gate(c, who.actor, "target", gated)
             raise Problem("forbidden", f"The {ceo_bot.name(c)} proposes {what}; the owner confirms it "
                           "(POST /api/v2/goal-proposals)", 403)
 
@@ -188,6 +193,7 @@ def install(app, store, auth, mutate, settings):
         who = request.state.identity
         def work(c):
             auth.domain(who)
+            CA.gate(c, who.actor, "vision", "change the company's vision or description")
             if not company_editor(who):
                 raise Problem("forbidden", "Only the owner writes the company's Vision and Description, on their own "
                               f"click; an admin or a member asks them, and a bot, the {ceo_bot.name(c)} included, "
@@ -251,6 +257,46 @@ def install(app, store, auth, mutate, settings):
             auth.domain(who)
             ceo_itself(c, who, "offers level 3, in its Monday note")
             return {"level3_offer": CS.offer_made(c, who.actor)}
+        return mutate(request, body, work)
+
+    # ------------------------------------------------------------------ what the CEO Bot does alone (level 3)
+    @app.post("/api/v2/ceo-bot/decisions")
+    def ceo_bot_decide(request: Request, body: M.CeoBotDecision):
+        """The CEO Bot only, at level 3: one decision made alone, with its reason: bot tasks created, moved to the top
+        of their queue, given to another bot or closed, all under one action id in the CEO Bot log. What it may not do
+        alone (a person's task, a bot offline, a refusal) becomes one proposal in the owner's Needs you, never dropped."""
+        who = request.state.identity
+        def work(c):
+            auth.domain(who)
+            ceo_itself(c, who, "decides alone, at level 3")
+            return CA.decide(c, who.actor, body.reason, [x.model_dump(exclude_none=True) for x in body.changes],
+                             body.goal_id or None)
+        return mutate(request, body, work)
+
+    @app.get("/api/v2/ceo-bot/log")
+    def ceo_bot_log(request: Request, before: str | None = None, limit: int = CA.LOG_PAGE):
+        """The CEO Bot log, newest first: each decision it made alone with its reason and what it changed, and each
+        thing it proposed instead because it stays the owner's. Every person in the company reads it, and the CEO Bot."""
+        who = request.state.identity
+        auth.domain(who)
+        with store.read() as c:
+            if who.role not in ("owner", "human") and who.actor != CA.CEO:
+                raise Problem("forbidden", f"People in the company and the {ceo_bot.name(c)} read its log", 403)
+            out = CA.log(c, before, limit)
+            out["can_undo"] = company_editor(who)
+            return out
+
+    @app.post("/api/v2/ceo-bot/log/{action_id}/undo")
+    def ceo_bot_undo(request: Request, action_id: str, body: M.Empty):
+        """The owner, on their own click, undoes one decision the CEO Bot made alone: the tasks it changed go back
+        where nobody changed them since, a later change is kept and named, and each bot whose task changed is told."""
+        who = request.state.identity
+        def work(c):
+            auth.domain(who)
+            if not company_editor(who):
+                raise Problem("forbidden", f"Only the owner undoes what the {ceo_bot.name(c)} did, on their own click",
+                              403)
+            return CA.undo(c, who.actor, action_id)
         return mutate(request, body, work)
 
     @app.get("/api/v2/company/history")
@@ -422,7 +468,8 @@ def install(app, store, auth, mutate, settings):
         def work(c):
             auth.domain(who)
             row = goal_or_404(c, gid)
-            refuse_manager(c, who, "clearer wording or a change of goal")
+            refuse_manager(c, who, "clearer wording or a change of goal",
+                           gated=f"change the goal \"{row['title']}\"")
             # Handing a goal to someone else is for whoever sits above; linking it to the goal it
             # supports is also its owner's (the link icon on the Goals page), and the new goal's owner
             # sees it there.
@@ -517,7 +564,8 @@ def install(app, store, auth, mutate, settings):
         def work(c):
             auth.domain(who)
             row = goal_or_404(c, gid)
-            refuse_manager(c, who, "a target it is judged against")
+            refuse_manager(c, who, "a target it is judged against",
+                           gated=f"change the target of the goal \"{row['title']}\"")
             if not may_colour(c, who, row):
                 raise Problem("forbidden", "The goal's owner or someone above them sets a target", 403)
             kpi_or_404(c, who, kid)

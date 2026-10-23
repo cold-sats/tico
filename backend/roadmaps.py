@@ -133,6 +133,11 @@ def publication_payload(task_id, operation, values):
 def approve(c, actor, task_id, operation, values, approval_id=None):
     if not H.is_bot(actor) and not H.VIA.get():
         return
+    from . import ceo_acts
+    if not approval_id:
+        # Publishing is the owner's at every level: the CEO Bot publishes only what a person approved, whatever the
+        # team's setting for other bots.
+        ceo_acts.gate(c, actor, "publish", f"publish a change to a task on the public roadmap ({operation})")
     if not settings(c)['bot_public_approval']:
         return
     expected = publication_payload(task_id, operation, values)

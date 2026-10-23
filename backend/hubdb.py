@@ -4600,6 +4600,9 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
         requester = actor
     from .roadmaps import settings as roadmap_settings
     # Bots (and Assistant/BotOps acting for a person) publish only through an approved publication.
+    if visibility == 'public' or public_title or public_summary:
+        from .ceo_acts import gate
+        gate(conn, actor, "publish", f"publish a new task on the public roadmap: {public_title or title}")
     bot_review = (is_bot(actor) or VIA.get()) and roadmap_settings(conn)['bot_public_approval']
     if bot_review and (visibility == 'public' or public_title or public_summary):
         # Said rather than dropped, so the bot knows its text is not on the roadmap.
@@ -4973,6 +4976,9 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         sets.append("updated=:updated")
     if owner is not None:
         new_owner = _reach(conn, actor, owner)
+        if is_human(new_owner) and new_owner != row["owner"]:
+            from .ceo_acts import gate
+            gate(conn, actor, "person_task", f"give \"{row['title']}\" to {person_name(conn, new_owner)}")
         _takes_tasks(conn, actor, new_owner)
         if private_tasks_default(conn, new_owner):
             sets.append("private=1")
