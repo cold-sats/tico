@@ -235,7 +235,6 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     assert.equal(await page.locator('#task-stats-dialog .flow-bar.so-far').count(), 1, 'the running week is marked');
     assert.ok(await page.locator('#task-stats-dialog .flow-avg').count(), 'a moving-average line');
     assert.match(await page.locator('#task-stats-dialog .flow-tile.cur').innerText(), /Done/);
-    assert.match(await page.locator('#task-stats-dialog .flow-tile.cur .flow-tile-d').innerText(), /^[▲▼±]/, 'change against the period before');
     assert.ok(flowAsked.some(q => q.days === '60'), 'the previous period is read too');
     await page.locator('#task-stats-dialog [data-stage="created"]').click();
     assert.match(await page.locator('#task-stats-dialog .flow-chart-head').innerText(), /New per week/);

@@ -105,13 +105,18 @@ async function taskStatsLoad() {
   Object.assign(st, {data, prev, chart});
   taskStatsRender();
 }
-// The stage totals of the period before the range, from a read of twice the range.
+// The stage totals of the period before the range, from a read of twice the range. Nothing recorded then means
+// no comparison, not a rise from zero.
 function flowPrevTotals(prev, days) {
   if (!prev) return null;
   const today = flowToday(), from = flowKey(new Date(today.getFullYear(), today.getMonth(), today.getDate() - days + 1));
   const out = {};
-  for (const r of prev.days || []) if (r.day < from) for (const [k, v] of Object.entries(r)) if (k !== 'day') out[k] = (out[k] || 0) + v;
-  return out;
+  let any = false;
+  for (const r of prev.days || []) if (r.day < from) for (const [k, v] of Object.entries(r)) if (k !== 'day') {
+    out[k] = (out[k] || 0) + v;
+    if (v) any = true;
+  }
+  return any ? out : null;
 }
 // The chart's buckets, oldest first: the bars shown plus the ones before them that the first bars' averages reach
 // back to, cut to what one read covers. Weeks start on Monday; a bucket is [start, end) in local day keys.
