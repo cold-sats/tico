@@ -19,17 +19,23 @@ All notable changes to Tico are recorded here. The format follows
 - **Cheaper task models show a warning for sensitive work.** A bot with send, spend or publish approval history, or write access beyond its own repository, warns when its task model costs less than its own model from the same provider. You can still save and run it; the run note records the warning ([Warning rules](docs/harnesses.md#a-warning-about-a-cheaper-task-model)).
 
 ### Fixed
-- **A stopped browser check says where it hung and stops what it started.** When a browser script runs past its time
-  limit, the report now names the browser call it was waiting on and the last calls it made, shortened and with URL
-  queries, keys and tokens removed. The runner also stops the browser, its helpers and any server the script started,
-  checking each process is still the one it started before stopping it. If it cannot list or stop one, the report
-  says "cleanup incomplete" and why, and the run still ends instead of waiting.
 - **A Muse Code run that ends in a quota failure ends its task attempt.** When Muse Code reported its run over (a
   quota or other terminal failure) but its process, or a child process still holding its output, stayed up, the
   runner kept the turn open and renewed the attempt's lease, so the bot showed rate limited and busy at once and its
   model could not be changed. The run's terminal record now ends the turn: the process gets five seconds to exit
   and is then stopped, and the attempt finishes failed with the quota hold kept. Nothing is retried on its own.
 - **Task updates point to the closing command.** The CLI no longer offers `closed` on `hub task update --status`. Trying it tells you to use `hub task close <id>`. MCP also directs requesters to `hub_task_close`; filtering a task list by `closed` still works ([Tasks](docs/tasks.md)).
+
+### Changed
+- **One sign-in per AI tool per computer.** Every bot runs its tool on its computer's login for it; a bot can no longer
+  have a sign-in of its own. The bot editor's Connection picker is gone (its line now reads "Runs on *tool* ·
+  Computer's login on *computer*"), the computer pop-up shows one line per tool, and Add connection signs in the
+  computer's login or adds a key. To run bots on a different account, add another computer, which can be on the same
+  machine. `PUT /api/v2/subscriptions` is gone (405), `POST /api/v2/runners/{runner_id}/logins` with a `profile` is
+  refused (422 `one_login`), and a runner ignores `bot_profiles`, drops `profile assign` and refuses `profile login`
+  for any profile but its default. Upgrading deletes each bot's saved choice, so a bot that ran on a named
+  subscription runs on its computer's login, which must be signed in. Named subscriptions on a computer stay on disk
+  and in its reports for one release, unused and unshown.
 
 ## [0.3.75] - 2026-10-23
 
@@ -335,6 +341,8 @@ All notable changes to Tico are recorded here. The format follows
   theirs, private tasks stay private, and peers and reports never read a manager's chat-room runs.
 
 ### Changed
+- The key scrubber (setup chat, company file, setup support tickets) also removes 32 or more letters and digits in a
+  row, however regular and whether alone or inside a longer token, as Tico HQ's copy now does (Dev 285).
 - **The setup chart has no seat limit you will meet.** The setup chat, the company file and the first screen's
   company YAML import now take up to 300 bots and 300 people (was 60 bots and 40 people, and 150 bots on import),
   with no limit message below that. Past 300 the chat says plainly "A chart can have at most 300 bots." (or people);
