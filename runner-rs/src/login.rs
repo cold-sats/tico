@@ -2632,6 +2632,15 @@ esac
             std::fs::create_dir_all(root.join("bin")).unwrap();
             std::fs::write(root.join("bin/muse"), r#"#!/bin/sh
 home="$XDG_CONFIG_HOME/muse"
+if [ "$TBH_CREDENTIAL_BACKEND" != file ]; then
+  # As on macOS by default: the token goes to a Keychain item outside the config folder (here one item, the worst case).
+  case "$1" in
+    login) mkdir -p "$home"; echo "$XDG_CONFIG_HOME" > "$HOME/keychain"
+      printf '%s\n' '{"schema_version":2,"providers":{"meta":{"storage":"keychain"}}}' > "$home/auth.json" ;;
+    logout) rm -f "$HOME/keychain" ;;
+  esac
+  exit 0
+fi
 case "$1" in
   logout)
     if [ -f "$HOME/broken" ]; then echo malformed > "$home/auth.json"
@@ -2663,6 +2672,8 @@ esac
         std::fs::create_dir_all(root.join("operator")).unwrap();
         let operator = root.join("operator/auth.json");
         std::fs::write(&operator, "operator").unwrap();
+        let keychain = root.join("keychain");
+        std::fs::write(&keychain, "operator").unwrap();
         let path = root.join("runner.json");
         std::fs::write(&path, json!({"url": "http://127.0.0.1:9", "token": "synthetic", "runner_id": "fixture",
             "projects_dir": root.join("projects")}).to_string()).unwrap();
@@ -2686,6 +2697,8 @@ esac
             std::fs::write(root.join("broken"), "").unwrap();
             let broken = session("sign_out");
             run_sign_out(broken.clone(), runner.clone(), config.clone());
+            // The credential boundary first: a logout from Tico's folder never reaches the item outside it.
+            assert_eq!(std::fs::read_to_string(&keychain).ok().as_deref(), Some("operator"), "a Tico logout reached the Keychain");
             assert_eq!(state(&broken).0, "failed", "{:?}", state(&broken));
             assert!(state(&broken).1.contains("could not confirm"));
             assert_eq!(runner.sign_in.signed_out("musecode"), profile.is_empty());
@@ -2747,6 +2760,7 @@ esac
         assert!(!listed() && !folder.exists(), "confirmed sign-out must remove the subscription and folder");
         assert_eq!(std::fs::read(&own).unwrap(), untouched);
         assert_eq!(std::fs::read_to_string(&operator).unwrap(), "operator");
+        assert_eq!(std::fs::read_to_string(&keychain).unwrap(), "operator", "a Tico login reached the shared Keychain");
     }
 
     #[test]
