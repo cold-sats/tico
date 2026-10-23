@@ -19,6 +19,9 @@ All notable changes to Tico are recorded here. The format follows
 - **Cheaper task models show a warning for sensitive work.** A bot with send, spend or publish approval history, or write access beyond its own repository, warns when its task model costs less than its own model from the same provider. You can still save and run it; the run note records the warning ([Warning rules](docs/harnesses.md#a-warning-about-a-cheaper-task-model)).
 
 ### Fixed
+- **A stopped browser check says where it hung and leaves nothing running.** When a browser script runs past its time
+  limit, the report now names the browser call it was waiting on and the last calls it made. The runner also stops
+  the browser, its helpers and any server the script started, so nothing is left running after the check.
 - **Task updates point to the closing command.** The CLI no longer offers `closed` on `hub task update --status`. Trying it tells you to use `hub task close <id>`. MCP also directs requesters to `hub_task_close`; filtering a task list by `closed` still works ([Tasks](docs/tasks.md)).
 
 ## [0.3.75] - 2026-10-23

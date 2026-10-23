@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const {spawnSync} = require('node:child_process');
 const os = require('node:os');
-const {resources, runScript, sampleCpu} = require('../ui-tests.cjs');
+const {resources, runScript, sampleCpu, stoppedReport} = require('../ui-tests.cjs');
 
 test('one CPU-idle policy, explicit overrides and shared context/page timeouts', async () => {
   const counters = (user, idle) => Array.from({length: 12}, () => ({times: {user, nice: 0, sys: 0, idle, irq: 0}}));
@@ -70,21 +70,43 @@ test('one CPU-idle policy, explicit overrides and shared context/page timeouts',
   assert.deepEqual(calls, [['context', 60000], ['context-navigation', 60000]]);
 });
 
-test('a browser script that never exits is stopped at its timeout and named; one that ends is not', {timeout: 30000}, async () => {
+test('a hung browser script is named with its pending call; it and everything it started stop, one that ends does not',
+     {timeout: 30000}, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ui-tests-'));
+  const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  let helper;
   try {
     const preload = path.join(dir, 'preload.cjs');
     fs.writeFileSync(preload, '');
-    fs.writeFileSync(path.join(dir, 'hangs.cjs'), "console.log('started'); setInterval(() => {}, 1000);");
+    // Like a stalled Playwright script: a detached "browser" (its own process group, as Playwright launches one),
+    // a "server" child, Playwright's call log on stderr, then a call that never returns.
+    fs.writeFileSync(path.join(dir, 'hangs.cjs'), `
+      const {spawn} = require('node:child_process');
+      const sleep = ['-e', 'setInterval(() => {}, 1000)'];
+      const browser = spawn(process.execPath, sleep, {detached: true, stdio: 'ignore'});
+      const server = spawn(process.execPath, sleep, {stdio: 'ignore'});
+      console.log('started', browser.pid, server.pid);
+      console.error('2026-10-22T09:31:00.000Z pw:api => page.goto started');
+      console.error('2026-10-22T09:31:00.100Z pw:api <= page.goto succeeded');
+      console.error('2026-10-22T09:31:00.200Z pw:api => page.click started');
+      setInterval(() => {}, 1000);`);
     fs.writeFileSync(path.join(dir, 'ends.cjs'), "console.log('PASS');");
-    const hung = await runScript(path.join(dir, 'hangs.cjs'), {timeout: 0.5, preload});
+    const hung = await runScript(path.join(dir, 'hangs.cjs'), {env: {...process.env, DEBUG: undefined}, timeout: 1, preload});
+    helper = hung.out.match(/started (\d+) (\d+)/).slice(1).map(Number);
     assert.equal(hung.timedOut, true);
     assert.notEqual(hung.code, 0);
-    assert.match(hung.out, /started/);
     assert.ok(hung.secs < 10, `stopped after ${hung.secs}s`);
+    assert.doesNotMatch(hung.out, /pw:api/);
+    assert.deepEqual(hung.pending, ['page.click']);
+    assert.match(stoppedReport(hung), /waiting on: page\.click/);
+    const stoppedPids = hung.stopped.map(p => p.pid);
+    for (const pid of helper) assert.ok(stoppedPids.includes(pid), `${pid} in ${stoppedPids}`);
+    for (let i = 0; i < 50 && helper.some(alive); i++) await new Promise(r => setTimeout(r, 100));
+    assert.deepEqual(helper.filter(alive), [], 'no orphan browser or server is left');
     const ended = await runScript(path.join(dir, 'ends.cjs'), {timeout: 30, preload});
-    assert.deepEqual([ended.code, ended.timedOut, ended.out.trim()], [0, false, 'PASS']);
+    assert.deepEqual([ended.code, ended.timedOut, ended.out.trim(), ended.stopped], [0, false, 'PASS', []]);
   } finally {
+    for (const pid of helper || []) if (alive(pid)) process.kill(pid, 'SIGKILL');
     fs.rmSync(dir, {recursive: true, force: true});
   }
 });

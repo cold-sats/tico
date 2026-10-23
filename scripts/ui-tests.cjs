@@ -5,8 +5,9 @@
 // With no names it runs CORE, the main pages and the privacy boundaries; --all runs every script (the release
 // check does). A name runs that script whether or not it is in CORE. Run locally, it waits for one of the box's
 // heavy-job slots first (scripts/heavy.sh). A script still running after TICO_UI_SCRIPT_TIMEOUT seconds (120, times the
-// slowdown) is stopped and fails with its name, so one hang does not hold the job until CI cancels it.
-const {spawn} = require('node:child_process');
+// slowdown) is stopped with every process it started and fails with its name and the browser calls it was waiting on,
+// so one hang does not hold the job until CI cancels it.
+const {execFileSync, spawn} = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
@@ -35,23 +36,90 @@ function resources(env, cores, idleFraction) {
   return {jobs, slowdown, timeout};
 }
 
+// Lists every process as {pid, ppid, command}; a stopped script's tree is found from it by parent, never by name.
+function listProcesses() {
+  return execFileSync('ps', ['-A', '-o', 'pid=,ppid=,command='], {encoding: 'utf8', timeout: 5000}).split('\n')
+    .map(line => /^\s*(\d+)\s+(\d+)\s?(.*)$/.exec(line)).filter(Boolean)
+    .map(([, pid, ppid, command]) => ({pid: Number(pid), ppid: Number(ppid), command: command.trim()}));
+}
+
+// Stops a script and every process it started: its browser (which Playwright puts in a process group of its own),
+// the browser's helpers and any server the script spawned. Each pass freezes what it finds, so nothing in the tree
+// can start another process or be orphaned while the tree is read; then all of it is killed. Returns what it stopped.
+function stopTree(root, {list = listProcesses, signal = (pid, name) => process.kill(pid, name)} = {}) {
+  const send = (pid, name) => { try { signal(pid, name); } catch {} };
+  if (process.platform === 'win32') {
+    try { execFileSync('taskkill', ['/PID', String(root), '/T', '/F'], {stdio: 'ignore', timeout: 10000}); } catch {}
+    return [{pid: root, command: ''}];
+  }
+  const found = new Map();
+  for (let pass = 0; pass < 5; pass++) {
+    let rows = [];
+    try { rows = list(); } catch {}
+    const tree = new Set([root, ...found.keys()]);
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const row of rows) if (tree.has(row.ppid) && !tree.has(row.pid)) { tree.add(row.pid); grew = true; }
+    }
+    const before = found.size;
+    for (const pid of tree) {
+      if (found.has(pid)) continue;
+      found.set(pid, (rows.find(row => row.pid === pid)?.command ?? '').slice(0, 120));
+      send(pid, 'SIGSTOP');
+    }
+    if (found.size === before) break;
+  }
+  for (const pid of found.keys()) send(pid, 'SIGKILL');
+  return [...found].map(([pid, command]) => ({pid, command}));
+}
+
 // Runs one browser script with the support preload and holds its output. A script still running after `timeout`
-// seconds is killed: Playwright's browser exits with it (its pipe closes).
-function runScript(script, {env = process.env, timeout, preload = path.join(__dirname, '..', 'ui', 'tests', 'support', 'browser.cjs')}) {
+// seconds is stopped with everything it started. Playwright's call log (DEBUG=pw:api) is held apart from the
+// output: it names the browser calls a stopped script was still waiting on, which is the hang point.
+function runScript(script, {env = process.env, timeout, preload = path.join(__dirname, '..', 'ui', 'tests', 'support', 'browser.cjs'),
+                            stop = stopTree}) {
   return new Promise(resolve => {
     const t0 = Date.now();
-    const child = spawn(process.execPath, ['--require', preload, script], {env});
-    let out = '', timedOut = false;
+    const trace = env.DEBUG === undefined;
+    const child = spawn(process.execPath, ['--require', preload, script], {env: trace ? {...env, DEBUG: 'pw:api'} : env});
+    let out = '', err = '', timedOut = false, stopped = [];
+    const calls = [], pending = [];
+    const take = line => {
+      const api = / pw:api (.*)$/.exec(line);
+      if (!api) { out += line + '\n'; return; }
+      calls.push(api[1]);
+      if (calls.length > 10) calls.shift();
+      let call;
+      if ((call = /^=> (\S+) started/.exec(api[1]))) pending.push(call[1]);
+      else if ((call = /^<= (\S+) (succeeded|failed)/.exec(api[1])) && pending.includes(call[1])) {
+        pending.splice(pending.lastIndexOf(call[1]), 1);
+      }
+    };
     child.stdout.on('data', d => { out += d; });
-    child.stderr.on('data', d => { out += d; });
-    const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeout * 1000);
+    child.stderr.on('data', d => {
+      if (!trace) { out += d; return; }
+      const lines = (err + d).split('\n');
+      err = lines.pop();
+      lines.forEach(take);
+    });
+    const timer = setTimeout(() => { timedOut = true; stopped = stop(child.pid); }, timeout * 1000);
     // Wait for the process, not for its pipes: a browser's helper processes can hold them open for a minute.
-    child.on('exit', code => setTimeout(() => {
+    child.on('exit', code => {
       clearTimeout(timer);
-      child.stdout.destroy(); child.stderr.destroy();
-      resolve({code, out, timedOut, secs: (Date.now() - t0) / 1000});
-    }, 100));
+      setTimeout(() => {
+        child.stdout.destroy(); child.stderr.destroy();
+        if (err) take(err);
+        resolve({code, out, timedOut, secs: (Date.now() - t0) / 1000, stopped, pending: [...pending], calls: [...calls]});
+      }, 100);
+    });
   });
+}
+
+// What a stopped script was doing: the browser calls it was waiting on, the last ones logged and what was stopped.
+function stoppedReport({pending, calls, stopped}) {
+  return [pending.length ? `waiting on: ${pending.join(', ')}` : 'waiting on: no browser call (the script itself)',
+          ...(calls.length ? ['last browser calls:', ...calls.map(call => `  ${call}`)] : []),
+          `stopped ${stopped.length} process(es) it started:`, ...stopped.map(p => `  ${p.pid} ${p.command}`)].join('\n');
 }
 
 async function main() {
@@ -83,12 +151,14 @@ async function main() {
   const started = Date.now();
   const env = {TICO_BROWSER: 'chromium', ...process.env, TICO_UI_SLOWDOWN: String(selected.slowdown)};
   const run = async file => {
-    const {code, out, timedOut, secs} = await runScript(path.join(dir, file), {env, timeout: selected.timeout});
-    if (code === 0) console.log(`ok    ${file} (${secs.toFixed(1)}s)`);
+    const result = await runScript(path.join(dir, file), {env, timeout: selected.timeout});
+    const {code, out, timedOut, secs} = result;
+    if (code === 0 && !timedOut) console.log(`ok    ${file} (${secs.toFixed(1)}s)`);
     else {
       failed.push(file);
       const why = timedOut ? `, stopped: still running after ${selected.timeout}s` : '';
-      console.log(`FAIL  ${file} (${secs.toFixed(1)}s${why})\n${out.trimEnd().replace(/^/gm, '      ')}\n`);
+      const text = timedOut ? `${out.trimEnd()}\n${stoppedReport(result)}` : out.trimEnd();
+      console.log(`FAIL  ${file} (${secs.toFixed(1)}s${why})\n${text.replace(/^/gm, '      ')}\n`);
     }
   };
 
@@ -102,7 +172,7 @@ async function main() {
   process.exit(failed.length ? 1 : 0);
 }
 
-module.exports = {resources, runScript, sampleCpu, inSlot};
+module.exports = {resources, runScript, sampleCpu, inSlot, stopTree, stoppedReport};
 // A local run first takes one of the box's heavy-job slots, at low priority (scripts/heavy.sh), before it samples
 // the CPU; hosted CI, a run already in a slot, or a computer without bash goes straight on.
 function inSlot(env = process.env) { return Boolean(env.CI || env.TICO_HEAVY_HELD) || process.platform === 'win32'; }
