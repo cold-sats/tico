@@ -53,6 +53,7 @@ mod playbook;
 mod product_files;
 mod prompt;
 mod reap;
+mod rotate;
 mod readiness;
 mod readiness_extra;
 mod redact;

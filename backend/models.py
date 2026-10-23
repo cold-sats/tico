@@ -1912,6 +1912,13 @@ class RunPush(Contract):
     count: int = Field(ge=1, le=1000)
 
 
+class RunRotation(Contract):
+    reason: Literal["tokens", "turns"]  # which of the bot's limits the old session reached (runner-rs/src/rotate.rs)
+    tokens: int = Field(ge=0)  # input tokens of the old session's newest turn
+    turns: int = Field(ge=0)   # its turns on that computer
+    limit: int = Field(ge=0)   # the limit it reached, in the unit of `reason`
+
+
 class Completion(Contract):
     load_snapshot: LoadSnapshot | None = None
     subscription_unavailable: SubscriptionUnavailable | None = None
@@ -1939,6 +1946,8 @@ class Completion(Contract):
     # Git pushes the run made from its task's worktrees (runner-rs/src/worktrees.rs pushes): writes Tico sees no
     # other way. Counted in its `writes` (backend/run_triggers.py).
     pushes: list[RunPush] = Field(default_factory=list, max_length=50)
+    # The run started a fresh provider session because the bot's last one had grown past its limit (token saving).
+    rotated: RunRotation | None = None
 
 
 class Retry(Contract):
