@@ -21,7 +21,8 @@ UI_MAP = {"ui/app/chat.js": ["chat", "imported-history"],
           "ui/app/visual-media.js": ["visual-media", "visual-media-app"]}
 CONFORMANCE = "runner/tests/test_conformance.py"
 # Each crate's `cargo test --locked` runs in the conformance job when any of its test inputs change:
-# runner-rs tests read runner/ (harnesses, fixtures and the Python runner they compare against).
+# runner-rs tests read runner/ (harnesses, fixtures and the Python runner they compare against) and the
+# backend's gateway enroll contract fixture, which gateway_relay's tests check the runner against.
 RUST_INPUTS = {"relay-rs": ("relay-rs/",),
                "runner-rs": ("runner-rs/", "runner/", "backend/tests/fixtures/gateway_enroll_contract.json")}
 CHANGELOG_REFUSAL = ("No PR edits CHANGELOG.md; the Technical Writer writes notes at the release cut. "
