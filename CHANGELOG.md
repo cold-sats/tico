@@ -19,6 +19,9 @@ All notable changes to Tico are recorded here. The format follows
 - **Cheaper task models show a warning for sensitive work.** A bot with send, spend or publish approval history, or write access beyond its own repository, warns when its task model costs less than its own model from the same provider. You can still save and run it; the run note records the warning ([Warning rules](docs/harnesses.md#a-warning-about-a-cheaper-task-model)).
 
 ### Fixed
+- **Try now on a shared login tries one run first.** Pressing Try now (`POST /api/v2/bots/{bot}/limit/retry`) used to
+  let every bot on that login start at once. Now one queued run tries it, as when a hold runs out. If it works, every
+  bot resumes. If the plan is still spent, the hold comes back with the end it had ([How it works](docs/how-it-works.md)).
 - **Task updates point to the closing command.** The CLI no longer offers `closed` on `hub task update --status`. Trying it tells you to use `hub task close <id>`. MCP also directs requesters to `hub_task_close`; filtering a task list by `closed` still works ([Tasks](docs/tasks.md)).
 
 ## [0.3.75] - 2026-10-23

@@ -5385,7 +5385,9 @@ def create_app(settings=None):
         def work(c):
             if not (auth.operator(c, who, bot) or auth.bot_manager(c, who, bot)):
                 raise Problem("forbidden", "Only a person who manages this bot can retry it now", 403)
-            if (H.status(c, bot) or {}).get("state") != "limited" and not own_login_hold(c, settings, bot):
+            # A hold already ended (by itself or an earlier Try now) waits only on its one probe turn.
+            if ((H.status(c, bot) or {}).get("state") != "limited"
+                    and (own_login_hold(c, settings, bot).get("until") or "") <= H.now()):
                 raise Problem("not_limited", "This bot is not waiting on a usage limit", 409)
             return {"cleared": clear_limits(c, settings, who.actor, bot)}
         return mutate(request, body, work)

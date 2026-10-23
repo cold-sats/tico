@@ -638,8 +638,9 @@ def clear_limits(c, settings, actor, bot):
     for slug in bots:
         row = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (slug,)).fetchone()
         if place and place["runner_id"]:
-            # The plan behind the login was just renewed: its hold goes too, for every bot on it.
-            login_holds.clear(c, *login_key(c, settings, place["runner_id"], slug,
+            # The plan behind the login was just renewed: its hold ends for every bot on it, but only one queued job
+            # tries it until that turn's result (login_holds.try_now), so a plan still spent sees one turn, not a burst.
+            login_holds.try_now(c, *login_key(c, settings, place["runner_id"], slug,
                                             json.loads(row[0]) if row and row[0] else {}))
         if (H.status(c, slug) or {}).get("state") == "limited":
             H.status_set(c, actor, slug, state="idle", focus="", reason="Try now")

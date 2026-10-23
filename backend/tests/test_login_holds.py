@@ -139,6 +139,45 @@ def test_one_hold_covers_every_bot_on_the_login_and_a_persons_message_still_gets
     assert retry and retry["bot"] == "finance"
 
 
+def test_try_now_on_a_shared_login_starts_one_probe_across_bots_and_a_second_limit_puts_the_window_back(
+        api, monkeypatch):
+    at(monkeypatch, "2026-10-19T01:46:47.000000Z")
+    machine = runner(api)
+    assign(api, machine, "ops")
+    assign(api, machine, "finance")
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE runners SET capacity=16 WHERE id=?", (machine["runner_id"],))
+    ready(api, machine, ["ops", "finance"])
+    for n in range(3):
+        post(api, "tasks", {"owner": "ops", "title": f"Ops {n}", "body": "Please do it."})
+        post(api, "tasks", {"owner": "finance", "title": f"Finance {n}", "body": "Please do it."})
+    limit(api, machine, claim(api, machine))
+    at(monkeypatch, "2026-10-19T02:00:00.000000Z", api)
+    ready(api, machine, ["ops", "finance"])
+    assert claim(api, machine) is None
+    # Try now, though the plan may still be spent: one queued job across both bots tries the login first.
+    post(api, "bots/ops/limit/retry", {})
+    probe = claim(api, machine)
+    assert probe and claim(api, machine) is None
+    post(api, "bots/finance/limit/retry", {}, expected=409)  # the probe is out: a second Try now adds no turn
+    # Still spent, and this notice names no reset: the 02:40 window comes back, not a fresh streak's hour.
+    limit(api, machine, probe, errors=("Quota exceeded. Check your plan and billing details.",))
+    with api.app.state.store.read() as c:
+        hold = login_holds.get(c, machine["runner_id"], "", "fake")
+    assert hold["until"].startswith("2026-10-19T02:40:00") and hold["streak"] == 1
+    ready(api, machine, ["ops", "finance"])
+    assert claim(api, machine) is None
+    # Renewed for real this time: the probe works and the whole fleet resumes.
+    post(api, "bots/finance/limit/retry", {})
+    probe = claim(api, machine)
+    assert probe and claim(api, machine) is None
+    done(api, machine, probe)
+    with api.app.state.store.read() as c:
+        assert not login_holds.get(c, machine["runner_id"], "", "fake")
+    ready(api, machine, ["ops", "finance"])
+    assert {claim(api, machine)["bot"], claim(api, machine)["bot"]} == {"ops", "finance"}
+
+
 def signed_in(api, machine, bots, runtimes):
     """A heartbeat from a computer whose bots are ready and on which `runtimes` are signed in."""
     report = {"schema_version": 1,
