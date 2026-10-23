@@ -8,6 +8,13 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Settings › Billing.** Owners and admins see the company's balance in dollars and cents with one status line
+  (Active; Low balance; Tico models paused; or Hosting's grace period with when servers stop, UTC), credits with what is
+  left and when each ends (used-up and expired ones under Show past credits, with what expired), usage by day opening
+  into hours split by product and model ("<$0.01" under a cent), and each month's statement with a CSV download.
+  "Talk to us to add credit" opens Tico's booking link; there is no card form. It is read from Tico HQ with the
+  install's Tico AI Gateway key (`GET /api/v2/billing`, `/billing/usage?day=`, `/billing/statements/YYYY-MM.csv`);
+  other members don't see the page and its API refuses them. Needs Tico HQ with company billing reads.
 - **Task model in Settings.** The bot editor has a Task model row (harness, model and effort; "Same as bot" until set),
   and Settings > Bots shows a small Tasks mark beside each bot's model, marked when its tasks run on another model.
   The mark opens a row under the bot with the same three pickers. Saving changes only what its tasks run on; the bot
