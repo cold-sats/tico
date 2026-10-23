@@ -63,7 +63,7 @@
     const kept = toSubscription ? ' The API key is still in use.' : switchAccount ? ' The account signed in before still works.' : '';
     const where = machine || 'the computer';
     const dialog = into || document.createElement('dialog');
-    dialog.className = 'tmodal model-login';
+    dialog.className = 'tmodal tmodal-shell model-login';
     dialog.setAttribute('aria-labelledby', 'model-login-title');
     const title = toSubscription ? `Switch ${text(name)}${machine ? ` on ${text(machine)}` : ''} to a subscription`
       : `${switchAccount ? 'Switch account for' : 'Sign in to'} ${text(name)}${machine ? ` on ${text(machine)}` : ''}`;
@@ -216,7 +216,7 @@
     const name = (RUNTIME_NAMES[runtime] || runtime) + (profile ? ` · ${profile}` : '');
     const where = machine || 'the computer';
     const dialog = document.createElement('dialog');
-    dialog.className = 'tmodal model-login model-logout';
+    dialog.className = 'tmodal tmodal-shell model-login model-logout';
     dialog.setAttribute('aria-labelledby', 'model-logout-title');
     dialog.innerHTML = `<header><h2 id="model-logout-title">Sign out of ${text(name)} on ${text(where)}?</h2>
         <button class="ghost tmodal-x" type="button" data-close aria-label="Close">✕</button></header>
@@ -369,7 +369,7 @@
   // A small dialog shell shared by Clear key and Replace key.
   function keyDialog(title, inner, action, danger) {
     const dialog = document.createElement('dialog');
-    dialog.className = 'tmodal model-login model-key';
+    dialog.className = 'tmodal tmodal-shell model-login model-key';
     dialog.setAttribute('aria-labelledby', 'model-key-title');
     dialog.innerHTML = `<header><h2 id="model-key-title">${text(title)}</h2>
         <button class="ghost tmodal-x" type="button" data-close aria-label="Close">✕</button></header>

@@ -1144,3 +1144,32 @@ def test_a_stop_on_a_lapsed_turn_ends_only_its_request_not_a_message_folded_into
         aged(api, attempt['id'], grace=True)
         assert sorted(d['state'] for d in sweep(api)) == ['cancelled', 'queued']
         assert job_state(api, attempt['job_id']) == 'cancelled' and job_state(api, follow['id']) == 'queued'
+
+
+@pytest.mark.parametrize('decision,expected', [('resume', 'queued'), ('dismiss', 'cancelled')])
+def test_review_choice_survives_a_busy_lane_and_applies_once_idle(api, decision, expected):
+    """The operator's explicit choice is durable, fences late output and waits only for its own lane."""
+    machine, message, attempt = interrupted(api)
+    other = rival(api, machine, attempt)
+    body = {'attempt_id': attempt['id'], 'decision': decision,
+            'note': 'Reviewed outside effects; apply this choice.', 'acknowledge_uncertain_effects': True}
+    post(api, f"jobs/{attempt['job_id']}/reconcile", body, token=machine['token'], expected=403)
+    post(api, f"jobs/{attempt['job_id']}/reconcile", {**body, 'attempt_id': other['id']}, expected=409)
+    result = post(api, f"jobs/{attempt['job_id']}/reconcile", body)
+    assert result == {'job_id': attempt['job_id'], 'state': 'uncertain', 'deferred': True}
+    review = next(j for j in get(api, 'bots/ops/execution-review')['jobs'] if j['id'] == attempt['job_id'])
+    assert review['pending_decision'] == {'decision': decision}
+    with api.app.state.store.read() as c:
+        saved = dict(c.execute("SELECT * FROM job_recovery WHERE job_id=?", (attempt['job_id'],)).fetchone())
+    assert saved['decision'] == decision and saved['actor'] == 'human:ana'
+    filed = post(api, f"attempts/{attempt['id']}/complete",
+                 {'outcome': 'completed', 'last_seq': 1, 'text': 'A stale final answer.'}, machine['token'])
+    assert filed['filed'] is True and bot_replies(api, message) == []
+    assert sweep(api) == [] and job_state(api, attempt['job_id']) == 'uncertain'
+    post(api, f"attempts/{other['id']}/complete", {'outcome': 'completed', 'last_seq': 0, 'text': 'Other work done.'},
+         machine['token'])
+    assert [d['state'] for d in sweep(api)] == [expected]
+    assert job_state(api, attempt['job_id']) == expected
+    assert sweep(api) == []
+    assert get(api, 'bots/ops/execution-review')['jobs'] == []
+    post(api, f"jobs/{attempt['job_id']}/reconcile", body, expected=409)

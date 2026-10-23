@@ -79,3 +79,13 @@
 #person-tasks .trow .tags{grid-area:tags}
 #person-tasks .trow .tnum{grid-area:age}
 .person-tasks-done{margin-top:10px}.person-tasks-done>summary{cursor:pointer;font-size:var(--t-base);padding:4px 0}.person-tasks-done>summary .cnt{margin-left:4px}
+
+/* A modal keeps its heading and actions visible while its content scrolls. */
+.tmodal-shell[open],.tmodal-shell>form{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.tmodal-shell>form{max-height:inherit}
+.tmodal-shell :is(.tmodal-head,header){flex:none;display:flex;align-items:center;gap:8px;padding:14px 16px;border-bottom:1px solid var(--line)}
+.tmodal-shell :is(.tmodal-head,header) h2{min-width:0;margin:0;font-size:var(--t-md);color:var(--ink);overflow-wrap:anywhere}
+.tmodal-shell :is(.tmodal-head,header)>button{flex:none}
+.tmodal-shell :is(.tmodal-head,header)>h2{flex:1}
+.tmodal-shell .tmodal-body{flex:1;min-height:0;max-height:none;overflow:auto;padding:16px}
+.tmodal-shell .tmodal-foot{flex:none;padding:12px 16px;border-top:1px solid var(--line);background:var(--surface)}
