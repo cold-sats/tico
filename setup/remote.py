@@ -205,7 +205,7 @@ def bootstrap_script(*, os_family: str, domain: str, front_door: str, compose: b
     and as the pasted install command (env embedded)."""
     d = contract.REMOTE_DIR
     q = shlex.quote
-    L = ["#!/bin/bash", "set -eu", "exec > >(tee -a /var/log/tico-setup.log) 2>&1", "echo tico-setup: start $(date -u)"]
+    L = ["#!/bin/bash", "set -eu", f"exec > >(tee -a {BOOT_LOG}) 2>&1", "echo tico-setup: start $(date -u)"]
     L += docker_install_lines(os_family, need_aws_cli=bool(env_param))
     L += [f"mkdir -p {d}", *company_file_dir_lines()]
     if compose is not None:
@@ -227,6 +227,52 @@ def bootstrap_script(*, os_family: str, domain: str, front_door: str, compose: b
               f"for i in $(seq 1 80); do getent hosts {q(domain)} | grep -q {q(wait_for_ip)} && break; sleep 15; done"]
     L += [f"cd {d} && docker compose pull --quiet && docker compose up -d", f"touch {d}/.bootstrapped", "echo tico-setup: done"]
     return "\n".join(L) + "\n"
+
+
+BOOT_LOG = "/var/log/tico-setup.log"
+
+
+def finish_boot_guard_lines() -> list[str]:
+    """A re-run touches a server whose boot either finished (.bootstrapped) or stopped: its log's last tico-setup line is
+    its FAILED one. A boot still going is left alone, so two never write the same files at once."""
+    return [f"if [ ! -f {contract.REMOTE_DIR}/.bootstrapped ] && ! grep 'tico-setup:' {BOOT_LOG} 2>/dev/null | tail -n 1 "
+            "| grep -q 'tico-setup: FAILED'; then",
+            '  echo "tico-setup: the first boot is still running; not taking it over. Re-run setup once it ends." >&2',
+            '  exit 5', 'fi']
+
+
+def rerun_script(*, compose: bytes | None, compose_url: str, plan: bool) -> str:
+    """A re-run on an existing AWS server, by SSM: refresh the env and restart, or finish a first boot that stopped. With
+    the plan bucket it first installs this release's compose.yaml, the folder it mounts and the copy step (a server set up
+    before them has none), pulls this release's image, and checks that the running app reads the plan: setup deletes
+    the bucket's copy only after that. Any failure stops here with its line, the bucket's copy kept for the next run."""
+    d, q = contract.REMOTE_DIR, shlex.quote
+    L = ["set -eu", "umask 077", *finish_boot_guard_lines()]
+    if plan:
+        L += company_file_dir_lines()
+        L += [f"echo {_b64gz(compose)} | base64 -d | gunzip > {d}/compose.yaml.new" if compose is not None else
+              f"curl -fsSL {q(compose_url)} -o {d}/compose.yaml.new", f"mv {d}/compose.yaml.new {d}/compose.yaml"]
+    L += [f"{d}/pull-env.sh"]
+    if plan:
+        L += plan_copy_lines()
+    L += [f"cd {d}", *(["docker compose pull --quiet"] if plan else []), "docker compose up -d"]
+    if plan:
+        L += plan_read_lines()
+    L += [f"if [ ! -f {d}/.bootstrapped ]; then",
+          f"  touch {d}/.bootstrapped && echo \"tico-setup: done, finished by a re-run of setup $(date -u)\" >> {BOOT_LOG}", "fi"]
+    return "\n".join(L) + "\n"
+
+
+def plan_read_lines() -> list[str]:
+    """In the server's folder, after `docker compose up -d`: the running app reads the plan copied for it. An image from
+    before TICO_COMPANY_FILE would start without it, as some other team."""
+    read = "import sys; from backend.config import _company_file_data as f; sys.exit(0 if f() else 1)"
+    return ["plan_try=1",
+            f"until docker compose exec -T server python -c {shlex.quote(read)} >/dev/null 2>&1; do",
+            '  [ "$plan_try" -ge 12 ] && { echo "tico-setup: FAILED: the running app does not read the starter plan;'
+            ' it stays in the plan bucket" >&2; exit 6; }',
+            "  plan_try=$((plan_try + 1)); sleep 10",
+            "done"]
 
 
 def company_file_dir_lines() -> list[str]:

@@ -664,22 +664,31 @@ def _aws(io, args, s, deps, zone, records, cf, env_text, compose, url, timeout) 
         io.say("\nDNS")
         ensure_dns(io, s, deps, zone, records, timeout=timeout, skip_wait=args.skip_dns_wait, cf=cf)
     io.say("\nWaiting for the server to finish installing (Docker, image pull; a few minutes) ...")
-    if not d.wait_ready():
-        io.say("The server did not report ready in time. Log: /var/log/tico-setup.log (via SSM Session Manager).")
+    ready = d.wait_ready()
+    if not ready and (created or not d.boot_failed):
+        io.say("Its first boot stopped (the line above). Fix that and re-run this command: it finishes the boot, and "
+               "the starter plan stays in the plan bucket until then." if d.boot_failed else
+               "The server did not report ready in time. Log: /var/log/tico-setup.log (via SSM Session Manager).")
         return None
     if not created:
-        io.say("  Existing server: refreshing .env and restarting.")
-        # A server made before --plan-bucket has a pull-env.sh without the plan's copy step, so it runs here too.
-        copy = (f" && sh -c {shlex.quote(chr(10).join(['set -eu', 'umask 077', *remote.company_file_dir_lines(), *remote.plan_copy_lines()]))}"
-                if plan_s3 else "")
-        res = runner.run(f"{contract.REMOTE_DIR}/pull-env.sh{copy} && cd {contract.REMOTE_DIR} && docker compose up -d")
+        io.say("  Existing server: refreshing .env and restarting." if ready else "  Its first boot stopped; finishing it.")
+        if plan_s3 and compose is None and not cloudinit.VERSION_RE.match(s.compose_ref):
+            io.say(f"No compose.yaml beside setup, and --compose-ref {s.compose_ref} can change; pass --tico-version vX.Y.Z.")
+            return None
+        res = runner.run(f"sh -c {shlex.quote(remote.rerun_script(compose=compose, compose_url=url, plan=bool(plan_s3)))}")
+        if res.returncode:
+            io.say(envfile.scrub(res.stderr[-400:], s.secrets()))
+            return None
+    elif plan_s3:
+        res = runner.run(f"cd {contract.REMOTE_DIR} && sh -c {shlex.quote(chr(10).join(['set -eu', *remote.plan_read_lines()]))}")
         if res.returncode:
             io.say(envfile.scrub(res.stderr[-400:], s.secrets()))
             return None
     if plan_s3:
         code = d.delete_plan(plan_s3, s.plan_key())
-        io.say(f"  Could not delete the starter plan from the plan bucket ({code}); S3 deletes it within a day." if code else
-               "  The server has its copy of the starter plan; deleted it from the plan bucket.")
+        io.say(f"  Could not delete the starter plan from the plan bucket ({code}); delete it yourself, or the bucket's "
+               "lifecycle rule, if it has one, expires it." if code else
+               "  The server's app reads its copy of the starter plan; deleted it from the plan bucket.")
     return runner, records
 
 

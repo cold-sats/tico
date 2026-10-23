@@ -2,9 +2,12 @@
 one object per install at plans/<name>/<sha256>; the server copies it to a file at first boot, checks its sha256, and
 setup deletes the object once the server is up. Fake AWS only, plus the copy step run here with a stand-in `aws`."""
 import argparse
+import base64
+import gzip
 import hashlib
 import json
 import os
+import re
 import stat
 import subprocess
 from pathlib import Path
@@ -126,6 +129,108 @@ def test_a_server_set_up_before_the_plan_bucket_gets_the_read_of_its_plan_on_reu
     assert {"Effect": "Allow", "Action": "s3:GetObject", "Resource": f"arn:aws:s3:::{BUCKET}/plans/{NAME}/*"} in statements
 
 
+# A compose.yaml from before the plan bucket: no TICO_COMPANY_FILE and no folder mounted for it.
+OLD_COMPOSE = b"name: tico\nservices:\n  server:\n    image: ghcr.io/ticoteam/tico:${TICO_TAG:-latest}\n    environment:\n" \
+              b"      TICO_COMPANY_FILE_B64:\n"
+
+
+def answer(ssm, rule):
+    """Each SSM command gets rule(command) -> (code, stdout, stderr)."""
+    def invocation(**kw):
+        code, out, err = rule(ssm.commands[-1])
+        return {"Status": "Success" if code == 0 else "Failed", "ResponseCode": code, "StandardOutputContent": out,
+                "StandardErrorContent": err}
+    ssm.get_command_invocation = invocation
+
+
+def test_a_server_from_before_the_plan_bucket_gets_this_compose_and_image_before_its_plan_is_deleted(big):
+    d, ec2, iam, ssm, r53 = world()
+    d.compose_local = lambda: OLD_COMPOSE
+    assert go(CREATE, d)[0] == 0
+    new = wizard._local_compose()
+    assert b"TICO_COMPANY_FILE:" in new and b"/run/tico/company-file:ro" in new
+    d.compose_local = lambda: new
+    log, sent = [], len(ssm.commands)
+    d.aws_s3 = lambda region, profile: FakeS3(region, log)
+    code, out = go([*CREATE, "--company-file", str(big), "--plan-bucket", BUCKET], d)
+    assert code == 0, out
+    (refresh,) = [c for c in ssm.commands[sent:] if "pull-env.sh" in c]
+    written = re.search(r"echo (\S+) \| base64 -d \| gunzip > \S+/compose\.yaml", refresh)
+    assert written and gzip.decompress(base64.b64decode(written.group(1))) == new
+    # This compose, then the env and the plan, then this release's image, and the running app must read the plan.
+    steps = [refresh.index(s) for s in (written.group(0), "pull-env.sh", "aws s3 cp", "docker compose pull",
+                                        "docker compose up", "_company_file_data")]
+    assert steps == sorted(steps)
+    assert [name for name, _ in log] == ["put_object", "delete_object"]
+
+
+def test_a_re_run_that_cannot_copy_check_or_start_the_plan_keeps_it_in_the_bucket_and_says_why(big, monkeypatch, tmp_path):
+    for n, line in enumerate(("tico-setup: FAILED: the starter plan from s3://b/k has sha256 x, not y; not starting Tico",
+                              "tico-setup: FAILED: the running app does not read the starter plan")):
+        monkeypatch.setenv("TICO_SETUP_HOME", str(tmp_path / str(n)))
+        d, ec2, iam, ssm, r53 = world()
+        assert go(CREATE, d)[0] == 0
+        log = []
+        d.aws_s3 = lambda region, profile: FakeS3(region, log)
+        answer(ssm, lambda c: (3, "", line) if "pull-env.sh" in c else (0, "", ""))
+        code, out = go([*CREATE, "--company-file", str(big), "--plan-bucket", BUCKET], d)
+        assert code != 0 and line in out
+        assert [name for name, _ in log] == ["put_object"]
+
+
+def test_a_re_run_finishes_a_first_boot_that_could_not_copy_its_plan(big):
+    d, ec2, iam, ssm, r53 = world()
+    log = []
+    d.aws_s3 = lambda region, profile: FakeS3(region, log)
+    failed = "tico-setup: FAILED: cannot copy the starter plan from s3://b/k"
+
+    def first_boot(c, fixed=False):
+        if c.startswith("test -f"):
+            return 1, "", ""                                    # no .bootstrapped
+        if "grep" in c and "pull-env.sh" not in c:
+            return 0, failed, ""                                # its log ends with the failure
+        return (0, "", "") if fixed else (4, "", failed)
+    answer(ssm, first_boot)
+    code, out = go([*CREATE, "--company-file", str(big), "--plan-bucket", BUCKET], d)
+    assert code != 0 and failed in out and "re-run" in out
+    assert [name for name, _ in log] == ["put_object"]           # kept for the re-run
+    # The cause is fixed (the role may read it now); the same command again finishes the boot instead of stopping at it.
+    answer(ssm, lambda c: first_boot(c, fixed=True))
+    sent = len(ssm.commands)
+    code, out = go([*CREATE, "--company-file", str(big), "--plan-bucket", BUCKET], d)
+    assert code == 0, out
+    assert len(ec2.called("run_instances")) == 1
+    (finish,) = [c for c in ssm.commands[sent:] if "pull-env.sh" in c]
+    assert finish.index("aws s3 cp") < finish.index("docker compose up") < finish.index("touch ") and ".bootstrapped" in finish
+    assert [name for name, _ in log] == ["put_object", "put_object", "delete_object"]
+
+
+def test_a_re_run_never_takes_over_a_first_boot_that_is_still_running(tmp_path, monkeypatch):
+    root = tmp_path / "opt"
+    root.mkdir()
+    monkeypatch.setattr(contract, "REMOTE_DIR", str(root))
+    monkeypatch.setattr(remote, "BOOT_LOG", str(tmp_path / "tico-setup.log"))
+    script = "\n".join(["set -eu", *remote.finish_boot_guard_lines(), "echo finishing"]) + "\n"
+
+    def rerun(log: str):
+        (tmp_path / "tico-setup.log").write_text(log)
+        return subprocess.run(["sh", "-c", script], capture_output=True, text=True)
+    running = rerun("tico-setup: start\n")
+    assert running.returncode != 0 and "still running" in running.stderr and "finishing" not in running.stdout
+    assert rerun("tico-setup: start\ntico-setup: FAILED: cannot copy the starter plan from s3://b/k\n").stdout == "finishing\n"
+    (root / ".bootstrapped").touch()
+    assert rerun("tico-setup: start\ntico-setup: done\n").stdout == "finishing\n"
+    # wait_ready counts only a boot whose log ends in its failure as stopped, and keeps waiting on one still going.
+    from setup.tests.fakes import FakeSSM
+    ssm = FakeSSM()
+    answer(ssm, lambda c: (1, "", ""))
+    deployer = aws.Deployer(aws.plan_aws(domain="a.example", front_door="caddy", region="us-east-1", name=NAME),
+                            None, None, ssm, "123456789012", sleep=lambda _: None)
+    deployer.find_instance = lambda: {"InstanceId": "i-0abc"}
+    assert deployer.wait_ready(timeout=0.05) is False and not deployer.boot_failed
+    assert all("tail -n 1" in c for c in ssm.commands if "grep" in c)
+
+
 def test_a_saved_plan_bucket_does_not_follow_a_re_run_off_aws(big):
     from setup import cli
     from setup.tests.fakes import CaptureIO
@@ -182,7 +287,7 @@ def test_the_plan_bucket_is_for_aws_only_and_takes_bucket_and_region_names(big):
 def test_a_plan_the_bucket_will_not_delete_leaves_the_working_server_up_and_says_so(big):
     code, out, *_ = hosted(big, "--plan-bucket", BUCKET, fail=ClientError("AccessDenied"))
     assert code == 0, out
-    assert "Could not delete the starter plan from the plan bucket (AccessDenied); S3 deletes it within a day" in out
+    assert "Could not delete the starter plan from the plan bucket (AccessDenied)" in out
     deployer = aws.Deployer(aws.plan_aws(domain="a.example", front_door="caddy", region="us-east-1", name=NAME,
                                          plan_bucket=BUCKET), None, None, None, "123456789012")
     with pytest.raises(ValueError):
@@ -263,6 +368,40 @@ def test_a_copy_already_in_place_is_kept_once_the_bucket_object_is_gone(tmp_path
     run, copy, calls = boot(tmp_path, monkeypatch, b"never fetched", hashlib.sha256(plan).hexdigest(), existing=plan)
     assert run.returncode == 0, run.stderr
     assert copy.read_bytes() == plan and calls == ""
+
+
+def test_the_re_run_script_finishes_a_stopped_boot_only_once_the_app_reads_its_plan(tmp_path, monkeypatch):
+    plan = b"H4sIAAAAAAAA/plan"
+    sha = hashlib.sha256(plan).hexdigest()
+    root, bin_dir, log = tmp_path / "opt", tmp_path / "bin", tmp_path / "tico-setup.log"
+    monkeypatch.setattr(contract, "REMOTE_DIR", str(root))
+    monkeypatch.setattr(remote, "BOOT_LOG", str(log))
+    root.mkdir()
+    bin_dir.mkdir()
+    (tmp_path / "object").write_bytes(plan)
+    (root / "pull-env.sh").write_text(f"#!/bin/sh\nprintf 'TICO_COMPANY_FILE_S3=s3://{BUCKET}/k\\nTICO_COMPANY_FILE_S3_REGION=us-west-2\\n"
+                                      f"TICO_COMPANY_FILE_SHA256={sha}\\n' > {root}/.env\n")
+    stubs = {"aws": f'cp {tmp_path}/object "$7"', "chown": ":", "sleep": ":",
+             "docker": f'echo "$@" >> {tmp_path}/docker.log; case "$2" in exec) [ -z "$TICO_TEST_OLD_IMAGE" ];; esac'}
+    for name, body in stubs.items():
+        (bin_dir / name).write_text(f"#!/bin/sh\n{body}\n")
+    for f in [*bin_dir.iterdir(), root / "pull-env.sh"]:
+        f.chmod(0o755)
+    script = remote.rerun_script(compose=b"name: tico\n", compose_url="", plan=True)
+
+    def rerun(**extra):
+        log.write_text("tico-setup: start\ntico-setup: FAILED: cannot copy the starter plan from s3://b/k\n")
+        return subprocess.run(["sh", "-c", script], capture_output=True, text=True,
+                              env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", **extra})
+    old = rerun(TICO_TEST_OLD_IMAGE="1")                          # the image ignores TICO_COMPANY_FILE
+    assert old.returncode == 6 and "does not read the starter plan" in old.stderr
+    assert not (root / ".bootstrapped").exists() and log.read_text().splitlines()[-1].startswith("tico-setup: FAILED")
+    done = rerun()
+    assert done.returncode == 0, done.stderr
+    assert (root / "compose.yaml").read_bytes() == b"name: tico\n" and (root / "company-file" / "plan.b64").read_bytes() == plan
+    assert (root / ".bootstrapped").exists() and "finished by a re-run" in log.read_text().splitlines()[-1]
+    calls = (tmp_path / "docker.log").read_text().splitlines()
+    assert calls[-3:-1] == ["compose pull --quiet", "compose up -d"] and calls[-1].startswith("compose exec -T server")
 
 
 def test_every_aws_boot_makes_the_folder_compose_mounts_even_without_a_plan():

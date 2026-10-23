@@ -168,8 +168,9 @@ class Deployer:
         s3.put_object(Bucket=self.p.plan_bucket, Key=key, Body=data.encode("ascii"), ContentType="text/plain")
 
     def delete_plan(self, s3, key: str) -> str:
-        """Once the server is up and has its copy. Returns "" when deleted, else the error code: the server is already
-        working, and the bucket's lifecycle rule deletes a plan left behind within a day."""
+        """Once the server is up and its app reads its copy. Returns "" when deleted, else the error code: the server is
+        already working, and the plan stays until someone deletes it or the bucket's lifecycle rule, if it has one,
+        expires it."""
         try:
             s3.delete_object(Bucket=self.p.plan_bucket, Key=key)
         except Exception as e:  # botocore ClientError, a network error; without importing botocore here
@@ -310,16 +311,19 @@ class Deployer:
         """Waits for the SSM agent and the bootstrap script to finish."""
         iid = self.find_instance()["InstanceId"]
         runner = remote.SSMShell(self.ssm, iid, self.sleep)
+        self.boot_failed = False
         end = time.monotonic() + timeout
         while time.monotonic() < end:
             info = self.ssm.describe_instance_information(Filters=[{"Key": "InstanceIds", "Values": [iid]}])
             if info["InstanceInformationList"] and runner.run(f"test -f {self.p.marker}").returncode == 0:
                 return True
             # A boot that stopped itself (the starter plan's sha256, say) never writes the marker: no need to wait it out.
+            # Its log's last tico-setup line says so; a re-run of setup can then finish it (remote.rerun_script).
             if info["InstanceInformationList"]:
-                failed = runner.run("grep -m1 'tico-setup: FAILED' /var/log/tico-setup.log")
+                failed = runner.run(f"grep 'tico-setup:' {remote.BOOT_LOG} | tail -n 1 | grep 'tico-setup: FAILED'")
                 if failed.returncode == 0:
                     self.say("  " + failed.stdout.strip()[:300])
+                    self.boot_failed = True
                     return False
             self.sleep(15)
         return False

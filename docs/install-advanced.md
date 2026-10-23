@@ -44,8 +44,10 @@ plan at `plans/<name>/<sha256>` in that bucket before launch, grants the server'
 `plans/<name>/*` only, and names the key and its sha256 in the `.env`. At first boot the server copies it to
 `/opt/tico/company-file/plan.b64` (0400, the server's user), refuses to start on a sha256 mismatch, and the app reads it
 from `TICO_COMPANY_FILE` (the server mounts that folder by its absolute path, `TICO_COMPANY_FILE_DIR`). Setup deletes the
-object once the server is up; if S3 refuses, setup says so and the bucket expires it within a day. Charts up to 300
-seats fit.
+object once the running app reads its copy; if S3 refuses, setup says so and the object stays until you delete it or
+the bucket's lifecycle rule, if it has one, expires it. If the first boot stops (a copy or sha256 failure), fix the
+cause and re-run the same command: it finishes that boot. A server set up before `--plan-bucket` gets this release's
+`compose.yaml` and image on that re-run. Charts up to 300 seats fit.
 
 ```
 python3 -m setup destroy --domain tico.example.com --dry-run   # list what carries both tags
