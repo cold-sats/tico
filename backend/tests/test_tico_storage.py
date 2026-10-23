@@ -327,6 +327,12 @@ def test_a_private_tasks_file_in_tico_storage_is_refused_to_a_person_without_acc
     assert query['s'] == base64.urlsafe_b64encode(mac).rstrip(b'=').decode()
     assert sent.headers['cache-control'] == 'private, no-store'
     assert 'tico-files-us' not in sent.headers['location'] and 'amazonaws' not in sent.headers['location']
+    delivered = hq.edge.delivered.get(ADDRESS, 0)
+    part = api.get(f"/api/v2/files/{fid}", headers={**headers("ben-test"), 'Range': 'bytes=0-7'},
+                   follow_redirects=False)
+    assert part.status_code == 206 and part.content == picture[:8], "a Range read streams from here"
+    assert part.headers['content-range'] == f"bytes 0-7/{len(picture)}"
+    assert hq.edge.delivered[ADDRESS] == delivered + 8, "read through the company's address"
 
     # Everything else streams from here as before: a file not in Tico's bucket, one it holds under another type,
     # and anything that is not a picture, video or audio.
