@@ -848,7 +848,7 @@ mod tests {
             self_update: true,
             prepare: vec!["true".into()],
             sidecar: Sidecar { url: String::new(), token_file: dir.join("t") },
-            inner: Mutex::new(Inner { state: "idle".into(), desired: Some("0.3.45".into()), ..Default::default() }),
+            inner: Mutex::new(Inner { state: "idle".into(), desired: Some("0.3.45".into()), features: json!({"runner_drain": true}), ..Default::default() }),
         };
         std::env::set_var("TICO_SUPERVISED", "1");
         write_status(&dir, json!({"state": "rolled_back", "target": "0.3.45", "error": "did not report in", "at": epoch_s()}));
