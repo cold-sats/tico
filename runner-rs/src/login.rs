@@ -2691,7 +2691,7 @@ esac
             let failed = make("sign_out");
             run_sign_out(failed.clone(), runner.clone(), config.clone());
             assert_eq!(state(&failed).0, "failed");
-            assert_eq!(runner.sign_in.signed_out(runtime), runtime == "cursor", "an unknown verdict must keep automatic key login blocked; a confirmed existing login clears the mark");
+            assert_eq!(runner.sign_in.signed_out(runtime), crate::harness_tools::caps(runtime, "").sign_in_status.check == "command", "an unknown verdict must keep automatic key login blocked; a confirmed existing login clears the mark");
             assert_eq!(std::fs::read_to_string(&auth).unwrap(), old);
             std::fs::remove_file(root.join("logout-error")).unwrap();
             std::fs::remove_file(root.join("status-error")).unwrap();
