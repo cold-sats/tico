@@ -33,8 +33,8 @@ const STOP_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long a process may stay up after its run's terminal record before it is stopped.
 const AFTER_TERMINAL: Duration = Duration::from_secs(5);
 /// Set on every Muse process, the sign-in check's and `--version`'s too, so the launcher never updates itself. The
-/// file credential backend keeps a login in its config folder's auth.json: on macOS Muse otherwise keeps the token in
-/// the login Keychain, one item every Muse login of that OS user shares, which no folder of Tico's can hold apart.
+/// file credential backend keeps a login whole in its config folder's auth.json: on macOS Muse otherwise keeps the token
+/// in the login Keychain, outside the files a switch moves into place or a cancel keeps.
 pub const QUIET: &[(&str, &str)] = &[("MUSE_NO_AUTO_UPDATE", "1"), ("NO_COLOR", "1"), ("TBH_CREDENTIAL_BACKEND", "file")];
 
 /// The catalog id as the CLI's model id; anything else passes through, so a model Meta adds works unchanged.
@@ -231,7 +231,7 @@ enum Store {
     Empty,
     /// A Meta login held in the file itself, the file backend's form: an API key or an OAuth access token.
     Login,
-    /// A pointer to the macOS Keychain item every Muse login of this OS user shares.
+    /// A pointer to a token in the macOS Keychain, outside this folder's files.
     Keychain,
     /// Unreadable, or a shape this check does not know: never taken for a login.
     Unknown,
@@ -284,7 +284,7 @@ pub fn signed_in(path: &Path) -> Option<bool> {
 /// Why the saved store cannot be used, when the reason is one the person can act on.
 pub fn store_problem(path: &Path) -> Option<String> {
     (store(path) == Store::Keychain).then(|| {
-        "Muse Code sign-in is saved in the macOS Keychain, which every Muse login on this computer shares: sign in again from Tico".into()
+        "Muse Code sign-in is saved in the macOS Keychain, outside Tico's Muse folder: sign in again from Tico".into()
     })
 }
 

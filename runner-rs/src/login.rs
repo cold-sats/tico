@@ -2447,7 +2447,7 @@ exit 2
             std::fs::write(root.join("bin/muse"), r#"#!/bin/sh
 home="$XDG_CONFIG_HOME/muse"
 if [ "$TBH_CREDENTIAL_BACKEND" != file ]; then
-  # As on macOS by default: the token goes to one Keychain item every login of the OS user shares.
+  # As on macOS by default: the token goes to a Keychain item outside the config folder (here one item, the worst case).
   case "$1" in
     login) mkdir -p "$home"; echo "$XDG_CONFIG_HOME" > "$HOME/keychain"
       printf '%s\n' '{"schema_version":2,"providers":{"meta":{"storage":"keychain"}}}' > "$home/auth.json" ;;
@@ -2511,6 +2511,8 @@ esac
             std::fs::write(root.join("broken"), "").unwrap();
             let broken = session("sign_out");
             run_sign_out(broken.clone(), runner.clone(), config.clone());
+            // The credential boundary first: a logout from Tico's folder never reaches the item outside it.
+            assert_eq!(std::fs::read_to_string(&keychain).ok().as_deref(), Some("operator"), "a Tico logout reached the Keychain");
             assert_eq!(state(&broken).0, "failed", "{:?}", state(&broken));
             assert!(state(&broken).1.contains("could not confirm"));
             assert_eq!(runner.sign_in.signed_out("musecode"), profile.is_empty());
