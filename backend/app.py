@@ -37,7 +37,7 @@ from . import goals as G
 from . import models as M
 from .auth import LOCAL_COOKIE, LOCAL_COOKIE_DAYS, LOCAL_SIGNIN_PATH, LOGOUT_PATH, Auth, Identity, validate_identity
 from .config import Settings
-from .observability import Observability, browser_config, staff_display_name
+from .observability import Observability, browser_config, staff_display_name, route as error_route
 from .execution import (Execution, bot_repository, bump_bot_session_epoch, clear_limits, lift_after_model_change,
                         model_choice, own_login_hold)
 from .onboarding import BOTOPS, Onboarding
@@ -332,7 +332,7 @@ def create_app(settings=None):
     @app.exception_handler(Problem)
     async def problem_handler(request, exc):
         if exc.status >= 500:
-            telemetry.capture("request", exc, exc.status)
+            telemetry.capture("request", exc, exc.status, route=error_route(request))
             request.state.telemetry_captured = True
         caller = getattr(request.state, "privacy_source", None)
         if caller is not None and caller.actor == "bot:" + BOTOPS and exc.status == 403:
@@ -361,7 +361,7 @@ def create_app(settings=None):
 
     @app.exception_handler(sqlite3.OperationalError)
     async def storage_handler(request, exc):
-        telemetry.capture("request", exc, 503)
+        telemetry.capture("request", exc, 503, route=error_route(request))
         request.state.telemetry_captured = True
         # No SQL, database paths, or request bodies in client-facing diagnostics.
         return JSONResponse({"error": {"code": "storage_unavailable", "detail": "Please retry shortly",
@@ -638,7 +638,7 @@ def create_app(settings=None):
                 from .diagnostics import request_failure
                 request_failure(request, response.status_code)
             if response.status_code >= 500 and not getattr(request.state, "telemetry_captured", False):
-                telemetry.capture("request", status=response.status_code)
+                telemetry.capture("request", status=response.status_code, route=error_route(request))
             # The page and its files (StaticFiles sends an ETag) may be kept by the browser and
             # revalidated: an unchanged script or stylesheet (ui/app, ui/styles) comes back as a 304, not in
             # full on every load (slow loads on a phone). A deploy writes new files, so the
@@ -709,7 +709,7 @@ def create_app(settings=None):
         except Exception as exc:
             from .diagnostics import request_failure
             request_failure(request, 500, exc)
-            telemetry.capture("request", exc, 500)
+            telemetry.capture("request", exc, 500, route=error_route(request))
             raise
         finally:
             if via_reset is not None:
@@ -4416,6 +4416,14 @@ def create_app(settings=None):
     @app.post("/api/v2/runners/enroll")
     def enroll(body: M.Enrollment):
         return execution.enroll(body)
+
+    @app.post("/api/v2/runners/errors")
+    def runner_errors(request: Request, body: M.RunnerErrors):
+        """Where a runner panicked, for the install's opt-in error reporting; dropped when that is off."""
+        if request.state.identity.role != "runner":
+            raise Problem("identity", "A registered runner is required", 403)
+        telemetry.capture_runner(request.state.identity.runner_id, body.version, body.panics)
+        return {"ok": True}
 
     @app.post("/api/v2/runners/heartbeat")
     def heartbeat(request: Request, body: M.Heartbeat):
