@@ -95,8 +95,39 @@ the rest wait for the next day. The server refuses a sixth.
 
 ## What stays yours
 
-At every level, spending, publishing, people, and changes to your goals or vision stay yours. The CEO Bot can
-propose a goal's Why, wording or target. It cannot accept one. Nobody's `reports_to` changes and it gets no access it
-did not have before it was the CEO Bot.
+At every level, these stay yours, and the server refuses the CEO Bot each one:
+- anything that raises cost: a new routine or a routine that runs more often, a bot's model, fallback or wake settings;
+- publishing to a public roadmap without your approval;
+- sending anything outside the company, such as a calendar invitation to someone outside it;
+- adding, removing or bringing back bots;
+- changing a goal, or a goal's KPI target;
+- changing the vision or the description;
+- changing a bot's instructions or settings;
+- giving a task to a person.
+
+When it tries one, nothing changes. It becomes an item in your **Needs you** saying what it wanted, why, and that the
+change is yours to make. It also shows in the [CEO Bot log](#the-ceo-bot-log). It counts toward the 5 a day. When the 5
+are used, it waits in the log and says so. It is not counted as one of the bot's mistakes.
+
+The CEO Bot can propose a goal's Why, wording or target. It cannot accept one. Nobody's `reports_to` changes and it
+gets no access it did not have before it was the CEO Bot.
+
+## The CEO Bot log
+
+The CEO Bot's page shows its log on the **Info** tab, newest first. Everyone in the company can read it. It lists:
+- each decision it made on its own at **Acts on its own**, with its reason and the bot tasks it created, moved up,
+  gave to another bot or closed;
+- each thing it proposed to you instead, because it stays yours or because a bot was offline.
+
+One decision is one entry. Every change in it carries the same action id in each task's history.
+
+Only the owner sees **Undo**, and it asks once before it acts. Undo puts each task back as it was before the
+decision. A task the decision created is closed, and each bot whose task changed is told. If someone changed a task
+after the decision, their change stays. The entry then says, in plain words, what could not be restored. An entry is
+undone once.
+
+Over the API, `GET /api/v2/ceo-bot/log` reads the log, `POST /api/v2/ceo-bot/log/{id}/undo` undoes an entry (the
+owner only), and the CEO Bot decides with `POST /api/v2/ceo-bot/decisions` (`hub goal ceo-bot-decide`), at level 3
+only.
 
 Related: [Goals and KPIs](goals-and-kpis.md), [Team chart](org-chart.md).
