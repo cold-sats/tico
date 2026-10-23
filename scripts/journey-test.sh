@@ -112,6 +112,8 @@ cleanup() {
   docker rm -f "$RUNNER" "$SWAP_HELPER" "$RELEASE_SERVER" "$REGISTRY_NAME" >/dev/null 2>&1
   dc down -v >/dev/null 2>&1
   docker volume rm journey-runner >/dev/null 2>&1
+  # The updater writes the install's bundle as the image's user; hand it back so the directory can go.
+  docker run --rm --user 0 --entrypoint chown -v "$WORK:/w" "$SERVER_IMAGE:$PREV" -R "$(id -u):$(id -g)" /w >/dev/null 2>&1
   for v in v9.9.9 "$BROKEN" "$THIRD"; do docker rmi "$SERVER_IMAGE:$v" "$RUNNER_IMAGE:$v" "$UPDATER_IMAGE:$v" >/dev/null 2>&1; done
   for v in "$PREV" "$CAND" "$THIRD"; do docker rmi "$INSTALL_UPDATER:$v" >/dev/null 2>&1; done
   rm -rf "$WORK"
@@ -429,7 +431,11 @@ step_second_hop() {
   # image exists only in the registry, so the update proves the updater the first hop made still pulls.
   printf 'FROM %s:%s\nENV TICO_VERSION=%s TICO_RELEASE=%s\n' "$SERVER_IMAGE" "$CAND" "$THIRD" "$THIRD" \
     | docker build -q -t "$SERVER_IMAGE:$THIRD" - >/dev/null || return 1
-  publish_updater "$UPDATER_IMAGE:$CAND" "$THIRD" || { say "could not put the $THIRD updater in the registry"; return 1; }
+  # Its updater gets a layer of its own: a release's updater is always a new image, and the swap tells the new
+  # updater from the old by image id.
+  printf 'FROM %s:%s\nLABEL org.opencontainers.image.version=%s\n' "$UPDATER_IMAGE" "$CAND" "$THIRD" \
+    | docker build -q -t "$UPDATER_IMAGE:$THIRD" - >/dev/null || return 1
+  publish_updater "$UPDATER_IMAGE:$THIRD" "$THIRD" || { say "could not put the $THIRD updater in the registry"; return 1; }
   release_bundle "$THIRD" || return 1
   state="$(run_update "${THIRD#v}")"
   [ "$state" = healthy ] || { say "the update to $THIRD ended in state $state: $(get system/update | json 'd["message"]')"; return 1; }
