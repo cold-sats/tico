@@ -2962,6 +2962,10 @@ class Execution:
         if (not body.acknowledge_uncertain_effects or row['state'] != 'uncertain'
                 or row['attempt_id'] != body.attempt_id):
             raise Problem("uncertain", "This run changed or its external effects have not been reviewed", 409)
+        # A deferred choice keeps the job uncertain; state alone cannot fence another open dialog.
+        if c.execute("SELECT 1 FROM job_recovery WHERE job_id=? AND attempt_id=?",
+                     (job_id, body.attempt_id)).fetchone():
+            raise Problem("uncertain", "A choice is already saved for this run. Refresh to see it.", 409)
         note = body.note.strip()
         if len(note) < 20:
             raise Problem("review_note", "Describe completed work and what should happen next", 422)
