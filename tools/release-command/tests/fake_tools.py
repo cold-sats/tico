@@ -44,7 +44,7 @@ elif name == 'gh':
     if args[:2] == ['repo', 'view']:
         print('acme/product')
     elif args[:1] == ['api']:
-        if '--paginate' in args:
+        if '/actions/workflows/ci.yml/runs?' in args[-1]:
             old = dict(id=1, event='schedule', head_branch='main', head_sha=FROZEN,
                        display_title='Nightly gate on main', status='completed',
                        conclusion='failure' if config.get('red') else 'success', created_at='2026-01-01T01:00:00Z')
@@ -55,7 +55,7 @@ elif name == 'gh':
                 runs.append(dict(old, id=2, conclusion='success', created_at='2026-01-01T02:00:00Z'))
             if config.get('red_during_validation') and (root / 'watched').exists():
                 runs.append(dict(old, id=43, conclusion='failure', created_at='2026-01-03T01:00:00Z'))
-            print(json.dumps([dict(workflow_runs=runs)]))
+            print(json.dumps(dict(workflow_runs=runs)))
         else:
             print(json.dumps(run('c' * 40 if config.get('wrong_commit') else CANDIDATE,
                                  'Validate ' + 'c' * 40 + ' from v1.0.0' if config.get('wrong_title') else None)))

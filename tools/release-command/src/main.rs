@@ -89,23 +89,15 @@ fn unchanged(expected: &str) -> Result<()> {
     )
 }
 fn runs(repo: &str) -> Result<Vec<Value>> {
-    let pages = gh(&[
+    // Recent runs suffice to find the latest gate; uncertainty refuses freeze instead of scanning unbounded history.
+    let page = gh(&[
         "api",
-        "--paginate",
-        "--slurp",
         &format!("repos/{repo}/actions/workflows/ci.yml/runs?branch=main&per_page=100"),
     ])?;
-    let mut out = Vec::new();
-    for page in pages.as_array().ok_or("Missing workflow pages")? {
-        out.extend(
-            page["workflow_runs"]
-                .as_array()
-                .ok_or("Missing workflow runs")?
-                .iter()
-                .cloned(),
-        );
-    }
-    Ok(out)
+    Ok(page["workflow_runs"]
+        .as_array()
+        .ok_or("Missing workflow runs")?
+        .clone())
 }
 fn full_gate_green(repo: &str) -> Result<()> {
     let mut eligible = Vec::new();
