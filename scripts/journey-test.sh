@@ -171,7 +171,7 @@ worktree_state() {  # task: the state of its worktree link and whether its check
 }
 new_task() {  # title: a task BotOps is working on, so a worktree may start for it; prints its id
   local task version
-  task="$(post tasks "{\"owner\": \"bot:botops\", \"title\": \"$1\", \"body\": \"\", \"next_run\": true}")" || return 1
+  task="$(post tasks "{\"owner\": \"bot:botops\", \"title\": \"$1\", \"body\": \"A worktree for the journey.\", \"next_run\": true}")" || return 1
   version="$(printf '%s' "$task" | json 'd.get("task", d)["version"]')"
   task="$(printf '%s' "$task" | json 'd.get("task", d)["id"]')"
   post "tasks/$task" "{\"version\": $version, \"status\": \"doing\", \"quiet\": true}" >/dev/null || return 1
