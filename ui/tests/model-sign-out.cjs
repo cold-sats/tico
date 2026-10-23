@@ -157,6 +157,19 @@ const {unrouted} = require('./support/routes.cjs');
       }
     }
     await page.setViewportSize({width: 1440, height: 900});
+    assert.equal(await muse.getByRole('button', {name: 'Remove', exact: true}).isVisible(), true);
+    // The same Muse capability enables key recovery and subscription switching for the computer's own login.
+    const museActions = await page.evaluate(() => {
+      const actions = options => window.TicoModelLogin.actionsHTML({runnerId: 'box', runtime: 'musecode', ...options});
+      const labels = html => {
+        const row = document.createElement('div');
+        row.innerHTML = html;
+        return Array.from(row.querySelectorAll('button'), b => b.getAttribute('aria-label') || b.textContent);
+      };
+      return [labels(actions({signedOut: true})), labels(actions({signedOut: true, profile: 'acme'})),
+        labels(actions({signedIn: true, onKey: true}))];
+    });
+    assert.deepEqual(museActions, [['Use the shared key'], [], ['Switch to subscription', 'Sign out']]);
 
     // Sign out: off while the bots that stop are looked up and when the lookup fails, which offers Try again; then
     // the confirmation names them. Cancel sends nothing.

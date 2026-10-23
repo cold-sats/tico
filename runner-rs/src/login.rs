@@ -2458,12 +2458,13 @@ esac
         std::fs::write(&operator, "operator").unwrap();
         let path = root.join("runner.json");
         std::fs::write(&path, json!({"url": "http://127.0.0.1:9", "token": "synthetic", "runner_id": "fixture",
-            "projects_dir": root.join("projects"), "profiles": {"acme": {"dir": root.join("acme")}}}).to_string()).unwrap();
+            "projects_dir": root.join("projects")}).to_string()).unwrap();
+        crate::profiles::add_profile(&Config::load(&path).unwrap(), "acme").unwrap();
         let config = Config::load(&path).unwrap();
         let client = crate::client::Client::new(&config.url(), &config.token(), 1, 0).unwrap();
         let runner = Arc::new(Runner::new(config.clone(), client, crate::state::State::open(&root.join("state")).unwrap()));
         let own = crate::hosts::musecode::config_home(None).join("muse/auth.json");
-        let named = root.join("acme/musecode/muse/auth.json");
+        let named = root.join("profiles/acme/musecode/muse/auth.json");
         let old = "{\"schema_version\":1,\"providers\":{\"meta\":{\"api_key\":\"old\"}}}\n";
         let new = "{\"schema_version\":1,\"providers\":{\"meta\":{\"api_key\":\"new\"}}}\n";
         for auth in [&own, &named] {
@@ -2516,6 +2517,28 @@ esac
             let home = auth.parent().unwrap().parent().unwrap();
             assert!(!std::fs::read_dir(home).unwrap().flatten().any(|e| e.file_name().to_string_lossy().starts_with(".tico-switch-")));
         }
+        // Remove needs an explicit signed-out result before deleting a Tico-made subscription folder.
+        let folder = root.join("profiles/acme");
+        let listed = || Config::load(&path).unwrap().data["profiles"].get("acme").is_some();
+        let untouched = std::fs::read(&own).unwrap();
+        let remove = || {
+            let s = Session::new(&json!({"id": format!("l{}", uuid::Uuid::new_v4().simple()),
+                "runtime": "musecode", "kind": "remove", "profile": "acme"}));
+            answer_finishing(&s, true);
+            run_remove(s.clone(), runner.clone(), Config::load(&path).unwrap());
+            state(&s)
+        };
+        std::fs::write(root.join("broken"), "").unwrap();
+        let broken = remove();
+        assert_eq!(broken.0, "failed", "malformed logout must keep the subscription: {broken:?}");
+        assert!(listed() && folder.is_dir() && named.is_file(), "unknown sign-out deleted the subscription");
+        assert_eq!(std::fs::read_to_string(&named).unwrap(), "malformed\n");
+        std::fs::remove_file(root.join("broken")).unwrap();
+        std::fs::write(&named, old).unwrap();
+        assert_eq!(remove(), ("done".into(), "Removed acme".into()));
+        assert!(!listed() && !folder.exists(), "confirmed sign-out must remove the subscription and folder");
+        assert_eq!(std::fs::read(&own).unwrap(), untouched);
+        assert_eq!(std::fs::read_to_string(&operator).unwrap(), "operator");
     }
 
     #[test]

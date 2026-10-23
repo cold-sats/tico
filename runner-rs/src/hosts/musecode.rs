@@ -974,6 +974,21 @@ mod tests {
         assert_eq!(signed_in(&dir.join("auth.json")), Some(false));
         std::fs::write(dir.join("auth.json"), r#"{"schema_version":1,"providers":{"meta":{"api_key":"fixture"}}}"#).unwrap();
         assert_eq!(signed_in(&dir.join("auth.json")), Some(true));
+        for (store, expected) in [
+            (r#"{"schema_version":2,"providers":{}}"#, None),
+            (r#"{"schema_version":1,"providers":{"meta":{}}}"#, Some(false)),
+            (r#"{"schema_version":1,"providers":{"meta":null}}"#, Some(false)),
+        ] {
+            std::fs::write(dir.join("auth.json"), store).unwrap();
+            assert_eq!(signed_in(&dir.join("auth.json")), expected);
+        }
+        std::fs::write(dir.join("auth.json"), " ".repeat(65537)).unwrap();
+        assert_eq!(signed_in(&dir.join("auth.json")), None);
+        std::fs::rename(dir.join("auth.json"), dir.join("target.json")).unwrap();
+        std::os::unix::fs::symlink(dir.join("target.json"), dir.join("auth.json")).unwrap();
+        assert_eq!(signed_in(&dir.join("auth.json")), None);
+        std::fs::remove_file(dir.join("auth.json")).unwrap();
+        std::fs::write(dir.join("auth.json"), r#"{"schema_version":1,"providers":{}}"#).unwrap();
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o000)).unwrap();
         let locked = signed_in(&dir.join("auth.json"));
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
