@@ -58,3 +58,11 @@ def test_a_server_id_that_is_not_one_never_reaches_hq(api, hq):  # noqa: F811
         r = api.post("/api/v2/hosted-servers/%s/start" % server_id, headers={"Authorization": "Bearer ana-test"})
         assert r.status_code in (404, 422), (server_id, r.status_code)
     assert hq.calls == []
+
+
+def test_a_rehearsal_never_starts_a_real_server(api, hq):  # noqa: F811
+    # A rehearsal is a copy of real data, even with the real gateway key in its environment: Start sends nothing.
+    api.app.state.store.settings.rehearsal = True
+    r = api.post("/api/v2/hosted-servers/%s/start" % BOTS, headers={"Authorization": "Bearer ana-test"})
+    assert r.status_code == 409 and r.json()["error"]["code"] == "rehearsal"
+    assert hq.calls == []

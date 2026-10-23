@@ -1500,6 +1500,8 @@ def create_app(settings=None):
     @app.post("/api/v2/hosted-servers/{server_id}/start")
     def hosted_server_start(request: Request, server_id: str):
         """Start one stopped hosted server; `paused` with the add-credit words while the company is out of credit."""
+        if settings.rehearsal:      # a copy of real data sends nothing: never a real server's power
+            raise Problem("rehearsal", "Hosted servers can't be started from a rehearsal", 409)
         return company_billing.start(*billing_key(request.state.identity, "starts hosted servers"), server_id)
 
     @app.get("/api/v2/access")

@@ -101,6 +101,24 @@ const shots = process.env.TICO_SHOTS || '';
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no sideways scroll on a phone');
     await page.setViewportSize({width: 1280, height: 800});
 
+    // HQ did not answer the first read: hidden, and asked again at the next reload (a fixed key or HQ back shows it).
+    const ok = servers;
+    servers = {state: 'unreachable'};
+    await page.goto('about:blank');
+    await page.goto('https://tico-ui.test/#/settings');
+    await page.locator('#set-machines').waitFor();
+    for (let i = 0; i < 40 && asked.slice(-1)[0] !== 'GET /api/v2/hosted-servers'; i++) await page.waitForTimeout(50);
+    await page.waitForTimeout(200);
+    assert.equal(await card.isHidden(), true);
+    servers = ok;
+    await page.evaluate(() => loadSettings());
+    await card.locator(`[data-hosted="${BOTS}"]`).waitFor();
+    // An answer HQ gave is kept a minute: another reload does not ask again.
+    const kept = asked.length;
+    await page.evaluate(() => loadSettings());
+    await page.waitForTimeout(300);
+    assert.equal(asked.length, kept);
+
     // Nothing hosted (a self-hosted install, or no account at HQ): no section.
     servers = {state: 'none'};
     await page.goto('about:blank');

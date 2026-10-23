@@ -14,13 +14,18 @@ const HOSTED_START = {
   no_gateway: 'This install is not connected to Tico AI Gateway.',
   unreachable: 'Tico HQ did not answer. Try again in a minute.',
 };
-// Settings reloads often; HQ is asked once per page, and again after a start, so a refusal stays on screen.
+// Settings reloads often: HQ's answer is kept a minute, a refusal on screen is never redrawn away, and a read that
+// failed (no gateway key yet, a refused key, HQ down) is asked again at the next reload, so a fixed key shows it.
+const HOSTED_KEEP_MS = 60_000;
 async function renderSettingsHosted(again = false) {
   const card = $('#settings-hosted'), host = $('#set-hosted');
-  if (!card || !host || (host.dataset.asked && !again)) return;
-  host.dataset.asked = '1';
+  if (!card || !host) return;
+  const shown = host.querySelector('[data-hosted-note]:not([hidden])'), at = Number(host.dataset.readAt || 0);
+  if (!again && (shown || Date.now() - at < HOSTED_KEEP_MS)) return;
+  host.dataset.readAt = String(Date.now());
   let v;
-  try { v = await get('/v2/hosted-servers'); } catch { card.hidden = true; return; }
+  try { v = await get('/v2/hosted-servers'); } catch { card.hidden = true; delete host.dataset.readAt; return; }
+  if (!['ok', 'deactivated', 'none'].includes(v.state)) delete host.dataset.readAt;
   if (v.state === 'deactivated') {
     card.hidden = false;
     host.innerHTML = `<p class="muted">${esc(HOSTED_START.deactivated)}</p>`;
