@@ -2337,7 +2337,8 @@ class Execution:
                      and (any(gateway.run_code(error) == gateway.NOT_ISOLATED for error in limit_errors(c, aid))
                           or body.primary_held and body.limited and not body.fallback)
                      or row["state"] == "leased" and body.outcome in ("failed", "interrupted") and bool(row["stop_requested"])
-                     or row["state"] == "leased" and skipped)
+                     or row["state"] == "leased" and skipped
+                     or row["state"] == "leased" and body.outcome == "interrupted" and body.yielded)
         if not late and row["state"] != "running" and not unstarted:
             raise Problem("not_started", "Acknowledge start before completing work", 409)
         if row["last_seq"] != body.last_seq:

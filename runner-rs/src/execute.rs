@@ -813,7 +813,15 @@ impl Runner {
             }));
             wake.notify_one();
         };
-        let got = crate::login_turns::wait_for(&login.key, turn, || self.login_wait_over(flags, login), say, Duration::from_secs(1)).await;
+        self.drain.register(aid);
+        let got = tokio::select! {
+            biased;
+            line = self.drain.wait(aid) => {
+                let _ = self.state.append(aid, "status", &json!({"yielded": line}));
+                Err(line.to_string())
+            }
+            result = crate::login_turns::wait_for(&login.key, turn, || self.login_wait_over(flags, login), say, Duration::from_secs(1)) => result,
+        };
         if got.is_err() && flags.stopped.load(Ordering::SeqCst) {
             // Stopped, or its task was done or closed meanwhile (the server's `stop`): the work keeps no place.
             crate::login_turns::forget(&login.key, turn);
@@ -846,6 +854,7 @@ impl Runner {
     pub async fn execute(self: Arc<Self>, mut attempt: Value) -> Result<(), String> {
         let aid = text_of(&attempt["id"]);
         let bot = text_of(&attempt["bot"]);
+        self.drain.register(&aid);
         // Pushes from the task's worktrees from here on are this turn's (crate::worktrees::pushes).
         let begun = crate::util::epoch_s() as i64;
         self.state.record(&attempt)?;
@@ -920,7 +929,7 @@ impl Runner {
         }
         crate::harness_tools::turn_runtimes(&aid, &uses);
 
-        let ran: Result<(), Fail> = async {
+        let ran: Result<(), Fail> = self.during_drain(&aid, async {
             // A lane runs one turn at a time. A main-lane turn holds the bot's checkout for the whole turn; a task
             // lane works in its own worktree and takes the checkout only to refresh it (sessions.rs).
             let p = place.insert(self.enter_lanes(&attempt, &flags.lost).await.map_err(Fail::runtime)?);
@@ -1092,6 +1101,9 @@ impl Runner {
                 return Err(Fail::runtime("Lease expired while preparing runtime"));
             }
             unstopped(&flags)?;
+            if !self.drain.start(&aid) {
+                return Err(Fail::runtime(crate::drain::WAITING));
+            }
             // Acknowledge before execution. Any later crash is explicitly uncertain.
             let active = self.active.lock().unwrap().len();
             let started = crate::perf::with_snapshot(json!({"thread_id": th}), active).await;
@@ -1137,14 +1149,15 @@ impl Runner {
             // harness runs the turn there instead of losing it.
             unavailable = drove.limited || drove.retryable;
             Ok(())
-        }
-        .await;
+        }).await;
         if (busy.is_some() || held.is_some()) && ran.is_ok() {
             unavailable = true;
         }
 
         if let Err(e) = &ran {
-            if let Some(u) = &e.subscription {
+            if self.drain.returning(&aid) || e.text == crate::drain::WAITING {
+                unavailable = false;
+            } else if let Some(u) = &e.subscription {
                 self.settle_unavailable(&aid, u, &mut drove, &mut auth_rejected, &mut subscription_unavailable);
                 unavailable = false;
             } else {
@@ -1168,6 +1181,7 @@ impl Runner {
         }
         // A Tico fallback needs the turn's relay; without one it is left out and the primary's outcome stands.
         pending = crate::gateway_relay::admit(pending, vault.relay.is_some());
+        if self.drain.returning(&aid) { pending = None; }
         if let (Some(until), None, true) = (&held, &pending, ran.is_ok()) {
             // No fallback is ready here after all: the turn ends on the hold, unstarted, and waits for it like any
             // limited turn; the server keeps the hold as it was (backend/login_holds.py record).
@@ -1199,7 +1213,7 @@ impl Runner {
             fallback = Some(hop.harness.clone());
             drove = Drove::interrupted();
             let primary = Some(text_of(&config["harness"])).filter(|h| !h.is_empty()).unwrap_or_else(|| runtime.clone());
-            let hopped: Result<(), Fail> = async {
+            let hopped: Result<(), Fail> = self.during_drain(&aid, async {
                 let hop_config = hop.config(&config);
                 let mut hop_attempt = attempt.clone();
                 hop_attempt["config"] = hop_config.clone();
@@ -1259,6 +1273,7 @@ impl Runner {
                     // The primary never started (its login was busy, or held by the server), so this host
                     // acknowledges the turn instead, before it acts.
                     unstopped(&flags)?;
+                    if !self.drain.start(&aid) { return Err(Fail::runtime(crate::drain::WAITING)); }
                     let active = self.active.lock().unwrap().len();
                     let started = crate::perf::with_snapshot(json!({"thread_id": th}), active).await;
                     self.client.post(&format!("attempts/{aid}/started"), &started, Some(&format!("started:{aid}"))).await?;
@@ -1298,10 +1313,11 @@ impl Runner {
                 };
                 log(&format!("Tico runner: {bot}: {why}; ran the turn on {}{how}", hop.harness));
                 Ok(())
-            }
-            .await;
+            }).await;
             if let Err(e) = hopped {
-                if let Some(u) = &e.subscription {
+                if self.drain.returning(&aid) {
+                    // The regular settlement below saves and hands the continuation back.
+                } else if let Some(u) = &e.subscription {
                     self.settle_unavailable(&aid, u, &mut drove, &mut auth_rejected, &mut subscription_unavailable);
                 } else {
                     self.diagnose(&aid, &format!("{}: fallback harness interrupted; inspect local runner", e.kind));
@@ -1328,6 +1344,11 @@ impl Runner {
             drove.reply = why;
             drove.limited = true;
             fallback = None;
+            subscription_unavailable = None;
+        }
+        if self.drain.returning(&aid) {
+            drove = Drove { outcome: "interrupted".into(), reply: String::new(), yielded: true, limited: false, retryable: false, ..drove };
+            auth_rejected = None;
             subscription_unavailable = None;
         }
         let ran_on = fallback.clone().unwrap_or_else(|| runtime.clone());
@@ -1360,11 +1381,14 @@ impl Runner {
         }
         // The host has stopped: the next turn waiting for this ChatGPT login starts now, and one that gave it up at
         // the cap continues right after it.
-        if let Some(held) = login_held.as_ref().filter(|_| drove.yielded) {
+        if let Some(held) = login_held.as_ref().filter(|_| drove.yielded && !self.drain.returning(&aid)) {
             held.give_way();
             let _ = self.state.append(&aid, "status", &json!({"yielded": held.yielded()}));
         }
         drop(login_held.take());
+        if self.drain.returning(&aid) {
+            let _ = self.state.append(&aid, "status", &json!({"waiting": ""}));
+        }
         if drove.outcome != "completed" && !crate::harness_tools::caps(&runtime, "").resume_after_interrupt && !goal.controlled {
             if let Some(th) = &thread {
                 // A host that aborts the next turn on an interrupted thread at once (`resume_after_interrupt =
@@ -1589,6 +1613,22 @@ impl Runner {
         self.forget_flush(&aid);
         crate::flight::turn_end(&aid, &bot, &ran_on, &drove.outcome, settled.is_ok());
         settled
+    }
+
+    /// Drop the execution future on drain handback; settlement below still owns and stops its host.
+    async fn during_drain<F>(&self, aid: &str, work: F) -> Result<(), Fail>
+    where F: std::future::Future<Output = Result<(), Fail>> {
+        let result = tokio::select! {
+            biased;
+            line = self.drain.wait(aid) => Err(Fail::runtime(line)),
+            result = work => result,
+        };
+        if let Err(e) = &result {
+            if self.drain.returning(aid) {
+                let _ = self.state.append(aid, "status", &json!({"yielded": e.text}));
+            }
+        }
+        result
     }
 
     /// The turn's first call: a goal control, a harness command, a task goal with the task's prompt, or the prompt.
@@ -2325,4 +2365,99 @@ for line in sys.stdin:
         }
         std::fs::remove_dir_all(&dir).ok();
     }
+    // This fixture advertises the server's additive drain support without an installed runner or live credentials.
+    async fn drain_test_runner(limit: u64) -> (Arc<Runner>, PathBuf, tokio::task::JoinHandle<()>) {
+        let (url, _, server) = recording_server().await;
+        let (runner, dir) = runner_at(&url, "drain");
+        let path = dir.join("runner.json");
+        let mut config: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        config["drain_timeout_seconds"] = json!(limit);
+        config["pinned"] = json!(true);
+        std::fs::write(&path, config.to_string()).unwrap();
+        let config = crate::config::Config::load(&path).unwrap();
+        let runner = Arc::new(Runner::new(config, runner.client.clone(), runner.state.clone()));
+        crate::follow::init(&runner.config.data, &dir);
+        let (features, _) = crate::client::tests::serve(vec![(200, r#"{"version":"","features":{"runner_drain":true}}"#)]).await;
+        let client = crate::client::Client::new(&features, "synthetic", 2, 0).unwrap();
+        crate::follow::shared().unwrap().poll(&client, None).await;
+        (runner, dir, server)
+    }
+
+    #[tokio::test]
+    async fn drain_hands_back_three_login_waiters_without_waiting_for_the_midturn_holder() {
+        use crate::login_turns::{Class, Login, Turn};
+        let (runner, dir, server) = drain_test_runner(300).await;
+        let login = Login::new("codex", &format!("drain-{}", uuid::Uuid::new_v4()));
+        let held = crate::login_turns::try_take(&login.key, &Turn::new("holder", "", Class::Other)).unwrap();
+        let flags = Flags { lost: AtomicBool::new(false), stopped: AtomicBool::new(false), done: AtomicBool::new(false),
+                            done_notify: Notify::new(), deadline: Mutex::new(Instant::now() + Duration::from_secs(60)) };
+        let turns: Vec<_> = (0..3).map(|i| Turn::new(&format!("waiter{i}"), "", Class::Other).of(&format!("work{i}"), &format!("a{i}"))).collect();
+        for turn in &turns { runner.state.record(&json!({"id": turn.attempt, "bot": turn.bot})).unwrap(); }
+        let wake = Notify::new();
+        let waits = async {
+            let (a, b, c) = tokio::join!(runner.take_login("a0", &turns[0], &login, &flags, &wake),
+                                       runner.take_login("a1", &turns[1], &login, &flags, &wake),
+                                       runner.take_login("a2", &turns[2], &login, &flags, &wake));
+            assert!(a.is_err() && b.is_err() && c.is_err(), "every waiter must hand back its claim");
+            // The held turn is still running: freeing its login was not needed to hand the waiters back.
+            assert_eq!(crate::login_turns::holder(&login.key).as_deref(), Some("holder"));
+            for turn in &turns {
+                let events = runner.state.pending(&turn.attempt).unwrap();
+                assert!(events.iter().any(|e| e["payload"]["yielded"].as_str().is_some_and(|line| line.contains("Handed back before starting"))), "{events:?}");
+            }
+        };
+        let drain = async {
+            // Wait for all three actual queue waits, not a wall-clock guess about their startup.
+            tokio::time::timeout(Duration::from_secs(3), async {
+                loop {
+                    let all_waiting = turns.iter().all(|t| runner.state.pending(&t.attempt).unwrap().iter().any(|e| e["payload"]["waiting"].as_str().is_some_and(|s| !s.is_empty())));
+                    if all_waiting { break; }
+                    tokio::task::yield_now().await;
+                }
+            }).await.unwrap();
+            runner.shut_down();
+        };
+        tokio::time::timeout(Duration::from_secs(5), async { tokio::join!(waits, drain); }).await.expect("login waits held the old runner after drain");
+        drop(held);
+        server.abort();
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn drain_caps_a_midturn_worker_and_keeps_its_session_for_the_queued_continuation() {
+        let (runner, dir, server) = drain_test_runner(1).await;
+        runner.state.record(&json!({"id": "a-cap", "bot": "ops"})).unwrap();
+        let (tx, mut rx) = unbounded_channel();
+        // A process that cannot complete on its own; no real model, login or remote repository is used.
+        let host = Host::Pi(crate::hosts::pi::PiHost::new("ops", vec!["/bin/sh".into(), "-c".into(), "cat >/dev/null; exec tail -f /dev/null".into()], tx));
+        host.start().await.unwrap();
+        let settings = Settings { cwd: dir.display().to_string(), model: Some("synthetic".into()), ..Default::default() };
+        let th = host.start_thread("ops", &settings).await.unwrap();
+        runner.state.save_session("ops", "c-cap", "pi", &th).unwrap();
+        let t = host.start_turn(&th, "Wait", None).await.unwrap();
+        let flags = Flags { lost: AtomicBool::new(false), stopped: AtomicBool::new(false), done: AtomicBool::new(false),
+                            done_notify: Notify::new(), deadline: Mutex::new(Instant::now() + Duration::from_secs(60)) };
+        let wake = Notify::new();
+        let d = Drive { aid: "a-cap", host: &host, thread: &th, effort: None, limit: Instant::now() + Duration::from_secs(60), flags: &flags,
+                        wake: &wake, redactor: None, runtime: "pi", bot: "ops", session: "c-cap", login: None };
+        let mut segment = Segment { meter: Meter::default(), config: json!({}), profile: None, billing: "api" };
+        let mut goal = GoalRun { chat_goal: None, controlled: false, failure: None, paused: None, tries_key: ("ops".into(), "c-cap".into()) };
+        let mut carried = BTreeMap::new();
+        let mut rejected = None;
+        let work = runner.drive(&d, &mut rx, t, &mut segment, &mut carried, &mut rejected, &mut goal);
+        let drain = async {
+            tokio::task::yield_now().await; // `drive` is polled first and owns the already-started turn
+            runner.shut_down();
+        };
+        let result = tokio::time::timeout(Duration::from_secs(5), async { let (result, ()) = tokio::join!(work, drain); result }).await;
+        host.stop().await;
+        server.abort();
+        let drove = result.expect("midturn worker outlived the drain cap").unwrap();
+        assert!(drove.yielded && drove.outcome == "interrupted");
+        assert!(goal.failure.is_none(), "a drain must not stop the task's goal");
+        assert_eq!(runner.state.session("ops", "c-cap", "pi").unwrap().as_deref(), Some(th.as_str()));
+        assert!(runner.state.pending("a-cap").unwrap().iter().any(|e| e["payload"]["yielded"].as_str().is_some_and(|line| line.contains("drain time limit"))));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
 }

@@ -4408,7 +4408,7 @@ def create_app(settings=None):
         return {**runner_versions.desired(), "features": {"task_files_multipart": True, "runner_commit": True,
                                                           "screen_v1": True, "limit_resets_at": True,
                                                           "usage_requests": True, "usage_request_main": True,
-                                                          "run_pushes": True, "load_snapshot": True}}
+                                                          "run_pushes": True, "load_snapshot": True, "runner_drain": True}}
 
     @app.get("/api/v2/runners/assignments")
     def assigned(request: Request):

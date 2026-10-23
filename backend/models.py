@@ -1187,6 +1187,8 @@ class RunnerRestart(Contract):
 
 
 class RunnerUpdate(Contract):
+    running: int | None = Field(default=None, ge=0, le=256)
+    handed_back: int | None = Field(default=None, ge=0, le=100_000)
     state: Literal["idle", "waiting", "updating", "failed", "rolled_back", "pinned", "blocked"]
     target: str = Field(default="", max_length=100)
     error: str = Field(default="", max_length=300)

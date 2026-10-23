@@ -693,7 +693,8 @@ def queued_label(c, bot, location, settings=None, human=False, behind=False):
                  else "Saved — queued for the next turn")
     elif runner_versions.holding_since(c, (location.get("machine") or {}).get("runner_id")):
         # Its computer takes no new work until its running turns end and it updates (docs/updates.md).
-        label = "Saved — waiting for the computer to update"
+        progress = runner_versions.drain_progress(c, (location.get("machine") or {}).get("runner_id"))
+        label = "Saved — waiting for the computer to update" + (f": {progress}" if progress else "")
     elif (computer := free_turn(c, bot, location, human)):
         label = "Saved — waiting for a free turn on " + computer
     return label, readiness_reason

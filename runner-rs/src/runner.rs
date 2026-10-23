@@ -34,6 +34,7 @@ pub struct Runner {
     pub state: State,
     pub events: Arc<Events>,
     pub stop: AtomicBool,
+    pub(crate) drain: crate::drain::Drain,
     pub capacity: usize,
     pub tokens: Arc<TokenCache>,
     pub socket: Option<CredentialSocket>,
@@ -64,7 +65,7 @@ pub struct Runner {
     published: Mutex<HashMap<String, Option<(i128, u64)>>>,
     beat: Mutex<Option<(String, Instant)>>,
     /// When a person asked for a restart (the Restart button): the runner exits once no turn runs, and claims
-    /// as usual for SELF_UPDATE_DRAIN_S before it stops claiming so that moment comes (service.py restart_forced).
+    /// no new work so that moment comes; unstarted turns are handed back.
     restart: Mutex<Option<Instant>>,
     /// When that restart arrived, ISO-8601 UTC: every heartbeat says so until the runner has restarted, so Health
     /// names the restart, not a Tico bug, for the work it holds back (backend/health.py `restarting`).
@@ -118,12 +119,14 @@ impl Runner {
         let _ = crate::repositories::MIRRORS.set(repositories.clone());
         let worktrees = Arc::new(crate::worktrees::Worktrees::new(&projects_dir, client.clone()));
         let capacity = machine_capacity(config.data.get("capacity"));
+        let drain_limit = config.data.get("drain_timeout_seconds").and_then(Value::as_u64).filter(|s| *s > 0).unwrap_or(crate::drain::DEFAULT_LIMIT_S);
         Runner {
             profiles_read: Mutex::new(config.data.clone()),
             config,
             client,
             events: Events::new(),
             stop: AtomicBool::new(false),
+            drain: crate::drain::Drain::new(Duration::from_secs(drain_limit)),
             capacity,
             tokens: Arc::new(TokenCache::new()),
             socket: None,
@@ -164,6 +167,7 @@ impl Runner {
         let mut at = self.shutdown.lock().unwrap();
         if at.is_none() {
             *at = Some(Instant::now());
+            if crate::follow::feature("runner_drain") { self.drain.begin(Instant::now()); }
             log("Tico runner: stopping; taking no new work and letting the running turns finish");
         } else {
             self.stop.store(true, Ordering::SeqCst);
@@ -347,6 +351,12 @@ impl Runner {
             let restarting = self.restart.lock().unwrap().is_some();
             follower.follow_main(restarting).await;
             follower.fields(&mut body);
+            if crate::follow::feature("runner_drain") {
+                if let Some(progress) = self.drain.progress().filter(|_| body["update"].is_object()) {
+                    body["update"]["running"] = progress["running"].clone();
+                    body["update"]["handed_back"] = progress["handed_back"].clone();
+                }
+            }
         }
         if !crate::lanes::held_back("profiles") {
             let rejected = |runtime: &str, name: &str| {
@@ -411,6 +421,7 @@ impl Runner {
                         follower.take_main().await;
                     }
                     *self.restart.lock().unwrap() = Some(Instant::now());
+                    if crate::follow::feature("runner_drain") { self.drain.begin(Instant::now()); }
                     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
                     *self.restart_since.lock().unwrap() = crate::util::iso(&json!(now.as_secs())).as_str().map(String::from);
                     log("Tico runner: restart requested; restarting when no turn is running");
@@ -521,9 +532,6 @@ fn supervised() -> bool {
     var("XPC_SERVICE_NAME").starts_with("team.tico") || var("TICO_SYSTEMD_UNIT").starts_with("tico-") || var("TICO_SUPERVISED") == "1"
 }
 
-/// A restart a person asked for keeps claiming this long, exiting the moment no turn runs; then it stops claiming.
-const RESTART_DRAIN_S: u64 = 20 * 60;
-
 /// How long a stopping container's turns may run on; under compose's 15-minute stop_grace_period, so the runner
 /// interrupts them itself (and says so) before Docker kills it.
 const STOP_DRAIN_S: u64 = 14 * 60;
@@ -532,11 +540,6 @@ const STOP_DRAIN_S: u64 = 14 * 60;
 /// 15 minutes. A Mac app or launchd stop keeps stopping at once.
 pub fn drains_on_stop() -> bool {
     std::env::var("TICO_RUNNER_KIND").as_deref() == Ok("docker") || std::env::var("TICO_STOP_DRAIN").as_deref() == Ok("1")
-}
-
-/// Whether a restart asked for at `asked` has stopped this runner claiming (service.py SELF_UPDATE_DRAIN_S).
-fn drained(asked: Option<Instant>, now: Instant) -> bool {
-    asked.is_some_and(|at| now.saturating_duration_since(at) >= Duration::from_secs(RESTART_DRAIN_S))
 }
 
 /// A restart under way rides on the heartbeat (an older server that refuses it gets it held back, lanes.rs ROOT_FIELDS).
@@ -727,6 +730,12 @@ impl Runner {
         maintenance: &mut Option<JoinHandle<Result<(), ApiError>>>,
         paused_note: &mut String,
     ) -> Result<(), ApiError> {
+        if self.shutdown.lock().unwrap().is_some() || self.restart.lock().unwrap().is_some()
+            || crate::follow::shared().is_some_and(|f| f.draining()) {
+            if crate::follow::feature("runner_drain") { self.drain.begin(Instant::now()); }
+        } else {
+            self.drain.end(); // a failed or cancelled update takes work again
+        }
         let finished: Vec<String> = workers.iter().filter(|(_, w)| w.is_finished()).map(|(a, _)| a.clone()).collect();
         for aid in finished {
             let worker = workers.remove(&aid).unwrap();
@@ -741,6 +750,7 @@ impl Runner {
                 log(&format!("Tico runner: worker {aid} failed ({why}); recovering saved attempt"));
                 let _ = self.state.interrupted(&aid, &format!("The runner stopped this turn on an error ({why}); see this computer's runner log"));
             }
+            self.drain.finish(&aid);
             self.active.lock().unwrap().remove(&aid);
             self.attempt_bots.lock().unwrap().remove(&aid);
             crate::lanes::forget(&aid);
@@ -780,8 +790,8 @@ impl Runner {
         if self.shutdown.lock().unwrap().is_some() {
             return Ok(()); // stopping: the running turns finish, nothing new starts
         }
-        if drained(*self.restart.lock().unwrap(), Instant::now()) {
-            return Ok(()); // asked for a restart a while ago: no new work, so the running turns finish
+        if self.restart.lock().unwrap().is_some() {
+            return Ok(()); // restarting: no new work, so the running turns finish
         }
         if let Some(follower) = crate::follow::shared() {
             if follower.blocks_claims(!workers.is_empty()).await {
@@ -804,6 +814,7 @@ impl Runner {
             if let Some(attempt) = attempt {
                 let aid = text_of(&attempt["id"]);
                 mark("claimed", &aid);
+                self.drain.register(&aid);
                 self.active.lock().unwrap().insert(aid.clone());
                 self.attempt_bots.lock().unwrap().insert(aid.clone(), text_of(&attempt["bot"]));
                 crate::lanes::track(&attempt);
@@ -881,14 +892,6 @@ mod tests {
         crate::lanes::drop_held(&mut body);
         crate::lanes::release("restart");
         assert!(body.get("restart").is_none() && body["version"] == "test");
-    }
-
-    #[test]
-    fn a_requested_restart_keeps_claiming_for_twenty_minutes_then_stops() {
-        let asked = Instant::now();
-        assert!(!drained(None, asked));
-        assert!(!drained(Some(asked), asked + Duration::from_secs(RESTART_DRAIN_S - 1)));
-        assert!(drained(Some(asked), asked + Duration::from_secs(RESTART_DRAIN_S)));
     }
 
     #[test]

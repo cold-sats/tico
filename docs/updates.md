@@ -133,15 +133,14 @@ Free space on that volume to retry. Base clones absent from the computer's repos
 
 The runner is a git checkout. When the server's release is newer, the runner:
 
-1. waits until no run is going, then updates. For the first 20 minutes it keeps taking new work as usual; after
-   that it takes no new work until every run that is going has ended, so a busy computer cannot hold the update
-   back for ever. It never interrupts a run. Work sent to it after those 20 minutes waits for the longest run
-   still going. Meanwhile that work says why in the chat and on its task: **Waiting for the computer to update**
-   instead of Queued, until the computer takes work again (this also shows while the update itself runs).
-   Settings > Health shows the computer as Needs update, says since when it has taken no new work, and names each
-   run it waits for: the bot, its task and when the run started (a bot or task you may not read is not named). A run that only waits
-   on something elsewhere (another computer's update, a review) can note the wait on its task and end, and pick it
-   up on its next run. Stopping a run is left to a person (Runs); Tico never stops one to update;
+1. stops taking new work and hands unstarted turns (including login, turn-share and usage waits) back to the
+   queue immediately. Only turns already running are waited for. After five minutes, remaining turns are
+   interrupted, their work and session are saved, and they are queued to continue after the update. Each handback
+   appears in run history. Set `drain_timeout_seconds` in `runner.json` to change the five-minute limit.
+   Queued work says **Waiting for the computer to update: N running, M handed back** in chat and on its task;
+   Health shows the same progress. Counts contain no other task's name. Older runners keep their previous
+   twenty-minute claim window until they update. A graceful container stop or a requested Restart uses the same
+   handback and time limit;
 2. starts a separate update process, which fetches the tag `vX.Y.Z` from `origin` (the public repository) and
    checks that it exists and is not a tag that moved, then checks out that commit (detached);
 3. re-runs the install step: `pip install -r backend/requirements.txt` when the release changed it, and gets the

@@ -480,7 +480,7 @@ def _waiting(c, online_ids, settings=None):
             if idle:
                 stuck.append({**row, "reason": reason, "runner_id": where[0], "runtime": report.get("runtime") or ""}
                              | ({"target": updating[where[0]], "running": running.get(where[0], 0),
-                                  "turns": held(where[0])} if reason == "updating" else {}))
+                                  "turns": held(where[0]), "drain_progress": runner_versions.drain_progress(c, where[0])} if reason == "updating" else {}))
     return waiting, slow, stuck
 
 
@@ -678,6 +678,8 @@ def updating_words(row, advise=True):
     """Why work waits on a computer that is updating: the update, and the running turns it waits for, by bot, task
     and start. `advise` adds what a turn that only watches something elsewhere should do."""
     to = f" to Tico {row['target']}" if row.get("target") else ""
+    if row.get("drain_progress"):
+        return f"{row['computer']} is holding new work to update{to}: {row['drain_progress']}"
     if row.get("running"):
         held = row.get("turns") or []
         if len(held) == 1:

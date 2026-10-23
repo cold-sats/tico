@@ -24,7 +24,6 @@ const STATUS_FILE: &str = "update-status.json";
 /// The Docker update this runner saw changing containers, until the updater reports how it ended (Follower::unsettled).
 const HOLD_FILE: &str = "docker-update-hold.json";
 const RETRY_AFTER_S: f64 = 6.0 * 3600.0;
-const DRAIN_S: u64 = 20 * 60;
 const STALE_UPDATING_S: f64 = 15.0 * 60.0;
 const CHECKOUT_EVERY: Duration = Duration::from_secs(600);
 const PREPARE_LIMIT_S: u64 = 1800; // a cold cargo build (engine.py BUILD_TIMEOUT_S)
@@ -579,23 +578,29 @@ impl Follower {
         }
     }
 
-    /// True while an update is due or under way; starts it once nothing runs. After DRAIN_S it stops claiming.
+    /// A pending update drains immediately, including a prepared main checkout waiting for restart.
+    pub fn draining(&self) -> bool {
+        let s = self.inner.lock().unwrap();
+        s.pending.is_some() || s.running || s.restart_due
+    }
+
+    /// True while an update is due or under way; starts it once every claim has settled.
     pub async fn blocks_claims(&self, active: bool) -> bool {
-        let (pending, since) = {
+        let pending = {
             let s = self.inner.lock().unwrap();
-            if s.running {
+            if s.running || s.restart_due {
                 return true;
             }
             match &s.pending {
                 None => return false,
-                Some(p) => (p.clone(), s.pending_since),
+                Some(p) => p.clone(),
             }
         };
         if !active {
             self.launch(&pending).await;
             return true;
         }
-        since.is_some_and(|t| t.elapsed().as_secs() >= DRAIN_S)
+        true
     }
 
     async fn launch(&self, want: &str) {
@@ -835,7 +840,7 @@ mod tests {
         write_status(&dir, json!({"state": "rolled_back", "target": "0.3.45", "at": epoch_s() - RETRY_AFTER_S - 1.0}));
         f.decide().await;
         assert_eq!(f.inner.lock().unwrap().state, "waiting");
-        assert!(!f.blocks_claims(true).await); // a turn is running: keep claiming until the drain time
+        assert!(f.blocks_claims(true).await); // drain begins immediately while a turn is running
 
         // Out of disk: it waits until space frees past what was free when it failed, then tries at once.
         write_status(&dir, json!({"state": "failed", "target": "0.3.45", "error": "write: No space left on device", "at": epoch_s(), "disk_free": u64::MAX}));
@@ -852,7 +857,7 @@ mod tests {
     async fn a_docker_runner_whose_updater_does_not_answer_keeps_claiming() {
         let dir = std::env::temp_dir().join(format!("tico-follow-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).unwrap();
-        let drained = Instant::now().checked_sub(Duration::from_secs(DRAIN_S + 60));
+        let drained = Instant::now().checked_sub(Duration::from_secs(21 * 60));
         let f = Follower {
             directory: dir.clone(),
             root: dir.clone(),
