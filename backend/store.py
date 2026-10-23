@@ -193,6 +193,11 @@ CREATE TABLE IF NOT EXISTS attempts(
  token_hash TEXT NOT NULL UNIQUE, state TEXT NOT NULL, lease_until TEXT NOT NULL,
  created TEXT NOT NULL, started TEXT, finished TEXT, thread_id TEXT,
  result_json TEXT, final_text TEXT, last_seq INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS attempt_diagnostics(
+ attempt_id TEXT PRIMARY KEY REFERENCES attempts(id), heartbeat_at TEXT, last_event_at TEXT, last_event TEXT,
+ end_reason TEXT, ended_at TEXT, stalled_at TEXT, stderr_tail TEXT, stderr_at TEXT);
+CREATE INDEX IF NOT EXISTS attempt_diagnostics_stderr ON attempt_diagnostics(stderr_at) WHERE stderr_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS attempt_diagnostics_stalled ON attempt_diagnostics(stalled_at) WHERE stalled_at IS NOT NULL;
 -- Bound history reads by time before evaluating their visibility gates.
 CREATE INDEX IF NOT EXISTS attempts_created ON attempts(created);
 CREATE INDEX IF NOT EXISTS attempts_bot_state ON attempts(bot,state);
@@ -626,9 +631,10 @@ def _pooled(base):
 class WriterGate:
     """FIFO admission: a scheduler opening its next transaction goes behind already waiting requests."""
 
-    def __init__(self):
+    def __init__(self, timeout=30):
         self.lock = threading.Lock()
         self.queue = deque()
+        self.timeout = timeout
 
     def acquire(self):
         ready = threading.Event()
@@ -637,7 +643,8 @@ class WriterGate:
             if len(self.queue) == 1:
                 ready.set()
         try:
-            ready.wait()
+            if not ready.wait(self.timeout):
+                raise sqlite3.OperationalError("database is locked")
         except BaseException:
             with self.lock:
                 first = self.queue[0] is ready

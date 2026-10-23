@@ -1660,11 +1660,14 @@ class Execution:
         woke, source = run_triggers.of_message(msg)
         turn = H.turn_start(c, H.KEEPER, row["bot"], trigger="task" if task else msg["kind"],
                             message_id=msg["id"], task_id=task["id"] if task else None,
-                            trigger_kind=woke, trigger_source=source)
+                            trigger_kind=woke, trigger_source=source,
+                            purpose=run_triggers.purpose_of(msg, row["bot"], woke))
         aid = turn["id"]
         c.execute("INSERT INTO attempts(id,job_id,bot,runner_id,generation,token_hash,state,lease_until,created,lane) "
                   "VALUES(?,?,?,?,?,?,'leased',?,?,?)",
                   (aid, row["id"], row["bot"], who.runner_id, row["generation"], digest(token), until, H.now(), lane))
+        from . import run_diagnostics
+        run_diagnostics.touch(c, aid, "leased")
         c.execute("UPDATE jobs SET state='leased',attempt_id=? WHERE id=?", (aid, row["id"]))
         # What woke this turn and the wake preset in force, for its run record (backend/wake_presets.py).
         job = c.execute("SELECT wake_preset,wake_class,hold_until FROM jobs WHERE id=?", (row["id"],)).fetchone()
@@ -1890,6 +1893,8 @@ class Execution:
             return None
         until = H.shift(now, seconds=self.store.settings.lease_seconds)
         c.execute("UPDATE attempts SET state='running',finished=NULL,lease_until=? WHERE id=?", (until, row["id"]))
+        from . import run_diagnostics
+        run_diagnostics.restored(c, row["id"])
         c.execute("UPDATE jobs SET state='running' WHERE id=?", (row["job_id"],))
         c.execute("UPDATE turns SET finished=NULL,exit=NULL,summary=NULL WHERE id=?", (row["id"],))
         current = H.message(c, job["message_id"])
@@ -2025,8 +2030,17 @@ class Execution:
             if (row["state"] not in ("leased", "running") or not self.current_owner(c, who, row)
                     or remaining < max(20, seconds * 2 / 3)):
                 return None
+            diagnostic = c.execute("SELECT heartbeat_at,last_event_at,stalled_at FROM attempt_diagnostics "
+                                   "WHERE attempt_id=?", (aid,)).fetchone()
+            # Coalesce diagnostics with real lease writes; a long lease still records life at least each minute.
+            last_seen = (max(row["created"], diagnostic["heartbeat_at"] or "", diagnostic["last_event_at"] or "")
+                         if diagnostic else row["created"])
+            if (diagnostic and diagnostic["stalled_at"]) or last_seen <= H.shift(now, seconds=-60):
+                return None
             until, seconds = row["lease_until"], int(remaining)
         else:
+            from . import run_diagnostics
+            run_diagnostics.touch(c, aid)
             until = H.shift(now, seconds=seconds)
             c.execute("UPDATE attempts SET lease_until=? WHERE id=?", (until, aid))
         # The runner renews every few seconds, so a person's Stop rides on the answer it already reads. A turn whose
@@ -2095,6 +2109,8 @@ class Execution:
         from .performance import stamp_attempt
         stamp_attempt(c, aid, row["runner_id"], "start", body.load_snapshot)
         c.execute("UPDATE turns SET thread_id=? WHERE id=?", (body.thread_id, aid))
+        from . import run_diagnostics
+        run_diagnostics.touch(c, aid, "started")
         c.execute("UPDATE jobs SET state='running' WHERE id=?", (row["job_id"],))
         from .shared_bots import follow
         config = follow(c, row["bot"], json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()[0]))
@@ -2262,9 +2278,11 @@ class Execution:
             "SELECT seq,kind,payload_json FROM attempt_events WHERE attempt_id=? AND seq IN (" +
             ",".join("?" * len(body.events)) + ")", (aid, *(event.seq for event in body.events)))}
         inserts, goals = [], []
+        last_event = None
         now = H.now()
         for event in body.events:
-            payload = encode(stored(event.kind, event.payload))
+            clean = stored(event.kind, event.payload)
+            payload = encode(clean)
             existing = existing_events.get(event.seq)
             if existing:
                 if existing != (event.kind, payload):
@@ -2276,10 +2294,14 @@ class Execution:
                 raise Problem("terminal", "Cannot append new output to a completed attempt", 409)
             existing_events[event.seq] = (event.kind, payload)
             inserts.append((aid, event.seq, event.kind, payload, now))
+            last_event = (event.kind, clean)
             if event.kind == "goal" and row["lease_until"] > now and row["state"] != "expired":
                 goals.append(event.payload)
             seq = event.seq
         c.executemany("INSERT INTO attempt_events(attempt_id,seq,kind,payload_json,created) VALUES(?,?,?,?,?)", inserts)
+        if last_event is not None:
+            from . import run_diagnostics
+            run_diagnostics.touch(c, aid, *last_event)
         for payload in goals:
             from .chat_goals import report
             report(c, row, payload)

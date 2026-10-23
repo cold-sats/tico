@@ -50,11 +50,16 @@ def fleet(api, attempts=100, trees=50):
     return computer
 
 
-def test_fresh_renew_reads_through_a_write_and_rechecks_stop_lease_and_assignment(api):
+def test_fresh_renew_reads_through_a_write_and_rechecks_stop_lease_and_assignment(api, monkeypatch):
     import sqlite3
     from backend.tests.test_api import post
     computer = fleet(api, attempts=1, trees=0)
     store = api.app.state.store
+    now = H.now()
+    monkeypatch.setattr(H, "now", lambda: now)
+    with store.transaction() as c:
+        until = H.shift(now, seconds=store.settings.lease_seconds - 17)
+        c.execute("UPDATE attempts SET lease_until=? WHERE id='attempt-0'", (until,))
     post(api, "bots/ops/stop", {"attempt_id": "attempt-0"})
     with store.read() as c:
         until = c.execute("SELECT lease_until FROM attempts WHERE id='attempt-0'").fetchone()[0]
@@ -71,13 +76,22 @@ def test_fresh_renew_reads_through_a_write_and_rechecks_stop_lease_and_assignmen
                 holder.rollback()
         assert renewed.status_code == 200
         assert renewed.json()["stop"] is True and renewed.json()["lease_until"] == until
-        assert 0 < renewed.json()["lease_seconds"] <= store.settings.lease_seconds
+        assert renewed.json()["lease_seconds"] == store.settings.lease_seconds - 17
     finally:
         holder.close()
     with store.transaction() as c:
         c.execute("UPDATE attempts SET lease_until=? WHERE id='attempt-0'", (H.shift(H.now(), seconds=10),))
     renewed = post(api, "attempts/attempt-0/renew", {}, computer["token"])
     assert renewed["lease_until"] > until and renewed["lease_seconds"] == store.settings.lease_seconds
+    # Even a legacy attempt with a long lease must persist life before the five-minute stall threshold.
+    with store.transaction() as c:
+        c.execute("DELETE FROM attempt_diagnostics WHERE attempt_id='attempt-0'")
+        c.execute("UPDATE attempts SET created=?,lease_until=? WHERE id='attempt-0'",
+                  (H.shift(now, seconds=-61), H.shift(now, hours=1)))
+    renewed = post(api, "attempts/attempt-0/renew", {}, computer["token"])
+    assert renewed["lease_seconds"] == store.settings.lease_seconds
+    with store.read() as c:
+        assert c.execute("SELECT heartbeat_at FROM attempt_diagnostics WHERE attempt_id='attempt-0'").fetchone()[0] == now
     with store.transaction() as c:
         c.execute("UPDATE assignments SET generation=generation+1 WHERE bot='ops'")
     for name in ("renew", "inputs"):
@@ -174,6 +188,13 @@ def test_100_attempt_routes_during_heartbeat_and_scheduler(api, monkeypatch):
         entered.set()
         return original(*args, **kwargs)
     monkeypatch.setattr(worktrees, "live_turn", held)
+    snapshot_counts = {"hit": 0, "fallback": 0}
+    heartbeat = api.app.state.execution.heartbeat
+
+    def counted_heartbeat(*args, **kwargs):
+        snapshot_counts["hit" if kwargs.get("live_tasks") is not None else "fallback"] += 1
+        return heartbeat(*args, **kwargs)
+    monkeypatch.setattr(api.app.state.execution, "heartbeat", counted_heartbeat)
     samples = {name: [] for name in ("renew", "events", "inputs", "task")}
     failures = []
 
@@ -209,6 +230,7 @@ def test_100_attempt_routes_during_heartbeat_and_scheduler(api, monkeypatch):
                       "wait_p95_ms": round(sorted(v[1] for v in values)[math.ceil(.95 * len(values)) - 1], 2),
                       "work_p95_ms": round(sorted(v[2] for v in values)[math.ceil(.95 * len(values)) - 1], 2)}
                for name, values in samples.items()}
+    print("SNAPSHOT_RECEIPT " + json.dumps(snapshot_counts, sort_keys=True))
     print("CONTENTION_RECEIPT " + json.dumps(receipt, sort_keys=True))
     rec.drain()
     print("HOLDERS " + json.dumps(sorted(rec.long_holds, key=lambda h: -h["hold_s"])[:10]))
