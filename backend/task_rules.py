@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS task_rules(
  id TEXT PRIMARY KEY, name TEXT NOT NULL, department TEXT NOT NULL,
  triggers_json TEXT NOT NULL, actions_json TEXT NOT NULL, enabled INTEGER NOT NULL,
  preset TEXT NOT NULL, at TEXT, created_by TEXT NOT NULL, created TEXT NOT NULL, updated TEXT NOT NULL);
-CREATE INDEX IF NOT EXISTS tasks_rule_due ON tasks(status,updated,id);
+DROP INDEX IF EXISTS tasks_rule_due;
+CREATE INDEX IF NOT EXISTS tasks_rule_done_due ON tasks(updated,id) WHERE status='done' AND closed_at IS NULL;
 INSERT OR IGNORE INTO task_rules VALUES(
  'task-rule-close-after-done','Close 24h after done','engineering',
  '[{"key":"done_untouched","hours":24}]','["close"]',1,'15m',NULL,'keeper',
@@ -188,6 +189,22 @@ TRIGGERS = {"done_untouched": (lambda t: f"a task has been done and untouched fo
 ACTIONS = {"close": ("close it", close)}
 
 
+# The partial index covers only finished tasks, so it cannot displace the active-task reminder index.
+DUE_SQL = (
+    "SELECT t.* FROM tasks t WHERE t.status='done' AND t.closed_at IS NULL "
+    "AND t.updated<=? AND coalesce(t.done_at,t.updated)<=? AND coalesce(t.checkpoint_at,t.updated)<=? "
+    "AND t.waiting_on IS NULL AND t.snoozed_until IS NULL "
+    "AND NOT EXISTS (SELECT 1 FROM task_tags tt JOIN tags g ON g.id=tt.tag_id "
+    "WHERE tt.task_id=t.id AND lower(g.key) IN ('pin','pinned')) "
+    "AND NOT EXISTS (SELECT 1 FROM json_each(t.labels_json) WHERE lower(value) IN ('pin','pinned')) "
+    "AND NOT EXISTS (SELECT 1 FROM approvals a WHERE a.task_id=t.id AND a.decision IS NULL) "
+    "AND NOT EXISTS (SELECT 1 FROM task_events e WHERE e.task_id=t.id AND e.ts>?) "
+    "AND NOT EXISTS (SELECT 1 FROM messages m JOIN conversations cv ON cv.id=m.conversation_id "
+    f"WHERE m.conversation_id=t.conversation_id AND {H.MESSAGE_TASK_SQL}=t.id "
+    f"AND ((m.kind='ask' AND {H.OPEN_ASK_SQL}) OR max(m.created,coalesce(m.edited_at,m.created),coalesce(m.deleted_at,m.created))>?)) "
+    "ORDER BY t.updated,t.id LIMIT ?")
+
+
 def tick(store, now, failures):
     remaining = CLOSE_LIMIT
     try:
@@ -210,18 +227,7 @@ def tick(store, now, failures):
                 validate(triggers, actions)
                 hours = max(t["hours"] for t in triggers)
                 cutoff = SR._stamp(now - timedelta(hours=hours))
-                candidates = c.execute("SELECT t.* FROM tasks t WHERE t.status='done' AND t.closed_at IS NULL "
-                    "AND t.updated<=? AND coalesce(t.done_at,t.updated)<=? AND coalesce(t.checkpoint_at,t.updated)<=? "
-                    "AND t.waiting_on IS NULL AND t.snoozed_until IS NULL "
-                    "AND NOT EXISTS (SELECT 1 FROM task_tags tt JOIN tags g ON g.id=tt.tag_id "
-                    "WHERE tt.task_id=t.id AND lower(g.key) IN ('pin','pinned')) "
-                    "AND NOT EXISTS (SELECT 1 FROM json_each(t.labels_json) WHERE lower(value) IN ('pin','pinned')) "
-                    "AND NOT EXISTS (SELECT 1 FROM approvals a WHERE a.task_id=t.id AND a.decision IS NULL) "
-                    "AND NOT EXISTS (SELECT 1 FROM task_events e WHERE e.task_id=t.id AND e.ts>?) "
-                    "AND NOT EXISTS (SELECT 1 FROM messages m JOIN conversations cv ON cv.id=m.conversation_id "
-                    f"WHERE m.conversation_id=t.conversation_id AND {H.MESSAGE_TASK_SQL}=t.id "
-                    f"AND ((m.kind='ask' AND {H.OPEN_ASK_SQL}) OR max(m.created,coalesce(m.edited_at,m.created),coalesce(m.deleted_at,m.created))>?)) "
-                    "ORDER BY t.updated,t.id LIMIT ?", (cutoff,cutoff,cutoff,cutoff,cutoff,remaining)).fetchall()
+                candidates = c.execute(DUE_SQL, (cutoff,cutoff,cutoff,cutoff,cutoff,remaining)).fetchall()
                 count = 0
                 for candidate in candidates:
                     if count >= remaining:

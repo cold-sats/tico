@@ -114,7 +114,13 @@ def test_cap_off_and_failure_receipt_are_durable(api, monkeypatch):
     with api.app.state.store.read() as c:
         assert c.execute("SELECT count(*) FROM tasks WHERE status='closed'").fetchone()[0] == 50
     put(api, 'task-rules/' + R.DEFAULT, {'on': False})
-    api.app.state.store.initialize()  # A restart must preserve the saved switch.
+    with api.app.state.store.transaction() as c:
+        c.execute("DROP INDEX tasks_rule_done_due")
+        c.execute("CREATE INDEX tasks_rule_due ON tasks(status,updated,id)")
+    api.app.state.store.initialize()  # Upgrade the index without resetting the saved switch.
+    with api.app.state.store.read() as c:
+        indexes = {r[1] for r in c.execute("PRAGMA index_list(tasks)")}
+        assert "tasks_rule_done_due" in indexes and "tasks_rule_due" not in indexes
     assert next(j for j in get(api, 'system-routines')['jobs'] if j['key'] == R.DEFAULT)['on'] is False
     run(api, AT + timedelta(hours=1))
     with api.app.state.store.read() as c:
