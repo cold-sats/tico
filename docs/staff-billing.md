@@ -11,8 +11,20 @@ period. The company is **Active** only while its balance is above its minimum. A
 **Paused**: a balance of $0.00 with a $0 minimum is paused. Below the panel are the settings history, credits,
 the month's debits, usage by day and the month's statement, the same figures the company sees.
 
-The balance here is the billed balance. Usage from the current hour is not billed yet, so right after a
-company is paused the Gateway can keep refusing calls until a credit also covers that unbilled usage.
+**Balance** is the billed balance. The **Account** panel also separates these Gateway readings:
+
+- **Unbilled usage** is usage since the last hourly bill.
+- **Live balance** is the billed balance less unbilled usage.
+- **Gateway** reports **Running**, **Stopped**, or an unknown status. In **Enforce** mode, it stops on the live balance and follows within five minutes.
+
+A credit can clear the billed pause while the Gateway still refuses calls because unbilled usage uses up that credit.
+If HQ supplies no live reading, **Gateway** says **HQ doesn't report the live balance**.
+The staff account response carries this reading in `live`. The direct live route uses the billing account ID.
+
+The Gateway stop time comes from a recorded stop event.
+A stopped Gateway without that event has an unknown stop time (`stopped_since: null`).
+Repeated reads do not invent a time. Once the event is recorded, its timestamp stays the stop time.
+Where stop times appear in credit notices, an unknown time reads **Not reported yet**.
 
 ## Add credit
 
@@ -64,8 +76,17 @@ recomputes that stop time from the same starting point.
 If the new deadline has already passed, servers stop at the next daily run at 00:05 UTC, rather than when you save.
 For example, shortening a 72-hour grace to 48 hours after 50 hours schedules the stop for that next daily run.
 
-Stops retain the servers' data. Grace notices are still pending: the design includes the stop time at grace start,
-a reminder 24 hours before stop, and a stop email. Delivered notices and **Needs you** items are not yet confirmed.
+Stops retain the servers’ data. With positive grace in **Enforce** mode, the current owner gets the grace-start email,
+a 24-hour reminder where applicable, and the stopped/data-kept email.
+The owner’s account page shows one **Needs you: add credit** card with the UTC stop time and **Ask for more credit** direction.
+Changing the grace period updates that card. Recovery above the minimum or a completed stop removes it.
+See [Hosting grace and retained data](account.md#hosting-grace-and-retained-data) for the email timing and exclusions.
+
+The recipient comes from the current company owner’s membership and profile, not the original sign-up email.
+A failed or partial delivery is recorded as `unsent`, even if one channel succeeded.
+There is no automatic retry or outbox for grace notices. An unsent result does not prove that no email was accepted.
+Zero-hour companies, including waitlist companies, use their separate credit-notice run-out email instead.
+**Record only** companies receive no grace notices. Delivered notices and the live card remain unverified.
 
 For the daily charge and restart rules, see [Hosting grace and retained data](account.md#hosting-grace-and-retained-data)
 and [More credit and restarting](account.md#more-credit-and-restarting).
@@ -89,9 +110,12 @@ value, the new value, who made it, and when.
 
 If HQ does not answer, the page shows **Send again** at the top with the same change. It is safe to
 select it: HQ makes the credit or change at most once.
+This form retry does not resend an unsent grace notice.
 
 A company with no billing account yet shows only the Add credit and Change settings forms. Adding a
 credit or changing a setting opens the account with HQ's defaults: minimum $0.00, Hosting grace
 period 72 hours, Record only.
 
-*Hosting changes checked 2026-10-23: ticoteam/tico-services#138; Billing system spec v1.1, boundary rule and tests 7–8 and 19–23; waitlist spec v3.4, Answers 15–16. Owner-start safeguard (Dev 430) and grace notices (Dev 347) remain unfinished. Billing remains off.*
+*Hosting changes checked 2026-10-23: ticoteam/tico-services#138; Billing system spec v1.1, boundary rule and tests 7–8 and 19–23; waitlist spec v3.4, Answers 15–16. Owner-start safeguard (Dev 430) remains separate; grace notices are covered below from services#147. Billing remains off.*
+
+*Grace notices and Gateway status checked 2026-10-23: [ticoteam/tico-services#147](https://github.com/ticoteam/tico-services/pull/147), billing/staff.py (staff_billing_account), billing/gateway_usage.py (live), billing/grace_notices.py, billing/hosting.py, and portal/views.py; Billing system spec v1.1, tests 7 and 19. Gateway labels checked in ticoteam/tico-internal admin/tico_admin/billing.py (standing), reviewed source 58bb5077. Fresh internal-repository access, separate admin installation, HQ deployment, daily billing activation, live email, and power actions not verified.*

@@ -1,6 +1,6 @@
 # Your Tico account page
 
-**Unreleased:** this help covers the account page, waitlist approval, and credit notices.
+**Unreleased:** this help covers the account page, waitlist approval, credit notices, and Hosting grace notices.
 HQ deployment, the separate staff admin installation, and live acceptance are not confirmed.
 Hosting billing activation remains unverified.
 
@@ -70,7 +70,8 @@ If spending takes you straight to paused before a warning is sent, you get only 
 
 At the minimum, **Paused: out of credit** shows the reported stop times for the Gateway key and both servers.
 **Not reported yet** means that service’s stop time is not available yet.
-The owner gets one run-out email with an **Ask for more credit** link for that pause.
+For zero-grace companies, the owner gets one run-out email with an **Ask for more credit** link for that pause.
+Companies with positive Hosting grace use the [grace emails below](#hosting-grace-and-retained-data).
 Waitlist credit notices do not create a card inside your Tico.
 After recovery, **Restarted** shows the restart time and the service times reported so far.
 
@@ -108,7 +109,7 @@ Each row shows its address or label, **State**, and **Price**.
 **Unreleased:** Hosting billing remains off. These rules describe the billing update, whose deployment and activation are not confirmed.
 
 The default Hosting grace period is 72 hours. Tico staff can set a different period for your company.
-In enforcement mode, grace starts when your balance reaches or falls below the minimum.
+In **Enforce** mode with a positive grace period, grace starts when your balance reaches or falls below the staff-set minimum.
 Exactly the minimum still counts as paused.
 
 Adding credit ends grace only when the balance rises above the minimum.
@@ -123,9 +124,32 @@ Changing the grace period keeps its original starting point.
 If staff shorten it past the time already elapsed, servers stop at the next daily run at 00:05 UTC.
 For example, changing a 72-hour grace to 48 hours after 50 hours schedules that stop for the next daily run.
 
-The grace-notice update is still pending.
-It includes the stop time at grace start, a reminder 24 hours before stop, and a stop email.
-Delivered grace notices and **Needs you** items are not yet confirmed.
+During grace, the company owner sees one **Needs you: add credit** card on this account page.
+It shows the stop time in UTC, says **Your data is kept**, and directs you to **Ask for more credit** below.
+The card appears only for the owner, not other company members, and stays on the account page outside your Tico.
+Refreshing the page does not create another card.
+
+The card follows changes to the stop time. It disappears when your balance rises above the minimum or the stop completes.
+Use [Ask for more credit](ask-for-credit.md) to request credit from staff. The card does not take a card payment.
+
+The grace emails go to the current company owner, using the account page’s company membership and profile email.
+They do not rely on the original sign-up email.
+
+| Email | When it is sent | What it tells you |
+|---|---|---|
+| Grace started | When grace starts. | Your servers keep running until the UTC stop time unless credit is added. Your data is kept. |
+| Reminder | 24 hours before the stop, if the scheduled grace lasts more than 24 hours. | The stop time and how to sign in to request credit. |
+| Servers stopped | After the stop completes. | Your servers have stopped and your data is kept. |
+
+A reminder is sent at most once per grace period. A grace of 24 hours or less has no separate reminder.
+A failed or partial delivery is recorded as unsent and is not automatically retried.
+You may see the card without receiving an email, or receive an email when the card is unavailable.
+Check this account page for the current deadline.
+
+Zero-hour companies, including waitlist companies, receive no grace card or grace emails.
+Their separate [credit notices](#credit-notices) provide the one run-out email.
+**Record only** companies receive no grace notices.
+Delivered emails and live account-page behaviour remain unverified for this merged update.
 
 When grace expires, Tico stops the servers and keeps their data. It does not delete them for running out of credit.
 Waitlist accounts have zero grace: both servers stop within five minutes of reaching the minimum.
@@ -154,11 +178,13 @@ This check does not change the separate model-recovery rule above.
 The intended manual-start safeguard refuses starts while paused or short of today’s server costs.
 Its owner control is unfinished, so this help does not provide a start procedure.
 
-**Unreleased dependencies:** the manual owner-start safeguard, grace notices, and restart-shortfall amounts remain separate work.
+**Unreleased dependencies:** the manual owner-start safeguard and restart-shortfall amounts remain separate work.
 The billing and account-page merges do not confirm their availability or enable billing.
 
 *Sources checked 2026-10-23: ticoteam/tico-services#127, portal/views.py (account, _ends, _usage), portal/account.py (summary), and hosting/preview.py (company_servers); spec v3.4 sections 2–3 and Answers 14–15. Credit notices are covered below from services#130. Deployment and live sign-in not verified.*
 
-*Hosting rules checked 2026-10-23: ticoteam/tico-services#138; Billing system spec v1.1, boundary rule, section 2, and tests 7–8 and 19–23; billing database design, Option A and Settled; waitlist spec v3.4, section 2 and Answers 15–16. Manual owner-start dependency: Dev 430. Grace notices: Dev 347. Billing remains off; deployment and live power actions not verified.*
+*Hosting rules checked 2026-10-23: ticoteam/tico-services#138; Billing system spec v1.1, boundary rule, section 2, and tests 7–8 and 19–23; billing database design, Option A and Settled; waitlist spec v3.4, section 2 and Answers 15–16. Manual owner-start dependency: Dev 430. Grace notices are covered below from services#147. Billing remains off; deployment and live power actions not verified.*
 
 *Starting credit and notices checked 2026-10-23: waitlist spec v3.4 §§2–3 and Answers 14–16; services#132, hosting/approve.py (CREDIT_DAYS, approve, on_installed, _grant, SignupSetup, _send); Engineering’s accepted receipt ordering on Dev 344; services#130, portal/views.py (credit_notice). Restart-amount follow-ups services#142/admin#21 remain unmerged at this check. No live grant, email, server power action, or deployment verified.*
+
+*Grace notices checked 2026-10-23: [ticoteam/tico-services#147](https://github.com/ticoteam/tico-services/pull/147), billing/grace_notices.py (status, __call__), billing/hosting.py (grace_text, _grace_period, _grace_row), billing/credit_notices.py (OWNER_EMAIL, status), portal/account.py (summary), and portal/views.py (account); Billing system spec v1.1, tests 7 and 19. Synthetic receipts only; HQ deployment, daily billing activation, live card rendering, and email delivery not verified.*
