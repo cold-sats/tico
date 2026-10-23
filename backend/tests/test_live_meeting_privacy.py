@@ -10,6 +10,8 @@ from backend.auth import Identity
 from backend.store import H, Problem, encode
 from backend.tests.test_api import assign, get, headers, post, ready, runner
 from backend.tests.test_live_meetings import api, attach, chunk, live  # noqa: F401
+from backend.tests.test_botops_parity import act
+from backend.tests.test_member_bots import botops, turn as botops_turn  # noqa: F401
 from backend.tests.test_sql import query
 
 
@@ -352,3 +354,96 @@ def test_meeting_visibility_is_rechecked_under_the_write_lock(live, monkeypatch,
     monkeypatch.setattr(store, "mutate", narrowed_before_write)
     response = live.post(path, json=body, headers=headers(attempt["token"]))
     assert response.status_code == 403, response.text
+
+
+def delegated_connect(api, attempt, body, key):
+    return api.post("/api/v2/live-meetings", json=body,
+                    headers={**headers(attempt["token"], key), "X-Tico-On-Behalf-Of": "turn"})
+
+
+def test_delegated_meeting_access_requires_human_and_source_bot_membership(live, botops, monkeypatch):
+    mid = private(live)
+    chunk(live, mid, 1, 0, 1000, "Synthetic private audience context")
+    post(live, f"live-meetings/{mid}/access", {"add": ["ben"]})
+    attempt = botops_turn(live, botops, person="ben-test", text="Inspect this synthetic meeting")
+
+    async def disconnected(_request):
+        return True
+
+    monkeypatch.setattr(Request, "is_disconnected", disconnected)
+
+    def denied():
+        assert act(live, attempt, "GET", f"live-meetings/{mid}").status_code == 404
+        assert mid not in {m["id"] for m in act(live, attempt, "GET", "live-meetings").json()["meetings"]}
+        assert act(live, attempt, "GET", f"live-meetings/{mid}/events").status_code == 404
+        response = live.post(f"/api/v2/live-meetings/{mid}/join", json={}, headers={
+            **headers(attempt["token"], "delegated-join-retry"), "X-Tico-On-Behalf-Of": "turn"})
+        assert response.status_code == 404, response.text
+
+    denied()
+    attach(live, mid, "botops")
+    assert act(live, attempt, "GET", f"live-meetings/{mid}").status_code == 200
+    assert act(live, attempt, "GET", f"live-meetings/{mid}/events").status_code == 200
+    response = live.post(f"/api/v2/live-meetings/{mid}/join", json={}, headers={
+        **headers(attempt["token"], "delegated-join-retry"), "X-Tico-On-Behalf-Of": "turn"})
+    assert response.status_code == 200 and response.json()["chunks"][0]["text"] == "Synthetic private audience context"
+    polls, removed = 0, []
+
+    async def revoke_after_first_poll(_request):
+        nonlocal polls
+        polls += 1
+        if polls == 2:
+            removed.append(await asyncio.to_thread(live.request, "DELETE",
+                f"/api/v2/live-meetings/{mid}/bots/botops", json={}, headers=headers()))
+        return False
+
+    async def no_sleep(_seconds):
+        pass
+
+    with monkeypatch.context() as stream_patch:
+        stream_patch.setattr(Request, "is_disconnected", revoke_after_first_poll)
+        stream_patch.setattr(meetings.asyncio, "sleep", no_sleep)
+        stream = act(live, attempt, "GET", f"live-meetings/{mid}/events")
+    assert removed[0].status_code == 200
+    assert "event: expired\ndata: {}" in stream.text
+    denied()
+    attach(live, mid, "botops")
+    post(live, f"live-meetings/{mid}/access", {"remove": ["ben"]})
+    denied()
+
+
+@pytest.mark.parametrize("client_id", ["synthetic-connect-replay", None])
+def test_delegated_connect_replays_recheck_current_private_audience(live, botops, client_id):
+    body = {"title": "Synthetic private connection", "visibility": "private" if client_id else "team"}
+    if client_id:
+        body["client_id"] = client_id
+    mid = post(live, "live-meetings", body, token="ben-test", key="direct-connect-key")["id"]
+    if not client_id:
+        post(live, f"live-meetings/{mid}/access", {"visibility": "private"}, token="ben-test")
+    attempt = botops_turn(live, botops, person="ben-test", text="Inspect this synthetic connection")
+    assert delegated_connect(live, attempt, body, "direct-connect-key").status_code == 404
+    if client_id:
+        assert act(live, attempt, "POST", "live-meetings", body).status_code == 404
+    attach(live, mid, "botops", token="ben-test")
+    replay = delegated_connect(live, attempt, body, "direct-connect-key")
+    assert replay.status_code == 200 and replay.json()["id"] == mid
+    if client_id:
+        assert act(live, attempt, "POST", "live-meetings", body).json()["id"] == mid
+    removed = live.request("DELETE", f"/api/v2/live-meetings/{mid}/bots/botops", json={}, headers=headers("ben-test"))
+    assert removed.status_code == 200
+    assert delegated_connect(live, attempt, body, "direct-connect-key").status_code == 404
+    assert post(live, "live-meetings", body, token="ben-test", key="direct-connect-key")["id"] == mid
+
+
+def test_delegated_private_creation_requires_direct_connection_and_team_stays_open(live, botops):
+    attempt = botops_turn(live, botops, person="ben-test", text="Connect this synthetic meeting")
+    created = act(live, attempt, "POST", "live-meetings", {"title": "Synthetic private connect", "visibility": "private"})
+    assert created.status_code == 403, created.text
+    with live.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM live_meetings").fetchone()[0] == 0
+    team = act(live, attempt, "POST", "live-meetings", {"title": "Synthetic team connect"})
+    assert team.status_code == 200, team.text
+    mid = team.json()["id"]
+    assert act(live, attempt, "GET", f"live-meetings/{mid}").status_code == 200
+    assert mid in {m["id"] for m in act(live, attempt, "GET", "live-meetings").json()["meetings"]}
+    assert act(live, attempt, "POST", f"live-meetings/{mid}/join", {}).status_code == 200

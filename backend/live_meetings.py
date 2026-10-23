@@ -145,10 +145,15 @@ def _meeting(c, rid):
 def _sees(c, who, row):
     """Joining is presence, not a lasting grant to a private meeting."""
     from .live_privacy import member
-    return member(c, who.actor, row)
+    from .task_privacy import actor
+    principals = actor(who) if row["visibility"] == "private" else who.actor
+    return all(member(c, principal, row) for principal in
+               (principals if isinstance(principals, tuple) else (principals,)))
 
 
 def _require_read(c, auth, who, rid):
+    from .task_privacy import snapshot
+    snapshot(c)
     row = _meeting(c, rid)
     if who.role in ("human", "owner"):
         auth.domain(who)
@@ -843,7 +848,21 @@ def install_live_meetings(app, store, auth, write):
     def mutate(request, body, work):
         # Store checks run under the write lock before looking up an idempotency receipt.
         rid = request.path_params.get("rid")
-        check = (lambda c: _require_read(c, auth, request.state.identity, rid)) if rid else None
+        def check(c):
+            who = request.state.identity
+            if rid:
+                _require_read(c, auth, who, rid)
+            elif isinstance(body, Connect):
+                # Connect has no path id; both ways of recovering an existing meeting are reads.
+                if body.client_id:
+                    existing = c.execute("SELECT id FROM live_meetings WHERE owner_actor=? AND client_id=?",
+                                         (who.actor, body.client_id)).fetchone()
+                    if existing:
+                        _require_read(c, auth, who, existing["id"])
+                cached = c.execute("SELECT response_json FROM idempotency WHERE actor=? AND operation=? AND key=?",
+                                   (who.actor, request.url.path, request.headers.get("idempotency-key"))).fetchone()
+                if cached:
+                    _require_read(c, auth, who, (H._json(cached["response_json"], {}) or {}).get("id"))
         return write(request, body, work, check=check)
 
     @app.post("/api/v2/live-meetings")
@@ -857,6 +876,8 @@ def install_live_meetings(app, store, auth, write):
                                      (who.actor, body.client_id)).fetchone()
                 if existing:
                     return _view(c, auth, who, existing[0])
+            if body.visibility == "private" and who.task_actor:
+                raise Problem("forbidden", "Connect a private meeting directly, then explicitly attach the bot", 403)
             rid = str(uuid.uuid4())
             stamp = H.now()
             window_ms = _window_ms(app, body)
@@ -879,6 +900,8 @@ def install_live_meetings(app, store, auth, write):
         human_only(who)
         auth.domain(who)
         with store.read() as c:
+            from .task_privacy import snapshot
+            snapshot(c)
             rows = c.execute("SELECT * FROM live_meetings WHERE state!='ended' ORDER BY updated DESC,id").fetchall()
             meetings = [_view(c, auth, who, row["id"]) for row in rows if _sees(c, who, row)]
             return {"meetings": meetings, "count": len(meetings)}

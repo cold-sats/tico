@@ -34,6 +34,9 @@ shapes below are part of the contract; change them only with a reviewed contract
 - Authorized meeting members can read a generated bot room's meeting-scoped prompt and reply
   without broader bot Read access. This grants no posting or goal-setting authority in that room:
   people use live meeting Chat, and bots name their claimed turn when replying there.
+- A bot acting for a person must also be explicitly attached before accessing that person's private
+  meeting. Both memberships remain required on retries and event streams. Connect a private meeting
+  directly before attaching a bot; delegated team connections keep the ordinary team behavior.
 - An attached bot can read this meeting's transcript and chat, and can post a reply attributed to
   itself. It cannot control the meeting or change its membership.
 
