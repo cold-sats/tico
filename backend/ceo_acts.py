@@ -28,6 +28,8 @@ CEO = "bot:" + ceo_bot.SLUG
 ACTIONS = ("create", "reorder", "reassign", "close")
 MAX_CHANGES = 10
 LOG_PAGE = 50
+# What Undo says it put back or kept, in the owner's words.
+PLAIN = {"owner": "its owner", "status": "its status", "rank": "its place in the queue"}
 
 # What stays the person's at every level: the kind, and the words the owner reads in Needs you.
 PERSON_ONLY = {
@@ -326,10 +328,10 @@ def undo(c, actor, action_id):
                 continue
             back, later = _restore(c, actor, task, item["before"], item["after"])
             if back:
-                restored.append(f"{_title(task)}: {', '.join(back)} back as before")
+                restored.append(f"{_title(task)}: {', '.join(PLAIN[f] for f in back)} put back")
                 _tell(c, H.task(c, task["id"]), actor)
             for field, who in later:
-                kept.append(f"{_title(task)}: its {field} was changed since by {_name(c, who)}, so their change "
+                kept.append(f"{_title(task)}: {PLAIN[field]} was changed since by {_name(c, who)}, so their change "
                             "stays")
     finally:
         ACTION.reset(token)
