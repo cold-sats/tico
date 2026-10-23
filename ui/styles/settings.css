@@ -668,3 +668,9 @@ a.primary.btn{display:inline-block;text-decoration:none;background:var(--accent)
 .computer-add-dialog .computer-add-terminal code{white-space:pre-wrap;overflow-wrap:anywhere}
 .model-login.tmodal-shell>.model-login-body{flex:1;min-height:0;overflow:auto}
 .model-login.tmodal-shell>:is(.model-login-status,.model-login-actions){flex:none}
+
+/* Settings > Computers: hosted servers (ui/app/settings-hosted.js) */
+.hosted-table{width:100%;border-collapse:collapse}.hosted-table td{padding:6px 8px;border-top:1px solid var(--line)}
+.hosted-table tr:first-child td{border-top:0}.hosted-actions{text-align:right}
+.hosted-power[data-power=on]{color:var(--ok)}.hosted-power[data-power=stopped]{color:var(--muted)}
+.hosted-note td{border-top:0;padding-top:0}.hosted-paused{color:var(--fail)}
