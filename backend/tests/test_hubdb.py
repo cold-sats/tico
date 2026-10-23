@@ -54,6 +54,19 @@ class HubCase(unittest.TestCase):
 
 # ----------------------------------------------------------------------------- schema, connect
 class Schema(HubCase):
+    def test_published_schema_upgrade_adds_run_rotation_and_preserves_tasks(self):
+        task = H.task_create(self.conn, ANA, "Prepare packet", "Keep this task through upgrade.", CMO, lint=False)
+        # Main has already applied the login migration; rotation must be appended after it.
+        published_version = H.MIGRATIONS.index(H.ONE_LOGIN_PER_COMPUTER_SCHEMA) + 1
+        self.conn.execute("ALTER TABLE turns DROP COLUMN rotated")
+        self.conn.execute(f"PRAGMA user_version={published_version}")
+        self.conn.commit()
+        H.migrate(self.conn)
+        self.assertIn("rotated", {r[1] for r in self.conn.execute("PRAGMA table_info(turns)")})
+        self.assertEqual(self.conn.execute("SELECT title FROM tasks WHERE id=?", (task["id"],)).fetchone()[0],
+                         "Prepare packet")
+        self.assertEqual(self.conn.execute("PRAGMA user_version").fetchone()[0], len(H.MIGRATIONS))
+
     def test_every_table_and_index_in_the_contract_exists(self):
         names = {r["name"] for r in self.conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")}

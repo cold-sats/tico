@@ -26,6 +26,17 @@ All notable changes to Tico are recorded here. The format follows
   and is then stopped, and the attempt finishes failed with the quota hold kept. Nothing is retried on its own.
 - **Task updates point to the closing command.** The CLI no longer offers `closed` on `hub task update --status`. Trying it tells you to use `hub task close <id>`. MCP also directs requesters to `hub_task_close`; filtering a task list by `closed` still works ([Tasks](docs/tasks.md)).
 
+### Changed
+- **One sign-in per AI tool per computer.** Every bot runs its tool on its computer's login for it; a bot can no longer
+  have a sign-in of its own. The bot editor's Connection picker is gone (its line now reads "Runs on *tool* ·
+  Computer's login on *computer*"), the computer pop-up shows one line per tool, and Add connection signs in the
+  computer's login or adds a key. To run bots on a different account, add another computer, which can be on the same
+  machine. `PUT /api/v2/subscriptions` is gone (405), `POST /api/v2/runners/{runner_id}/logins` with a `profile` is
+  refused (422 `one_login`), and a runner ignores `bot_profiles`, drops `profile assign` and refuses `profile login`
+  for any profile but its default. Upgrading deletes each bot's saved choice, so a bot that ran on a named
+  subscription runs on its computer's login, which must be signed in. Named subscriptions on a computer stay on disk
+  and in its reports for one release, unused and unshown.
+
 ## [0.3.75] - 2026-10-23
 
 ### Fixed
