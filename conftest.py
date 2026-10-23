@@ -106,12 +106,13 @@ def api_database(tmp_path_factory, request):
     snapshot = settings.db_path.with_name("snapshot.db")
     with closing(sqlite3.connect(settings.db_path)) as source:
         tables = [row[0] for row in source.execute("SELECT name FROM sqlite_master WHERE type='table'")]
-        allowed = {"cloud_migrations", "registry_metadata", "sqlite_sequence", "task_types", "task_steps"}
+        allowed = {"cloud_migrations", "registry_metadata", "sqlite_sequence", "task_types", "task_steps", "task_rules"}
         for table in tables:
             # FTS5 has internal configuration rows but no user document before fixture seeding.
             if table in allowed or "_fts_" in table:
                 continue
             assert not source.execute('SELECT 1 FROM "' + table.replace('"', '""') + '" LIMIT 1').fetchone(), table
+        assert source.execute("SELECT id FROM task_rules").fetchall() == [("task-rule-close-after-done",)]
         keys = {row[0] for row in source.execute("SELECT key FROM registry_metadata")}
         assert keys <= {"access", "owner", "access_bot_limit", "bot_access", "docs_migrated",
                         "credential-file-migration-v1", "credential-file-migration-v2-hub", "message_links.ready",

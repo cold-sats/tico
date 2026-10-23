@@ -359,6 +359,8 @@ class Scheduler:
         except Exception as exc:
             cfgs = None
             failures.append({"system_routines": type(exc).__name__})
+        from . import task_rules
+        task_rules.tick(self.store, at, failures)
         with SR.recording(self.store, "updates", failures) as run:
             from . import updates
             settings = self.store.settings

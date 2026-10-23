@@ -619,7 +619,8 @@ def listing(c, settings, now=None, who=None, auth=None):
     search matches."""
     now = now or datetime.now(timezone.utc)
     last, ai_last, cfgs = last_runs(c), last_ai_runs(c), config(c)
-    chart = {name.lower(): name for name in departments(c)}
+    from . import task_rules
+    chart = {d["name"].lower(): d["name"] for d in task_rules.departments(settings)}
     rows = []
     for job in JOBS:
         row, cfg, ctl = last.get(job.key), cfgs.get(job.key), CONTROLS.get(job.key)
@@ -659,7 +660,11 @@ def listing(c, settings, now=None, who=None, auth=None):
             item["fallback"] = answered["fallback"] if answered else None
             item["spent_this_month_usd"] = spent_this_month(c, job.labels, now)
         rows.append(item)
-    return {"jobs": rows, "departments": list(chart.values()), "now": _stamp(now)}
+    rows.extend(task_rules.listing(c, settings, who, auth, now))
+    return {"jobs": rows, "departments": list(chart.values()), "task_rule_departments": task_rules.departments(settings),
+            "task_rule_department": task_rules.department_of(c, settings, who.actor) if who else None,
+            "can_create_task_rule": bool(who and auth and (task_rules.department_of(c, settings, who.actor) or auth.bot_admin(who)) and not who.support),
+            "now": _stamp(now)}
 
 
 def row_of(c, settings, key, who=None, auth=None):

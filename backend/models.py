@@ -2291,3 +2291,13 @@ class InboundTask(Contract):
     due: str | None = None
     close: bool = False
     note: str | None = Field(default=None, max_length=200_000)
+
+
+class TaskRuleUpdate(Contract):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    department: str | None = Field(default=None, min_length=1, max_length=80)
+    triggers: list[dict] | None = Field(default=None, min_length=1, max_length=8)
+    actions: list[str] | None = Field(default=None, min_length=1, max_length=8)
+    on: bool | None = None
+    preset: Literal["15m", "hourly", "4h", "daily"] | None = None
+    at: str | None = Field(default=None, max_length=5)
