@@ -157,7 +157,7 @@ impl Runner {
             if let Some(line) = self.drain.due(aid, Instant::now()) {
                 let _ = self.state.append(aid, "status", &json!({"yielded": line}));
                 let _ = host.interrupt(thread, &turn).await;
-                return Ok(Drove { outcome: "interrupted".into(), reply: answer(&earlier, &reply), tokens: spent(&earlier_tokens, &tokens), limited: false, retryable: false, turn, yielded: true });
+                return Ok(Drove { outcome: "interrupted".into(), reply: answer(&earlier, &reply), tokens: spent(&earlier_tokens, &tokens), limited: false, capacity: false, retryable: false, turn, yielded: true });
             }
             if yielding.is_some_and(|by| Instant::now() >= by) {
                 // No safe point within the grace: the work so far stays in the worktree and on the task.
