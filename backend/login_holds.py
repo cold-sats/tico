@@ -155,9 +155,17 @@ def record(c, runner_id, profile, runtime, hit, reset=None, attempt_id=None, bot
     else:
         streak = int(old.get("streak") or 0) + 1 if old else 1
         until = at or hit_at + timedelta(seconds=BACKOFF[min(streak, len(BACKOFF)) - 1])
+    # A turn that started before the hold and ends on the limit late leaves another job's live probe in place: only
+    # that probe's own result decides the login, so no second turn starts beside it.
+    probe = old.get("probe_job") if old else None
+    keep = probe and _probe_live(c, old, H.now()) and not c.execute(
+        "SELECT 1 FROM jobs WHERE id=? AND attempt_id IS ?", (probe, attempt_id)).fetchone()
     hold = {"runner_id": runner_id, "profile": profile or "", "runtime": runtime, "since": _iso(hit_at),
             "until": _iso(until), "streak": streak, "reset": bool(at), "attempt_id": attempt_id, "bot": bot,
-            "error": (error or "")[:300], "probe_job": None, "probe_at": None}
+            "error": (error or "")[:300], "probe_job": probe if keep else None,
+            "probe_at": old.get("probe_at") if keep else None}
+    if old.get("cut") and keep:
+        hold["cut"] = old["cut"]
     _save(c, hold)
     return hold
 
@@ -176,8 +184,14 @@ def try_now(c, runner_id, profile, runtime, now=None):
     now = now or H.now()
     if not hold or (hold.get("until") or "") <= now:
         return
-    _save(c, {**hold, "until": now, "cut": max(hold["until"], hold.get("cut") or ""), "probe_job": None,
-              "probe_at": None})
+    live = _probe_live(c, hold, now)
+    _save(c, {**hold, "until": now, "cut": max(hold["until"], hold.get("cut") or ""),
+              "probe_job": hold.get("probe_job") if live else None, "probe_at": hold.get("probe_at") if live else None})
+
+
+def probing(c, hold, now=None):
+    """Whether a probe turn is out on the login now, so Try now has nothing more to start."""
+    return bool(hold) and _probe_live(c, hold, now or H.now())
 
 
 def _probe_live(c, hold, now):

@@ -26,6 +26,7 @@ from . import repo_waits
 from . import built_on
 from . import agents, app_delivery, batch, external_sync, inbox_isolation, mcp_oauth, harness_actions, model_login, oidc, personal_tokens, views
 from . import owner_link
+from . import login_holds
 from . import check_models, run_triggers, task_models, team_rules, update_feeds, topic_change, usage_limits, bot_to_bot, wake_presets, visuals, wake_rules, quiet_work, milestone_waits
 from . import task_privacy as privacy
 from . import task_relations as TR
@@ -5389,6 +5390,8 @@ def create_app(settings=None):
             if ((H.status(c, bot) or {}).get("state") != "limited"
                     and (own_login_hold(c, settings, bot).get("until") or "") <= H.now()):
                 raise Problem("not_limited", "This bot is not waiting on a usage limit", 409)
+            if login_holds.probing(c, own_login_hold(c, settings, bot)):
+                raise Problem("probing", "This bot's login is already trying one turn; its result decides the rest", 409)
             return {"cleared": clear_limits(c, settings, who.actor, bot)}
         return mutate(request, body, work)
 

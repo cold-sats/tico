@@ -738,3 +738,36 @@ def test_a_limit_keeps_the_provider_and_login_it_came_from_after_settings_and_ho
                                     (first["id"],)).fetchone()[0])["source"]["profile"] == "work"
     assert f"Limit: {said}" in api.get(f"/api/runs/{first['id']}/log", headers=headers()).text
     assert health_detail(api, "ops").startswith(said)
+
+
+def test_a_late_limit_from_a_turn_started_before_the_hold_keeps_the_live_try_now_probe(api, monkeypatch):
+    at(monkeypatch, '2026-10-19T01:00:00.000000Z')
+    machine = runner(api)
+    for bot in ('ops', 'finance'):
+        assign(api, machine, bot)
+    with api.app.state.store.transaction() as c:
+        c.execute('UPDATE runners SET capacity=16 WHERE id=?', (machine['runner_id'],))
+    ready(api, machine, ['ops', 'finance'])
+    for n in range(3):
+        for bot in ('ops', 'finance'):
+            post(api, 'tasks', {'owner': bot, 'title': f'{bot} task {n}', 'body': 'Please review it.'})
+    first, late = claim(api, machine), claim(api, machine)
+    post(api, f"attempts/{late['id']}/started", {'thread_id': 'late-original'}, machine['token'])
+    at(monkeypatch, '2026-10-19T01:01:00.000000Z', api)
+    limit(api, machine, first)
+    at(monkeypatch, '2026-10-19T01:02:00.000000Z', api)
+    ready(api, machine, ['ops', 'finance'])
+    post(api, f"bots/{first['bot']}/limit/retry", {})
+    probe = claim(api, machine)
+    assert probe and claim(api, machine) is None
+    post(api, f"attempts/{probe['id']}/started", {'thread_id': 'live-probe'}, machine['token'])
+    # The turn started before the hold now ends on the limit too, while the probe is still running.
+    at(monkeypatch, '2026-10-19T01:03:00.000000Z', api)
+    post(api, f"attempts/{late['id']}/events", {'events': [
+        {'seq': 1, 'kind': 'error', 'payload': {'error': 'Quota exceeded.', 'limit': True}}]}, machine['token'])
+    post(api, f"attempts/{late['id']}/complete", {'outcome': 'failed', 'last_seq': 1, 'limited': True, 'text': ''},
+         machine['token'])
+    ready(api, machine, ['ops', 'finance'])
+    response = api.post(f"/api/v2/bots/{late['bot']}/limit/retry", json={}, headers=headers())
+    assert response.status_code == 409, response.text
+    assert claim(api, machine) is None
