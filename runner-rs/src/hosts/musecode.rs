@@ -231,13 +231,11 @@ pub fn signed_in(path: &Path) -> Option<bool> {
         Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => return Some(false),
         Err(_) => return None,
     }
-    // Read credentials as the CLI's user, with bounded output, and never include their contents in diagnostics.
-    let out = crate::isolation::std_command("head").args(["-c", "65537", "--"]).arg(path)
-        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).output().ok()?;
-    if !out.status.success() || out.stdout.len() > 65536 {
+    let bytes = read_auth(path, Duration::from_secs(5))?;
+    if bytes.len() > 65536 {
         return None;
     }
-    let auth: Value = serde_json::from_slice(&out.stdout).ok()?;
+    let auth: Value = serde_json::from_slice(&bytes).ok()?;
     if auth["schema_version"].as_u64() != Some(1) {
         return None;
     }
@@ -246,6 +244,37 @@ pub fn signed_in(path: &Path) -> Option<bool> {
         None | Some(Value::Null) => Some(false),
         Some(Value::Object(credential)) => Some(!credential.is_empty()),
         _ => None,
+    }
+}
+
+/// Read as the CLI's user, with bounded output and time. A file swapped for a pipe after the metadata check
+/// must not stall readiness or sign-out, and credential contents never belong in diagnostics.
+fn read_auth(path: &Path, timeout: Duration) -> Option<Vec<u8>> {
+    let mut child = crate::isolation::std_command("head").args(["-c", "65537", "--"]).arg(path)
+        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
+    let stdout = child.stdout.take()?;
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let result = stdout.take(65537).read_to_end(&mut bytes).map(|_| bytes);
+        let _ = tx.send(result);
+    });
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if !status.success() {
+                    return None;
+                }
+                return rx.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now())).ok()?.ok();
+            }
+            Ok(None) if std::time::Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
     }
 }
 
@@ -1032,6 +1061,18 @@ mod tests {
         if unsafe { libc::geteuid() } != 0 {
             assert_eq!(locked, None);
         }
+    }
+
+    #[test]
+    fn a_pipe_swapped_in_for_auth_cannot_stall_the_reader() {
+        let dir = temp("muse-auth-pipe");
+        let path = dir.join("auth.json");
+        let cpath = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(cpath.as_ptr(), 0o600) }, 0);
+        let start = std::time::Instant::now();
+        assert_eq!(read_auth(&path, Duration::from_millis(100)), None);
+        assert!(start.elapsed() < Duration::from_secs(5));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// The installed CLI on its offline echo provider, two turns on one thread with the hub MCP server: both land

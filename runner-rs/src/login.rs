@@ -800,11 +800,15 @@ fn run_sign_out(s: Arc<Session>, runner: Arc<Runner>, config: Config) {
         }
     }
     log_out(&exe, &logout, &env);
-    if sign_in_status(&s.runtime, &exe, &env).is_none_or(|(on, _)| on) {
-        if own {
-            let _ = runner.sign_in.unmark_signed_out(&s.runtime);
+    match sign_in_status(&s.runtime, &exe, &env) {
+        None => return fail(&format!("The logout finished but could not confirm whether {} signed out", s.runtime)),
+        Some((true, _)) => {
+            if own {
+                let _ = runner.sign_in.unmark_signed_out(&s.runtime);
+            }
+            return fail(&format!("The logout finished but {} is still signed in", s.runtime));
         }
-        return fail(&format!("The logout finished but {} is still signed in", s.runtime));
+        Some((false, _)) => {},
     }
     let account = profile.as_ref().map(|p| p.name.clone()).unwrap_or_default();
     crate::accounts::forget(&account, &s.runtime);
@@ -1234,8 +1238,10 @@ fn run_remove(s: Arc<Session>, runner: Arc<Runner>, config: Config) {
                 std::thread::sleep(Duration::from_millis(50));
             }
         }
-        if sign_in_status(&s.runtime, &exe, &env).is_none_or(|(on, _)| on) {
-            return fail(&format!("The logout finished but {} is still signed in on {}", s.runtime, s.profile));
+        match sign_in_status(&s.runtime, &exe, &env) {
+            None => return fail(&format!("The logout finished but could not confirm whether {} signed out on {}", s.runtime, s.profile)),
+            Some((true, _)) => return fail(&format!("The logout finished but {} is still signed in on {}", s.runtime, s.profile)),
+            Some((false, _)) => {},
         }
     }
     crate::accounts::forget(&profile.name, &s.runtime);
@@ -2344,6 +2350,15 @@ exit 2
         assert!(!creds.exists() && !sign.key_off("claude") && !claude_side());
         assert_eq!(sign.headless_secret("claude"), Some(("ANTHROPIC_API_KEY".into(), "sk-ant-key-0123456789".into())), "the next turn's key");
         assert_eq!(read_env(&computer)["OPENAI_API_KEY"], "sk-key-0123456789");
+        // An uncertain logout keeps the explicit sign-out block even after removing a cached computer key.
+        std::fs::write(&creds, subscription).unwrap();
+        flag("break-after", true);
+        let out = Session::new(&json!({"id": "lunknown", "runtime": "claude", "kind": "sign_out"}));
+        run_sign_out(out.clone(), runner.clone(), config.clone());
+        assert_eq!(state(&out), ("failed".into(), "The logout finished but could not confirm whether claude signed out".into()));
+        assert!(sign.signed_out("claude") && sign.headless_secret("claude").is_none());
+        assert!(!creds.exists() && !read_env(&computer).contains_key("ANTHROPIC_API_KEY"));
+        assert_eq!(read_env(&computer)["OPENAI_API_KEY"], "sk-key-0123456789");
     }
 
     #[test]
@@ -2486,7 +2501,8 @@ esac
             let broken = session("sign_out");
             run_sign_out(broken.clone(), runner.clone(), config.clone());
             assert_eq!(state(&broken).0, "failed", "{:?}", state(&broken));
-            assert!(!runner.sign_in.signed_out("musecode"));
+            assert!(state(&broken).1.contains("could not confirm"));
+            assert_eq!(runner.sign_in.signed_out("musecode"), profile.is_empty());
             std::fs::remove_file(root.join("broken")).unwrap();
             std::fs::write(auth, old).unwrap();
             let out = session("sign_out");
