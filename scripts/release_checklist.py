@@ -26,6 +26,7 @@ PASS = re.compile(r"\b(pass(?:ed)?|green|success(?:ful)?)\b", re.I)
 TEST = re.compile(r"\b(tests?|pytest|cargo|browser|CI)\b", re.I)
 FAIL = re.compile(r"\b(?:[1-9]\d*\s*(?:fail(?:ed|ures?)?|errors?)|fail(?:ed|ure)?|not run|pending|"
                   r"will|planned|0\s*passed|(?:no|not|without)\s+(?:pass(?:ed)?|green|success))\b", re.I)
+FAILED_RESULT = re.compile(r"\b(?:fail(?:ed|ures?)?|errors?)\b", re.I)
 MAX_PAGES = 100
 
 
@@ -121,6 +122,12 @@ def passing_test(text, head):
                for line in text.splitlines())
 
 
+def failing_test(line, head):
+    # A subsequent passing rerun does not adjudicate a known failure at the same head.
+    result = re.sub(r"\b(?:0|no)\s+(?:failed|failures?|errors?)\b", "", line, flags=re.I)
+    return head in SHA.findall(line) and TEST.search(line) and FAILED_RESULT.search(result)
+
+
 def ticket_evidence(task, pr):
     number, head = pr["number"], pr["head"]
     gaps, reviews = [], {}
@@ -144,8 +151,12 @@ def ticket_evidence(task, pr):
                 gaps.append(f"{role}: changes requested")
     messages = owner_messages(task)
     tests = [source(task, m) for m in messages if TEST.search(m.get("body", ""))]
-    if not any(passing_test(r["text"], head) for r in tests):
-        gaps.append("Tests: no passing receipt naming the merged head")
+    head_tests = [line for receipt in tests for line in receipt["text"].splitlines()
+                  if head in SHA.findall(line) and TEST.search(line)]
+    if any(failing_test(line, head) for line in head_tests):
+        gaps.append("Tests: recorded failure at the merged head needs resolution")
+    elif not head_tests or not passing_test(head_tests[-1], head):
+        gaps.append("Tests: no current passing receipt naming the merged head")
     docs = []
     for child in task.get("children", []):
         match = ROLE.match(child["title"])

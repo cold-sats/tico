@@ -107,8 +107,9 @@ Evidence comes from the ticket owner's messages and the owners of step children 
 Review 2 requires one when its step child exists, and `qa` tickets require a QA approval and completed docs
 child. The latest verdict must approve the merged PR head; older heads are flagged for the Release Manager
 to resolve with the recorded review delta. A passing test receipt names the full PR head, tests and a passing
-result on the same line (for example, `Tests: head <full-sha>: 12 passed, 0 failed`). Other test messages remain
-visible as evidence. Unrecorded reviews, legacy evidence elsewhere and unreadable tickets stay gaps rather
+result on the same line (for example, `Tests: head <full-sha>: 12 passed, 0 failed`). The latest receipt for that
+head must pass; a newer pending result remains a gap. Any recorded failure at that head stays a gap for the Release
+Manager to resolve, including after a passing rerun. Other test messages remain visible as evidence. Unrecorded reviews, legacy evidence elsewhere and unreadable tickets stay gaps rather
 than being inferred as passes.
 
 Exit 0 means no evidence gaps were found, 1 means the report lists gaps, and 2 means collection failed

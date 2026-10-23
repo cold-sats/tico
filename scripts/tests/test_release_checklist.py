@@ -78,7 +78,7 @@ def test_wrong_head_pass_and_new_head_failure_do_not_combine_into_passing_receip
     task["messages"] = [message(task, f"Tests {OLD}: 10 passed\nTests {HEAD}: 2 passed, 1 failed")]
     task["children"][-1]["status"] = "doing"
     gaps = "\n".join(build(task)["prs"][0]["gaps"])
-    assert "Tests: no passing receipt" in gaps and "Docs: incomplete" in gaps
+    assert "Tests: recorded failure" in gaps and "Docs: incomplete" in gaps
     task["tags"] = []
     task["children"] = [task["children"][0]]
     task["messages"] = complete()["messages"]
@@ -148,3 +148,18 @@ def test_cli_exits_distinguish_a_clean_checklist_gaps_and_collection_failure(mon
     assert checklist.main([]) == 2
     output = capsys.readouterr()
     assert not output.out and "history incomplete" in output.err
+
+
+def test_same_head_failure_stays_explicit_even_after_a_passing_rerun():
+    task = complete()
+    task["messages"] += [
+        message(task, f"Tests: head {HEAD}: 0 passed, 1 failed", ident="failed", created="2026-01-03"),
+        message(task, f"Tests: head {HEAD}: 10 passed, 0 failed", ident="rerun", created="2026-01-04"),
+    ]
+    assert "Tests: recorded failure" in "\n".join(build(task)["prs"][0]["gaps"])
+    task["messages"] = complete()["messages"] + [
+        message(task, f"CI: head {HEAD}: pending", ident="pending", created="2026-01-03")]
+    assert "Tests: no current passing receipt" in "\n".join(build(task)["prs"][0]["gaps"])
+    task["messages"] = complete()["messages"] + [
+        message(task, f"Tests: head {OLD}: 0 passed, 1 failed", ident="old", created="2026-01-03")]
+    assert build(task)["gaps"] == 0
