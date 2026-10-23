@@ -184,11 +184,13 @@ def record(c, runner_id, profile, runtime, hit, reset=None, attempt_id=None, bot
         streak = int(old.get("streak") or 0) + (0 if busy else 1) if old else (0 if busy else 1)
         until = at or hit_at + timedelta(seconds=BACKOFF[min(streak, len(BACKOFF)) - 1])
     # A turn that started before the hold and ends on the limit late leaves another job's live probe in place: only
-    # that probe's own result decides the login, so no second turn starts beside it.
+    # that probe's own result decides the login, so no second turn starts beside it, and the hold keeps the start the
+    # probe was claimed after, so the probe's success still clears it.
     probe = old.get("probe_job") if old else None
     keep = probe and _probe_live(c, old, H.now()) and not c.execute(
         "SELECT 1 FROM jobs WHERE id=? AND attempt_id IS ?", (probe, attempt_id)).fetchone()
-    hold = {"runner_id": runner_id, "profile": profile or "", "runtime": runtime, "since": _iso(hit_at),
+    since = old.get("since") if keep and old.get("since") else _iso(hit_at)
+    hold = {"runner_id": runner_id, "profile": profile or "", "runtime": runtime, "since": since,
             "until": _iso(until), "streak": streak, "reset": bool(at) and not busy, "capacity": busy,
             "attempt_id": attempt_id, "bot": bot, "error": (error or "")[:300], "probe_job": probe if keep else None,
             "probe_at": old.get("probe_at") if keep else None}

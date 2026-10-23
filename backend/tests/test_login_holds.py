@@ -771,6 +771,11 @@ def test_a_late_limit_from_a_turn_started_before_the_hold_keeps_the_live_try_now
     response = api.post(f"/api/v2/bots/{late['bot']}/limit/retry", json={}, headers=headers())
     assert response.status_code == 409, response.text
     assert claim(api, machine) is None
+    # The probe's own result still decides the login: its success frees the waiting work.
+    post(api, f"attempts/{probe['id']}/complete", {'outcome': 'completed', 'last_seq': 0, 'text': 'Done.'},
+         machine['token'])
+    ready(api, machine, ['ops', 'finance'])
+    assert claim(api, machine)
 
 
 def test_a_model_at_capacity_holds_the_login_minutes_and_a_later_real_quota_is_still_a_quota_hold(api, monkeypatch):
