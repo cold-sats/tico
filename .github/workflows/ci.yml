@@ -72,6 +72,8 @@ jobs:
       TICO_UI_SLOWDOWN: '2'
       TICO_BROWSER_CHANNEL: ''
       PYTHONUNBUFFERED: '1'
+      # The slowest tests of each part, so a part that outruns the others shows what holds it.
+      PYTEST_ADDOPTS: '--durations=25'
     steps:
       - name: Validate inputs before checkout
         env:
