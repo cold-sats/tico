@@ -462,7 +462,14 @@ run_step() {  # label function; after a failure the rest are skipped
   printf '==> %s\n' "$label"
   if [ "$FAILED" = 1 ]; then RESULTS+=("$label|SKIP|0"); return; fi
   if "$fn"; then RESULTS+=("$label|PASS|$((SECONDS - start))")
-  else RESULTS+=("$label|FAIL|$((SECONDS - start))"); FAILED=1; fi
+  else RESULTS+=("$label|FAIL|$((SECONDS - start))"); FAILED=1; failure_logs; fi
+}
+failure_logs() {  # what the containers said last: the release gate's log is all there is once the stack is gone
+  local name
+  for name in server updater; do
+    printf '  --- %s\n' "$name"; dc logs --no-log-prefix --tail 15 "$name" 2>&1 | sed 's/^/    /'
+  done
+  printf '  --- runner\n'; docker logs --tail 15 "$RUNNER" 2>&1 | sed 's/^/    /'
 }
 
 printf 'journey: previous %s -> candidate %s (%s)\n' "$PREV" "$CAND" "$([ "$LOCAL" = 1 ] && echo "built from this checkout" || echo "published release")"
