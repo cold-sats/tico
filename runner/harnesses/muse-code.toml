@@ -38,8 +38,12 @@ logout = ["logout"]
 files = ["muse/auth.json"]
 
 # The launcher updates itself on every run unless this is set; the runner updates the harness itself.
+# The file credential backend keeps each login in its own config folder's muse/auth.json. Without it, Muse on macOS keeps
+# the token in one login Keychain item that every Muse login of the OS user shares, so a switch, cancel or sign-out
+# could not keep logins apart.
 [env]
 MUSE_NO_AUTO_UPDATE = "1"
+TBH_CREDENTIAL_BACKEND = "file"
 
 # What Tico does differently for this CLI (docs/harnesses.md, Capabilities).
 [capabilities]

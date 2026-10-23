@@ -202,7 +202,8 @@ async fn sign_in_state(
             }
             return match crate::hosts::file_signed_in(runtime, &file_env) {
                 Some(true) => ("ready", status.ready_detail.clone()),
-                None => ("failed", format!("{name} sign-in could not be checked (its login data is unreadable or unrecognized)")),
+                None => ("failed", crate::hosts::file_problem(runtime, &file_env)
+                    .unwrap_or_else(|| format!("{name} sign-in could not be checked (its login data is unreadable or unrecognized)"))),
                 Some(false) => ("missing", missing),
             };
         }
