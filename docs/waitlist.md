@@ -32,9 +32,11 @@ You get a short email with the subject **Your place on the Tico waitlist**. It s
 
 Accounts that had a hosted preview before the waitlist keep it. They don't join the waitlist and nothing changes for them. Staff list these accounts as **Approved (before waitlist)**.
 
-## What you can't do yet
+## Check your account
 
-Joining the waitlist doesn't give you a server or a Tico models key. Approval isn't covered here.
+Joining the waitlist does not give you a server or a Tico models key.
+See [Your Tico account page](account.md) for waitlist status, balance, usage, and server states after approval.
+That help describes an unreleased update whose deployment is still being verified.
 
 Staff handle the list on [the admin page](staff-waitlist.md).
 

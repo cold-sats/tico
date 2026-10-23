@@ -24,7 +24,8 @@ Use `releases/download/vX.Y.Z/install.sh` to pin a release. For a shared server,
 - [Connect tools](connect-tools.md) (including [a specialist outside Tico](connect-tools.md#work-with-a-specialist-outside-tico) and [hiring an external AI specialist](connect-tools.md#hire-an-external-ai-specialist)), [Credentials](credential-vault.md) and [Permissions](permissions.md).
   [Tico AI Gateway](ai-gateway.md) runs bots on Tico Cheap 1.1, Mid 1.0 and Power 1.0 with one key from Tico.
   Members can have 25 active bots by default; the owner can change the limit.
-- Hosted Tico: [Joining the Tico waitlist](waitlist.md).
+- Hosted Tico: [Joining the Tico waitlist](waitlist.md), [Your Tico account page](account.md), and
+  [Ask for more credit](ask-for-credit.md). Account-page help is **unreleased** while deployment is verified.
 - Keep Tico running: [Health and recovery](install.md#operating-it), [Updates](updates.md),
   [Backups and restore](install.md#backups-and-restore) and [Support](support.md).
 
