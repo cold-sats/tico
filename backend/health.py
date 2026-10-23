@@ -26,8 +26,8 @@ from .views import roster
 
 QUEUE_MINUTES = 15          # work that has waited this long on a computer that is up is stuck
 PERSON_QUEUE_MINUTES = 2    # a person's own message, sooner: someone is sitting there waiting for the reply
-# A Restart a person pressed claims for 20 minutes, then waits up to 14 for its running turns (runner-rs runner.rs
-# RESTART_DRAIN_S + STOP_DRAIN_S): past that it is stuck, and Health Monitor says so.
+# Keep the stuck threshold compatible with older runners' twenty-minute claim window and fourteen-minute stop.
+# New runners hand unstarted work back immediately and cap active turns at five minutes by default.
 RESTART_STUCK_MINUTES = 34
 SILENT_MINUTES = 10         # a computer this quiet while work is queued for it has stopped, not blinked
 NEEDS_YOU_MINUTES = 30      # this quiet, its owner is asked to bring it back
@@ -418,8 +418,8 @@ def _waiting(c, online_ids, settings=None):
     # updates (runner-rs follow.rs blocks_claims): its queued work waits on that, not on a Tico bug.
     updating = {r["runner_id"]: r["update_target"] for r in c.execute(
         "SELECT runner_id,update_target FROM runner_versions WHERE update_state IN ('waiting','updating')")}
-    # A computer a person pressed Restart for claims for a while, then claims nothing until its running turns end and
-    # it restarts (runner-rs runner.rs RESTART_DRAIN_S); it says so in its heartbeat until it has.
+    # A requested Restart holds new work while running turns finish or reach the drain cap; older runners first
+    # keep claiming for a while. Every heartbeat names the restart until it happens.
     restarting = {r["id"] for r in c.execute("SELECT id FROM runners WHERE restart_since IS NOT NULL AND revoked_at IS NULL")}
     documents = {}      # one parse per computer, and only for bots with queued work: Health is polled by every tab
 
