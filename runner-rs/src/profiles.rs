@@ -896,6 +896,8 @@ pub(crate) mod tests {
         use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("tico-profile-folder-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(dir.join("acme")).unwrap();
+        // macOS's temp root starts with /var, a symlink the production pinning must refuse.
+        let dir = std::fs::canonicalize(dir).unwrap();
         std::fs::set_permissions(dir.join("acme"), std::fs::Permissions::from_mode(0o700)).unwrap();
         crate::isolation::keep_supervisor_directory(&dir.join("acme"), 0o711).unwrap();
         assert_eq!(std::fs::metadata(dir.join("acme")).unwrap().permissions().mode() & 0o7777, 0o711);

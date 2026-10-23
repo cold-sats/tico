@@ -487,15 +487,19 @@ fn adopt_files(files: &[String], home: &std::path::Path, side: &std::path::Path,
         }
         let to = home.join(rel);
         let step = (|| -> Result<(), String> {
-            if std::fs::symlink_metadata(&to).is_ok() {
+            let had_old = std::fs::symlink_metadata(&to).is_ok();
+            if had_old {
                 let kept = old.join(rel);
                 mkdir_for(&kept)?;
                 file_command(&["mv", "-f", &to.display().to_string(), &kept.display().to_string()], env)?;
                 moved.push(Moved { to: to.clone(), kept: Some(kept) });
-            } else {
-                moved.push(Moved { to: to.clone(), kept: None });
             }
             mkdir_for(&to)?;
+            // A failed mkdir has not installed anything to undo. In particular, BSD rm -f reports ENOTDIR
+            // for a missing file under a plain file, so recording it early would falsely fail the rollback.
+            if !had_old {
+                moved.push(Moved { to: to.clone(), kept: None });
+            }
             file_command(&["mv", "-f", &from.display().to_string(), &to.display().to_string()], env)
         })();
         if let Err(e) = step {
@@ -2246,6 +2250,20 @@ exit 2
         std::fs::write(root.join(".claude.json"), settings).unwrap();
         sign.mark_key_off("claude").unwrap();
         let claude_key = r#"{"credentials":[{"env":"ANTHROPIC_API_KEY","value":"sk-ant-key-0123456789","source":"computer"}]}"#;
+        if crate::harness_tools::login_command("claude").unwrap().keychain.iter().any(|p| p == crate::runner::platform()) {
+            // A file fixture cannot stand in for a reversible Keychain logout. This platform must refuse before
+            // touching either account; the file-backed platforms exercise the transactional path below.
+            let before = std::fs::read_to_string(&runs).unwrap_or_default();
+            let result = to_key("claude", claude_key, None);
+            assert_eq!(result, ("failed".into(), "Switching to an API key isn't available for claude on this computer: sign out, then add a key".into()));
+            assert_eq!(std::fs::read_to_string(&creds).unwrap(), subscription);
+            assert_eq!(std::fs::read_to_string(root.join(".claude.json")).unwrap(), settings);
+            assert!(sign.key_off("claude") && sign.headless_secret("claude").is_none());
+            assert_eq!(read_env(&computer), [("OPENAI_API_KEY".into(), "sk-key-0123456789".into())].into_iter().collect());
+            assert_eq!(std::fs::read_to_string(&runs).unwrap_or_default(), before, "no CLI runs at this boundary");
+            assert!(no_side() && std::fs::read_dir(&root).unwrap().flatten().all(|e| !e.file_name().to_string_lossy().starts_with(".tico-switch-")));
+            return;
+        }
         let flag = |name: &str, on: bool| if on { std::fs::write(root.join(name), "").unwrap() } else { std::fs::remove_file(root.join(name)).unwrap() };
         let claude_side = || std::fs::read_dir(&root).unwrap().flatten().any(|e| e.file_name().to_string_lossy().starts_with(".tico-switch-"));
         let still_subscription = |why: &str| {
