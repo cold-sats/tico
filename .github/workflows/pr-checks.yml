@@ -1,5 +1,5 @@
 # Read-only PR checks. Main keeps the full default suite; Release validation is independent.
-# Jobs run on RunsOn spot VMs in the tico-ci AWS account. Fork PRs stay on GitHub-hosted runners so outside code
+# Jobs run on RunsOn spot VMs in Tico's own AWS account. Fork PRs stay on GitHub-hosted runners so outside code
 # never runs on our machines.
 name: PR checks
 

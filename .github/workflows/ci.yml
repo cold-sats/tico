@@ -1,5 +1,5 @@
 # One explicitly requested release check, split across isolated native VMs that run side by side.
-# The VMs are RunsOn spot instances in the tico-ci AWS account (schedule and manual runs only, never fork code).
+# The VMs are RunsOn spot instances in Tico's own AWS account (schedule and manual runs only, never fork code).
 # No PR/push tests or publication. Every night it also runs the same gate on main against the latest release, so a
 # break in the slow tests (real processes, Docker, the upgrade journey) shows the next morning instead of at the cut.
 name: Release validation
