@@ -656,3 +656,30 @@ def test_a_limit_keeps_the_provider_and_login_it_came_from_after_settings_and_ho
                                     (first["id"],)).fetchone()[0])["source"]["profile"] == "work"
     assert f"Limit: {said}" in api.get(f"/api/runs/{first['id']}/log", headers=headers()).text
     assert health_detail(api, "ops").startswith(said)
+
+
+def test_a_model_at_capacity_holds_the_login_minutes_and_a_later_real_quota_is_still_a_quota_hold(api, monkeypatch):
+    # Oct 23 03:04Z: "Selected model is at capacity" held the shared Codex login for an hour as spent quota; the probe
+    # after it met "Quota exceeded", which is the plan's and must stay a full hold.
+    at(monkeypatch, "2026-10-23T03:04:45.000000Z")
+    machine = runner(api)
+    assign(api, machine, "ops")
+    ready(api, machine, ["ops"])
+    post(api, "tasks", {"owner": "ops", "title": "Work", "body": "Please do it."})
+    post(api, "tasks", {"owner": "ops", "title": "More work", "body": "Please do it."})
+    # The runner's plan-window reset hours away says nothing about a busy model.
+    limit(api, machine, claim(api, machine), errors=("Selected model is at capacity. Please try a different model.",),
+          limit_resets_at="2026-10-23T08:00:00Z")
+    with api.app.state.store.read() as c:
+        hold = login_holds.get(c, machine["runner_id"], "", "fake")
+        assert hold["until"].startswith("2026-10-23T03:06:45") and hold["capacity"] and hold["streak"] == 0
+        assert H.status(c, "ops")["focus"] == ("Primary fake temporary model capacity at 03:04; retrying after "
+                                               "2026-10-23 03:06 UTC")
+    at(monkeypatch, "2026-10-23T03:06:46.000000Z", api)
+    ready(api, machine, ["ops"])
+    limit(api, machine, claim(api, machine), errors=("Quota exceeded. Check your plan and billing details.",))
+    with api.app.state.store.read() as c:
+        hold = login_holds.get(c, machine["runner_id"], "", "fake")
+        # The first quota limit in a row: the 30-minute backoff, not a streak the capacity hold grew.
+        assert hold["until"].startswith("2026-10-23T03:36:46") and not hold["capacity"] and hold["streak"] == 1
+        assert "API quota or billing limit" in H.status(c, "ops")["focus"]

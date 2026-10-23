@@ -526,6 +526,10 @@ def reset_cooldown(c, attempt_id, finished, cooldown, resets_at=None):
         # The company is out of credit: the Gateway lets the next call through as soon as credit lands, so the bot
         # asks again after its Retry-After (a minute), never a login's 30-minute hold.
         return reported or gateway.OUT_OF_CREDIT_WAIT
+    if errors and all(login_holds.capacity(error) for error in errors):
+        # The provider was busy for the moment, not out of quota: a short retry (backend/login_holds.py CAPACITY_WAIT),
+        # never a reset the runner read from the plan's usage window.
+        return login_holds.CAPACITY_WAIT
     if any(gateway.rate_limited(error) for error in errors):
         # Retry-After covers both the key's minute window and an address block; older runners keep the safe default.
         return reported or max(cooldown, gateway.RETRY_AFTER)

@@ -276,7 +276,11 @@ the job stays queued however often this happens (it is never *Interrupted*) and 
 *limited*. The limit holds the provider login, not just the bot: that runtime's sign-in on that computer (or the
 bot's own subscription connection), saved on the server so it outlasts a restart of the runner or the server. It holds
 until the reset the provider names (Claude's "resets 2:40am (UTC)" included, even days away), or when none is named
-or the named time has passed, 30 minutes, then 60, then two hours for each limit in a row on that login. While it
+or the named time has passed, 30 minutes, then 60, then two hours for each limit in a row on that login. A provider
+that says its model is at capacity or overloaded for now ("Selected model is at capacity", HTTP 503, "try again in
+20s") has not spent the login's quota: that login is held two minutes, the streak does not grow, a fallback can still
+take the run, and the bot's line and Health say *temporary model capacity*; a quota or billing refusal ("Quota
+exceeded. Check your plan and billing details.") stays a usage limit as above. While it
 holds, no bot starts a run on that login: a bot whose fallback (its own, or the company's default) is signed in on
 that computer and not held itself runs there at once, and the runner never tries the held login (the run's note says
 *claude login held (usage limit) until 02:40 UTC; running this turn on codex*); only a bot with no such fallback
