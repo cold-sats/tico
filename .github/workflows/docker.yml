@@ -20,7 +20,7 @@ jobs:
         image: [tico, tico-runner, tico-updater]
         platform: [amd64, arm64]
     # Each architecture builds natively: emulating npm and pip installs is slow and flaky.
-    runs-on: runs-on=${{ github.run_id }}/runner=4cpu-linux-${{ matrix.platform == 'arm64' && 'arm64' || 'x64' }}/spot=false
+    runs-on: runs-on=${{ github.run_id }}/runner=4cpu-linux-${{ matrix.platform == 'arm64' && 'arm64' || 'x64' }}/spot=false/extras=s3-cache
     permissions:
       contents: read
       packages: write
