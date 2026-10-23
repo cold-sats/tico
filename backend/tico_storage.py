@@ -498,7 +498,7 @@ def _visual(digest, kind, ancestors):
     """(path below the company's folder, metadata) of the cleaned copy of `digest` for these frame ancestors."""
     from .visuals import REPORTER_HASH
     meta = {"tico-visual-policy-version": "1",
-            "tico-visual-ancestors": " ".join([a for a in dict.fromkeys(ancestors) if ANCESTOR.match(a)][:8])}
+            "tico-visual-ancestors": " ".join([a for a in dict.fromkeys(ancestors) if ANCESTOR.fullmatch(a)][:8])}
     if kind == "page":
         meta["tico-visual-script"] = "'" + REPORTER_HASH + "'"
     name = hashlib.sha256("\n".join(["tico-visual", str(VISUAL_COPY), kind, digest, meta["tico-visual-ancestors"],
@@ -624,8 +624,9 @@ def visual_link(blobs, digest, size, mime, ancestors, now=None):
 
 def landed(blobs, digest, size, mime, data):
     """A page or SVG just uploaded to Tico's bucket (Blobs._landing) or moved there (`copy_one`): its copy, now."""
-    if visual_kind(mime, size) and getattr(blobs, "visual_ancestors", None) is not None:
-        make_visual(blobs, digest, visual_kind(mime, size), data, blobs.visual_ancestors)
+    kind = visual_kind(mime, size)
+    if kind and getattr(blobs, "visual_ancestors", None) is not None:
+        make_visual(blobs, digest, kind, data, blobs.visual_ancestors)
 
 
 # ---------------------------------------------------------------------------------------------- move
