@@ -2565,12 +2565,13 @@ for line in sys.stdin:
         let (runner, dir) = drain_runner_on(&url, 1).await;
         std::fs::create_dir_all(dir.join("projects/bot-ops")).unwrap();
         let script = dir.join("synthetic_claude.py");
-        std::fs::write(&script, r#"import json, os, pathlib, sys
+        std::fs::write(&script, r#"import json, os, pathlib, signal, sys
 root = pathlib.Path(__file__).parent
 if '--version' in sys.argv:
     print('2.1.999'); sys.exit(0)
 if '--help' in sys.argv:
     sys.exit(0)
+signal.alarm(20)  # A failed guard cannot leave this synthetic process behind.
 with (root / 'argv.jsonl').open('a') as f:
     f.write(json.dumps(sys.argv[1:]) + '\n')
 (root / 'pid').write_text(str(os.getpid()))
@@ -2597,7 +2598,8 @@ else:
         };
         let result = tokio::time::timeout(Duration::from_secs(12), async { let (result, ()) = tokio::join!(work, drain); result }).await;
         held_inputs.notify_waiters();
-        result.expect("active host outlived the outer drain cap").unwrap();
+        assert!(result.is_ok(), "active host outlived the outer drain cap: {:?}", seen.lock().unwrap());
+        result.unwrap().unwrap();
         assert_drain_settled(&runner, "a-active");
         assert_eq!(posted(&seen, "/attempts/a-active/started"), 1);
         assert_eq!(posted(&seen, "/attempts/a-active/complete"), 1);
