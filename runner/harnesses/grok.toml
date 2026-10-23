@@ -44,5 +44,5 @@ model_list_args = ["models"]
 
 [capabilities.sign_in_status]
 check = "file"
-ready_detail = "Signed in to Grok"
+ready_detail = "Signed in with a Grok account"
 missing_detail = "Grok sign-in required (sign in from Tico) or XAI_API_KEY"

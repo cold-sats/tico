@@ -752,6 +752,14 @@ pub fn file_signed_in(runtime: &str, env: &Env) -> Option<bool> {
     }
 }
 
+/// A file-backed host can distinguish a subscription from a saved API-key login.
+pub fn file_sign_in_detail(runtime: &str, env: &Env) -> Option<&'static str> {
+    match runtime {
+        "grok" => grok::sign_in_detail(env),
+        _ => None,
+    }
+}
+
 /// `model_list = "host"`: the models the host offers (for a profile's own login where that matters).
 pub fn models(runtime: &str, profile: Option<&crate::profiles::Profile>) -> Vec<String> {
     match runtime {

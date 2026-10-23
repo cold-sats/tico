@@ -321,7 +321,7 @@ fn sign_in_status(runtime: &str, exe: &str, env: &Env) -> Option<(bool, String)>
             Some((true, if method.is_empty() { status.ready_detail } else { format!("Signed in with {method}") }))
         }
         // No status command: the login file in this sign-in's config folder is the sign-in, as readiness checks it.
-        "file" => crate::hosts::file_signed_in(runtime, env).map(|on| (on, if on { status.ready_detail } else { String::new() })),
+        "file" => crate::hosts::file_signed_in(runtime, env).map(|on| (on, if on { crate::hosts::file_sign_in_detail(runtime, env).map(String::from).unwrap_or(status.ready_detail) } else { String::new() })),
         _ => None,
     }
 }
@@ -2572,6 +2572,7 @@ esac
                 assert!(sign_in_status(runtime, &exe, &env).unwrap().0);
                 let ready = rt.block_on(crate::readiness::runtime_readiness(runtime, &runner.sign_in, &runner.client, &[], p.as_ref()));
                 assert_eq!(ready["authenticated"], "ready");
+                assert_eq!(ready["detail"], "Signed in with an API key");
                 std::fs::write(&auth, old).unwrap();
             }
             if !use_default {

@@ -208,7 +208,7 @@ async fn sign_in_state(
                 crate::hosts::use_own_config_home(runtime, profile, &mut file_env);
             }
             return match crate::hosts::file_signed_in(runtime, &file_env) {
-                Some(true) => ("ready", status.ready_detail.clone()),
+                Some(true) => ("ready", crate::hosts::file_sign_in_detail(runtime, &file_env).map(String::from).unwrap_or_else(|| status.ready_detail.clone())),
                 None => ("failed", format!("{name} sign-in could not be checked (its config folder is not readable)")),
                 Some(false) => ("missing", missing),
             };
