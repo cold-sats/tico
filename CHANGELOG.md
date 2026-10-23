@@ -25,6 +25,11 @@ All notable changes to Tico are recorded here. The format follows
   and its tasks still run on it, and each such run's note says it ran below the minimum for that bot.
 
 ### Fixed
+- **A Muse Code run that ends in a quota failure ends its task attempt.** When Muse Code reported its run over (a
+  quota or other terminal failure) but its process, or a child process still holding its output, stayed up, the
+  runner kept the turn open and renewed the attempt's lease, so the bot showed rate limited and busy at once and its
+  model could not be changed. The run's terminal record now ends the turn: the process gets five seconds to exit
+  and is then stopped, and the attempt finishes failed with the quota hold kept. Nothing is retried on its own.
 - **A Docker runner at high capacity starts its turns.** The runner container allowed 2048 processes and threads,
   about 70 turns' worth, so a runner set above that failed to start new turns ("Resource temporarily unavailable")
   and kept claiming and dropping the same requests. The limit is now 12288, enough for the 256 a runner honours.
