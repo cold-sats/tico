@@ -2521,7 +2521,10 @@ esac
             let login = make("sign_in");
             let (s2, r2, c2) = (login.clone(), runner.clone(), config.clone());
             let running = std::thread::spawn(move || run_session(s2, r2, c2, Duration::from_secs(5)));
-            wait_for(|| state(&login).0 == "waiting");
+            wait_for(|| {
+                let i = login.inner.lock().unwrap();
+                i.state == "waiting" && !i.url.is_empty() && !i.code.is_empty()
+            });
             let report = login.report().unwrap();
             assert_eq!(report["url"], "https://login.example/device");
             assert_eq!(report["code"], "ABCD-1234");
