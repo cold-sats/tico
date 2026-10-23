@@ -5,8 +5,9 @@
 // With no names it runs CORE, the main pages and the privacy boundaries; --all runs every script (the release
 // check does). A name runs that script whether or not it is in CORE. Run locally, it waits for one of the box's
 // heavy-job slots first (scripts/heavy.sh). A script still running after TICO_UI_SCRIPT_TIMEOUT seconds (120, times the
-// slowdown) is stopped with every process it started and fails with its name and the browser calls it was waiting on,
-// so one hang does not hold the job until CI cancels it.
+// slowdown) is stopped with every process it started and fails with its name and the browser calls it was waiting on
+// (or "cleanup incomplete" and why, if a process could not be stopped), so one hang does not hold the job until CI
+// cancels it.
 const {execFileSync, spawn} = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');

@@ -19,9 +19,11 @@ All notable changes to Tico are recorded here. The format follows
 - **Cheaper task models show a warning for sensitive work.** A bot with send, spend or publish approval history, or write access beyond its own repository, warns when its task model costs less than its own model from the same provider. You can still save and run it; the run note records the warning ([Warning rules](docs/harnesses.md#a-warning-about-a-cheaper-task-model)).
 
 ### Fixed
-- **A stopped browser check says where it hung and leaves nothing running.** When a browser script runs past its time
-  limit, the report now names the browser call it was waiting on and the last calls it made. The runner also stops
-  the browser, its helpers and any server the script started, so nothing is left running after the check.
+- **A stopped browser check says where it hung and stops what it started.** When a browser script runs past its time
+  limit, the report now names the browser call it was waiting on and the last calls it made, shortened and with URL
+  queries, keys and tokens removed. The runner also stops the browser, its helpers and any server the script started,
+  checking each process is still the one it started before stopping it. If it cannot list or stop one, the report
+  says "cleanup incomplete" and why, and the run still ends instead of waiting.
 - **A Muse Code run that ends in a quota failure ends its task attempt.** When Muse Code reported its run over (a
   quota or other terminal failure) but its process, or a child process still holding its output, stayed up, the
   runner kept the turn open and renewed the attempt's lease, so the bot showed rate limited and busy at once and its
