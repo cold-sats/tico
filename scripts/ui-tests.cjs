@@ -109,14 +109,17 @@ function stopTree(root, {list = listProcesses, signal = (pid, name) => process.k
     if (!added) { complete = true; break; }
   }
   if (rows && !complete) result.errors.push('the process tree was still growing after 5 passes');
-  // Kill only what is still the process that was frozen; without a fresh list, what was frozen cannot have exited
-  // by itself, so it still holds its pid.
-  const last = rows ? snapshot() : null;
+  // Kill only what a fresh list still shows as the process that was frozen: something else may have killed a frozen
+  // process and its pid been reused. Without a fresh list nothing is confirmed, so only the script itself is killed
+  // and the rest is left stopped and reported.
+  const last = snapshot();
   const current = last && new Map(last.map(row => [row.pid, row]));
   const targets = new Map(frozen);
   if (rootSeen && !targets.has(root)) targets.set(root, {start: undefined, command: ''});
+  const unconfirmed = [...targets.keys()].filter(pid => pid !== root && !current);
+  if (unconfirmed.length) result.errors.push(`${unconfirmed.length} frozen process(es) left stopped: could not confirm they are still ours`);
   for (const [pid, known] of targets) {
-    if (current && pid !== root && !same(current.get(pid), known)) continue;
+    if (pid !== root && !(current && same(current.get(pid), known))) continue;
     const entry = {pid, command: redact(known.command, 120)};
     try { signal(pid, 'SIGKILL'); result.push(entry); }
     catch (error) {

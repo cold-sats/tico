@@ -75,6 +75,11 @@ test('a hung browser script is named with its pending call; it and everything it
      {timeout: 30000}, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ui-tests-'));
   const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  // A helper's identity (pid and start time) is taken while the hung script is still its parent, so cleanup below can
+  // tell it from a later process that reuses the pid.
+  const ps = pid => (spawnSync('ps', ['-o', 'ppid=,lstart=', '-p', String(pid)], {encoding: 'utf8'}).stdout || '').trim();
+  const started = pid => ps(pid).replace(/^\d+\s+/, '');
+  const owned = new Map();
   let helper;
   try {
     const preload = path.join(dir, 'preload.cjs');
@@ -87,13 +92,22 @@ test('a hung browser script is named with its pending call; it and everything it
       const browser = spawn(process.execPath, sleep, {detached: true, stdio: 'ignore'});
       const server = spawn(process.execPath, sleep, {stdio: 'ignore'});
       console.log('started', browser.pid, server.pid);
+      require('node:fs').writeFileSync(${JSON.stringify(path.join(dir, 'started'))}, [process.pid, browser.pid, server.pid].join(' '));
       console.error('2026-10-22T09:31:00.000Z pw:api => page.goto started');
       console.error('2026-10-22T09:31:00.100Z pw:api <= page.goto succeeded');
       console.error('2026-10-22T09:31:00.200Z pw:api => page.click started');
       setInterval(() => {}, 1000);`);
     fs.writeFileSync(path.join(dir, 'ends.cjs'), "console.log('PASS');");
-    const hung = await runScript(path.join(dir, 'hangs.cjs'), {env: {...process.env, DEBUG: undefined}, timeout: 1, preload});
+    const running = runScript(path.join(dir, 'hangs.cjs'), {env: {...process.env, DEBUG: undefined}, timeout: 1, preload});
+    const marker = path.join(dir, 'started');
+    for (let i = 0; i < 100 && !fs.existsSync(marker); i++) await new Promise(r => setTimeout(r, 10));
+    if (fs.existsSync(marker)) {
+      const [parent, ...pids] = fs.readFileSync(marker, 'utf8').split(' ').map(Number);
+      for (const pid of pids) { const [ppid, ...start] = ps(pid).split(/\s+/); if (Number(ppid) === parent) owned.set(pid, start.join(' ')); }
+    }
+    const hung = await running;
     helper = hung.out.match(/started (\d+) (\d+)/).slice(1).map(Number);
+    assert.deepEqual([...owned.keys()].sort(), [...helper].sort(), 'each helper identity was taken while it was ours');
     assert.equal(hung.timedOut, true);
     assert.notEqual(hung.code, 0);
     assert.ok(hung.secs < 10, `stopped after ${hung.secs}s`);
@@ -107,10 +121,8 @@ test('a hung browser script is named with its pending call; it and everything it
     const ended = await runScript(path.join(dir, 'ends.cjs'), {timeout: 30, preload});
     assert.deepEqual([ended.code, ended.timedOut, ended.out.trim(), [...ended.stopped]], [0, false, 'PASS', []]);
   } finally {
-    // Only a helper this test started: the pid must still run the test's own sleep command, not a reused pid.
-    const ours = pid => { try { return spawnSync('ps', ['-o', 'command=', '-p', String(pid)], {encoding: 'utf8'}).stdout.includes('setInterval'); }
-                          catch { return false; } };
-    for (const pid of helper || []) if (alive(pid) && ours(pid)) process.kill(pid, 'SIGKILL');
+    // Only a helper this test started: same pid and start time as when the hung script was its parent.
+    for (const [pid, start] of owned) if (started(pid).replace(/\s+/g, ' ') === start) process.kill(pid, 'SIGKILL');
     fs.rmSync(dir, {recursive: true, force: true});
   }
 });
@@ -182,6 +194,20 @@ test('a pid that left the tree and was reused by another process is never stoppe
   assert.deepEqual(stable.map(p => p.pid).sort(), [300, 301, 302]);
   assert.deepEqual(stable.errors, []);
   assert.equal(sent.some(([pid]) => pid === 900), false);
+});
+
+test('a frozen pid is never killed when its identity cannot be read again', () => {
+  // 101 is frozen, then killed by someone else and its pid reused; every later process list fails.
+  for (const failAfter of [1, 2]) {
+    let scans = 0;
+    const sent = [];
+    const cleanup = stopTree(100, {
+      list: () => { if (++scans > failAfter) throw new Error('synthetic ps timeout'); return [row(100, 1, 'T0'), row(101, 100, 'T1', 'owned worker')]; },
+      signal: (pid, name) => sent.push([pid, name])});
+    assert.deepEqual(sent.filter(([pid, name]) => pid === 101 && name === 'SIGKILL'), [], `list fails after scan ${failAfter}`);
+    assert.ok(cleanup.errors.some(e => /could not list processes/.test(e)));
+    assert.ok(cleanup.errors.some(e => /left stopped/.test(e)), cleanup.errors.join('; '));
+  }
 });
 
 test('a process list that fails is reported as incomplete cleanup, with the error', () => {
