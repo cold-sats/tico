@@ -26,17 +26,6 @@ All notable changes to Tico are recorded here. The format follows
   and is then stopped, and the attempt finishes failed with the quota hold kept. Nothing is retried on its own.
 - **Task updates point to the closing command.** The CLI no longer offers `closed` on `hub task update --status`. Trying it tells you to use `hub task close <id>`. MCP also directs requesters to `hub_task_close`; filtering a task list by `closed` still works ([Tasks](docs/tasks.md)).
 
-## [0.3.75] - 2026-10-23
-
-### Fixed
-- **A Docker runner at high capacity starts its turns and signs in.** The runner container allowed 2048 processes
-  and threads, about 70 turns' worth, so a runner set above that failed to start new turns ("Resource temporarily
-  unavailable"), kept claiming and dropping the same requests, and a Claude Code or Codex sign-in on that computer
-  stopped without signing in. The limit is now 12288, enough for the 256 turns a runner honours.
-- **A question's Needs you card shows when you open its task right after answering another.** A refresh that started
-  while an earlier read was still on its way reused that read and kept the old list, so the task page opened without
-  its card until the task was drawn again.
-
 ### Changed
 - **One sign-in per AI tool per computer.** Every bot runs its tool on its computer's login for it; a bot can no longer
   have a sign-in of its own. The bot editor's Connection picker is gone (its line now reads "Runs on *tool* ·
@@ -47,6 +36,17 @@ All notable changes to Tico are recorded here. The format follows
   for any profile but its default. Upgrading deletes each bot's saved choice, so a bot that ran on a named
   subscription runs on its computer's login, which must be signed in. Named subscriptions on a computer stay on disk
   and in its reports for one release, unused and unshown.
+
+## [0.3.75] - 2026-10-23
+
+### Fixed
+- **A Docker runner at high capacity starts its turns and signs in.** The runner container allowed 2048 processes
+  and threads, about 70 turns' worth, so a runner set above that failed to start new turns ("Resource temporarily
+  unavailable"), kept claiming and dropping the same requests, and a Claude Code or Codex sign-in on that computer
+  stopped without signing in. The limit is now 12288, enough for the 256 turns a runner honours.
+- **A question's Needs you card shows when you open its task right after answering another.** A refresh that started
+  while an earlier read was still on its way reused that read and kept the old list, so the task page opened without
+  its card until the task was drawn again.
 
 ## [0.3.74] - 2026-10-22
 
