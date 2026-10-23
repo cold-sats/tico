@@ -105,6 +105,10 @@ class Computer:
                 subprocess.run(["git", *args], check=True, env=git_env, capture_output=True)
         home, bin_dir = tmp_path / "home", tmp_path / "bin"
         (home / ".codex").mkdir(parents=True)
+        # Grok now checks its scoped local login before accepting a turn.
+        (home / ".grok").mkdir()
+        (home / ".grok/auth.json").write_text(json.dumps({"https://accounts.x.ai/sign-in": {
+            "auth_mode": "oidc", "key": "synthetic-grok-login"}}))
         bin_dir.mkdir()
         self.log_path = tmp_path / "harness.jsonl"
         for name, script in FAKE_PROGRAMS.items():
