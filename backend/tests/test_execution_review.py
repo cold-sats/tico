@@ -1187,7 +1187,7 @@ def test_review_choice_survives_a_busy_lane_and_applies_once_idle(api, decision,
                 'note': 'A stale dialog submitted the opposite choice.'}
     assert post(api, path, body, key='first-choice') == result
     refused = post(api, path, conflict, key='stale-while-busy', expected=409)
-    assert refused['error'] == 'uncertain'
+    assert refused['error']['code'] == 'uncertain'
     with api.app.state.store.read() as c:
         assert dict(c.execute("SELECT * FROM job_recovery WHERE job_id=?", (attempt['job_id'],)).fetchone()) == saved
     filed = post(api, f"attempts/{attempt['id']}/complete",
@@ -1198,7 +1198,7 @@ def test_review_choice_survives_a_busy_lane_and_applies_once_idle(api, decision,
          machine['token'])
     # An idle lane is still held for the accepted choice until the scheduler applies it.
     refused = post(api, path, conflict, key='stale-before-sweep', expected=409)
-    assert refused['error'] == 'uncertain'
+    assert refused['error']['code'] == 'uncertain'
     with api.app.state.store.read() as c:
         assert dict(c.execute("SELECT * FROM job_recovery WHERE job_id=?", (attempt['job_id'],)).fetchone()) == saved
     assert job_state(api, attempt['job_id']) == 'uncertain'
