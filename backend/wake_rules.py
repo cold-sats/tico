@@ -231,12 +231,18 @@ def state_of(conn, task_row):
         return None
 
 
-def settled_state(conn, task_row, bot, started):
+def settled_state(conn, task_row, bot, started, attempt_id):
     """The state to store with the bot's checkpoint, or None when someone else changed the task since the turn
-    `started`: the bot did not see that, so the next check must run."""
+    `started`, or another turn of the same bot overlapped it: the bot may not have seen that, so the next check runs."""
     from . import hubdb as H
     try:
         me = "bot:" + bot
+        # Actor identity alone cannot attribute a write to this turn: task lanes run in parallel.
+        # Include siblings that finished during this turn, not only those still running now.
+        if conn.execute("SELECT 1 FROM attempts WHERE bot=? AND id<>? "
+                        "AND (state IN ('leased','running') OR finished>=?) LIMIT 1",
+                        (bot, attempt_id, started)).fetchone():
+            return None
         if conn.execute("SELECT 1 FROM task_events WHERE task_id=? AND ts>? AND actor<>? LIMIT 1",
                         (task_row["id"], started, me)).fetchone():
             return None
@@ -271,6 +277,13 @@ def same_state(conn, actor, target, kind, refs, body, task_row, cause=None, in_r
             or task_row.get("checkpoint_by") != target:
         return None
     if always_wakes(conn, actor, target, kind, refs, body, CAUSE.get() if cause is None else cause, in_reply_to):
+        return None
+    from . import hubdb as H
+    lanes, _ = H._session_lanes(conn, task_row)
+    # A completed turn's checkpoint says nothing about a newer active turn's health. Its
+    # first status check seeds the retry and diagnostic path when it stops making progress.
+    if conn.execute("SELECT 1 FROM attempts WHERE bot=? AND lane IN (?,?) "
+                    "AND state IN ('leased','running') LIMIT 1", (H.actor_id(target), *lanes)).fetchone():
         return None
     return "same_state" if state_of(conn, task_row) == task_row["checkpoint_state"] else None
 

@@ -287,3 +287,82 @@ def test_scheduler_skips_never_become_retries_or_diagnostics(api, monkeypatch):
                          "('task.stall_wake','task.stuck_retry','task.stuck','task.stall_escalated')",
                          (tid,)).fetchone()[0] == 0
         assert c.execute("SELECT count(*) FROM tasks WHERE title LIKE 'Find why %'").fetchone()[0] == 0
+
+
+def test_a_second_active_turn_keeps_status_retry_and_diagnostic_recovery(api, monkeypatch):
+    from backend.execution import LANES
+    r = setup(api)
+    post(api, "runners/heartbeat", {"version": "test", "platform": "test", "capabilities": [LANES],
+                                  "readiness": {"cpo": True, "ops": True}}, token=r["token"])
+    task = post(api, "tasks", {"owner": "cpo", "title": "Resume unchanged work", "body": "Build it."})
+    tid = task["id"]
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET next_run=0 WHERE id=?", (tid,))
+    complete_task(api, r, tid)
+    post(api, f"tasks/{tid}/run-now", {})
+    attempt = post(api, "jobs/claim", {"bot": "cpo"}, token=r["token"])["attempt"]
+    assert attempt["lane"] == "task:" + tid
+    with api.app.state.store.transaction() as c:
+        row = H.task(c, tid)
+        assert row["checkpoint_state"] == W.state_of(c, row)
+        # Even a leased turn must not borrow the preceding completed turn's idle checkpoint.
+        assert W.MARK not in check(c, tid)["refs"]
+        c.execute("DELETE FROM jobs WHERE id NOT IN (SELECT job_id FROM attempts)")
+    post(api, f"attempts/{attempt['id']}/started", {"thread_id": "t1"}, token=r["token"])
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT OR IGNORE INTO bots(slug,display_name,state) VALUES('botops','BotOps','active')")
+        row = H.task(c, tid)
+        assert row["status"] == "open" and not row["next_run"]
+        assert row["checkpoint_state"] == W.state_of(c, row)
+        start = H.now()
+        # A real second turn, resuming the same thread, has made no task progress.
+        for minutes, expected in ((31, "checked"), (60, None), (61, "retried"), (90, None), (91, "stuck")):
+            at = H.shift(start, seconds=minutes * 60)
+            monkeypatch.setattr(H, "now", lambda: at)
+            assert tid in [t["id"] for t in H.spot_check_tasks(c, at)]
+            result = H.wake_stalled(c, at)
+            assert {k: v for k, v in result.items() if v} == ({expected: [tid]} if expected else {})
+        assert not [s for s in skips(c) if s["detail"]["rule"] == "same_state"]
+        assert c.execute("SELECT count(*) FROM events WHERE action='task.stall_wake' AND target=?",
+                         (tid,)).fetchone()[0] == 1
+        diagnostic = c.execute("SELECT owner,body FROM tasks WHERE title LIKE 'Find why %'").fetchall()
+        assert [(d[0], tid in d[1]) for d in diagnostic] == [("bot:botops", True)]
+
+
+def test_a_related_task_changed_by_another_lane_of_the_same_bot_is_not_seen(api):
+    from backend.execution import LANES
+    r = setup(api)
+    post(api, "runners/heartbeat", {"version": "test", "platform": "test", "capacity": 8,
+                                  "capabilities": [LANES], "readiness": {"cpo": True, "ops": True}},
+         token=r["token"])
+    first = post(api, "tasks", {"owner": "cpo", "title": "Lane A", "body": "Build it."})
+    second = post(api, "tasks", {"owner": "cpo", "title": "Lane B", "body": "Build it too."})
+    with api.app.state.store.transaction() as c:
+        H.TR.relate(c, "human:ana", first["id"], second["id"], "related")
+        before = H.task(c, first["id"])
+    a, b = [post(api, "jobs/claim", {"next_run": True, "bot": "cpo"}, token=r["token"])["attempt"]
+            for _ in range(2)]
+    assert [a["lane"], b["lane"]] == ["task:" + first["id"], "task:" + second["id"]]
+    for attempt in (a, b):
+        post(api, f"attempts/{attempt['id']}/started", {"thread_id": attempt["lane"]}, token=r["token"])
+    with api.app.state.store.read() as c:
+        comments_before = c.execute("SELECT count(*) FROM messages WHERE conversation_id=? AND from_actor<>?",
+                                    (first["conversation_id"], H.KEEPER)).fetchone()[0]
+    # B's leased identity changes an already-related General task while A runs.
+    post(api, f"tasks/{second['id']}", {"status": "doing", "version": second["version"]}, token=b["token"])
+    # B can finish before A; checking only currently running siblings would miss the write.
+    post(api, f"attempts/{b['id']}/complete", {"outcome": "completed", "text": "B moved.", "last_seq": 0},
+         token=r["token"])
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM messages WHERE conversation_id=? AND from_actor<>?",
+                         (first["conversation_id"], H.KEEPER)).fetchone()[0] == comments_before
+    post(api, f"attempts/{a['id']}/complete", {"outcome": "completed", "text": "A checkpoint.", "last_seq": 0},
+         token=r["token"])
+    with api.app.state.store.transaction() as c:
+        assert H.task(c, second["id"])["status"] == "doing"
+        row = H.task(c, first["id"])
+        assert row["version"] == before["version"]
+        assert row["checkpoint"] == "A checkpoint."
+        assert row["checkpoint_state"] is None
+        check(c, first["id"])
+        assert jobs(c, "cpo") == 1
