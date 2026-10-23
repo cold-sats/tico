@@ -19,10 +19,23 @@ All notable changes to Tico are recorded here. The format follows
 - **Cheaper task models show a warning for sensitive work.** A bot with send, spend or publish approval history, or write access beyond its own repository, warns when its task model costs less than its own model from the same provider. You can still save and run it; the run note records the warning ([Warning rules](docs/harnesses.md#a-warning-about-a-cheaper-task-model)).
 
 ### Fixed
-- **Try now on a shared login tries one run first.** Pressing Try now (`POST /api/v2/bots/{bot}/limit/retry`) used to
-  let every bot on that login start at once. Now one queued run tries it, as when a hold runs out. If it works, every
-  bot resumes. If the plan is still spent, the hold comes back with the end it had ([How it works](docs/how-it-works.md)).
+- **A Muse Code run that ends in a quota failure ends its task attempt.** When Muse Code reported its run over (a
+  quota or other terminal failure) but its process, or a child process still holding its output, stayed up, the
+  runner kept the turn open and renewed the attempt's lease, so the bot showed rate limited and busy at once and its
+  model could not be changed. The run's terminal record now ends the turn: the process gets five seconds to exit
+  and is then stopped, and the attempt finishes failed with the quota hold kept. Nothing is retried on its own.
 - **Task updates point to the closing command.** The CLI no longer offers `closed` on `hub task update --status`. Trying it tells you to use `hub task close <id>`. MCP also directs requesters to `hub_task_close`; filtering a task list by `closed` still works ([Tasks](docs/tasks.md)).
+
+### Changed
+- **One sign-in per AI tool per computer.** Every bot runs its tool on its computer's login for it; a bot can no longer
+  have a sign-in of its own. The bot editor's Connection picker is gone (its line now reads "Runs on *tool* ·
+  Computer's login on *computer*"), the computer pop-up shows one line per tool, and Add connection signs in the
+  computer's login or adds a key. To run bots on a different account, add another computer, which can be on the same
+  machine. `PUT /api/v2/subscriptions` is gone (405), `POST /api/v2/runners/{runner_id}/logins` with a `profile` is
+  refused (422 `one_login`), and a runner ignores `bot_profiles`, drops `profile assign` and refuses `profile login`
+  for any profile but its default. Upgrading deletes each bot's saved choice, so a bot that ran on a named
+  subscription runs on its computer's login, which must be signed in. Named subscriptions on a computer stay on disk
+  and in its reports for one release, unused and unshown.
 
 ## [0.3.75] - 2026-10-23
 
