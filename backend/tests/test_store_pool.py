@@ -81,8 +81,10 @@ def test_failed_writer_releases_admission_and_rolls_back(tmp_path, monkeypatch):
     # Failed BEGIN must release admission too, including when SQLite's writer belongs to another process.
     holder = sqlite3.connect(s.settings.db_path, isolation_level=None)
     holder.execute("BEGIN IMMEDIATE")
+    borrowed = []
     def no_wait():
         c = take()
+        borrowed.append((c, c.execute("PRAGMA busy_timeout").fetchone()[0]))
         c.execute("PRAGMA busy_timeout=0")
         return c
     monkeypatch.setattr(s, "_take", no_wait)
@@ -93,10 +95,13 @@ def test_failed_writer_releases_admission_and_rolls_back(tmp_path, monkeypatch):
     finally:
         holder.rollback()
         holder.close()
+        for c, timeout in borrowed:
+            c.execute(f"PRAGMA busy_timeout={timeout}")
         monkeypatch.setattr(s, "_take", take)
     # Neither an acquisition failure nor an interrupted transaction can strand the next writer.
     with s.transaction() as c:
         assert c.execute("SELECT x FROM t").fetchone()[0] == 1
+        assert c.execute("PRAGMA busy_timeout").fetchone()[0] == 30000
         c.execute("UPDATE t SET x=3")
 
 
