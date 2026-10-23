@@ -1,6 +1,6 @@
 # Manage a company's billing (staff)
 
-**Unreleased Hosting update:** billing remains off. Stop-time change emails and renewed reminders are still under review.
+**Unreleased Hosting update:** billing remains off. Stop-time change emails and renewed reminders have passed source review and synthetic QA.
 Merge, deployment, and activation are not confirmed.
 
 Only Tico staff see this page. Open **Customers** on the admin page, pick the company, then open **Billing**.
@@ -110,8 +110,43 @@ Pick **Record only** or **Enforce**.
 nothing stops. Tico Team's own install always stays **Record only**. With **Enforce**, the company's
 Tico models stop at the minimum balance and its Hosting servers stop once the grace period ends.
 
-Do not switch any company to **Enforce** with Hosting grace above zero until changed-stop-time notices and reminders pass QA.
-This gate does not affect **Record only** or zero-hour waitlist companies.
+Source review and synthetic QA for changed-stop-time notices and reminders have passed.
+This clears the test 24 QA prerequisite; it does not authorize enabling positive-grace enforcement.
+Do not switch any company to **Enforce** with Hosting grace above zero without separate activation authorization.
+**Record only** and zero-hour waitlist companies remain unaffected.
+
+## Credit notices
+
+Open **Credit notices** in the staff admin navigation, then select the company.
+The **Credit notices** panel shows **Live balance**, **Low-balance threshold**, and the **Low** flag below that threshold.
+The default is **$20 USD**: the first spend from a $20 grant triggers the low warning.
+The owner receives one low email per below-threshold crossing; reaching the threshold or above rearms it.
+
+To change the warning threshold:
+
+1. Enter **Low-balance threshold (dollars)** under **Change low-balance threshold**, for example `10`.
+2. Enter the required **Reason**.
+3. Select **Change threshold**.
+
+The new threshold applies to that company. **Low-balance threshold history** keeps the amount, who changed it, when, and the reason.
+Changing this warning threshold does not change the minimum balance that pauses services.
+
+**Paused: out of credit** shows separate reported stop times for the Gateway key, Tico server, and bot computer.
+**Not reported yet** means a service time is unavailable.
+For a zero-grace waitlist pause, the owner receives one run-out email saying the data is safe, with an **Ask for more credit** link.
+These credit notices create no card inside the customer’s Tico. Their account page stays available while the servers are stopped.
+
+Both pages show the same rounded-up-cent **Add at least $X to restart your servers** quote while credit is short.
+It covers today’s uncharged server costs and anything owed, leaving at least one cent above the minimum.
+See [More credit and restarting](account.md#more-credit-and-restarting) for an example and the billing-loop restart rules.
+Gateway recovery alone leaves the server pause visible, with the Gateway start time alongside the servers’ stop times.
+After funding covers the quote, the amount disappears; this does not confirm an actual restart.
+Check service states and reported start times.
+After recovery, **Restarted at** and each service’s reported start time show the recorded recovery.
+
+**Record only** can show **Low**, but sends no credit-notice emails and shows no restart-credit quote.
+Positive-grace companies keep their separate Hosting grace notices and manual owner-start policy.
+The **Credit-notice emails** section records each credit-notice email’s result; **Email not sent** does not confirm delivery.
 
 ## Settings history
 
@@ -132,4 +167,6 @@ period 72 hours, Record only.
 
 *Grace notices and Gateway status checked 2026-10-23: [ticoteam/tico-services#147](https://github.com/ticoteam/tico-services/pull/147), billing/staff.py (staff_billing_account), billing/gateway_usage.py (live), billing/grace_notices.py, billing/hosting.py, and portal/views.py; Billing system spec v1.1, tests 7 and 19. Gateway labels checked in ticoteam/tico-internal admin/tico_admin/billing.py (standing), reviewed source 58bb5077. Fresh internal-repository access, separate admin installation, HQ deployment, daily billing activation, live email, and power actions not verified.*
 
-*Stop-time changes checked 2026-10-23: [ticoteam/tico-services#154](https://github.com/ticoteam/tico-services/pull/154), source 417ff739, billing/hosting.py (_grace_period, _scheduled_at, _has, grace_text) and billing/grace_notices.py (__call__); Billing system spec v1.2, tests 19, 21, and 24. Review 2 and test 24 QA remain required before guarded landing; positive-grace Enforce activation stays gated on test 24 QA. No live email, database, or power verification.*
+*Stop-time changes checked 2026-10-23: [ticoteam/tico-services#154](https://github.com/ticoteam/tico-services/pull/154), source a4a34d49, billing/hosting.py (_grace_period, _scheduled_at, _has, grace_text) and billing/grace_notices.py (__call__); Billing system spec v1.2, tests 19, 21, and 24. Both serial reviews and independent QA passed, including tests 7, 19, 21, and 24. This clears the test 24 QA prerequisite, not activation authorization. Merge, deployment, and activation remain unconfirmed. No live email, database, or power verification.*
+
+*Credit notices checked 2026-10-23: waitlist spec v3.4 sections 2–3, Answer 15 and test 12g–i; services#130/#142, billing/credit_notices.py, billing/hosting.py (to_restart, _short), portal/views.py (credit_notice); admin#18/#21, admin/tico_admin/credit_notices.py (notices_section, account_page, threshold_history, email_history). Both restart-quote follow-ups are merged. Deployment, admin installation, email delivery and live stop/restart acceptance remain unverified.*
