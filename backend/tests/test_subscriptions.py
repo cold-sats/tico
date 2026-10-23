@@ -4,29 +4,6 @@ import json
 from backend.tests.test_api import api, assign, claim, get, post, put, ready, runner  # noqa: F401
 
 
-def test_a_bot_with_a_former_own_subscription_runs_on_the_computer_login_after_the_migration(api):
-    """One login per AI tool per computer (#1259): a bot's own subscription from before goes with the migration, and
-    the bot runs on its computer's login (no profile in its assignment or its turn)."""
-    from backend import hubdb as H
-    set_runtime(api, 'codex')
-    r = runner(api)
-    assign(api, r, 'ops')
-    with api.app.state.store.transaction() as c:
-        c.execute("INSERT INTO subscription_assignments VALUES('bot','ops','engineering',NULL,NULL)")
-        H._apply(c, H.ONE_LOGIN_PER_COMPUTER_SCHEMA)
-        assert not c.execute("SELECT 1 FROM subscription_assignments WHERE scope='bot'").fetchone()
-    # The computer still reports the named subscription it signed in before; nothing runs on it.
-    post(api, 'runners/heartbeat', {'version': 'test', 'platform': 'test', 'readiness': {'ops': True},
-         'profiles': [{'name': 'engineering', 'runtimes': {'codex': {'signed_in': True}}}]}, token=r['token'])
-    line = get(api, 'bots/ops/subscription')
-    assert (line['profile'], line['source'], line['runtime'], line['problem']) == (None, 'computer', 'codex', '')
-    assert not get(api, 'runners/assignments', r['token'])[0].get('profile')
-    post(api, 'chat/ops', {'text': 'Runs on the computer login'})
-    assert not claim(api, r).get('profile')
-    machine = next(m for m in get(api, 'operations')['machines'] if m['id'] == r['runner_id'])
-    assert [(row['bot'], row['source']) for row in machine['bot_connections']] == [('ops', 'computer')]
-
-
 def test_the_api_refuses_a_bot_its_own_sign_in(api):
     r = runner(api)
     assign(api, r, 'ops')

@@ -209,6 +209,9 @@ def _removes(runner):
 def _queue(c, who, runner, runtime, profile, kind, what):
     """(row, new): a new row for the runner to run, or the one already running for this login. One thing at a time
     per login: a sign-out never races a sign-in on the same files."""
+    from .subscriptions import login_upgrade
+    if not profile and (problem := login_upgrade(runner, runtime=runtime)):
+        raise Problem("runner_version", problem, 409)
     sweep(c)
     running = c.execute(f"SELECT * FROM model_logins WHERE runner_id=? AND runtime=? AND profile=? AND {ACTIVE_SQL}",
                         (runner["id"], runtime, profile)).fetchone()
@@ -457,16 +460,26 @@ def affected_bots(c, who, rid, runtime, profile, settings, auth=None, every=Fals
     """The active bots on this computer that run `runtime` on this login: the ones a sign-out stops. `every` counts
     paused bots too: what a removal would leave with nothing to run on when they start again."""
     _operator(c, who, rid, auth)
-    _runner(c, rid)
+    runner = _runner(c, rid)
+    if not profile:
+        from .subscriptions import login_upgrade
+        if problem := login_upgrade(runner, runtime=runtime):
+            raise Problem("runner_version", problem, 409)
     return {"runtime": runtime, "profile": profile, "bots": _bots_on(c, rid, runtime, profile, settings, every)}
 
 
 def _bots_on(c, rid, runtime, profile, settings, every):
-    """Every bot here on `runtime` runs on the computer's own login (""); none runs on a named subscription."""
+    """Bots affected by this login: one computer login after acknowledgement, reported homes during an upgrade."""
     from . import providers
     from .shared_bots import follow
-    if profile:
-        return []
+    from .subscriptions import computer_logins
+    runner = c.execute('SELECT readiness_json,capabilities_json FROM runners WHERE id=?', (rid,)).fetchone()
+    ready = H._json(runner['readiness_json'], {}) or {}
+    current = computer_logins(runner, ready)
+    if profile and current:
+        # A named default is the same login, so cleanup must still refuse it while bots use it.
+        if profile != ready['computer_profile']:
+            return []
     record = providers.load(c, settings)
     out = []
     active = "" if every else "AND b.state='active' "
@@ -477,7 +490,8 @@ def _bots_on(c, rid, runtime, profile, settings, every):
             config = providers.fill(record, follow(c, row["bot"], json.loads(row["config_json"] or "{}")))
         except ValueError:
             continue
-        if config.get("runtime") == runtime:
+        reported = ((ready.get('bots') or {}).get(row['bot']) or {}).get('profile') or ''
+        if config.get("runtime") == runtime and (current or reported == profile):
             out.append({"bot": row["bot"], "name": row["display_name"] or row["bot"]})
     return out
 

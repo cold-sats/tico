@@ -28,14 +28,17 @@ function machineConnections(machine) {
   const rows = [];
   // A tool a shared key serves is listed even when the computer has not reported that tool (or anything) yet.
   for (const runtime of [...new Set([...Object.keys(runtimes), ...Object.keys(machine.shared_with || {})])]) {
-    const value = runtimes[runtime];
+    const reported = runtimes[runtime];
+    // A retained named default is the computer's login too; older reports may carry its state below `profiles`.
+    const own = machine.readiness?.computer_profile;
+    const selected = reported?.profiles?.[own ?? ''];
+    const value = selected ? {...reported, ...selected} : reported;
     const bots = links.filter(b => b.runtime === runtime).map(b => b.bot);
     const auth = value?.authenticated;
     // A shared key that serves this computer (`shared_with`, backend/computer_keys.py serving) is a connection here
     // even before the tool reports it signed in; until it does, the line says so and claims no reading.
     const shared = machine.shared_with?.[runtime] || null;
-    // A runtime row with logins under `profiles` carries the computer's own login's under ''.
-    const blocked = (value?.profiles && Object.keys(value.profiles).length ? value.profiles[''] : value)?.data_problem || '';
+    const blocked = value?.data_problem || reported?.data_problem || '';
     // Signed out from Tico (Sign out) stays a line, so it can sign in again or go back to the shared key.
     if (!(auth === 'ready' || auth === 'rejected' || bots.length || machineSignedOut(machine, runtime) || shared)) continue;
     const reading = {signed_in: auth === 'ready' ? true : auth === 'rejected' || (auth === 'missing' && !shared) ? false : null,

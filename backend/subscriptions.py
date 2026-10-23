@@ -10,6 +10,27 @@ from .execution import readiness_document
 from .subscription_identity import identity
 from .store import Problem, encode
 
+COMPUTER_LOGIN_CAPABILITY = 'computer_logins_v1'
+
+
+def computer_logins(runner, ready=None):
+    """The runner has acknowledged the server's one-login contract and named its physical default home."""
+    ready = readiness_document(runner['readiness_json']) if ready is None else ready
+    return (COMPUTER_LOGIN_CAPABILITY in (H._json(runner['capabilities_json'], []) or [])
+            and isinstance(ready.get('computer_profile'), str))
+
+
+def login_upgrade(runner, ready=None, bot=None, runtime=None):
+    """An older runner's named bot login may be a local override; never relabel it or silently change its account."""
+    ready = readiness_document(runner['readiness_json']) if ready is None else ready
+    if computer_logins(runner, ready):
+        return ''
+    rows = ready.get('bots') or {}
+    if any(row.get('profile') and (bot is None or name == bot)
+           and (runtime is None or row.get('runtime') == runtime) for name, row in rows.items()):
+        return f"Update {runner['label']} to use one login per AI tool before running bots or changing that login"
+    return ''
+
 
 # The longest a window can run from its reading to its reset: the window itself, plus an allowance for clock
 # skew between the provider, the runner and this server. A reset further out is not that window's.
@@ -207,6 +228,8 @@ def _bot_line(c, bot, ctx):
         report = readiness_document(runner['readiness_json'])
         bot_report = report.get('bots', {}).get(bot, {})
         line['profile'] = bot_report.get('profile') or None
+        if problem := login_upgrade(runner, report, bot=bot):
+            return {**line, 'signed_in': None, 'problem': problem}, config
         if bot_report.get('data_problem'):
             # Signed in, but its turns can't save a session: the folder is what to fix, not a sign-in.
             return {**line, 'signed_in': None, 'problem': bot_report['data_problem'], 'detail': {'runtime': runtime}}, config

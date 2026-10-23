@@ -764,6 +764,9 @@ def claim_refusal(c, settings, runner, bot, config_json, draining, ready, held_b
         config = None
     if not isinstance(config, dict):
         return "config", None
+    from .subscriptions import login_upgrade
+    if login_upgrade(runner, ready, bot=bot):
+        return "login_upgrade", None
     record = providers.load(c, settings)
     filled = providers.fill(record, config)
     if gateway_connection.is_tico(filled.get("model")) and not models_preset.isolated(ready):
@@ -1240,7 +1243,7 @@ class Execution:
             takes = runner['accepts_member_bots'] and self.auth.member_bot(c, row['bot'], configs.get(row['bot']), creators)
             if row['operator'] != runner['operator'] and runner['operator'] != owner and not takes:
                 continue
-            result.append({**dict(row), 'computer_label': runner['label'],
+            result.append({**dict(row), 'computer_label': runner['label'], 'computer_logins_v1': True,
                            'config': app_delivery.job_config(providers.fill(company, follow(
                                c, row['bot'], json.loads(row['config_json']), configs.get))),
                            'repository': bot_repository(c, self.store.settings, row['bot'], configs.get, app),
@@ -1816,7 +1819,7 @@ class Execution:
         return {"attempt": {"chat_goal": chat_goal, "routine": routine, "id": aid,
                             # Which waiting turn takes a shared one-turn login first (runner-rs/src/login_turns.rs).
                             "login_class": login_class(c, task, msg, routine),
-                            "computer_label": runner["label"],
+                            "computer_label": runner["label"], "computer_logins_v1": True,
                             # A starter bot's chat while it is `needs_setup` is its setup (runner prompt).
                             "onboarding": (parked["onboarding_state"] if parked else "") or "",
                             # The mailboxes an inbox bot's turn may ask its runner for mail access to: the one it declares

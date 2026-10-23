@@ -34,6 +34,24 @@ pub fn valid_name(name: &str) -> bool {
     R.get_or_init(|| regex::Regex::new(r"^[a-z0-9]+(?:-[a-z0-9]+)*$").unwrap()).is_match(name) && name.len() <= 80
 }
 
+/// An assigned subscription that cannot run this turn here (SubscriptionUnavailable).
+#[derive(Clone, Debug)]
+pub struct Unavailable {
+    pub problem: String,
+    pub profile: String,
+    pub runtime: String,
+}
+
+impl Unavailable {
+    pub fn detail(&self) -> Value {
+        json!({"profile": self.profile, "runtime": self.runtime, "problem": self.problem})
+    }
+}
+
+pub fn covers(config: &Value) -> bool {
+    crate::harness_tools::caps_of(config).subscription_profiles
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Profile {
     pub name: String,
@@ -101,9 +119,96 @@ pub fn select(config: &Map<String, Value>, requested: Option<&str>) -> Option<Pr
     Some(Profile::new(&name, &text_of(&entry["dir"]), truthy(entry.get("share_operator"))))
 }
 
+/// The server-requested profile, or the local assignment and default when none is requested. None means the
+/// requested profile is not on this computer, or no local profile is configured.
+fn legacy_select(config: &Map<String, Value>, bot: Option<&str>, requested: Option<&str>) -> Option<Profile> {
+    let profiles = config.get("profiles").filter(|p| p.is_object()).cloned().unwrap_or(json!({}));
+    let mut name = bot.and_then(|b| config.get("bot_profiles").and_then(|m| m.get(b))).map(text_of).filter(|n| !n.is_empty());
+    if let Some(r) = requested.filter(|r| !r.is_empty()) {
+        let entry = &profiles[r];
+        if !entry.is_object() || !truthy(entry.get("dir")) {
+            return None;
+        }
+        name = Some(r.to_string());
+    }
+    let name = name.unwrap_or_else(|| config.get("default_profile").map(text_of).unwrap_or_default());
+    let entry = &profiles[&name];
+    if name.is_empty() || !entry.is_object() || !truthy(entry.get("dir")) {
+        return None;
+    }
+    Some(Profile::new(&name, &text_of(&entry["dir"]), truthy(entry.get("share_operator"))))
+}
+
+/// An older server still owns its saved account choices. Switch to the computer default only after its handshake.
+pub fn assignment_profile(config: &Map<String, Value>, entry: &Value, computer_logins: bool) -> Option<Profile> {
+    if computer_logins && entry["computer_logins_v1"] == true {
+        computer_login(config)
+    } else {
+        legacy_select(config, Some(&text_of(&entry["bot"])), Some(&text_of(&entry["profile"])))
+    }
+}
+
 /// The login every turn on this computer runs on: its own (select with no name).
 pub fn computer_login(config: &Map<String, Value>) -> Option<Profile> {
     select(config, None)
+}
+
+pub fn missing(config: &Map<String, Value>, requested: &str) -> String {
+    let entry = config.get("profiles").and_then(|p| p.get(requested));
+    if !requested.is_empty() && !entry.is_some_and(|e| e.is_object() && truthy(e.get("dir"))) {
+        format!("profile {requested} not on this computer")
+    } else {
+        String::new()
+    }
+}
+
+/// "Subscription X isn't (signed in) on <computer>" (service.py subscription_problem).
+pub fn subscription_problem(config: &Map<String, Value>, assignments: &[Value], name: &str, signed_out: bool, computer: &str) -> String {
+    let label = [computer.to_string(), config.get("label").map(text_of).unwrap_or_default()]
+        .into_iter()
+        .chain(assignments.iter().map(|r| text_of(&r["computer_label"])))
+        .find(|l| !l.is_empty())
+        .unwrap_or_else(|| "this computer".into());
+    if signed_out { format!("Subscription {name} isn't signed in on {label}") } else { format!("Subscription {name} isn't on {label}") }
+}
+
+/// The profile this turn runs on (service.py turn_profile): None for the operator's own logins. A profile the
+/// server asked for that is missing here, does not cover the runtime, or is signed out is an error the turn
+/// reports instead of running on some other login.
+pub fn turn_profile(
+    config: &Map<String, Value>,
+    attempt: &Value,
+    runtime_rows: &Map<String, Value>,
+    assignments: &[Value],
+    rejected: &dyn Fn(&str, &Profile) -> bool,
+) -> Result<Option<Profile>, Unavailable> {
+    // An attempt confirms the contract too: a rollback cannot reuse a cached config to change its account.
+    if attempt["computer_logins_v1"] == true {
+        return Ok(computer_login(config));
+    }
+    let requested = text_of(&attempt["profile"]);
+    let profile = assignment_profile(config, attempt, false);
+    if requested.is_empty() {
+        return Ok(profile);
+    }
+    let runtime = text_of(&attempt["config"]["runtime"]);
+    let fail = |problem: String| Unavailable { problem, profile: requested.clone(), runtime: runtime.clone() };
+    if !covers(&attempt["config"]) {
+        return Err(fail(format!("Subscription {requested} doesn't cover {runtime}")));
+    }
+    let computer = text_of(&attempt["computer_label"]);
+    let Some(profile) = profile else {
+        return Err(fail(subscription_problem(config, assignments, &requested, false, &computer)));
+    };
+    let status = &runtime_rows.get(&runtime).map(|r| r["profiles"][&profile.name].clone()).unwrap_or(Value::Null);
+    let signed_out = match reported_sign_in(&profile.name, &runtime) {
+        Some(login) => login == false,
+        None => status["authenticated"] == "missing" || status["authenticated"] == "rejected",
+    };
+    if signed_out || rejected(&runtime, &profile) {
+        return Err(fail(subscription_problem(config, assignments, &requested, true, &computer)));
+    }
+    Ok(Some(profile))
 }
 
 /// Make `<root>/<name>` with a home per runtime (profiles.create); returns its runner.json entry.
@@ -408,6 +513,13 @@ pub fn forget_report() {
     *cache = None;
 }
 
+/// The cached login state of `profile` for `runtime` (`signed_in`), when the last report has it.
+pub fn reported_sign_in(profile: &str, runtime: &str) -> Option<Value> {
+    let cache = report_cache().lock().unwrap();
+    let rows = &cache.as_ref()?.rows;
+    rows.iter().find(|r| r["name"] == profile).map(|r| r["runtimes"][runtime]["signed_in"].clone())
+}
+
 /// The heartbeat's `profiles` list (service.py profile_report): each profile's sign-in where its CLI can say, probed
 /// within ten seconds for the whole report and kept a minute, with the weekly allowance attached.
 pub async fn report(config: &Map<String, Value>, rejected: &(dyn Fn(&str, &str) -> bool + Sync)) -> Vec<Value> {
@@ -554,6 +666,26 @@ pub(crate) mod tests {
         assert!(dir.join("elsewhere/beta").is_dir());
         assert!(remove_profile(&config, "beta").unwrap_err().contains("not on this computer"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn computer_login_selection_waits_for_the_server_handshake_and_survives_rollback() {
+        let config = json!({"profiles": {"own": {"dir": "/p/own"}, "local": {"dir": "/p/local"},
+                                         "server": {"dir": "/p/server"}},
+                            "default_profile": "own", "bot_profiles": {"ops": "local"}});
+        let c = config.as_object().unwrap();
+        let local = json!({"bot": "ops"});
+        let assigned = json!({"bot": "ops", "profile": "server"});
+        for current in [false, true, false] {
+            let mut request = assigned.clone();
+            if current { request["computer_logins_v1"] = json!(true); }
+            assert_eq!(assignment_profile(c, &request, current).unwrap().name, if current { "own" } else { "server" });
+        }
+        // A cached new-server config cannot override requests from an old server after rollback.
+        assert_eq!(assignment_profile(c, &local, true).unwrap().name, "local");
+        assert_eq!(assignment_profile(c, &assigned, true).unwrap().name, "server");
+        assert!(assignment_profile(c, &json!({"bot": "ops", "profile": "gone"}), false).is_none());
+        assert_eq!(computer_login(c).unwrap().environment("codex", &Env::new())["CODEX_HOME"], "/p/own/codex");
     }
 
     #[test]

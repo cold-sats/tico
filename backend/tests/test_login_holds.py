@@ -648,7 +648,8 @@ def test_a_limit_keeps_the_provider_and_login_it_came_from_after_settings_and_ho
         # The bot moves to Codex and another turn replaces the login's hold: the run still names what refused it.
         assert c.execute("UPDATE bot_config SET config_json=? WHERE bot='ops'",
                          (json.dumps({"runtime": "codex"}),)).rowcount == 1
-        login_holds.record(c, machine["runner_id"], "", "fake", "2026-10-19T01:47:00.000000Z", attempt_id="other",
+        assert login_holds.get(c, machine["runner_id"], "work", "fake"), "an in-flight turn keeps its reported home"
+        login_holds.record(c, machine["runner_id"], "work", "fake", "2026-10-19T01:47:00.000000Z", attempt_id="other",
                            bot="finance", error=CLAUDE)
         assert not login_holds.for_attempt(c, first["id"])
         assert json.loads(c.execute("SELECT detail_json FROM events WHERE action='attempt.limited' AND target=?",

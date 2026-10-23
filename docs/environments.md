@@ -129,8 +129,11 @@ scripts/tico -e acme profile list
 `profile login` refuses on such a profile, because there is nothing separate to sign in to, and on any profile but
 the default.
 
-Every run uses `default_profile`, or the operator's own logins without one. A `bot_profiles` entry, and a
-bot's choice saved by an earlier release, is ignored (the upgrade deletes the saved choices).
+After the server/runner `computer_logins_v1` handshake, every run uses `default_profile`, or the operator's own logins
+without one. A `bot_profiles` entry, and a bot's choice saved by an earlier release, is ignored (the server upgrade
+deletes the saved choices). Until an older server upgrades, an updated runner preserves its existing local and
+server account selections. An older runner reporting named bot logins to a new server waits for its own update;
+unnamed legacy runners continue working. See [Computers](computers.md#subscriptions-from-earlier-releases).
 Linux Docker profiles currently share the existing bot Unix user; their separate login directories
 do not enforce file isolation between groups.
 

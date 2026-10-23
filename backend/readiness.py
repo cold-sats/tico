@@ -55,9 +55,9 @@ def can_run(c, bot, runtime, runner=None, harness="", model=""):
         return {"can_run": None, "applicable": False, "computer": None, "runtime": runtime,
                 "problem": "An external agent runs this bot outside Tico, so no computer check applies"}
     if runner:
-        row = c.execute("SELECT id,label,last_seen,revoked_at,readiness_json FROM runners WHERE id=?", (runner,)).fetchone()
+        row = c.execute("SELECT id,label,last_seen,revoked_at,readiness_json,capabilities_json FROM runners WHERE id=?", (runner,)).fetchone()
     else:
-        row = c.execute("SELECT r.id,r.label,r.last_seen,r.revoked_at,r.readiness_json FROM assignments a "
+        row = c.execute("SELECT r.id,r.label,r.last_seen,r.revoked_at,r.readiness_json,r.capabilities_json FROM assignments a "
                         "JOIN runners r ON r.id=a.runner_id WHERE a.bot=?", (bot,)).fetchone()
     if not row or row["revoked_at"]:
         return {"can_run": None, "applicable": True, "computer": None, "runtime": runtime,
@@ -86,6 +86,9 @@ def can_run(c, bot, runtime, runner=None, harness="", model=""):
 
     if not online:
         return verdict(None, label + " is offline, so it has not checked " + str(runtime))
+    from .subscriptions import login_upgrade
+    if problem := login_upgrade(row, readiness, bot=bot):
+        return verdict(False, problem, "Update the runner in Settings > Computers")
     # A harness the runner does not report on (`readiness = false`, Antigravity) has no row to judge.
     if readiness.get("schema_version") != 1 or harness_caps(harness, runtime).get("readiness") is False:
         return verdict(None, label + " does not report its AI tools; update it to check")

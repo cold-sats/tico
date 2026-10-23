@@ -552,6 +552,8 @@ HELD = {
     "cooling_off": ("Waiting out a usage limit, or a Tico AI Gateway outage, before it tries again", RUNS),
     "readiness_unknown": ("{computer} has not said whether it can run this bot", COMPUTERS),
     "sign_in_rejected": ("Its model sign-in was rejected on {computer}", COMPUTERS),
+    "login_upgrade": ("Update {computer} to use one login per AI tool; its bots wait without changing accounts",
+                      COMPUTERS),
     # A Tico model runs only where bots run as their own user (execution.claim_refusal): the bot waits, it never fails.
     "not_isolated": ("{computer} can't run Tico Gateway work (it needs Tico's Docker runner): it waits for another "
                      "model or computer", BOT_SETTINGS),

@@ -47,11 +47,18 @@ def key(runner_id, profile, runtime):
 def canonical(c, runner_id, profile, runtime):
     """The login a profile's turns on `runtime` sign in with, as holds key it: "" (the computer's own) for a profile
     the computer reports shares it (`shared_login`, runner-rs/src/fallback.rs `login`), else the profile."""
+    from .store import readiness_document
+    row = c.execute("SELECT readiness_json,capabilities_json FROM runners WHERE id=?", (runner_id,)).fetchone()
+    ready = readiness_document(row["readiness_json"]) if row else {}
+    from .subscriptions import computer_logins
+    current = row and computer_logins(row, ready)
+    if not profile and current:
+        # Keep the physical home as the identity: existing holds on a retained default profile still apply.
+        profile = ready['computer_profile']
+    if current and profile != ready['computer_profile']:
+        return profile     # an older in-flight turn on another home is never folded into the new default
     if not profile:
         return ""
-    from .store import readiness_document
-    row = c.execute("SELECT readiness_json FROM runners WHERE id=?", (runner_id,)).fetchone()
-    ready = readiness_document(row["readiness_json"]) if row else {}
     report = ((ready.get("runtimes") or {}).get(runtime) or {})
     report = (report.get("profiles") or {}).get(profile) or report
     return "" if report.get("shared_login") is True else profile
@@ -380,6 +387,10 @@ def after_turn(c, runner_id, bot, profile, runtime, body, attempt_id, hit):
     # turn): the turn ran nowhere, so no login met a limit; the hop its notes name only failed to start.
     unstarted = body.primary_held and body.limited and not body.fallback
     steps = turn_steps(c, attempt_id, runtime, body)
+    # The home is pinned across primary and fallback work. An older in-flight turn may finish on a retired home
+    # after the server's upgrade: its reported login, not the new default, owns that limit.
+    if body.profile_used is not None:
+        profile = body.profile_used
     hop_profile = body.profile_used if body.fallback and body.profile_used is not None else profile
     claimed = (c.execute("SELECT created FROM attempts WHERE id=?", (attempt_id,)).fetchone() or [""])[0] or ""
     kept = {}

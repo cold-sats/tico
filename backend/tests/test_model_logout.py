@@ -107,22 +107,6 @@ def test_a_cancelled_switch_keeps_the_mark_and_the_old_login(api):
     assert pending(api, r) == [] and cleared(api, rid) == [("codex", "")]
 
 
-def test_the_confirmation_names_the_bots_on_that_login(api):
-    r = online(api)
-    rid = r["runner_id"]
-    for bot, runtime in (("writer", "codex"), ("helper", "claude")):
-        add_bot(api, bot)
-        put_config(api, bot, runtime)
-        post(api, f"bots/{bot}/assignment", {"runner_id": rid, "expected_generation": 0})
-    add_bot(api, "sleeper", state="paused")
-    put_config(api, "sleeper", "codex")
-    post(api, "bots/sleeper/assignment", {"runner_id": rid, "expected_generation": 0})
-    assert [b["bot"] for b in get(api, f"runners/{rid}/logouts/bots?runtime=codex")["bots"]] == ["writer"]
-    assert [b["bot"] for b in get(api, f"runners/{rid}/logouts/bots?runtime=claude")["bots"]] == ["helper"]
-    # A named subscription's bots are the ones assigned to it.
-    assert get(api, f"runners/{rid}/logouts/bots?runtime=codex&profile=work")["bots"] == []
-
-
 def put_config(api, bot, runtime):
     import json
     with api.app.state.store.transaction() as c:

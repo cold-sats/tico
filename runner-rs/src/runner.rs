@@ -311,9 +311,11 @@ impl Runner {
         self.fetch_missing(&with_repositories).await;
         // Profiles as runner.json has them now, so a sign-in made since start is reported and checked.
         let config = self.config_now();
-        let runtimes = readiness::runtime_report(&config, &self.sign_in, &self.client, &candidates).await;
+        let computer_logins = crate::fallback::server_uses_computer_logins()
+            && candidates.iter().all(|entry| entry["computer_logins_v1"] == true);
+        let runtimes = readiness::runtime_report(&config, &self.sign_in, &self.client, &candidates, computer_logins).await;
         *self.runtime_rows.lock().unwrap() = runtimes.clone();
-        let mut checks = readiness::preflight(&config, &candidates, &runtimes).await;
+        let mut checks = readiness::preflight(&config, &candidates, &runtimes, computer_logins).await;
         self.perbot.decorate(&self.config, &mut checks, &candidates);
         self.publish_unpublished(&candidates, &mut checks).await;
         let notes = self.publish_notes.lock().unwrap().clone();
@@ -321,6 +323,11 @@ impl Runner {
         let published = self.published.lock().unwrap().clone();
         let (agent_instructions, versions) = readiness::changed_agent_instructions(&self.config, &assignments, &published);
         let mut readiness_doc = readiness::document(&runtimes, &checks, &self.state.directory);
+        let mut capabilities = crate::lanes::capabilities();
+        if computer_logins {
+            readiness_doc["computer_profile"] = json!(crate::profiles::computer_login(&config.data).map(|p| p.name).unwrap_or_default());
+            capabilities.push("computer_logins_v1");
+        }
         if crate::mail_key::status(&self.config) == Some("exposed") {
             readiness_doc["mail_key"] = json!("exposed"); // Health warns while bots can read the company's mail key
         }
@@ -333,7 +340,7 @@ impl Runner {
         let mut body = json!({
             "version": RUNNER_VERSION,
             "platform": platform(),
-            "capabilities": crate::lanes::capabilities(),
+            "capabilities": capabilities,
             "capacity": self.capacity,
             "readiness": readiness_doc,
             "mail_agent_instructions": readiness::mail_agent_instructions(&self.config, &assignments),

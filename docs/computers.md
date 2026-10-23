@@ -312,6 +312,16 @@ admin can take one off with `POST /api/v2/runners/{runner_id}/removals` (`{"runt
 online computers on a runner that knows it, `model_remove_v1`) or sign it out with `POST
 /api/v2/runners/{runner_id}/logouts` (`{"runtime":"codex","profile":"team-chatgpt"}`).
 
+The server and runner negotiate this change with `computer_logins_v1` in config, assignments and attempts, and an
+acknowledgement in the runner's capabilities and readiness. An updated runner keeps an older server's
+existing account selections until that server supports the change; it also keeps the login home pinned across a
+turn's primary and fallback work. On an updated server, an older runner reporting a bot on a named login waits with
+an **Update** explanation, and changes to that tool's computer login wait too. Older runners with only unnamed
+computer logins keep working. Update the named-login runner to resume on its configured `default_profile` (or the
+operator's login without one); no credential files or model and harness choices are changed. The acknowledged
+readiness report names that physical home as `computer_profile`, so its existing usage holds and readings still
+belong to the same login, including after a runner restart.
+
 ## Usage readings
 
 ### Stale and missing readings

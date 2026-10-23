@@ -265,15 +265,22 @@ fn joined(rows: &Map<String, Value>) -> String {
 /// Readiness per runtime, and per subscription profile for the profiles in use (service.py runtime_report): the
 /// runtime row reports the profile that needs attention first and carries every profile's row under `profiles`.
 /// A sign-in the provider refused on a real turn shows as `rejected` until its credentials change.
-pub async fn runtime_report(config: &Config, sign: &SignIn, client: &Client, assignments: &[Value]) -> Map<String, Value> {
+pub async fn runtime_report(config: &Config, sign: &SignIn, client: &Client, assignments: &[Value], computer_logins: bool) -> Map<String, Value> {
     let mut report = Map::new();
     for runtime in crate::harness_tools::runtimes() {
         let runtime = runtime.as_str();
-        // Every bot runs on the computer's own login (its default profile, when it has one).
         let mut used: std::collections::BTreeMap<String, Option<Profile>> = Default::default();
-        let own = profiles::computer_login(&config.data);
-        if assignments.iter().any(|entry| text_of(&entry["config"]["runtime"]) == runtime) {
+        if computer_logins {
+            let own = profiles::computer_login(&config.data);
             used.insert(own.as_ref().map(|p| p.name.clone()).unwrap_or_default(), own);
+        } else {
+            for entry in assignments {
+                let requested = text_of(&entry["profile"]);
+                let profile = profiles::assignment_profile(&config.data, entry, false);
+                if text_of(&entry["config"]["runtime"]) == runtime && (profile.is_some() || requested.is_empty()) {
+                    used.entry(profile.as_ref().map(|p| p.name.clone()).unwrap_or_default()).or_insert(profile);
+                }
+            }
         }
         let mut targets = Map::new();
         if used.keys().all(|k| k.is_empty()) {
@@ -306,10 +313,22 @@ pub async fn runtime_report(config: &Config, sign: &SignIn, client: &Client, ass
                 s.insert("detail".into(), json!(detail));
             }
         }
-        let own = crate::profiles::windows("", runtime);
-        report.insert(runtime.into(), combined(targets, own));
+        let default = profiles::computer_login(&config.data).map(|p| p.name).unwrap_or_default();
+        let own_name = if computer_logins { default.as_str() } else { "" };
+        let own = crate::profiles::windows(own_name, runtime);
+        let row = computer_row(targets, own, computer_logins);
+        report.insert(runtime.into(), row);
     }
     report
+}
+
+/// Publish the active computer login's usage on its runtime row, even when its physical home has a name.
+fn computer_row(targets: Map<String, Value>, own: Map<String, Value>, computer_logins: bool) -> Value {
+    let mut row = combined(targets, own.clone());
+    if computer_logins && row["authenticated"] == "ready" {
+        row.as_object_mut().unwrap().extend(own);
+    }
+    row
 }
 
 /// One runtime's row from its logins' rows: the computer's own login alone, or the one that needs attention first with
@@ -394,7 +413,7 @@ async fn git(path: &Path, args: &[&str]) -> Option<(bool, String)> {
 }
 
 /// Each assigned bot's row: what blocks its turns here (`problems`) and what only warns.
-pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<String, Value>) -> Vec<Map<String, Value>> {
+pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<String, Value>, computer_logins: bool) -> Vec<Map<String, Value>> {
     let mut rows = vec![];
     for entry in assignments {
         let bot = text_of(&entry["bot"]);
@@ -406,9 +425,11 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
         let app = crate::appdriver::delivery(expected).is_some();
         let known = app || crate::harness_tools::runtimes().contains(&runtime);
         let path = crate::sessions::local_path(config, &bot, expected);
-        let profile = profiles::computer_login(&config.data);
+        let requested = if computer_logins { String::new() } else { text_of(&entry["profile"]) };
+        let computer = text_of(&entry["computer_label"]);
+        let profile = profiles::assignment_profile(&config.data, entry, computer_logins);
         let profile_name = profile.as_ref().map(|p| p.name.clone()).unwrap_or_default();
-        // The computer's login row for this tool.
+        // This bot's own subscription, not the worst of the machine's: a signed-out profile blocks its own bots only.
         let status = runtimes
             .get(&runtime)
             .and_then(|r| r["profiles"].get(&profile_name).cloned())
@@ -422,9 +443,16 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
                 Some(rows) => rows.get(&profile_name).cloned(),
                 None => Some(r.clone()),
             })
+            .filter(|_| requested.is_empty() || profile.is_some())
             .and_then(|r| r["data_problem"].as_str().map(String::from));
         let mut problems: Vec<String> = vec![];
         let mut warnings: Vec<String> = crate::readiness_extra::credential_warnings(&bot);
+        if !requested.is_empty() && !profiles::covers(expected) {
+            problems.push(format!("Subscription {requested} doesn't cover {runtime}"));
+        }
+        if !profiles::missing(&config.data, &requested).is_empty() {
+            problems.push(profiles::subscription_problem(&config.data, assignments, &requested, false, &computer));
+        }
         let repository_present = path.join("AGENT.md").is_file();
         if !repository_present && !app {
             problems.push(crate::product_files::problem(&bot).or_else(|| crate::fetchrepo::problem(&bot)).unwrap_or_else(|| "Missing bot repository or AGENT.md".into()));
@@ -439,6 +467,13 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
                 }
             }
         }
+        let signed_out = |detail: String| {
+            if !requested.is_empty() {
+                profiles::subscription_problem(&config.data, assignments, &requested, true, &computer)
+            } else {
+                detail
+            }
+        };
         if app {
             // Its app's state stands for install and sign-in (above).
         } else if runtime.is_empty() {
@@ -460,11 +495,11 @@ pub async fn preflight(config: &Config, assignments: &[Value], runtimes: &Map<St
             // Signed in, but its turns can't save a session: the folder is the problem, not the sign-in.
             problems.push(problem.clone());
         } else if status["authenticated"] == "rejected" {
-            problems.push(text_of(&status["detail"]));
+            problems.push(signed_out(text_of(&status["detail"])));
         } else if status["authenticated"] == "missing" || status["authenticated"] == "failed" {
             let d = text_of(&status["detail"]);
             let d = if d.is_empty() { "Runtime sign-in is not ready".to_string() } else { d };
-            problems.push(if profile_name.is_empty() { d } else { format!("{profile_name}: {d}") });
+            problems.push(signed_out(if profile_name.is_empty() { d } else { format!("{profile_name}: {d}") }));
         }
         for need in unsupported(entry) {
             problems.push(format!("This computer's runner does not run {need}; choose another harness for this bot"));
@@ -665,6 +700,22 @@ mod tests {
 
     fn map(v: Value) -> Map<String, Value> {
         v.as_object().cloned().unwrap()
+    }
+
+    #[test]
+    fn computer_login_named_default_publishes_its_windows_and_folder_problem() {
+        let own = map(json!({"weekly": {"used_percent": 45.0}, "five_hour": {"used_percent": 70.0}}));
+        let targets = map(json!({"work": {"installed": true, "authenticated": "ready"}}));
+        let row = computer_row(targets.clone(), own.clone(), true);
+        assert_eq!(row["weekly"]["used_percent"], 45.0);
+        assert_eq!(row["five_hour"]["used_percent"], 70.0);
+        assert!(computer_row(targets, own.clone(), false).get("weekly").is_none());
+        let row = computer_row(map(json!({"work": {"installed": true, "authenticated": "failed",
+            "data_problem": "Sessions folder is not writable"}})), own, true);
+        assert_eq!(row["data_problem"], "Sessions folder is not writable");
+        assert!(row.get("weekly").is_none());
+        let doc = document(&map(json!({"codex": row})), &[], Path::new("/tmp"));
+        assert_eq!(doc["runtimes"]["codex"]["data_problem"], "Sessions folder is not writable");
     }
 
     #[test]
