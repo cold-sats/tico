@@ -39,7 +39,8 @@ function nativeVisualRepaint() {
 const visualRef = f => `${f.file_id}@${Number(f.version)}`;
 // Without a separate visual address (Visuals always on, backend/visuals.py mode) a page or SVG is never served from
 // the app's own address: the server sends `open` and no `src`, and it is a card with its title, its still preview
-// when it has one, and Open, which shows it in the file viewer.
+// when it has one, and Open, which shows it in the file viewer. One held in Tico file hosting gets a `src` on the app's
+// own route instead, which sends the browser on to the company's ticofiles.com address (backend/tico_storage.py).
 const VISUAL_OPEN_KINDS = new Set(['page', 'svg']);
 // A card, or null for a chip.
 function visualState(f) {
