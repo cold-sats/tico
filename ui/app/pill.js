@@ -70,6 +70,7 @@ function makePill(cfg) {
       ${goals ? `<button class="p-stop p-send-icon" type="button" aria-label="Stop" title="Stop" hidden>${ICON_STOP}</button>` : ''}
       <button class="p-send p-send-icon" type="button" aria-label="Send" title="Send">${ICON_SEND}</button>
     </div>
+    <div class="p-slow muted" role="status" hidden></div>
     <div class="p-chips"></div>
     <div class="p-cmd" hidden></div>`;
 
@@ -85,7 +86,7 @@ function makePill(cfg) {
     if (shrank) { box.style.height = 'auto'; box.style.height = box.scrollHeight + 'px'; }
     else if (box.scrollHeight > box.clientHeight) box.style.height = box.scrollHeight + 'px';
   };
-  box.addEventListener('input', () => { grow(); pillButtons(P); chatDraftSave(P); });
+  box.addEventListener('input', () => { grow(); pillButtons(P); chatDraftSave(P); if (P.unconfirmed) chatForgetUnconfirmed(P); });
   // "lets do the triple return behavior on mobile send, but on desktop, lets
   // make it enter send, and shift enter new line." On a computer Return sends and Shift+Return is
   // a new line; on a phone Return is a line and three in a row send (below). Cmd/Ctrl+Return and
