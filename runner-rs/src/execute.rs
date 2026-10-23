@@ -921,11 +921,12 @@ impl Runner {
         crate::harness_tools::turn_runtimes(&aid, &uses);
 
         let ran: Result<(), Fail> = async {
+            // Pin the home before preparation: a server upgrade or a local edit cannot move a fallback to another account.
+            selected = self.turn_profile(&attempt)?;
             // A lane runs one turn at a time. A main-lane turn holds the bot's checkout for the whole turn; a task
             // lane works in its own worktree and takes the checkout only to refresh it (sessions.rs).
             let p = place.insert(self.enter_lanes(&attempt, &flags.lost).await.map_err(Fail::runtime)?);
             execution_path = p.main_path.clone();
-            selected = self.turn_profile(&attempt)?;
             if let Some(login) = self.serial_login(&runtime, &text_of(&config["harness"]), selected.as_ref()).filter(|_| !persistent && held.is_none()) {
                 // One turn at a time on a ChatGPT login: taken before the checkout is brought up to date, so a turn
                 // that waits starts on a fresh one. Busy: the bot's own fallback takes the turn when it is ready (not
@@ -1201,10 +1202,13 @@ impl Runner {
             let primary = Some(text_of(&config["harness"])).filter(|h| !h.is_empty()).unwrap_or_else(|| runtime.clone());
             let hopped: Result<(), Fail> = async {
                 let hop_config = hop.config(&config);
-                let mut hop_attempt = attempt.clone();
-                hop_attempt["config"] = hop_config.clone();
-                hop_attempt["fallback"] = json!(hop.harness);
-                selected = self.turn_profile(&hop_attempt)?;
+                let requested = text_of(&attempt["profile"]);
+                if !requested.is_empty() && !crate::profiles::covers(&hop_config) {
+                    return Err(Fail::unavailable(Unavailable {
+                        problem: format!("Subscription {requested} doesn't cover {}", hop.runtime),
+                        profile: requested, runtime: hop.runtime.clone(),
+                    }));
+                }
                 segments.push(Segment {
                     meter: Meter::default(),
                     config: hop_config.clone(),
