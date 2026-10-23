@@ -140,3 +140,69 @@ def test_everything_on_the_owners_list_is_refused_on_the_server_and_proposed_ins
         assert ceo_bot.room_today(c, OWNER) == 0
     assert proposals(api) and all(x["proposal_task"] or "5 items there today" in x["note"] for x in log)
     assert not any(x["undoable"] for x in log)
+
+
+def test_undo_never_overwrites_a_later_edit_and_puts_back_everything_else(api):
+    """Spec test 12, Undo's edges: a later move in the queue (even one back to where the decision put it), a task it
+    made that a person took on, two changes to one task, a close on a steps-only ticket from its second open step with
+    a note, and a task whose restore is refused. Each later edit stays and is named; the rest goes back; a form holding
+    the task from before the decision or the Undo gets a version conflict."""
+    ceo = with_ceo_bot(api)
+    for slug in ("ops", "finance", "coo"):
+        bot(api, slug)
+    level(api, 3)
+    typ = post(api, "task-types", {"name": "Dev ticket", "steps_only": True, "bots": "work", "steps": [
+        {"name": "Backlog", "status": "open"}, {"name": "On Deck", "status": "open"},
+        {"name": "Done", "status": "closed"}]})["type"]
+    ticket = post(api, "tasks", {"owner": "ops", "title": "Fix the guest message times", "body": "Please.",
+                                 "type": typ["id"], "step": "On Deck"})["id"]
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, OWNER, ticket, note="Waiting on the copy")
+    moved, back, twice, refused = (bot_task(api, "ops", t) for t in (
+        "Write the onboarding email", "Clean up old reports", "Draft the pricing page", "Plan the launch"))
+    bot_task(api, "ops", "Answer the support inbox")
+    bot_task(api, "coo", "Review the budget")
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, OWNER, refused, owner="bot:coo", mover=True)
+    start = {t: task(api, t) for t in (moved, back, twice, refused, ticket)}
+    made = decide(api, ceo, [{"do": "reassign", "task_id": moved, "owner": "finance"},
+                             {"do": "reassign", "task_id": back, "owner": "finance"},
+                             {"do": "reorder", "task_id": twice}, {"do": "reorder", "task_id": twice},
+                             {"do": "reassign", "task_id": refused, "owner": "finance"},
+                             {"do": "close", "task_id": ticket},
+                             {"do": "create", "owner": "ops", "title": "Fix the setup step that drops new accounts"}])
+    assert made["state"] == "done" and len(made["done"]) == 7, made["left"]
+    post(api, f"tasks/{moved}", {"version": start[moved]["version"], "due": "2099-01-01T00:00:00+00:00"},
+         expected=409)
+    new = made["done"][-1]["task_id"]
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, OWNER, moved, rank=-50, mover=True)                       # a person reorders it
+        decided = H.task(c, back)["rank"]
+        H.task_update(c, OWNER, back, rank=-60, mover=True)                        # ...and away and back
+        H.task_update(c, OWNER, back, rank=decided, mover=True)
+        H.task_update(c, OWNER, new, owner=OWNER, status="doing", mover=True)      # a person takes on what it made
+        c.execute("UPDATE bot_config SET config_json=? WHERE bot='coo'", ('{"harness": "dots"}',))
+    held = task(api, ticket)["version"]
+    post(api, f"ceo-bot/log/{made['id']}/undo", {}, token="ben-test", expected=403)        # an admin doesn't undo
+    undone = post(api, f"ceo-bot/log/{made['id']}/undo", {})
+    post(api, f"tasks/{ticket}", {"version": held, "due": "2099-01-01T00:00:00+00:00"}, expected=409)
+    text = undone["undo"]["text"]
+    now = {t: task(api, t) for t in (moved, back, twice, refused, ticket, new)}
+    # The person's place in the queue stays, and the owner still goes back.
+    assert now[moved]["owner"] == "bot:ops" and now[moved]["rank"] == -50
+    assert now[back]["owner"] == "bot:ops" and now[back]["rank"] == decided
+    assert '"Write the onboarding email": its place in the queue was changed since by' in text
+    assert '"Clean up old reports": its place in the queue was changed since by' in text
+    # Two moves of one task go back to where it started, with no later edit claimed.
+    assert now[twice]["rank"] == start[twice]["rank"] and '"Draft the pricing page": its' not in text.split("Not")[-1]
+    # The ticket is back in its own step, place and note.
+    assert (now[ticket]["status"], now[ticket]["step_id"], now[ticket]["note"]) == (
+        "open", start[ticket]["step_id"], "Waiting on the copy")
+    assert now[ticket]["step_rank"] == start[ticket]["step_rank"] and not now[ticket]["closed_at"]
+    # What a person took on stays theirs and open; a refused restore is said and the rest still went back.
+    assert (now[new]["owner"], now[new]["status"]) == (OWNER, "doing") and "which it made, was changed since" in text
+    assert now[refused]["owner"] == "bot:finance" and '"Plan the launch" could not be put back' in text
+    with api.app.state.store.read() as c:
+        told = {r[0] for r in c.execute("SELECT to_actor FROM messages WHERE from_actor=? AND body LIKE "
+                                        "'%undid a decision%'", (H.KEEPER,))}
+    assert {"bot:ops", "bot:finance"} <= told

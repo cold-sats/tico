@@ -5008,6 +5008,10 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     if rank is not None:
         sets.append("rank=:rank")
         args["rank"] = float(rank)
+        # A queue move writes no event of its own, except on a task a CEO Bot decision changed: its Undo keeps a
+        # later move, even one back to the same place (backend/ceo_acts.py).
+        if float(rank) != row.get("rank") and _ceo_changed(conn, task_id):
+            _task_event(conn, task_id, actor, "rank", row.get("rank"), float(rank), note or "")
     if person != row.get("waiting_on"):
         sets.append("waiting_on=:waiting_on")
         args["waiting_on"] = person
@@ -5528,6 +5532,13 @@ def _task_event(conn, task_id, actor, field, old, new, note=""):
                  (new_id(), task_id, now(), actor, field,
                   None if old is None else str(old), None if new is None else str(new), note,
                   *(v for _, v in extra)))
+
+
+def _ceo_changed(conn, task_id):
+    """Whether a CEO Bot decision (or its Undo) is writing this task now or has changed it before."""
+    from .ceo_acts import ACTION
+    return bool(ACTION.get()) or bool(conn.execute(
+        "SELECT 1 FROM task_events WHERE task_id=? AND action_id IS NOT NULL LIMIT 1", (task_id,)).fetchone())
 
 
 def _task_ref(value):

@@ -9,7 +9,8 @@ page, newest first. Below level 3 it decides nothing alone: a recovery is a prop
 
 The owner undoes a decision (`undo`): each task it changed goes back to what it was, field by field, and the bot that
 owns it is told. A field someone changed since is kept as they left it and the result says so in plain words: Undo
-never overwrites a later edit silently. A task the decision made is closed.
+never overwrites a later edit silently. A task the decision made is closed, unless someone has changed it since. What
+one task can't take back (a refusal) is said too, and the rest of the decision is still undone.
 
 "Always the person's" (`PERSON_ONLY`) is checked on the server at every level (`gate`): anything that raises cost (wake
 schedules, routines, models), publishing, sending outside the company, adding or removing bots, changing a goal or KPI
@@ -29,7 +30,9 @@ ACTIONS = ("create", "reorder", "reassign", "close")
 MAX_CHANGES = 10
 LOG_PAGE = 50
 # What Undo says it put back or kept, in the owner's words.
-PLAIN = {"owner": "its owner", "status": "its status", "rank": "its place in the queue"}
+PLAIN = {"owner": "its owner", "status": "its status", "rank": "its place in the queue", "note": "its note"}
+# The fields Undo puts back, with the task events that mean someone changed one since: a step move is a status change.
+EVENTS = {"owner": ("owner",), "status": ("status", "step", "type"), "rank": ("rank",), "note": ("note",)}
 
 # What stays the person's at every level: the kind, and the words the owner reads in Needs you.
 PERSON_ONLY = {
@@ -156,7 +159,7 @@ def _check(c, change):
     return _offline(c, row["owner"]) or (_offline(c, change["owner"]) if do == "reassign" else None), None
 
 
-FIELDS = ("status", "owner", "rank", "note", "closed_at", "closed_by")
+FIELDS = ("status", "step_id", "step_rank", "owner", "rank", "note", "closed_at", "closed_by")
 
 
 def _snapshot(row):
@@ -176,14 +179,18 @@ def _apply(c, change, goal_id, reason):
     before = _snapshot(row)
     if do == "reorder":
         H.task_update(c, CEO, row["id"], rank=H._queue_end(c, row["owner"], top=True), mover=True, quiet=True)
-        # A queue move writes no task event of its own; the log and Undo find it by the action id.
-        H._task_event(c, row["id"], CEO, "rank", before["rank"], H.task(c, row["id"])["rank"])
     elif do == "reassign":
         H.task_update(c, CEO, row["id"], owner=change["owner"], mover=True)
     else:
         H.task_close(c, H.KEEPER, row["id"], change["note"] or f"Closed by the {ceo_bot.name(c)}: {reason}")
         c.execute("UPDATE tasks SET closed_by=? WHERE id=?", (CEO, row["id"]))
+    _bump(c, row["id"])
     return {"task_id": row["id"], "made": False, "before": before, "after": _snapshot(H.task(c, row["id"]))}
+
+
+def _bump(c, task_id):
+    """A form or bot holding the task from before this write gets a version conflict, as after any task update."""
+    c.execute("UPDATE tasks SET version=version+1 WHERE id=?", (task_id,))
 
 
 def decide(c, actor, reason, changes, goal_id=None):
@@ -299,9 +306,10 @@ def log(c, before=None, limit=LOG_PAGE):
 
 # ----------------------------------------------------------------------------- undo
 def undo(c, actor, action_id):
-    """The owner undoes a decision. Each task it changed goes back field by field where the field still holds what
-    the decision left; a field changed since keeps its later value, and the result says which and by whom. A task it
-    made is closed. Each bot whose task changed is told on the task. Done once."""
+    """The owner undoes a decision. Each task it changed goes back field by field where nobody changed the field
+    since; a field changed since keeps its later value, and the result says which and by whom. A task it made is
+    closed unless someone changed it since. A task Tico won't put back (a refusal) is said, and the others still are.
+    Each bot whose task changed is told. Done once."""
     H._writer(c, actor)
     row = entry(c, action_id)
     if not row:
@@ -312,27 +320,24 @@ def undo(c, actor, action_id):
     restored, kept = [], []
     token = ACTION.set(action_id)
     try:
-        for item in row["done"]:
+        for item in _per_task(row["done"]):
             task = H.task(c, item["task_id"])
             if not task:
                 kept.append(f"{item['text']}: the task is gone")
                 continue
-            if item.get("made"):
-                if task["status"] == "closed":
-                    restored.append(f"{_title(task)} was already closed")
-                    continue
-                H.task_close(c, H.KEEPER, task["id"], f"Undone by {_name(c, actor)}: the {ceo_bot.name(c)} made this "
-                                                      "task on its own")
-                restored.append(f"Closed {_title(task)}, which it made")
-                _tell(c, task, actor)
+            c.execute("SAVEPOINT ceo_undo")
+            try:
+                did = (_unmake if item.get("made") else _restore)(c, actor, task, item, row["created"], kept)
+            except H.Refused as exc:
+                c.execute("ROLLBACK TO ceo_undo")
+                c.execute("RELEASE ceo_undo")
+                kept.append(f"{_title(task)} could not be put back: {exc.detail or exc.rule}")
                 continue
-            back, later = _restore(c, actor, task, item["before"], item["after"])
-            if back:
-                restored.append(f"{_title(task)}: {', '.join(PLAIN[f] for f in back)} put back")
-                _tell(c, H.task(c, task["id"]), actor)
-            for field, who in later:
-                kept.append(f"{_title(task)}: {PLAIN[field]} was changed since by {_name(c, who)}, so their change "
-                            "stays")
+            c.execute("RELEASE ceo_undo")
+            if did:
+                restored.append(did)
+                _bump(c, task["id"])
+                _tell(c, actor, H.task(c, task["id"]), item["after"]["owner"])
     finally:
         ACTION.reset(token)
     result = {"restored": restored, "kept": kept, "text": _undo_text(restored, kept)}
@@ -342,41 +347,97 @@ def undo(c, actor, action_id):
     return entry(c, action_id)
 
 
-def _later(c, task_id, field, action_id):
-    """Who changed this field of the task after the decision, or None."""
-    made = c.execute("SELECT created FROM ceo_actions WHERE id=?", (action_id,)).fetchone()[0]
-    found = c.execute("SELECT actor FROM task_events WHERE task_id=? AND field=? AND ts>? "
-                      "AND coalesce(action_id,'')!=? ORDER BY ts DESC LIMIT 1",
-                      (task_id, field, made, action_id)).fetchone()
+def _per_task(done):
+    """One item per task, in the order the decision first changed it: its fields before the decision's first change
+    to it and after its last, so two changes to one task are undone together."""
+    tasks = {}
+    for item in done:
+        if item["task_id"] in tasks:
+            tasks[item["task_id"]]["after"] = item["after"]
+        else:
+            tasks[item["task_id"]] = dict(item)
+    return list(tasks.values())
+
+
+def _later(c, task_id, fields, since, action_id):
+    """Who last changed any of these task event fields after the decision, or None."""
+    marks = ",".join("?" * len(fields))
+    found = c.execute(f"SELECT actor FROM task_events WHERE task_id=? AND field IN ({marks}) AND ts>? "
+                      "AND coalesce(action_id,'')!=? ORDER BY ts DESC, rowid DESC LIMIT 1",
+                      (task_id, *fields, since, action_id)).fetchone()
     return found[0] if found else None
 
 
-def _restore(c, actor, task, before, after):
-    """Put back each field the decision changed whose value is still what the decision left."""
+def _value(task, field):
+    return (task.get("status"), task.get("step_id")) if field == "status" else task.get(field)
+
+
+def _changed_since(c, task, after, field, since):
+    """Who changed this field after the decision (or "someone", when its value moved with no event), or None."""
     action_id = ACTION.get()
-    back, later = [], []
-    changed = [f for f in ("owner", "status", "rank") if before.get(f) != after.get(f)]
-    for field in changed:
-        if task.get(field) != after.get(field) or _later(c, task["id"], field, action_id):
-            later.append((field, _later(c, task["id"], field, action_id) or "someone"))
+    who = _later(c, task["id"], EVENTS[field], since, action_id)
+    if who:
+        return who
+    return "someone" if _value(task, field) != _value(after, field) else None
+
+
+def _unmake(c, actor, task, item, since, kept):
+    """Close a task the decision made, unless someone changed it since: then it stays as they left it."""
+    if task["status"] == "closed":
+        kept.append(f"{_title(task)}, which it made, was closed since")
+        return None
+    for field in ("owner", "status", "note"):
+        who = _changed_since(c, task, item["after"], field, since)
+        if who:
+            kept.append(f"{_title(task)}, which it made, was changed since by {_name(c, who)}, so it stays open")
+            return None
+    H.task_close(c, H.KEEPER, task["id"], f"Undone by {_name(c, actor)}: the {ceo_bot.name(c)} made this task on its "
+                                          "own")
+    return f"Closed {_title(task)}, which it made"
+
+
+def _restore(c, actor, task, item, since, kept):
+    """Put back each field the decision changed that nobody changed since, in one write; returns what was put back."""
+    before, after = item["before"], item["after"]
+    back = []
+    for field in ("owner", "status", "rank", "note"):
+        if _value(before, field) == _value(after, field):
             continue
-        if field == "owner":
-            H.task_update(c, actor, task["id"], owner=before["owner"], mover=True)
-        elif field == "rank":
-            H.task_update(c, actor, task["id"], rank=before["rank"], mover=True, quiet=True)
-            H._task_event(c, task["id"], actor, "rank", after["rank"], before["rank"])
+        who = _changed_since(c, task, after, field, since)
+        if who:
+            kept.append(f"{_title(task)}: {PLAIN[field]} was changed since by {_name(c, who)}, so their change stays")
         else:
-            H.task_update(c, actor, task["id"], status=before["status"], mover=True)
-            c.execute("UPDATE tasks SET closed_at=?, closed_by=? WHERE id=?",
-                      (before.get("closed_at"), before.get("closed_by"), task["id"]))
-        back.append(field)
-    return back, later
+            back.append(field)
+    if not back:
+        return None
+    put = {}
+    if "owner" in back:
+        put["owner"] = before["owner"]
+        # A new owner otherwise puts it at the bottom of their queue: the place goes back too, or stays as it is now.
+        put["rank"] = before["rank"] if "rank" in back else task["rank"]
+    elif "rank" in back:
+        put["rank"] = before["rank"]
+    if "status" in back:
+        put["status"] = before["status"]
+        if before.get("step_id"):
+            put["step"], put["step_rank"] = before["step_id"], before.get("step_rank")
+    if "note" in back:
+        put["note"] = before.get("note") or ""
+    H.task_update(c, actor, task["id"], mover=True, **put)
+    if "status" in back:
+        c.execute("UPDATE tasks SET closed_at=?, closed_by=? WHERE id=?",
+                  (before.get("closed_at"), before.get("closed_by"), task["id"]))
+    return f"{_title(task)}: {', '.join(PLAIN[f] for f in back)} put back"
 
 
-def _tell(c, task, actor):
-    if task and H.is_bot(task["owner"]):
-        H.task_comment(c, H.KEEPER, task["id"], f"{_name(c, actor)} undid a decision the {ceo_bot.name(c)} made on its "
-                                                 "own; this task is back as it was before it.")
+def _tell(c, actor, task, held_by):
+    """Tell each bot the Undo changed things for: the task's owner now, and the bot the decision gave it to."""
+    said = (f"{_name(c, actor)} undid a decision the {ceo_bot.name(c)} made on its own; this task is back as it was "
+            "before it")
+    for bot in dict.fromkeys((task["owner"], held_by)):
+        if bot and H.is_bot(bot):
+            H._wake(c, task, bot, said + ("." if bot == task["owner"] else
+                                          f", with {_name(c, task['owner'])}. It is no longer yours."))
 
 
 def _undo_text(restored, kept):

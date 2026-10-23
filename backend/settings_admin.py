@@ -522,7 +522,9 @@ class SettingsAdmin:
     BOTOPS_OWN_DEFINITION = {"bot_contact"}
 
     def update_bot(self, c, who, bot, body):
-        CA.gate(c, who.actor, "instructions", f"change {bot}'s instructions or settings")
+        asked = body.model_dump(exclude_unset=True, exclude={"expected_revision", "on_behalf_of"})
+        CA.gate(c, who.actor, "instructions", f"change {bot}'s instructions or settings: "
+                + "; ".join(f"{k} to \"{v}\"" for k, v in asked.items()))
         own_run = not (who.role == "owner" or self.auth.bot_manager(c, who, bot))
         self._manager(c, who, bot, botops=True)
         changed = body.model_fields_set - {"expected_revision", "on_behalf_of"}

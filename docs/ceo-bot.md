@@ -122,9 +122,11 @@ The CEO Bot's page shows its log on the **Info** tab, newest first. Everyone in 
 One decision is one entry. Every change in it carries the same action id in each task's history.
 
 Only the owner sees **Undo**, and it asks once before it acts. Undo puts each task back as it was before the
-decision. A task the decision created is closed, and each bot whose task changed is told. If someone changed a task
-after the decision, their change stays. The entry then says, in plain words, what could not be restored. An entry is
-undone once.
+decision: its owner, its status and step, its place in the queue and its note. A task the decision created is closed.
+Each bot whose task changed is told, including a bot that loses a task it was given. If someone changed a task after
+the decision, their change stays, and a task the decision created that someone has changed stays open. If Tico can't
+put one task back, the others are still put back. The entry then says, in plain words, what could not be restored. An
+entry is undone once.
 
 Over the API, `GET /api/v2/ceo-bot/log` reads the log, `POST /api/v2/ceo-bot/log/{id}/undo` undoes an entry (the
 owner only), and the CEO Bot decides with `POST /api/v2/ceo-bot/decisions` (`hub goal ceo-bot-decide`), at level 3

@@ -5300,7 +5300,7 @@ def create_app(settings=None):
         who = request.state.identity
         def work(c):
             from . import ceo_acts
-            ceo_acts.gate(c, who.actor, "cost", f"change {bot}'s model")      # the owner's at every level
+            ceo_acts.gate(c, who.actor, "cost", f"change {bot}'s model to {body.model}")     # the owner's at every level
             settings_admin._manager(c, who, bot)
             from .shared_bots import refuse_copy
             refuse_copy(c, bot)

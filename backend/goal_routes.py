@@ -193,7 +193,9 @@ def install(app, store, auth, mutate, settings):
         who = request.state.identity
         def work(c):
             auth.domain(who)
-            CA.gate(c, who.actor, "vision", "change the company's vision or description")
+            asked = body.model_dump(exclude_none=True)
+            CA.gate(c, who.actor, "vision", "change the company's " + (" and ".join(
+                f"{k} to \"{v}\"" for k, v in asked.items()) or "vision or description"))
             if not company_editor(who):
                 raise Problem("forbidden", "Only the owner writes the company's Vision and Description, on their own "
                               f"click; an admin or a member asks them, and a bot, the {ceo_bot.name(c)} included, "
@@ -469,7 +471,8 @@ def install(app, store, auth, mutate, settings):
             auth.domain(who)
             row = goal_or_404(c, gid)
             refuse_manager(c, who, "clearer wording or a change of goal",
-                           gated=f"change the goal \"{row['title']}\"")
+                           gated=f"change the goal \"{row['title']}\""
+                                 + (f" to \"{body.title}\"" if body.title and body.title != row["title"] else ""))
             # Handing a goal to someone else is for whoever sits above; linking it to the goal it
             # supports is also its owner's (the link icon on the Goals page), and the new goal's owner
             # sees it there.
@@ -565,7 +568,8 @@ def install(app, store, auth, mutate, settings):
             auth.domain(who)
             row = goal_or_404(c, gid)
             refuse_manager(c, who, "a target it is judged against",
-                           gated=f"change the target of the goal \"{row['title']}\"")
+                           gated=f"change the target of the goal \"{row['title']}\" to "
+                                 + ", ".join(f"{k} {v}" for k, v in body.model_dump(exclude_none=True).items()))
             if not may_colour(c, who, row):
                 raise Problem("forbidden", "The goal's owner or someone above them sets a target", 403)
             kpi_or_404(c, who, kid)
