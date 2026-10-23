@@ -1468,9 +1468,9 @@ def create_app(settings=None):
             raise Problem("forbidden", "Only an owner or an admin " + what, 403)
 
     # ------------------------------------------------------------------ billing (Settings > Billing)
-    def billing_key(who):
+    def billing_key(who, does="sees billing"):
         """The gateway key and Gateway URL Settings > Billing reads HQ with. Owners and admins only."""
-        admin_only(who, "sees billing")
+        admin_only(who, does)
         with store.read() as c:
             return gateway_connection.key(c, app.state.vault, settings), gateway_connection.url(c, settings)
 
@@ -1491,6 +1491,19 @@ def create_app(settings=None):
         return Response(body, media_type="text/csv; charset=utf-8", headers={
             "X-Content-Type-Options": "nosniff",
             "Content-Disposition": 'attachment; filename="tico-statement-%s.csv"' % month})
+
+    # Settings > Computers: the company's hosted servers, and Start for a stopped one (HQ refuses while out of credit).
+    @app.get("/api/v2/hosted-servers")
+    def hosted_servers(request: Request):
+        """The company's Tico server and bot computers HQ hosts, each on or stopped; `none` when HQ hosts nothing."""
+        return company_billing.servers(*billing_key(request.state.identity, "sees hosted servers"))
+
+    @app.post("/api/v2/hosted-servers/{server_id}/start")
+    def hosted_server_start(request: Request, server_id: str):
+        """Start one stopped hosted server; `paused` with the add-credit words while the company is out of credit."""
+        if settings.rehearsal:      # a copy of real data sends nothing: never a real server's power
+            raise Problem("rehearsal", "Hosted servers can't be started from a rehearsal", 409)
+        return company_billing.start(*billing_key(request.state.identity, "starts hosted servers"), server_id)
 
     @app.get("/api/v2/access")
     def access_view(request: Request):
