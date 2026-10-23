@@ -379,13 +379,14 @@ def renamed_assistant_goals_on_goals_page(api, owners):
     assert not rows(api, "SELECT id FROM goals WHERE owner IN ('bot:ace','bot:coo')")
 
 
-def test_a_300_seat_plan_too_big_for_the_env_starts_the_server_from_its_file(tmp_path, monkeypatch):
-    """Hosted --plan-bucket: setup copies the packed plan to a file and TICO_COMPANY_FILE names it (compose.yaml)."""
+@pytest.mark.parametrize("count", [73, 300])
+def test_a_full_plan_too_big_for_the_env_starts_the_server_from_its_file(tmp_path, monkeypatch, count):
+    """AWS and SSH setup copy a packed plan to a file and TICO_COMPANY_FILE names it (compose.yaml)."""
     from backend.config import Settings
     from backend.tests.test_company_file import chart
     from clients.environments import seed_registry
 
-    draft = chart(300)
+    draft = C.Turn(C.blank()).finish() if count == 73 else chart(count)
     draft["company"].update(name="Acme Finance", about="We help small firms manage their books.")
     packed = starter.pack(C.to_yaml(draft), starter.MAX_PACKED)
     assert len(packed) > starter.ENV_PACKED
@@ -418,4 +419,4 @@ def test_a_300_seat_plan_too_big_for_the_env_starts_the_server_from_its_file(tmp
     with TestClient(create_app(settings)) as api:
         imported = {r["bot"] for r in rows(api, "SELECT bot FROM bot_config")}
         employees = [b["id"] for b in draft["bots"] if b["template"] not in seats]
-        assert len(draft["bots"]) == 300 and employees and set(employees) <= imported
+        assert len(draft["bots"]) == count and employees and set(employees) <= imported
