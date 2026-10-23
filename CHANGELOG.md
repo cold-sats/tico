@@ -7,6 +7,11 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Gemini CLI turns run again on an isolated Docker runner.** Since 0.3.48 every Gemini turn there stopped with
+  "could not write the Gemini settings: Operation not permitted": the runner set its settings folder's mode after
+  handing the folder to the bot user, which it may not do.
+
 ## [0.4.1] - 2026-10-23
 
 ### Changed
