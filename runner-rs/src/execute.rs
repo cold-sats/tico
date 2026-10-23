@@ -682,7 +682,8 @@ impl Runner {
     fn make_host(&self, bot: &str, runtime: &str, config: &Value, env: &Env, profile: Option<&Profile>, tx: hosts::Events) -> Result<Host, Fail> {
         #[cfg(test)]
         if let Some(command) = tests::HOST_COMMAND.with(|command| command.borrow().clone()) {
-            return Ok(Host::Pi(crate::hosts::pi::PiHost::new(bot, command, tx)));
+            return Ok(if runtime == "claude" { Host::Claude(ClaudeHost::new(bot, command, tx)) }
+                      else { Host::Pi(crate::hosts::pi::PiHost::new(bot, command, tx)) });
         }
         if let Some(delivery) = crate::appdriver::delivery(config) {
             let app = crate::appdriver::label(&delivery.app);
@@ -1145,12 +1146,16 @@ impl Runner {
             let d = Drive { aid: &aid, host: h, thread: &th, effort: effort.as_deref(), limit, flags: &flags, wake: &wake, redactor: redactor.as_ref(), runtime: &runtime, bot: &bot, session: &key, login: yields(&attempt, &login_held) };
             drove = self.drive(&d, &mut rx, t, segments.last_mut().unwrap(), &mut carried, &mut auth_rejected, &mut goal).await?;
             turn = Some(drove.turn.clone());
-            keep_session(&self.state, &bot, &conv, &session_runtime, &h.session_id(&th)).await?;
             // A runtime that cannot sign itself in is as unavailable as one out of quota: a bot with a fallback
             // harness runs the turn there instead of losing it.
             unavailable = drove.limited || drove.retryable;
             Ok(())
         }).await;
+        // Init can replace the requested thread ID while the model runs. Persist it outside the cancellable
+        // future, before a fallback can stop this host or settlement applies the interrupt-resume capability.
+        if let (Some(h), Some(th)) = (&host, &thread) {
+            keep_session(&self.state, &bot, &conv, &session_runtime, &h.session_id(th)).await?;
+        }
         if (busy.is_some() || held.is_some()) && ran.is_ok() {
             unavailable = true;
         }
@@ -1875,6 +1880,10 @@ mod tests {
 
     /// A server that answers `{}` to every request (events: acknowledged) and keeps each one: (method, path, JSON body).
     async fn recording_server() -> (String, Arc<Mutex<Vec<(String, String, Value)>>>, tokio::task::JoinHandle<()>) {
+        recording_server_holding_inputs(None).await
+    }
+
+    async fn recording_server_holding_inputs(hold: Option<Arc<Notify>>) -> (String, Arc<Mutex<Vec<(String, String, Value)>>>, tokio::task::JoinHandle<()>) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
@@ -1884,6 +1893,7 @@ mod tests {
             loop {
                 let Ok((mut socket, _)) = listener.accept().await else { return };
                 let kept = kept.clone();
+                let hold = hold.clone();
                 tokio::spawn(async move {
                     let mut request = Vec::new();
                     let mut buffer = [0u8; 8192];
@@ -1915,7 +1925,15 @@ mod tests {
                         None => json!({}),
                     }
                     .to_string();
-                    kept.lock().unwrap().push((method, path, body));
+                    let holding = {
+                        let mut seen = kept.lock().unwrap();
+                        let holding = path.ends_with("/inputs") && seen.iter().any(|(_, p, _)| p.ends_with("/inputs"));
+                        seen.push((method, path, body));
+                        holding
+                    };
+                    if holding {
+                        if let Some(hold) = hold { hold.notified().await; }
+                    }
                     let response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{answer}", answer.len());
                     let _ = socket.write_all(response.as_bytes()).await;
                     let _ = socket.shutdown().await;
@@ -2369,9 +2387,14 @@ for line in sys.stdin:
         }
         std::fs::remove_dir_all(&dir).ok();
     }
-    // This fixture advertises the server's additive drain support without an installed runner or live credentials.
+    // This fixture advertises additive drain support without an installed runner or live credentials.
     async fn drain_test_runner(limit: u64) -> (Arc<Runner>, PathBuf, tokio::task::JoinHandle<()>) {
         let (url, _, server) = recording_server().await;
+        let (runner, dir) = drain_runner_on(&url, limit).await;
+        (runner, dir, server)
+    }
+
+    async fn drain_runner_on(url: &str, limit: u64) -> (Arc<Runner>, PathBuf) {
         let (runner, dir) = runner_at(&url, "drain");
         let path = dir.join("runner.json");
         let mut config: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
@@ -2384,7 +2407,7 @@ for line in sys.stdin:
         let (features, _) = crate::client::tests::serve(vec![(200, r#"{"version":"","features":{"runner_drain":true}}"#)]).await;
         let client = crate::client::Client::new(&features, "synthetic", 2, 0).unwrap();
         crate::follow::shared().unwrap().poll(&client, None).await;
-        (runner, dir, server)
+        (runner, dir)
     }
 
     #[tokio::test]
@@ -2461,6 +2484,116 @@ for line in sys.stdin:
         assert!(goal.failure.is_none(), "a drain must not stop the task's goal");
         assert_eq!(runner.state.session("ops", "c-cap", "pi").unwrap().as_deref(), Some(th.as_str()));
         assert!(runner.state.pending("a-cap").unwrap().iter().any(|e| e["payload"]["yielded"].as_str().is_some_and(|line| line.contains("drain time limit"))));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    fn assert_drain_settled(runner: &Runner, aid: &str) {
+        let (phase, completion): (String, String) = runner.state.with(|c| {
+            c.query_row("SELECT phase,completion FROM attempts WHERE id=?", [aid], |r| Ok((r.get(0)?, r.get(1)?)))
+        }).unwrap();
+        let completion: Value = serde_json::from_str(&completion).unwrap();
+        assert_eq!(phase, "synced", "the durable result was not acknowledged");
+        assert_eq!(completion["outcome"], "interrupted");
+        assert_eq!(completion["yielded"], true);
+        assert_eq!(completion["text"], "", "a partial answer cannot replace the checkpoint");
+    }
+
+    #[tokio::test]
+    async fn drain_execute_returns_a_prestart_checkout_wait_and_releases_its_lane() {
+        let _controls = RunControls;
+        let (url, seen, server) = recording_server().await;
+        let (runner, dir) = drain_runner_on(&url, 300).await;
+        // No installed harness can run even if the preparation cancellation guard regresses.
+        HOST_COMMAND.with(|command| *command.borrow_mut() = Some(vec!["/bin/false".into()]));
+        let attempt = json!({"id": "a-wait", "bot": "ops", "token": "synthetic", "lease_seconds": 120,
+                             "conversation": {"id": "c1"}, "message": {"refs": {}},
+                             "config": {"runtime": "pi", "harness": "pi", "model": "synthetic"}});
+        let checkout = runner.lanes.checkout("ops").lock_owned().await;
+        let work = runner.clone().execute(attempt.clone());
+        let drain = async {
+            // enter_lanes has the lane and is blocked on the checkout, before it returns a Place.
+            while runner.lanes.lane("ops", "main").try_lock_owned().is_ok() {
+                tokio::task::yield_now().await;
+            }
+            runner.shut_down();
+        };
+        let result = tokio::time::timeout(Duration::from_secs(5), async { let (result, ()) = tokio::join!(work, drain); result }).await;
+        server.abort();
+        result.expect("prestart checkout wait held the drain").unwrap();
+        assert_drain_settled(&runner, "a-wait");
+        assert_eq!(posted(&seen, "/attempts/a-wait/started"), 0);
+        assert_eq!(posted(&seen, "/attempts/a-wait/complete"), 1);
+        assert!(runner.lanes.lane("ops", "main").try_lock_owned().is_ok(), "cancelled preparation retained its lane");
+        drop(checkout);
+        let place = tokio::time::timeout(Duration::from_secs(1), runner.enter_lanes(&attempt, &AtomicBool::new(false))).await.unwrap().unwrap();
+        drop(place);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn drain_execute_caps_a_host_blocked_in_inputs_and_resumes_its_canonical_session() {
+        let _controls = RunControls;
+        let held_inputs = Arc::new(Notify::new());
+        let (url, seen, server) = recording_server_holding_inputs(Some(held_inputs.clone())).await;
+        let (runner, dir) = drain_runner_on(&url, 1).await;
+        let script = dir.join("synthetic_claude.py");
+        std::fs::write(&script, r#"import json, os, pathlib, sys
+root = pathlib.Path(__file__).parent
+if '--version' in sys.argv:
+    print('2.1.999'); sys.exit(0)
+if '--help' in sys.argv:
+    sys.exit(0)
+with (root / 'argv.jsonl').open('a') as f:
+    f.write(json.dumps(sys.argv[1:]) + '\n')
+(root / 'pid').write_text(str(os.getpid()))
+sys.stdin.readline()
+print(json.dumps({'type':'system','subtype':'init','session_id':'canonical-acme-session'}), flush=True)
+if '--resume' in sys.argv:
+    print(json.dumps({'type':'result','subtype':'success','result':'Continued safely.'}), flush=True)
+else:
+    pathlib.Path('kept-work.txt').write_text('work saved before the drain')
+    print(json.dumps({'type':'assistant','message':{'content':[{'type':'text','text':'unfinished Acme summary'}]}}), flush=True)
+    for line in sys.stdin:
+        pass
+"#).unwrap();
+        HOST_COMMAND.with(|command| *command.borrow_mut() = Some(vec![crate::env::python().display().to_string(), script.display().to_string()]));
+        let attempt = json!({"id": "a-active", "bot": "ops", "token": "synthetic", "lease_seconds": 120,
+                             "conversation": {"id": "c1"}, "message": {"refs": {}},
+                             "config": {"runtime": "claude", "harness": "claude", "model": "synthetic", "session": "bot"}});
+        let work = runner.clone().execute(attempt.clone());
+        let drain = async {
+            // The second inputs call is held by the fake server after drive consumed the init and partial output.
+            // Only the outer guard can cap this await; drive's own loop cannot run its deadline check.
+            while posted(&seen, "/attempts/a-active/inputs") < 2 { tokio::task::yield_now().await; }
+            runner.shut_down();
+        };
+        let result = tokio::time::timeout(Duration::from_secs(12), async { let (result, ()) = tokio::join!(work, drain); result }).await;
+        held_inputs.notify_waiters();
+        result.expect("active host outlived the outer drain cap").unwrap();
+        assert_drain_settled(&runner, "a-active");
+        assert_eq!(posted(&seen, "/attempts/a-active/started"), 1);
+        assert_eq!(posted(&seen, "/attempts/a-active/complete"), 1);
+        assert_eq!(runner.state.session("ops", "bot", "claude").unwrap().as_deref(), Some("canonical-acme-session"));
+        let events = seen.lock().unwrap().iter().filter(|(_, p, _)| p.ends_with("/attempts/a-active/events"))
+            .flat_map(|(_, _, b)| b["events"].as_array().cloned().unwrap_or_default()).collect::<Vec<_>>();
+        assert!(events.iter().any(|e| e["payload"]["text"] == "unfinished Acme summary"), "partial output missing from history: {events:?}");
+        assert!(events.iter().any(|e| e["payload"]["yielded"].as_str().is_some_and(|s| s.contains("drain time limit"))));
+        let pid: i32 = std::fs::read_to_string(dir.join("pid")).unwrap().parse().unwrap();
+        assert_eq!(unsafe { libc::kill(pid, 0) }, -1, "execute did not reap its own synthetic host");
+        assert_eq!(std::fs::read_to_string(dir.join("projects/bot-ops/kept-work.txt")).unwrap(), "work saved before the drain");
+        let lane = runner.lanes.lane("ops", "main").try_lock_owned().expect("settlement retained its lane");
+        let checkout = runner.lanes.checkout("ops").try_lock_owned().expect("settlement retained its checkout");
+        drop((lane, checkout));
+        // A new runner continues the real execute path using the durable session, with no manual session seed.
+        let next = Arc::new(Runner::new(runner.config.clone(), runner.client.clone(), runner.state.clone()));
+        let mut continuation = attempt;
+        continuation["id"] = json!("a-continued");
+        tokio::time::timeout(Duration::from_secs(12), next.execute(continuation)).await.expect("continuation did not finish").unwrap();
+        let args: Vec<Value> = std::fs::read_to_string(dir.join("argv.jsonl")).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        assert_eq!(args.len(), 2);
+        let resumed: Vec<_> = args[1].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+        assert!(resumed.windows(2).any(|pair| pair == ["--resume", "canonical-acme-session"]), "{args:?}");
+        server.abort();
         std::fs::remove_dir_all(dir).ok();
     }
 
