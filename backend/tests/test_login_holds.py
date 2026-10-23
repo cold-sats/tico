@@ -442,7 +442,7 @@ def test_the_runners_report_of_a_fallback_that_never_started_requeues_the_job_an
 
 
 def test_profiles_sharing_the_computers_own_login_share_its_hold_and_probe(api, monkeypatch):
-    from backend import execution, subscriptions
+    from backend import execution
     at(monkeypatch, "2026-10-19T01:46:47.000000Z")
     machine = runner(api)
     assign(api, machine, "ops")
@@ -461,10 +461,9 @@ def test_profiles_sharing_the_computers_own_login_share_its_hold_and_probe(api, 
         # One hold for the computer's own login, whichever alias met the limit, and the runner hears it under "".
         assert login_holds.get(c, rid, "", "fake")["until"].startswith("2026-10-19T02:40") and not \
             login_holds.get(c, rid, "team-a", "fake")
-        for profile, held in (("", "held"), ("team-b", "held"), ("solo", None)):
-            monkeypatch.setattr(subscriptions, "effective", lambda c, bot, ctx=None, p=profile: (p,))
-            key = execution.login_key(c, api.app.state.store.settings, rid, "ops", {"runtime": "fake"})
-            assert login_holds.holding(c, *key) == held, profile
+        # A bot runs on the computer's own login (#1259), so its turns wait on that hold.
+        key = execution.login_key(c, api.app.state.store.settings, rid, "ops", {"runtime": "fake"})
+        assert login_holds.holding(c, *key) == "held"
     assert get(api, "config", machine["token"])["login_holds"][0]["profile"] == ""
 
 
@@ -692,7 +691,8 @@ def test_a_limit_keeps_the_provider_and_login_it_came_from_after_settings_and_ho
         # The bot moves to Codex and another turn replaces the login's hold: the run still names what refused it.
         assert c.execute("UPDATE bot_config SET config_json=? WHERE bot='ops'",
                          (json.dumps({"runtime": "codex"}),)).rowcount == 1
-        login_holds.record(c, machine["runner_id"], "", "fake", "2026-10-19T01:47:00.000000Z", attempt_id="other",
+        assert login_holds.get(c, machine["runner_id"], "work", "fake"), "an in-flight turn keeps its reported home"
+        login_holds.record(c, machine["runner_id"], "work", "fake", "2026-10-19T01:47:00.000000Z", attempt_id="other",
                            bot="finance", error=CLAUDE)
         assert not login_holds.for_attempt(c, first["id"])
         assert json.loads(c.execute("SELECT detail_json FROM events WHERE action='attempt.limited' AND target=?",

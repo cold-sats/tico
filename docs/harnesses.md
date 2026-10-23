@@ -31,20 +31,19 @@ the model itself on `auto` (`cursor-auto` in the model list); a bot's config may
 Cursor's installer only ever installs the newest release, so this harness follows `latest` and cannot be pinned to an
 older version (Pin to this version pins the one installed).
 
-Grok Build and Cursor Agent sign in from **Settings > Computers**, for the computer's own login or a named
-subscription added with **Add connection**. Both offer **Sign out** and **Switch account**. Grok uses
+Grok Build and Cursor Agent sign in from **Settings > Computers**, using **Add connection** for the computer's login. Both offer **Sign out** and **Switch account**. Grok uses
 [`grok login --device-auth`](https://docs.x.ai/build/cli/reference), then reads its scoped `~/.grok/auth.json`
 store for sign-in state (an empty store is signed out). It has no status command. Cursor uses
 [`cursor-agent login`](https://cursor.com/docs/cli/reference/authentication) with `NO_OPEN_BROWSER=1`, and checks
 `cursor-agent status`. Neither flow asks for a code to paste into Tico.
 
 Cursor commands in Tico use `AGENT_CLI_CREDENTIAL_STORE=file`, its supported
-[file credential mode](https://cursor.com/docs/release-notes), so named subscriptions and switches have separate
+[file credential mode](https://cursor.com/docs/release-notes), so the computer's default login home and switches have separate
 credentials on macOS too. The CLI stores these in `~/.config/cursor/auth.json` on Linux or `~/.cursor/auth.json`
 on macOS. An existing macOS Keychain login needs a fresh sign-in from Tico; its Keychain entry is untouched.
-Named profiles use their own `HOME` and drop inherited config-path overrides. A computer login using a custom
+A configured `default_profile` uses its own `HOME` and drops inherited config-path overrides. A computer login using a custom
 auth folder can still sign in and out; Switch account refuses that layout before starting, so it cannot overwrite
-an account outside the switch's private folder. Sign out and sign in instead, or use a named subscription.
+an account outside the switch's private folder. Sign out and sign in instead, or configure a separate computer login home.
 
 Muse Code is Meta's coding CLI (`muse`). Its runtime is `musecode`, because `muse` already names the Muse app synced
 in as an external agent. `runner-rs/src/hosts/musecode.rs` runs `muse exec --json --yolo` once per run with the prompt in a
@@ -375,8 +374,8 @@ Computers), `paste_code` means it takes a pasted code, `logout` means Sign out a
 some of `files`, and `logout` needs `files`. `keychain` lists the platforms where Switch account is not offered
 (`switch_unavailable_on` in `harnesses[].capabilities`; Claude Code on a Mac).
 
-Codex bots on the same ChatGPT login run turns at the same time, as Claude bots do. The computer's own
-login and a named subscription both share their plan's usage allowance. Tico never copies a login into
+Codex bots on the same ChatGPT login run turns at the same time, as Claude bots do. All bots on the computer's
+login share its plan's usage allowance. Tico never copies a login into
 another bot's home; all turns use the original login in its own home.
 
 | Capability | Means | Absent |
@@ -388,7 +387,7 @@ another bot's home; all turns use the original login in its own home.
 | `api_key_check` | A command that asks the provider about the key in its environment, run in an empty home so no other login answers; it passes on exit 0 with no `"is_error": true` in its JSON. Switch to API key checks a key with it (or with `api_key_login`) before the subscription is signed out | Switch to API key is offered only with this or `api_key_login` |
 | `api_key_in_turn` | The computer's key is put in each turn's environment, which is the only place the CLI reads it, and wins over a stored login | Not put there |
 | `subscription_marker` | Text in the sign-in detail that means a plan, so turns bill as `subscription` | Every turn bills as `api` |
-| `subscription_profiles` | Runs on a named subscription's own login (`profile_home` is the variable pointed at the profile's folder; `profile_dirs` are made inside it) | Not covered by subscriptions |
+| `subscription_profiles` | Can run on a computer whose login is a profile folder (`default_profile`; `profile_home` is the variable pointed at the profile's folder; `profile_dirs` are made inside it) | Not covered by subscriptions |
 | `profile_home_overrides` | Variables the CLI reads ahead of `profile_home`; a profile's sign-in, sign-in check and runs never inherit them | Nothing dropped |
 | `own_config_home` | Bot runs use a config folder of Tico's own, never the operator's | The operator's (or the profile's) home |
 | `weekly_usage` | `refresh` (turns report it, and it can be refreshed on demand), `turns`, or `manual` (only a person's reading) | No weekly usage |

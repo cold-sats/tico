@@ -66,10 +66,12 @@ def test_server_tables_come_from_the_manifests():
     assert providers.MODEL_KEYS["codex"] == ("OPENAI_API_KEY",) and "gemini" not in providers.MODEL_KEYS
 
 
-def test_grok_and_cursor_relay_sign_in_and_support_named_subscriptions():
+def test_grok_and_cursor_relay_computer_sign_in_and_sign_out():
     for runtime in ("grok", "cursor"):
         caps = manifests.caps(runtime)
         assert caps["browser_sign_in"] and caps["sign_out"]
-        assert caps["subscription_profiles"] and caps["profile_home"] == "HOME"
+        assert caps["profile_home"] == "HOME"
         assert caps["paste_code"] is False
         assert caps["sign_in_status"] != "none"
+
+    assert manifests.caps("cursor")["subscription_profiles"] is False
