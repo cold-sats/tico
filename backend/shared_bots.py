@@ -11,6 +11,7 @@ from .wake_presets import NEW_BOT_PRESET
 # its computer) is the branch's own.
 FOLLOWED = ("model", "runtime", "harness", "reasoning_effort", "compact_at", "rotate_at", "rotate_after_turns",
             "session", "subtask_session", "task_goal", "review_model", "fallback",
+            "task_model",
             "max_run_minutes", "bot_contact", "private_tasks_default")
 
 
