@@ -19,15 +19,6 @@ All notable changes to Tico are recorded here. The format follows
 - **Cheaper task models show a warning for sensitive work.** A bot with send, spend or publish approval history, or write access beyond its own repository, warns when its task model costs less than its own model from the same provider. You can still save and run it; the run note records the warning ([Warning rules](docs/harnesses.md#a-warning-about-a-cheaper-task-model)).
 
 ### Fixed
-- **A model at capacity no longer reads as spent quota.** A provider's "Selected model is at capacity", overloaded or
-  503 refusal held the whole computer login for 30 to 60 minutes as an exhausted subscription, so every bot on it
-  waited and Health called the login out of quota. It now holds that login for two minutes without growing the
-  limit streak, a fallback can still take the turn, and the bot's line says *temporary model capacity*; a check or task
-  model at capacity no longer counts as its login out of quota or moves the check to its next model, and a quota
-  hold in force keeps its provider's reset. A refusal after the run had sent a message or used a tool is never
-  replayed or sent to a fallback: it waits for review as uncertain work. A structured `overloaded_error` is
-  recognised too. A real quota or billing refusal ("Quota exceeded. Check your plan and billing details.") is still
-  a full usage-limit hold.
 - **A Muse Code run that ends in a quota failure ends its task attempt.** When Muse Code reported its run over (a
   quota or other terminal failure) but its process, or a child process still holding its output, stayed up, the
   runner kept the turn open and renewed the attempt's lease, so the bot showed rate limited and busy at once and its
