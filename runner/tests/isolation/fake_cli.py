@@ -123,7 +123,9 @@ def gemini():
 
 
 def antigravity():
-    conversation = str(uuid.uuid4())
+    # A resumed conversation (`--conversation <id>`, after a restart) keeps its id, as the real CLI does.
+    resumed = sys.argv[sys.argv.index("--conversation") + 1] if "--conversation" in sys.argv else None
+    conversation = resumed or str(uuid.uuid4())
     for msg in lines():
         if msg.get("event") != "user":
             continue
@@ -175,10 +177,11 @@ def grok():
             continue
         if method in ("session/new", "session/load"):
             cwd = params.get("cwd") or cwd   # ACP names the working folder per session, not per process
-            say({"jsonrpc": "2.0", "id": rid, "result": {"sessionId": params.get("sessionId") or session}})
+            session = params.get("sessionId") or session   # a loaded session keeps its id
+            say({"jsonrpc": "2.0", "id": rid, "result": {"sessionId": session} if method == "session/new" else None})
         elif method == "session/prompt":
             text = probe(cwd)
-            say({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": session, "update": {
+            say({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": params.get("sessionId") or session, "update": {
                 "sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}})
             say({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         else:
