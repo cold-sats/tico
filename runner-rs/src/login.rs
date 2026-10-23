@@ -800,7 +800,7 @@ fn run_sign_out(s: Arc<Session>, runner: Arc<Runner>, config: Config) {
         }
     }
     log_out(&exe, &logout, &env);
-    if signed_in(&s.runtime, &exe, &env, false).0 {
+    if sign_in_status(&s.runtime, &exe, &env).is_none_or(|(on, _)| on) {
         if own {
             let _ = runner.sign_in.unmark_signed_out(&s.runtime);
         }
@@ -1234,7 +1234,7 @@ fn run_remove(s: Arc<Session>, runner: Arc<Runner>, config: Config) {
                 std::thread::sleep(Duration::from_millis(50));
             }
         }
-        if signed_in(&s.runtime, &exe, &env, false).0 {
+        if sign_in_status(&s.runtime, &exe, &env).is_none_or(|(on, _)| on) {
             return fail(&format!("The logout finished but {} is still signed in on {}", s.runtime, s.profile));
         }
     }
@@ -2417,13 +2417,115 @@ exit 2
     }
 
     #[test]
+    fn muse_sign_out_and_switch_preserve_each_logins_files() {
+        const CHILD: &str = "TICO_TEST_MUSE_SWITCH";
+        let Some(root) = std::env::var_os(CHILD).map(std::path::PathBuf::from) else {
+            // A separate process keeps every home, credential and stand-in CLI isolated from the runner and other tests.
+            let root = std::env::temp_dir().join(format!("tico-muse-switch-{}", uuid::Uuid::new_v4().simple()));
+            std::fs::create_dir_all(root.join("bin")).unwrap();
+            std::fs::write(root.join("bin/muse"), r#"#!/bin/sh
+home="$XDG_CONFIG_HOME/muse"
+case "$1" in
+  logout)
+    if [ -f "$HOME/broken" ]; then echo malformed > "$home/auth.json"
+    else printf '%s\n' '{"schema_version":1,"providers":{}}' > "$home/auth.json"; fi ;;
+  login)
+    mkdir -p "$home"; printf '%s\n' '{"schema_version":1,"providers":{"meta":{"api_key":"new"}}}' > "$home/auth.json"
+    if [ -f "$HOME/hold" ]; then
+      echo ready > "$HOME/started"
+      while [ -f "$HOME/hold" ]; do sleep 0.05; done
+    fi ;;
+  *) exit 2 ;;
+esac
+"#).unwrap();
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(root.join("bin/muse"), std::fs::Permissions::from_mode(0o755)).unwrap();
+            let out = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "login::tests::muse_sign_out_and_switch_preserve_each_logins_files", "--nocapture"])
+                .env_clear().env(CHILD, &root).env("HOME", &root)
+                .env("PATH", format!("{}:/usr/bin:/bin", root.join("bin").display()))
+                .env("XDG_CONFIG_HOME", root.join("operator"))
+                .env("MUSE_AUTH_PATH", root.join("operator/auth.json"))
+                .output().unwrap();
+            std::fs::remove_dir_all(&root).ok();
+            let said = String::from_utf8_lossy(&out.stdout);
+            assert!(out.status.success() && said.contains("1 passed"), "{said}{}", String::from_utf8_lossy(&out.stderr));
+            return;
+        };
+        crate::hosts::musecode::set_state_dir(&root.join("host-state"));
+        std::fs::create_dir_all(root.join("operator")).unwrap();
+        let operator = root.join("operator/auth.json");
+        std::fs::write(&operator, "operator").unwrap();
+        let path = root.join("runner.json");
+        std::fs::write(&path, json!({"url": "http://127.0.0.1:9", "token": "synthetic", "runner_id": "fixture",
+            "projects_dir": root.join("projects"), "profiles": {"acme": {"dir": root.join("acme")}}}).to_string()).unwrap();
+        let config = Config::load(&path).unwrap();
+        let client = crate::client::Client::new(&config.url(), &config.token(), 1, 0).unwrap();
+        let runner = Arc::new(Runner::new(config.clone(), client, crate::state::State::open(&root.join("state")).unwrap()));
+        let own = crate::hosts::musecode::config_home(None).join("muse/auth.json");
+        let named = root.join("acme/musecode/muse/auth.json");
+        let old = "{\"schema_version\":1,\"providers\":{\"meta\":{\"api_key\":\"old\"}}}\n";
+        let new = "{\"schema_version\":1,\"providers\":{\"meta\":{\"api_key\":\"new\"}}}\n";
+        for auth in [&own, &named] {
+            std::fs::create_dir_all(auth.parent().unwrap()).unwrap();
+            std::fs::write(auth, old).unwrap();
+        }
+        for (profile, auth, other) in [("", &own, &named), ("acme", &named, &own)] {
+            let session = |kind: &str| Session::new(&json!({"id": format!("l{}", uuid::Uuid::new_v4().simple()),
+                "runtime": "musecode", "kind": kind, "profile": profile}));
+            let untouched = std::fs::read(other).unwrap();
+            // An unreadable verdict is not confirmation of sign-out.
+            std::fs::write(root.join("broken"), "").unwrap();
+            let broken = session("sign_out");
+            run_sign_out(broken.clone(), runner.clone(), config.clone());
+            assert_eq!(state(&broken).0, "failed", "{:?}", state(&broken));
+            assert!(!runner.sign_in.signed_out("musecode"));
+            std::fs::remove_file(root.join("broken")).unwrap();
+            std::fs::write(auth, old).unwrap();
+            let out = session("sign_out");
+            run_sign_out(out.clone(), runner.clone(), config.clone());
+            assert_eq!(state(&out).0, "signed_out", "{:?}", state(&out));
+            assert!(auth.exists(), "Muse logout keeps an empty credential store");
+            let (exe, env, _) = login_env("musecode", &config, profile).unwrap();
+            assert_eq!(sign_in_status("musecode", &exe, &env).unwrap().0, false);
+            assert_eq!(std::fs::read(other).unwrap(), untouched);
+
+            // A cancelled sign-in has already written a new file on the side; the old file must stay in use.
+            std::fs::write(auth, old).unwrap();
+            std::fs::write(root.join("hold"), "").unwrap();
+            let cancelled = session("switch");
+            let (s, r, c) = (cancelled.clone(), runner.clone(), config.clone());
+            let running = std::thread::spawn(move || run_session(s, r, c, Duration::from_secs(20)));
+            wait_for(|| root.join("started").exists());
+            assert_eq!(std::fs::read_to_string(auth).unwrap(), old);
+            cancelled.cancelled.store(true, Ordering::SeqCst);
+            running.join().unwrap();
+            assert_eq!(state(&cancelled).0, "cancelled", "{:?}", state(&cancelled));
+            assert_eq!(std::fs::read_to_string(auth).unwrap(), old);
+            std::fs::remove_file(root.join("hold")).unwrap();
+            std::fs::remove_file(root.join("started")).unwrap();
+
+            // A completed login moves into place only after the server confirms the switch.
+            let switched = session("switch");
+            answer_finishing(&switched, true);
+            run_session(switched.clone(), runner.clone(), config.clone(), Duration::from_secs(20));
+            assert_eq!(state(&switched).0, "signed_in", "{:?}", state(&switched));
+            assert_eq!(std::fs::read_to_string(auth).unwrap(), new);
+            assert_eq!(std::fs::read(other).unwrap(), untouched);
+            assert_eq!(std::fs::read_to_string(&operator).unwrap(), "operator");
+            let home = auth.parent().unwrap().parent().unwrap();
+            assert!(!std::fs::read_dir(home).unwrap().flatten().any(|e| e.file_name().to_string_lossy().starts_with(".tico-switch-")));
+        }
+    }
+
+    #[test]
     fn a_muse_sign_in_is_its_login_file_not_a_status_command() {
         let dir = std::env::temp_dir().join(format!("muse-signin-{}", uuid::Uuid::new_v4().simple()));
         let env: Env = [("XDG_CONFIG_HOME".to_string(), dir.display().to_string())].into_iter().collect();
         // `muse` has no `auth status`; the executable is never run for it.
         assert!(!signed_in("musecode", "/nonexistent/muse", &env, false).0);
         std::fs::create_dir_all(dir.join("muse")).unwrap();
-        std::fs::write(dir.join("muse").join("auth.json"), "{}").unwrap();
+        std::fs::write(dir.join("muse").join("auth.json"), r#"{"schema_version":1,"providers":{"meta":{"api_key":"fixture"}}}"#).unwrap();
         let signed = signed_in("musecode", "/nonexistent/muse", &env, false);
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(signed, (true, "Signed in with a Meta account".into()));

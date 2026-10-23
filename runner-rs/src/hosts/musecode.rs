@@ -221,13 +221,30 @@ pub fn mcp_overrides(settings: &Settings) -> (Vec<String>, Env) {
     (args, extra)
 }
 
-/// Whether a Meta-account login file exists: Some(false) when it does not, None when its folder cannot be read
-/// (a bot user's 0700 config folder), which is not "signed out".
+/// Whether Muse's saved credential store contains a Meta login. Logout leaves the store with no Meta entry;
+/// an unreadable or unrecognized store gives no answer, never a false "signed in" from the file alone.
 pub fn signed_in(path: &Path) -> Option<bool> {
-    match std::fs::metadata(path) {
-        Ok(m) => Some(m.is_file()),
-        Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => Some(false),
-        Err(_) => None,
+    match std::fs::symlink_metadata(path) {
+        Ok(m) if m.is_file() => {},
+        Ok(_) => return None,
+        Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => return Some(false),
+        Err(_) => return None,
+    }
+    // Read credentials as the CLI's user, with bounded output, and never include their contents in diagnostics.
+    let out = crate::isolation::std_command("head").args(["-c", "65537", "--"]).arg(path)
+        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).output().ok()?;
+    if !out.status.success() || out.stdout.len() > 65536 {
+        return None;
+    }
+    let auth: Value = serde_json::from_slice(&out.stdout).ok()?;
+    if auth["schema_version"].as_u64() != Some(1) {
+        return None;
+    }
+    let providers = auth["providers"].as_object()?;
+    match providers.get("meta") {
+        None | Some(Value::Null) => Some(false),
+        Some(Value::Object(credential)) => Some(!credential.is_empty()),
+        _ => None,
     }
 }
 
@@ -951,7 +968,11 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let dir = temp("muse-auth");
         assert_eq!(signed_in(&dir.join("auth.json")), Some(false));
-        std::fs::write(dir.join("auth.json"), "{}").unwrap();
+        std::fs::write(dir.join("auth.json"), "malformed").unwrap();
+        assert_eq!(signed_in(&dir.join("auth.json")), None);
+        std::fs::write(dir.join("auth.json"), r#"{"schema_version":1,"providers":{}}"#).unwrap();
+        assert_eq!(signed_in(&dir.join("auth.json")), Some(false));
+        std::fs::write(dir.join("auth.json"), r#"{"schema_version":1,"providers":{"meta":{"api_key":"fixture"}}}"#).unwrap();
         assert_eq!(signed_in(&dir.join("auth.json")), Some(true));
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o000)).unwrap();
         let locked = signed_in(&dir.join("auth.json"));
