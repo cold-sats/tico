@@ -36,63 +36,124 @@ function resources(env, cores, idleFraction) {
   return {jobs, slowdown, timeout};
 }
 
-// Lists every process as {pid, ppid, command}; a stopped script's tree is found from it by parent, never by name.
+// Lists every process as {pid, ppid, start, command}; a stopped script's tree is found from it by parent, never by
+// name. `start` (when the process started) goes with the pid as its identity, so a pid the system has handed to a new
+// process is not mistaken for the one seen before.
 function listProcesses() {
-  return execFileSync('ps', ['-A', '-o', 'pid=,ppid=,command='], {encoding: 'utf8', timeout: 5000}).split('\n')
-    .map(line => /^\s*(\d+)\s+(\d+)\s?(.*)$/.exec(line)).filter(Boolean)
-    .map(([, pid, ppid, command]) => ({pid: Number(pid), ppid: Number(ppid), command: command.trim()}));
+  return execFileSync('ps', ['-A', '-o', 'pid=,ppid=,lstart=,command='],
+                      {encoding: 'utf8', timeout: 5000, env: {...process.env, LC_ALL: 'C'}}).split('\n')
+    .map(line => /^\s*(\d+)\s+(\d+)\s+(\S+\s+\S+\s+\S+\s+\S+\s+\S+)\s*(.*)$/.exec(line)).filter(Boolean)
+    .map(([, pid, ppid, start, command]) => ({pid: Number(pid), ppid: Number(ppid), start, command: command.trim()}));
+}
+
+// Shortens text that goes into a stopped script's report: a URL keeps its origin and path (no query, fragment or
+// user:password), and anything shaped like a key, token, password or long secret is replaced.
+function redact(text, max = 240) {
+  const cut = String(text).slice(0, 4096)
+    .replace(/\b([a-z][a-z0-9+.-]*:\/\/)(?:[^\s/?#@"'<>]*@)?([^\s/?#"'<>]*)([^\s?#"'<>]*)(?:[?#][^\s"'<>]*)?/gi, '$1$2$3')
+    .replace(/((?:--?)?[\w.-]*(?:token|key|secret|passw(?:or)?d|auth\w*|cookie|session|credential|signature)[\w.-]*\s*[=:]\s*|(?<![\w-])--?[\w.-]*(?:token|key|secret|passw(?:or)?d|auth\w*|cookie|session|credential|signature)[\w.-]*\s+|\b(?:bearer|basic)\s+)((?:bearer\s+|basic\s+)?(?:"[^"]*"|'[^']*'|[^\s"',;&]+))/gi,
+             '$1[redacted]')
+    .replace(/[A-Za-z0-9_+=-]{32,}/g, '[redacted]');
+  return cut.length > max ? `${cut.slice(0, max)}… (cut)` : cut;
 }
 
 // Stops a script and every process it started: its browser (which Playwright puts in a process group of its own),
 // the browser's helpers and any server the script spawned. Each pass freezes what it finds, so nothing in the tree
-// can start another process or be orphaned while the tree is read; then all of it is killed. Returns what it stopped.
-function stopTree(root, {list = listProcesses, signal = (pid, name) => process.kill(pid, name)} = {}) {
-  const send = (pid, name) => { try { signal(pid, name); } catch {} };
-  if (process.platform === 'win32') {
-    try { execFileSync('taskkill', ['/PID', String(root), '/T', '/F'], {stdio: 'ignore', timeout: 10000}); } catch {}
-    return [{pid: root, command: ''}];
+// can start another process or be orphaned while the tree is read; then all of it is killed. A process counts as part
+// of the tree only while it is seen with the same pid and start time as when it was found under the script, and only
+// once it has actually been frozen; one that has gone is dropped, so a pid reused by another process gets nothing.
+// Returns the processes it stopped, with `failed` (what could not be stopped) and `errors` (why the cleanup is
+// incomplete, if it is) on the list.
+function stopTree(root, {list = listProcesses, signal = (pid, name) => process.kill(pid, name), platform = process.platform,
+                         taskkill = pid => execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], {stdio: 'ignore', timeout: 10000})} = {}) {
+  const result = Object.assign([], {failed: [], errors: []});
+  const why = error => (error && (error.code || error.message)) || String(error);
+  if (platform === 'win32') {
+    try { taskkill(root); result.push({pid: root, command: 'and every process under it (taskkill /T)'}); }
+    catch (error) { result.failed.push({pid: root, command: '', error: why(error)}); result.errors.push(`taskkill failed: ${why(error)}`); }
+    return result;
   }
-  const found = new Map();
+  const snapshot = () => {
+    try { return list(); }
+    catch (error) { result.errors.push(`could not list processes: ${why(error)}`); return null; }
+  };
+  const frozen = new Map(); // pid -> {start, command}, each one seen under the script and frozen
+  const same = (row, known) => row && row.start === known.start;
+  let rows = null, rootSeen = true, complete = false;
   for (let pass = 0; pass < 5; pass++) {
-    let rows = [];
-    try { rows = list(); } catch {}
-    const tree = new Set([root, ...found.keys()]);
+    rows = snapshot();
+    if (!rows) break;
+    const byPid = new Map(rows.map(row => [row.pid, row]));
+    if (!byPid.has(root) && !frozen.has(root)) { rootSeen = false; complete = true; break; } // it has already exited
+    for (const [pid, known] of frozen) if (!same(byPid.get(pid), known)) frozen.delete(pid); // gone, maybe reused
+    const tree = new Set([root, ...frozen.keys()]);
     for (let grew = true; grew;) {
       grew = false;
       for (const row of rows) if (tree.has(row.ppid) && !tree.has(row.pid)) { tree.add(row.pid); grew = true; }
     }
-    const before = found.size;
+    let added = 0;
     for (const pid of tree) {
-      if (found.has(pid)) continue;
-      found.set(pid, (rows.find(row => row.pid === pid)?.command ?? '').slice(0, 120));
-      send(pid, 'SIGSTOP');
+      if (frozen.has(pid) || result.failed.some(p => p.pid === pid)) continue;
+      const row = byPid.get(pid);
+      try { signal(pid, 'SIGSTOP'); }
+      catch (error) {
+        if (error && error.code === 'ESRCH') continue; // exited before it could be frozen: nothing to stop
+        if (pid === root) continue; // the script itself is still killed below
+        result.failed.push({pid, command: redact(row?.command ?? '', 120), error: why(error)});
+        continue;
+      }
+      frozen.set(pid, {start: row?.start, command: row?.command ?? ''});
+      added++;
     }
-    if (found.size === before) break;
+    if (!added) { complete = true; break; }
   }
-  for (const pid of found.keys()) send(pid, 'SIGKILL');
-  return [...found].map(([pid, command]) => ({pid, command}));
+  if (rows && !complete) result.errors.push('the process tree was still growing after 5 passes');
+  // Kill only what is still the process that was frozen; without a fresh list, what was frozen cannot have exited
+  // by itself, so it still holds its pid.
+  const last = rows ? snapshot() : null;
+  const current = last && new Map(last.map(row => [row.pid, row]));
+  const targets = new Map(frozen);
+  if (rootSeen && !targets.has(root)) targets.set(root, {start: undefined, command: ''});
+  for (const [pid, known] of targets) {
+    if (current && pid !== root && !same(current.get(pid), known)) continue;
+    const entry = {pid, command: redact(known.command, 120)};
+    try { signal(pid, 'SIGKILL'); result.push(entry); }
+    catch (error) {
+      if (error && error.code === 'ESRCH') result.push(entry);
+      else result.failed.push({...entry, error: why(error)});
+    }
+  }
+  if (result.failed.length) result.errors.push(`${result.failed.length} process(es) could not be stopped`);
+  return result;
 }
 
+// Bounds on what is held of Playwright's call log, and on the report made from it.
+const TRACE = {line: 8192, call: 240, calls: 10, pending: 20, report: 8192};
+
 // Runs one browser script with the support preload and holds its output. A script still running after `timeout`
-// seconds is stopped with everything it started. Playwright's call log (DEBUG=pw:api) is held apart from the
-// output: it names the browser calls a stopped script was still waiting on, which is the hang point.
+// seconds is stopped with everything it started; if it has still not exited `grace` seconds later, the run ends
+// anyway and says so. Playwright's call log (DEBUG=pw:api) is held apart from the output, bounded: it names the
+// browser calls a stopped script was still waiting on, which is the hang point.
 function runScript(script, {env = process.env, timeout, preload = path.join(__dirname, '..', 'ui', 'tests', 'support', 'browser.cjs'),
-                            stop = stopTree}) {
+                            stop = stopTree, grace = 5}) {
   return new Promise(resolve => {
     const t0 = Date.now();
     const trace = env.DEBUG === undefined;
     const child = spawn(process.execPath, ['--require', preload, script], {env: trace ? {...env, DEBUG: 'pw:api'} : env});
-    let out = '', err = '', timedOut = false, stopped = [];
+    let out = '', err = '', timedOut = false, settled = false, graceTimer;
+    let cleanup = Object.assign([], {failed: [], errors: []});
     const calls = [], pending = [];
     const take = line => {
       const api = / pw:api (.*)$/.exec(line);
       if (!api) { out += line + '\n'; return; }
-      calls.push(api[1]);
-      if (calls.length > 10) calls.shift();
+      calls.push(redact(api[1], TRACE.call));
+      if (calls.length > TRACE.calls) calls.shift();
       let call;
-      if ((call = /^=> (\S+) started/.exec(api[1]))) pending.push(call[1]);
-      else if ((call = /^<= (\S+) (succeeded|failed)/.exec(api[1])) && pending.includes(call[1])) {
-        pending.splice(pending.lastIndexOf(call[1]), 1);
+      if ((call = /^=> (\S+) started/.exec(api[1]))) {
+        pending.push(redact(call[1], 80));
+        if (pending.length > TRACE.pending) pending.shift();
+      } else if ((call = /^<= (\S+) (succeeded|failed)/.exec(api[1])) && pending.includes(redact(call[1], 80))) {
+        pending.splice(pending.lastIndexOf(redact(call[1], 80)), 1);
       }
     };
     child.stdout.on('data', d => { out += d; });
@@ -100,26 +161,54 @@ function runScript(script, {env = process.env, timeout, preload = path.join(__di
       if (!trace) { out += d; return; }
       const lines = (err + d).split('\n');
       err = lines.pop();
-      lines.forEach(take);
+      if (err.length > TRACE.line) err = err.slice(0, TRACE.line); // an endless line is held only up to its bound
+      lines.forEach(line => take(line.length > TRACE.line ? line.slice(0, TRACE.line) : line));
     });
-    const timer = setTimeout(() => { timedOut = true; stopped = stop(child.pid); }, timeout * 1000);
+    const finish = code => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer); clearTimeout(graceTimer);
+      child.stdout.destroy(); child.stderr.destroy();
+      if (err) take(err);
+      resolve({code, out, timedOut, secs: (Date.now() - t0) / 1000, stopped: cleanup,
+               pending: [...pending], calls: [...calls]});
+    };
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try {
+        const got = stop(child.pid);
+        cleanup = Object.assign([...got], {failed: [...(got.failed || [])], errors: [...(got.errors || [])]});
+      } catch (error) { cleanup.errors.push(`stopping failed: ${error.message}`); }
+      // A script that could not be stopped is not waited for; one that was is given `grace` seconds to exit.
+      const stuck = cleanup.failed.some(p => p.pid === child.pid);
+      graceTimer = setTimeout(() => {
+        cleanup.errors.push(stuck ? `the script (pid ${child.pid}) could not be stopped; the run ended without waiting for it`
+                                  : `the script (pid ${child.pid}) was still running ${grace}s after it was stopped`);
+        finish(null);
+      }, stuck ? 0 : grace * 1000);
+    }, timeout * 1000);
     // Wait for the process, not for its pipes: a browser's helper processes can hold them open for a minute.
     child.on('exit', code => {
-      clearTimeout(timer);
-      setTimeout(() => {
-        child.stdout.destroy(); child.stderr.destroy();
-        if (err) take(err);
-        resolve({code, out, timedOut, secs: (Date.now() - t0) / 1000, stopped, pending: [...pending], calls: [...calls]});
-      }, 100);
+      clearTimeout(timer); clearTimeout(graceTimer);
+      setTimeout(() => finish(code), 100);
     });
   });
 }
 
-// What a stopped script was doing: the browser calls it was waiting on, the last ones logged and what was stopped.
+// What a stopped script was doing: the browser calls it was waiting on, the last ones logged and what was stopped,
+// what could not be and why the cleanup is incomplete. Every piece is shortened and redacted, and the whole is bounded.
 function stoppedReport({pending, calls, stopped}) {
-  return [pending.length ? `waiting on: ${pending.join(', ')}` : 'waiting on: no browser call (the script itself)',
-          ...(calls.length ? ['last browser calls:', ...calls.map(call => `  ${call}`)] : []),
-          `stopped ${stopped.length} process(es) it started:`, ...stopped.map(p => `  ${p.pid} ${p.command}`)].join('\n');
+  const failed = stopped.failed || [], errors = stopped.errors || [];
+  const lines = [pending.length ? `waiting on: ${pending.map(name => redact(name, 80)).join(', ')}`
+                                : 'waiting on: no browser call (the script itself)',
+                 ...(calls.length ? ['last browser calls:', ...calls.map(call => `  ${redact(call, TRACE.call)}`)] : []),
+                 `stopped ${stopped.length} process(es) it started:`,
+                 ...stopped.map(p => `  ${p.pid} ${redact(p.command, 120)}`),
+                 ...(failed.length ? [`could not stop ${failed.length} process(es):`,
+                                      ...failed.map(p => `  ${p.pid} ${redact(p.command, 120)}: ${redact(p.error, 120)}`)] : []),
+                 ...(errors.length ? [`cleanup incomplete: ${errors.map(e => redact(e, 200)).join('; ')}`] : [])];
+  const report = lines.join('\n');
+  return report.length > TRACE.report ? `${report.slice(0, TRACE.report)}\n… (report cut at ${TRACE.report} characters)` : report;
 }
 
 async function main() {
@@ -172,7 +261,7 @@ async function main() {
   process.exit(failed.length ? 1 : 0);
 }
 
-module.exports = {resources, runScript, sampleCpu, inSlot, stopTree, stoppedReport};
+module.exports = {resources, runScript, sampleCpu, inSlot, stopTree, stoppedReport, redact};
 // A local run first takes one of the box's heavy-job slots, at low priority (scripts/heavy.sh), before it samples
 // the CPU; hosted CI, a run already in a slot, or a computer without bash goes straight on.
 function inSlot(env = process.env) { return Boolean(env.CI || env.TICO_HEAVY_HELD) || process.platform === 'win32'; }

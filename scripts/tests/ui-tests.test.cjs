@@ -5,7 +5,8 @@ const path = require('node:path');
 const vm = require('node:vm');
 const {spawnSync} = require('node:child_process');
 const os = require('node:os');
-const {resources, runScript, sampleCpu, stoppedReport} = require('../ui-tests.cjs');
+const {EventEmitter} = require('node:events');
+const {resources, runScript, sampleCpu, stopTree, stoppedReport} = require('../ui-tests.cjs');
 
 test('one CPU-idle policy, explicit overrides and shared context/page timeouts', async () => {
   const counters = (user, idle) => Array.from({length: 12}, () => ({times: {user, nice: 0, sys: 0, idle, irq: 0}}));
@@ -104,9 +105,12 @@ test('a hung browser script is named with its pending call; it and everything it
     for (let i = 0; i < 50 && helper.some(alive); i++) await new Promise(r => setTimeout(r, 100));
     assert.deepEqual(helper.filter(alive), [], 'no orphan browser or server is left');
     const ended = await runScript(path.join(dir, 'ends.cjs'), {timeout: 30, preload});
-    assert.deepEqual([ended.code, ended.timedOut, ended.out.trim(), ended.stopped], [0, false, 'PASS', []]);
+    assert.deepEqual([ended.code, ended.timedOut, ended.out.trim(), [...ended.stopped]], [0, false, 'PASS', []]);
   } finally {
-    for (const pid of helper || []) if (alive(pid)) process.kill(pid, 'SIGKILL');
+    // Only a helper this test started: the pid must still run the test's own sleep command, not a reused pid.
+    const ours = pid => { try { return spawnSync('ps', ['-o', 'command=', '-p', String(pid)], {encoding: 'utf8'}).stdout.includes('setInterval'); }
+                          catch { return false; } };
+    for (const pid of helper || []) if (alive(pid) && ours(pid)) process.kill(pid, 'SIGKILL');
     fs.rmSync(dir, {recursive: true, force: true});
   }
 });
@@ -131,4 +135,106 @@ test('newPage and page.close fail with their name instead of waiting forever', {
   const quick = {setDefaultTimeout() {}, setDefaultNavigationTimeout() {}, close: async () => 'closed'};
   ctx.onPage(quick);
   assert.equal(await quick.close(), 'closed');
+});
+
+// The runner loaded with a fake child_process and platform: no real process is started, frozen or killed.
+function fakeRunner({platform = 'darwin', execFileSync = () => { throw new Error('ps must not run'); }} = {}) {
+  const child = new EventEmitter();
+  child.pid = 123;
+  for (const pipe of ['stdout', 'stderr']) { child[pipe] = new EventEmitter(); child[pipe].destroy = () => {}; }
+  const sandbox = {exports: {}};
+  vm.runInNewContext(fs.readFileSync(path.resolve(__dirname, '../ui-tests.cjs'), 'utf8'), {
+    module: sandbox, __dirname: path.resolve(__dirname, '..'), setTimeout, clearTimeout, console, Buffer,
+    require: name => name === 'node:child_process' ? {spawn: () => child, execFileSync} : require(name),
+    process: {platform, env: {}, execPath: 'node', kill: () => { throw new Error('no real signals'); }}
+  });
+  return {child, runner: sandbox.exports};
+}
+const row = (pid, ppid, start, command = 'fixture') => ({pid, ppid, start, command});
+const settles = (promise, ms) => Promise.race([promise, new Promise(r => setTimeout(() => r('unsettled'), ms))]);
+
+test('a pid that left the tree and was reused by another process is never stopped', () => {
+  // Freezing 101 fails (it exited); the next list shows 101 reused by an unrelated process with a child of its own.
+  let scans = 0;
+  const sent = [];
+  const reaped = stopTree(100, {
+    list: () => ++scans === 1 ? [row(100, 1, 'T0'), row(101, 100, 'T1', 'owned worker')]
+                              : [row(100, 1, 'T0'), row(101, 1, 'T9', 'unrelated'), row(102, 101, 'T9', 'unrelated child')],
+    signal: (pid, name) => {
+      sent.push([pid, name]);
+      if (pid === 101 && name === 'SIGSTOP') throw Object.assign(new Error('gone'), {code: 'ESRCH'});
+    }});
+  assert.deepEqual(sent.filter(([pid]) => pid !== 100), [[101, 'SIGSTOP']]);
+  assert.deepEqual(reaped.map(p => p.pid), [100]);
+  // Frozen 201 is killed by someone else and its pid reused (same pid, new start time) before the final kill.
+  scans = 0;
+  sent.length = 0;
+  const reused = stopTree(200, {
+    list: () => ++scans <= 2 ? [row(200, 1, 'T0'), row(201, 200, 'T1', 'owned worker')]
+                             : [row(200, 1, 'T0'), row(201, 1, 'T9', 'unrelated'), row(202, 201, 'T9', 'unrelated child')],
+    signal: (pid, name) => sent.push([pid, name])});
+  assert.deepEqual(sent, [[200, 'SIGSTOP'], [201, 'SIGSTOP'], [200, 'SIGKILL']]);
+  assert.deepEqual(reused.map(p => p.pid), [200]);
+  // A stable tree is all stopped, and a sibling is untouched.
+  sent.length = 0;
+  const stable = stopTree(300, {list: () => [row(300, 1, 'T0'), row(301, 300, 'T1'), row(302, 301, 'T2'), row(900, 1, 'T3')],
+                                signal: (pid, name) => sent.push([pid, name])});
+  assert.deepEqual(stable.map(p => p.pid).sort(), [300, 301, 302]);
+  assert.deepEqual(stable.errors, []);
+  assert.equal(sent.some(([pid]) => pid === 900), false);
+});
+
+test('a process list that fails is reported as incomplete cleanup, with the error', () => {
+  const sent = [];
+  const cleanup = stopTree(100, {list: () => { throw new Error('synthetic ps timeout'); }, signal: (pid, name) => sent.push([pid, name])});
+  const report = stoppedReport({pending: [], calls: [], stopped: cleanup});
+  assert.match(report, /cleanup incomplete: could not list processes: synthetic ps timeout/);
+  assert.deepEqual([...new Set(sent.map(([pid]) => pid))], [100], 'only the script itself, which the runner owns');
+});
+
+test('a stop that cannot kill the script (taskkill denied) still ends the run in bounded time', {timeout: 10000}, async () => {
+  const attempts = [];
+  const {runner} = fakeRunner({platform: 'win32', execFileSync: (cmd, args) => {
+    attempts.push([cmd, ...args]);
+    throw Object.assign(new Error('Access is denied.'), {code: 'EPERM'});
+  }});
+  const result = await settles(runner.runScript('synthetic.cjs', {preload: 'synthetic', timeout: 0.01, grace: 30}), 3000);
+  assert.notEqual(result, 'unsettled', 'the run ended although the script never exited');
+  assert.deepEqual(attempts, [['taskkill', '/PID', '123', '/T', '/F']]);
+  assert.equal(result.timedOut, true);
+  assert.equal(result.code, null);
+  const report = runner.stoppedReport(result);
+  assert.match(report, /could not stop 1 process\(es\):\n {2}123 : EPERM/);
+  assert.match(report, /cleanup incomplete: taskkill failed: EPERM; .*could not be stopped; the run ended without waiting for it/);
+  // A script that was signalled but never exits (it did not die) is waited for only `grace` seconds.
+  const quiet = fakeRunner();
+  const started = Date.now();
+  const unexited = await settles(quiet.runner.runScript('synthetic.cjs', {preload: 'synthetic', timeout: 0.01, grace: 0.2,
+                                                                          stop: pid => [{pid, command: ''}]}), 3000);
+  assert.notEqual(unexited, 'unsettled');
+  assert.ok(Date.now() - started >= 200);
+  assert.match(quiet.runner.stoppedReport(unexited), /cleanup incomplete: the script \(pid 123\) was still running 0\.2s after it was stopped/);
+});
+
+test('the browser call log is bounded while it streams and in the report, and URLs and secrets are redacted',
+     {timeout: 10000}, async () => {
+  const {child, runner} = fakeRunner();
+  const run = runner.runScript('synthetic.cjs', {preload: 'synthetic', timeout: 0.01,
+    stop: () => { child.emit('exit', null); return [{pid: 123, command: `fixture --token=SYNTH_ONLY_SECRET ${'a'.repeat(5000)}`}]; }});
+  const starts = Array.from({length: 1000}, (_, i) => `2026-10-23T00:00:00Z pw:api => page.click${i} started`);
+  const url = `https://acme.example/app/page?token=SYNTH_ONLY_SECRET&x=${'x'.repeat(200000)}`;
+  child.stderr.emit('data', Buffer.from(`${starts.join('\n')}\n2026-10-23T00:00:00Z pw:api navigating to "${url}"\n`));
+  // A line that never ends: held only up to its bound however much arrives.
+  child.stderr.emit('data', Buffer.from('2026-10-23T00:00:00Z pw:api => page.fill started api_key=SYNTH_ONLY_SECRET '));
+  for (let i = 0; i < 20; i++) child.stderr.emit('data', Buffer.from('y'.repeat(100000)));
+  const result = await settles(run, 3000);
+  assert.notEqual(result, 'unsettled');
+  const report = runner.stoppedReport(result);
+  assert.ok(result.pending.length <= 20, `${result.pending.length} pending calls held`);
+  assert.ok(result.calls.length <= 10 && result.calls.every(call => call.length <= 260), 'each held call is short');
+  assert.ok(report.length <= 8300, `report is ${report.length} characters`);
+  assert.equal(report.includes('SYNTH_ONLY_SECRET'), false);
+  assert.match(report, /navigating to "https:\/\/acme\.example\/app\/page\s/);
+  assert.match(report, /waiting on: .*page\.click999/);
+  assert.match(report, /--token=\[redacted\]/);
 });
