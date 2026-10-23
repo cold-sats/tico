@@ -151,8 +151,13 @@ policy restricted to this distribution's ARN. Keep Block Public Access on; never
 
 The v1 edge contract is:
 
-- Hosts are `<workspace>-files.<FilesDomain>`; HQ alone writes a full-host key into the edge key store.
-  Its JSON value is `{"prefix":"c/acme/","signing":{"key_id":"v1","secret":"<UTF-8 text>"}}`.
+- Hosts are `<workspace>-files.<FilesDomain>`; HQ alone writes the lowercase host **label** as the
+  edge key-store key (for example `acme-files`). Its JSON value is
+  `{"v":1,"prefix":"c/<lowercase-v4-install-uuid>/","signing":{"key_id":"k1","secret":"<64-lowercase-hex>"}}`.
+  Host is lowercased before lookup and signature verification. Invalid record versions, prefixes,
+  key IDs or secrets fail closed. HQ derives the per-install secret from its master and writes it
+  before returning the address to the app; the edge never holds that master. HQ removes the record
+  with the company's stored prefix at the end of retention. HQ's `HQ_FILES_KVS_ARN` identifies the store.
   Company S3 write credentials must never grant key-store writes. The signing secret is used as text,
   not decoded as base64. Deleting or rotating the record revokes links; the app must refresh its key.
 - The only paths are `/blobs/<2hex>/<sha256>` and `/visuals/<2hex>/<sha256>`, all lowercase and with the

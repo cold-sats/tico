@@ -25,28 +25,35 @@ function equal(a, b) {
     return diff === 0;
 }
 
+function matches(pattern, text) {
+    // JS $ alone also accepts a final newline; wire fields must match in full.
+    const match = pattern.exec(text);
+    return match !== null && match[0] === text;
+}
+
 async function handler(event) {
     const request = event.request;
     const path = request.uri;
-    if (!/^\/(blobs|visuals)\/([0-9a-f]{2})\/(\2[0-9a-f]{62})$/.test(path)) return deny(404);
+    if (!matches(/^\/(blobs|visuals)\/([0-9a-f]{2})\/(\2[0-9a-f]{62})$/, path)) return deny(404);
     if (request.method !== 'GET' && request.method !== 'HEAD') return deny(403);
     const hostHeader = request.headers.host;
-    const host = hostHeader && !hostHeader.multiValue ? hostHeader.value : '';
+    const host = hostHeader && !hostHeader.multiValue ? hostHeader.value.toLowerCase() : '';
     const label = host.slice(0, -(domain.length + 1));
-    if (!host.endsWith('.' + domain) || !/^[a-z0-9](?:[a-z0-9-]{0,55}[a-z0-9])?-files$/.test(label)) return deny(403);
+    if (!host.endsWith('.' + domain) || !matches(/^[a-z0-9](?:[a-z0-9-]{0,55}[a-z0-9])?-files$/, label)) return deny(403);
     const query = request.querystring;
     const expiry = one(query, 'e');
     const key = one(query, 'k');
     const signature = one(query, 's');
     const now = Math.floor(Date.now() / 1000);
-    if (!/^[0-9]{1,12}$/.test(expiry) || Number(expiry) <= now || Number(expiry) > now + 300 ||
-        !/^[A-Za-z0-9_-]{1,64}$/.test(key) || !/^[A-Za-z0-9_-]{43}$/.test(signature)) return deny(403);
+    if (!matches(/^[0-9]{1,12}$/, expiry) || Number(expiry) <= now || Number(expiry) > now + 300 ||
+        key !== 'k1' || !matches(/^[A-Za-z0-9_-]{43}$/, signature)) return deny(403);
     try {
         // Only HQ writes this mapping; object writers never choose the tenant prefix or key.
-        const company = JSON.parse(await store.get(host));
-        if (!/^c\/[a-z0-9][a-z0-9-]{0,63}\/$/.test(company.prefix) ||
+        const company = JSON.parse(await store.get(label));
+        if (company.v !== 1 || typeof company.prefix !== 'string' ||
+            !matches(/^c\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/$/, company.prefix) ||
             company.signing.key_id !== key || typeof company.signing.secret !== 'string' ||
-            company.signing.secret.length < 32 || company.signing.secret.length > 256) return deny(403);
+            !matches(/^[0-9a-f]{64}$/, company.signing.secret)) return deny(403);
         const expected = crypto.createHmac('sha256', company.signing.secret)
             .update(host + '\n' + path + '\n' + expiry).digest('base64url');
         if (!equal(expected, signature)) return deny(403);

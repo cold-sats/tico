@@ -8,15 +8,18 @@ const path = require('node:path');
 const template = JSON.parse(execFileSync('python3', [path.join(__dirname, 'template.py')]));
 const resources = template.Resources;
 const host = 'acme-files.files.example';
-const secret = 'synthetic-UTF8-秘密-01234567890123456789';
-const record = {prefix: 'c/acme/', signing: {key_id: 'v1', secret}};
+const label = 'acme-files';
+const install = '0f1e2d3c-4b5a-4968-8776-655443322110';
+const otherInstall = 'ffeeddcc-bbaa-4987-8765-443322110000';
+const secret = crypto.createHmac('sha256', 'm'.repeat(32)).update('ticofiles:' + install).digest('hex');
+const record = {v: 1, prefix: 'c/' + install + '/', signing: {key_id: 'k1', secret}};
 const hash = crypto.createHash('sha256').update('clean bytes').digest('hex');
 const visualPath = '/visuals/' + hash.slice(0, 2) + '/' + hash;
 const blobPath = visualPath.replace('/visuals/', '/blobs/');
-const now = 1800000000;
+const now = 1799999700;
 const copy = obj => JSON.parse(JSON.stringify(obj));
 
-function load(name, mapping = {[host]: record}) {
+function load(name, mapping = {[label]: record}) {
     let source = resources[name].Properties.FunctionCode;
     if (typeof source !== 'string') source = source['Fn::Join'][1].map(x => typeof x === 'string' ? x : 'files.example').join('');
     assert.ok(Buffer.byteLength(source) < 10240, 'CloudFront function size');
@@ -33,7 +36,7 @@ function request(uri = visualPath, address = host, expiry = now + 300) {
     const e = String(expiry);
     const s = crypto.createHmac('sha256', secret).update(address + '\n' + uri + '\n' + e).digest('base64url');
     return {method: 'GET', uri, headers: {host: {value: address}}, cookies: {session: {value: 'do-not-forward'}},
-        querystring: {e: {value: e}, k: {value: 'v1'}, s: {value: s}}};
+        querystring: {e: {value: e}, k: {value: 'k1'}, s: {value: s}}};
 }
 
 const script = "'sha256-" + crypto.createHash('sha256').update('reporter()').digest('base64') + "'";
@@ -63,7 +66,7 @@ test('signed namespace and tenant boundaries hold before every origin or cache a
         const req = request(uri);
         req.querystring['response-content-type'] = {value: 'application/javascript'};
         const out = await gate({request: req});
-        assert.equal(out.uri, '/c/acme' + uri);
+        assert.equal(out.uri, '/' + record.prefix.slice(0, -1) + uri);
         assert.deepEqual(out.querystring, {});
         assert.deepEqual(out.cookies, {});
     }
@@ -73,6 +76,7 @@ test('signed namespace and tenant boundaries hold before every origin or cache a
         {...request(), method: 'POST'}, {...request(), uri: blobPath},
         request('/c/acme' + visualPath), request(visualPath.replace(hash.slice(0, 2), 'ff')),
         request(visualPath.toUpperCase()), request(visualPath + '/'), request('/visuals/../blobs/' + hash),
+        request(visualPath + '\n'), request(visualPath, host + '\n'),
     ];
     for (const field of ['e', 'k', 's']) {
         const duplicate = request();
@@ -81,6 +85,7 @@ test('signed namespace and tenant boundaries hold before every origin or cache a
         const tamper = request();
         tamper.querystring[field].value = field === 'k' ? 'v2' : 'bad';
         attacks.push(tamper);
+        const newline = request(); newline.querystring[field].value += '\n'; attacks.push(newline);
     }
     for (const req of attacks) {
         const out = await gate({request: req});
@@ -89,10 +94,21 @@ test('signed namespace and tenant boundaries hold before every origin or cache a
         assert.equal(out.headers['x-content-type-options'].value, 'nosniff');
     }
     const otherHost = 'bravo-files.files.example';
-    const both = load('Gate', {[host]: record, [otherHost]: {...record, prefix: 'c/bravo/'}});
+    const both = load('Gate', {[label]: record, 'bravo-files': {...record, prefix: 'c/' + otherInstall + '/'}});
     assert.equal((await both({request: {...request(), headers: {host: {value: otherHost}}}})).statusCode, 403);
-    assert.equal((await both({request: request(visualPath, otherHost)})).uri, '/c/bravo' + visualPath);
-    assert.equal((await load('Gate', {[host]: {...record, prefix: 'c/acme/../bravo/'}})({request: request()})).statusCode, 403);
+    assert.equal((await both({request: request(visualPath, otherHost)})).uri, '/c/' + otherInstall + visualPath);
+    for (const invalid of [{...record, prefix: 'c/acme/../bravo/'}, {...record, v: 2}, {...record, v: undefined},
+        {...record, signing: {key_id: 'k1', secret: secret + '\n'}}, {...record, prefix: record.prefix + '\n'}]) {
+        assert.equal((await load('Gate', {[label]: invalid})({request: request()})).statusCode, 403);
+    }
+    const upperHost = request(); upperHost.headers.host.value = host.toUpperCase();
+    assert.equal((await gate({request: upperHost})).uri, '/c/' + install + visualPath);
+    const empty = crypto.createHash('sha256').update('').digest('hex');
+    const vectorPath = '/blobs/' + empty.slice(0, 2) + '/' + empty;
+    const vector = request(vectorPath);
+    assert.equal(secret, 'de31dde3b05eca70b7810ba99571bdc191f64914414dc8541aa9d2909a3d8867');
+    assert.equal(vector.querystring.s.value, 'OXzgmCxiDmWe8176epI0AeQpZJd2jEHtf76l_Y5PjDo');
+    assert.equal((await gate({request: vector})).uri, '/c/' + install + vectorPath);
 });
 
 test('generated visual behavior serves signed cleaned HTML and SVG using fixed templates', async () => {
@@ -100,7 +116,7 @@ test('generated visual behavior serves signed cleaned HTML and SVG using fixed t
     const respond = load('VisualsResponse');
     for (const type of ['text/html', 'TEXT/HTML; charset=latin1', 'image/svg+xml']) {
         const req = await gate({request: request()});
-        assert.equal(req.uri, '/c/acme' + visualPath);
+        assert.equal(req.uri, '/c/' + install + visualPath);
         const stored = origin(type);
         const out = await respond({request: req, response: stored});
         assert.equal(out.statusCode, 200);
