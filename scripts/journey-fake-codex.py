@@ -43,7 +43,7 @@ def thread_env(params):
 
 def origin(env):
     """A one-commit repository the turn's user owns, so cloning it needs no credentials and no safe.directory."""
-    path = os.path.join(env.get("HOME") or os.path.expanduser("~"), "journey-origin")
+    path = os.path.join(threads_dir(), "origin-%d" % os.getuid())
     if not os.path.isdir(os.path.join(path, ".git")):
         git = {**env, "GIT_AUTHOR_NAME": "Acme", "GIT_AUTHOR_EMAIL": "bot@acme.example",
                "GIT_COMMITTER_NAME": "Acme", "GIT_COMMITTER_EMAIL": "bot@acme.example"}
