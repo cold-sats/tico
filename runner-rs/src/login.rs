@@ -2362,14 +2362,15 @@ exit 2
         assert!(!creds.exists() && !sign.key_off("claude") && !claude_side());
         assert_eq!(sign.headless_secret("claude"), Some(("ANTHROPIC_API_KEY".into(), "sk-ant-key-0123456789".into())), "the next turn's key");
         assert_eq!(read_env(&computer)["OPENAI_API_KEY"], "sk-key-0123456789");
-        // An uncertain logout keeps the explicit sign-out block even after removing a cached computer key.
+        // An uncertain logout keeps the explicit block on saved keys; sign-out retains a computer-owned key on disk.
         std::fs::write(&creds, subscription).unwrap();
         flag("break-after", true);
         let out = Session::new(&json!({"id": "lunknown", "runtime": "claude", "kind": "sign_out"}));
         run_sign_out(out.clone(), runner.clone(), config.clone());
         assert_eq!(state(&out), ("failed".into(), "The logout finished but could not confirm whether claude signed out".into()));
         assert!(sign.signed_out("claude") && sign.headless_secret("claude").is_none());
-        assert!(!creds.exists() && !read_env(&computer).contains_key("ANTHROPIC_API_KEY"));
+        assert!(!creds.exists());
+        assert_eq!(read_env(&computer)["ANTHROPIC_API_KEY"], "sk-ant-key-0123456789", "sign-out blocks, but does not clear, a computer-owned key");
         assert_eq!(read_env(&computer)["OPENAI_API_KEY"], "sk-key-0123456789");
     }
 
