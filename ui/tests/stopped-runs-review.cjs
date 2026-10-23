@@ -87,9 +87,9 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
     const settings = page.locator('#settings-issues [data-execution-review="builder"]');
     assert.equal(await settings.innerText(), 'Review stopped runs');
     await settings.click();
-    await page.locator('dialog.tmodal h2', {hasText: 'Stopped runs'}).waitFor({timeout: t(5000)});
+    await page.locator('dialog.stopped-runs-dialog h2', {hasText: 'Stopped runs'}).waitFor({timeout: t(5000)});
     // The cause and decision fit above the two actions; the evidence stays folded.
-    const card = page.locator('dialog.tmodal form[data-job="j1"]');
+    const card = page.locator('dialog.stopped-runs-dialog form[data-job="j1"]');
     await card.waitFor({timeout: t(5000)});
     assert.match(await card.locator('[data-stopped]').innerText(), /stopped before finishing/);
     assert.match(await card.locator('[data-pick]').innerText(), /Try again/);
@@ -104,7 +104,7 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
     assert.equal(decisions[0].attempt_id, 'a-j1');
     assert.equal(decisions[0].acknowledge_uncertain_effects, true);
     assert.equal(await card.locator('button:enabled').count(), 0);
-    await page.locator('dialog.tmodal [data-close]').click();
+    await page.locator('dialog.stopped-runs-dialog [data-close]').click();
 
     // Health keeps the one that holds nothing as a note, and it is still reviewed from there.
     await page.locator('#settings-more > summary').click();
@@ -114,9 +114,9 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
     assert.equal(await note.innerText(), 'Review stopped runs');
     assert.equal(await page.locator('#hl-page .hl-notes [data-execution-review="builder"]').count(), 0);
     await note.click();
-    await page.locator('dialog.tmodal h2', {hasText: 'Stopped runs'}).waitFor({timeout: t(5000)});
+    await page.locator('dialog.stopped-runs-dialog h2', {hasText: 'Stopped runs'}).waitFor({timeout: t(5000)});
     // A run that only read is safe to try again, so that button leads.
-    const read = page.locator('dialog.tmodal form[data-job="j2"]');
+    const read = page.locator('dialog.stopped-runs-dialog form[data-job="j2"]');
     await read.waitFor({timeout: t(5000)});
     assert.match(await read.locator('[data-stopped]').innerText(), /stopped before finishing/);
     assert.deepEqual(await read.locator('.stopped-run-actions .row button').allInnerTexts(), ['Try again', 'Don’t retry']);
@@ -125,7 +125,7 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
     assert.equal(await read.locator('[data-saved]').innerText(), 'The saved answer is one paragraph.\n\nA second paragraph.');
     await page.setViewportSize({width: 390, height: 680});
     await shot('stopped-phone-saved');
-    const geometry = await page.locator('dialog.tmodal').evaluate(d => {
+    const geometry = await page.locator('dialog.stopped-runs-dialog').evaluate(d => {
       const box = el => el.getBoundingClientRect().toJSON();
       return {dialog: box(d), header: box(d.querySelector('header')), close: box(d.querySelector('[data-close]')),
         body: box(d.querySelector('[data-review]')), saved: box(d.querySelector('[data-saved]'))};
@@ -149,17 +149,17 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
     assert.equal(decisions.at(-1).decision, 'resume');
     assert.equal(decisions.at(-1).attempt_id, 'a-j2');
     assert.equal(await read.locator('button:enabled').count(), 0);
-    await page.locator('dialog.tmodal [data-close]').click();
+    await page.locator('dialog.stopped-runs-dialog [data-close]').click();
     deferred = true;
     await page.evaluate(() => executionReview('writer'));
-    const busy = page.locator('dialog.tmodal form');
+    const busy = page.locator('dialog.stopped-runs-dialog form');
     await busy.locator('button[value=dismiss]').click();
     await busy.locator('[data-result]', {hasText: 'Choice saved. The bot is busy'}).waitFor();
     jobs.writer[0].pending_decision = {decision: 'dismiss'};
-    await page.locator('dialog.tmodal [data-close]').click();
+    await page.locator('dialog.stopped-runs-dialog [data-close]').click();
     await page.evaluate(() => executionReview('writer'));
-    await page.locator('dialog.tmodal [data-result]', {hasText: 'Choice saved. The bot is busy'}).waitFor();
-    assert.equal(await page.locator('dialog.tmodal form button:enabled').count(), 0);
+    await page.locator('dialog.stopped-runs-dialog [data-result]', {hasText: 'Choice saved. The bot is busy'}).waitFor();
+    assert.equal(await page.locator('dialog.stopped-runs-dialog form button:enabled').count(), 0);
     assert.deepEqual(reviewed, ['builder', 'writer', 'writer', 'writer']);
     assert.deepEqual(errors, []);
     console.log(`PASS: stopped runs are reviewed from Needs you, Settings and Health (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
