@@ -344,13 +344,15 @@ def test_a_private_tasks_file_in_tico_storage_is_refused_to_a_person_without_acc
 
 
 def test_move_existing_files_copies_every_file_and_version_and_matches_the_estimate(api, tico):
-    """Spec 4: every file opens, every version is kept, GB moved matches the estimate; nothing is deleted."""
+    """Spec 4: every file opens, every version is kept, GB moved matches the estimate; nothing is deleted, and the
+    owner is not charged delivery for Tico's own check of each copy."""
     made, hq, sync = tico
     tid = task(api)
     first = attach(api, tid, 'notes.txt', b'version one')
     second = attach(api, tid, 'notes.txt', b'version two, longer')
     other = attach(api, tid, 'other.txt', b'another file')
     sync(on())
+    attach(api, tid, 'since.txt', b'uploaded to tico storage already')
     disk = api.app.state.blobs.directory
     before = sorted(p.name for p in disk.rglob('*') if p.is_file())
 
@@ -363,7 +365,9 @@ def test_move_existing_files_copies_every_file_and_version_and_matches_the_estim
     changed = api.post('/api/v2/system/storage/move', json={'expect_bytes': size - 1}, headers=headers())
     assert changed.status_code == 409 and 'estimate' in changed.text
 
+    delivered = dict(hq.edge.delivered)
     tico_storage.start_move(api.app.state.store, api.app.state.blobs, Owner(), size, wait=True)
+    assert hq.edge.delivered == delivered, "each copy is checked by S3's own SHA-256, not read back through the edge"
     move = api.get('/api/v2/system/storage/move', headers=headers()).json()
     assert move['move']['state'] == 'done' and move['move']['matches'], move
     assert (move['move']['moved_files'], move['move']['moved_bytes']) == (3, size)
@@ -377,6 +381,17 @@ def test_move_existing_files_copies_every_file_and_version_and_matches_the_estim
             path.unlink()
     for fid, data in ((first, b'version one'), (second, b'version two, longer'), (other, b'another file')):
         assert download(api, fid).content == data
+
+    # After a restart the server no longer knows what it uploaded there itself: the move finds it held and does not
+    # copy it again.
+    api.app.state.blobs._landed.clear()
+    estimate = api.get('/api/v2/system/storage/move', headers=headers()).json()['estimate']
+    assert estimate['files'] == 1
+    puts = len(made[KEY].calls)
+    tico_storage.start_move(api.app.state.store, api.app.state.blobs, Owner(), estimate['bytes'], wait=True)
+    move = api.get('/api/v2/system/storage/move', headers=headers()).json()
+    assert move['move']['state'] == 'done' and move['move']['matches'] and move['estimate']['files'] == 0, move
+    assert len(made[KEY].calls) == puts
 
 
 def test_a_copy_that_does_not_verify_is_not_recorded(api, tico):

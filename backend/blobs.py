@@ -60,6 +60,9 @@ class Blobs:
         # Tico file hosting's edge links (backend/tico_storage.py `edge_link`), while its place holds files.
         self.edge = None
         self._edge_seen = {}
+        # Files this server uploaded to Tico file hosting's bucket since it started, so Move existing files does not
+        # count them as still to move (after a restart, the move finds them there: tico_storage.copy_one).
+        self._landed = set()
 
     def configure(self, company=None, earlier=(), store=None, checked=False, copy_disk=True, paused=""):
         """Write to `company` ({bucket, prefix, region, keys}), or to the server's own storage when None, from now
@@ -226,7 +229,9 @@ class Blobs:
             detail = "File storage disk is full; free space or configure an S3 bucket and retry" if exc.errno == errno.ENOSPC else "File staging storage is unavailable; check disk space and permissions"
             raise Problem("blob_storage", detail, 503, True) from exc
 
-    def _upload(self, stream, digest, size, content_type, small_body=None, rate_limit=0, stop=None, at=None):
+    def _upload(self, stream, digest, size, content_type, small_body=None, rate_limit=0, stop=None, at=None, whole=False):
+        # `whole`: one PutObject with the file's SHA-256 whatever its size (up to S3's 5 GB), so S3 checks every byte
+        # on receipt and keeps that checksum (`holds_whole`).
         # Reads may use an unselected source; writes must wait for the probe.
         # Keep one identity for every part and cleanup even if a later check switches it.
         with self._write_lock:
@@ -246,8 +251,9 @@ class Blobs:
         try:
             s3 = s3 if s3 is not None else sources.client_for(kind)
             if self._matches_s3(digest, size, settings, bucket, sources):
+                self._landing(digest, settings, at)
                 return
-            if size <= 8 * 1024 ** 2:
+            if size <= 8 * 1024 ** 2 or whole:
                 s3.put_object(**options, Body=small_body if small_body is not None else PacedReader(stream, rate_limit, stop), IfNoneMatch="*",
                                    ChecksumSHA256=base64.b64encode(bytes.fromhex(digest)).decode())
             else:
@@ -261,6 +267,7 @@ class Blobs:
                     parts.append({"PartNumber": number, "ETag": result["ETag"]})
                 s3.complete_multipart_upload(Bucket=bucket, Key=key, UploadId=upload_id,
                                                  MultipartUpload={"Parts": parts}, IfNoneMatch="*")
+            self._landing(digest, settings, at)
         except Exception as exc:
             if upload_id:
                 try:
@@ -287,6 +294,23 @@ class Blobs:
         checksum = base64.b64encode(bytes.fromhex(digest)).decode()
         return head.get("ContentLength") == size and (
             head.get("ChecksumSHA256") == checksum or head.get("Metadata", {}).get("sha256") == digest)
+
+    def _landing(self, digest, settings, at):
+        # A new file, not a move's copy (that one counts once it is checked: tico_storage._move).
+        found = self.edge
+        if at is None and found and location_of(settings) == found["location"]:
+            if len(self._landed) > 200_000:
+                self._landed.clear()
+            self._landed.add(digest)
+
+    def holds_whole(self, digest, size, at):
+        """Whether the place `at` holds the file whole, by S3's own SHA-256 of what it received (a `whole` upload):
+        no byte is read back."""
+        head = at.sources.read_s3("head_object", Bucket=at.settings.blob_bucket, Key=self.s3_key(digest, at.settings),
+                                  ChecksumMode="ENABLED")[0] if at.s3 is None else at.s3.head_object(
+            Bucket=at.settings.blob_bucket, Key=self.s3_key(digest, at.settings), ChecksumMode="ENABLED")
+        return (head.get("ContentLength") == size
+                and head.get("ChecksumSHA256") == base64.b64encode(bytes.fromhex(digest)).decode())
 
     def _local(self, source, digest):
         path = self.directory / self.key(digest)

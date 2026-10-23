@@ -33,9 +33,11 @@ the usual access check the reader is sent (302) to a link on the company's addre
 `<path>` is the file's key below the company's folder (`/blobs/<2 hex>/<sha256>`), and `<sig>` base64url (no
 padding) of HMAC-SHA256(signing secret, "<address>\\n<path>\\n<e>"). A file is linked only once the bucket was seen
 to hold it as this server would serve it (size, hash, type and disposition); anything else streams from this server,
-which reads it through the same address (`edge_read`), as it does for the export, Move files back and the check of
-each moved copy. So every byte that leaves Tico's bucket passes Tico's edge, which counts it as delivered to the
-company (Dev 316 meters the edge's logs by address); nothing is read from the bucket directly.
+which reads it through the same address (`edge_read`), as it does for the export and Move files back. So every byte
+that leaves Tico's bucket passes Tico's edge, which counts it as delivered to the company (Dev 316 meters the edge's
+logs by address); nothing is read from the bucket directly. A copy Move existing files makes there is checked without
+reading it back (S3's own SHA-256 of what it received, `copy_one`): the company is not charged delivery for Tico's
+own check.
 
 A 404 or `not_found` from HQ means it does not offer file hosting yet: nothing changes.
 """
@@ -476,6 +478,8 @@ def pending(c, blobs, at=None):
                      "ORDER BY digest").fetchall()
     if location:
         known = {r[0] for r in c.execute("SELECT digest FROM blob_locations WHERE bucket=?", (location,))}
+        if blobs.edge and location == blobs.edge["location"]:
+            known |= blobs._landed
         return [(r["digest"], r["size"], r["content_type"]) for r in rows if r["digest"] not in known]
     return [(r["digest"], r["size"], r["content_type"]) for r in rows
             if not (blobs.directory / blobs.key(r["digest"])).is_file()]
@@ -569,9 +573,15 @@ def _move(store, blobs, move_id, items, at, stop):
 
 
 def copy_one(blobs, digest, length, content_type, at):
-    """Copy one file into the place `at`, and read it back whole from there; `at` no longer being where new files
-    go stops it before anything is written (Blobs._upload)."""
+    """Copy one file into the place `at` and check the copy; `at` no longer being where new files go stops it before
+    anything is written (Blobs._upload). Into Tico's bucket the check is S3's own SHA-256 of every byte it received,
+    so nothing is read back: reading it back would pass the edge and count as delivery to the company for Tico's own
+    check. A file it already holds whole, uploaded there since it was turned on, is not copied again. Elsewhere the
+    copy is read back whole and hashed."""
     key = blobs.key(digest)
+    tico = bool(blobs.edge) and at.settings.blob_bucket and _target(at)[1] == blobs.edge["location"]
+    if tico and blobs._matches_s3(digest, length, at.settings, at.settings.blob_bucket, at.sources):
+        return
     with tempfile.TemporaryFile(dir=_staging(blobs)) as staged:
         source = blobs._open_elsewhere(key, digest, 0, {})
         sha, got = hashlib.sha256(), 0
@@ -586,7 +596,11 @@ def copy_one(blobs, digest, length, content_type, at):
             raise Problem("blob_integrity", "A stored file failed its integrity check where it is now; it was not moved",
                           503)
         staged.seek(0)
-        if at.settings.blob_bucket:
+        if tico:
+            blobs._upload(staged, digest, length, content_type, at=at, whole=True)
+            if not blobs.holds_whole(digest, length, at):
+                raise Problem("blob_integrity", "A moved file failed its integrity check", 503)
+        elif at.settings.blob_bucket:
             blobs._upload(staged, digest, length, content_type, at=at)
             blobs.verify_s3(digest, at=at)
         else:
