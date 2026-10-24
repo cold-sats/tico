@@ -777,6 +777,8 @@ class Store:
                 H.add_column(c, "flight_slow", column, kind)
             from . import performance as _performance
             c.executescript(_performance.SCHEMA)
+            from . import invites as _invites
+            c.executescript(_invites.SCHEMA)
             _updates.purge_rejected(c)
             # Which stored retry answers quote which message (backend/idempotency_messages.py).
             idempotency_messages.ensure(c)

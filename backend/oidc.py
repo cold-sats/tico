@@ -395,6 +395,31 @@ class Oidc:
                   (digest(sid), human, email, now, now, H.shift(now, seconds=self.settings.session_absolute_seconds)))
         return sid
 
+    # ---- invites (backend/invites.py) ---------------------------------------------------
+
+    def invite(self, email):
+        """Ask the issuer to mail `email` an invite to sign in here: (HTTP status, answer), or None when the issuer
+        sends no invites. Only a Tico account issuer does: its discovery names `tico_invite_endpoint` on its own host,
+        so this client's secret never goes anywhere the token exchange would not send it. A rehearsal asks nothing,
+        discovery included: it is a copy of real data, and the issuer would mail a real person."""
+        from .invites import rehearsing
+        if rehearsing(self.settings):
+            raise Problem("rehearsal", "Invites are off in a rehearsal: this server is a copy of real data and sends "
+                                       "no mail", 422)
+        doc = self._discover()
+        endpoint = doc.get("tico_invite_endpoint")
+        if not isinstance(endpoint, str) or urlparse(endpoint).netloc != urlparse(self.issuer).netloc or (
+                urlparse(endpoint).scheme != "https" and not (_loopback(self.issuer) and _loopback(endpoint))):
+            return None
+        data = {"client_id": self.settings.oidc_client_id, "client_secret": self.settings.oidc_client_secret,
+                "email": email}
+        try:
+            reply = httpx.post(endpoint, data=data, timeout=20, follow_redirects=False)
+            answer = reply.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise SignInError("invite failed: " + type(exc).__name__, 502) from exc
+        return reply.status_code, answer if isinstance(answer, dict) else {}
+
     def email(self, headers, c):
         """The signed-in person's email, or None when the request has no live session."""
         from .auth import cookies

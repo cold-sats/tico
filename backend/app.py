@@ -27,7 +27,7 @@ from . import repo_waits
 from . import built_on
 from . import agents, app_delivery, batch, external_sync, inbox_isolation, lifecycle, mcp_oauth, recruiting, harness_actions, model_login, oidc, personal_tokens, views
 from . import outcome_stats
-from . import ceo_bot, owner_link
+from . import ceo_bot, invites, owner_link
 from . import login_holds
 from . import auto_tasks, check_models, run_triggers, task_models, team_rules, update_feeds, topic_change, usage_limits, bot_to_bot, wake_presets, visuals, wake_rules, quiet_work, milestone_waits
 from . import task_privacy as privacy
@@ -144,11 +144,15 @@ def create_app(settings=None):
         asyncio.get_running_loop().run_in_executor(None, auth.warm)   # Cloudflare's keys, before anyone signs in
         asyncio.get_running_loop().run_in_executor(None, app.state.vault.cipher.warm, store)   # the KMS data key
         # TICO_SAMPLE_COMPANY=on: a new company starts as the sample company, once (backend/sample_company.py).
-        if settings.company_file_data:
+        if settings.company_file_configured or settings.company_file_data:
+            # A file that can't be applied is kept for the owner to see; never a sample company in its place.
             from . import company_import
-            with store.transaction() as c:
-                company_import.load_on_start(onboarding, c)
-        elif settings.sample_company:
+            company_import.start(onboarding, store, telemetry)
+        else:
+            # The file setting was removed: a failure kept from it no longer describes this install.
+            from . import company_import
+            company_import.forget(store)
+        if not (settings.company_file_configured or settings.company_file_data) and settings.sample_company:
             try:
                 from . import sample_company
                 with store.transaction() as c:
@@ -335,6 +339,7 @@ def create_app(settings=None):
     app = FastAPI(title=settings.app_name + " API", version="2.0.0", lifespan=lifespan,
                   docs_url=None, redoc_url=None, openapi_url=None)
     app.state.store, app.state.auth, app.state.execution = store, auth, execution
+    app.state.onboarding = onboarding      # tests build a picked team as bots, as the sample company does
     from .ui_compression import UiCompression
     app.add_middleware(UiCompression)
 
@@ -1577,7 +1582,11 @@ def create_app(settings=None):
         admin_only(who, "sees who can sign in")
         with store.read() as c:
             return {**Access.view(c, settings, views.roster(c), settings.proxy_kind, auth.owner_id(c)),
-                    "rules": team_rules.load(c), "you": auth.company_role(who)}
+                    "rules": team_rules.load(c), "you": auth.company_role(who),
+                    # When each person was last sent an invite (backend/invites.py), and whether this install's
+                    # sign-in could send one at all: only the built-in sign-in, through a Tico account issuer.
+                    "invites": {pid: sent["at"] for pid, sent in invites.sent(c).items()},
+                    "invite_email": invites.can_email(settings)}
 
     @app.post("/api/v2/access/people")
     def access_person_add(request: Request, body: M.AccessPersonAdd):
@@ -1602,6 +1611,21 @@ def create_app(settings=None):
         with store.read() as c:
             auth.sync_access(c)
         return result
+
+    @app.post("/api/v2/access/people/{pid}/invite")
+    def access_person_invite(request: Request, pid: str, body: M.Empty):
+        """Owners and admins send someone on the roster an invite from Tico's own sign-in mail (backend/invites.py),
+        never the company's mailbox; a refusal says why, so the owner can tell the person themselves."""
+        who = request.state.identity
+        admin_only(who, "sends invites")
+        invites.request_key(request)
+        with store.read() as c:
+            person = P.person(pid, views.roster(c))
+        if not person or person.get("hidden"):
+            raise Problem("not_found", "Person not found", 404)
+        invites.once(store, auth, settings, who, request, body, person)
+        at = mutate(request, body, lambda c: invites.record(c, who.actor, pid))   # a repeat replays its receipt
+        return {"person": pid, "invited_at": at}
 
     @app.post("/api/v2/access/people/{pid}")
     def access_person_edit(request: Request, pid: str, body: M.AccessPersonEdit):
@@ -1802,6 +1826,27 @@ def create_app(settings=None):
         from . import company_import
         return mutate(request, body, lambda c: company_import.apply(
             onboarding, c, request.state.identity, body.company_yaml, body.fingerprint))
+
+    @app.post("/api/v2/onboarding/company/import-failure/dismiss")
+    def onboarding_company_import_failure_dismiss(request: Request, body: M.Empty):
+        """The owner leaves a kept setup-file failure they won't fix by importing (Health and the welcome page)."""
+        from . import company_import
+        return mutate(request, body, lambda c: company_import.dismiss(onboarding, c, request.state.identity))
+
+    @app.post("/api/v2/onboarding/company/people/{key}/invite")
+    def onboarding_company_invite(request: Request, key: str, body: M.OnboardingInvite):
+        """Invite one person the company file from setup names: they go on the roster with this email (the seats that
+        waited with the owner now report to them), then Tico's own sign-in mail invites them (backend/invites.py).
+        Added but not sent is a Problem the owner sees; Invite again sends again."""
+        from . import company_import
+        who = request.state.identity
+        owner_only(who, "invites the people from setup")
+        row = mutate(request, body, lambda c: company_import.add_invitee(onboarding, c, who, key, body.email))
+        sent = invites.once(store, auth, settings, who, request, body, row)
+        with store.transaction() as c:                  # not a second `mutate`: one request has one idempotency key
+            if sent or row["id"] not in invites.sent(c):      # a repeat keeps the first send's time
+                invites.record(c, who.actor, row["id"])
+            return onboarding.view(c, who)
 
     @app.post("/api/v2/onboarding/sample")
     def onboarding_sample(request: Request, body: M.Empty):
@@ -2125,14 +2170,24 @@ def create_app(settings=None):
             # the nearest thing above it that they may, like that bot's own reports.
             placed = {"b:" + r["id"] for r in bots} | {"p:" + r["id"] for r in view["people"]} | {
                 "g:" + r["id"] for r in view["org_groups"]}
-            seats = []
+            seats, every = [], lifecycle.all_seats(c)
+            parents = {}
             for seat in c.execute("SELECT * FROM seats WHERE closed_at IS NULL ORDER BY created,id").fetchall():
-                parent, seen = lifecycle.org_parent(seat, roster, chart, archived), set()
+                parent, seen = lifecycle.org_parent(seat, roster, chart, archived, every), set()
                 while parent.startswith("b:") and parent[2:] in by_id and parent not in seen \
                         and not access.get(parent[2:], auth.FULL)["see"]:
                     seen.add(parent)
                     parent = by_id[parent[2:]]["org_parent"]
-                if (person or team) and parent not in placed:
+                parents[seat["id"]] = parent
+
+            def shown_here(parent, seen=()):
+                """A seat under a seat is on this view while the top seat of its branch is."""
+                if parent.startswith("s:") and parent[2:] in parents and parent not in seen:
+                    return shown_here(parents[parent[2:]], (*seen, parent))
+                return parent in placed
+            for seat in c.execute("SELECT * FROM seats WHERE closed_at IS NULL ORDER BY created,id").fetchall():
+                parent = parents[seat["id"]]
+                if (person or team) and not shown_here(parent):
                     continue
                 shown = {k: v for k, v in dict(seat).items() if k in ("id", "title", "description", "team", "created")}
                 reports = seat["reports_to"]
@@ -3932,7 +3987,8 @@ def create_app(settings=None):
         who = request.state.identity
         auth.domain(who)
         with store.read() as c:
-            return {"seats": lifecycle.seats(c)}
+            parents = views.seat_parents(c, settings, auth, who)
+            return {"seats": [{**seat, "org_parent": parents.get(seat["id"], "")} for seat in lifecycle.seats(c)]}
 
     @app.get("/api/v2/org-models")
     def org_models(request: Request):

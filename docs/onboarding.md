@@ -3,8 +3,9 @@
 The first time the owner opens a new environment, the app is a wizard at `#/welcome`: name the
 team, say what it does, build its team chart group by group, add a computer (a Linux Docker runner or a Mac), optionally connect your own
 external agent, and press **Create my team**. Every team gets the assistant, BotOps, the Librarian and the CEO Bot, and none of them can be archived.
-Creating defines the bots on the server and hands the rest to two places: a starter bot's repository is set up by the computer
-the moment it is placed, and BotOps sets up every other template.
+**Setup picks the chart, not the bots:** those built-ins are the only bots on day one, and they work at once. Every other role
+you picked is laid out as a **Recruiting** seat with its job description and reporting line: no bot, repository, computer slot
+or BotOps task until someone picks a bot for it ([A bot's stages](#a-bots-stages)).
 
 The wizard is the first of three pieces, all described below: the wizard, a short tour, and a line under the team list
 that points at BotOps. [After the wizard](#after-the-wizard) covers the last two, and the Market page's empty state, where the
@@ -27,21 +28,31 @@ team instead ([The sample company](sample-company.md)).
 choose **Your company's plans or API keys**.
 
 If you already chose a team on the public setup page, the first screen also accepts its **Company YAML file**.
-Choose the file, check the company and employee preview, then press **Use this team**. Tico uses the selected
-templates, names and reporting lines, includes its current required built-ins once, and starts employees marked
-`later` paused. Resume those employees from their normal controls when ready. Import retries do not duplicate the
-team or setup tasks, and an import cannot replace a company whose setup is complete.
+Choose the file, check the preview (the built-ins that work from day one, then every other role marked **Recruiting**),
+then press **Use this team**. Tico lays out exactly that chart: each role is a Recruiting seat with the file's title,
+a job description from its template card (what it owns, and the file's reason for the role) and its reporting line,
+a role under a role included (`seat:<id>`). Only the built-ins become bots, once each. Import retries do not duplicate
+a seat, and an import cannot replace a company whose setup is complete. A file named at install
+(`TICO_COMPANY_FILE_B64` or `TICO_COMPANY_FILE`) is imported when the server starts; if it cannot be read or applied,
+the server still starts, **no sample team is set up in its place**, and the owner sees why on the welcome page and on
+Health ("Company file from setup not imported") until it is over: an import works (the same file again included), the
+team is set up on the welcome page, the server starts with the file fixed back to the one already applied or with no
+company file at all, or the owner presses **Dismiss** on the welcome page. A server start with the same broken file
+shows it again.
 
 This starter import supports one owner and catalog AI employees with the default rules. The signed-in owner remains
-the owner; a file does not add sign-in accounts. Additional people, existing external agents and custom rules are
-refused with an explanation. The file's goals are imported onto [Goals](goals-and-kpis.md): the owner's goals become
-company goals, and so do goals the file gives a built-in bot such as the Assistant (Goals keeps the built-ins out of
-its tree). Each other bot's goal sits under that bot, with the goal's measure as a KPI carrying the file's baseline and
-target (the file holds no readings, so a new KPI starts with no history). A file holds up to 325 goals: the company's 3,
-2 for each department and 1 for each of up to 300 bots, which covers every goal the setup page suggests; a file with
-more is refused before anything is created. First jobs, routines, model choices and tool
-connections are saved for later setup and listed in the preview; the team uses its currently configured AI providers. Bots follow their normal setup and
-computer-enrollment flow after import.
+the owner; a file does not add sign-in accounts. A person the file names who holds a role has no seat or bot for it:
+they are kept on the setup record to invite, and a role under them reports to the owner until they are invited
+(Settings > Humans > **From your setup**: type their email and press **Invite**, which adds them to the roster, moves
+the seats waiting on them under them and sends the invite, see [People](people.md#invites)). Other coworkers, existing
+external agents and custom rules are refused with an explanation. The file's goals are imported onto
+[Goals](goals-and-kpis.md): the owner's goals, goals the file gives a built-in bot such as the Assistant (Goals keeps the
+built-ins out of its tree) and goals of roles that are seats (a seat holds no work) become company goals, each with the
+goal's measure as a KPI carrying the file's baseline and target (the file holds no readings, so a new KPI starts with
+no history). A file holds up to 325 goals: the company's 3, 2 for each department and 1 for each of up to 300 roles,
+which covers every goal the setup page suggests; a file with more is refused before anything is created. First jobs,
+routines, model choices and tool connections are saved for later setup and listed in the preview; the team uses its
+currently configured AI providers.
 
 The implementation is `backend/onboarding.py` (the record, creating the team), `backend/recruit.py` and `backend/recruit_rank.py`
 (the team builder's templates and suggestions), `ui/org-builder.js` (the team chart screen), `ui/first-run.js` (who reports to whom, the review
@@ -150,9 +161,15 @@ it. The same answer always gives the same list.
 **Create my team** (`POST /api/v2/setup/complete`) writes to the server only, in one request (a chart of 25 bots takes a fraction of a
 second). It reaches no computer.
 
-- BotOps, the assistant, the Librarian and the CEO Bot first, so they exist before anything is addressed to them, then everything picked, each `planned`
+- BotOps, the assistant, the Librarian and the CEO Bot, so they exist before anything is addressed to them, each `planned`
   with the card's summary as its description, `bot-<slug>` as its repository, the card's runtime, model and reasoning effort, the human
-  it reports to, and the owner as its owner. A model a deployment does not offer falls back to the product default.
+  it reports to, and the owner as its owner. A model a deployment does not offer falls back to the product default. They are
+  Active on day one.
+- **Everything else picked is a Recruiting seat** (`seats` on the record: `{pick: seat id}`), with the reviewed name as its
+  title, a job description from the card and the reviewed instructions, the reporting line picked (a pick under another pick
+  reports to that seat) and the pick's group. No bot, repository, computer slot or BotOps task exists for it. The bullets
+  below about starters and other templates describe a bot made from a template: the sample company's, and from a seat once
+  someone picks a bot for it.
 - **No AI provider and no computer are needed.** The team is created first. With no provider chosen a bot names no runtime or model and
   follows the team default, so it runs once a provider is added in Settings > Computers > Models. With no computer enrolled the bots stay
   `planned`; when the owner's computer enrolls, the bots are placed on it and activated. Until then the after-Create screen says
@@ -175,7 +192,9 @@ second). It reaches no computer.
 - Every bot from a template that no computer holds is assigned to the owner's most recently enrolled computer. If none is enrolled yet,
   enrolling the owner's computer afterwards does the same, so the order the two are done in does not matter. A bot someone placed by hand is
   never moved.
-- Finishing twice is safe: it reopens no task, creates no second bot, and keeps the first completion time.
+- Finishing twice is safe: it reopens no task, creates no second bot or seat, and keeps the first completion time.
+- With nothing picked and no company file (signing up directly), finishing makes only the built-ins: the chart is empty, to
+  recruit into.
 
 ### A bot's stages
 
@@ -216,6 +235,7 @@ whole change. Members can add seats under themselves or someone below them; only
 - **Your team is created**: the heading, then the one next step as the only primary button. With no computer yet it says
   *Waiting for a computer* once and offers **Add a computer** (Settings > Computers); with a computer but no AI provider,
   **Add an AI provider**; otherwise **Open Tasks** at the bottom. **Show me around** starts the tour.
+- The Recruiting seats are on the sidebar's team chart, each marked **Recruiting** where its reporting line puts it.
 - Each bot, in the team chart's groups and order (bots outside any group first, the built-ins last), with one status:
   *Waiting* while the team waits on a computer or provider, *Setting up* until a starter's repository exists, then its
   **Set up** button; *Active*; or a link to the setup task BotOps is working.

@@ -10,6 +10,7 @@ created at once, `needs_onboarding`, and its repository is materialized by the c
 still a task for BotOps. Nothing here reaches a machine: it writes definitions and tasks.
 """
 
+import difflib
 import json
 import os
 import re
@@ -262,6 +263,8 @@ def load(c):
             # When the company started as the sample company (backend/sample_company.py): when, by whom, what it made.
             "sample": stored.get("sample") or None,
             "company_import": stored.get("company_import") or None,
+            # {pick: seat id}: the roles setup laid out as Recruiting seats (`Onboarding.complete`).
+            "seats": dict(stored.get("seats") or {}),
             "updated": stored.get("updated") or "", "updated_by": stored.get("updated_by") or ""}
 
 
@@ -382,6 +385,52 @@ def setup_body(slug, choice, answers):
     ])
 
 
+def job_description(card, names, reason="", instructions="", display_name=""):
+    """A seat's job description as setup writes it: the role's text from its template (what it does and owns), why the
+    company chart has it, then what the owner changed in the template's instructions during setup. Those changes are
+    the duties and limits the owner reviewed, so recruiting must see them; the template's own instructions stay with the
+    template, which keeps the description short. Unedited or empty instructions add nothing. Anyone with access to the
+    seat edits it from there."""
+    raw = card or {}
+    card = render(raw, names) if raw else {}
+    parts = [str(card.get("summary") or "").strip()]
+    owns = [line for line in card.get("owns") or [] if str(line).strip()]
+    if owns:
+        parts.append("Owns:\n" + "\n".join("- " + str(line).strip() for line in owns))
+    if str(reason or "").strip():
+        parts.append("Why this role is on the company chart:\n" + str(reason).strip())
+    parts.append(_instruction_changes(raw, names, instructions, display_name))
+    return "\n\n".join(part for part in parts if part)
+
+
+def _instruction_changes(card, names, instructions, display_name=""):
+    """The lines the owner added to or took out of a template's instructions, or "" when they left them as shown. The
+    wizard shows them filled with the company's names and, once saved, the role's own name (`Onboarding.catalog`)."""
+    text = str(instructions or "").strip()
+    if not text or not card:
+        return ""
+    shown = [render(card, names, name)["instructions"].strip() for name in ("", display_name)]
+    if text in shown:
+        return ""
+    base = min(shown, key=lambda default: sum(1 for line in difflib.ndiff(default.splitlines(), text.splitlines())
+                                                if line[:1] in "+-"))
+    added, removed, kept = [], [], 0
+    for line in difflib.ndiff(base.splitlines(), text.splitlines()):
+        if line[:2] in ("+ ", "- ") and line[2:].strip():
+            (added if line[0] == "+" else removed).append(line[2:].rstrip())
+        elif line[:2] == "  " and line[2:].strip():
+            kept += 1
+    if len(removed) > kept:
+        # Mostly rewritten: the owner's text is the instructions, and a list of the template's lines would bury it.
+        return "The owner wrote this role's instructions in setup:\n" + text
+    out = ["The owner changed this role's instructions in setup."]
+    if added:
+        out.append("Added:\n" + "\n".join(added))
+    if removed:
+        out.append("Taken out:\n" + "\n".join(removed))
+    return "\n\n".join(out) if added or removed else ""
+
+
 class Onboarding:
     def __init__(self, store, auth, settings_admin, execution, models):
         self.store, self.auth, self.admin = store, auth, settings_admin
@@ -426,8 +475,15 @@ class Onboarding:
         owner = self.auth.owner_id(c)
         # Where every department head reports: the owner, at the top of the chart.
         home = "human:" + owner if owner and H.human(c, owner) else ""
+        from . import company_import, invites
+        imported = record.get("company_import")
+        if imported and imported.get("people"):
+            sent = invites.sent(c)
+            record = {**record, "company_import": {**imported, "people": [
+                {**person, "invited_at": (sent.get(person.get("person") or "") or {}).get("at")}
+                for person in imported["people"]]}}
         return {**record, "home": home, "bots": self._bots(c), "machine": self._machine(c),
-                "needed": needed(c, who, record)}
+                "needed": needed(c, who, record), "company_import_failed": company_import.failure(c)}
 
     def _bots(self, c):
         rows = []
@@ -502,9 +558,13 @@ class Onboarding:
         elif reports_to == slug:
             raise Problem("hierarchy", "A bot cannot report to itself", 422)
 
-    def complete(self, c, who, models=None):
-        """Create the plan's bots. `models` names the model a new bot runs on, by slug, in place of its card's
-        (the sample company spreads its bots over two subscriptions); a model whose provider is off is ignored."""
+    def complete(self, c, who, models=None, seats=True):
+        """Deploy the chart setup picked (docs/onboarding.md, "Setup picks the chart"): the built-ins (BotOps, the
+        Librarian, the CEO Bot and the Assistant) are created as bots, Active from day one, and every other role is laid
+        out as a Recruiting seat with its reporting line: no bot, repository, computer slot or BotOps task until someone
+        recruits it. `seats` False creates every pick as a bot, as the sample company does (backend/sample_company.py).
+        `models` names the model a new bot runs on, by slug, in place of its card's (the sample company spreads its
+        bots over two subscriptions); a model whose provider is off is ignored."""
         self._owner(who)
         record = load(c)
         names = display_names(self.settings, record)
@@ -512,6 +572,15 @@ class Onboarding:
         plan = self._plan(record, cards, names)
         owner = self.auth.owner_id(c)
         home = "human:" + owner if owner and H.human(c, owner) else ""
+        roles = {}
+        if seats:
+            for slug, choice in plan.items():
+                raw = cards.get(choice["template"]) or {}
+                # A message bot (`kind: helper`, the Inbox Manager) serves one person and is never on the chart, so it
+                # is made as a bot linked to its mailbox, like the built-ins; only a role becomes a seat.
+                if not (raw.get("required") or raw.get("bootstrap") or raw.get("kind") == "helper") and not H.bot(c, slug):
+                    roles[slug] = choice
+            plan = {slug: choice for slug, choice in plan.items() if slug not in roles}
         rank, parents = 0, {}
         for slug, choice in plan.items():
             raw = cards.get(choice["template"])
@@ -541,15 +610,49 @@ class Onboarding:
         # The team builder builds the chart by group: each bot goes in the group of its template, made if the team
         # has none yet (backend/groups.py).
         Groups.place(c, self.settings, list(plan), group_order=record["answers"]["departments"])
+        laid = self._lay_out(c, who, record, roles, cards, names, home)
         if not record["completed"]:
             # A new company starts caught up: the releases shipped before it existed are not news to its owner.
             changelog.mark_read(c, self.settings, who.actor, [row["id"] for row in changelog.products(c, self.settings)])
-        # Completing twice keeps the moment the company actually finished.
-        record.update(selected=plan, completed=record["completed"] or H.now())
+        # Completing twice keeps the moment the company actually finished; the chart's picks stay in `selected`.
+        record.update(selected={**plan, **roles}, completed=record["completed"] or H.now(), seats=laid)
         self._wire(c, record, who.actor)
         self._store(c, record, who.actor)
-        H.event(c, who.actor, "onboarding.completed", "", {"bots": sorted(plan)})
+        # Setting the team up here is one of the two ways out Health offers for a setup file that wasn't imported.
+        from . import company_import
+        company_import.clear_failure(c)
+        H.event(c, who.actor, "onboarding.completed", "", {"bots": sorted(plan), "seats": sorted(roles)})
         return self.view(c, who)
+
+    def _lay_out(self, c, who, record, roles, cards, names, home):
+        """The picked roles as Recruiting seats (backend/lifecycle.py `lay_out`), each with the job description its
+        template gives and its reporting line. Completing twice lays out none again: {pick: seat id} is kept on the
+        record."""
+        laid = dict(record.get("seats") or {})
+        todo = {slug: choice for slug, choice in roles.items() if slug not in laid}
+        if not todo:
+            return laid
+        teams = Groups.seat_teams(c, self.settings, sorted({choice["template"] for choice in todo.values()}),
+                                  group_order=record["answers"]["departments"])
+
+        def line(choice):
+            parent = str(choice.get("reports_to") or "")
+            if parent in todo:
+                return parent
+            if parent in laid:
+                return lifecycle.SEAT_PREFIX + laid[parent]
+            if parent.startswith("human:") or (parent and H.bot(c, parent)):
+                return parent
+            return home
+        rows = {slug: {"title": choice["display_name"], "team": teams.get(choice["template"], ""),
+                       "description": job_description(cards.get(choice["template"]) or {}, names, choice.get("reason", ""),
+                                                      choice.get("instructions", ""), choice["display_name"]),
+                       # The owner reviewed the setup description and edited duties/limits before it became a seat.
+                       # Keep those words instead of asking the CEO Bot to replace them on the first open.
+                       "description_by": who.actor,
+                       "reports_to": line(choice)}
+                for slug, choice in todo.items()}
+        return {**laid, **lifecycle.lay_out(c, who.actor, rows)}
 
     def start_sample(self, c, who):
         """The welcome's "Start with a sample company": this new company becomes Tico's sample company

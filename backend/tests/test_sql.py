@@ -93,6 +93,15 @@ def test_secret_tables_and_columns_are_denied_for_everyone(api, world):
     assert query(api, "SELECT email FROM humans WHERE id='ben'", "ben-test")["rows"] == [["ben@acme.example"]]
 
 
+def test_recruiting_seats_are_readable_by_everyone_like_the_org_chart(api, world):
+    seat = post(api, "seats", {"title": "Bookkeeper", "description": "Keeps the ledgers.", "reports_to": "finance"})
+    for token in ("ana-test", "cara-test", world["attempt"]["token"]):
+        assert query(api, "SELECT title,reports_to FROM seats WHERE closed_at IS NULL", token)["rows"] == [
+            ["Bookkeeper", "finance"]], token
+        assert column(api, "SELECT count(*) FROM seats", token) == [1]
+    assert seat["id"]
+
+
 def test_the_base_tables_cannot_be_reached_around_the_views(api, world):
     for token in ("ana-test", world["attempt"]["token"]):
         for sql in ("SELECT * FROM main.messages", 'SELECT * FROM "main"."messages"', "SELECT * FROM MAIN.tasks",
