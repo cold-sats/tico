@@ -414,14 +414,16 @@ async function goalManagerMount(pageState) {
     const send = async (P, text) => {
       if (!text || sending) return;
       sending = P.sending = true; pillButtons(P); fail('');
+      const scope = sessionScope(pq(P, '.p-text'));
       try {
         const out = await cloudCompose('/v2/chat/' + GM, {text, refs: {}});
+        pillAcknowledge(P, text, [], scope);
         if (!current()) return;
         const fresh = out.conversation && out.conversation.id !== conversation?.id;
         conversation = out.conversation || conversation;
         if (out.message && !messages.some(m => m.id === out.message.id)) messages.push(out.message);
         if (lastReply === undefined) lastReply = messages.filter(isReply).at(-1)?.id ?? null;
-        pillAcknowledge(P, text, []); stickScroll(thread).toBottom(); draw();
+        stickScroll(thread).toBottom(); draw();
         if (fresh || !es) watch();
         await snapshot();
       } catch (e) { fail(e.message); }

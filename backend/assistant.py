@@ -1404,6 +1404,8 @@ def install(app, store, auth, mutate, onboarding):
             auth.require_write(c, who, bot)
             room = chat_room(c, settings, who)
             refs = {"assistant": True}
+            if body.place == "updates":
+                refs["updates"] = True        # its turn is handed the updates they may read (backend/updates_chat.py)
             if reply is not None:
                 refs["quiet"] = True
             message = H.say(c, who.actor, "bot:" + bot, body.text, conversation_id=room["id"],
@@ -1427,7 +1429,9 @@ def install(app, store, auth, mutate, onboarding):
         info, bots = await asyncio.to_thread(read)
         if not info["available"]:
             raise Problem("assistant_off", "The " + info["name"] + " is off", 409)
-        intent, reply, links = await fast_answer(Internal(request), who, bots, body.text)
+        # A question from the Updates chat is about the updates its turn is handed, which the quick answers never read.
+        intent, reply, links = (None, None, []) if body.place == "updates" else \
+            await fast_answer(Internal(request), who, bots, body.text)
         return await asyncio.to_thread(post_message_sync, request, body, who, intent, reply, links)
 
     @app.post("/api/v2/assistant/turn-on")
@@ -1664,5 +1668,6 @@ def install(app, store, auth, mutate, onboarding):
         finally:
             note = (("Done: " + row["summary"] + (". " + result["error"] if result.get("error") else "")) if ok
                     else ("That did not go through: " + str(result["error"])[:300]))
-            out = settle(aid, who, "done" if ok else "failed", result, note)     # even if the client went away
+            # Off the event loop; the thread finishes the write even if the client went away.
+            out = await asyncio.to_thread(settle, aid, who, "done" if ok else "failed", result, note)
         return out

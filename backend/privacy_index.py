@@ -5,10 +5,15 @@ query touches that kind of content, and recursive lookups have bounded LRU cache
 """
 from collections import defaultdict
 from functools import cached_property, lru_cache
+import re
 
-from .store import H
+from .store import H, Problem
 from . import task_privacy as privacy
 from .live_privacy import Sources as MeetingSources
+
+
+TASK_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+TASK_IDS = re.compile("(?=(" + TASK_ID.pattern + "))")
 
 
 class ReadIndex:
@@ -27,7 +32,19 @@ class ReadIndex:
         self.message_sources = lru_cache(maxsize=4096)(self._message_sources)
         self.target_message = lru_cache(maxsize=4096)(lambda mid: H.message(c, mid, include_deleted=True))
         self.attempt_sources = lru_cache(maxsize=4096)(self._attempt_sources)
+        self.attempt = lru_cache(maxsize=4096)(self.attempt)
         self.plain_room = lru_cache(maxsize=16384)(self._plain_room)
+        # The SQL conversation predicate and message provenance share a decision.
+        # Otherwise a count revisits the same room for every row and thrashes the
+        # smaller neutral meeting-source cache. This cache dies with the snapshot.
+        self.conversation = lru_cache(maxsize=16384)(self.conversation)
+        self.direct_message = lru_cache(maxsize=16384)(self._direct_message)
+        self.direct_parent = lru_cache(maxsize=4096)(self._direct_parent)
+        self.string_sources = lru_cache(maxsize=16384)(self._string_sources)
+        # Unescaped JSON cannot name a denied task without its literal id.
+        # Noncanonical ids keep the full structured check rather than compiling
+        # an alternation that grows with the private-task inventory.
+        self.uuid_denied = all(TASK_ID.fullmatch(tid) for tid in self.denied)
 
     @cached_property
     def task_ids(self):
@@ -44,20 +61,32 @@ class ReadIndex:
         return tid in self.task_ids
 
     def references(self, value):
-        if isinstance(value, str):
-            if value[:1] in ("{", "["):
-                parsed = H._json(value, None)
-                if isinstance(parsed, (dict, list)):
-                    return self.references(parsed)
-            return {tid for tid in privacy.reference_strings(value) if tid in self.private}
-        if isinstance(value, dict):
-            return set().union(*(self.references(v) for v in value.values())) if value else set()
-        if isinstance(value, (list, tuple)):
-            return set().union(*(self.references(v) for v in value)) if value else set()
-        return set()
+        ids, pending = set(), [value]
+        while pending:
+            part = pending.pop()
+            if isinstance(part, str):
+                ids.update(self.string_sources(part) if len(part) <= 4096 else self._string_sources(part))
+            elif isinstance(part, dict):
+                pending.extend(part.values())
+            elif isinstance(part, (list, tuple)):
+                pending.extend(part)
+        return ids
+
+    def _string_sources(self, value):
+        if value[:1] in ("{", "["):
+            parsed = H._json(value, None)
+            if isinstance(parsed, (dict, list)):
+                return frozenset(self.references(parsed))
+        direct = value[5:] if value.startswith("task:") else value
+        ids = {direct} if direct in self.private else set()
+        # Ordinary strings cannot contain URL task references. Retain both paths
+        # without running a regex for every repeated progress label.
+        if "#/task/" in value or "/tasks/" in value:
+            ids.update(tid for tid in privacy.reference_strings(value) if tid in self.private)
+        return frozenset(ids)
 
     def content(self, value):
-        return (not self.denied.intersection(self.references(value))
+        return ((not self.denied or not self.denied.intersection(self.references(value)))
                 and self.meetings.readable(self.principals, self.meetings.references(value)))
 
     def conversation(self, cid):
@@ -127,10 +156,53 @@ class ReadIndex:
 
     def attempt(self, aid):
         try:
+            direct = self._direct_attempt(aid)
+            if direct is not None:
+                return direct
             return (self.meetings.attempt_readable(self.principals, aid)
                     and not self.denied.intersection(self.attempt_sources(aid)))
         except ValueError:
             return False
+
+    def _direct_attempt(self, aid):
+        # Task and meeting provenance use the same root/input rows. Authorize
+        # simple roots together; inherited roots retain the existing traversals.
+        rows = self.c.execute(
+            "SELECT m.conversation_id,m.refs_json,m.in_reply_to FROM attempts a JOIN jobs j ON j.id=a.job_id "
+            "JOIN messages m ON m.id=j.message_id WHERE a.id=? UNION "
+            "SELECT m.conversation_id,m.refs_json,m.in_reply_to FROM attempt_inputs i "
+            "JOIN messages m ON m.id=i.message_id WHERE i.attempt_id=?", (aid, aid))
+        found = False
+        for row in rows:
+            found = True
+            if row["in_reply_to"]:
+                return None
+            direct = self._direct_message(row["conversation_id"], row["refs_json"], include_run=False)
+            if direct is None:
+                return None
+            if not direct:
+                return False
+        if not found:
+            return None
+        if any(tid in self.denied for tid, in self.c.execute("SELECT id FROM tasks WHERE carried_by=?", (aid,))):
+            return False
+        for action, detail in self.c.execute("SELECT action,detail_json FROM events WHERE action IN (" +
+                                            privacy.RUN_TASK_EVENTS_SQL + ") AND target=?", (aid,)):
+            data = H._json(detail, {}) or {}
+            if not isinstance(data, dict):
+                return None
+            if self.denied.intersection(self.references(data)):
+                return False
+            if action == privacy.INPUT_MOVED:
+                try:
+                    meetings = self.meetings.references(data)
+                    if data.get("message_id"):
+                        meetings.update(self.meetings.message(self.target_message(data["message_id"]), include_run=False))
+                    if not self.meetings.readable(self.principals, meetings):
+                        return False
+                except Problem:
+                    return False
+        return True
 
     def sources(self, msg, *, include_run=True, seen=None):
         if not msg:
@@ -148,11 +220,12 @@ class ReadIndex:
             raise ValueError("Unsupported message provenance")
         ids = self.references(refs)
         conv = {"task_id": self.conversation_tasks.get(msg["conversation_id"])} if msg.get("conversation_id") else None
-        tid = H.message_task_id(msg, conv)
-        if tid and not self.known_task(tid):
-            raise ValueError("Unknown task provenance")
-        if tid in self.private:
-            ids.add(tid)
+        # Explicit refs can narrow provenance, never override a room's task.
+        for tid in (H._task_ref((conv or {}).get("task_id")), H.message_task_id({"refs": refs}, conv)):
+            if tid and not self.known_task(tid):
+                raise ValueError("Unknown task provenance")
+            if tid in self.private:
+                ids.add(tid)
         ancestors = [msg.get("in_reply_to")]
         for key in ("answers", "inputs"):
             if isinstance(refs.get(key), list):
@@ -174,11 +247,62 @@ class ReadIndex:
             # room once per request, retaining unknown/deleted task denial.
             if refs in (None, "", "{}") and not reply:
                 return self.plain_room(cid)
+            # Do not retain large arbitrary reference payloads as cache keys.
+            direct = (self.direct_message(cid, refs) if len(refs or "") <= 4096
+                      else self._direct_message(cid, refs))
+            if direct is not None:
+                if not direct or not reply or reply == mid:
+                    return direct
+                parent = self.direct_parent(reply)
+                if parent is not None:
+                    return parent
             return (self.meetings.message_readable(self.principals,
                     {"id": mid, "conversation_id": cid, "refs_json": refs, "in_reply_to": reply})
                     and not self.denied.intersection(self.message_sources(mid, cid, refs, reply)))
         except ValueError:
             return False
+
+    def possible_content(self, refs):
+        if "\\" in refs or "live_meeting" in refs:
+            return True
+        if self.uuid_denied:
+            # Canonical task ids use a fixed lexer and set lookup, avoiding an
+            # alternation whose cost grows with the number of private tasks.
+            if len(refs) <= 4096:
+                return bool(self.denied.intersection(TASK_IDS.findall(refs)))
+            return bool(self.denied) and any(match[1] in self.denied for match in TASK_IDS.finditer(refs))
+        return True
+
+    def _direct_message(self, cid, refs, include_run=True):
+        """Authorize non-inherited refs without constructing two recursive closures.
+
+        Inputs and answers still take the full existing traversal.
+        A run reuses the existing keyed attempt traversal, including retained inputs.
+        Direct refs keep both task and meeting checks, including unknown tasks.
+        None means the recursive path must decide, rather than an approval.
+        """
+        data = H._json(refs, {}) or {}
+        if not isinstance(data, dict):
+            raise ValueError("Unsupported message provenance")
+        run = data.get("run")
+        aid = data.get("turn_id") or (run.get("attempt_id") if isinstance(run, dict) else None)
+        if any(isinstance(data.get(key), list) and data[key] for key in ("answers", "inputs")):
+            return None
+        tid = H.message_task_id({"refs": data}, {"task_id": self.conversation_tasks.get(cid)})
+        return (self.plain_room(cid) and (not tid or (self.known_task(tid) and tid not in self.denied))
+                and (not self.possible_content(refs or "") or self.content(data))
+                and (not include_run or not aid or self.attempt(aid)))
+
+    def _direct_parent(self, mid):
+        # A single non-inherited parent has at most two visited messages. Longer
+        # chains keep the existing cycle/depth-aware traversal. Parent run refs
+        # are not inherited (the recursive path uses include_run=False too).
+        msg = self.target_message(mid)
+        if not msg:
+            return True
+        if msg.get("in_reply_to"):
+            return None
+        return self._direct_message(msg.get("conversation_id"), msg.get("refs_json"), include_run=False)
 
     def _plain_room(self, cid):
         tid = H._task_ref(self.conversation_tasks.get(cid))

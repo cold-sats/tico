@@ -4,7 +4,7 @@ as reading them one bot at a time, and about the same number of statements for 7
 import collections
 import json
 
-from backend import auto_tasks, agents, execution, lifecycle, rooms, update_feeds, views, task_models, wake_presets
+from backend import auto_tasks, agents, execution, lifecycle, pipeline_stats, rooms, update_feeds, views, task_models, wake_presets
 from backend import task_privacy as privacy
 from backend.chat_goals import readable_active
 from backend.harnesses import resolve_harness

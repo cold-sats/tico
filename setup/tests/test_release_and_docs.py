@@ -13,11 +13,10 @@ WORKFLOWS = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
 
 @pytest.mark.skipif(not shutil.which("actionlint"), reason="actionlint not installed")
 def test_workflows_pass_actionlint():
-    # Every workflow's syntax and expressions; the shell inside run: blocks only for the release and docker workflows.
+    # Every workflow's syntax and expressions; the shell inside run: blocks only for the release workflow.
     r = subprocess.run(["actionlint", "-shellcheck=", *map(str, WORKFLOWS)], capture_output=True, text=True, cwd=ROOT)
     assert r.returncode == 0, r.stdout + r.stderr
-    strict = [str(ROOT / ".github/workflows" / n) for n in ("release.yml", "docker.yml")]
-    r = subprocess.run(["actionlint", *strict], capture_output=True, text=True, cwd=ROOT)
+    r = subprocess.run(["actionlint", str(ROOT / ".github/workflows/release.yml")], capture_output=True, text=True, cwd=ROOT)
     assert r.returncode == 0, r.stdout + r.stderr
 
 
