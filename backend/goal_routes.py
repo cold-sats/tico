@@ -271,8 +271,16 @@ def install(app, store, auth, mutate, settings):
         def work(c):
             auth.domain(who)
             ceo_itself(c, who, "decides alone, at level 3")
+            def give(owner, task_id):
+                # The checks a task create or reassign by this caller passes (POST /api/v2/tasks, /tasks/{id}).
+                try:
+                    auth.require_bot_contact(c, who, auth.target(c, who, owner, need="write"), task_id=task_id,
+                                             kind="task")
+                except Problem as exc:
+                    return exc.detail
+                return None
             made = CA.decide(c, who.actor, body.reason, [x.model_dump(exclude_none=True) for x in body.changes],
-                             body.goal_id or None)
+                             body.goal_id or None, visible=auth.task_sql(c, who), give=give)
             return CA.receipt(CA.entry(c, made, auth.task_sql(c, who)))
         return mutate(request, body, work)
 

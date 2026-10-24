@@ -19,7 +19,8 @@ and won't do. Every company starts at **Passive**.
 At level 3 the CEO Bot also decides on its own. One decision has a reason and up to 10 changes to bot tasks: a new task
 for a bot, a bot's task moved to the top of its queue, a bot's task given to another bot, or a bot's task closed. Each
 decision is an entry in the [CEO Bot log](#the-ceo-bot-log) with an Undo. It never acts alone on a private task, or
-gives a task to a bot that keeps its tasks private. A change it can't make alone, such as a person's task or a bot that
+gives a task to a bot that keeps its tasks private. It touches only tasks it may read and gives work only to bots it may
+write to, as its own API calls would: a task hidden from it by a bot's access is refused as not found. A change it can't make alone, such as a person's task or a bot that
 is offline, becomes an item in your **Needs you** instead. Everything that
 [stays yours](#what-stays-yours) stays yours at level 3 too.
 

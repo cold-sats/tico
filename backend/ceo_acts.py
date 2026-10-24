@@ -151,10 +151,45 @@ def _refused(rule):
     return f"Tico refused it ({rule})"
 
 
+class Caller:
+    """What the CEO Bot may touch in a decision: no more than its own API calls may. A decision is made on the server
+    with Tico's own writes, which check nothing about the caller, so every task it names and every bot it gives a task
+    to is checked here first, by the rules a task read and a task write are held to:
+
+    - `reads(row)`: auth.task_sql (`visible`), the SQL behind every task the caller reads. A company task is hidden
+      when its owner or requester is a bot the caller may not read, unless the caller is one of them.
+    - `would_read(...)`: the same SQL on a task as a change would leave it, so a change never moves a task out of the
+      CEO Bot's sight either.
+    - `give(owner, task_id)`: why the CEO Bot may not hand this bot work (auth.target `write` and bot_contact), or
+      None; the route supplies it from the caller's identity."""
+
+    def __init__(self, c, visible, give):
+        self.c, self.visible, self._give = c, visible, give
+
+    def reads(self, row):
+        return bool(row) and reads(self.c, self.visible)(row)
+
+    def would_read(self, owner, requester, private=0, guest=None):
+        return bool(self.c.execute(f"SELECT 1 FROM (SELECT ? AS owner, ? AS requester, ? AS private, ? AS guest) "
+                                   f"WHERE ({self.visible})", (owner, requester, private, guest)).fetchone())
+
+    def give(self, owner, task_id=None):
+        return self._give(owner, task_id)
+
+    def task(self, actor, task_id):
+        """The task a change names, refused as a task that isn't there when the CEO Bot can't read it: the log, the
+        proposal and their events then say nothing about it, as for any task write it can't read."""
+        row = H.task(self.c, str(task_id)) if task_id else None
+        if row and not self.reads(row):
+            H.refuse(self.c, actor, "not-found", "Task not found")
+        return row
+
+
 def _bot_task(c, task_id):
     """A task the CEO Bot may change alone: live, owned by a bot, and company-visible. None otherwise. It never acts
     alone on a private task, even one it may read: the log would carry the task's words (its note), and
-    Undo, made as the owner, could neither write it nor give back its guest."""
+    Undo, made as the owner, could neither write it nor give back its guest. One it can't read never gets here
+    (`Caller.task`)."""
     row = H.task(c, str(task_id or ""))
     if not row or row["status"] not in H.ACTIVE_STATUSES or not H.is_bot(row["owner"]):
         return None
@@ -190,10 +225,13 @@ def _keeps_private(c, owner, what):
     return None
 
 
-def _check(c, change):
+def _check(c, change, caller):
     """Why this change can't be made alone, in plain words, with whether it is a person's (`PERSON_ONLY`) — or None.
-    Cleans `change` in place: owners become actors and text is trimmed."""
+    Cleans `change` in place: owners become actors and text is trimmed. A task it names that the CEO Bot can't read
+    is refused outright (`Caller.task`); a bot it may not give work to, or a task the change would hide from it, is
+    the owner's proposal, said before anything about that bot (its state, its privacy) is."""
     do = change.get("do")
+    row = caller.task(CEO, change.get("task_id"))
     if do not in ACTIONS:
         return f"a change is {'|'.join(ACTIONS)}", None
     if do in ("create", "reassign"):
@@ -204,19 +242,26 @@ def _check(c, change):
         if not H.is_bot(owner) or not H.bot(c, H.actor_id(owner)):
             return f"no bot {change.get('owner') or '(none named)'} to give the task to", None
         change["owner"] = owner
+        what = "a new task" if do == "create" else TASK
+        if why := caller.give(owner, change.get("task_id") if do == "reassign" else None):
+            return f"giving {what} to {_name(c, owner)} stays the owner's: {why}", None
     if do == "create":
         change["title"] = " ".join(str(change.get("title") or "").split())[:300]
         change["body"] = str(change.get("body") or "").strip()[:8000]
         if not change["title"]:
             return "a new task needs a title", None
+        if not caller.would_read(change["owner"], CEO):
+            return f"a new task for {_name(c, change['owner'])} would be out of the CEO Bot's sight", None
         return _keeps_private(c, change["owner"], "a new task") or _offline(c, change["owner"]), None
-    row = H.task(c, str(change.get("task_id") or ""))
     if row and H.is_human(row["owner"]):
         return f"{TASK} is a person's task, so it stays theirs", "person_task"
     if not _bot_task(c, change.get("task_id")):
         return "name a live bot task (a finished or private one can't be changed)", None
     if do == "reassign" and change["owner"] == row["owner"]:
         return f"{TASK} is already {_name(c, row['owner'])}'s", None
+    if do == "reassign" and not caller.would_read(change["owner"], row["requester"], row.get("private") or 0):
+        # A new owner drops the guest (task_update), so the task is read as it would be then.
+        return f"giving {TASK} to {_name(c, change['owner'])} would put it out of the CEO Bot's sight", None
     if do == "reassign" and (private := _keeps_private(c, change["owner"], TASK)):
         return private, None
     if do == "close":
@@ -266,10 +311,11 @@ def _bump(c, task_id):
     c.execute("UPDATE tasks SET version=version+1 WHERE id=?", (task_id,))
 
 
-def decide(c, actor, reason, changes, goal_id=None):
+def decide(c, actor, reason, changes, goal_id=None, *, visible, give):
     """A decision the CEO Bot makes alone, at level 3: each change made on its own under one action id, the rest (a
-    person's task, a bot offline, a refusal) one proposal in the owner's Needs you with the reason. Returns the action
-    id; the reader reads it with `entry`."""
+    person's task, a bot offline, a refusal) one proposal in the owner's Needs you with the reason. `visible` is the
+    CEO Bot's auth.task_sql and `give` its check on handing a bot work (`Caller`). Returns the action id; the reader
+    reads it with `entry`."""
     H._writer(c, actor)
     if not is_ceo(actor) or H.VIA.get():
         H.refuse(c, actor, "identity", f"Only the {ceo_bot.name(c)} decides alone, and only for itself")
@@ -283,20 +329,19 @@ def decide(c, actor, reason, changes, goal_id=None):
         H.refuse(c, actor, "lint", f"a decision makes 1 to {MAX_CHANGES} changes")
     if goal_id and not c.execute("SELECT 1 FROM goals WHERE id=?", (goal_id,)).fetchone():
         H.refuse(c, actor, "not-found", f"no goal {goal_id}")
+    caller = Caller(c, visible, give)
     # Checked before anything is written: the log, the proposal and their events must say nothing about a task the
-    # CEO Bot can't read, so such a decision is refused as a task that isn't there, like any private task write.
+    # CEO Bot can't read, so such a decision is refused as a task that isn't there, like any task write it can't read.
+    # `_check` asks again before each change, by the same rule.
     for change in changes:
-        task_id = change.get("task_id") if isinstance(change, dict) else None
-        row = H.task(c, str(task_id)) if task_id else None
-        if row and not H.task_private_readable(c, CEO, row):
-            H.refuse(c, actor, "not-found", "Task not found")
+        caller.task(actor, change.get("task_id") if isinstance(change, dict) else None)
     action_id = H.new_id()
     done, left = [], []
     token = ACTION.set(action_id)
     try:
         for change in changes:
             change = dict(change) if isinstance(change, dict) else {}
-            why, kind = _check(c, change)
+            why, kind = _check(c, change, caller)
             if why:
                 left.append({"change": change, "text": describe(c, change), "why": why, "kind": kind})
                 continue

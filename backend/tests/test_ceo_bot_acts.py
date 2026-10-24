@@ -398,3 +398,37 @@ def test_undo_keeps_a_guest_given_the_task_since_and_says_why_its_owner_stays(ap
     after = task(api, work)
     assert after["owner"] == "bot:coo" and after["guest"] == "human:ben"
     assert "has a guest now, so its owner stays" in undone["undo"]["text"], undone["undo"]["text"]
+
+
+def test_a_decision_never_touches_a_company_task_hidden_from_the_ceo_bot_by_its_bots_access(api):
+    """A company task a person asked a bot for is hidden from the CEO Bot when it may not read that bot (auth.task_sql).
+    Reordering, reassigning or closing it is refused as a task that isn't there, before anything is written; giving a
+    task to that bot, new or moved, is the owner's proposal and changes nothing."""
+    ceo = with_ceo_bot(api)
+    bot(api, "ops")
+    bot(api, "finance")
+    level(api, 3)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET access_json=? WHERE bot='finance'",
+                  ('{"see":{"everyone":true},"read":{"people":["ana"]},"write":{"people":["ana"]}}',))
+        hidden = H.task_create(c, OWNER, "Restructure the payroll", "Secret salaries", "bot:finance", lint=False)["id"]
+    assert not task(api, hidden)["private"]
+    before = task(api, hidden)
+    for change in ({"do": "reorder", "task_id": hidden}, {"do": "reassign", "task_id": hidden, "owner": "ops"},
+                   {"do": "close", "task_id": hidden, "note": "Not needed"}):
+        r = api.post("/api/v2/ceo-bot/decisions", headers=headers(ceo), json={"reason": "Activation is red",
+                                                                             "changes": [change]})
+        assert r.status_code == 422 and r.json()["error"]["code"] == "not-found", (change, r.text)
+        assert "Restructure the payroll" not in r.text and "Secret salaries" not in r.text
+    after = task(api, hidden)
+    assert (after["owner"], after["status"], after["rank"]) == (before["owner"], before["status"], before["rank"])
+    with api.app.state.store.read() as c:
+        assert not c.execute("SELECT 1 FROM ceo_actions").fetchone()
+
+    work = bot_task(api, "ops", "Reconcile the vendor invoices")
+    held = decide(api, ceo, [{"do": "reassign", "task_id": work, "owner": "finance"},
+                             {"do": "create", "owner": "finance", "title": "Review the payroll"}])
+    assert held["state"] == "proposed" and not held["done"] and len(held["left"]) == 2
+    assert task(api, work)["owner"] == "bot:ops"
+    with api.app.state.store.read() as c:
+        assert not c.execute("SELECT 1 FROM tasks WHERE title='Review the payroll'").fetchone()
