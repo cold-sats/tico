@@ -25,7 +25,7 @@ from clients.agent_skill import WHO_NEEDS_ME
 from . import go_live as pending_go_lives
 from . import repo_waits
 from . import built_on
-from . import agents, app_delivery, batch, external_sync, inbox_isolation, lifecycle, mcp_oauth, harness_actions, model_login, oidc, personal_tokens, views
+from . import agents, app_delivery, batch, external_sync, inbox_isolation, lifecycle, mcp_oauth, recruiting, harness_actions, model_login, oidc, personal_tokens, views
 from . import outcome_stats
 from . import ceo_bot, owner_link
 from . import login_holds
@@ -41,8 +41,8 @@ from . import models as M
 from .auth import LOCAL_COOKIE, LOCAL_COOKIE_DAYS, LOCAL_SIGNIN_PATH, LOGOUT_PATH, Auth, Identity, validate_identity
 from .config import Settings
 from .observability import Observability, browser_config, staff_display_name, route as error_route
-from .execution import (Execution, bot_repository, bump_bot_session_epoch, clear_limits, lift_after_model_change,
-                        model_choice, own_login_hold)
+from .execution import (Execution, bot_repository, bump_bot_session_epoch, claim_scope, clear_limits,
+                        lift_after_model_change, model_choice, own_login_hold)
 from .onboarding import BOTOPS, Onboarding
 from .recruit import Recruiter
 from . import rooms
@@ -772,7 +772,8 @@ def create_app(settings=None):
             found = request.scope.get("route")
             route = getattr(found, "path", None) or ("static" if not route.startswith("/api") else "unmatched")
             total = (time.perf_counter() - started) * 1000
-            response.headers["Server-Timing"] = f"auth;dur={request.state.auth_ms:.1f}, app;dur={total:.1f}"
+            response.headers["Server-Timing"] = (f"auth;dur={request.state.auth_ms:.1f}, app;dur={total:.1f}"
+                                                + (f", sql;dur={cost[0]:.1f}, wait;dur={cost[1]:.1f}" if cost is not None else ""))
             return response
         finally:
             found = request.scope.get("route")
@@ -1956,6 +1957,12 @@ def create_app(settings=None):
         slug = bot["slug"]
         row["task_flow"] = rows.task_flow.get(slug, {"going": 0, "waiting": 0})
         row["draining"] = slug in rows.draining
+        # The one task its claims are limited to (POST /api/v2/bots/{bot}/control scope): its id when this reader
+        # may read the task, or only that a limit is on.
+        scope = rows.scopes.get(slug)
+        scoped_task = H.task(c, scope) if scope else None
+        row["claim_scoped"] = bool(scope)
+        row["claim_task"] = scope if scoped_task and privacy.task_readable(c, who, scoped_task) else None
         status = rows.statuses.get(slug)
         row["status"] = privacy.status(c, who, dict(status), **rows.status_inputs[slug]) if status else status
         row["assignment"] = dict(assignment) if assignment else None
@@ -3911,6 +3918,45 @@ def create_app(settings=None):
         return mutate(request, body, lambda c: lifecycle.update_seat(auth, c, who, seat_id,
                                                                      body.model_dump(exclude_unset=True)))
 
+    @app.get("/api/v2/seats/{seat_id}")
+    def seat_show(request: Request, seat_id: str):
+        """One Recruiting seat, with whether the CEO Bot's draft of its job description is done (backend/recruiting.py)."""
+        who = request.state.identity
+        auth.domain(who)
+        with store.read() as c:
+            return recruiting.show(auth, c, who, seat_id)
+
+    @app.post("/api/v2/seats/{seat_id}/open")
+    def seat_open(request: Request, seat_id: str, body: M.Empty):
+        """Open a seat: the owner opening it asks the CEO Bot to draft its job description, unless a person wrote it."""
+        who = request.state.identity
+        auth.domain(who)
+        return mutate(request, body, lambda c: recruiting.open_seat(auth, c, who, seat_id))
+
+    @app.post("/api/v2/seats/{seat_id}/draft")
+    def seat_draft(request: Request, seat_id: str, body: M.SeatDraft):
+        """The CEO Bot's draft of the job description the owner asked for by opening the seat (`hub seat draft`)."""
+        who = request.state.identity
+        auth.domain(who)
+        return mutate(request, body, lambda c: recruiting.draft(auth, c, who, seat_id, body.text))
+
+    @app.post("/api/v2/seats/{seat_id}/recruit")
+    def seat_recruit(request: Request, seat_id: str, body: M.Empty):
+        """Recruit: up to three Tico templates for the seat at once, each with a one-line reason and a suggested model,
+        exactly one recommended. Local: nothing leaves this server."""
+        who = request.state.identity
+        auth.domain(who)
+        with store.read() as c:
+            return recruiting.candidates(auth, onboarding, c, who, seat_id)
+
+    @app.post("/api/v2/seats/{seat_id}/hire")
+    def seat_hire(request: Request, seat_id: str, body: M.SeatHire):
+        """Pick a candidate: the bot is created in Onboarding in the seat's place with its reporting line, and only
+        then its repository (by its computer for a starter, else BotOps)."""
+        who = request.state.identity
+        auth.domain(who)
+        return mutate(request, body, lambda c: recruiting.hire(auth, onboarding, c, who, seat_id, body))
+
     @app.post("/api/v2/seats/{seat_id}/close")
     def seat_close(request: Request, seat_id: str, body: M.Empty):
         """Take a seat off the chart; its row stays for the record."""
@@ -4599,7 +4645,10 @@ def create_app(settings=None):
             finally:
                 snapshot.rollback()
             def work(c):
-                unchanged = snapshot.execute("PRAGMA data_version").fetchone()[0] == version
+                from . import provenance_clock
+                clock = selected.get(("provenance_clock",))
+                unchanged = (provenance_clock.current(c) == clock if clock is not None else
+                             snapshot.execute("PRAGMA data_version").fetchone()[0] == version)
                 return execution.heartbeat(c, request.state.identity, body,
                                            live_tasks=selected if unchanged else None)
             return mutate(request, body, work)
@@ -5608,11 +5657,27 @@ def create_app(settings=None):
             config = c.execute("SELECT * FROM bot_config WHERE bot=?", (bot,)).fetchone()
             if config["revision"] != body.expected_revision:
                 raise Problem("version_conflict", "Bot configuration changed; refresh before controlling it", 409)
+            if body.action in ("scope", "unscope"):
+                # A narrower claim, never a wider one: the bot's pause, drain and every other claim check stand, and
+                # the work outside the task stays queued as it is (execution.scoped_sql).
+                task = H.task(c, body.task_id) if body.action == "scope" and body.task_id else None
+                if body.action == "scope" and not (task and privacy.task_readable(c, who, task)):
+                    raise Problem("not_found", "No such task", 404)
+                before = claim_scope(c, bot)
+                c.execute("INSERT INTO bot_control(bot,claim_task) VALUES(?,?) "
+                          "ON CONFLICT(bot) DO UPDATE SET claim_task=excluded.claim_task",
+                          (bot, task["id"] if task else None))
+                c.execute("UPDATE bot_config SET revision=revision+1 WHERE bot=?", (bot,))
+                H.event(c, who.actor, "bot." + body.action, bot,
+                        {"task_id": task["id"] if task else None, "previous": before})
+                return {"bot": bot, "action": body.action, "task_id": task["id"] if task else None,
+                        "revision": config["revision"] + 1}
             if H.bot(c, bot)["state"] == "quarantined" and body.action != "drain":
                 raise Problem("quarantined", "Review the refusal and use quarantine clear to resume this bot", 409)
             if body.action == "resume":
                 settings_admin.ensure_activation(c, who, bot)
-            c.execute("INSERT INTO bot_control VALUES(?,?) ON CONFLICT(bot) DO UPDATE SET draining=excluded.draining",
+            c.execute("INSERT INTO bot_control(bot,draining) VALUES(?,?) "
+                      "ON CONFLICT(bot) DO UPDATE SET draining=excluded.draining",
                       (bot, int(body.action in ("drain", "pause"))))
             if body.action != "drain":
                 c.execute("UPDATE bots SET state=? WHERE slug=?", ("active" if body.action == "resume" else "paused", bot))
@@ -5630,21 +5695,20 @@ def create_app(settings=None):
         # A read first: an idle runner asks every fraction of a second and must not take the write lock.
         with store.read() as c:
             selected = []
-            version = c.execute("PRAGMA data_version").fetchone()[0]
             idle = execution.idle_claim(c, request.state.identity, body,
                                         request.headers.get("idempotency-key"), selected)
             if idle is not None:
                 return idle
-            # Privacy checks open a coherent read snapshot. End it before data_version is
-            # checked under the write lock, or a newer commit stays hidden by that snapshot.
+            if not selected:
+                selected.append(execution.candidate(c, request.state.identity, body,
+                                                    execution.runner(c, request.state.identity)))
+            # End any transaction opened during selection before taking the writer lock. The selected
+            # job is checked against current policy in that transaction.
             if c.in_transaction:
                 c.rollback()
-            # Under the write lock, reuse the read result only if no other connection
-            # committed since that read began. A changed queue is selected afresh.
             def work(write):
-                unchanged = c.execute("PRAGMA data_version").fetchone()[0] == version
                 return execution.claim(write, request.state.identity, body,
-                                       selected=selected[0] if unchanged and selected else None)
+                                       selected=selected[0], prepared=True)
             return mutate(request, body, work)
 
     @app.post("/api/v2/attempts/{aid}/renew")
@@ -5672,6 +5736,10 @@ def create_app(settings=None):
     @app.post("/api/v2/attempts/{aid}/events")
     def events(request: Request, aid: str, body: M.EventBatch):
         body = scrub_attempt(aid, body)          # a secret set in this run never reaches the record
+        # Warm neutral provenance in a read snapshot. The transaction checks current
+        # permissions again, and only reuses this graph while its source clock matches.
+        with store.read_transaction() as c:
+            execution.attempt(c, request.state.identity, aid, active=False)
         return mutate(request, body, lambda c: execution.events(c, request.state.identity, aid, body))
 
     @app.post("/api/v2/attempts/{aid}/capture")
@@ -5696,13 +5764,16 @@ def create_app(settings=None):
 
     @app.post("/api/v2/attempts/{aid}/inputs")
     def inputs(request: Request, aid: str, body: M.Empty):
-        # Most polls find nothing queued: answer those outside the writer gate (execution.idle_inputs).
-        with store.read() as c:
-            validate_identity(c, request.state.identity)
-            idle = execution.idle_inputs(c, request.state.identity, aid)
-            if idle is not None:
-                privacy.require_payload(c, request.state.identity, idle)
-                return idle
+        key = request.headers.get("idempotency-key", "")
+        if 0 < len(key) <= 200:
+            with store.read_transaction() as c:
+                validate_identity(c, request.state.identity)
+                if not c.execute("SELECT 1 FROM idempotency WHERE actor=? AND operation=? AND key=?",
+                                 (request.state.identity.actor, request.url.path, key)).fetchone():
+                    idle = execution.idle_inputs(c, request.state.identity, aid)
+                    if idle is not None:
+                        privacy.require_payload(c, request.state.identity, idle)
+                        return idle
         return mutate(request, body, lambda c: execution.inputs(c, request.state.identity, aid))
 
     @app.post("/api/v2/attempts/{aid}/inputs/{mid}/ack")
@@ -5765,7 +5836,7 @@ def create_app(settings=None):
     from .chat_goals import install as install_chat_goals
     install_chat_goals(app, store, auth, mutate, send)
     from .bot_task_tabs import install as install_bot_task_tabs
-    install_bot_task_tabs(app, store, auth, mutate, settings)
+    install_bot_task_tabs(app, store, auth, mutate, settings, task_views)
     turn_work.install(app, store, auth)
     from . import run_view
     run_view.install(app, store, auth)
