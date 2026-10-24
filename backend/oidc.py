@@ -400,7 +400,12 @@ class Oidc:
     def invite(self, email):
         """Ask the issuer to mail `email` an invite to sign in here: (HTTP status, answer), or None when the issuer
         sends no invites. Only a Tico account issuer does: its discovery names `tico_invite_endpoint` on its own host,
-        so this client's secret never goes anywhere the token exchange would not send it."""
+        so this client's secret never goes anywhere the token exchange would not send it. A rehearsal asks nothing,
+        discovery included: it is a copy of real data, and the issuer would mail a real person."""
+        from .invites import rehearsing
+        if rehearsing(self.settings):
+            raise Problem("rehearsal", "Invites are off in a rehearsal: this server is a copy of real data and sends "
+                                       "no mail", 422)
         doc = self._discover()
         endpoint = doc.get("tico_invite_endpoint")
         if not isinstance(endpoint, str) or urlparse(endpoint).netloc != urlparse(self.issuer).netloc or (

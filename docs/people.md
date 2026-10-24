@@ -150,6 +150,7 @@ to sign in at. Never the company's connected mailbox, and nothing the sender typ
 Only an install that signs in with Tico accounts can send one (the built-in sign-in, `TICO_AUTH_PROXY=oidc`, whose issuer
 names `tico_invite_endpoint` in its discovery; hosted installs do). The install asks the issuer with its own client id and
 secret (`POST /oauth2/invite`, `backend/invites.py`), so the secret only ever goes to the issuer it already signs in with.
+A rehearsal (`TICO_REHEARSAL=1`) sends no invites: **Send invite** isn't offered and the API refuses with `rehearsal`.
 Anywhere else, and whenever the mail does not go, the page says so in words and nothing is recorded: *This Tico doesn't sign
 in with Tico accounts, so it can't email invites. Tell Dana to sign in at https://... with dana@...*, too many invites to
 that address today (3 a day per address, 50 a day per install), or the mail could not be delivered. A sent invite is

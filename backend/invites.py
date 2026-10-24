@@ -17,6 +17,7 @@ sends again.
 
 import json
 
+from .replication import rehearsal_on
 from .store import H, Problem, digest, encode
 
 SCHEMA = """
@@ -99,10 +100,25 @@ def once(store, auth, settings, who, request, body, person):
     return True
 
 
+def rehearsing(settings):
+    """A rehearsal is a copy of real data that sends nothing out, mail included (docs/install.md, "Rehearse a
+    migration"). Its sign-in settings are still the real install's, so the switch is checked, not the settings."""
+    return bool(getattr(settings, "rehearsal", False)) or rehearsal_on()
+
+
+def can_email(settings):
+    """Whether Send invite is offered: only the built-in Tico account sign-in sends invites, and never in a rehearsal."""
+    return settings.proxy_kind == "oidc" and not rehearsing(settings)
+
+
 def _available(auth, settings, person):
-    """Refuse, before anything is bound or sent, an invite that cannot go: no address, or no Tico account issuer."""
+    """Refuse, before anything is bound or sent, an invite that cannot go: a rehearsal, no address, or no Tico
+    account issuer."""
     email, name = person.get("email") or "", person.get("name") or "this person"
     proxy = getattr(auth, "proxy", None)
+    if rehearsing(settings):
+        raise Problem("rehearsal", f"Invites are off in a rehearsal: this server is a copy of real data and sends no "
+                                   f"mail. Tell {name} to sign in at {settings.public_url}.", 422)
     if not email:
         raise Problem("invite_email", f"{name} has no email address to invite", 422)
     if not proxy or getattr(proxy, "name", "") != "oidc" or not hasattr(proxy, "invite"):

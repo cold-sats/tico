@@ -57,6 +57,21 @@ def test_an_issuer_that_sends_no_invites_is_never_sent_the_secret_and_the_owner_
     assert signin.fake.invite_calls == []
 
 
+def test_a_rehearsal_with_tico_account_sign_in_offers_no_invite_and_asks_the_issuer_nothing(signin, monkeypatch):  # noqa: F811
+    """TICO_REHEARSAL=1 runs on a copy of real data with the real install's sign-in settings: an invite would mail a
+    real person with the real client secret, so it is refused before discovery and Send invite isn't offered."""
+    signin.fake.invites = [(202, {"status": "sent"})]
+    headers = owner(signin)
+    monkeypatch.setenv("TICO_REHEARSAL", "1")
+    monkeypatch.setattr(signin.auth.proxy, "_discover", lambda *a, **k: pytest.fail("a rehearsal asked the issuer"))
+    assert signin.api.get("/api/v2/access", headers=headers).json()["invite_email"] is False
+    refused = signin.api.post("/api/v2/access/people/cara/invite", json={}, headers=headers)
+    assert refused.status_code == 422 and refused.json()["error"]["code"] == "rehearsal", refused.text
+    with pytest.raises(Exception, match="rehearsal"):
+        signin.auth.proxy.invite("cara@acme.example")
+    assert signin.fake.invite_calls == [] and "cara" not in invites_sent(signin)
+
+
 def test_only_an_owner_or_admin_sends_invites_and_only_to_someone_on_the_roster(signin):  # noqa: F811
     signin.fake.invites = [(202, {"status": "sent"})]
     assert signin.login(claims={"email": "cara@acme.example"}).status_code == 302

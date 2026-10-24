@@ -1586,7 +1586,7 @@ def create_app(settings=None):
                     # When each person was last sent an invite (backend/invites.py), and whether this install's
                     # sign-in could send one at all: only the built-in sign-in, through a Tico account issuer.
                     "invites": {pid: sent["at"] for pid, sent in invites.sent(c).items()},
-                    "invite_email": settings.proxy_kind == "oidc"}
+                    "invite_email": invites.can_email(settings)}
 
     @app.post("/api/v2/access/people")
     def access_person_add(request: Request, body: M.AccessPersonAdd):
