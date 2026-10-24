@@ -106,6 +106,11 @@ def run(args, who=None):
         return command(client, args.worktree_sub, getattr(args, 'repo', None) or getattr(args, 'path', None), args.task)
     if args.cmd == "repo":
         from clients import hubtools
+        if args.fn == "repo review":
+            body = Path(args.body_file).read_text() if args.body_file else args.body
+            return hubtools.repo_review(client, {"repository": args.repository, "number": args.number,
+                                                 "head": args.head, "verdict": args.verdict, "body": body,
+                                                 **({"operation_id": args.operation_id} if args.operation_id else {})})
         if args.fn == "repo product-create":
             return product_repo_create(client, args.name, confirm=args.confirm)
         if args.sub == "list":
@@ -152,7 +157,7 @@ def run(args, who=None):
               "update create", "update redo", "update list", "update show", "update mark-read", "update reply", "update settings",
               "changelog list", "changelog mark-read",
               "needs-you start", "needs-you next", "needs-you respond", "needs-you commit", "needs-you abandon",
-              "brief", "mcp stats", "calendar list", "calendar status", "routine update", "team show", "org order", "run list",
+              "brief", "pipeline", "mcp stats", "calendar list", "calendar status", "routine update", "team show", "org order", "run list",
               "message list", "message mark-read", "bot recent", "agent pair show", "agent pair approve", "agent pair decline",
               "slack channel list", "slack channel add", "slack channel remove", "slack channel import",
               "seat list", "seat create", "seat update", "seat close"):
@@ -385,9 +390,9 @@ def run(args, who=None):
                 payload["relations"] = [{"task": args.parent, "kind": "parent"}]
             if getattr(args, "private", None) is not None:
                 payload["private"] = args.private
-            for field in ("type", "step", "number"):
+            for field in ("type", "step", "number", "qa", "change_paths", "qa_not_checkable_live"):
                 if getattr(args, field, None) is not None:
-                    payload[field] = getattr(args, field)
+                    payload[field] = (getattr(args, field) == "yes") if field == "qa" else getattr(args, field)
             if args.label:
                 payload["labels"] = [x.strip() for one in args.label for x in one.split(",") if x.strip()]
             if args.top:

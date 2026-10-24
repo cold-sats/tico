@@ -91,8 +91,8 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
     // The cause and decision fit above the two actions; the evidence stays folded.
     const card = page.locator('dialog.stopped-runs-dialog form[data-job="j1"]');
     await card.waitFor({timeout: t(5000)});
-    assert.match(await card.locator('[data-stopped]').innerText(), /stopped before finishing/);
-    assert.match(await card.locator('[data-pick]').innerText(), /Try again/);
+    assert.match(await card.locator('[data-stopped]').innerText(), /^Stopped .+ after using Bash\.$/);
+    assert.match(await card.locator('[data-pick]').innerText(), /^Don’t retry unless you know Bash didn’t finish/);
     assert.deepEqual(await card.locator('.stopped-run-actions .row button').allInnerTexts(), ['Don’t retry', 'Try again']);
     assert.equal(await card.locator('[data-details]').getAttribute('open'), null);
     assert.equal(await card.locator('textarea[name=note]').isVisible(), false);
@@ -125,7 +125,7 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
     // A run that only read is safe to try again, so that button leads.
     const read = page.locator('dialog.stopped-runs-dialog form[data-job="j2"]');
     await read.waitFor({timeout: t(5000)});
-    assert.match(await read.locator('[data-stopped]').innerText(), /stopped before finishing/);
+    assert.match(await read.locator('[data-stopped]').innerText(), /before changing anything\.$/);
     assert.deepEqual(await read.locator('.stopped-run-actions .row button').allInnerTexts(), ['Try again', 'Don’t retry']);
     await read.locator('[data-details] > summary').click();
     await read.locator('details:has(> [data-saved]) > summary').click();
