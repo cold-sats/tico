@@ -126,11 +126,13 @@ def _refusal(c, row, exc):
 
 
 def _bot_task(c, task_id):
-    """A task the CEO Bot may change alone: live, owned by a bot, and one it may read. None otherwise."""
+    """A task the CEO Bot may change alone: live, owned by a bot, and company-visible. None otherwise. It never acts
+    alone on a private task, even one it may read: the company-wide log would carry the task's words (its note), and
+    Undo, made as the owner, could neither write it nor give back its guest."""
     row = H.task(c, str(task_id or ""))
     if not row or row["status"] not in H.ACTIVE_STATUSES or not H.is_bot(row["owner"]):
         return None
-    return row if H.task_private_readable(c, CEO, row) else None
+    return None if H.task_private(c, row) else row
 
 
 def _offline(c, actor):
@@ -343,8 +345,13 @@ def _as_read_by(c, reader, row):
         change = x.get("change") or {}
         if not hidden(x.get("task_id")) and not hidden(change.get("task_id")):
             return x
-        return {**{k: v for k, v in x.items() if k != "task_id"},
-                "change": {k: v for k, v in change.items() if k != "task_id"}}
+        # Nor its words: the change's, and the note in the fields Undo keeps (a task made private since).
+        out = {k: v for k, v in x.items() if k != "task_id"}
+        out["change"] = {k: v for k, v in change.items() if k != "task_id" and k not in WORDS}
+        for side in ("before", "after"):
+            if isinstance(x.get(side), dict):
+                out[side] = {k: v for k, v in x[side].items() if k not in WORDS}
+        return out
     row["done"], row["left"] = [item(x) for x in row["done"]], [item(x) for x in row["left"]]
     if hidden(row.get("proposal_task")):
         row["proposal_task"] = None
@@ -380,6 +387,11 @@ def undo(c, actor, action_id):
             task = H.task(c, item["task_id"])
             if not task:
                 kept.append(f"{item['text']}: the task is gone")
+                continue
+            if not item.get("made") and H.task_private(c, task):
+                # Made private since the decision (moved under a private task): Undo does not write it, as the
+                # decision would not have, so nothing is refused and its guest keeps it.
+                kept.append(f"{_title(c, task)} is private now, so Undo leaves it as it is")
                 continue
             c.execute("SAVEPOINT ceo_undo")
             try:

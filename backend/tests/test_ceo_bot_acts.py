@@ -235,11 +235,19 @@ def test_a_private_task_never_reaches_the_ceo_bot_log_or_the_owners_proposal(api
             dump = " ".join(str(tuple(r)) for r in c.execute(f"SELECT * FROM {table} WHERE ts>?", (since,)))
             assert "Fire the vendor" not in dump and "Acquire Initech" not in dump, table
 
-    made = decide(api, ceo, [{"do": "reorder", "task_id": mine}, {"do": "reassign", "task_id": mine, "owner": OWNER}])
-    assert made["state"] == "done" and len(made["done"]) == 1 and len(made["left"]) == 1
+    # A private task the CEO Bot can read is still not changed alone: its close note would reach the company-wide log,
+    # and Undo, made as the owner, could not write it back. Each change becomes the owner's proposal instead.
+    before = task(api, mine)
+    made = decide(api, ceo, [{"do": "reorder", "task_id": mine}, {"do": "reassign", "task_id": mine, "owner": OWNER},
+                             {"do": "close", "task_id": mine, "note": "Globex walked away from the merger"}])
+    assert made["state"] == "proposed" and not made["done"] and len(made["left"]) == 3
+    after = task(api, mine)
+    assert (after["status"], after["owner"], after["rank"]) == (before["status"], before["owner"], before["rank"])
     seen = str(get(api, "ceo-bot/log")) + str(proposals(api))
-    assert "Merge with Globex" not in seen and "Secret terms" not in seen
-    assert "Merge with Globex" not in str(post(api, f"ceo-bot/log/{made['id']}/undo", {}))
+    for secret in ("Merge with Globex", "Secret terms", "Globex walked away"):
+        assert secret not in seen, secret
+    r = api.post(f"/api/v2/ceo-bot/log/{made['id']}/undo", headers=headers(), json={})
+    assert r.status_code == 422 and "Merge with Globex" not in r.text, r.text
 
 
 def test_undo_leaves_open_a_task_it_made_whose_title_or_body_was_edited_since(api):
