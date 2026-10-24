@@ -20,6 +20,7 @@ per incident, only when it is still open after NOTICE_AFTER_S or its main wait n
 money)."""
 
 from . import org_turns, start_places
+from . import task_privacy as privacy
 from .store import H
 
 FIX_WINDOW_S = 300          # an incident the fixer has had this long to clear is handed to BotOps
@@ -113,7 +114,9 @@ def free(c, execution):
                            "retried: BotOps checks what already happened first.")
             if not c.execute("SELECT 1 FROM events WHERE action='job.held' AND target=?", (row['id'],)).fetchone():
                 H.event(c, H.KEEPER, 'job.held', row['id'], {'job_id': job['id'], 'tools': acted})
-                execution._hand_to_maintainer(c, job, msg, task, acted)
+                # The BotOps task is company-wide: it names the task only when BotOps may read the request.
+                if privacy.message_readable(c, 'bot:' + H.FLEET_MAINTAINER, msg):
+                    execution._hand_to_maintainer(c, job, msg, task, acted)
     return freed
 
 

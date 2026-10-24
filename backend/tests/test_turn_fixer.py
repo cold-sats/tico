@@ -48,6 +48,7 @@ def test_frees_only_proven_dead_starts_and_never_blindly_retries_a_turn_that_act
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE attempts SET lease_until=? WHERE id IN ('attempt-0','attempt-4')", (past,))
         c.execute("UPDATE attempts SET stop_requested='human:ana' WHERE id='attempt-1'")
+        c.execute("UPDATE tasks SET private=0 WHERE id='task-4'")      # a company task BotOps may read
         # attempt-3 runs with a live lease but has made no progress for an hour: slow, not dead.
         c.execute("UPDATE attempts SET started=? WHERE id IN ('attempt-3','attempt-4')", (H.shift(H.now(), hours=-1),))
         c.execute("INSERT INTO attempt_events(attempt_id,seq,kind,payload_json,created) VALUES('attempt-4',1,'tool',?,?)",
@@ -68,6 +69,24 @@ def test_frees_only_proven_dead_starts_and_never_blindly_retries_a_turn_that_act
     with api.app.state.store.read() as c:
         assert c.execute("SELECT count(*) FROM events WHERE action='job.held' AND target='attempt-4'").fetchone()[0] == 1
         assert c.execute("SELECT count(*) FROM tasks WHERE owner='bot:botops'").fetchone()[0] == 1
+
+
+def test_dead_turn_on_a_private_task_botops_cannot_read_is_held_without_a_botops_task(api):
+    """The BotOps review task is company-wide: a private task's title and owner never reach it."""
+    botops(api)
+    machine = waiters(api, n=0, running=1)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET private=1,visibility='private' WHERE id='task-0'")
+        c.execute("UPDATE attempts SET lease_until=?,started=? WHERE id='attempt-0'",
+                  (H.shift(H.now(), seconds=-5), H.shift(H.now(), hours=-1)))
+        c.execute("INSERT INTO attempt_events(attempt_id,seq,kind,payload_json,created) VALUES('attempt-0',1,'tool',?,?)",
+                  (json.dumps({'tool': 'Bash', 'item_id': 'z'}), H.now()))
+    busy(machine)
+    assert fix(api)[0] == 1
+    assert state(api, 'attempt-0')['job'] == 'uncertain'
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM events WHERE action='job.held' AND target='attempt-0'").fetchone()[0] == 1
+        assert c.execute("SELECT count(*) FROM tasks WHERE owner='bot:botops'").fetchone()[0] == 0
 
 
 def test_leased_start_that_reported_a_tool_call_is_held_not_requeued(api):
