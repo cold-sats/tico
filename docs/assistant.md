@@ -193,6 +193,25 @@ next reply on. It holds up to 100 lines of up to 280 characters; saving the same
 only adds: editing and deleting are your own clicks. Nothing about the company is in it: only the owner's CEO Bot has
 that.
 
+## On the Updates page
+
+Updates has your chat beside the feed: the same conversation as the menu tab, so a question asked here shows there too.
+It is labelled with your bot (the Assistant, or the [CEO Bot](ceo-bot.md#on-the-updates-page) for the owner). On a
+desktop it is a right rail; drag its left edge to resize it, as with other right rails, and the button at the end of the
+page's header shows or hides it. Tico remembers that for you on every device. On a phone the same button opens the chat
+full screen; its close button or Back shuts it.
+
+A question asked here is handed the recent updates you can read: the last four days' dailies and the latest week in
+review, chosen by the same rules as your Updates page. Tico leaves out any update that links or names a task, chat or
+bot you can't open, so the bot never has it to quote or link. That filter runs on the server, not in the bot's
+instructions. Ask "what's the top update today?" and it picks one and says why in a sentence. With nothing posted today
+it says so and offers the last day's top one. Until you teach it otherwise (see below), "top" means affects a goal, then
+waits on you, then newest.
+
+A link to an update in its reply stays on the page. It scrolls to that card and highlights it, switching Daily or Weekly
+and the day as needed. On a phone the chat closes first. Each question is one ordinary turn. It costs no more than any
+other message to your Assistant, and it acts only as you, as everywhere.
+
 ## API
 
 Stable v2 (`docs/openapi/v2.json`, tag **Assistant**). All signed-in humans; the confirm and cancel routes need your
@@ -201,7 +220,7 @@ own session, not a personal token.
 | Request | Answer |
 |---|---|
 | `GET /api/v2/assistant` | `{"available", "state", "bot", "name", "can_turn_on", "room_id", "messages": [...], "has_more", "next_before", "execution", "actions": {id: action}, "pending": [...]}`. Creates your room the first time. `execution` is the assistant's current run (null when idle): show a thinking state while it is set and poll again. A message whose `refs.action` names an id in `actions` is a Confirm / Cancel card; `refs.fast` marks a server answer; `refs.links` lists what it linked. |
-| `POST /api/v2/assistant/messages` `{"text"}` | `{"message", "reply", "fast", "intent"}`. `fast: true` carries the answer as `reply`; otherwise the bot is working. `409 assistant_off` when it is off. |
+| `POST /api/v2/assistant/messages` `{"text", "place"}` | `{"message", "reply", "fast", "intent"}`. `fast: true` carries the answer as `reply`; otherwise the bot is working. `"place": "updates"` (the Updates chat) always takes a turn, handed the recent updates you may read. `409 assistant_off` when it is off. |
 | `POST /api/v2/assistant/turn-on` | Owner only. `{"bot", "state", "restored", "placed"}`. |
 | `POST /api/v2/assistant/actions` `{"summary", "method", "path", "body"}` | A proposal `{"action": {...}}` (what the assistant's tool calls). |
 | `GET /api/v2/assistant/actions/{id}` | `{"action": {"status": "pending"\|"running"\|"done"\|"failed"\|"cancelled"\|"expired", "result": {...}}}` |

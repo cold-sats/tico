@@ -51,7 +51,7 @@ html.demo #main.chat-layout{height:calc(100dvh - var(--demo-h))}
 *{box-sizing:border-box}
 html,body{height:100%}
 /* The rails' widths; dragging an edge changes them (ui/app/rails.js, ui/styles/rails.css). */
-:root{--rail-left:236px;--rail-right:320px}
+:root{--rail-left:236px;--rail-right:320px;--rail-chat:360px}
 body{margin:0;font:var(--t-md)/1.5 var(--sans);color:var(--ink);background:var(--bg);display:grid;grid-template-columns:var(--rail-left) minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);min-height:100vh}
 a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 button,input,select,textarea{font:inherit;color:inherit}

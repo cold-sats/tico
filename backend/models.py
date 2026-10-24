@@ -2112,6 +2112,8 @@ class StopTurn(Contract):
 
 class AssistantMessage(Contract):
     text: Annotated[str, Field(min_length=1, max_length=8000)]
+    # Sent from the Updates chat (backend/updates_chat.py): the turn is handed the updates the person may read.
+    place: Literal["updates"] | None = None
 
 
 class LibrarianResearch(Contract):

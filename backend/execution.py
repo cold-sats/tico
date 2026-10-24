@@ -9,7 +9,7 @@ from datetime import timezone
 
 from clients import gateway, sessions
 
-from . import auto_tasks, start_places, app_delivery, check_models, learned, rooms, gateway_connection, inbox_isolation, login_holds, models_preset, providers, quiet_work, routines, run_triggers, runner_versions, screen, task_models, usage_limits, wake_presets, wake_rules
+from . import auto_tasks, start_places, app_delivery, check_models, learned, rooms, updates_chat, gateway_connection, inbox_isolation, login_holds, models_preset, providers, quiet_work, routines, run_triggers, runner_versions, screen, task_models, usage_limits, wake_presets, wake_rules
 from . import task_privacy as privacy
 from .auth import Identity
 from .batch_work import isolated
@@ -2163,6 +2163,9 @@ class Execution:
                             # What the person's chat bot has learned, read now: a deleted entry is gone from this turn
                             # (backend/learned.py; rendered by runner-rs/src/prompt.rs). None outside their own chat.
                             "learned": learned.for_turn(c, self.store.settings, conv, row["bot"]),
+                            # Asked from the Updates chat: the recent updates that person may read and open, read now as
+                            # them (backend/updates_chat.py). None for every other turn.
+                            "updates": updates_chat.for_turn(c, self.auth, self.store.settings, conv, row["bot"], msg, aid),
                             # The owner's CEO Bot chat is a session of its own (backend/rooms.py).
                             "config": rooms.session_config(conv, row["bot"], config),
                             # Bumped by a session clear or reset (views.py clear_session, app.py reset_bot_sessions):
