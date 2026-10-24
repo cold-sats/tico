@@ -950,7 +950,24 @@ print(json.dumps(r))
         // Even the next borrower of the same UID cannot use a revoked relay.
         assert!(TcpStream::connect(("127.0.0.1", url::Url::parse(&relay.url).unwrap().port().unwrap())).await.is_err());
         reused.permit_reuse(); drop(reused);
+        // A second name for a turn-owned temp file must not survive readable, nor return its UID to the pool.
+        let (first, second) = (format!("/tmp/tico-turn-link-{}", uuid::Uuid::new_v4().simple()), format!("/tmp/tico-turn-link-{}", uuid::Uuid::new_v4().simple()));
+        let linked = crate::isolation::command_as(Some(other.identity()), "/bin/sh")
+            .args(["-c", "umask 002; echo SYNTHETIC-LINKED > \"$1\"; ln \"$1\" \"$2\"", "fixture", &first, &second])
+            .env_clear().output().await.unwrap();
+        assert!(linked.status.success(), "{}", String::from_utf8_lossy(&linked.stderr));
+        let quarantined = other.uid;
         let mut other = other; other.permit_reuse(); drop(other);
+        for name in [&first, &second] {
+            if let Ok(info) = std::fs::symlink_metadata(name) {
+                assert!(info.uid() != quarantined && info.mode() & 0o777 == 0, "{name} survives readable: {:o}", info.mode());
+                std::fs::remove_file(name).unwrap();
+            }
+        }
+        let mut next = crate::turn_users::Lease::take().unwrap();
+        assert_ne!(next.uid, quarantined, "a UID with leftover names must stay quarantined");
+        assert!(crate::turn_users::Lease::take().is_err());
+        next.permit_reuse(); drop(next);
         std::fs::remove_dir_all(root).unwrap();
     }
 

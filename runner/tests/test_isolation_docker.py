@@ -12,6 +12,7 @@ update: it must still read its registration and state and run a harness, and `bo
 """
 import json
 import os
+import platform
 import shutil
 import subprocess
 import time
@@ -45,6 +46,23 @@ def volume():
 
 
 CAPS = [a for cap in ("CHOWN", "DAC_OVERRIDE", "KILL", "SETGID", "SETUID") for a in ("--cap-add", cap)]
+
+
+def probe_binary():
+    """The runner's Linux test executable, built from this checkout to run inside the candidate image."""
+    if platform.system() != "Linux":
+        pytest.skip("Building the turn-user probe needs Linux; set TICO_RUNNER_TEST_BINARY to a Linux test executable")
+    if not shutil.which("cargo"):
+        pytest.fail("cargo is required to build the Gateway turn-user probe for the candidate image")
+    root = Path(__file__).resolve().parents[2]
+    built = subprocess.run(["cargo", "test", "--locked", "--manifest-path", str(root / "runner-rs/Cargo.toml"),
+                            "--no-run", "--message-format=json"], capture_output=True, text=True, timeout=1200)
+    assert built.returncode == 0, built.stderr[-4000:]
+    executables = [message["executable"] for message in map(json.loads, built.stdout.splitlines())
+                   if message.get("reason") == "compiler-artifact" and message.get("executable")
+                   and message["target"]["name"] == "tico-runner" and message["profile"]["test"]]
+    assert len(executables) == 1, executables
+    return executables[0]
 
 
 def test_a_turn_cannot_read_the_registration_but_can_run_a_harness_and_push(volume):
@@ -454,13 +472,11 @@ def test_handing_an_older_releases_session_to_the_bot_changes_no_owner_outside_i
 def test_gateway_turn_users_block_siblings_and_clean_before_reuse(volume):
     """The source-pinned Rust probe exercises the real pool and relay in the candidate image.
 
-    Build its executable with `cargo test --manifest-path runner-rs/Cargo.toml --no-run`, then set
-    TICO_RUNNER_TEST_BINARY to the emitted executable. No host home, credential or database is mounted.
+    On Linux the test builds the probe from this checkout (`cargo test --no-run`), so the release gate runs it;
+    TICO_RUNNER_TEST_BINARY names a prebuilt one instead. No host home, credential or database is mounted.
     The probe verifies its fingerprint against the candidate's runner and all 64 passwd entries.
     """
-    binary = os.environ.get("TICO_RUNNER_TEST_BINARY", "").strip()
-    if not binary:
-        pytest.skip("Set TICO_RUNNER_TEST_BINARY for the required Gateway two-user candidate acceptance")
+    binary = os.environ.get("TICO_RUNNER_TEST_BINARY", "").strip() or probe_binary()
     binary = Path(binary).resolve(strict=True)
     assert binary.is_file() and os.access(binary, os.X_OK), binary
     configured = docker("run", "--rm", "--user", "0", "--cap-drop", "ALL", *CAPS,

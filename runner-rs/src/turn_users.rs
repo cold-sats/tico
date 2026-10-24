@@ -66,9 +66,13 @@ pub async fn share_workspace(paths: Vec<PathBuf>) -> Result<(), String> {
 }
 
 fn share_workspace_blocking(paths: &[PathBuf]) -> Result<(), String> {
-    let status = crate::isolation::std_command(crate::env::python()).args(["-c", r#"import os,stat,sys
-def share(path):
- fd=os.open(path,os.O_RDONLY|os.O_NONBLOCK|os.O_NOFOLLOW)
+    let status = crate::isolation::std_command(crate::env::python()).args(["-c", r#"import errno,os,stat,sys
+def share(name,dir_fd=None):
+ # Open relative to the pinned directory without following a link, then decide on the opened inode.
+ try: fd=os.open(name,os.O_RDONLY|os.O_NONBLOCK|os.O_NOFOLLOW,dir_fd=dir_fd)
+ except OSError as e:
+  if e.errno in (errno.ENOENT,errno.ELOOP): return
+  raise
  try:
   s=os.fstat(fd)
   if s.st_uid==os.geteuid() and (stat.S_ISDIR(s.st_mode) or stat.S_ISREG(s.st_mode) and s.st_nlink==1):
@@ -78,10 +82,8 @@ for root in sys.argv[1:]:
  share(root)
  for base,dirs,files,fd in os.fwalk(root,follow_symlinks=False):
   for name in dirs+files:
-   p=os.path.join(base,name)
-   if os.path.islink(p): continue
    s=os.stat(name,dir_fd=fd,follow_symlinks=False)
-   if stat.S_ISDIR(s.st_mode) or stat.S_ISREG(s.st_mode): share(p)
+   if stat.S_ISDIR(s.st_mode) or stat.S_ISREG(s.st_mode): share(name,fd)
 "#]).args(paths).env_clear().status().map_err(|e| e.to_string())?;
     if status.success() { Ok(()) } else { Err("cannot share the bot workspace with its turn user".into()) }
 }
@@ -275,7 +277,17 @@ fn walk(parent: i32, name: &CStr, uid: u32, destination: Option<(u32, u32)>, bud
             if unsafe { libc::fchownat(fd.as_raw_fd(), empty.as_ptr(), owner, group, libc::AT_EMPTY_PATH | libc::AT_SYMLINK_NOFOLLOW) } != 0 {
                 return Err(std::io::Error::last_os_error());
             }
-            if destination.is_none() && unsafe { libc::unlinkat(parent, name.as_ptr(), 0) } != 0 { return Err(std::io::Error::last_os_error()); }
+            if destination.is_none() {
+                // Another name for this inode may survive the unlink. Now supervisor-owned, it is stripped of every
+                // permission (the turn's umask left it group-readable) so no sibling can read it through that name.
+                if pinned.st_mode & libc::S_IFMT != libc::S_IFLNK {
+                    let path = CString::new(format!("/proc/self/fd/{}", fd.as_raw_fd())).unwrap();
+                    if unsafe { libc::chmod(path.as_ptr(), 0) } != 0 { return Err(std::io::Error::last_os_error()); }
+                }
+                if unsafe { libc::unlinkat(parent, name.as_ptr(), 0) } != 0 { return Err(std::io::Error::last_os_error()); }
+                // Those other names are leftovers this sweep may never reach: quarantine instead of reusing the UID.
+                if pinned.st_nlink > 1 { return Err(std::io::Error::other("turn-owned file has another name")); }
+            }
         }
     }
     Ok(())
