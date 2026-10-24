@@ -201,7 +201,7 @@ impl Runner {
                         // A local save error must not discard a completed answer queued behind this event.
                         // Settlement retries the save outside the cancellable drive and retains completed work.
                         if self.confirm_thread(f, &session).await.is_err() {
-                            self.diagnose(aid, "Session is running; local session state could not be saved. Settlement will retry the save.");
+                            let _ = self.state.append(aid, "diagnostic", &json!({"text": "Session is running; local session state could not be saved. Settlement will retry the save."}));
                         }
                     }
                     continue;
