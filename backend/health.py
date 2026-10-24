@@ -1319,8 +1319,15 @@ def view(c, who, settings, auth, github, config):
             text = (f"{value['in_use']} company turns in use; warning {value['warning']}, stop {value['stop']}. "
                     + ('Incident opened ' + incident['opened_at'] if incident.get('active') else
                        'Incident resolved ' + incident.get('resolved_at', '')))
+            fixes = [_fix(*COMPUTERS)]
+            # Items share the shape of every other check's (bot, name, text, fixes) so issue lists can sort and
+            # show them; a resolved incident is an ok summary with no items, like any other clear check.
+            items = [{"bot": "", "name": "Company turns", "text": text, "incident": incident['id'],
+                      "opened_at": incident['opened_at'], "at_stop": bool(incident.get('at_stop')),
+                      "in_use": value['in_use'], "warning": value['warning'], "stop": value['stop'],
+                      "fixes": fixes}] if incident.get('active') else []
             checks.append(_check('company_turns', 'Company turns', 'warn' if incident.get('active') else 'ok',
-                                 text, items=[incident]))
+                                 text, fixes, items=items))
     if full and (listening := _listening(c, settings)):
         checks.append(listening)
     storage = storage_settings(c, settings)

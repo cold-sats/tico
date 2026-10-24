@@ -186,6 +186,23 @@ def test_incident_resolves_and_recrossing_opens_one_new_incident(api):
         assert c.execute("SELECT count(*) FROM events WHERE action='turns.warning_crossed'").fetchone()[0] == 2
 
 
+def test_owner_issue_lists_read_an_open_and_a_resolved_incident(api):
+    from backend import org_turns
+    one_person(api)
+    waiters(api, n=39, running=1)
+    with api.app.state.store.transaction() as c:
+        org_turns.observe(c, api.app.state.store.settings)
+    for path in ('fleet/check', 'health/issues'):
+        issue = next(i for i in get(api, path)['issues'] if i['kind'] == 'company_turns')
+        assert issue['name'] == 'Company turns' and issue['opened_at'] and issue['severity'] == 'medium'
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE attempts SET state='completed' WHERE id='attempt-39'")
+        c.execute("UPDATE jobs SET state='completed' WHERE attempt_id='attempt-39'")
+        org_turns.observe(c, api.app.state.store.settings)
+    for path in ('fleet/check', 'health/issues'):
+        assert not any(i['kind'] == 'company_turns' for i in get(api, path)['issues'])
+
+
 def test_stop_level_idle_claim_keeps_computer_contact_fresh(api, monkeypatch):
     one_person(api)
     machine = waiters(api, n=99, running=1)
