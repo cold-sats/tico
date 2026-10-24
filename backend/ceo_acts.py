@@ -182,16 +182,28 @@ def _check(c, change):
         return "name a live bot task (a finished or private one can't be changed)", None
     if do == "reassign" and change["owner"] == row["owner"]:
         return f"{_title(c, row)} is already {_name(c, row['owner'])}'s", None
+    if do == "reassign" and H.private_tasks_default(c, change["owner"]):
+        # Giving it to a bot that keeps its tasks private makes it private (task_update): the owner could then
+        # neither read it nor put it back, so the CEO Bot does not do it alone.
+        return (f"{_name(c, change['owner'])} keeps its tasks private, so giving it {_title(c, row)} stays the "
+                "owner's"), None
     if do == "close":
         change["note"] = " ".join(str(change.get("note") or "").split())[:1000]
     return _offline(c, row["owner"]) or (_offline(c, change["owner"]) if do == "reassign" else None), None
 
 
-FIELDS = ("status", "step_id", "step_rank", "owner", "rank", "note", "closed_at", "closed_by", "version")
+FIELDS = ("status", "step_id", "step_rank", "owner", "rank", "note", "closed_at", "closed_by", "version", "private")
 
 
 def _snapshot(row):
     return {k: row.get(k) for k in FIELDS}
+
+
+def _was_private(c, item, task):
+    """Whether the task was private before the decision (its snapshot); a row logged before that was kept reads the
+    task as it is now."""
+    before = item.get("before") or {}
+    return bool(before["private"]) if "private" in before else H.task_private(c, task)
 
 
 def _apply(c, change, goal_id, reason):
@@ -388,10 +400,10 @@ def undo(c, actor, action_id):
             if not task:
                 kept.append(f"{item['text']}: the task is gone")
                 continue
-            if not item.get("made") and H.task_private(c, task):
-                # Made private since the decision (moved under a private task): Undo does not write it, as the
-                # decision would not have, so nothing is refused and its guest keeps it.
-                kept.append(f"{_title(c, task)} is private now, so Undo leaves it as it is")
+            if not item.get("made") and _was_private(c, item, task):
+                # The decision never acts on a private task (_bot_task); one logged as private before it is left
+                # alone, so nothing is refused and its guest keeps it.
+                kept.append(f"{_title(c, task)} is private, so Undo leaves it as it is")
                 continue
             c.execute("SAVEPOINT ceo_undo")
             try:
@@ -495,7 +507,8 @@ def _restore(c, actor, task, item, since, kept):
             put["step"], put["step_rank"] = before["step_id"], before.get("step_rank")
     if "note" in back:
         put["note"] = before.get("note") or ""
-    H.task_update(c, actor, task["id"], mover=True, **put)
+    # A task private since the decision (moved under a private task) is not the owner's to write: Tico puts it back.
+    H.task_update(c, H.KEEPER if H.task_private(c, task) else actor, task["id"], mover=True, **put)
     if "status" in back:
         c.execute("UPDATE tasks SET closed_at=?, closed_by=? WHERE id=?",
                   (before.get("closed_at"), before.get("closed_by"), task["id"]))

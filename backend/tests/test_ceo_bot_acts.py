@@ -4,7 +4,7 @@ without overwriting a later edit; anything on the owner's list, at any level, is
 proposal in their Needs you, and so does a change a bot offline can't take."""
 
 from backend import ceo_bot
-from backend.store import H
+from backend.store import H, encode
 from backend.tests.test_api import api, get, headers, post  # noqa: F401
 from backend.tests.test_ceo_bot_level import level
 from backend.tests.test_ceo_bot_suggests import bot_task
@@ -264,3 +264,45 @@ def test_undo_leaves_open_a_task_it_made_whose_title_or_body_was_edited_since(ap
     undone = post(api, f"ceo-bot/log/{made['id']}/undo", {})
     assert task(api, titled)["status"] != "closed" and task(api, bodied)["status"] != "closed"
     assert undone["undo"]["text"].count("which it made, was changed since") == 2, undone["undo"]["text"]
+
+
+def test_a_decision_never_makes_a_task_private_and_undo_puts_back_one_made_private_since(api):
+    """Giving a company task to a bot that keeps its tasks private would make it private, out of the owner's reach:
+    that reassign is the owner's proposal. A task made private after the decision (moved under a private task) is
+    still put back by Undo, from what it was before the decision, not left with the bot the decision gave it to."""
+    ceo = with_ceo_bot(api)
+    for slug in ("ops", "finance"):
+        bot(api, slug)
+    level(api, 3)
+    with api.app.state.store.transaction() as c:
+        config = H._json(c.execute("SELECT config_json FROM bot_config WHERE bot='finance'").fetchone()[0], {})
+        c.execute("UPDATE bot_config SET config_json=? WHERE bot='finance'",
+                  (encode({**config, "private_tasks_default": True}), ))
+    work = bot_task(api, "ops", "Reconcile the vendor invoices")
+    held = decide(api, ceo, [{"do": "reassign", "task_id": work, "owner": "finance"}])
+    assert held["state"] == "proposed" and "keeps its tasks private" in held["left"][0]["why"]
+    assert task(api, work)["owner"] == "bot:ops" and not task(api, work)["private"]
+
+    bot(api, "coo")
+    made = decide(api, ceo, [{"do": "reassign", "task_id": work, "owner": "coo"}])
+    assert made["state"] == "done" and made["done"][0]["before"]["private"] == 0
+    with api.app.state.store.transaction() as c:          # made private since, by someone else
+        c.execute("UPDATE tasks SET private=1, visibility='private' WHERE id=?", (work,))
+    undone = post(api, f"ceo-bot/log/{made['id']}/undo", {})
+    assert task(api, work)["owner"] == "bot:ops", undone["undo"]["text"]
+    assert "its owner" in undone["undo"]["text"] and "could not be put back" not in undone["undo"]["text"]
+
+
+def test_the_ceo_bot_publishes_only_with_a_real_approval_whatever_the_team_setting(api):
+    """With bot approvals for public changes off, any approval id once let the CEO Bot publish: the id is checked."""
+    ceo = with_ceo_bot(api)
+    bot(api, "ops")
+    level(api, 3)
+    post(api, "roadmaps/settings", {"bot_public_approval": False})
+    with api.app.state.store.transaction() as c:
+        mine = H.task_create(c, CEO, "Write the onboarding email", "Work it.", "bot:ops", lint=False)["id"]
+    r = api.post(f"/api/v2/tasks/{mine}", headers=headers(ceo), json={
+        "visibility": "public", "public_title": "Onboarding", "approval_id": "made-up",
+        "version": task(api, mine)["version"]})
+    assert r.status_code >= 400 and "approval" in r.text, r.text
+    assert task(api, mine)["visibility"] != "public"
