@@ -337,7 +337,8 @@ def test_github_errors_and_head_changes_during_collection_refuse(api, monkeypatc
     monkeypatch.setattr(service, 'row', lambda c: {'org': 'ticoteam'})
     monkeypatch.setattr(service, 'mint', lambda *a: ('synthetic', 'later'))
     monkeypatch.setattr(service, '_call', lambda *a, **kw: SimpleNamespace(status_code=503))
-    assert move(api, task).status_code == 422
+    refused = move(api, task)
+    assert refused.status_code == 422 and 'GitHub answered 503' in refused.text, 'the refusal says why it could not verify'
     calls = [0]
     def fetch(method, path, **kw):
         if '/pulls/' in path:
