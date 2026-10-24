@@ -126,11 +126,15 @@ async function scenario(browser, mode, edit, keeper = true, editedBefore = false
     }
     await page.locator('#signed-out:not([hidden])').waitFor();
     assert.equal(await box.inputValue(), text, 'sign-out keeps the unsent text');
-    await page.evaluate(() => {
+    await page.evaluate(text => {
       const kept = JSON.parse(sessionStorage.getItem(SESSION_RETURN));
+      // A snapshot saved by an older page can still contain the chat draft. New pages keep only the
+      // per-bot copy, but a confirmed send must consume the older saved copy and its live watcher too.
+      const input = document.querySelector('#chat-composer textarea');
+      kept.fields.push({scope: sessionScope(input), key: sessionKey(input), value: text});
       kept.fields.push({scope: 'task:other', key: 'Message', value: 'Another task draft'});
       sessionSave(kept);
-    });
+    }, text);
     await readsSettled();
     await page.click('#signed-out button');
     await page.waitForURL('**/auth/login**');
