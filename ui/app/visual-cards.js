@@ -174,6 +174,17 @@ document.addEventListener('click', ev => {
   else if (what === 'newer') visualOpen(card, Number(card.dataset.current));
   else if (what === 'open') visualOpen(card);
 });
+// A thumbnail's menu is wider than the thumbnail (Dev 338): one that would open past the screen's left edge opens to
+// the right. The menu is opened here, then sided, before the next frame, so it never shows on the wrong side.
+document.addEventListener('click', ev => {
+  const menu = ev.target.closest?.('details.vcard-menu > summary')?.parentElement;
+  if (!menu || menu.open) return;
+  ev.preventDefault();
+  menu.open = true;
+  const list = menu.querySelector('.vcard-menu-list');
+  list.classList.remove('toward-right');
+  if (list.getBoundingClientRect().left < 4) list.classList.add('toward-right');
+});
 // A still preview that did not load leaves the card with its title and Open, never a broken picture; a redraw with a
 // renewed address shows it again (visualKept). Errors do not bubble, so this listens in the capture phase.
 document.addEventListener('error', ev => {
