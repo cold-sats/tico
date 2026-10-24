@@ -295,3 +295,25 @@ def test_browser_listing_matches_the_runner_selection():
     core = checks.browser_scripts([])
     assert "chat" in core and len(core) < len(checks.browser_scripts(["--all"]))
     assert checks.browser_scripts(["chat"]) == ["chat"]
+
+
+def test_a_pr_merge_ref_is_checked_against_current_main_not_the_older_event_base(tmp_path, monkeypatch):
+    def git(*args):
+        return subprocess.check_output(["git", "-c", "user.name=t", "-c", "user.email=t@acme.example", *args],
+                                       cwd=tmp_path, text=True).strip()
+
+    git("init", "-q", "-b", "main")
+    (tmp_path / "CHANGELOG.md").write_text("# Changelog\n## [Unreleased]\n")
+    git("add", "-A"); git("commit", "-qm", "Start")
+    stale = git("rev-parse", "HEAD")
+    git("checkout", "-qb", "feature")
+    (tmp_path / "app.py").write_text("x = 1\n")
+    git("add", "-A"); git("commit", "-qm", "Product change")
+    git("checkout", "-q", "main")
+    (tmp_path / "CHANGELOG.md").write_text("# Changelog\n## [Unreleased]\n\n## [1.1.0]\n- Cut.\n")
+    git("add", "-A"); git("commit", "-qm", "Release notes\n\nChangelog-Release: v1.1.0")
+    # GitHub checks out the PR merged into current main; the event's base sha is still the older tip.
+    git("merge", "-q", "--no-edit", "feature")
+    monkeypatch.setattr(checks, "ROOT", tmp_path)
+    monkeypatch.setattr(checks, "collect", lambda: Counter({"scripts/tests/test_pr_checks.py": 1}))
+    checks.prepare("pull_request", stale, tmp_path / "plan.json")
