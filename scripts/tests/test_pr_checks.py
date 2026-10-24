@@ -253,13 +253,11 @@ def test_cached_system_packages_match_the_locked_browser_version():
 
 
 def test_docs_plan_has_an_explicit_no_test_job_and_never_calls_pytest(tmp_path, monkeypatch):
-    # A docs file a test reads runs that test, even beside a focused code change.
-    spec = checks.selection(["backend/task_loops.py", "docs/openapi/v2.json"])["python"]
-    assert {"backend/tests/test_openapi_v2.py", *checks.PYTHON_MAP["backend/task_loops.py"]} <= set(spec)
     # Exercise selector inputs independently of the separate release-notes guard.
     monkeypatch.setattr(checks, "guard_changelog", lambda _: None)
-    unread = "/".join(("docs", "images", "removed.png"))  # a literal docs path here would make this test its reader
-    monkeypatch.setattr(checks, "changed_files", lambda _: [unread, "CHANGELOG.md", "README.md"])
+    for read in ("docs/openapi/v2.json", "CHANGELOG.md"):
+        assert checks.selection(["backend/task_loops.py", read])["python"] is None, read
+    monkeypatch.setattr(checks, "changed_files", lambda _: ["docs/images/removed.png", "README.md"])
     monkeypatch.setattr(checks, "collect", lambda: pytest.fail("docs must not collect tests"))
     target = tmp_path / "plan.json"
     plan = checks.prepare("pull_request", "base", target)
@@ -285,7 +283,7 @@ def test_test_leaves_use_imports_and_fixture_references_instead_of_filenames(tmp
     consumer = "backend/tests/test_consumer.py"
     source(tmp_path, leaf, "from pytest import fixture as fx\n@fx(name='shared')\ndef local(): return 1\ndef test_ok(shared): pass\n")
     source(tmp_path, consumer, "def test_other(): pass\n")
-    assert checks.selection([leaf, "CHANGELOG.md"], root=tmp_path)["python"] == [leaf]
+    assert checks.selection([leaf, "README.md"], root=tmp_path)["python"] == [leaf]
     for text in ("from .test_leaf import local", "import backend.tests.test_leaf as helper",
                  "from backend.tests import test_leaf", "import test_leaf",
                  "import importlib\nx = importlib.import_module('backend.tests.test_leaf')",
@@ -318,7 +316,7 @@ def test_audited_backend_map_adds_direct_tests_but_rejects_new_runtime_consumers
     source(tmp_path, test, "from backend import feature\ndef test_feature(): pass\n")
     source(tmp_path, "backend/known.py", "from .feature import value\n")
     source(tmp_path, "backend/tests/test_other.py", "from backend.feature import value\n")
-    assert checks.selection([module, test, "CHANGELOG.md"], root=tmp_path)["python"] == [test, "backend/tests/test_other.py"]
+    assert checks.selection([module, test, "README.md"], root=tmp_path)["python"] == [test, "backend/tests/test_other.py"]
     source(tmp_path, "backend/tests/test_dependent.py", "from .test_other import value\n")
     assert "backend/tests/test_dependent.py" in checks.selection([module], root=tmp_path)["python"]
     source(tmp_path, "backend/new.py", "from . import feature\n")
