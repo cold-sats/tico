@@ -26,6 +26,7 @@ use crate::util::{log, mark, text_of, truthy};
 
 pub const STREAM_WINDOW: Duration = Duration::from_millis(50);
 const RENEW_INTERVAL: Duration = Duration::from_secs(10);
+const HELD_AT_LOGIN_CAP: &str = "Interrupted at the end of the shared login's grace; this turn cannot be resumed (its harness cannot resume an interrupted turn, or it ran on a fallback whose thread is not kept), so the run is held for review instead of queued to continue";
 const OWN_INTERRUPT: &[&str] = &["Lease expired", "Execution interrupted after stop", "Timeout:", "Runner stopped during execution", "Computer lost or heartbeat stopped"];
 
 fn run_clock() -> Instant {
@@ -1636,12 +1637,17 @@ impl Runner {
         }
         // A host that aborts the next turn on an interrupted thread (`resume_after_interrupt = false`) loses its
         // session below unless a native goal keeps it, so a retry starts a fresh thread.
-        let resumable = crate::harness_tools::caps(&runtime, "").resume_after_interrupt || goal.controlled;
-        if self.drain.capped(&aid) && !resumable {
-            // The capped turn ran and may have acted; a fresh thread could repeat that, so it is held for review like
-            // any interrupt rather than queued to continue.
+        let keeps_session = crate::harness_tools::caps(&runtime, "").resume_after_interrupt || goal.controlled;
+        // A continuation resumes only the primary's kept session. A fallback's thread is never kept, whatever its
+        // harness can do, and the primary's was given up when the turn moved to it.
+        let resumable = keeps_session && fallback.is_none();
+        // An interrupted turn queued to continue (an update drain's cap, or the end of a shared login's grace) ran and
+        // may have acted; when it cannot resume, a fresh thread could repeat that, so it is held for review like any
+        // interrupt. A claim the drain returned before it started did nothing and still goes back in the queue.
+        let login_cut = drove.yielded && drove.outcome != "completed" && !self.drain.returning(&aid);
+        if !resumable && (self.drain.capped(&aid) || login_cut) {
             drove = Drove { outcome: "interrupted".into(), yielded: false, limited: false, retryable: false, ..drove };
-            self.diagnose(&aid, crate::drain::HELD);
+            self.diagnose(&aid, if login_cut { HELD_AT_LOGIN_CAP } else { crate::drain::HELD });
             auth_rejected = None;
             subscription_unavailable = None;
         } else if self.drain.returning(&aid) {
@@ -1707,7 +1713,7 @@ impl Runner {
         if self.drain.returning(&aid) {
             let _ = self.state.append(&aid, "status", &json!({"waiting": ""}));
         }
-        if drove.outcome != "completed" && !resumable {
+        if drove.outcome != "completed" && !keeps_session {
             if let Some(th) = &thread {
                 let _ = drop_session(&self.state, &bot, &conv, &runtime, th).await;
             }
@@ -3277,21 +3283,27 @@ print(json.dumps({'type':'result','subtype':'success','result':'Acme completed o
 
     #[tokio::test]
     async fn drain_execute_caps_a_host_blocked_in_inputs_and_resumes_its_canonical_session() {
-        capped_execute(false, "claude").await;
+        capped_execute(false, "claude", false).await;
     }
 
     #[tokio::test]
     async fn drain_execute_session_save_failure_still_settles_reaps_and_stops_renewing() {
-        capped_execute(true, "claude").await;
+        capped_execute(true, "claude", false).await;
     }
 
     #[tokio::test]
     async fn drain_cap_holds_a_turn_for_review_when_its_harness_cannot_resume_an_interrupt() {
         // Codex's capabilities (`resume_after_interrupt = false`) on the synthetic Claude process.
-        capped_execute(false, "codex").await;
+        capped_execute(false, "codex", false).await;
     }
 
-    async fn capped_execute(fail_save: bool, runtime: &str) {
+    #[tokio::test]
+    async fn drain_cap_holds_a_fallback_turn_for_review_since_its_thread_is_never_kept() {
+        // Both harnesses resume after an interrupt; only the fallback's unsaved thread makes it unresumable.
+        capped_execute(false, "pi", true).await;
+    }
+
+    async fn capped_execute(fail_save: bool, runtime: &str, fallback: bool) {
         let _controls = RunControls;
         RENEW_EVERY.with(|v| *v.borrow_mut() = Some(Duration::from_millis(20)));
         let held_inputs = Arc::new(Notify::new());
@@ -3326,9 +3338,14 @@ else:
 "#).unwrap();
         HOST_COMMAND.with(|command| *command.borrow_mut() = Some(vec![crate::env::python().display().to_string(), script.display().to_string()]));
         HOST_CLAUDE.with(|on| on.set(true));
-        let attempt = json!({"id": "a-active", "bot": "ops", "token": "synthetic", "lease_seconds": 120,
-                             "conversation": {"id": "c1"}, "message": {"refs": {}},
-                             "config": {"runtime": runtime, "harness": runtime, "model": "synthetic", "session": "bot"}});
+        let mut attempt = json!({"id": "a-active", "bot": "ops", "token": "synthetic", "lease_seconds": 120,
+                                 "conversation": {"id": "c1"}, "message": {"refs": {}},
+                                 "config": {"runtime": runtime, "harness": runtime, "model": "synthetic", "session": "bot"}});
+        if fallback {
+            // The primary's held login sends the turn to its fallback, which acknowledges it and runs.
+            attempt["config"]["fallback"] = json!({"harness": "claude", "model": "synthetic-fallback"});
+            attempt["config"]["primary_held"] = json!("2099-01-01T00:00:00Z");
+        }
         let work = runner.clone().execute(attempt.clone());
         let drain = async {
             // The second inputs call is held by the fake server after drive consumed the init and partial output.
@@ -3340,8 +3357,8 @@ else:
         held_inputs.notify_waiters();
         assert!(result.is_ok(), "active host outlived the outer drain cap: {:?}", seen.lock().unwrap());
         result.unwrap().unwrap();
-        if runtime != "claude" {
-            // Settlement drops the session, so a queued continuation would start a fresh thread after the turn acted.
+        if runtime != "claude" || fallback {
+            // No session the continuation could resume is kept, so it would start a fresh thread after the turn acted.
             let completions: Vec<Value> = seen.lock().unwrap().iter().filter(|(_, p, _)| p.ends_with("/attempts/a-active/complete")).map(|(_, _, b)| b.clone()).collect();
             assert_eq!(completions.len(), 1, "{completions:?}");
             assert_eq!(completions[0]["outcome"], "interrupted");
@@ -3349,6 +3366,7 @@ else:
             let events = seen.lock().unwrap().iter().filter(|(_, p, _)| p.ends_with("/attempts/a-active/events"))
                 .flat_map(|(_, _, b)| b["events"].as_array().cloned().unwrap_or_default()).collect::<Vec<_>>();
             assert!(events.iter().any(|e| e["payload"]["text"] == crate::drain::HELD), "{events:?}");
+            assert_eq!(events.iter().any(|e| e["payload"]["fallback"] == "claude"), fallback, "{events:?}");
             server.abort();
             std::fs::remove_dir_all(dir).ok();
             return;

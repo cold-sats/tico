@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 pub const DEFAULT_LIMIT_S: u64 = 5 * 60;
 pub const WAITING: &str = "Handed back before starting because the computer is updating or restarting; queued to continue";
 pub const CAPPED: &str = "Paused at the computer's drain time limit; work and session saved, queued to continue";
-pub const HELD: &str = "Stopped at the computer's drain time limit; this harness cannot resume an interrupted turn, so the run is held for review instead of queued to continue";
+pub const HELD: &str = "Stopped at the computer's drain time limit; this turn cannot be resumed (its harness cannot resume an interrupted turn, or it ran on a fallback whose thread is not kept), so the run is held for review instead of queued to continue";
 
 #[derive(Clone, Copy, PartialEq)]
 enum Turn { Waiting, Running, Returning(&'static str) }
