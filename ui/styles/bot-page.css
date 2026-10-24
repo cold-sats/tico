@@ -41,7 +41,7 @@ button.linkish{border:0;background:none;padding:0;color:var(--accent);cursor:poi
    and the goal folds to one line under it that opens on a tap. */
 .bot-top{display:flex;align-items:stretch;gap:var(--s3);margin:0 0 var(--s3);flex:none}
 .bot-back-arrow{display:none}
-.bot-ident{display:flex;align-items:center;gap:10px;min-width:0;flex:0 1 auto;max-width:340px;order:1}
+.bot-ident{display:flex;align-items:center;gap:10px;min-width:0;flex:0 0 auto;max-width:420px;order:1}
 .bot-ident .botid{min-width:0;flex:1}
 .bot-ident h1{font-size:var(--t-lg);line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bot-ident .meta{margin-top:2px;min-width:0}.bot-ident .meta:empty{display:none}
