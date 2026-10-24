@@ -412,6 +412,9 @@ def test_direct_run_messages_keep_denied_attempt_provenance(api, world, source):
         who = Identity('bot:ops', 'bot', attempt_id=aid)
         fast, recursive = ReadIndex(c, who), ReadIndex(c, who)
         recursive.direct_message = lambda *args: None
+        recursive._direct_attempt = lambda *args: None
+        assert not fast.attempt(aid)
+        assert not recursive.attempt(aid)
         for refs in ({'turn_id': aid}, {'run': {'attempt_id': aid}}):
             args = ('synthetic-run-message', world['ana_room'], json.dumps(refs), None)
             assert not fast.message(*args)

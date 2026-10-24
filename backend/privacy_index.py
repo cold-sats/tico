@@ -7,7 +7,7 @@ from collections import defaultdict
 from functools import cached_property, lru_cache
 import re
 
-from .store import H
+from .store import H, Problem
 from . import task_privacy as privacy
 from .live_privacy import Sources as MeetingSources
 
@@ -32,6 +32,7 @@ class ReadIndex:
         self.message_sources = lru_cache(maxsize=4096)(self._message_sources)
         self.target_message = lru_cache(maxsize=4096)(lambda mid: H.message(c, mid, include_deleted=True))
         self.attempt_sources = lru_cache(maxsize=4096)(self._attempt_sources)
+        self.attempt = lru_cache(maxsize=4096)(self.attempt)
         self.plain_room = lru_cache(maxsize=16384)(self._plain_room)
         # The SQL conversation predicate and message provenance share a decision.
         # Otherwise a count revisits the same room for every row and thrashes the
@@ -155,10 +156,51 @@ class ReadIndex:
 
     def attempt(self, aid):
         try:
+            direct = self._direct_attempt(aid)
+            if direct is not None:
+                return direct
             return (self.meetings.attempt_readable(self.principals, aid)
                     and not self.denied.intersection(self.attempt_sources(aid)))
         except ValueError:
             return False
+
+    def _direct_attempt(self, aid):
+        # Task and meeting provenance use the same root/input rows. Authorize
+        # simple roots together; inherited roots retain the existing traversals.
+        rows = self.c.execute(
+            "SELECT m.conversation_id,m.refs_json,m.in_reply_to FROM attempts a JOIN jobs j ON j.id=a.job_id "
+            "JOIN messages m ON m.id=j.message_id WHERE a.id=? UNION "
+            "SELECT m.conversation_id,m.refs_json,m.in_reply_to FROM attempt_inputs i "
+            "JOIN messages m ON m.id=i.message_id WHERE i.attempt_id=?", (aid, aid)).fetchall()
+        if not rows:
+            return None
+        for row in rows:
+            if row["in_reply_to"]:
+                return None
+            direct = self._direct_message(row["conversation_id"], row["refs_json"], include_run=False)
+            if direct is None:
+                return None
+            if not direct:
+                return False
+        if any(tid in self.denied for tid, in self.c.execute("SELECT id FROM tasks WHERE carried_by=?", (aid,))):
+            return False
+        for action, detail in self.c.execute("SELECT action,detail_json FROM events WHERE action IN (" +
+                                            privacy.RUN_TASK_EVENTS_SQL + ") AND target=?", (aid,)):
+            data = H._json(detail, {}) or {}
+            if not isinstance(data, dict):
+                return None
+            if self.denied.intersection(self.references(data)):
+                return False
+            if action == privacy.INPUT_MOVED:
+                try:
+                    meetings = self.meetings.references(data)
+                    if data.get("message_id"):
+                        meetings.update(self.meetings.message(self.target_message(data["message_id"]), include_run=False))
+                    if not self.meetings.readable(self.principals, meetings):
+                        return False
+                except Problem:
+                    return False
+        return True
 
     def sources(self, msg, *, include_run=True, seen=None):
         if not msg:
@@ -224,6 +266,8 @@ class ReadIndex:
         if self.uuid_denied:
             # Canonical task ids use a fixed lexer and set lookup, avoiding an
             # alternation whose cost grows with the number of private tasks.
+            if len(refs) <= 4096:
+                return bool(self.denied.intersection(TASK_IDS.findall(refs)))
             return bool(self.denied) and any(match[1] in self.denied for match in TASK_IDS.finditer(refs))
         return True
 

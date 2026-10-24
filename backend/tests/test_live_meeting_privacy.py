@@ -188,6 +188,36 @@ def test_removed_bot_loses_retained_derived_history_and_run(live, derived):
     assert get(live, f"messages/{msg['id']}", token="ben-test")["id"] == msg["id"]
 
 
+@pytest.mark.parametrize("source", ["message", "refs"])
+def test_direct_attempt_keeps_moved_meeting_sources_and_fresh_membership(live, derived, source):
+    from backend.privacy_index import ReadIndex
+
+    mid, attempt = derived
+    store, aid = live.app.state.store, attempt["id"]
+    with store.transaction() as c:
+        room = H.open_conversation(c, "human:ana", ["bot:ops"], kind="chat", subject="Synthetic public root")
+        message = H.say(c, "human:ana", "human:ben", "Synthetic public input", conversation_id=room["id"])
+        c.execute("UPDATE jobs SET message_id=? WHERE id=?", (message["id"], attempt["job_id"]))
+        detail = ({"message_id": attempt["message"]["id"]} if source == "message" else {"live_meetings": [mid]})
+        H.event(c, H.KEEPER, task_privacy.INPUT_MOVED, aid, detail)
+
+    def allowed():
+        with store.read() as c:
+            who = Identity("bot:ops", "bot")
+            fast, recursive = ReadIndex(c, who), ReadIndex(c, who)
+            recursive._direct_attempt = lambda *args: None
+            result = bool(fast.attempt(aid))
+            assert result == bool(recursive.attempt(aid))
+            return result
+
+    assert allowed()
+    removed = live.request("DELETE", f"/api/v2/live-meetings/{mid}/bots/ops", json={}, headers=headers("ben-test"))
+    assert removed.status_code == 200, removed.text
+    assert not allowed()
+    attach(live, mid, "ops", token="ben-test")
+    assert allowed()
+
+
 def test_message_references_cannot_grant_membership_of_an_unrelated_room(live):
     mid = post(live, "live-meetings", {"title": "Synthetic team discussion"})["id"]
     post(live, "chat/ops", {"text": "Synthetic personal chat",
