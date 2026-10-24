@@ -1755,7 +1755,9 @@ def install_views(app, store, auth, mutate, task_view):
             access = auth.bot_accesses(c, who)
             from .report_order import positions
             places = positions(c)
-            return {**r, "by_team": P.by_team(r), "org_groups": view["org_groups"], "people": [{
+            from . import lifecycle
+            seats = lifecycle.chart_seats(c, r, chart, archived, lambda slug: access.get(slug, auth.FULL)["see"])
+            return {**r, "by_team": P.by_team(r), "org_groups": view["org_groups"], "seats": seats, "people": [{
                 **p, "org_parent": P.org_parent("person", p["id"], r, configs, archived),
                 "report_position": places.get("human:" + p["id"]),
                 **({"photo_url": "/api/humans/" + p["id"] + "/photo"}

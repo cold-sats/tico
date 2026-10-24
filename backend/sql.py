@@ -281,6 +281,9 @@ def guarded(c, auth, who, inner, function, columns=None):
         "bot_transition_checkpoints": "conversation_id IN (SELECT id FROM conversations)",
         "task_types": "1", "task_steps": "1",
         "humans": "1",
+        # Recruiting seats are roles on the company chart that everyone sees (backend/lifecycle.py): their titles,
+        # job descriptions and reporting lines. Never a bare "1" (the same reason as intake_items below).
+        "seats": "id IS NOT NULL",
         # Goals are the company's, except a bot's own: a caller reads those of bots they may read. Never a
         # bare "1" (the same reason as intake_items below).
         "goals": goals, "goal_events": "goal_id IN (SELECT id FROM goals)", "kpis": kpis,

@@ -87,10 +87,11 @@ function orgGroupUnderCeo(id) {
 // group of a Head it puts under the CEO Bot there too (`org_parent`, backend/ceo_bot.py), when the CEO Bot is on the chart.
 const orgGroupParent = (g, keys) => g.parent && keys.has('g:' + g.parent) ? 'g:' + g.parent
   : g.org_parent === 'b:goal-manager' && keys.has('b:goal-manager') ? 'b:goal-manager' : '';
-function orgGroupOf(people, bots) {
+function orgGroupOf(people, bots, seats = []) {
   const groups = orgGroupIds(), out = {};
   for (const p of people) if (groups.has(p.team)) out['p:' + p.id] = p.team;
   for (const e of bots) if (groups.has(e.team) && !isHelperBot(e)) out['b:' + e.name] = e.team;
+  for (const seat of seats) if (groups.has(seat.team)) out['s:' + seat.id] = seat.team;
   return out;
 }
 function orgTreeByParent() {
@@ -101,7 +102,8 @@ function orgTreeByParent() {
   // Built-in and message bots sit apart, as on Goals; a bot that reports to one hangs where it would have.
   const bots = (S.emps || []).filter(e => orgBranchVisible(e) && orgMineKeep(e));
   const empIds = new Set(bots.map(e => e.name));
-  const groupOf = orgGroupOf(people, bots);
+  const seats = S.seats || [];
+  const groupOf = orgGroupOf(people, bots, seats);
   const keys = new Set([...[...groups].map(id => 'g:' + id), ...bots.map(e => 'b:' + e.name)]);
   for (const g of (S.orgGroups || [])) {
     (byParent[orgGroupParent(g, keys)] ||= []).push({kind: 'group', id: g.id, name: g.name, order: g.order || 0});
@@ -116,6 +118,19 @@ function orgTreeByParent() {
       boss = owner ? 'p:' + owner : '';
     }
     (byParent[orgHang('b:' + e.name, boss, groupOf)] ||= []).push({kind: 'bot', ...e});
+  }
+  // Recruiting seats (backend/lifecycle.py): a role with no bot yet, where a bot in that place would hang, or under the
+  // seat it reports to. Under a bot this view leaves out, it hangs from the next thing up that is left; with nothing
+  // left above it (say "Only bots I can read" on), it is not shown.
+  const seatIds = new Set(seats.map(seat => seat.id)), personIds = new Set(people.map(p => p.id));
+  for (const seat of seats) {
+    let boss = seat.org_parent || '';
+    for (let hops = 0; boss.startsWith('b:') && !empIds.has(boss.slice(2)) && hops < 20; hops++)
+      boss = orgBossKey({kind: 'bot', ...((S.emps || []).find(e => e.name === boss.slice(2)) || {})});
+    if (boss.startsWith('b:') && !empIds.has(boss.slice(2))) continue;
+    if (boss.startsWith('s:') && !seatIds.has(boss.slice(2))) continue;
+    if (boss.startsWith('p:') && !personIds.has(boss.slice(2))) continue;
+    (byParent[orgHang('s:' + seat.id, boss, groupOf)] ||= []).push({kind: 'seat', ...seat});
   }
   return byParent;
 }
@@ -257,6 +272,7 @@ function saveCollapsed() {
 function setPeople(data) {
   if (!data) return;
   if (Array.isArray(data.people)) S.people = data.people;
+  if (Array.isArray(data.seats)) S.seats = data.seats;
   if (data.org_groups) S.orgGroups = data.org_groups;
 }
 // Rearranging the org chart: drag a person or a bot onto another person or bot. The owner may
@@ -571,6 +587,9 @@ function orgSorted(parent, kids) {
     // A group's own humans and bots come first, then the groups nested in it.
     if ((a.kind === 'group') !== (b.kind === 'group')) return a.kind === 'group' ? 1 : -1;
     if (a.kind === 'group' && b.kind === 'group') return (a.order || 0) - (b.order || 0);
+    // Recruiting seats follow the people and bots there, by title.
+    if ((a.kind === 'seat') !== (b.kind === 'seat')) return a.kind === 'seat' ? 1 : -1;
+    if (a.kind === 'seat') return chartNameKey(a.title).localeCompare(chartNameKey(b.title)) || String(a.id).localeCompare(String(b.id));
     if (placed(a, b)) return placed(a, b);               // a manager's reports in the order someone put them
     if (a.kind === 'bot' && b.kind === 'bot' && isHelperBot(a) && isHelperBot(b) && helperRank(a) !== helperRank(b)) return helperRank(a) - helperRank(b);
     return chartFallback(a, b);                          // then the chart's own order, as on the server
@@ -601,8 +620,10 @@ function renderTree() {
   const subtreeNeeds = key => (byParent[key] || []).some(c =>
     (c.kind === 'bot' && (stateOf(c.name) === 'needs' || needsMeCount(c.name) || subtreeNeeds('b:' + c.name))) ||
     (c.kind === 'person' && subtreeNeeds('p:' + c.id)) ||
+    (c.kind === 'seat' && subtreeNeeds('s:' + c.id)) ||
     (c.kind === 'group' && subtreeNeeds('g:' + c.id)));
-  const nameOf = n => n.kind === 'person' ? (n.person.name || n.id) : (n.display_name || '').replace(TEMP_RE, '');
+  const nameOf = n => n.kind === 'person' ? (n.person.name || n.id) : n.kind === 'seat' ? n.title || ''
+    : (n.display_name || '').replace(TEMP_RE, '');
   const leads = orgNameLeads(new Set(Object.values(byParent).flat().filter(n => n.kind === 'bot').map(nameOf).filter(Boolean)));
   const sources = {};
   for (const r of inboxNavRows()) (sources[r.bot] ||= []).push(r);
@@ -644,6 +665,17 @@ function renderTree() {
         ${manage && !renaming ? `<span class="org-group-tools"><button type="button" class="org-tool" data-group-add="${esc(node.id)}" title="Add group" aria-label="Add a group in ${esc(node.name)}"><span class="org-plus" aria-hidden="true">+</span></button><button type="button" class="org-tool" data-group-rename="${esc(node.id)}" title="Rename" aria-label="Rename ${esc(node.name)}"><span class="nav-icon" aria-hidden="true">edit</span></button><button type="button" class="org-tool" data-group-delete="${esc(node.id)}" title="Delete group" aria-label="Delete group ${esc(node.name)}"${ORG_DELETING.has(node.id) ? ' disabled' : ''}><span class="nav-icon" aria-hidden="true">delete</span></button></span>` : ''}</div>
         <ul ${isCol ? 'hidden' : ''}>${adding ? `<li class="org-new">${orgGroupFieldHTML()}</li>` : ''}${rec(key, depth + 1)}</ul></li>`;
     }
+    if (node.kind === 'seat') {
+      // A role still being recruited: its title, marked Recruiting, with the job description on hover. Not a drop
+      // target or dragged here (data-seat, not data-org): it is opened and moved from its own page.
+      const key = 's:' + node.id, kids = !flat && byParent[key], isCol = kids && collapsed.has(key);
+      const tip = node.title + ' (Recruiting)' + (node.description ? '\n\n' + node.description : '');
+      return `<li class="${kids ? 'dept' : ''}"><div class="noderow">
+        ${kids ? `<button class="chev ${isCol ? 'col' : ''}" data-toggle="${esc(key)}" aria-label="${isCol ? 'Expand' : 'Collapse'} ${esc(node.title)}">›</button>` : ''}
+        <span class="node seat" data-seat="${esc(node.id)}" title="${esc(tip)}">
+          <span class="nav-icon seat-icon" aria-hidden="true">person_search</span><span class="nm">${esc(node.title)}</span><span class="pill waiting seat-pill">Recruiting</span></span></div>
+        ${kids ? `<ul ${isCol ? 'hidden' : ''}>${rec(key, depth + 1)}</ul>` : ''}</li>`;
+    }
     if (node.kind === 'person') {
       const p = node.person, key = 'p:' + p.id, kids = !flat && byParent[key], isCol = kids && collapsed.has(key);
       return `<li class="${kids ? 'dept' : ''}"><div class="noderow">
@@ -673,7 +705,7 @@ function renderTree() {
   // Every bot and person, the one you opened last on top; ones you never opened follow by name.
   const history = () => {
     const seen = orgHistory(), at = n => { const i = seen.indexOf(n.kind === 'person' ? 'p:' + n.id : 'b:' + n.name); return i < 0 ? Infinity : i; };
-    return Object.values(byParent).flat().filter(n => n.kind !== 'group')
+    return Object.values(byParent).flat().filter(n => n.kind !== 'group' && n.kind !== 'seat')
       .sort((a, b) => (at(a) - at(b)) || nameOf(a).localeCompare(nameOf(b)))
       .map(node => row(node, 0, true)).join('');
   };

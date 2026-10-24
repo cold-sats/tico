@@ -538,12 +538,27 @@ def _waiting(c, online_ids, settings=None):
     return waiting, slow, stuck
 
 
-SETUP_HOLD_MINUTES = 60     # a bot still in setup holds its work; this long and nobody is finishing it
+WELCOME = "#/welcome"
+SETUP_HOLD_MINUTES = 60     # a bot still onboarding holds its work; this long and nobody is finishing it
+
+
+def company_import_failed(c):
+    """The chosen chart from setup that could not be imported on server start (backend/company_import.py `start`):
+    red until an import works, so a failed import never looks like a team that is simply empty."""
+    from .company_import import failure
+    found = failure(c)
+    if not found:
+        return None
+    return _check("company_import", "Company file from setup not imported", "bad",
+                  f"{found.get('reason') or 'It could not be applied'}. Nothing from it was created and no sample team "
+                  "took its place. Import it again, or set your team up, on the welcome page.",
+                  [_fix("Open the welcome page", WELCOME)])
 
 
 def unfinished_setup(c):
-    """Active bots still in setup whose held work is older than SETUP_HOLD_MINUTES: [(slug, name, count, what, oldest)].
-    A parked bot takes no task and no notice until its setup is done, so its watchers' tasks pile up out of sight."""
+    """Active bots still onboarding whose held work is older than SETUP_HOLD_MINUTES: [(slug, name, count, what, oldest)].
+    An onboarding bot takes no task and no notice until a person marks its onboarding complete, so its watchers' tasks
+    pile up out of sight."""
     from .statuses import PARKED_SQL
     parked = c.execute("SELECT b.slug,b.display_name FROM bot_config bc JOIN bots b ON b.slug=bc.bot "
                        f"WHERE bc.onboarding_state IN {PARKED_SQL} AND b.state='active' ORDER BY b.slug").fetchall()
@@ -630,7 +645,7 @@ HELD = {
 def _stuck(c, rows, online_ids, who, full, auth=None):
     """Each stuck bot with a reason in plain words and one fix: sign in, move to a computer that can run it,
     or the settings page that can. Only administrators get fixes; a Bot administrator moves only to their own computers.
-    A bot stuck in setup is the exception: whoever may manage it gets "Finish with defaults"."""
+    A bot stuck in onboarding is the exception: whoever may manage it gets "Finish with defaults"."""
     from .readiness import own_harness
     if not rows:
         return []
@@ -642,7 +657,7 @@ def _stuck(c, rows, online_ids, who, full, auth=None):
         if reason == "setup":
             manages = auth is not None and auth.bot_manager(c, who, row["bot"])
             out.append({key: row[key] for key in ("bot", "name", "queued", "oldest", "computer", "reason", "since")}
-                       | {"why": f"Stuck in setup for {setup_stuck.held_for(row['since'])}",
+                       | {"why": f"Stuck in onboarding for {setup_stuck.held_for(row['since'])}",
                           "fix": {**_fix("Finish with defaults"), "finish": {"bot": row["bot"]}} if manages else None})
             continue
         runtime = row["runtime"] or configured.get(row["bot"], "")
@@ -1251,7 +1266,7 @@ def view(c, who, settings, auth, github, config):
     online_ids = {r["id"] for r in online}
     computers = _computers(c, online, settings)
     waiting, slow, stuck_rows = _waiting(c, online_ids, settings)
-    # A bot parked in setup for a day is stuck too, unless something else already holds it (backend/setup_stuck.py).
+    # A bot onboarding for a day is stuck too, unless something else already holds it (backend/setup_stuck.py).
     listed = {row["bot"] for row in stuck_rows}
     stuck_rows += [row for row in setup_stuck.stuck(c) if row["bot"] not in listed]
     if not full and stuck_rows:      # someone who is not an administrator hears only about the bots they may read
@@ -1265,6 +1280,8 @@ def view(c, who, settings, auth, github, config):
         limited = [row for row in limited if readable.get(row["bot"], auth.FULL)["read"]]
     failed, failures = _failed(c)
     checks = []
+    if full and (company := company_import_failed(c)):
+        checks.append(company)
     if (full or kind == "bot") and (latency := runner_route_latency(c)):
         checks.append(latency)
     if full and (listening := _listening(c, settings)):
@@ -1558,7 +1575,7 @@ def view(c, who, settings, auth, github, config):
         checks.append(_check("waiting", "Bots waiting", "ok", "Every active bot has a computer that is up."))
     # An offline computer (or none) is "Bots waiting"; this check is everything else, so one cause is one item.
     held = {w["bot"] for w in waiting}
-    # A bot stuck in setup has its own check below ("Setup not finished").
+    # A bot stuck in onboarding has its own check below ("Onboarding not finished").
     blocking = [s for s in blocked if s["bot"] not in held and s["reason"] != "setup"]
     busy = [row for row in slow if row["reason"] == "busy"]
     readable = auth.bot_accesses(c, who, [row["bot"] for row in busy]) if busy and not full else {}
@@ -1583,9 +1600,9 @@ def view(c, who, settings, auth, github, config):
     else:
         checks.append(_check("queue", "Work queueing", "ok", "No work is waiting long."))
     for slug, name, count, what, oldest in unfinished_setup(c) if full else ():
-        checks.append(_check("setup:" + slug, "Setup not finished", "warn",
-                             f"{name} hasn't finished setup; {_plural(count, what)} waiting since {oldest[:10]}.",
-                             [_fix("Finish setup", "#/bot/" + slug)]))
+        checks.append(_check("setup:" + slug, "Onboarding not finished", "warn",
+                             f"{name} is still onboarding; {_plural(count, what)} waiting since {oldest[:10]}.",
+                             [_fix("Open its page", "#/bot/" + slug)]))
     if full and (heavy := _token_heavy(c, settings.token_alert_input)):
         checks.append(_check("tokens", "Token use", "warn",
                              "; ".join(f"{name}: {_tokens_words(n)} uncached input tokens in 24 h"

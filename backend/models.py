@@ -1414,7 +1414,7 @@ class SeatCreate(Contract):
     """A Recruiting seat: a role on the org chart with its job description and reporting line, and no bot."""
     title: Annotated[str, Field(min_length=1, max_length=120)]
     description: Annotated[str, Field(max_length=8000)] = ""
-    reports_to: Annotated[str, Field(max_length=200)] = ""     # `human:<id>` or a bot's slug; the caller by default
+    reports_to: Annotated[str, Field(max_length=200)] = ""     # `human:<id>`, a bot's slug or `seat:<id>`; the caller by default
     team: Annotated[str, Field(max_length=100)] = ""
 
 
@@ -1842,6 +1842,12 @@ class OnboardingCompanyFile(Contract):
 
 class OnboardingCompanyImport(OnboardingCompanyFile):
     fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class OnboardingInvite(Contract):
+    """The email for a person the company file from setup names; Invite adds them and sends the invite. Empty once
+    they are on the roster: Invite then sends to the address they were added with."""
+    email: str = Field(default="", max_length=320)
 
 
 class Recruit(Contract):

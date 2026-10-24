@@ -54,15 +54,18 @@ const SAMPLE_BOTS = [['coo', 'Assistant'], ['botops', 'BotOps'], ['head-of-produ
       if (p === '/api/v2/setup/company/preview') {
         previews.push(request.postDataJSON());
         return json({fingerprint: 'a'.repeat(64), company_name: 'Acme Finance', builtins: ['coo', 'botops'],
-          employees: [{id: 'bookkeeping', title: 'Acme <Bookkeeper>', start: 'later', reports_to: 'finance-lead'}],
+          employees: [{id: 'coo', title: 'Assistant', start: 'now', reports_to: 'human:owner'}],
+          seats: [{id: 'bookkeeping', title: 'Acme <Bookkeeper>', template: 'bookkeeping', reports_to: 'finance-lead'}],
           deferred: ['tool_connections']});
       }
       if (p === '/api/v2/setup/company/import') {
         imports.push(request.postDataJSON());
         record = {...record, names: {...record.names, company_name: 'Acme Finance'},
           completed: '2026-10-20T10:00:00Z', needed: false,
-          company_import: {fingerprint: 'a'.repeat(64), deferred: ['tool_connections'], later: ['bookkeeping']},
-          bots: [{...SAMPLE_BOTS[0], slug: 'bookkeeping', display_name: 'Acme <Bookkeeper>', status: 'paused'}]};
+          company_import: {fingerprint: 'a'.repeat(64), deferred: ['tool_connections'], seats: 1,
+                           people: [{id: 'dana', name: 'Dana', title: 'Controller', seats: [], invited_at: null}]},
+          company_import_failed: null, seats: {bookkeeping: 's-1'},
+          bots: [{...SAMPLE_BOTS[0], slug: 'coo', display_name: 'Assistant', status: 'active'}]};
         return json({...record, home: 'human:owner'});
       }
       if (p === '/api/v2/setup/getting-started/state') return json({tour: true, checklist: false, cards: [], skipped: []});
@@ -112,14 +115,16 @@ const SAMPLE_BOTS = [['coo', 'Assistant'], ['botops', 'BotOps'], ['head-of-produ
       mimeType: 'text/yaml', buffer: Buffer.from('version: 0.2\ncompany:\n  name: Acme Finance\n')});
     await imported.locator('#onb-company-file-use').waitFor();
     assert.equal(imports.length, 0);
-    assert.match(await imported.locator('#onb-company-file-box').innerText(), /Acme <Bookkeeper>.*starts paused/s);
+    // The built-ins work from day one; every other role is a Recruiting seat.
+    assert.match(await imported.locator('#onb-company-file-box').innerText(), /Assistant — works from day one.*Acme <Bookkeeper> — Recruiting/s);
     assert.equal(await imported.locator('#onb-company-file-box bookkeeper').count(), 0);
     await imported.locator('#onb-company-file-use').click();
     await imported.locator('#onb-tasks').waitFor();
     assert.equal(imports.length, 1);
     assert.deepEqual(imports[0], {...previews[0], fingerprint: 'a'.repeat(64)});
     assert.equal(samples.length, 1);
-    assert.match(await imported.locator('#onb').innerText(), /Your selected starter team was imported/);
+    assert.match(await imported.locator('#onb').innerText(), /Your chosen org chart is laid out: 1 role marked Recruiting/);
+    assert.match(await imported.locator('#onb').innerText(), /Invite the people it names from Settings › Humans/);
     assert.match(await imported.locator('#onb').innerText(), /Saved for later setup: tool connections/);
     assert.deepEqual(errors, []);
     console.log('sample-company: ok');
