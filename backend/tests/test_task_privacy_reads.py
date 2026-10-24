@@ -358,3 +358,59 @@ def test_sql_event_privacy_scales_with_matching_attempts_not_their_cross_product
     assert after[1] <= before[1] * 6 + 20
     print(f"event scaling: 500 attempts/events {before[1]} SQLite statements/{before[2]:.4f}s; "
           f"3000 attempts/events {after[1]} statements/{after[2]:.4f}s")
+
+
+def test_task_page_reads_a_fixed_number_of_statements_and_hides_private_provenance(api):
+    """A task page checks every comment, event and run against the tasks they name. Those checks read together, so a
+    long task costs what a short one does, and whatever names a private task stays hidden from who cannot read it."""
+    store = api.app.state.store
+    with store.transaction() as c:
+        hidden = H.task_create(c, "human:cara", "Private plan", "Secret", "human:cara", private=True, lint=False)
+        c.execute("INSERT INTO runners(id,label,operator,token_hash,created) VALUES('rn','Mac','ana','th',?)", (H.now(),))
+
+    def task_with(size):
+        with store.transaction() as c:
+            secret = H.task_comment(c, "human:cara", hidden["id"], f"Secret input {size}", wake=False)
+            parent = H.task_create(c, "human:ana", f"Release {size}", "Checklist", "bot:ops", lint=False)
+            for n in range(size):
+                H.task_create(c, "human:ana", f"Step {size}-{n}", "Do it.", "human:ben", parent_id=parent["id"], lint=False)
+                asked = secret if n == 1 else H.task_comment(c, "human:ana", parent["id"], f"Please do {n}", wake=False)
+                aid = f"run-{size}-{n}"
+                c.execute("INSERT INTO jobs(id,message_id,bot,state,created,attempt_id) VALUES(?,?,'ops','done',?,?)",
+                          ("job-" + aid, asked["id"], H.now(), aid))
+                c.execute("INSERT INTO attempts(id,job_id,bot,runner_id,generation,token_hash,state,lease_until,created) "
+                          "VALUES(?,?,'ops','rn',0,?,'done',?,?)", (aid, "job-" + aid, aid, H.now(), H.now()))
+                c.execute("INSERT INTO turns(id,bot,started,task_id,exit) VALUES(?,'ops',?,?,'ok')", (aid, H.now(), parent["id"]))
+                H.task_comment(c, "bot:ops", parent["id"], f"Did {n}", wake=False, extra_refs={"turn_id": aid})
+                H.task_comment(c, "human:ana", parent["id"], f"See {n}", wake=False,
+                               extra_refs={"see": "task:" + hidden["id"]} if n == 2 else None)
+                H._task_event(c, parent["id"], "human:ana", "note", None, hidden["id"] if n == 2 else f"note {n}", "")
+        return parent["id"]
+
+    def page(tid, token):
+        statements, take, give = [], store._take, store._give
+
+        def traced():
+            c = take()
+            c.set_trace_callback(statements.append)
+            return c
+
+        def untraced(c):
+            c.set_trace_callback(None)
+            give(c)
+        store._take, store._give = traced, untraced
+        try:
+            return get(api, "tasks/" + tid, token), len(statements)
+        finally:
+            store._take, store._give = take, give
+
+    counts = {}
+    for size in (3, 30):
+        tid = task_with(size)
+        (ana, counts[size, "ana"]), (cara, counts[size, "cara"]) = page(tid, "ana-test"), page(tid, "cara-test")
+        assert len(ana["children"]) == len(cara["children"]) == size
+        # The run that took in Cara's private comment, the comment naming her task and that event are hers alone.
+        assert len(cara["runs"]) == size and len(ana["runs"]) == size - 1
+        assert len(cara["comments"]) == len(ana["comments"]) + 2 and len(cara["events"]) == len(ana["events"]) + 1
+        assert hidden["id"] not in json.dumps(ana)
+    assert counts[30, "ana"] <= counts[3, "ana"] + 5 and counts[30, "cara"] <= counts[3, "cara"] + 5
