@@ -333,6 +333,37 @@ def test_direct_messages_reuse_room_checks_and_match_recursive_privacy(api, worl
         assert not ReadIndex(c, who).message('progress-after-revocation', room, json.dumps({'task': public}), None)
 
 
+def test_direct_content_prefilter_keeps_escaped_and_nested_provenance(api, world):
+    from backend.auth import Identity
+    from backend.privacy_index import ReadIndex
+
+    store = api.app.state.store
+    with store.transaction() as c:
+        hidden = H.task_create(c, 'human:ben', 'Hidden escaped source', '', 'bot:finance', private=True, lint=False)
+    escaped = ''.join('\\u%04x' % ord(char) for char in hidden['id'])
+    payloads = [
+        json.dumps({'payload': {'nested': ['task:' + hidden['id']]}}),
+        json.dumps({'payload': 'https://synthetic.invalid/tasks/' + hidden['id']}),
+        json.dumps({'payload': hidden['id']}).replace(hidden['id'], escaped),
+        json.dumps({'payload': json.dumps({'nested': hidden['id']})}),
+        '{"payload":{"live_\\u006deeting":{"meeting_id":"unknown-fixture-meeting"}}}',
+        json.dumps({'payload': [json.dumps({'live_meetings': ['unknown-fixture-meeting']})]}),
+    ]
+    with store.read() as c:
+        who = Identity('bot:ops', 'bot', attempt_id=world['attempt']['id'])
+        fast, recursive = ReadIndex(c, who), ReadIndex(c, who)
+        recursive.direct_message = lambda *args: None
+        for refs in payloads:
+            args = ('synthetic-encoded', world['ana_room'], refs, None)
+            assert not recursive.message(*args), refs
+            assert not fast.message(*args), refs
+        # Noncanonical task ids keep the structured authorization path.
+        fast = ReadIndex(c, who)
+        fast.uuid_denied = False
+        for refs in payloads:
+            assert not fast.message('synthetic-uncached', world['ana_room'], refs, None), refs
+
+
 def test_direct_reply_gate_matches_recursive_sources_and_keeps_depth_bound(api, world):
     from backend.auth import Identity
     from backend.privacy_index import ReadIndex

@@ -5,10 +5,15 @@ query touches that kind of content, and recursive lookups have bounded LRU cache
 """
 from collections import defaultdict
 from functools import cached_property, lru_cache
+import re
 
 from .store import H
 from . import task_privacy as privacy
 from .live_privacy import Sources as MeetingSources
+
+
+TASK_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+TASK_IDS = re.compile("(?=(" + TASK_ID.pattern + "))")
 
 
 class ReadIndex:
@@ -35,6 +40,10 @@ class ReadIndex:
         self.direct_message = lru_cache(maxsize=16384)(self._direct_message)
         self.direct_parent = lru_cache(maxsize=4096)(self._direct_parent)
         self.string_sources = lru_cache(maxsize=16384)(self._string_sources)
+        # Unescaped JSON cannot name a denied task without its literal id.
+        # Noncanonical ids keep the full structured check rather than compiling
+        # an alternation that grows with the private-task inventory.
+        self.uuid_denied = all(TASK_ID.fullmatch(tid) for tid in self.denied)
 
     @cached_property
     def task_ids(self):
@@ -209,6 +218,15 @@ class ReadIndex:
         except ValueError:
             return False
 
+    def possible_content(self, refs):
+        if "\\" in refs or "live_meeting" in refs:
+            return True
+        if self.uuid_denied:
+            # Canonical task ids use a fixed lexer and set lookup, avoiding an
+            # alternation whose cost grows with the number of private tasks.
+            return bool(self.denied) and any(match[1] in self.denied for match in TASK_IDS.finditer(refs))
+        return True
+
     def _direct_message(self, cid, refs, include_run=True):
         """Authorize non-inherited refs without constructing two recursive closures.
 
@@ -226,7 +244,8 @@ class ReadIndex:
             return None
         tid = H.message_task_id({"refs": data}, {"task_id": self.conversation_tasks.get(cid)})
         return (self.plain_room(cid) and (not tid or (self.known_task(tid) and tid not in self.denied))
-                and self.content(data) and (not include_run or not aid or self.attempt(aid)))
+                and (not self.possible_content(refs or "") or self.content(data))
+                and (not include_run or not aid or self.attempt(aid)))
 
     def _direct_parent(self, mid):
         # A single non-inherited parent has at most two visited messages. Longer

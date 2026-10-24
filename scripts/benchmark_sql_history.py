@@ -6,6 +6,7 @@ This manual timing receipt is excluded from the ordinary and release test suites
 """
 import json
 import time
+import uuid
 
 import pytest
 
@@ -37,7 +38,7 @@ def test_bot_history_queries_finish_within_the_existing_timeout(api, provenance)
         # no message references these unrelated synthetic private rows.
         c.executemany('INSERT INTO tasks(id,title,owner,requester,private,status,created,updated) '
                       "VALUES(?,'Hidden synthetic task','bot:finance','human:ben',1,'done',?,?)",
-                      [(f'fixture-hidden-task-{i}', now, now) for i in range(500)])
+                      [(str(uuid.uuid5(uuid.NAMESPACE_URL, f'synthetic-hidden-task-{i}')), now, now) for i in range(500)])
         c.executemany('INSERT INTO conversations(id,kind,task_id,participants_json,created) '
                       "VALUES(?,'task',?,'[]',?)",
                       [(f'fixture-room-{i}', f'fixture-task-{i}', now) for i in range(rooms)])
@@ -92,11 +93,14 @@ def test_bot_history_queries_finish_within_the_existing_timeout(api, provenance)
         assert plan.status_code == 200, plan.text
         print(sql, 'plan:', plan.json()['rows'], flush=True)
         measured = []
-        for _ in range(10):
+        for round_number in range(1, 11):
             start = time.monotonic()
             response = api.post('/api/v2/sql', json={'sql': sql, 'params': params},
                                 headers=headers(attempt['token']))
             elapsed = time.monotonic() - start
+            print('round:', round_number, 'sql:', sql, 'http_ms:', elapsed * 1000,
+                  'status:', response.status_code, 'operation:', response.headers.get('x-operation-id'),
+                  'result:', response.text, flush=True)
             assert response.status_code == 200, response.text
             result = response.json()
             assert result['rows'] and not result['truncated'], result
