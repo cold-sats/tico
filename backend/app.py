@@ -25,7 +25,7 @@ from clients.agent_skill import WHO_NEEDS_ME
 from . import go_live as pending_go_lives
 from . import repo_waits
 from . import built_on
-from . import agents, app_delivery, batch, external_sync, inbox_isolation, lifecycle, mcp_oauth, harness_actions, model_login, oidc, personal_tokens, views
+from . import agents, app_delivery, batch, external_sync, inbox_isolation, lifecycle, mcp_oauth, recruiting, harness_actions, model_login, oidc, personal_tokens, views
 from . import outcome_stats
 from . import ceo_bot, owner_link
 from . import login_holds
@@ -41,8 +41,8 @@ from . import models as M
 from .auth import LOCAL_COOKIE, LOCAL_COOKIE_DAYS, LOCAL_SIGNIN_PATH, LOGOUT_PATH, Auth, Identity, validate_identity
 from .config import Settings
 from .observability import Observability, browser_config, staff_display_name, route as error_route
-from .execution import (Execution, bot_repository, bump_bot_session_epoch, clear_limits, lift_after_model_change,
-                        model_choice, own_login_hold)
+from .execution import (Execution, bot_repository, bump_bot_session_epoch, claim_scope, clear_limits,
+                        lift_after_model_change, model_choice, own_login_hold)
 from .onboarding import BOTOPS, Onboarding
 from .recruit import Recruiter
 from . import rooms
@@ -1957,6 +1957,12 @@ def create_app(settings=None):
         slug = bot["slug"]
         row["task_flow"] = rows.task_flow.get(slug, {"going": 0, "waiting": 0})
         row["draining"] = slug in rows.draining
+        # The one task its claims are limited to (POST /api/v2/bots/{bot}/control scope): its id when this reader
+        # may read the task, or only that a limit is on.
+        scope = rows.scopes.get(slug)
+        scoped_task = H.task(c, scope) if scope else None
+        row["claim_scoped"] = bool(scope)
+        row["claim_task"] = scope if scoped_task and privacy.task_readable(c, who, scoped_task) else None
         status = rows.statuses.get(slug)
         row["status"] = privacy.status(c, who, dict(status), **rows.status_inputs[slug]) if status else status
         row["assignment"] = dict(assignment) if assignment else None
@@ -3912,6 +3918,45 @@ def create_app(settings=None):
         return mutate(request, body, lambda c: lifecycle.update_seat(auth, c, who, seat_id,
                                                                      body.model_dump(exclude_unset=True)))
 
+    @app.get("/api/v2/seats/{seat_id}")
+    def seat_show(request: Request, seat_id: str):
+        """One Recruiting seat, with whether the CEO Bot's draft of its job description is done (backend/recruiting.py)."""
+        who = request.state.identity
+        auth.domain(who)
+        with store.read() as c:
+            return recruiting.show(auth, c, who, seat_id)
+
+    @app.post("/api/v2/seats/{seat_id}/open")
+    def seat_open(request: Request, seat_id: str, body: M.Empty):
+        """Open a seat: the owner opening it asks the CEO Bot to draft its job description, unless a person wrote it."""
+        who = request.state.identity
+        auth.domain(who)
+        return mutate(request, body, lambda c: recruiting.open_seat(auth, c, who, seat_id))
+
+    @app.post("/api/v2/seats/{seat_id}/draft")
+    def seat_draft(request: Request, seat_id: str, body: M.SeatDraft):
+        """The CEO Bot's draft of the job description the owner asked for by opening the seat (`hub seat draft`)."""
+        who = request.state.identity
+        auth.domain(who)
+        return mutate(request, body, lambda c: recruiting.draft(auth, c, who, seat_id, body.text))
+
+    @app.post("/api/v2/seats/{seat_id}/recruit")
+    def seat_recruit(request: Request, seat_id: str, body: M.Empty):
+        """Recruit: up to three Tico templates for the seat at once, each with a one-line reason and a suggested model,
+        exactly one recommended. Local: nothing leaves this server."""
+        who = request.state.identity
+        auth.domain(who)
+        with store.read() as c:
+            return recruiting.candidates(auth, onboarding, c, who, seat_id)
+
+    @app.post("/api/v2/seats/{seat_id}/hire")
+    def seat_hire(request: Request, seat_id: str, body: M.SeatHire):
+        """Pick a candidate: the bot is created in Onboarding in the seat's place with its reporting line, and only
+        then its repository (by its computer for a starter, else BotOps)."""
+        who = request.state.identity
+        auth.domain(who)
+        return mutate(request, body, lambda c: recruiting.hire(auth, onboarding, c, who, seat_id, body))
+
     @app.post("/api/v2/seats/{seat_id}/close")
     def seat_close(request: Request, seat_id: str, body: M.Empty):
         """Take a seat off the chart; its row stays for the record."""
@@ -5612,11 +5657,27 @@ def create_app(settings=None):
             config = c.execute("SELECT * FROM bot_config WHERE bot=?", (bot,)).fetchone()
             if config["revision"] != body.expected_revision:
                 raise Problem("version_conflict", "Bot configuration changed; refresh before controlling it", 409)
+            if body.action in ("scope", "unscope"):
+                # A narrower claim, never a wider one: the bot's pause, drain and every other claim check stand, and
+                # the work outside the task stays queued as it is (execution.scoped_sql).
+                task = H.task(c, body.task_id) if body.action == "scope" and body.task_id else None
+                if body.action == "scope" and not (task and privacy.task_readable(c, who, task)):
+                    raise Problem("not_found", "No such task", 404)
+                before = claim_scope(c, bot)
+                c.execute("INSERT INTO bot_control(bot,claim_task) VALUES(?,?) "
+                          "ON CONFLICT(bot) DO UPDATE SET claim_task=excluded.claim_task",
+                          (bot, task["id"] if task else None))
+                c.execute("UPDATE bot_config SET revision=revision+1 WHERE bot=?", (bot,))
+                H.event(c, who.actor, "bot." + body.action, bot,
+                        {"task_id": task["id"] if task else None, "previous": before})
+                return {"bot": bot, "action": body.action, "task_id": task["id"] if task else None,
+                        "revision": config["revision"] + 1}
             if H.bot(c, bot)["state"] == "quarantined" and body.action != "drain":
                 raise Problem("quarantined", "Review the refusal and use quarantine clear to resume this bot", 409)
             if body.action == "resume":
                 settings_admin.ensure_activation(c, who, bot)
-            c.execute("INSERT INTO bot_control VALUES(?,?) ON CONFLICT(bot) DO UPDATE SET draining=excluded.draining",
+            c.execute("INSERT INTO bot_control(bot,draining) VALUES(?,?) "
+                      "ON CONFLICT(bot) DO UPDATE SET draining=excluded.draining",
                       (bot, int(body.action in ("drain", "pause"))))
             if body.action != "drain":
                 c.execute("UPDATE bots SET state=? WHERE slug=?", ("active" if body.action == "resume" else "paused", bot))

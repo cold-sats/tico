@@ -297,7 +297,7 @@ hosted gate.
 ## Manual fallback: validation, tag and notes
 
 1. Freeze current main with the guard above, then run the hosted release validation on that exact commit, with the
-   version you will tag.
+   version you will tag, dispatched from main: the tag publishes only a validation run of ci.yml from main.
 2. Once it is green, check main still equals that commit, then the Release Manager tags it and pushes:
    `git tag vX.Y.Z <validated-commit> && git push origin vX.Y.Z`.
 3. Once the release is published, file the Technical Writer's notes task. The notes go in `CHANGELOG.md` under

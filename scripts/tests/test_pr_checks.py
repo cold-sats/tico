@@ -128,6 +128,22 @@ def test_pr_changelog_guard_rejects_product_edits_and_accepts_release_cut(tmp_pa
     commit("Release notes\n\nChangelog-Release: v1.1.0")
     checks.prepare("pull_request", base, target)
     target.unlink()
+    # Bringing main's own notes edit in is a clean union; a note the merge itself adds is an ordinary edit.
+    release = git("rev-parse", "HEAD")
+    git("checkout", "-qb", "main-notes", base)
+    notes.write_text(notes.read_text() + "- Corrected on main.\n")
+    commit("Main notes fix")
+    main = git("rev-parse", "HEAD")
+    git("checkout", "-qb", "union", release)
+    git("merge", "-q", "--no-edit", main)
+    checks.guard_changelog(main)
+    git("checkout", "-qb", "slipped", release)
+    git("merge", "-q", "--no-commit", main)
+    notes.write_text(notes.read_text().replace("## [1.1.0]\n", "## [1.1.0]\n- Slipped in by the merge.\n"))
+    commit("Merge main")
+    with pytest.raises(RuntimeError, match="No PR edits CHANGELOG.md"):
+        checks.guard_changelog(main)
+    git("checkout", "-q", "release-notes")
     # An old release trailer cannot bless another edit or a product file.
     (tmp_path / "product.py").write_text("changed = True\n")
     commit("Product change")
