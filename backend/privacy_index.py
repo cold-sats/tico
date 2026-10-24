@@ -34,6 +34,7 @@ class ReadIndex:
         self.conversation = lru_cache(maxsize=16384)(self.conversation)
         self.direct_message = lru_cache(maxsize=16384)(self._direct_message)
         self.direct_parent = lru_cache(maxsize=4096)(self._direct_parent)
+        self.string_sources = lru_cache(maxsize=16384)(self._string_sources)
 
     @cached_property
     def task_ids(self):
@@ -50,20 +51,32 @@ class ReadIndex:
         return tid in self.task_ids
 
     def references(self, value):
-        if isinstance(value, str):
-            if value[:1] in ("{", "["):
-                parsed = H._json(value, None)
-                if isinstance(parsed, (dict, list)):
-                    return self.references(parsed)
-            return {tid for tid in privacy.reference_strings(value) if tid in self.private}
-        if isinstance(value, dict):
-            return set().union(*(self.references(v) for v in value.values())) if value else set()
-        if isinstance(value, (list, tuple)):
-            return set().union(*(self.references(v) for v in value)) if value else set()
-        return set()
+        ids, pending = set(), [value]
+        while pending:
+            part = pending.pop()
+            if isinstance(part, str):
+                ids.update(self.string_sources(part) if len(part) <= 4096 else self._string_sources(part))
+            elif isinstance(part, dict):
+                pending.extend(part.values())
+            elif isinstance(part, (list, tuple)):
+                pending.extend(part)
+        return ids
+
+    def _string_sources(self, value):
+        if value[:1] in ("{", "["):
+            parsed = H._json(value, None)
+            if isinstance(parsed, (dict, list)):
+                return frozenset(self.references(parsed))
+        direct = value[5:] if value.startswith("task:") else value
+        ids = {direct} if direct in self.private else set()
+        # Ordinary strings cannot contain URL task references. Retain both paths
+        # without running a regex for every repeated progress label.
+        if "#/task/" in value or "/tasks/" in value:
+            ids.update(tid for tid in privacy.reference_strings(value) if tid in self.private)
+        return frozenset(ids)
 
     def content(self, value):
-        return (not self.denied.intersection(self.references(value))
+        return ((not self.denied or not self.denied.intersection(self.references(value)))
                 and self.meetings.readable(self.principals, self.meetings.references(value)))
 
     def conversation(self, cid):

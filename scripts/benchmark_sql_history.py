@@ -33,6 +33,11 @@ def test_bot_history_queries_finish_within_the_existing_timeout(api, provenance)
         c.executemany('INSERT INTO tasks(id,title,owner,requester,private,status,created,updated) '
                       "VALUES(?,'Synthetic task','bot:ops','human:ana',0,'done',?,?)",
                       [(f'fixture-task-{i}', now, now) for i in range(rooms)])
+        # Authorization must also work with a nonempty denied-private set;
+        # no message references these unrelated synthetic private rows.
+        c.executemany('INSERT INTO tasks(id,title,owner,requester,private,status,created,updated) '
+                      "VALUES(?,'Hidden synthetic task','bot:finance','human:ben',1,'done',?,?)",
+                      [(f'fixture-hidden-task-{i}', now, now) for i in range(500)])
         c.executemany('INSERT INTO conversations(id,kind,task_id,participants_json,created) '
                       "VALUES(?,'task',?,'[]',?)",
                       [(f'fixture-room-{i}', f'fixture-task-{i}', now) for i in range(rooms)])

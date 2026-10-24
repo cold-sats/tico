@@ -424,10 +424,18 @@ def connect(path, c, auth, who, trace=None):
         source_tables = set(tables) | {"blob_media", "live_meetings", "live_meeting_access", "live_meeting_bots",
                                        "live_meeting_turns"}
         class Source:
+            def __init__(self):
+                self.statements = {}
+
             def execute(self, statement, args=()):
-                statement = re.sub(r'\b(FROM|JOIN)\s+(\w+)', lambda m:
-                                   m[1] + ' main."' + m[2] + '"' if m[2] in source_tables else m[0], statement,
-                                   flags=re.I)
+                source = self.statements.get(statement)
+                if source is None:
+                    source = re.sub(r'\b(FROM|JOIN)\s+(\w+)', lambda m:
+                                    m[1] + ' main."' + m[2] + '"' if m[2] in source_tables else m[0], statement,
+                                    flags=re.I)
+                    if len(self.statements) < 128:
+                        self.statements[statement] = source
+                statement = source
                 trusted[0] = True
                 try:
                     return conn.execute(statement, args)
