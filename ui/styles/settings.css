@@ -137,6 +137,7 @@ p:empty{display:none}
    marked, with a dot, when they run on another. It opens the task-model row under the bot (.sb-task-row). */
 .sb-model-wrap{display:flex;align-items:center;gap:4px;min-width:0}
 .sb-model-wrap>.sb-pick{flex:1 1 auto;width:auto}
+.sb-model-match{display:block;white-space:normal;overflow-wrap:anywhere;color:var(--muted);font-size:var(--t-xs);margin-top:4px}
 .sb-task-mark{flex:none;display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border:1px solid transparent;border-radius:999px;background:none;color:var(--muted);font:inherit;font-size:var(--t-xs);cursor:pointer;opacity:.45}
 tr:hover .sb-task-mark,.sb-task-mark:focus-visible,.sb-task-mark[aria-expanded=true]{opacity:1}
 .sb-task-mark:hover,.sb-task-mark[aria-expanded=true]{border-color:var(--line);background:var(--surface2)}
@@ -231,16 +232,14 @@ tr:hover .sb-task-mark,.sb-task-mark:focus-visible,.sb-task-mark[aria-expanded=t
 .settings-filter-search{flex:1 1 160px;min-width:120px;max-width:280px;padding:7px 10px 7px 32px;font-size:var(--t-sm);border-radius:6px;background-position:10px center}
 .settings-bots-count{font-size:var(--t-sm);color:var(--muted);margin-left:auto;white-space:nowrap}
 @media (max-width:760px){.settings-bots-filters{flex-wrap:wrap}.settings-filter-search{flex-basis:100%;max-width:none}.settings-bots-filters .settings-inline-select{flex:1 1 calc(50% - 4px);max-width:none}}
-/* Settings > Bots: the search box with its own clear button (the browser's own is missing on a phone), then the
-   filters. On a computer the selects sit in the row; on a phone they fold behind Filters, which counts the active ones. */
+/* Settings > Bots: one search with a clear button, and selection controls on a phone. */
 .sb-search{position:relative;display:flex;flex:1 1 200px;min-width:140px;max-width:280px}
 .sb-search .settings-filter-search{flex:1 1 auto;min-width:0;max-width:none;padding-right:32px}
 .sb-search .settings-filter-search::-webkit-search-cancel-button{display:none}
 .sb-search-clear{position:absolute;top:50%;right:3px;display:flex;align-items:center;justify-content:center;width:28px;height:28px;transform:translateY(-50%);border:0;border-radius:50%;background:none;color:var(--muted);font-size:var(--t-lg);line-height:1;cursor:pointer}
 .sb-search-clear:hover{background:var(--surface2);color:var(--ink)}
 .sb-search-clear[hidden]{display:none}
-.sb-selects{display:contents}
-.sb-filters-toggle,.sb-pick-tools{display:none}
+.sb-pick-tools{display:none}
 .settings-bots-card .sb-narrow{display:none}
 @media (max-width:760px){
   .settings-bots-card>header{align-items:center;gap:var(--s2)}
@@ -250,13 +249,6 @@ tr:hover .sb-task-mark,.sb-task-mark:focus-visible,.sb-task-mark[aria-expanded=t
   .settings-bots-filters{gap:8px}
   .sb-search{flex:1 1 calc(100% - 120px);max-width:none}
   .sb-search-clear{width:36px;height:36px;right:2px}
-  .sb-filters-toggle{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 12px}
-  .sb-filters-toggle[aria-expanded=true]{background:var(--surface2)}
-  .sb-filters-toggle .cnt{min-width:18px;padding:0 5px;border-radius:9px;background:var(--accent);color:var(--accent-ink);font-size:var(--t-xs);font-weight:600;line-height:18px;text-align:center}
-  .sb-selects{display:none}
-  .settings-bots-filters.open .sb-selects{display:grid;grid-template-columns:1fr 1fr;gap:8px;flex-basis:100%}
-  .settings-bots-filters.open .sb-selects .settings-inline-select{width:100%;min-width:0;max-width:none}
-  .settings-bots-filters.open .sb-selects [data-bots-filter=computer]{grid-column:1/-1}
   .settings-bots-count{flex:1 0 60%;margin-left:0}   /* too wide to join the search line: count and Select are the second line */
   .sb-pick-tools{display:flex;align-items:center;gap:16px}
   .sb-pick-tools .linkish{min-height:40px;margin:-8px 0;font-size:var(--t-base);text-decoration:none}
