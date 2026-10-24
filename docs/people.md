@@ -154,6 +154,8 @@ Anywhere else, and whenever the mail does not go, the page says so in words and 
 in with Tico accounts, so it can't email invites. Tell Dana to sign in at https://... with dana@...*, too many invites to
 that address today (3 a day per address, 50 a day per install), or the mail could not be delivered. A sent invite is
 recorded (`invites` in `GET /api/v2/access`, audit event `person.invited`) and the row says **Invited 2h ago**.
+One click sends at most one email: a repeat of the same request (the page retrying a lost answer) never sends again,
+and if Tico can't tell whether it went, it says so instead of sending; clicking again sends a new one.
 
 Inviting a person from setup adds them to the roster and the sign-in list with that email first, and the Recruiting seats
 the file put under them (which reported to the owner meanwhile) move under them, unless someone has moved a seat since. If
