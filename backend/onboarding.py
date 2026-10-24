@@ -627,7 +627,8 @@ class Onboarding:
         todo = {slug: choice for slug, choice in roles.items() if slug not in laid}
         if not todo:
             return laid
-        teams = Groups.seat_teams(c, self.settings, sorted({choice["template"] for choice in todo.values()}))
+        teams = Groups.seat_teams(c, self.settings, sorted({choice["template"] for choice in todo.values()}),
+                                  group_order=record["answers"]["departments"])
 
         def line(choice):
             parent = str(choice.get("reports_to") or "")
