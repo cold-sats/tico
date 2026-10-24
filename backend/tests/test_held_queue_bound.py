@@ -356,3 +356,26 @@ def test_goal_command_is_charged_with_its_stored_objective(queue, monkeypatch):
                   token=tokens['ops'], expected=422)
     assert result['error']['code'] == 'queue_full'
     assert domain(api) == before
+
+
+@pytest.mark.parametrize('state', ['paused', 'quarantined'])
+def test_external_harness_inbox_without_jobs_or_notes_fills_the_cap(queue, monkeypatch, state):
+    # An external harness with no delivery computer gets no job, and a waking message no carry-note: its inbox is
+    # what it reads on return, so every waking message (a needs_action notice too) is charged.
+    api, _, _ = queue
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET config_json=json_set(config_json,'$.harness','hermes') WHERE bot='finance'")
+    hold(api, state)
+    monkeypatch.setattr(H, 'HELD_QUEUE_ITEMS', 3)
+    send(queue)
+    send(queue, sender='cpo')
+    with api.app.state.store.transaction() as c:
+        H.say(c, 'bot:ops', 'bot:finance', 'Fixture notice', kind='notice', refs={'needs_action': True})
+    held = [r['id'] for r in pending(api)]
+    assert len(held) == 3
+    with api.app.state.store.read() as c:
+        for table in ('jobs', 'notes'):
+            assert not c.execute(f"SELECT 1 FROM {table} WHERE message_id IN (?,?,?)", held).fetchone()
+    before = domain(api)
+    assert send(queue, sender='cpo', expected=422)['error']['code'] == 'queue_full'
+    assert domain(api) == before

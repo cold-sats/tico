@@ -2577,18 +2577,19 @@ def librarian_text(body):
     return "".join(out)
 
 
-# A held message is charged only while resume will still hand it over: a job not yet finished or cancelled
-# (store.QUEUE_TRIGGER), or a carry-note still waiting (bot_to_bot.hold, wake_rules.hold). A quiet message with
-# neither (a bot's notice to itself, a wake=False comment, a verdict delivered on the parent) never drains,
-# and charging it would fill the cap for good.
-_HELD_QUEUE_PENDING_SQL = (
-    "(EXISTS(SELECT 1 FROM jobs j WHERE j.message_id=m.id AND j.state NOT IN ('completed','cancelled')) "
-    "OR EXISTS(SELECT 1 FROM notes n WHERE n.to_actor=m.to_actor AND n.message_id=m.id AND {notes_waiting}))")
+# One rule decides both whether a new message is charged and which stored messages count: _held_queue_drains,
+# read from the stored references. It needs no job or note, so it holds for an external harness's inbox (hermes,
+# openclaw and the rest get no job without a delivery computer, and a waking bot-to-bot message gets no carry-note)
+# and on a hub database without Store's job queue. A record that settles a message later only ever removes it:
+# a job finished or cancelled (a duplicate wake), or carry-notes that are no longer waiting.
 
 
 def _held_queue_drains(actor, target, refs_json):
-    """Whether a message about to be stored will be handed over on resume: the same test as
-    _HELD_QUEUE_PENDING_SQL, read from the references before the job or note exists."""
+    """Whether a bot-to-bot message, stored or about to be stored, is held for the recipient until it resumes.
+
+    The single test for the held queue: admission applies it before insert and the count applies it to every
+    pending stored row. A bot's message to itself, a quiet message nothing carries (a wake=False comment, a
+    same-state skip) and live run output are never handed over, and charging them would fill the cap for good."""
     if actor == target:
         return False                       # store.QUEUE_TRIGGER queues no job for a bot's message to itself
     try:
@@ -2605,6 +2606,38 @@ def _held_queue_drains(actor, target, refs_json):
     return not (isinstance(live, dict) and live.get("kind") in ("transcript", "decision", "tool"))
 
 
+def _held_queue_settled_sql(conn):
+    """SQL true for a stored message a later record says resume will not hand over, on whichever tables exist."""
+    settled = []
+    if _has_table(conn, "jobs"):
+        # A runner-delivered bot gets a held message only through its job, so one finished or cancelled (a
+        # duplicate wake) is never handed over. An external harness's inbox still holds it whatever its job did.
+        from .store import EXTERNAL_BOT_SQL
+        settled.append("(NOT " + EXTERNAL_BOT_SQL.replace("NEW.", "m.") + " AND EXISTS(SELECT 1 FROM jobs j "
+                       "WHERE j.message_id=m.id) AND NOT EXISTS(SELECT 1 FROM jobs j "
+                       "WHERE j.message_id=m.id AND j.state NOT IN ('completed','cancelled')))")
+    waiting = NOTE_WAITING_SQL if _has_table(conn, "attempts") else "n.cancelled_at IS NULL"
+    settled.append("(EXISTS(SELECT 1 FROM notes n WHERE n.message_id=m.id) AND NOT EXISTS(SELECT 1 FROM notes n "
+                   f"WHERE n.to_actor=m.to_actor AND n.message_id=m.id AND {waiting}))")
+    return " OR ".join(settled)
+
+
+def _held_queue_pending(conn, target, *, excluding=None):
+    """Per sender, the items and stored bytes of every pending message _held_queue_drains holds for target."""
+    size_sql = "coalesce(length(CAST(m.body AS BLOB)),0) + coalesce(length(CAST(m.refs_json AS BLOB)),0)"
+    totals = {}
+    for r in conn.execute(
+            f"SELECT m.from_actor, m.refs_json, {size_sql} AS bytes FROM messages m WHERE m.to_actor=? "
+            "AND m.delivered_at IS NULL AND m.deleted_at IS NULL AND m.from_actor LIKE 'bot:%' "
+            f"AND m.from_actor<>m.to_actor AND (? IS NULL OR m.id<>?) AND NOT ({_held_queue_settled_sql(conn)})",
+            (target, excluding, excluding)):
+        if _held_queue_drains(r["from_actor"], target, r["refs_json"]):
+            t = totals.setdefault(r["from_actor"], {"items": 0, "bytes": 0})
+            t["items"] += 1
+            t["bytes"] += r["bytes"]
+    return totals
+
+
 def _held_queue_admit(conn, actor, target, body, refs_json, *, replacing=None):
     """Charge bot-authored pending messages across every room that resume will deliver.
 
@@ -2617,28 +2650,10 @@ def _held_queue_admit(conn, actor, target, body, refs_json, *, replacing=None):
     state = (bot(conn, actor_id(target)) or {}).get("state")
     if state not in HELD_STATES:
         return
-    pending = ("FROM messages m WHERE to_actor=? AND delivered_at IS NULL AND deleted_at IS NULL "
-               "AND from_actor LIKE 'bot:%' AND from_actor<>to_actor AND (? IS NULL OR id<>?) ")
-    size_sql = "coalesce(length(CAST(body AS BLOB)),0) + coalesce(length(CAST(refs_json AS BLOB)),0)"
-    if _has_table(conn, "jobs"):
-        rows = conn.execute(
-            f"SELECT from_actor, count(*) AS items, sum({size_sql}) AS bytes " + pending +
-            "AND " + _HELD_QUEUE_PENDING_SQL.format(notes_waiting=NOTE_WAITING_SQL) + " GROUP BY from_actor",
-            (target, replacing, replacing)).fetchall()
-    else:
-        # A hub database without Store's job queue: no job records what resume delivers, so charge each
-        # pending message by the same test admission uses before the job exists.
-        totals = {}
-        for r in conn.execute(f"SELECT from_actor, refs_json, {size_sql} AS bytes " + pending,
-                              (target, replacing, replacing)):
-            if _held_queue_drains(r["from_actor"], target, r["refs_json"]):
-                t = totals.setdefault(r["from_actor"], {"from_actor": r["from_actor"], "items": 0, "bytes": 0})
-                t["items"] += 1
-                t["bytes"] += r["bytes"]
-        rows = list(totals.values())
-    items = sum(r["items"] for r in rows)
-    size = sum(r["bytes"] for r in rows)
-    own = next((r for r in rows if r["from_actor"] == actor), None)
+    totals = _held_queue_pending(conn, target, excluding=replacing)
+    items = sum(t["items"] for t in totals.values())
+    size = sum(t["bytes"] for t in totals.values())
+    own = totals.get(actor)
     added = len(body.encode("utf-8")) + len(refs_json.encode("utf-8"))
     for label, used, charge, limit in (
         ("recipient item", items, 1, HELD_QUEUE_ITEMS),
