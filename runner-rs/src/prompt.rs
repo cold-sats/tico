@@ -156,8 +156,10 @@ pub fn replayed(attempt: &Value, names: &Names, after: Option<&str>, resumed: bo
             })
             .unwrap_or_default();
         lines.push(format!("Assigned task:\n{}", py_dumps(&Value::Object(task))));
-        if !resumed && truthy(&full["checkpoint"]) {
-            // A fresh session has none of the task's past turns; the hub's checkpoint is where they left it.
+        let task_model = crate::execute::session_key(attempt).starts_with("task:") && truthy(&attempt["config"]["task_model"]);
+        if (!resumed || task_model) && truthy(&full["checkpoint"]) {
+            // A fresh thread has no past turns. A resumed task-model thread can also miss work completed by a
+            // fallback on another runtime; supply the current checkpoint without discarding its provider session.
             let at = if full.get("checkpoint_at").is_some() { py_str(&full["checkpoint_at"]) } else { "None".into() };
             lines.push(format!("Where this task stood after its last turn ({at}):\n{}", s(&full["checkpoint"])));
         }
@@ -300,6 +302,41 @@ mod tests {
             let id = attempt["id"].as_str().unwrap();
             assert_eq!(prompt(&attempt, &names, after, resumed), python_prompt(id), "{id}");
         }
+    }
+
+    #[test]
+    fn resumed_task_models_receive_the_current_checkpoint_without_changing_bot_lane_prompts() {
+        let names = Names { company: "Acme".into(), app: "Tico".into() };
+        let mut attempt = json!({"id": "a7", "bot": "ops", "config": {"task_model": {"harness": "grok", "model": "grok-4.6"}},
+            "conversation": {"id": "c7", "kind": "task"}, "message": {"id": "m7", "body": "Continue"},
+            "task": {"id": "t7", "checkpoint": "Fallback completed the Acme release checklist", "checkpoint_at": "2026-10-24T05:00:00Z"}});
+        let checkpoint = "Where this task stood after its last turn (2026-10-24T05:00:00Z):\nFallback completed the Acme release checklist";
+        assert!(prompt(&attempt, &names, None, true).contains(checkpoint));
+        assert!(prompt(&attempt, &names, None, false).contains(checkpoint));
+        // Check-model overrides retain task_model but use the check subtask's own session and checkpoint.
+        let mut check = attempt.clone();
+        check["config"]["session"] = json!("task");
+        check["config"]["subtask_session"] = json!("own");
+        check["config"]["fallback"] = json!({"off": true});
+        check["lane"] = json!("task:check7");
+        check["task"] = json!({"id": "check7", "session_task_id": "check7",
+            "check": {"runtime": "grok", "model": "grok-4.6", "role": "review"},
+            "checkpoint": "Reviewed the Acme recovery patch; one finding remains", "checkpoint_at": "2026-10-24T05:10:00Z"});
+        let check_prompt = prompt(&check, &names, None, true);
+        assert_eq!(crate::execute::session_key(&check), "task:check7");
+        assert!(check_prompt.contains("Where this task stood after its last turn (2026-10-24T05:10:00Z):\nReviewed the Acme recovery patch; one finding remains"));
+        assert!(!check_prompt.contains(checkpoint), "check turns carry their own work rather than the parent's checkpoint");
+        attempt["config"]["session"] = json!("bot");
+        assert!(!prompt(&attempt, &names, None, true).contains(checkpoint));
+        assert!(prompt(&attempt, &names, None, false).contains(checkpoint), "fresh bot sessions retain checkpoint recovery");
+        attempt["config"] = json!({});
+        assert!(!prompt(&attempt, &names, None, true).contains(checkpoint), "ordinary task resume is unchanged");
+        attempt["config"]["task_model"] = json!({"harness": "grok", "model": "grok-4.6"});
+        attempt["task"]["checkpoint"] = Value::Null;
+        assert!(!prompt(&attempt, &names, None, true).contains("Where this task stood"));
+        attempt["task"] = Value::Null;
+        attempt["conversation"]["kind"] = json!("chat");
+        assert!(!prompt(&attempt, &names, None, true).contains("Where this task stood"));
     }
 
     #[test]
