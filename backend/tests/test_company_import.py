@@ -639,14 +639,15 @@ def test_a_full_plan_too_big_for_the_env_starts_the_server_from_its_file(tmp_pat
     app.state.store.initialize()
     app.state.store.seed()
     settings.company_file_data = packed
-    seats = {s["slug"] for s in C.SEATS}
     with TestClient(create_app(settings)) as api:
-        imported = {r["bot"] for r in rows(api, "SELECT bot FROM bot_config")}
-        employees = [b["id"] for b in draft["bots"] if b["template"] not in seats]
-        assert len(draft["bots"]) == count and employees and set(employees) <= imported
+        # Only the built-ins are bots; every other role the file names is a Recruiting seat, and a role a person
+        # holds is theirs (kept to invite), so neither.
+        assert api.get("/api/v2/setup", headers=signed_in()).json()["company_import_failed"] is None
+        assert {r["slug"] for r in rows(api, "SELECT slug FROM bots")} <= BUILTINS
         builtins = sum(b["template"] in BUILTINS for b in draft["bots"])
-        assert builtins < count
-        assert len(rows(api, "SELECT id FROM seats WHERE closed_at IS NULL")) == count - builtins
+        held = sum(bool(b.get("person")) for b in draft["bots"])
+        assert len(draft["bots"]) == count and builtins < count
+        assert len(rows(api, "SELECT id FROM seats WHERE closed_at IS NULL")) == count - builtins - held > 0
 
 
 # ------------------------------------------------------------------------- every goal setup's /goals writes (Dev 449)
