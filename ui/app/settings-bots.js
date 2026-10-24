@@ -412,9 +412,9 @@ function settingsBulkModelDialog() {
     const preview = () => {
       dialog.querySelector('[data-bulk-explanation]').innerHTML = target === 'task'
         ? '<strong>Only task models change.</strong><p>New task sessions use this choice. If unavailable, tasks use the bot model and say so.</p>'
-        : `<strong>${target === 'both' ? 'Bot and task models change.' : 'Only bot models change; explicit task models stay as set.'}</strong><p>Each changed bot starts a fresh provider session. History is kept. A bot mid-turn is skipped; retry it after.</p>`;
+        : `<strong>${target === 'both' ? 'Bot and task models change independently.' : 'Only bot models change; explicit task models stay as set.'}</strong><p>Each changed bot starts a fresh provider session. History is kept. A bot mid-turn is skipped; retry it after.${target === 'both' ? ' Task settings still save if the bot model is blocked or fails.' : ''}</p>`;
       bots.forEach(e => { const why = target !== 'task' && choice && settingsRuntimeBlock(e, choice.harness);
-        mark(e.name, why ? 'blocked' : 'pending', why ? `Can't run bot model: ${why.reason}` : 'Ready to apply'); });
+        mark(e.name, why ? 'blocked' : 'pending', why ? `Can't run bot model: ${why.reason}${target === 'both' ? ' · Task model will still be saved' : ''}` : 'Ready to apply'); });
     };
     dialog.querySelector('[data-bulk-target]').onchange = event => { target = event.target.value; preview(); };
     settingsWireChoiceFields(dialog.querySelector('[data-choice-fields]'), (value, valid) => {
@@ -466,18 +466,20 @@ function settingsBulkModelDialog() {
 // so the task-model request uses its new revision. Retry failed preserves already-applied destinations.
 async function settingsBulkApplyOne(slug, choice, target = 'bot') {
   const notes = [], kinds = target === 'both' ? ['bot', 'task'] : [target];
-  let changed = false;
+  let changed = false, failed = false, blocked = false;
   for (const kind of kinds) {
     const result = await settingsBulkApplyKind(slug, choice, kind);
     notes.push(`${kind === 'task' ? 'Task model' : 'Bot model'}: ${result.note}`);
-    if (!['changed', 'skipped'].includes(result.state)) return {state: result.state, note: notes.join(' · ')};
+    failed ||= result.state === 'failed';
+    blocked ||= result.state === 'blocked';
     changed ||= result.state === 'changed';
     if (kind === 'bot' && target === 'both' && result.state === 'changed') {
       try { S.emps = namedRoster(await get('/employees')); }
-      catch (error) { return {state: 'failed', note: `${notes.join(' · ')} · Task model not changed: ${error.message}`}; }
+      // The task route can refresh a stale revision itself if this read fails.
+      catch {}
     }
   }
-  return {state: changed ? 'changed' : 'skipped', note: notes.join(' · ')};
+  return {state: failed ? 'failed' : blocked ? 'blocked' : changed ? 'changed' : 'skipped', note: notes.join(' · ')};
 }
 async function settingsBulkApplyKind(slug, choice, kind) {
   for (let attempt = 0; attempt < 2; attempt++) {

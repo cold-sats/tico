@@ -143,6 +143,30 @@ const {unrouted} = require('./support/routes.cjs');
     await page.waitForFunction(() => document.querySelector('.settings-bulk-dialog [data-bulk-summary]')?.textContent === '1 changed');
     assert.deepEqual(calls.map(c => c.what), ['transitions', 'task-model', 'task-model', 'task-model'], 'partial retry never repeats an applied bot transition');
     assert.equal(bots[0].task_model.model, opus); await close();
+    // Both must still save task settings when the bot destination is blocked or fails.
+    await search.fill('beta'); await page.locator('[data-bots-select-all]').check();
+    calls = []; await open('both', sonnet); await apply();
+    assert.deepEqual(calls.map(c => c.what), ['task-model'], 'blocked bot destination never suppresses a task save');
+    assert.equal(bots[1].model, sonnet); assert.equal(bots[1].task_model.model, sonnet);
+    assert.match(await dialog.locator('[data-bulk-bot=beta]').innerText(), /Bot model: Can't run/);
+    assert.match(await dialog.locator('[data-bulk-bot=beta]').innerText(), /Task model: Now Claude Sonnet/);
+    await capture('desktop-both-blocked'); await close();
+    await search.fill('gamma'); await page.locator('[data-bots-select-all]').check();
+    calls = []; fail = 'gamma/transitions'; await open('both', sonnet); await apply();
+    assert.deepEqual(calls.map(c => c.what), ['transitions', 'task-model'], 'failed bot destination never suppresses a task save');
+    assert.equal(bots[2].model, opus); assert.equal(bots[2].task_model.model, sonnet);
+    assert.match(await dialog.locator('[data-bulk-summary]').innerText(), /1 failed/);
+    assert.match(await dialog.locator('[data-bulk-bot=gamma]').innerText(), /Bot model: Synthetic task save failure/);
+    assert.match(await dialog.locator('[data-bulk-bot=gamma]').innerText(), /Task model: Now Claude Sonnet/);
+    await capture('desktop-both-failed');
+    await dialog.locator('[data-bulk-retry]').click();
+    await page.waitForFunction(() => document.querySelector('.settings-bulk-dialog [data-bulk-summary]')?.textContent === '1 changed');
+    assert.deepEqual(calls.map(c => c.what), ['transitions', 'task-model', 'transitions'], 'retry preserves the task destination already saved');
+    assert.equal(bots[2].model, sonnet); await close();
+    // Restore this row through the same UI so the phone search retains its original coverage.
+    await search.fill('gamma'); await page.locator('[data-bots-select-all]').check();
+    await open('both', opus); await apply();
+    assert.equal(bots[2].model, opus); assert.equal(bots[2].task_model.model, opus); await close();
     // Phone: one search, matching-row select all, the Task destination, wrapping, and keyboard clear.
     await page.setViewportSize({width: 390, height: 844});
     await search.fill('opus'); await page.locator('[data-bots-picking]').click();
