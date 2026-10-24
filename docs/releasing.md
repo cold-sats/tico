@@ -25,15 +25,18 @@ only marks the merged PR links the running release contains as Shipped (backend/
 "Release: <n> tickets at Pending Release". It arrives once a day at a set hour (10:00 company time by default;
 an owner or admin changes the hour, adds a second one or turns it off in Settings, or with `hub release schedule`),
 and not at all when nothing is pending. A ticket arriving at Pending Release wakes no one. For a hotfix or a
-midday release, a person who moves Dev tickets (or a bot that may work them) runs `hub release now [--note ...]`;
+midday release, a person who moves Dev tickets (or the Release Manager or Head of Engineering bot) runs `hub release now [--note ...]`;
 it sends the same task at once, or wakes the Release task the Release Manager already has open. The Release
 Manager is the bot the schedule setting names, else the one built from the `release-notes` starter; with neither,
 nothing is sent.
 
-**After a release is published**, Tico wakes, once per Dev ticket the release carries (at Pending Release with a
-pull request merged in the release repository; prereleases excepted), the ticket's QA owner (tickets tagged `qa`
-only: the post-release tests) and the Technical Writer (the docs for that change). Docs and release notes are
-not part of the pre-release checklist. Routines can run `on: release_published` for one task per release.
+**After a release is published**, Tico acts on the Dev tickets the release carries (at Pending Release with a
+pull request merged in the release repository; prereleases excepted). It wakes each ticket's QA owner (tickets
+tagged `qa` only: the post-release tests), leaves each ticket a quiet "Shipped in vX.Y.Z" note, and files the
+Technical Writer ONE task for the release, "Docs for vX.Y.Z: N tickets", listing each ticket with its pull request.
+It is separate from the release command's "Release notes for vX.Y.Z" task. Docs and release notes are not part of
+the pre-release checklist. Only the owner, a person who moves Dev tickets, the Release Manager and the bot that
+manages the Dev tickets type run `hub release now`. Routines can run `on: release_published` for one task per release.
 
 ## The fast path
 

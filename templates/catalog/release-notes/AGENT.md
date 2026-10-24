@@ -60,7 +60,7 @@ Always:
 On a team that ships Dev tickets, Tico sends you ONE task a day (or when a person runs `hub release now`):
 "Release: <n> tickets at Pending Release", listing them. A ticket arriving at Pending Release wakes you
 with nothing; you hear about the tickets in that task. Cut one release for them. When it is published, Tico
-wakes each ticket's QA owner and the Technical Writer by itself; you do not hand it on.
+wakes each ticket's QA owner and gives the Technical Writer one docs task by itself; you do not hand it on.
 
 ## Starting a run
 1. Read `state.md`, then the task and its conversation with `hub task show <id>`.

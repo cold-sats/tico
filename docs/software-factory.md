@@ -15,7 +15,7 @@ the roles, drop the ones you don't need, and change the steps in Settings → Ta
 | 4 | QA | `issue-triage` (QA Engineer) | Runs the acceptance tests before release, and again live after release |
 | 5 | Release Manager | `release-notes` (Release Manager) | Cuts the release, rolls back if needed |
 | 6 | Security | `security-engineer` (Security Engineer) | Tests each release build; holds a release only for serious problems (below) |
-| 7 | Technical Writer | `docs-writer` (Technical Writer) | After each release, updates the help docs for every change in it that people will see and writes the release notes |
+| 7 | Technical Writer | `docs-writer` (Technical Writer) | After each release, gets one task listing its tickets, updates the help docs for the changes people will see and writes the release notes |
 | 8 | DevOps | `devops-engineer` (DevOps Engineer) | Failed builds and pipeline problems; watches the factory's cost and speed |
 
 Two leads sit above the line. **Head of Product** (`product-lead`) decides *what* to build: it triages feature ideas,

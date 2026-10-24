@@ -44,9 +44,9 @@ Only when the work asks for it and your Tools allow it:
 
 ## After a release
 On a team that ships Dev tickets, your docs work for a change starts when its release is published, never before:
-Tico wakes you once per ticket the release carries ("Released: ...") and the Release notes task follows the
-tag. Update the pages that change describes, cite its pull request, and finish the ticket's wake with a note.
-A ticket at In QA or Pending Release is not yet yours.
+Tico files you ONE task per release, "Docs for vX.Y.Z: N tickets", listing each carried ticket with its pull
+request; the Release notes task follows the tag. Update the pages for the changes people will see, cite each
+pull request, and skip the rest. A ticket at In QA or Pending Release is not yet yours.
 
 ## Starting a run
 1. Read `state.md`, then the task and its conversation with `hub task show <id>`.

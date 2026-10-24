@@ -9,9 +9,12 @@ Three things, all in plain code, none asked of a model:
 - **Release now** (`hub release now`): a person or bot who moves Dev tickets asks for the same task at once, for a
   hotfix or a midday release. An unfinished Release task is woken instead of a second one being filed.
 - **`release_published`**: when a release is published, each Dev ticket it carries wakes its QA owner (post-release
-  tests, only for a ticket tagged `qa`) and the Technical Writer (docs and release notes, after the release), once
-  each, and every routine that runs `on: release_published` gets one task for the release. The Technical Writer's
-  work starts here and nowhere earlier.
+  tests, only for a ticket tagged `qa`: tests are per ticket) and gets a quiet note that it shipped in the version.
+  The Technical Writer gets ONE task per release, "Docs for vX.Y.Z: N tickets", listing each ticket with its pull
+  request (not a turn per ticket), and every routine that runs `on: release_published` gets one task for the
+  release. The Technical Writer's work starts here and nowhere earlier. The release command's own "Release notes
+  for vX.Y.Z" task stays a separate task: it is filed by the Rust command after it waits for the publish, so it may not
+  exist yet when this runs, and writing into it would race.
 
 The Release Manager, the Technical Writer and a ticket's QA owner are found, never configured per ticket: the bot
 the team named in the schedule setting, else the one active bot built from the `release-notes` template (writer:
@@ -268,11 +271,27 @@ def carried(c, repo):
                                          for p in t["prs"])]
 
 
+def _docs_task(c, writer, tag, tickets, url):
+    """The Technical Writer's one task for release `tag`, unless it already has one (a replay files none)."""
+    prefix = f"Docs for {tag}:"
+    owner = H.bot_actor(writer)
+    if c.execute("SELECT 1 FROM tasks WHERE owner=? AND substr(title,1,?)=? LIMIT 1", (owner, len(prefix), prefix)).fetchone():
+        return None
+    title = f"{prefix} {len(tickets)} ticket{'s' if len(tickets) != 1 else ''}"
+    shown = tickets[:MAX_LISTED]
+    more = f"\n...and {len(tickets) - len(shown)} more at {tag}." if len(tickets) > len(shown) else ""
+    body = (f"{tag} is published" + (f" ({url})" if url else "") + ". Update the docs for the changes people will see, "
+            "each with its pull request; skip what nobody sees. The version's CHANGELOG section comes on its release "
+            "notes task.\n\nIn this release:\n" + "\n".join(_line(t) for t in shown) + more)
+    return H.task_create(c, H.KEEPER, title, body, owner, deduplicate=False, trigger=EVENT, trigger_source=tag)["id"]
+
+
 def published(c, target, url="", release_repo=""):
-    """A release was published (`target` is `owner/repo@vX.Y.Z`): each ticket it carries wakes its QA owner and the
-    Technical Writer once, and every routine on `release_published` gets its task. Called once per release, from
-    the first time the milestone is recorded. A prerelease (a tag with a suffix) and a repository other than
-    the server's release repository do nothing. Returns the carried ticket ids."""
+    """A release was published (`target` is `owner/repo@vX.Y.Z`): each ticket it carries gets a quiet note and its QA
+    owner's wake, the Technical Writer gets ONE docs task for the release, and every routine on `release_published`
+    gets its task. Called once per release, from the first time the milestone is recorded. A prerelease (a tag
+    with a suffix) and a repository other than the server's release repository do nothing. Returns the carried
+    ticket ids."""
     repo, _, tag = target.partition("@")
     if "-" in tag or release_repo and repo.lower() != str(release_repo).lower():
         return []
@@ -282,29 +301,35 @@ def published(c, target, url="", release_repo=""):
     for ticket in tickets:
         facts = f"{_name(ticket)} is in {tag}" + (f" ({url})" if url else "")
         qa = qa_owner(c, ticket) if "qa" in H.task_labels(ticket) else None
-        for who, body, role in (
-                (qa, f"Released: {facts}. Run its check live tests now and watch the watch live items; "
-                     "report to the ticket.", "qa"),
-                (writer, f"Released: {facts}. Update the docs for this change now that it is out; the version's "
-                         "CHANGELOG section comes on its release notes task.", "docs")):
-            if who and H._wake(c, ticket, H.bot_actor(who), body, trigger=EVENT,
-                               refs={"wake": EVENT, "release": tag, "role": role}, source=target):
-                sent.setdefault(ticket["id"], []).append(who)
+        if qa and H._wake(c, ticket, H.bot_actor(qa), f"Released: {facts}. Run its check live tests now and watch the "
+                          "watch live items; report to the ticket.", trigger=EVENT,
+                          refs={"wake": EVENT, "release": tag, "role": "qa"}, source=target):
+            sent.setdefault(ticket["id"], []).append(qa)
+        if H.is_bot(ticket["owner"]) and ticket["owner"] != (H.bot_actor(qa) if qa else None):
+            H._wake(c, ticket, ticket["owner"], f"Shipped in {tag}.", quiet_bots=True, quiet=True, trigger=EVENT,
+                    refs={"wake": EVENT, "release": tag, "role": "note"}, source=target)
+    docs = _docs_task(c, writer, tag, tickets, url) if writer and tickets else None
     from . import routines
     listing = "\n".join(_line(t) for t in tickets[:MAX_LISTED])
     routines.emit(c, EVENT, target, {"release": tag, "url": url, "tickets": len(tickets)},
                   title=tag, content=listing)
-    H.event(c, H.KEEPER, "release.published", target, {"tickets": [t["id"] for t in tickets], "woke": sent})
+    H.event(c, H.KEEPER, "release.published", target, {"tickets": [t["id"] for t in tickets], "woke": sent, "docs": docs})
     return [t["id"] for t in tickets]
 
 
 # ----------------------------------------------------------------------------- the API
 def may_release(c, who):
-    """Whoever moves Dev tickets: the owner, a person on a mover team, or a bot of a type whose bots may `work` it."""
+    """The owner or a person who moves Dev tickets (a mover team); of the bots, only the Release Manager itself and
+    the bot that manages a Dev tickets type (Head of Engineering: `task_types.manager`)."""
     if who.role == "owner" or who.role == "human" and H.can_move(c, who.actor):
         return True
-    return who.role == "bot" and bool(c.execute(
-        "SELECT 1 FROM task_types WHERE bots='work' AND (role='engineering' OR name='Dev tickets') LIMIT 1").fetchone())
+    if who.role != "bot":
+        return False
+    slug = H.actor_id(who.actor)
+    if slug == release_manager(c):
+        return True
+    return bool(c.execute("SELECT 1 FROM task_types WHERE manager=? AND (role='engineering' OR name='Dev tickets') LIMIT 1",
+                          (slug,)).fetchone())
 
 
 def view(c, who, auth, now=None):
@@ -350,7 +375,7 @@ def install(app, store, auth, mutate):
     def release_now(request: Request, body: M.ReleaseNow):
         """Ask the Release Manager to cut a release of what is at Pending Release now, without waiting for the daily
         hour (a hotfix, a midday release). ONE task, or a wake on its unfinished Release task. A person who moves Dev
-        tickets, or a bot that may work them. `sent` is false, with a `reason`, when nobody was asked."""
+        tickets, or the Release Manager or Head of Engineering bot. `sent` is false, with a `reason`, when nobody was asked."""
         who = request.state.identity
         auth.domain(who)
         with store.read() as c:

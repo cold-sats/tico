@@ -34,10 +34,10 @@ def _ticket(api, dev, title, number=412, tags=()):
     return ticket
 
 
-def _tasks(api, owner):
+def _tasks(api, owner, prefix="Release:"):
     with api.app.state.store.read() as c:
-        return [r["title"] for r in c.execute("SELECT title FROM tasks WHERE owner=? AND title LIKE 'Release:%'",
-                                              (H.bot_actor(owner),))]
+        return [r["title"] for r in c.execute("SELECT title FROM tasks WHERE owner=? AND title LIKE ?",
+                                              (H.bot_actor(owner), prefix + "%"))]
 
 
 def _release_wakes(api, ticket):
@@ -67,8 +67,13 @@ def test_the_daily_hour_sends_one_task_and_nothing_when_nothing_is_pending(api):
 def test_release_now_is_for_those_who_move_dev_tickets_and_wakes_an_open_release_task(api):
     dev = _team(api)
     _ticket(api, dev, "Hotfix", 412)
-    refused = api.post("/api/v2/release/now", json={}, headers={**headers(), "Authorization": "Bearer nobody"})
-    assert refused.status_code in (401, 403)
+    from backend.auth import Identity
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE task_types SET manager='cpo' WHERE id=?", (dev["id"],))
+    with api.app.state.store.read() as c:
+        who = lambda slug: RF.may_release(c, Identity("bot:" + slug, "bot"))
+        assert who("cmo") and who("cpo"), "the Release Manager and the Dev tickets type's manager may"
+        assert not who("qab"), "any other bot, though bots may work Dev tickets, may not"
     first = post(api, "release/now", {"note": "hotfix"})
     assert first["sent"] is True and _tasks(api, "cmo") == ["Release: 1 ticket at Pending Release"]
     again = post(api, "release/now", {})
@@ -76,7 +81,7 @@ def test_release_now_is_for_those_who_move_dev_tickets_and_wakes_an_open_release
     assert len(_tasks(api, "cmo")) == 1, "a second Release task is never filed beside an open one"
 
 
-def test_a_published_release_wakes_qa_and_the_writer_once_per_ticket(api):
+def test_a_published_release_gives_the_writer_one_task_and_qa_a_wake_per_ticket(api):
     dev = _team(api)
     tested = _ticket(api, dev, "Visual replies", 412, tags=["qa"])
     plain = _ticket(api, dev, "Typo fix", 413)
@@ -84,5 +89,9 @@ def test_a_published_release_wakes_qa_and_the_writer_once_per_ticket(api):
              "repository": {"full_name": "ticoteam/tico"}}
     hook(api, "release", event)
     hook(api, "release", event)      # the same delivery again
-    assert [json.loads(r)["role"] for _, r in _release_wakes(api, plain)] == ["docs"], "no qa label: the writer only"
-    assert sorted(json.loads(r)["role"] for _, r in _release_wakes(api, tested)) == ["docs", "qa"]
+    assert [json.loads(r)["role"] for _, r in _release_wakes(api, plain)] == ["note"], "a quiet note, no wake"
+    assert json.loads(_release_wakes(api, plain)[0][1])["quiet"] is True
+    roles = sorted(json.loads(r)["role"] for _, r in _release_wakes(api, tested))
+    assert roles == ["note", "qa"], "QA is woken for the qa-labelled ticket only"
+    docs = [t for t in _tasks(api, "cpo", "Docs for")]
+    assert docs == ["Docs for v1.2.3: 2 tickets"], "one docs task for the release, however many tickets or replays"
