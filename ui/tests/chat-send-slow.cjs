@@ -248,10 +248,11 @@ async function check(engine) {
     assert.equal(await page.evaluate(() => BOT_PILL.unconfirmed?.at), uncertainAt, 'another denial after reload keeps the original replay age');
     answer = 'ok';
     await send.click();
-    await page.waitForFunction(() => !document.querySelector('#chat-composer textarea').value && !BOT_PILL.sending);
-    // The reload while signed out kept the page's texts for after sign-in; the next redraw must not put the sent one back.
+    await page.waitForFunction(() => !BOT_PILL.sending);
+    // Restoration runs on animation frames after the send changes the DOM. An instant empty box can
+    // precede the stale snapshot refilling it; trigger a redraw and check the settled box before typing.
     await page.evaluate(() => new Promise(done => { document.body.append(document.createElement('div')); requestAnimationFrame(() => requestAnimationFrame(done)); }));
-    assert.equal(await box.inputValue(), '', 'a sent message does not come back into the box after sign-in');
+    assert.equal(await box.inputValue(), '', 'confirmed text stays cleared after sign-in restoration settles');
     assert.equal(keys.at(-1), uncertainKey, 'restored access replays the same key for an unchanged draft');
     assert.equal(sends.length, beforeUncertain + 1, 'same-key replay leaves exactly one message server-side');
     assert.equal(await page.evaluate(() => BOT_PILL.unconfirmed), null, 'acknowledged replay ends pending delivery');

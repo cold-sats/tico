@@ -79,11 +79,11 @@ async function assistantSend(P, text) {
   text = String(text || '').trim();
   if (!text || P.sending) return;
   P.sending = true;
-  const btn = pq(P, '.p-send'), state = V2C;
+  const btn = pq(P, '.p-send'), state = V2C, scope = sessionScope(pq(P, '.p-text'));
   btn.disabled = true; pillBtnSay(btn, 'Sending…');
   try {
     const r = await post('/v2/assistant/messages', {text});
-    pillAcknowledge(P, text, []);
+    pillAcknowledge(P, text, [], scope);
     if (state && V2C === state) {
       // Your words show at once; a lookup's answer comes with them, a bot turn streams in like any reply.
       for (const m of [r.message, r.reply].filter(Boolean)) { state.messages.push(m); state.mine.push(m); }
