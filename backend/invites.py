@@ -4,15 +4,28 @@ issuer to send it (`Oidc.invite`, the issuer's POST /oauth2/invite), so the mail
 sign in. An install that signs in some other way can't send one, and says so: the owner tells the person themselves.
 
 Every outcome is the owner's to see: a refusal is a Problem with a plain reason, and a sent invite is recorded in
-registry_metadata `invites` ({person id: {at, by}}) so the People page can say when. A refusal is a 422, never a 429
-or 502: the browser retries those writes as unconfirmed (ui/app/api.js), which would ask the issuer three times, spend
-the address's daily invites and hide the reason.
+registry_metadata `invites` ({person id: {at, by}}) so the People page can say when. A refusal is a 422, never a 409,
+429 or 502: the browser retries some of those writes as unconfirmed (ui/app/api.js), which would ask the issuer three
+times, spend the address's daily invites and hide the reason.
+
+One request sends at most one email (`once`). The browser repeats a write whose answer it lost with the same
+Idempotency-Key, and the request cache (Store.mutate) only stores the answer after the email has gone, so `invite_sends`
+binds the request before the issuer is asked: a repeat of a sent request answers from it, an overlapping copy or one
+whose outcome nobody recorded is refused without sending, and a refusal replays as itself. A new click is a new key and
+sends again.
 """
 
 import json
 
-from .store import H, Problem, encode
+from .store import H, Problem, digest, encode
 
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS invite_sends(
+ actor TEXT NOT NULL, operation TEXT NOT NULL, key TEXT NOT NULL, request_hash TEXT NOT NULL, person TEXT NOT NULL,
+ state TEXT NOT NULL CHECK(state IN ('sending','sent','refused')),
+ error_code TEXT, error_detail TEXT, created TEXT NOT NULL, updated TEXT NOT NULL,
+ PRIMARY KEY(actor,operation,key));
+"""
 KEY = "invites"
 REASONS = {
     "too_many": "Too many invites to this address today. Try again tomorrow.",
@@ -38,27 +51,80 @@ def record(c, actor, pid):
     return at
 
 
-def send(auth, settings, person):
-    """Mail `person` (a roster row) an invite to sign in here, or raise a Problem the owner sees. Runs outside a
-    transaction: it waits on the issuer, which waits on the mail."""
-    from .oidc import SignInError
+def request_key(request):
+    """The write's Idempotency-Key, checked before anything is sent (Store.mutate asks for the same)."""
+    key = request.headers.get("idempotency-key")
+    if not key or len(key) > 200:
+        raise Problem("idempotency_key", "Provide an Idempotency-Key of 1–200 characters", 422)
+    return key
 
+
+def once(store, auth, settings, who, request, body, person):
+    """Send `person` their invite for this request at most once (module doc). True when this call sent it, False when
+    an earlier copy of the request already did; a refusal, then or now, raises."""
+    from .auth import validate_identity
+
+    key, operation, hashed = request_key(request), request.url.path, digest(encode(body.model_dump()))
+    _available(auth, settings, person)
+    with store.transaction() as c:
+        validate_identity(c, who)
+        row = c.execute("SELECT * FROM invite_sends WHERE actor=? AND operation=? AND key=?",
+                        (who.actor, operation, key)).fetchone()
+        if row:
+            if row["request_hash"] != hashed:
+                raise Problem("idempotency_conflict", "This key was used for different content", 409)
+            if row["state"] == "sent":
+                return False
+            if row["state"] == "refused":
+                raise Problem(row["error_code"], row["error_detail"], 422)
+            name = person.get("name") or "this person"
+            raise Problem("invite_unknown", f"This invite to {name} is still being sent, or Tico couldn't tell whether it "
+                                            f"went. Check the People page or ask {name} before inviting again.", 422)
+        now = H.now()
+        c.execute("INSERT INTO invite_sends(actor,operation,key,request_hash,person,state,created,updated) "
+                  "VALUES(?,?,?,?,?,'sending',?,?)", (who.actor, operation, key, hashed, person["id"], now, now))
+    try:
+        send(auth, settings, person)
+    except Problem as problem:
+        # A definite refusal replays as itself. Anything else leaves the request 'sending': its outcome is unknown, so
+        # no copy of it ever asks the issuer again.
+        with store.transaction() as c:
+            c.execute("UPDATE invite_sends SET state='refused',error_code=?,error_detail=?,updated=? "
+                      "WHERE actor=? AND operation=? AND key=?", (problem.code, problem.detail, H.now(),
+                                                                  who.actor, operation, key))
+        raise
+    with store.transaction() as c:
+        c.execute("UPDATE invite_sends SET state='sent',updated=? WHERE actor=? AND operation=? AND key=?",
+                  (H.now(), who.actor, operation, key))
+    return True
+
+
+def _available(auth, settings, person):
+    """Refuse, before anything is bound or sent, an invite that cannot go: no address, or no Tico account issuer."""
     email, name = person.get("email") or "", person.get("name") or "this person"
-    where = settings.public_url
     proxy = getattr(auth, "proxy", None)
     if not email:
         raise Problem("invite_email", f"{name} has no email address to invite", 422)
     if not proxy or getattr(proxy, "name", "") != "oidc" or not hasattr(proxy, "invite"):
         raise Problem("invite_unavailable", f"This Tico doesn't sign in with Tico accounts, so it can't email invites. "
-                                            f"Tell {name} to sign in at {where} with {email}.", 409)
+                                            f"Tell {name} to sign in at {settings.public_url} with {email}.", 422)
+
+
+def send(auth, settings, person):
+    """Mail `person` (a roster row) an invite to sign in here, or raise a Problem the owner sees. Runs outside a
+    transaction: it waits on the issuer, which waits on the mail. Routes go through `once`."""
+    from .oidc import SignInError
+
+    _available(auth, settings, person)
+    email, name = person["email"], person.get("name") or "this person"
     try:
-        answer = proxy.invite(email)
+        answer = auth.proxy.invite(email)
     except SignInError:
         raise Problem("invite_failed", "Tico's sign-in service couldn't be reached, so the invite wasn't sent. "
                                        "Try again in a minute.", 422) from None
     if answer is None:
         raise Problem("invite_unavailable", f"This Tico's sign-in provider doesn't send Tico invites. "
-                                            f"Tell {name} to sign in at {where} with {email}.", 409)
+                                            f"Tell {name} to sign in at {settings.public_url} with {email}.", 422)
     status, body = answer
     if status == 202 and body.get("status") == "sent":
         return

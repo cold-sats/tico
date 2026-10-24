@@ -52,7 +52,7 @@ def test_an_invite_that_does_not_go_out_is_a_visible_error_and_is_not_recorded(s
 
 def test_an_issuer_that_sends_no_invites_is_never_sent_the_secret_and_the_owner_is_told_what_to_do(signin):  # noqa: F811
     refused = signin.api.post("/api/v2/access/people/cara/invite", json={}, headers=owner(signin))
-    assert refused.status_code == 409 and refused.json()["error"]["code"] == "invite_unavailable"
+    assert refused.status_code == 422 and refused.json()["error"]["code"] == "invite_unavailable"
     assert "Tell Cara to sign in at " + signin.settings.public_url in refused.json()["error"]["detail"]
     assert signin.fake.invite_calls == []
 
@@ -66,3 +66,71 @@ def test_only_an_owner_or_admin_sends_invites_and_only_to_someone_on_the_roster(
     headers = owner(signin)
     assert signin.api.post("/api/v2/access/people/nobody/invite", json={}, headers=headers).status_code == 404
     assert signin.fake.invite_calls == []
+
+
+def test_one_invite_request_sends_one_email_across_a_repeat_an_overlap_and_a_lost_answer(signin, monkeypatch):  # noqa: F811
+    """The browser repeats a write whose answer it lost with the same Idempotency-Key (ui/app/api.js): that request
+    never asks the issuer twice, and its answer stays the first one. A new click is a new key and sends again."""
+    from backend import invites
+    signin.fake.invites = [(202, {"status": "sent"}) for _ in range(3)]
+    headers = owner(signin)
+    post = lambda key: signin.api.post("/api/v2/access/people/cara/invite", json={},
+                                       headers={**headers, "idempotency-key": key})
+    keyless = {k: v for k, v in headers.items() if k != "idempotency-key"}
+    assert signin.api.post("/api/v2/access/people/cara/invite", json={}, headers=keyless).status_code == 422
+    assert signin.fake.invite_calls == []
+
+    # An overlapping copy, arriving while the first waits on the issuer, is refused and sends nothing.
+    issuer, overlapped = signin.auth.proxy.invite, []
+
+    def invite(email):
+        if not overlapped:
+            overlapped.append(None)
+            overlapped[0] = post("k-1")
+        return issuer(email)
+    monkeypatch.setattr(signin.auth.proxy, "invite", invite)
+    first = post("k-1")
+    monkeypatch.setattr(signin.auth.proxy, "invite", issuer)
+    assert first.status_code == 200, first.text
+    assert overlapped[0].status_code == 422 and overlapped[0].json()["error"]["code"] == "invite_unknown"
+    again = post("k-1")
+    assert again.status_code == 200 and again.json() == first.json() and len(signin.fake.invite_calls) == 1
+
+    # Sent, then the server failed before answering: the repeat records it and sends nothing more.
+    record = invites.record
+    monkeypatch.setattr(invites, "record", lambda *a: (_ for _ in ()).throw(RuntimeError("lost")))
+    with pytest.raises(RuntimeError):
+        post("k-2")
+    monkeypatch.setattr(invites, "record", record)
+    assert len(signin.fake.invite_calls) == 2
+    recovered = post("k-2")
+    assert recovered.status_code == 200 and post("k-2").json() == recovered.json(), recovered.text
+    assert len(signin.fake.invite_calls) == 2 and invites_sent(signin)["cara"]["at"] == recovered.json()["invited_at"]
+
+    assert post("k-3").status_code == 200 and len(signin.fake.invite_calls) == 3      # Invite again: a new send
+
+
+def test_the_secret_never_goes_to_an_invite_endpoint_off_the_issuer_over_plain_http_or_behind_a_redirect(  # noqa: F811
+        signin, provider, monkeypatch):  # noqa: F811
+    """Oidc.invite posts the install's client secret only to an https endpoint on the issuer's own host (plain http
+    only when both are loopback), and never follows a redirect, which would carry the form somewhere else."""
+    import httpx
+    elsewhere = provider()
+    elsewhere.invites = [(202, {"status": "sent"})]
+    signin.fake.invites = []
+    signin.fake.invite_endpoint = elsewhere.issuer + "/oauth2/invite"           # another host:port
+    refused = signin.api.post("/api/v2/access/people/cara/invite", json={}, headers=owner(signin))
+    assert refused.status_code == 422 and refused.json()["error"]["code"] == "invite_unavailable", refused.text
+    signin.fake.invite_endpoint, signin.fake.invite_redirect = None, elsewhere.issuer + "/oauth2/invite"
+    signin.auth.proxy._discovery = None                                         # read discovery again
+    refused = signin.api.post("/api/v2/access/people/cara/invite", json={}, headers=owner(signin))
+    assert refused.status_code == 422 and refused.json()["error"]["code"] == "invite_failed", refused.text
+    assert len(signin.fake.invite_calls) == 1 and elsewhere.invite_calls == []
+
+    proxy, posted = signin.auth.proxy, []
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: posted.append(a) or (_ for _ in ()).throw(AssertionError))
+    monkeypatch.setattr(proxy, "issuer", "https://id.acme.example")
+    for endpoint in ("http://id.acme.example/oauth2/invite", "https://id.acme.example.evil.example/oauth2/invite"):
+        monkeypatch.setattr(proxy, "_discover", lambda: {"tico_invite_endpoint": endpoint})
+        assert proxy.invite("cara@acme.example") is None
+    assert posted == []

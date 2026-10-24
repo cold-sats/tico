@@ -1580,12 +1580,13 @@ def create_app(settings=None):
         never the company's mailbox; a refusal says why, so the owner can tell the person themselves."""
         who = request.state.identity
         admin_only(who, "sends invites")
+        invites.request_key(request)
         with store.read() as c:
             person = P.person(pid, views.roster(c))
         if not person or person.get("hidden"):
             raise Problem("not_found", "Person not found", 404)
-        invites.send(auth, settings, person)
-        at = mutate(request, body, lambda c: invites.record(c, who.actor, pid))
+        invites.once(store, auth, settings, who, request, body, person)
+        at = mutate(request, body, lambda c: invites.record(c, who.actor, pid))   # a repeat replays its receipt
         return {"person": pid, "invited_at": at}
 
     @app.post("/api/v2/access/people/{pid}")
@@ -1797,9 +1798,10 @@ def create_app(settings=None):
         who = request.state.identity
         owner_only(who, "invites the people from setup")
         row = mutate(request, body, lambda c: company_import.add_invitee(onboarding, c, who, key, body.email))
-        invites.send(auth, settings, row)
+        sent = invites.once(store, auth, settings, who, request, body, row)
         with store.transaction() as c:                  # not a second `mutate`: one request has one idempotency key
-            invites.record(c, who.actor, row["id"])
+            if sent or row["id"] not in invites.sent(c):      # a repeat keeps the first send's time
+                invites.record(c, who.actor, row["id"])
             return onboarding.view(c, who)
 
     @app.post("/api/v2/onboarding/sample")

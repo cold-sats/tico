@@ -171,7 +171,7 @@ def invited_from_setup(api, finance):
     invite = lambda key, email: api.post("/api/v2/onboarding/company/people/%s/invite" % key, json={"email": email},
                                          headers=signed_in())
     refused = invite("ana", "ana@acme.example")
-    assert refused.status_code == 409 and refused.json()["error"]["code"] == "invite_unavailable"
+    assert refused.status_code == 422 and refused.json()["error"]["code"] == "invite_unavailable"
     assert "Tell Ana to sign in at" in refused.json()["error"]["detail"]
     ana, = [p for p in api.get("/api/people", headers=signed_in()).json()["people"] if p["email"] == "ana@acme.example"]
     assert rows(api, "SELECT reports_to FROM seats WHERE id=?", (finance,))[0]["reports_to"] == "human:" + ana["id"]
@@ -179,19 +179,41 @@ def invited_from_setup(api, finance):
     assert [(p["id"], p.get("person"), p["invited_at"]) for p in record["people"]] == [
         ("ana", ana["id"], None), ("ben", None, None)]
 
-    # On a Tico account sign-in the issuer sends it: Invite again sends to the person already added, once.
+    # On a Tico account sign-in the issuer sends it: Invite again sends to the person already added, once. A repeat of
+    # one request (same Idempotency-Key, ui/app/api.js) sends nothing more, nor does a copy overlapping it.
+    from backend import invites
+    keyed = lambda key, email="someone-else@acme.example": api.post(
+        "/api/v2/onboarding/company/people/ana/invite", json={"email": email},
+        headers={**signed_in(), "Idempotency-Key": key})
+
     class Issuer:
-        name, calls = "oidc", []
+        name, calls, overlap = "oidc", [], []
 
         def invite(self, email):
+            if not self.overlap:
+                self.overlap.append(None)
+                self.overlap[0] = keyed("k-1")
             self.calls.append(email)
             return 202, {"status": "sent"}
     api.app.state.auth.proxy = Issuer()
     try:
-        sent = invite("ana", "someone-else@acme.example")
+        sent = keyed("k-1")
         assert sent.status_code == 200, sent.text
+        assert Issuer.overlap[0].status_code == 422 and Issuer.overlap[0].json()["error"]["code"] == "invite_unknown"
         assert Issuer.calls == ["ana@acme.example"]
         assert [p["invited_at"] is not None for p in sent.json()["company_import"]["people"]] == [True, False]
+        again = keyed("k-1")
+        assert again.status_code == 200 and Issuer.calls == ["ana@acme.example"]
+        assert again.json()["company_import"]["people"] == sent.json()["company_import"]["people"]
+        # Sent, then the server failed before answering: the repeat records it and sends nothing more.
+        record = invites.record
+        invites.record = lambda *a: (_ for _ in ()).throw(RuntimeError("lost"))
+        try:
+            with pytest.raises(RuntimeError):
+                keyed("k-2")
+        finally:
+            invites.record = record
+        assert keyed("k-2").status_code == 200 and len(Issuer.calls) == 2
         assert invite("nobody", "x@acme.example").status_code == 404
     finally:
         api.app.state.auth.proxy = None
