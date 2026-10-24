@@ -1,7 +1,7 @@
 """Failed runs wait, then stop; a run that starts too many runs is held; a provider limit in any error is the limit's."""
 from datetime import datetime, timezone
 
-from backend import health_monitor, login_holds, run_backoff
+from backend import health_monitor, login_holds, run_backoff, turn_budgets
 from backend.store import H
 from backend.tests.test_api import api, assign, claim, get, post, ready, runner  # noqa: F401
 
@@ -108,7 +108,7 @@ def test_a_prompt_too_large_to_send_starts_a_fresh_session_and_five_fast_failure
 def test_a_bot_over_its_run_budget_is_held_but_a_persons_message_still_runs_until_it_is_released(api, monkeypatch):
     machine = setup(api, monkeypatch, tasks=12)
     budget = get(api, "bots/ops/budget")
-    assert (budget["turns_per_hour"], budget["turns_per_day"]) == (60, 400) and budget["held"] is None
+    assert (budget["turns_per_hour"], budget["turns_per_day"]) == (turn_budgets.DEFAULTS["turns_per_hour"], turn_budgets.DEFAULTS["turns_per_day"]) and budget["held"] is None
     get(api, "bots/ops/budget", token="cara-test", expected=403)
     post(api, "bots/ops/budget", {"turns_per_hour": 3, "expected_revision": budget["revision"]}, token="cara-test",
          expected=403)

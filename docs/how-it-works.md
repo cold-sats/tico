@@ -366,7 +366,7 @@ failed within a minute ..."), the bot's operator gets one Needs-you item, and He
 **Release** (Settings → Bots, `hub bot release <bot>`, `POST /api/v2/bots/{bot}/release`, MCP `hub_bot_release`) lifts the hold and its
 Needs-you item.
 
-**Run budgets.** Each bot has `turns_per_hour` (default 60) and `turns_per_day` (default 400); the owner and administrators set the
+**Run budgets.** Each bot has `turns_per_hour` (default 300) and `turns_per_day` (default 2500); the owner and administrators set the
 team defaults (`GET/POST /api/v2/settings/turn-budgets`, `hub team budget [--hour N] [--day N]`), and a bot's owner, operator or BotOps
 sets its own (`GET/POST /api/v2/bots/{bot}/budget` with `expected_revision`, `hub bot budget <bot> [--hour N|default] [--day N|default]`,
 MCP `hub_bot_budget`). 0 is no limit. Runs are counted when Tico hands them out. A run that would pass the budget is not started and

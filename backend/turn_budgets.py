@@ -1,6 +1,6 @@
 """Turn budgets: a bot that starts too many runs is held (quiet task flow, section 8).
 
-Every bot has a budget of runs per hour and per day, `turns_per_hour` (default 60) and `turns_per_day` (default 400).
+Every bot has a budget of runs per hour and per day, `turns_per_hour` (default 300) and `turns_per_day` (default 2500).
 The team sets the defaults (Settings API, owner and admins); a bot's owner, operator or BotOps may override either on
 the bot, and a bot with no override of its own follows the team. 0 is no limit for that window; `null`/"default" on a
 bot clears its override.
@@ -24,7 +24,7 @@ from .store import H, Problem
 
 MAX = 100_000
 KEYS = ("turns_per_hour", "turns_per_day")
-DEFAULTS = {"turns_per_hour": 60, "turns_per_day": 400}
+DEFAULTS = {"turns_per_hour": 300, "turns_per_day": 2500}
 WINDOWS = (("hour", "turns_per_hour", 3600, "hour"), ("day", "turns_per_day", 86400, "day"))
 TEAM_KEY = "turn-budget-defaults"
 
