@@ -132,7 +132,7 @@ const block = (seq, event, data) => `id: ${seq}\nevent: ${event}\ndata: ${JSON.s
   assert.equal(reads.tasks, listed, 'a new task does not read the list again');
   // A computer's heartbeat on a worktree rewrites only the link's own time: the board is not drawn again.
   const link = updated => ({kind: 'worktree', ref: 'wt-1', label: 'release-notes', updated});
-  const settled = () => page.waitForFunction(() => !LIVE_SOON.has('tasks'), null, {timeout: t(5000)});
+  const settled = () => page.waitForFunction(() => !LIVE_SOON.has('tasks') && !LIVE_THROTTLE.get('tasks-bulk')?.timer, null, {timeout: t(5000)});   // a throttled draw still due would count below
   await send(() => true, block(15, 'tasks', {id: 't1', actor: 'bot:ops', task: task({title: 'Draft the final release notes', version: 4, links: [link('a')]})}));
   await settled();
   await page.evaluate(() => { window.boardDraws = 0; const draw = tasksRender; tasksRender = (...a) => { window.boardDraws++; return draw(...a); }; });
