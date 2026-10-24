@@ -11577,6 +11577,47 @@
         ]
       }
     },
+    "/api/v2/org-models": {
+      "get": {
+        "summary": "Published Tico starter org charts used for re-org recommendations; contains no customer org data",
+        "operationId": "listOrgModels",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgModels"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Team chart"
+        ]
+      }
+    },
     "/api/v2/org/order/{manager}": {
       "get": {
         "summary": "A manager's direct reports (a bot's slug or a human's id), humans and the bots the caller can see, in the chart's order",
@@ -12354,6 +12395,68 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Seat"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Team chart"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
+    "/api/v2/seats/batch": {
+      "post": {
+        "summary": "Add a group of Recruiting seats in one transaction; the owner anywhere, others only under themselves or below",
+        "operationId": "createSeats",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeatBatchCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeatBatch"
                 }
               }
             }
@@ -25842,6 +25945,67 @@
         ],
         "additionalProperties": true
       },
+      "OrgModel": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "about": {
+            "type": "string"
+          },
+          "seats": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrgModelSeat"
+            }
+          }
+        },
+        "required": [
+          "about",
+          "model",
+          "name",
+          "seats"
+        ],
+        "additionalProperties": true
+      },
+      "OrgModelSeat": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "type": "string"
+          },
+          "template": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "team",
+          "template"
+        ],
+        "additionalProperties": true
+      },
+      "OrgModels": {
+        "type": "object",
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrgModel"
+            }
+          }
+        },
+        "required": [
+          "models"
+        ],
+        "additionalProperties": true
+      },
       "Person": {
         "type": "object",
         "properties": {
@@ -27617,6 +27781,41 @@
           "title"
         ],
         "additionalProperties": true
+      },
+      "SeatBatch": {
+        "type": "object",
+        "properties": {
+          "seats": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Seat"
+            }
+          }
+        },
+        "required": [
+          "seats"
+        ],
+        "additionalProperties": true
+      },
+      "SeatBatchCreate": {
+        "properties": {
+          "seats": {
+            "items": {
+              "$ref": "#/components/schemas/SeatCreate"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Seats"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "seats"
+        ],
+        "title": "SeatBatchCreate",
+        "description": "A single confirmed group of Recruiting seats."
       },
       "SeatCandidate": {
         "type": "object",

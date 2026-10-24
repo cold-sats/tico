@@ -3903,6 +3903,13 @@ def create_app(settings=None):
         with store.read() as c:
             return {"seats": lifecycle.seats(c)}
 
+    @app.get("/api/v2/org-models")
+    def org_models(request: Request):
+        """Published Tico starter org charts, the only chart models the CEO Bot uses for re-org recommendations."""
+        from . import org_models as published_models
+        auth.domain(request.state.identity)
+        return {"models": published_models.published()}
+
     @app.post("/api/v2/seats")
     def seat_create(request: Request, body: M.SeatCreate):
         """Add a Recruiting seat: the owner anywhere, a person under themselves or someone below them."""
@@ -3910,6 +3917,13 @@ def create_app(settings=None):
         auth.domain(who)
         return mutate(request, body, lambda c: lifecycle.create_seat(auth, c, who, body.title, body.description,
                                                                      body.reports_to, body.team))
+
+    @app.post("/api/v2/seats/batch")
+    def seat_batch_create(request: Request, body: M.SeatBatchCreate):
+        """Add one confirmed group of Recruiting seats; the owner may place them anywhere, others only in their chain."""
+        who = request.state.identity
+        auth.domain(who)
+        return mutate(request, body, lambda c: lifecycle.create_seats(auth, c, who, body.seats))
 
     @app.patch("/api/v2/seats/{seat_id}")
     def seat_update(request: Request, seat_id: str, body: M.SeatUpdate):

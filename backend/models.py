@@ -1431,6 +1431,11 @@ class SeatCreate(Contract):
     team: Annotated[str, Field(max_length=100)] = ""
 
 
+class SeatBatchCreate(Contract):
+    """A single confirmed group of Recruiting seats."""
+    seats: Annotated[list[SeatCreate], Field(min_length=1, max_length=50)]
+
+
 class SeatUpdate(Contract):
     title: Annotated[str, Field(min_length=1, max_length=120)] | None = None
     description: Annotated[str, Field(max_length=8000)] | None = None
