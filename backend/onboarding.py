@@ -576,7 +576,9 @@ class Onboarding:
         if seats:
             for slug, choice in plan.items():
                 raw = cards.get(choice["template"]) or {}
-                if not (raw.get("required") or raw.get("bootstrap")) and not H.bot(c, slug):
+                # A message bot (`kind: helper`, the Inbox Manager) serves one person and is never on the chart, so it
+                # is made as a bot linked to its mailbox, like the built-ins; only a role becomes a seat.
+                if not (raw.get("required") or raw.get("bootstrap") or raw.get("kind") == "helper") and not H.bot(c, slug):
                     roles[slug] = choice
             plan = {slug: choice for slug, choice in plan.items() if slug not in roles}
         rank, parents = 0, {}

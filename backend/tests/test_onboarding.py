@@ -178,6 +178,30 @@ def test_setup_lays_out_each_picked_role_once_as_a_recruiting_seat_and_creates_n
     assert _states(api)["botops"] == _states(api)["coo"] == "active"     # the built-ins work from day one
 
 
+def test_the_inbox_manager_turned_on_in_setup_is_a_message_bot_linked_to_the_owner_not_a_seat(environment):
+    """A message bot (`kind: helper`) serves one person and is never on the chart: setup makes the bot, reporting to
+    the owner and linked to their mailbox (docs/starter-bots.md), while a role picked beside it is still a seat."""
+    from backend import routines, views
+    inbox = {"template": "inbox", "slug": "inbox", "name": "Inbox Manager", "required": False, "bootstrap": False,
+             "kind": "helper", "summary": "Runs one human's mailbox.", "owns": ["the morning brief"],
+             "never": ["sends"], "reasoning_effort": "high", "recommend_when": []}
+    api = environment(cards=[(ASSISTANT_CARD, ASSISTANT_AGENT), (BOTOPS_CARD, ""), (SUPPORT_CARD, SUPPORT_AGENT),
+                             (inbox, "# {{bot_name}}\n\nYou run one human's mailbox.\n")])
+    machine(api)
+    # The wizard sends a message bot under the owner (docs/onboarding.md, Finish).
+    draft(api, selected={"inbox": {"template": "inbox", "display_name": "Inbox Manager", "reports_to": "human:morgan"},
+                         "support": {"template": "support", "display_name": "Help"}})
+    done = api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
+    assert done.status_code == 200, done.text
+    assert sorted(row["slug"] for row in done.json()["bots"]) == ["botops", "coo", "inbox"]
+    assert set(done.json()["seats"]) == {"support"}
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT reports_to FROM bot_config WHERE bot='inbox'").fetchone()[0] == "human:morgan"
+        owner = next(p for p in views.roster(c)["people"] if p["id"] == "morgan")
+        config = json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot='inbox'").fetchone()[0])
+    assert owner["inbox_bot"] == "inbox" and routines.declared_mailbox(config) == OWNER_EMAIL
+
+
 def test_direct_signup_with_no_chosen_chart_is_the_built_ins_and_an_empty_chart(environment):
     """bot-lifecycle-spec.md acceptance test 4: no company file and nothing picked still finishes setup, with only the
     built-in bots and no seat, and the chart empty to recruit into."""

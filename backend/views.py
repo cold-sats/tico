@@ -196,6 +196,19 @@ def entries(c, github_owner=""):
     return read_cache.value(c, ("view_entries", github_owner), lambda: _entries(c, github_owner))
 
 
+def seat_parents(c, settings, auth, who):
+    """{open seat id: where it hangs on the team chart for this caller}, as GET /api/people draws it
+    (backend/lifecycle.py `chart_seats`): GET /api/v2/seats carries the same, so a client that refreshes the seats from
+    there still hangs a seat under a closed seat where that seat answered to."""
+    from . import ceo_bot
+    r, configs = roster(c), entries(c)
+    archived = {row["slug"] for row in H.bots(c) if row.get("state") == "archived"}
+    chart = ceo_bot.chart_entries(c, settings, r, configs, archived)
+    access = auth.bot_accesses(c, who)
+    return {seat["id"]: seat["org_parent"] for seat in lifecycle.chart_seats(
+        c, r, chart, archived, lambda slug: access.get(slug, auth.FULL)["see"])}
+
+
 def _entries(c, github_owner=""):
     result = {}
     for row in read_cache.configs(c):

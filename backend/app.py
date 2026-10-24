@@ -3987,7 +3987,8 @@ def create_app(settings=None):
         who = request.state.identity
         auth.domain(who)
         with store.read() as c:
-            return {"seats": lifecycle.seats(c)}
+            parents = views.seat_parents(c, settings, auth, who)
+            return {"seats": [{**seat, "org_parent": parents.get(seat["id"], "")} for seat in lifecycle.seats(c)]}
 
     @app.post("/api/v2/seats")
     def seat_create(request: Request, body: M.SeatCreate):
