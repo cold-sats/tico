@@ -1098,6 +1098,9 @@ def migrate(conn, adopt_legacy=False):
     # Why a finished run's usage reads 0 tokens or no cost (USAGE_REASONS, turn_finish): null when its runner counted
     # its tokens and the model has a price. NULL throughout on a run finished before it was recorded.
     add_column(conn, "turns", "usage_reason", "TEXT")
+    # The wake rule that started the run (backend/rules.py): the message's `refs.rule`, copied at claim. NULL on a run
+    # from before rules, or whose message carried none (`rule_weekly` in hub sql shows those as 'unknown').
+    add_column(conn, "turns", "rule_id", "TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS tasks_snoozed ON tasks(snoozed_until) WHERE snoozed_until IS NOT NULL")
     # A type whose tasks change status only by moving between its steps (`_task_state`).
     add_column(conn, "task_types", "steps_only", "INTEGER NOT NULL DEFAULT 0")
@@ -2488,10 +2491,14 @@ def say(conn, actor, to_actor, body, conversation_id=None, kind="say", refs=None
     result_key = _subtask_result_key(conn, result_task, body) if result_parent and result_parent["owner"] == target else None
     if result_key:
         refs = {**refs, "quiet": True}
-    waits = bot_to_bot.can_wait(conn, actor, target, kind, refs, body, in_reply_to)
+    from . import rules as wake_rule_engine
+    # A plain bot-to-bot message waits under `bot_to_bot` unless a wake rule says otherwise (backend/rules.py).
+    decided = wake_rule_engine.bot_to_bot_decision(conn, actor, target, kind, refs, body, conv, in_reply_to)
+    waits = bool(decided and decided.rule == wake_rule_engine.BOT_TO_BOT)
     if waits:
         refs.update(quiet=True, **{bot_to_bot.MARK: bot_to_bot.RULE})
-    msg = _write_message(conn, actor, target, body, conv, kind, refs, in_reply_to, wait_s, check_cap=True)
+    msg = _write_message(conn, actor, target, body, conv, kind, refs, in_reply_to, wait_s, check_cap=True,
+                         decided=decided)
     if result_key:
         _deliver_subtask_result(conn, result_task, result_parent, body, result_key, source=msg["id"], resume_hint=True)
     if waits:
@@ -2613,7 +2620,7 @@ def _held_queue_drains(actor, target, refs_json):
     from . import bot_to_bot, wake_rules
     if refs.get("quiet"):
         held = refs.get(wake_rules.MARK)
-        return refs.get(bot_to_bot.MARK) == bot_to_bot.RULE or bool(held and held != "same_state")
+        return refs.get(bot_to_bot.MARK) == bot_to_bot.RULE or bool(held and held not in wake_rules.SILENT)
     live = refs.get("live")
     return not (isinstance(live, dict) and live.get("kind") in ("transcript", "decision", "tool"))
 
@@ -2712,7 +2719,7 @@ def unless_queue_full(conn, write):
 
 
 def _write_message(conn, actor, target, body, conv, kind, refs, in_reply_to, wait_s,
-                   expires_at=None, delivered_at=None, read_at=None, *, check_cap=False):
+                   expires_at=None, delivered_at=None, read_at=None, *, check_cap=False, decided=None):
     if actor == "bot:librarian":
         body = librarian_text(body)
     if VIA.get() and is_human(actor):
@@ -2722,10 +2729,16 @@ def _write_message(conn, actor, target, body, conv, kind, refs, in_reply_to, wai
         # Tico's notice of a person's own act keeps who acted: the request's cause ends with it, and the reply
         # rule at the turn's end (execution.quiet_recheck) must still see that a person is owed the answer.
         refs = {**(refs or {}), wake_rules.CAUSED_BY: wake_rules.CAUSE.get()}
-    # Token saving 2/9: a wake its bot's own write caused, or news about a parked task, waits for the next run.
-    held = wake_rules.gate(conn, actor, target, kind, refs, body, conv, in_reply_to)
-    if held:
-        refs = {**(refs or {}), "quiet": True, wake_rules.MARK: held}
+    # Token saving 2/9: a wake its bot's own write caused, or news about a parked task, waits for the next run. The
+    # rules engine (backend/rules.py) decides, names the rule on the message (refs.rule) and fails open.
+    from . import rules as wake_rule_engine
+    decision = wake_rule_engine.judge(conn, actor, target, kind, refs, body, conv, in_reply_to, decided)
+    held = None
+    if decision:
+        refs = wake_rule_engine.stamp(refs, decision)
+        held = decision.reason
+        if held:
+            refs = {**refs, "quiet": True, wake_rules.MARK: held}
     row = {"id": new_id(), "conversation_id": conv["id"], "from_actor": actor, "to_actor": target,
            "kind": kind, "body": str(body or ""), "refs_json": _dump(refs or {}),
            "in_reply_to": in_reply_to, "created": now(), "delivered_at": delivered_at,
@@ -2754,7 +2767,7 @@ def _write_message(conn, actor, target, body, conv, kind, refs, in_reply_to, wai
     conn.execute("UPDATE conversations SET last_message_at=? WHERE id=?", (row["created"], conv["id"]))
     event(conn, actor, f"message.{kind}", row["id"], {"to": target, "conversation": conv["id"]})
     if held:
-        wake_rules.hold(conn, message(conn, row["id"]), held)
+        wake_rules.hold(conn, message(conn, row["id"]), held, rule_id=decision.rule)
     return message(conn, row["id"])
 
 
@@ -4709,7 +4722,7 @@ def is_comment(msg):
     approval, a bot's reply to its run or a chat message that only mentions the task."""
     refs = msg.get("refs") or {}
     return (msg.get("kind") == "say" and bool(refs.get("comment"))
-            and not (set(refs) - {"task", "comment", "quiet", "via"}))
+            and not (set(refs) - {"task", "comment", "quiet", "via", "rule"}))
 
 
 
@@ -6677,7 +6690,7 @@ def wake_stalled(conn, at=None, task_ids=None, queued_here=None):
                 msg = _wake(conn, row, row["owner"], STATUS_CHECK, {"wake": "status_check"}, trigger="stall_check")
                 if queued_here is not None and msg:
                     queued_here.append(msg["id"])
-                if msg and msg["refs"].get(wake_rules.MARK) == "same_state":
+                if msg and msg["refs"].get(wake_rules.MARK) in wake_rules.SILENT:
                     continue     # no attempted wake for the retry/escalation machinery to count
                 event(conn, KEEPER, "task.stall_wake", row["id"],
                       {"bot": actor_id(row["owner"]), "quiet_minutes": row["quiet_minutes"], "wake": count + 1,
@@ -6698,7 +6711,7 @@ def wake_stalled(conn, at=None, task_ids=None, queued_here=None):
             msg = _wake(conn, row, row["owner"], text, {"wake": "stalled"}, trigger="stall_check")
             if queued_here is not None and msg:
                 queued_here.append(msg["id"])
-            if msg and msg["refs"].get(wake_rules.MARK) == "same_state":
+            if msg and msg["refs"].get(wake_rules.MARK) in wake_rules.SILENT:
                 continue
             if row.get("next_run"):
                 conn.execute("UPDATE tasks SET next_run=0 WHERE id=?", (row["id"],))
@@ -7218,10 +7231,11 @@ def rate_limits(conn):
 
 
 def turn_start(conn, actor, bot_slug, thread_id=None, trigger="message", message_id=None,
-               task_id=None, trigger_kind=None, trigger_source=None, purpose=None):
+               task_id=None, trigger_kind=None, trigger_source=None, purpose=None, rule_id=None):
     """A turn on a bot's thread. Replaces the legacy dispatcher's `runs.jsonl` record.
     `trigger_kind` is what woke it (backend/run_triggers.py TRIGGERS) and `trigger_source` the event that did.
-    `purpose` is what the run is for; the caller names it, or the bot and trigger map in run_triggers does."""
+    `purpose` is what the run is for; the caller names it, or the bot and trigger map in run_triggers does.
+    `rule_id` is the wake rule that started it (backend/rules.py)."""
     _writer(conn, actor)
     slug = actor_id(bot_slug) if actor_kind(bot_slug) else str(bot_slug).strip()
     if is_bot(actor) and actor_id(actor) != slug:
@@ -7230,11 +7244,14 @@ def turn_start(conn, actor, bot_slug, thread_id=None, trigger="message", message
            "finished": None, "trigger": trigger, "message_id": message_id, "task_id": task_id,
            "exit": None, "tokens_in": None, "tokens_out": None, "cost": None, "summary": None,
            "trigger_kind": trigger_kind or "other", "trigger_source": trigger_source,
-           "purpose": RT.clean_purpose(purpose) or RT.purpose_for(slug, trigger_kind or "other")}
+           "purpose": RT.clean_purpose(purpose) or RT.purpose_for(slug, trigger_kind or "other"),
+           "rule_id": (str(rule_id)[:80] if rule_id else None)}
     conn.execute("INSERT INTO turns (id, bot, thread_id, started, finished, trigger, message_id, "
-                 "task_id, exit, tokens_in, tokens_out, cost, summary, trigger_kind, trigger_source, purpose, writes) "
+                 "task_id, exit, tokens_in, tokens_out, cost, summary, trigger_kind, trigger_source, purpose, writes, "
+                 "rule_id) "
                  "VALUES (:id, :bot, :thread_id, :started, :finished, :trigger, :message_id, :task_id, :exit, "
-                 ":tokens_in, :tokens_out, :cost, :summary, :trigger_kind, :trigger_source, :purpose, 0)", row)
+                 ":tokens_in, :tokens_out, :cost, :summary, :trigger_kind, :trigger_source, :purpose, 0, "
+                 ":rule_id)", row)
     event(conn, actor, "turn.start", row["id"], {"bot": slug, "trigger": trigger, "trigger_kind": row["trigger_kind"],
                                               "purpose": row["purpose"]})
     return _one(conn, "SELECT * FROM turns WHERE id=?", (row["id"],))

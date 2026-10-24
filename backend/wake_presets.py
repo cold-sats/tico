@@ -52,7 +52,7 @@ MISSED_AFTER_SECONDS = 5 * 60
 # How long after a turn ends an identical event still counts as the same one (a retried webhook, a double send).
 DUPLICATE_SECONDS = 2 * 60
 # Nonblocking notices the keeper marks with refs.wake_batch.
-BATCH_KINDS = ("completion", "review", "ci")
+BATCH_KINDS = ("completion", "review", "ci", "rule")
 # Sweeps: refs.wake on a keeper notice, or refs.sweep (a routine's scheduled run, by schedule id).
 SWEEP_WAKES = ("stalled", "status_check", "occurrence")
 IMMEDIATE = ("A person's message or request", "An assignment", "A direct question",
@@ -313,7 +313,7 @@ def classify(message):
         return "batched", "Batched updates"
     if refs.get("wake_batch") in BATCH_KINDS:
         return "batched", {"completion": "A finished request", "review": "Review comments",
-                           "ci": "A check result"}[refs["wake_batch"]]
+                           "ci": "A check result", "rule": "A batched update"}[refs["wake_batch"]]
     wake = refs.get("wake")
     if wake in ("stalled", "status_check") or refs.get("sweep") or wake == "occurrence":
         return "sweep", ("A scheduled routine run" if refs.get("sweep") or wake == "occurrence"

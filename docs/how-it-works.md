@@ -227,6 +227,15 @@ open from the last occurrence absorbs the next one. The runner claims it like an
 the bot owns, it gets its own room and session: the wake, the note and the bot's answer land there, and
 the bot's main chat gets one-line reports ([Sessions](sessions.md)).
 
+**A message to a bot may wake it, or wait.** One set of wake rules decides, each with an id: a person's message,
+an ask, an approval and a gate verdict always wake the bot (`person_message`, `ask`, `approval`, `verdict`); a bot's own
+write (`own_write`), news about a task that waits on something (`parked`), a stall check on a task that has not moved
+(`same_state`) and a plain bot-to-bot message (`bot_to_bot`) wait for the bot's next run; a finished request, review
+comments and a failing check are batched (`batch_*`); everything else wakes. Teams, task types, departments, bots and
+single tasks can override these with rules of their own (Rules page, `hub rule list`). Every message to a bot records the
+rule that decided it, and every run records the rule that woke it, so `rule_weekly` in `hub sql` shows runs, tokens and
+runs that did nothing per rule ([Querying Tico with SQL](hub-sql.md)).
+
 **The Mac is asleep.** Everything on hub.acme.example stays available and accepts work. After 60 s
 without a heartbeat the bot shows *offline* and new messages show *Saved — waiting for <computer>*.
 A sleeping Mac is not reliably absent: macOS wakes it for a few seconds at a time to check the

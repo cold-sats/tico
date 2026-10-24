@@ -2548,6 +2548,74 @@ def bot_keep_tasks_going(api, args):
         "keep_tasks_going": args['limit'], "expected_revision": bot['revision']}, key=_key(args))
 
 
+_RULE_SCOPES = ["team", "type", "department", "bot", "task"]
+_RULE_THEN = ["ignore", "note", "batch", "wake", "ask", "action"]
+_RULE_FIELDS = {
+    "event": _s("The event the rule is for, or * for every event that is not always-wake (hub_rule_list shows them)"),
+    "then": {"type": "string", "enum": _RULE_THEN,
+             "description": "wake: start a run; note: write it quietly and carry a note to the next run; batch: hold it "
+                            "with the bot's other notices; ignore: write it quietly, no note; ask, action: stored, wake for now"},
+    "when": {"type": "object", "description": "All must hold: actor (human|bot|keeper), step, role (owner|requester|other), "
+                                              "tag, state (a task status); each a word or a list"},
+    "params": {"type": "object", "description": "An action rule names params.action: close, move_step, set_wait, relate, note"},
+    "on": {"type": "boolean", "description": "false turns the rule off"},
+    "position": {"type": "integer", "minimum": 0, "description": "Order inside its scope; lower first"},
+    "note": _s("Why the rule exists, 500 characters at most"),
+}
+
+
+def _rule_body(args, keys):
+    """The fields given; `when` and `params` come as an object from a tool call and as JSON text from the command."""
+    body = {k: args[k] for k in keys if k in args}
+    for key in ("when", "params"):
+        if isinstance(body.get(key), str):
+            try:
+                body[key] = json.loads(body[key])
+            except ValueError:
+                raise APIError("invalid", f"{key} is JSON, like {{\"actor\": \"bot\"}}", 422)
+    return body
+
+
+@tool("hub_rule_list", "List the wake rules that decide whether a message starts a bot's run: the built-in rules and the "
+      "rules set for the team, a task type, a department, a bot or a task, each with its 7-day run count and the share of "
+      "those runs that did nothing. A scoped rule overrides the built-ins; a person's message always wakes.",
+      {"scope_kind": {"type": "string", "enum": ["builtin"] + _RULE_SCOPES}, "scope_id": _s("The type, department, bot or task"),
+       "event": _s("Only this event"), "limit": {"type": "integer", "minimum": 1, "maximum": 500},
+       "offset": {"type": "integer", "minimum": 0}})
+def rule_list(api, args):
+    return api.get("rules", scope_kind=args.get("scope_kind"), scope_id=args.get("scope_id"), event=args.get("event"),
+                   limit=args.get("limit"), offset=args.get("offset"))
+
+
+@tool("hub_rule_set", "Create a wake rule for the team, a task type, a department, a bot or one task, as the person who asked you. "
+      "The most specific scope wins: task, bot, department, type, team, then the built-in rules.",
+      {"scope_kind": {"type": "string", "enum": _RULE_SCOPES}, "scope_id": _s("The type, department, bot or task; leave out for the team"),
+       **_RULE_FIELDS, "on_behalf_of": ON_BEHALF_OF},
+      required=("scope_kind", "event", "then"), writes=True)
+def rule_set(api, args):
+    body = _rule_body(args, ("scope_kind", "scope_id", "event", "then", "when", "params", "on", "position", "note"))
+    return _as_person(api, args.get("on_behalf_of")).post("rules", body, key=_key(args))
+
+
+@tool("hub_rule_update", "Change a wake rule you may edit, as the person who asked you. Built-in rules are read-only: "
+      "override one with hub_rule_set.",
+      {"id": _s("The rule's id"), **_RULE_FIELDS,
+       "expected_revision": {"type": "integer", "minimum": 1, "description": "The revision you read; omit to use the current one"},
+       "on_behalf_of": ON_BEHALF_OF}, required=("id",), writes=True)
+def rule_update(api, args):
+    who = _as_person(api, args.get("on_behalf_of"))
+    revision = args.get("expected_revision") or who.get("rules/" + quote(args["id"], safe=""))["rule"].get("revision")
+    body = _rule_body(args, ("event", "then", "when", "params", "on", "position", "note"))
+    return who.post("rules/" + quote(args["id"], safe=""), {**body, "expected_revision": revision}, key=_key(args))
+
+
+@tool("hub_rule_delete", "Delete a wake rule you may edit, as the person who asked you.",
+      {"id": _s("The rule's id"), "on_behalf_of": ON_BEHALF_OF}, required=("id",), writes=True)
+def rule_delete(api, args):
+    return _as_person(api, args.get("on_behalf_of")).post("rules/" + quote(args["id"], safe="") + "/delete", {},
+                                                           key=_key(args))
+
+
 @tool("hub_bot_model", "Show the models a bot may run on, or change its model, as the person who asked you. A change waits for a "
       "run in progress to end.",
       {"bot": _s("The bot's slug"), "model": _s("A model id or name from the list; leave out to list them"),
@@ -4097,7 +4165,7 @@ AUDIENCE = {
     "hub_repo_review": ("bot", "botops"),
     "hub_repo_product_create": ("owner", "bot", "botops"),   # a bot needs Create product repositories (server)
     **{name: REQUESTER for name in ("hub_credential_grant", "hub_credential_revoke", "hub_credential_import", "hub_credential_delete")},
-    **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_restore", "hub_agent_pair_show", "hub_agent_pair_approve", "hub_agent_pair_decline", "hub_bot_place", "hub_bot_go_live", "hub_bot_model", "hub_bot_keep_tasks_going", "hub_bot_pause",
+    **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_restore", "hub_agent_pair_show", "hub_agent_pair_approve", "hub_agent_pair_decline", "hub_bot_place", "hub_bot_go_live", "hub_bot_model", "hub_bot_keep_tasks_going", "hub_rule_set", "hub_rule_update", "hub_rule_delete", "hub_bot_pause",
                                     "hub_bot_scope",
                                     "hub_bot_resume", "hub_bot_access", "hub_bot_owners", "hub_human_add", "hub_group_update",
                                     "hub_tool_add", "hub_tool_update", "hub_tool_remove",

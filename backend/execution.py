@@ -10,7 +10,7 @@ from datetime import timezone
 
 from clients import gateway, sessions
 
-from . import auto_tasks, start_places, org_turns, app_delivery, check_models, learned, rooms, updates_chat, gateway_connection, inbox_isolation, login_holds, models_preset, providers, quiet_work, routines, run_triggers, runner_versions, screen, task_models, usage_limits, wake_presets, wake_rules
+from . import auto_tasks, start_places, org_turns, app_delivery, check_models, learned, rooms, rules as wake_rule_engine, updates_chat, gateway_connection, inbox_isolation, login_holds, models_preset, providers, quiet_work, routines, run_triggers, runner_versions, screen, task_models, usage_limits, wake_presets, wake_rules
 from . import task_privacy as privacy
 from .auth import Identity
 from .batch_work import isolated
@@ -2115,7 +2115,9 @@ class Execution:
         turn = H.turn_start(c, H.KEEPER, row["bot"], trigger="task" if task else msg["kind"],
                             message_id=msg["id"], task_id=task["id"] if task else None,
                             trigger_kind=woke, trigger_source=source,
-                            purpose=run_triggers.purpose_of(msg, row["bot"], woke))
+                            purpose=run_triggers.purpose_of(msg, row["bot"], woke),
+                            rule_id=wake_rule_engine.claimed_rule(msg, c.execute(
+                                "SELECT wake_class FROM jobs WHERE id=?", (row["id"],)).fetchone()))
         aid = turn["id"]
         c.execute("INSERT INTO attempts(id,job_id,bot,runner_id,generation,token_hash,state,lease_until,created,lane) "
                   "VALUES(?,?,?,?,?,?,'leased',?,?,?)",

@@ -361,6 +361,14 @@ that asked, and when the bot asks them a newer question on the same task.
 A task a bot handed a person (they own it, the bot asked for it) that they have not touched in 14 days closes, unless it
 is due later or waits on someone else, and the bot hears why. Hourly, `backend/ask_deadlines.py`.
 
+## Wake rules
+
+Whether a message about a task wakes its bot or waits is decided by wake rules, each with an id (`parked`, `own_write`,
+`same_state`, `bot_to_bot`, `batch_*`, `assignment`, `stall`, ...). A person's message, an ask, an approval and a gate
+verdict always wake. A rule can be set for the whole team, a task type, a department, a bot or one task, and the most
+specific wins (`hub rule list`, `hub rule set`; the Rules page). The message and the run both record the rule, and the
+Rules page and `rule_weekly` in `hub sql` show how often each woke a bot and how often that run did nothing.
+
 ## Snoozing a task
 
 **Snooze** sets a task aside until a date: it tells its bot or person that nobody plans to get to it

@@ -87,7 +87,7 @@ KEEP = frozenset((
     "market_evidence", "market_insights", "media_assets", "media_control", "meeting_brain", "meeting_comments",
     "meeting_items", "meeting_versions", "meetings", "message_assets", "message_links", "message_links_dirty",
     "message_links_seen", "notes", "runner_load_samples", "perf_overloads", "perf_points", "perf_usage", "preferences", "rate_limits",
-    "recording_source_refs", "recording_transcripts", "refusals", "registry_metadata", "repositories", "runners",
+    "recording_source_refs", "recording_transcripts", "refusals", "registry_metadata", "repositories", "rules", "runners",
     "seats", "service_health", "settings_changes", "slack_channels", "slack_digests", "slack_reads", "stale_judged",
     "stale_suggestions", "storage_moves", "system_runs", "tags", "task_assets",
     "task_check_models", "task_delegations", "task_events", "task_file_reviews", "task_links", "task_relations",

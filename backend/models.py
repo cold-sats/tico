@@ -2434,6 +2434,34 @@ class InboundTask(Contract):
     note: str | None = Field(default=None, max_length=200_000)
 
 
+class RuleCreate(Contract):
+    """A wake rule (backend/rules.py): in this scope, when this event happens (and `when` holds), do `then`."""
+    scope_kind: Literal["team", "type", "department", "bot", "task"]
+    scope_id: str = Field(default="", max_length=120)
+    event: str = Field(min_length=1, max_length=60)
+    then: Literal["ignore", "note", "batch", "wake", "ask", "action"]
+    when: dict | None = None
+    params: dict | None = None
+    on: bool | None = None
+    position: int | None = Field(default=None, ge=0, le=100_000)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class RuleUpdate(Contract):
+    expected_revision: int = Field(ge=1)
+    event: str | None = Field(default=None, min_length=1, max_length=60)
+    then: Literal["ignore", "note", "batch", "wake", "ask", "action"] | None = None
+    when: dict | None = None
+    params: dict | None = None
+    on: bool | None = None
+    position: int | None = Field(default=None, ge=0, le=100_000)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class RuleDelete(Contract):
+    expected_revision: int | None = Field(default=None, ge=1)
+
+
 class TaskRuleUpdate(Contract):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     department: str | None = Field(default=None, min_length=1, max_length=80)
