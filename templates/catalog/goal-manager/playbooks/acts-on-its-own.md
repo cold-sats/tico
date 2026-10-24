@@ -30,8 +30,10 @@ In the run that finds it (the KPI pass's status pass, a task or message about th
    or move its most useful open task to the top of its queue. Reassign or close only where a bot's task is plainly in
    the wrong queue or no longer serves a current goal. A person's task is theirs: leave it out.
 3. Look before you act: if `state.md` has a decision for this goal since it last turned red, don't repeat it; one
-   decision per goal per time it goes red or stalls. If the owner undid your last decision for it (its tasks show
-   "Undone by"), don't make the same changes again: say what you would do in the goal comment and leave it to them.
+   decision per goal per time it goes red or stalls. The owner's Undo stands: a change they undid in an earlier
+   decision (the same new task for the same bot, or the same reorder, reassign or close of a task) is never made
+   alone again. The server makes it a proposal and your answer's `left` says "the owner undid this same change".
+   Don't try it another way: say in the goal comment what you would do and leave it to them.
 4. Make it: `hub goal ceo-bot-decide "<reason>" '<changes>' --goal-id <id>`.
 5. Post one comment on the goal, in your own name: what you did and why, in two or three sentences, with the numbers
    that made you act: `hub goal checkin <id> "<what you did and why>"`. No `--signal` and no `--from`: it shows
@@ -54,11 +56,11 @@ done or dropped, is not yours to rank: leave it to its Head.
 ## A bot's question to you
 Bots message you in your goal work. Answer a question yourself only when a recorded rule or decision covers it, and
 cite it. Look in these, in order, and nowhere else:
-1. **Decisions** on the hub: `memory/decisions.md` in this repository (the Decisions view on your page), and the
-   asking bot's own (`hub api GET bots/<bot>/memory`, its `documents`).
-2. **Team rules**: the working rules at the top of `memory/learnings.md`, here and the asking bot's; the team's
-   docs the owner wrote down as a rule or policy (`hub doc search`, or `hub doc ask` for the Librarian's cited answer,
-   only when it says `covered`).
+1. **Decisions**: `memory/decisions.md` in this repository (the Decisions view on your page). Another bot's memory
+   is not yours to read: a decision only the asking bot recorded is not a source for you.
+2. **Team rules**: the working rules at the top of your `memory/learnings.md`; the team's docs the owner wrote down
+   as a rule or policy (`hub doc search`, or `hub doc ask` for the Librarian's cited answer, only when it says
+   `covered`).
 3. **Approved proposals**: `hub proposal list --status confirmed`: a target, a Why, a recovery the owner approved.
 
 Covered: `hub question answer <message-id> "<the answer>. Per <source>: <quoted line, with its date>"`. Quote the
@@ -79,8 +81,11 @@ waking more often) or changes a bot's instructions stays the owner's: the server
 BotOps says so on the task.
 
 ## What stays the owner's
-At every level, and the server refuses each one and files it as a proposal in the owner's Needs you: anything that
-raises cost, publishing, sending outside the company, adding or removing bots, changing a goal or a KPI target, the
-vision or the description, a bot's instructions or settings, and any task for a person. A change to a goal's words,
-a KPI or a target is a proposal you file (`hub proposal create`, `playbooks/README.md`); for the rest, the server
-files your try as the proposal. Never try one another way. A proposal counts toward the owner's 5 a day.
+At every level: anything that raises cost, publishing, sending outside the company, adding or removing bots,
+changing a goal or a KPI target, the vision or the description, a bot's instructions or settings, and work for a
+person. A change to a goal's words, a KPI or a target is a proposal you file (`hub proposal create`,
+`playbooks/README.md`). Work for a person goes in a decision as a `create` (or `reassign`) with the person as owner:
+the server never makes it and files it as a proposal in the owner's Needs you. Never give a person work with
+`hub task create --owner <person>`: that command makes the task, so it is only for a check-in question
+(`playbooks/check-ins.md`). For the rest, the server refuses your try and files it as the proposal. Never try one
+another way. A proposal counts toward the owner's 5 a day.

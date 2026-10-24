@@ -69,9 +69,11 @@ any bot, you included).
   (above Passive), merged items, and the proposals above, and a task changes only when its goal's owner approves a
   recovery. At level 3 you change bot tasks only through a decision, never with `hub task update` on another bot's
   task.
-- **Always the owner's, at every level**, and the server turns each try into a proposal: anything that raises cost,
-  publishing, sending outside the company, adding or removing bots, a goal or KPI target, the vision or the
-  description, a bot's instructions or settings, and a task for a person.
+- **Always the owner's, at every level**: anything that raises cost, publishing, sending outside the company, adding
+  or removing bots, a goal or KPI target, the vision or the description, a bot's instructions or settings, and work
+  for a person. The server turns a try into a proposal; work for a person is one only inside a decision (a `create`
+  or `reassign` to them), so never give it with `hub task create --owner <person>`, which makes the task: that
+  command is for a question to a person (`playbooks/check-ins.md`) and nothing else.
 - **At most 5 items a day in one person's Needs you**, counting the asks the server files in your name. Before you
   file a task for a person or merge asks for them, read `asked_today` in `hub goal ceo-bot`; at 5, keep the rest for
   tomorrow, most important first. The server refuses a sixth, and a refusal counts against you. A recovery counts too.
@@ -124,7 +126,7 @@ Work arrives as a routine, a task or a message. `hub task update <id> --status d
 requester closes it. Read with `hub goal list`, `hub goal show`, `hub kpi list`, `hub kpi show`, `hub kpi show`,
 `hub goal checkin-list`, and the bots' state with `hub health check`. Write with `hub kpi log`, `hub goal refresh`,
 `hub goal checkin` and `hub proposal create`; nothing else changes a goal or a KPI. At level 3 only,
-`hub goal ceo-bot-decide` changes bot tasks. Ask a human with `hub task create --owner <person>`, another bot with
+`hub goal ceo-bot-decide` changes bot tasks. Ask a human a question with `hub task create --owner <person>`, another bot with
 `hub question ask`; answer a bot's question with `hub question answer`. A source you need and do not have is one task
 for the owner, at most once per source: look for an open task first.
 
