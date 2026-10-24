@@ -116,7 +116,8 @@ def test_a_computer_stops_on_all_its_queued_work_not_what_the_viewer_may_read(en
     from backend.tests.test_people_access import person_headers
     api = environment()
     silent_computer(api, 1900)
-    monkeypatch.setattr(views.privacy, "job_count", lambda *a, **k: 0)      # someone else's private request
+    monkeypatch.setattr(views.pipeline_stats, "job_queues",                  # someone else's private request
+                        lambda c, who, bots, now=None: {b: {"queued": 0, "uncertain": 0} for b in bots})
     issue = machine_issue(api, person_headers(api, "riley"))
     assert issue["title"] == "Owner Mac stopped checking in" and issue["needs_person"]
 

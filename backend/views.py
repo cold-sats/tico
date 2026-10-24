@@ -22,7 +22,7 @@ from . import visuals
 from . import app_delivery, login_holds, providers, runner_versions
 from .harnesses import resolve_harness
 from . import personal_tokens, rooms, team_rules, turns, wake_presets
-from . import auto_tasks
+from . import auto_tasks, pipeline_stats
 from .execution import AWAKE_GAP, AWAKE_SETTLE, Execution, bump_bot_session_epoch, turns_here
 from pathlib import Path
 
@@ -457,14 +457,15 @@ def operation_issues(c, who, auth):
                     add("bot", bot["display_name"] + " needs attention",
                         f"{runtime}; resumes at {retry[11:16]} UTC", bot=slug,
                         severity="warning", needs_person=False)
-        queued = privacy.job_count(c, who, slug)
+        jobs = pipeline_stats.job_queues(c, who, [slug])[slug]
+        queued = jobs["queued"]
         if location.get("agent"):
             # A synced agent is handed its messages at a sync, which marks them delivered; it never reads them in Tico.
             unread = "delivered_at IS NULL" if location["agent"].get("synced") else "read_at IS NULL"
             queued = sum(privacy.message_readable(c, privacy.actor(who), m) for m in c.execute(
                 "SELECT * FROM messages WHERE to_actor=? AND " + unread + " "
                 "AND (expires_at IS NULL OR expires_at > ?) AND deleted_at IS NULL", ("bot:" + slug, H.now())))
-        uncertain = privacy.job_count(c, who, slug, ("uncertain",))
+        uncertain = jobs["uncertain"]
         if uncertain and not mac_offline:
             noun = "run" if uncertain == 1 else "runs"
             queued_note = (f" {queued} other request{' is' if queued == 1 else 's are'} still queued."

@@ -296,4 +296,3 @@ def hire(auth, onboarding, c, who, seat_id, body):
     return {"slug": slug, "seat": seat_id, "stage": lifecycle.ONBOARDING, "reports_to": row["reports_to"],
             "template": card["template"], "model": model, "setup_task_id": setup_task,
             "note": (created or {}).get("note") if isinstance(created, dict) else None}
-
