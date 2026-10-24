@@ -626,7 +626,7 @@
     },
     "/api/v2/assistant/messages": {
       "post": {
-        "summary": "Say something to the Assistant. A lookup is answered at once (fast: true, with the reply); anything else is a turn of the assistant bot, shown as `execution` on GET /api/v2/assistant",
+        "summary": "Say something to the Assistant. A lookup is answered at once (fast: true, with the reply); anything else is a turn of the assistant bot, shown as `execution` on GET /api/v2/assistant. `place: updates` (the Updates chat) always takes a turn, handed the recent updates the caller may read",
         "operationId": "sendAssistantMessage",
         "requestBody": {
           "content": {
@@ -18411,6 +18411,18 @@
             "maxLength": 8000,
             "minLength": 1,
             "title": "Text"
+          },
+          "place": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "updates"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Place"
           }
         },
         "additionalProperties": false,
