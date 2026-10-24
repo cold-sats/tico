@@ -393,11 +393,6 @@ fn login_env(runtime: &str, config: &Config, profile_name: &str) -> Result<(Stri
         return Err("The runtime is not installed on this computer".into());
     };
     let profile = profile_for(config, profile_name);
-    if runtime == "grok" && profile.as_ref().is_none_or(|p| p.share_operator) {
-        // A first install can create .grok after startup's ownership handoff. Repair it before the
-        // device flow, using the supervisor's fixed HOME rather than any bot or custom auth path.
-        crate::hosts::grok::hand_login_to_bot();
-    }
     if let Some(Err(e)) = profile.as_ref().map(crate::profiles::hand_to_bot) {
         return Err(format!("The subscription profile is not ready for sign-in: {e}"));
     }
@@ -406,6 +401,7 @@ fn login_env(runtime: &str, config: &Config, profile_name: &str) -> Result<(Stri
         Some(p) => p.environment(runtime, &process),
         None => process,
     };
+    crate::hosts::prepare_login_home(runtime, &env);
     if profile.as_ref().is_some_and(|p| !p.share_operator) {
         for key in crate::harness_tools::api_key_env(runtime) {
             env.remove(&key);
@@ -2614,6 +2610,11 @@ import json, os, pathlib, sys
 if sys.argv[1:] == ['--version']:
     print('1.0.70')
     sys.exit(0)
+if sys.argv[1:] == ['session']:
+    store = pathlib.Path(os.environ['HOME']) / '.grok/sessions'
+    store.mkdir(parents=True, exist_ok=True)
+    (store / 'synthetic.json').write_text('{}')
+    sys.exit(0)
 if sys.argv[1:] not in (['login', '--device-auth'], ['refresh']):
     sys.exit(2)
 print('Open https://login.example/device\nEnter code ABCD-1234', flush=True)
@@ -2642,7 +2643,7 @@ except PermissionError:
         let home = root.join(".grok");
         let auth = home.join("auth.json");
         // An existing 0755 folder (the incident), a private old store, and both entry points:
-        // startup repairs an existing login; login_env repairs one made by a later install probe.
+        // startup repairs an existing login; login_env repairs a folder created after startup.
         for (mode, existing, startup) in [(0o755, false, false), (0o700, true, false), (0o755, true, true)] {
             std::fs::create_dir_all(&home).unwrap();
             std::fs::set_permissions(&home, std::fs::Permissions::from_mode(mode)).unwrap();
@@ -2681,12 +2682,58 @@ except PermissionError:
             assert!(!root.join("projects/bots").exists(), "no copied bot login");
             std::fs::remove_dir_all(&home).unwrap();
         }
+        // An API-key turn still writes sessions, without passing through the interactive login path.
+        std::fs::create_dir(&home).unwrap();
+        chown(&home, Some(10002), Some(10002)).unwrap();
+        let mut env: Env = std::env::vars().collect();
+        env.insert("XAI_API_KEY".into(), "synthetic".into());
+        let exe = root.join("bin/grok").display().to_string();
+        assert!(!model_command(&exe, &["session"], &env).output().unwrap().status.success());
+        // The same preparation runs immediately before GrokHost launches the bot's CLI.
+        crate::hosts::grok::prepare_home(&env);
+        assert!(model_command(&exe, &["session"], &env).status().unwrap().success());
+        assert_eq!(home.join("sessions/synthetic.json").metadata().unwrap().uid(), 10003);
+        std::fs::remove_dir_all(&home).unwrap();
+
+        // A named subscription hands over only its profile home; a shared profile uses the operator home.
+        std::fs::create_dir(&home).unwrap();
+        chown(&home, Some(10002), Some(10002)).unwrap();
+        let profiles = root.join("profiles");
+        let named_home = profiles.join("acme/grok");
+        std::fs::create_dir_all(named_home.join(".grok")).unwrap();
+        std::fs::write(named_home.join(".grok/auth.json"), "synthetic old named store").unwrap();
+        chown(named_home.join(".grok"), Some(10002), Some(10002)).unwrap();
+        let mut named_config = config.clone();
+        named_config.data["profiles"] = json!({"acme": {"dir": profiles.join("acme")},
+            "shared": {"dir": profiles.join("shared"), "share_operator": true}});
+        let (_, named_env, _) = login_env("grok", &named_config, "acme").unwrap();
+        assert_eq!(named_env["HOME"], named_home.display().to_string());
+        assert_eq!(home.metadata().unwrap().uid(), 10002, "named login must not hand over the operator store");
+        assert_eq!(named_home.join(".grok").metadata().unwrap().uid(), 10003);
+        assert!(model_command(&exe, &["login", "--device-auth"], &named_env).status().unwrap().success());
+        assert!(std::fs::read_to_string(named_home.join(".grok/auth.json")).unwrap().contains("synthetic"));
+        named_config.data.insert("default_profile".into(), json!("acme"));
+        let (_, default_env, _) = login_env("grok", &named_config, "").unwrap();
+        assert_eq!(default_env["HOME"], named_env["HOME"]);
+        crate::hosts::grok::prepare_home(&named_env);
+        assert_eq!(home.metadata().unwrap().uid(), 10002, "profile turns must leave the operator store alone");
+        let (_, shared_env, _) = login_env("grok", &named_config, "shared").unwrap();
+        assert_eq!(shared_env["HOME"], root.display().to_string());
+        assert_eq!(home.metadata().unwrap().uid(), 10003);
+        std::fs::remove_dir_all(&home).unwrap();
+
         // Ownership repair never traverses a link to unrelated supervisor state or a foreign hardlink.
         let outside = root.join("private");
         std::fs::create_dir(&outside).unwrap();
         let control = outside.join("control.json");
         std::fs::write(&control, "synthetic supervisor state").unwrap();
         std::fs::set_permissions(&control, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let mut custom_env: Env = std::env::vars().collect();
+        custom_env.insert("GROK_HOME".into(), outside.display().to_string());
+        custom_env.insert("GROK_AUTH_PATH".into(), control.display().to_string());
+        crate::hosts::prepare_login_home("grok", &custom_env);
+        assert_eq!(outside.metadata().unwrap().uid(), 0, "overrides never redirect the privileged handoff");
+        assert_eq!(control.metadata().unwrap().uid(), 0);
         std::os::unix::fs::symlink(&outside, &home).unwrap();
         crate::hosts::grok::hand_login_to_bot();
         assert_eq!(outside.metadata().unwrap().uid(), 0);

@@ -24,11 +24,19 @@ use crate::env::Env;
 use crate::util::{log, text_of, truthy};
 
 /// The computer's existing Grok login stays in place, but sign-in and token refresh run as the bot user.
-/// The supervisor's version/install probes can have made this folder before any bot ran. Only hand over
+/// Earlier supervisor commands can have made this folder before any bot ran. Only hand over
 /// the known default store; custom auth paths are never adopted with supervisor privileges.
 pub fn hand_login_to_bot() {
     if let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
         crate::isolation::adopt(&[std::path::PathBuf::from(home).join(".grok")]);
+    }
+}
+
+/// A default home created after startup must also allow API-key turns to save their sessions.
+/// Match the effective home, but never let a profile or custom auth path choose a privileged handoff target.
+pub fn prepare_home(env: &Env) {
+    if std::env::var("HOME").ok().filter(|home| !home.is_empty()).is_some_and(|home| env.get("HOME") == Some(&home)) {
+        hand_login_to_bot();
     }
 }
 
@@ -159,6 +167,7 @@ impl GrokHost {
 
     /// Start `grok agent` with `cmd` in `env` and say `initialize`.
     async fn launch(&self, cmd: Vec<String>, env: Env) -> Result<(), HostError> {
+        prepare_home(&env);
         let mut command = crate::isolation::command(&cmd[0]);
         let mut full = env.clone();
         full.extend(NO_OPERATOR_MCP.iter().map(|(k, v)| (k.to_string(), v.to_string())));
