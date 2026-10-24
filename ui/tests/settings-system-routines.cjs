@@ -18,7 +18,7 @@ const job = (key, name, extra = {}) => ({key, name, what: name + ' does a thing.
   then: ['do ' + name.toLowerCase()], department: {name: 'Engineering', in_chart: true}, switch: false, on: true,
   preset: null, at: null, presets: [], owner_only: false, can_change: false, search: '', ...extra});
 function system(role) {
-  const admin = role !== 'member', owner = role === 'owner';
+  const admin = ['owner', 'admin'].includes(role), owner = role === 'owner';
   const ctl = (extra) => ({switch: true, controllable: true, can_change: admin, ...extra});
   const jobs = [
     job('stale_review', 'Stale ticket review', ctl({ai: true, route: 'Gateway', fallback: null, group: 'checks', preset: 'hourly', presets: AI,
@@ -37,9 +37,10 @@ function system(role) {
     job('topic_fresh', 'Start fresh when the topic changes', {switch: true, can_change: admin, on: false, records: false, group: 'chat', schedule: 'When it happens',
       when: ['a message in a direct chat changes the topic'], then: ['start a fresh session, like Clear']}),
   ];
+  jobs.push(job('task-rule-close-after-done', 'Close 24h after done', {kind: 'task_rule', group: 'task_rules', switch: true, on: true, can_change: role !== 'member', preset: '15m', presets: ALL, department: {id: 'engineering', name: 'Engineering', in_chart: true}, triggers: [{key: 'done_untouched', hours: 24}], actions: ['close'], when: ['a task has been done and untouched for 24 hours'], then: ['close it']}));
   const words = {stale_review: 'stale done close suggest checks that suggest', approval_expiry: 'approval expire close done', due_reminders: 'due remind'};
   for (const j of jobs) j.search = [j.name, j.what, ...j.when, ...j.then, j.department.name, j.group, words[j.key] || ''].join(' ').toLowerCase();
-  return {now: new Date().toISOString(), departments: ['Engineering'], jobs};
+  return {now: new Date().toISOString(), departments: ['Engineering'], task_rule_departments: [{id: 'engineering', name: 'Engineering'}, {id: 'marketing', name: 'Marketing'}], task_rule_department: 'engineering', can_create_task_rule: role !== 'member', jobs};
 }
 
 async function open(browser, role) {
@@ -66,6 +67,18 @@ async function open(browser, role) {
     if (p === '/api/v2/models') return json({models: [], harnesses});
     if (p === '/api/v2/access') return json({rules: {}});
     if (p === '/api/v2/system-routines') { asked.push(req.method()); return json(data); }
+    if (p.startsWith('/api/v2/task-rules')) {
+      const body = req.postDataJSON();
+      writes.push({method: req.method(), key: p.split('/').at(-1), body});
+      if (body.name === 'Rejected') return json({error: {detail: 'Only this department can edit the rule', code: 'forbidden'}}, 403);
+      let j = data.jobs.find(x => x.key === p.split('/').at(-1));
+      if (!j) { j = {...data.jobs.find(x => x.kind === 'task_rule'), key: 'task-rule-new'}; data.jobs.push(j); }
+      Object.assign(j, body);
+      if (body.department) j.department = {id: body.department, name: body.department === 'engineering' ? 'Engineering' : 'Marketing', in_chart: true};
+      if (body.triggers) j.when = [`a task has been done and untouched for ${body.triggers[0].hours} hours`];
+      j.search = [j.name, ...j.when, ...j.then, j.department.name].join(' ').toLowerCase();
+      return json({job: j});
+    }
     const one = p.match(/^\/api\/v2\/system-routines\/([a-z_]+)(\/run)?$/);
     if (one) {
       const body = req.postDataJSON() || {}, j = data.jobs.find(x => x.key === one[1]);
@@ -78,7 +91,7 @@ async function open(browser, role) {
       if (body.preset) { j.preset = body.preset; j.schedule = body.preset === '4h' ? 'Every 4 hours' : j.schedule; j.when = body.preset === '4h' ? ['every 4 hours'] : j.when; }
       return json({job: j});
     }
-    if (p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
+    if (p.endsWith('/watch') || p === '/api/v2/events') return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
     return json(unrouted(p));
   });
   await page.goto('https://tico-ui.test/#/settings');
@@ -100,7 +113,7 @@ const row = (page, key) => page.locator(`[data-system-routine="${key}"]`);
       assert.deepEqual(headings.map(h => h.trim()), ['Routines', 'Bot routines'], role);
       assert.equal(await page.locator('#set-system-routines h3').count(), 0, 'no group headings');
       assert.equal(await page.locator('#set-system-routines [data-sysr-search]').count(), 1);
-      assert.equal(await page.locator('#set-system-routines [data-system-routine]').count(), 8);
+      assert.equal(await page.locator('#set-system-routines [data-system-routine]').count(), 9);
       // Each row: WHEN ... THEN ..., one department tag.
       assert.equal(await row(page, 'stale_review').locator('[data-sysr-rule]').innerText(),
         'WHEN every hour THEN check stale tickets AND suggest to each owner: mark done, close or check it');
@@ -119,13 +132,13 @@ const row = (page, key) => page.locator(`[data-system-routine="${key}"]`);
       const search = page.locator('[data-sysr-search]');
       const shown = async () => page.locator('#set-system-routines [data-system-routine]').evaluateAll(els => els.map(el => el.dataset.systemRoutine));
       await search.fill('done');
-      assert.deepEqual(await shown(), ['stale_review', 'approval_expiry']);
+      assert.deepEqual(await shown(), ['stale_review', 'approval_expiry', 'task-rule-close-after-done']);
       await search.fill('remind');
       assert.deepEqual(await shown(), ['due_reminders', 'approval_expiry'], 'its action, or its group word');
       await search.fill('fresh session');
       assert.deepEqual(await shown(), ['topic_fresh']);
       await search.fill('engineering');
-      assert.equal((await shown()).length, 8);
+      assert.equal((await shown()).length, 9);
       await search.fill('zzz');
       assert.match(await page.locator('[data-sysr-none]').innerText(), /No routine matches/);
       await search.fill('');
@@ -174,6 +187,44 @@ const row = (page, key) => page.locator(`[data-system-routine="${key}"]`);
       // The bot routines are still listed below.
       assert.match(await page.locator('#set-recurring').innerText(), /Weekly report/);
       assert.deepEqual(asked, ['GET']);
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
+    {
+      const {page, errors, writes} = await open(browser, 'department');
+      const rule = () => row(page, 'task-rule-close-after-done');
+      assert.equal(await row(page, 'stale_review').locator('button,select,input').count(), 0);
+      await rule().locator('[data-task-rule-edit]').click();
+      assert.equal(await page.locator('.task-rule-dialog select[name=department]').inputValue(), 'engineering');
+      await page.locator('.task-rule-dialog input[name=ruleName]').fill('Rejected');
+      await page.locator('.task-rule-dialog button[type=submit]').click();
+      await page.locator('[data-task-rule-error]').filter({hasText: /department/}).waitFor();
+      assert.equal(await page.locator('.task-rule-dialog input[name=ruleName]').inputValue(), 'Rejected');
+      await page.locator('.task-rule-dialog input[name=ruleName]').fill('Close reviewed exports');
+      await page.locator('.task-rule-dialog input[name=hours]').fill('48');
+      await page.locator('.task-rule-dialog button[type=submit]').click();
+      await page.locator('.task-rule-dialog').waitFor({state: 'detached'});
+      assert.match(await rule().innerText(), /48 hours/);
+      await rule().locator('[data-sysr-on]').uncheck();
+      await page.waitForFunction(() => document.querySelector('[data-system-routine="task-rule-close-after-done"] [data-sysr-status]')?.textContent === 'Saved');
+      assert.equal(await rule().locator('[data-sysr-on]').isChecked(), false);
+      await page.locator('[data-task-rule-new]').click();
+      assert.equal(await page.locator('.task-rule-dialog select[name=department]').inputValue(), 'engineering');
+      assert.deepEqual(await page.locator('.task-rule-dialog select[name=department] option').evaluateAll(es => es.map(e => e.value)), ['', 'engineering', 'marketing']);
+      await page.locator('.task-rule-dialog input[name=ruleName]').fill('Close exports');
+      fs.mkdirSync('build/dev356', {recursive: true});
+      for (const dark of [false, true]) {
+        await page.evaluate(d => document.documentElement.dataset.theme = d ? 'dark' : 'light', dark);
+        for (const width of [1440, 390]) {
+          await page.setViewportSize({width, height: 900});
+          assert.equal(await page.locator('.task-rule-dialog').evaluate(el => el.scrollWidth <= el.clientWidth + 1), true);
+          await page.screenshot({path: `build/dev356/rule-${width}-${dark ? 'dark' : 'light'}.png`});
+        }
+      }
+      await page.locator('.task-rule-dialog button[type=submit]').click();
+      await page.locator('.task-rule-dialog').waitFor({state: 'detached'});
+      assert.equal(await row(page, 'task-rule-new').count(), 1);
+      assert.equal(writes.at(-1).method, 'POST');
       assert.deepEqual(errors, []);
       await page.close();
     }

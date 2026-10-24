@@ -1405,6 +1405,8 @@ def install(app, store, auth, mutate, onboarding):
             auth.require_write(c, who, bot)
             room = chat_room(c, settings, who)
             refs = {"assistant": True}
+            if body.place == "updates":
+                refs["updates"] = True        # its turn is handed the updates they may read (backend/updates_chat.py)
             if reply is not None:
                 refs["quiet"] = True
             message = H.say(c, who.actor, "bot:" + bot, body.text, conversation_id=room["id"],
@@ -1428,7 +1430,9 @@ def install(app, store, auth, mutate, onboarding):
         info, bots = await asyncio.to_thread(read)
         if not info["available"]:
             raise Problem("assistant_off", "The " + info["name"] + " is off", 409)
-        intent, reply, links = await fast_answer(Internal(request), who, bots, body.text)
+        # A question from the Updates chat is about the updates its turn is handed, which the quick answers never read.
+        intent, reply, links = (None, None, []) if body.place == "updates" else \
+            await fast_answer(Internal(request), who, bots, body.text)
         return await asyncio.to_thread(post_message_sync, request, body, who, intent, reply, links)
 
     @app.post("/api/v2/assistant/turn-on")

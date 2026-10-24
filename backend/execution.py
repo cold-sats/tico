@@ -10,7 +10,7 @@ from datetime import timezone
 
 from clients import gateway, sessions
 
-from . import auto_tasks, start_places, app_delivery, check_models, learned, rooms, gateway_connection, inbox_isolation, login_holds, models_preset, providers, quiet_work, routines, run_triggers, runner_versions, screen, task_models, usage_limits, wake_presets, wake_rules
+from . import auto_tasks, start_places, app_delivery, check_models, learned, rooms, updates_chat, gateway_connection, inbox_isolation, login_holds, models_preset, providers, quiet_work, routines, run_triggers, runner_versions, screen, task_models, usage_limits, wake_presets, wake_rules
 from . import task_privacy as privacy
 from .auth import Identity
 from .batch_work import isolated
@@ -2232,6 +2232,9 @@ class Execution:
                             # What the person's chat bot has learned, read now: a deleted entry is gone from this turn
                             # (backend/learned.py; rendered by runner-rs/src/prompt.rs). None outside their own chat.
                             "learned": learned.for_turn(c, self.store.settings, conv, row["bot"]),
+                            # Asked from the Updates chat: the recent updates that person may read and open, read now as
+                            # them (backend/updates_chat.py). None for every other turn.
+                            "updates": updates_chat.for_turn(c, self.auth, self.store.settings, conv, row["bot"], msg, aid),
                             # The owner's CEO Bot chat is a session of its own (backend/rooms.py).
                             "config": rooms.session_config(conv, row["bot"], config),
                             # Bumped by a session clear or reset (views.py clear_session, app.py reset_bot_sessions):
@@ -3576,14 +3579,26 @@ class Execution:
         """
         cutoff = H.shift(H.now(), seconds=-STALL_MAX)
         decided, limit_said = [], {}
+        task_sql = queued_task_sql()
+        # Judged while the bot works on anything else (an always-busy bot never had a free lane, so its stopped runs and
+        # the work fenced behind them waited forever, Dev 488); it waits only for a live run that may be doing the same
+        # work: one that took this job or folded in its message, one on the same task (a chat with no task: the same
+        # conversation), or one in the same task session (a subtask's turn runs in its session root's lane).
         rows = c.execute("SELECT j.*, a.started, a.finished, a.state AS attempt_state, a.result_json, "
                          "a.stop_requested, a.job_id AS attempt_job, "
                          "coalesce(a.finished, j.created) <= ? AS aged "
                          "FROM jobs j LEFT JOIN attempts a ON a.id=j.attempt_id "
-                         "WHERE j.state='uncertain' AND (coalesce(a.finished, j.created) <= ? "
+                         "LEFT JOIN messages m ON m.id=j.message_id LEFT JOIN conversations cv ON cv.id=m.conversation_id "
+                         "WHERE j.state='uncertain' AND j.attempt_id IS NOT NULL "
+                         "AND (coalesce(a.finished, j.created) <= ? "
                          "OR a.state='interrupted') "
-                         "AND NOT EXISTS(SELECT 1 FROM attempts t WHERE t.bot=j.bot AND t.state IN ('leased','running') "
-                         "AND t.lane=coalesce(a.lane,'main')) "
+                         "AND NOT EXISTS(SELECT 1 FROM attempts t LEFT JOIN turns tt ON tt.id=t.id "
+                         "WHERE t.bot=j.bot AND t.state IN ('leased','running') AND (t.job_id=j.id "
+                         "OR t.id IN (SELECT attempt_id FROM attempt_inputs WHERE message_id=j.message_id) "
+                         f"OR tt.task_id={task_sql} "
+                         f"OR ({task_sql} IS NULL AND EXISTS(SELECT 1 FROM attempt_conversations ac "
+                         "WHERE ac.attempt_id=t.id AND ac.conversation_id=m.conversation_id)) "
+                         f"OR (t.lane=a.lane AND a.lane<>'{sessions.MAIN_LANE}'))) "
                          "ORDER BY j.created", (cutoff, cutoff)).fetchall()
         for row in rows:
             with isolated(c, "auto_reconcile", row["id"]):

@@ -57,17 +57,38 @@ def _candidates(value, out):
     return out
 
 
+def _task_rows(c, ids):
+    """{id: the parties row of that task, or None when no task has that id}, each id read at most once per snapshot.
+    A task page checks every comment, event and run against the same few tasks; reading them per row was thousands
+    of queries on a long task. The rows live in read_cache, so any write in the snapshot discards them."""
+    snapshot(c)
+    values = read_cache.cache(c)
+    known = values.setdefault(("task_privacy_rows",), {}) if values is not None else {}
+    missing = sorted({tid for tid in ids if tid not in known})
+    for start in range(0, len(missing), 500):
+        chunk = missing[start:start + 500]
+        found = {row[0]: row for row in c.execute(
+            "SELECT id,private,owner,requester,guest FROM tasks WHERE id IN (%s)" % ",".join("?" * len(chunk)), chunk)}
+        for tid in chunk:
+            known[tid] = found.get(tid)
+    return {tid: known[tid] for tid in ids}
+
+
 def references(c, value):
     """Task ids anywhere in a structured reference or payload, including nested lists. Every string that could
     name a task is gathered first and looked up in one query: one query per string was most of a busy server's SQL."""
-    snapshot(c)
-    names = sorted(name for name in _candidates(value, set()) if name)
-    found = set()
-    for start in range(0, len(names), 500):
-        chunk = names[start:start + 500]
-        found.update(row[0] for row in read_cache.rows(c,
-            "SELECT id FROM tasks WHERE id IN (%s)" % ",".join("?" * len(chunk)), chunk))
-    return found
+    names = {name for name in _candidates(value, set()) if name}
+    return {tid for tid, row in _task_rows(c, names).items() if row is not None}
+
+
+def prime_references(c, values):
+    """Look up every task id the given payloads could name in one pass, so the per-row checks that follow
+    (content_readable, message_readable) read them from this snapshot instead of one query each."""
+    names = set()
+    for value in values:
+        _candidates(value, names)
+    names.discard("")
+    _task_rows(c, names)
 
 
 def message_tasks(c, message, seen=None, include_run=True, current=False):
@@ -170,6 +191,66 @@ def _attempt_tasks(c, aid):
     return ids
 
 
+def prime_attempts(c, aids):
+    """Read the provenance of many runs in a fixed number of queries, for a page that then checks each run
+    (a task's comments and runs). The results are the ones attempt_tasks and the meeting index would build one
+    run at a time, kept for this snapshot; a run that cannot be authorized is left for its own check to refuse."""
+    snapshot(c)
+    values = read_cache.cache(c)
+    if values is None:
+        return
+    from . import provenance_clock
+    meetings = meeting_sources(c)
+    wanted = sorted({aid for aid in aids if isinstance(aid, str) and aid}
+                    - {key[1] for key in values if isinstance(key, tuple) and key[:1] == ("attempt_tasks",)})
+    for start in range(0, len(wanted), 250):
+        chunk = wanted[start:start + 250]
+        marks = ",".join("?" * len(chunk))
+        inputs = {aid: [] for aid in chunk}
+        for row in c.execute("SELECT a.id AS primed_attempt,m.* FROM attempts a JOIN jobs j ON j.id=a.job_id "
+                             f"JOIN messages m ON m.id=j.message_id WHERE a.id IN ({marks}) UNION "
+                             "SELECT i.attempt_id AS primed_attempt,m.* FROM attempt_inputs i "
+                             f"JOIN messages m ON m.id=i.message_id WHERE i.attempt_id IN ({marks})", chunk * 2):
+            row = dict(row)
+            inputs[row.pop("primed_attempt")].append(row)
+        carried = {aid: [] for aid in chunk}
+        for row in c.execute(f"SELECT carried_by,id FROM tasks WHERE carried_by IN ({marks})", chunk):
+            carried[row[0]].append(row[1])
+        events = {aid: [] for aid in chunk}
+        moved = {aid: [] for aid in chunk}
+        for row in c.execute("SELECT target,action,detail_json FROM events WHERE action IN (" + RUN_TASK_EVENTS_SQL +
+                             f") AND target IN ({marks})", chunk):
+            events[row[0]].append(row[2])
+            if row[1] == INPUT_MOVED:
+                moved[row[0]].append(row[2])
+        meetings.prime_attempts(inputs, moved)
+        for aid in chunk:
+            try:
+                ids = set(carried[aid])
+                for message in inputs[aid]:
+                    ids.update(message_tasks(c, message, include_run=False, current=True))
+                for detail in events[aid]:
+                    ids.update(references(c, H._json(detail, {}) or {}))
+            except Problem:
+                continue
+            values[("attempt_tasks", aid)] = provenance_clock.cached(c, ("attempt_tasks", aid), lambda ids=ids: ids)
+
+
+def prime_messages(c, messages):
+    """Before checking each of these stored messages: look up the tasks their refs name and the runs behind them
+    together, so a long task's comments are not a few queries per comment."""
+    messages = [dict(m) for m in messages]
+    refs = [m.get("refs") or H._json(m.get("refs_json"), {}) or {} for m in messages]
+    prime_references(c, refs)
+    H.prime_conversations(c, {m.get("conversation_id") for m in messages})
+    runs = set()
+    for ref in refs:
+        if isinstance(ref, dict):
+            run = ref.get("run")
+            runs.add(ref.get("turn_id") or (run.get("attempt_id") if isinstance(run, dict) else None))
+    prime_attempts(c, runs)
+
+
 # Events whose target is a run and whose `tasks` the run took in: carried tasks, and the tasks
 # of an input that a later run took over after this one had already read it.
 INPUT_MOVED = "attempt.input.moved"
@@ -185,19 +266,12 @@ def record_moved_input(c, from_attempt, to_attempt, message):
 
 
 def readable(c, actor, ids):
-    snapshot(c)
     principals = actor if isinstance(actor, tuple) else (actor,)
-    ordered = sorted(set(ids))
-    for start in range(0, len(ordered), 500):
-        chunk = ordered[start:start + 500]
-        # Every permission is current in this snapshot. Tags and wide task bodies
-        # contribute nothing to the decision, and shared provenance needs one lookup.
-        rows = read_cache.rows(c, "SELECT id,private,owner,requester,guest FROM tasks WHERE id IN (" +
-                               ",".join("?" * len(chunk)) + ")", chunk)
-        if len(rows) != len(chunk) or any(not H.task_private_readable(c, a, row)
-                                          for row in rows for a in principals):
-            return False
-    return True
+    # Every permission is current in this snapshot. Tags and wide task bodies
+    # contribute nothing to the decision, and shared provenance needs one lookup.
+    rows = _task_rows(c, set(ids))
+    return all(row is not None and all(H.task_private_readable(c, a, row) for a in principals)
+               for row in rows.values())
 
 
 def message_readable(c, actor, message, current=False):
@@ -215,6 +289,21 @@ def message_readable(c, actor, message, current=False):
                 and readable(c, actor, message_tasks(c, message, current=bool(stored))))
     except Problem:
         return False
+
+
+def readable_messages(c, actor, messages):
+    """The messages message_readable passes, each checked against its row as stored, read together in this snapshot
+    rather than one query per message. A message not stored is checked as given, as message_readable does."""
+    snapshot(c)
+    ids = sorted({dict(m).get("id") for m in messages} - {None, ""})
+    stored = {}
+    for start in range(0, len(ids), 500):
+        chunk = ids[start:start + 500]
+        stored.update((row["id"], dict(row)) for row in c.execute(
+            "SELECT * FROM messages WHERE id IN (%s)" % ",".join("?" * len(chunk)), chunk))
+    prime_messages(c, list(stored.values()))
+    return [m for m in messages if (message_readable(c, actor, stored[mid], current=True)
+                                    if (mid := dict(m).get("id")) in stored else message_readable(c, actor, m))]
 
 
 def require_message(c, who, message):
@@ -516,6 +605,13 @@ def content_readable(c, actor, payload):
             and readable(c, actor, references(c, payload)))
 
 
+def content_readable_rows(c, actor, rows):
+    """The rows content_readable passes, with the tasks they name looked up together first."""
+    rows = list(rows)
+    prime_references(c, rows)
+    return [row for row in rows if content_readable(c, actor, row)]
+
+
 def guard_write(c, who, path, auth):
     """A private execution has no automatic company-publication capability."""
     # These controls already enforce their own run ownership and never publish company content.
@@ -679,10 +775,14 @@ def status(c, who, row, *, tasks=None, approvals=None, asks=None):
 def job_count(c, who, bot, states=("queued",)):
     snapshot(c)
     marks = ",".join("?" * len(states))
-    return sum(message_readable(c, actor(who), row) and
-               (not row["attempt_id"] or attempt_readable(c, actor(who), row["attempt_id"]))
-               for row in c.execute("SELECT m.*,j.attempt_id FROM jobs j JOIN messages m ON m.id=j.message_id "
-                                    f"WHERE j.bot=? AND j.state IN ({marks})", (bot, *states)))
+    # The rows are the messages as stored in this snapshot (as in job_counts), checked after one lookup for them all.
+    rows = [dict(row) for row in c.execute("SELECT m.*,j.attempt_id AS job_attempt FROM jobs j JOIN messages m "
+                                           f"ON m.id=j.message_id WHERE j.bot=? AND j.state IN ({marks})", (bot, *states))]
+    jobs = [(row.pop("job_attempt"), row) for row in rows]
+    prime_messages(c, rows)
+    prime_attempts(c, [aid for aid, _ in jobs])
+    return sum(message_readable(c, actor(who), row, current=True) and
+               (not aid or attempt_readable(c, actor(who), aid)) for aid, row in jobs)
 
 
 def job_counts(c, who, bots, states=("queued",)):

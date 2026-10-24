@@ -8,6 +8,7 @@ import threading
 from collections import deque
 from contextlib import ExitStack, contextmanager
 
+import orjson
 import yaml
 
 from . import goals as G
@@ -509,9 +510,9 @@ def readiness_document(value):
     """Return the canonical runner-readiness shape, including legacy heartbeats."""
     if hasattr(value, "model_dump"):
         value = value.model_dump()
-    if isinstance(value, str):
+    if isinstance(value, (str, bytes)):
         try:
-            value = json.loads(value)
+            value = orjson.loads(value)
         except (TypeError, ValueError):
             value = {}
     value = value if isinstance(value, dict) else {}
@@ -730,6 +731,8 @@ class Store:
             c.executescript(_stale_review.SCHEMA)
             from . import system_routines as _system_routines
             c.executescript(_system_routines.SCHEMA)
+            from . import task_rules as _task_rules
+            c.executescript(_task_rules.SCHEMA)
             from . import owner_link as _owner_link
             c.executescript(_owner_link.SCHEMA)
             from . import docs as _docs
@@ -1364,7 +1367,13 @@ class Store:
                                    ("attempts_runner_finished", "attempts(runner_id, finished)"),
                                    # A computer asking after the tasks its session checkouts are kept for.
                                    ("attempts_bot_lane", "attempts(bot, lane)"),
+                                   # Recent failed and finished runs (Health, Fleet check, the census, /api/runs).
+                                   # Partial, so the scheduler's live-lease read keeps attempts_live_lease.
+                                   ("attempts_finished_state", "attempts(state, finished) WHERE finished IS NOT NULL"),
                                    ("events_action_target", "events(action, target, ts)"),
+                                   # Conversations newest first (hubdb.conversations_for, chats_with): the ORDER BY's
+                                   # expression word for word, or SQLite sorts every conversation.
+                                   ("conversations_recent", "conversations(COALESCE(last_message_at, created))"),
                                    # A task's runs (the task view's runs and its Runs section, backend/run_view.py).
                                    ("turns_task", "turns(task_id, started)"),
                                    # A blob's provenance (task_privacy.blob_readable), read for every

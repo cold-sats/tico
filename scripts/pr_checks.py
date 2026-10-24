@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PYTHON_MAP = {"backend/task_loops.py": ["backend/tests/test_task_loops.py"]}
 UI_MAP = {"ui/app/chat.js": ["chat", "imported-history"],
           "ui/app/chat-outline.js": ["chat", "imported-history"],
-          "ui/app/visual-cards.js": ["visual-cards", "visual-fallback"],
+          "ui/app/visual-cards.js": ["visual-cards", "visual-fallback", "visual-hosted"],
           "ui/app/visual-media.js": ["visual-media", "visual-media-app"]}
 CONFORMANCE = "runner/tests/test_conformance.py"
 CHANGELOG_REFUSAL = ("No PR edits CHANGELOG.md; the Technical Writer writes notes at the release cut. "

@@ -688,3 +688,11 @@ a.primary.btn{display:inline-block;text-decoration:none;background:var(--accent)
 .hosted-table tr:first-child td{border-top:0}.hosted-actions{text-align:right}
 .hosted-power[data-power=on]{color:var(--ok)}.hosted-power[data-power=stopped]{color:var(--muted)}
 .hosted-note td{border-top:0;padding-top:0}.hosted-paused{color:var(--fail)}
+
+.task-rule-dialog{width:min(560px,calc(100vw - 24px));max-height:calc(100dvh - 32px);overflow:auto}
+.task-rule-form{display:flex;flex-direction:column;gap:16px;padding:20px}
+.task-rule-form header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.task-rule-form label{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.task-rule-form input:not([type=checkbox]),.task-rule-form select{max-width:100%;min-width:0}
+.task-rule-form input[name=ruleName]{flex:1 1 100%}
+.task-rule-form input[type=number]{width:90px}

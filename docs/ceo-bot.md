@@ -110,6 +110,14 @@ If you hand ownership to someone else (Settings > People), the CEO Bot tab and i
 to the new owner. You get your Assistant back, with your own earlier Assistant chats; the new owner does not see those.
 Cards the CEO Bot had waiting on you are withdrawn.
 
+## On the Updates page
+
+Your chat with it is also beside Updates, labelled with its name. It works as the [Assistant's](assistant.md#on-the-updates-page)
+does for everyone else: same conversation, show or hide, resize, full screen on a phone. It is handed only the updates
+you can read, leaving out any that link a task, chat or bot it can't open. When it picks the top update it follows what
+you taught it about you and about the company. A reply is a chat message, never a Needs you item, so it doesn't count
+toward the [5 a day](#at-most-5-items-a-day).
+
 ## What it has learned
 
 It keeps two layers, both on **What it has learned** at the top of your chat (`#/assistant/learned`):
