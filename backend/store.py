@@ -398,6 +398,10 @@ def refused(c, identity, exc):
     """Undo a refused domain write, keep its audit (and rule 8's count), and say what answers it."""
     c.execute("ROLLBACK TO domain_write")
     c.execute("RELEASE domain_write")
+    # Gate notifications survive the refused move, while its step and reviewer wake roll back.
+    if getattr(exc, "review_gate", None):
+        from . import review_gate
+        review_gate.notify(c, identity.actor, exc.review_gate)
     # Preserve refusal auditing, but never a partial domain operation.
     token = H.PRIVATE_WRITE.set(getattr(exc, 'private', False))
     try:
@@ -752,6 +756,8 @@ class Store:
             c.executescript(_watchers.SCHEMA)
             from . import bot_task_tabs as _bot_task_tabs
             c.executescript(_bot_task_tabs.SCHEMA)
+            from . import learned as _learned
+            c.executescript(_learned.SCHEMA)
             from . import health_monitor as _health_monitor
             c.executescript(_health_monitor.SCHEMA)
             # When a finding last woke the Health Monitor, and how bad it is: a rise wakes it (backend/health_monitor.py).
