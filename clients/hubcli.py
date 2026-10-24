@@ -210,6 +210,8 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub seat list                          Recruiting seats: roles on the chart with no bot yet; they hold no work
     hub seat create <title> [--description D] [--reports-to R] [--team G]
                                            add a seat under you or someone below you; update <seat> / close <seat>
+    hub seat draft <seat> (--text T | --file F)
+                                           CEO Bot: draft the job description of a seat the owner opened
     hub org order <manager> [--set a,b,c]  a manager's direct reports in the chart's order; --set puts them in
                                            that order (the ones left out keep their places)
     hub health check                       what is wrong with the bots, most urgent first, each with its fix
@@ -280,6 +282,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub bot model <bot> [<model>] [--effort E]
                                            list the models, or change the bot's
     hub bot pause|resume <bot>             stop or restart a bot (resume places one that has no computer)
+    hub bot scope <bot> <task>|--release   limit a bot's claims to one task and its subtasks, or lift that
     hub bot copy <bot> [--slug S] [--name N] [--with-memory] [--computer C]
                                            copy a bot into a new one the requester owns: its instructions, skills, playbooks and
                                            tools, never a secret; notes and memory only with --with-memory (BotOps)
@@ -1580,6 +1583,12 @@ def parser():
     s.add_argument("--reports-to", dest="reports_to")
     s.add_argument("--team")
     s.set_defaults(fn="seat update")
+    s = seat.add_parser("draft", help="the CEO Bot's draft of a seat's job description, on the task asking for it")
+    s.add_argument("seat")
+    g = s.add_mutually_exclusive_group(required=True)
+    g.add_argument("--text", help="the job description")
+    g.add_argument("--file", help="a file with the job description")
+    s.set_defaults(fn="seat draft")
     s = seat.add_parser("close", help="take a seat off the chart (a person)")
     s.add_argument("seat")
     s.set_defaults(fn="seat close")
@@ -1829,6 +1838,11 @@ def parser():
         s = bot.add_parser(verb, help=f"{verb} a bot (BotOps)")
         s.add_argument("bot")
         s.set_defaults(fn="bot " + verb)
+    s = bot.add_parser("scope", help="limit a bot's claims to one task and its subtasks, or lift that (BotOps)")
+    s.add_argument("bot")
+    s.add_argument("task", nargs="?", help="the task it may still work on")
+    s.add_argument("--release", action="store_true", help="lift the limit; its other work becomes claimable again")
+    s.set_defaults(fn="bot scope")
     s = bot.add_parser("branch", help="make your branch of a bot that allows branches")
     s.add_argument("bot")
     s.add_argument("--computer", help="your computer's label or id")

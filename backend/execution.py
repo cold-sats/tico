@@ -4,6 +4,7 @@ import json
 import re
 import secrets
 import sqlite3
+import threading
 import time
 from datetime import timezone
 
@@ -54,6 +55,7 @@ AWAKE_SETTLE = 120
 # A claim arrives four times a second; contact is recorded at most this often so the rule costs
 # one write a minute on an idle machine rather than four a second.
 CONTACT_EVERY = 10
+CLAIM_MAINTENANCE = 8       # a polling request never cleans up the whole install's backlog
 
 
 # A runner that advertises this runs a bot's task-keyed turns in their own lanes, side by side;
@@ -1064,6 +1066,29 @@ def unfenced_sql():
             f"OR ({task_sql} IS NULL AND cv.kind='chat' AND um.conversation_id=m.conversation_id))))")
 
 
+def scoped_sql():
+    """SQL over a queued job `j`, its message `m` and conversation `cv`: true unless an operator limited the bot's
+    claims to one task (bot_control.claim_task) and this job is about neither that task nor a direct subtask of it.
+    Work outside the scope stays queued, untouched, until the scope is released; the scope only narrows what the
+    other checks (pause, drain, readiness, the interrupted-work fence, privacy) already allow."""
+    task_sql = queued_task_sql()
+    return ("NOT EXISTS(SELECT 1 FROM bot_control sc WHERE sc.bot=j.bot AND sc.claim_task IS NOT NULL "
+            f"AND coalesce({task_sql},'')<>sc.claim_task AND NOT EXISTS(SELECT 1 FROM task_relations sr "
+            f"WHERE sr.from_task={task_sql} AND sr.to_task=sc.claim_task AND sr.kind='parent'))")
+
+
+def claim_scope(c, bot):
+    """The one task `bot`'s claims are limited to, or None (scoped_sql)."""
+    row = c.execute("SELECT claim_task FROM bot_control WHERE bot=?", (bot,)).fetchone()
+    return row[0] if row else None
+
+
+def in_scope(c, scope, task_id):
+    """Whether `task_id` is `scope` or a direct subtask of it: what a scoped bot may still be given."""
+    return bool(task_id) and (task_id == scope or bool(c.execute(
+        "SELECT 1 FROM task_relations WHERE from_task=? AND to_task=? AND kind='parent'", (task_id, scope)).fetchone()))
+
+
 def live_tasks(c):
     """{(bot, task)} with a turn out now. A later wake for that bot about that task waits for the turn even when its
     lane is another one: a task moved under another of the bot's tasks mid-turn keys a new lane (session_root), and
@@ -1189,12 +1214,15 @@ def bot_claimable(c, settings, runner_id, bot):
     busy = {(r["bot"], r["lane"]) for r in c.execute(
         "SELECT bot,lane FROM attempts WHERE state IN ('leased','running')")} | held_lanes
     followed, refused = follow(c, bot, config), None     # refused: (created, reason) of the oldest held job
-    for job in c.execute(f"SELECT j.*,m.from_actor,{unfenced_sql()} free FROM jobs j JOIN messages m ON m.id=j.message_id "
+    for job in c.execute(f"SELECT j.*,m.from_actor,{unfenced_sql()} free,{scoped_sql()} in_scope FROM jobs j "
+                         "JOIN messages m ON m.id=j.message_id "
                          "JOIN conversations cv ON cv.id=m.conversation_id WHERE j.bot=? AND j.state='queued' AND j.held=0 "
                          "ORDER BY j.redirect DESC,CASE WHEN m.from_actor LIKE 'human:%' THEN 0 ELSE 1 END,j.created,j.id",
                          (bot,)).fetchall():
         person = str(job["from_actor"]).startswith("human:")
-        if not job["free"]:
+        if not job["in_scope"]:
+            why = "scoped"
+        elif not job["free"]:
             why = "uncertain"
         else:
             why = job_refusal(c, job, followed, ready, busy, lanes, roots) or (
@@ -1216,6 +1244,9 @@ class Execution:
         # bot's repository (backend/app.py finish_pending_go_live).
         self.readiness_reported = None
         self.served_at = None   # when this process last answered a runner (heartbeat, claim, attempt call)
+        self.stall_lock = threading.Lock()
+        self.stall_graces = []
+        self.stall_seen = None
 
     def refuse_in_rehearsal(self, what="Runners"):
         """A rehearsal (TICO_REHEARSAL=1) is a copy of real data: a computer that connected would run bots against its
@@ -1316,7 +1347,7 @@ class Execution:
         row = self.runner(c, who)
         now = H.now()
         awake_since = self.waking(row, now)
-        self.served_at = now
+        self.record_contact(now)
         offered_before = screen.available(row)
         del row
         from .subscriptions import record
@@ -1559,24 +1590,49 @@ class Execution:
         gap = (H.parse_ts(now) - H.parse_ts(self.served_at)).total_seconds()
         return self.store.settings.lease_seconds / 2 < gap <= STALL_MAX
 
-    def expire(self, c):
+    def stall_recovery(self, now):
+        """Keep the original cutoff and deadline while bounded sweeps drain a stalled fleet.
+
+        Contact may resume between chunks. An attempt that already received lease grace
+        cannot receive stall grace again, and an undrained cohort expires at its fixed deadline.
+        """
+        with self.stall_lock:
+            self.stall_graces = [g for g in self.stall_graces if g[2] > now]
+            if self.stalled(now) and self.served_at != self.stall_seen:
+                self.stall_seen = self.served_at
+                self.stall_graces.append((self.served_at, now,
+                                          H.shift(now, seconds=self.store.settings.lease_seconds)))
+            return tuple(self.stall_graces)
+
+    def record_contact(self, now):
+        with self.stall_lock:
+            self.served_at = now
+
+    def expire(self, c, *, attempt_ids=None, limit=None):
         now = H.now()
         overdue = set(start_places.overdue(c))
-        rows = c.execute("SELECT * FROM attempts WHERE state IN ('leased','running') AND (lease_until<=? "
-                         "OR id IN (" + ",".join("?" for _ in overdue) + "))", (now, *overdue)).fetchall()
-        if rows and self.stalled(now):
-            # The same grace as after a restart: one more lease period, then the usual rule.
-            until = H.shift(now, seconds=self.store.settings.lease_seconds)
-            for row in rows:
-                if row["id"] in overdue:
-                    continue
-                with isolated(c, "expire", row["id"]):
-                    c.execute("UPDATE attempts SET lease_until=? WHERE id=?", (until, row["id"]))
-                    H.event(c, H.KEEPER, "attempt.lease-grace", row["id"],
-                            {"bot": row["bot"], "lapsed": row["lease_until"], "lease_until": until, "served_at": self.served_at})
-            rows = [row for row in rows if row["id"] in overdue]
+        # The existing indexed event is committed atomically with its extension, so rollback
+        # cannot consume grace and a later contact cohort cannot extend the same attempt twice.
+        rows = c.execute("SELECT a.*,EXISTS(SELECT 1 FROM events e WHERE e.target=a.id "
+                         "AND e.action='attempt.lease-grace') AS already_graced "
+                         "FROM attempts a WHERE state IN ('leased','running') AND (lease_until<=?" +
+                         (" OR id IN (" + ','.join('?' * len(overdue)) + ")" if overdue else "") + ")" +
+                         (" AND id IN (" + ','.join('?' * len(attempt_ids)) + ")" if attempt_ids else "") +
+                         " ORDER BY lease_until,id" + (" LIMIT ?" if limit is not None else ""),
+                         (now, *overdue, *(attempt_ids or ()), *((limit,) if limit is not None else ()))).fetchall()
+        # Contact alone does not enroll future work in a grace cohort: expiration must
+        # first observe overdue leases, as it did before maintenance was chunked.
+        graces = self.stall_recovery(now) if any(row["id"] not in overdue for row in rows) else ()
         for row in rows:
             with isolated(c, "expire", row["id"]):
+                grace = next((g for g in graces if row["lease_until"] <= g[1]), None)
+                if grace and not row["already_graced"] and row["id"] not in overdue:
+                    served_at, _, until = grace
+                    c.execute("UPDATE attempts SET lease_until=? WHERE id=?", (until, row["id"]))
+                    H.event(c, H.KEEPER, "attempt.lease-grace", row["id"],
+                            {"bot": row["bot"], "lapsed": row["lease_until"], "lease_until": until,
+                             "served_at": served_at})
+                    continue
                 retry_state = state = "queued" if row["state"] == "leased" else "uncertain"
                 jobs = c.execute("SELECT j.id,j.message_id,t.status AS task_status FROM jobs j "
                                  "JOIN messages m ON m.id=j.message_id JOIN conversations cv ON cv.id=m.conversation_id "
@@ -1717,7 +1773,7 @@ class Execution:
                           (json.dumps(runtimes), H.now(), runner_id, profile))
         c.execute("UPDATE runners SET readiness_json=? WHERE id=?", (json.dumps(ready), runner_id))
 
-    def candidate(self, c, who, body, runner):
+    def candidate(self, c, who, body, runner, *, job_id=None):
         """The queued job this runner would be given next, or None. Reads only."""
         note_claim(runner["id"], body)
         lanes, roots = lanes_on(runner), roots_on(runner)
@@ -1770,13 +1826,14 @@ class Execution:
             "AND (m.from_actor LIKE 'human:%' OR NOT EXISTS(SELECT 1 FROM bot_config pc "
             "WHERE pc.bot=j.bot AND pc.onboarding_state IN " + PARKED_SQL + " "
             "AND m.from_actor<>'bot:'||coalesce(pc.reports_to,''))) "
-            f"AND {unfenced_sql()} "
+            f"AND {unfenced_sql()} AND {scoped_sql()} " + ("AND j.id=? " if job_id is not None else "") +
             # A redirect first (it replaces a turn just stopped); then a person's chat; then the bot holding the
             # fewest turns here, so a freed turn goes to another bot's waiting job before the busy bot's next one;
             # then task rank, then the longest waiting.
             "ORDER BY j.redirect DESC,CASE WHEN m.from_actor LIKE 'human:%' THEN 0 ELSE 1 END,"
             f"CASE j.bot {' '.join('WHEN ? THEN ?' for _ in bots)} ELSE 0 END,(qt.rank IS NULL),qt.rank,j.created,j.id",
-            (*bots, who.runner_id, *(v for bot in bots for v in (bot, held.get(bot, 0)))))
+            (*bots, who.runner_id, *((job_id,) if job_id is not None else ()),
+             *(v for bot in bots for v in (bot, held.get(bot, 0)))))
         for row in candidates:
             if job_refusal(c, row, followed[row["bot"]], ready, busy, lanes, roots, live) is None and not login_refusal(
                     c, self.store.settings, runner["id"], row["bot"], followed[row["bot"]], row["id"], subscription_context):
@@ -1798,7 +1855,7 @@ class Execution:
             return None
         answer = self._idle_claim(c, who, body, selected)
         if answer is not None:
-            self.served_at = H.now()        # answering a runner is what `stalled` measures
+            self.record_contact(H.now())
         return answer
 
     def _idle_claim(self, c, who, body, selected=None):
@@ -1864,17 +1921,19 @@ class Execution:
         if not runner:
             raise Problem("forbidden", "This computer is no longer registered", 403)
         now = H.now()
-        self.served_at = now
+        self.record_contact(now)
         self.stamp(c, who, runner, now)
 
-    def claim(self, c, who, body, selected=None):
+    def claim(self, c, who, body, selected=None, *, prepared=False):
         runner = self.runner(c, who)
         changes = c.total_changes
-        self.expire(c)
+        self.expire(c, limit=CLAIM_MAINTENANCE)
         if c.total_changes != changes:
-            selected = None
+            # Expiry can put a lapsed job back in the queue after the read snapshot chose:
+            # choose afresh under this lock so it goes out now, not one poll later.
+            selected, prepared = None, False
         now = H.now()
-        self.served_at = now
+        self.record_contact(now)
         # A claim is contact too, and on a machine waking for a few seconds it is the first
         # contact: the heartbeat behind it is up to 15 s away. Recording the waking period here
         # is what keeps a brief wake from taking work on a stale one.
@@ -1900,9 +1959,11 @@ class Execution:
             "AND NOT EXISTS (SELECT 1 FROM attempts fa WHERE fa.id=json_extract(m.refs_json,'$.filed_in') "
             "AND fa.state IN ('leased','running')))) "
             "AND NOT EXISTS (SELECT 1 FROM job_recovery r WHERE r.job_id=j.id "
-            "AND r.attempt_id=j.attempt_id AND r.decision='resume')", (who.runner_id,H.KEEPER,now)).fetchall()
+            "AND r.attempt_id=j.attempt_id AND r.decision='resume') ORDER BY j.created,j.id LIMIT ?",
+            (who.runner_id,H.KEEPER,now,CLAIM_MAINTENANCE)).fetchall()
         for old in obsolete:
-            selected = None
+            if not prepared:
+                selected = None
             c.execute("UPDATE jobs SET state='cancelled' WHERE id=?", (old['id'],))
             c.execute("UPDATE messages SET delivered_at=coalesce(delivered_at,?) WHERE id=?", (H.now(),old['message_id']))
             from .repositories import metadata
@@ -1926,9 +1987,14 @@ class Execution:
         # Its work keeps its place in the queue and goes out once the machine is really up.
         if not self.awake(awake_since, now):
             return {"attempt": None}
-        row = selected if selected is not None else self.candidate(c, who, body, runner)
+        # Selection scans the queue on a read connection. Recheck only that job's
+        # current eligibility under the writer lock; a changed queue waits one poll.
+        if prepared:
+            row = self.candidate(c, who, body, runner, job_id=selected["id"]) if selected is not None else None
+        else:
+            row = selected if selected is not None else self.candidate(c, who, body, runner)
         # Backfill a free turn after queued conversations and awaited results keep their place.
-        if row is None and (pending := auto_tasks.missing(c, self.store.settings, runner, body)):
+        if row is None and selected is None and (pending := auto_tasks.missing(c, self.store.settings, runner, body)):
             auto_tasks.enqueue(c, pending)
             row = self.candidate(c, who, body, runner)
         if not row:
@@ -2089,13 +2155,16 @@ class Execution:
         # turn. The claim holds the write lock and `carried_by` marks each one taken, so two lanes
         # never carry the same task.
         carried = []
+        # A bot limited to one task (scoped_sql) carries only that task's work: its other next-run tasks and waiting
+        # notes stay where they are for a run after the scope is released.
+        scope = claim_scope(c, row["bot"])
         # A check runs on another model for one subtask: the bot's other work waits for its own turns.
         if getattr(body, "next_run", False) and not check:
             if row["bot"] == "librarian":
                 from .docs import refresh_generated_docs
                 refresh_generated_docs(c)  # Also covers a Librarian enabled after the upgrade.
             for item in H.next_run_tasks(c, row["bot"], exclude=task["id"] if task else None):
-                if not H.task_private_readable(c, bot_who.actor, item):
+                if not H.task_private_readable(c, bot_who.actor, item) or scope and not in_scope(c, scope, item["id"]):
                     continue
                 if routine and H.task_private(c, item):
                     # A routine runs in company scope: a private task carried in would make the whole run
@@ -2116,7 +2185,7 @@ class Execution:
         # Quiet notes ride the same way: every note waiting for this bot, each with when it was
         # sent, so the run can tell yesterday's from this morning's.
         notes = []
-        if getattr(body, "next_run", False) and not check:
+        if getattr(body, "next_run", False) and not check and not scope:
             from . import bot_to_bot
             waiting = H.notes_waiting(c, row["bot"])
             for item in waiting:
@@ -2176,7 +2245,7 @@ class Execution:
         exists nowhere else, so a lapsed lease must not be grounds for refusing it: ownership
         still decides, the clock does not."""
         self.runner(c, who)
-        self.served_at = H.now()
+        self.record_contact(H.now())
         row = c.execute("SELECT a.*,x.runner_id AS assigned_runner,x.generation AS assigned_generation "
                         "FROM attempts a JOIN assignments x ON x.bot=a.bot WHERE a.id=?", (aid,)).fetchone()
         if not row or row["runner_id"] != who.runner_id:
@@ -2357,6 +2426,10 @@ class Execution:
         cancel_for_attempt(c, row["id"], f"Stopped by {name}")
 
     def renew(self, c, who, aid, *, if_fresh=False):
+        if if_fresh:
+            lease = c.execute("SELECT lease_until FROM attempts WHERE id=?", (aid,)).fetchone()
+            if not lease or lease[0] < H.shift(H.now(), seconds=max(20, self.store.settings.lease_seconds * 2 / 3)):
+                return None
         row = self.attempt(c, who, aid, active=not if_fresh)
         now = H.now()
         seconds = self.store.settings.lease_seconds
@@ -2507,23 +2580,16 @@ class Execution:
     @staticmethod
     def input_reply(c, attempt):
         aid = attempt["id"]
-        ids = c.execute("SELECT message_id FROM attempt_inputs WHERE attempt_id=? AND acked_at IS NULL", (aid,)).fetchall()
-        return {"attempt_id": aid, "messages": [m for row in ids if (m := H.message(c, row[0]))
-                             and privacy.message_readable(c, "bot:" + attempt["bot"], m)]}
+        rows = c.execute("SELECT m.* FROM attempt_inputs i JOIN messages m ON m.id=i.message_id "
+                         "WHERE i.attempt_id=? AND i.acked_at IS NULL AND m.deleted_at IS NULL", (aid,)).fetchall()
+        return {"attempt_id": aid, "messages": [H.message_view(c, row) for row in rows
+                if privacy.message_readable(c, "bot:" + attempt["bot"], row, current=True)]}
 
     def idle_inputs(self, c, who, aid):
-        """The answer to a steering poll that has nothing new to take, from a read: a running turn polls every few
-        seconds, and almost always no work is queued for its bot. None when the poll must run as the write
-        (`inputs`): work is queued for the bot, or the attempt is not plainly running."""
-        row = c.execute("SELECT state FROM attempts WHERE id=?", (aid,)).fetchone()
-        if not row or row["state"] != "running":
-            return None
-        attempt = self.attempt(c, who, aid)         # refuses as the write would; writes only for an expired one
-        if c.execute("SELECT 1 FROM jobs WHERE bot=? AND state='queued' LIMIT 1", (attempt["bot"],)).fetchone():
-            return None
-        return self.input_reply(c, attempt)
+        """A poll with no eligible queued input, without restoring or changing an attempt."""
+        return self.inputs(c, who, aid, if_idle=True)
 
-    def inputs(self, c, who, aid):
+    def inputs(self, c, who, aid, *, if_idle=False):
         """Add eligible queued work to a running turn when its runtime can steer.
 
         A follow-up in the turn's own conversation belongs to that turn. Across conversations,
@@ -2531,7 +2597,10 @@ class Execution:
         channel. The runner calls this endpoint only for hosts that advertise steering support.
         Re-deliver until acknowledged; a crash remains uncertain, not a new turn.
         """
-        attempt = self.attempt(c, who, aid)
+        attempt = self.attempt(c, who, aid, active=not if_idle)
+        if if_idle and (attempt["state"] != "running" or attempt["lease_until"] <= H.now()
+                        or not self.current_owner(c, who, attempt)):
+            return None
         if attempt["state"] != "running":
             return {"messages": []}
         # A comment its author took back mid-turn (H.task_comment_delete) still started the turn: read its row,
@@ -2550,8 +2619,11 @@ class Execution:
         task_room = ((H.task(c, origin_task) or {}).get("conversation_id")
                      if origin_task and str(dict(attempt).get("lane") or "").startswith("task:") else None)
         taken = 0
-        for row in c.execute("SELECT m.* FROM jobs j JOIN messages m ON m.id=j.message_id "
+        candidates = c.execute("SELECT m.* FROM jobs j JOIN messages m ON m.id=j.message_id "
+                             "JOIN conversations cv ON cv.id=m.conversation_id "
                              "WHERE j.bot=? AND j.state='queued' AND coalesce(json_extract(m.refs_json,'$.command'),0)!=1 "
+                             # A bot limited to one task takes nothing else into a running turn either.
+                             f"AND {scoped_sql()} "
                              # A redirect replaces the turn being stopped, so it starts the next one instead.
                              "AND j.redirect=0 AND (m.conversation_id=("
                              "SELECT active_message.conversation_id FROM attempts active_attempt "
@@ -2559,7 +2631,10 @@ class Execution:
                              "JOIN messages active_message ON active_message.id=active_job.message_id "
                              "WHERE active_attempt.id=?) OR m.conversation_id=? OR (m.kind='ask' AND m.wait_s>0 "
                              "AND m.from_actor LIKE 'bot:%')) ORDER BY m.rowid",
-                             (attempt["bot"], aid, task_room)).fetchall():
+                             (attempt["bot"], aid, task_room)).fetchall()
+        if if_idle and candidates:
+            return None
+        for row in candidates:
             # Ten at a time, counted after the filters below: older work queued for other lanes must
             # never hide this lane's follow-ups.
             if taken >= 10:
@@ -3407,7 +3482,7 @@ class Execution:
                 held.append(row["id"])
         return held
 
-    def drop_unreadable(self, c):
+    def drop_unreadable(self, c, job_ids=None):
         """Cancel every queued job whose message its bot may no longer read: a private task it was taken off, say.
 
         The claim passes over such a job for good (job_refusal's "unreadable"), so it would sit queued forever,
@@ -3417,7 +3492,9 @@ class Execution:
         dropped = []
         # From the bots to their queued jobs (jobs_queue), not from every job ever run.
         for row in c.execute("SELECT j.id,j.bot,j.message_id FROM bots b CROSS JOIN jobs j "
-                             "WHERE j.bot=b.slug AND j.state='queued' ORDER BY j.created,j.id").fetchall():
+                             "WHERE j.bot=b.slug AND j.state='queued'" +
+                             (" AND j.id IN (" + ",".join("?" * len(job_ids)) + ")" if job_ids else "") +
+                             " ORDER BY j.created,j.id", job_ids or ()).fetchall():
             with isolated(c, "drop_unreadable", row["id"]):
                 # job_refusal's own check, with its arguments.
                 if privacy.message_readable(c, "bot:" + row["bot"], H.message(c, row["message_id"])):
