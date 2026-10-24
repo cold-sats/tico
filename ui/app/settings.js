@@ -446,9 +446,10 @@ const STOPPED_PICK = {
     say: () => 'Don’t retry unless you know it did nothing. Tico has no record of what it did.'},
 };
 // `after` redraws the page it was opened from once a run is decided: Settings, or the bot's own header.
-async function executionReview(bot, after = loadSettings) {
-  const dialog = document.createElement('dialog'); dialog.className = 'tmodal';
-  dialog.innerHTML = `<header><h2>Stopped runs</h2><button class="ghost" data-close>Close</button></header><div data-review>Loading…</div>`;
+async function executionReview(bot, after = () => $('#settings-tabs') && loadSettings()) {
+  const dialog = document.createElement('dialog'); dialog.className = 'tmodal tmodal-shell stopped-runs-dialog';
+  dialog.setAttribute('aria-label', 'Stopped runs');
+  dialog.innerHTML = `<header class="tmodal-head"><h2>Stopped runs</h2><span class="spacer"></span><button class="ghost" type="button" data-close>Close</button></header><div class="tmodal-body" data-review>Loading…</div>`;
   dialog.querySelector('[data-close]').onclick = () => dialog.close();
   dialog.addEventListener('close', () => dialog.remove());
   document.body.appendChild(dialog); dialog.showModal();
@@ -456,7 +457,7 @@ async function executionReview(bot, after = loadSettings) {
   try {
     const {jobs} = await get(`/v2/bots/${encodeURIComponent(bot)}/execution-review`);
     host.innerHTML = jobs.length ? jobs.map(job => {
-      const saved = job.attempt?.final_text || job.output.map(event=>event.text).filter(Boolean).join('\n');
+      const saved = job.attempt?.final_text || job.output.map(event=>event.text).filter(Boolean).join('');
       const pick = STOPPED_PICK[job.stopped] || STOPPED_PICK.unknown, retry = pick.retry;
       const tools = (job.acted || []).join(', ');
       const button = (decision, label) => `<button type="submit" name="decision" value="${decision}"${(decision === 'resume') === retry ? '' : ' class="ghost"'}>${label}</button>`;
@@ -464,37 +465,59 @@ async function executionReview(bot, after = loadSettings) {
       <h3>${esc(job.task?.title || 'Interrupted conversation')}</h3>
       <p data-stopped>Stopped ${esc(fmt(job.attempt?.started || job.attempt?.created))} ${esc(pick.what(tools))}.</p>
       <p data-pick><strong>${esc(pick.say(tools))}</strong></p>
-      <div class="row">${retry ? button('resume', 'Try again') + button('dismiss', 'Don’t retry') : button('dismiss', 'Don’t retry') + button('resume', 'Try again')}</div>
-      <p data-result role="status"></p>
       <details data-details><summary>Details</summary>
         ${job.task ? `<p class="muted">Task ${esc(job.task.status)}${job.task.owner_name ? `, owner ${esc(job.task.owner_name)}` : ''}</p>` : ''}
         <p class="muted">${esc(job.reason)}</p>
         <details><summary>Original request</summary><div style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(job.request)}</div></details>
-        <details><summary>${saved ? 'What the run saved' : 'No answer was saved'}</summary><div style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto">${esc(saved || 'The run ended without saving an answer.')}</div></details>
+        <details><summary>${saved ? 'What the run saved' : 'No answer was saved'}</summary><div data-saved style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto">${esc(saved || 'The run ended without saving an answer.')}</div></details>
         ${job.tools?.length ? `<details><summary>Tool calls (${job.tools.length})</summary><ul class="review-tools">${job.tools.map(call => `<li${call.nested ? ' class="nested"' : ''}><code>${esc(call.tool)}</code>${call.summary ? ` ${esc(call.summary)}` : ''}${call.status ? ` <span class="muted">· ${esc(call.status)}</span>` : ''}</li>`).join('')}</ul></details>` : ''}
         <label>Note for the bot <span class="muted">Optional</span><textarea name="note" aria-label="Details for Tico" maxlength="4000" placeholder="For example: the draft exists, but nothing was sent."></textarea></label>
       </details>
+      <div class="stopped-run-actions">
+        ${retry ? '' : '<p data-retry-warning>Trying again could repeat work that already finished.</p>'}
+        <div class="row">${retry ? button('resume', 'Try again') + button('dismiss', 'Don’t retry') : button('dismiss', 'Don’t retry') + button('resume', 'Try again')}</div>
+        <p data-result role="status" aria-live="polite"></p>
+      </div>
     </form>`; }).join('') : '<p>No stopped runs remain.</p>';
-    host.querySelectorAll('form').forEach(form => form.onsubmit = async event => {
-      event.preventDefault();
-      const job = jobs.find(row=>row.id === form.dataset.job), decision = event.submitter?.value;
-      if (!decision) return;
-      const buttons = form.querySelectorAll('button'); buttons.forEach(button=>button.disabled=true);
-      try {
-        const detail = form.elements.note.value.trim();
-        const note = decision === 'resume'
-          ? 'The human said no outside action completed. Retry this request and check existing work before repeating any step.'
-          : 'The human said an outside action may have completed. Do not retry this delivery; inspect the task separately.';
-        await post(`/v2/jobs/${encodeURIComponent(job.id)}/reconcile`, {
-          attempt_id:job.attempt_id, decision, note:detail ? `${note} Details: ${detail}` : note,
-          acknowledge_uncertain_effects:true
-        });
-        form.innerHTML = `<p role="status">${decision === 'resume' ? 'Got it. Tico will try this request again.' : 'Got it. Tico won’t retry it; the task stays as it is.'}</p>`;
-        await after();
-      } catch(error) {
-        form.querySelector('[data-result]').textContent=error.message;
-        buttons.forEach(button=>button.disabled=false);
+    const outcome = (decision, deferred) => deferred
+      ? `Choice saved. The bot is busy; Tico will ${decision === 'resume' ? 'try again' : 'dismiss this run'} when its turn ends.`
+      : decision === 'resume' ? 'Queued to try again.' : 'Dismissed. Tico won’t retry this run.';
+    host.querySelectorAll('form').forEach(form => {
+      const job = jobs.find(row => row.id === form.dataset.job);
+      const result = form.querySelector('[data-result]'), buttons = form.querySelectorAll('button');
+      if (job.pending_decision) {
+        result.textContent = outcome(job.pending_decision.decision, true);
+        buttons.forEach(button => button.disabled = true);
       }
+      form.onsubmit = async event => {
+        event.preventDefault();
+        const decision = event.submitter?.value;
+        if (!decision || form.dataset.resolved || job.pending_decision) return;
+        buttons.forEach(button => button.disabled = true);
+        result.classList.remove('err'); result.textContent = 'Saving choice…';
+        result.scrollIntoView({block: 'nearest'});
+        try {
+          const detail = form.elements.note.value.trim();
+          const note = decision === 'resume'
+            ? 'The human chose to retry this request. Check existing work and external effects before repeating any step.'
+            : 'The human chose not to retry this delivery. Inspect the task separately.';
+          const done = await post(`/v2/jobs/${encodeURIComponent(job.id)}/reconcile`, {
+            attempt_id: job.attempt_id, decision, note: detail ? `${note} Details: ${detail}` : note,
+            acknowledge_uncertain_effects: true
+          });
+          form.dataset.resolved = 'true';
+          form.querySelector('[data-details]').open = false;
+          result.textContent = outcome(decision, done.deferred);
+        } catch(error) {
+          result.classList.add('err'); result.textContent = error.message;
+          buttons.forEach(button => button.disabled = false);
+          result.scrollIntoView({block: 'nearest'});
+          return;
+        }
+        // Refreshing another page is independent of recording the decision. Keep the receipt if it fails.
+        try { await after(); }
+        catch { toast('Choice saved. Refresh the page to update the list.', true); }
+      };
     });
   } catch(error) { host.textContent=error.message; }
 }

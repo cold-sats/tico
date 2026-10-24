@@ -301,6 +301,51 @@ def test_task_model_fallback_starts_from_the_checkpoint_instead_of_an_older_thre
     assert last["argv"] != call["argv"]
 
 
+@pytest.mark.parametrize("harness", ["claude"])
+def test_returning_task_model_receives_the_completed_fallback_checkpoint(api, computer):
+    from backend.tests.test_check_models import company
+    from backend.tests.test_task_models import set_task_model
+
+    company(api, "anthropic", "xai")
+    computer.start()
+    task = post(api, "tasks", {"owner": "ops", "title": "Continue the Acme release", "body": "Keep the release ready."})
+
+    def completed(count):
+        turns = until(lambda: (a if len(a := [t for t in computer.attempts() if t["state"] == "completed"]) >= count
+                                else None), f"task turn {count}")
+        assert all(t["result"]["outcome"] == "completed" for t in turns), turns
+        return get(api, f"tasks/{task['id']}")["runs"][0]
+
+    completed(1)
+    set_task_model(api, {"harness": "grok", "model": "grok-4.6"})
+    post(api, f"tasks/{task['id']}/chat", {"text": "Continue on the task model."})
+    assert completed(2)["ran_on"]["task_model"]["source"] == "task"
+    grok = computer.prompts()[-1]
+    assert grok["harness"] == "grok"
+    older = "Grok verified Acme build 42; the release checklist is still pending."
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET checkpoint=?,checkpoint_at=? WHERE id=?", (older, H.now(), task["id"]))
+
+    company(api, "anthropic")
+    work = "Acme_fallback_verified_build_43_and_completed_the_release_checklist"
+    post(api, f"tasks/{task['id']}/chat", {"text": f"RECALL code word is {work}"})
+    assert completed(3)["ran_on"]["task_model"]["source"] == "fallback"
+    with api.app.state.store.read() as c:
+        latest = c.execute("SELECT checkpoint,checkpoint_at FROM tasks WHERE id=?", (task["id"],)).fetchone()
+    assert work in latest["checkpoint"] and older not in latest["checkpoint"]
+
+    company(api, "anthropic", "xai")
+    post(api, f"tasks/{task['id']}/chat", {"text": "Resume on the recovered task model."})
+    recovered = completed(4)["ran_on"]
+    assert recovered["task_model"]["source"] == "task"
+    final = computer.prompts()[-1]
+    assert final["harness"] == "grok"
+    assert final["session"] == grok["session"], "normal same-runtime resume should be preserved"
+    assert any(c.get("method") == "session/load" and c.get("session") == grok["session"] for c in computer.calls())
+    assert f"Where this task stood after its last turn ({latest['checkpoint_at']}):\n{latest['checkpoint']}" in final["prompt"]
+    assert work in final["prompt"] and older not in final["prompt"]
+
+
 def test_a_chat_turn_streams_completes_and_resumes_the_bot_thread(api, computer):
     computer.start()
     first = post(api, "chat/ops", {"text": "Please answer locally"})

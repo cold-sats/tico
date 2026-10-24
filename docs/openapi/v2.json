@@ -626,7 +626,7 @@
     },
     "/api/v2/assistant/messages": {
       "post": {
-        "summary": "Say something to the Assistant. A lookup is answered at once (fast: true, with the reply); anything else is a turn of the assistant bot, shown as `execution` on GET /api/v2/assistant",
+        "summary": "Say something to the Assistant. A lookup is answered at once (fast: true, with the reply); anything else is a turn of the assistant bot, shown as `execution` on GET /api/v2/assistant. `place: updates` (the Updates chat) always takes a turn, handed the recent updates the caller may read",
         "operationId": "sendAssistantMessage",
         "requestBody": {
           "content": {
@@ -4777,7 +4777,7 @@
     },
     "/api/v2/events": {
       "get": {
-        "summary": "Server-sent events: tasks, messages, runs, bots and Needs you as they change. topics=<comma list> (default all), after=<change number> resumes, conversation=<ids> narrows messages and runs, bot=<slugs> narrows runs and bots, needs=changes sends Needs you as changed ids",
+        "summary": "Server-sent events: tasks, messages, runs, bots and Needs you as they change. topics=<comma list> (default all), after=<change number> resumes, conversation=<ids> narrows messages and runs, bot=<slugs> narrows runs and bots, task=<ids> and party=<actors> narrow tasks to those and to the ones those actors own or asked for, needs=changes sends Needs you as changed ids",
         "operationId": "streamEvents",
         "parameters": [
           {
@@ -4859,11 +4859,43 @@
               ],
               "title": "Needs"
             }
+          },
+          {
+            "name": "task",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Task"
+            }
+          },
+          {
+            "name": "party",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Party"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "text/event-stream. Each change is `id: <change number>`, `event: <topic>` and JSON `data` with `seq`, `actor` (who made it, when the viewer may know) and `at`:\n- `tasks`: `id` and `task` (as `GET /api/v2/tasks` shows it to the viewer), or `gone: true` for a deleted task.\n- `messages`: `id`, `conversation_id` and `message` (as a conversation page shows it), or `deleted: true`; a chat goal set, paused, met or stopped is `goal_id` and `goal`.\n- `runs`: `attempt_id`, `conversation_id`, `bot`, and either `output` (one step of the run: `kind`, `payload`) or `state` (`job_id`, and the job's or attempt's state).\n- `bots`: `bot` and `status` (as `GET /api/v2/status` lists it).\n- `needs`: the viewer's own Needs-you `count` and `items` (as `GET /api/v2/needs-you`), whenever anything on it may have moved. With `needs=changes`: `count`, `version`, and the ids `changed` and `removed` since `base` (null when more than 100 moved: read the list whole); read the changed items with `GET /api/v2/needs-you?ids=`, and the whole list when the version held is not `base`. `ready` then carries `needs_version`.\nAlso `event: ready` (`seq`: where the log stands), `event: cursor` (the change number to resume from, past changes the viewer may not see), `event: reset` (the client was further behind than the log keeps, 24 hours: read in full), `event: expired` (sign-in no longer valid; sign in and reconnect), and a `: keepalive` comment every 15 seconds. Only what the viewer may read is sent. A stream ends after about five minutes; reconnect with `after` (or the browser's own `Last-Event-ID`). People only: a bot is refused with 403.",
+            "description": "text/event-stream. Each change is `id: <change number>`, `event: <topic>` and JSON `data` with `seq`, `actor` (who made it, when the viewer may know) and `at`:\n- `tasks`: `id` and `task` (as `GET /api/v2/tasks` shows it to the viewer), or `gone: true` for a deleted task.\n- `messages`: `id`, `conversation_id` and `message` (as a conversation page shows it), or `deleted: true`; a chat goal set, paused, met or stopped is `goal_id` and `goal`.\n- `runs`: `attempt_id`, `conversation_id`, `bot`, and either `output` (one step of the run: `kind`, `payload`) or `state` (`job_id`, and the job's or attempt's state).\n- `bots`: `bot` and `status` (as `GET /api/v2/status` lists it).\n- `needs`: the viewer's own Needs-you `count` and `items` (as `GET /api/v2/needs-you`), whenever anything on it may have moved. With `needs=changes`: `count`, `version`, and the ids `changed` and `removed` since `base` (null when more than 100 moved: read the list whole); read the changed items with `GET /api/v2/needs-you?ids=`, and the whole list when the version held is not `base`. `ready` then carries `needs_version`.\nAlso `event: ready` (`seq`: where the log stands), `event: cursor` (the change number to resume from, past changes the viewer may not see), `event: reset` (the client was further behind than the log keeps, 24 hours: read in full), `event: expired` (sign-in no longer valid; sign in and reconnect), and a `: keepalive` comment every 15 seconds. Only what the viewer may read is sent. A stream ends after about fifteen minutes; reconnect with `after` (or the browser's own `Last-Event-ID`). People only: a bot is refused with 403.",
             "content": {
               "text/event-stream": {
                 "schema": {
@@ -18379,6 +18411,18 @@
             "maxLength": 8000,
             "minLength": 1,
             "title": "Text"
+          },
+          "place": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "updates"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Place"
           }
         },
         "additionalProperties": false,

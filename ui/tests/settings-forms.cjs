@@ -100,13 +100,11 @@ const {unrouted} = require('./support/routes.cjs');
     await botSearch.press('Escape');
     assert.equal(await botSearch.inputValue(), '');
     assert.equal(await page.locator('[data-settings-bot]').count(), 1);
-    const focused = () => page.evaluate(() => { const a = document.activeElement; return a?.dataset.botsFiltersToggle !== undefined ? 'filters' : a?.dataset.botsPicking !== undefined ? a.textContent : a?.dataset.botsSearch !== undefined ? 'search' : a?.tagName; });
+    const focused = () => page.evaluate(() => { const a = document.activeElement; return a?.dataset.botsPicking !== undefined ? a.textContent : a?.dataset.botsSearch !== undefined ? 'search' : a?.tagName; });
     assert.equal(await focused(), 'search', 'Escape keeps the cursor in the search box');
-    // On a phone, Filters, Select and Done redraw the list and keep the keyboard on the same control.
+    // On a phone, Select and Done redraw the list and keep the keyboard on the same control.
     await page.setViewportSize({width: 390, height: 844});
-    await page.locator('[data-bots-filters-toggle]').press('Enter');
-    assert.equal(await focused(), 'filters');
-    assert.equal(await page.locator('[data-bots-filter=model]').isVisible(), true);
+    assert.equal(await page.locator('[data-bots-filter],[data-bots-filters-toggle]').count(), 0, 'one search replaces the filters');
     await page.locator('[data-bots-picking]').press('Enter');
     assert.equal(await focused(), 'Done');
     await page.locator('[data-bots-pick-all]').press('Enter');

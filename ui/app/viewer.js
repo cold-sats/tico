@@ -198,7 +198,7 @@ function viewerDialog() {
   if (!d) {
     d = document.createElement('dialog'); d.id = 'doc-viewer'; d.className = 'tmodal doc-viewer';
     d.addEventListener('click', ev => { if (ev.target === d) d.close(); });
-    d.addEventListener('close', () => { d.querySelector('video, audio')?.pause(); VIEW = null; });
+    d.addEventListener('close', () => { d.querySelector('video, audio')?.pause(); d.zoomAbort?.abort(); d.zoomAbort = null; VIEW = null; });
     // On the document: a redraw drops focus out of the dialog, and the arrows must still work.
     document.addEventListener('keydown', ev => {
       if (!d.open || ev.target.closest?.('input, textarea, [contenteditable]')) return;
@@ -228,15 +228,20 @@ async function viewerShow() {
       ${many ? `<span class="viewer-count">${state.index + 1} / ${state.items.length}</span>` : ''}${extra}
       <button class="ghost" type="button" data-doc-close aria-label="Close">✕</button></div>`;
   const arrows = many ? '<button type="button" class="viewer-nav prev" data-view-step="-1" aria-label="Previous">‹</button><button type="button" class="viewer-nav next" data-view-step="1" aria-label="Next">›</button>' : '';
-  const paint = (name, kind, body, extra) => {
+  const paint = (name, kind, body, extra = '') => {
     if (VIEW !== state || state.items[state.index] !== item) return;
+    d.zoomAbort?.abort(); d.zoomAbort = null;
     d.className = 'tmodal doc-viewer' + (['image', 'video', 'embed'].includes(kind) ? ' viewer-media' : '');
-    d.innerHTML = head(name, extra) + `<div class="doc-viewer-body viewer-${kind}">${body}</div>` + arrows;
+    const zoomBar = kind === 'image' && body.includes('viewer-img') ? `<span class="pic-zoom-bar">${PIC_ZOOM_BAR}</span>` : '';
+    d.innerHTML = head(name, zoomBar + extra) + `<div class="doc-viewer-body viewer-${kind}">${body}</div>` + arrows;
     d.querySelector('[data-doc-close]').onclick = () => d.close();
     for (const b of d.querySelectorAll('[data-view-step]')) b.onclick = () => viewerStep(Number(b.dataset.viewStep));
     const img = d.querySelector('.viewer-img');
     if (img) {
-      img.onclick = () => img.classList.toggle('zoom');
+      // Opens whole, fitted to the viewer; zooms and pans there (picZoom, ui/app/visual-pictures.js). `zoom` holds the
+      // swipe to the next file while zoomed.
+      d.zoomAbort = new AbortController();
+      picZoom(img.parentElement, img, {signal: d.zoomAbort.signal, bar: d.querySelector('.pic-zoom-bar'), onZoom: on => img.classList.toggle('zoom', on)});
       // An icon (a 24 px SVG, say) is shown big enough to see; a vector stays sharp.
       const grow = () => {
         const w = img.naturalWidth, h = img.naturalHeight, big = Math.max(w, h);

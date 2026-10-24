@@ -1,6 +1,7 @@
 # Manage a company's billing (staff)
 
-**Unreleased Hosting update:** billing remains off. The Hosting rules below do not confirm deployment or activation.
+**Unreleased Hosting update:** billing remains off. Stop-time change emails and renewed reminders have passed source review and synthetic QA.
+The original notices and stop-time changes are merged and automatically deployed to HQ. Billing activation and live acceptance remain unverified.
 
 Only Tico staff see this page. Open **Customers** on the admin page, pick the company, then open **Billing**.
 The page sits behind Cloudflare Access, so customers never reach it, and HQ only takes these changes with
@@ -11,8 +12,20 @@ period. The company is **Active** only while its balance is above its minimum. A
 **Paused**: a balance of $0.00 with a $0 minimum is paused. Below the panel are the settings history, credits,
 the month's debits, usage by day and the month's statement, the same figures the company sees.
 
-The balance here is the billed balance. Usage from the current hour is not billed yet, so right after a
-company is paused the Gateway can keep refusing calls until a credit also covers that unbilled usage.
+**Balance** is the billed balance. The **Account** panel also separates these Gateway readings:
+
+- **Unbilled usage** is usage since the last hourly bill.
+- **Live balance** is the billed balance less unbilled usage.
+- **Gateway** reports **Running**, **Stopped**, or an unknown status. In **Enforce** mode, it stops on the live balance and follows within five minutes.
+
+A credit can clear the billed pause while the Gateway still refuses calls because unbilled usage uses up that credit.
+If HQ supplies no live reading, **Gateway** says **HQ doesn't report the live balance**.
+The staff account response carries this reading in `live`. The direct live route uses the billing account ID.
+
+The Gateway stop time comes from a recorded stop event.
+A stopped Gateway without that event has an unknown stop time (`stopped_since: null`).
+Repeated reads do not invent a time. Once the event is recorded, its timestamp stays the stop time.
+Where stop times appear in credit notices, an unknown time reads **Not reported yet**.
 
 ## Add credit
 
@@ -63,9 +76,26 @@ The stop time counts from when the balance first reached the minimum. Changing t
 recomputes that stop time from the same starting point.
 If the new deadline has already passed, servers stop at the next daily run at 00:05 UTC, rather than when you save.
 For example, shortening a 72-hour grace to 48 hours after 50 hours schedules the stop for that next daily run.
+The change email names that next 00:05 UTC run. The final stop email names the actual successful stop time.
 
-Stops retain the servers' data. Grace notices are still pending: the design includes the stop time at grace start,
-a reminder 24 hours before stop, and a stop email. Delivered notices and **Needs you** items are not yet confirmed.
+Stops retain the servers’ data. With positive grace in **Enforce** mode, the current owner gets the grace-start email,
+a 24-hour reminder where applicable, and the stopped/data-kept email.
+The owner’s account page shows one **Needs you: add credit** card with the UTC stop time and **Ask for more credit** direction.
+Every real stop-time move sends one **Stop time changed** email and updates that same card.
+Earlier and later moves both count, whether or not the prior reminder was sent.
+If the new stop is more than 24 hours away at the change, one reminder follows at the new stop minus 24 hours.
+At 24 hours or less, the change email replaces the reminder.
+Reminders are at most once per stop time within the same grace period, including a return to an already-reminded time.
+An edit that leaves the effective stop time unchanged sends nothing.
+Recovery above the minimum ends grace without a change email. Recovery or a completed stop removes the card.
+See [Hosting grace and retained data](account.md#hosting-grace-and-retained-data) for the email timing and exclusions.
+
+The recipient comes from the current company owner’s membership and profile, not the original sign-up email.
+A complete start or change delivery requires an accepted email and an available current-owner card with the matching stop time.
+A failed or partial delivery is recorded as `unsent`, even if one channel succeeded.
+There is no automatic retry or outbox for grace notices. An unsent result does not prove that no email was accepted.
+Zero-hour companies, including waitlist companies, use their separate credit-notice run-out email instead.
+**Record only** companies receive no grace notices. Delivered notices and the live card remain unverified.
 
 For the daily charge and restart rules, see [Hosting grace and retained data](account.md#hosting-grace-and-retained-data)
 and [More credit and restarting](account.md#more-credit-and-restarting).
@@ -79,6 +109,11 @@ Pick **Record only** or **Enforce**.
 **Record only** is the default for every company: usage and balance are recorded and shown, and
 nothing stops. Tico Team's own install always stays **Record only**. With **Enforce**, the company's
 Tico models stop at the minimum balance and its Hosting servers stop once the grace period ends.
+
+Source review and synthetic QA for changed-stop-time notices and reminders have passed.
+This clears the test 24 QA prerequisite; it does not authorize enabling positive-grace enforcement.
+Do not switch any company to **Enforce** with Hosting grace above zero without separate activation authorization.
+**Record only** and zero-hour waitlist companies remain unaffected.
 
 ## Credit notices
 
@@ -126,13 +161,20 @@ value, the new value, who made it, and when.
 
 If HQ does not answer, the page shows **Send again** at the top with the same change. It is safe to
 select it: HQ makes the credit or change at most once.
+This form retry does not resend an unsent grace notice.
 
 A company with no billing account yet shows only the Add credit and Change settings forms. Adding a
 credit or changing a setting opens the account with HQ's defaults: minimum $0.00, Hosting grace
 period 72 hours, Record only.
 
-*Hosting changes checked 2026-10-23: ticoteam/tico-services#138; Billing system spec v1.1, boundary rule and tests 7–8 and 19–23; waitlist spec v3.4, Answers 15–16. Owner-start safeguard (Dev 430) and grace notices (Dev 347) remain unfinished. Billing remains off.*
+*Hosting changes checked 2026-10-23: ticoteam/tico-services#138; Billing system spec v1.1, boundary rule and tests 7–8 and 19–23; waitlist spec v3.4, Answers 15–16. Owner-start safeguard (Dev 430) remains separate; grace notices are covered below from services#147. Billing remains off.*
+
+*Grace notices and Gateway status checked 2026-10-23: [ticoteam/tico-services#147](https://github.com/ticoteam/tico-services/pull/147), billing/staff.py (staff_billing_account), billing/gateway_usage.py (live), billing/grace_notices.py, billing/hosting.py, and portal/views.py; Billing system spec v1.1, tests 7 and 19. Gateway labels checked in ticoteam/tico-internal admin/tico_admin/billing.py (standing), reviewed source 58bb5077. Fresh internal-repository access, separate admin installation, HQ deployment, daily billing activation, live email, and power actions not verified.*
+
+*Stop-time changes checked 2026-10-23: [ticoteam/tico-services#154](https://github.com/ticoteam/tico-services/pull/154), source a4a34d49, billing/hosting.py (_grace_period, _scheduled_at, _has, grace_text) and billing/grace_notices.py (__call__); Billing system spec v1.2, tests 19, 21, and 24. Both serial reviews and independent QA passed, including tests 7, 19, 21, and 24. This clears the test 24 QA prerequisite, not activation authorization. Merge, deployment, and activation remain unconfirmed. No live email, database, or power verification.*
 
 *Credit notices checked 2026-10-23: waitlist spec v3.4 sections 2–3, Answer 15 and test 12g–i; services#130/#142, billing/credit_notices.py, billing/hosting.py (to_restart, _short), portal/views.py (credit_notice); admin#18/#21, admin/tico_admin/credit_notices.py (notices_section, account_page, threshold_history, email_history). Both restart-quote follow-ups are merged. Deployment, admin installation, email delivery and live stop/restart acceptance remain unverified.*
 
 *Warning boundaries clarified 2026-10-24: Product waitlist spec v3.5, section 2 step 9a, tests 14–15, and Answer 18. One warning per strictly-below-threshold episode; recovery at or above the threshold re-arms it. Live email delivery is not verified.*
+
+*Delivery update, 2026-10-24: services#147 and services#154 are merged and their automatic HQ deployments are verified. Test 24 and funded-grace source QA prerequisites have passed. Separate staff installation, live card/email/power acceptance, and explicit activation authorization remain; Hosting billing stays off.*

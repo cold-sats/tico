@@ -47,7 +47,7 @@ function route() {
   if (!S.route.startsWith('#/replay')) replayStop();
   if (!/^#\/computers\/[^/?]+\/screen$/.test(S.route)) screenStop();
   if (!/^#\/computers\/[^/?]+\/performance$/.test(S.route)) perfStop();
-  if (UPD && !(S.route === UPDATES || S.route.startsWith(UPDATES + '?'))) { UPD.io?.disconnect(); void updFlush(UPD); UPD = null; }
+  if (!(S.route === UPDATES || S.route.startsWith(UPDATES + '?'))) { if (UPD) { UPD.io?.disconnect(); void updFlush(UPD); UPD = null; } updcStop(); }
   if (!S.route.startsWith('#/bot/')) botStopped();
   renderTree();
   if (S.route === NOTES || S.route === RECORDINGS || S.route.startsWith(RECORDINGS + '?')) {

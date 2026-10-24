@@ -28,9 +28,9 @@ function settingsAppDeliveryNote(e) {
 const agentPairButton = e => ['hermes', 'openclaw'].includes(e.agent?.harness) ? `<button class="ghost" type="button" data-agent-pair="${esc(e.name)}">Pair</button>` : '';
 function settingsAgentPair(slug) {
   const e = S.emps.find(row => row.name === slug); if (!e) return;
-  const dialog = document.createElement('dialog'); dialog.className = 'tmodal agent-credential';
+  const dialog = document.createElement('dialog'); dialog.className = 'tmodal tmodal-shell agent-credential';
   dialog.innerHTML = `<form method="dialog"><header><h2>Pair ${esc(e.display_name)}</h2><button class="ghost" type="button" data-close>Close</button></header>
-    <div class="agent-credential-body">
+    <div class="tmodal-body agent-credential-body">
       <label>Code<input name="code" type="text" required autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="12" placeholder="K7QM-4F2P"></label>
       <p class="muted">Printed by <code>hermes_agent.py pair</code> on the profile's computer (Hermes or OpenClaw).</p>
       <p class="muted" data-pair-preview></p>
@@ -73,9 +73,9 @@ async function settingsAgentCredential(slug) {
   try { issued = await post(`/v2/bots/${encodeURIComponent(slug)}/agent-credential`, {}); }
   catch (error) { toast(error.message, true); return; }
   const setup = issued.setup, yaml = agentConfigYaml(setup);
-  const dialog = document.createElement('dialog'); dialog.className = 'tmodal agent-credential';
+  const dialog = document.createElement('dialog'); dialog.className = 'tmodal tmodal-shell agent-credential';
   dialog.innerHTML = `<header><h2>${rotating ? 'New agent credential' : 'Agent credential'} for ${esc(e.display_name)}</h2><button class="ghost" type="button" data-close>Close</button></header>
-    <div class="agent-credential-body">
+    <div class="tmodal-body agent-credential-body">
       <p>Shown once. It is this bot's identity; revoking it stops the bot at once.</p>
       <label>Token<div class="row"><code class="agent-token" data-token>${esc(issued.token)}</code><button class="ghost" type="button" data-copy-token>Copy</button></div></label>
       <label>On the computer that runs the ${e.agent?.harness === 'openclaw' ? 'OpenClaw' : 'Hermes'} profile, one command installs Tico as an MCP server in the profile and a heartbeat timer:
@@ -130,9 +130,9 @@ async function renderSettingsTokens() {
   };
 }
 function settingsTokenShow(issued) {
-  const dialog = document.createElement('dialog'); dialog.className = 'tmodal agent-credential';
+  const dialog = document.createElement('dialog'); dialog.className = 'tmodal tmodal-shell agent-credential';
   dialog.innerHTML = `<header><h2>Token ${esc(issued.label)}</h2><button class="ghost" type="button" data-close>Close</button></header>
-    <div class="agent-credential-body">
+    <div class="tmodal-body agent-credential-body">
       <p>Shown once. It acts as you, and expires ${esc(new Date(issued.expires_at).toLocaleDateString())}.</p>
       <label>Token<div class="row"><code class="agent-token" data-token>${esc(issued.token)}</code><button class="ghost" type="button" data-copy-token>Copy</button></div></label>
       <label>In a shell, for the <code>hub</code> command line and scripts:<div class="row"><code data-command>export HUB_API_URL=${esc(location.origin)} HUB_TOKEN=${esc(issued.token)}</code><button class="ghost" type="button" data-copy-command>Copy</button></div></label>
@@ -438,7 +438,7 @@ function renderSettingsMachines() {
     const shown = event.target.closest('[data-computer-bots]');
     if (shown) {
       event.preventDefault(); dialog?.close();
-      SETTINGS_BOTS_VIEW.computer = shown.dataset.computerBots; settingsBotsRemember(); settingsShow('bots'); renderSettingsBots();
+      settingsShow('bots'); renderSettingsBots();
       return;
     }
     const login = event.target.closest('[data-machine-copy-login]');

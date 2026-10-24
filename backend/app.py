@@ -79,6 +79,28 @@ STABLE_PATH = re.compile("|".join(re.sub(r"\\\{[^}]+\\\}", "[^/]+", re.escape(sp
                                   for spelling in (path, *old_route_paths(path))))
 
 
+# The inbox sends at most this many messages and this many tasks; the rest wait for a later read.
+INBOX_LIMIT = 100
+
+
+def _newest_visible(items, visible):
+    """The newest `INBOX_LIMIT` of `items` (oldest first) that pass `visible`, checked newest first so a readable
+    backlog costs nothing, and whether one more item passes the same check: a hidden item never sets the flag."""
+    kept, more = _first_visible(items[::-1], visible)
+    return kept[::-1], more
+
+
+def _first_visible(items, visible):
+    """The first `INBOX_LIMIT` of `items` that pass `visible`, and whether one more item passes it too."""
+    kept = []
+    for item in items:
+        if visible(item):
+            if len(kept) == INBOX_LIMIT:
+                return kept, True
+            kept.append(item)
+    return kept, False
+
+
 def reset_bot_sessions(c, bot):
     """Keep durable history while fencing local provider sessions for one bot."""
     bump_bot_session_epoch(c, bot)
@@ -120,6 +142,7 @@ def create_app(settings=None):
         from . import company_storage
         company_storage.startup(store, app.state.vault, app.state.blobs)
         asyncio.get_running_loop().run_in_executor(None, auth.warm)   # Cloudflare's keys, before anyone signs in
+        asyncio.get_running_loop().run_in_executor(None, app.state.vault.cipher.warm, store)   # the KMS data key
         # TICO_SAMPLE_COMPANY=on: a new company starts as the sample company, once (backend/sample_company.py).
         if settings.company_file_configured or settings.company_file_data:
             # A file that can't be applied is kept for the owner to see; never a sample company in its place.
@@ -1034,7 +1057,8 @@ def create_app(settings=None):
         return value
 
     def task_views(rows, c, who, visible_sql="1"):
-        """Hydrate one task-list page with a fixed number of relation queries."""
+        """Hydrate one task-list page with a fixed number of relation queries. `rows` were read on `c` under
+        `visible_sql`, the reader's rule, as every list does: each row stands for that rule's answer for its task."""
         if not rows:
             return []
         H.hydrate_task_tags(c, rows)
@@ -1063,7 +1087,10 @@ def create_app(settings=None):
 
         links = {tid: [] for tid in ids}
         for link in c.execute(f"SELECT * FROM task_links WHERE task_id IN ({marks}) ORDER BY created", ids):
-            links[link["task_id"]].append({k: v for k, v in dict(link).items() if k not in ("detail_json", "pr_sha")})
+            # Not a link's record, its empty columns or its own write time (a computer's heartbeat rewrites that every
+            # minute): the task's read and its /links have them, and every open tab gets each list change.
+            links[link["task_id"]].append({k: v for k, v in dict(link).items()
+                                           if v is not None and k not in ("detail_json", "pr_sha", "updated")})
 
         attachments = {tid: [] for tid in ids}
         from .blobs import brief
@@ -1077,11 +1104,14 @@ def create_app(settings=None):
         asks, open_counts = {}, {}
         # Readability is checked here, not by a SQL function: installing one marks the pooled connection
         # as changed, so it was closed after every task list and the next read paid for a new one.
-        for message in c.execute(
-                "SELECT m.*,t.id AS ask_task_id FROM tasks t JOIN conversations cv ON cv.id=t.conversation_id "
-                f"JOIN messages m ON m.conversation_id=t.conversation_id AND {H.MESSAGE_TASK_SQL}=t.id "
-                f"WHERE t.id IN ({marks}) AND m.kind='ask' AND m.deleted_at IS NULL "
-                f"AND {H.OPEN_ASK_SQL} ORDER BY m.rowid DESC", ids).fetchall():
+        open_asks = c.execute(
+            "SELECT m.*,t.id AS ask_task_id FROM tasks t JOIN conversations cv ON cv.id=t.conversation_id "
+            f"JOIN messages m ON m.conversation_id=t.conversation_id AND {H.MESSAGE_TASK_SQL}=t.id "
+            f"WHERE t.id IN ({marks}) AND m.kind='ask' AND m.deleted_at IS NULL "
+            f"AND {H.OPEN_ASK_SQL} ORDER BY m.rowid DESC", ids).fetchall()
+        # Each ask's room is checked below; the rooms are read together first, not one room per task.
+        provenance.meetings.prime_conversations({message["conversation_id"] for message in open_asks})
+        for message in open_asks:
             if not provenance.message(message["id"], message["conversation_id"], message["refs_json"],
                                       message["in_reply_to"]):
                 continue
@@ -1108,6 +1138,10 @@ def create_app(settings=None):
             legacy_owner = H.human_actor(H.default_human(c))
         pipelines = H.type_list(c)
         summaries = H.children_summaries(c, ids, visible_sql)
+        # The rows each row's from_person and quiet state read, read for the whole page first; each row is still
+        # decided one at a time by the same code below.
+        views.prime_list_origins(c, visible_sql, rows)
+        quiet_work.prime(c, [row for row in rows if row.get("next_run")])
         result = []
         for row in rows:
             value = task_view(row, pipelines=pipelines)
@@ -1161,8 +1195,7 @@ def create_app(settings=None):
         return visuals.key_for(app, settings)
 
     def visual_ancestors():
-        from .visuals import origin_of
-        return list(dict.fromkeys(["'self'", origin_of(settings.public_url), *settings.cors_origins]))
+        return visuals.ancestors(settings)
 
     @app.api_route("/visuals/{token}", methods=["GET", "HEAD"], include_in_schema=False)
     def visual(request: Request, token: str):
@@ -2447,25 +2480,8 @@ def create_app(settings=None):
 
     # ------------------------------------------------------------------ updates (backend/updates.py)
     def update_visible(c, who, mine=False, scope=None):
-        """The authors whose updates `who` may read: bots they have Read on, and every person on the
-        chart (`human:<id>`), since a person's update is for the whole company. An external agent
-        (`who.agent`) is outside the company and sees only its bots. With `mine`, only
-        the bots they operate (for the owner, also bots with no operator) and their own update, the
-        Updates page's My bots filter (the count must match what the feed shows). With
-        `scope=direct`, only their direct reports on the org chart: the one level that alerts."""
-        readable = {slug for slug, level in auth.bot_accesses(c, who).items() if level["read"]}
-        if who.role in ("owner", "human") or (who.role == "bot" and not who.agent):
-            readable |= {H.human_actor(p["id"]) for p in P.visible_people(views.roster(c))}
-        if mine:
-            pid = H.actor_id(who.actor)
-            operators = {r[0]: r[1] for r in c.execute("SELECT bot, operator FROM bot_config")}
-            readable = {slug for slug in readable if slug == who.actor or operators.get(slug) == pid
-                        or (not updates.is_person(slug) and not operators.get(slug) and who.role == "owner")}
-        if scope == "direct":
-            archived = {row["slug"] for row in H.bots(c) if row.get("state") == "archived"}
-            reports = G.reports_of(who.actor, views.roster(c), views.entries(c), archived)
-            readable &= {a if H.actor_kind(a) == "human" else H.actor_id(a) for a in reports}
-        return readable
+        """The authors whose updates `who` may read (backend/updates.py visible_authors)."""
+        return updates.visible_authors(c, auth, who, mine, scope)
 
     def update_scope(scope):
         if scope not in (None, "", "all", "direct"):
@@ -3102,7 +3118,7 @@ def create_app(settings=None):
             except Problem:
                 can_comment = False
             return {"task": task_view(row, c, visible_sql=auth.task_sql(c, who), who=who),
-                    "events": [e for e in H.task_history(c, tid) if privacy.content_readable(c, privacy.actor(who), e)],
+                    "events": privacy.content_readable_rows(c, privacy.actor(who), H.task_history(c, tid)),
                     "can_comment": can_comment,
                     "children": children,
                     # The task page reads as its session's chat: each bot reply carries the run behind it (`run`,
@@ -3155,9 +3171,10 @@ def create_app(settings=None):
         weighs who built what reads this, never the bot's configured model: a fallback turn ran elsewhere."""
         from .usage_records import ran_on
         actor = privacy.actor(who)
-        rows = [r for r in H._rows(c.execute("SELECT id,bot,started,finished,exit FROM turns WHERE task_id=? "
-                                             "ORDER BY started DESC LIMIT ?", (tid, limit)))
-                if privacy.attempt_readable(c, actor, r["id"])]
+        rows = H._rows(c.execute("SELECT id,bot,started,finished,exit FROM turns WHERE task_id=? "
+                                 "ORDER BY started DESC LIMIT ?", (tid, limit)))
+        privacy.prime_attempts(c, [r["id"] for r in rows])
+        rows = [r for r in rows if privacy.attempt_readable(c, actor, r["id"])]
         made = ran_on(c, [r["id"] for r in rows])
         return [{"run": r["id"], "bot": r["bot"], "started": r["started"], "finished": r["finished"],
                  "outcome": r["exit"], "ran_on": made[r["id"]]} for r in rows]
@@ -3824,6 +3841,15 @@ def create_app(settings=None):
                 raise Problem("validation", "meetings.auto_share is a boolean", 422)
         if not re.fullmatch(r"[a-z0-9_.-]{1,64}", key):
             raise Problem("kind", "A preference key is lower-case letters, digits, dots, dashes", 422)
+        if not request.headers.get("idempotency-key"):
+            # An unchanged value (a page re-saving what it read) answers from a read: no writer wait.
+            with store.read() as c:
+                same = c.execute("SELECT 1 FROM preferences WHERE actor=? AND key=? AND value_json=?",
+                                 (who.actor, key, encode(body.value))).fetchone()
+                if same:
+                    privacy.guard_write(c, getattr(request.state, "privacy_source", who), request.url.path, auth)
+            if same:
+                return {"key": key, "value": body.value}
         def work(c):
             c.execute("INSERT INTO preferences(actor,key,value_json,updated) VALUES(?,?,?,?) "
                       "ON CONFLICT(actor,key) DO UPDATE SET value_json=excluded.value_json, updated=excluded.updated",
@@ -3914,9 +3940,14 @@ def create_app(settings=None):
                         "history": [privacy.status(c, who, r, **inputs) for r in H.status_history(c, bot, since=since_time(since))]}
             from .views import updating
             readable = auth.bot_accesses(c, who)
-            statuses = [s for s in H.status_all(c) if readable.get(s["bot"], auth.FULL)["read"]]
+            # A first-turn waiter may not have a bot_status row until /started. Include live candidates;
+            # status_line keeps only an actual wait when no stored status exists.
+            statuses = [s for s in c.execute("SELECT bot FROM bot_status UNION SELECT bot FROM attempts "
+                                             "WHERE state IN ('leased','running') ORDER BY bot")
+                        if readable.get(s["bot"], auth.FULL)["read"]]
             inputs = privacy.status_inputs(c, [s["bot"] for s in statuses])
-            return {"bots": [status_line(c, who, s["bot"], default, inputs[s["bot"]], auth=auth) for s in statuses],
+            return {"bots": [line for s in statuses
+                             if (line := status_line(c, who, s["bot"], default, inputs[s["bot"]], auth=auth)) is not None],
                     # Tico updating itself, shown beside the status line
                     "updating": updating(c)}
 
@@ -4576,19 +4607,24 @@ def create_app(settings=None):
         auth.domain(who)
         with store.read() as c:
             result = H.inbox(c, who.actor)
-            result["messages"] = [m for m in result["messages"] if privacy.message_readable(c, privacy.actor(who), m)]
-            result["tasks"] = [t for t in result.get("tasks", []) if privacy.task_readable(c, who, t)]
-            result["approvals"] = [a for a in result.get("approvals", [])
-                                   if privacy.message_readable(c, privacy.actor(who), H.message(c, a["message_id"]))]
-            if who.role == "bot":
-                visible = []
-                for message in result["messages"]:
+
+            def message_visible(message):
+                if not privacy.message_readable(c, privacy.actor(who), message):
+                    return False
+                if who.role == "bot":
                     try:
                         auth.conversation(c, who, message["conversation_id"])
-                        visible.append(message)
                     except Problem:
-                        pass
-                result["messages"] = visible
+                        return False
+                return True
+
+            # A bot that never marks messages read can hold thousands: the newest INBOX_LIMIT readable ones are
+            # checked and sent, oldest first as before, and `more_messages` says older ones are waiting.
+            result["messages"], result["more_messages"] = _newest_visible(result["messages"], message_visible)
+            result["tasks"], result["more_tasks"] = _first_visible(result.get("tasks", []),
+                                                                   lambda t: privacy.task_readable(c, who, t))
+            result["approvals"] = [a for a in result.get("approvals", [])
+                                   if privacy.message_readable(c, privacy.actor(who), H.message(c, a["message_id"]))]
             result["notices"] = [m for m in result["messages"] if m["kind"] == "notice"]
             return result
 
@@ -5928,6 +5964,8 @@ def create_app(settings=None):
     stale_review.install(app, store, auth, mutate)
     from . import system_routines
     system_routines.install(app, store, auth, mutate)
+    from . import task_rules
+    task_rules.install(app, store, auth, mutate)
     outcome_stats.install(app, store, auth)
     from .live_meetings import install_live_meetings
     install_live_meetings(app, store, auth, mutate)
