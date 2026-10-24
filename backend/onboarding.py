@@ -573,7 +573,7 @@ class Onboarding:
                     reports_to=parent, expected_revision=row["revision"]))
         # The team builder builds the chart by group: each bot goes in the group of its template, made if the team
         # has none yet (backend/groups.py).
-        Groups.place(c, self.settings, list(plan))
+        Groups.place(c, self.settings, list(plan), group_order=record["answers"]["departments"])
         laid = self._lay_out(c, who, record, roles, cards, names, home)
         if not record["completed"]:
             # A new company starts caught up: the releases shipped before it existed are not news to its owner.
