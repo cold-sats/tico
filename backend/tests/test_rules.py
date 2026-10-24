@@ -60,6 +60,9 @@ def test_rows_override_by_scope_task_over_bot_over_team_and_the_floor_stays(api)
     with api.app.state.store.read() as c:
         last = c.execute("SELECT refs_json FROM messages WHERE from_actor='human:ana' ORDER BY rowid DESC").fetchone()
         assert json.loads(last[0])["rule"] == "person_message" and "quiet" not in json.loads(last[0])
+        # What the bot waits on still wakes it under a `*` row.
+        found = R.judge(c, H.KEEPER, "bot:cpo", "message", {"task": task["id"], "blocker_done": True}, "Done", None)
+        assert (found.outcome, found.rule) == ("wake", "awaited_blocker_done")
 
 
 def test_a_run_records_the_rule_that_woke_it_and_fail_open_wakes(api, monkeypatch):

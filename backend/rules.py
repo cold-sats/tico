@@ -23,7 +23,7 @@ wakes under the rule named for its event (`assignment`, `stall`, `routine`, ...)
 the filters stays in backend/wake_rules.py and backend/bot_to_bot.py; this module orders them and names them.
 
 Table rows (the `rules` table, `scope_kind` team, type, department, bot or task) override the built-ins. A row
-matches one event (or `*`, every event that is not always-wake) and optional conditions (`when_json`), and the
+matches one event (or `*`, every event that is neither always-wake nor awaited) and optional conditions (`when_json`), and the
 first match wins by scope, most specific first: task, bot, department, type, team, then the built-ins; inside a
 scope by `position`. The always-wake classes are a floor no row lowers: a person is never made to wait by a rule.
 A bot's profile plugs in at the bot scope: `profile_of` names it and PROFILE_RULES holds each profile's built-in
@@ -108,6 +108,7 @@ WAKE_EVENTS = {
 }
 BATCH_EVENTS = {"completion": "a finished request", "review": "review comments", "ci": "a failing check",
                 "rule": "a notice a rule batched"}
+AWAITED_NAMES = frozenset(v[0] for v in AWAITED_EVENTS.values())
 EVENTS = {**FLOOR_EVENTS, **WAKE_EVENTS, **{v[0]: v[1] for v in AWAITED_EVENTS.values()},
           **{"batch_" + k: v for k, v in BATCH_EVENTS.items()}}
 # refs.wake spellings the writers use -> the event a rule names.
@@ -346,6 +347,10 @@ def _table_decision(conn, event, actor, target, refs, conv, task_row=None):
     if PROFILE_RULES:
         profile = [dict(r) for r in PROFILE_RULES.get(profile_of(conn, H.actor_id(target)), ())
                    if r["event"] in (event, "*")]
+    if event in AWAITED_NAMES:
+        # What the bot waits on wakes it: a `*` row does not reach it, only a row that names the event.
+        rows = [r for r in rows if r["event"] != "*"]
+        profile = [r for r in profile if r["event"] != "*"]
     if not rows and not profile:
         return None
     ctx = _Context(conn, actor, target, refs, conv, task_row)
@@ -570,8 +575,8 @@ def _require(c, settings, auth, who, scope_kind, scope_id):
 
 
 def _visible(c, who, row):
-    """Whether the viewer may see a table row: every team, type and department row; a bot's rows when the bot is
-    visible to them as a manager or the bot itself; a task's rows when they can read the task."""
+    """Whether the viewer may see a table row: every team, type, department and bot row; a task's rows when they
+    can read the task."""
     kind, ident = row["scope_kind"], row["scope_id"]
     if kind == "task":
         task = H.task(c, ident)
