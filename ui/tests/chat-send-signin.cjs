@@ -7,7 +7,7 @@ const {html, uiFile} = require('./support/page.cjs');
 const {unrouted} = require('./support/routes.cjs');
 const engines = (process.env.TICO_UI_ENGINES || 'chromium,webkit').split(',');
 
-async function scenario(browser, mode, edit) {
+async function scenario(browser, mode, edit, keeper = true) {
   const page = await browser.newPage({viewport: {width: 1200, height: 800}, serviceWorkers: 'block'});
   const errors = [], posts = [], delivered = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -25,16 +25,17 @@ async function scenario(browser, mode, edit) {
     if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
     if (p === '/api/v2/me' && expired) return identity();
     if (p === '/api/me' || p === '/api/v2/me') return json({id: 'ana', name: 'Ana', role: 'owner', cloud: true});
-    if (p === '/api/employees') return json([{name: 'botops', display_name: 'BotOps', host: 'keeper', status: 'active', can_chat: true, schedules: []}]);
+    if (p === '/api/employees') return json([{name: 'botops', display_name: 'BotOps', host: keeper ? 'keeper' : 'local', status: 'active', can_chat: true, schedules: []}]);
     if (p === '/api/issues') return json([]);
+    if (p === '/api/employees/botops/conversation') return json({runs: []});
     if (p === '/api/v2/conversations') return json({conversations: url.searchParams.get('chat_with')
       ? [{id: 'c1', kind: 'chat', scope: 'personal', participants: ['human:ana', 'bot:botops']}] : []});
     if (p.endsWith('/snapshot')) return json({messages: delivered, execution: null});
     if (p === '/api/v2/events' || p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
-    if (p === '/api/v2/chat/botops') {
-      assert.equal(route.request().method(), 'POST');
-      const text = route.request().postDataJSON().text;
-      posts.push(text);
+    if (p === (keeper ? '/api/v2/chat/botops' : '/api/employees/botops/chat')) {
+      const request = route.request();
+      const text = keeper ? request.postDataJSON().text : request.postData().match(/name="text"\r\n\r\n([^]*?)\r\n--/)[1];
+      posts.push({text, method: request.method()});
       if (posts.length === 1) {
         if (mode === 'timeout') return; // the client must end the unanswered send itself
         expired = true;
@@ -43,7 +44,7 @@ async function scenario(browser, mode, edit) {
       if (hold) await hold;
       const message = {id: 'm' + posts.length, from_actor: 'human:ana', body: text, created: new Date().toISOString()};
       delivered.push(message);
-      return json({conversation: {id: 'c1'}, message});
+      return json(keeper ? {conversation: {id: 'c1'}, message} : {run: 'fixture-run'});
     }
     return json(unrouted(p));
   });
@@ -51,15 +52,17 @@ async function scenario(browser, mode, edit) {
   const stored = () => page.evaluate(() => ({draft: chatDrafts().botops,
     fields: JSON.parse(sessionStorage.getItem(SESSION_RETURN) || 'null')?.fields || []}));
   const frames = () => page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
+  const ready = () => page.waitForFunction(keeper => SESSION.seen && (keeper ? typeof V2C !== 'undefined' && V2C?.loaded : typeof CONV !== 'undefined' && CONV?.slug === 'botops'), keeper);
+  const idle = () => page.waitForFunction(() => !BOT_PILL.sending && !document.querySelector('#chat-composer .p-send').disabled);
   const text = '  Keep this draft through sign-in  ';
   try {
     await page.goto('https://tico-ui.test/#/bot/botops');
-    await page.waitForFunction(() => typeof V2C !== 'undefined' && V2C?.loaded && SESSION.seen);
+    await ready();
     await box.fill(text);
     if (mode !== 'unsent') {
       if (mode === 'timeout') await page.evaluate(() => { CHAT_SEND.timeout = 250; });
       await send.click();
-      await page.waitForFunction(() => !BOT_PILL.sending);
+      await idle();
       if (mode === 'timeout') {
         await page.locator('.toast.err').waitFor();
         expired = true;
@@ -76,20 +79,20 @@ async function scenario(browser, mode, edit) {
     expired = false;
     await page.click('#return');
     await page.waitForURL('https://tico-ui.test/#/bot/botops');
-    await page.waitForFunction(() => typeof V2C !== 'undefined' && V2C?.loaded);
+    await ready();
     assert.equal(await box.inputValue(), text, 'return restores the draft');
     assert.ok((await stored()).fields.some(f => f.value === text), 'the return snapshot still holds a copy beside the restored local draft');
 
     if (mode !== 'unsent') {
       if (edit) hold = new Promise(done => release = done);
       await send.click();
-      await page.waitForFunction(() => BOT_PILL.sending || !document.querySelector('#chat-composer textarea').value);
+      await page.waitForFunction(() => BOT_PILL.sending || document.querySelector('#chat-composer .p-send').disabled || !document.querySelector('#chat-composer textarea').value);
       const next = 'Next draft typed while the resend is out';
       if (edit) {
         await box.fill(next);
         release(); hold = null;
       }
-      await page.waitForFunction(() => !BOT_PILL.sending);
+      await idle();
       await frames(); // let the sign-in return watcher respond to the send's DOM changes
       assert.equal(await box.inputValue(), edit ? next : '', 'confirmed text never comes back; later edits stay');
       const saved = await stored();
@@ -104,18 +107,19 @@ async function scenario(browser, mode, edit) {
       }
       assert.equal(posts.length, 2, 'the interrupted attempt and explicit resend are the only POSTs');
       await page.reload();
-      await page.waitForFunction(() => typeof V2C !== 'undefined' && V2C?.loaded);
+      await ready();
       await frames();
       assert.equal(await box.inputValue(), edit ? next : '', 'a later reload cannot revive confirmed text');
       assert.equal(posts.length, 2, 'reload sends nothing');
     } else {
       await page.reload();
-      await page.waitForFunction(() => typeof V2C !== 'undefined' && V2C?.loaded);
+      await ready();
       assert.equal(await box.inputValue(), text, 'an existing draft never sent survives return and another reload');
       assert.equal(posts.length, 0, 'an unsent draft makes no POST');
     }
+    assert.ok(posts.every(request => request.method === 'POST'), 'all send requests use POST');
     assert.deepEqual(errors, [], 'no browser errors');
-    console.log('ok -', mode, edit ? 'preserves later edits' : 'sign-in return');
+    console.log('ok -', keeper ? 'keeper' : 'local', mode, edit ? 'preserves later edits' : 'sign-in return');
   } finally { release?.(); await page.close(); }
 }
 
@@ -128,6 +132,8 @@ async function scenario(browser, mode, edit) {
       await scenario(browser, 'timeout', false);
       await scenario(browser, '401', true);
       await scenario(browser, 'unsent', false);
+      await scenario(browser, '401', false, false);
+      await scenario(browser, '401', true, false);
       console.log('ok - chat send sign-in:', engine);
     } finally { await browser.close(); }
   }

@@ -311,7 +311,8 @@ function pillClear(P, keepText) {
 async function pillChat(P, text) {
   const btn = pq(P, '.p-send'), label = btn.textContent;
   btn.disabled = true; pillBtnSay(btn, 'Sending…');
-  const names = P.files.map(f => f.name);
+  const files = P.files.slice(), scope = sessionScope(pq(P, '.p-text'));
+  const names = files.map(f => f.name);
   try {
     const fd = new FormData();
     fd.append('text', text);
@@ -321,7 +322,7 @@ async function pillChat(P, text) {
     if (res.status === 409) { pillBusy(P, j, text); return; }
     if (!res.ok) throw new Error(j.error || res.statusText);
     convChatStarted(P.slug, j, text, names);
-    pillClear(P);
+    pillAcknowledge(P, text, files, scope);
   } catch (e) { toast(e.message, true); }
   finally { btn.disabled = false; pillBtnSay(btn, label); pillLabel(P); pillButtons(P); }
 }
@@ -347,6 +348,7 @@ function pillBusy(P, j, text) {
 async function pillTask(P, text) {
   const slug = P.slug, btn = pq(P, '.p-send'), label = btn.textContent;
   btn.disabled = true; pillBtnSay(btn, 'Creating…');
+  const files = P.files.slice(), scope = sessionScope(pq(P, '.p-text'));
   try {
     const fd = new FormData();
     fd.append('slug', slug); fd.append('title', text.split('\n')[0].trim().slice(0, 80));
@@ -355,7 +357,7 @@ async function pillTask(P, text) {
     const res = await fetch(`${API}/issues`, {method: 'POST', body: await memoryBody(fd)});
     const j = await res.json().catch(() => ({})); if (!res.ok) throw new Error(j.error || res.statusText);
     if (CONV?.slug === slug) { CONV.pending.push({text, number: j.number, url: j.url}); CONV.sent = true; convRender(CONV); }
-    pillClear(P); toast(`Queued as #${j.number}`);
+    pillAcknowledge(P, text, files, scope); toast(`Queued as #${j.number}`);
     await refresh(true); if (BOT?.slug === slug) loadBotIssues(slug);
   } catch (e) { toast(e.message, true); }
   btn.disabled = false; pillBtnSay(btn, label); pillLabel(P); pillButtons(P);
@@ -363,10 +365,11 @@ async function pillTask(P, text) {
 async function pillReply(P, text) {
   const n = P.needsIssue, btn = pq(P, '.p-send'), label = btn.textContent;
   btn.disabled = true; pillBtnSay(btn, 'Replying…');
+  const files = P.files.slice(), scope = sessionScope(pq(P, '.p-text'));
   try {
     await post(`/issues/${n}/comment`, {body: text, clear_needs_human: true});
     toast(`Replied on #${n}`);
-    pillClear(P); await refresh(true);
+    pillAcknowledge(P, text, files, scope); await refresh(true);
     if (CONV?.slug === P.slug) loadConversation(P.slug, CONV);
   } catch (e) { toast(e.message, true); }
   btn.disabled = false; pillBtnSay(btn, label); pillLabel(P); pillButtons(P);
