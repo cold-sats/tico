@@ -9,7 +9,7 @@ const {unrouted} = require('./support/routes.cjs');
 (async () => {
   const browser = await chromium.launch({headless: true});
   try {
-    const page = await browser.newPage({viewport: {width: 1440, height: 1000}, serviceWorkers: 'block'});
+    const page = await browser.newPage({viewport: {width: 1440, height: 1000}, serviceWorkers: 'block', reducedMotion: 'reduce'});
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));
     await page.addInitScript(() => localStorage.setItem('hub.settings.bots.filters', JSON.stringify({computer: 'r2', model: 'claude::sonnet', effort: 'low'})));
@@ -30,6 +30,7 @@ const {unrouted} = require('./support/routes.cjs');
       const json = (body, status = 200) => route.fulfill({status, contentType: 'application/json', body: JSON.stringify(body)});
       const ui = p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
       if (ui && fs.existsSync(uiFile(ui[1]))) return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(uiFile(ui[1]), 'utf8')});
+      if (p === '/vendor/fonts/material-symbols-outlined.woff2') return route.fulfill({contentType: 'font/woff2', body: fs.readFileSync(uiFile('vendor/fonts/material-symbols-outlined.woff2'))});
       if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
       const change = p.match(/^\/api\/v2\/bots\/([^/]+)\/(task-model|transitions)$/);
       if (req.method() === 'POST' && change) {
@@ -80,7 +81,7 @@ const {unrouted} = require('./support/routes.cjs');
     const capture = async name => {
       if (!process.env.TICO_UI_RECEIPT_DIR) return;
       fs.mkdirSync(process.env.TICO_UI_RECEIPT_DIR, {recursive: true});
-      await page.screenshot({path: path.join(process.env.TICO_UI_RECEIPT_DIR, name + '.png'), fullPage: true});
+      await page.screenshot({path: path.join(process.env.TICO_UI_RECEIPT_DIR, name + '.png'), fullPage: true, animations: 'disabled'});
     };
     await capture('desktop-search');
     // Keep each existing search field and allow words to span metadata and model names.
@@ -148,6 +149,10 @@ const {unrouted} = require('./support/routes.cjs');
     await page.locator('[data-bots-pick-all]').click();
     assert.deepEqual(await page.evaluate(() => [...SETTINGS_BOTS_VIEW.selected].sort()), ['alpha', 'default', 'gamma', 'inherit']);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'phone search fits');
+    const geometry = await page.locator('[data-model-match]').evaluateAll(nodes => nodes.map(n => {
+      const r = n.getBoundingClientRect(); return {width: r.width, height: r.height, left: r.left, right: r.right};
+    }));
+    assert.ok(geometry.every(r => r.width >= 150 && r.height < 60 && r.left >= 0 && r.right <= 390), `phone model reasons stay readable: ${JSON.stringify(geometry)}`);
     await capture('phone-search'); await open('task', sonnet);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'phone dialog fits');
     assert.equal(await dialog.locator('[data-bulk-target]').isVisible(), true);

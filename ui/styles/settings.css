@@ -211,6 +211,12 @@ tr:hover .sb-task-mark,.sb-task-mark:focus-visible,.sb-task-mark[aria-expanded=t
   .settings-bots-table td.sb-cell-limit button.use-limit{min-height:40px;margin:-4px 0;padding:0 2px;font-size:var(--t-sm);color:var(--muted);border:0}
   .settings-bots-table td.sb-cell-model .sb-pick{min-height:40px;margin:-4px 0;padding:0 2px;gap:6px;border:0;color:var(--muted);font-size:var(--t-sm);background:none}
   .settings-bots-table td.sb-cell-model .sb-pick-caret{margin-left:4px}
+  /* Model-search explanations need a full line, including while selecting on a phone. */
+  .settings-bots-table td.sb-cell-model:has(.sb-model-match){grid-column:2/-1;grid-row:3;display:block}
+  .settings-bots-table td.sb-cell-model:has(.sb-model-match)::before{display:none}
+  .settings-bots-table td.sb-cell-model:has(.sb-model-match) .sb-model-wrap{width:100%}
+  .settings-bots-table tr:has(.sb-model-match) td.settings-pick{grid-row:1/span 3}
+
   .sb-row{grid-template-columns:minmax(0,1fr) auto}.sb-row>span:first-child{grid-column:1/-1}
 }
 .prov-list{display:grid;gap:2px;margin:0 0 var(--s4)}
