@@ -301,18 +301,25 @@ def secret(settings):
             raise RuntimeError("TICO_VISUAL_SECRET must be at least 32 characters")
         return given.encode()
     path = settings.db_path.parent / SECRET_FILE
-    try:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    except FileExistsError:
-        if stat.S_IMODE(path.stat().st_mode) & 0o077:
-            raise RuntimeError(str(path) + " must be readable only by its owner (chmod 600)") from None
-        value = path.read_text().strip()
-        if len(value) < 32:
-            raise RuntimeError(str(path) + " is too short; delete it to generate a new one")
-        return value.encode()
-    value = secrets.token_hex(32)
-    with os.fdopen(fd, "w") as handle:
-        handle.write(value)
+    if not path.exists():
+        # Written whole, then linked into place: a request that arrives meanwhile never reads a half-made file, and
+        # of two first requests the second link loses and both use the one secret.
+        draft = path.with_name(f".{SECRET_FILE}-{secrets.token_hex(8)}")
+        fd = os.open(draft, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            with os.fdopen(fd, "w") as handle:
+                handle.write(secrets.token_hex(32))
+            try:
+                os.link(draft, path)
+            except FileExistsError:
+                pass
+        finally:
+            draft.unlink()
+    if stat.S_IMODE(path.stat().st_mode) & 0o077:
+        raise RuntimeError(str(path) + " must be readable only by its owner (chmod 600)")
+    value = path.read_text().strip()
+    if len(value) < 32:
+        raise RuntimeError(str(path) + " is too short; delete it to generate a new one")
     return value.encode()
 
 
