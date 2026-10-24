@@ -197,7 +197,8 @@ jobs:
       contents: read
       actions: read   # product watches this run's image builds
     # The gate needs 35 GiB free (Docker images, browsers, Rust targets); the default RunsOn disk leaves about 10.
-    runs-on: runs-on=${{ github.run_id }}/runner=4cpu-linux-x64/volume=80gb/extras=s3-cache
+    # On demand, not Spot: a reclaimed VM would fail the one validation a release waits on.
+    runs-on: runs-on=${{ github.run_id }}/runner=4cpu-linux-x64/volume=80gb/spot=false/extras=s3-cache
     timeout-minutes: 45
     strategy:
       fail-fast: false
