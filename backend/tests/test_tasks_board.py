@@ -716,20 +716,20 @@ def test_task_flow_counts_status_changes_by_day_and_filters_by_owner(api):
 
 def test_a_steps_only_type_changes_status_only_by_a_step_move(api):
     typ = post(api, 'task-types', {'name': 'Dev ticket', 'steps_only': True, 'bots': 'work', 'steps': [
-        {'name': 'Cant Replicate', 'status': 'declined'}, {'name': 'Backlog', 'status': 'open'},
+        {'name': 'Cant Replicate', 'status': 'closed'}, {'name': 'Backlog', 'status': 'open'},
         {'name': 'On Deck', 'status': 'open'}, {'name': 'Done', 'status': 'closed'}]})['type']
     assert typ['steps_only'] is True
     ticket = post(api, 'tasks', {'owner': 'ops', 'title': 'Fix the guest message times', 'body': 'Please.',
                                  'type': typ['id'], 'step': 'On Deck'})
     path, ops = 'tasks/' + ticket['id'], bot_token(api, 'ops')
     version = lambda: get(api, path)['task']['version']
-    # Closing, declining or reopening, by a person or by the bot on it, is refused.
-    for token, change in (('ana-test', {'close': True}), ('ana-test', {'status': 'declined'}),
-                          (ops, {'status': 'done', 'note': 'Fixed.'})):
+    # Declining or finishing it without a step move, by a person or by the bot on it, is refused.
+    for token, change in (('ana-test', {'status': 'declined'}), (ops, {'status': 'done', 'note': 'Fixed.'})):
         assert post(api, path, {'version': version(), **change}, token=token, expected=422)['error']['code'] == 'kind'
     # A working status still changes without a step: the bot's ask sets it waiting.
     assert post(api, path + '/ask', {'text': 'Which page?'}, token=ops)
     assert get(api, path)['task']['status'] == 'waiting'
+    assert get(api, path)['task']['step']['name'] == 'On Deck', 'waiting is not a step: the ticket keeps its own'
     # A bot refused Done on more tickets than the quarantine limit is not quarantined: each names its ticket.
     for n in range(H.QUARANTINE_AT + 1):
         other = post(api, 'tasks', {'owner': 'ops', 'title': f'Fix page {n}', 'body': 'Please.', 'type': typ['id']})
@@ -738,6 +738,10 @@ def test_a_steps_only_type_changes_status_only_by_a_step_move(api):
     # A step move changes the status, Done included, and back out of it.
     assert post(api, path, {'version': version(), 'step': 'Done'})['status'] == 'closed'
     post(api, path, {'version': version(), 'status': 'open'}, expected=422)
+    assert post(api, path, {'version': version(), 'step': 'Backlog'})['status'] == 'open'
+    # A person can always close one: it lands on the last closed step, not the first.
+    closed = post(api, path, {'version': version(), 'close': True})
+    assert (closed['status'], closed['step']['name']) == ('closed', 'Done')
     assert post(api, path, {'version': version(), 'step': 'Backlog'})['status'] == 'open'
     # Off, the type keeps the bare status changes.
     post(api, 'task-types/' + typ['id'], {'steps_only': False})

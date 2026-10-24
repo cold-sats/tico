@@ -155,6 +155,24 @@ def test_private_derived_conversation_message_sql_and_run_hide_from_nonmember_ow
     assert get(live, f"messages/{msg['id']}", token="ops-live")["id"] == msg["id"]
 
 
+def test_sql_plain_message_gate_keeps_meeting_access_without_outer_room_filter(live, derived):
+    from backend.privacy_index import ReadIndex
+
+    mid, attempt = derived
+    cid = attempt["message"]["conversation_id"]
+    # Call the gate directly so SQL's separate conversation filter cannot mask
+    # a missing meeting check in the cached plain-message path.
+    with live.app.state.store.read() as c:
+        member = ReadIndex(c, Identity("bot:ops", "bot"))
+        outsider = ReadIndex(c, Identity("human:ana", "human"))
+        assert member.message("synthetic-plain", cid, "{}", None)
+        assert not outsider.message("synthetic-plain", cid, "{}", None)
+    removed = live.request("DELETE", f"/api/v2/live-meetings/{mid}/bots/ops", json={}, headers=headers("ben-test"))
+    assert removed.status_code == 200, removed.text
+    with live.app.state.store.read() as c:
+        assert not ReadIndex(c, Identity("bot:ops", "bot")).message("synthetic-plain", cid, "{}", None)
+
+
 def test_removed_bot_loses_retained_derived_history_and_run(live, derived):
     mid, attempt = derived
     msg, aid = attempt["message"], attempt["id"]
@@ -447,3 +465,42 @@ def test_delegated_private_creation_requires_direct_connection_and_team_stays_op
     assert act(live, attempt, "GET", f"live-meetings/{mid}").status_code == 200
     assert mid in {m["id"] for m in act(live, attempt, "GET", "live-meetings").json()["meetings"]}
     assert act(live, attempt, "POST", f"live-meetings/{mid}/join", {}).status_code == 200
+
+
+def test_ordinary_api_reads_do_not_scan_unrelated_keeper_history(api, monkeypatch):
+    task = post(api, "tasks", {"owner": "ops", "title": "Inspect synthetic ordinary work",
+                               "body": "Review synthetic notes.", "private": False})
+    cid = task["conversation_id"]
+    with api.app.state.store.transaction() as c:
+        unrelated = H.open_conversation(c, "human:ben", ["bot:finance"], kind="chat",
+                                        subject="Unrelated synthetic history")["id"]
+    # Count VM work inside the provenance statement, not elapsed time or other task-page queries.
+    take = api.app.state.store._take
+    work, in_provenance = [0], [False]
+    def traced():
+        c = take()
+        def statement(sql):
+            in_provenance[0] = "JOIN live_meeting_turns" in sql
+        def progress():
+            if in_provenance[0]:
+                work[0] += 100
+            return 0
+        c.set_trace_callback(statement)
+        c.set_progress_handler(progress, 100)
+        return c
+    monkeypatch.setattr(api.app.state.store, "_take", traced)
+    paths = (f"tasks/{task['id']}", f"conversations/{cid}/messages")
+    def measure():
+        result = []
+        for path in paths:
+            work[0] = 0
+            get(api, path)
+            result.append(work[0])
+        return result
+    before = measure()
+    with api.app.state.store.transaction() as c:
+        c.executemany("INSERT INTO messages(id,conversation_id,from_actor,to_actor,kind,body,refs_json,created) "
+                      "VALUES(?,?,'keeper','bot:finance','say','Synthetic unrelated notice','{}',?)",
+                      ((f"synthetic-history-{n}", unrelated, H.now()) for n in range(2000)))
+    after = measure()
+    assert all(a <= b + 500 for a, b in zip(after, before)), (before, after)

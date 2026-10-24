@@ -108,6 +108,10 @@ ACTIVE_STATUSES = ("open", "doing", "waiting", "review", "ready")   # still on t
 # changing it needs that index under a new name and a migration, or upgraded hubs quietly scan every task again.
 BOARD_STATUSES = ACTIVE_STATUSES + ("declined",)               # visible until a person reassigns or closes it
 LIVE_STATUSES = ACTIVE_STATUSES + ("done",)                # not closed, not declined
+# No step has these statuses: a waiting task stays in the working step it is in (a Waiting tag shows it), and a declined
+# one goes to its type's closed step (`_task_state`, `retire_held_steps`). The Product roadmap keeps its public Declined.
+HELD_STATUSES = ("waiting", "declined")
+STEP_STATUSES = tuple(s for s in TASK_STATUSES if s not in HELD_STATUSES)
 OWNER_STATUSES = ("doing", "waiting", "review", "done", "declined")  # what the owner may set
 # `ready` is a fact the hub learns (the PR merged), not a claim a bot makes: movers and the
 # keeper set it, an owning bot does not.
@@ -582,7 +586,7 @@ INSERT OR IGNORE INTO task_types(id,name,created,updated)
 """ + "\n".join(
     f"INSERT OR IGNORE INTO task_steps(id,type_id,name,position,status) "
     f"VALUES('general-{status}','general','{status.title()}',{position},'{status}');"
-    for position, status in enumerate(TASK_STATUSES)
+    for position, status in enumerate(STEP_STATUSES)
 ) + """
 UPDATE tasks SET type_id='general', step_id=(SELECT id FROM task_steps
   WHERE type_id='general' AND status=tasks.status ORDER BY position,id LIMIT 1)
@@ -997,6 +1001,9 @@ def migrate(conn, adopt_legacy=False):
     # Milestone waits: a task waits for a pull request to merge or a release to be published (backend/milestone_waits.py).
     from .milestone_waits import ensure as ensure_milestone_waits
     ensure_milestone_waits(conn)
+    # Recruiting seats: org-chart roles with no bot yet (backend/lifecycle.py).
+    from .lifecycle import ensure as ensure_seats
+    ensure_seats(conn)
     # Hourly and weekly spend limits, and limits on a group's or the whole team's combined spend (backend/usage_limits.py).
     from .usage_limits import ensure as ensure_usage_limits
     ensure_usage_limits(conn)
@@ -1088,6 +1095,8 @@ def migrate(conn, adopt_legacy=False):
     migrate_roadmaps(conn)
     from .roadmap_flow import ready_step as roadmap_ready_step
     roadmap_ready_step(conn)
+    # Waiting and Won't do are no longer board steps (`_task_state`): move their tasks off, then delete them.
+    retire_held_steps(conn)
     # A person's open asks, read on every Needs-you load (loose_asks_to).
     conn.execute("CREATE INDEX IF NOT EXISTS messages_open_asks_to ON messages(to_actor, created) "
                  "WHERE kind='ask' AND answered_by IS NULL AND deleted_at IS NULL")
@@ -2172,6 +2181,8 @@ def _reach(conn, actor, target, allow_planned=False, allow_held=False):
     A bot that exists but is paused, quarantined or planned is refused as `target_inactive`, not
     `reach`: the sender broke no rule, so rule 8 does not count it as a repeat (_escalate).
     """
+    if str(target).startswith("seat:") and _has_table(conn, "seats"):
+        _recruiting(conn, actor, target)
     resolved = resolve_actor(conn, target)
     if not resolved:
         refuse(conn, actor, "reach", f"{target} is not a bot or a person on the roster",
@@ -2198,6 +2209,52 @@ def _takes_tasks(conn, actor, target):
         name = row["display_name"] or actor_id(target)
         refuse(conn, actor, "external-bot", f"{name} works on another platform and only syncs its chat here, so it "
                "never sees tasks. Write to it in its chat, or give this task to a bot that runs in Tico.")
+
+
+def recruiting(conn, target):
+    """Why a Recruiting seat (backend/lifecycle.py) takes no work, when `target` is one; else None. It holds no
+    work, which stays with the manager it reports to."""
+    if not str(target or "").startswith("seat:") or not _has_table(conn, "seats"):
+        return None
+    seat = _one(conn, "SELECT title,reports_to FROM seats WHERE id=? AND closed_at IS NULL", (str(target)[5:],))
+    if not seat:
+        return None
+    reports = str(seat["reports_to"] or "")
+    manager = ((human(conn, reports[6:]) or {}).get("name") or reports[6:] if reports.startswith("human:")
+               else (bot(conn, reports) or {}).get("display_name") or reports)
+    return (f"{seat['title']} is still being recruited, so it can't take work yet"
+            + (f". Give it to {manager}, who it reports to." if manager else "."))
+
+
+def _recruiting(conn, actor, target):
+    """The sender broke nothing, so a seat's refusal is `target_inactive`."""
+    if why := recruiting(conn, target):
+        refuse(conn, actor, "target_inactive", why)
+
+
+def _onboarding(conn, slug):
+    """Whether this bot is onboarding (backend/lifecycle.py); False on a database with no setup state at all."""
+    if not _has_table(conn, "bot_config") or "onboarding_state" not in {r[1] for r in conn.execute("PRAGMA table_info(bot_config)")}:
+        return False
+    from .statuses import PARKED
+    row = _one(conn, "SELECT onboarding_state FROM bot_config WHERE bot=?", (slug,))
+    return bool(row) and row["onboarding_state"] in PARKED
+
+
+def _learning(conn, actor, target):
+    """An onboarding bot learns and takes no task until a person above it marks onboarding complete
+    (backend/lifecycle.py). The sender broke nothing, so it is refused as `target_inactive`, like a paused bot."""
+    if is_bot(target) and _onboarding(conn, actor_id(target)):
+        name = (bot(conn, actor_id(target)) or {}).get("display_name") or actor_id(target)
+        refuse(conn, actor, "target_inactive", f"{name} is still onboarding, so it can't take tasks yet. Someone above "
+               "it on the org chart marks onboarding complete when it is ready.")
+
+
+def _learner(conn, actor):
+    """An onboarding bot files no task of its own while it learns: it asks in chat instead."""
+    if is_bot(actor) and _onboarding(conn, actor_id(actor)):
+        refuse(conn, actor, "onboarding", "You are still onboarding, so you can't create or hand out tasks yet. Ask "
+               "your manager in chat; a person above you marks onboarding complete when you are ready.")
 
 
 # ----------------------------------------------------------------------------- registry sync
@@ -2926,7 +2983,10 @@ def _type_steps(conn, actor, type_id, steps):
         if raw.get("id") and ident not in existing:
             refuse(conn, actor, "not-found", "That step does not belong to this type")
         if status not in TASK_STATUSES:
-            refuse(conn, actor, "kind", f"A step status is {'|'.join(TASK_STATUSES)}")
+            refuse(conn, actor, "kind", f"A step status is {'|'.join(STEP_STATUSES)}")
+        if status in HELD_STATUSES and existing.get(ident, {}).get("status") != status:
+            refuse(conn, actor, "kind", f"A step can't be {status}: a waiting task keeps its step, and a declined one "
+                                        f"goes to the closed step. A step status is {'|'.join(STEP_STATUSES)}")
         names.add(name); ids.add(ident)
         clean.append({"id": ident, "type_id": type_id, "name": name,
                       "position": raw.get("position") if raw.get("position") is not None else position,
@@ -3030,16 +3090,27 @@ def _task_state(conn, actor, row, status=None, type=None, step=None):
             effective = chosen["status"]
     elif current and current["status"] == effective:
         chosen = current
+    elif typ.get("steps_only") and effective == "closed" and _closes_by_hand(actor):
+        # A person's close on a steps-only type lands on its last closed step (Closed, Done), or none.
+        chosen = next((s for s in reversed(typ["steps"]) if s["status"] == "closed"), None)
     else:
         chosen = next((s for s in typ["steps"] if s["status"] == effective), None)
+        if not chosen and effective == "waiting":
+            # Waiting is not a column: the task stays in the working step it is in, or starts at the first.
+            chosen = (current if current and current["status"] in ACTIVE_STATUSES
+                      else next((s for s in typ["steps"] if s["status"] in ("open", "doing")), None))
+        elif not chosen and effective == "declined":
+            chosen = next((s for s in typ["steps"] if s["status"] == "closed"), None)
     if effective not in TASK_STATUSES:
         refuse(conn, actor, "kind", f"A status is {'|'.join(TASK_STATUSES)}, not {effective}")
     # On a steps-only type a task is finished or brought back only by a step move: a bare close, decline,
     # done or reopen would land it in whichever step shares that status. Working statuses (an ask's
     # waiting, a turn's doing) still change, as do filing onto the type and the keeper's own automation.
+    # A person can always close one: closing takes it off the board, whatever its type.
     if (typ.get("steps_only") and step is None and actor != KEEPER and row.get("status")
             and typ["id"] == (row.get("type_id") or GENERAL_TYPE) and effective != row["status"]
-            and not (effective in ACTIVE_STATUSES and row["status"] in ACTIVE_STATUSES)):
+            and not (effective in ACTIVE_STATUSES and row["status"] in ACTIVE_STATUSES)
+            and not (effective == "closed" and _closes_by_hand(actor))):
         # Naming the task keeps a bot's refusals on different tickets distinct, so working a board is not
         # counted as retrying one refused write (rule 8); a retry on the same task still is.
         which = f"#{row['number']}" if row.get("number") else f'"{_clip(row.get("title") or "", 80)}"'
@@ -3048,6 +3119,62 @@ def _task_state(conn, actor, row, status=None, type=None, step=None):
                                     f"({steps}), not by closing, declining, reopening or finishing it; move it, or delete it",
                context={"what": f"task {row.get('id')}"})
     return typ["id"], chosen["id"] if chosen else None, effective
+
+
+def _closes_by_hand(actor):
+    return (actor or "").startswith("human:")
+
+
+def retire_held_steps(conn):
+    """Take the Waiting and Declined (Won't do) steps off every type but the Product roadmap, whose Declined is public.
+    A task on a waiting step goes back to the working step it last left (its step history), else its type's first
+    open or doing step, and keeps status waiting; one on a declined step goes to its type's closed step, or no step
+    when there is none, and keeps status declined. Typed waiting or declined tasks with no step are placed the same
+    way. Runs at every start; once nothing is left to move it only reads."""
+    from .roadmap_flow import PRODUCT
+    held = _rows(conn.execute("SELECT s.id,s.type_id,s.status FROM task_steps s JOIN task_types ty ON ty.id=s.type_id "
+                              "WHERE s.status IN ('waiting','declined') AND coalesce(ty.role,'')<>?", (PRODUCT,)))
+    loose = _rows(conn.execute("SELECT t.id,t.type_id,t.status FROM tasks t JOIN task_types ty ON ty.id=t.type_id "
+                               "WHERE t.step_id IS NULL AND t.status IN ('waiting','declined') AND coalesce(ty.role,'')<>?",
+                               (PRODUCT,)))
+    if not held and not loose:
+        return
+    gone = {row["id"] for row in held}
+    version = "version" in {r[1] for r in conn.execute("PRAGMA table_info(tasks)")}
+    conn.execute("SAVEPOINT retire_held_steps")
+    try:
+        moving = [(t["id"], t["type_id"], t["status"]) for t in loose]
+        for step in held:
+            moving += [(r[0], step["type_id"], "waiting" if step["status"] == "waiting" else "declined")
+                       for r in conn.execute("SELECT id FROM tasks WHERE step_id=?", (step["id"],))]
+        steps = {}
+        for task_id, type_id, held_as in moving:
+            if type_id not in steps:
+                steps[type_id] = [s for s in _rows(conn.execute(
+                    "SELECT id,status FROM task_steps WHERE type_id=? ORDER BY position,id", (type_id,))) if s["id"] not in gone]
+            mine = steps[type_id]
+            if held_as == "waiting":
+                working = {s["id"] for s in mine if s["status"] in ACTIVE_STATUSES}
+                left = (r[0] for r in conn.execute("SELECT old FROM task_events WHERE task_id=? AND field='step' "
+                                                   "ORDER BY ts DESC,rowid DESC", (task_id,)))
+                target = next((old for old in left if old in working), None) \
+                    or next((s["id"] for s in mine if s["status"] in ("open", "doing")), None)
+            else:
+                target = next((s["id"] for s in mine if s["status"] == "closed"), None)
+            current = conn.execute("SELECT step_id FROM tasks WHERE id=?", (task_id,)).fetchone()[0]
+            if target == current:
+                continue
+            conn.execute("UPDATE tasks SET step_id=?,step_rank=?" + (",version=version+1" if version else "") + " WHERE id=?",
+                         (target, _step_end(conn, target, task_id) if target else None, task_id))
+            _task_event(conn, task_id, KEEPER, "step", current, target,
+                        "Waiting is a tag now, not a step" if held_as == "waiting" else "Declined goes to Closed now, not a step")
+        for ident in gone:
+            conn.execute("DELETE FROM task_steps WHERE id=?", (ident,))
+    except BaseException:
+        conn.execute("ROLLBACK TO retire_held_steps")
+        raise
+    finally:
+        conn.execute("RELEASE retire_held_steps")
 
 
 def steps_only(conn, row):
@@ -3085,7 +3212,8 @@ def _set_status(conn, actor, row, status=None, type=None, step=None, note=""):
             # ...and so is a yes it was waiting for: nothing will act on it now.
             withdraw_task_approvals(conn, row["id"], f"Its task was {TASK_ENDED[effective]}.")
     from .roadmap_flow import changed as roadmap_changed
-    roadmap_changed(conn, row["id"])
+    # A step chosen by hand holds: the keeper re-syncs the item from its tickets when one of them moves next.
+    roadmap_changed(conn, row["id"], itself=actor == KEEPER or step is None)
     if row.get("status") != effective:
         from .ticket_notices import moved as ticket_moved
         ticket_moved(conn, actor, row["id"], row.get("status"), effective)
@@ -4601,8 +4729,10 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
         refuse(conn, actor, 'lint', 'Public title is at most 300 characters and public summary at most 8000')
     from .shared_bots import route
     owner = route(conn, actor, owner)
+    _learner(conn, actor)
     target = _reach(conn, actor, owner, allow_planned=allow_planned)
     _takes_tasks(conn, actor, target)
+    _learning(conn, actor, target)
     from . import ceo_bot
     ceo_bot.check_cap(conn, actor, target)          # at most 5 a day in one person's Needs you (backend/ceo_bot.py)
     parent = _task_parent(conn, actor, None, parent_id) if parent_id else None
@@ -4991,6 +5121,9 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     if owner is not None:
         new_owner = _reach(conn, actor, owner)
         _takes_tasks(conn, actor, new_owner)
+        if new_owner != row["owner"]:
+            _learner(conn, actor)
+            _learning(conn, actor, new_owner)
         if private_tasks_default(conn, new_owner):
             sets.append("private=1")
         if is_bot(row['owner']) and 'detail_json' in {r[1] for r in conn.execute('PRAGMA table_info(task_links)')}:
@@ -5911,15 +6044,19 @@ def parked_bots(conn):
     return {r[0] for r in conn.execute(f"SELECT bot FROM bot_config WHERE onboarding_state IN {PARKED_SQL}")}
 
 
-def setup_hold(conn, actor):
-    """Why work sent to `actor` does not start, when it is a bot still in setup; else None. The sender,
-    Run now and the stall check all give these words."""
+def setup_hold(conn, actor, sender=None):
+    """Why work sent to `actor` does not start, when it is a bot still onboarding; else None. The sender,
+    Run now and the stall check all give these words. Its manager's message (`sender`) starts it: they talk."""
     slug = actor_id(actor)
     if not is_bot(actor) or slug not in parked_bots(conn):
         return None
+    if sender and is_bot(sender):
+        row = _one(conn, "SELECT reports_to FROM bot_config WHERE bot=?", (slug,))
+        if row and row["reports_to"] and sender == bot_actor(row["reports_to"]):
+            return None
     name = (bot(conn, slug) or {}).get("display_name") or slug
-    return (f"{name} hasn't finished its setup, so it starts no work from bots or Tico yet: this waits until "
-            f"its owner finishes its setup in its chat (hub bot go-live {slug}).")
+    return (f"{name} is still onboarding, so it starts no work from bots or Tico yet, only chat with people and its "
+            "manager: this waits until someone above it on the org chart marks onboarding complete.")
 
 
 def stalled_tasks(conn, at=None):
@@ -6084,7 +6221,7 @@ def setup_finished(conn, slug, archived=False):
     if found:
         name = (bot(conn, slug) or {}).get("display_name") or slug
         task_update(conn, KEEPER, found["id"], status="done",
-                    note=f"{name} was archived." if archived else f"{name} finished its setup; its work starts now.")
+                    note=f"{name} was archived." if archived else f"{name} finished onboarding; its work starts now.")
 
 
 def _setup_reminder(conn, slug):
@@ -6105,10 +6242,10 @@ def _setup_reminder(conn, slug):
         unseen = len(held) - len(seen)
         lines += (f"\n- and {len(held) - len(seen[:10])} more"
                   + (f" ({unseen} you can't see)" if unseen else ""))
-    reminder = task_create(conn, KEEPER, f"Finish setting up {name}: work sent to it is not starting"[:150],
-                           f"{name} hasn't finished its first setup, so tasks and messages from bots and Tico stay "
-                           f"queued and never start. Open its chat and finish its setup (hub bot go-live {slug}), or "
-                           f"move its tasks to another bot.\n\nWaiting on it:\n{lines}", person,
+    reminder = task_create(conn, KEEPER, f"Finish onboarding {name}: work sent to it is not starting"[:150],
+                           f"{name} is still onboarding, so tasks and messages from bots and Tico stay queued and never "
+                           f"start. Talk with it in its chat and, when it is ready, mark its onboarding complete (hub bot "
+                           f"setup-done {slug}), or move its tasks to another bot.\n\nWaiting on it:\n{lines}", person,
                            deduplicate=False, lint=False)
     event(conn, KEEPER, "bot.setup_reminder", slug, {"task": reminder["id"], "owner": person})
     return reminder
