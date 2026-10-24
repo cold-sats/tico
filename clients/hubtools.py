@@ -2080,6 +2080,30 @@ def trigger_list(api, args):
             for t in api.get("triggers")["triggers"]]
 
 
+@tool("hub_release_schedule", "The team's release schedule: when the Release Manager is asked to release what is at "
+      "Pending Release (`times`, company time; `on`), who that bot is (`release_manager`) and the Technical Writer "
+      "(`technical_writer`), the next hour, the last hour's result and how many tickets are pending now. Send any of "
+      "`on`, `times` (one or two HH:MM), `bot`, `writer` (a bot slug, or \"\" to find it by starter template) to "
+      "change it; an owner or an admin only.",
+      {"on": {"type": "boolean", "description": "Turn the daily release on or off"},
+       "times": {"type": "array", "items": {"type": "string"}, "maxItems": 2,
+                 "description": "One or two release times, HH:MM in company time"},
+       "bot": _s("The Release Manager's bot slug, or empty to find it by starter template"),
+       "writer": _s("The Technical Writer's bot slug, or empty to find it by starter template")}, writes=True)
+def release_schedule(api, args):
+    changes = {k: args[k] for k in ("on", "times", "bot", "writer") if args.get(k) is not None}
+    return api.patch("release-schedule", changes, key=_key(args)) if changes else api.get("release-schedule")
+
+
+@tool("hub_release_now", "Ask the Release Manager to cut a release of what is at Pending Release now, without waiting "
+      "for the daily hour (a hotfix, a midday release): ONE task listing the tickets, or a wake on its unfinished "
+      "Release task. For a person who moves Dev tickets or a bot that may work them. `sent` is false with a `reason` "
+      "when nothing is pending or nobody was asked.",
+      {"note": _s("Why now; goes in the Release Manager's task")}, writes=True)
+def release_now(api, args):
+    return api.post("release/now", {"note": args["note"]} if args.get("note") else {}, key=_key(args))
+
+
 @tool("hub_routine_delete", "Delete a routine. Its history stays; an occurrence nobody has "
       "claimed yet closes.", {"id": _s("Routine id")}, required=("id",), writes=True)
 def routine_delete(api, args):

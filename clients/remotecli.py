@@ -633,6 +633,8 @@ def run(args, who=None):
             return via_tool(client, args, text=text, enabled=not args.disabled)
         if sub in ("delete", "run"):
             return via_tool(client, args)
+    if cmd == "release":
+        return via_tool(client, args)
     if cmd == "approval":
         if sub == "show":
             return client.get("approvals/" + args.id)

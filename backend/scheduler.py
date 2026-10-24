@@ -317,6 +317,15 @@ class Scheduler:
         from . import milestone_waits
         with locked("milestone_waits") as c:
             milestone_waits.reconcile(c, failures)
+        # The team's daily release hour: the Release Manager's one task for what is at Pending Release (backend/release_flow.py).
+        if not self.store.settings.rehearsal:
+            from . import release_flow
+            with self.store.read() as c:
+                release_due = release_flow.due(c, at)
+            if release_due:
+                with locked("release_schedule") as c:
+                    with isolated(c, "release_schedule", release_due, failures):
+                        release_flow.tick(c, at)
         # Due-date reminders: candidates are read without the lock (H.TASKS_DUE_SQL, an index), and only the ones
         # that would send are written, a batch per transaction, each checked again under the lock.
         with self.store.read() as c:
