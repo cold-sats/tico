@@ -359,6 +359,30 @@ It also reports when a later run already covered dismissed work.
 
 A run that used an approval, or may have taken an action, still needs review before resuming.
 The bot's operator or BotOps checks what happened before choosing to resume or dismiss it.
+
+**A provider limit inside another error.** Tico reads the text of every failed run itself, so an older computer that did not flag the
+limit is treated the same as a current one: a provider limit named anywhere in an error (*Prompt is too long · automatic compaction
+failed: You've hit your weekly limit · resets Oct 26, 8pm (UTC)*) is a usage limit and holds the login until the reset it names. An
+error that says the session grew too large to send (*too many total text bytes*, *Prompt is too long*) starts the bot's next run in a
+fresh provider session, as Clear does, instead of resuming the session into the same error.
+
+**Failed runs wait, then stop.** A run that fails within 60 seconds of starting did no work and will fail the same way again. The bot
+waits before its next run, 15 seconds after the first such failure, doubling each time up to 8 hours; a run that completes normally
+starts the count over. A run a person stopped, a usage limit, a model at capacity, a handed-back run and a failure after 60 seconds do
+not count. After five in a row Tico holds the bot: nothing it has queued starts (a person's message included; it is kept and
+starts after the release), the bot reads *paused*, a message to it says why ("Saved — waiting: Tico stopped <bot>: its last 5 runs
+failed within a minute ..."), the bot's operator gets one Needs-you item, and Health shows `run_hold` naming the kind of error.
+**Release** (Settings → Bots, `hub bot release <bot>`, `POST /api/v2/bots/{bot}/release`, MCP `hub_bot_release`) lifts the hold and its
+Needs-you item.
+
+**Run budgets.** Each bot has `turns_per_hour` (default 300) and `turns_per_day` (default 2500); the owner and administrators set the
+team defaults (`GET/POST /api/v2/settings/turn-budgets`, `hub team budget [--hour N] [--day N]`), and a bot's owner, operator or BotOps
+sets its own (`GET/POST /api/v2/bots/{bot}/budget` with `expected_revision`, `hub bot budget <bot> [--hour N|default] [--day N|default]`,
+MCP `hub_bot_budget`). 0 is no limit. Runs are counted when Tico hands them out. A run that would pass the budget is not started and
+the bot is held with: "Tico stopped <bot>: <n> runs in the last hour. This looks like a runaway loop, not normal work. Check its last
+runs, then release it or raise its budget." (a day budget says "in the last day"). A person's own message is never refused by a budget,
+and queued work is kept. `hub bot budget <bot> release` (or Release) lifts the hold and the count starts from then; raising the budget
+above the count lifts it too. Health shows `turn_budget` and the operator gets one Needs-you item.
 For example, a failed fallback that did nothing can retry after the reset; a stopped payment run that used an approval needs review.
 
 <a id="one-turn-per-chatgpt-login"></a>**Codex bots share a ChatGPT login.** Bots on the same computer using

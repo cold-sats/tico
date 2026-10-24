@@ -941,7 +941,7 @@ SCHEMAS = {
                          "Bots with queued work that is not starting, or left in setup for over a day (the caller may "
                          "read them): bot, name, queued, oldest, computer, reason (not_ready, computer_offline, no_computer, "
                          "slow, limit, updating, restarting, setup, or a reason the claim holds the work: draining, maintaining, "
-                         "lane_held, uncertain, scoped, cooling_off, readiness_unknown, sign_in_rejected, not_isolated, "
+                         "lane_held, uncertain, scoped, cooling_off, run_hold, budget, backoff, readiness_unknown, sign_in_rejected, not_isolated, "
                          "isolation_unknown, profile, config, check_model, unreadable), why, drain_progress (counts of running "
                          "and handed-back turns on update holds), since (setup only: when the "
                          "bot was added), and fix (label plus href/tab, login, move or finish; null unless the caller "
@@ -1206,6 +1206,28 @@ SCHEMAS.update({
                       "next_offset": {"type": ["integer", "null"]}}),
 })
 SCHEMAS["Task"]["properties"]["tags"] = items(ref("Tag"))
+
+# Failed-run back-off and run budgets (backend/run_backoff.py, backend/turn_budgets.py).
+STABLE.extend([
+    ("/api/v2/bots/{bot}/budget", "get", "Bots", "getBotBudget",
+     "A bot's run budget (runs per hour and per day), the team default, its runs so far and any hold; for the people who manage it", "BotBudgetState"),
+    ("/api/v2/bots/{bot}/budget", "post", "Bots", "setBotBudget",
+     "Set the bot's own runs per hour and per day: null follows the team, 0 is no limit; raising it above the runs that held the bot releases it", "BotBudgetState"),
+    ("/api/v2/bots/{bot}/release", "post", "Bots", "releaseBot",
+     "Release a bot Tico stopped for failed runs or too many runs; its queued work starts again", "BotReleased"),
+    ("/api/v2/settings/turn-budgets", "get", "Bots", "getTeamBudgets",
+     "The team default runs per hour and per day for bots with no budget of their own (owner and admins)", "TeamBudgetState"),
+    ("/api/v2/settings/turn-budgets", "post", "Bots", "setTeamBudgets",
+     "Set the team default runs per hour and per day; 0 is no limit (owner and admins)", "TeamBudgetState"),
+])
+SCHEMAS.update({
+    "BotBudgetState": obj({"bot": "s", "turns_per_hour": "i", "turns_per_day": "i", "own": {"type": "object"},
+                      "team": {"type": "object"}, "runs": {"type": "object"},
+                      "held": {"type": ["object", "null"]}, "run_hold": {"type": ["object", "null"]},
+                      "revision": "i", "released": "b"}),
+    "BotReleased": obj({"bot": "s", "released": {"type": "object"}}),
+    "TeamBudgetState": obj({"turns_per_hour": "i", "turns_per_day": "i", "defaults": {"type": "object"}}),
+})
 
 SCHEMAS.update({
     "Repository": obj({"full_name": "s", "enabled": "b", "bot_repo": "b", "default_branch": "n",

@@ -1005,6 +1005,11 @@ class SettingsAdmin:
         if change["field"] == auto_tasks.KEY:
             return self.set_keep_tasks_going(c, who, bot, SimpleNamespace(
                 keep_tasks_going=before, expected_revision=body.expected_revision), undo_change_id=change_id)
+        if change["field"] == "turn_budget":
+            from . import turn_budgets
+            return turn_budgets.set_bot(self, c, who, bot, SimpleNamespace(
+                model_fields_set=set(turn_budgets.KEYS), expected_revision=body.expected_revision,
+                **{key: (before or {}).get(key) for key in turn_budgets.KEYS}), undo_change_id=change_id)
         if change["field"] == "task_model":
             return self.set_task_model(c, who, bot, SimpleNamespace(
                 task_model=SimpleNamespace(effort=before.get("reasoning_effort"), **{
