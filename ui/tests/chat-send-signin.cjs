@@ -3,6 +3,7 @@
 const {chromium, webkit} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const http = require('node:http');
 const {html, uiFile} = require('./support/page.cjs');
 const {unrouted} = require('./support/routes.cjs');
 const engines = (process.env.TICO_UI_ENGINES || 'chromium,webkit').split(',');
@@ -12,42 +13,54 @@ async function scenario(browser, mode, edit, keeper = true, editedBefore = false
   const errors = [], posts = [], delivered = [];
   page.on('pageerror', e => errors.push(e.message));
   let expired = false, hold = null, release;
-  await page.route('**/*', async route => {
-    const url = new URL(route.request().url()), p = url.pathname;
-    const json = (body, status = 200) => route.fulfill({status, contentType: 'application/json', body: JSON.stringify(body)});
-    const identity = () => json({error: {code: 'identity', detail: 'Sign in again', sign_in: '/auth/login'}}, 401);
-    if (p === '/auth/login') return route.fulfill({contentType: 'text/html',
-      body: '<title>Fixture sign-in</title><a id="return" href="' + url.searchParams.get('next') + '">Return after sign-in</a>'});
-    const ui = p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
-    if (ui && fs.existsSync(uiFile(ui[1]))) return route.fulfill({
-      contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(uiFile(ui[1]), 'utf8')});
-    if (p.endsWith('.js')) return route.fulfill({contentType: 'application/javascript', body: ''});
-    if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
-    if (p === '/api/v2/me' && expired) return identity();
-    if (p === '/api/me' || p === '/api/v2/me') return json({id: 'ana', name: 'Ana', role: 'owner', cloud: true});
-    if (p === '/api/employees') return json([{name: 'botops', display_name: 'BotOps', host: keeper ? 'keeper' : 'local', status: 'active', can_chat: true, schedules: []}]);
-    if (p === '/api/issues') return json([]);
-    if (p === '/api/employees/botops/conversation') return json({runs: []});
-    if (p === '/api/v2/conversations') return json({conversations: url.searchParams.get('chat_with')
-      ? [{id: 'c1', kind: 'chat', scope: 'personal', participants: ['human:ana', 'bot:botops']}] : []});
-    if (p.endsWith('/snapshot')) return json({messages: delivered, execution: null});
-    if (p === '/api/v2/events' || p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
-    if (p === (keeper ? '/api/v2/chat/botops' : '/api/employees/botops/chat')) {
-      const request = route.request();
-      const text = keeper ? request.postDataJSON().text : request.postData().match(/name="text"\r\n\r\n([^]*?)\r\n--/)[1];
-      posts.push({text, method: request.method()});
-      if (posts.length === 1) {
-        if (mode === 'timeout') return; // the client must end the unanswered send itself
-        expired = true;
-        return identity();
+  // A real same-origin fixture keeps event streams open across sign-in. Fulfilling an intercepted
+  // stream ends it immediately and creates reconnect/probe requests that WebKit can reject during navigation.
+  const serverErrors = [];
+  const server = http.createServer((request, response) => {
+    void (async () => {
+      const url = new URL(request.url, 'http://127.0.0.1'), p = url.pathname;
+      const chunks = [];
+      for await (const chunk of request) chunks.push(chunk);
+      const body = Buffer.concat(chunks).toString();
+      const reply = (body, contentType, status = 200) => { response.writeHead(status, {'Content-Type': contentType}); response.end(body); };
+      const json = (body, status = 200) => reply(JSON.stringify(body), 'application/json', status);
+      const identity = () => json({error: {code: 'identity', detail: 'Sign in again', sign_in: '/auth/login'}}, 401);
+      if (p === '/auth/login') return reply('<title>Fixture sign-in</title><a id="return" style="display:inline-block;padding:8px" href="' + url.searchParams.get('next') + '">Return after sign-in</a>', 'text/html');
+      const ui = p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
+      if (ui && fs.existsSync(uiFile(ui[1]))) return reply(fs.readFileSync(uiFile(ui[1]), 'utf8'), ui[1].endsWith('.css') ? 'text/css' : 'application/javascript');
+      if (p.endsWith('.js')) return reply('', 'application/javascript');
+      if (p === '/') return reply(html, 'text/html');
+      if (p === '/api/v2/me' && expired) return identity();
+      if (p === '/api/me' || p === '/api/v2/me') return json({id: 'ana', name: 'Ana', role: 'owner', cloud: true});
+      if (p === '/api/employees') return json([{name: 'botops', display_name: 'BotOps', host: keeper ? 'keeper' : 'local', status: 'active', can_chat: true, schedules: []}]);
+      if (p === '/api/issues') return json([]);
+      if (p === '/api/employees/botops/conversation') return json({runs: []});
+      if (p === '/api/v2/conversations') return json({conversations: url.searchParams.get('chat_with')
+        ? [{id: 'c1', kind: 'chat', scope: 'personal', participants: ['human:ana', 'bot:botops']}] : []});
+      if (p.endsWith('/snapshot')) return json({messages: delivered, execution: null});
+      if (p === '/api/v2/events' || p.endsWith('/watch')) {
+        response.writeHead(200, {'Content-Type': 'text/event-stream'});
+        response.write(': fixture\n\n');
+        return;
       }
-      if (hold) await hold;
-      const message = {id: 'm' + posts.length, from_actor: 'human:ana', body: text, created: new Date().toISOString()};
-      delivered.push(message);
-      return json(keeper ? {conversation: {id: 'c1'}, message} : {run: 'fixture-run'});
-    }
-    return json(unrouted(p));
+      if (p === (keeper ? '/api/v2/chat/botops' : '/api/employees/botops/chat')) {
+        const text = keeper ? JSON.parse(body).text : body.match(/name="text"\r\n\r\n([^]*?)\r\n--/)[1];
+        posts.push({text, method: request.method});
+        if (posts.length === 1) {
+          if (mode === 'timeout') return; // the client must end the unanswered send itself
+          expired = true;
+          return identity();
+        }
+        if (hold) await hold;
+        const message = {id: 'm' + posts.length, from_actor: 'human:ana', body: text, created: new Date().toISOString()};
+        delivered.push(message);
+        return json(keeper ? {conversation: {id: 'c1'}, message} : {run: 'fixture-run'});
+      }
+      return json(unrouted(p));
+    })().catch(error => { serverErrors.push(error.message); if (!response.headersSent) response.writeHead(500); response.end(); });
   });
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+  const origin = 'http://127.0.0.1:' + server.address().port;
   const box = page.locator('#chat-composer textarea'), send = page.locator('#chat-composer .p-send');
   const stored = () => page.evaluate(() => ({draft: chatDrafts().botops, otherDraft: chatDrafts().other,
     fields: JSON.parse(sessionStorage.getItem(SESSION_RETURN) || 'null')?.fields || []}));
@@ -56,7 +69,7 @@ async function scenario(browser, mode, edit, keeper = true, editedBefore = false
   const idle = () => page.waitForFunction(() => !BOT_PILL.sending && !document.querySelector('#chat-composer .p-send').disabled);
   const text = '  Keep this draft through sign-in  ';
   try {
-    await page.goto('https://tico-ui.test/#/bot/botops');
+    await page.goto(origin + '/#/bot/botops');
     await ready();
     await box.fill(text);
     await page.evaluate(() => localStorage.setItem(CHAT_DRAFTS, JSON.stringify({...chatDrafts(), other: 'Another bot draft'})));
@@ -84,7 +97,7 @@ async function scenario(browser, mode, edit, keeper = true, editedBefore = false
     await page.waitForURL('**/auth/login**');
     expired = false;
     await page.click('#return');
-    await page.waitForURL('https://tico-ui.test/#/bot/botops');
+    await page.waitForURL(origin + '/#/bot/botops');
     await ready();
     assert.equal(await box.inputValue(), text, 'return restores the draft');
     assert.ok((await stored()).fields.some(f => f.value === text), 'the return snapshot still holds a copy beside the restored local draft');
@@ -132,8 +145,15 @@ async function scenario(browser, mode, edit, keeper = true, editedBefore = false
     assert.ok(final.fields.some(f => f.scope === 'task:other' && f.value === 'Another task draft'), 'other boxes keep their sign-in snapshots');
     assert.ok(posts.every(request => request.method === 'POST'), 'all send requests use POST');
     assert.deepEqual(errors, [], 'no browser errors');
+    assert.deepEqual(serverErrors, [], 'no fixture server errors');
     console.log('ok -', keeper ? 'keeper' : 'local', mode, editedBefore ? 'edited restored draft' : edit ? 'preserves later edits' : 'sign-in return');
-  } finally { release?.(); await page.close(); }
+  } finally {
+    release?.();
+    try { await page.close(); } finally {
+      server.closeAllConnections();
+      await new Promise(resolve => server.close(resolve));
+    }
+  }
 }
 
 (async () => {
