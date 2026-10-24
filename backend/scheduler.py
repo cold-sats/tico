@@ -202,7 +202,16 @@ class Scheduler:
 
         def placement_sweep(c):
             placement.sweep(c, self.execution)
-        for step in (self.execution.expire,
+        with self.store.read() as c:
+            from . import start_places
+            expired = [row[0] for row in c.execute(
+                "SELECT id FROM attempts WHERE state IN ('leased','running') AND lease_until<=? ORDER BY lease_until,id",
+                (H.now(),))]
+            expired = list(dict.fromkeys([*expired, *start_places.overdue(c)]))
+        for aid in expired:
+            with locked("expire:" + aid) as c:
+                self.execution.expire(c, attempt_ids=[aid])
+        for step in (
                      # Interrupted work that needs no eyes is settled here, so what a person is shown
                      # is only the runs that used tools before they stopped.
                      self.execution.auto_reconcile,
@@ -402,8 +411,11 @@ class Scheduler:
             # hour, whether or not a reading arrived (a person's colour is only ever suggested over).
             self.goals_checked = at
             with SR.recording(self.store, "goal_colours", failures, "goals") as run:
-                with self.store.transaction() as c:
-                    G.refresh(c)
+                with self.store.read() as c:
+                    goal_ids = [row["id"] for row in G.goals(c, live_only=True)]
+                for goal_id in goal_ids:
+                    with locked("goal_colour:" + goal_id) as c:
+                        G.refresh(c, [goal_id])
                 run.did("Done")
             try:
                 # The CEO Bot's Monday note: started once above Passive, paused at Passive (backend/ceo_bot.py `reconcile`).
@@ -432,7 +444,15 @@ class Scheduler:
                         c, self.store.settings)
                 if due:
                     gateway_connection.check_soon(self.store, Vault(self.store), self.store.settings)
+                    # And whether this company uses Tico file hosting, with this server's total for HQ's estimate
+                    # (backend/tico_storage.py).
+                    from . import tico_storage
+                    tico_storage.sync_later(self.store, report=True)
                 run.did("Checked" if due else "No Gateway key set")
+        # Tico file hosting's keys last an hour: HQ is asked again every 5 minutes while the company has it, and
+        # before they end (backend/tico_storage.py `_plan`). On its own thread; nothing at all without it.
+        from . import tico_storage
+        tico_storage.sync_later(self.store, due_only=True)
         if self.billing_checked is None or at - self.billing_checked >= timedelta(hours=1):
             # Every hour, while this server holds HQ's read-only staff key (the Tico team's own install only): HQ's
             # nightly billing check for the owner's Health page (backend/billing_check.py). On its own thread.
@@ -468,14 +488,34 @@ class Scheduler:
                 with self.store.transaction() as c:
                     from . import run_diagnostics
                     run_diagnostics.sweep(c, stamp(at))
-                    woke = H.wake_stalled(c, stamp(at))
+                # Discover candidates in a WAL snapshot, then recheck one task under each
+                # short lock. Unrelated runner writes can progress between tasks.
+                with self.store.read_transaction() as c:
+                    task_ids = list(dict.fromkeys(row["id"] for row in
+                                    [*H.stalled_tasks(c, stamp(at)), *H.spot_check_tasks(c, stamp(at))]))
+                woke = {key: [] for key in ("woke", "escalated", "checked", "stuck", "held", "retried")}
+                # Our earlier task wake must not make the same bot appear busy for
+                # the rest of this pass. Other newly queued work still fences it.
+                queued_here = []
+                for task_id in task_ids:
+                    with locked("stall_check:" + task_id) as c:
+                        result = H.wake_stalled(c, stamp(at), task_ids=[task_id], queued_here=queued_here)
+                        for key, values in result.items():
+                            woke.setdefault(key, []).extend(values)
                 acted = {"stalled tasks woken": woke.get("woke") or [], "sent to BotOps": woke.get("escalated") or [],
                          "retried": woke.get("retried") or [], "held for setup": woke.get("held") or []}
                 run.did(SR.words_of(acted, none="Nothing stalled"), quiet=not any(acted.values()))
                 # ...and queued jobs whose message their bot may no longer read, which no claim would ever take.
                 try:
-                    with self.store.transaction() as c:
-                        self.execution.drop_unreadable(c)
+                    with self.store.read_transaction() as c:
+                        # The expensive privacy/provenance scan does not need the writer lock.
+                        from . import task_privacy
+                        job_ids = [row["job_id"] for row in c.execute(
+                            "SELECT j.id AS job_id,j.bot,m.* FROM jobs j JOIN messages m ON m.id=j.message_id WHERE j.state='queued'")
+                            if not task_privacy.message_readable(c, "bot:" + row["bot"], row, current=True)]
+                    for job_id in job_ids:
+                        with locked("drop_unreadable:" + job_id) as c:
+                            self.execution.drop_unreadable(c, job_ids=[job_id])
                 except Exception as exc:
                     failures.append({"drop_unreadable": type(exc).__name__})
         if self.stranded is None or at - self.stranded >= timedelta(hours=1):

@@ -320,6 +320,29 @@ def test_heartbeat_writes_only_changes_and_backs_off_a_refused_cleanup(prepared)
         assert json.loads(c.execute('SELECT detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()[0])['cleanup_gave_up']
 
 
+def test_a_removed_checkout_reported_every_heartbeat_is_not_a_task_change(prepared):
+    api, tid, _ = prepared
+    link = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}).json()
+    report = {'link_id': link['link_id'], 'state': 'present', 'branch': link['branch'], 'ahead': 0, 'dirty_files': 0,
+              'last_commit': 'abc', 'last_activity': 1792560695.4}
+    body = {'version': '0.3.2', 'platform': 'linux', 'readiness': {'schema_version': 1, 'bots': {}, 'worktrees': True},
+            'worktrees': [report]}
+    post(api, 'runners/heartbeat', body, 'runner-test')
+    # Gone from disk, the computer reports only the link and its state: no commit, no activity.
+    body['worktrees'] = [{'link_id': link['link_id'], 'state': 'removed'}]
+    post(api, 'runners/heartbeat', body, 'runner-test')
+
+    def written():
+        with api.app_state.store.read() as c:
+            return (c.execute("SELECT count(*) FROM changes WHERE topic='tasks' AND kind='link' AND subject_id=?",
+                              (tid,)).fetchone()[0],
+                    c.execute('SELECT updated,detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone())
+    seen = written()
+    for _ in range(3):
+        assert post(api, 'runners/heartbeat', body, 'runner-test').status_code == 200
+    assert written() == seen, 'a removed checkout reported again is not activity'
+
+
 def test_a_refused_cleanup_keeps_its_error_across_a_computer_restart(prepared):
     api, tid, _ = prepared
     link = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}).json()
@@ -602,6 +625,35 @@ def test_a_report_built_from_an_older_record_never_moves_it_forward_either(prepa
     assert state == 'pending' and detail['checkout_state'] == 'ready'
 
 
+@pytest.mark.parametrize('cleanup_requested', [False, True])
+@pytest.mark.parametrize('stamp', ['stale', 'equal', 'newer', 'unstamped'])
+def test_removed_heartbeat_respects_the_record_stamp(prepared, cleanup_requested, stamp):
+    api, tid, _ = prepared
+    link = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}).json()
+    assert mark_ready(api, tid, link['link_id']).status_code == 200
+    changed = '2026-10-24T03:06:28.000000Z'
+    with api.app_state.store.transaction() as c:
+        row = c.execute('SELECT detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()
+        detail = {**json.loads(row['detail_json']), 'record_changed': changed}
+        if cleanup_requested:
+            detail['cleanup_requested'] = True
+        c.execute('UPDATE task_links SET detail_json=?,updated=? WHERE id=?',
+                  (json.dumps(detail), changed, link['link_id']))
+    report = {'link_id': link['link_id'], 'state': 'removed'}
+    if stamp != 'unstamped':
+        report['record_updated'] = {'stale': '2026-10-24T03:06:27.000000Z', 'equal': changed,
+                                    'newer': '2026-10-24T03:06:29.000000Z'}[stamp]
+    response = post(api, 'runners/heartbeat', {**HEARTBEAT, 'worktrees': [report]}, 'runner-test')
+    assert response.status_code == 200, response.text
+    with api.app_state.store.read() as c:
+        row = c.execute('SELECT state,detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()
+    detail = json.loads(row['detail_json'])
+    assert row['state'] == ('present' if stamp == 'stale' else 'removed')
+    assert detail['checkout_state'] == 'ready' and detail['setup_pending'] is False
+    assert detail.get('removed_by') == ('cleanup' if cleanup_requested and stamp != 'stale' else None)
+    assert len(released_events(api, tid)) == int(cleanup_requested and stamp != 'stale')
+
+
 def test_an_older_runner_can_still_add_a_worktree_and_finish_its_setup(prepared):
     """A 0.3.34 runner adds as the bot, reports present with only its path, then setup_pending True and False."""
     api, tid, _ = prepared
@@ -874,6 +926,89 @@ def test_a_new_worktree_starts_only_for_work_a_coding_step_can_run_on(prepared):
         assert post(api, path, {'repo': 'Acme/product'}, 'bot-test').status_code == 200
 
 
+def test_a_blocker_counts_once_its_code_is_merged_not_once_it_ships(prepared):
+    """A worktree builds from source: a blocker at Pending Release (or later) or with its pull request merged lets the
+    dependent start; one still before the merge holds it, and the refusal says what is missing."""
+    api, tid, other = prepared
+    path = f'tasks/{tid}/worktrees'
+    with api.app_state.store.transaction() as c:
+        dev = H.type_create(c, 'human:ana', 'Dev tickets', numbered=True, steps=[
+            {'name': 'On Deck', 'status': 'open'}, {'name': 'In Progress', 'status': 'doing'},
+            {'name': 'Review 1', 'status': 'review'}, {'name': 'Review 2', 'status': 'review'},
+            {'name': 'Pending Release', 'status': 'review'}, {'name': 'Post Release QA', 'status': 'review'},
+            {'name': 'Done', 'status': 'done'}, {'name': 'Closed', 'status': 'closed'}])
+        steps = {s['name']: s['id'] for s in dev['steps']}
+        c.execute("INSERT INTO task_relations(from_task,to_task,kind,created) VALUES(?,?,'blocks',?)", (other, tid, H.now()))
+        pr = H.task_link(c, 'bot:cpo', other, 'https://github.com/Acme/product/pull/7')
+
+    def at(step, pr_state):
+        with api.app_state.store.transaction() as c:
+            c.execute('UPDATE tasks SET type_id=?,step_id=?,status=? WHERE id=?',
+                      (dev['id'], steps[step], 'review', other))
+            c.execute('UPDATE task_links SET state=? WHERE id=?', (pr_state, pr['id']))
+        return post(api, path, {'repo': 'Acme/product'}, 'bot-test')
+
+    refused = at('Review 2', 'open')
+    assert refused.status_code == 409 and refused.json()['error']['code'] == 'worktree_start', refused.text
+    assert refused.json()['error']['detail'] == ('This task is blocked by Other work, still at Review 2 with pull '
+                                                 'request #7 not merged yet: it gets a worktree once that code is merged.')
+    def starts(step, pr_state):
+        started = at(step, pr_state)
+        assert started.status_code == 200, (step, pr_state, started.text)
+        with api.app_state.store.transaction() as c:     # released, so the next check asks for a new tree
+            c.execute("UPDATE task_links SET state='removed' WHERE id=?", (started.json()['link_id'],))
+
+    starts('Pending Release', 'merged')
+    for step, pr_state in (('Pending Release', 'open'), ('Post Release QA', 'open'), ('Review 2', 'merged')):
+        starts(step, pr_state)              # the step alone, or the merged pull request alone, is enough
+    # A closed, unmerged pull request was abandoned: it neither counts as merged nor holds a merged one back.
+    with api.app_state.store.transaction() as c:
+        H.task_link(c, 'bot:cpo', other, 'https://github.com/Acme/product/pull/8')
+        c.execute("UPDATE task_links SET state='closed' WHERE kind='pr' AND number=8")
+    starts('Review 2', 'merged')
+    refused = at('Review 2', 'closed')
+    assert refused.status_code == 409
+    assert 'still at Review 2 with no merged pull request' in refused.json()['error']['detail']
+    # A merged pull request beside one still open is not enough: the open one names what is missing.
+    with api.app_state.store.transaction() as c:
+        c.execute("UPDATE task_links SET state='open' WHERE kind='pr' AND number=8")
+    refused = at('Review 2', 'merged')
+    assert 'still at Review 2 with pull request #8 not merged yet' in refused.json()['error']['detail']
+    # Every blocker counts, not only the first: a met one does not let an unmet one behind it through.
+    with api.app_state.store.transaction() as c:
+        later = H.task_create(c, 'human:ana', 'Later work', 'Implement more', 'bot:cpo')
+        c.execute("UPDATE tasks SET status='doing' WHERE id=?", (later['id'],))
+        c.execute("INSERT INTO task_relations(from_task,to_task,kind,created) VALUES(?,?,'blocks',?)",
+                  (later['id'], tid, H.now()))
+    refused = at('Pending Release', 'merged')
+    assert refused.json()['error']['detail'].startswith('This task is blocked by Later work, still at '), refused.text
+
+
+def test_only_the_pending_release_step_marks_a_blocker_merged(prepared):
+    """A step with a ready status can come before work that still changes code: a blocker there counts only by its
+    status, and one moved on to a later doing step still holds the dependent."""
+    api, tid, other = prepared
+    path = f'tasks/{tid}/worktrees'
+    with api.app_state.store.transaction() as c:
+        flow = H.type_create(c, 'human:ana', 'Custom flow', steps=[
+            {'name': 'Build', 'status': 'doing'}, {'name': 'Ready', 'status': 'ready'},
+            {'name': 'Follow-up', 'status': 'doing'}, {'name': 'Pending Release', 'status': 'review'},
+            {'name': 'Done', 'status': 'done'}])
+        steps = {s['name']: s['id'] for s in flow['steps']}
+        c.execute("INSERT INTO task_relations(from_task,to_task,kind,created) VALUES(?,?,'blocks',?)", (other, tid, H.now()))
+
+    def at(step, status):
+        with api.app_state.store.transaction() as c:
+            c.execute('UPDATE tasks SET type_id=?,step_id=?,status=? WHERE id=?', (flow['id'], steps[step], status, other))
+        return post(api, path, {'repo': 'Acme/product'}, 'bot-test')
+
+    refused = at('Follow-up', 'doing')
+    assert refused.status_code == 409, refused.text
+    assert 'still at Follow-up with no merged pull request' in refused.json()['error']['detail']
+    started = at('Ready', 'ready')
+    assert started.status_code == 200, started.text
+
+
 def test_an_obsolete_pending_reservation_is_cancelled_without_touching_a_checkout(prepared):
     api, tid, _ = prepared
     link = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}, 'bot-test').json()
@@ -1143,3 +1278,73 @@ def test_a_new_push_after_a_stale_push_was_cleared_resets_the_cleared_flag(prepa
                         'repository': {'full_name': 'Acme/product', 'default_branch': 'main'}})
         detail = json.loads(c.execute('SELECT detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()[0])
     assert detail['pushed'] == 'd' * 40 and 'stale_push_cleared' not in detail
+
+
+@pytest.mark.parametrize('guard', ['merge_time', 'branch', 'repository', 'matching', 'legacy'])
+def test_finished_pr_must_match_the_working_allocation(prepared, guard):
+    api, tid, _ = prepared
+    link = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}, 'bot-test').json()
+    assert mark_ready(api, tid, link['link_id']).status_code == 200
+    allocation = '2026-10-23T08:00:00.500000Z'
+    merged = '2026-10-23T08:00:00Z' if guard == 'merge_time' else '2026-10-23T08:00:01Z'
+    branch = 'tico/other' if guard == 'branch' else link['branch']
+    repo = 'Acme/other' if guard == 'repository' else 'acme/PRODUCT'
+    if guard == 'legacy':
+        repo = branch = None
+    with api.app_state.store.transaction() as c:
+        detail = json.loads(c.execute('SELECT detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()[0])
+        detail['allocation_started'] = allocation
+        detail['remote'] = {'at': H.now(), 'heads': ['a' * 40]}
+        c.execute('UPDATE task_links SET detail_json=? WHERE id=?', (json.dumps(detail), link['link_id']))
+        c.execute("UPDATE attempts SET state='done' WHERE id='a1'")
+        pr = H.task_link(c, 'bot:cmo', tid, 'https://github.com/Acme/product/pull/7')
+        # Late linking must not make a historical merge belong to the renewed allocation.
+        c.execute("UPDATE task_links SET state='merged',created=?,pr_merged_at=?,repo=?,branch=?,detail_json=? WHERE id=?",
+                  ('2026-10-23T08:00:02.000000Z', merged, repo, branch, json.dumps({'head_sha': 'a' * 40}), pr['id']))
+    body = {**HEARTBEAT, 'worktrees': [
+        {'link_id': link['link_id'], 'state': 'present', 'checkout_state': 'ready',
+         'branch': link['branch'], 'last_commit': 'a' * 40, 'ahead': 0, 'dirty_files': 0}]}
+    response = post(api, 'runners/heartbeat', body, 'runner-test')
+    assert response.status_code == 200, response.text
+    released = guard in ('matching', 'legacy')
+    assert [(a['link_id'], a['action']) for a in response.json()['worktree_actions']] == (
+        [(link['link_id'], 'remove')] if released else [])
+    with api.app_state.store.read() as c:
+        held = {w['link_id']: w for w in W.holdings(c, 'bot:cmo')}
+        assert held[link['link_id']]['clear'] == ('merged' if released else 'in_progress')
+        detail = json.loads(c.execute('SELECT detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()[0])
+        assert any(detail.get(k) for k in W.REMOVAL) == released
+
+
+def test_old_merged_pr_releases_its_tree_but_keeps_a_newer_doing_allocation(prepared):
+    api, tid, _ = prepared
+    original = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}, 'bot-test').json()
+    assert mark_ready(api, tid, original['link_id']).status_code == 200
+    with api.app_state.store.transaction() as c:
+        pr = H.task_link(c, 'bot:cmo', tid, 'https://github.com/Acme/product/pull/7')
+        old = H.shift(H.now(), days=-2)
+        c.execute('UPDATE task_links SET created=? WHERE id=?', (H.shift(old, days=-1), original['link_id']))
+        c.execute("UPDATE task_links SET state='merged',created=?,branch=?,detail_json=? WHERE id=?",
+                  (old, original['branch'], json.dumps({'head_sha': 'a' * 40}), pr['id']))
+    newer = post(api, f'tasks/{tid}/worktrees/attach',
+                 {'repo': 'Acme/product', 'path': f'tasks/{tid[:8]}/new', 'branch': 'tico/new'}, 'bot-test').json()
+    assert mark_ready(api, tid, newer['link_id']).status_code == 200
+    # A missed webhook can link the historical PR after the newer allocation starts.
+    with api.app_state.store.transaction() as c:
+        c.execute('UPDATE task_links SET created=?,pr_merged_at=? WHERE id=?', (H.now(), old, pr['id']))
+    body = {**HEARTBEAT, 'worktrees': [
+        {'link_id': tree['link_id'], 'state': 'present', 'checkout_state': 'ready',
+         'branch': tree['branch'], 'last_commit': 'a' * 40} for tree in (original, newer)]}
+    actions = post(api, 'runners/heartbeat', body, 'runner-test').json()['worktree_actions']
+    assert [(a['link_id'], a['action']) for a in actions] == [(original['link_id'], 'remove')]
+    with api.app_state.store.read() as c:
+        detail = json.loads(c.execute('SELECT detail_json FROM task_links WHERE id=?', (newer['link_id'],)).fetchone()[0])
+        assert not any(detail.get(k) for k in W.REMOVAL)
+        held = {w['link_id']: w for w in W.holdings(c, 'bot:cmo')}
+        assert held[newer['link_id']]['clear'] == 'in_progress'
+        assert held[original['link_id']]['clear'] == 'merged'
+    # Review-step cleanup keeps its established behavior, including task-wide finished PRs.
+    with api.app_state.store.transaction() as c:
+        c.execute("UPDATE tasks SET status='review' WHERE id=?", (tid,))
+    actions = post(api, 'runners/heartbeat', body, 'runner-test').json()['worktree_actions']
+    assert {a['link_id'] for a in actions if a['action'] == 'remove'} == {original['link_id'], newer['link_id']}

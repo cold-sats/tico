@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS flight_requests(ts INTEGER NOT NULL, span INTEGER NOT
   caller TEXT NOT NULL, n INTEGER NOT NULL, errors INTEGER NOT NULL, bytes INTEGER NOT NULL, total_ms REAL NOT NULL,
   p50 REAL, p95 REAL, max_ms REAL, hist TEXT, PRIMARY KEY(ts, span, route, caller)) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS flight_slow(id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, route TEXT, caller TEXT,
-  actor TEXT, ms REAL, bytes INTEGER, status INTEGER);
+  actor TEXT, ms REAL, bytes INTEGER, status INTEGER, sql_ms REAL, wait_ms REAL, queries INTEGER);
 CREATE TABLE IF NOT EXISTS flight_process(ts INTEGER PRIMARY KEY, cpu REAL, rss INTEGER, threads INTEGER,
   fds INTEGER, sockets INTEGER, lag_p95 REAL, lag_max REAL, requests INTEGER, queries INTEGER, sql_ms REAL,
   txns INTEGER, wait_max REAL, hold_max REAL, hold_p95 REAL, locked INTEGER, dropped INTEGER);
@@ -332,7 +332,8 @@ class Recorder:
                     row[7] += sql_ms
                     row[8] += wait_ms
                     if ms >= SLOW_MS and len(self.slow) < SLOW_PER_MINUTE:
-                        slow = (int(time.time()), route, caller, actor, round(ms, 1), nbytes or 0, status)
+                        slow = (int(time.time()), route, caller, actor, round(ms, 1), nbytes or 0, status,
+                                round(sql_ms, 1), round(wait_ms, 1), queries)
                         self.slow.append(slow)
                         self.slow_file.append({"kind": "slow", "route": route, "caller": caller, "actor": actor,
                                                "ms": slow[4], "bytes": slow[5], "status": status,
@@ -426,7 +427,7 @@ class Recorder:
 
 def write(c, taken):
     c.executemany("INSERT OR REPLACE INTO flight_requests VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", taken["requests"])
-    c.executemany("INSERT INTO flight_slow(ts,route,caller,actor,ms,bytes,status) VALUES(?,?,?,?,?,?,?)", taken["slow"])
+    c.executemany("INSERT INTO flight_slow(ts,route,caller,actor,ms,bytes,status,sql_ms,wait_ms,queries) VALUES(?,?,?,?,?,?,?,?,?,?)", taken["slow"])
     c.execute("INSERT OR REPLACE INTO flight_process VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", taken["process"])
     c.executemany("INSERT OR REPLACE INTO flight_sql VALUES(?,?,?,?,?,?,?)", taken["sql"])
     for hold in taken.get("long_holds") or []:
@@ -673,6 +674,18 @@ def last_start(c):
 
 # ---------------------------------------------------------------------------- the database itself
 
+def _rows(c, table):
+    """About how many rows `table` holds, from its rowid span: exact for a log pruned from its oldest end, a little
+    high for one deleted from the middle. count(*) read every page of a table of millions of rows each hour, for
+    minutes, holding a read snapshot that kept the WAL from resetting. A table without rowids is counted."""
+    try:
+        # One aggregate per SELECT: SQLite answers min() or max() from the b-tree's end only when it is alone.
+        low, high = c.execute(f"SELECT (SELECT min(rowid) FROM {table}), (SELECT max(rowid) FROM {table})").fetchone()
+    except sqlite3.OperationalError:
+        return c.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+    return 0 if high is None else high - low + 1
+
+
 def db_stats(store, use_dbstat=True):
     path = str(store.settings.db_path)
     size = os.path.getsize(path) if os.path.exists(path) else 0
@@ -692,7 +705,7 @@ def db_stats(store, use_dbstat=True):
         for table, column in BIG.items():
             if table not in present:
                 continue
-            detail["rows"][table] = c.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+            detail["rows"][table] = _rows(c, table)
             if column:
                 row = c.execute(f"SELECT {column} FROM {table} ORDER BY rowid LIMIT 1").fetchone()
                 detail["oldest"][table] = row[0] if row else None
@@ -1013,7 +1026,7 @@ def view(c, minutes=60, sections=SECTIONS, now=None):
         out["requests"] = _requests(c, since)
     if "slow" in sections:
         out["slow"] = [dict(r) for r in c.execute(
-            "SELECT ts,route,caller,actor,ms,bytes,status FROM flight_slow WHERE ts>=? ORDER BY id DESC LIMIT 50",
+            "SELECT ts,route,caller,actor,ms,bytes,status,sql_ms,wait_ms,queries FROM flight_slow WHERE ts>=? ORDER BY id DESC LIMIT 50",
             (since,))]
     if "process" in sections:
         out["process"] = _process(c, since)

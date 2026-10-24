@@ -7,6 +7,8 @@ os.environ["TICO_REGISTRY_DIR"] = str(Path(__file__).parent / "backend/tests/fix
 os.environ["TICO_UPDATE_CHECK"] = "off"
 # A runner readiness call would otherwise start real containers on whoever's computer runs the suite.
 os.environ["TICO_RUNNER_CONTAINER_PROBE"] = "off"
+# Every test's database is thrown away, so no commit waits for the disk (hubdb.synchronous).
+os.environ["TICO_SQLITE_SYNC"] = "off"
 # A test that misses a stub must fail, not act in whoever's AWS account runs the suite: one already
 # created a real bucket. Fake keys and no profile or config files make any real AWS call unauthorized.
 for _name in ("AWS_PROFILE", "AWS_DEFAULT_PROFILE", "AWS_SESSION_TOKEN", "AWS_ROLE_ARN", "AWS_WEB_IDENTITY_TOKEN_FILE"):
@@ -106,7 +108,7 @@ def api_database(tmp_path_factory, request):
     snapshot = settings.db_path.with_name("snapshot.db")
     with closing(sqlite3.connect(settings.db_path)) as source:
         tables = [row[0] for row in source.execute("SELECT name FROM sqlite_master WHERE type='table'")]
-        allowed = {"cloud_migrations", "registry_metadata", "sqlite_sequence", "task_types", "task_steps"}
+        allowed = {"cloud_migrations", "registry_metadata", "sqlite_sequence", "task_types", "task_steps", "provenance_clock"}
         for table in tables:
             # FTS5 has internal configuration rows but no user document before fixture seeding.
             if table in allowed or "_fts_" in table:

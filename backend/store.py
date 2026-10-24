@@ -398,6 +398,10 @@ def refused(c, identity, exc):
     """Undo a refused domain write, keep its audit (and rule 8's count), and say what answers it."""
     c.execute("ROLLBACK TO domain_write")
     c.execute("RELEASE domain_write")
+    # Gate notifications survive the refused move, while its step and reviewer wake roll back.
+    if getattr(exc, "review_gate", None):
+        from . import review_gate
+        review_gate.notify(c, identity.actor, exc.review_gate)
     # Preserve refusal auditing, but never a partial domain operation.
     token = H.PRIVATE_WRITE.set(getattr(exc, 'private', False))
     try:
@@ -418,12 +422,19 @@ MAIL_RETENTION_DAYS = 180
 # answers again, and an empty claim handed out no lease. They arrive every 15 s per runner
 # (the heartbeat reply carries every assignment), and grew to most of the database file. A claim that leased a job stays replayable so a lost reply cannot
 # strand the lease.
+# A running turn asks for steering input every few seconds, and almost every answer is empty; an answer that
+# took input stays replayable. Output events replay by their own sequence numbers (execution.events), so a
+# stored receipt for each batch only grew the table: together they were most of its writes.
 def is_poll(operation, result):
     if operation in ("/api/v2/runners/heartbeat", "/api/v2/runners/performance"):
         return True
     if operation == "/api/v2/jobs/claim":
         return isinstance(result, dict) and result.get("attempt") is None
-    return operation.startswith("/api/v2/attempts/") and operation.endswith("/renew")
+    if not operation.startswith("/api/v2/attempts/"):
+        return False
+    if operation.endswith("/inputs"):
+        return isinstance(result, dict) and not result.get("messages")
+    return operation.endswith(("/renew", "/events"))
 
 
 def encode(value):
@@ -677,6 +688,8 @@ class Store:
         # In-process writers queue before BEGIN instead of competing in SQLite's busy-handler sleeps.
         # Reads still use independent WAL snapshots; other processes remain governed by busy_timeout.
         self.writer = WriterGate()
+        from .provenance_clock import Cache
+        self.provenance_cache = Cache()
 
     def connect(self, factory=None, check_same_thread=True):
         c = sqlite3.connect(str(self.settings.db_path), timeout=30, isolation_level=None,
@@ -686,13 +699,19 @@ class Store:
         # As hubdb.connect: a writer waits out a backup checkpoint or a long scheduler pass
         # rather than answering storage_unavailable.
         c.execute("PRAGMA busy_timeout=30000")
-        c.execute("PRAGMA synchronous=FULL")
+        # In WAL mode NORMAL syncs at checkpoints, not on every commit inside the writer gate, where a sync
+        # waiting behind other disk writes on the host held every writer for seconds. The database cannot
+        # corrupt; an OS crash or power loss can lose the last commits, as with hubdb.connect.
+        c.execute(f"PRAGMA synchronous={H.synchronous('NORMAL')}")
         return c
 
     def initialize(self, *, seed_market=True, adopt_legacy=False):
         self.settings.db_path.parent.mkdir(parents=True, exist_ok=True)
         with H.connect(self.settings.db_path, adopt_legacy=adopt_legacy) as c:
             c.executescript(SCHEMA)
+            from . import start_places as _start_places
+            c.executescript(_start_places.SCHEMA)
+            _start_places.restore_waits(c)
             from . import updates as _updates
             c.executescript(_updates.SCHEMA)
             _updates.ensure_schema(c)
@@ -723,6 +742,8 @@ class Store:
             c.executescript(_mail_settings.SCHEMA)
             from . import company_storage as _company_storage
             c.executescript(_company_storage.SCHEMA)
+            from . import tico_storage as _tico_storage
+            c.executescript(_tico_storage.SCHEMA)
             from . import google_connect as _google_connect
             _google_connect.ensure_schema(c)
             from . import support as _support
@@ -735,6 +756,12 @@ class Store:
             c.executescript(_credential_cards.SCHEMA)
             from . import watchers as _watchers
             c.executescript(_watchers.SCHEMA)
+            from . import bot_task_tabs as _bot_task_tabs
+            c.executescript(_bot_task_tabs.SCHEMA)
+            # The sidebar's widgets: order, hidden and heights (Editable bot sidebar); NULL is the default four.
+            H.add_column(c, "bot_task_tabs", "widgets_json", "TEXT")
+            from . import learned as _learned
+            c.executescript(_learned.SCHEMA)
             from . import health_monitor as _health_monitor
             c.executescript(_health_monitor.SCHEMA)
             # When a finding last woke the Health Monitor, and how bad it is: a rise wakes it (backend/health_monitor.py).
@@ -744,6 +771,8 @@ class Store:
             c.executescript(_slack_channels.SCHEMA)
             from . import flight as _flight
             c.executescript(_flight.SCHEMA)
+            for column, kind in (("sql_ms", "REAL"), ("wait_ms", "REAL"), ("queries", "INTEGER")):
+                H.add_column(c, "flight_slow", column, kind)
             from . import performance as _performance
             c.executescript(_performance.SCHEMA)
             _updates.purge_rejected(c)
@@ -1250,6 +1279,9 @@ class Store:
                 # Milestone waits (backend/milestone_waits.py). Unversioned like the trash.
                 from .milestone_waits import ensure as ensure_milestone_waits
                 ensure_milestone_waits(c)
+                # Recruiting seats (backend/lifecycle.py). Unversioned like the trash.
+                from .lifecycle import ensure as ensure_seats
+                ensure_seats(c)
                 # The company's Vision, Description and their history, and each goal's Why (backend/company.py).
                 # Unversioned like the trash: an older release never reads the tables or the columns.
                 from .company import ensure as ensure_company
@@ -1319,6 +1351,9 @@ class Store:
                                    # A bot's latest usage-limited attempt (execution.last_limit), read per Health render.
                                    ("attempts_bot_finished", "attempts(bot, finished)"),
                                    ("attempts_job", "attempts(job_id)"),
+                                   # Lease maintenance walks only active runs, never their history.
+                                   ("attempts_live_lease", "attempts(lease_until,id) WHERE state IN ('leased','running')"),
+                                   ("jobs_queued", "jobs(id,bot,message_id) WHERE state='queued'"),
                                    ("attempts_runner_state", "attempts(runner_id, state)"),
                                    # The turns a computer ran in a window, read under the write lock by an
                                    # open overload (backend/performance.py `_runs`).
@@ -1404,6 +1439,8 @@ class Store:
             except Exception:
                 c.rollback()
                 raise
+            from . import provenance_clock
+            provenance_clock.ensure(c)
             # Every start, in short batches of their own: rows written since the last pass, including any an
             # older server wrote after a rollback, get their task links (backend/message_links.py).
             message_links.backfill(c)
@@ -1442,6 +1479,8 @@ class Store:
             if identity != self.pool_file:
                 # A restored or replaced database file: connections to the old one are not reused.
                 stale, self.pool, self.pool_file = self.pool, [], identity
+                from .provenance_clock import Cache
+                self.provenance_cache = Cache()
             else:
                 stale = []
             c = self.pool.pop() if self.pool else None
@@ -1451,6 +1490,10 @@ class Store:
             c = self.connect(factory=self.pooled, check_same_thread=False)
             c.pool_file = identity
         c.read_cache = {}
+        c.provenance_cache = self.provenance_cache
+        c.write_transaction = False
+        c.provenance_changes = c.total_changes
+        c.provenance_start = None
         return c
 
     def _give(self, c):
@@ -1481,6 +1524,9 @@ class Store:
                 return c
             done = begin(None, self.recorder, gate=self.writer, checkout=checkout)
             try:
+                c.write_transaction = True
+                from . import provenance_clock
+                c.provenance_start = provenance_clock.current(c)
                 yield c
                 message_links.refresh_dirty(c)
                 c.commit()
@@ -1624,6 +1670,8 @@ class Store:
                           (principal, operation, key, hashed, encode(cached), H.now()))
         self.ring(logged)
         if refusal:
+            # This key now records a rolled-back operation, not an earlier successful delivery.
+            refusal.extra["idempotency_refused"] = True
             raise refusal
         return result
 

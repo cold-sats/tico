@@ -14,14 +14,16 @@ from fastapi.responses import PlainTextResponse, RedirectResponse, Response
 from clients import gateway, sessions
 
 from . import access as Access
+from . import lifecycle
 from . import bot_access as A
 from . import models as M
 from . import changelog as CL
 from . import visuals
-from . import app_delivery, providers, runner_versions
+from . import app_delivery, login_holds, providers, runner_versions
 from .harnesses import resolve_harness
 from . import personal_tokens, rooms, team_rules, turns, wake_presets
-from .execution import AWAKE_GAP, AWAKE_SETTLE, Execution, bump_bot_session_epoch, turn_limit, turn_share, turns_here
+from . import auto_tasks
+from .execution import AWAKE_GAP, AWAKE_SETTLE, Execution, bump_bot_session_epoch, turns_here
 from pathlib import Path
 
 from . import read_cache
@@ -33,6 +35,7 @@ from . import task_relations as TR
 
 MIN_RUNNER_VERSION = (0, 2, 0)
 DOC_BOT = "doc-updater"         # the documentation agent: docs questions and doc PR reviews
+CEO_BOT = "goal-manager"       # the CEO Bot (backend/ceo_bot.py SLUG): of people, only the owner chats with it
 
 
 def runner_version_supported(value):
@@ -64,10 +67,10 @@ def attempt_details(c, turn):
             result = json.loads(attempt["result_json"] or "{}")
         except (ValueError, TypeError):
             result = {}
-        reason = result.get("error") or result.get("reason") or result.get("message") or (
+        reason = login_holds.failure_line(result) or result.get("error") or result.get("reason") or result.get("message") or (
             "Lease expired before completion" if attempt["state"] == "expired" else "Attempt failed before completion")
         details.update(exit=attempt["state"], finished=attempt["finished"] or turn.get("finished"),
-                       failure_reason=details["end_reason"] or str(reason))
+                       failure_reason=login_holds.failure_line(result) or details["end_reason"] or str(reason))
     return details
 
 
@@ -95,7 +98,7 @@ def failed_attempts(c, who, auth, bot=None, since=None, limit=200):
             result = json.loads(row["result_json"] or "{}")
         except (ValueError, TypeError):
             result = {}
-        reason = (result.get("error") or result.get("reason") or result.get("message")
+        reason = (login_holds.failure_line(result) or result.get("error") or result.get("reason") or result.get("message")
                   or ("Lease expired before completion" if row["state"] == "expired" else "Attempt failed before completion"))
         rows.append({"id": row["id"], "attempt_id": row["id"], "bot": row["bot"],
                      "started": row["started"] or row["created"], "finished": row["finished"],
@@ -224,15 +227,21 @@ def may_chat(c, auth, who, bot):
         return True
     # The assistant is chatted with in one place only: each person's own Assistant room, through
     # /api/v2/assistant (backend/assistant.py). It has no chat with anyone else and no shared or
-    # per-bot chat, so every other route that asks "may I chat with it" says no.
-    return bot != auth.settings.assistant_bot
+    # per-bot chat, so every other route that asks "may I chat with it" says no. The CEO Bot the
+    # same: of people, only the owner talks to it, in the CEO Bot chat /api/v2/assistant gives them;
+    # an earlier chat with it anyone had stays readable, read-only.
+    return bot not in (auth.settings.assistant_bot, CEO_BOT)
 
 
 def require_chat(c, auth, who, bot):
     """Write on the bot, and a bot that has a chat of its own (the Assistant has only the room
-    /api/v2/assistant gives each person)."""
+    /api/v2/assistant gives each person, the CEO Bot only the owner's CEO Bot chat)."""
     auth.require_write(c, who, bot)
     if not may_chat(c, auth, who, bot):
+        if bot == CEO_BOT:
+            from . import ceo_bot
+            raise Problem("forbidden", "Of people, only the company's owner talks to the " + ceo_bot.name(c)
+                          + ", in their own chat with it (/api/v2/assistant); talk to your Assistant", 403)
         raise Problem("forbidden", auth.settings.assistant_name + " chats only in your own Assistant "
                       "(/api/v2/assistant); message one of your bots here", 403)
 
@@ -638,25 +647,19 @@ def own_sign_in(c, bot, settings=None):
 
 
 def free_turn(c, bot, location, human=False):
-    """The computer a bot's queued work waits on for a free turn, or '': every turn there is taken, or this
-    bot already holds its share of them (execution.turn_share). A person's message is never held to the share."""
+    """The computer whose running work and short starts occupy all its places, or ''."""
     machine = location.get("machine") or {}
     row = c.execute("SELECT capacity FROM runners WHERE id=?", (machine.get("runner_id"),)).fetchone()
     if not row:
         return ""
     held = turns_here(c, machine["runner_id"])
-    share = turn_share(c, machine["runner_id"], row["capacity"])
-    others = [r[0] for r in c.execute("SELECT DISTINCT j.bot FROM jobs j JOIN assignments a ON a.bot=j.bot "
-                                      "WHERE j.state='queued' AND a.runner_id=? AND j.bot!=?", (machine["runner_id"], bot))]
-    limit = turn_limit(share, row["capacity"], any(held.get(other, 0) < share for other in others))
-    full = (sum(held.values()) >= (row["capacity"] or 1)
-            or not human and held.get(bot, 0) >= limit)
-    return (machine.get("label") or "its computer") if full else ""
+    return (machine.get("label") or "its computer") if sum(held.values()) >= (row["capacity"] or 1) else ""
 
 
 def queued_label(c, bot, location, settings=None, human=False, behind=False):
     """(label, readiness_reason) for a bot's queued work: what it is waiting for, in a person's words. `human`: a
     person's message; `behind`: the bot is still answering earlier work in this same conversation."""
+    from .performance import load_status
     bot_state = H.bot(c, bot)["state"]
     label, readiness_reason = "Saved — queued", ""
     draining = c.execute("SELECT 1 FROM bot_control WHERE bot=? AND draining=1", (bot,)).fetchone()
@@ -673,6 +676,9 @@ def queued_label(c, bot, location, settings=None, human=False, behind=False):
     elif not location["awake"]:
         label = "Saved — waiting for " + ((location["machine"] or {}).get("label")
                                           or "a registered computer") + " to stay awake"
+    elif (location.get("machine") or {}).get("runner_id") and load_status(
+            c, location["machine"]["runner_id"])["overloaded"]:
+        label = "Saved — waiting: computer busy"
     elif not location["ready"]:
         problems = (location.get("readiness") or {}).get("problems") or []
         if any(str(p).startswith("No AI provider is chosen") for p in problems):
@@ -1273,14 +1279,33 @@ def business_days_ahead(start, days):
     return H.shift(at.astimezone(timezone.utc).isoformat())
 
 
-def holds_up(c, row, readable):
-    """What answering a card on task `row` lets move, for its header: the roadmap item its task works toward (the task,
-    an ancestor, or a task either of them blocks), else its parent task. {id, title, kind: "roadmap" or "task", step,
-    due, soonest}, or None. `soonest` is the nearest due date of any open work it holds up, whichever title the header
-    names, so a dated task under an undated roadmap item keeps its urgency. Only a task `readable(id)` says the person
-    may read is named or dated."""
+def when_of(ts):
+    """A due or go-ahead time as an aware UTC datetime, so times written with different offsets (or a bare date, read
+    as UTC midnight) compare by when they are, not by their text. None when it cannot be read."""
+    at = H.parse_ts(ts)
+    if at is None:
+        return None
+    return (at if at.tzinfo else at.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
+
+
+def roadmap_entry(c, t):
+    """Task `t` as a roadmap item {id, title, kind "roadmap", step, due}, or None when it is not one."""
     from . import roadmap_flow
     product = roadmap_flow.role_type(c, roadmap_flow.PRODUCT)
+    if not product or t.get("type_id") != product:
+        return None
+    step = c.execute("SELECT name FROM task_steps WHERE id=?", (t.get("step_id"),)).fetchone()
+    return {"id": t["id"], "title": t["title"], "kind": "roadmap", "step": step[0] if step else None,
+            "due": t.get("due")}
+
+
+def holds_up(c, row, readable):
+    """What answering a card on task `row` lets move, for its header: the roadmap item its task works toward (an
+    ancestor, or a task the task or an ancestor blocks), else its parent task. Never the task itself: a card on a
+    roadmap item would name its own title; Decide's order still counts that item (decide_tier's `own`).
+    {id, title, kind: "roadmap" or "task", step, due, soonest}, or None. `soonest` is the nearest due date of any open
+    work it holds up, the task itself included, whichever title the header names, so a dated task under an undated
+    roadmap item keeps its urgency. Only a task `readable(id)` says the person may read is named or dated."""
     chain = [row["id"], *TR.ancestors(c, row["id"])]
     seen, roadmap, dues = set(), None, []
     for tid in [*chain, *(b for t in chain for b in TR.blocked_ids(c, t))]:
@@ -1290,32 +1315,31 @@ def holds_up(c, row, readable):
         t = H.task(c, tid) if tid != row["id"] else row
         if not t or t["status"] in ("closed", "declined", "done") or not readable(tid):
             continue
-        if t.get("due"):
+        if when_of(t.get("due")):
             dues.append(t["due"])
-        if roadmap is None and product and t.get("type_id") == product:
-            step = c.execute("SELECT name FROM task_steps WHERE id=?", (t.get("step_id"),)).fetchone()
-            roadmap = {"id": tid, "title": t["title"], "kind": "roadmap", "step": step[0] if step else None,
-                       "due": t.get("due")}
+        if roadmap is None and tid != row["id"]:
+            roadmap = roadmap_entry(c, t)
     held = roadmap
     parent = H.task(c, chain[1]) if len(chain) > 1 else None
     if held is None and parent and readable(parent["id"]):
         held = {"id": parent["id"], "title": parent["title"], "kind": "task", "step": None, "due": parent.get("due")}
     if held is not None:
-        held["soonest"] = min(dues) if dues else None
+        held["soonest"] = min(dues, key=when_of) if dues else None
     return held
 
 
-def decide_tier(item, now=None):
+def decide_tier(item, now=None, own=None):
     """Where a card goes in Decide (ui/app/decide.js): 0 when it holds up something due, or it goes ahead on its
     own, within SOON_BUSINESS_DAYS working days; 1 when it holds up a roadmap item at Approved or Building; else 2,
-    newest first. How old a card is never moves it up."""
-    soon = business_days_ahead(now or H.now(), SOON_BUSINESS_DAYS)
-    ask, held = item.get("ask") or {}, item.get("holds_up") or {}
+    newest first. `own` is the card's task as a roadmap item (roadmap_entry) when it is one: the header never names
+    it, but it counts here like the item it holds up. How old a card is never moves it up."""
+    soon = when_of(business_days_ahead(now or H.now(), SOON_BUSINESS_DAYS))
+    ask, held, own = item.get("ask") or {}, item.get("holds_up") or {}, own or {}
     dates = [ask.get("goes_ahead_at"), ((ask.get("refs") or {}).get("if_no_answer") or {}).get("by"), held.get("due"),
-             held.get("soonest"), deadline(item)]
-    if any(d and str(d) <= soon for d in dates):
+             held.get("soonest"), own.get("due"), deadline(item)]
+    if any(when_of(d) and when_of(d) <= soon for d in dates):
         return 0
-    return 1 if held.get("kind") == "roadmap" and held.get("step") in ROADMAP_LIVE_STEPS else 2
+    return 1 if any(r.get("kind") == "roadmap" and r.get("step") in ROADMAP_LIVE_STEPS for r in (held, own)) else 2
 
 
 def card_why(item):
@@ -1420,11 +1444,15 @@ def needs_items(c, auth, who, task_view, older=None):
     for item in items:
         item["pressing"] = pressing(item, at)
         item["need"] = need_of(item)
+        own = None
         if item["kind"] in ("question", "waiting", "task", "declined"):
-            item["holds_up"] = holds_up(c, H.task(c, item["id"]) or item, lambda tid: _readable(auth, c, who, tid))
+            row = H.task(c, item["id"]) or item
+            item["holds_up"] = holds_up(c, row, lambda tid: _readable(auth, c, who, tid))
+            if row.get("id") and row.get("status") not in ("closed", "declined", "done"):
+                own = roadmap_entry(c, row)
         if item["kind"] in ("question", "ask"):
             item["why"] = card_why(item)
-        item["tier"] = decide_tier(item, at)
+        item["tier"] = decide_tier(item, at, own)
     return sorted(items, key=needs_key)
 
 
@@ -1640,7 +1668,7 @@ def install_views(app, store, auth, mutate, task_view):
                              "users": [P.brief(p) for p in P.primary_users(slug, people, configs)],
                              "icon": icon_of(configs.get(slug, {}) or {}),
                              "helper": helper(configs.get(slug, {}) or {}),
-                             "can_chat": level["write"] and slug != auth.settings.assistant_bot})
+                             "can_chat": level["write"] and slug not in (auth.settings.assistant_bot, CEO_BOT)})
                 continue
             config = configs.get(slug, {})
             # Configuration contains connector requirements, never connector credentials.
@@ -1661,6 +1689,8 @@ def install_views(app, store, auth, mutate, task_view):
                          "state": bot["state"], "status": bot["state"],
                          "private_tasks_default": H.private_tasks_default(c, "bot:" + slug),
                          "host": "keeper", "tasks": "hub", "has_repo": location["ready"],
+                         "keep_tasks_going": auto_tasks.of(config),
+                         "task_flow": auto_tasks.counts(c, slug, who),
                          "team": P.team_of(slug, configs, people),
                          "org_parent": P.org_parent("bot", slug, people, chart, archived),
                          "report_position": places.get("bot:" + slug),
@@ -1674,7 +1704,11 @@ def install_views(app, store, auth, mutate, task_view):
                          # What Settings and the branch editor show and pick from (backend/wake_presets.py).
                          "wake": wake_presets.effective(config),
                          "my_access": level, **policy,
-                         "can_chat": level["write"] and slug != auth.settings.assistant_bot,
+                         "can_chat": level["write"] and slug not in (auth.settings.assistant_bot, CEO_BOT),
+                         # Onboarding or Active, and whether this person may mark onboarding complete (backend/lifecycle.py).
+                         "stage": lifecycle.stage(config.get("onboarding_state")),
+                         "can_complete_onboarding": (lifecycle.stage(config.get("onboarding_state")) == lifecycle.ONBOARDING
+                                                     and lifecycle.may_complete(auth, c, who, slug)),
                          # Labelled as on the bot list, so its computer is named to one who cannot see it.
                          "app_delivery": app_delivery.view(c, config),
                          "app_delivery_app": app_delivery.HARNESS_APP.get(resolve_harness(config, config.get("runtime")))})
@@ -1690,7 +1724,7 @@ def install_views(app, store, auth, mutate, task_view):
             # Sign-in needs chat choices, not every bot's routines, machine and setup state.
             access = auth.bot_accesses(c, who)
             bots = [row["slug"] for row in H.bots(c)
-                    if row["state"] != "archived" and row["slug"] != store.settings.assistant_bot
+                    if row["state"] != "archived" and row["slug"] not in (store.settings.assistant_bot, CEO_BOT)
                     and access.get(row["slug"], auth.FULL)["see"]
                     and access.get(row["slug"], auth.FULL)["write"]]
             from .credentials import administrator, can_open
@@ -1818,6 +1852,9 @@ def install_views(app, store, auth, mutate, task_view):
                 bots = [a[0] for a in c.execute("SELECT bot FROM assignments WHERE runner_id=? ORDER BY bot", (row["id"],))
                         if a[0] not in hidden]
                 value = dict(row)
+                from .start_places import summary, describe
+                value["turn_counts"] = summary(c, row["id"], store.settings)
+                value["turn_summary"] = describe(value["turn_counts"])
                 value["release"] = runner_versions.view(fleet.get(row["id"])).get("release") or ""
                 value["accepts_member_bots"] = bool(row["accepts_member_bots"])
                 # Since when it says it is restarting after a person pressed Restart; null when it is not.

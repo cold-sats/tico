@@ -39,11 +39,12 @@ function machineConnections(machine) {
     // even before the tool reports it signed in; until it does, the line says so and claims no reading.
     const shared = machine.shared_with?.[runtime] || null;
     const blocked = value?.data_problem || reported?.data_problem || '';
+    const warning = links.find(b => b.runtime === runtime && b.warning)?.warning || '';
     // Signed out from Tico (Sign out) stays a line, so it can sign in again or go back to the shared key.
     if (!(auth === 'ready' || auth === 'rejected' || bots.length || machineSignedOut(machine, runtime) || shared)) continue;
     const reading = {signed_in: auth === 'ready' ? true : auth === 'rejected' || (auth === 'missing' && !shared) ? false : null,
       account: value?.account, weekly: value?.weekly, five_hour: value?.five_hour};
-    rows.push({key: `own:${runtime}`, runtime, name: shared ? 'Shared key' : "Computer's login", own: true, auth, value, state: reading, bots, shared, blocked});
+    rows.push({key: `own:${runtime}`, runtime, name: shared ? 'Shared key' : "Computer's login", own: true, auth, value, state: reading, bots, shared, blocked, warning});
   }
   for (const r of rows) {
     // Signed out from Tico is a red dot even with no bots on it yet: nothing signs it back in by itself.
@@ -108,7 +109,7 @@ function machineRowAddHTML(machine) {
 
 // ---- the pop-up
 function machineConnectionHTML(machine, conn, online, manage) {
-  const kind = conn.shared ? `API key${conn.shared.name ? ` · ${conn.shared.name}` : ''}` : "Computer's login";
+  const kind = conn.shared ? `API key${conn.shared.name ? ` · ${conn.shared.name}` : ''}` : '';
   const tags = conn.shared ? '<span class="pill computer-conn-shared" data-shared>Shared</span>' : '';
   let signIn;
   // Signed in, but its turns can't save a session: the folder is named on screen, and no sign-in is offered for it.
@@ -146,9 +147,10 @@ function machineConnectionHTML(machine, conn, online, manage) {
   // Bots that take turns on one sign-in say so.
   const shared = machineSharedLoginHTML(machine, conn.runtime);
   return `<div class="computer-conn${conn.attention ? ' attention' : ''}" data-connection="${esc(conn.key)}" data-machine-tool="${esc(conn.runtime)}">
-    <div class="computer-conn-head">${conn.attention ? '<span class="machine-chip-dot" aria-hidden="true"></span>' : ''}<strong>${esc(conn.tool)}</strong><span>${esc(kind)}</span>${tags}</div>
+    <div class="computer-conn-head">${conn.attention ? '<span class="machine-chip-dot" aria-hidden="true"></span>' : ''}<strong>${esc(conn.tool)}</strong>${kind ? `<span>${esc(kind)}</span>` : ''}${tags}</div>
     <div class="computer-conn-signin">${signIn}${action}${rejected}</div>
     ${usage ? `<div class="computer-conn-usage">${usage}</div>` : ''}
+    ${conn.warning ? `<p class="computer-conn-warning" role="note" data-login-warning="${esc(conn.runtime)}">${esc(conn.warning)}</p>` : ''}
     ${conn.shared ? `<div class="computer-conn-shared-with muted" data-shared-with>${esc(machineSharedWords(conn.shared))}</div>` : ''}
     <div class="computer-conn-bots muted">${esc(bots)}</div>${shared}
   </div>`;
@@ -353,6 +355,7 @@ function computerDetailHTML(machine) {
   return `<header class="computer-detail-head"><div><h2 id="computer-detail-title">${esc(machine.label)}</h2><span class="muted">${esc(settingsPersonName(machine.operator))} · ${esc(status)}</span></div>
       <button class="ghost tmodal-x" type="button" data-detail-close aria-label="Close">✕</button></header>
     <div class="computer-detail-body">${notes}
+      ${machine.turn_summary ? `<p class="computer-detail-note" data-turn-counts>${esc(machine.turn_summary)}</p><p class="muted">A turn has up to 3 minutes to start. Waiting turns leave room for other work.</p>` : ''}
       ${section('connections', 'Connections', empty + conns.map(conn => machineConnectionHTML(machine, conn, online, manage)).join('') + machineAddHTML(machine, online, manage))}
       ${section('screen', 'Screen', machineScreenSectionHTML(machine, online))}
       ${section('bots', 'Bots on this computer', machineBotsHTML(machine))}
