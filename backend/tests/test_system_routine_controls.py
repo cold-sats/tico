@@ -28,8 +28,8 @@ def rows(api, token="ana-test"):
 def test_admin_sees_a_switch_and_a_schedule_on_the_six_and_housekeeping_has_none(api):
     jobs = rows(api, "ben-test")
     timed = {k for k, j in jobs.items() if j["presets"]}
-    assert timed == SIX
-    assert {k for k, j in jobs.items() if j["switch"]} == SIX | {"topic_fresh"}
+    assert timed == SIX | {"task-rule-close-after-done"}
+    assert {k for k, j in jobs.items() if j["switch"]} == SIX | {"topic_fresh", "task-rule-close-after-done"}
     for key in SIX - {"health_scan"}:
         assert jobs[key]["can_change"] is True, key
     for key, job in jobs.items():
@@ -52,7 +52,7 @@ def test_ai_jobs_are_never_offered_every_15_minutes_and_the_server_refuses_it(ap
 
 def test_a_member_sees_the_list_with_nothing_to_change_and_the_server_refuses_them(api):
     jobs = rows(api, "cara-test")
-    assert len(jobs) == len(SR.JOBS)
+    assert len(jobs) == len(SR.JOBS) + 1
     assert not any(j["can_change"] for j in jobs.values())
     put(api, "system-routines/stale_review", {"on": True}, token="cara-test", expected=403)
     put(api, "system-routines/kpi_asks", {"preset": "4h"}, token="cara-test", expected=403)
@@ -227,10 +227,11 @@ def test_every_row_reads_when_then_with_one_department_from_the_chart_and_search
         c.execute("INSERT INTO registry_metadata VALUES('people',?) ON CONFLICT(key) DO UPDATE SET "
                   "value_json=excluded.value_json", (json.dumps(roster),))
     data = get(api, "system-routines")
-    assert data["departments"] == ["Engineering", "Marketing"], "the chart's top-level groups"
+    assert {"Engineering", "Marketing"} <= set(data["departments"])
+    assert "Web" not in data["departments"], "only fixed departments, never arbitrary subgroups"
     for job in data["jobs"]:
         assert job["when"] and job["then"], job["key"]
-        assert job["department"] == {"name": "Engineering", "in_chart": True}, job["key"]
+        assert job["department"]["name"] == "Engineering" and job["department"]["in_chart"], job["key"]
     jobs = {j["key"]: j for j in data["jobs"]}
     assert jobs["stale_review"]["when"] == ["every hour"]
     assert jobs["stale_review"]["then"][0] == "check stale tickets"

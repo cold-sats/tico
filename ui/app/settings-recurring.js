@@ -89,6 +89,7 @@ function systemRoutineControlHTML(j) {
     return `<span class="sysr-state" data-sysr-state>${j.on ? 'On' : 'Off'}</span>${j.owner_only && settingsIsAdmin() ? '<span class="muted sysr-owner" data-sysr-owner>Only the owner changes this</span>' : ''}`;
   }
   return `<label class="sysr-switch">${peopleSwitch('data-sysr-on', j.on, busy, j.name)}<span>${j.on ? 'On' : 'Off'}</span></label>
+    ${j.kind === 'task_rule' ? `<button type="button" class="ghost" data-task-rule-edit${busy ? ' disabled' : ''}>Edit</button>` : ''}
     ${j.controllable ? `<button type="button" class="ghost" data-sysr-run${busy || !j.on ? ' disabled' : ''}${j.on ? '' : ' title="Switch it on to run it"'}>${busy ? 'Running…' : 'Run now'}</button>` : ''}`;
 }
 function systemRoutineRowHTML(j) {
@@ -106,7 +107,7 @@ function systemRoutineRowsHTML(data) {
   return jobs.length ? jobs.map(systemRoutineRowHTML).join('') : '<div class="empty" data-sysr-none>No routine matches.</div>';
 }
 function systemRoutinesHTML(data) {
-  return `<div class="settings-bots-filters"><input class="settings-filter-search sysr-search" type="search" autocomplete="off" data-sysr-search
+  return `<div class="settings-bots-filters">${data.can_create_task_rule ? '<button type="button" class="primary" data-task-rule-new>New task rule</button>' : ''}<input class="settings-filter-search sysr-search" type="search" autocomplete="off" data-sysr-search
       value="${esc(SYSTEM_ROUTINES_Q)}" placeholder="Search by name, when, then or department" aria-label="Search routines"></div>
     <div class="sysr-list" data-sysr-list>${systemRoutineRowsHTML(data)}</div>`;
 }
@@ -150,12 +151,15 @@ function systemRoutineFollow(key, n) {
   }, 5000);
 }
 function systemRoutinesBind(el) {
+  const add = el.querySelector('[data-task-rule-new]');
+  if (add) add.onclick = () => taskRuleEditor();
   const search = el.querySelector('[data-sysr-search]');
   if (search) search.oninput = () => { SYSTEM_ROUTINES_Q = search.value; const list = el.querySelector('[data-sysr-list]'); if (list) list.innerHTML = systemRoutineRowsHTML(SYSTEM_ROUTINES); };
   const list = el.querySelector('[data-sysr-list]'); if (!list) return;
   list.onchange = ev => {
     const row = ev.target.closest('[data-system-routine]'); if (!row) return;
-    const key = row.dataset.systemRoutine, path = '/v2/system-routines/' + encodeURIComponent(key);
+    const key = row.dataset.systemRoutine, job = SYSTEM_ROUTINES.jobs.find(j => j.key === key);
+    const path = (job?.kind === 'task_rule' ? '/v2/task-rules/' : '/v2/system-routines/') + encodeURIComponent(key);
     if (ev.target.matches('[data-sysr-on]')) void systemRoutineWrite(key, () => put(path, {on: ev.target.checked}));
     else if (ev.target.matches('[data-sysr-preset]')) {
       const body = {preset: ev.target.value};
@@ -170,7 +174,8 @@ function systemRoutinesBind(el) {
     const row = input.closest('[data-system-routine]'), key = row.dataset.systemRoutine;
     const job = SYSTEM_ROUTINES.jobs.find(j => j.key === key);
     if (!input.value || input.value === job?.at) { if (SYSTEM_ROUTINES_HELD) systemRoutinesPaint(); return; }
-    void systemRoutineWrite(key, () => put('/v2/system-routines/' + encodeURIComponent(key), {at: input.value}));
+    const path = (job?.kind === 'task_rule' ? '/v2/task-rules/' : '/v2/system-routines/') + encodeURIComponent(key);
+    void systemRoutineWrite(key, () => put(path, {at: input.value}));
   };
   // There is no onfocusout property, so it is a listener, added once: the list element outlives its redraws.
   if (!list.dataset.sysrBound) {
@@ -179,6 +184,8 @@ function systemRoutinesBind(el) {
   }
   list.onkeydown = ev => { if (ev.key === 'Enter' && ev.target.matches('[data-sysr-at]')) ev.target.blur(); };
   list.onclick = ev => {
+    const edit = ev.target.closest('[data-task-rule-edit]');
+    if (edit && !edit.disabled) { taskRuleEditor(SYSTEM_ROUTINES.jobs.find(j => j.key === edit.closest('[data-system-routine]').dataset.systemRoutine)); return; }
     const run = ev.target.closest('[data-sysr-run]'); if (!run || run.disabled) return;
     const key = run.closest('[data-system-routine]').dataset.systemRoutine;
     void systemRoutineWrite(key, () => post('/v2/system-routines/' + encodeURIComponent(key) + '/run', {}));
@@ -193,4 +200,36 @@ async function renderSystemRoutines(force) {
   catch (e) { if (!SYSTEM_ROUTINES) el.innerHTML = `<div class="empty">Couldn't load the routines: ${esc(e.message || 'try again')}</div>`; return; }
   if (SYSTEM_ROUTINE_BUSY.size || formBusy(el.querySelector('[data-sysr-list]'))) return;
   systemRoutinesPaint();
+}
+
+
+function taskRuleEditor(job) {
+  const data = SYSTEM_ROUTINES, dialog = document.createElement('dialog');
+  dialog.className = 'tmodal task-rule-dialog';
+  const department = job?.department?.id || data.task_rule_department || '';
+  const options = (data.task_rule_departments || []).map(d => `<option value="${esc(d.id)}"${d.id === department ? ' selected' : ''}>${esc(d.name)}</option>`).join('');
+  dialog.innerHTML = `<form class="task-rule-form"><header><h2>${job ? 'Edit task rule' : 'New task rule'}</h2><button type="button" class="ghost" data-close>Cancel</button></header>
+    <label>Name<input name="ruleName" maxlength="120" required value="${esc(job?.name || 'Close after done')}"></label>
+    <label>Department<select name="department" required><option value="">Choose a department</option>${options}</select></label>
+    <label>WHEN a task has been done and untouched for <input name="hours" type="number" min="1" max="8760" required value="${job?.triggers?.[0]?.hours || 24}"> hours</label>
+    <p><b>THEN</b> close it. Reopen the task to undo.</p>
+    <p class="muted">Skips tasks waiting on a person, snoozed, pinned, or with an open question or pending approval. Closes at most 50 tasks per pass across all rules.</p>
+    <label><input type="checkbox" name="enabled"${job?.on === false ? '' : ' checked'}> On</label>
+    <p class="err" role="status" data-task-rule-error></p><footer><button type="submit" class="primary">Save rule</button></footer></form>`;
+  const form = dialog.querySelector('form');
+  dialog.querySelector('[data-close]').onclick = () => dialog.close();
+  dialog.addEventListener('close', () => dialog.remove());
+  form.onsubmit = async ev => {
+    ev.preventDefault(); const button = form.querySelector('[type="submit"]'); button.disabled = true;
+    const values = new FormData(form), hours = Number(values.get('hours'));
+    const body = {name: values.get('ruleName'), department: values.get('department'), on: values.has('enabled'),
+      triggers: [{key: 'done_untouched', hours}, ...(job?.triggers || []).slice(1)], actions: job?.actions || ['close']};
+    try {
+      const out = job ? await put('/v2/task-rules/' + encodeURIComponent(job.key), body) : await post('/v2/task-rules', body);
+      if (job) systemRoutineReplace(out.job); else SYSTEM_ROUTINES.jobs.push(out.job);
+      dialog.close(); systemRoutinesPaint();
+    } catch (e) { dialog.querySelector('[data-task-rule-error]').textContent = e.message || 'Could not save the rule'; }
+    finally { button.disabled = false; }
+  };
+  document.body.appendChild(dialog); dialog.showModal(); form.elements.ruleName.focus();
 }

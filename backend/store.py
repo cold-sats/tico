@@ -731,6 +731,8 @@ class Store:
             c.executescript(_stale_review.SCHEMA)
             from . import system_routines as _system_routines
             c.executescript(_system_routines.SCHEMA)
+            from . import task_rules as _task_rules
+            c.executescript(_task_rules.SCHEMA)
             from . import owner_link as _owner_link
             c.executescript(_owner_link.SCHEMA)
             from . import docs as _docs
