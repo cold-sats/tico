@@ -401,6 +401,7 @@ fn login_env(runtime: &str, config: &Config, profile_name: &str) -> Result<(Stri
         Some(p) => p.environment(runtime, &process),
         None => process,
     };
+    crate::hosts::prepare_login_home(runtime, &env);
     if profile.as_ref().is_some_and(|p| !p.share_operator) {
         for key in crate::harness_tools::api_key_env(runtime) {
             env.remove(&key);
@@ -2588,6 +2589,201 @@ esac
         assert_eq!(std::fs::read(&own).unwrap(), untouched);
         assert_eq!(std::fs::read_to_string(&operator).unwrap(), "operator");
         assert_eq!(std::fs::read_to_string(&keychain).unwrap(), "operator", "a Tico login reached the shared Keychain");
+    }
+
+    /// Run only on a disposable Linux box: no provider connection or real credential is used.
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "requires a disposable Linux two-user environment"]
+    fn isolated_grok_computer_login_repairs_supervisor_owned_store() {
+        use std::os::unix::fs::{chown, MetadataExt, PermissionsExt};
+        const CHILD: &str = "TICO_TEST_GROK_PERMISSIONS";
+        assert_eq!(unsafe { libc::geteuid() }, 0, "disposable supervisor fixture");
+        assert!(std::env::var_os("TICO_TEST_DISPOSABLE").is_some());
+        assert_eq!(crate::isolation::identity(), Some((10003, 10002)));
+        let Some(root) = std::env::var_os(CHILD).map(std::path::PathBuf::from) else {
+            let root = std::env::temp_dir().join(format!("tico-grok-permissions-{}", uuid::Uuid::new_v4().simple()));
+            std::fs::create_dir_all(root.join("bin")).unwrap();
+            std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755)).unwrap();
+            crate::util::write_script(&root.join("bin/grok"), r#"#!/usr/bin/python3
+import json, os, pathlib, sys
+if sys.argv[1:] == ['--version']:
+    print('1.0.70')
+    sys.exit(0)
+def session(name):
+    store = pathlib.Path(os.environ['HOME']) / '.grok/sessions'
+    store.mkdir(parents=True, exist_ok=True)
+    (store / (name + '.json')).write_text('{}')
+if sys.argv[1:] == ['session']:
+    session('synthetic')
+    sys.exit(0)
+if sys.argv[1:2] == ['agent']:
+    for line in sys.stdin:
+        request = json.loads(line)
+        try:
+            if request['method'] == 'initialize':
+                result = {'protocolVersion': 1}
+            else:
+                session(request['method'].split('/')[1])
+                result = {'sessionId': str(os.getpid())}
+            reply = {'result': result}
+        except PermissionError:
+            reply = {'error': {'message': 'Failed to save credentials: Permission denied (os error 13)'}}
+        print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], **reply}), flush=True)
+    sys.exit(0)
+if sys.argv[1:] not in (['login', '--device-auth'], ['refresh']):
+    sys.exit(2)
+print('Open https://login.example/device\nEnter code ABCD-1234', flush=True)
+try:
+    store = pathlib.Path(os.environ['HOME']) / '.grok/auth.json'
+    store.write_text(json.dumps({'https://accounts.x.ai/sign-in': {'auth_mode': 'oidc', 'key': 'synthetic'}}))
+    store.chmod(0o600)
+except PermissionError:
+    print('Error: Failed to save credentials: Permission denied (os error 13)', file=sys.stderr)
+    sys.exit(1)
+"#);
+            let out = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "login::tests::isolated_grok_computer_login_repairs_supervisor_owned_store", "--ignored", "--nocapture"])
+                .env(CHILD, &root).env("HOME", &root).env("PATH", format!("{}:/usr/bin:/bin", root.join("bin").display()))
+                .env_remove("GROK_HOME").env_remove("GROK_AUTH_PATH").env_remove("XAI_API_KEY")
+                .output().unwrap();
+            std::fs::remove_dir_all(&root).unwrap();
+            assert!(out.status.success(), "{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+            return;
+        };
+        let path = root.join("runner.json");
+        std::fs::write(&path, json!({"url": "http://127.0.0.1:9", "token": "synthetic", "runner_id": "r1", "projects_dir": root.join("projects")}).to_string()).unwrap();
+        let config = Config::load(&path).unwrap();
+        let client = crate::client::Client::new(&config.url(), &config.token(), 1, 0).unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let home = root.join(".grok");
+        let auth = home.join("auth.json");
+        // An existing 0755 folder (the incident), a private old store, and both entry points:
+        // startup repairs an existing login; login_env repairs a folder created after startup.
+        for (mode, existing, startup) in [(0o755, false, false), (0o700, true, false), (0o755, true, true)] {
+            std::fs::create_dir_all(&home).unwrap();
+            std::fs::set_permissions(&home, std::fs::Permissions::from_mode(mode)).unwrap();
+            chown(&home, Some(10002), Some(10002)).unwrap();
+            let old = b"synthetic old store";
+            let inode = if existing {
+                std::fs::write(&auth, old).unwrap();
+                std::fs::set_permissions(&auth, std::fs::Permissions::from_mode(0o600)).unwrap();
+                chown(&auth, Some(10002), Some(10002)).unwrap();
+                Some(auth.metadata().unwrap().ino())
+            } else { None };
+            let env: Env = std::env::vars().collect();
+            let before = model_command(root.join("bin/grok").to_str().unwrap(), &["login", "--device-auth"], &env).output().unwrap();
+            assert!(!before.status.success());
+            assert!(String::from_utf8_lossy(&before.stderr).contains("Failed to save credentials: Permission denied (os error 13)"));
+            if startup { crate::hosts::grok::hand_login_to_bot(); }
+            let (exe, env, profile) = login_env("grok", &config, "").unwrap();
+            assert!(profile.is_none());
+            assert_eq!(home.metadata().unwrap().uid(), 10003);
+            assert_eq!(home.metadata().unwrap().mode() & 0o777, mode, "no permission broadening");
+            if let Some(inode) = inode {
+                assert_eq!(auth.metadata().unwrap().ino(), inode, "handoff keeps the original file");
+                assert_eq!(std::fs::read(&auth).unwrap(), old);
+                assert_eq!((auth.metadata().unwrap().uid(), auth.metadata().unwrap().mode() & 0o777), (10003, 0o600));
+            }
+            let runner = Arc::new(Runner::new(config.clone(), client.clone(), crate::state::State::open(&root.join("state")).unwrap()));
+            let login = Session::new(&json!({"id": uuid::Uuid::new_v4().simple().to_string(), "runtime": "grok"}));
+            run_session(login.clone(), runner.clone(), config.clone(), Duration::from_secs(5));
+            assert_eq!(state(&login).0, "signed_in", "{:?}", state(&login));
+            assert_eq!(auth.metadata().unwrap().uid(), 10003);
+            // The same account can refresh in place, and readiness reads that same store.
+            assert!(model_command(&exe, &["refresh"], &env).status().unwrap().success());
+            assert_eq!(sign_in_status("grok", &exe, &env).unwrap().0, true);
+            let ready = rt.block_on(crate::readiness::runtime_readiness("grok", &runner.sign_in, &runner.client, &[], None));
+            assert_eq!(ready["authenticated"], "ready");
+            assert!(!root.join("projects/bots").exists(), "no copied bot login");
+            std::fs::remove_dir_all(&home).unwrap();
+        }
+        // An API-key turn still writes sessions, without passing through the interactive login path.
+        std::fs::create_dir(&home).unwrap();
+        chown(&home, Some(10002), Some(10002)).unwrap();
+        let mut env: Env = std::env::vars().collect();
+        env.insert("XAI_API_KEY".into(), "synthetic".into());
+        let exe = root.join("bin/grok").display().to_string();
+        assert!(!model_command(&exe, &["session"], &env).output().unwrap().status.success());
+        rt.block_on(async {
+            let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+            let host = crate::hosts::grok::GrokHost::new("acme", &exe, tx);
+            let settings = crate::hosts::Settings { env: env.clone(), cwd: root.display().to_string(), ..Default::default() };
+            // Launch the actual host path with an API key, without interactive login.
+            let thread = host.start_thread("acme", &settings).await.unwrap();
+            assert!(host.alive());
+            assert_eq!(home.join("sessions/new.json").metadata().unwrap().uid(), 10003);
+            // Recreate the incident after the process is already running. Both new and resumed
+            // threads must repair the store without restarting that process (session id = pid).
+            for resume in [false, true] {
+                std::fs::remove_dir_all(&home).unwrap();
+                std::fs::create_dir(&home).unwrap();
+                chown(&home, Some(10002), Some(10002)).unwrap();
+                assert!(!model_command(&exe, &["session"], &env).output().unwrap().status.success());
+                let result = if resume { host.resume_thread(&thread, &settings).await } else { host.start_thread("acme", &settings).await };
+                assert_eq!(result.unwrap(), thread, "the running agent must be reused");
+                assert_eq!(home.metadata().unwrap().uid(), 10003);
+                let file = if resume { "load.json" } else { "new.json" };
+                assert_eq!(home.join("sessions").join(file).metadata().unwrap().uid(), 10003);
+            }
+            host.stop().await;
+        });
+        std::fs::remove_dir_all(&home).unwrap();
+
+        // A named subscription hands over only its profile home; a shared profile uses the operator home.
+        std::fs::create_dir(&home).unwrap();
+        chown(&home, Some(10002), Some(10002)).unwrap();
+        let profiles = root.join("profiles");
+        let named_home = profiles.join("acme/grok");
+        std::fs::create_dir_all(named_home.join(".grok")).unwrap();
+        std::fs::write(named_home.join(".grok/auth.json"), "synthetic old named store").unwrap();
+        chown(named_home.join(".grok"), Some(10002), Some(10002)).unwrap();
+        let mut named_config = config.clone();
+        named_config.data.insert("profiles".into(), json!({"acme": {"dir": profiles.join("acme")},
+            "shared": {"dir": profiles.join("shared"), "share_operator": true}}));
+        let (_, named_env, _) = login_env("grok", &named_config, "acme").unwrap();
+        assert_eq!(named_env["HOME"], named_home.display().to_string());
+        assert_eq!(home.metadata().unwrap().uid(), 10002, "named login must not hand over the operator store");
+        assert_eq!(named_home.join(".grok").metadata().unwrap().uid(), 10003);
+        assert!(model_command(&exe, &["login", "--device-auth"], &named_env).status().unwrap().success());
+        assert!(std::fs::read_to_string(named_home.join(".grok/auth.json")).unwrap().contains("synthetic"));
+        named_config.data.insert("default_profile".into(), json!("acme"));
+        let (_, default_env, _) = login_env("grok", &named_config, "").unwrap();
+        assert_eq!(default_env["HOME"], named_env["HOME"]);
+        crate::hosts::grok::prepare_home(&named_env);
+        assert_eq!(home.metadata().unwrap().uid(), 10002, "profile turns must leave the operator store alone");
+        let (_, shared_env, _) = login_env("grok", &named_config, "shared").unwrap();
+        assert_eq!(shared_env["HOME"], root.display().to_string());
+        assert_eq!(home.metadata().unwrap().uid(), 10003);
+        std::fs::remove_dir_all(&home).unwrap();
+
+        // Ownership repair never traverses a link to unrelated supervisor state or a foreign hardlink.
+        let outside = root.join("private");
+        std::fs::create_dir(&outside).unwrap();
+        let control = outside.join("control.json");
+        std::fs::write(&control, "synthetic supervisor state").unwrap();
+        std::fs::set_permissions(&control, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let mut custom_env: Env = std::env::vars().collect();
+        custom_env.insert("GROK_HOME".into(), outside.display().to_string());
+        custom_env.insert("GROK_AUTH_PATH".into(), control.display().to_string());
+        crate::hosts::prepare_login_home("grok", &custom_env);
+        assert_eq!(outside.metadata().unwrap().uid(), 0, "overrides never redirect the privileged handoff");
+        assert_eq!(control.metadata().unwrap().uid(), 0);
+        std::os::unix::fs::symlink(&outside, &home).unwrap();
+        crate::hosts::grok::hand_login_to_bot();
+        assert_eq!(outside.metadata().unwrap().uid(), 0);
+        assert_eq!(control.metadata().unwrap().uid(), 0);
+        std::fs::remove_file(&home).unwrap();
+        std::fs::create_dir(&home).unwrap();
+        std::os::unix::fs::symlink(&outside, home.join("linked-directory")).unwrap();
+        std::os::unix::fs::symlink(&control, home.join("linked-file")).unwrap();
+        crate::hosts::grok::hand_login_to_bot();
+        assert_eq!(outside.metadata().unwrap().uid(), 0, "links inside the store must not be traversed");
+        assert_eq!(control.metadata().unwrap().uid(), 0);
+        std::fs::hard_link(&control, &auth).unwrap();
+        crate::hosts::grok::hand_login_to_bot();
+        assert_eq!(control.metadata().unwrap().uid(), 0);
+        assert_eq!(control.metadata().unwrap().mode() & 0o777, 0o600);
     }
 
     #[test]

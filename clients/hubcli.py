@@ -104,6 +104,10 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            Several actions: ONE card, --path /api/v2/assistant/batch
                                            --body '{"actions": [{"path": "/api/v2/tasks/<id>", "body": {...}}, ...]}'
                                            (task actions, approval decisions, answers to bots' questions)
+    hub assistant learn "<line>" [--company]
+                                           in a person's own chat: save what they taught you, in their own
+                                           layer (--company: the CEO Bot, about the company, owner's chat only)
+    hub assistant learned                  what a person's chat bot has learned (What it has learned)
     hub replay show [--from ISO] [--to ISO] [--bot B|--person P|--team T]
                                            what happened in a window (default the last 24 hours), as you may see it
     hub goal list [--owner me|X] [--all]   what you are for: your goals in order, the chain above
@@ -209,6 +213,8 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub seat list                          Recruiting seats: roles on the chart with no bot yet; they hold no work
     hub seat create <title> [--description D] [--reports-to R] [--team G]
                                            add a seat under you or someone below you; update <seat> / close <seat>
+    hub seat draft <seat> (--text T | --file F)
+                                           CEO Bot: draft the job description of a seat the owner opened
     hub org order <manager> [--set a,b,c]  a manager's direct reports in the chart's order; --set puts them in
                                            that order (the ones left out keep their places)
     hub health check                       what is wrong with the bots, most urgent first, each with its fix
@@ -279,6 +285,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub bot model <bot> [<model>] [--effort E]
                                            list the models, or change the bot's
     hub bot pause|resume <bot>             stop or restart a bot (resume places one that has no computer)
+    hub bot scope <bot> <task>|--release   limit a bot's claims to one task and its subtasks, or lift that
     hub bot copy <bot> [--slug S] [--name N] [--with-memory] [--computer C]
                                            copy a bot into a new one the requester owns: its instructions, skills, playbooks and
                                            tools, never a secret; notes and memory only with --with-memory (BotOps)
@@ -769,6 +776,13 @@ def parser():
     s.add_argument("--method", default="POST", choices=["POST", "PUT", "PATCH", "DELETE"])
     s.add_argument("--body", default="{}", help="the request's JSON body")
     s.set_defaults(fn="assistant propose")
+    s = assistant.add_parser("learn", help="save one thing the person taught you (What it has learned)")
+    s.add_argument("text", help="one short line, in their words")
+    s.add_argument("--company", dest="layer", action="store_const", const="company", default="personal",
+                   help="the CEO Bot in the owner's chat: about the company, not how they like things")
+    s.set_defaults(fn="assistant learn")
+    assistant.add_parser("learned", help="what your chat bot has learned: your layer, and the company's for the owner") \
+        .set_defaults(fn="assistant learned")
     # Tags keep the existing task --label key contract.
     tag = sub.add_parser("tag", help="tags and checklist templates").add_subparsers(dest="sub")
     s = tag.add_parser("list")
@@ -1503,6 +1517,16 @@ def parser():
     s.add_argument("--on-behalf-of", metavar="MESSAGE_ID", help=ASKED)
     s.set_defaults(fn="approval decline")
 
+    s = sub.add_parser("pipeline", help="a task type's steps (count, age, owners, whom they wait on, open PRs), each bot's "
+                       "running, queued, held and dead jobs, and failed runs by cause")
+    s.add_argument("--type", help="task type id or name; default the engineering board")
+    s.add_argument("--owner")
+    s.add_argument("--label")
+    s.add_argument("--updated-since", help="ISO date-time or a window like 7d")
+    s.add_argument("--snoozed", choices=["all", "hide", "only"], help="default all")
+    s.add_argument("--bot", help="queues and failures for this bot only")
+    s.add_argument("--since", help="failure window: 24h (default), up to 7d, or an ISO date-time")
+    s.set_defaults(fn="pipeline")
     s = sub.add_parser("brief", help="alerts, who needs the person, what bots said since --since")
     s.add_argument("--since", help="an ISO date-time; default the last 12 hours")
     s.set_defaults(fn="brief")
@@ -1572,6 +1596,12 @@ def parser():
     s.add_argument("--reports-to", dest="reports_to")
     s.add_argument("--team")
     s.set_defaults(fn="seat update")
+    s = seat.add_parser("draft", help="the CEO Bot's draft of a seat's job description, on the task asking for it")
+    s.add_argument("seat")
+    g = s.add_mutually_exclusive_group(required=True)
+    g.add_argument("--text", help="the job description")
+    g.add_argument("--file", help="a file with the job description")
+    s.set_defaults(fn="seat draft")
     s = seat.add_parser("close", help="take a seat off the chart (a person)")
     s.add_argument("seat")
     s.set_defaults(fn="seat close")
@@ -1581,6 +1611,7 @@ def parser():
     s.add_argument("--set", type=lambda text: [x.strip() for x in text.split(",") if x.strip()], metavar="A,B,C",
                    help="its reports in the new order, comma-separated; the ones left out keep their places")
     s.set_defaults(fn="org order")
+    org.add_parser("models", help="the published starter org chart models that recommendations come from").set_defaults(fn="org models")
     health = sub.add_parser("health", help="what is wrong, and where").add_subparsers(dest="sub")
     s = health.add_parser("check", help="what is wrong with the bots, most urgent first, each with its fix")
     s.set_defaults(fn="health check")
@@ -1821,6 +1852,11 @@ def parser():
         s = bot.add_parser(verb, help=f"{verb} a bot (BotOps)")
         s.add_argument("bot")
         s.set_defaults(fn="bot " + verb)
+    s = bot.add_parser("scope", help="limit a bot's claims to one task and its subtasks, or lift that (BotOps)")
+    s.add_argument("bot")
+    s.add_argument("task", nargs="?", help="the task it may still work on")
+    s.add_argument("--release", action="store_true", help="lift the limit; its other work becomes claimable again")
+    s.set_defaults(fn="bot scope")
     s = bot.add_parser("branch", help="make your branch of a bot that allows branches")
     s.add_argument("bot")
     s.add_argument("--computer", help="your computer's label or id")
@@ -1856,6 +1892,16 @@ def parser():
         s = repos.add_parser(verb)
         s.add_argument("full_name")
         s.set_defaults(fn="repo " + verb)
+    s = repos.add_parser("review", help="submit a GitHub review at an exact PR head; shared App falls back to COMMENT")
+    s.add_argument("repository", metavar="OWNER/REPO")
+    s.add_argument("number", type=int)
+    s.add_argument("--head", required=True, help="reviewed full 40-character commit SHA")
+    s.add_argument("--verdict", required=True, choices=("approve", "changes"))
+    text = s.add_mutually_exclusive_group(required=True)
+    text.add_argument("--body")
+    text.add_argument("--body-file", help="review text file; VERDICT is appended automatically")
+    s.add_argument("--operation-id", help="stable retry key; defaults to a hash of the review")
+    s.set_defaults(fn="repo review")
     s = repos.add_parser("product-create", help="preview, then confirm an exact private empty product repository "
                          "(the Owner, or a bot with Create product repositories)")
     s.add_argument("name", help="exact GitHub repository name, without an organization")

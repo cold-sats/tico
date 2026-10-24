@@ -23,7 +23,7 @@ from clients import hubcli
 
 HUB = Path(__file__).resolve().parents[2] / "scripts" / "hub"
 SUBCOMMANDS = ["whoami", "inbound", "meeting", "message", "conversation", "question", "note", "file", "doc", "chat", "assistant", "tag", "task", "replay", "goal", "kpi",
-               "proposal", "market", "listening", "tool", "routine", "trigger", "approval", "brief", "mcp", "needs-you", "run", "team", "seat", "org", "health",
+               "proposal", "market", "listening", "tool", "routine", "trigger", "approval", "pipeline", "brief", "mcp", "needs-you", "run", "team", "seat", "org", "health",
                "changelog", "update", "grokbot", "external", "calendar", "sql", "db", "classify", "decision", "template", "bot", "repo", "skill", "agent", "human", "group", "api", "computer",
                "credential", "slack", "support", "health-monitor", "roadmap", "service-key"]
 
@@ -36,6 +36,29 @@ def run_hub(*args, env=None):
         return done.returncode, json.loads(done.stdout)
     except ValueError:
         return done.returncode, {"_stdout": done.stdout, "_stderr": done.stderr}
+
+
+def test_review_command_and_mcp_preserve_head_body_and_retry_identity(tmp_path, monkeypatch):
+    from clients import remotecli, hubtools
+    calls = []
+    class Api:
+        def __init__(self, *args, **kw):
+            pass
+        def post(self, path, body, key=None):
+            calls.append((path, body, key))
+            return {"event": "APPROVE"}
+    monkeypatch.setattr(remotecli, "Client", Api)
+    monkeypatch.setenv("HUB_API_URL", "https://tico.acme.example/api/v2")
+    text = tmp_path / "review.txt"
+    text.write_text("Checked the credential boundary.\nSecond paragraph.\n")
+    args = hubcli.parser().parse_args(["repo", "review", "Acme/product", "7", "--head", "a" * 40,
+                                      "--verdict", "approve", "--body-file", str(text)])
+    assert remotecli.run(args) == {"event": "APPROVE"}
+    expected = {"repository": "Acme/product", "number": 7, "head": "a" * 40,
+                "verdict": "approve", "body": text.read_text()}
+    assert calls[0][:2] == ("github/reviews", expected)
+    hubtools.repo_review(Api(), expected)
+    assert calls[1] == calls[0]  # CLI and MCP retries identify the same exact review.
 
 
 def test_product_repository_cli_previews_and_requires_the_exact_typed_confirmation(monkeypatch):

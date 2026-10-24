@@ -1,5 +1,7 @@
 # Routines
 
+This page is about bot routines. For the flat list of built-in jobs and task rules at the top of **Settings → Routines**, see [System routines](system-routines.md).
+
 A routine is a row in Tico: a bot, a time (or a trigger), a title, and the text the bot is
 told. The server runs the clock. When a routine is due it opens a task for the bot with that
 text; a Mac claims the task after it wakes and passes readiness, and the bot takes it from there

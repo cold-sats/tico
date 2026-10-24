@@ -65,6 +65,16 @@ Named subscriptions that an earlier release signed in on a computer are no longe
 now run on the computer's login for that tool, which must be signed in for them to run
 ([Subscriptions from earlier releases](#subscriptions-from-earlier-releases)).
 
+Before upgrading from separate bot subscriptions, check the computer's login for every tool its bots use.
+When the runner identifies a primary connection's login as an API key, its connection shows a warning: API billing is separate from a subscription's
+allowance, and Tico does not check the API credit balance. Paid API use remains available. If you intend to use
+a subscription, choose **Switch to subscription** and sign in to that plan on the computer. **Health** also warns about
+API-key computer logins used by bots, and flags a missing, failed or rejected login used by an active bot's
+primary or fallback model, even before it has queued work. Computers that are offline keep their last report;
+the login check resumes when they report again.
+An unknown account type gives no API-key warning; a retained named login may need its next account report first.
+When a tool cannot write its data folder, Health names the reported folder problem for the computer operator.
+
 **Shared connections.** A model key stored under Credentials can be shared with **Every computer** or with computers
 by name. It signs in each computer that has no login of its own for that tool ([Install](install.md#add-computers-to-run-your-bots)).
 Each computer it serves shows it as a chip, its pop-up line marked **Shared** and listing those computers, even before
@@ -209,6 +219,14 @@ Cursor uses a file login so the computer's default login home stays separate on 
 was signed in through the macOS Keychain, sign in once from Tico to create this login; the Keychain entry stays untouched.
 A computer login with a custom auth-folder override must sign out and sign in to change accounts; **Switch account**
 refuses before it starts. See [harness sign-in details](harnesses.md#supported-harnesses).
+
+On an isolated Docker Computer, Grok's default `~/.grok` folder belongs to the bot user so sign-in,
+token refresh and session saves work. This includes its credentials, `config.toml` and session history:
+bots using the computer login share that whole folder, including an existing personal Grok login there.
+Use a dedicated team login on that Computer. The runner repairs ownership in place at startup, sign-in,
+and before starting or resuming a Grok thread; it does not copy login files between bot homes or change
+file modes. A named profile uses its own runtime home; a shared-operator profile uses the computer home.
+Custom auth-folder overrides never select a folder for this ownership repair.
 
 A new computer whose team signs in with a plan needs its own sign-in: a plan login cannot be copied between computers.
 Settings > Health shows "*computer name*: sign in to Codex" (or Claude Code) until it is done.

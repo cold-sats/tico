@@ -21,6 +21,8 @@
 /* the composer: a small arrow for Send */
 .p-send-icon{flex:none;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;border:0;border-radius:50%;background:var(--accent);color:var(--accent-ink);cursor:pointer}
 .p-send-icon svg{width:18px;height:18px}
+/* The button, never its replaceable icon, is what a press lands on: a redraw mid-press would otherwise drop the click. */
+.p-send-icon>*{pointer-events:none}
 .p-send-icon:hover:not(:disabled,.p-off){filter:brightness(1.06)}
 .p-send-icon:disabled,.p-send-icon.p-off{opacity:.45;cursor:default}
 .p-send-icon[hidden]{display:none}
@@ -241,14 +243,17 @@ a.ref::before,.run-did .ref::before{content:'';display:inline-block;width:.8em;h
 .agent-credential pre{white-space:pre-wrap;word-break:break-all;background:var(--surface2);padding:8px;border-radius:var(--radius);font-size:var(--t-sm)}
 .bfiles{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 .fchip{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:10px;background:var(--bg);font-size:var(--t-sm)}
-.chat-files{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
-.conv-run.from-me .chat-files{justify-content:flex-end}
-.chat-thumb{padding:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface2);width:120px;height:90px;cursor:zoom-in;display:inline-flex;align-items:center;justify-content:center}
+.chat-files{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px;margin-top:4px;max-width:min(100%,var(--read-width,800px))}
+.conv-run.from-me .chat-files{justify-content:flex-end;margin-left:auto}
+/* A picture is a quarter of the column wide and whole, as a card is (ui/styles/visual-cards.css, Dev 338). */
+.chat-thumb{padding:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface2);width:calc((100% - 18px) / 4);min-width:64px;aspect-ratio:4/3;cursor:zoom-in;display:inline-flex;align-items:center;justify-content:center}
+.chat-thumb.ready{aspect-ratio:auto}
 .chat-thumb:not(.ready){cursor:progress}
-.chat-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.chat-thumb img{width:100%;height:auto;max-height:240px;object-fit:contain;display:block}
 .chat-thumb img[hidden]{display:none}
 .chat-thumb:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.chat-titled{display:inline-flex;flex-direction:column;gap:2px;width:120px;min-width:0}
+.chat-titled{display:inline-flex;flex-direction:column;gap:2px;width:calc((100% - 18px) / 4);min-width:64px}
+.chat-titled>.chat-thumb{width:100%}
 .chat-file-title{font-size:var(--t-sm);color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .img-lightbox{padding:0;border:0;background:transparent;max-width:96vw;max-height:96vh;cursor:zoom-out}
 .img-lightbox::backdrop{background:rgba(0,0,0,.82)}
@@ -346,6 +351,23 @@ body:has(#app-nudge:not([hidden])) #main.bot-split-layout>#bot-top{margin-top:8p
 .asst-earlier>summary{cursor:pointer;color:var(--muted);font-size:var(--t-sm)}
 .asst-earlier-list{max-height:40vh;overflow:auto;display:flex;flex-direction:column;gap:var(--s2);padding:var(--s2) 0}
 .asst-earlier-msg .md{margin-top:2px}
+/* "What it has learned" (ui/app/learned.js): the link at the top of the chat, and the page, one readable column. */
+.asst-learned{order:2;margin-left:auto;align-self:center;font-size:var(--t-sm);white-space:nowrap}
+.learned-page{max-width:var(--read-width,720px);margin:0 auto;display:flex;flex-direction:column;gap:var(--s3)}
+.learned-head h1{font-size:var(--t-lg);margin:var(--s1) 0}
+.learned-back{font-size:var(--t-sm)}
+.learned-sec{padding:var(--s3)}
+.learned-sec h2{font-size:var(--t-base);margin:0 0 2px}
+.learned-sec h3{font-size:var(--t-sm);margin:var(--s3) 0 var(--s1)}
+.learned-list{list-style:none;margin:var(--s2) 0 0;padding:0;display:flex;flex-direction:column;gap:var(--s2)}
+.learned-item{display:flex;flex-direction:column;gap:2px;padding:var(--s2) 0;border-top:1px solid var(--line)}
+.learned-item:first-child{border-top:0}
+.learned-text{overflow-wrap:anywhere}
+.learned-meta{display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap;font-size:var(--t-sm)}
+.learned-meta .muted{margin-right:auto}
+.learned-input{width:100%}
+.learned-priorities{margin:0;padding-left:1.4em}
+.learned-empty{margin-top:var(--s2)}
 /* The chat column (bot chat, the Assistant, update threads, task comments): one centred column at most
    --read-width wide, in --read-size type on --read-leading lines. Your words sit in a --bubble; a bot's reply,
    its run summary and a Confirm card stay on the page without one. The thread pads itself to the column, so

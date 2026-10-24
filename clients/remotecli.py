@@ -106,6 +106,11 @@ def run(args, who=None):
         return command(client, args.worktree_sub, getattr(args, 'repo', None) or getattr(args, 'path', None), args.task)
     if args.cmd == "repo":
         from clients import hubtools
+        if args.fn == "repo review":
+            body = Path(args.body_file).read_text() if args.body_file else args.body
+            return hubtools.repo_review(client, {"repository": args.repository, "number": args.number,
+                                                 "head": args.head, "verdict": args.verdict, "body": body,
+                                                 **({"operation_id": args.operation_id} if args.operation_id else {})})
         if args.fn == "repo product-create":
             return product_repo_create(client, args.name, confirm=args.confirm)
         if args.sub == "list":
@@ -152,10 +157,12 @@ def run(args, who=None):
               "update create", "update redo", "update list", "update show", "update mark-read", "update reply", "update settings",
               "changelog list", "changelog mark-read",
               "needs-you start", "needs-you next", "needs-you respond", "needs-you commit", "needs-you abandon",
-              "brief", "mcp stats", "calendar list", "calendar status", "routine update", "team show", "org order", "run list",
+              "brief", "pipeline", "mcp stats", "calendar list", "calendar status", "routine update", "team show", "org order", "run list",
               "message list", "message mark-read", "bot recent", "agent pair show", "agent pair approve", "agent pair decline",
               "slack channel list", "slack channel add", "slack channel remove", "slack channel import",
-              "seat list", "seat create", "seat update", "seat close"):
+              "seat list", "seat create", "seat update", "seat close", "seat draft"):
+        if fn == "seat draft" and args.file:      # the CEO Bot's draft, from a file beside it
+            return via_tool(client, args, text=Path(args.file).read_text())
         if fn == "routine update":                  # --enable / --disable are the tool's `enabled`; a key or an id names it
             more = {"text": Path(args.text_file).read_text()} if args.text_file else {}
             if args.enable or args.disable:
@@ -737,7 +744,7 @@ def bots(client, args):
         except ValueError as exc:
             raise APIError("not_found", str(exc)) from None
     if args.fn in ("bot access", "bot mail", "bot owners", "bot setup-done", "bot ready", "bot place", "bot go-live", "bot model", "bot pause",
-                   "bot resume", "bot restore", "bot archive") or (args.fn == "bot create" and args.record_only):
+                   "bot resume", "bot scope", "bot restore", "bot archive") or (args.fn == "bot create" and args.record_only):
         from clients import hubtools
         fields = {k: v for k, v in vars(args).items()
                   if k not in ("cmd", "sub", "subsub", "fn", "no_setup", "record_only") and v not in (None, [])}

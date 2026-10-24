@@ -63,7 +63,7 @@
     const kept = toSubscription ? ' The API key is still in use.' : switchAccount ? ' The account signed in before still works.' : '';
     const where = machine || 'the computer';
     const dialog = into || document.createElement('dialog');
-    dialog.className = 'tmodal model-login';
+    dialog.className = 'tmodal tmodal-shell model-login';
     dialog.setAttribute('aria-labelledby', 'model-login-title');
     const title = toSubscription ? `Switch ${text(name)}${machine ? ` on ${text(machine)}` : ''} to a subscription`
       : `${switchAccount ? 'Switch account for' : 'Sign in to'} ${text(name)}${machine ? ` on ${text(machine)}` : ''}`;
@@ -216,7 +216,7 @@
     const name = (RUNTIME_NAMES[runtime] || runtime) + (profile ? ` · ${profile}` : '');
     const where = machine || 'the computer';
     const dialog = document.createElement('dialog');
-    dialog.className = 'tmodal model-login model-logout';
+    dialog.className = 'tmodal tmodal-shell model-login model-logout';
     dialog.setAttribute('aria-labelledby', 'model-logout-title');
     dialog.innerHTML = `<header><h2 id="model-logout-title">Sign out of ${text(name)} on ${text(where)}?</h2>
         <button class="ghost tmodal-x" type="button" data-close aria-label="Close">✕</button></header>
@@ -369,7 +369,7 @@
   // A small dialog shell shared by Clear key and Replace key.
   function keyDialog(title, inner, action, danger) {
     const dialog = document.createElement('dialog');
-    dialog.className = 'tmodal model-login model-key';
+    dialog.className = 'tmodal tmodal-shell model-login model-key';
     dialog.setAttribute('aria-labelledby', 'model-key-title');
     dialog.innerHTML = `<header><h2 id="model-key-title">${text(title)}</h2>
         <button class="ghost tmodal-x" type="button" data-close aria-label="Close">✕</button></header>
@@ -494,7 +494,7 @@
     form.innerHTML = `${info.preview && !adding ? `<p>Now: key <code>${text(info.preview)}</code>, ${text(KEY_SOURCES[info.source] || '')}.</p>` : ''}
       ${adding ? shareHTML : scopeHTML(info, 'replace', where)}
       <label>New key <input name="secret" type="password" autocomplete="off" spellcheck="false" required maxlength="4000" aria-label="New ${text(name)} key"></label>
-      ${names.length > 1 ? `<label>Kind <select name="env">${names.map(n => `<option value="${text(n)}"${n === info.name ? ' selected' : ''}>${text(n)}</option>`).join('')}</select></label>` : ''}
+      ${names.length > 1 ? `<label>Kind <select name="env">${names.map(n => `<option value="${text(n)}"${n === (info.name || info.shared?.env) ? ' selected' : ''}>${text(n)}</option>`).join('')}</select></label>` : ''}
       <p class="muted">It is kept in Tico's credential vault and never shown again in full. ${toKey
         ? `The subscription stays signed in and in use while ${text(where)} checks the key; once it works there the subscription is signed out and the next turn uses the key. Bots keep this login, so nothing needs reassigning.`
         : 'The next turn uses it once the computer has checked it; the old key is then deleted.'}</p>`;

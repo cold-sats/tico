@@ -28,9 +28,9 @@ function settingsAppDeliveryNote(e) {
 const agentPairButton = e => ['hermes', 'openclaw'].includes(e.agent?.harness) ? `<button class="ghost" type="button" data-agent-pair="${esc(e.name)}">Pair</button>` : '';
 function settingsAgentPair(slug) {
   const e = S.emps.find(row => row.name === slug); if (!e) return;
-  const dialog = document.createElement('dialog'); dialog.className = 'tmodal agent-credential';
+  const dialog = document.createElement('dialog'); dialog.className = 'tmodal tmodal-shell agent-credential';
   dialog.innerHTML = `<form method="dialog"><header><h2>Pair ${esc(e.display_name)}</h2><button class="ghost" type="button" data-close>Close</button></header>
-    <div class="agent-credential-body">
+    <div class="tmodal-body agent-credential-body">
       <label>Code<input name="code" type="text" required autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="12" placeholder="K7QM-4F2P"></label>
       <p class="muted">Printed by <code>hermes_agent.py pair</code> on the profile's computer (Hermes or OpenClaw).</p>
       <p class="muted" data-pair-preview></p>
@@ -73,9 +73,9 @@ async function settingsAgentCredential(slug) {
   try { issued = await post(`/v2/bots/${encodeURIComponent(slug)}/agent-credential`, {}); }
   catch (error) { toast(error.message, true); return; }
   const setup = issued.setup, yaml = agentConfigYaml(setup);
-  const dialog = document.createElement('dialog'); dialog.className = 'tmodal agent-credential';
+  const dialog = document.createElement('dialog'); dialog.className = 'tmodal tmodal-shell agent-credential';
   dialog.innerHTML = `<header><h2>${rotating ? 'New agent credential' : 'Agent credential'} for ${esc(e.display_name)}</h2><button class="ghost" type="button" data-close>Close</button></header>
-    <div class="agent-credential-body">
+    <div class="tmodal-body agent-credential-body">
       <p>Shown once. It is this bot's identity; revoking it stops the bot at once.</p>
       <label>Token<div class="row"><code class="agent-token" data-token>${esc(issued.token)}</code><button class="ghost" type="button" data-copy-token>Copy</button></div></label>
       <label>On the computer that runs the ${e.agent?.harness === 'openclaw' ? 'OpenClaw' : 'Hermes'} profile, one command installs Tico as an MCP server in the profile and a heartbeat timer:
@@ -130,9 +130,9 @@ async function renderSettingsTokens() {
   };
 }
 function settingsTokenShow(issued) {
-  const dialog = document.createElement('dialog'); dialog.className = 'tmodal agent-credential';
+  const dialog = document.createElement('dialog'); dialog.className = 'tmodal tmodal-shell agent-credential';
   dialog.innerHTML = `<header><h2>Token ${esc(issued.label)}</h2><button class="ghost" type="button" data-close>Close</button></header>
-    <div class="agent-credential-body">
+    <div class="tmodal-body agent-credential-body">
       <p>Shown once. It acts as you, and expires ${esc(new Date(issued.expires_at).toLocaleDateString())}.</p>
       <label>Token<div class="row"><code class="agent-token" data-token>${esc(issued.token)}</code><button class="ghost" type="button" data-copy-token>Copy</button></div></label>
       <label>In a shell, for the <code>hub</code> command line and scripts:<div class="row"><code data-command>export HUB_API_URL=${esc(location.origin)} HUB_TOKEN=${esc(issued.token)}</code><button class="ghost" type="button" data-copy-command>Copy</button></div></label>
@@ -368,7 +368,7 @@ function renderSettingsMachines() {
   const machines = SETTINGS_DATA.machines.filter(machine => showRevoked || !machine.revoked_at);
   const cards = machines.map(machine => {
     const online = machineOnline(machine);
-    const status = machine.revoked_at ? ['failed', 'revoked'] : online ? ['ok', 'online'] : ['', machine.last_seen ? `offline ${ago(machine.last_seen)}` : 'offline'];
+    const status = [machine.revoked_at ? 'failed' : online ? 'ok' : '', machinePresenceWords(machine)];
     const failures = Object.values(machine.readiness?.bots || {}).filter(value => !value.ready).length;
     const facts = [settingsPersonName(machine.operator), machine.version ? `Tico ${machine.version}` : ''].filter(Boolean).join(' · ');
     return `<tr class="machine-card" data-computer-row="${esc(machine.id)}">
@@ -438,7 +438,7 @@ function renderSettingsMachines() {
     const shown = event.target.closest('[data-computer-bots]');
     if (shown) {
       event.preventDefault(); dialog?.close();
-      SETTINGS_BOTS_VIEW.computer = shown.dataset.computerBots; settingsBotsRemember(); settingsShow('bots'); renderSettingsBots();
+      settingsShow('bots'); renderSettingsBots();
       return;
     }
     const login = event.target.closest('[data-machine-copy-login]');
@@ -473,7 +473,7 @@ function renderSettingsMachines() {
       <td>${agent.model ? `${esc(agent.model)}${agent.provider ? `<span class="settings-cell-note">${esc(agent.provider)}</span>` : ''}` : '<span class="muted">—</span>'}</td>
       <td><span class="machine-status"><span class="dot ${agent.revoked_at ? 'failed' : agent.online ? 'ok' : ''}" aria-hidden="true"></span>${agent.revoked_at ? 'revoked' : agent.online ? 'reporting in' : 'not reporting'}${agent.last_seen ? `<span class="muted"> · ${esc(ago(agent.last_seen))}</span>` : ''}</span></td></tr>`).join('');
   const list = `${revoked ? `<label class="settings-cell-note"><input type="checkbox" data-show-revoked-computers${showRevoked ? ' checked' : ''}> Show revoked computers (${revoked})</label>` : ''}
-    ${cards ? `<div class="scroll"><table class="settings-table settings-machines"><thead><tr><th>Computer</th><th>AI tools</th></tr></thead><tbody>${cards}</tbody></table></div>` : `<div class="empty">${revoked ? 'No active computers.' : 'No computers yet.'}</div>`}
+    ${cards ? `<div class="scroll"><table class="settings-table settings-machines"><thead><tr><th>Computer</th><th>AI tools</th></tr></thead><tbody>${cards}</tbody></table></div>` : `<div class="empty">${!SETTINGS_PRESENCE.at && SETTINGS_PRESENCE.failed ? 'Computer presence unavailable · checking…' : revoked ? 'No active computers.' : 'No computers yet.'}</div>`}
     ${agents ? `<h3 class="settings-agents-title">External agents${betaPill('external_agents')}</h3><div class="scroll"><table class="settings-table"><thead><tr><th>Agent</th><th>Owner</th><th>Model</th><th>Status</th></tr></thead><tbody>${agents}</tbody></table></div>` : ''}`;
   // Only the list is redrawn; the Add computer form (and the code it shows) keeps what was typed.
   if (!el.querySelector('.machine-enroll')) el.innerHTML = `<div data-machines-list></div>
@@ -483,8 +483,11 @@ function renderSettingsMachines() {
       <input id="machine-label" type="text" autocomplete="off" aria-label="Computer name" placeholder="Computer name" value="${esc(settingsPersonName(people.find(person => person.id === S.me?.id)?.id || people[0]?.id) + "'s Mac")}">
       <button class="primary" type="button" id="register-machine">Add computer</button>
       <div class="machine-enroll-status" id="machine-enroll-status"></div></div>`;
-  el.querySelector('[data-machines-list]').innerHTML = `${window.runnerOutdatedBanner?.(machines, S.me?.id, settingsPersonName) || ''}${list}`;
+  const listRoot = el.querySelector('[data-machines-list]'), restoreFocus = computerFocusRestore(listRoot);
+  patchHTML(listRoot, `${window.runnerOutdatedBanner?.(machines, S.me?.id, settingsPersonName, machineOnline) || ''}${list}`);
+  restoreFocus();
   computerDetailPaint();
+  renderSettingsProviderNext();
   const machineDefaultLabel = () => $('#machine-kind').value === 'linux' && S.config?.local ? 'This computer'
     : `${settingsPersonName($('#machine-operator').value)}'s ${({linux: 'server', windows: 'PC'})[$('#machine-kind').value] || 'Mac'}`;
   $('#machine-operator').onchange = () => { $('#machine-label').value = machineDefaultLabel(); };

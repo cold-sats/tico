@@ -92,6 +92,7 @@ html.demo .dask{top:var(--demo-h)}
   #main.librarian-open .docs-workspace{grid-template-columns:minmax(200px,240px) minmax(0,1fr)}
   .dask{width:var(--librarian-w);box-shadow:none;animation:none}
   body:has(#main.librarian-open) .toast{right:calc(var(--librarian-w) + 20px)}
+  body:has(#main.librarian-open) #topbar{margin-right:var(--librarian-w)}
 }
 /* The market's three columns need room the rail takes: under 1600px the graph moves below the note. */
 @media(min-width:761px) and (max-width:1599px){

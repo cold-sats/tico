@@ -117,14 +117,13 @@ That is the default suite: pytest in parallel without the tests marked `@pytest.
 core browser scripts (`CORE` in `scripts/ui-tests.cjs`) with the load-aware concurrency described below. The check records wall time and load and fails
 if the combined run reaches 300 seconds; it should take about two minutes. This is a hard budget for any suite that runs on merge or on a schedule. Keep it by keeping few tests, the ones
 that guard security and privacy boundaries, data safety and core contracts, and by cutting one when you add one. Release validation builds the three images and the Release workflow publishes them with the
-GitHub release. The PR checks workflow runs this full default suite on main and on uncertain PR selections; known PR mappings run the affected tests above. Release validation runs the full gate for an explicitly dispatched immutable candidate. The manual screenshots workflow
-generates documentation images from the Actions tab (Run workflow). `--release` runs this suite too, along with the
+GitHub release. The PR checks workflow runs this full default suite on main and on uncertain PR selections; known PR mappings run the affected tests above. Release validation runs the full gate for an explicitly dispatched immutable candidate. `--release` runs this suite too, along with the
 slow tests and every browser script, and release candidate validation covers that full suite.
 
 ## Hosted release validation
 
 Prefer the manual **Release validation** workflow for the full gate so builds and tests do not compete with bots or
-interactive work. Its five gate jobs run in parallel on ephemeral 4-vCPU RunsOn Linux VMs in Tico's own AWS account, with read-only
+interactive work. Its twelve gate jobs, each about 3 minutes of tests, run in parallel on ephemeral 4-vCPU RunsOn Linux VMs in Tico's own AWS account, with read-only
 repository permissions and no production, AWS or provider credentials. It cannot tag, publish or deploy.
 
 ```sh
@@ -143,8 +142,10 @@ the manifests and files it would publish, and pushes nothing.
 The reviewed workflow controls and selected candidate have separate checkouts: a workflow merged after a candidate was
 frozen can check that candidate without changing it. The candidate's `scripts/release_checks.py --release` is unchanged.
 It can also run one slice of the gate (`--part product|browser|python|desktop`, with `--shard K/N` splitting the Python test
-files into N groups balanced by test count). The hosted workflow selects product, browser, three Python shards and
-desktop; without `--part`, the command runs the whole gate, with desktop only where the Linux app builds. The desktop
+files, or the browser scripts, into N groups balanced by the times in `scripts/test-timings.json`; refresh the browser
+times with `--record-browser-timings` from a validation's browser logs). The hosted workflow selects product, two browser
+shards, eight Python shards and desktop. Only product needs the images: the other parts start as soon as the Linux
+binaries are built, and product waits for the image builds; without `--part`, the command runs the whole gate, with desktop only where the Linux app builds. The desktop
 part runs the Tauri app's tests on Linux, among them a company app updating from a feed this candidate publishes
 (`scripts/app_release.py`) and serves (`backend/downloads.py`) behind a hub session: it must find, download, verify and
 install the update. It does not cover the macOS or Windows installers.
@@ -295,7 +296,7 @@ hosted gate.
 ## Manual fallback: validation, tag and notes
 
 1. Freeze current main with the guard above, then run the hosted release validation on that exact commit, with the
-   version you will tag.
+   version you will tag, dispatched from main: the tag publishes only a validation run of ci.yml from main.
 2. Once it is green, check main still equals that commit, then the Release Manager tags it and pushes:
    `git tag vX.Y.Z <validated-commit> && git push origin vX.Y.Z`.
 3. Once the release is published, file the Technical Writer's notes task. The notes go in `CHANGELOG.md` under
@@ -320,7 +321,7 @@ The images set `TICO_VERSION` in the image, which is how the running app
 knows its version (a source checkout reports `dev`). There is no source archive: the server and the runners run from
 the images, and a Mac runner is a git checkout that moves to the release's tag. The Dockerfile copies the source tree
 last, after system packages, tools and the Python dependencies, so with the GitHub Actions layer cache a release
-rebuilds and pushes one small layer per image. The Docker workflow builds only an `edge` image, on demand.
+rebuilds and pushes one small layer per image.
 
 ## Desktop apps follow the release
 
@@ -382,10 +383,10 @@ publish`) that the owner approved, or the owner's own message on the task naming
 `playbooks/rollout.md` (`software/rollout.py` in its repository) without waiting on anyone:
 
 1. it creates the tag `vX.Y.Z` at the approved commit through the GitHub API, with its own write grant on the
-   repository. A tag made with the GitHub App's installation token starts the Release and Docker workflows, which a
+   repository. A tag made with the GitHub App's installation token starts the Release workflow, which a
    tag made with a workflow's `GITHUB_TOKEN` would not;
-2. it waits for the GitHub release, which installs update from, and stops if the Release or Docker workflow for the
-   tag fails;
+2. it waits for the GitHub release, which installs update from, and stops if the Release workflow for the tag
+   fails;
 3. it updates the canary, the team's own install, through that install's update key, and waits for the updater to
    report `healthy` and `/healthz` to report the new release, then for its computers to follow (reported, never a gate);
 4. it updates every other install together the same way;

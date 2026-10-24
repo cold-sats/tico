@@ -110,6 +110,29 @@ If you hand ownership to someone else (Settings > People), the CEO Bot tab and i
 to the new owner. You get your Assistant back, with your own earlier Assistant chats; the new owner does not see those.
 Cards the CEO Bot had waiting on you are withdrawn.
 
+## On the Updates page
+
+Your chat with it is also beside Updates, labelled with its name. It works as the [Assistant's](assistant.md#on-the-updates-page)
+does for everyone else: same conversation, show or hide, resize, full screen on a phone. It is handed only the updates
+you can read, leaving out any that link a task, chat or bot it can't open. When it picks the top update it follows what
+you taught it about you and about the company. A reply is a chat message, never a Needs you item, so it doesn't count
+toward the [5 a day](#at-most-5-items-a-day).
+
+## What it has learned
+
+It keeps two layers, both on **What it has learned** at the top of your chat (`#/assistant/learned`):
+
+- **About you**: how you like things ranked and summarised, the same private layer your [Assistant](assistant.md#what-it-has-learned)
+  used. It stays yours if you hand ownership on.
+- **About the company**: the vision and the company goals (both changed on Goals), and what you taught it about the
+  company ("launches matter more than hiring news for us"). Only you, the owner, read and change it, and only the CEO
+  Bot uses it, in your chat: Assistants never see it, administrators cannot add to it, and its goals session is not
+  handed it. It stays with the owner seat: a new owner gets it, and you no longer see it.
+
+Teach it in your chat; it saves one short line in the right layer and says which. Edit or delete lines on the page
+(only your click does). Every turn in your chat reads both layers fresh, so a deleted line is not used from the next
+reply on.
+
 ## What stays yours
 
 At every level, these stay yours, and the server refuses the CEO Bot each one:

@@ -24,6 +24,7 @@ from fastapi import Request
 from pydantic import Field
 
 from . import listening as L
+from . import outcome_stats
 from . import rooms
 from . import task_privacy as privacy
 from .privacy_index import ReadIndex
@@ -44,6 +45,12 @@ SAFE_COLUMNS = {"slack_posts": {"message_id", "bot", "state", "attempts", "next_
 # backup_verified_blobs, _litestream_*, sqlite_* except sqlite_master) are denied outright.
 HIDDEN = {"task_requesters": {"token_hash"}, "bots": {"token_hash", "cwd", "thread_id"}, "attempts": {"token_hash"},
           "service_jobs": {"token_hash"}}
+# Columns read as an expression over the caller's own views: a column naming a task the caller may not read gives
+# its id to nobody. A bot's claim limit (bot_control.claim_task) on such a task reads '': a limit is on, as
+# GET /api/v2/bots says with `claim_scoped` and no `claim_task`.
+MASKED = {"bot_control": {"claim_task": "CASE WHEN source.claim_task IS NULL THEN NULL "
+                                        "WHEN source.claim_task IN (SELECT id FROM tasks) THEN source.claim_task "
+                                        "ELSE '' END"}}
 DENIED_FUNCTIONS = {"load_extension"}
 # Read-only views built over the caller's connection: name -> (base tables it reads, SELECT over `{table}`, the
 # caller's own filtered view of each, and `{all_table}`, its unfiltered inner view). A total adds up only rows the
@@ -83,6 +90,36 @@ DERIVED = {
               FROM {attempts} a WHERE NOT EXISTS (SELECT 1 FROM {all_turns} t WHERE t.id = a.id))
         GROUP BY 1, 2, 3, 4"""),
 }
+# Totals over rows the reader may not read one by one, built only for the owner and a bot the owner granted them
+# (backend/outcome_stats.py). Each groups by week and fixed names (status, proposer, bot, tool) and carries no text, no
+# id and no person: a proposal's owner, a call's person and its token label never leave the base row.
+GRANTED = {
+    # Assistant and BotOps proposals per week, proposer and status (pending, running, done, failed, cancelled,
+    # expired); `share_pct` is that status's share of its week and proposer.
+    "assistant_action_weekly": (("assistant_actions",), """
+        SELECT week, proposer, status, actions,
+               round(100.0 * actions / sum(actions) OVER (PARTITION BY week, proposer), 1) AS share_pct
+        FROM (SELECT date(created, '-6 days', 'weekday 1') AS week,
+                     coalesce(proposer, proposed_via, 'assistant') AS proposer,
+                     status, count(status) AS actions
+              FROM {all_assistant_actions} GROUP BY 1, 2, 3)"""),
+    # Bot tool calls through MCP per week, by tool and by bot when the reader may read that bot; hidden bots count
+    # with no `bot`. People's calls are excluded. A name that is not a hub tool's counts as `other`.
+    "mcp_call_weekly": (("events", "bots"), """
+        SELECT week, bot, tool, count(*) AS calls, sum(error) AS errors,
+               round(100.0 * sum(error) / count(*), 1) AS error_pct,
+               CAST(round(avg(ms)) AS INTEGER) AS avg_ms, max(ms) AS max_ms
+        FROM (SELECT date(ts, '-6 days', 'weekday 1') AS week,
+                     CASE WHEN actor LIKE 'bot:%' AND substr(actor, 5) IN (SELECT slug FROM {bots})
+                          THEN substr(actor, 5) END AS bot,
+                     CASE WHEN target IN {tool_names} THEN target ELSE 'other' END AS tool,
+                     coalesce(json_extract(detail_json, '$.error'), 0) <> 0 AS error,
+                     coalesce(json_extract(detail_json, '$.ms'), 0) AS ms
+              FROM {all_events} WHERE action = 'mcp.call' AND actor LIKE 'bot:%')
+        GROUP BY 1, 2, 3"""),
+}
+# Base tables only a GRANTED view reads, and the columns it may see of them.
+GRANTED_SOURCES = {"assistant_actions": ("created", "proposer", "proposed_via", "status")}
 # FTS5 reads these as main.<virtual>_* with no view context; they are not a public API.
 FTS_SHADOWS = ("_data", "_idx", "_content", "_docsize", "_config")
 STATEMENT = re.compile(r"^\s*(?:(?:--[^\n]*\n?|/\*.*?\*/)\s*)*(select|with|explain\s+query\s+plan)\b", re.I | re.S)
@@ -255,8 +292,9 @@ def guarded(c, auth, who, inner, function, columns=None):
               "WHERE review_state<>'live')")
     rules = {
         "conversations": conversations,
-        "messages": "EXISTS (SELECT 1 FROM conversations readable WHERE readable.id=source.conversation_id) "
-                    "AND deleted_at IS NULL AND " + msg_gate,
+        # Rooms are the small authorization set, unlike message/run history.
+        # Build their id set once rather than re-evaluate the room view per message.
+        "messages": "conversation_id IN (SELECT id FROM conversations) AND deleted_at IS NULL AND " + msg_gate,
         "tasks": tasks,
         "tags": tag_gate, "task_tags": by_task,
         "task_events": by_task + " AND " + content_gate(("old", "new", "note")), "task_delegations": by_task,
@@ -378,13 +416,26 @@ def connect(path, c, auth, who, trace=None):
         conn.execute(f'CREATE TEMP TABLE "{visible}"(id TEXT PRIMARY KEY) WITHOUT ROWID')
         conn.execute(f'INSERT INTO "{visible}" SELECT id FROM main.tasks WHERE ' + tables["tasks"][0])
         tables["tasks"] = (f'id IN (SELECT id FROM "{visible}")', tables["tasks"][1])
+        # Reuse the task-id set directly. Going through the tasks view rebuilds
+        # the same task list for every nested room lookup inside a privacy UDF.
+        tables = {table: (predicate.replace("IN (SELECT id FROM tasks)",
+                                            f'IN (SELECT id FROM "{visible}")'), hidden)
+                  for table, (predicate, hidden) in tables.items()}
         source_tables = set(tables) | {"blob_media", "live_meetings", "live_meeting_access", "live_meeting_bots",
                                        "live_meeting_turns"}
         class Source:
+            def __init__(self):
+                self.statements = {}
+
             def execute(self, statement, args=()):
-                statement = re.sub(r'\b(FROM|JOIN)\s+(\w+)', lambda m:
-                                   m[1] + ' main."' + m[2] + '"' if m[2] in source_tables else m[0], statement,
-                                   flags=re.I)
+                source = self.statements.get(statement)
+                if source is None:
+                    source = re.sub(r'\b(FROM|JOIN)\s+(\w+)', lambda m:
+                                    m[1] + ' main."' + m[2] + '"' if m[2] in source_tables else m[0], statement,
+                                    flags=re.I)
+                    if len(self.statements) < 128:
+                        self.statements[statement] = source
+                statement = source
                 trusted[0] = True
                 try:
                     return conn.execute(statement, args)
@@ -401,19 +452,31 @@ def connect(path, c, auth, who, trace=None):
         conn.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, 10_000_000)   # no randomblob(1e9) memory bombs
         conn.setlimit(sqlite3.SQLITE_LIMIT_ATTACHED, 0)
         conn.execute("PRAGMA busy_timeout=5000")
+        exposed = {}
         for table, (_, hidden) in tables.items():
-            exposed = [name for name in columns.get(table, ()) if name not in hidden
-                       and (table not in SAFE_COLUMNS or name in SAFE_COLUMNS[table])]
-            if not exposed:
+            exposed[table] = [name for name in columns.get(table, ()) if name not in hidden
+                              and (table not in SAFE_COLUMNS or name in SAFE_COLUMNS[table])]
+            if not exposed[table]:
                 raise Problem("schema", f"Table {table} is missing from this database", 500)
-            names = ",".join(f'"{column}"' for column in exposed)
+            names = ",".join(f'"{column}"' for column in exposed[table])
             conn.execute(f'CREATE TEMP VIEW {inner(table)} AS SELECT {names} FROM main."{table}"')
         for table, (predicate, _) in tables.items():
-            projection = "*"
+            masked = MASKED.get(table, {})
+            projection = ",".join(f'({masked[name]}) AS "{name}"' if name in masked else f'source."{name}"'
+                                  for name in exposed[table]) if masked else "*"
             conn.execute(f'CREATE TEMP VIEW "{table}" AS SELECT {projection} FROM {inner(table)} AS source WHERE {predicate}')
-        for name, (bases, select) in DERIVED.items():
+        # The Assistant creates its table on first use: a view over a table or column not there yet is left out.
+        granted = {name: view for name, view in GRANTED.items() if outcome_stats.may_read(c, who)
+                   and all(set(GRANTED_SOURCES.get(base, ())) <= set(columns.get(base, ())) for base in view[0])}
+        views = {**DERIVED, **granted}
+        sources = {table for bases, _ in views.values() for table in bases} & set(GRANTED_SOURCES)
+        for table in sources:
+            names = ",".join(f'"{column}"' for column in GRANTED_SOURCES[table])
+            conn.execute(f'CREATE TEMP VIEW {inner(table)} AS SELECT {names} FROM main."{table}"')
+        for name, (bases, select) in views.items():
             conn.execute(f'CREATE TEMP VIEW "{name}" AS ' + select.format(
-                **{base: f'"{base}"' for base in bases}, **{"all_" + base: inner(base) for base in bases}))
+                **{base: f'"{base}"' for base in bases}, **{"all_" + base: inner(base) for base in bases},
+                tool_names=qlist(sorted(outcome_stats.TOOL_NAMES))))
         # Older SQLite versions initialize JSON virtual tables with schema authorization calls.
         # Initialize only these built-ins before installing the read-only authorizer.
         for function in sorted(TABLE_FUNCTIONS):
@@ -425,7 +488,7 @@ def connect(path, c, auth, who, trace=None):
     except BaseException:
         conn.close()
         raise
-    inner_names = {prefix + table for table in tables}
+    inner_names = {prefix + table for table in set(tables) | sources}
 
     def fts_parent(name):
         for suffix in FTS_SHADOWS:
@@ -460,7 +523,7 @@ def connect(path, c, auth, who, trace=None):
                          "market_insights", "market_events", "listen_runs", "task_types", "task_steps"}:
                 return sqlite3.SQLITE_OK
             # A base table is read only by its own inner view, whose name is this connection's secret.
-            if table in tables and context == prefix + table:
+            if (table in tables or table in sources) and context == prefix + table:
                 return sqlite3.SQLITE_OK
             # FTS5 reads the virtual table and its shadow tables with no view
             # context. Allow that only for the owner: mail_fts is owner-only.
@@ -472,11 +535,11 @@ def connect(path, c, auth, who, trace=None):
             return sqlite3.SQLITE_DENY
         if schema == "temp":
             if table == visible:
-                return sqlite3.SQLITE_OK if context == "tasks" else sqlite3.SQLITE_DENY
-            if table in tables or table in DERIVED:
+                return sqlite3.SQLITE_OK if context in tables else sqlite3.SQLITE_DENY
+            if table in tables or table in views:
                 return sqlite3.SQLITE_OK
-            if table in inner_names and context in DERIVED:
-                return sqlite3.SQLITE_OK if table[len(prefix):] in DERIVED[context][0] else sqlite3.SQLITE_DENY
+            if table in inner_names and context in views:
+                return sqlite3.SQLITE_OK if table[len(prefix):] in views[context][0] else sqlite3.SQLITE_DENY
             return sqlite3.SQLITE_OK if table in inner_names and context in tables else sqlite3.SQLITE_DENY
         return sqlite3.SQLITE_DENY
 

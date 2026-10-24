@@ -20,6 +20,7 @@ release came from ships that way; a merged link in another repository stays `mer
 contains the merge and then its revert (a change dropped after QA failed) does not ship it: GitHub is
 asked whether the pull request's own lines are still there at the release commit (`change_kept`).
 """
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -512,7 +513,11 @@ def apply_creation_qa(c, pr, paths):
 
 def refresh_task_prs(service, task_id):
     """Schedule a bounded refresh; task reads always use the last known state."""
-    with service.lock:
+    # A task read serves stored PR state. A background inventory may hold this mutex
+    # while reading a large checkout set; scheduling a refresh must never wait for it.
+    if not service.lock.acquire(blocking=False):
+        return
+    try:
         if getattr(service, "pr_refresh_running", False):
             return
         cache = getattr(service, "pr_refresh_cache", {})
@@ -535,6 +540,8 @@ def refresh_task_prs(service, task_id):
             return
         service.pr_refresh_running = True
         service.pr_refresh_cache = cache
+    finally:
+        service.lock.release()
 
     def refresh():
         try:
@@ -1039,16 +1046,19 @@ def ship_deployed(c, settings, *, ancestry=None):
 def install_github(app, settings, store):
     @app.post(PATH)
     async def webhook(request: Request):
-        body = await request.body()
+        # The secret read (sealed, maybe KMS) and the write transaction wait on the database: off the event loop.
+        return await asyncio.to_thread(handle, request.headers, await request.body())
+
+    def handle(headers, body):
         app_secret = app.state.github_app.webhook_secret()
-        if not (verify(settings.github_webhook_secret, request.headers, body) or verify(app_secret, request.headers, body)):
+        if not (verify(settings.github_webhook_secret, headers, body) or verify(app_secret, headers, body)):
             # unset: nothing to verify against, and the path does not exist for anyone
             raise Problem("forbidden", "Bad signature", 403 if settings.github_webhook_secret else 404)
         try:
             payload = json.loads(body or b"{}")
         except ValueError:
             raise Problem("payload", "Send JSON", 400)
-        event = str(request.headers.get("x-github-event") or "")
+        event = str(headers.get("x-github-event") or "")
         if event == "ping":
             return {"ok": True}
         if event in ("installation", "installation_repositories"):

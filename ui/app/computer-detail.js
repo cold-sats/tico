@@ -6,7 +6,28 @@
    loaded in the order index.html lists them. */
 'use strict';
 
-const machineOnline = machine => !machine.revoked_at && !!machine.last_seen && Date.now() - new Date(machine.last_seen) < 60000;
+const machineOnline = machine => !machine.revoked_at && !!machine.last_seen && (SETTINGS_PRESENCE.at || Date.now()) - new Date(machine.last_seen) < 60000;
+const machinePresenceStale = () => SETTINGS_PRESENCE.checking || SETTINGS_PRESENCE.failed
+  || !!SETTINGS_PRESENCE.at && Date.now() - SETTINGS_PRESENCE.at > SETTINGS_PRESENCE.interval;
+const machinePresenceWords = machine => machine.revoked_at ? 'revoked'
+  : `${machineOnline(machine) ? 'online' : `offline${machine.last_seen ? ` · last seen ${ago(machine.last_seen)}` : ''}`}${machinePresenceStale() ? ' · checking…' : ''}`;
+// A presence paint can change the focused row too; restore its control by stable data attributes,
+// keeping positional selectors only for the unkeyed containers between them.
+function computerFocusRestore(root, active = document.activeElement) {
+  if (!root?.contains(active)) return () => {};
+  const path = [];
+  for (let node = active; node !== root; node = node.parentElement) {
+    const keys = [...node.attributes].filter(attr => attr.name === 'id' || attr.name.startsWith('data-'));
+    path.unshift(node.localName + (keys.length ? keys.map(attr => `[${attr.name}="${CSS.escape(attr.value)}"]`).join('')
+      : `:nth-of-type(${[...node.parentElement.children].filter(peer => peer.localName === node.localName).indexOf(node) + 1})`));
+  }
+  const caret = [active.selectionStart, active.selectionEnd, active.selectionDirection];
+  return () => {
+    const target = active.isConnected ? active : root.querySelector(path.join(' > '));
+    target?.focus({preventScroll: true});
+    if (target && typeof caret[0] === 'number') try { target.setSelectionRange(...caret); } catch { /* not a text field */ }
+  };
+}
 const machineToolName = (machine, runtime) => Object.values(machine.readiness?.harnesses || {}).find(tool => tool.runtime === runtime)?.name
   || harnessRow(runtime)?.name || harnessWords(runtime);
 // Whether the computer has reported its tools yet: before its first report the server sends empty `runtimes`.
@@ -39,11 +60,12 @@ function machineConnections(machine) {
     // even before the tool reports it signed in; until it does, the line says so and claims no reading.
     const shared = machine.shared_with?.[runtime] || null;
     const blocked = value?.data_problem || reported?.data_problem || '';
+    const warning = links.find(b => b.runtime === runtime && b.warning)?.warning || '';
     // Signed out from Tico (Sign out) stays a line, so it can sign in again or go back to the shared key.
     if (!(auth === 'ready' || auth === 'rejected' || bots.length || machineSignedOut(machine, runtime) || shared)) continue;
     const reading = {signed_in: auth === 'ready' ? true : auth === 'rejected' || (auth === 'missing' && !shared) ? false : null,
       account: value?.account, weekly: value?.weekly, five_hour: value?.five_hour};
-    rows.push({key: `own:${runtime}`, runtime, name: shared ? 'Shared key' : "Computer's login", own: true, auth, value, state: reading, bots, shared, blocked});
+    rows.push({key: `own:${runtime}`, runtime, name: shared ? 'Shared key' : "Computer's login", own: true, auth, value, state: reading, bots, shared, blocked, warning});
   }
   for (const r of rows) {
     // Signed out from Tico is a red dot even with no bots on it yet: nothing signs it back in by itself.
@@ -108,7 +130,7 @@ function machineRowAddHTML(machine) {
 
 // ---- the pop-up
 function machineConnectionHTML(machine, conn, online, manage) {
-  const kind = conn.shared ? `API key${conn.shared.name ? ` · ${conn.shared.name}` : ''}` : "Computer's login";
+  const kind = conn.shared ? `API key${conn.shared.name ? ` · ${conn.shared.name}` : ''}` : '';
   const tags = conn.shared ? '<span class="pill computer-conn-shared" data-shared>Shared</span>' : '';
   let signIn;
   // Signed in, but its turns can't save a session: the folder is named on screen, and no sign-in is offered for it.
@@ -146,9 +168,10 @@ function machineConnectionHTML(machine, conn, online, manage) {
   // Bots that take turns on one sign-in say so.
   const shared = machineSharedLoginHTML(machine, conn.runtime);
   return `<div class="computer-conn${conn.attention ? ' attention' : ''}" data-connection="${esc(conn.key)}" data-machine-tool="${esc(conn.runtime)}">
-    <div class="computer-conn-head">${conn.attention ? '<span class="machine-chip-dot" aria-hidden="true"></span>' : ''}<strong>${esc(conn.tool)}</strong><span>${esc(kind)}</span>${tags}</div>
+    <div class="computer-conn-head">${conn.attention ? '<span class="machine-chip-dot" aria-hidden="true"></span>' : ''}<strong>${esc(conn.tool)}</strong>${kind ? `<span>${esc(kind)}</span>` : ''}${tags}</div>
     <div class="computer-conn-signin">${signIn}${action}${rejected}</div>
     ${usage ? `<div class="computer-conn-usage">${usage}</div>` : ''}
+    ${conn.warning ? `<p class="computer-conn-warning" role="note" data-login-warning="${esc(conn.runtime)}">${esc(conn.warning)}</p>` : ''}
     ${conn.shared ? `<div class="computer-conn-shared-with muted" data-shared-with>${esc(machineSharedWords(conn.shared))}</div>` : ''}
     <div class="computer-conn-bots muted">${esc(bots)}</div>${shared}
   </div>`;
@@ -165,11 +188,6 @@ function machineAddHTML(machine, online, manage) {
   if (!manage || machine.revoked_at) return '';
   return `<div class="computer-add"><button class="ghost" type="button" data-add-connection="${esc(machine.id)}"${online ? '' : ' disabled title="Computer is offline"'}>Add connection</button></div>`;
 }
-// The Bots page, showing this computer's bots: where a bot is moved to another computer.
-function computerBotsPage(id) {
-  $('#set-machines dialog.computer-detail')?.close();
-  SETTINGS_BOTS_VIEW.computer = id; settingsBotsRemember(); settingsShow('bots'); renderSettingsBots();
-}
 // ---- the Add connection pop-up: 1 the tool, 2 subscription or API key, then the provider's sign-in of the computer's
 // one login for that tool in this same pop-up (ui/model-login.js open `into`), and the chip appears once the computer
 // reports it. A different account for the same tool means another computer: a bot has no sign-in of its own.
@@ -179,14 +197,15 @@ function computerAddTools(machine) {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 function computerAddStepHTML(machine, step) {
-  const head = (title, back) => `<header><h2 id="computer-add-title">${title}</h2>
+  const head = (title, back) => `<header class="tmodal-head"><h2 id="computer-add-title">${title}</h2>
+      ${back ? `<button class="ghost" type="button" data-add-back="${back}">Back</button>` : ''}
       <button class="ghost tmodal-x" type="button" data-add-close aria-label="Close">✕</button></header>
-    <p class="muted computer-add-where">${esc(machine.label)}${back ? ` · <button class="ghost machine-signin" type="button" data-add-back="${back}">Back</button>` : ''}</p>`;
+    <div class="tmodal-body"><p class="muted computer-add-where">${esc(machine.label)}</p>`;
   if (step.at === 'tool') {
     const tools = computerAddTools(machine).map(tool => `<button class="ghost computer-add-choice" type="button" data-add-tool="${esc(tool.runtime)}">${esc(tool.name)}</button>`).join('');
     // Installing is the owner's (Versions and updates > Installation and updates).
     return `${head('Add connection')}<p class="model-login-body">Which AI tool?</p><div class="computer-add-choices" data-add-step="tool">${tools || '<p class="muted">No AI tools reported on this computer yet.</p>'}
-      <button class="ghost computer-add-choice" type="button" data-add-install>Install another tool</button></div>`;
+      <button class="ghost computer-add-choice" type="button" data-add-install>Install another tool</button></div></div>`;
   }
   const tool = machineToolName(machine, step.runtime), caps = harnessCaps(step.runtime);
   const own = caps.browser_sign_in && machine.readiness?.runtimes?.[step.runtime]?.authenticated !== 'ready';
@@ -200,7 +219,7 @@ function computerAddStepHTML(machine, step) {
     return `${head(`Add ${esc(tool)}`, 'tool')}<p class="model-login-body">How does ${esc(tool)} sign in here?</p><div class="computer-add-choices" data-add-step="kind">
       <button class="ghost computer-add-choice" type="button" data-add-own${own ? '' : ' disabled'}><strong>Subscription</strong><span class="muted">${why}</span></button>
       <button class="ghost computer-add-choice" type="button" data-add-kind="api_key"><strong>API key</strong><span class="muted">Paste a key from the provider</span></button></div>
-      ${terminal ? `<p class="muted computer-add-terminal" data-add-terminal="${esc(step.runtime)}">Or sign the computer's login in from a terminal there:${terminal}</p>` : ''}`;
+      ${terminal ? `<p class="muted computer-add-terminal" data-add-terminal="${esc(step.runtime)}">Or sign the computer's login in from a terminal there:${terminal}</p>` : ''}</div>`;
   }
   if (step.at === 'api_key') {
     // A key of this computer's own (Dev 97, ui/model-login.js replaceKey), for a tool that takes one; a login its key
@@ -214,15 +233,20 @@ function computerAddStepHTML(machine, step) {
     const go = add ? `<span class="computer-add-terminal" data-add-key="${esc(step.runtime)}">${add}</span>`
       : keyed ? '' : '<a class="primary" href="#/credentials" data-add-credentials>Open Credentials</a>';
     return `${head(`Add ${esc(tool)} with an API key`, 'kind')}<div data-add-step="api_key"><p class="model-login-body">${body}</p>
-      <div class="model-login-actions"><button class="ghost" type="button" data-add-close>Close</button>${go}</div></div>`;
+      <div class="model-login-actions"><button class="ghost" type="button" data-add-close>Close</button>${go}</div></div></div>`;
   }
   return '';
 }
 function computerAddOpen(id) {
   const machine = () => (SETTINGS_DATA?.machines || []).find(m => m.id === id);
   if (!machine()) return;
+  const root = $('#set-machines dialog.computer-detail[open]') || $('#set-machines');
+  const opener = root?.querySelector(`[data-add-connection="${CSS.escape(id)}"]`);
+  const restoreFocus = computerFocusRestore(root, opener);
+  // Mouse clicks need not focus buttons; give the native dialog the same stable opener.
+  opener?.focus({preventScroll: true});
   const dialog = document.createElement('dialog');
-  dialog.className = 'tmodal model-login computer-add-dialog';
+  dialog.className = 'tmodal tmodal-shell model-login computer-add-dialog';
   dialog.setAttribute('aria-labelledby', 'computer-add-title');
   document.body.appendChild(dialog);
   let step = {at: 'tool'}, signingIn = false;
@@ -231,7 +255,12 @@ function computerAddOpen(id) {
     signingIn = true;     // the sign-in owns the pop-up from here (its own Close cancels a sign-in still running)
     window.TicoModelLogin?.open({runnerId: id, runtime: step.runtime, machine: machine().label, profile: '', into: dialog});
   };
-  dialog.addEventListener('close', () => dialog.remove());
+  dialog.addEventListener('close', () => {
+    // A queued close must not take focus back from an action already opened elsewhere.
+    const returnFocus = document.activeElement === document.body || dialog.contains(document.activeElement);
+    dialog.remove();
+    if (returnFocus) restoreFocus();
+  });
   dialog.addEventListener('cancel', event => { if (signingIn) return; event.preventDefault(); dialog.close(); });
   dialog.addEventListener('click', event => {
     if (signingIn) return;
@@ -261,6 +290,7 @@ function computerAddOpen(id) {
   });
   paint();
   dialog.showModal();
+  void settingsMachinesRefresh();
   return dialog;
 }
 function machineBotsHTML(machine) {
@@ -344,13 +374,13 @@ function machineSettingsHTML(machine) {
 function computerDetailHTML(machine) {
   const online = machineOnline(machine), manage = !machine.revoked_at && machineCanSignIn(machine);
   const conns = machineShown(machine);
-  const status = machine.revoked_at ? 'revoked' : online ? 'online' : `offline${machine.last_seen ? ` · last seen ${ago(machine.last_seen)}` : ''}`;
+  const status = machinePresenceWords(machine);
   const notes = [!machine.revoked_at && !online ? '<p class="computer-detail-note" role="status" data-computer-offline>Computer is offline. Sign-in, usage refresh, screen and updates wait until it is back.</p>' : '',
     machineWaiting(machine) ? `<p class="computer-detail-note" role="status" data-machine-waiting>Waiting for ${esc(machine.label)} to report.</p>` : ''].join('');
   const empty = machineReported(machine) && !conns.length && !machine.revoked_at
     ? `<p class="computer-detail-empty"><span class="machine-chip-dot" aria-hidden="true"></span>Bots here can't run until a connection is added${manage ? ' · Add connection below' : ''}.</p>` : '';
   const section = (key, title, body) => `<section class="computer-detail-section" data-detail-section="${key}"><h3>${title}</h3>${body}</section>`;
-  return `<header class="computer-detail-head"><div><h2 id="computer-detail-title">${esc(machine.label)}</h2><span class="muted">${esc(settingsPersonName(machine.operator))} · ${esc(status)}</span></div>
+  return `<header class="computer-detail-head"><div><h2 id="computer-detail-title">${esc(machine.label)}</h2><span class="muted">${esc(settingsPersonName(machine.operator))} · <span data-computer-status>${esc(status)}</span></span></div>
       <button class="ghost tmodal-x" type="button" data-detail-close aria-label="Close">✕</button></header>
     <div class="computer-detail-body">${notes}
       ${machine.turn_summary ? `<p class="computer-detail-note" data-turn-counts>${esc(machine.turn_summary)}</p><p class="muted">A turn has up to 3 minutes to start. Waiting turns leave room for other work.</p>` : ''}
@@ -369,12 +399,23 @@ function computerDetailOpen(id) {
     dialog = document.createElement('dialog');
     dialog.className = 'tmodal computer-detail';
     dialog.setAttribute('aria-labelledby', 'computer-detail-title');
-    dialog.onclose = () => { dialog.dataset.computer = ''; };
+    dialog.onclose = () => {
+      if (dialog.open) return;
+      dialog.dataset.computer = '';
+      if (document.activeElement === document.body || dialog.contains(document.activeElement)) dialog.restoreOpener?.();
+    };
     el.appendChild(dialog);
+  }
+  // Presence refreshes can replace the opener while this modal is open.
+  if (!dialog.open) {
+    const opener = el.querySelector(`[data-computer-open="${CSS.escape(id)}"]`);
+    dialog.restoreOpener = computerFocusRestore(el, opener);
+    opener?.focus({preventScroll: true});
   }
   dialog.dataset.computer = id;
   computerDetailPaint(true);
   if (!dialog.open) dialog.showModal();
+  void settingsMachinesRefresh();
 }
 // Redraw the open pop-up after Settings loads again. A connection, or Add connection, that someone is typing in is
 // carried over as it is (draft, focus and caret), and everything around it is redrawn; a save settles its own form
@@ -393,16 +434,13 @@ function computerDetailPaint(force = false) {
     && formBusy({querySelectorAll: selector => [field].filter(f => f.matches(selector))}))) return;
   const body = dialog.querySelector('.computer-detail-body'), scroll = body?.scrollTop || 0;
   const open = new Set([...dialog.querySelectorAll('details[open]')].map(node => node.dataset.machineDetails || node.dataset.profile || ''));
-  const active = document.activeElement, caret = [active?.selectionStart, active?.selectionEnd];
+  const restoreFocus = force ? () => {} : computerFocusRestore(dialog);
   const next = document.createElement('div');
   next.innerHTML = computerDetailHTML(machine);
   next.querySelectorAll('details').forEach(node => { node.open = open.has(node.dataset.machineDetails || node.dataset.profile || ''); });
   // A connection that is gone keeps no draft.
   for (const node of kept) next.querySelector(computerDetailKey(node))?.replaceWith(node);
   dialog.replaceChildren(...next.childNodes);
-  if (active && kept.some(node => node.contains(active))) {
-    active.focus({preventScroll: true});
-    if (typeof caret[0] === 'number') try { active.setSelectionRange(caret[0], caret[1]); } catch { /* not a text field */ }
-  }
+  restoreFocus();
   if (!force) dialog.querySelector('.computer-detail-body').scrollTop = scroll;
 }

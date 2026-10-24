@@ -16,6 +16,52 @@ function settingsVisualsLine() {
 // Teams come from the team's data; a name reads as its words (`customer-success` is Customer Success).
 const teamLabel = t => (S.orgGroups || []).find(g => g.id === t)?.name || String(t || '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 let SETTINGS_DATA = {people: [], machines: [], services: [], models: [], issues: [], history: {changes: [], transitions: []}};
+// Presence is judged when a response arrives, never by aging a cached heartbeat on a later paint.
+const SETTINGS_PRESENCE = {interval: 25000, timeout: 10000, at: 0, checking: false, failed: false, timer: null, pending: null, request: 0, applied: 0};
+function settingsMachinesSnapshot(machines, request = ++SETTINGS_PRESENCE.request) {
+  if (request < SETTINGS_PRESENCE.applied) return;
+  SETTINGS_PRESENCE.applied = request;
+  SETTINGS_PRESENCE.at = Date.now();
+  SETTINGS_PRESENCE.failed = false;
+  SETTINGS_DATA.machines = machines;
+}
+async function settingsMachinesRead() {
+  const request = ++SETTINGS_PRESENCE.request;
+  let timer;
+  try {
+    const operations = await Promise.race([
+      get('/v2/operations', {fresh: true}),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Presence check timed out')), SETTINGS_PRESENCE.timeout); })
+    ]);
+    if (!Array.isArray(operations.machines)) throw new Error('Presence unavailable');
+    settingsMachinesSnapshot(operations.machines, request);
+    return operations;
+  } finally { clearTimeout(timer); }
+}
+const settingsMachinesVisible = () => S.route === SETTINGS && SETTINGS_TAB === 'devices' && !!$('#set-machines');
+function settingsMachinesWatch() {
+  clearTimeout(SETTINGS_PRESENCE.timer);
+  SETTINGS_PRESENCE.timer = null;
+  if (!settingsMachinesVisible() || !S.me?.cloud) return;
+  SETTINGS_PRESENCE.timer = setTimeout(() => {
+    if (!settingsMachinesVisible()) return;
+    void settingsMachinesRefresh().finally(settingsMachinesWatch);
+  }, SETTINGS_PRESENCE.interval);
+}
+function settingsMachinesRefresh() {
+  if (!S.me?.cloud) return Promise.resolve();
+  if (SETTINGS_PRESENCE.pending) return SETTINGS_PRESENCE.pending;
+  SETTINGS_PRESENCE.checking = true;
+  if (settingsMachinesVisible()) renderSettingsMachines();
+  SETTINGS_PRESENCE.pending = settingsMachinesRead().catch(() => {
+    SETTINGS_PRESENCE.failed = true;
+  }).finally(() => {
+    SETTINGS_PRESENCE.pending = null;
+    SETTINGS_PRESENCE.checking = false;
+    if (settingsMachinesVisible()) renderSettingsMachines();
+  });
+  return SETTINGS_PRESENCE.pending;
+}
 // Each model CLI's capabilities, from its manifest (GET /v2/models `harnesses`, runner/harnesses/*.toml): what the UI
 // asks instead of naming CLIs. Fetched once; until then, or if the fetch fails, every capability reads as unknown.
 let HARNESS_ROWS = [];
@@ -201,6 +247,8 @@ function settingsShow(tab) {
   const devices = $('#settings-devices'), history = $('#settings-history'), bots = $('#settings-bots');
   if (bots) bots.hidden = SETTINGS_TAB !== 'bots';
   if (devices) devices.hidden = SETTINGS_TAB !== 'devices';
+  settingsMachinesWatch();
+  if (settingsMachinesVisible() && SETTINGS_DATA.loaded) void settingsMachinesRefresh();
   // Before the first load the form has no models or computers to show; loadSettings draws it then.
   if (SETTINGS_TAB === 'devices' && SETTINGS_DATA.loaded) void renderSettingsProviders();
   if (history) { history.hidden = SETTINGS_TAB !== 'history'; if (SETTINGS_TAB === 'history') settingsHistoryShow(); }
@@ -332,7 +380,10 @@ async function loadSettings() {
   try {
     const [people, operations, catalog, employees, history, limits] = await Promise.all([
       get('/humans'),
-      S.me?.cloud ? get('/v2/operations') : Promise.resolve({machines: [], services: []}),
+      S.me?.cloud ? settingsMachinesRead().catch(() => {
+        SETTINGS_PRESENCE.failed = true;
+        return {...SETTINGS_DATA, scheduler_enabled: SETTINGS_DATA.schedulerEnabled};
+      }) : Promise.resolve({machines: [], services: []}),
       S.me?.cloud ? get('/v2/models') : Promise.resolve({models: []}),
       get('/employees'),
       S.me?.cloud && S.me?.role === 'owner' ? get('/v2/settings/history') : Promise.resolve({changes: [], transitions: []}),
@@ -341,7 +392,7 @@ async function loadSettings() {
     ]);
     S.emps = namedRoster(employees);
     setPeople(people);
-    SETTINGS_DATA = {people: (people.people || []).filter(p => !p.hidden), machines: operations.machines || [],
+    SETTINGS_DATA = {people: (people.people || []).filter(p => !p.hidden), machines: S.me?.cloud ? SETTINGS_DATA.machines : [],
       runnable: operations.runnable || {},
       agents: operations.agents || [],
       services: operations.services || [], models: catalog.models || [],
@@ -394,9 +445,11 @@ const STOPPED_PICK = {
   unknown: {retry: false, what: () => 'before answering',
     say: () => 'Don’t retry unless you know it did nothing. Tico has no record of what it did.'},
 };
-async function executionReview(bot) {
-  const dialog = document.createElement('dialog'); dialog.className = 'tmodal';
-  dialog.innerHTML = `<header><h2>Stopped runs</h2><button class="ghost" data-close>Close</button></header><div data-review>Loading…</div>`;
+// `after` redraws the page it was opened from once a run is decided: Settings, or the bot's own header.
+async function executionReview(bot, after = () => $('#settings-tabs') && loadSettings()) {
+  const dialog = document.createElement('dialog'); dialog.className = 'tmodal tmodal-shell stopped-runs-dialog';
+  dialog.setAttribute('aria-label', 'Stopped runs');
+  dialog.innerHTML = `<header class="tmodal-head"><h2>Stopped runs</h2><span class="spacer"></span><button class="ghost" type="button" data-close>Close</button></header><div class="tmodal-body" data-review>Loading…</div>`;
   dialog.querySelector('[data-close]').onclick = () => dialog.close();
   dialog.addEventListener('close', () => dialog.remove());
   document.body.appendChild(dialog); dialog.showModal();
@@ -404,7 +457,7 @@ async function executionReview(bot) {
   try {
     const {jobs} = await get(`/v2/bots/${encodeURIComponent(bot)}/execution-review`);
     host.innerHTML = jobs.length ? jobs.map(job => {
-      const saved = job.attempt?.final_text || job.output.map(event=>event.text).filter(Boolean).join('\n');
+      const saved = job.attempt?.final_text || job.output.map(event=>event.text).filter(Boolean).join('');
       const pick = STOPPED_PICK[job.stopped] || STOPPED_PICK.unknown, retry = pick.retry;
       const tools = (job.acted || []).join(', ');
       const button = (decision, label) => `<button type="submit" name="decision" value="${decision}"${(decision === 'resume') === retry ? '' : ' class="ghost"'}>${label}</button>`;
@@ -412,37 +465,59 @@ async function executionReview(bot) {
       <h3>${esc(job.task?.title || 'Interrupted conversation')}</h3>
       <p data-stopped>Stopped ${esc(fmt(job.attempt?.started || job.attempt?.created))} ${esc(pick.what(tools))}.</p>
       <p data-pick><strong>${esc(pick.say(tools))}</strong></p>
-      <div class="row">${retry ? button('resume', 'Try again') + button('dismiss', 'Don’t retry') : button('dismiss', 'Don’t retry') + button('resume', 'Try again')}</div>
-      <p data-result role="status"></p>
       <details data-details><summary>Details</summary>
         ${job.task ? `<p class="muted">Task ${esc(job.task.status)}${job.task.owner_name ? `, owner ${esc(job.task.owner_name)}` : ''}</p>` : ''}
         <p class="muted">${esc(job.reason)}</p>
         <details><summary>Original request</summary><div style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(job.request)}</div></details>
-        <details><summary>${saved ? 'What the run saved' : 'No answer was saved'}</summary><div style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto">${esc(saved || 'The run ended without saving an answer.')}</div></details>
+        <details><summary>${saved ? 'What the run saved' : 'No answer was saved'}</summary><div data-saved style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto">${esc(saved || 'The run ended without saving an answer.')}</div></details>
         ${job.tools?.length ? `<details><summary>Tool calls (${job.tools.length})</summary><ul class="review-tools">${job.tools.map(call => `<li${call.nested ? ' class="nested"' : ''}><code>${esc(call.tool)}</code>${call.summary ? ` ${esc(call.summary)}` : ''}${call.status ? ` <span class="muted">· ${esc(call.status)}</span>` : ''}</li>`).join('')}</ul></details>` : ''}
         <label>Note for the bot <span class="muted">Optional</span><textarea name="note" aria-label="Details for Tico" maxlength="4000" placeholder="For example: the draft exists, but nothing was sent."></textarea></label>
       </details>
+      <div class="stopped-run-actions">
+        ${retry ? '' : '<p data-retry-warning>Trying again could repeat work that already finished.</p>'}
+        <div class="row">${retry ? button('resume', 'Try again') + button('dismiss', 'Don’t retry') : button('dismiss', 'Don’t retry') + button('resume', 'Try again')}</div>
+        <p data-result role="status" aria-live="polite"></p>
+      </div>
     </form>`; }).join('') : '<p>No stopped runs remain.</p>';
-    host.querySelectorAll('form').forEach(form => form.onsubmit = async event => {
-      event.preventDefault();
-      const job = jobs.find(row=>row.id === form.dataset.job), decision = event.submitter?.value;
-      if (!decision) return;
-      const buttons = form.querySelectorAll('button'); buttons.forEach(button=>button.disabled=true);
-      try {
-        const detail = form.elements.note.value.trim();
-        const note = decision === 'resume'
-          ? 'The human said no outside action completed. Retry this request and check existing work before repeating any step.'
-          : 'The human said an outside action may have completed. Do not retry this delivery; inspect the task separately.';
-        await post(`/v2/jobs/${encodeURIComponent(job.id)}/reconcile`, {
-          attempt_id:job.attempt_id, decision, note:detail ? `${note} Details: ${detail}` : note,
-          acknowledge_uncertain_effects:true
-        });
-        form.innerHTML = `<p role="status">${decision === 'resume' ? 'Got it. Tico will try this request again.' : 'Got it. Tico won’t retry it; the task stays as it is.'}</p>`;
-        await loadSettings();
-      } catch(error) {
-        form.querySelector('[data-result]').textContent=error.message;
-        buttons.forEach(button=>button.disabled=false);
+    const outcome = (decision, deferred) => deferred
+      ? `Choice saved. The bot is busy; Tico will ${decision === 'resume' ? 'try again' : 'dismiss this run'} when its turn ends.`
+      : decision === 'resume' ? 'Queued to try again.' : 'Dismissed. Tico won’t retry this run.';
+    host.querySelectorAll('form').forEach(form => {
+      const job = jobs.find(row => row.id === form.dataset.job);
+      const result = form.querySelector('[data-result]'), buttons = form.querySelectorAll('button');
+      if (job.pending_decision) {
+        result.textContent = outcome(job.pending_decision.decision, true);
+        buttons.forEach(button => button.disabled = true);
       }
+      form.onsubmit = async event => {
+        event.preventDefault();
+        const decision = event.submitter?.value;
+        if (!decision || form.dataset.resolved || job.pending_decision) return;
+        buttons.forEach(button => button.disabled = true);
+        result.classList.remove('err'); result.textContent = 'Saving choice…';
+        result.scrollIntoView({block: 'nearest'});
+        try {
+          const detail = form.elements.note.value.trim();
+          const note = decision === 'resume'
+            ? 'The human chose to retry this request. Check existing work and external effects before repeating any step.'
+            : 'The human chose not to retry this delivery. Inspect the task separately.';
+          const done = await post(`/v2/jobs/${encodeURIComponent(job.id)}/reconcile`, {
+            attempt_id: job.attempt_id, decision, note: detail ? `${note} Details: ${detail}` : note,
+            acknowledge_uncertain_effects: true
+          });
+          form.dataset.resolved = 'true';
+          form.querySelector('[data-details]').open = false;
+          result.textContent = outcome(decision, done.deferred);
+        } catch(error) {
+          result.classList.add('err'); result.textContent = error.message;
+          buttons.forEach(button => button.disabled = false);
+          result.scrollIntoView({block: 'nearest'});
+          return;
+        }
+        // Refreshing another page is independent of recording the decision. Keep the receipt if it fails.
+        try { await after(); }
+        catch { toast('Choice saved. Refresh the page to update the list.', true); }
+      };
     });
   } catch(error) { host.textContent=error.message; }
 }
