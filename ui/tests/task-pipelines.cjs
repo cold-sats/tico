@@ -84,6 +84,7 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
           const body = req.postDataJSON(); posted.push({path: p, body});
           if (refuseMove) { refuseMove = false; return json({error: {code: 'identity', detail: 'not yours to change'}}, 422); }
           if ('step_rank' in body) task.step_rank = body.step_rank;
+          if (body.owner) task.owner = body.owner.includes(':') ? body.owner : 'bot:' + body.owner;
           if (body.type) task.type_id = body.type;
           const type = types.find(type => type.id === task.type_id);
           const step = 'step' in body ? type.steps.find(step => step.id === body.step) : type.steps.find(step => step.status === (body.status || task.status));
@@ -105,6 +106,28 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
     assert.deepEqual(await page.locator('#task-body [data-col="draft"] .bcard .tl-waiting').allTextContents(), ['Waiting'],
       'a waiting task stays in its step with a tag');
     assert.equal(await page.locator('#task-body .tl-waiting').count(), 1);
+    // An unfolded finished strip is remembered: a fresh page opened straight on the board, before Done or Closed was ever
+    // visited, reads the finished tasks for it, and the ordinary refresh keeps them current.
+    const boardLoaded = () => page.waitForFunction(() => TASKS_ST && !TASKS_ST.loading && TASKS_ST.type === 'marketing' && document.querySelector('#task-body .bcard'));
+    const finishedCol = (col, title) => page.waitForFunction(([col, title]) => {
+      const el = document.querySelector(`#task-body [data-col="${col}"]`);
+      return el?.querySelector('header .cnt')?.textContent === String(title.length)
+        && [...el.querySelectorAll('.bcard-title')].map(n => n.textContent).sort().join('|') === title.join('|');
+    }, [col, title], {timeout: t(5000)});
+    await page.evaluate(() => localStorage.setItem('tico.board.fold', JSON.stringify({marketing: {finished: false}})));
+    await page.reload();
+    await boardLoaded();
+    assert.equal(await page.evaluate(() => TASKS_ST.view), 'board');
+    await finishedCol('complete', ['Finished campaign']);
+    await finishedCol('archive', ['Dropped campaign']);
+    tasks.push({...tasks[2], id: 'done-later', title: 'Finished later', updated: '2026-10-02T12:00:00Z'});
+    await page.evaluate(() => tasksLoad(TASKS_ST, {poll: true}));
+    await finishedCol('complete', ['Finished campaign', 'Finished later']);
+    tasks.pop();
+    await page.evaluate(() => localStorage.removeItem('tico.board.fold'));
+    await page.reload();
+    await boardLoaded();
+    assert.equal(await page.locator('#task-body .bcard').count(), 3, 'folded again, finished work leaves the board');
     // Done and Closed are their own tabs, Closed right after Done; each lists only its status.
     assert.deepEqual((await page.locator('#task-view [role=tab]').allTextContents()).slice(-2), ['Done', 'Closed']);
     for (const [view, title] of [['done', 'Finished campaign'], ['closed', 'Dropped campaign']]) {
@@ -188,11 +211,23 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
     await page.waitForFunction(() => TASKS_ST.tasks.find(t => t.id === 'brief').version === 2);
     assert.deepEqual(posted.at(-1), {path: '/api/v2/tasks/brief', body: {version: 1, step_rank: 0}}, 'above the top card: its rank less one');
     assert.deepEqual(await titlesIn('legal'), ['Brief the agency', 'Plan the launch']);
+    // A move rebuilds only the card that moved: the others keep their nodes.
+    await page.evaluate(() => { window.keptCard = document.querySelector('#task-body [data-task-key="tbrief"]'); });
     await drag('ttask-0', '#task-body [data-col="copy"]');
     assert.deepEqual(posted.at(-1).body, {version: 1, step: 'copy', step_rank: 1}, 'an empty step starts at 1');
     await page.waitForFunction(() => TASKS_ST.tasks.find(t => t.id === 'task-0').version === 2);
     assert.deepEqual(await titlesIn('copy'), ['Write the campaign']);
     assert.equal(await page.locator('#task-body [data-col="draft"] .bcard').count(), 0);
+    assert.equal(await page.evaluate(() => window.keptCard === document.querySelector('#task-body [data-task-key="tbrief"]')), true, 'an unmoved card is not redrawn');
+    // The face on a card picks its owner, saved from the card without opening it.
+    await page.locator('#task-body [data-task-key="tbrief"] [data-card-owner]').click();
+    await page.locator('#task-card-pops .prop-pop .tl-mi', {hasText: 'Ana'}).click();
+    await page.waitForFunction(() => document.querySelector('#task-body [data-task-key="tbrief"] [data-card-owner]')?.title === 'You');
+    assert.deepEqual(posted.at(-1), {path: '/api/v2/tasks/brief', body: {version: 2, owner: 'human:ana'}});
+    assert.equal(await page.evaluate(() => TASKS_ST.peek), '', 'picking an owner opens nothing');
+    await page.locator('#task-body [data-task-key="tbrief"] [data-card-owner]').click();
+    await page.locator('#task-card-pops .prop-pop .tl-mi', {hasText: 'Ops'}).click();
+    await page.waitForFunction(() => document.querySelector('#task-body [data-task-key="tbrief"] [data-card-owner]')?.title === 'Ops');
     refuseMove = true;
     await drag('tplan', '#task-body [data-col="copy"] .bcol-body', 0.9);
     await page.locator('.toast', {hasText: 'Not moved'}).waitFor();

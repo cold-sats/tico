@@ -179,6 +179,9 @@ class TaskCreate(Contract):
     acceptance_criteria: list[str] = Field(default_factory=list, max_length=50)
     lane: Lane | None = None
     labels: list[str] = Field(default_factory=list, max_length=20)
+    change_paths: list[Annotated[str, Field(min_length=1, max_length=1000)]] = Field(default_factory=list, max_length=3000)
+    qa: StrictBool | None = None
+    qa_not_checkable_live: StrictBool = False
     top: bool = False
     links: list[str] = Field(default_factory=list, max_length=20)
     # Wait for the owner's next run instead of starting one (a bot owner only).
@@ -1405,6 +1408,26 @@ class BotBranch(Contract):
     runner_id: ID | None = None
 
 
+class OnboardingComplete(Contract):
+    """Mark onboarding complete (a person above the bot), or the bot's own "I'm ready" with what it learned."""
+    summary: Annotated[str, Field(max_length=2000)] = ""
+
+
+class SeatCreate(Contract):
+    """A Recruiting seat: a role on the org chart with its job description and reporting line, and no bot."""
+    title: Annotated[str, Field(min_length=1, max_length=120)]
+    description: Annotated[str, Field(max_length=8000)] = ""
+    reports_to: Annotated[str, Field(max_length=200)] = ""     # `human:<id>` or a bot's slug; the caller by default
+    team: Annotated[str, Field(max_length=100)] = ""
+
+
+class SeatUpdate(Contract):
+    title: Annotated[str, Field(min_length=1, max_length=120)] | None = None
+    description: Annotated[str, Field(max_length=8000)] | None = None
+    reports_to: Annotated[str, Field(min_length=1, max_length=200)] | None = None
+    team: Annotated[str, Field(max_length=100)] | None = None
+
+
 class BotArchive(Contract):
     successor: ID | None = None          # a bot that takes its open tasks and any team it roots
     expected_revision: int = Field(ge=1)
@@ -1565,6 +1588,12 @@ class BotFallbackChoice(Contract):
 class BotFallback(Contract):
     fallback: BotFallbackChoice | None = None
     expected_revision: int = Field(ge=1)
+
+
+class BotKeepTasksGoing(Contract):
+    keep_tasks_going: int | None = Field(None, ge=0, le=1000, strict=True,
+        description="Automatic assigned-task starts: null is unlimited (default), 0 is off, N caps active work. Reviews have no cap.")
+    expected_revision: int
 
 
 class BotTaskModel(Contract):
@@ -1843,6 +1872,8 @@ class Recruit(Contract):
 
 
 class Claim(Contract):
+    # Opt in only after the heartbeat advertises this protocol; old workers keep their delivery leases.
+    start_places: bool = False
     # Bots the runner takes no work for at all (maintenance, or a runner without lanes that is busy).
     busy_bots: list[ID] | None = Field(default=None, max_length=32)
     # Lanes the runner is already running, each "bot|lane" (clients/sessions.py lane), when it runs lanes.
@@ -1858,6 +1889,10 @@ class LoadSnapshot(Contract):
     cpu_pct: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     mem_pct: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
     running_turns: int = Field(ge=0, le=10_000)
+
+
+class StartPlace(Contract):
+    waiting: Literal["", "shared login", "pre-start requirements"] = ""
 
 
 class Started(Contract):

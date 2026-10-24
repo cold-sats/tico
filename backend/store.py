@@ -403,6 +403,10 @@ def refused(c, identity, exc):
         # Not a mistake to count toward quarantine: what stays the owner's becomes their proposal instead.
         ceo_acts.settle(c, exc)
         return Problem(exc.rule, exc.detail, 409)
+    # Gate notifications survive the refused move, while its step and reviewer wake roll back.
+    if getattr(exc, "review_gate", None):
+        from . import review_gate
+        review_gate.notify(c, identity.actor, exc.review_gate)
     # Preserve refusal auditing, but never a partial domain operation.
     token = H.PRIVATE_WRITE.set(getattr(exc, 'private', False))
     try:
@@ -708,6 +712,9 @@ class Store:
         self.settings.db_path.parent.mkdir(parents=True, exist_ok=True)
         with H.connect(self.settings.db_path, adopt_legacy=adopt_legacy) as c:
             c.executescript(SCHEMA)
+            from . import start_places as _start_places
+            c.executescript(_start_places.SCHEMA)
+            _start_places.restore_waits(c)
             from . import updates as _updates
             c.executescript(_updates.SCHEMA)
             _updates.ensure_schema(c)
@@ -1267,6 +1274,9 @@ class Store:
                 # Milestone waits (backend/milestone_waits.py). Unversioned like the trash.
                 from .milestone_waits import ensure as ensure_milestone_waits
                 ensure_milestone_waits(c)
+                # Recruiting seats (backend/lifecycle.py). Unversioned like the trash.
+                from .lifecycle import ensure as ensure_seats
+                ensure_seats(c)
                 # The company's Vision, Description and their history, and each goal's Why (backend/company.py).
                 # Unversioned like the trash: an older release never reads the tables or the columns.
                 from .company import ensure as ensure_company
@@ -1641,6 +1651,8 @@ class Store:
                           (principal, operation, key, hashed, encode(cached), H.now()))
         self.ring(logged)
         if refusal:
+            # This key now records a rolled-back operation, not an earlier successful delivery.
+            refusal.extra["idempotency_refused"] = True
             raise refusal
         return result
 
