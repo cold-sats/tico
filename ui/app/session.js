@@ -9,7 +9,7 @@
 // with `WWW-Authenticate: Cloudflare-Access`. So a request that fails as a network error asks GET /v2/me once without
 // following redirects (sessionProbe): a redirect there, or a 401, is signed out; no answer at all is offline, and the
 // page keeps reconnecting as before.
-const SESSION = {out: false, seen: false, probe: null, probedAt: 0, login: '', bar: null, reopen: null};
+const SESSION = {out: false, seen: false, probe: null, probedAt: 0, login: '', bar: null, reopen: null, restoring: null};
 // What the page had when it was signed out (where it was, the text in its boxes), kept for this tab while the
 // person signs in again on another site, and put back when they return (sessionReturn).
 const SESSION_RETURN = 'tico.signin.return';
@@ -110,6 +110,20 @@ const sessionSave = kept => {
     else sessionStorage.removeItem(SESSION_RETURN);
   } catch {}
 };
+// A confirmed send consumes only its own saved text, including the copy the return watcher still holds.
+// Capture the scope before sending: the person can visit another page while the request is out.
+function sessionAcknowledge(el, text, scope = sessionScope(el)) {
+  const key = sessionKey(el);
+  const consume = kept => {
+    if (!kept?.fields) return;
+    kept.fields = kept.fields.filter(f => f.scope !== scope || f.key !== key || f.value.trim() !== text);
+  };
+  consume(SESSION.restoring);
+  try {
+    const kept = JSON.parse(sessionStorage.getItem(SESSION_RETURN) || 'null');
+    if (kept) { consume(kept); sessionSave(kept); }
+  } catch {}
+}
 function sessionKeep() {
   // A bot's chat box keeps its own draft per bot (pill.js chatDraftSave), across reloads too.
   for (const P of [typeof BOT_PILL !== 'undefined' && BOT_PILL, typeof ASSISTANT_PILL !== 'undefined' && ASSISTANT_PILL])
@@ -141,6 +155,7 @@ function sessionKeep() {
   if (kept.task && typeof kept.task.id === 'string') SESSION.reopen = kept.task;
   kept = {at: kept.at, hash: '', task: null,
     fields: (kept.fields || []).filter(f => f && typeof f.scope === 'string' && typeof f.key === 'string' && typeof f.value === 'string')};
+  SESSION.restoring = kept;
   sessionSave(kept);
   if (!kept.fields.length) return;
   const fill = () => {

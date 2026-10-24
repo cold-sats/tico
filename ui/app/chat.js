@@ -741,7 +741,7 @@ async function v2ChatSend(P, text, slug = P.slug, extraRefs = {}, extra = {}) {
   chatForgetUnconfirmed(P);
   P.sending = true;
   let sent; P.sent = new Promise(done => sent = done);
-  const files = P.files.slice();
+  const files = P.files.slice(), draftScope = sessionScope(pq(P, '.p-text'));
   const btn = pq(P, '.p-send'), label = btn ? btn.textContent : '';
   // "Sending" is a spinner on the button, never the dimmed look of an empty box; after a few seconds a line under
   // the box says it is still going, and whether it is trying again.
@@ -754,7 +754,7 @@ async function v2ChatSend(P, text, slug = P.slug, extraRefs = {}, extra = {}) {
     // A 200 that created nothing (a sign-in page in front of the API) is not a send: the draft stays.
     if (!j?.message?.id) throw new Error('the server did not confirm it');
     watch.end('sent');
-    pillAcknowledge(P, text, files);
+    pillAcknowledge(P, text, files, draftScope);
     if (j.message?.refs?.action_result) toast(j.message.refs.action_result.decision === 'approved' ? 'Approved' : 'Declined');
     v2ChatAdopt(slug, j);
     P.retryTries = 0;

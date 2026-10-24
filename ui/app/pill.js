@@ -273,7 +273,8 @@ function pillMenu(P, open) {
     pillLabel(P); pillButtons(P); pillMenu(P, false); pq(P, '.p-text').focus();
   });
 }
-function pillAcknowledge(P, text, files) {
+function pillAcknowledge(P, text, files, scope) {
+  sessionAcknowledge(pq(P, '.p-text'), text, scope);
   // A slow upload must not erase the person's next draft or newly selected files.
   const nextText = pq(P, '.p-text').value;
   const remaining = P.files.filter(file => !files.includes(file));
