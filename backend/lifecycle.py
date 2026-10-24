@@ -271,7 +271,7 @@ def lay_out(c, actor, roles):
         parent = str(role.get("reports_to") or "")
         reports_to = (SEAT_PREFIX + place(parent, (*path, key))) if parent in roles else _reports_to(c, parent)
         made[key] = _insert(c, actor, role["title"], role.get("description") or "", reports_to,
-                            role.get("team") or "", "chart")
+                            role.get("team") or "", role.get("description_by", "chart"))
         return made[key]
 
     for key in roles:

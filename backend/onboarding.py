@@ -642,6 +642,9 @@ class Onboarding:
         rows = {slug: {"title": choice["display_name"], "team": teams.get(choice["template"], ""),
                        "description": job_description(cards.get(choice["template"]) or {}, names, choice.get("reason", ""),
                                                       choice.get("instructions", ""), choice["display_name"]),
+                       # The owner reviewed the setup description and edited duties/limits before it became a seat.
+                       # Keep those words instead of asking the CEO Bot to replace them on the first open.
+                       "description_by": who.actor,
                        "reports_to": line(choice)}
                 for slug, choice in todo.items()}
         return {**laid, **lifecycle.lay_out(c, who.actor, rows)}

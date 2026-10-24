@@ -221,7 +221,8 @@ def apply(onboarding, c, who, text, fingerprint):
             onboarding.admin.update_bot(c, who, slug, M.BotDefinitionUpdate(reports_to=parent, expected_revision=row["revision"]))
     # Every other role on the chart is a Recruiting seat: no bot, repository, computer slot or BotOps task.
     teams = Groups.seat_teams(c, onboarding.settings, sorted({seat["template"] for seat in seats.values()}))
-    made = lifecycle.lay_out(c, who.actor, {key: {**seat, "team": teams.get(seat["template"], "")}
+    made = lifecycle.lay_out(c, who.actor, {key: {**seat, "team": teams.get(seat["template"], ""),
+                                                  "description_by": "chart"}
                                             for key, seat in seats.items()})
     owners = {goal["id"]: goal["owner"] for goal in summary["goals"]}
     import_goals(c, who.actor, [(goal, owners[goal["id"]]) for goal in saved["goals"]])
