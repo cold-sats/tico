@@ -1342,6 +1342,8 @@ def create_app(settings=None):
             stored = {**(message.get("refs") or {}), "attachments": attached}
             c.execute("UPDATE messages SET refs_json=? WHERE id=?", (encode(stored), message["id"]))
             message = {**visual_view(c, who, [H.message(c, message["id"])])[0], "visuals": report}
+        if (goal and goal["status"] == "active") or body.attachments:
+            H.held_queue_recheck(c, message["id"])
         if who.role == "bot":
             conv = H.conversation(c, message["conversation_id"])
             if who.attempt_id and all(p.startswith("bot:") for p in conv["participants"]):
@@ -2357,9 +2359,11 @@ def create_app(settings=None):
                     "Treat these as your current goals until they change again.")
             if not body.goals.strip():
                 text = f"{who_name} cleared your goals. Work from your standing instructions until new goals are set."
-            message = H.say(c, who.actor, "bot:" + bot, text, kind="notice")
-            H.event(c, who.actor, "bot.goals", bot, {"chars": len(body.goals)})
-            return {"bot": bot, "goals": body.goals, "message_id": message["id"]}
+            # The stored goals are the change: a bot manager's notice to a paused bot whose held queue is full is
+            # only withheld, and the goals stand on the bot's settings.
+            message, _ = H.unless_queue_full(c, lambda: H.say(c, who.actor, "bot:" + bot, text, kind="notice"))
+            H.event(c, who.actor, "bot.goals", bot, {"chars": len(body.goals), **({} if message else {"notice": "queue_full"})})
+            return {"bot": bot, "goals": body.goals, "message_id": message["id"] if message else None}
         return mutate(request, body, work)
 
     @app.get("/api/v2/models")
