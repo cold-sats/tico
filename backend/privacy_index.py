@@ -171,10 +171,10 @@ class ReadIndex:
             "SELECT m.conversation_id,m.refs_json,m.in_reply_to FROM attempts a JOIN jobs j ON j.id=a.job_id "
             "JOIN messages m ON m.id=j.message_id WHERE a.id=? UNION "
             "SELECT m.conversation_id,m.refs_json,m.in_reply_to FROM attempt_inputs i "
-            "JOIN messages m ON m.id=i.message_id WHERE i.attempt_id=?", (aid, aid)).fetchall()
-        if not rows:
-            return None
+            "JOIN messages m ON m.id=i.message_id WHERE i.attempt_id=?", (aid, aid))
+        found = False
         for row in rows:
+            found = True
             if row["in_reply_to"]:
                 return None
             direct = self._direct_message(row["conversation_id"], row["refs_json"], include_run=False)
@@ -182,6 +182,8 @@ class ReadIndex:
                 return None
             if not direct:
                 return False
+        if not found:
+            return None
         if any(tid in self.denied for tid, in self.c.execute("SELECT id FROM tasks WHERE carried_by=?", (aid,))):
             return False
         for action, detail in self.c.execute("SELECT action,detail_json FROM events WHERE action IN (" +
