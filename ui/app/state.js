@@ -55,6 +55,12 @@ const ceoBotName = () => {
   const name = String((S.emps || []).find(e => e.name === 'goal-manager')?.display_name || '').trim();
   return name && name !== 'Goal Manager' ? name : 'CEO Bot';
 };
+// The owner talks to the CEO Bot in place of an Assistant (backend/assistant.py): their menu tab and #/assistant are the
+// CEO Bot, by its name. Everyone else, admins included, keeps their Assistant.
+const meCeo = () => S.me?.role === 'owner'
+  && (S.emps || []).some(e => e.name === 'goal-manager' && !['archived', 'planned'].includes(e.status));
+const myChatBot = () => meCeo() ? 'goal-manager' : assistantBot();
+const myChatName = () => meCeo() ? ceoBotName() : assistantName();
 const companyName = () => S.config.company_name || appName();
 // Tico's own wordmark, only while the app is called Tico; a team that named its app gets that name as text.
 const brandLogo = () => appName() === CONFIG_DEFAULTS.app_name
@@ -163,9 +169,6 @@ function stateOf(slug) {
   const live = S.v2?.status?.[slug];
   if (live) return live.state === 'running' ? 'running' : ['waiting_human', 'blocked', 'crashed', 'quarantined'].includes(live.state) ? 'needs' : 'idle';
   if (S.status?.active?.some(a => a.employee === slug)) return 'running';
-  if (S.issues.some(i => i.owner === slug && i.state === 'OPEN' && (i.needs_human || i.status === 'blocked'))) return 'needs';
-  const last = (S.status?.recent_runs || []).find(r => r.employee === slug);
-  if (last && last.exit !== 0) return 'failed';
   return 'idle';
 }
 const openCount = slug => S.v2?.status?.[slug]?.open_tasks || 0;

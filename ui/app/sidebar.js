@@ -117,6 +117,13 @@ function orgTreeByParent() {
     }
     (byParent[orgHang('b:' + e.name, boss, groupOf)] ||= []).push({kind: 'bot', ...e});
   }
+  // Recruiting seats hang where a bot in that place would: under the person or bot they report to, in their group.
+  for (const seat of S.seats || []) {
+    const to = String(seat.reports_to || ''), key = 's:' + seat.id;
+    const boss = to.startsWith('human:') ? 'p:' + to.slice(6) : empIds.has(to) ? 'b:' + to : '';
+    const group = groups.has(seat.team) ? {...groupOf, [key]: seat.team} : groupOf;
+    (byParent[orgHang(key, boss, group)] ||= []).push({kind: 'seat', id: seat.id, display_name: seat.title, seat});
+  }
   return byParent;
 }
 function mePerson() {
@@ -172,11 +179,13 @@ function renderInboxNav() {
   }
   const rows = inboxNavRows().filter(row => !INBOX_PLACED.has(row.bot));
   section.hidden = !rows.length;
-  list.innerHTML = rows.map(inboxNavLink).join('');
+  patchHTML(list, rows.map(inboxNavLink).join(''));
 }
 function renderLibrarians() {
+  // The owner's tab is the CEO Bot, by its name; everyone else's the Assistant (ui/app/state.js meCeo).
+  const mine = myChatBot();
   for (const [id, slug, href] of [
-    ['nav-assistant', assistantBot(), mePerson() ? ASSISTANT : `#/bot/${encodeURIComponent(assistantBot())}`],
+    ['nav-assistant', mine, mePerson() ? ASSISTANT : `#/bot/${encodeURIComponent(mine)}`],
     ['nav-botops', 'botops', '#/bot/botops'],
   ]) {
     const el = document.getElementById(id);
@@ -184,6 +193,8 @@ function renderLibrarians() {
     el.href = href;
     el.hidden = !(S.emps || []).some(e => e.name === slug);
   }
+  const label = document.querySelector('#nav-assistant [data-nav-name]');
+  if (label && label.textContent !== myChatName()) label.textContent = myChatName();
   for (const [id, slug] of [['nav-docs-librarian', 'librarian'], ['nav-market-librarian', 'librarian']]) {
     const el = document.getElementById(id);
     if (!el) continue;
@@ -431,7 +442,7 @@ function orgGroupFieldHTML(value = '') {
   return `<input class="org-name" type="text" maxlength="60" value="${esc(value)}" aria-label="Group name" autocomplete="off" spellcheck="false">`;
 }
 function orgGroupFieldWire() {
-  const input = $('#tree .org-name'); if (!input) return;
+  const input = $('#tree .org-name'); if (!input || input.onkeydown) return;   // a field kept through a redraw keeps what is typed
   input.focus(); input.select();
   input.onkeydown = ev => {
     if (ev.key === 'Enter') { ev.preventDefault(); input.onblur = null; void orgGroupSave(input); }
@@ -567,6 +578,9 @@ function orgSorted(parent, kids) {
     // A group's own humans and bots come first, then the groups nested in it.
     if ((a.kind === 'group') !== (b.kind === 'group')) return a.kind === 'group' ? 1 : -1;
     if (a.kind === 'group' && b.kind === 'group') return (a.order || 0) - (b.order || 0);
+    // Seats being recruited follow a manager's humans and bots, oldest first.
+    if ((a.kind === 'seat') !== (b.kind === 'seat')) return a.kind === 'seat' ? 1 : -1;
+    if (a.kind === 'seat') return String(a.seat.created).localeCompare(String(b.seat.created)) || a.id.localeCompare(b.id);
     if (placed(a, b)) return placed(a, b);               // a manager's reports in the order someone put them
     if (a.kind === 'bot' && b.kind === 'bot' && isHelperBot(a) && isHelperBot(b) && helperRank(a) !== helperRank(b)) return helperRank(a) - helperRank(b);
     return chartFallback(a, b);                          // then the chart's own order, as on the server
@@ -640,6 +654,12 @@ function renderTree() {
         ${manage && !renaming ? `<span class="org-group-tools"><button type="button" class="org-tool" data-group-add="${esc(node.id)}" title="Add group" aria-label="Add a group in ${esc(node.name)}"><span class="org-plus" aria-hidden="true">+</span></button><button type="button" class="org-tool" data-group-rename="${esc(node.id)}" title="Rename" aria-label="Rename ${esc(node.name)}"><span class="nav-icon" aria-hidden="true">edit</span></button><button type="button" class="org-tool" data-group-delete="${esc(node.id)}" title="Delete group" aria-label="Delete group ${esc(node.name)}"${ORG_DELETING.has(node.id) ? ' disabled' : ''}><span class="nav-icon" aria-hidden="true">delete</span></button></span>` : ''}</div>
         <ul ${isCol ? 'hidden' : ''}>${adding ? `<li class="org-new">${orgGroupFieldHTML()}</li>` : ''}${rec(key, depth + 1)}</ul></li>`;
     }
+    if (node.kind === 'seat') {
+      // A role with no bot yet: opening it shows its job description and Recruit (ui/app/recruit.js).
+      return `<li><div class="noderow"><a class="node seat" href="#" data-seat-open="${esc(node.id)}" title="${esc(node.display_name)}: Recruiting">
+        <span class="seat-avatar nav-icon" style="--size:${depth ? 16 : 20}px" aria-hidden="true">person_search</span><span class="nm">${esc(node.display_name)}</span>
+        <span class="tree-recruiting">Recruiting</span></a></div></li>`;
+    }
     if (node.kind === 'person') {
       const p = node.person, key = 'p:' + p.id, kids = !flat && byParent[key], isCol = kids && collapsed.has(key);
       return `<li class="${kids ? 'dept' : ''}"><div class="noderow">
@@ -669,7 +689,7 @@ function renderTree() {
   // Every bot and person, the one you opened last on top; ones you never opened follow by name.
   const history = () => {
     const seen = orgHistory(), at = n => { const i = seen.indexOf(n.kind === 'person' ? 'p:' + n.id : 'b:' + n.name); return i < 0 ? Infinity : i; };
-    return Object.values(byParent).flat().filter(n => n.kind !== 'group')
+    return Object.values(byParent).flat().filter(n => n.kind !== 'group' && n.kind !== 'seat')
       .sort((a, b) => (at(a) - at(b)) || nameOf(a).localeCompare(nameOf(b)))
       .map(node => row(node, 0, true)).join('');
   };
@@ -681,9 +701,10 @@ function renderTree() {
   $('#tree').classList.toggle('history', historyOn);
   const manage = orgCanGroups() && !historyOn;
   teamAddRefresh();
-  $('#tree').innerHTML = historyOn ? history()
+  // Bot status events redraw the tree several times a minute: only the rows that changed are replaced (patchHTML).
+  patchHTML($('#tree'), historyOn ? history()
     : (manage && ORG_EDIT?.add === '' ? `<li class="org-new">${orgGroupFieldHTML()}</li>` : '') + rec('', 0)
-      + (manage ? '<li class="org-no-group" data-org="g:">No group</li>' : '');
+      + (manage ? '<li class="org-no-group" data-org="g:">No group</li>' : ''));
   renderInboxNav();                                   // after the tree, which places what it can
   orgDragWire($('#tree'));
   orgGroupFieldWire();
@@ -700,6 +721,8 @@ function renderTree() {
   };
   $('#tree').onclick = ev => {
     if (ev.target.closest('[data-connect-agent]')) { ev.preventDefault(); window.connectAgent?.(); return; }
+    const seat = ev.target.closest('[data-seat-open]');
+    if (seat) { ev.preventDefault(); setDrawer(false); void recruitSeat(seat.dataset.seatOpen); return; }
     const opener = ev.target.closest('[data-org-menu]'), step = ev.target.closest('[data-org-step]');
     if (step) {
       ev.preventDefault();
@@ -742,7 +765,7 @@ function renderTree() {
       (a.dataset.nav === 'usage' && S.route === '#/usage') ||
       (a.dataset.nav === 'replay' && S.route.startsWith('#/replay')) ||
       (a.dataset.nav === 'updates' && (S.route === UPDATES || S.route.startsWith(UPDATES + '?'))) ||
-      (a.dataset.nav === 'assistant' && S.route === $('#nav-assistant')?.getAttribute('href')) ||
+      (a.dataset.nav === 'assistant' && (S.route === $('#nav-assistant')?.getAttribute('href') || S.route === LEARNED)) ||
       (a.dataset.nav === 'botops' && /^#\/bot\/botops(?:\/|$)/.test(S.route)) ||
       (a.dataset.nav === 'goals' && (S.route === GOALS || S.route.startsWith(GOALS + '/') || S.route.startsWith(GOALS + '?'))) ||
       (a.dataset.nav === 'more' && !mobilePrimary);

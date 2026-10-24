@@ -347,6 +347,10 @@ async function goalManagerMount(pageState) {
       } catch (e) { if (current()) status.textContent = e.message; }
       if (current()) on.disabled = false;
     };
+  } else if (!meCeo()) {
+    // Of people, only the owner talks to the CEO Bot (backend/assistant.py); everyone else asks their Assistant.
+    chat.innerHTML = `<h3 class="rail-h" id="gm-chat-h">Chat</h3>
+      <p class="muted gm-on" data-gm-assistant>Only the company's owner talks to ${esc(ceoBotName())}. Ask <a href="${ASSISTANT}">your Assistant</a> instead.</p>`;
   } else {
     chat.innerHTML = `<h3 class="rail-h" id="gm-chat-h">Chat</h3>
       <div class="gm-thread" data-gm-thread role="log" aria-label="${esc(ceoBotName())} conversation" tabindex="0"><p class="muted">Loading conversation…</p></div>
@@ -410,14 +414,16 @@ async function goalManagerMount(pageState) {
     const send = async (P, text) => {
       if (!text || sending) return;
       sending = P.sending = true; pillButtons(P); fail('');
+      const scope = sessionScope(pq(P, '.p-text'));
       try {
         const out = await cloudCompose('/v2/chat/' + GM, {text, refs: {}});
+        pillAcknowledge(P, text, [], scope);
         if (!current()) return;
         const fresh = out.conversation && out.conversation.id !== conversation?.id;
         conversation = out.conversation || conversation;
         if (out.message && !messages.some(m => m.id === out.message.id)) messages.push(out.message);
         if (lastReply === undefined) lastReply = messages.filter(isReply).at(-1)?.id ?? null;
-        pillAcknowledge(P, text, []); stickScroll(thread).toBottom(); draw();
+        stickScroll(thread).toBottom(); draw();
         if (fresh || !es) watch();
         await snapshot();
       } catch (e) { fail(e.message); }
@@ -430,7 +436,8 @@ async function goalManagerMount(pageState) {
       try {
         const list = await get('/v2/conversations?chat_with=' + GM);
         if (!current() || conversation) return;
-        conversation = v2ChatRoom(list.conversations, GM);
+        // The owner's one chat with it, the same as their menu tab's (room_key "ceo", backend/rooms.py).
+        conversation = (list.conversations || []).find(c => c.room_key === 'ceo' && !c.closed_at) || null;
         if (conversation) { await snapshot(); watch(); }
         else draw();
       } catch (e) { fail(e.message); }

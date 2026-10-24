@@ -28,6 +28,10 @@ import statistics
 
 from . import hubdb as H
 
+# A run's tokens: the measured columns, or the legacy pair for a run finished before they were written.
+RUN_TOKENS = ("CASE WHEN t.input_tokens IS NOT NULL THEN t.input_tokens+coalesce(t.cached_tokens,0)+coalesce(t.output_tokens,0) "
+              "ELSE coalesce(t.tokens_in,0)+coalesce(t.tokens_out,0) END")
+
 CURRENT = "current"
 TOKEN_SAVER = "token_saver"
 PERFORMANCE = "performance"
@@ -58,12 +62,22 @@ _BATCH_SQL = ("json_extract(m.refs_json,'$.wake_batch') IN (" + ",".join(f"'{k}'
 _SWEEP_SQL = ("(json_extract(m.refs_json,'$.wake') IN (" + ",".join(f"'{k}'" for k in SWEEP_WAKES) + ") "
               "OR json_extract(m.refs_json,'$.sweep') IS NOT NULL)")
 _PRESET_SQL = "(SELECT wake_preset FROM jobs WHERE id=NEW.id) IN ('" + TOKEN_SAVER + "','" + PERFORMANCE + "')"
-# The same event as an earlier job's message: same room, sender, kind, text, refs and reply, and for a person or a bot
-# nothing said in between. Only the message's own fields: a job's hold flag changes when its batch is let go.
-_SAME_EVENT = (f"om.rowid<m.rowid AND om.from_actor IS m.from_actor AND om.kind IS m.kind AND om.body=m.body "
-               f"AND om.refs_json IS m.refs_json AND om.in_reply_to IS m.in_reply_to AND om.conversation_id=m.conversation_id "
-               f"AND (m.from_actor='{H.KEEPER}' OR NOT EXISTS("
-               f"SELECT 1 FROM messages x WHERE x.conversation_id=m.conversation_id AND x.rowid>om.rowid AND x.rowid<m.rowid))")
+# The same event as an earlier job's message: same room, sender, kind, text, refs and reply. Only the message's own
+# fields: a job's hold flag changes when its batch is let go.
+_SAME_EVENT = ("om.from_actor IS m.from_actor AND om.kind IS m.kind AND om.body=m.body "
+               "AND om.refs_json IS m.refs_json AND om.in_reply_to IS m.in_reply_to")
+# A keeper notice repeats any earlier one in its room; a person's or a bot's message repeats only the room's message
+# just before it (nothing said in between). Two lookups rather than one OR, so each seeks: the keeper's walks only its
+# room's earlier messages, and the other reads that one previous message by rowid, found once per insert.
+_EARLIER = (f"m.from_actor='{H.KEEPER}' AND om.conversation_id=m.conversation_id AND om.rowid<m.rowid",
+            "om.rowid=(SELECT max(x.rowid) FROM messages x WHERE x.conversation_id=m.conversation_id AND x.rowid<m.rowid)")
+_DUPLICATE = " OR ".join(
+    f"""EXISTS(SELECT 1 FROM messages m JOIN messages om ON {earlier}
+   JOIN jobs o ON o.message_id=om.id AND o.bot=NEW.bot AND o.id<>NEW.id
+   AND (o.state<>'cancelled' OR o.wake_carrier IS NOT NULL)
+   LEFT JOIN jobs cj ON cj.id=o.wake_carrier LEFT JOIN attempts a ON a.id=coalesce(cj.attempt_id,o.attempt_id)
+   WHERE m.id=NEW.message_id AND {_SAME_EVENT} AND (coalesce(cj.state,o.state) IN ('queued','leased','running','input')
+   OR a.finished>=strftime('%Y-%m-%dT%H:%M:%fZ',m.created,'-{DUPLICATE_SECONDS} seconds')))""" for earlier in _EARLIER)
 HOLD_TRIGGER = f"""CREATE TRIGGER wake_preset_hold AFTER INSERT ON jobs WHEN NEW.state='queued' BEGIN
  UPDATE jobs SET wake_preset=CASE WHEN (SELECT json_extract(config_json,'$.wake_preset') FROM bot_config
    WHERE bot=NEW.bot)='{TOKEN_SAVER}' THEN '{TOKEN_SAVER}' ELSE '{PERFORMANCE}' END WHERE id=NEW.id;
@@ -72,12 +86,7 @@ HOLD_TRIGGER = f"""CREATE TRIGGER wake_preset_hold AFTER INSERT ON jobs WHEN NEW
    WHERE id=NEW.id AND {_PRESET_SQL} AND EXISTS(SELECT 1 FROM messages m WHERE m.id=NEW.message_id
    AND m.from_actor='{H.KEEPER}' AND ({_BATCH_SQL} OR {_SWEEP_SQL}));
  UPDATE jobs SET state='cancelled',held=0,wake_class='duplicate' WHERE id=NEW.id AND {_PRESET_SQL}
-   AND EXISTS(SELECT 1 FROM messages m JOIN messages om ON om.conversation_id=m.conversation_id
-   JOIN jobs o ON o.message_id=om.id AND o.bot=NEW.bot AND o.id<>NEW.id
-   AND (o.state<>'cancelled' OR o.wake_carrier IS NOT NULL)
-   LEFT JOIN jobs cj ON cj.id=o.wake_carrier LEFT JOIN attempts a ON a.id=coalesce(cj.attempt_id,o.attempt_id)
-   WHERE m.id=NEW.message_id AND {_SAME_EVENT} AND (coalesce(cj.state,o.state) IN ('queued','leased','running','input')
-   OR a.finished>=strftime('%Y-%m-%dT%H:%M:%fZ',m.created,'-{DUPLICATE_SECONDS} seconds')));
+   AND ({_DUPLICATE});
 END"""
 
 
@@ -92,6 +101,9 @@ def ensure(c):
     H.add_column(c, "jobs", "wake_carrier", "TEXT")
     H.add_column(c, "attempts", "wake_json", "TEXT")
     c.execute("CREATE INDEX IF NOT EXISTS jobs_held ON jobs(bot,hold_until) WHERE held=1")
+    # The duplicate check seeks a room's messages before the new one by rowid (the index's implicit suffix), not a walk
+    # through every earlier message from the same sender in every room.
+    c.execute("CREATE INDEX IF NOT EXISTS messages_room_rowid ON messages(conversation_id)")
     stored = c.execute("SELECT sql FROM sqlite_master WHERE type='trigger' AND name='wake_preset_hold'").fetchone()
     if not stored or stored[0] != HOLD_TRIGGER:
         c.execute("DROP TRIGGER IF EXISTS wake_preset_hold")
@@ -425,7 +437,7 @@ def _runs(c, job_ids):
     for n in range(0, len(ids), 500):
         part = ids[n:n + 500]
         for row in c.execute("SELECT a.job_id,min(a.created) AS claimed,count(t.id) AS turns,"
-                             "coalesce(sum(coalesce(t.tokens_in,0)+coalesce(t.tokens_out,0)),0) AS tokens,"
+                             f"coalesce(sum({RUN_TOKENS}),0) AS tokens,"
                              "max(t.task_id) AS task FROM attempts a LEFT JOIN turns t ON t.id=a.id "
                              f"WHERE a.job_id IN ({','.join('?' * len(part))}) GROUP BY a.job_id", part):
             out[row["job_id"]] = dict(row)

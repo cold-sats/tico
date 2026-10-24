@@ -1,5 +1,7 @@
 # Routines
 
+This page is about bot routines. For the flat list of built-in jobs and task rules at the top of **Settings → Routines**, see [System routines](system-routines.md).
+
 A routine is a row in Tico: a bot, a time (or a trigger), a title, and the text the bot is
 told. The server runs the clock. When a routine is due it opens a task for the bot with that
 text; a Mac claims the task after it wakes and passes readiness, and the bot takes it from there
@@ -39,7 +41,9 @@ Three doors, one table (`schedules`, `backend/routines.py`):
   `GET /api/v2/routines/{id}/occurrences` what each firing did.
 
 Who may write a bot's routines: the environment owner, the bot's owner, the bot itself, and
-BotOps.
+BotOps. Who may read them, with their text and occurrences: the people who may read the bot, the bot
+itself, and a bot above it in the `reports_to` chain, in its own run (a manager bot reviewing the
+bots that report to it).
 
 A routine's text says which step waits when something is missing, not that the whole run stops: a
 missing setup answer, credential or access blocks only the step that needs it (publishing, sending,

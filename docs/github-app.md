@@ -10,19 +10,21 @@ changes; bots keep using whatever git access their computer already has.
 | Permission | Level | Why |
 |---|---|---|
 | Contents | write | a bot pulls and pushes its own repository |
-| Pull requests | write | a bot opens pull requests for its work |
-| Issues | write | a bot files and comments on issues |
+| Pull requests | write | a bot opens pull requests for its work. A read grant reads them (`gh pr view`, `gh pr diff`) and cannot change them |
+| Issues | write | a bot files and comments on issues. A read grant reads issues and pull request comments and cannot write them |
 | Metadata | read | required by GitHub for every app |
 | Actions | read (read and write to run workflows) | a bot reads workflow runs, such as whether a deploy succeeded, in any repository it can read. With read alone it cannot start, rerun or cancel them; see [Letting a bot run workflows](#letting-a-bot-run-workflows) |
 | Checks, Commit statuses | read | a bot reads a pull request's checks (`gh pr checks`) in any repository it can read. It cannot create, rerun or change them |
+| Deployments | read | a bot reads deployments, such as a pull request's preview link, in any repository it can read. It cannot create or change them |
 | Administration | write, on by default | lets the app create and delete repositories and change their settings. Only the server uses it: Tico mints a token with it just to create a bot's repository or delete one the Owner requests, and bots' run tokens never carry it. Untick **Let BotOps create bot repositories** to leave it out; a person then creates every new bot's repository |
 
 The app is private, receives installation change webhooks to refresh the repository list when its webhook is active, and requests no
 workflow permission, so a bot cannot change `.github/workflows` files. Add Workflows: write on the
 app's GitHub settings page if a bot's repository needs that.
 
-Run tokens carry write permissions for write grants and contents read for read grants, each with Actions, Checks
-and Commit statuses read for whichever of them the installation has. An App made before one of these was in its
+Run tokens carry write permissions for write grants and contents read for read grants, each with Actions, Checks,
+Commit statuses, Pull requests, Issues and Deployments read for whichever of them the installation has (a write
+grant keeps its write on pull requests and issues). An App made before one of these was in its
 manifest keeps working without it: add it as **Read-only** on the App's GitHub settings page and accept the updated
 permissions on the installation, and the next run's token carries it (at once when the App's webhook is active, otherwise within six hours). Mixed grants use separate tokens; see [Repositories](repositories.md). Tico checks the bot's own repository and effective grants, and refuses a bot the caller does not run or a repository outside the connected organization.
 
@@ -67,6 +69,106 @@ the per-bot limit is enforced by Tico when it asks GitHub for a token.
 
 Bots' repositories must live in the connected organization. A bare repository name is completed by
 `TICO_GITHUB_OWNER`, then by the connected organization.
+
+## Separate identity for reviewers
+
+GitHub does not let a pull request's author approve it. A team whose Builder and reviewers share the primary
+App can give selected reviewer bots a second private GitHub App. The primary App continues to own Builder
+pushes and repository discovery. This is an operator setup; bots cannot change the App selection or grant
+repository access to themselves.
+
+1. In the connected organization's GitHub settings, create another **private GitHub App**, for example
+   `acme-reviewers`. Use the team's Tico URL for its homepage; no callback or webhook is needed. Set repository
+   permissions **Contents**, **Pull requests** and **Issues** to read and write, **Metadata** to read, and
+   **Actions**, **Checks**, **Commit statuses** and **Deployments** to read. Leave Administration and Workflows
+   unset. Install it on the same organization, covering the reviewers' own bot repositories and their existing
+   repository grants. Selected repositories work if every required repository is included. A grant omitted from the
+   reviewer installation refuses the bot's token request; include every granted repository before starting it.
+2. Generate a private key in that App's settings. Store the PEM as a server-only secret file, readable by the
+   server user (uid 10001 in the standard image) and mounted read-only. Never put it in a bot repository, a task, a message or a runner environment.
+   Keep it in the operator's secret backup. Record the **App ID** and **installation ID** (the number at the end
+   of the installation's Configure URL); the App ID must differ from the primary App's.
+3. Set these variables on the **server**, then restart it. For Docker Compose, put the environment entries and
+   secret-file mount in `compose.override.yaml` beside `compose.yaml`; Compose loads it automatically, including
+   during server updates. Use an absolute host path for the secret:
+
+   ```yaml
+   services:
+     server:
+       environment:
+         TICO_GITHUB_REVIEWER_BOTS: review-one,review-two
+         TICO_GITHUB_REVIEWER_APP_ID: "123456"
+         TICO_GITHUB_REVIEWER_INSTALLATION_ID: "789012"
+         TICO_GITHUB_REVIEWER_PRIVATE_KEY_FILE: /run/secrets/github-reviewer.pem
+       volumes:
+         - /secure/github-reviewer.pem:/run/secrets/github-reviewer.pem:ro
+   ```
+
+   Use the actual reviewer **bot slugs**, not their display names or starter-template names. Leave the Builder
+   out of the list, and keep each selected reviewer's home repository pointed at its own bot repository, never a
+   product repository: the home repository keeps write access. Keep the primary App connected in Tools. This configuration chooses an identity only;
+   existing own/chosen/all repository grants still limit every token, with separate read and write groups.
+4. Start fresh reviewer runs. Both start-of-run tokens and renewed git/`gh` credentials use the reviewer App;
+   no runner upgrade is needed. Verify a review on a Builder-authored PR appears as the reviewer App and names
+   the reviewed commit before enabling a merge rule. A selected bot with missing configuration, an unreadable
+   key or a foreign installation gets an explicit error; it never silently switches identity.
+
+### Submit the verdict at an exact head
+
+An authorized review bot posts its findings with:
+
+```sh
+hub repo review Acme/product 7 --head <full-reviewed-commit-sha> --verdict approve --body-file review.txt
+```
+
+Use `--verdict changes` for blocking findings. The server appends the final line
+`VERDICT: approve PR #7 head <sha>` or `VERDICT: changes PR #7 head <sha>`; leave that line out of the input file.
+The equivalent MCP tool is `hub_repo_review`; the bot-only API is `POST /api/v2/github/reviews` with
+`repository`, `number`, `head`, `verdict` and `body`, plus `Idempotency-Key`.
+
+The command checks the PR is open at the supplied head and sends GitHub `event: APPROVE` or
+`event: REQUEST_CHANGES`, always with `commit_id` set to that head. It requires the bot's existing write grant
+and uses only a token for that repository. The response gives the event, exact head and GitHub review URL;
+record it with the review child task's verdict. The Builder still consumes both independent review tasks
+when both are required.
+
+A moved head is refused. The command derives a stable retry key from its input; `--operation-id` overrides
+that key. Repeating a completed operation returns its receipt. If the GitHub response was lost, the server
+refuses to post it again: inspect the PR before deciding on a new operation. Direct API callers must supply
+an idempotency key. Findings containing their own `VERDICT:` line are refused to prevent conflicting receipts.
+
+### Enable the main approval rule after reviewer setup
+
+After the updated server is live and the reviewer App has posted a real review, an organization administrator
+creates an **active branch ruleset** on the product repository:
+
+- Target `refs/heads/main` only; no exclusions and no bypass actors, including either App.
+- **Require a pull request before merging**; **required approvals: 1**.
+- **Dismiss stale pull request approvals when new commits are pushed**: on.
+- **Require approval of the most recent reviewable push**: on.
+- **Require review from Code Owners**: off unless the repository already needs it.
+- Keep existing status checks and other protections. GitHub's required-review rule blocks unresolved
+  changes-request reviews; resolve the findings and submit a new real approval before merging.
+
+The pull-request rule's REST parameters are `required_approving_review_count: 1`,
+`dismiss_stale_reviews_on_push: true`, `require_last_push_approval: true`,
+`require_code_owner_review: false`, and `required_review_thread_resolution: false` (retain true if already
+required). Set ruleset `target: branch`, `enforcement: active`, `bypass_actors: []`,
+`conditions.ref_name.include: [refs/heads/main]`, and `conditions.ref_name.exclude: []`.
+The ruleset enforces GitHub's approval requirement. Reviewer turn credentials write only the reviewer's own
+bot repository and read product repositories, even when an existing product grant is write. Product reviews
+use the server-side command with an existing read or write grant; ordinary primary-App callers still need
+a write grant. This credential boundary prevents reviewer-App product authorship; the ruleset alone does not
+choose the team's reviewers. Verify during human setup that the App approval counts before enabling the rule.
+The factory's second independent review remains a task gate.
+See GitHub's [review API](https://docs.github.com/en/rest/pulls/reviews#create-a-review-for-a-pull-request) and
+[ruleset API](https://docs.github.com/en/rest/repos/rules#create-a-repository-ruleset).
+
+For rollback, the administrator first disables this added approval rule so COMMENT reviews do not strand
+merges, then clears `TICO_GITHUB_REVIEWER_BOTS` and restarts the server and reviewer runners. New reviewer
+runs use the shared App and this command submits COMMENT with the same exact-head VERDICT. Existing tokens
+can remain cached in an active run; end those runs before verifying the rollback. Builder credentials and
+existing repository grants keep their normal behavior.
 
 ## Bot repository access
 

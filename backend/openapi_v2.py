@@ -23,7 +23,7 @@ TAGS = {
     "Team": "This installation's names and settings.",
     "Repositories": "Team repositories, product-repository creation (the Owner, or a bot with Create product repositories), "
                     "and bot repository access.",
-    "Subscriptions": "Named provider logins on Computers and the one each bot runs on.",
+    "Subscriptions": "Provider logins on Computers. Every bot runs each AI tool on its Computer's one login for it.",
     "Team chart": "Humans and bots, and who reports to whom.",
     "Bots": "The bots a person can see, and their live status.",
     "Conversations": "Chats with bots: send, list, and stream replies.",
@@ -61,18 +61,19 @@ EVENTS_DESCRIPTION = (
     "Also `event: ready` (`seq`: where the log stands), `event: cursor` (the change number to resume from, past changes "
     "the viewer may not see), `event: reset` (the client was further behind than the log keeps, 24 hours: read in full), "
     "`event: expired` (sign-in no longer valid; sign in and reconnect), and a `: keepalive` comment every 15 seconds. "
-    "Only what the viewer may read is sent. A stream ends after about five minutes; reconnect with `after` (or the "
+    "Only what the viewer may read is sent. A stream ends after about fifteen minutes; reconnect with `after` (or the "
     "browser's own `Last-Event-ID`). People only: a bot is refused with 403."
 )
 
 # Path, method, tag, operationId, summary, name of the 200 answer in ANSWERS.
 STABLE = [
-    ("/api/v2/subscriptions", "get", "Subscriptions", "listSubscriptions", "Profiles and assignments", "SubscriptionList"),
-    ("/api/v2/subscriptions", "put", "Subscriptions", "assignSubscription", "Assign or clear a subscription", "SubscriptionAssignmentResult"),
+    ("/api/v2/subscriptions", "get", "Subscriptions", "listSubscriptions", "Subscription logins reported by each Computer", "SubscriptionList"),
     ("/api/v2/subscriptions/name", "put", "Subscriptions", "renameSubscription", "Rename a subscription without changing its local login", "SubscriptionIdentity"),
     ("/api/v2/subscriptions/weekly", "put", "Subscriptions", "recordSubscriptionWeekly", "Record or clear a manual weekly allowance observation", "SubscriptionWeeklyResult"),
     ("/api/v2/subscriptions/refresh", "post", "Subscriptions", "refreshSubscriptionWeekly", "Request a bounded weekly allowance read on its computer", "SubscriptionRefreshResult"),
-    ("/api/v2/bots/{bot}/subscription", "get", "Subscriptions", "getBotSubscription", "Effective bot subscription", "BotSubscription"),
+    ("/api/v2/bots/{bot}/keep-tasks-going", "post", "Bots", "setKeepTasksGoing",
+     "Set automatic assigned-task starts: null is unlimited, 0 is off, N caps active work; reviews have no cap", None),
+    ("/api/v2/bots/{bot}/subscription", "get", "Subscriptions", "getBotSubscription", "The Computer login a bot runs on", "BotSubscription"),
     ("/api/v2/repositories", "get", "Repositories", "listRepositories", "Team repositories", "RepositoryList"),
     ("/api/v2/repositories/refresh", "post", "Repositories", "refreshRepositories", "Refresh from GitHub", "RepositoryList"),
     ("/api/v2/github/product-repos/preview", "get", "Repositories", "previewProductRepository", "Preview an empty private product repository", "ProductRepositoryPreview"),
@@ -103,6 +104,28 @@ STABLE = [
     ("/api/v2/org", "get", "Team chart", "getOrg",
      "Humans, the bots the caller can see and reports_to; ?can=read|write keeps the bots they can read or write to", "Org"),
     ("/api/v2/humans/{pid}", "post", "Team chart", "updatePerson", "Edit a person's profile or reports_to", None),
+    ("/api/v2/seats", "get", "Team chart", "listSeats",
+     "The Recruiting seats: roles on the chart with a job description and reporting line, and no bot. A seat holds no "
+     "work: a task for it is refused and its role's work stays with its manager", "SeatList"),
+    ("/api/v2/seats", "post", "Team chart", "createSeat",
+     "Add a Recruiting seat: the owner anywhere, a person under themselves or someone below them", "Seat"),
+    ("/api/v2/seats/{seat_id}", "patch", "Team chart", "updateSeat",
+     "Change a seat's title, job description, reporting line or group (a person it reports up to, or the owner)", "Seat"),
+    ("/api/v2/seats/{seat_id}/close", "post", "Team chart", "closeSeat", "Take a seat off the chart; its row is kept",
+     "SeatClosed"),
+    ("/api/v2/seats/{seat_id}", "get", "Team chart", "getSeat",
+     "One seat, with whether the CEO Bot's draft of its job description is done and whether the caller may edit it",
+     "SeatDetail"),
+    ("/api/v2/seats/{seat_id}/open", "post", "Team chart", "openSeat",
+     "Open a seat: the owner opening it asks the CEO Bot to draft its job description, unless a person wrote it",
+     "SeatDetail"),
+    ("/api/v2/seats/{seat_id}/draft", "post", "Team chart", "draftSeat",
+     "The CEO Bot's draft of the job description the owner asked for; a person's own words are kept", "SeatDetail"),
+    ("/api/v2/seats/{seat_id}/recruit", "post", "Team chart", "recruitSeat",
+     "Up to three Tico templates for the seat at once, each with a one-line reason and a suggested model, exactly one "
+     "recommended, and the models one may choose instead. Local: nothing leaves the server", "SeatCandidates"),
+    ("/api/v2/seats/{seat_id}/hire", "post", "Team chart", "hireSeat",
+     "Pick a candidate: the bot is created in Onboarding in the seat's place, then its repository", "SeatHired"),
     ("/api/v2/groups", "get", "Team chart", "listGroups",
      "The groups, nested by `parent`, each with its humans and the bots the caller can see", "GroupList"),
     ("/api/v2/groups", "post", "Team chart", "createGroup",
@@ -133,8 +156,10 @@ STABLE = [
      "Latest Instructions snapshot published by the Computer; requires Read, published is false until content arrives",
      "BotInstructions"),
     ("/api/v2/bots/{bot}/onboarded", "post", "Bots", "markBotOnboarded",
-     "A starter bot's own call, or its manager's, once its setup is done: `onboarding_state` goes "
-     "from `needs_setup` to `onboarded`. Repeating it changes nothing; 409 bot_limit for a member's bot over their limit",
+     "Mark onboarding complete, by a person above the bot on the org chart (its manager, their managers or the owner; "
+     "403 for anyone else): its `stage` goes from onboarding to active (`onboarding_state` `needs_setup` to "
+     "`onboarded`) and its routines start. The bot's own call is its \"I'm ready\" with a `summary` and leaves it "
+     "onboarding. Repeating it changes nothing; 409 bot_limit for a member's bot over their limit",
      "BotOnboarded"),
     ("/api/v2/bots/{bot}/tools", "get", "Bots", "listBotTools",
      "The tools a bot uses, for the row at the top of its page: its model and harness, its repository and each "
@@ -240,7 +265,7 @@ STABLE = [
     ("/api/v2/events", "get", "Live events", "streamEvents",
      "Server-sent events: tasks, messages, runs, bots and Needs you as they change. topics=<comma list> (default all), "
      "after=<change number> resumes, conversation=<ids> narrows messages and runs, bot=<slugs> narrows runs and bots, "
-     "needs=changes sends Needs you as changed ids", None),
+     "task=<ids> and party=<actors> narrow tasks to those and to the ones those actors own or asked for, needs=changes sends Needs you as changed ids", None),
     ("/api/v2/needs-you", "get", "Needs you", "getNeedsYou",
      "What waits on the caller, with its `version`; count=true for the number alone, version=<held> answers "
      "`unchanged` without items while it holds, ids=<comma list> only those items and their `positions`", "NeedsYou"),
@@ -336,14 +361,25 @@ STABLE = [
     ("/api/v2/librarian/research", "post", "Docs", "requestLibrarianResearch",
      "Ask the Librarian to research the web and add what it finds, cited, to one doc, market page or market entity "
      "(`target`), optionally one `section` of it; it files one task to the Librarian", "LibrarianResearchFiled"),
+    ("/api/v2/librarian/setup", "get", "Docs", "getLibrarianSetup",
+     "The Librarian's first-run setup for the caller: whether Docs asks where the docs are, and the owner's market "
+     "answers so far", "LibrarianSetup"),
+    ("/api/v2/librarian/setup/docs", "post", "Docs", "setUpDocs",
+     "Add the places the caller's docs are as sources and file one \"Set up Docs\" task to the Librarian; "
+     "`skip` hides the first-visit question for the caller only", None),
+    ("/api/v2/librarian/setup/market", "post", "Docs", "setUpMarket",
+     "Owner only: keep the answers to the Librarian's four market questions (`save`, `skip`), or `finish` and file "
+     "\"Set up the market map\", which builds the map and sets what Market tracks", "LibrarianMarketSetup"),
     ("/api/v2/librarian/turn-on", "post", "Docs", "turnOnLibrarian",
      "Owner only: add the Librarian from the catalog (or wake a planned one) and activate it", None),
     ("/api/v2/assistant", "get", "Assistant", "getAssistant",
-     "The caller's Assistant: their private room id, whether it is on, the recent messages and what waits for their OK",
+     "The caller's Assistant (the CEO Bot, for the owner): their private room id, whether it is on, the recent messages "
+     "and what waits for their OK",
      "Assistant"),
     ("/api/v2/assistant/messages", "post", "Assistant", "sendAssistantMessage",
      "Say something to the Assistant. A lookup is answered at once (fast: true, with the reply); anything else "
-     "is a turn of the assistant bot, shown as `execution` on GET /api/v2/assistant", "AssistantSent"),
+     "is a turn of the assistant bot, shown as `execution` on GET /api/v2/assistant. `place: updates` (the Updates "
+     "chat) always takes a turn, handed the recent updates the caller may read", "AssistantSent"),
     ("/api/v2/assistant/turn-on", "post", "Assistant", "turnOnAssistant",
      "Owner only: restore the archived assistant, or add it from the catalog, and activate it", None),
     ("/api/v2/assistant/actions", "post", "Assistant", "proposeAssistantAction",
@@ -462,15 +498,21 @@ STABLE = [
      "filterable by those run dimensions and department (__unknown__ selects missing values). The owner and bot administrators see every bot; anyone else sees the bots they run "
      "or own. ?bot=<slug> is that bot's daily series and top routines instead", "Usage"),
     ("/api/v2/usage/limits", "get", "Usage", "getUsageLimits",
-     "The team default limit and each bot's daily and monthly limits with this period's spend, for the bots the caller may "
-     "see usage for", "UsageLimits"),
+     "The team default limit and each bot's hourly, daily, weekly and monthly limits with this period's spend, for the bots "
+     "the caller may see usage for; for the owner and bot administrators also the team's and each group's combined limits", "UsageLimits"),
     ("/api/v2/usage/limits", "put", "Usage", "setUsageDefault",
      "The default limit for bots with none of their own, in estimated USD (empty is no limit), and whether subscription runs "
-     "count toward it (owner and bot administrators)", "UsageDefaultView"),
+     "count toward every limit (owner and bot administrators)", "UsageDefaultView"),
     ("/api/v2/usage/limits/{bot}", "put", "Usage", "setBotUsageLimit",
-     "A bot's own daily and monthly limit in estimated USD; empty follows the team default. Owner and administrators, or "
-     "the person who runs the bot within the team default. A bot over a limit takes no new job until the period turns "
-     "over or the limit is raised", "BotUsageLimit"),
+     "A bot's own hourly, daily, weekly and monthly limit in estimated USD; empty follows the team default. Owner and "
+     "administrators, or the person who runs the bot within the team default. A bot over a limit takes no new job until "
+     "the period turns over or the limit is raised", "BotUsageLimit"),
+    ("/api/v2/usage/pools/company", "put", "Usage", "setTeamUsageLimit",
+     "A limit on every bot's estimated spend together, per hour, day, week and month; empty removes it. Over it, no bot "
+     "takes a new job (owner and bot administrators)", "UsagePoolLimit"),
+    ("/api/v2/usage/pools/groups/{group}", "put", "Usage", "setGroupUsageLimit",
+     "A limit on the estimated spend of a group's bots together, nested groups included; empty removes it. Over it, none "
+     "of them takes a new job (owner and bot administrators)", "UsagePoolLimit"),
     ("/healthz", "get", "Health", "getLiveness", "Is the server up (no sign-in)", None),
     ("/api/v2/health", "get", "Health", "getHealth", "Checks, computers and failures (bots see counts, computers and failed runs)", "Health"),
     ("/api/v2/health-monitor", "get", "Health", "getHealthMonitor",
@@ -501,6 +543,7 @@ def obj(fields, required=None, **arrays):
 
 
 NUM_N = {"type": ["number", "null"]}
+PERIODS = ("hourly", "daily", "weekly", "monthly")   # the spend limit periods (backend/usage_limits.py)
 GRANOLA_SKIP_REASONS = {"type": "object", "additionalProperties": {"type": "integer"},
                         "description": "Skipped items in the last attempt, by fixed code and step"}
 GRANOLA_ERROR_DETAIL = {"type": ["object", "null"], "additionalProperties": False,
@@ -523,15 +566,15 @@ ACTORS = {"type": "object", "additionalProperties": {"type": "string"},
 
 SCHEMAS = {
     "SubscriptionList": obj({"profiles_by_computer": items(obj({"runner_id": "s", "label": "s", "profiles": items(
-        obj({"name": "s", "id": "s", "display_name": "s", "runtimes": "o"}))})), "assignments": items(obj({"scope": "s", "target": "s", "profile": "s", "updated": "s", "updated_by": "s"}))}),
+        obj({"name": "s", "id": "s", "display_name": "s", "runtimes": "o"}))}))}),
     "SubscriptionIdentity": obj({"id": "s", "display_name": "s"}),
     "SubscriptionWeeklyResult": obj({"weekly": {"anyOf": [obj({"used_percent": {"type": ["number", "null"]}, "resets_at": "n", "reported_at": "s", "source": {"enum": ["manual"]}}), {"type": "null"}]}}),
     "SubscriptionRefreshResult": obj({"id": "s", "profile": "s", "runtime": "s",
         "state": {"enum": ["requested", "succeeded", "unavailable", "failed", "expired"]},
         "requested_at": "s", "updated_at": "s", "expires_at": "s"}),
-    "SubscriptionAssignmentResult": obj({"scope": {"enum": ["bot"]}, "target": "s", "profile": "n"}),
-    "BotSubscription": obj({"profile": "n", "id": "s", "display_name": "s", "source": {"enum": ["bot", "computer"]}, "computer": {"anyOf": [obj({"runner_id": "s", "label": "s"}), {"type": "null"}]},
-                            "runtime": "s", "harness": "s", "signed_in": {"type": ["boolean", "null"]}, "problem": "s"}),
+    "BotSubscription": obj({"profile": "n", "id": "s", "display_name": "s", "source": {"enum": ["computer"]}, "computer": {"anyOf": [obj({"runner_id": "s", "label": "s"}), {"type": "null"}]},
+                            "runtime": "s", "harness": "s", "signed_in": {"type": ["boolean", "null"]}, "problem": "s", "warning": "s"},
+                           required=["profile", "id", "display_name", "source", "computer", "runtime", "harness", "signed_in", "problem"]),
     "ChatGoal": obj({"id": "s", "conversation_id": "s", "bot": "s", "objective": "s", "status": "s",
                      "note": "s", "set_by": "s", "set_at": "s", "updated_at": "s", "ended_at": "n"},
                     required=["id", "conversation_id", "bot", "objective", "status", "note", "set_by", "set_at", "updated_at", "ended_at"]),
@@ -617,16 +660,41 @@ SCHEMAS = {
                   required=["see", "read", "write"]),
     "OrgBot": obj({"id": "s", "display_name": "s", "description": "s", "team": "s", "reports_to": "n", "org_parent": "s",
                    "owners": items({"type": "string"}), "status": "s", "access": ref("Access"),
-                   "onboarding_state": "s"},
+                   "onboarding_state": "s", "stage": {"enum": ["onboarding", "active"], "description": "Onboarding (learns only: no tasks, routines or sends) until a person above it marks onboarding complete, then active"}},
                   required=["id", "display_name", "org_parent", "status", "access"]),
+    "Seat": obj({"id": "s", "kind": {"enum": ["seat"]}, "stage": {"enum": ["recruiting"]}, "title": "s",
+                 "description": "s", "reports_to": "s", "team": "s", "created": "s", "org_parent": "s"},
+                required=["id", "kind", "stage", "title", "description", "reports_to"]),
+    "SeatList": obj({"seats": items(ref("Seat"))}, required=["seats"]),
+    "SeatClosed": obj({"id": "s", "closed": "b"}, required=["id", "closed"]),
+    "SeatDetail": obj({"id": "s", "kind": {"enum": ["seat"]}, "stage": {"enum": ["recruiting"]}, "title": "s",
+                       "description": "s", "reports_to": "s", "team": "s", "created": "s",
+                       "description_by": {"enum": ["ceo_bot", "chart", "person"]},
+                       "draft": obj({"state": {"enum": ["none", "drafting", "drafted"]}, "by": "s", "at": "s"},
+                                    required=["state", "by", "at"]),
+                       "can_edit": "b"},
+                      required=["id", "kind", "stage", "title", "description", "reports_to", "draft", "can_edit"]),
+    "SeatCandidate": obj({"template": "s", "name": "s", "summary": "s", "icon": "s", "department": "s", "reason": "s",
+                          "recommended": "b", "model": "s", "model_name": "s", "effort": "s"},
+                         required=["template", "name", "reason", "recommended", "model", "model_name"]),
+    "SeatCandidates": obj({"seat": ref("SeatDetail"), "candidates": items(ref("SeatCandidate")),
+                           "models": items(obj({"id": "s", "name": "s", "provider": "s"}, required=["id", "name"]))},
+                          required=["seat", "candidates", "models"]),
+    "SeatHired": obj({"slug": "s", "seat": "s", "stage": {"enum": ["onboarding"]}, "reports_to": "s", "template": "s",
+                      "model": "s", "setup_task_id": "n", "note": "n"},
+                     required=["slug", "seat", "stage", "reports_to", "template"]),
+    "TaskFlow": obj({"going": "i", "waiting": "i"}, required=["going", "waiting"]),
     "Bot": obj({"slug": "s", "display_name": "s", "state": "s", "online": "b", "queued": "i", "description": "s",
                 "reports_to": "n", "team": "n", "operator": "n", "owners": "a", "status": {"type": ["object", "null"]},
-                "access": ref("Access"), "onboarding_state": "s"},
+                "keep_tasks_going": {"type": ["integer", "null"]}, "task_flow": ref("TaskFlow"),
+                "access": ref("Access"), "onboarding_state": "s", "stage": {"enum": ["onboarding", "active"], "description": "Onboarding (learns only: no tasks, routines or sends) until a person above it marks onboarding complete, then active"}, "can_complete_onboarding": {"type": "boolean", "description": "While onboarding: whether the caller may mark its onboarding complete"}, "onboarding_ready": {"type": ["object", "null"], "description": "While onboarding: the bot's \"I'm ready\" ({at, summary}), or null"}},
                required=["slug", "display_name", "state", "owners", "access"]),
     "BotDetail": obj({"slug": "s", "display_name": "s", "description": "s", "state": "s", "online": "b", "queued": "i",
                       "status": {"type": ["object", "null"]}, "reports_to": "n", "reports_to_name": "s",
                       "operator": "n", "operator_name": "s", "team": "n", "owners": "a", "goals": "s",
-                      "access": ref("Access"), "onboarding_state": "s", "template": "s", "template_version": "s"},
+                      "keep_tasks_going": {"type": ["integer", "null"]}, "task_flow": ref("TaskFlow"),
+                      "access": ref("Access"), "onboarding_state": "s", "template": "s", "template_version": "s",
+                      "stage": {"enum": ["onboarding", "active"], "description": "Onboarding (learns only: no tasks, routines or sends) until a person above it marks onboarding complete, then active"}, "can_complete_onboarding": {"type": "boolean", "description": "While onboarding: whether the caller may mark its onboarding complete"}, "onboarding_ready": {"type": ["object", "null"], "description": "While onboarding: the bot's \"I'm ready\" ({at, summary}), or null"}},
                      required=["slug", "display_name", "state", "owners", "access"]),
     "Routine": obj({"id": "s", "bot": "s", "key": "n", "title": "s", "cron": "s", "on": "s", "kind": "s",
                     "timezone": "s", "enabled": "b", "text": "s", "last_fired": "n", "next_due": "n",
@@ -663,10 +731,13 @@ SCHEMAS = {
                             "reports": items(obj({"id": "s", "kind": "s", "name": "s", "saved": "b"},
                                                  required=["id", "kind", "name", "saved"]))},
                            required=["manager", "kind", "name", "can_order", "reports"]),
-    "Org": obj({"people": items(ref("Person")), "bots": items(ref("OrgBot")), "org_groups": "a", "teams": "o"}),
+    "Org": obj({"people": items(ref("Person")), "bots": items(ref("OrgBot")), "seats": items(ref("Seat")),
+                "org_groups": "a", "teams": "o"}),
     "BotList": items(ref("Bot")),
     "BotInstructions": obj({"bot": "s", "content": "s", "published": "b", "updated": "n", "source": "s"}),
-    "BotOnboarded": obj({"bot": "s", "onboarding_state": "s", "changed": "b", "routine": {
+    "BotOnboarded": obj({"bot": "s", "onboarding_state": "s", "stage": "s", "changed": "b", "ready": {
+                            "type": ["object", "null"], "description": "The bot's own call: its \"I'm ready\" "
+                            "({at, summary})"}, "routine": {
                             "type": ["string", "null"], "description": "The template's first routine when this call "
                             "armed it (on, unless a person turned it off); null when setup had armed it already"}}, required=["bot", "onboarding_state", "changed"]),
     "BotTool": obj({"id": "s", "service": "s", "name": "s", "logo_key": "n", "identity": "s", "can": items({"type": "string"}),
@@ -711,7 +782,12 @@ SCHEMAS = {
                                "applies; read in full"}},
                     required=["tasks", "next_offset", "cursor"], actors=ACTORS),
     "TaskResult": obj({"task": ref("Task")}),
-    "RanOn": obj({"segments": items(obj({"model": "n", "provider": "n", "runtime": "n", "harness": "n", "family": "n"})),
+    "RanOn": obj({"segments": items(obj({"model": "n", "provider": "n", "runtime": "n", "harness": "n", "effort": "n",
+                                         "family": "n"})),
+                  "task_model": {"type": ["object", "null"], "description": "For a turn in a task's own session on a bot "
+                                 "with a task model: `source` is task (it ran on the task model), fallback (the task "
+                                 "model could not run, so the bot's own model did) or check (a check subtask kept its "
+                                 "check model), and `note` says it in plain words"},
                   "fallback": {"type": ["string", "null"], "description": "The fallback harness that ran the turn, if any"},
                   "family": {"type": ["string", "null"], "description": "The maker of the model that did the work, from "
                              "the model catalog, when every counted segment agrees; null is unknown (mixed, Cursor "
@@ -739,11 +815,11 @@ SCHEMAS = {
     "TaskComments": obj({"comments": items(ref("Message"))}),
     "TaskAnswers": obj({"answers": items(ref("ReviewAnswer"))}),
     "TaskAnswerResult": obj({"comment": ref("Message"), "answer": ref("ReviewAnswer"),
-                             "comments": items(ref("Message")), "woke": "b"}),
+                             "comments": items(ref("Message")), "woke": "b", "delivered": "b"}),
     # `warning`: the bot it went to is paused or quarantined; the comment is kept and runs when it is back.
     # `held`: a bot's comment to a bot waits for that bot's next run; it says how to wake it now.
-    "CommentResult": obj({"comment": ref("Message"), "comments": items(ref("Message")), "woke": "b", "warning": "s",
-                          "held": "s"},
+    "CommentResult": obj({"comment": ref("Message"), "comments": items(ref("Message")), "woke": "b", "delivered": "b",
+                          "warning": "s", "held": "s"},
                          required=["comment", "comments", "woke"]),
     "InboundTaskResult": obj({"task": {"oneOf": [obj({"id": "s"}), {"type": "null"}]}, "created": "b", "changed": "b"}),
     "UpdateList": obj({"updates": "a", "unread": "i", "next_before": "n"}, required=["updates", "unread"]),
@@ -822,15 +898,21 @@ SCHEMAS = {
     "DocSearch": obj({"query": "s", "results": "a", "has_more": "b", "mode": "s"}),
     "Storage": obj({"mode": {"type": "string", "enum": ["local", "s3"]}, "bucket": "s", "region": "s",
                     "files": "i", "bytes": "i", "copy": obj({"done": "i", "total": "i", "failed": "i"})}),
+    "TurnCounts": obj({"running": "i", "starting": "i", "waiting": "i", "queued": "i", "start_seconds": "i",
+                       "waits": items(obj({"reason": "s", "count": "i", "oldest": "s"}))}),
     "Health": obj({"audience": "s", "checks": "a", "attention": "i", "checked": "s"},
+                  computers=items(obj({"id": "s", "turn_counts": ref("TurnCounts"), "turn_summary": "s"}, required=["id"])),
+                  stalled_runs=items(obj({"run": "s", "bot": "s", "stalled": "b", "stalled_at": "s",
+                                          "last_event": {"type": ["string", "null"]},
+                                          "last_event_at": {"type": ["string", "null"]}, "stall_minutes": "i"})),
                   required=["audience", "checks", "attention", "checked"],
                   storage={**ref("Storage"), "description": "Read-only file storage usage and copy progress; Team owners only"},
                   stuck={"type": "array", "items": {"type": "object"}, "description":
                          "Bots with queued work that is not starting, or left in setup for over a day (the caller may "
                          "read them): bot, name, queued, oldest, computer, reason (not_ready, computer_offline, no_computer, "
                          "slow, limit, updating, restarting, setup, or a reason the claim holds the work: draining, maintaining, "
-                         "lane_held, uncertain, cooling_off, readiness_unknown, sign_in_rejected, not_isolated, "
-                         "isolation_unknown, profile, config, check_model, unreadable), why, since (setup only: when the "
+                         "lane_held, uncertain, scoped, cooling_off, readiness_unknown, sign_in_rejected, "
+                         "not_isolated, isolation_unknown, profile, config, check_model, unreadable), why, since (setup only: when the "
                          "bot was added), and fix (label plus href/tab, login, move or finish; null unless the caller "
                          "administers bots, or for setup may manage the bot: finish is POST /api/v2/bots/{bot}/onboarded)"},
                   on_fallback={"type": "array", "items": {"type": "object"}, "description":
@@ -859,9 +941,15 @@ SCHEMAS = {
                                     "text so far; null when it is not working (show a thinking state while it is)"},
                       "actions": {"type": "object", "description": "{action id: proposal} for every card in `messages` "
                                   "(a message whose refs.action names one is a Confirm / Cancel card)"},
-                      "pending": "a"},
+                      "pending": "a",
+                      "ceo": {"type": "boolean", "description": "True for the owner, who talks to the CEO Bot in place of an "
+                              "Assistant: `bot` is the CEO Bot and `name` its name"},
+                      "earlier": {"oneOf": [obj({"room_id": "s", "bot": "s", "name": "s"},
+                                                required=["room_id", "bot", "name"]), {"type": "null"}],
+                                  "description": "The owner's own earlier Assistant chats, read-only (GET "
+                                  "/api/v2/conversations/{room_id}/messages); null for everyone else, or none"}},
                      required=["available", "state", "bot", "name", "can_turn_on", "room_id", "messages", "has_more",
-                               "next_before", "execution", "actions", "pending"], actors=ACTORS),
+                               "next_before", "execution", "actions", "pending", "ceo", "earlier"], actors=ACTORS),
     "Librarian": obj({"available": "b", "state": "s", "bot": "s", "name": "s", "can_turn_on": "b"},
                      required=["available", "state", "bot", "name", "can_turn_on"]),
     "DocsAsked": obj({"conversation_id": "s", "message_id": "s",
@@ -873,6 +961,12 @@ SCHEMAS = {
                               "next_offset": {"type": ["integer", "null"]}}),
     "DocsReopened": obj({"conversation_id": "s"}),
     "LibrarianResearchFiled": obj({"task_id": "s", "bot": "s", "kind": "s", "target": "s"}),
+    "LibrarianMarketSetup": obj({"can_answer": "b", "answers": obj({"sell": "s", "buyers": "s", "competitors": "s",
+                                                                    "watch": "s"}),
+                                 "step": "i", "skipped": "b", "task": {"type": ["object", "null"]}}),
+    "LibrarianSetup": obj({"available": "b",
+                           "docs": obj({"show": "b", "empty": "b", "skipped": "b", "task": {"type": ["object", "null"]}}),
+                           "market": ref("LibrarianMarketSetup")}),
     "AssistantSent": obj({"message": ref("Message"), "reply": {"type": ["object", "null"]}, "fast": "b", "intent": "n"},
                          required=["message", "fast"]),
     "AssistantActionResult": obj({"action": {"type": "object", "description": "id, summary, method, path, body, status "
@@ -1010,14 +1104,24 @@ SCHEMAS = {
                   "departments": items({"type": "string"}), "bot": "s", "name": "s", "daily": items({"type": "object", "additionalProperties": True}),
                   "routines": items({"type": "object", "additionalProperties": True})},
                  required=["from", "to", "prices_as_of", "totals"]),
-    "UsageLimitView": obj({"daily_usd": NUM_N, "monthly_usd": NUM_N, "source": {"type": "object", "description": "Where each cap comes "
-                       "from: bot, company or null"}, "day_spent": NUM_N, "month_spent": NUM_N,
-                       "percent": {"type": "integer", "description": "The highest share of a limit reached"},
-                       "blocked": {"enum": ["daily", "monthly", None], "description": "Set while a limit is met: the bot takes no new job"},
-                       "own_daily_usd": NUM_N, "own_monthly_usd": NUM_N, "may_edit": "b"}),
-    "UsageDefaultView": obj({"default": obj({"daily_usd": NUM_N, "monthly_usd": NUM_N, "count_subscription": "b"})}),
-    "UsageLimits": obj({"default": obj({"daily_usd": NUM_N, "monthly_usd": NUM_N, "count_subscription": "b"}),
-                        "may_edit_default": "b", "bots": {"type": "object", "additionalProperties": ref("UsageLimitView")}}),
+    "UsageLimitView": obj({**{p + "_usd": NUM_N for p in PERIODS}, "source": {"type": "object", "description": "Where each cap comes "
+                       "from: bot, company or null"}, **{p + "_spent": NUM_N for p in ("hour", "day", "week", "month")},
+                       "percent": {"type": "integer", "description": "The highest share of one of the bot's own limits reached"},
+                       "blocked": {"enum": [*PERIODS, None], "description": "Set while a limit is met, the bot's own or a pool's: "
+                                   "the bot takes no new job"},
+                       "blocked_by": {"type": ["object", "null"], "description": "Whose limit holds the bot: scope (bot, company "
+                                      "or group:<id>), name (a pool's), period, and spent and limit (a pool's to the owner and "
+                                      "administrators only)", "additionalProperties": True},
+                       **{"own_" + p + "_usd": NUM_N for p in PERIODS}, "may_edit": "b"}),
+    "UsageDefaultView": obj({"default": obj({**{p + "_usd": NUM_N for p in PERIODS}, "count_subscription": "b"})}),
+    "UsagePoolView": obj({**{p + "_usd": NUM_N for p in PERIODS}, **{p + "_spent": NUM_N for p in ("hour", "day", "week", "month")},
+                          "percent": "i", "blocked": {"enum": [*PERIODS, None]}}),
+    "UsagePoolLimit": obj({"scope": {"type": "string", "description": "company or group:<id>"}, "limit": ref("UsagePoolView")}),
+    "UsageLimits": obj({"default": obj({**{p + "_usd": NUM_N for p in PERIODS}, "count_subscription": "b"}),
+                        "may_edit_default": "b",
+                        "pools": {"type": ["object", "null"], "description": "Owner and administrators: company (UsagePoolView) and "
+                                  "groups, {id: UsagePoolView with name and parent}", "additionalProperties": True},
+                        "bots": {"type": "object", "additionalProperties": ref("UsageLimitView")}}),
     "BotUsageLimit": obj({"bot": "s", "limit": ref("UsageLimitView")}),
     "Token": obj({"access_token": "s", "token_type": "s", "expires_in": "i", "idle_timeout": "i", "person": "s"}),
     "Revoked": obj({"revoked": "b"}),

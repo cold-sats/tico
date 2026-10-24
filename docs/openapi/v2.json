@@ -20,7 +20,7 @@
     },
     {
       "name": "Subscriptions",
-      "description": "Named provider logins on Computers and the one each bot runs on."
+      "description": "Provider logins on Computers. Every bot runs each AI tool on its Computer's one login for it."
     },
     {
       "name": "Team chart",
@@ -288,7 +288,7 @@
     },
     "/api/v2/assistant": {
       "get": {
-        "summary": "The caller's Assistant: their private room id, whether it is on, the recent messages and what waits for their OK",
+        "summary": "The caller's Assistant (the CEO Bot, for the owner): their private room id, whether it is on, the recent messages and what waits for their OK",
         "operationId": "getAssistant",
         "responses": {
           "200": {
@@ -626,7 +626,7 @@
     },
     "/api/v2/assistant/messages": {
       "post": {
-        "summary": "Say something to the Assistant. A lookup is answered at once (fast: true, with the reply); anything else is a turn of the assistant bot, shown as `execution` on GET /api/v2/assistant",
+        "summary": "Say something to the Assistant. A lookup is answered at once (fast: true, with the reply); anything else is a turn of the assistant bot, shown as `execution` on GET /api/v2/assistant. `place: updates` (the Updates chat) always takes a turn, handed the recent updates the caller may read",
         "operationId": "sendAssistantMessage",
         "requestBody": {
           "content": {
@@ -1384,6 +1384,75 @@
         ]
       }
     },
+    "/api/v2/bots/{bot}/keep-tasks-going": {
+      "post": {
+        "summary": "Set automatic assigned-task starts: null is unlimited, 0 is off, N caps active work; reviews have no cap",
+        "operationId": "setKeepTasksGoing",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BotKeepTasksGoing"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Bots"
+        ]
+      }
+    },
     "/api/v2/bots/{bot}/kpis": {
       "get": {
         "summary": "A bot's five automatic KPIs, computed from Tico's own data (Read on the bot)",
@@ -1438,7 +1507,7 @@
     },
     "/api/v2/bots/{bot}/onboarded": {
       "post": {
-        "summary": "A starter bot's own call, or its manager's, once its setup is done: `onboarding_state` goes from `needs_setup` to `onboarded`. Repeating it changes nothing; 409 bot_limit for a member's bot over their limit",
+        "summary": "Mark onboarding complete, by a person above the bot on the org chart (its manager, their managers or the owner; 403 for anyone else): its `stage` goes from onboarding to active (`onboarding_state` `needs_setup` to `onboarded`) and its routines start. The bot's own call is its \"I'm ready\" with a `summary` and leaves it onboarding. Repeating it changes nothing; 409 bot_limit for a member's bot over their limit",
         "operationId": "markBotOnboarded",
         "parameters": [
           {
@@ -1465,7 +1534,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Empty"
+                "$ref": "#/components/schemas/OnboardingComplete"
               }
             }
           }
@@ -1683,7 +1752,7 @@
     },
     "/api/v2/bots/{bot}/subscription": {
       "get": {
-        "summary": "Effective bot subscription",
+        "summary": "The Computer login a bot runs on",
         "operationId": "getBotSubscription",
         "parameters": [
           {
@@ -4708,7 +4777,7 @@
     },
     "/api/v2/events": {
       "get": {
-        "summary": "Server-sent events: tasks, messages, runs, bots and Needs you as they change. topics=<comma list> (default all), after=<change number> resumes, conversation=<ids> narrows messages and runs, bot=<slugs> narrows runs and bots, needs=changes sends Needs you as changed ids",
+        "summary": "Server-sent events: tasks, messages, runs, bots and Needs you as they change. topics=<comma list> (default all), after=<change number> resumes, conversation=<ids> narrows messages and runs, bot=<slugs> narrows runs and bots, task=<ids> and party=<actors> narrow tasks to those and to the ones those actors own or asked for, needs=changes sends Needs you as changed ids",
         "operationId": "streamEvents",
         "parameters": [
           {
@@ -4790,11 +4859,43 @@
               ],
               "title": "Needs"
             }
+          },
+          {
+            "name": "task",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Task"
+            }
+          },
+          {
+            "name": "party",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Party"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "text/event-stream. Each change is `id: <change number>`, `event: <topic>` and JSON `data` with `seq`, `actor` (who made it, when the viewer may know) and `at`:\n- `tasks`: `id` and `task` (as `GET /api/v2/tasks` shows it to the viewer), or `gone: true` for a deleted task.\n- `messages`: `id`, `conversation_id` and `message` (as a conversation page shows it), or `deleted: true`; a chat goal set, paused, met or stopped is `goal_id` and `goal`.\n- `runs`: `attempt_id`, `conversation_id`, `bot`, and either `output` (one step of the run: `kind`, `payload`) or `state` (`job_id`, and the job's or attempt's state).\n- `bots`: `bot` and `status` (as `GET /api/v2/status` lists it).\n- `needs`: the viewer's own Needs-you `count` and `items` (as `GET /api/v2/needs-you`), whenever anything on it may have moved. With `needs=changes`: `count`, `version`, and the ids `changed` and `removed` since `base` (null when more than 100 moved: read the list whole); read the changed items with `GET /api/v2/needs-you?ids=`, and the whole list when the version held is not `base`. `ready` then carries `needs_version`.\nAlso `event: ready` (`seq`: where the log stands), `event: cursor` (the change number to resume from, past changes the viewer may not see), `event: reset` (the client was further behind than the log keeps, 24 hours: read in full), `event: expired` (sign-in no longer valid; sign in and reconnect), and a `: keepalive` comment every 15 seconds. Only what the viewer may read is sent. A stream ends after about five minutes; reconnect with `after` (or the browser's own `Last-Event-ID`). People only: a bot is refused with 403.",
+            "description": "text/event-stream. Each change is `id: <change number>`, `event: <topic>` and JSON `data` with `seq`, `actor` (who made it, when the viewer may know) and `at`:\n- `tasks`: `id` and `task` (as `GET /api/v2/tasks` shows it to the viewer), or `gone: true` for a deleted task.\n- `messages`: `id`, `conversation_id` and `message` (as a conversation page shows it), or `deleted: true`; a chat goal set, paused, met or stopped is `goal_id` and `goal`.\n- `runs`: `attempt_id`, `conversation_id`, `bot`, and either `output` (one step of the run: `kind`, `payload`) or `state` (`job_id`, and the job's or attempt's state).\n- `bots`: `bot` and `status` (as `GET /api/v2/status` lists it).\n- `needs`: the viewer's own Needs-you `count` and `items` (as `GET /api/v2/needs-you`), whenever anything on it may have moved. With `needs=changes`: `count`, `version`, and the ids `changed` and `removed` since `base` (null when more than 100 moved: read the list whole); read the changed items with `GET /api/v2/needs-you?ids=`, and the whole list when the version held is not `base`. `ready` then carries `needs_version`.\nAlso `event: ready` (`seq`: where the log stands), `event: cursor` (the change number to resume from, past changes the viewer may not see), `event: reset` (the client was further behind than the log keeps, 24 hours: read in full), `event: expired` (sign-in no longer valid; sign in and reconnect), and a `: keepalive` comment every 15 seconds. Only what the viewer may read is sent. A stream ends after about fifteen minutes; reconnect with `after` (or the browser's own `Last-Event-ID`). People only: a bot is refused with 403.",
             "content": {
               "text/event-stream": {
                 "schema": {
@@ -9101,6 +9202,169 @@
         ]
       }
     },
+    "/api/v2/librarian/setup": {
+      "get": {
+        "summary": "The Librarian's first-run setup for the caller: whether Docs asks where the docs are, and the owner's market answers so far",
+        "operationId": "getLibrarianSetup",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibrarianSetup"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Docs"
+        ]
+      }
+    },
+    "/api/v2/librarian/setup/docs": {
+      "post": {
+        "summary": "Add the places the caller's docs are as sources and file one \"Set up Docs\" task to the Librarian; `skip` hides the first-visit question for the caller only",
+        "operationId": "setUpDocs",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocsSetup"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Docs"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
+    "/api/v2/librarian/setup/market": {
+      "post": {
+        "summary": "Owner only: keep the answers to the Librarian's four market questions (`save`, `skip`), or `finish` and file \"Set up the market map\", which builds the map and sets what Market tracks",
+        "operationId": "setUpMarket",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarketSetup"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibrarianMarketSetup"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Docs"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
     "/api/v2/librarian/turn-on": {
       "post": {
         "summary": "Owner only: add the Librarian from the catalog (or wake a planned one) and activate it",
@@ -12062,6 +12326,583 @@
         ]
       }
     },
+    "/api/v2/seats": {
+      "get": {
+        "summary": "The Recruiting seats: roles on the chart with a job description and reporting line, and no bot. A seat holds no work: a task for it is refused and its role's work stays with its manager",
+        "operationId": "listSeats",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeatList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Team chart"
+        ]
+      },
+      "post": {
+        "summary": "Add a Recruiting seat: the owner anywhere, a person under themselves or someone below them",
+        "operationId": "createSeat",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeatCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Seat"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Team chart"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
+    "/api/v2/seats/{seat_id}": {
+      "patch": {
+        "summary": "Change a seat's title, job description, reporting line or group (a person it reports up to, or the owner)",
+        "operationId": "updateSeat",
+        "parameters": [
+          {
+            "name": "seat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Seat Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeatUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Seat"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Team chart"
+        ]
+      },
+      "get": {
+        "summary": "One seat, with whether the CEO Bot's draft of its job description is done and whether the caller may edit it",
+        "operationId": "getSeat",
+        "parameters": [
+          {
+            "name": "seat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Seat Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeatDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Team chart"
+        ]
+      }
+    },
+    "/api/v2/seats/{seat_id}/close": {
+      "post": {
+        "summary": "Take a seat off the chart; its row is kept",
+        "operationId": "closeSeat",
+        "parameters": [
+          {
+            "name": "seat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Seat Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeatClosed"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Team chart"
+        ]
+      }
+    },
+    "/api/v2/seats/{seat_id}/draft": {
+      "post": {
+        "summary": "The CEO Bot's draft of the job description the owner asked for; a person's own words are kept",
+        "operationId": "draftSeat",
+        "parameters": [
+          {
+            "name": "seat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Seat Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeatDraft"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeatDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Team chart"
+        ]
+      }
+    },
+    "/api/v2/seats/{seat_id}/hire": {
+      "post": {
+        "summary": "Pick a candidate: the bot is created in Onboarding in the seat's place, then its repository",
+        "operationId": "hireSeat",
+        "parameters": [
+          {
+            "name": "seat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Seat Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeatHire"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeatHired"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Team chart"
+        ]
+      }
+    },
+    "/api/v2/seats/{seat_id}/open": {
+      "post": {
+        "summary": "Open a seat: the owner opening it asks the CEO Bot to draft its job description, unless a person wrote it",
+        "operationId": "openSeat",
+        "parameters": [
+          {
+            "name": "seat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Seat Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeatDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Team chart"
+        ]
+      }
+    },
+    "/api/v2/seats/{seat_id}/recruit": {
+      "post": {
+        "summary": "Up to three Tico templates for the seat at once, each with a one-line reason and a suggested model, exactly one recommended, and the models one may choose instead. Local: nothing leaves the server",
+        "operationId": "recruitSeat",
+        "parameters": [
+          {
+            "name": "seat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Seat Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeatCandidates"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Team chart"
+        ]
+      }
+    },
     "/api/v2/service-keys": {
       "get": {
         "summary": "Service keys, never the secret (owner and admins)",
@@ -12359,7 +13200,7 @@
     },
     "/api/v2/subscriptions": {
       "get": {
-        "summary": "Profiles and assignments",
+        "summary": "Subscription logins reported by each Computer",
         "operationId": "listSubscriptions",
         "responses": {
           "200": {
@@ -12368,55 +13209,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SubscriptionList"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "Subscriptions"
-        ]
-      },
-      "put": {
-        "summary": "Assign or clear a subscription",
-        "operationId": "assignSubscription",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SubscriptionAssignment"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SubscriptionAssignmentResult"
                 }
               }
             }
@@ -16174,7 +16966,7 @@
     },
     "/api/v2/usage/limits": {
       "get": {
-        "summary": "The team default limit and each bot's daily and monthly limits with this period's spend, for the bots the caller may see usage for",
+        "summary": "The team default limit and each bot's hourly, daily, weekly and monthly limits with this period's spend, for the bots the caller may see usage for; for the owner and bot administrators also the team's and each group's combined limits",
         "operationId": "getUsageLimits",
         "responses": {
           "200": {
@@ -16213,7 +17005,7 @@
         ]
       },
       "put": {
-        "summary": "The default limit for bots with none of their own, in estimated USD (empty is no limit), and whether subscription runs count toward it (owner and bot administrators)",
+        "summary": "The default limit for bots with none of their own, in estimated USD (empty is no limit), and whether subscription runs count toward every limit (owner and bot administrators)",
         "operationId": "setUsageDefault",
         "requestBody": {
           "content": {
@@ -16264,7 +17056,7 @@
     },
     "/api/v2/usage/limits/{bot}": {
       "put": {
-        "summary": "A bot's own daily and monthly limit in estimated USD; empty follows the team default. Owner and administrators, or the person who runs the bot within the team default. A bot over a limit takes no new job until the period turns over or the limit is raised",
+        "summary": "A bot's own hourly, daily, weekly and monthly limit in estimated USD; empty follows the team default. Owner and administrators, or the person who runs the bot within the team default. A bot over a limit takes no new job until the period turns over or the limit is raised",
         "operationId": "setBotUsageLimit",
         "parameters": [
           {
@@ -16294,6 +17086,119 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BotUsageLimit"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Usage"
+        ]
+      }
+    },
+    "/api/v2/usage/pools/company": {
+      "put": {
+        "summary": "A limit on every bot's estimated spend together, per hour, day, week and month; empty removes it. Over it, no bot takes a new job (owner and bot administrators)",
+        "operationId": "setTeamUsageLimit",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsageLimit"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsagePoolLimit"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Usage"
+        ]
+      }
+    },
+    "/api/v2/usage/pools/groups/{group}": {
+      "put": {
+        "summary": "A limit on the estimated spend of a group's bots together, nested groups included; empty removes it. Over it, none of them takes a new job (owner and bot administrators)",
+        "operationId": "setGroupUsageLimit",
+        "parameters": [
+          {
+            "name": "group",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Group"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsageLimit"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsagePoolLimit"
                 }
               }
             }
@@ -17385,6 +18290,38 @@
           "pending": {
             "type": "array"
           },
+          "ceo": {
+            "type": "boolean",
+            "description": "True for the owner, who talks to the CEO Bot in place of an Assistant: `bot` is the CEO Bot and `name` its name"
+          },
+          "earlier": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "room_id": {
+                    "type": "string"
+                  },
+                  "bot": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "bot",
+                  "name",
+                  "room_id"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The owner's own earlier Assistant chats, read-only (GET /api/v2/conversations/{room_id}/messages); null for everyone else, or none"
+          },
           "actors": {
             "type": "object",
             "additionalProperties": {
@@ -17398,6 +18335,8 @@
           "available",
           "bot",
           "can_turn_on",
+          "ceo",
+          "earlier",
           "execution",
           "has_more",
           "messages",
@@ -17472,6 +18411,18 @@
             "maxLength": 8000,
             "minLength": 1,
             "title": "Text"
+          },
+          "place": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "updates"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Place"
           }
         },
         "additionalProperties": false,
@@ -17627,11 +18578,38 @@
               "null"
             ]
           },
+          "keep_tasks_going": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "task_flow": {
+            "$ref": "#/components/schemas/TaskFlow"
+          },
           "access": {
             "$ref": "#/components/schemas/Access"
           },
           "onboarding_state": {
             "type": "string"
+          },
+          "stage": {
+            "enum": [
+              "onboarding",
+              "active"
+            ],
+            "description": "Onboarding (learns only: no tasks, routines or sends) until a person above it marks onboarding complete, then active"
+          },
+          "can_complete_onboarding": {
+            "type": "boolean",
+            "description": "While onboarding: whether the caller may mark its onboarding complete"
+          },
+          "onboarding_ready": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "While onboarding: the bot's \"I'm ready\" ({at, summary}), or null"
           }
         },
         "required": [
@@ -17777,6 +18755,15 @@
           "goals": {
             "type": "string"
           },
+          "keep_tasks_going": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "task_flow": {
+            "$ref": "#/components/schemas/TaskFlow"
+          },
           "access": {
             "$ref": "#/components/schemas/Access"
           },
@@ -17788,6 +18775,24 @@
           },
           "template_version": {
             "type": "string"
+          },
+          "stage": {
+            "enum": [
+              "onboarding",
+              "active"
+            ],
+            "description": "Onboarding (learns only: no tasks, routines or sends) until a person above it marks onboarding complete, then active"
+          },
+          "can_complete_onboarding": {
+            "type": "boolean",
+            "description": "While onboarding: whether the caller may mark its onboarding complete"
+          },
+          "onboarding_ready": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "While onboarding: the bot's \"I'm ready\" ({at, summary}), or null"
           }
         },
         "required": [
@@ -18013,6 +19018,34 @@
         ],
         "additionalProperties": true
       },
+      "BotKeepTasksGoing": {
+        "properties": {
+          "keep_tasks_going": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keep Tasks Going",
+            "description": "Automatic assigned-task starts: null is unlimited (default), 0 is off, N caps active work. Reviews have no cap."
+          },
+          "expected_revision": {
+            "type": "integer",
+            "title": "Expected Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision"
+        ],
+        "title": "BotKeepTasksGoing"
+      },
       "BotKpis": {
         "type": "object",
         "properties": {
@@ -18047,8 +19080,18 @@
           "onboarding_state": {
             "type": "string"
           },
+          "stage": {
+            "type": "string"
+          },
           "changed": {
             "type": "boolean"
+          },
+          "ready": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "The bot's own call: its \"I'm ready\" ({at, summary})"
           },
           "routine": {
             "type": [
@@ -18119,7 +19162,6 @@
           },
           "source": {
             "enum": [
-              "bot",
               "computer"
             ]
           },
@@ -18159,6 +19201,9 @@
             ]
           },
           "problem": {
+            "type": "string"
+          },
+          "warning": {
             "type": "string"
           }
         },
@@ -18956,6 +20001,9 @@
             }
           },
           "woke": {
+            "type": "boolean"
+          },
+          "delivered": {
             "type": "boolean"
           },
           "warning": {
@@ -19813,6 +20861,33 @@
           "results"
         ],
         "additionalProperties": true
+      },
+      "DocsSetup": {
+        "properties": {
+          "sources": {
+            "items": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Sources"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Note",
+            "default": ""
+          },
+          "skip": {
+            "type": "boolean",
+            "title": "Skip",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "DocsSetup"
       },
       "Empty": {
         "properties": {},
@@ -22099,6 +23174,72 @@
           "checked": {
             "type": "string"
           },
+          "computers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "turn_counts": {
+                  "$ref": "#/components/schemas/TurnCounts"
+                },
+                "turn_summary": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "stalled_runs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "run": {
+                  "type": "string"
+                },
+                "bot": {
+                  "type": "string"
+                },
+                "stalled": {
+                  "type": "boolean"
+                },
+                "stalled_at": {
+                  "type": "string"
+                },
+                "last_event": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "last_event_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "stall_minutes": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "bot",
+                "last_event",
+                "last_event_at",
+                "run",
+                "stall_minutes",
+                "stalled",
+                "stalled_at"
+              ],
+              "additionalProperties": true
+            }
+          },
           "storage": {
             "$ref": "#/components/schemas/Storage",
             "description": "Read-only file storage usage and copy progress; Team owners only"
@@ -22108,7 +23249,7 @@
             "items": {
               "type": "object"
             },
-            "description": "Bots with queued work that is not starting, or left in setup for over a day (the caller may read them): bot, name, queued, oldest, computer, reason (not_ready, computer_offline, no_computer, slow, limit, updating, restarting, setup, or a reason the claim holds the work: draining, maintaining, lane_held, uncertain, cooling_off, readiness_unknown, sign_in_rejected, not_isolated, isolation_unknown, profile, config, check_model, unreadable), why, since (setup only: when the bot was added), and fix (label plus href/tab, login, move or finish; null unless the caller administers bots, or for setup may manage the bot: finish is POST /api/v2/bots/{bot}/onboarded)"
+            "description": "Bots with queued work that is not starting, or left in setup for over a day (the caller may read them): bot, name, queued, oldest, computer, reason (not_ready, computer_offline, no_computer, slow, limit, updating, restarting, setup, or a reason the claim holds the work: draining, maintaining, lane_held, uncertain, scoped, cooling_off, readiness_unknown, sign_in_rejected, not_isolated, isolation_unknown, profile, config, check_model, unreadable), why, since (setup only: when the bot was added), and fix (label plus href/tab, login, move or finish; null unless the caller administers bots, or for setup may manage the bot: finish is POST /api/v2/bots/{bot}/onboarded)"
           },
           "on_fallback": {
             "type": "array",
@@ -23729,6 +24870,58 @@
         ],
         "additionalProperties": true
       },
+      "LibrarianMarketSetup": {
+        "type": "object",
+        "properties": {
+          "can_answer": {
+            "type": "boolean"
+          },
+          "answers": {
+            "type": "object",
+            "properties": {
+              "sell": {
+                "type": "string"
+              },
+              "buyers": {
+                "type": "string"
+              },
+              "competitors": {
+                "type": "string"
+              },
+              "watch": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "buyers",
+              "competitors",
+              "sell",
+              "watch"
+            ],
+            "additionalProperties": true
+          },
+          "step": {
+            "type": "integer"
+          },
+          "skipped": {
+            "type": "boolean"
+          },
+          "task": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "answers",
+          "can_answer",
+          "skipped",
+          "step",
+          "task"
+        ],
+        "additionalProperties": true
+      },
       "LibrarianResearch": {
         "properties": {
           "target": {
@@ -23780,6 +24973,50 @@
           "kind",
           "target",
           "task_id"
+        ],
+        "additionalProperties": true
+      },
+      "LibrarianSetup": {
+        "type": "object",
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "docs": {
+            "type": "object",
+            "properties": {
+              "show": {
+                "type": "boolean"
+              },
+              "empty": {
+                "type": "boolean"
+              },
+              "skipped": {
+                "type": "boolean"
+              },
+              "task": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "empty",
+              "show",
+              "skipped",
+              "task"
+            ],
+            "additionalProperties": true
+          },
+          "market": {
+            "$ref": "#/components/schemas/LibrarianMarketSetup"
+          }
+        },
+        "required": [
+          "available",
+          "docs",
+          "market"
         ],
         "additionalProperties": true
       },
@@ -24033,6 +25270,60 @@
         ],
         "title": "LocalFinding",
         "description": "A process the bot's watcher saw busy on its computer: a name and two numbers, never free text."
+      },
+      "MarketAnswers": {
+        "properties": {
+          "sell": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Sell",
+            "default": ""
+          },
+          "buyers": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Buyers",
+            "default": ""
+          },
+          "competitors": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Competitors",
+            "default": ""
+          },
+          "watch": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Watch",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "MarketAnswers"
+      },
+      "MarketSetup": {
+        "properties": {
+          "answers": {
+            "$ref": "#/components/schemas/MarketAnswers"
+          },
+          "step": {
+            "type": "integer",
+            "maximum": 3.0,
+            "minimum": 0.0,
+            "title": "Step",
+            "default": 0
+          },
+          "action": {
+            "type": "string",
+            "pattern": "^(save|skip|finish)$",
+            "title": "Action",
+            "default": "save"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "MarketSetup"
       },
       "Me": {
         "type": "object",
@@ -24488,6 +25779,20 @@
           }
         ]
       },
+      "OnboardingComplete": {
+        "properties": {
+          "summary": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Summary",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "OnboardingComplete",
+        "description": "Mark onboarding complete (a person above the bot), or the bot's own \"I'm ready\" with what it learned."
+      },
       "Org": {
         "type": "object",
         "properties": {
@@ -24503,6 +25808,12 @@
               "$ref": "#/components/schemas/OrgBot"
             }
           },
+          "seats": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Seat"
+            }
+          },
           "org_groups": {
             "type": "array"
           },
@@ -24514,6 +25825,7 @@
           "bots",
           "org_groups",
           "people",
+          "seats",
           "teams"
         ],
         "additionalProperties": true
@@ -24556,6 +25868,13 @@
           },
           "onboarding_state": {
             "type": "string"
+          },
+          "stage": {
+            "enum": [
+              "onboarding",
+              "active"
+            ],
+            "description": "Onboarding (learns only: no tasks, routines or sends) until a person above it marks onboarding complete, then active"
           }
         },
         "required": [
@@ -25299,6 +26618,12 @@
                     "null"
                   ]
                 },
+                "effort": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "family": {
                   "type": [
                     "string",
@@ -25307,6 +26632,7 @@
                 }
               },
               "required": [
+                "effort",
                 "family",
                 "harness",
                 "model",
@@ -25315,6 +26641,13 @@
               ],
               "additionalProperties": true
             }
+          },
+          "task_model": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "For a turn in a task's own session on a bot with a task model: `source` is task (it ran on the task model), fallback (the task model could not run, so the bot's own model did) or check (a check subtask kept its check model), and `note` says it in plain words"
           },
           "fallback": {
             "type": [
@@ -25334,7 +26667,8 @@
         "required": [
           "fallback",
           "family",
-          "segments"
+          "segments",
+          "task_model"
         ],
         "additionalProperties": true
       },
@@ -26283,6 +27617,423 @@
         ],
         "additionalProperties": true
       },
+      "Seat": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "seat"
+            ]
+          },
+          "stage": {
+            "enum": [
+              "recruiting"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "reports_to": {
+            "type": "string"
+          },
+          "team": {
+            "type": "string"
+          },
+          "created": {
+            "type": "string"
+          },
+          "org_parent": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "id",
+          "kind",
+          "reports_to",
+          "stage",
+          "title"
+        ],
+        "additionalProperties": true
+      },
+      "SeatCandidate": {
+        "type": "object",
+        "properties": {
+          "template": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "icon": {
+            "type": "string"
+          },
+          "department": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "recommended": {
+            "type": "boolean"
+          },
+          "model": {
+            "type": "string"
+          },
+          "model_name": {
+            "type": "string"
+          },
+          "effort": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "model",
+          "model_name",
+          "name",
+          "reason",
+          "recommended",
+          "template"
+        ],
+        "additionalProperties": true
+      },
+      "SeatCandidates": {
+        "type": "object",
+        "properties": {
+          "seat": {
+            "$ref": "#/components/schemas/SeatDetail"
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SeatCandidate"
+            }
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "provider": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "candidates",
+          "models",
+          "seat"
+        ],
+        "additionalProperties": true
+      },
+      "SeatClosed": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "closed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "closed",
+          "id"
+        ],
+        "additionalProperties": true
+      },
+      "SeatCreate": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 8000,
+            "title": "Description",
+            "default": ""
+          },
+          "reports_to": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Reports To",
+            "default": ""
+          },
+          "team": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Team",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "title": "SeatCreate",
+        "description": "A Recruiting seat: a role on the org chart with its job description and reporting line, and no bot."
+      },
+      "SeatDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "seat"
+            ]
+          },
+          "stage": {
+            "enum": [
+              "recruiting"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "reports_to": {
+            "type": "string"
+          },
+          "team": {
+            "type": "string"
+          },
+          "created": {
+            "type": "string"
+          },
+          "description_by": {
+            "enum": [
+              "ceo_bot",
+              "chart",
+              "person"
+            ]
+          },
+          "draft": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "enum": [
+                  "none",
+                  "drafting",
+                  "drafted"
+                ]
+              },
+              "by": {
+                "type": "string"
+              },
+              "at": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "at",
+              "by",
+              "state"
+            ],
+            "additionalProperties": true
+          },
+          "can_edit": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "can_edit",
+          "description",
+          "draft",
+          "id",
+          "kind",
+          "reports_to",
+          "stage",
+          "title"
+        ],
+        "additionalProperties": true
+      },
+      "SeatDraft": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Text"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "SeatDraft",
+        "description": "The CEO Bot's draft of a seat's job description (backend/recruiting.py)."
+      },
+      "SeatHire": {
+        "properties": {
+          "template": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Template"
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Model",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "template"
+        ],
+        "title": "SeatHire",
+        "description": "The candidate picked for a seat: a Tico template, on its suggested model unless `model` names another."
+      },
+      "SeatHired": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "seat": {
+            "type": "string"
+          },
+          "stage": {
+            "enum": [
+              "onboarding"
+            ]
+          },
+          "reports_to": {
+            "type": "string"
+          },
+          "template": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "setup_task_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "reports_to",
+          "seat",
+          "slug",
+          "stage",
+          "template"
+        ],
+        "additionalProperties": true
+      },
+      "SeatList": {
+        "type": "object",
+        "properties": {
+          "seats": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Seat"
+            }
+          }
+        },
+        "required": [
+          "seats"
+        ],
+        "additionalProperties": true
+      },
+      "SeatUpdate": {
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 8000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "reports_to": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reports To"
+          },
+          "team": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SeatUpdate"
+      },
       "ServiceKeyCreate": {
         "properties": {
           "label": {
@@ -26618,66 +28369,6 @@
         ],
         "additionalProperties": true
       },
-      "SubscriptionAssignment": {
-        "properties": {
-          "scope": {
-            "type": "string",
-            "const": "bot",
-            "title": "Scope",
-            "default": "bot"
-          },
-          "target": {
-            "type": "string",
-            "maxLength": 100,
-            "minLength": 1,
-            "title": "Target"
-          },
-          "profile": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 80,
-                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Profile"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "target"
-        ],
-        "title": "SubscriptionAssignment"
-      },
-      "SubscriptionAssignmentResult": {
-        "type": "object",
-        "properties": {
-          "scope": {
-            "enum": [
-              "bot"
-            ]
-          },
-          "target": {
-            "type": "string"
-          },
-          "profile": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "required": [
-          "profile",
-          "scope",
-          "target"
-        ],
-        "additionalProperties": true
-      },
       "SubscriptionIdentity": {
         "type": "object",
         "properties": {
@@ -26743,41 +28434,9 @@
               ],
               "additionalProperties": true
             }
-          },
-          "assignments": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "scope": {
-                  "type": "string"
-                },
-                "target": {
-                  "type": "string"
-                },
-                "profile": {
-                  "type": "string"
-                },
-                "updated": {
-                  "type": "string"
-                },
-                "updated_by": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "profile",
-                "scope",
-                "target",
-                "updated",
-                "updated_by"
-              ],
-              "additionalProperties": true
-            }
           }
         },
         "required": [
-          "assignments",
           "profiles_by_computer"
         ],
         "additionalProperties": true
@@ -27637,12 +29296,16 @@
           },
           "woke": {
             "type": "boolean"
+          },
+          "delivered": {
+            "type": "boolean"
           }
         },
         "required": [
           "answer",
           "comment",
           "comments",
+          "delivered",
           "woke"
         ],
         "additionalProperties": true
@@ -27894,6 +29557,32 @@
             "type": "array",
             "maxItems": 20,
             "title": "Labels"
+          },
+          "change_paths": {
+            "items": {
+              "type": "string",
+              "maxLength": 1000,
+              "minLength": 1
+            },
+            "type": "array",
+            "maxItems": 3000,
+            "title": "Change Paths"
+          },
+          "qa": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qa"
+          },
+          "qa_not_checkable_live": {
+            "type": "boolean",
+            "title": "Qa Not Checkable Live",
+            "default": false
           },
           "top": {
             "type": "boolean",
@@ -28256,6 +29945,22 @@
           "mime",
           "name",
           "versions"
+        ],
+        "additionalProperties": true
+      },
+      "TaskFlow": {
+        "type": "object",
+        "properties": {
+          "going": {
+            "type": "integer"
+          },
+          "waiting": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "going",
+          "waiting"
         ],
         "additionalProperties": true
       },
@@ -29304,6 +31009,58 @@
         "title": "ToolUpdate",
         "description": "A change to a tool a bot already declares (backend/bot_tools.py): only what is sent changes. `scope` keys\nare set one by one (an empty value takes a key off); `note` \"\" clears the note."
       },
+      "TurnCounts": {
+        "type": "object",
+        "properties": {
+          "running": {
+            "type": "integer"
+          },
+          "starting": {
+            "type": "integer"
+          },
+          "waiting": {
+            "type": "integer"
+          },
+          "queued": {
+            "type": "integer"
+          },
+          "start_seconds": {
+            "type": "integer"
+          },
+          "waits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "reason": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "integer"
+                },
+                "oldest": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "count",
+                "oldest",
+                "reason"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "queued",
+          "running",
+          "start_seconds",
+          "starting",
+          "waiting",
+          "waits"
+        ],
+        "additionalProperties": true
+      },
       "Unread": {
         "type": "object",
         "properties": {
@@ -29563,6 +31320,17 @@
       },
       "UsageDefault": {
         "properties": {
+          "hourly_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hourly Usd"
+          },
           "daily_usd": {
             "anyOf": [
               {
@@ -29573,6 +31341,17 @@
               }
             ],
             "title": "Daily Usd"
+          },
+          "weekly_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weekly Usd"
           },
           "monthly_usd": {
             "anyOf": [
@@ -29588,7 +31367,7 @@
           "count_subscription": {
             "type": "boolean",
             "title": "Count Subscription",
-            "default": false
+            "default": true
           }
         },
         "additionalProperties": false,
@@ -29601,7 +31380,19 @@
           "default": {
             "type": "object",
             "properties": {
+              "hourly_usd": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
               "daily_usd": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "weekly_usd": {
                 "type": [
                   "number",
                   "null"
@@ -29620,7 +31411,9 @@
             "required": [
               "count_subscription",
               "daily_usd",
-              "monthly_usd"
+              "hourly_usd",
+              "monthly_usd",
+              "weekly_usd"
             ],
             "additionalProperties": true
           }
@@ -29681,6 +31474,17 @@
       },
       "UsageLimit": {
         "properties": {
+          "hourly_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hourly Usd"
+          },
           "daily_usd": {
             "anyOf": [
               {
@@ -29691,6 +31495,17 @@
               }
             ],
             "title": "Daily Usd"
+          },
+          "weekly_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weekly Usd"
           },
           "monthly_usd": {
             "anyOf": [
@@ -29711,7 +31526,19 @@
       "UsageLimitView": {
         "type": "object",
         "properties": {
+          "hourly_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
           "daily_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "weekly_usd": {
             "type": [
               "number",
               "null"
@@ -29727,7 +31554,19 @@
             "type": "object",
             "description": "Where each cap comes from: bot, company or null"
           },
+          "hour_spent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
           "day_spent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "week_spent": {
             "type": [
               "number",
               "null"
@@ -29741,17 +31580,39 @@
           },
           "percent": {
             "type": "integer",
-            "description": "The highest share of a limit reached"
+            "description": "The highest share of one of the bot's own limits reached"
           },
           "blocked": {
             "enum": [
+              "hourly",
               "daily",
+              "weekly",
               "monthly",
               null
             ],
-            "description": "Set while a limit is met: the bot takes no new job"
+            "description": "Set while a limit is met, the bot's own or a pool's: the bot takes no new job"
+          },
+          "blocked_by": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Whose limit holds the bot: scope (bot, company or group:<id>), name (a pool's), period, and spent and limit (a pool's to the owner and administrators only)",
+            "additionalProperties": true
+          },
+          "own_hourly_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
           },
           "own_daily_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "own_weekly_usd": {
             "type": [
               "number",
               "null"
@@ -29769,15 +31630,22 @@
         },
         "required": [
           "blocked",
+          "blocked_by",
           "daily_usd",
           "day_spent",
+          "hour_spent",
+          "hourly_usd",
           "may_edit",
           "month_spent",
           "monthly_usd",
           "own_daily_usd",
+          "own_hourly_usd",
           "own_monthly_usd",
+          "own_weekly_usd",
           "percent",
-          "source"
+          "source",
+          "week_spent",
+          "weekly_usd"
         ],
         "additionalProperties": true
       },
@@ -29787,7 +31655,19 @@
           "default": {
             "type": "object",
             "properties": {
+              "hourly_usd": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
               "daily_usd": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "weekly_usd": {
                 "type": [
                   "number",
                   "null"
@@ -29806,12 +31686,22 @@
             "required": [
               "count_subscription",
               "daily_usd",
-              "monthly_usd"
+              "hourly_usd",
+              "monthly_usd",
+              "weekly_usd"
             ],
             "additionalProperties": true
           },
           "may_edit_default": {
             "type": "boolean"
+          },
+          "pools": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Owner and administrators: company (UsagePoolView) and groups, {id: UsagePoolView with name and parent}",
+            "additionalProperties": true
           },
           "bots": {
             "type": "object",
@@ -29823,7 +31713,103 @@
         "required": [
           "bots",
           "default",
-          "may_edit_default"
+          "may_edit_default",
+          "pools"
+        ],
+        "additionalProperties": true
+      },
+      "UsagePoolLimit": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "description": "company or group:<id>"
+          },
+          "limit": {
+            "$ref": "#/components/schemas/UsagePoolView"
+          }
+        },
+        "required": [
+          "limit",
+          "scope"
+        ],
+        "additionalProperties": true
+      },
+      "UsagePoolView": {
+        "type": "object",
+        "properties": {
+          "hourly_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "daily_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "weekly_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "monthly_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "hour_spent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "day_spent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "week_spent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "month_spent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "percent": {
+            "type": "integer"
+          },
+          "blocked": {
+            "enum": [
+              "hourly",
+              "daily",
+              "weekly",
+              "monthly",
+              null
+            ]
+          }
+        },
+        "required": [
+          "blocked",
+          "daily_usd",
+          "day_spent",
+          "hour_spent",
+          "hourly_usd",
+          "month_spent",
+          "monthly_usd",
+          "percent",
+          "week_spent",
+          "weekly_usd"
         ],
         "additionalProperties": true
       },

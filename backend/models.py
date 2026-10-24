@@ -179,6 +179,9 @@ class TaskCreate(Contract):
     acceptance_criteria: list[str] = Field(default_factory=list, max_length=50)
     lane: Lane | None = None
     labels: list[str] = Field(default_factory=list, max_length=20)
+    change_paths: list[Annotated[str, Field(min_length=1, max_length=1000)]] = Field(default_factory=list, max_length=3000)
+    qa: StrictBool | None = None
+    qa_not_checkable_live: StrictBool = False
     top: bool = False
     links: list[str] = Field(default_factory=list, max_length=20)
     # Wait for the owner's next run instead of starting one (a bot owner only).
@@ -560,6 +563,16 @@ class GoalProposalDecision(Contract):
 class CompanyUpdate(Contract):
     vision: str | None = Field(default=None, max_length=4000)
     description: str | None = Field(default=None, max_length=10_000)
+
+
+# What a person's chat bot learned (backend/learned.py): one short line, in their own layer or the company's.
+class LearnedAdd(Contract):
+    layer: Literal["personal", "company"] = "personal"
+    text: str = Field(min_length=1, max_length=2000)
+
+
+class LearnedEdit(Contract):
+    text: str = Field(min_length=1, max_length=2000)
 
 
 class GoalWhy(Contract):
@@ -1054,6 +1067,8 @@ class AppDriverReadiness(Contract):
 
 
 class StructuredReadiness(Contract):
+    # Physical home of the computer's one login; present only after the computer_logins_v1 handshake.
+    computer_profile: str | None = Field(default=None, max_length=80)
     worktrees: bool | None = None
     # Prepares a worktree reserved for a waiting task while its bot is idle (backend/worktree_waits.py).
     worktree_waits: bool | None = None
@@ -1126,13 +1141,6 @@ class ComputerProfile(Contract):
     runtimes: dict[str, SubscriptionRuntime] = Field(default_factory=dict, max_length=20)
 
 
-class SubscriptionAssignment(Contract):
-    # Only a bot chooses a subscription; a group no longer gives its bots one.
-    scope: Literal["bot"] = "bot"
-    target: str = Field(min_length=1, max_length=100)
-    profile: str | None = Field(default=None, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$", max_length=80)
-
-
 class WorktreeStatus(Contract):
     repo: str | None = Field(default=None, max_length=200)
     last_activity: float | None = Field(default=None, ge=0)
@@ -1153,6 +1161,17 @@ class WorktreeStatus(Contract):
     record_updated: str | None = Field(default=None, max_length=40)
 
 
+class RunnerPanic(Contract):
+    # Its file in the runner's crate (`src/runner.rs`), or empty for a panic in a dependency; never its message.
+    file: str = Field(default="", max_length=200)
+    line: int = Field(default=0, ge=0, le=1_000_000)
+
+
+class RunnerErrors(Contract):
+    version: str = Field(default="", max_length=100)
+    panics: list[RunnerPanic] = Field(default_factory=list, max_length=20)
+
+
 class Heartbeat(Contract):
     worktrees: list[WorktreeStatus] | None = Field(default=None, max_length=1000)
     profiles: Annotated[list[Any], BeforeValidator(lambda value: value[:100] if isinstance(value, list) else value)] | None = None
@@ -1161,7 +1180,7 @@ class Heartbeat(Contract):
     platform: str = Field(max_length=100)
     capacity: int = Field(default=4, ge=1, le=256)
     # The assignment_* values name the retired temporary assignments (#420); an older runner still sends them.
-    capabilities: list[Literal["assignment_instances_v1", "assignment_cleanup_v1", "task_lanes_v1", "task_lanes_v2", "session_roots_v1", "task_goals_v1", "screen_v1", "model_sign_out_v1", "model_keys_v1", "model_switch_type_v1", "model_remove_v1", "model_switch_to_key_v1"]] = Field(default_factory=list, max_length=20)
+    capabilities: list[Literal["assignment_instances_v1", "assignment_cleanup_v1", "task_lanes_v1", "task_lanes_v2", "session_roots_v1", "task_goals_v1", "screen_v1", "model_sign_out_v1", "model_keys_v1", "model_switch_type_v1", "model_remove_v1", "model_switch_to_key_v1", "computer_logins_v1"]] = Field(default_factory=list, max_length=20)
     # The bool map remains accepted during runner rollout. The server normalizes both
     # shapes before storing them, so every read path sees one structured document.
     readiness: StructuredReadiness | dict[str, bool] = Field(default_factory=dict)
@@ -1399,6 +1418,37 @@ class BotBranch(Contract):
     runner_id: ID | None = None
 
 
+class OnboardingComplete(Contract):
+    """Mark onboarding complete (a person above the bot), or the bot's own "I'm ready" with what it learned."""
+    summary: Annotated[str, Field(max_length=2000)] = ""
+
+
+class SeatCreate(Contract):
+    """A Recruiting seat: a role on the org chart with its job description and reporting line, and no bot."""
+    title: Annotated[str, Field(min_length=1, max_length=120)]
+    description: Annotated[str, Field(max_length=8000)] = ""
+    reports_to: Annotated[str, Field(max_length=200)] = ""     # `human:<id>` or a bot's slug; the caller by default
+    team: Annotated[str, Field(max_length=100)] = ""
+
+
+class SeatUpdate(Contract):
+    title: Annotated[str, Field(min_length=1, max_length=120)] | None = None
+    description: Annotated[str, Field(max_length=8000)] | None = None
+    reports_to: Annotated[str, Field(min_length=1, max_length=200)] | None = None
+    team: Annotated[str, Field(max_length=100)] | None = None
+
+
+class SeatDraft(Contract):
+    """The CEO Bot's draft of a seat's job description (backend/recruiting.py)."""
+    text: Annotated[str, Field(min_length=1, max_length=8000)]
+
+
+class SeatHire(Contract):
+    """The candidate picked for a seat: a Tico template, on its suggested model unless `model` names another."""
+    template: Annotated[str, Field(min_length=1, max_length=80)]
+    model: Annotated[str, Field(max_length=200)] = ""
+
+
 class BotArchive(Contract):
     successor: ID | None = None          # a bot that takes its open tasks and any team it roots
     expected_revision: int = Field(ge=1)
@@ -1561,6 +1611,18 @@ class BotFallback(Contract):
     expected_revision: int = Field(ge=1)
 
 
+class BotKeepTasksGoing(Contract):
+    keep_tasks_going: int | None = Field(None, ge=0, le=1000, strict=True,
+        description="Automatic assigned-task starts: null is unlimited (default), 0 is off, N caps active work. Reviews have no cap.")
+    expected_revision: int
+
+
+class BotTaskModel(Contract):
+    task_model: BotFallbackChoice | None = Field(None, description="Harness, model and effort for the bot's tasks; "
+                                                 "null is the same as the bot")
+    expected_revision: int = Field(ge=1)
+
+
 class BotCompactAt(Contract):
     compact_at: Literal[150_000, 250_000, 400_000, 600_000, 1_000_000]
     expected_revision: int = Field(ge=1)
@@ -1569,6 +1631,42 @@ class BotCompactAt(Contract):
 class BotWakePreset(Contract):
     wake_preset: Literal["current", "token_saver", "performance"] = Field(description="Token saver or Performance; legacy current is accepted as an alias for Performance.")
     expected_revision: int = Field(ge=1)
+
+
+class BotTaskCondition(Contract):
+    """One row of a filter tab (backend/bot_task_tabs.py FIELDS): a task must match every row. A list value is "any
+    of"; days are whole numbers. bot_task_tabs.condition checks each value against the field."""
+    field: Literal["status", "step", "type", "assigned_to", "asked_by", "waiting_on", "created_within",
+                   "updated_within", "done_within", "due", "label"]
+    value: int | str | list[str]
+
+
+class BotTaskTab(Contract):
+    """One tab over a bot's task list (backend/bot_task_tabs.py): a built-in view, or a filter of rows that a task must
+    all match. `types`, `states` and `waiting_on` are Task-list tabs 2/3's filter, still accepted and stored as rows."""
+    name: str = Field(min_length=1, max_length=40)
+    builtin: Literal["needs", "active", "blocked", "done"] | None = None
+    show_count: bool = True
+    conditions: list[BotTaskCondition] = Field(default_factory=list, max_length=20)
+    types: list[str] = Field(default_factory=list, max_length=50)
+    states: list[Literal["open", "doing", "waiting", "review", "ready", "done", "closed", "declined"]] = Field(
+        default_factory=list, max_length=8)
+    waiting_on: Literal["", "me", "person", "bot"] = ""
+
+
+class BotSidebarWidget(Contract):
+    """One widget of a bot's sidebar: hidden, and a height in pixels it grows to at most (none: its natural height;
+    Tasks: 500)."""
+    id: Literal["tasks", "updates", "files", "routines"]
+    hidden: bool = False
+    height: int | None = Field(default=None, ge=80, le=2000)
+
+
+class BotTaskTabs(Contract):
+    # No cap on how many tabs (Task-list tabs spec): the request body limit bounds one write. Leaving widgets out keeps
+    # the saved ones.
+    tabs: list[BotTaskTab] | None
+    widgets: list[BotSidebarWidget] | None = Field(default=None, max_length=4)
 
 
 class BotTransitionCreate(Contract):
@@ -1799,6 +1897,8 @@ class Recruit(Contract):
 
 
 class Claim(Contract):
+    # Opt in only after the heartbeat advertises this protocol; old workers keep their delivery leases.
+    start_places: bool = False
     # Bots the runner takes no work for at all (maintenance, or a runner without lanes that is busy).
     busy_bots: list[ID] | None = Field(default=None, max_length=32)
     # Lanes the runner is already running, each "bot|lane" (clients/sessions.py lane), when it runs lanes.
@@ -1809,8 +1909,28 @@ class Claim(Contract):
     next_run: bool = False
 
 
+class LoadSnapshot(Contract):
+    at: float = Field(ge=0, allow_inf_nan=False)
+    cpu_pct: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    mem_pct: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
+    running_turns: int = Field(ge=0, le=10_000)
+
+
+class StartPlace(Contract):
+    waiting: Literal["", "shared login", "pre-start requirements"] = ""
+
+
 class Started(Contract):
     thread_id: ID
+    load_snapshot: LoadSnapshot | None = None
+
+
+class AttemptThread(Contract):
+    thread_id: ID
+
+
+class AttemptStderr(Contract):
+    tail: str = Field(max_length=65536)
 
 
 class Event(Contract):
@@ -1878,12 +1998,14 @@ class RunUsage(RunUsagePart):
 
 
 class UsageLimit(Contract):
+    hourly_usd: float | None = None
     daily_usd: float | None = None
+    weekly_usd: float | None = None
     monthly_usd: float | None = None
 
 
 class UsageDefault(UsageLimit):
-    count_subscription: bool = False
+    count_subscription: bool = True
 
 
 class SubscriptionUnavailable(Contract):
@@ -1897,7 +2019,15 @@ class RunPush(Contract):
     count: int = Field(ge=1, le=1000)
 
 
+class RunRotation(Contract):
+    reason: Literal["tokens", "turns"]  # which of the bot's limits the old session reached (runner-rs/src/rotate.rs)
+    tokens: int = Field(ge=0)  # input tokens of the old session's newest turn
+    turns: int = Field(ge=0)   # its turns on that computer
+    limit: int = Field(ge=0)   # the limit it reached, in the unit of `reason`
+
+
 class Completion(Contract):
+    load_snapshot: LoadSnapshot | None = None
     subscription_unavailable: SubscriptionUnavailable | None = None
     profile_used: str | None = Field(default=None, max_length=80)
     outcome: Literal["completed", "failed", "interrupted"]
@@ -1909,6 +2039,9 @@ class Completion(Contract):
     # When the provider said that limit lifts (its own reset time); work resumes then instead of after a default wait.
     limit_resets_at: str | None = Field(default=None, max_length=40)
     retryable: bool = False  # the runtime could not renew its sign-in; the turn never started
+    # The turn gave a shared one-turn login to a waiting turn at its hold cap (runner-rs/src/login_turns.rs): it stopped
+    # at a safe point and its job goes back in the queue to continue, neither answered nor held for review.
+    yielded: bool = False
     fallback: str | None = Field(default=None, max_length=80)  # harness that actually ran the turn
     primary_limited: bool = False  # the bot's own runtime hit its usage limit and the company's default `fallback` ran the turn
     primary_held: bool = False  # the claim held the bot's own login (config `primary_held`): the runner never tried it
@@ -1920,6 +2053,8 @@ class Completion(Contract):
     # Git pushes the run made from its task's worktrees (runner-rs/src/worktrees.rs pushes): writes Tico sees no
     # other way. Counted in its `writes` (backend/run_triggers.py).
     pushes: list[RunPush] = Field(default_factory=list, max_length=50)
+    # The run started a fresh provider session because the bot's last one had grown past its limit (token saving).
+    rotated: RunRotation | None = None
 
 
 class Retry(Contract):
@@ -1939,8 +2074,11 @@ class Adopt(Contract):
 
 
 class BotControl(Contract):
-    action: Literal["drain", "resume", "pause"]
+    """`scope` limits the bot's claims to `task_id` and its direct subtasks, leaving the rest of its queue untouched;
+    `unscope` lifts that limit. Neither pauses, resumes or starts anything."""
+    action: Literal["drain", "resume", "pause", "scope", "unscope"]
     expected_revision: int = Field(ge=1)
+    task_id: str | None = Field(None, max_length=200)
 
 
 class BotPlace(Contract):
@@ -1989,6 +2127,14 @@ class Empty(Contract):
     pass
 
 
+class SystemRoutineUpdate(Contract):
+    """One system routine's switch, schedule preset or daily time (backend/system_routines.py); only what is sent
+    changes."""
+    on: bool | None = None
+    preset: Literal["15m", "hourly", "4h", "daily"] | None = None
+    at: str | None = Field(default=None, max_length=5)
+
+
 class LimitRetry(Contract):
     pass
 
@@ -2000,6 +2146,8 @@ class StopTurn(Contract):
 
 class AssistantMessage(Contract):
     text: Annotated[str, Field(min_length=1, max_length=8000)]
+    # Sent from the Updates chat (backend/updates_chat.py): the turn is handed the updates the person may read.
+    place: Literal["updates"] | None = None
 
 
 class LibrarianResearch(Contract):
@@ -2060,6 +2208,7 @@ class PerformanceProcess(_Sampled):
 
 
 class PerformanceSample(_Sampled):
+    interval_s: Literal[30, 60] = 30  # old runners sample twice a minute
     at: float = Field(ge=0, allow_inf_nan=False)
     scope: Literal["host", "container"] = "host"
     # A container's memory is the host's when it has no memory limit; an older runner leaves this out.
@@ -2071,6 +2220,9 @@ class PerformanceSample(_Sampled):
     mem_used: Bytes | None = None
     swap_total: Bytes | None = None
     swap_used: Bytes | None = None
+    # Raw swap for the simple load reading; macOS omits diagnostic swap because its total grows with use.
+    load_swap_total: Bytes | None = None
+    load_swap_used: Bytes | None = None
     disk: list[PerformanceDisk] = Field(default_factory=list, max_length=4)
     active: int = Field(default=0, ge=0, le=10_000)
     procs: list[PerformanceProcess] = Field(default_factory=list, max_length=16)
@@ -2240,3 +2392,13 @@ class InboundTask(Contract):
     due: str | None = None
     close: bool = False
     note: str | None = Field(default=None, max_length=200_000)
+
+
+class TaskRuleUpdate(Contract):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    department: str | None = Field(default=None, min_length=1, max_length=80)
+    triggers: list[dict] | None = Field(default=None, min_length=1, max_length=8)
+    actions: list[str] | None = Field(default=None, min_length=1, max_length=8)
+    on: bool | None = None
+    preset: Literal["15m", "hourly", "4h", "daily"] | None = None
+    at: str | None = Field(default=None, max_length=5)

@@ -19,6 +19,7 @@ function route() {
   $('#main').classList.remove('overview-layout');
   const from = LAST_ROUTE;
   S.route = LAST_ROUTE = location.hash || UPDATES;
+  if (S.route !== SETTINGS) { clearTimeout(SETTINGS_PRESENCE.timer); SETTINGS_PRESENCE.timer = null; }
   const botOf = r => r.startsWith('#/bot/') ? r.slice(6).split('/')[0] : '';
   const botHere = botOf(S.route);
   document.body.classList.toggle('bot-page', !!botHere);   // a phone gives the bot page the whole screen
@@ -46,7 +47,7 @@ function route() {
   if (!S.route.startsWith('#/replay')) replayStop();
   if (!/^#\/computers\/[^/?]+\/screen$/.test(S.route)) screenStop();
   if (!/^#\/computers\/[^/?]+\/performance$/.test(S.route)) perfStop();
-  if (UPD && !(S.route === UPDATES || S.route.startsWith(UPDATES + '?'))) { UPD.io?.disconnect(); void updFlush(UPD); UPD = null; }
+  if (!(S.route === UPDATES || S.route.startsWith(UPDATES + '?'))) { if (UPD) { UPD.io?.disconnect(); void updFlush(UPD); UPD = null; } updcStop(); }
   if (!S.route.startsWith('#/bot/')) botStopped();
   renderTree();
   if (S.route === NOTES || S.route === RECORDINGS || S.route.startsWith(RECORDINGS + '?')) {
@@ -67,6 +68,7 @@ function route() {
   else if (S.route === MEETINGS || S.route.startsWith(MEETINGS + '?')) pageNotes();
   else if (S.route.startsWith('#/bot/')) { const [slug, tab] = S.route.slice(6).split('/'); pageBot(slug, tab); }
   else if (S.route === ASSISTANT) pageAssistant();
+  else if (S.route === LEARNED) pageLearned();
   else if (S.route.startsWith('#/person/')) {
     const parts = S.route.slice(9).split('/').map(decodeURIComponent);
     pagePerson(parts[0], parts[1]);
@@ -88,6 +90,7 @@ function route() {
   else if (S.route === '#/settings/inbox') { SETTINGS_TAB = 'inbox'; location.replace(SETTINGS); return; }   // Google's sign-in returns here
   else if (S.route === '#/settings/roadmap') { SETTINGS_TAB = 'tasks'; ROADMAP_SETTINGS_REVEAL = true; location.replace(SETTINGS); return; }   // Health's roadmap suggestions fix
   else if (S.route === '#/settings/storage') { SETTINGS_TAB = 'storage'; location.replace(SETTINGS); return; }   // Health's Set up S3
+  else if (S.route === '#/settings/routines') { SETTINGS_TAB = 'recurring'; location.replace(SETTINGS); return; }   // General > Team's moved switches
   else if (['#/settings/subscriptions', '#/subscriptions', '#/settings/computers'].includes(S.route)) { SETTINGS_TAB = 'devices'; location.replace(SETTINGS); return; }   // Subscriptions moved to Computers
   else if (S.route === CREDENTIALS) pageCredentials();
   else if (S.route === SQL_PAGE) pageSql();
