@@ -167,7 +167,6 @@ impl GrokHost {
 
     /// Start `grok agent` with `cmd` in `env` and say `initialize`.
     async fn launch(&self, cmd: Vec<String>, env: Env) -> Result<(), HostError> {
-        prepare_home(&env);
         let mut command = crate::isolation::command(&cmd[0]);
         let mut full = env.clone();
         full.extend(NO_OPERATOR_MCP.iter().map(|(k, v)| (k.to_string(), v.to_string())));
@@ -229,6 +228,9 @@ impl GrokHost {
         let cmd = argv(&self.0.program, settings.model.as_deref(), settings.effort.as_deref());
         let current = self.0.child.lock().unwrap().as_ref().map(|(c, e, _, _)| (c.clone(), e.clone()));
         let env = if !settings.env.is_empty() { settings.env.clone() } else { current.as_ref().map(|(_, e)| e.clone()).unwrap_or_else(crate::env::process_environment) };
+        // A supervisor-owned store can appear while the agent stays alive (including API-key sessions).
+        // Repair before every new or resumed thread, even when the process can be reused.
+        prepare_home(&env);
         if self.alive() && current.as_ref().is_some_and(|(c, e)| *c == cmd && *e == env) {
             return Ok(());
         }

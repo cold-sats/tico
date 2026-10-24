@@ -2610,10 +2610,26 @@ import json, os, pathlib, sys
 if sys.argv[1:] == ['--version']:
     print('1.0.70')
     sys.exit(0)
-if sys.argv[1:] == ['session']:
+def session(name):
     store = pathlib.Path(os.environ['HOME']) / '.grok/sessions'
     store.mkdir(parents=True, exist_ok=True)
-    (store / 'synthetic.json').write_text('{}')
+    (store / (name + '.json')).write_text('{}')
+if sys.argv[1:] == ['session']:
+    session('synthetic')
+    sys.exit(0)
+if sys.argv[1:2] == ['agent']:
+    for line in sys.stdin:
+        request = json.loads(line)
+        try:
+            if request['method'] == 'initialize':
+                result = {'protocolVersion': 1}
+            else:
+                session(request['method'].split('/')[1])
+                result = {'sessionId': str(os.getpid())}
+            reply = {'result': result}
+        except PermissionError:
+            reply = {'error': {'message': 'Failed to save credentials: Permission denied (os error 13)'}}
+        print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], **reply}), flush=True)
     sys.exit(0)
 if sys.argv[1:] not in (['login', '--device-auth'], ['refresh']):
     sys.exit(2)
@@ -2689,10 +2705,29 @@ except PermissionError:
         env.insert("XAI_API_KEY".into(), "synthetic".into());
         let exe = root.join("bin/grok").display().to_string();
         assert!(!model_command(&exe, &["session"], &env).output().unwrap().status.success());
-        // The same preparation runs immediately before GrokHost launches the bot's CLI.
-        crate::hosts::grok::prepare_home(&env);
-        assert!(model_command(&exe, &["session"], &env).status().unwrap().success());
-        assert_eq!(home.join("sessions/synthetic.json").metadata().unwrap().uid(), 10003);
+        rt.block_on(async {
+            let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+            let host = crate::hosts::grok::GrokHost::new("acme", &exe, tx);
+            let settings = crate::hosts::Settings { env: env.clone(), cwd: root.display().to_string(), ..Default::default() };
+            // Launch the actual host path with an API key, without interactive login.
+            let thread = host.start_thread("acme", &settings).await.unwrap();
+            assert!(host.alive());
+            assert_eq!(home.join("sessions/new.json").metadata().unwrap().uid(), 10003);
+            // Recreate the incident after the process is already running. Both new and resumed
+            // threads must repair the store without restarting that process (session id = pid).
+            for resume in [false, true] {
+                std::fs::remove_dir_all(&home).unwrap();
+                std::fs::create_dir(&home).unwrap();
+                chown(&home, Some(10002), Some(10002)).unwrap();
+                assert!(!model_command(&exe, &["session"], &env).output().unwrap().status.success());
+                let result = if resume { host.resume_thread(&thread, &settings).await } else { host.start_thread("acme", &settings).await };
+                assert_eq!(result.unwrap(), thread, "the running agent must be reused");
+                assert_eq!(home.metadata().unwrap().uid(), 10003);
+                let file = if resume { "load.json" } else { "new.json" };
+                assert_eq!(home.join("sessions").join(file).metadata().unwrap().uid(), 10003);
+            }
+            host.stop().await;
+        });
         std::fs::remove_dir_all(&home).unwrap();
 
         // A named subscription hands over only its profile home; a shared profile uses the operator home.
@@ -2740,6 +2775,11 @@ except PermissionError:
         assert_eq!(control.metadata().unwrap().uid(), 0);
         std::fs::remove_file(&home).unwrap();
         std::fs::create_dir(&home).unwrap();
+        std::os::unix::fs::symlink(&outside, home.join("linked-directory")).unwrap();
+        std::os::unix::fs::symlink(&control, home.join("linked-file")).unwrap();
+        crate::hosts::grok::hand_login_to_bot();
+        assert_eq!(outside.metadata().unwrap().uid(), 0, "links inside the store must not be traversed");
+        assert_eq!(control.metadata().unwrap().uid(), 0);
         std::fs::hard_link(&control, &auth).unwrap();
         crate::hosts::grok::hand_login_to_bot();
         assert_eq!(control.metadata().unwrap().uid(), 0);
