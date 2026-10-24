@@ -14,6 +14,7 @@ from fastapi.responses import PlainTextResponse, RedirectResponse, Response
 from clients import gateway, sessions
 
 from . import access as Access
+from . import lifecycle
 from . import bot_access as A
 from . import models as M
 from . import changelog as CL
@@ -21,6 +22,7 @@ from . import visuals
 from . import app_delivery, login_holds, providers, runner_versions
 from .harnesses import resolve_harness
 from . import personal_tokens, rooms, team_rules, turns, wake_presets
+from . import auto_tasks
 from .execution import AWAKE_GAP, AWAKE_SETTLE, Execution, bump_bot_session_epoch, turns_here
 from pathlib import Path
 
@@ -1665,6 +1667,8 @@ def install_views(app, store, auth, mutate, task_view):
                          "state": bot["state"], "status": bot["state"],
                          "private_tasks_default": H.private_tasks_default(c, "bot:" + slug),
                          "host": "keeper", "tasks": "hub", "has_repo": location["ready"],
+                         "keep_tasks_going": auto_tasks.of(config),
+                         "task_flow": auto_tasks.counts(c, slug, who),
                          "team": P.team_of(slug, configs, people),
                          "org_parent": P.org_parent("bot", slug, people, chart, archived),
                          "report_position": places.get("bot:" + slug),
@@ -1679,6 +1683,10 @@ def install_views(app, store, auth, mutate, task_view):
                          "wake": wake_presets.effective(config),
                          "my_access": level, **policy,
                          "can_chat": level["write"] and slug not in (auth.settings.assistant_bot, CEO_BOT),
+                         # Onboarding or Active, and whether this person may mark onboarding complete (backend/lifecycle.py).
+                         "stage": lifecycle.stage(config.get("onboarding_state")),
+                         "can_complete_onboarding": (lifecycle.stage(config.get("onboarding_state")) == lifecycle.ONBOARDING
+                                                     and lifecycle.may_complete(auth, c, who, slug)),
                          # Labelled as on the bot list, so its computer is named to one who cannot see it.
                          "app_delivery": app_delivery.view(c, config),
                          "app_delivery_app": app_delivery.HARNESS_APP.get(resolve_harness(config, config.get("runtime")))})
