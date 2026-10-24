@@ -1949,21 +1949,28 @@ def install_views(app, store, auth, mutate, task_view):
             # Cancelled and uncertain jobs are not "up next": uncertain work already
             # surfaces as a health issue, cancelled work is history.
             readable = auth.bot_accesses(c, who)
-            for row in c.execute("SELECT j.*,a.started,t.title AS task_title,m.from_actor FROM jobs j "
-                                 "LEFT JOIN attempts a ON a.id=j.attempt_id JOIN messages m ON m.id=j.message_id "
-                                 f"JOIN conversations cv ON cv.id=m.conversation_id LEFT JOIN tasks t ON t.id={H.MESSAGE_TASK_SQL} "
-                                 "WHERE j.state IN ('queued','leased','running','input') ORDER BY j.created"):
-                if readable.get(row["bot"], auth.FULL)["read"]:
-                    if not privacy.message_readable(c, privacy.actor(who), H.message(c, row["message_id"])):
-                        continue
-                    if row["attempt_id"] and not privacy.attempt_readable(c, privacy.actor(who), row["attempt_id"]):
-                        continue
-                    # Never the message text: a shared bot's private chats belong to their people.
-                    title = row["task_title"] or "Message from " + H.actor_id(row["from_actor"])
-                    item = {"employee": row["bot"], "bot": row["bot"], "id": row["id"], "started": row["started"],
-                            "state": row["state"], "created": row["created"],
-                            "title": title if len(title) <= 80 else title[:79].rstrip() + "\u2026"}
-                    (queued if row["state"] == "queued" else active).append(item)
+            jobs = [row for row in c.execute(
+                "SELECT j.*,a.started,t.title AS task_title,m.from_actor FROM jobs j "
+                "LEFT JOIN attempts a ON a.id=j.attempt_id JOIN messages m ON m.id=j.message_id "
+                f"JOIN conversations cv ON cv.id=m.conversation_id LEFT JOIN tasks t ON t.id={H.MESSAGE_TASK_SQL} "
+                "WHERE j.state IN ('queued','leased','running','input') ORDER BY j.created")
+                if readable.get(row["bot"], auth.FULL)["read"]]
+            # Every job's message and run are read and checked together, not a few queries per job. A deleted
+            # message is not readable, as H.message (which leaves it out) made it.
+            shown = {m["id"] for m in privacy.readable_messages(c, privacy.actor(who),
+                                                                [{"id": row["message_id"]} for row in jobs])}
+            privacy.prime_attempts(c, [row["attempt_id"] for row in jobs if row["message_id"] in shown])
+            for row in jobs:
+                if row["message_id"] not in shown:
+                    continue
+                if row["attempt_id"] and not privacy.attempt_readable(c, privacy.actor(who), row["attempt_id"]):
+                    continue
+                # Never the message text: a shared bot's private chats belong to their people.
+                title = row["task_title"] or "Message from " + H.actor_id(row["from_actor"])
+                item = {"employee": row["bot"], "bot": row["bot"], "id": row["id"], "started": row["started"],
+                        "state": row["state"], "created": row["created"],
+                        "title": title if len(title) <= 80 else title[:79].rstrip() + "\u2026"}
+                (queued if row["state"] == "queued" else active).append(item)
             from .routines import listing
             schedules = [{**row, 'last_checked': tick} for row in listing(c, summary=True) if readable.get(row['bot'], auth.FULL)['read']]
             return {"cloud": True, "last_tick": tick, "active": active, "queued": queued,

@@ -43,9 +43,11 @@ class Sources:
         self.room = lru_cache(maxsize=4096)(self._room)
         self.conversation = lru_cache(maxsize=4096)(self._conversation)
         self.attempt = lru_cache(maxsize=4096)(self._attempt)
+        self.primed = {}
 
     def _room(self, cid):
-        row = self.c.execute("SELECT room_key FROM conversations WHERE id=?", (cid,)).fetchone()
+        # The stored row as H.conversation reads it, so a page that read its rooms together does not read each again.
+        row = H.conversation(self.c, cid)
         return (row and row["room_key"]) or ""
 
     def bound_conversation(self, cid):
@@ -143,19 +145,40 @@ class Sources:
         return ids
 
     def _attempt(self, aid):
+        if aid in self.primed:
+            return self.primed[aid]
         from . import provenance_clock
         return frozenset(provenance_clock.cached(
             self.c, ("meeting_attempt", aid), lambda: self._attempt_uncached(aid)))
 
+    def prime_attempts(self, inputs, moved):
+        """The provenance of many runs from rows already read together (task_privacy.prime_attempts): `inputs`
+        maps each run to its messages as stored, `moved` to its attempt.input.moved details. A run whose provenance
+        cannot be authorized is left out, so its own check reads it again and refuses as before."""
+        from . import provenance_clock
+        for aid, rows in inputs.items():
+            try:
+                ids = self._attempt_from(rows, moved.get(aid, ()))
+            except Problem:
+                continue
+            self.primed[aid] = frozenset(provenance_clock.cached(
+                self.c, ("meeting_attempt", aid), lambda ids=ids: ids))
+
     def _attempt_uncached(self, aid):
+        rows = self.c.execute("SELECT m.* FROM attempts a JOIN jobs j ON j.id=a.job_id "
+                              "JOIN messages m ON m.id=j.message_id WHERE a.id=? UNION "
+                              "SELECT m.* FROM attempt_inputs i JOIN messages m ON m.id=i.message_id "
+                              "WHERE i.attempt_id=?", (aid, aid)).fetchall()
+        moved = [row[0] for row in self.c.execute(
+            "SELECT detail_json FROM events WHERE action='attempt.input.moved' AND target=?", (aid,))]
+        return self._attempt_from(rows, moved)
+
+    def _attempt_from(self, rows, moved):
         ids = set()
-        for row in self.c.execute("SELECT m.* FROM attempts a JOIN jobs j ON j.id=a.job_id "
-                                  "JOIN messages m ON m.id=j.message_id WHERE a.id=? UNION "
-                                  "SELECT m.* FROM attempt_inputs i JOIN messages m ON m.id=i.message_id "
-                                  "WHERE i.attempt_id=?", (aid, aid)):
+        for row in rows:
             ids.update(self.message(row, include_run=False))
-        for row in self.c.execute("SELECT detail_json FROM events WHERE action='attempt.input.moved' AND target=?", (aid,)):
-            detail = H._json(row[0], {}) or {}
+        for detail_json in moved:
+            detail = H._json(detail_json, {}) or {}
             ids.update(self.references(detail))
             if detail.get("message_id"):
                 ids.update(self.message(H.message(self.c, detail["message_id"], include_deleted=True), include_run=False))

@@ -3057,7 +3057,7 @@ def create_app(settings=None):
             except Problem:
                 can_comment = False
             return {"task": task_view(row, c, visible_sql=auth.task_sql(c, who), who=who),
-                    "events": [e for e in H.task_history(c, tid) if privacy.content_readable(c, privacy.actor(who), e)],
+                    "events": privacy.content_readable_rows(c, privacy.actor(who), H.task_history(c, tid)),
                     "can_comment": can_comment,
                     "children": children,
                     # The task page reads as its session's chat: each bot reply carries the run behind it (`run`,
@@ -3110,9 +3110,10 @@ def create_app(settings=None):
         weighs who built what reads this, never the bot's configured model: a fallback turn ran elsewhere."""
         from .usage_records import ran_on
         actor = privacy.actor(who)
-        rows = [r for r in H._rows(c.execute("SELECT id,bot,started,finished,exit FROM turns WHERE task_id=? "
-                                             "ORDER BY started DESC LIMIT ?", (tid, limit)))
-                if privacy.attempt_readable(c, actor, r["id"])]
+        rows = H._rows(c.execute("SELECT id,bot,started,finished,exit FROM turns WHERE task_id=? "
+                                 "ORDER BY started DESC LIMIT ?", (tid, limit)))
+        privacy.prime_attempts(c, [r["id"] for r in rows])
+        rows = [r for r in rows if privacy.attempt_readable(c, actor, r["id"])]
         made = ran_on(c, [r["id"] for r in rows])
         return [{"run": r["id"], "bot": r["bot"], "started": r["started"], "finished": r["finished"],
                  "outcome": r["exit"], "ran_on": made[r["id"]]} for r in rows]

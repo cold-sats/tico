@@ -4473,11 +4473,17 @@ def task_comments(conn, task_id, *, actor=None):
     ids = named(conn, task_id, row["conversation_id"])
     if ids is not None:
         sql, args = "+conversation_id=? AND id IN (SELECT value FROM json_each(?))", args + [_dump(sorted(ids))]
-    for m in _rows(conn.execute("SELECT * FROM messages WHERE " + sql + " AND deleted_at IS NULL "
-                                "ORDER BY created", args)):
+    if actor is not None:
+        # The rows below are read in the snapshot their checks use, so each check takes the row as stored.
+        privacy.snapshot(conn)
+    rows = _rows(conn.execute("SELECT * FROM messages WHERE " + sql + " AND deleted_at IS NULL ORDER BY created", args))
+    for m in rows:
         m["refs"] = _json(m.get("refs_json"), {}) or {}
+    if actor is not None:
+        privacy.prime_messages(conn, rows)
+    for m in rows:
         if message_task_id(m, conv) == task_id and m.get("kind") in ("say", "ask", "answer"):
-            if actor is not None and not privacy.message_readable(conn, actor, m):
+            if actor is not None and not privacy.message_readable(conn, actor, m, current=True):
                 continue
             if m["kind"] == "ask" and m["refs"].get("questions"):
                 m["ask"] = {**{k: m["refs"].get(k) for k in ("questions", "who")}, "by": m["from_actor"]}
@@ -7101,11 +7107,23 @@ def humans(conn):
     return out
 
 
+CONVERSATION_SQL = "SELECT * FROM conversations WHERE id=?"
+
+
 def conversation(conn, conversation_id):
-    row = _one(conn, "SELECT * FROM conversations WHERE id=?", (conversation_id,))
+    row = _one(conn, CONVERSATION_SQL, (conversation_id,))
     if row:
         row["participants"] = _json(row.get("participants_json"), []) or []
     return row
+
+
+def prime_conversations(conn, ids):
+    """Read these conversations in one query per 500 for the conversation() lookups that follow in this snapshot."""
+    from .read_cache import prime
+    for part in chunks(sorted({cid for cid in ids if cid})):
+        found = {row["id"]: row for row in conn.execute(
+            "SELECT * FROM conversations WHERE id IN (%s)" % ",".join("?" * len(part)), part)}
+        prime(conn, CONVERSATION_SQL, {(cid,): found.get(cid) for cid in part})
 
 
 def conversations_for(conn, actor, limit=100):
