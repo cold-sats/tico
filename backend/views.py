@@ -824,13 +824,27 @@ KIND_RANK = {"approval": 0, "question": 1, "ask": 1, "waiting": 1, "setup": 1, "
 # for the person to do on it until the bot restates it (backend/restate_asks.py asks it to).
 
 
+_VISIBLE_TASK_SQL = "SELECT * FROM tasks WHERE id=? AND (%s)"
+
+
+def _prime_person_origins(c, visible_sql, ids):
+    """The rows person_origin reads, each task as `visible_sql` lets this reader see it or None, read in one query
+    per 500 with that same rule rather than one query per card and ancestor."""
+    if read_cache.cache(c) is None:
+        return
+    for part in H.chunks(sorted({tid for tid in ids if tid})):
+        found = {row["id"]: row for row in c.execute(
+            "SELECT * FROM tasks WHERE id IN (%s) AND (%s)" % (",".join("?" * len(part)), visible_sql), part)}
+        read_cache.prime(c, _VISIBLE_TASK_SQL % visible_sql, {(tid,): found.get(tid) for tid in part})
+
+
 def person_origin(c, row, visible_sql, me=None):
     """The person a task traces back to: its requester when that is a person, else the nearest ancestor's.
     `visible_sql` is the reader's task rule (Auth.task_sql), so the walk stops at a task they may not open and
     the order never says what it holds. `me`'s own to-do (they asked themselves) does not count: it would lift
     their whole list over every bot. None for work bots made for themselves or each other."""
     def readable(tid):
-        return c.execute(f"SELECT * FROM tasks WHERE id=? AND ({visible_sql})", (tid,)).fetchone()
+        return read_cache.one(c, _VISIBLE_TASK_SQL % visible_sql, (tid,))
     if not row or not readable(row["id"]):
         return None
     if me and row.get("requester") == row.get("owner") == me:
@@ -1360,13 +1374,28 @@ def card_why(item):
 def needs_items(c, auth, who, task_view, older=None):
     """The person's queue. A question unanswered for two business days stays, marked stale, until the weekday-morning
     batch sends it back to its bot (backend/still_needed.py); `older`, a list the caller passes, stays empty."""
-    raw = H.needs_you(c, who.actor)
+    # The reader's rule first: it opens the read snapshot, so the list, the rows its cards read and every check
+    # against them see the same database.
     visible = auth.task_sql(c, who)
+    raw = H.needs_you(c, who.actor)
     H.hydrate_task_tags(c, raw["tasks"] + raw["waiting"] + raw["declined"])
     from . import ask_deadlines, team_rules
     rules = team_rules.load(c)
     from . import ceo_merge
     merged = ceo_merge.hidden_by_item(c, who.actor)
+    # Each card reads its task, its open asks, its origin and the chain of tasks above it. Those rows are read here
+    # for every card together, in this snapshot; each card is still checked one at a time by the same rules.
+    cards = raw["tasks"] + raw["waiting"] + raw["declined"]
+    chain = TR.prime_ancestry(c, [row["id"] for row in cards])
+    chain |= {row["task_id"] for row in raw["approvals"] if row.get("task_id")}
+    H.prime_tasks(c, chain)
+    H.prime_messages(c, [row["message_id"] for row in raw["approvals"]])
+    privacy.prime_messages(c, [m for row in raw["approvals"]
+                               if (m := H.message(c, row["message_id"])) and m["to_actor"] == who.actor])
+    H.prime_task_origins(c, [row["id"] for row in cards])
+    _prime_person_origins(c, visible, chain)
+    pipelines = H.type_list(c)
+    asks_of = H.open_tasks_asks(c, cards, actor=privacy.actor(who))
     items = []
     for kind in ("tasks", "waiting", "declined"):
         for row in raw[kind]:
@@ -1374,11 +1403,11 @@ def needs_items(c, auth, who, task_view, older=None):
                 auth.task(c, who, row["id"])
             except Problem:
                 continue
-            open_asks = H.open_task_asks(c, row, actor=privacy.actor(who))
+            open_asks = asks_of[row["id"]]
             ask = next((a for a in open_asks if a["to_actor"] == who.actor), None) or next(iter(open_asks), None)
             if ask and (ask.get("refs") or {}).get("if_no_answer"):
                 ask["goes_ahead_at"] = ask_deadlines.deadline(ask, rules)     # when the bot's default goes ahead
-            item = {**task_view(row),
+            item = {**task_view(row, pipelines=pipelines),
                     "kind": kind if kind in ("declined", "waiting") else "question" if ask else "task",
                     "origin_actor": H.task_origin(c, row), "ask": ask, "open_asks": len(open_asks),
                     "first_line": (row.get("body") or "").split("\n")[0],
@@ -1392,9 +1421,7 @@ def needs_items(c, auth, who, task_view, older=None):
             if ask and ask.get("to_actor") == who.actor and H.ask_older(ask):
                 ask["stale"] = True      # its one-click Clarify (backend/clarify_asks.py) shows on the card
             items.append(item)
-    for msg in H.loose_asks_to(c, who.actor):
-        if not privacy.message_readable(c, privacy.actor(who), msg):
-            continue
+    for msg in privacy.readable_messages(c, privacy.actor(who), H.loose_asks_to(c, who.actor)):
         msg["refs"] = H._json(msg.get("refs_json"), {}) or {}
         ask = {k: msg[k] for k in ("id", "from_actor", "to_actor", "body", "created", "conversation_id", "refs")}
         item = {"kind": "ask", "id": msg["id"], "message_id": msg["id"], "title": _clip(msg["body"], 160),

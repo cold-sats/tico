@@ -157,10 +157,10 @@ def test_context_search_and_cached_fleet_do_not_disclose_revoked_sources(api):
                   ("private-reference", "Sensitive packet reference", "https://example.test/#/task/" + row["id"],
                    "Sensitive packet", H.now(), H.now()))
         who = Identity("human:ben", "human", email="ben@acme.example")
-        before = views.fleet_snapshot_cached(c, api.app.state.auth, who, lambda row: row)
+        before = views.fleet_snapshot_cached(c, api.app.state.auth, who, lambda row, **k: row)
         assert row["id"] in {t["id"] for t in before["tasks"]}
         c.execute("UPDATE tasks SET owner='human:ana' WHERE id=?", (row["id"],))
-        after = views.fleet_snapshot_cached(c, api.app.state.auth, who, lambda row: row)
+        after = views.fleet_snapshot_cached(c, api.app.state.auth, who, lambda row, **k: row)
         assert row["id"] not in {t["id"] for t in after["tasks"]}
     result = get(api, "context/search?q=Sensitive&source=docs", "ben-test")
     assert "private-reference" not in json.dumps(result)
@@ -360,6 +360,26 @@ def test_sql_event_privacy_scales_with_matching_attempts_not_their_cross_product
           f"3000 attempts/events {after[1]} statements/{after[2]:.4f}s")
 
 
+def traced_get(api, path, token):
+    """The response to one GET and the number of SQL statements it ran on every pooled connection."""
+    store = api.app.state.store
+    statements, take, give = [], store._take, store._give
+
+    def traced():
+        c = take()
+        c.set_trace_callback(statements.append)
+        return c
+
+    def untraced(c):
+        c.set_trace_callback(None)
+        give(c)
+    store._take, store._give = traced, untraced
+    try:
+        return get(api, path, token), len(statements)
+    finally:
+        store._take, store._give = take, give
+
+
 def test_task_page_reads_a_fixed_number_of_statements_and_hides_private_provenance(api):
     """A task page checks every comment, event and run against the tasks they name. Those checks read together, so a
     long task costs what a short one does, and whatever names a private task stays hidden from who cannot read it."""
@@ -387,30 +407,52 @@ def test_task_page_reads_a_fixed_number_of_statements_and_hides_private_provenan
                 H._task_event(c, parent["id"], "human:ana", "note", None, hidden["id"] if n == 2 else f"note {n}", "")
         return parent["id"]
 
-    def page(tid, token):
-        statements, take, give = [], store._take, store._give
-
-        def traced():
-            c = take()
-            c.set_trace_callback(statements.append)
-            return c
-
-        def untraced(c):
-            c.set_trace_callback(None)
-            give(c)
-        store._take, store._give = traced, untraced
-        try:
-            return get(api, "tasks/" + tid, token), len(statements)
-        finally:
-            store._take, store._give = take, give
-
     counts = {}
     for size in (3, 30):
         tid = task_with(size)
-        (ana, counts[size, "ana"]), (cara, counts[size, "cara"]) = page(tid, "ana-test"), page(tid, "cara-test")
+        (ana, counts[size, "ana"]), (cara, counts[size, "cara"]) = (traced_get(api, "tasks/" + tid, "ana-test"),
+                                                                    traced_get(api, "tasks/" + tid, "cara-test"))
         assert len(ana["children"]) == len(cara["children"]) == size
         # The run that took in Cara's private comment, the comment naming her task and that event are hers alone.
         assert len(cara["runs"]) == size and len(ana["runs"]) == size - 1
         assert len(cara["comments"]) == len(ana["comments"]) + 2 and len(cara["events"]) == len(ana["events"]) + 1
         assert hidden["id"] not in json.dumps(ana)
     assert counts[30, "ana"] <= counts[3, "ana"] + 5 and counts[30, "cara"] <= counts[3, "cara"] + 5
+
+
+def test_needs_you_reads_a_fixed_number_of_statements_and_hides_private_items(api):
+    """Each Needs you card reads its task, asks, origin and the tasks above and behind it. Those rows are read for all
+    cards together, so a long list costs what a short one does, and a private task its reader is not a party to stays
+    off the list and out of every card that holds it up."""
+    store = api.app.state.store
+    with store.transaction() as c:
+        # Cara's private task, waiting on Ben, who is no party to it.
+        hidden = H.task_create(c, "human:cara", "Private plan", "Secret", "human:cara", private=True, lint=False)
+        c.execute("UPDATE tasks SET status='waiting', waiting_on='human:ben' WHERE id=?", (hidden["id"],))
+
+    def cards(size):
+        with store.transaction() as c:
+            parent = H.task_create(c, "human:ana", f"Release {size}", "Checklist", "bot:ops", lint=False)
+            for n in range(size):
+                step = H.task_create(c, "bot:ops", f"Step {size}-{n}", "Do it.", "human:ben", parent_id=parent["id"],
+                                     due=H.shift(H.now(), days=3), lint=False)
+                c.execute("INSERT INTO task_relations(from_task,to_task,kind,created) VALUES(?,?,'blocks','now')",
+                          (step["id"], hidden["id"]))
+                H.event(c, H.KEEPER, "task.origin", step["id"], {"bot": "bot:ops"})
+                if n == 0:
+                    H.say(c, "bot:ops", "human:ben", "Which region?", kind="ask",
+                          conversation_id=step["conversation_id"], refs={"task": step["id"]})
+                wait = H.task_create(c, "human:ana", f"Wait {size}-{n}", "x", "bot:ops", parent_id=parent["id"],
+                                     lint=False)
+                c.execute("UPDATE tasks SET status='waiting', waiting_on='human:ben' WHERE id=?", (wait["id"],))
+        return parent
+
+    counts, total = {}, 0
+    for size in (3, 30):
+        parent = cards(size)
+        total += 2 * size
+        page, counts[size] = traced_get(api, "needs-you", "ben-test")
+        assert len(page["items"]) == total
+        assert {x["holds_up"]["title"] for x in page["items"] if x["title"].startswith(f"Step {size}-")} == {parent["title"]}
+        assert hidden["id"] not in json.dumps(page) and "Private plan" not in json.dumps(page)
+    assert counts[30] <= counts[3] + 5

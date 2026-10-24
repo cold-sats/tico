@@ -15,7 +15,8 @@ DEV_NAME = r'dev(?:[ -]?tickets?)?'
 def role_type(c, role):
     """The id of the first type with this role, or None. Only one type is the Product roadmap; Engineering and a
     Dev tickets type made later may both carry the engineering role."""
-    row = c.execute('SELECT id FROM task_types WHERE role=? ORDER BY created,id LIMIT 1', (role,)).fetchone()
+    from .read_cache import one
+    row = one(c, 'SELECT id FROM task_types WHERE role=? ORDER BY created,id LIMIT 1', (role,))
     return row[0] if row else None
 
 

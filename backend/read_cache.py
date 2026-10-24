@@ -81,3 +81,12 @@ def prime(c, statement, found):
         return
     for args, row in found.items():
         values.setdefault(("one", statement, tuple(args)), row)
+
+
+def prime_rows(c, statement, found):
+    """Seed `rows` as `prime` seeds `one`: {args: the rows that statement returns for them}."""
+    values = cache(c)
+    if values is None:
+        return
+    for args, value in found.items():
+        values.setdefault((statement, tuple(args)), tuple(value))
