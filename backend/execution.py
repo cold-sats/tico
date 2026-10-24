@@ -10,7 +10,7 @@ from datetime import timezone
 
 from clients import gateway, sessions
 
-from . import auto_tasks, start_places, app_delivery, check_models, learned, rooms, updates_chat, gateway_connection, inbox_isolation, login_holds, models_preset, providers, quiet_work, routines, run_triggers, runner_versions, screen, task_models, usage_limits, wake_presets, wake_rules
+from . import auto_tasks, start_places, org_turns, app_delivery, check_models, learned, rooms, updates_chat, gateway_connection, inbox_isolation, login_holds, models_preset, providers, quiet_work, routines, run_triggers, runner_versions, screen, task_models, usage_limits, wake_presets, wake_rules
 from . import task_privacy as privacy
 from .auth import Identity
 from .batch_work import isolated
@@ -1773,9 +1773,10 @@ class Execution:
                           (json.dumps(runtimes), H.now(), runner_id, profile))
         c.execute("UPDATE runners SET readiness_json=? WHERE id=?", (json.dumps(ready), runner_id))
 
-    def candidate(self, c, who, body, runner, *, job_id=None):
+    def candidate(self, c, who, body, runner, *, job_id=None, record=True):
         """The queued job this runner would be given next, or None. Reads only."""
-        note_claim(runner["id"], body)
+        if record:
+            note_claim(runner["id"], body)
         lanes, roots = lanes_on(runner), roots_on(runner)
         # Taken lanes, each "bot|lane": the server's active attempts and the runner's own busy list. A runner
         # without lanes runs one turn per bot, so any active attempt takes the whole bot.
@@ -1840,6 +1841,27 @@ class Execution:
                 return row
         return None
 
+    def company_waiter(self, c, who, body, runner):
+        """Oldest eligible stop-level waiter across computers; unavailable lanes do not block others."""
+        from .models import Claim
+        from .performance import load_status
+        for queued in c.execute("SELECT w.job_id,a.runner_id FROM org_turn_waits w JOIN jobs j ON j.id=w.job_id "
+                                 "JOIN assignments a ON a.bot=j.bot WHERE j.state='queued' ORDER BY w.created,w.job_id"):
+            rid = queued['runner_id']
+            remote = rid != runner['id']
+            target = c.execute('SELECT * FROM runners WHERE id=? AND revoked_at IS NULL', (rid,)).fetchone() if remote else runner
+            if (not target or not target['last_seen'] or target['last_seen'] < H.shift(H.now(), seconds=-90)
+                    or not self.awake(target['awake_since'], H.now()) or runner_versions.paused(c, rid)
+                    or load_status(c, rid)['overloaded'] or start_places.ready_waiting(c, rid)
+                    or sum(turns_here(c, rid).values()) >= target['capacity']):
+                continue
+            busy_bots, busy_lanes = claimed_busy(rid)
+            scope = Claim(busy_bots=list(busy_bots), busy_lanes=['|'.join(x) for x in busy_lanes]) if remote else body
+            identity = Identity('runner:' + rid, 'runner', runner_id=rid) if remote else who
+            if found := self.candidate(c, identity, scope, target, job_id=queued['job_id'], record=False):
+                return rid, found
+        return None
+
     def idle_claim(self, c, who, body, key=None, selected=None):
         """The answer to a claim that changes nothing, from a read-only connection, or None when
         the claim has something to write or to hand out and must run in the write transaction.
@@ -1881,6 +1903,17 @@ class Execution:
                      "AND NOT EXISTS (SELECT 1 FROM job_recovery r WHERE r.job_id=j.id "
                      "AND r.attempt_id=j.attempt_id AND r.decision='resume') LIMIT 1",
                      (who.runner_id, H.KEEPER)).fetchone():
+            return None
+        company = org_turns.snapshot(c, self.store.settings)
+        if org_turns.needs_observation(c, company):
+            return None
+        if company['at_stop']:
+            # Record new jobs as waiters under the writer lock; an unchanged idle fleet stays read-only.
+            if c.execute("SELECT 1 FROM jobs j WHERE j.state='queued' AND NOT EXISTS "
+                         "(SELECT 1 FROM org_turn_waits w WHERE w.job_id=j.id) LIMIT 1").fetchone():
+                return None
+            return {'attempt': None, 'waiting': org_turns.REASON}
+        if c.execute('SELECT 1 FROM org_turn_waits LIMIT 1').fetchone():
             return None
         why = runner_versions.paused(c, who.runner_id)
         if why:
@@ -1972,6 +2005,9 @@ class Execution:
                 # Clearing the status also publishes the new header to already-open pages.
                 settle_status(c, old["bot"], "idle", "")
             H.event(c,H.KEEPER,'job.suppress',old['id'],{'reason':'Task finished before keeper notice delivery','task_id':old['task_id']})
+        company = org_turns.observe(c, self.store.settings)
+        if company['at_stop']:
+            return {'attempt': None, 'waiting': org_turns.REASON}
         why = runner_versions.paused(c, who.runner_id)
         if why:
             return {"attempt": None, "paused": why}
@@ -1987,6 +2023,10 @@ class Execution:
         # Its work keeps its place in the queue and goes out once the machine is really up.
         if not self.awake(awake_since, now):
             return {"attempt": None}
+        if oldest := self.company_waiter(c, who, body, runner):
+            if oldest[0] != who.runner_id:
+                return {'attempt': None, 'waiting': org_turns.REASON}
+            selected, prepared = oldest[1], True
         # Selection scans the queue on a read connection. Recheck only that job's
         # current eligibility under the writer lock; a changed queue waits one poll.
         if prepared:
@@ -2051,9 +2091,11 @@ class Execution:
                   (aid, row["id"], row["bot"], who.runner_id, row["generation"], digest(token), until, H.now(), lane))
         if body.start_places:
             start_places.claim(c, aid)
+        c.execute('DELETE FROM org_turn_waits WHERE job_id=?', (row['id'],))
         from . import run_diagnostics
         run_diagnostics.touch(c, aid, "leased")
         c.execute("UPDATE jobs SET state='leased',attempt_id=? WHERE id=?", (aid, row["id"]))
+        org_turns.observe(c, self.store.settings)
         # What woke this turn and the wake preset in force, for its run record (backend/wake_presets.py).
         job = c.execute("SELECT wake_preset,wake_class,hold_until FROM jobs WHERE id=?", (row["id"],)).fetchone()
         c.execute("UPDATE attempts SET wake_json=?,handed_runtime=?,handed_model=? WHERE id=?",
@@ -2523,7 +2565,7 @@ class Execution:
             return {"reserved": False, "stop": True}
         if body.waiting:
             return {"reserved": False, **({"stop": True} if row["stop_requested"] else {})}
-        return start_places.reserve(c, row)
+        return start_places.reserve(c, row, self.store.settings)
 
     def started(self, c, who, aid, body):
         row = self.attempt(c, who, aid)
@@ -2532,7 +2574,7 @@ class Execution:
         # Older workers did not negotiate a short start; their in-flight delivery lease stays valid.
         if start_places.is_waiting(c, aid) and finished_before_start(c, row):
             raise Problem("start_wait", "Task finished while this turn was waiting", 409)
-        reserved = start_places.reserve(c, row) if start_places.managed(c, aid) else {"reserved": not row["stop_requested"]}
+        reserved = start_places.reserve(c, row, self.store.settings) if start_places.managed(c, aid) else {"reserved": not row["stop_requested"]}
         if not reserved["reserved"]:
             raise Problem("start_wait", reserved.get("waiting", "Start reservation expired or stopped"), 409)
         c.execute("UPDATE attempts SET state='running',started=? WHERE id=?", (H.now(), aid))
