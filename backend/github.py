@@ -306,8 +306,9 @@ def pull_request(c, payload, review_role="", release_repo=""):
     return {"pr": url, "action": action, "tasks": len(links), **({"milestone_woken": woken} if woken else {})}
 
 
-def release(c, payload):
-    """A release published: tasks waiting for its tag get their one wake (backend/milestone_waits.py)."""
+def release(c, payload, release_repo=""):
+    """A release published: tasks waiting for its tag get their one wake (backend/milestone_waits.py), and the Dev
+    tickets it carries are followed up once (backend/release_flow.py)."""
     from . import milestone_waits
     rel = payload.get("release") or {}
     repo = str((payload.get("repository") or {}).get("full_name") or "")
@@ -315,7 +316,8 @@ def release(c, payload):
     if payload.get("action") != "published" or rel.get("draft") or not repo or not tag:
         return {"release": tag, "action": payload.get("action"), "woken": []}
     target = milestone_waits.release_target(f"{repo}@{tag}")
-    woken = milestone_waits.happened(c, "release_published", target[0], str(rel.get("html_url") or "")) if target else []
+    woken = milestone_waits.happened(c, "release_published", target[0], str(rel.get("html_url") or ""),
+                                      release_repo=release_repo) if target else []
     return {"release": tag, "action": "published", "woken": woken}
 
 
@@ -1078,7 +1080,7 @@ def install_github(app, settings, store):
                 result = push(c, payload)
                 result["shipped"] = ship_deployed(c, settings)
             elif event == "release":
-                result = release(c, payload)
+                result = release(c, payload, release_repo=settings.release_repo)
             else:
                 return Response(status_code=204)
         return {"ok": True, **result}

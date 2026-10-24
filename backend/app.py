@@ -6058,6 +6058,8 @@ def create_app(settings=None):
     from . import rules as wake_rules_api
     wake_rules_api.install(app, store, auth, mutate)
     turn_budgets.install(app, store, auth, mutate, settings_admin)
+    from . import release_flow
+    release_flow.install(app, store, auth, mutate)
     outcome_stats.install(app, store, auth)
     from .live_meetings import install_live_meetings
     install_live_meetings(app, store, auth, mutate)

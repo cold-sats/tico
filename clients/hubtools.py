@@ -2037,7 +2037,7 @@ def routine_list(api, args):
        "title": _s("What the task is called"),
        "text": _s("What the bot is told each time", default=""),
        "cron": _s("Five-field cron, e.g. `0 7 * * 1-5`"),
-       "on": _s("A Tico event instead of a time: `meeting.ready`, or `webhook.<id>` for a trigger in hub_trigger_list"),
+       "on": _s("A Tico event instead of a time: `meeting.ready`, `release_published`, or `webhook.<id>` for a trigger in hub_trigger_list"),
        "timezone": _s("IANA zone for the cron; America/Los_Angeles by default"),
        "enabled": {"type": "boolean", "default": True},
        "bot": _s("Set it on another bot you operate; yourself by default")},
@@ -2078,6 +2078,30 @@ def trigger_list(api, args):
     return [{k: t.get(k) for k in ("id", "name", "event", "signed", "last_received", "received_24h", "refused_24h",
                                    "routines")}
             for t in api.get("triggers")["triggers"]]
+
+
+@tool("hub_release_schedule", "The team's release schedule: when the Release Manager is asked to release what is at "
+      "Pending Release (`times`, company time; `on`), who that bot is (`release_manager`) and the Technical Writer "
+      "(`technical_writer`), the next hour, the last hour's result and how many tickets are pending now. Send any of "
+      "`on`, `times` (one or two HH:MM), `bot`, `writer` (a bot slug, or \"\" to find it by starter template) to "
+      "change it; an owner or an admin only.",
+      {"on": {"type": "boolean", "description": "Turn the daily release on or off"},
+       "times": {"type": "array", "items": {"type": "string"}, "maxItems": 2,
+                 "description": "One or two release times, HH:MM in company time"},
+       "bot": _s("The Release Manager's bot slug, or empty to find it by starter template"),
+       "writer": _s("The Technical Writer's bot slug, or empty to find it by starter template")}, writes=True)
+def release_schedule(api, args):
+    changes = {k: args[k] for k in ("on", "times", "bot", "writer") if args.get(k) is not None}
+    return api.patch("release-schedule", changes, key=_key(args)) if changes else api.get("release-schedule")
+
+
+@tool("hub_release_now", "Ask the Release Manager to cut a release of what is at Pending Release now, without waiting "
+      "for the daily hour (a hotfix, a midday release): ONE task listing the tickets, or a wake on its unfinished "
+      "Release task. For a person who moves Dev tickets, the Release Manager or the Head of Engineering bot. `sent` is false with a `reason` "
+      "when nothing is pending or nobody was asked.",
+      {"note": _s("Why now; goes in the Release Manager's task")}, writes=True)
+def release_now(api, args):
+    return api.post("release/now", {"note": args["note"]} if args.get("note") else {}, key=_key(args))
 
 
 @tool("hub_routine_delete", "Delete a routine. Its history stays; an occurrence nobody has "
