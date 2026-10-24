@@ -38,7 +38,12 @@ account that only lets setup create IAM roles under a permissions boundary, pass
 `--aws-permissions-boundary`: the role is created under it, with both tags, in one call. Because the hop limit is 1, backups from the container need explicit keys: an IAM user (or R2
 token) limited to the backup bucket, in `LITESTREAM_ACCESS_KEY_ID` and `LITESTREAM_SECRET_ACCESS_KEY`.
 
-A `--company-file` normally travels in the `.env` parameter, so it must pack to 7 KB. With `--plan-bucket BUCKET`
+A self-install's `--company-file` goes through a private, encrypted bucket setup creates in your AWS account, with
+public access blocked and a one-day expiry rule. Setup keeps its bucket name and chart for retries. The server role
+can read only this install's plan prefix. Creating the bucket needs permission to create/tag S3 buckets and configure
+public access blocking, ownership controls, encryption and lifecycle rules. A failure stops before the chart upload.
+Setup refuses an existing bucket without this install's ownership tags. The empty bucket remains after the chart is
+deleted. With an explicit `--plan-bucket BUCKET`
 (and `--plan-bucket-region` when it differs from `--aws-region`), as Tico's hosted servers use, setup puts the packed
 plan at `plans/<name>/<sha256>` in that bucket before launch, grants the server's role `s3:GetObject` on
 `plans/<name>/*` only, and names the key and its sha256 in the `.env`. At first boot the server copies it to
