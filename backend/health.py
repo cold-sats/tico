@@ -1166,10 +1166,12 @@ def _v(version):
 
 
 def storage_settings(c, settings):
-    """The storage files go to: the company's own bucket when the owner set one (backend/company_storage.py)."""
+    """The storage files go to: Tico file hosting while it is on (backend/tico_storage.py), else the company's own
+    bucket when the owner set one (backend/company_storage.py)."""
     from .blobs import Location
     from .company_storage import active_location
-    place = active_location(c)
+    from .tico_storage import active_location as hosting
+    place = hosting(c) or active_location(c)
     return Location(settings, place["bucket"], place["prefix"], place["region"], keys=True) if place else settings
 
 

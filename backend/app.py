@@ -5800,6 +5800,8 @@ def create_app(settings=None):
     install_credential_cards(app, store, app.state.vault, auth, BOTOPS, delegated_identity, settings_admin._manager)
     from . import company_storage
     company_storage.install(app, store, auth)
+    from . import tico_storage
+    tico_storage.install(app, store, auth)
     from .sql import install_sql
     install_sql(app, store, auth)
     from .judge import install_judge
