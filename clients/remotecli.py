@@ -194,6 +194,17 @@ def run(args, who=None):
                                                   "operation_id": os.environ.get("HUB_OPERATION_ID")})
     if args.cmd in ("chat", "replay"):
         return via_tool(client, args)
+    if fn and fn.startswith("task-manager "):
+        from clients import hubtools
+        op = os.environ.get("HUB_OPERATION_ID")
+        if fn == "task-manager status":
+            return hubtools.task_manager_status(client, {})
+        if fn == "task-manager run":
+            return hubtools.task_manager_run(client, {"operation_id": op})
+        change = {"task-manager on": {"on": True}, "task-manager off": {"on": False},
+                  "task-manager schedule": {"preset": getattr(args, "preset", None), "at": getattr(args, "at", None)},
+                  "task-manager bot": {"bot": getattr(args, "state", None)}}[fn]
+        return hubtools.task_manager_set(client, {**change, "operation_id": op})
     if fn in ("health-monitor findings", "health-monitor report"):
         from clients import hubtools
         if fn == "health-monitor findings":
