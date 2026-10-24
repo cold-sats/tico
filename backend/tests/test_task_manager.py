@@ -138,3 +138,21 @@ def test_the_business_hours_preset_runs_hourly_on_weekdays_only():
     assert not SR.due(cfg, at(23, 19), None) and not SR.due(cfg, at(24, 10), None)       # after 18:00, and a Saturday
     after_close = SR.next_due(cfg, at(23, 17), at(23, 18))
     assert after_close.astimezone(zone).weekday() == 0 and after_close.astimezone(zone).hour == 8     # Monday 08:00
+
+
+def test_the_switch_the_schedule_run_now_and_the_status_work_through_the_api(environment):
+    api = built(environment)
+    quiet_task(api)
+    owner = signed_in      # a fresh Idempotency-Key per write
+    status = api.get("/api/v2/task-manager", headers=owner()).json()
+    assert status["on"] and status["routine"]["preset"] == "business"
+    saved = api.put("/api/v2/system-routines/task_manager_report", json={"preset": "daily", "at": "07:30"}, headers=owner())
+    assert saved.status_code == 200 and saved.json()["job"]["key"] == "task_manager_report"
+    off = api.put("/api/v2/system-routines/task_manager_report", json={"on": False}, headers=owner())
+    assert off.status_code == 200, off.text
+    assert api.post("/api/v2/system-routines/task_manager_report/run", json={}, headers=owner()).status_code == 409
+    api.put("/api/v2/system-routines/task_manager_report", json={"on": True, "preset": "business"}, headers=owner())
+    assert api.post("/api/v2/system-routines/task_manager_report/run", json={}, headers=owner()).status_code == 200
+    assert api.post("/api/v2/task-manager/turn-off", json={}, headers=owner()).status_code == 200
+    assert report(api)["words"] == "The Task Manager is off"
+    assert api.post("/api/v2/task-manager/turn-on", json={}, headers=owner()).status_code == 200

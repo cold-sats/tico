@@ -34,6 +34,7 @@ The list refreshes when you open the tab and at most once a minute while it stay
 | Task rule | Members of its department, including humans and bots in nested teams; the owner or an admin for any department | On or off, **Edit**, and schedule presets |
 | **Stale ticket review**, **Nightly learnings**, **Still wanted?**, **KPI stale asks**, **Ask go-ahead** | Owner or admin | On or off, schedule presets, **Run now** |
 | **Health scan** | Owner only | On or off, schedule presets, **Run now** |
+| **Task Manager report** | Owner or admin | On or off, schedule presets, **Run now** |
 | **Start fresh when the topic changes** | Owner or admin | On or off |
 | Housekeeping and other fixed built-ins | No switch or schedule editor on this page | Fixed operation; housekeeping cannot be switched off |
 
@@ -48,12 +49,13 @@ Choose from the presets offered on the row:
 | Row | Presets |
 |---|---|
 | Task rules, **Still wanted?**, **KPI stale asks**, **Health scan**, **Ask go-ahead** | Every 15 minutes, Hourly, Every 4 hours, Daily at a time |
+| **Task Manager report** | Hourly on weekdays 08:00 to 18:00 (the default), Hourly, Every 4 hours, Daily at a time |
 | **Stale ticket review** | Hourly, Every 4 hours, Daily at a time |
 | **Nightly learnings** | Nightly at a time; initially 03:00 |
 
 Daily times use Pacific time. Leave the time field or press Enter to save it. These rows offer no cron expressions or custom intervals.
 
-**Run now** appears only on the six scheduled built-ins in the permissions table. Switch the job on first. It runs through the same checks and caps as its scheduled run, then shows the result on the row. A job asking Decide shows **Running…** while it works. Task rules and **Start fresh when the topic changes** have no **Run now** button.
+**Run now** appears only on the seven scheduled built-ins in the permissions table. Switch the job on first. It runs through the same checks and caps as its scheduled run, then shows the result on the row. A job asking Decide shows **Running…** while it works. Task rules and **Start fresh when the topic changes** have no **Run now** button.
 
 Nightly learnings runs once per night. A failed, capped, or unconfigured night waits until the next night unless an authorized person uses **Run now**.
 
@@ -99,6 +101,14 @@ When the Gateway did not answer, a line under the pill says what ran instead and
 
 **$ this month** adds up what the job's Decide calls cost since the first of the month (UTC). The stale review shares the team's monthly Decide cap with the other Decide users, so the figure is one slice of that cap.
 
+## Task Manager report
+
+**Task Manager report** (key `task_manager_report`) builds one report per department in plain code and wakes the
+[Task Manager](task-manager.md) only for a department that has something. Its run record reads "3 departments, 7 items"
+or "Nothing to do". The default preset runs hourly on weekdays between 08:00 and 18:00 in the team's time zone; a weekend
+or evening tick does not run. It finds nothing while the Task Manager bot is paused. Details, the checks and the
+`hub task-manager` commands are on [Task Manager](task-manager.md).
+
 ## The jobs
 
 Built-ins appear in one flat list. This table gives their default schedules; saved choices replace the defaults on controllable rows.
@@ -110,6 +120,7 @@ Built-ins appear in one flat list. This table gives their default schedules; sav
 | **Still wanted?** | Asks a task's person once whether a task idle for a week is still wanted. | Daily at 09:00 |
 | **KPI stale asks** | Asks a KPI's keeper for a reading when it goes out of date, and a goal's owner when a KPI goes off track. | Hourly |
 | **Health scan** | Checks Tico's health and wakes the Health Monitor only for a finding the last scan did not have. | Hourly |
+| **Task Manager report** | Looks for quiet tasks, overdue asks, review tickets without a PR, merged work whose step did not move and similar, and opens one "Task check" task per department for the [Task Manager](task-manager.md) only when there is something. Nothing to report is a quiet run: no task, no model call. | Hourly on weekdays, 08:00 to 18:00 |
 | **Nightly learnings** (AI) | Reads yesterday's chats, tasks, Slack, mail and meetings and sends each bot what it should remember. See [Learnings](learnings.md). | Nightly at 03:00 |
 | **Due reminders** | Tells a bot when one of its tasks reaches its due time. | Every 10 seconds |
 | **Ask go-ahead** | A bot's question past its deadline goes ahead on its default answer, or expires. | Hourly |
