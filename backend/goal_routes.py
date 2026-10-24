@@ -284,7 +284,7 @@ def install(app, store, auth, mutate, settings):
         with store.read() as c:
             if who.role not in ("owner", "human") and who.actor != CA.CEO:
                 raise Problem("forbidden", f"People in the company and the {ceo_bot.name(c)} read its log", 403)
-            out = CA.log(c, before, limit)
+            out = CA.log(c, before, limit, who.actor)
             out["can_undo"] = company_editor(who)
             return out
 

@@ -206,3 +206,53 @@ def test_undo_never_overwrites_a_later_edit_and_puts_back_everything_else(api):
         told = {r[0] for r in c.execute("SELECT to_actor FROM messages WHERE from_actor=? AND body LIKE "
                                         "'%undid a decision%'", (H.KEEPER,))}
     assert {"bot:ops", "bot:finance"} <= told
+
+
+def test_a_private_task_never_reaches_the_ceo_bot_log_or_the_owners_proposal(api):
+    """A decision naming a private task the CEO Bot can't read is refused before anything about that task is written;
+    a private task it can read is changed, but its title and body stay out of the company-wide log and the owner's
+    proposal, which people who can't read the task also read."""
+    ceo = with_ceo_bot(api)
+    bot(api, "ops")
+    level(api, 3)
+    with api.app.state.store.transaction() as c:
+        hidden = H.task_create(c, OWNER, "Fire the vendor quietly", "Secret body", OWNER, private=True,
+                               lint=False)["id"]
+        unseen = H.task_create(c, "bot:ops", "Acquire Initech", "Secret plan", "bot:ops", private=True,
+                               lint=False)["id"]
+        mine = H.task_create(c, CEO, "Merge with Globex", "Secret terms", "bot:ops", private=True, lint=False)["id"]
+    since = H.now()
+    for name in (hidden, unseen):
+        r = api.post("/api/v2/ceo-bot/decisions", headers=headers(ceo), json={
+            "reason": "Activation is red", "changes": [{"do": "reorder", "task_id": name},
+                                                       {"do": "create", "owner": "ops", "title": "Fix setup"}]})
+        assert r.status_code == 422 and r.json()["error"]["code"] == "not-found", r.text
+        assert "Fire the vendor" not in r.text and "Acquire Initech" not in r.text
+    with api.app.state.store.read() as c:
+        assert not c.execute("SELECT 1 FROM ceo_actions").fetchone()
+        assert not c.execute("SELECT 1 FROM tasks WHERE title='Fix setup'").fetchone()
+        for table in ("events", "refusals"):
+            dump = " ".join(str(tuple(r)) for r in c.execute(f"SELECT * FROM {table} WHERE ts>?", (since,)))
+            assert "Fire the vendor" not in dump and "Acquire Initech" not in dump, table
+
+    made = decide(api, ceo, [{"do": "reorder", "task_id": mine}, {"do": "reassign", "task_id": mine, "owner": OWNER}])
+    assert made["state"] == "done" and len(made["done"]) == 1 and len(made["left"]) == 1
+    seen = str(get(api, "ceo-bot/log")) + str(proposals(api))
+    assert "Merge with Globex" not in seen and "Secret terms" not in seen
+    assert "Merge with Globex" not in str(post(api, f"ceo-bot/log/{made['id']}/undo", {}))
+
+
+def test_undo_leaves_open_a_task_it_made_whose_title_or_body_was_edited_since(api):
+    """A task the decision made and a person reworded since is theirs now: Undo keeps it open and says why."""
+    ceo = with_ceo_bot(api)
+    bot(api, "ops")
+    level(api, 3)
+    made = decide(api, ceo, [{"do": "create", "owner": "ops", "title": "Fix the setup step"},
+                             {"do": "create", "owner": "ops", "title": "Write the release note"}])
+    titled, bodied = (x["task_id"] for x in made["done"])
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, "bot:ops", titled, title="Fix the setup step and the signup form")
+        H.task_update(c, "bot:ops", bodied, body="Cover the new billing page too.")
+    undone = post(api, f"ceo-bot/log/{made['id']}/undo", {})
+    assert task(api, titled)["status"] != "closed" and task(api, bodied)["status"] != "closed"
+    assert undone["undo"]["text"].count("which it made, was changed since") == 2, undone["undo"]["text"]
