@@ -30,7 +30,7 @@
 .tl-tabs [role=tab]:focus-visible{outline:2px solid var(--accent);outline-offset:-1px}
 .tl-tabs .cnt{font-size:var(--t-xs);color:var(--muted);font-weight:500}
 .tl-tabs .cnt.hot{color:var(--wait-ink);font-weight:600}
-.tl-type-search{display:flex;align-items:center;gap:10px;flex:0 1 380px;min-width:0}
+.tl-type-search{display:flex;align-items:center;gap:10px;flex:1 1 auto;max-width:380px;min-width:0}
 .tl-types{display:inline-flex;align-items:center;flex:none;gap:2px;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
 .tl-types[hidden]{display:none}
 .tl-types button{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border:0;border-radius:6px;background:none;color:var(--muted);font:500 var(--t-base)/1 var(--sans);white-space:nowrap;cursor:pointer}
