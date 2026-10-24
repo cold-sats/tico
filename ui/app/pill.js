@@ -255,7 +255,12 @@ function pillLabel(P) {
   const btn = pq(P, '.p-send'); if (!btn) return;
   const goal = pillGoalMode(P);
   const word = goal ? 'Set goal' : P.action === 'task' ? 'Send as a task' : P.action === 'reply' ? `Reply on #${P.needsIssue}` : 'Send';
-  btn.innerHTML = goal ? word : ICON_SEND; btn.dataset.word = word;
+  // A redraw that replaces the arrow between press and release loses the click in every engine, so the
+  // contents change only when goal mode swaps the arrow for words (and ui/styles/chat.css makes the button
+  // itself the press target).
+  const shows = goal ? word : 'icon';
+  if (btn.dataset.shows !== shows) { btn.innerHTML = goal ? word : ICON_SEND; btn.dataset.shows = shows; }
+  btn.dataset.word = word;
   btn.setAttribute('aria-label', btn.disabled && btn.dataset.busy || word);
   btn.classList.toggle('p-send-goal', goal);
   pillWhy(P);

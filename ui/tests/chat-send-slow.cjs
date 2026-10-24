@@ -188,6 +188,8 @@ async function check(engine) {
     assert.equal(await box.inputValue(), 'A rule refused this draft');
     assert.equal(await page.evaluate(() => BOT_PILL.unconfirmed), null, 'confirmed refusal ends pending delivery');
     answer = 'ok';
+    // A redraw can replace the arrow between press and release (a snapshot lands, goal mode flips); the click still sends.
+    await send.evaluate(b => b.addEventListener('pointerdown', () => { b.innerHTML = ICON_SEND; }, {once: true}));
     await send.click();
     await page.waitForFunction(() => !document.querySelector('#chat-composer textarea').value && !BOT_PILL.sending);
     assert.notEqual(keys.at(-1), refusedKey, 'confirmed refusal allows a later explicit send to evaluate again');
@@ -496,8 +498,9 @@ async function check(engine) {
     // A pending Stop says so until the stop answers.
     let stopped; stopHold = new Promise(done => stopped = done);
     const stop = page.locator('#chat-composer .p-stop');
-    await page.evaluate(() => { BOT_PILL.running = {attempt_id: 'a1'}; pillButtons(BOT_PILL); document.querySelector('#chat-composer .p-stop').click(); });
-    assert.deepEqual(await stop.evaluate(b => [b.disabled, b.title, document.getElementById(b.getAttribute('aria-describedby'))?.textContent]),
+    // Read in the same task as the click: the fixture's run is not in its snapshots, so a late snapshot redraw clears it.
+    assert.deepEqual(await stop.evaluate(b => { BOT_PILL.running = {attempt_id: 'a1'}; pillButtons(BOT_PILL); b.click();
+      return [b.disabled, b.title, document.getElementById(b.getAttribute('aria-describedby'))?.textContent]; }),
       [true, 'Stopping…', 'Stopping…']);
     stopped();
     assert.deepEqual(errors, []);
