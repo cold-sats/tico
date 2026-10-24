@@ -17,9 +17,16 @@ See [Joining the Tico waitlist](waitlist.md).
 
 ## Your starting credit and what happens at $0
 
-Waitlist approval normally gives you **$20.00** of starting credit. Staff can approve a different amount.
-It pays for Hosting and Tico models. Approval provisions two **Starter** servers: your Tico server and your bot computer.
-It also issues your Tico models key.
+**Intended policy — unreleased:** waitlist approval commits one starting-credit grant before setup starts.
+It is normally **$20.00**. Staff can approve a different amount. It pays for Hosting and Tico models.
+After the approval and grant commit succeeds, setup provisions two **Starter** servers: your Tico server and your bot computer.
+It also issues your Tico models key. A failed approval or grant commit must not start setup.
+
+Failed setup keeps the original grant. Repeated approval and interrupted or concurrent setup retries preserve its amount,
+approver, original approval time, and expiry. They do not grant again or reset the 30 days.
+
+**Known runtime gap — unimplemented:** the current runtime grants credit after the Tico server installs, rather than on approval.
+It can still show no credit before installation. The intended timing is not implemented or confirmed released by this help update.
 
 Your starting grant expires **30 days after approval**, at the UTC expiry shown on your account page.
 Setup retries keep that original expiry. They do not start another 30 days.
@@ -50,7 +57,8 @@ A positive balance can restore model access while both servers remain stopped.
 ## Balance and credit
 
 After approval, **Account** shows your balance, remaining credit, and when the credit expires.
-If billing is still being set up, it shows **No credit yet**.
+The current page may show **No credit yet** before installation because of the grant-timing gap above.
+That is an implementation limitation; the intended policy grants credit on approval, before setup.
 
 - **Balance** is the live balance, including Tico models usage not yet recorded in an hourly debit.
 - **Credit** shows the unused amount out of the original grant. The page shows up to three current credits.
@@ -63,10 +71,14 @@ Expired unused credit no longer counts toward the balance.
 
 ## Credit notices
 
-Below the warning threshold, the page shows **$X of credit left; things stop at $0**.
+Strictly below the warning threshold, the page shows **$X of credit left; things stop at $0**.
 The threshold defaults to **$20 USD**, so the warning appears immediately after the first spend from a $20 grant.
 Staff can change the threshold with a required reason; each change is kept in its history.
-The warning email sends once per below-threshold crossing and rearms when the balance returns to the threshold or above.
+The warning email sends once per below-threshold episode.
+Repeated checks and partial top-ups that leave the balance below the threshold send no additional warning.
+Recovery to the threshold or above clears the warning banner and staff **Low** flag, and re-arms the email.
+A later drop strictly below the threshold sends one new warning.
+For example, after a warning at $19, a top-up to $19.50 does not re-arm it. Recovery to exactly $20 does.
 If spending takes you straight to paused before a warning is sent, you get only the run-out email.
 
 At the minimum, **Paused: out of credit** shows the reported stop times for the Gateway key and both servers.
@@ -113,7 +125,7 @@ Each row shows its address or label, **State**, and **Price**.
 ## Hosting grace and retained data
 
 **Unreleased:** Hosting billing remains off. Stop-time change emails and renewed reminders have passed source review and synthetic QA.
-Merge, deployment, and activation are not confirmed.
+The original notices and stop-time changes are merged and automatically deployed to HQ. Billing activation and live acceptance remain unverified.
 
 The default Hosting grace period is 72 hours. Tico staff can set a different period for your company.
 In **Enforce** mode with a positive grace period, grace starts when your balance reaches or falls below the staff-set minimum.
@@ -168,7 +180,7 @@ Check this account page for the current deadline.
 Zero-hour companies, including waitlist companies, receive no grace card or grace emails.
 Their separate [credit notices](#credit-notices) provide the one run-out email.
 **Record only** companies receive no grace notices.
-Delivered emails and live account-page behaviour remain unverified. Stop-time change emails and renewed reminders are not confirmed merged.
+Delivered emails and live account-page behaviour remain unverified.
 
 When grace expires, Tico stops the servers and keeps their data. It does not delete them for running out of credit.
 Waitlist accounts have zero grace: both servers stop within five minutes of reaching the minimum.
@@ -216,3 +228,9 @@ The billing and account-page merges do not confirm their availability or enable 
 *Grace notices checked 2026-10-23: [ticoteam/tico-services#147](https://github.com/ticoteam/tico-services/pull/147), billing/grace_notices.py (status, __call__), billing/hosting.py (grace_text, _grace_period, _grace_row), billing/credit_notices.py (OWNER_EMAIL, status), portal/account.py (summary), and portal/views.py (account); Billing system spec v1.1, tests 7 and 19. Synthetic receipts only; HQ deployment, daily billing activation, live card rendering, and email delivery not verified.*
 
 *Stop-time changes checked 2026-10-23: [ticoteam/tico-services#154](https://github.com/ticoteam/tico-services/pull/154), source a4a34d49, billing/hosting.py (_grace_period, _scheduled_at, _has, grace_text) and billing/grace_notices.py (__call__); Billing system spec v1.2, tests 19, 21, and 24. Both serial reviews and independent QA passed, including tests 7, 19, 21, and 24. Synthetic evidence only; merge, deployment, activation, live email, and power actions not confirmed.*
+
+*Policy correction, 2026-10-24: Product waitlist spec v3.5, section 2, Permissions and errors, tests 4 and 7, and Answer 17. This supersedes the earlier install-time grant ordering. Current hosting/approve.py (approve, on_installed, _grant) still grants after installation; the runtime correction remains unimplemented. No live recovery or backfill is authorized.*
+
+*Warning boundaries clarified 2026-10-24: Product waitlist spec v3.5, section 2 step 9a, tests 14–15, and Answer 18. One warning per strictly-below-threshold episode; recovery at or above the threshold re-arms it. Live email delivery is not verified.*
+
+*Delivery update, 2026-10-24: services#147 and services#154 are merged and their automatic HQ deployments are verified. Test 24 and funded-grace source QA prerequisites have passed. Separate staff installation, live card/email/power acceptance, and explicit activation authorization remain; Hosting billing stays off.*

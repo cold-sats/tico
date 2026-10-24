@@ -1,7 +1,7 @@
 # Manage a company's billing (staff)
 
 **Unreleased Hosting update:** billing remains off. Stop-time change emails and renewed reminders have passed source review and synthetic QA.
-Merge, deployment, and activation are not confirmed.
+The original notices and stop-time changes are merged and automatically deployed to HQ. Billing activation and live acceptance remain unverified.
 
 Only Tico staff see this page. Open **Customers** on the admin page, pick the company, then open **Billing**.
 The page sits behind Cloudflare Access, so customers never reach it, and HQ only takes these changes with
@@ -118,9 +118,13 @@ Do not switch any company to **Enforce** with Hosting grace above zero without s
 ## Credit notices
 
 Open **Credit notices** in the staff admin navigation, then select the company.
-The **Credit notices** panel shows **Live balance**, **Low-balance threshold**, and the **Low** flag below that threshold.
+The **Credit notices** panel shows **Live balance**, **Low-balance threshold**, and the **Low** flag strictly below that threshold.
 The default is **$20 USD**: the first spend from a $20 grant triggers the low warning.
-The owner receives one low email per below-threshold crossing; reaching the threshold or above rearms it.
+The owner receives one low email per below-threshold episode.
+Repeated checks and partial top-ups that stay below the threshold send no additional warning.
+Recovery to the threshold or above clears **Low** and the account-page warning banner, and re-arms the email.
+A later drop strictly below the threshold sends one new warning.
+For example, after a warning at $19, $19.50 remains low; exactly $20 clears it and re-arms the next warning.
 
 To change the warning threshold:
 
@@ -170,3 +174,7 @@ period 72 hours, Record only.
 *Stop-time changes checked 2026-10-23: [ticoteam/tico-services#154](https://github.com/ticoteam/tico-services/pull/154), source a4a34d49, billing/hosting.py (_grace_period, _scheduled_at, _has, grace_text) and billing/grace_notices.py (__call__); Billing system spec v1.2, tests 19, 21, and 24. Both serial reviews and independent QA passed, including tests 7, 19, 21, and 24. This clears the test 24 QA prerequisite, not activation authorization. Merge, deployment, and activation remain unconfirmed. No live email, database, or power verification.*
 
 *Credit notices checked 2026-10-23: waitlist spec v3.4 sections 2–3, Answer 15 and test 12g–i; services#130/#142, billing/credit_notices.py, billing/hosting.py (to_restart, _short), portal/views.py (credit_notice); admin#18/#21, admin/tico_admin/credit_notices.py (notices_section, account_page, threshold_history, email_history). Both restart-quote follow-ups are merged. Deployment, admin installation, email delivery and live stop/restart acceptance remain unverified.*
+
+*Warning boundaries clarified 2026-10-24: Product waitlist spec v3.5, section 2 step 9a, tests 14–15, and Answer 18. One warning per strictly-below-threshold episode; recovery at or above the threshold re-arms it. Live email delivery is not verified.*
+
+*Delivery update, 2026-10-24: services#147 and services#154 are merged and their automatic HQ deployments are verified. Test 24 and funded-grace source QA prerequisites have passed. Separate staff installation, live card/email/power acceptance, and explicit activation authorization remain; Hosting billing stays off.*
