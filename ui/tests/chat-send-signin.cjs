@@ -79,6 +79,8 @@ async function scenario(browser, mode, edit, keeper = true, editedBefore = false
   const readsSettled = async () => {
     const deadline = Date.now() + 30000;
     do {
+      // A send schedules a snapshot read after a short burst; it can start after current reads finish.
+      await page.waitForFunction(() => !LIVE_SOON.size);
       if (reads.size) await new Promise((resolve, reject) => {
         const done = () => { clearTimeout(timer); readWaiters.delete(done); resolve(); };
         const timer = setTimeout(() => { readWaiters.delete(done); reject(new Error('Fixture reads did not settle')); }, Math.max(1, deadline - Date.now()));
@@ -86,7 +88,7 @@ async function scenario(browser, mode, edit, keeper = true, editedBefore = false
       });
       await frames();
       assert.ok(Date.now() < deadline, 'fixture reads settle before navigation');
-    } while (reads.size);
+    } while (reads.size || await page.evaluate(() => LIVE_SOON.size > 0));
   };
   // A loaded conversation can precede its stream subscription. Navigating again while WebKit is
   // still opening that connection reports a cancelled request as an access-control page error.
