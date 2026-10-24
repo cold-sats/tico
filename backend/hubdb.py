@@ -3441,6 +3441,10 @@ def tag_update(conn, actor, ident, version, *, label=None, metadata=None, markdo
     return tag(conn, row["id"])
 
 
+TASK_TAGS_SQL = ("SELECT tags.*,task_tags.task_id FROM task_tags JOIN tags ON tags.id=task_tags.tag_id "
+                 "WHERE task_tags.task_id IN (%s) ORDER BY task_tags.rowid")
+
+
 def hydrate_task_tags(conn, rows):
     """Read tag display data for a page in one query, including rows from older readers."""
     by_id = {row["id"]: row for row in rows}
@@ -3449,8 +3453,7 @@ def hydrate_task_tags(conn, rows):
     if by_id:
         marks = ",".join("?" * len(by_id))
         from .read_cache import rows as cached_rows
-        for row in cached_rows(conn, "SELECT tags.*,task_tags.task_id FROM task_tags JOIN tags ON tags.id=task_tags.tag_id "
-                                f"WHERE task_tags.task_id IN ({marks}) ORDER BY task_tags.rowid", tuple(by_id)):
+        for row in cached_rows(conn, TASK_TAGS_SQL % marks, tuple(by_id)):
             value = _tag_view(row)
             by_id[value.pop("task_id")]["tags"].append(value)
 
@@ -4523,6 +4526,29 @@ def open_task_asks(conn, task_row, *, actor=None):
     for ask in asks:
         ask["refs"] = _json(ask.get("refs_json"), {}) or {}
     return asks
+
+
+def open_tasks_asks(conn, task_rows, *, actor):
+    """{task id: open_task_asks(conn, row, actor=actor)} for many tasks: their open asks read in one query per 500
+    tasks and checked together (task_privacy.readable_messages), each by the same rule open_task_asks applies."""
+    from . import task_privacy as privacy
+    rows = [row for row in task_rows if row.get("conversation_id")]
+    out = {row["id"]: [] for row in task_rows}
+    asks = []
+    for part in chunks(rows):
+        found = _rows(conn.execute(
+            "SELECT m.*,t.id AS ask_task_id FROM tasks t JOIN messages m ON m.conversation_id=t.conversation_id "
+            f"JOIN conversations cv ON cv.id=m.conversation_id WHERE t.id IN ({','.join('?' * len(part))}) "
+            f"AND m.kind='ask' AND {MESSAGE_TASK_SQL}=t.id "
+            f"AND {OPEN_ASK_SQL} ORDER BY m.rowid DESC", [row["id"] for row in part]))
+        asks.extend(found)
+    tasks = [ask.pop("ask_task_id") for ask in asks]
+    shown = {id(ask) for ask in privacy.readable_messages(conn, actor, asks)}
+    for tid, ask in zip(tasks, asks):
+        if id(ask) in shown:
+            ask["refs"] = _json(ask.get("refs_json"), {}) or {}
+            out[tid].append(ask)
+    return out
 
 
 def comment_on(conn, task_row, message_id):
@@ -7153,10 +7179,25 @@ def chats_with(conn, actor, bot_actor_id):
     return out
 
 
+MESSAGE_SQL = "SELECT * FROM messages WHERE id=?"
+
+
 def message(conn, message_id, *, include_deleted=False):
-    row = _one(conn, "SELECT * FROM messages WHERE id=?" + ("" if include_deleted else " AND deleted_at IS NULL"),
-               (message_id,))
+    row = _one(conn, MESSAGE_SQL + ("" if include_deleted else " AND deleted_at IS NULL"), (message_id,))
     return message_view(conn, row)
+
+
+def prime_messages(conn, ids):
+    """Read these messages in one query per 500 for the message() lookups that follow in this snapshot, deleted or not."""
+    from .read_cache import cache, prime
+    if cache(conn) is None:
+        return
+    for part in chunks(sorted({mid for mid in ids if mid})):
+        found = {row["id"]: row for row in conn.execute(
+            "SELECT * FROM messages WHERE id IN (%s)" % ",".join("?" * len(part)), part)}
+        prime(conn, MESSAGE_SQL, {(mid,): found.get(mid) for mid in part})
+        live = {mid: row for mid, row in found.items() if row["deleted_at"] is None}
+        prime(conn, MESSAGE_SQL + " AND deleted_at IS NULL", {(mid,): live.get(mid) for mid in part})
 
 
 def message_view(conn, row):
@@ -7245,8 +7286,27 @@ def notices(conn, actor, at=None):
     return rows
 
 
+TASK_SQL = "SELECT * FROM tasks WHERE id=?"
+
+
+def prime_tasks(conn, ids):
+    """Read these tasks and their tags in one query each per 500, for the task() lookups that follow in this snapshot
+    (a Needs you card reads its task, its ancestors and what they block, one at a time)."""
+    from .read_cache import cache, prime, prime_rows
+    if cache(conn) is None:
+        return
+    for part in chunks(sorted({tid for tid in ids if tid})):
+        marks = ",".join("?" * len(part))
+        found = {row["id"]: row for row in conn.execute("SELECT * FROM tasks WHERE id IN (%s)" % marks, part)}
+        prime(conn, TASK_SQL, {(tid,): found.get(tid) for tid in part})
+        tags = {tid: [] for tid in part}
+        for row in conn.execute(TASK_TAGS_SQL % marks, part):
+            tags[row["task_id"]].append(row)
+        prime_rows(conn, TASK_TAGS_SQL % "?", {(tid,): found for tid, found in tags.items()})
+
+
 def task(conn, task_id):
-    row = _one(conn, "SELECT * FROM tasks WHERE id=?", (task_id,))
+    row = _one(conn, TASK_SQL, (task_id,))
     if row:
         hydrate_task_tags(conn, [row])
     return row
@@ -7679,10 +7739,26 @@ def events(conn, since=None, actor=None, limit=200):
     return out
 
 
+TASK_ORIGIN_SQL = ("SELECT detail_json FROM events WHERE actor=? AND action='task.origin' "
+                   "AND target=? ORDER BY ts DESC LIMIT 1")
+
+
+def prime_task_origins(conn, ids):
+    """Read the origin events of these tasks in one query per 500, for the task_origin() calls that follow."""
+    from .read_cache import cache, prime
+    if cache(conn) is None:
+        return
+    for part in chunks(sorted({tid for tid in ids if tid})):
+        found = {}
+        for row in conn.execute("SELECT target,detail_json FROM events WHERE actor=? AND action='task.origin' "
+                                "AND target IN (%s) ORDER BY ts DESC" % ",".join("?" * len(part)), (KEEPER, *part)):
+            found.setdefault(row["target"], {"detail_json": row["detail_json"]})
+        prime(conn, TASK_ORIGIN_SQL, {(KEEPER, tid): found.get(tid) for tid in part})
+
+
 def task_origin(conn, row):
     """Trusted origin for a keeper review, including pre-metadata records; never parse titles."""
-    explicit = _one(conn, "SELECT detail_json FROM events WHERE actor=? AND action='task.origin' "
-                         "AND target=? ORDER BY ts DESC LIMIT 1", (KEEPER, row["id"]))
+    explicit = _one(conn, TASK_ORIGIN_SQL, (KEEPER, row["id"]))
     if explicit:
         origin = (_json(explicit["detail_json"], {}) or {}).get("bot")
         return origin if is_bot(origin) else None
