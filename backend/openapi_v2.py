@@ -61,7 +61,7 @@ EVENTS_DESCRIPTION = (
     "Also `event: ready` (`seq`: where the log stands), `event: cursor` (the change number to resume from, past changes "
     "the viewer may not see), `event: reset` (the client was further behind than the log keeps, 24 hours: read in full), "
     "`event: expired` (sign-in no longer valid; sign in and reconnect), and a `: keepalive` comment every 15 seconds. "
-    "Only what the viewer may read is sent. A stream ends after about five minutes; reconnect with `after` (or the "
+    "Only what the viewer may read is sent. A stream ends after about fifteen minutes; reconnect with `after` (or the "
     "browser's own `Last-Event-ID`). People only: a bot is refused with 403."
 )
 
@@ -378,7 +378,8 @@ STABLE = [
      "Assistant"),
     ("/api/v2/assistant/messages", "post", "Assistant", "sendAssistantMessage",
      "Say something to the Assistant. A lookup is answered at once (fast: true, with the reply); anything else "
-     "is a turn of the assistant bot, shown as `execution` on GET /api/v2/assistant", "AssistantSent"),
+     "is a turn of the assistant bot, shown as `execution` on GET /api/v2/assistant. `place: updates` (the Updates "
+     "chat) always takes a turn, handed the recent updates the caller may read", "AssistantSent"),
     ("/api/v2/assistant/turn-on", "post", "Assistant", "turnOnAssistant",
      "Owner only: restore the archived assistant, or add it from the catalog, and activate it", None),
     ("/api/v2/assistant/actions", "post", "Assistant", "proposeAssistantAction",

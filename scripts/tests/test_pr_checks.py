@@ -87,6 +87,48 @@ def test_plan_keeps_full_collection_on_main_and_conftest_and_never_runs_bare_pyt
         checks.run(target, "python-1")
 
 
+def test_rust_crates_run_cargo_test_when_their_inputs_change_and_a_red_crate_fails_the_job(tmp_path, monkeypatch):
+    for changed, crates in ((["runner-rs/src/state.rs"], ["runner-rs"]), (["relay-rs/src/gateway.rs"], ["relay-rs"]),
+                            (["runner/redact.py"], ["runner-rs"]), (["runner-rs/Cargo.lock", "relay-rs/Cargo.lock"],
+                                                                    ["relay-rs", "runner-rs"]),
+                            (["backend/tests/fixtures/gateway_enroll_contract.json"], ["runner-rs"])):
+        for event in ("pull_request", "push"):
+            plan = checks.selection(changed, event)
+            assert plan["rust"] == crates and plan["conformance"], (changed, event)
+    for changed in (["backend/harness_actions.py"], ["backend/task_loops.py"], ["ui/app/chat.js"], []):
+        assert checks.selection(changed)["rust"] == [] and checks.selection(changed, "push")["rust"] == []
+    assert checks.selection(["backend/harness_actions.py"])["conformance"]
+    monkeypatch.setattr(checks, "collect", lambda: Counter({"backend/tests/test_task_loops.py": 1}))
+    monkeypatch.setattr(checks, "guard_changelog", lambda base: None)
+    monkeypatch.setattr(checks, "changed_files", lambda base: ["relay-rs/src/gateway.rs", "runner-rs/src/state.rs"])
+    target = tmp_path / "plan.json"
+    jobs = checks.prepare("pull_request", "base", target)["matrix"]["include"]
+    assert {"suite": "conformance", "files": [checks.CONFORMANCE], "crates": ["relay-rs", "runner-rs"]} in jobs
+
+    monkeypatch.setattr(checks, "ROOT", tmp_path)
+    (tmp_path / "runner/tests").mkdir(parents=True)
+    (tmp_path / checks.CONFORMANCE).touch()
+    (tmp_path / "ci-results").mkdir()
+    (tmp_path / "ci-results/conformance.xml").write_text("<testsuite><testcase/></testsuite>")
+    calls = []
+
+    def fake(command, cwd, env=None):
+        calls.append((command, cwd, env and env["CARGO_TARGET_DIR"]))
+        return SimpleNamespace(returncode=101 if cwd == tmp_path / "relay-rs" else 0)
+
+    monkeypatch.setattr(checks.subprocess, "run", fake)
+    monkeypatch.setattr(checks.shutil, "which", lambda name: "/usr/bin/cargo")
+    # relay-rs is red: runner-rs and the conformance tests still run, and the job fails.
+    assert checks.run(target, "conformance") == 1
+    assert [c[:2] for c in calls[:2]] == [(["cargo", "test", "--locked"], tmp_path / "relay-rs"),
+                                          (["cargo", "test", "--locked"], tmp_path / "runner-rs")]
+    assert [c[2] for c in calls[:2]] == [str(tmp_path / "runner-rs/target/relay-rs"), str(tmp_path / "runner-rs/target")]
+    assert calls[2][0][-1] == checks.CONFORMANCE and len(calls) == 3
+    monkeypatch.setattr(checks.shutil, "which", lambda name: None)
+    with pytest.raises(RuntimeError, match="cargo is not installed"):
+        checks.run(target, "conformance")
+
+
 @pytest.mark.slow
 def test_pr_changelog_guard_rejects_product_edits_and_accepts_release_cut(tmp_path, monkeypatch):
     def git(*args):

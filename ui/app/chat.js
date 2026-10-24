@@ -756,7 +756,7 @@ async function v2ChatSend(P, text, slug = P.slug, extraRefs = {}, extra = {}) {
   let sent; P.sent = new Promise(done => sent = done);
   const pending = P.unconfirmed;
   if (pending) pending.inFlight = P.sent;
-  const files = P.files.slice();
+  const files = P.files.slice(), draftScope = sessionScope(pq(P, '.p-text'));
   const btn = pq(P, '.p-send'), label = btn ? btn.textContent : '';
   // "Sending" is a spinner on the button, never the dimmed look of an empty box; after a few seconds a line under
   // the box says it is still going, and whether it is trying again.
@@ -771,7 +771,7 @@ async function v2ChatSend(P, text, slug = P.slug, extraRefs = {}, extra = {}) {
     if (!j?.message?.id) throw new Error('the server did not confirm it');
     watch.end('sent');
     if (pending) pending.acknowledged = true;       // restored composers share this identity too
-    pillAcknowledge(P, text, files);
+    pillAcknowledge(P, text, files, draftScope);
     if (j.message?.refs?.action_result) toast(j.message.refs.action_result.decision === 'approved' ? 'Approved' : 'Declined');
     v2ChatAdopt(slug, j);
     P.retryTries = 0;

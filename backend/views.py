@@ -22,7 +22,7 @@ from . import visuals
 from . import app_delivery, login_holds, providers, runner_versions
 from .harnesses import resolve_harness
 from . import personal_tokens, rooms, team_rules, turns, wake_presets
-from . import auto_tasks
+from . import auto_tasks, pipeline_stats
 from .execution import AWAKE_GAP, AWAKE_SETTLE, Execution, bump_bot_session_epoch, turns_here
 from pathlib import Path
 
@@ -77,12 +77,13 @@ def attempt_details(c, turn):
 def failed_attempts(c, who, auth, bot=None, since=None, limit=200):
     readable = auth.bot_accesses(c, who)
     rows = []
+    # One bot's runs as their own query text: `? IS NULL OR a.bot=?` would hide attempts_bot_state.
     for row in c.execute(
             "SELECT a.id,a.bot,a.started,a.created,a.finished,a.state,a.result_json,j.message_id FROM attempts a "
-            "JOIN jobs j ON j.id=a.job_id WHERE a.state IN ('failed','expired') AND (? IS NULL OR a.bot=?) "
+            "JOIN jobs j ON j.id=a.job_id WHERE a.state IN ('failed','expired') " + ("AND a.bot=? " if bot is not None else "") +
             "AND (? IS NULL OR coalesce(a.finished,a.created)>=?) AND NOT EXISTS "
             "(SELECT 1 FROM turns t WHERE t.id=a.id) ORDER BY coalesce(a.finished,a.created) DESC LIMIT ?",
-            (bot, bot, since, since, limit)):
+            ((bot,) if bot is not None else ()) + (since, since, limit)):
         if not (readable.get(row["bot"]) or {}).get("read"):
             continue
         message = H.message(c, row["message_id"])
@@ -327,8 +328,10 @@ def machine(c, bot):
     # The declared access has its own route, behind the bot's visibility (backend/bot_tools.py). A missing
     # subscription sign-in the Gateway covers meanwhile is no problem (backend/models_preset.py as_served).
     from .models_preset import as_served
-    detail = {k: v for k, v in bot_readiness(row["readiness_json"], bot).items() if k != "tools"}
-    detail = as_served(c, bot, readiness_document(row["readiness_json"]), detail)
+    # One parse of the computer's report: /api/employees and Health call this once per bot.
+    document = readiness_document(row["readiness_json"])
+    detail = {k: v for k, v in bot_readiness(document, bot).items() if k != "tools"}
+    detail = as_served(c, bot, document, detail)
     return {"online": online, "awake": awake, "ready": online and detail.get("ready") is True,
             "readiness": detail,
             "machine": {**{k: row[k] for k in ("runner_id", "generation", "label", "operator", "last_seen",
@@ -455,14 +458,15 @@ def operation_issues(c, who, auth):
                     add("bot", bot["display_name"] + " needs attention",
                         f"{runtime}; resumes at {retry[11:16]} UTC", bot=slug,
                         severity="warning", needs_person=False)
-        queued = privacy.job_count(c, who, slug)
+        jobs = pipeline_stats.job_queues(c, who, [slug])[slug]
+        queued = jobs["queued"]
         if location.get("agent"):
             # A synced agent is handed its messages at a sync, which marks them delivered; it never reads them in Tico.
             unread = "delivered_at IS NULL" if location["agent"].get("synced") else "read_at IS NULL"
             queued = sum(privacy.message_readable(c, privacy.actor(who), m) for m in c.execute(
                 "SELECT * FROM messages WHERE to_actor=? AND " + unread + " "
                 "AND (expires_at IS NULL OR expires_at > ?) AND deleted_at IS NULL", ("bot:" + slug, H.now())))
-        uncertain = privacy.job_count(c, who, slug, ("uncertain",))
+        uncertain = jobs["uncertain"]
         if uncertain and not mac_offline:
             noun = "run" if uncertain == 1 else "runs"
             queued_note = (f" {queued} other request{' is' if queued == 1 else 's are'} still queued."
@@ -1384,9 +1388,10 @@ def card_why(item):
     return line
 
 
-def needs_items(c, auth, who, task_view, older=None):
+def needs_items(c, auth, who, task_view, older=None, count_only=False):
     """The person's queue. A question unanswered for two business days stays, marked stale, until the weekday-morning
-    batch sends it back to its bot (backend/still_needed.py); `older`, a list the caller passes, stays empty."""
+    batch sends it back to its bot (backend/still_needed.py); `older`, a list the caller passes, stays empty.
+    `count_only`: the items unsorted and without their per-item headers and tiers, for a count."""
     # The reader's rule first: it opens the read snapshot, so the list, the rows its cards read and every check
     # against them see the same database.
     visible = auth.task_sql(c, who)
@@ -1480,13 +1485,16 @@ def needs_items(c, auth, who, task_view, older=None):
         if setup:
             items.append(setup)
     items = fold_related(items, c, who.actor)
+    if count_only:
+        return items
+    rows = {r["id"]: r for kind in ("tasks", "waiting", "declined") for r in raw[kind]}
     at = H.now()
     for item in items:
         item["pressing"] = pressing(item, at)
         item["need"] = need_of(item)
         own = None
         if item["kind"] in ("question", "waiting", "task", "declined"):
-            row = H.task(c, item["id"]) or item
+            row = rows.get(item["id"]) or H.task(c, item["id"]) or item
             item["holds_up"] = holds_up(c, row, lambda tid: _readable(auth, c, who, tid))
             if row.get("id") and row.get("status") not in ("closed", "declined", "done"):
                 own = roadmap_entry(c, row)
@@ -1653,7 +1661,12 @@ def install_views(app, store, auth, mutate, task_view):
 
     def employee_rows(c, who):
         people, configs = roster(c), entries(c, store.settings.github_owner)
-        archived = {row["slug"] for row in H.bots(c) if row.get("state") == "archived"}
+        bots = H.bots(c)
+        archived = {row["slug"] for row in bots if row.get("state") == "archived"}
+        registries = {r["bot"]: r for r in read_cache.configs(c)}
+        goals = {}
+        for bot, conversation in c.execute("SELECT bot,conversation_id FROM chat_goals WHERE status='active'"):
+            goals.setdefault(bot, []).append(conversation)
         company = providers.load(c, store.settings)
         rows = []
         access = auth.bot_accesses(c, who)
@@ -1672,15 +1685,13 @@ def install_views(app, store, auth, mutate, task_view):
 
         def helper(config):
             return str(config.get("template") or "") in helpers
-        for bot in H.bots(c):
+        from .chat_goals import readable_active
+        for bot in bots:
             slug = bot["slug"]
-            from .chat_goals import readable_active
-            bot["goal_active"] = readable_active(c, auth, who, slug)
             level = access.get(slug, auth.FULL)
             if bot.get("state") == "archived" or not level["see"]:
                 continue
-            registry = c.execute("SELECT operator,revision,goals,access_json,bot_owners_json FROM bot_config WHERE bot=?",
-                                 (slug,)).fetchone()
+            registry = registries.get(slug)
             # Who may manage the bot (`Auth.bot_manager`), with the audiences and its owners when they may.
             pid = H.actor_id(who.actor)
             manager = (who.role == "owner" or (who.role == "human" and (
@@ -1737,7 +1748,7 @@ def install_views(app, store, auth, mutate, task_view):
                          "operator": registry["operator"] if registry else None,
                          "revision": registry["revision"] if registry else None,
                          "goals": (registry["goals"] if registry else "") or "",
-                         "goal_active": bot["goal_active"],
+                         "goal_active": readable_active(c, auth, who, slug, goals.get(slug, [])),
                          **location,
                          "users": [P.brief(p) for p in P.primary_users(slug, people, configs)],
                          "icon": icon_of(config), "helper": helper(config),
@@ -1798,7 +1809,8 @@ def install_views(app, store, auth, mutate, task_view):
     @app.get("/api/employees")
     def employees(request: Request):
         human_only(request.state.identity)
-        with store.read() as c:
+        # One snapshot from the start, so read_cache serves the roster, configs and access rows once.
+        with store.read_transaction() as c:
             return employee_rows(c, request.state.identity)
 
     @app.get("/api/people")
@@ -2073,9 +2085,13 @@ def install_views(app, store, auth, mutate, task_view):
             read = CL.read_ids(c, who.actor)
             products = [{**row, "unread": row["id"] not in read} for row in CL.products(c, store.settings)]
             entries = []
-            activity = H.tasks(c, status="done") if kind != "product" and not unread and since_version is None else []
+            # The newest bot-owned done tasks with a note long enough, in shipped_at order; 400 leaves room for unreadable ones.
+            activity = [dict(r) for r in c.execute(
+                "SELECT id,title,owner,note,done_at,updated FROM tasks WHERE status='done' AND substr(owner,1,4)='bot:' "
+                "AND length(note)>=20 ORDER BY COALESCE(NULLIF(done_at,''),updated) DESC LIMIT 400")] \
+                if kind != "product" and not unread and since_version is None else []
             for task in activity:
-                if not str(task.get("owner", "")).startswith("bot:") or len((task.get("note") or "").strip()) < 20:
+                if len((task.get("note") or "").strip()) < 20:
                     continue
                 try:
                     auth.task(c, who, task["id"])
@@ -2230,11 +2246,11 @@ def install_views(app, store, auth, mutate, task_view):
         items, with each one's place in the whole list (`positions`), to mend a held copy after a live `needs` event."""
         who = request.state.identity
         human_only(who)
-        with store.read() as c:
+        with store.read_transaction() as c:
+            if count:
+                return {"actor": who.actor, "count": len(needs_items(c, auth, who, task_view, count_only=True))}
             older = []
             items = needs_items(c, auth, who, task_view, older)
-            if count:
-                return {"actor": who.actor, "count": len(items)}
             current = needs_marks(items)[1]
             if version and version == current:
                 return {"actor": who.actor, "count": len(items), "version": current, "unchanged": True,

@@ -132,7 +132,7 @@ const block = (seq, event, data) => `id: ${seq}\nevent: ${event}\ndata: ${JSON.s
   assert.equal(reads.tasks, listed, 'a new task does not read the list again');
   // A computer's heartbeat on a worktree rewrites only the link's own time: the board is not drawn again.
   const link = updated => ({kind: 'worktree', ref: 'wt-1', label: 'release-notes', updated});
-  const settled = () => page.waitForFunction(() => !LIVE_SOON.has('tasks'), null, {timeout: t(5000)});
+  const settled = () => page.waitForFunction(() => !LIVE_SOON.has('tasks') && !LIVE_THROTTLE.get('tasks-bulk')?.timer, null, {timeout: t(5000)});   // a throttled draw still due would count below
   await send(() => true, block(15, 'tasks', {id: 't1', actor: 'bot:ops', task: task({title: 'Draft the final release notes', version: 4, links: [link('a')]})}));
   await settled();
   await page.evaluate(() => { window.boardDraws = 0; const draw = tasksRender; tasksRender = (...a) => { window.boardDraws++; return draw(...a); }; });
@@ -152,6 +152,26 @@ const block = (seq, event, data) => `id: ${seq}\nevent: ${event}\ndata: ${JSON.s
   assert.deepEqual(await page.evaluate(() => TASKS_ST.tasks.map(t => t.id).sort()), ['t1', 't3'], 'an unchanged task stays');
   assert.deepEqual(reads.labels.slice(-1), ['W/"l1"']);
   assert.deepEqual(await page.evaluate(() => TASKS_ST.labels), ['launch']);
+  // An already-open status tooltip follows wait start and clear, including a first turn with no stored row.
+  let seq = 15;
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({width, height: 820});
+    // Each viewport gets a fresh stream: these finite fixture responses otherwise accumulate reconnect backoff.
+    await page.goto(`https://tico-ui.test/?tooltip=${width}#/bot/ops/chat`);
+    await page.waitForFunction(() => V2C?.rendered && V2C.liveOff);
+    await page.locator('.bot-ident [data-tip-bot="ops"]').focus();
+    await page.locator('#bot-tip:not([hidden])').waitFor();
+    assert.doesNotMatch(await page.locator('#bot-tip').innerText(), /Waiting for.*ChatGPT/);
+    const waiting = 'Waiting for the ChatGPT login (held by Scribe on #7 Count the words since 19:06Z; position 2)';
+    await send(following, block(seq++, 'bots', {bot: 'ops', status: {bot: 'ops', state: 'waiting_bot', focus: waiting,
+      waiting, since: now, open_tasks: 1, needs_human: 0}}));
+    await page.waitForFunction(text => !document.querySelector('#bot-tip').hidden
+      && document.querySelector('#bot-tip').textContent.includes(text) && !LIVE_SOON.has('bots'), waiting);
+    await send(following, block(seq++, 'bots', {bot: 'ops', status: null}));
+    await page.waitForFunction(() => !document.querySelector('#bot-tip').hidden
+      && !document.querySelector('#bot-tip').textContent.includes('Waiting for the ChatGPT') && !LIVE_SOON.has('bots'));
+    assert.equal(await page.evaluate(() => S.v2.status.ops), undefined);
+  }
   assert.deepEqual(errors, []);
   console.log('live events: chat, Needs you and the task board follow one stream; the refresh reads only what changed: ok');
   await browser.close();

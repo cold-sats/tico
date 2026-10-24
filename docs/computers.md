@@ -220,6 +220,14 @@ was signed in through the macOS Keychain, sign in once from Tico to create this 
 A computer login with a custom auth-folder override must sign out and sign in to change accounts; **Switch account**
 refuses before it starts. See [harness sign-in details](harnesses.md#supported-harnesses).
 
+On an isolated Docker Computer, Grok's default `~/.grok` folder belongs to the bot user so sign-in,
+token refresh and session saves work. This includes its credentials, `config.toml` and session history:
+bots using the computer login share that whole folder, including an existing personal Grok login there.
+Use a dedicated team login on that Computer. The runner repairs ownership in place at startup, sign-in,
+and before starting or resuming a Grok thread; it does not copy login files between bot homes or change
+file modes. A named profile uses its own runtime home; a shared-operator profile uses the computer home.
+Custom auth-folder overrides never select a folder for this ownership repair.
+
 A new computer whose team signs in with a plan needs its own sign-in: a plan login cannot be copied between computers.
 Settings > Health shows "*computer name*: sign in to Codex" (or Claude Code) until it is done.
 

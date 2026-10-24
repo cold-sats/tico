@@ -51,7 +51,8 @@ TOPICS = ("tasks", "messages", "runs", "bots", "needs")
 KEEP_HOURS = 24           # a client away longer than this reads in full
 FALLBACK_SECONDS = 1.5    # the shared look for changes another process wrote
 RUNNER_FALLBACK_SECONDS = 5  # the same for computers' streams: work another process queued waits this long at most
-LIFETIME_SECONDS = 300    # bounded, so a revoked sign-in stops being served
+LIFETIME_SECONDS = 900    # bounded; each read and keepalive re-checks the sign-in, so this only caps stale state
+RUNNER_LIFETIME_SECONDS = 300
 KEEPALIVE_SECONDS = 15    # under the proxies' idle timeouts; TICO_STREAM_KEEPALIVE_SECONDS replaces it
 GATHER_SECONDS = 1.0      # coalesce busy teams' writes before per-viewer hydration
 GATHER_CHAT_SECONDS = 0.25  # a stream following a conversation: its messages and run output stay prompt
@@ -196,12 +197,20 @@ TRIGGERS = [
     ("changes_attempt_events_insert", "INSERT", "attempt_events", None,
      _row("runs", "output", "NEW.attempt_id", ref="NEW.id",
           conversation=_RUN_CONVERSATION.format(aid="NEW.attempt_id"),
-          bot="(SELECT bot FROM attempts WHERE id=NEW.attempt_id)")),
+          bot="(SELECT bot FROM attempts WHERE id=NEW.attempt_id)")
+     # Status projections also change before the bot has written a stored status. They are global
+     # bot changes, independent of which conversation the viewer currently follows.
+     + _row("bots", "status", "(SELECT bot FROM attempts WHERE id=NEW.attempt_id)",
+            bot="(SELECT bot FROM attempts WHERE id=NEW.attempt_id)",
+            where="NEW.kind='status' AND json_type(NEW.payload_json,'$.waiting') IS NOT NULL")),
     ("changes_attempts_insert", "INSERT", "attempts", None,
      _row("runs", "attempt", "NEW.id", conversation=_RUN_CONVERSATION.format(aid="NEW.id"), bot="NEW.bot")),
     # A lease renewed is not a change; a run starting, finishing or failing is.
     ("changes_attempts_update", "UPDATE", "attempts", _changed("state"),
-     _row("runs", "attempt", "NEW.id", conversation=_RUN_CONVERSATION.format(aid="NEW.id"), bot="NEW.bot")),
+     _row("runs", "attempt", "NEW.id", conversation=_RUN_CONVERSATION.format(aid="NEW.id"), bot="NEW.bot")
+     + _row("bots", "status", "NEW.bot", bot="NEW.bot",
+            where="EXISTS (SELECT 1 FROM attempt_events WHERE attempt_id=NEW.id AND kind='status' "
+                  "AND json_type(payload_json,'$.waiting') IS NOT NULL)")),
     ("changes_jobs_insert", "INSERT", "jobs", None,
      _row("runs", "job", "NEW.attempt_id", ref="NEW.message_id",
           conversation="(SELECT conversation_id FROM messages WHERE id=NEW.message_id)", bot="NEW.bot")),
@@ -599,23 +608,29 @@ def runner_bell(store):
 # ---------------------------------------------------------------- what a viewer is sent
 
 def status_line(c, who, slug, default=None, inputs=None, auth=None):
-    """A bot's status as `GET /api/v2/status` lists it to `who`; None for no status row. With `auth`, a
-    person who manages a quarantined bot is also sent what was refused (`review`)."""
+    """A bot's status as `GET /api/v2/status` lists it to `who`; a first login wait needs no stored row.
+    With `auth`, a person who manages a quarantined bot is also sent what was refused (`review`)."""
     from . import task_privacy as privacy
     from . import usage_limits
     row = H.status(c, slug)
+    from .login_waits import waiting
+    live = c.execute("SELECT id,created FROM attempts WHERE bot=? AND state IN ('leased','running') "
+                     "ORDER BY created DESC LIMIT 1", (slug,)).fetchone()
+    line = waiting(c, live["id"], slug, who, auth) if live else None
     if not row:
-        return None
+        if not line:
+            return None
+        # Before /started, a newly created bot has never written a status. Project only its current
+        # wait, without manufacturing status history or copying private task content into a stored row.
+        row = {"bot": slug, "state": "waiting_bot", "focus": "", "task_id": None,
+               "since": live["created"], "last_turn_at": None, "last_result": None, "next_due": None,
+               "open_tasks": 0, "needs_human": 0, "updated_at": live["created"]}
     row = privacy.status(c, who, row, **(inputs or {}))
     row["bot_state"] = (H.bot(c, row["bot"]) or {}).get("state")
     # Why its last run ended without finishing, said plainly for its page header: never a bare "Crashed".
     from .execution import last_stop
     row["last_stop"] = last_stop(c, row["bot"], row)
     # A turn waiting for its shared ChatGPT login is waiting, not stuck: the line says on whom and its place.
-    from .login_waits import waiting
-    live = c.execute("SELECT id FROM attempts WHERE bot=? AND state IN ('leased','running') ORDER BY created DESC LIMIT 1",
-                     (row["bot"],)).fetchone()
-    line = waiting(c, live[0], row["bot"], who, auth) if live else None
     if line:
         row["waiting"] = row["focus"] = line
     if row["bot_state"] == "quarantined":
@@ -770,6 +785,9 @@ def _runs(view, rows):
             picked.append(row)
     readable = {}
     out = []
+    refs = [row["ref"] for row in picked if row["kind"] == "output"]
+    outputs = {str(e["id"]): e for e in c.execute(
+        "SELECT * FROM attempt_events WHERE id IN (" + ",".join("?" * len(refs)) + ")", refs)} if refs else {}
     for row in picked:
         cid, bot, aid = row["conversation_id"], row["bot"], row["subject_id"]
         if cid and not view.conversation(cid):
@@ -784,7 +802,7 @@ def _runs(view, rows):
                 continue
         entry = {"attempt_id": aid, "conversation_id": cid, "bot": bot}
         if row["kind"] == "output":
-            event = c.execute("SELECT * FROM attempt_events WHERE id=?", (row["ref"],)).fetchone()
+            event = outputs.get(str(row["ref"]))
             if event is None:
                 continue
             event = dict(event)
@@ -983,10 +1001,14 @@ def install(app, store, auth, task_views, task_view):
                 return latest(c)
 
         def check():
-            auth.authenticate(request.headers)
+            fresh = auth.authenticate(request.headers)
+            # A changed role ends the stream at once rather than at its lifetime: reads use the role it opened with.
+            # (Another actor is BotOps acting for its requester, whose identity the headers alone do not give.)
+            if fresh.actor == who.actor and fresh.role != who.role:
+                raise Problem("unauthenticated", "Sign in again", 401)
 
         def poll(cursor):
-            auth.authenticate(request.headers)
+            check()
             with store.read() as c:
                 return read(c, auth, who, cursor, topics=wanted, conversations=conversations, bots=bots,
                             tasks=tasks, parties=parties,
@@ -1106,7 +1128,7 @@ def install_runner(app, store, execution):
         """Server-sent events for a computer: what changed for it, as hints to re-read one of its
         endpoints (`event: runner`, `data: {seq, kind, bots}`), never a value. `ready` names this
         server's release; `reset` means re-read everything. Ends with `expired` once the computer is
-        revoked, and on its own after LIFETIME_SECONDS; the runner reconnects with `after`."""
+        revoked, and on its own after RUNNER_LIFETIME_SECONDS; the runner reconnects with `after`."""
         who = request.state.identity
         if who.role != "runner":
             raise Problem("forbidden", "A registered computer is required", 403)
@@ -1142,7 +1164,7 @@ def install_runner(app, store, execution):
                 yield "retry: 1000\n\n"
                 yield _frame(None, "ready", {"seq": now_seq, "after": cursor,
                                              "release": runner_versions.desired().get("version", "")})
-                deadline = time.monotonic() + LIFETIME_SECONDS
+                deadline = time.monotonic() + RUNNER_LIFETIME_SECONDS
                 # Contact is due every keepalive whatever is sent, so last_seen never lapses.
                 quiet_since = time.monotonic()
                 due = after is not None          # a resume catches up first

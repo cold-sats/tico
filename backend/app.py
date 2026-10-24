@@ -142,6 +142,7 @@ def create_app(settings=None):
         from . import company_storage
         company_storage.startup(store, app.state.vault, app.state.blobs)
         asyncio.get_running_loop().run_in_executor(None, auth.warm)   # Cloudflare's keys, before anyone signs in
+        asyncio.get_running_loop().run_in_executor(None, app.state.vault.cipher.warm, store)   # the KMS data key
         # TICO_SAMPLE_COMPANY=on: a new company starts as the sample company, once (backend/sample_company.py).
         if settings.company_file_data:
             from . import company_import
@@ -1193,8 +1194,7 @@ def create_app(settings=None):
         return visuals.key_for(app, settings)
 
     def visual_ancestors():
-        from .visuals import origin_of
-        return list(dict.fromkeys(["'self'", origin_of(settings.public_url), *settings.cors_origins]))
+        return visuals.ancestors(settings)
 
     @app.api_route("/visuals/{token}", methods=["GET", "HEAD"], include_in_schema=False)
     def visual(request: Request, token: str):
@@ -2435,25 +2435,8 @@ def create_app(settings=None):
 
     # ------------------------------------------------------------------ updates (backend/updates.py)
     def update_visible(c, who, mine=False, scope=None):
-        """The authors whose updates `who` may read: bots they have Read on, and every person on the
-        chart (`human:<id>`), since a person's update is for the whole company. An external agent
-        (`who.agent`) is outside the company and sees only its bots. With `mine`, only
-        the bots they operate (for the owner, also bots with no operator) and their own update, the
-        Updates page's My bots filter (the count must match what the feed shows). With
-        `scope=direct`, only their direct reports on the org chart: the one level that alerts."""
-        readable = {slug for slug, level in auth.bot_accesses(c, who).items() if level["read"]}
-        if who.role in ("owner", "human") or (who.role == "bot" and not who.agent):
-            readable |= {H.human_actor(p["id"]) for p in P.visible_people(views.roster(c))}
-        if mine:
-            pid = H.actor_id(who.actor)
-            operators = {r[0]: r[1] for r in c.execute("SELECT bot, operator FROM bot_config")}
-            readable = {slug for slug in readable if slug == who.actor or operators.get(slug) == pid
-                        or (not updates.is_person(slug) and not operators.get(slug) and who.role == "owner")}
-        if scope == "direct":
-            archived = {row["slug"] for row in H.bots(c) if row.get("state") == "archived"}
-            reports = G.reports_of(who.actor, views.roster(c), views.entries(c), archived)
-            readable &= {a if H.actor_kind(a) == "human" else H.actor_id(a) for a in reports}
-        return readable
+        """The authors whose updates `who` may read (backend/updates.py visible_authors)."""
+        return updates.visible_authors(c, auth, who, mine, scope)
 
     def update_scope(scope):
         if scope not in (None, "", "all", "direct"):
@@ -3813,6 +3796,15 @@ def create_app(settings=None):
                 raise Problem("validation", "meetings.auto_share is a boolean", 422)
         if not re.fullmatch(r"[a-z0-9_.-]{1,64}", key):
             raise Problem("kind", "A preference key is lower-case letters, digits, dots, dashes", 422)
+        if not request.headers.get("idempotency-key"):
+            # An unchanged value (a page re-saving what it read) answers from a read: no writer wait.
+            with store.read() as c:
+                same = c.execute("SELECT 1 FROM preferences WHERE actor=? AND key=? AND value_json=?",
+                                 (who.actor, key, encode(body.value))).fetchone()
+                if same:
+                    privacy.guard_write(c, getattr(request.state, "privacy_source", who), request.url.path, auth)
+            if same:
+                return {"key": key, "value": body.value}
         def work(c):
             c.execute("INSERT INTO preferences(actor,key,value_json,updated) VALUES(?,?,?,?) "
                       "ON CONFLICT(actor,key) DO UPDATE SET value_json=excluded.value_json, updated=excluded.updated",
@@ -3903,9 +3895,14 @@ def create_app(settings=None):
                         "history": [privacy.status(c, who, r, **inputs) for r in H.status_history(c, bot, since=since_time(since))]}
             from .views import updating
             readable = auth.bot_accesses(c, who)
-            statuses = [s for s in H.status_all(c) if readable.get(s["bot"], auth.FULL)["read"]]
+            # A first-turn waiter may not have a bot_status row until /started. Include live candidates;
+            # status_line keeps only an actual wait when no stored status exists.
+            statuses = [s for s in c.execute("SELECT bot FROM bot_status UNION SELECT bot FROM attempts "
+                                             "WHERE state IN ('leased','running') ORDER BY bot")
+                        if readable.get(s["bot"], auth.FULL)["read"]]
             inputs = privacy.status_inputs(c, [s["bot"] for s in statuses])
-            return {"bots": [status_line(c, who, s["bot"], default, inputs[s["bot"]], auth=auth) for s in statuses],
+            return {"bots": [line for s in statuses
+                             if (line := status_line(c, who, s["bot"], default, inputs[s["bot"]], auth=auth)) is not None],
                     # Tico updating itself, shown beside the status line
                     "updating": updating(c)}
 
@@ -5922,6 +5919,8 @@ def create_app(settings=None):
     stale_review.install(app, store, auth, mutate)
     from . import system_routines
     system_routines.install(app, store, auth, mutate)
+    from . import task_rules
+    task_rules.install(app, store, auth, mutate)
     outcome_stats.install(app, store, auth)
     from .live_meetings import install_live_meetings
     install_live_meetings(app, store, auth, mutate)
