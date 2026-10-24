@@ -179,6 +179,9 @@ class TaskCreate(Contract):
     acceptance_criteria: list[str] = Field(default_factory=list, max_length=50)
     lane: Lane | None = None
     labels: list[str] = Field(default_factory=list, max_length=20)
+    change_paths: list[Annotated[str, Field(min_length=1, max_length=1000)]] = Field(default_factory=list, max_length=3000)
+    qa: StrictBool | None = None
+    qa_not_checkable_live: StrictBool = False
     top: bool = False
     links: list[str] = Field(default_factory=list, max_length=20)
     # Wait for the owner's next run instead of starting one (a bot owner only).
@@ -560,6 +563,16 @@ class GoalProposalDecision(Contract):
 class CompanyUpdate(Contract):
     vision: str | None = Field(default=None, max_length=4000)
     description: str | None = Field(default=None, max_length=10_000)
+
+
+# What a person's chat bot learned (backend/learned.py): one short line, in their own layer or the company's.
+class LearnedAdd(Contract):
+    layer: Literal["personal", "company"] = "personal"
+    text: str = Field(min_length=1, max_length=2000)
+
+
+class LearnedEdit(Contract):
+    text: str = Field(min_length=1, max_length=2000)
 
 
 class GoalWhy(Contract):
@@ -1425,6 +1438,17 @@ class SeatUpdate(Contract):
     team: Annotated[str, Field(max_length=100)] | None = None
 
 
+class SeatDraft(Contract):
+    """The CEO Bot's draft of a seat's job description (backend/recruiting.py)."""
+    text: Annotated[str, Field(min_length=1, max_length=8000)]
+
+
+class SeatHire(Contract):
+    """The candidate picked for a seat: a Tico template, on its suggested model unless `model` names another."""
+    template: Annotated[str, Field(min_length=1, max_length=80)]
+    model: Annotated[str, Field(max_length=200)] = ""
+
+
 class BotArchive(Contract):
     successor: ID | None = None          # a bot that takes its open tasks and any team it roots
     expected_revision: int = Field(ge=1)
@@ -1609,20 +1633,40 @@ class BotWakePreset(Contract):
     expected_revision: int = Field(ge=1)
 
 
+class BotTaskCondition(Contract):
+    """One row of a filter tab (backend/bot_task_tabs.py FIELDS): a task must match every row. A list value is "any
+    of"; days are whole numbers. bot_task_tabs.condition checks each value against the field."""
+    field: Literal["status", "step", "type", "assigned_to", "asked_by", "waiting_on", "created_within",
+                   "updated_within", "done_within", "due", "label"]
+    value: int | str | list[str]
+
+
 class BotTaskTab(Contract):
-    """One tab over a bot's task list (backend/bot_task_tabs.py): a built-in view, or a filter by type, state and
-    whom the task waits on. Empty `types` is every type."""
+    """One tab over a bot's task list (backend/bot_task_tabs.py): a built-in view, or a filter of rows that a task must
+    all match. `types`, `states` and `waiting_on` are Task-list tabs 2/3's filter, still accepted and stored as rows."""
     name: str = Field(min_length=1, max_length=40)
     builtin: Literal["needs", "active", "blocked", "done"] | None = None
+    show_count: bool = True
+    conditions: list[BotTaskCondition] = Field(default_factory=list, max_length=20)
     types: list[str] = Field(default_factory=list, max_length=50)
     states: list[Literal["open", "doing", "waiting", "review", "ready", "done", "closed", "declined"]] = Field(
         default_factory=list, max_length=8)
     waiting_on: Literal["", "me", "person", "bot"] = ""
 
 
+class BotSidebarWidget(Contract):
+    """One widget of a bot's sidebar: hidden, and a height in pixels it grows to at most (none: its natural height;
+    Tasks: 500)."""
+    id: Literal["tasks", "updates", "files", "routines"]
+    hidden: bool = False
+    height: int | None = Field(default=None, ge=80, le=2000)
+
+
 class BotTaskTabs(Contract):
-    # No cap on how many tabs (Task-list tabs spec): the request body limit bounds one write.
+    # No cap on how many tabs (Task-list tabs spec): the request body limit bounds one write. Leaving widgets out keeps
+    # the saved ones.
     tabs: list[BotTaskTab] | None
+    widgets: list[BotSidebarWidget] | None = Field(default=None, max_length=4)
 
 
 class BotTransitionCreate(Contract):
@@ -2030,8 +2074,11 @@ class Adopt(Contract):
 
 
 class BotControl(Contract):
-    action: Literal["drain", "resume", "pause"]
+    """`scope` limits the bot's claims to `task_id` and its direct subtasks, leaving the rest of its queue untouched;
+    `unscope` lifts that limit. Neither pauses, resumes or starts anything."""
+    action: Literal["drain", "resume", "pause", "scope", "unscope"]
     expected_revision: int = Field(ge=1)
+    task_id: str | None = Field(None, max_length=200)
 
 
 class BotPlace(Contract):
@@ -2099,6 +2146,8 @@ class StopTurn(Contract):
 
 class AssistantMessage(Contract):
     text: Annotated[str, Field(min_length=1, max_length=8000)]
+    # Sent from the Updates chat (backend/updates_chat.py): the turn is handed the updates the person may read.
+    place: Literal["updates"] | None = None
 
 
 class LibrarianResearch(Contract):
@@ -2343,3 +2392,13 @@ class InboundTask(Contract):
     due: str | None = None
     close: bool = False
     note: str | None = Field(default=None, max_length=200_000)
+
+
+class TaskRuleUpdate(Contract):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    department: str | None = Field(default=None, min_length=1, max_length=80)
+    triggers: list[dict] | None = Field(default=None, min_length=1, max_length=8)
+    actions: list[str] | None = Field(default=None, min_length=1, max_length=8)
+    on: bool | None = None
+    preset: Literal["15m", "hourly", "4h", "daily"] | None = None
+    at: str | None = Field(default=None, max_length=5)

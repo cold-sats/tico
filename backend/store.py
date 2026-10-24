@@ -8,6 +8,7 @@ import threading
 from collections import deque
 from contextlib import ExitStack, contextmanager
 
+import orjson
 import yaml
 
 from . import goals as G
@@ -398,6 +399,10 @@ def refused(c, identity, exc):
     """Undo a refused domain write, keep its audit (and rule 8's count), and say what answers it."""
     c.execute("ROLLBACK TO domain_write")
     c.execute("RELEASE domain_write")
+    # Gate notifications survive the refused move, while its step and reviewer wake roll back.
+    if getattr(exc, "review_gate", None):
+        from . import review_gate
+        review_gate.notify(c, identity.actor, exc.review_gate)
     # Preserve refusal auditing, but never a partial domain operation.
     token = H.PRIVATE_WRITE.set(getattr(exc, 'private', False))
     try:
@@ -505,9 +510,9 @@ def readiness_document(value):
     """Return the canonical runner-readiness shape, including legacy heartbeats."""
     if hasattr(value, "model_dump"):
         value = value.model_dump()
-    if isinstance(value, str):
+    if isinstance(value, (str, bytes)):
         try:
-            value = json.loads(value)
+            value = orjson.loads(value)
         except (TypeError, ValueError):
             value = {}
     value = value if isinstance(value, dict) else {}
@@ -684,6 +689,8 @@ class Store:
         # In-process writers queue before BEGIN instead of competing in SQLite's busy-handler sleeps.
         # Reads still use independent WAL snapshots; other processes remain governed by busy_timeout.
         self.writer = WriterGate()
+        from .provenance_clock import Cache
+        self.provenance_cache = Cache()
 
     def connect(self, factory=None, check_same_thread=True):
         c = sqlite3.connect(str(self.settings.db_path), timeout=30, isolation_level=None,
@@ -724,6 +731,8 @@ class Store:
             c.executescript(_stale_review.SCHEMA)
             from . import system_routines as _system_routines
             c.executescript(_system_routines.SCHEMA)
+            from . import task_rules as _task_rules
+            c.executescript(_task_rules.SCHEMA)
             from . import owner_link as _owner_link
             c.executescript(_owner_link.SCHEMA)
             from . import docs as _docs
@@ -736,6 +745,8 @@ class Store:
             c.executescript(_mail_settings.SCHEMA)
             from . import company_storage as _company_storage
             c.executescript(_company_storage.SCHEMA)
+            from . import tico_storage as _tico_storage
+            c.executescript(_tico_storage.SCHEMA)
             from . import google_connect as _google_connect
             _google_connect.ensure_schema(c)
             from . import support as _support
@@ -750,6 +761,10 @@ class Store:
             c.executescript(_watchers.SCHEMA)
             from . import bot_task_tabs as _bot_task_tabs
             c.executescript(_bot_task_tabs.SCHEMA)
+            # The sidebar's widgets: order, hidden and heights (Editable bot sidebar); NULL is the default four.
+            H.add_column(c, "bot_task_tabs", "widgets_json", "TEXT")
+            from . import learned as _learned
+            c.executescript(_learned.SCHEMA)
             from . import health_monitor as _health_monitor
             c.executescript(_health_monitor.SCHEMA)
             # When a finding last woke the Health Monitor, and how bad it is: a rise wakes it (backend/health_monitor.py).
@@ -759,6 +774,8 @@ class Store:
             c.executescript(_slack_channels.SCHEMA)
             from . import flight as _flight
             c.executescript(_flight.SCHEMA)
+            for column, kind in (("sql_ms", "REAL"), ("wait_ms", "REAL"), ("queries", "INTEGER")):
+                H.add_column(c, "flight_slow", column, kind)
             from . import performance as _performance
             c.executescript(_performance.SCHEMA)
             _updates.purge_rejected(c)
@@ -1252,6 +1269,10 @@ class Store:
                     # A day of history must not authorize every older attempt first.
                     c.execute("CREATE INDEX IF NOT EXISTS attempts_created ON attempts(created)")
                     c.execute("INSERT INTO cloud_migrations VALUES(62,?)", (H.now(),))
+                if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=63").fetchone():
+                    # The one task an operator limited a bot's claims to (execution.scoped_sql); NULL is no limit.
+                    H.add_column(c, "bot_control", "claim_task", "TEXT")
+                    c.execute("INSERT INTO cloud_migrations VALUES(63,?)", (H.now(),))
                 from .public_roadmaps import migrate as migrate_public_roadmaps
                 migrate_public_roadmaps(c)
                 H.ensure_market_reads(c)
@@ -1337,13 +1358,22 @@ class Store:
                                    # A bot's latest usage-limited attempt (execution.last_limit), read per Health render.
                                    ("attempts_bot_finished", "attempts(bot, finished)"),
                                    ("attempts_job", "attempts(job_id)"),
+                                   # Lease maintenance walks only active runs, never their history.
+                                   ("attempts_live_lease", "attempts(lease_until,id) WHERE state IN ('leased','running')"),
+                                   ("jobs_queued", "jobs(id,bot,message_id) WHERE state='queued'"),
                                    ("attempts_runner_state", "attempts(runner_id, state)"),
                                    # The turns a computer ran in a window, read under the write lock by an
                                    # open overload (backend/performance.py `_runs`).
                                    ("attempts_runner_finished", "attempts(runner_id, finished)"),
                                    # A computer asking after the tasks its session checkouts are kept for.
                                    ("attempts_bot_lane", "attempts(bot, lane)"),
+                                   # Recent failed and finished runs (Health, Fleet check, the census, /api/runs).
+                                   # Partial, so the scheduler's live-lease read keeps attempts_live_lease.
+                                   ("attempts_finished_state", "attempts(state, finished) WHERE finished IS NOT NULL"),
                                    ("events_action_target", "events(action, target, ts)"),
+                                   # Conversations newest first (hubdb.conversations_for, chats_with): the ORDER BY's
+                                   # expression word for word, or SQLite sorts every conversation.
+                                   ("conversations_recent", "conversations(COALESCE(last_message_at, created))"),
                                    # A task's runs (the task view's runs and its Runs section, backend/run_view.py).
                                    ("turns_task", "turns(task_id, started)"),
                                    # A blob's provenance (task_privacy.blob_readable), read for every
@@ -1422,6 +1452,8 @@ class Store:
             except Exception:
                 c.rollback()
                 raise
+            from . import provenance_clock
+            provenance_clock.ensure(c)
             # Every start, in short batches of their own: rows written since the last pass, including any an
             # older server wrote after a rollback, get their task links (backend/message_links.py).
             message_links.backfill(c)
@@ -1460,6 +1492,8 @@ class Store:
             if identity != self.pool_file:
                 # A restored or replaced database file: connections to the old one are not reused.
                 stale, self.pool, self.pool_file = self.pool, [], identity
+                from .provenance_clock import Cache
+                self.provenance_cache = Cache()
             else:
                 stale = []
             c = self.pool.pop() if self.pool else None
@@ -1469,6 +1503,10 @@ class Store:
             c = self.connect(factory=self.pooled, check_same_thread=False)
             c.pool_file = identity
         c.read_cache = {}
+        c.provenance_cache = self.provenance_cache
+        c.write_transaction = False
+        c.provenance_changes = c.total_changes
+        c.provenance_start = None
         return c
 
     def _give(self, c):
@@ -1499,6 +1537,9 @@ class Store:
                 return c
             done = begin(None, self.recorder, gate=self.writer, checkout=checkout)
             try:
+                c.write_transaction = True
+                from . import provenance_clock
+                c.provenance_start = provenance_clock.current(c)
                 yield c
                 message_links.refresh_dirty(c)
                 c.commit()

@@ -124,7 +124,7 @@ slow tests and every browser script, and release candidate validation covers tha
 ## Hosted release validation
 
 Prefer the manual **Release validation** workflow for the full gate so builds and tests do not compete with bots or
-interactive work. Its five gate jobs run in parallel on ephemeral 4-vCPU RunsOn Linux VMs in Tico's own AWS account, with read-only
+interactive work. Its twelve gate jobs, each about 3 minutes of tests, run in parallel on ephemeral 4-vCPU RunsOn Linux VMs in Tico's own AWS account, with read-only
 repository permissions and no production, AWS or provider credentials. It cannot tag, publish or deploy.
 
 ```sh
@@ -143,8 +143,10 @@ the manifests and files it would publish, and pushes nothing.
 The reviewed workflow controls and selected candidate have separate checkouts: a workflow merged after a candidate was
 frozen can check that candidate without changing it. The candidate's `scripts/release_checks.py --release` is unchanged.
 It can also run one slice of the gate (`--part product|browser|python|desktop`, with `--shard K/N` splitting the Python test
-files into N groups balanced by test count). The hosted workflow selects product, browser, three Python shards and
-desktop; without `--part`, the command runs the whole gate, with desktop only where the Linux app builds. The desktop
+files, or the browser scripts, into N groups balanced by the times in `scripts/test-timings.json`; refresh the browser
+times with `--record-browser-timings` from a validation's browser logs). The hosted workflow selects product, two browser
+shards, eight Python shards and desktop. Only product needs the images: the other parts start as soon as the Linux
+binaries are built, and product waits for the image builds; without `--part`, the command runs the whole gate, with desktop only where the Linux app builds. The desktop
 part runs the Tauri app's tests on Linux, among them a company app updating from a feed this candidate publishes
 (`scripts/app_release.py`) and serves (`backend/downloads.py`) behind a hub session: it must find, download, verify and
 install the update. It does not cover the macOS or Windows installers.
@@ -295,7 +297,7 @@ hosted gate.
 ## Manual fallback: validation, tag and notes
 
 1. Freeze current main with the guard above, then run the hosted release validation on that exact commit, with the
-   version you will tag.
+   version you will tag, dispatched from main: the tag publishes only a validation run of ci.yml from main.
 2. Once it is green, check main still equals that commit, then the Release Manager tags it and pushes:
    `git tag vX.Y.Z <validated-commit> && git push origin vX.Y.Z`.
 3. Once the release is published, file the Technical Writer's notes task. The notes go in `CHANGELOG.md` under

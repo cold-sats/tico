@@ -7,7 +7,13 @@ import json
 import re
 
 from .store import H, Problem
+from . import read_cache
 from .live_privacy import sources as meeting_sources
+
+
+def _task(c, tid):
+    # Authorization uses task identity and parties; display tags are unrelated to access.
+    return H._one(c, "SELECT * FROM tasks WHERE id=?", (tid,))
 
 
 def snapshot(c):
@@ -24,7 +30,7 @@ def actor(who):
 
 def task_readable(c, who, row):
     if snapshot(c) and row:
-        row = H.task(c, row["id"])
+        row = _task(c, row["id"])
     principals = actor(who)
     return all(H.task_private_readable(c, a, row) for a in
                (principals if isinstance(principals, tuple) else (principals,)))
@@ -51,35 +57,88 @@ def _candidates(value, out):
     return out
 
 
+def _task_rows(c, ids):
+    """{id: the parties row of that task, or None when no task has that id}, each id read at most once per snapshot.
+    A task page checks every comment, event and run against the same few tasks; reading them per row was thousands
+    of queries on a long task. The rows live in read_cache, so any write in the snapshot discards them."""
+    snapshot(c)
+    values = read_cache.cache(c)
+    known = values.setdefault(("task_privacy_rows",), {}) if values is not None else {}
+    missing = sorted({tid for tid in ids if tid not in known})
+    for start in range(0, len(missing), 500):
+        chunk = missing[start:start + 500]
+        found = {row[0]: row for row in c.execute(
+            "SELECT id,private,owner,requester,guest FROM tasks WHERE id IN (%s)" % ",".join("?" * len(chunk)), chunk)}
+        for tid in chunk:
+            known[tid] = found.get(tid)
+    return {tid: known[tid] for tid in ids}
+
+
 def references(c, value):
     """Task ids anywhere in a structured reference or payload, including nested lists. Every string that could
     name a task is gathered first and looked up in one query: one query per string was most of a busy server's SQL."""
-    snapshot(c)
-    names = [name for name in _candidates(value, set()) if name]
-    found = set()
-    for start in range(0, len(names), 500):
-        chunk = names[start:start + 500]
-        found.update(row[0] for row in c.execute(
-            "SELECT id FROM tasks WHERE id IN (%s)" % ",".join("?" * len(chunk)), chunk))
-    return found
+    names = {name for name in _candidates(value, set()) if name}
+    return {tid for tid, row in _task_rows(c, names).items() if row is not None}
+
+
+def prime_references(c, values):
+    """Look up every task id the given payloads could name in one pass, so the per-row checks that follow
+    (content_readable, message_readable) read them from this snapshot instead of one query each."""
+    names = set()
+    for value in values:
+        _candidates(value, names)
+    names.discard("")
+    _task_rows(c, names)
 
 
 def message_tasks(c, message, seen=None, include_run=True, current=False):
+    snapshot(c)
+    if not message or seen is not None:
+        return _message_tasks(c, message, seen, include_run, current)
+    from . import provenance_clock
+    row = dict(message)
+    if row.get("id") and not current:
+        row = H.message(c, row["id"], include_deleted=True) or row
+    refs = row.get("refs") or H._json(row.get("refs_json"), {}) or {}
+    run = refs.get("run") if isinstance(refs, dict) else None
+    has_run = isinstance(refs, dict) and (refs.get("turn_id") or (run.get("attempt_id") if isinstance(run, dict) else None))
+    key = ("message_tasks", row.get("id"), bool(include_run and has_run), row.get("conversation_id"),
+           json.dumps(refs, sort_keys=True), row.get("in_reply_to"))
+    return provenance_clock.cached(c, key, lambda: _message_tasks(c, row, None, include_run, True))
+
+
+def _message_tasks(c, message, seen=None, include_run=True, current=False):
     """`current`: `message` is its row as stored, read in this snapshot, so it is not read again."""
     snapshot(c)
     if not message:
         return set()
     message = dict(message)
-    seen = set() if seen is None else seen
+    root = seen is None
+    seen = set() if root else seen
     mid = message.get("id")
     if mid in seen:
         return set()
     if len(seen) >= 100:
         # An unbounded reply chain is an unsupported provenance path.
         raise Problem("privacy", "Message provenance is too deep to authorize", 403)
-    seen.add(mid)
     if mid and not current:
         message = H.message(c, mid, include_deleted=True) or message
+    # Only complete root traversals are reusable. A nested traversal can skip ancestors
+    # already visited by its caller, so caching that partial result would lose provenance.
+    values = read_cache.cache(c)
+    refs = message.get("refs") or H._json(message.get("refs_json"), {}) or {}
+    run = refs.get("run") if isinstance(refs, dict) else None
+    has_run = isinstance(refs, dict) and (refs.get("turn_id") or (run.get("attempt_id") if isinstance(run, dict) else None))
+    cache_key = ("message_tasks", mid, bool(include_run and has_run), message.get("conversation_id"),
+           json.dumps(refs, sort_keys=True),
+           message.get("in_reply_to"))
+    cached = values.get(cache_key) if values is not None else None
+    if cached is not None:
+        if len(seen | cached[1]) > 100:
+            raise Problem("privacy", "Message provenance is too deep to authorize", 403)
+        seen.update(cached[1])
+        return set(cached[0])
+    seen.add(mid)
     conv = H.conversation(c, message["conversation_id"]) if message.get("conversation_id") else None
     refs = message.get("refs") or H._json(message.get("refs_json"), {}) or {}
     if not isinstance(refs, dict):
@@ -99,6 +158,8 @@ def message_tasks(c, message, seen=None, include_run=True, current=False):
     run_id = refs.get("turn_id") or (run.get("attempt_id") if isinstance(run, dict) else None)
     if include_run and run_id:
         ids.update(attempt_tasks(c, run_id))
+    if root and values is not None:
+        values[cache_key] = (frozenset(ids), frozenset(seen))
     return ids
 
 
@@ -111,17 +172,83 @@ def attempt_tasks(c, aid, memo=None):
             memo[key] = frozenset(attempt_tasks(c, aid))
         return set(memo[key])
     snapshot(c)
+    from . import provenance_clock
+    return read_cache.value(c, ("attempt_tasks", aid), lambda: provenance_clock.cached(
+        c, ("attempt_tasks", aid), lambda: _attempt_tasks(c, aid)))
+
+
+def _attempt_tasks(c, aid):
     ids = set()
     for row in c.execute("SELECT m.* FROM attempts a JOIN jobs j ON j.id=a.job_id "
                          "JOIN messages m ON m.id=j.message_id WHERE a.id=? UNION "
                          "SELECT m.* FROM attempt_inputs i JOIN messages m ON m.id=i.message_id "
                          "WHERE i.attempt_id=?", (aid, aid)):
-        ids.update(message_tasks(c, row, include_run=False))
+        ids.update(message_tasks(c, row, include_run=False, current=True))
     ids.update(r[0] for r in c.execute("SELECT id FROM tasks WHERE carried_by=?", (aid,)))
     for row in c.execute("SELECT detail_json FROM events WHERE action IN (" + RUN_TASK_EVENTS_SQL + ") AND target=?",
                          (aid,)):
         ids.update(references(c, H._json(row[0], {}) or {}))
     return ids
+
+
+def prime_attempts(c, aids):
+    """Read the provenance of many runs in a fixed number of queries, for a page that then checks each run
+    (a task's comments and runs). The results are the ones attempt_tasks and the meeting index would build one
+    run at a time, kept for this snapshot; a run that cannot be authorized is left for its own check to refuse."""
+    snapshot(c)
+    values = read_cache.cache(c)
+    if values is None:
+        return
+    from . import provenance_clock
+    meetings = meeting_sources(c)
+    wanted = sorted({aid for aid in aids if isinstance(aid, str) and aid}
+                    - {key[1] for key in values if isinstance(key, tuple) and key[:1] == ("attempt_tasks",)})
+    for start in range(0, len(wanted), 250):
+        chunk = wanted[start:start + 250]
+        marks = ",".join("?" * len(chunk))
+        inputs = {aid: [] for aid in chunk}
+        for row in c.execute("SELECT a.id AS primed_attempt,m.* FROM attempts a JOIN jobs j ON j.id=a.job_id "
+                             f"JOIN messages m ON m.id=j.message_id WHERE a.id IN ({marks}) UNION "
+                             "SELECT i.attempt_id AS primed_attempt,m.* FROM attempt_inputs i "
+                             f"JOIN messages m ON m.id=i.message_id WHERE i.attempt_id IN ({marks})", chunk * 2):
+            row = dict(row)
+            inputs[row.pop("primed_attempt")].append(row)
+        carried = {aid: [] for aid in chunk}
+        for row in c.execute(f"SELECT carried_by,id FROM tasks WHERE carried_by IN ({marks})", chunk):
+            carried[row[0]].append(row[1])
+        events = {aid: [] for aid in chunk}
+        moved = {aid: [] for aid in chunk}
+        for row in c.execute("SELECT target,action,detail_json FROM events WHERE action IN (" + RUN_TASK_EVENTS_SQL +
+                             f") AND target IN ({marks})", chunk):
+            events[row[0]].append(row[2])
+            if row[1] == INPUT_MOVED:
+                moved[row[0]].append(row[2])
+        meetings.prime_attempts(inputs, moved)
+        for aid in chunk:
+            try:
+                ids = set(carried[aid])
+                for message in inputs[aid]:
+                    ids.update(message_tasks(c, message, include_run=False, current=True))
+                for detail in events[aid]:
+                    ids.update(references(c, H._json(detail, {}) or {}))
+            except Problem:
+                continue
+            values[("attempt_tasks", aid)] = provenance_clock.cached(c, ("attempt_tasks", aid), lambda ids=ids: ids)
+
+
+def prime_messages(c, messages):
+    """Before checking each of these stored messages: look up the tasks their refs name and the runs behind them
+    together, so a long task's comments are not a few queries per comment."""
+    messages = [dict(m) for m in messages]
+    refs = [m.get("refs") or H._json(m.get("refs_json"), {}) or {} for m in messages]
+    prime_references(c, refs)
+    H.prime_conversations(c, {m.get("conversation_id") for m in messages})
+    runs = set()
+    for ref in refs:
+        if isinstance(ref, dict):
+            run = ref.get("run")
+            runs.add(ref.get("turn_id") or (run.get("attempt_id") if isinstance(run, dict) else None))
+    prime_attempts(c, runs)
 
 
 # Events whose target is a run and whose `tasks` the run took in: carried tasks, and the tasks
@@ -139,14 +266,12 @@ def record_moved_input(c, from_attempt, to_attempt, message):
 
 
 def readable(c, actor, ids):
-    snapshot(c)
     principals = actor if isinstance(actor, tuple) else (actor,)
-    for tid in ids:
-        # The row alone decides: H.task's labels are not read, and it is read once for every principal.
-        row = H._one(c, "SELECT * FROM tasks WHERE id=?", (tid,))
-        if not all(H.task_private_readable(c, a, row) for a in principals):
-            return False
-    return True
+    # Every permission is current in this snapshot. Tags and wide task bodies
+    # contribute nothing to the decision, and shared provenance needs one lookup.
+    rows = _task_rows(c, set(ids))
+    return all(row is not None and all(H.task_private_readable(c, a, row) for a in principals)
+               for row in rows.values())
 
 
 def message_readable(c, actor, message, current=False):
@@ -164,6 +289,21 @@ def message_readable(c, actor, message, current=False):
                 and readable(c, actor, message_tasks(c, message, current=bool(stored))))
     except Problem:
         return False
+
+
+def readable_messages(c, actor, messages):
+    """The messages message_readable passes, each checked against its row as stored, read together in this snapshot
+    rather than one query per message. A message not stored is checked as given, as message_readable does."""
+    snapshot(c)
+    ids = sorted({dict(m).get("id") for m in messages} - {None, ""})
+    stored = {}
+    for start in range(0, len(ids), 500):
+        chunk = ids[start:start + 500]
+        stored.update((row["id"], dict(row)) for row in c.execute(
+            "SELECT * FROM messages WHERE id IN (%s)" % ",".join("?" * len(chunk)), chunk))
+    prime_messages(c, list(stored.values()))
+    return [m for m in messages if (message_readable(c, actor, stored[mid], current=True)
+                                    if (mid := dict(m).get("id")) in stored else message_readable(c, actor, m))]
 
 
 def require_message(c, who, message):
@@ -380,7 +520,7 @@ def private_meetings(c, ids):
 
 def private_execution(c, who):
     return bool(who.attempt_id and (private_meetings(c, meeting_sources(c).attempt(who.attempt_id)) or
-                any(H.task_private(c, H.task(c, tid)) for tid in attempt_tasks(c, who.attempt_id))))
+                any(H.task_private(c, _task(c, tid)) for tid in attempt_tasks(c, who.attempt_id))))
 
 
 def question_party(c, who, person, parent=None, guest=None):
@@ -447,7 +587,7 @@ def public_message(c, message):
     if not message or dict(message).get("deleted_at") or dict(message).get("deleted"):
         return False
     try:
-        return not any(H.task_private(c, H.task(c, tid)) for tid in message_tasks(c, message))
+        return not any(H.task_private(c, _task(c, tid)) for tid in message_tasks(c, message))
     except Problem:
         return False
 
@@ -463,6 +603,13 @@ def require_batch(c, who, row):
 def content_readable(c, actor, payload):
     return (meeting_sources(c).readable(actor, meeting_sources(c).references(payload))
             and readable(c, actor, references(c, payload)))
+
+
+def content_readable_rows(c, actor, rows):
+    """The rows content_readable passes, with the tasks they name looked up together first."""
+    rows = list(rows)
+    prime_references(c, rows)
+    return [row for row in rows if content_readable(c, actor, row)]
 
 
 def guard_write(c, who, path, auth):
@@ -508,7 +655,7 @@ def tag_readable(c, who, row):
     for event in c.execute("SELECT detail_json FROM events WHERE target=? AND action='tag.attach'", (row["id"],)):
         linked.update(references(c, H._json(event[0], {}) or {}))
     return (not linked or bool(row.get("is_template")) or
-            any(task_readable(c, who, H.task(c, tid)) for tid in linked)) and content_readable(c, actor(who), row)
+            any(task_readable(c, who, _task(c, tid)) for tid in linked)) and content_readable(c, actor(who), row)
 
 
 def require_destination(c, who, to, conversation_id, refs, reply=None, guest=None):
@@ -527,7 +674,7 @@ def require_destination(c, who, to, conversation_id, refs, reply=None, guest=Non
     if who.attempt_id:
         meeting_ids.update(meetings.attempt(who.attempt_id))
     restricted_meetings = private_meetings(c, meeting_ids)
-    private = [H.task(c, tid) for tid in ids if H.task_private(c, H.task(c, tid))]
+    private = [_task(c, tid) for tid in ids if H.task_private(c, _task(c, tid))]
     if not private and not restricted_meetings:
         return
     conv = H.conversation(c, conversation_id) if conversation_id else None
@@ -537,7 +684,7 @@ def require_destination(c, who, to, conversation_id, refs, reply=None, guest=Non
     if not all(meetings.readable(actor, restricted_meetings) for actor in audience):
         raise Problem("privacy", "Private meeting content stays with its current members", 403)
     target = (refs or {}).get("task") if isinstance(refs, dict) else None
-    target = H.task(c, target) if isinstance(target, str) else None
+    target = _task(c, target) if isinstance(target, str) else None
     for row in private:
         if all(_reads(c, actor, row, guest) for actor in audience):
             continue
@@ -596,7 +743,7 @@ def status(c, who, row, *, tasks=None, approvals=None, asks=None):
         ("bot:" + row["bot"], "bot:" + row["bot"]))]
     task = next((t for t in tasks if t["id"] == tid), None) if tid else None
     if tid and task is None:
-        task = H.task(c, tid)
+        task = _task(c, tid)
     private = [task] if task and H.task_private(c, task) else []
     if not tid:
         private = [t for t in tasks if H.task_private(c, t)]
@@ -628,10 +775,14 @@ def status(c, who, row, *, tasks=None, approvals=None, asks=None):
 def job_count(c, who, bot, states=("queued",)):
     snapshot(c)
     marks = ",".join("?" * len(states))
-    return sum(message_readable(c, actor(who), row) and
-               (not row["attempt_id"] or attempt_readable(c, actor(who), row["attempt_id"]))
-               for row in c.execute("SELECT m.*,j.attempt_id FROM jobs j JOIN messages m ON m.id=j.message_id "
-                                    f"WHERE j.bot=? AND j.state IN ({marks})", (bot, *states)))
+    # The rows are the messages as stored in this snapshot (as in job_counts), checked after one lookup for them all.
+    rows = [dict(row) for row in c.execute("SELECT m.*,j.attempt_id AS job_attempt FROM jobs j JOIN messages m "
+                                           f"ON m.id=j.message_id WHERE j.bot=? AND j.state IN ({marks})", (bot, *states))]
+    jobs = [(row.pop("job_attempt"), row) for row in rows]
+    prime_messages(c, rows)
+    prime_attempts(c, [aid for aid, _ in jobs])
+    return sum(message_readable(c, actor(who), row, current=True) and
+               (not aid or attempt_readable(c, actor(who), aid)) for aid, row in jobs)
 
 
 def job_counts(c, who, bots, states=("queued",)):
@@ -692,7 +843,7 @@ def event_readable(c, actor, event):
         return False
     ids = references(c, H._json(event.get("detail_json"), {}) or {}) | references(c, event.get("target"))
     target = event.get("target")
-    if H.task(c, target):
+    if _task(c, target):
         ids.add(target)
     msg = H.message(c, target)
     if msg and not message_readable(c, actor, msg):

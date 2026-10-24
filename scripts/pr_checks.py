@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PYTHON_MAP = {"backend/task_loops.py": ["backend/tests/test_task_loops.py"]}
 UI_MAP = {"ui/app/chat.js": ["chat", "imported-history"],
           "ui/app/chat-outline.js": ["chat", "imported-history"],
-          "ui/app/visual-cards.js": ["visual-cards", "visual-fallback"],
+          "ui/app/visual-cards.js": ["visual-cards", "visual-fallback", "visual-hosted"],
           "ui/app/visual-media.js": ["visual-media", "visual-media-app"]}
 CONFORMANCE = "runner/tests/test_conformance.py"
 CHANGELOG_REFUSAL = ("No PR edits CHANGELOG.md; the Technical Writer writes notes at the release cut. "
@@ -50,10 +50,26 @@ def guard_changelog(base, head="HEAD", root=None):
     # Release notes are a separate CHANGELOG-only cut. Do not exempt product PRs
     # that happen to contain a release trailer or a commit from an older cut.
     commits = git("log", "--no-merges", "--format=%H", f"{base}..{head}", "--", "CHANGELOG.md").splitlines()
+    # A merge that writes notes of its own (a line added or removed against every parent) needs its own trailer;
+    # bringing main's notes in, a clean union of the parents, stays allowed.
+    commits += [merge for merge in git("log", "--merges", "--format=%H", f"{base}..{head}").splitlines()
+                if merge_writes(git("show", "--cc", "--format=", merge, "--", "CHANGELOG.md"))]
     if changed == ["CHANGELOG.md"] and commits and all(
             RELEASE_TRAILER.search(git("show", "-s", "--format=%B", commit)) for commit in commits):
         return
     raise RuntimeError(CHANGELOG_REFUSAL)
+
+
+def merge_writes(combined):
+    """Whether a merge's combined diff (`git show --cc`) has a line that is new against every parent: in a hunk
+    headed by n+1 @s, the first n columns all + or all -. A line from one parent marks only its own column."""
+    parents = 0
+    for line in combined.splitlines():
+        if line.startswith("@@@"):
+            parents = len(line) - len(line.lstrip("@")) - 1
+        elif parents and line[:parents] in ("+" * parents, "-" * parents):
+            return True
+    return False
 
 
 def selection(changed, event="pull_request", root=ROOT):

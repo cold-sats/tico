@@ -406,20 +406,30 @@ class Auth:
             "JOIN conversations v ON v.id=m.conversation_id WHERE j.id=? AND v.scope='personal' "
             "AND v.room_key=? AND m.from_actor=v.owner_actor AND json_extract(m.refs_json,'$.assistant')=1",
             (attempt["job_id"], room_key)).fetchone()
-        if not row or not str(row["owner_actor"] or "").startswith("human:"):
+        if not row:
             return None
-        human = H.human(c, H.actor_id(row["owner_actor"]))
+        return self.chat_person(c, row["owner_actor"], attempt["bot"], attempt["id"], attempt["runner_id"])
+
+    def chat_person(self, c, owner_actor, bot, attempt_id="", runner_id=""):
+        """The person a turn of their chat bot (`bot`: the Assistant, or the CEO Bot for the owner) acts as, with
+        their rights and nobody more, or None: a person who is gone or suspended, or for the CEO Bot one who is no
+        longer the owner (ownership moved on since they asked: the turn is the bot's own, never theirs)."""
+        from . import ceo_bot
+        if not str(owner_actor or "").startswith("human:"):
+            return None
+        human = H.human(c, H.actor_id(owner_actor))
         if not human or standing(c, human["id"]):
             return None
         email = str(human.get("email") or "").lower()
         owner = bool(email) and email == self.owner_email
-        if room_key == rooms.CEO_ROOM and not owner:
-            return None        # ownership moved on since they asked: the turn is the bot's own, never theirs
-        return Identity(row["owner_actor"], "owner" if owner else "human",
+        ceo = bot == ceo_bot.SLUG
+        if ceo and not owner:
+            return None
+        return Identity(owner_actor, "owner" if owner else "human",
                         email=email, via_token=True,
-                        token_label=ceo_bot.name(c) if room_key == rooms.CEO_ROOM else self.settings.assistant_name,
-                        via="assistant", task_actor="bot:" + attempt["bot"],
-                        attempt_id=attempt["id"], runner_id=attempt["runner_id"])
+                        token_label=ceo_bot.name(c) if ceo else self.settings.assistant_name,
+                        via="assistant", task_actor="bot:" + bot,
+                        attempt_id=attempt_id, runner_id=runner_id)
 
     def authenticate(self, headers, path="", method=""):
         bearer = headers.get("authorization", "")

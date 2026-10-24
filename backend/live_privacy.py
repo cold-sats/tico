@@ -1,4 +1,6 @@
 """Live-meeting provenance survives bot detachment and uses current access on every read."""
+import hashlib
+import json
 from functools import lru_cache
 
 from .store import H, Problem
@@ -37,24 +39,34 @@ class Sources:
     """One read snapshot only; caches contain identifiers, never customer text."""
     def __init__(self, c):
         self.c = c
+        self.messages = {}
         self.room = lru_cache(maxsize=4096)(self._room)
         self.conversation = lru_cache(maxsize=4096)(self._conversation)
         self.attempt = lru_cache(maxsize=4096)(self._attempt)
+        self.primed = {}
+        self.primed_rooms = {}
 
     def _room(self, cid):
-        row = self.c.execute("SELECT room_key FROM conversations WHERE id=?", (cid,)).fetchone()
+        # The stored row as H.conversation reads it, so a page that read its rooms together does not read each again.
+        row = H.conversation(self.c, cid)
         return (row and row["room_key"]) or ""
 
     def bound_conversation(self, cid):
         return self.room(cid).startswith(ROOM_PREFIX)
 
     def _conversation(self, cid):
+        if cid in self.primed_rooms:
+            return self.primed_rooms[cid]
+        from . import provenance_clock
+        return frozenset(provenance_clock.cached(
+            self.c, ("meeting_conversation", cid), lambda: self._conversation_uncached(cid)))
+
+    def _conversation_uncached(self, cid):
         room = self.room(cid)
         if room.startswith(ROOM_PREFIX):
             return frozenset((room[len(ROOM_PREFIX):],))
         # Existing rooms predate the durable room binding. Their original keeper input
         # remains provenance even when its message is deleted or the bot is detached.
-        ids = set()
         # The sender index scans every keeper notice in the company for each ordinary room.
         # Bind this legacy lookup to its room even when SQLite estimates the sender is selective.
         rows = self.c.execute("SELECT m.refs_json FROM messages m INDEXED BY messages_conversation JOIN live_meeting_turns t "
@@ -62,11 +74,40 @@ class Sources:
                               "AND t.meeting_id=json_extract(m.refs_json,'$.live_meeting.meeting_id') "
                               "WHERE m.conversation_id=? AND m.from_actor=? AND m.to_actor='bot:'||t.bot LIMIT 101",
                               (cid, H.KEEPER)).fetchall()
-        if len(rows) > 100:
+        return self._legacy_room([row[0] for row in rows])
+
+    def _legacy_room(self, inputs):
+        if len(inputs) > 100:
             raise Problem("privacy", "Meeting provenance is too deep to authorize", 403)
-        for row in rows:
-            ids.update(self.references(H._json(row[0], {}) or {}))
+        ids = set()
+        for refs in inputs:
+            ids.update(self.references(H._json(refs, {}) or {}))
         return frozenset(ids)
+
+    def prime_conversations(self, cids):
+        """The meeting provenance of many rooms, as _conversation builds it one room at a time: the rooms read in one
+        query per 500 and the legacy keeper inputs of the unbound ones in one more, each room capped as its own lookup
+        caps it. A room past the cap is left out, so its own check reads it again and refuses as before."""
+        from . import provenance_clock
+        cids = sorted({cid for cid in cids if cid} - set(self.primed_rooms))
+        H.prime_conversations(self.c, cids)
+        for part in H.chunks([cid for cid in cids if not self.bound_conversation(cid)]):
+            inputs = {cid: [] for cid in part}
+            for cid, refs in self.c.execute(
+                    "SELECT conversation_id,refs_json FROM (SELECT m.conversation_id,m.refs_json,"
+                    "row_number() OVER (PARTITION BY m.conversation_id) AS n FROM messages m INDEXED BY messages_conversation "
+                    "JOIN live_meeting_turns t ON t.id=json_extract(m.refs_json,'$.live_meeting.turn_id') "
+                    "AND t.meeting_id=json_extract(m.refs_json,'$.live_meeting.meeting_id') "
+                    "WHERE m.conversation_id IN (%s) AND m.from_actor=? AND m.to_actor='bot:'||t.bot) WHERE n<=101"
+                    % ",".join("?" * len(part)), (*part, H.KEEPER)):
+                inputs[cid].append(refs)
+            for cid, found in inputs.items():
+                try:
+                    ids = self._legacy_room(found)
+                except Problem:
+                    continue
+                self.primed_rooms[cid] = frozenset(provenance_clock.cached(
+                    self.c, ("meeting_conversation", cid), lambda ids=ids: ids))
 
     def references(self, value):
         if isinstance(value, str):
@@ -93,16 +134,28 @@ class Sources:
         if not message:
             return set()
         message = dict(message)
-        seen = set() if seen is None else seen
+        root = seen is None
+        seen = set() if root else seen
         mid = message.get("id")
         if mid in seen:
             return set()
         if len(seen) >= 100:
             raise Problem("privacy", "Meeting provenance is too deep to authorize", 403)
-        seen.add(mid)
         refs = message.get("refs") or H._json(message.get("refs_json"), {}) or {}
         if not isinstance(refs, dict):
             raise Problem("privacy", "Meeting provenance cannot be authorized", 403)
+        cache_key = (mid, include_run, message.get("conversation_id"),
+               hashlib.sha256(json.dumps(refs, sort_keys=True).encode()).digest(), message.get("in_reply_to"))
+        cached = self.messages.get(cache_key)
+        # Only complete root traversals are reusable. A nested traversal may have
+        # omitted an ancestor already visited by its caller, so never publish it.
+        if cached is not None:
+            # Complete closures may share ancestors; count their distinct visited ids.
+            if len(seen | cached[1]) > 100:
+                raise Problem("privacy", "Meeting provenance is too deep to authorize", 403)
+            seen.update(cached[1])
+            return set(cached[0])
+        seen.add(mid)
         ids = self.references(refs)
         if message.get("conversation_id"):
             ids.update(self.conversation(message["conversation_id"]))
@@ -116,17 +169,47 @@ class Sources:
         aid = refs.get("turn_id") or (run.get("attempt_id") if isinstance(run, dict) else None)
         if aid and include_run:
             ids.update(self.attempt(aid))
+        if root:
+            if len(self.messages) >= 4096:
+                self.messages.clear()
+            self.messages[cache_key] = (frozenset(ids), frozenset(seen))
         return ids
 
     def _attempt(self, aid):
+        if aid in self.primed:
+            return self.primed[aid]
+        from . import provenance_clock
+        return frozenset(provenance_clock.cached(
+            self.c, ("meeting_attempt", aid), lambda: self._attempt_uncached(aid)))
+
+    def prime_attempts(self, inputs, moved):
+        """The provenance of many runs from rows already read together (task_privacy.prime_attempts): `inputs`
+        maps each run to its messages as stored, `moved` to its attempt.input.moved details. A run whose provenance
+        cannot be authorized is left out, so its own check reads it again and refuses as before."""
+        from . import provenance_clock
+        for aid, rows in inputs.items():
+            try:
+                ids = self._attempt_from(rows, moved.get(aid, ()))
+            except Problem:
+                continue
+            self.primed[aid] = frozenset(provenance_clock.cached(
+                self.c, ("meeting_attempt", aid), lambda ids=ids: ids))
+
+    def _attempt_uncached(self, aid):
+        rows = self.c.execute("SELECT m.* FROM attempts a JOIN jobs j ON j.id=a.job_id "
+                              "JOIN messages m ON m.id=j.message_id WHERE a.id=? UNION "
+                              "SELECT m.* FROM attempt_inputs i JOIN messages m ON m.id=i.message_id "
+                              "WHERE i.attempt_id=?", (aid, aid)).fetchall()
+        moved = [row[0] for row in self.c.execute(
+            "SELECT detail_json FROM events WHERE action='attempt.input.moved' AND target=?", (aid,))]
+        return self._attempt_from(rows, moved)
+
+    def _attempt_from(self, rows, moved):
         ids = set()
-        for row in self.c.execute("SELECT m.* FROM attempts a JOIN jobs j ON j.id=a.job_id "
-                                  "JOIN messages m ON m.id=j.message_id WHERE a.id=? UNION "
-                                  "SELECT m.* FROM attempt_inputs i JOIN messages m ON m.id=i.message_id "
-                                  "WHERE i.attempt_id=?", (aid, aid)):
+        for row in rows:
             ids.update(self.message(row, include_run=False))
-        for row in self.c.execute("SELECT detail_json FROM events WHERE action='attempt.input.moved' AND target=?", (aid,)):
-            detail = H._json(row[0], {}) or {}
+        for detail_json in moved:
+            detail = H._json(detail_json, {}) or {}
             ids.update(self.references(detail))
             if detail.get("message_id"):
                 ids.update(self.message(H.message(self.c, detail["message_id"], include_deleted=True), include_run=False))

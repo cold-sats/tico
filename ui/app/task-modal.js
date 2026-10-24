@@ -17,8 +17,8 @@ function taskDialogWire(d) {
   });
   d.addEventListener('issue-acted', () => d.close());
   d.addEventListener('close', () => {
-    // The close event is queued: when the task was reopened before it fired, it belongs to the closed one.
-    if (d.open) return;
+    // The close event is queued: a newer opening may still be awaiting its first draw.
+    if (d.open || d.taskOpening?.pending) return;
     if (!TASK_CHAT || TASK_CHAT.dialog === d) taskChatStop();
     d.tfEl?.querySelector('video, audio')?.pause();
     d.tfEl = null; d.tfOpen = null;
@@ -33,7 +33,7 @@ function taskModal() {
   d.addEventListener('click', ev => { if (ev.target === d) d.close(); });
   taskDialogWire(d);
   d.addEventListener('close', () => {
-    if (d.open) return;
+    if (d.open || d.taskOpening?.pending) return;
     TASK_MODAL_LOAD++;
     document.body.classList.remove('task-modal-open');
     const back = d.returnContext; d.returnContext = null;
@@ -97,7 +97,7 @@ async function taskModalShow(task, d = taskModal(), opts = {}) {
   const peek = !!d.dataset.peek;
   // A fresh open starts with no file open, whether or not the last close's event has run yet.
   if (!d.open || String(d.dataset.task) !== String(task.id)) {
-    d.taskOpening = {}; d.askDrafts = new Map(); d.tfEl = null; d.tfOpen = null;
+    d.taskOpening = {pending: !d.open}; d.askDrafts = new Map(); d.tfEl = null; d.tfOpen = null;
     d.classList.toggle('thread', !peek && !!opts.thread);     // a redraw of the same task keeps the view it had
   } else askDraftCapture(d);
   const opening = d.taskOpening;
@@ -129,9 +129,14 @@ async function taskModalShow(task, d = taskModal(), opts = {}) {
   // a property that has the focus now keeps it through the redraw (over the one a save asked for)
   const onProp = d.contains(document.activeElement) ? document.activeElement.dataset.prop : '';
   if (onProp) d.focusProp = onProp;
-  // Session copy commands need the CLI's manifest even when Tasks is the first page opened.
+  // The detail is asked for at once; the first draw waits only for the CLI's manifest (session copy commands need it
+  // even when Tasks is the first page opened), read once.
+  const reading = Promise.all([v2Get(`/v2/tasks/${encodeURIComponent(task.id)}`), taskTypesLoad({cached: true}).catch(() => TASK_TYPES)]);
+  // A previous close's Back navigation must settle before a new dialog takes its place in history.
+  if (!peek && TASK_MODAL_BACK) await new Promise(resolve => window.addEventListener('popstate', resolve, {once: true}));
   await loadHarnessRows();
   if (d.drawSeq !== seq || d.taskOpening !== opening) return;
+  opening.pending = false;
   taskModalRunsKeep(d, kept);
   d.innerHTML = hubModalHTML(task, taskItem(task), {peek, thread: d.classList.contains('thread')});
   adopt();
@@ -154,7 +159,7 @@ async function taskModalShow(task, d = taskModal(), opts = {}) {
   if (!peek) document.body.classList.add('task-modal-open');
   d.scrollTop = 0;
   // the list knows the task; the detail adds its parts, its parent and the comments
-  const [detail] = await Promise.all([v2Get(`/v2/tasks/${encodeURIComponent(task.id)}`), taskTypesLoad().catch(() => TASK_TYPES)]);
+  const [detail] = await reading;
   if (!d.open || String(d.dataset.task) !== String(task.id) || d.drawSeq !== seq) return;
   if (!detail?.task) { d.close(); d.innerHTML = ''; TASK_DRAFTS.delete(String(task.id)); return; }
   await taskMenuSettled(d);                 // never pull a menu out from under the pointer
@@ -419,6 +424,7 @@ const TASK_DRAFTS = new Map();         // an unsent comment, per task, kept acro
 function taskChatStop() {
   if (TASK_CHAT) { clearInterval(TASK_CHAT.poll); TASK_CHAT.liveOff?.(); }
   TASK_CHAT = null;
+  liveTasksSync();                     // the router calls this on every page change too (ui/app/live.js)
 }
 // The open task changed, or a comment landed in its conversation (live events, ui/app/live.js): read it again, with
 // its files (a new file or version, or an answer on one), once per burst.
@@ -655,6 +661,7 @@ async function taskChatRead(state) {
 async function taskChatLoad(id, dialog, data = null) {
   const state = TASK_CHAT = {dialog, host: $('.task-chat', dialog),
     path: `/v2/tasks/${encodeURIComponent(id)}`, id, poll: 0, sending: false, reading: false};
+  liveTasksSync();
   if (data?.task?.conversation_id) state.cid = data.task.conversation_id;
   if (data) taskCommentsRender(state, data); else await taskChatRead(state);
   if (!taskChatCurrent(state) || state.stopped) return;

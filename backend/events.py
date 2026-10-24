@@ -5,7 +5,9 @@ everything to find nothing. Here the database keeps a numbered row per change (`
 written by triggers so no write path can forget one, and `GET /api/v2/events` streams them to a
 signed-in person as they commit, filtered to what that person may read:
 
-- `tasks`: a task as the list shows it to the viewer, or `gone` for one deleted. Anything the list
+- `tasks`: a task as the list shows it to the viewer, or `gone` for one deleted. `task=<ids>` and `party=<actors>`
+  narrow it to those tasks and to the tasks those actors own or asked for (now, or before the change moved them): a
+  page that shows one bot's or one person's tasks, or a single open task, is not sent every task's change. Anything the list
   shows of a task (its tags, files, relations, open ask, routine, step) logs the task, so a task
   list can also be caught up from a change number (backend/task_reads.py). One change to more than
   FAN_CAP tasks (a type or tag edit) is a single `bulk: true`: read task lists in full.
@@ -49,7 +51,8 @@ TOPICS = ("tasks", "messages", "runs", "bots", "needs")
 KEEP_HOURS = 24           # a client away longer than this reads in full
 FALLBACK_SECONDS = 1.5    # the shared look for changes another process wrote
 RUNNER_FALLBACK_SECONDS = 5  # the same for computers' streams: work another process queued waits this long at most
-LIFETIME_SECONDS = 300    # bounded, so a revoked sign-in stops being served
+LIFETIME_SECONDS = 900    # bounded; each read and keepalive re-checks the sign-in, so this only caps stale state
+RUNNER_LIFETIME_SECONDS = 300
 KEEPALIVE_SECONDS = 15    # under the proxies' idle timeouts; TICO_STREAM_KEEPALIVE_SECONDS replaces it
 GATHER_SECONDS = 1.0      # coalesce busy teams' writes before per-viewer hydration
 GATHER_CHAT_SECONDS = 0.25  # a stream following a conversation: its messages and run output stay prompt
@@ -61,7 +64,7 @@ def gathered(window, read_at):
     a quiet window is read almost at once instead of a full window later (a chat reply, a job for a computer)."""
     return max(LEAD_SECONDS, window - (time.monotonic() - read_at))
 BATCH = 500
-MAX_FILTER = 20           # conversation= and bot= values per stream
+MAX_FILTER = 20           # conversation=, bot=, task= and party= values per stream
 
 _NOW = "strftime('%Y-%m-%dT%H:%M:%fZ','now')"
 TABLE = [
@@ -624,6 +627,9 @@ def status_line(c, who, slug, default=None, inputs=None, auth=None):
                "open_tasks": 0, "needs_human": 0, "updated_at": live["created"]}
     row = privacy.status(c, who, row, **(inputs or {}))
     row["bot_state"] = (H.bot(c, row["bot"]) or {}).get("state")
+    # Why its last run ended without finishing, said plainly for its page header: never a bare "Crashed".
+    from .execution import last_stop
+    row["last_stop"] = last_stop(c, row["bot"], row)
     # A turn waiting for its shared ChatGPT login is waiting, not stuck: the line says on whom and its place.
     if line:
         row["waiting"] = row["focus"] = line
@@ -682,7 +688,7 @@ class _Viewer:
         return self._conversations[cid]
 
 
-def _tasks(view, rows, task_views):
+def _tasks(view, rows, task_views, tasks=(), parties=()):
     c, who = view.c, view.who
     # A change to more tasks than one event each is worth (FAN_CAP): one `bulk` event, read lists in full.
     bulk = [row for row in rows if row["kind"] == "bulk"]
@@ -697,6 +703,21 @@ def _tasks(view, rows, task_views):
     visible_sql = view.auth.task_sql(c, who)
     marks = ",".join("?" * len(ids))
     found = H._rows(c.execute(f"SELECT * FROM tasks WHERE id IN ({marks}) AND ({visible_sql})", ids))
+    if tasks or parties:
+        # Before each task is built for the viewer: the parties it has now, or had before a change in this batch moved
+        # it (`ref`, on that change's row, which a later row of the same task may follow).
+        had = {}
+        for row in rows:
+            was = H._json(row["ref"], None) if row["kind"] != "bulk" and row["ref"] else None
+            if isinstance(was, list):
+                had.setdefault(row["subject_id"], set()).update(was[:2])
+
+        def wanted(task_id, task):
+            return task_id in tasks or bool(parties) and any(
+                actor in parties for actor in (*had.get(task_id, ()), *((task["owner"], task["requester"]) if task else ())))
+        by_id = {task["id"]: task for task in found}
+        last = {task_id: row for task_id, row in last.items() if wanted(task_id, by_id.get(task_id))}
+        found = [task for task in found if task["id"] in last]
     views = {item["id"]: item for item in task_views(found, c, who, visible_sql)}
     present = {r[0] for r in c.execute(f"SELECT id FROM tasks WHERE id IN ({marks})", ids)}
     for task_id, row in last.items():
@@ -764,6 +785,9 @@ def _runs(view, rows):
             picked.append(row)
     readable = {}
     out = []
+    refs = [row["ref"] for row in picked if row["kind"] == "output"]
+    outputs = {str(e["id"]): e for e in c.execute(
+        "SELECT * FROM attempt_events WHERE id IN (" + ",".join("?" * len(refs)) + ")", refs)} if refs else {}
     for row in picked:
         cid, bot, aid = row["conversation_id"], row["bot"], row["subject_id"]
         if cid and not view.conversation(cid):
@@ -778,7 +802,7 @@ def _runs(view, rows):
                 continue
         entry = {"attempt_id": aid, "conversation_id": cid, "bot": bot}
         if row["kind"] == "output":
-            event = c.execute("SELECT * FROM attempt_events WHERE id=?", (row["ref"],)).fetchone()
+            event = outputs.get(str(row["ref"]))
             if event is None:
                 continue
             event = dict(event)
@@ -844,8 +868,8 @@ def _needs_list(view, rows, task_view, held=None):
     return [(rows[-1], entry)]
 
 
-def read(c, auth, who, after, *, topics=TOPICS, conversations=(), bots=(), task_views=None, task_view=None,
-         limit=BATCH, needs_held=None, visuals=None):
+def read(c, auth, who, after, *, topics=TOPICS, conversations=(), bots=(), tasks=(), parties=(), task_views=None,
+         task_view=None, limit=BATCH, needs_held=None, visuals=None):
     """What `who` may be sent after change `after`: (events, cursor, reset, more). Each event is
     (seq, topic, data). `cursor` moves past every row read, sent or not, so a resume starts after
     what this viewer could not see. `more` when a full batch was read and more waits. `needs_held`
@@ -864,6 +888,9 @@ def read(c, auth, who, after, *, topics=TOPICS, conversations=(), bots=(), task_
         if bots:
             clauses.append("(topic NOT IN ('runs','bots') OR bot IN (%s))" % ",".join("?" * len(bots)))
             args += list(bots)
+        if tasks and not parties:       # a party's tasks are known only from the task (_tasks)
+            clauses.append("(topic!='tasks' OR kind='bulk' OR subject_id IN (%s))" % ",".join("?" * len(tasks)))
+            args += list(tasks)
         if "needs" in topics:
             clauses.append("(topic!='needs' OR subject_id=?)")
             args.append(who.actor)
@@ -879,7 +906,7 @@ def read(c, auth, who, after, *, topics=TOPICS, conversations=(), bots=(), task_
             by_topic.setdefault(row["topic"], []).append(row)
         picked = []
         if by_topic.get("tasks"):
-            picked += [("tasks", r, e) for r, e in _tasks(view, by_topic["tasks"], task_views)]
+            picked += [("tasks", r, e) for r, e in _tasks(view, by_topic["tasks"], task_views, tasks, parties)]
         if by_topic.get("messages"):
             found = _messages(view, by_topic["messages"])
             if visuals:                 # a visual on a new message carries this reader's own address (backend/visuals.py)
@@ -945,7 +972,8 @@ def install(app, store, auth, task_views, task_view):
 
     @app.get("/api/v2/events")
     async def events(request: Request, topics: str | None = None, after: int | None = None,
-                     conversation: str | None = None, bot: str | None = None, needs: str | None = None):
+                     conversation: str | None = None, bot: str | None = None, needs: str | None = None,
+                     task: str | None = None, party: str | None = None):
         """Server-sent events for people's pages: see the module docstring."""
         who = request.state.identity
         auth.domain(who)
@@ -956,6 +984,7 @@ def install(app, store, auth, task_views, task_view):
         if unknown:
             raise Problem("validation", "Unknown topic: " + ", ".join(unknown) + " (one of " + ", ".join(TOPICS) + ")", 422)
         conversations, bots = _list(conversation, "conversation"), _list(bot, "bot")
+        tasks, parties = _list(task, "task"), _list(party, "party")
         # The browser resends the last id it was given when it reconnects on its own.
         resume = request.headers.get("last-event-id", "")
         if resume.isdigit():
@@ -972,12 +1001,17 @@ def install(app, store, auth, task_views, task_view):
                 return latest(c)
 
         def check():
-            auth.authenticate(request.headers)
+            fresh = auth.authenticate(request.headers)
+            # A changed role ends the stream at once rather than at its lifetime: reads use the role it opened with.
+            # (Another actor is BotOps acting for its requester, whose identity the headers alone do not give.)
+            if fresh.actor == who.actor and fresh.role != who.role:
+                raise Problem("unauthenticated", "Sign in again", 401)
 
         def poll(cursor):
-            auth.authenticate(request.headers)
+            check()
             with store.read() as c:
                 return read(c, auth, who, cursor, topics=wanted, conversations=conversations, bots=bots,
+                            tasks=tasks, parties=parties,
                             task_views=task_views, task_view=task_view, needs_held=held,
                             visuals=lambda c, who, rows: V.for_reader(app, auth.settings, c, who, rows))
 
@@ -1094,7 +1128,7 @@ def install_runner(app, store, execution):
         """Server-sent events for a computer: what changed for it, as hints to re-read one of its
         endpoints (`event: runner`, `data: {seq, kind, bots}`), never a value. `ready` names this
         server's release; `reset` means re-read everything. Ends with `expired` once the computer is
-        revoked, and on its own after LIFETIME_SECONDS; the runner reconnects with `after`."""
+        revoked, and on its own after RUNNER_LIFETIME_SECONDS; the runner reconnects with `after`."""
         who = request.state.identity
         if who.role != "runner":
             raise Problem("forbidden", "A registered computer is required", 403)
@@ -1130,7 +1164,7 @@ def install_runner(app, store, execution):
                 yield "retry: 1000\n\n"
                 yield _frame(None, "ready", {"seq": now_seq, "after": cursor,
                                              "release": runner_versions.desired().get("version", "")})
-                deadline = time.monotonic() + LIFETIME_SECONDS
+                deadline = time.monotonic() + RUNNER_LIFETIME_SECONDS
                 # Contact is due every keepalive whatever is sent, so last_seen never lapses.
                 quiet_since = time.monotonic()
                 due = after is not None          # a resume catches up first
