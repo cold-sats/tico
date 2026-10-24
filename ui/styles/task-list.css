@@ -20,7 +20,7 @@
 .tl-status:focus-visible{outline:2px solid var(--accent);outline-offset:-1px}
 
 /* ---- toolbar: title, labelled tabs with counts, search, new task */
-.tl-head{display:flex;align-items:center;gap:12px;min-height:44px}
+.tl-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px;row-gap:8px;min-height:44px}
 .tl-head h1{flex:none;font-size:var(--t-lg);margin:0 4px 0 0;white-space:nowrap}
 .tl-head .spacer,.tl-bar .spacer{flex:1}
 .tl-tabs{flex:none;display:inline-flex;gap:2px;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
