@@ -23,6 +23,15 @@ use super::{event, failed, is_limit, Events, HostError, Settings};
 use crate::env::Env;
 use crate::util::{log, text_of, truthy};
 
+/// The computer's existing Grok login stays in place, but sign-in and token refresh run as the bot user.
+/// The supervisor's version/install probes can have made this folder before any bot ran. Only hand over
+/// the known default store; custom auth paths are never adopted with supervisor privileges.
+pub fn hand_login_to_bot() {
+    if let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
+        crate::isolation::adopt(&[std::path::PathBuf::from(home).join(".grok")]);
+    }
+}
+
 /// Grok has no status subcommand. Its scoped auth store is the local sign-in; an empty store after logout is not.
 /// Paths and entry fields follow xai-org/grok-build's xai-grok-login storage.rs and model.rs.
 pub fn sign_in_detail(env: &Env) -> Option<&'static str> {
