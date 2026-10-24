@@ -124,13 +124,15 @@ function orgTreeByParent() {
   // left above it (say "Only bots I can read" on), it is not shown.
   const seatIds = new Set(seats.map(seat => seat.id)), personIds = new Set(people.map(p => p.id));
   for (const seat of seats) {
-    let boss = seat.org_parent || '';
+    const to = String(seat.reports_to || '');
+    let boss = seat.org_parent || (to.startsWith('seat:') ? 's:' + to.slice(5)
+      : to.startsWith('human:') ? 'p:' + to.slice(6) : empIds.has(to) ? 'b:' + to : '');
     for (let hops = 0; boss.startsWith('b:') && !empIds.has(boss.slice(2)) && hops < 20; hops++)
       boss = orgBossKey({kind: 'bot', ...((S.emps || []).find(e => e.name === boss.slice(2)) || {})});
     if (boss.startsWith('b:') && !empIds.has(boss.slice(2))) continue;
     if (boss.startsWith('s:') && !seatIds.has(boss.slice(2))) continue;
     if (boss.startsWith('p:') && !personIds.has(boss.slice(2))) continue;
-    (byParent[orgHang('s:' + seat.id, boss, groupOf)] ||= []).push({kind: 'seat', ...seat});
+    (byParent[orgHang('s:' + seat.id, boss, groupOf)] ||= []).push({kind: 'seat', ...seat, seat});
   }
   return byParent;
 }
@@ -587,7 +589,7 @@ function orgSorted(parent, kids) {
     // A group's own humans and bots come first, then the groups nested in it.
     if ((a.kind === 'group') !== (b.kind === 'group')) return a.kind === 'group' ? 1 : -1;
     if (a.kind === 'group' && b.kind === 'group') return (a.order || 0) - (b.order || 0);
-    // Recruiting seats follow the people and bots there, by title.
+    // Recruiting seats follow the people and bots there; use chart order when present, then title.
     if ((a.kind === 'seat') !== (b.kind === 'seat')) return a.kind === 'seat' ? 1 : -1;
     if (a.kind === 'seat') return chartNameKey(a.title).localeCompare(chartNameKey(b.title)) || String(a.id).localeCompare(String(b.id));
     if (placed(a, b)) return placed(a, b);               // a manager's reports in the order someone put them
@@ -672,8 +674,8 @@ function renderTree() {
       const tip = node.title + ' (Recruiting)' + (node.description ? '\n\n' + node.description : '');
       return `<li class="${kids ? 'dept' : ''}"><div class="noderow">
         ${kids ? `<button class="chev ${isCol ? 'col' : ''}" data-toggle="${esc(key)}" aria-label="${isCol ? 'Expand' : 'Collapse'} ${esc(node.title)}">›</button>` : ''}
-        <span class="node seat" data-seat="${esc(node.id)}" title="${esc(tip)}">
-          <span class="nav-icon seat-icon" aria-hidden="true">person_search</span><span class="nm">${esc(node.title)}</span><span class="pill waiting seat-pill">Recruiting</span></span></div>
+        <a class="node seat" href="#" data-seat="${esc(node.id)}" data-seat-open="${esc(node.id)}" title="${esc(tip)}">
+          <span class="nav-icon seat-icon" aria-hidden="true">person_search</span><span class="nm">${esc(node.title)}</span><span class="pill waiting seat-pill">Recruiting</span></a></div>
         ${kids ? `<ul ${isCol ? 'hidden' : ''}>${rec(key, depth + 1)}</ul>` : ''}</li>`;
     }
     if (node.kind === 'person') {
@@ -737,6 +739,8 @@ function renderTree() {
   };
   $('#tree').onclick = ev => {
     if (ev.target.closest('[data-connect-agent]')) { ev.preventDefault(); window.connectAgent?.(); return; }
+    const seat = ev.target.closest('[data-seat-open]');
+    if (seat) { ev.preventDefault(); setDrawer(false); void recruitSeat(seat.dataset.seatOpen); return; }
     const opener = ev.target.closest('[data-org-menu]'), step = ev.target.closest('[data-org-step]');
     if (step) {
       ev.preventDefault();
