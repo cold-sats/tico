@@ -80,7 +80,7 @@ let SETTINGS_TRANSITION_TIMER = null;
 // A section a link points into (an old tab's name, settingsShow); it scrolls there once drawn.
 let SETTINGS_REVEAL = '';
 // The old tabs that are now sections of General.
-const SETTINGS_GENERAL = {team: '#settings-team', assistant: '#settings-assistant-pane', privacy: '#settings-privacy', storage: '#settings-storage'};
+const SETTINGS_GENERAL = {team: '#settings-team', company: '#settings-company', assistant: '#settings-assistant-pane', privacy: '#settings-privacy', storage: '#settings-storage'};
 const settingsReveal = selector => {
   if (!selector || SETTINGS_REVEAL !== selector) return;
   SETTINGS_REVEAL = ''; $(selector)?.scrollIntoView({block: 'start'});
@@ -132,7 +132,8 @@ function pageSettings() {
             <p id="settings-team-icon-status" class="settings-cell-note" role="status"></p>
           </div>
         </div>` : ''}
-        <p class="settings-cell-note" id="settings-visuals">${settingsVisualsLine()}</p></section>` : ''}
+        <p class="settings-cell-note" id="settings-visuals">${settingsVisualsLine()}</p></section>
+      <section class="card" id="settings-company"><header><h2>Tico company</h2></header><div id="set-company"></div></section>` : ''}
       <section class="card" id="settings-assistant-pane"><header><h2>${esc(assistantName())}</h2><div class="row">
         <a class="ghost" href="${ASSISTANT}">Open chat</a>
         ${settingsCanManageBot((S.emps || []).find(e => e.name === assistantBot())) ? `<a class="ghost" href="#/bot/${encodeURIComponent(assistantBot())}/more">Bot settings</a>` : ''}
@@ -257,13 +258,16 @@ function settingsShow(tab) {
     general.hidden = SETTINGS_TAB !== 'general';
     // Drawn for the role this person had; one lost since keeps its sections hidden.
     const team = $('#settings-team'), privacy = $('#settings-privacy'), storage = $('#settings-storage');
+    const company = $('#settings-company');
     if (team) team.hidden = !settingsIsAdmin();
+    if (company) company.hidden = !settingsIsAdmin();
     if (privacy) privacy.hidden = storage.hidden = !owner;
     if (SETTINGS_TAB === 'general') {
       void Promise.all([renderSettingsAssistantApprovals(),
         // The owner's one click when the team has no Assistant (ui/assistant.js): restore it or add it.
         owner && window.assistantChat?.settingsStrip($('#settings-assistant'), {get, post, esc, toast, after: async () => { await refresh(true); renderSettingsBots(); }}),
-        privacy && owner && renderSettingsPrivacy(), storage && owner && renderSettingsStorage()]).then(() => settingsReveal(SETTINGS_REVEAL));
+        privacy && owner && renderSettingsPrivacy(), storage && owner && renderSettingsStorage(),
+        company && settingsIsAdmin() && renderSettingsCompany()]).then(() => settingsReveal(SETTINGS_REVEAL));
     }
   }
   const peoplePane = $('#settings-people');

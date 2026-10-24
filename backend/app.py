@@ -51,7 +51,7 @@ from . import names as actor_names
 from .openapi_v2 import STABLE as STABLE_ROUTES
 from .route_renames import old_paths as old_route_paths
 from . import updates
-from . import company_billing, gateway_connection
+from . import company_billing, company_server, gateway_connection
 from . import providers as Providers
 from . import access as Access
 from . import releases, runner_versions, ui_bundle
@@ -501,6 +501,10 @@ def create_app(settings=None):
             if request.url.path.startswith("/download/") and request.method == "GET":
                 return await call_next(request)
             if request.url.path == "/api/v2/team/icon" and request.method == "GET":
+                return await call_next(request)
+            # Tico HQ's check that a self-run server is the one at its address (backend/company_server.py): only a
+            # digest, and only while an owner's connect is pending.
+            if request.url.path == company_server.PROOF_PATH and request.method == "GET":
                 return await call_next(request)
             # The repository webhook (backend/github.py) carries its own HMAC signature.
             if request.url.path == GITHUB_WEBHOOK_PATH and request.method == "POST":
@@ -6072,6 +6076,7 @@ def create_app(settings=None):
     install_support(app, store, settings, census)
     from .inbound import install as install_inbound
     install_inbound(app, store, settings, auth)
+    company_server.install(app, store, settings, auth)
     from .support_access import install as install_support_access
     install_support_access(app, store, settings, auth)
     from .watchers import install as install_watchers
