@@ -111,11 +111,40 @@ def dotted_name(node):
     return ""
 
 
+def docs_reads(tree):
+    """Repository docs paths a module's source names: whole `docs/...` literals, and `/` chains through a
+    literal "docs" segment. A chain that continues with a computed name reads that directory's children."""
+    reads, inner = set(), set()
+    # An f-string such as f"docs/{id}" is an API route; a module that reads pages also joins the directory.
+    inner.update(n for f in ast.walk(tree) if isinstance(f, ast.JoinedStr) for n in ast.walk(f))
+    for node in ast.walk(tree):
+        if node in inner:
+            continue
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+            parts = []
+            while isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+                parts.insert(0, node.right)
+                node = node.left
+                inner.add(node)
+            parts.insert(0, node)
+            literal = [p.value if isinstance(p, ast.Constant) and isinstance(p.value, str) else None for p in parts]
+            if "docs" in literal:
+                tail = literal[literal.index("docs"):]
+                known = tail[:tail.index(None)] if None in tail else tail
+                reads.add("/".join(known) + ("/*" if None in tail or len(known) == 1 else ""))
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.startswith("docs/"):
+            path = node.value.split("#")[0].rstrip("/")
+            if path != "docs":  # a bare "docs/" is a prefix test, not a read
+                reads.add(path)
+    return reads
+
+
 class SourceGraph:
     """Static local imports, literal dynamic imports and fixture references, without executing code."""
 
     def __init__(self, root):
         self.trees, self.importers, self.references = {}, defaultdict(set), {}
+        self.docs_readers = defaultdict(set)  # docs path or "docs/<dir>/*" -> files whose source reads it
         self.uncertain = False
         self.dynamic_fixtures = False
         try:
@@ -205,6 +234,8 @@ class SourceGraph:
                     imports.add(module)
                     imports.update(module + "." + a.name for a in node.names)
             self.references[name] = refs
+            for read in docs_reads(tree):
+                self.docs_readers[read].add(name)
             for module in imports:
                 targets = {modules[module]} if module in modules else set()
                 # Bare test imports are supported even with importlib collection.
@@ -251,6 +282,22 @@ class SourceGraph:
             fixtures & refs for other, refs in self.references.items()
             if other != name and (is_test(other) or Path(other).name == "conftest.py"))
 
+    def docs_tests(self, name):
+        """Tests that read this docs file, directly or by importing a module that reads it, plus the tests
+        importing those. A reference is a literal path (`"docs/openapi/v2.json"`, `ROOT / "docs" / "x.md"`)
+        or a directory joined with a computed name (`ROOT / "docs" / page`, `DOCS.glob("*.md")`), which
+        covers that directory's direct children."""
+        directory = name.rsplit("/", 1)[0] + "/*"
+        readers = {r for path, files in self.docs_readers.items()
+                   if path == directory or name == path or name.startswith(path.rstrip("/") + "/") for r in files}
+        tests, pending = set(), list(readers)
+        while pending:
+            current = pending.pop()
+            if is_test(current) and current not in tests:
+                tests.add(current)
+            pending.extend(p for p in self.importers[current] if is_test(p) and p not in tests)
+        return tests
+
     def backend_tests(self, name):
         if self.uncertain or name not in AUDITED_IMPORTERS or name in SHARED_HUBS:
             return None
@@ -280,10 +327,17 @@ def selection(changed, event="pull_request", root=ROOT, graph=None, base=None):
     full["rust"] = rust
     if event != "pull_request":
         return {**full, "conformance": runner, "reason": "main runs the full default suite"}
-    python, browser, uncertain = set(), set(), []
+    python, browser, uncertain, docs = set(), set(), [], set()
     for name in changed:
         path = root / name
-        if name.startswith("docs/") or ("/" not in name and name.endswith(".md")):
+        if name.startswith("docs/"):
+            # A docs page a test reads (the committed OpenAPI spec, HQ's documented routes) runs that test.
+            graph = graph or SourceGraph(root)
+            if graph.uncertain:
+                uncertain.append(name)
+            docs.update(graph.docs_tests(name))
+            continue
+        if "/" not in name and name.endswith(".md"):
             continue
         if not path.is_file() or path.name in ("conftest.py", "__init__.py") or name in SHARED_HUBS:
             uncertain.append(name)
@@ -309,7 +363,7 @@ def selection(changed, event="pull_request", root=ROOT, graph=None, base=None):
             if name.startswith("ui/"):
                 browser.add("--all")
             uncertain.append(name)
-    if any(not (root / f).is_file() for f in python):
+    if any(not (root / f).is_file() for f in python | docs):
         uncertain.append("missing mapped Python test")
     if any(n != "--all" and not (root / "ui/tests" / f"{n}.cjs").is_file() for n in browser):
         uncertain.append("missing mapped browser test")
@@ -318,8 +372,9 @@ def selection(changed, event="pull_request", root=ROOT, graph=None, base=None):
         return {**full, "browser": ["--all"] if browser else None, "conformance": runner,
                 "reason": "unmapped, shared, deleted or uncertain change: full default suite",
                 "uncertain": uncertain or ["empty diff"]}
-    return {"python": sorted(python), "browser": sorted(browser), "conformance": runner, "rust": rust,
-            "caddy": False, "reason": "audited affected-test mapping"}
+    # A docs reader may be slow-only (outside the default suite); prepare drops those after collection.
+    return {"python": sorted(python | docs), "browser": sorted(browser), "conformance": runner, "rust": rust,
+            "caddy": False, "reason": "audited affected-test mapping", "docs_only": sorted(docs - python)}
 
 
 def changed_files(base, head="HEAD", root=ROOT):
@@ -391,9 +446,10 @@ def prepare(event, base, output, timings_path=None):
     picked = selection(changed, event, base=base)
     counts = collect() if picked["python"] != [] else Counter()
     if picked["python"] is not None:
-        missing = set(picked["python"]) - counts.keys()
+        missing = set(picked["python"]) - counts.keys() - set(picked.get("docs_only", []))
         if missing:
             raise RuntimeError(f"Affected mapping selected no default tests: {sorted(missing)}")
+        picked["python"] = [f for f in picked["python"] if f in counts]
         counts = Counter({f: counts[f] for f in picked["python"]})
     timings = {}
     if timings_path:

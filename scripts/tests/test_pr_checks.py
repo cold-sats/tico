@@ -253,9 +253,13 @@ def test_cached_system_packages_match_the_locked_browser_version():
 
 
 def test_docs_plan_has_an_explicit_no_test_job_and_never_calls_pytest(tmp_path, monkeypatch):
+    # A docs file a test reads runs that test, even beside a focused code change.
+    spec = checks.selection(["backend/task_loops.py", "docs/openapi/v2.json"])["python"]
+    assert {"backend/tests/test_openapi_v2.py", *checks.PYTHON_MAP["backend/task_loops.py"]} <= set(spec)
     # Exercise selector inputs independently of the separate release-notes guard.
     monkeypatch.setattr(checks, "guard_changelog", lambda _: None)
-    monkeypatch.setattr(checks, "changed_files", lambda _: ["docs/removed.md", "CHANGELOG.md", "README.md"])
+    unread = "/".join(("docs", "images", "removed.png"))  # a literal docs path here would make this test its reader
+    monkeypatch.setattr(checks, "changed_files", lambda _: [unread, "CHANGELOG.md", "README.md"])
     monkeypatch.setattr(checks, "collect", lambda: pytest.fail("docs must not collect tests"))
     target = tmp_path / "plan.json"
     plan = checks.prepare("pull_request", "base", target)
