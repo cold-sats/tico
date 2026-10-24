@@ -2617,13 +2617,25 @@ def _held_queue_admit(conn, actor, target, body, refs_json, *, replacing=None):
     state = (bot(conn, actor_id(target)) or {}).get("state")
     if state not in HELD_STATES:
         return
-    rows = conn.execute(
-        "SELECT from_actor, count(*) AS items, "
-        "sum(coalesce(length(CAST(body AS BLOB)),0) + coalesce(length(CAST(refs_json AS BLOB)),0)) AS bytes "
-        "FROM messages m WHERE to_actor=? AND delivered_at IS NULL AND deleted_at IS NULL "
-        "AND from_actor LIKE 'bot:%' AND from_actor<>to_actor AND (? IS NULL OR id<>?) "
-        "AND " + _HELD_QUEUE_PENDING_SQL.format(notes_waiting=NOTE_WAITING_SQL) + " GROUP BY from_actor",
-        (target, replacing, replacing)).fetchall()
+    pending = ("FROM messages m WHERE to_actor=? AND delivered_at IS NULL AND deleted_at IS NULL "
+               "AND from_actor LIKE 'bot:%' AND from_actor<>to_actor AND (? IS NULL OR id<>?) ")
+    size_sql = "coalesce(length(CAST(body AS BLOB)),0) + coalesce(length(CAST(refs_json AS BLOB)),0)"
+    if _has_table(conn, "jobs"):
+        rows = conn.execute(
+            f"SELECT from_actor, count(*) AS items, sum({size_sql}) AS bytes " + pending +
+            "AND " + _HELD_QUEUE_PENDING_SQL.format(notes_waiting=NOTE_WAITING_SQL) + " GROUP BY from_actor",
+            (target, replacing, replacing)).fetchall()
+    else:
+        # A hub database without Store's job queue: no job records what resume delivers, so charge each
+        # pending message by the same test admission uses before the job exists.
+        totals = {}
+        for r in conn.execute(f"SELECT from_actor, refs_json, {size_sql} AS bytes " + pending,
+                              (target, replacing, replacing)):
+            if _held_queue_drains(r["from_actor"], target, r["refs_json"]):
+                t = totals.setdefault(r["from_actor"], {"from_actor": r["from_actor"], "items": 0, "bytes": 0})
+                t["items"] += 1
+                t["bytes"] += r["bytes"]
+        rows = list(totals.values())
     items = sum(r["items"] for r in rows)
     size = sum(r["bytes"] for r in rows)
     own = next((r for r in rows if r["from_actor"] == actor), None)
