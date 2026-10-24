@@ -7,9 +7,6 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
-### Added
-- **Link a self-run server to its Tico company.** Settings > General > Tico company: an owner or admin pastes a server code from app.tico.dev, sees the company, and connects. Tico checks the server answers at its public address (`GET /api/v2/company-connection/proof`, no sign-in, only while a connect is pending), then the portal shows the server, its version and credit. The server key stays sealed on the server. The server sends its version once a day (Settings > Routines, Tico company heartbeat). Behind Cloudflare Access, add a Bypass policy for that one path.
-
 ## [0.4.2] - 2026-10-23
 
 ### Added
