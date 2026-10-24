@@ -26,9 +26,16 @@ DAILY_DAYS = 4            # today and the days before it, so Monday still has Fr
 WEEKLY_DAYS = 8           # the latest week in review
 ITEMS_MAX = 40            # every turn from Updates carries them all
 BODY_MAX = 700            # characters of one update's text
-LINKS = re.compile(r"(?:#/|/)(task|bot|chat|conversations?)/([A-Za-z0-9_.:-]+)", re.I)
+LINKS = re.compile(r"(?:#/|/)(tasks?|bot|chat|conversations?)/([A-Za-z0-9_.:-]+)", re.I)
 UUID = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I)
 SHORT_TASK = re.compile(r"^[0-9a-f]{8,}$", re.I)
+BARE_SHORT_TASK = re.compile(r"(?<![0-9a-f])([0-9a-f]{8,})(?![0-9a-f])", re.I)
+TASK_NUMBER = re.compile(r"(?:\b(?:task|dev)\s*#?\s*|#)(\d{1,9})\b", re.I)
+
+
+def _mentions(text, identifier):
+    """Match a bot slug or display name as a distinct identifier, not a substring of another word."""
+    return bool(identifier and re.search(r"(?<![\w])" + re.escape(str(identifier)) + r"(?![\w])", text, re.I))
 
 
 def from_updates(conversation, message):
@@ -48,17 +55,22 @@ def _room_bot(settings, conversation, bot):
 def opens_all(c, auth, who, text, access=None):
     """Whether `who` may open every task, chat and bot that `text` links (`#/task/<id>`, `#/bot/<slug>`, a chat or
     conversation link) or names by id. One that no longer exists leaves nothing to leak and does not count."""
+    text = str(text or "")
     access = auth.bot_accesses(c, who) if access is None else access
-    tasks, convs = set(), set()
+    tasks, numbers, convs = set(), set(), set()
     for kind, ref in LINKS.findall(text or ""):
         kind = kind.lower()
         if kind == "bot":
             if ref in access and not access[ref]["read"]:
                 return False
-        elif kind == "task":
-            tasks.add(ref)
+        elif kind in ("task", "tasks"):
+            (numbers if ref.isdigit() else tasks).add(ref)
         else:
             convs.add(ref)
+    # Short IDs and #123 / "task 123" / "Dev 123" references appear in update prose too, not
+    # just in links. Resolve only references that match a task so ordinary numbers stay harmless.
+    tasks.update(BARE_SHORT_TASK.findall(text))
+    numbers.update(TASK_NUMBER.findall(text))
     for ref in UUID.findall(text or ""):
         ref = ref.lower()
         if c.execute("SELECT 1 FROM tasks WHERE id=?", (ref,)).fetchone():
@@ -66,15 +78,25 @@ def opens_all(c, auth, who, text, access=None):
             continue
         row = c.execute("SELECT conversation_id FROM messages WHERE id=?", (ref,)).fetchone()
         convs.add(row[0] if row else ref)
-    if tasks:
-        visible = auth.task_sql(c, who)
-        for ref in tasks:
-            if not SHORT_TASK.match(ref) and not UUID.fullmatch(ref):
-                continue
-            ids = [r[0] for r in c.execute("SELECT id FROM tasks WHERE id=? OR id LIKE ?",
-                                           (ref, ref + "%" if SHORT_TASK.match(ref) else ref))]
-            if ids and len(ids) != c.execute(f"SELECT count(*) FROM tasks WHERE id IN ({','.join('?' * len(ids))}) "
-                                             f"AND {visible}", ids).fetchone()[0]:
+    hidden_bots = {slug for slug, level in access.items() if not level["read"]}
+    if hidden_bots:
+        marks = ",".join("?" * len(hidden_bots))
+        for row in c.execute(f"SELECT slug, display_name FROM bots WHERE slug IN ({marks})", sorted(hidden_bots)):
+            if _mentions(text, row["slug"]) or _mentions(text, row["display_name"]):
+                return False
+    visible = auth.task_sql(c, who)
+    for ref in tasks:
+        if not SHORT_TASK.match(ref) and not UUID.fullmatch(ref):
+            continue
+        rows = c.execute("SELECT id FROM tasks WHERE id=? OR id LIKE ?",
+                         (ref, ref + "%" if SHORT_TASK.match(ref) else ref)).fetchall()
+        for row in rows:
+            if not c.execute(f"SELECT 1 FROM tasks WHERE id=? AND ({visible})", (row["id"],)).fetchone():
+                return False
+    for number in numbers:
+        rows = c.execute("SELECT id FROM tasks WHERE number=?", (int(number),)).fetchall()
+        for row in rows:
+            if not c.execute(f"SELECT 1 FROM tasks WHERE id=? AND ({visible})", (row["id"],)).fetchone():
                 return False
     for ref in convs:
         if not c.execute("SELECT 1 FROM conversations WHERE id=?", (ref,)).fetchone():

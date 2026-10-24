@@ -80,3 +80,49 @@ def test_the_default_order_is_a_goal_then_waits_on_you_then_newest(api, monkeypa
     assert ranked == [("Manager", 1, ["Launch in October"], False), ("Crier", 2, [], True),
                       ("Analyst", 3, [], True), ("Writer", 4, [], False)]
     assert attempt["updates"]["updates"][0]["day"] == "2026-09-28", "the latest earlier day is there to offer"
+
+
+def test_private_references_in_links_and_prose_never_reach_an_updates_chat_turn(api, monkeypatch):
+    from backend.tests.test_api import restrict
+    from backend.tests.test_bot_contact import bot
+    monkeypatch.setattr(updates, "today", lambda at=None: "2026-09-29")
+    bot(api, "fixer", "Fixer")
+    hidden = post(api, "tasks", {"title": "Private market plan", "body": "See notes", "owner": "fixer", "private": True})
+    rows = [("short_id", hidden["id"][:8]),
+            ("singular_short_link", f"[task](#/task/{hidden['id'][:8]})"),
+            ("plural_short_link", f"[task](#/tasks/{hidden['id'][:8]})"),
+            ("plural_number_link", None),
+            ("number_hash", None),
+            ("number_words", None),
+            ("dev_number", None),
+            ("private_bot_slug", "privatebot"),
+            ("private_bot_name", "Private Bot"),
+            ("private_bot_link", "#/bot/privatebot")]
+    bot(api, "privatebot", "Private Bot")
+    bot(api, "source-public", "Public source")
+    for slug, _ in rows:
+        source = "source-" + slug.replace("_", "-")
+        bot(api, source, "Source " + slug)
+    with api.app.state.store.transaction() as c:
+        number = c.execute("SELECT coalesce(max(number),0)+1 FROM tasks").fetchone()[0]
+        c.execute("UPDATE tasks SET number=? WHERE id=?", (number, hidden["id"]))
+        restrict(c, "privatebot", people=["ana"])
+        rows = [(slug, (f"[task](#/tasks/{number})" if slug == "plural_number_link" else
+                        f"Task #{number}" if slug == "number_hash" else
+                        f"task {number}" if slug == "number_words" else
+                        f"Dev {number}" if slug == "dev_number" else ref))
+                for slug, ref in rows]
+        for slug, body in rows:
+            source = "source-" + slug.replace("_", "-")
+            updates.post(c, source, "- Reviewed " + body, day="2026-09-29")
+        updates.post(c, "source-public", "- Published the public launch note", day="2026-09-29")
+    r = runner(api)
+    assign(api, r, "coo")
+    ready(api, r, ["coo"])
+    _, attempt = claim(api, r, "coo", "What's the top update today?", "cara-test")
+    handed = [row["text"] for row in attempt["updates"]["updates"]]
+    assert handed == ["- Published the public launch note"]
+    serialized = json.dumps(attempt)
+    for _, reference in rows:
+        assert reference not in serialized, reference + " reached the bot"
+    assert hidden["id"] not in serialized
