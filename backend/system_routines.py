@@ -27,7 +27,7 @@ import logging
 import re
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time as clock, timedelta, timezone
 
 from .store import H, Problem
 
@@ -94,6 +94,10 @@ ACTIONS = {
     "ask_kpi_keeper": ("ask a KPI's keeper for a reading when it goes out of date", ("kpi", "ask", "remind", "goal")),
     "ask_goal_owner": ("ask a goal's owner when a KPI goes off track", ("kpi", "goal", "ask", "remind")),
     "check_health": ("check Tico's health", ("health", "check")),
+    "report_tasks": ("list each department's stalled, overdue and out-of-step tasks for the Task Manager",
+                     ("tasks", "stalled", "overdue", "department", "report")),
+    "wake_task_manager": ("open a Task check task for each department that has something to fix",
+                          ("tasks", "wake", "task manager")),
     "wake_health_monitor": ("wake the Health Monitor for a new finding", ("health", "wake")),
     "read_activity": ("read yesterday's chats, tasks, Slack, mail and meetings",
                       ("learnings", "chat", "slack", "mail", "meetings")),
@@ -148,6 +152,10 @@ JOBS = [
     Job("health_scan", "Health scan",
         "Checks Tico's health and wakes the Health Monitor only for a finding the last scan did not have.",
         CHECKS, "Hourly", 3600, control=True, then=("check_health", "wake_health_monitor")),
+    Job("task_manager_report", "Task Manager report",
+        "Lists each department's quiet tasks, overdue asks, review tickets without a pull request, merged work that did "
+        "not move and held bots in plain code, and opens one task for the Task Manager per department that has something.",
+        CHECKS, "Hourly on weekdays, 08:00 to 18:00", 3600, control=True, then=("report_tasks", "wake_task_manager")),
     Job("learnings", "Nightly learnings",
         "Reads yesterday's chats, tasks, Slack, mail and meetings and sends each bot what it should remember.",
         LEARNING, "Nightly at 03:00", ai=True, control=True, labels=("learnings-route",), then=("read_activity", "send_learnings")),
@@ -210,9 +218,10 @@ BY_KEY = {job.key: job for job in JOBS}
 
 
 # ----------------------------------------------------------------------------- what a person may change
-FIFTEEN, HOURLY, FOUR_HOURS, DAILY = "15m", "hourly", "4h", "daily"
+FIFTEEN, HOURLY, FOUR_HOURS, DAILY, BUSINESS = "15m", "hourly", "4h", "daily", "business"
 PRESETS = {FIFTEEN: ("Every 15 minutes", 900), HOURLY: ("Hourly", 3600), FOUR_HOURS: ("Every 4 hours", 4 * 3600),
-           DAILY: ("Daily at {at}", None)}
+           DAILY: ("Daily at {at}", None), BUSINESS: ("Hourly on weekdays, 08:00 to 18:00", 3600)}
+BUSINESS_HOURS = (clock(8), clock(18))      # company time (updates.ZONE), Monday to Friday
 EVERY_PRESET = (FIFTEEN, HOURLY, FOUR_HOURS, DAILY)
 AI_PRESETS = (HOURLY, FOUR_HOURS, DAILY)        # a job that asks Decide is never offered every 15 minutes
 CONFIG_KEY = "system_routines"
@@ -237,11 +246,13 @@ CONTROLS = {
     # One run a night reads the day before (backend/learnings.py claims one per night): the choice is its time.
     "learnings": Control(presets=(DAILY,), preset=DAILY, at="03:00"),
     "ask_deadlines": Control(presets=EVERY_PRESET, preset=HOURLY, at="09:00"),
+    # Hourly while people are at work: a report outside business hours would wait on nobody to read it.
+    "task_manager_report": Control(presets=(BUSINESS, HOURLY, FOUR_HOURS, DAILY), preset=BUSINESS, at="09:00"),
     "topic_fresh": Control(rule="topic_fresh"),
 }
 
 
-QUICK_KEYS = ("still_wanted", "kpi_asks", "health_scan", "ask_deadlines")   # run by backend/scheduler.py QUICK
+QUICK_KEYS = ("still_wanted", "kpi_asks", "health_scan", "ask_deadlines", "task_manager_report")   # run by backend/scheduler.py QUICK
 
 
 def zone():
@@ -350,10 +361,29 @@ def _occurrence(cfg, at):
     return point if point <= local else point - timedelta(days=1)
 
 
+def in_business_hours(at):
+    """Whether `at` is a weekday between 08:00 and 18:00 company time."""
+    local = at.astimezone(zone())
+    return local.weekday() < 5 and BUSINESS_HOURS[0] <= local.time() < BUSINESS_HOURS[1]
+
+
+def business_open(at):
+    """`at` if it is in business hours, else the next time they open (08:00 the next weekday, or today's if it is early)."""
+    if in_business_hours(at):
+        return at
+    local = at.astimezone(zone())
+    day = local.date() if local.weekday() < 5 and local.time() < BUSINESS_HOURS[0] else local.date() + timedelta(days=1)
+    while day.weekday() >= 5:
+        day += timedelta(days=1)
+    return datetime.combine(day, BUSINESS_HOURS[0], zone()).astimezone(timezone.utc)
+
+
 def due(cfg, at, last):
     """Whether a job on `cfg`'s preset runs at `at`, its last run having started at `last` (None: never). Its switch is
-    not read here."""
+    not read here. The business-hours preset is hourly, and only inside the hours."""
     every = PRESETS.get(cfg.get("preset") or "", (None, None))[1]
+    if cfg.get("preset") == BUSINESS and not in_business_hours(at):
+        return False
     if every:
         return last is None or at - last >= timedelta(seconds=every)
     return last is None or last < _occurrence(cfg, at)
@@ -362,6 +392,8 @@ def due(cfg, at, last):
 def next_due(cfg, last, now):
     """When a job on `cfg`'s preset runs next: never in the past; None for an interval job that has not run yet."""
     every = PRESETS.get(cfg.get("preset") or "", (None, None))[1]
+    if every and cfg.get("preset") == BUSINESS:
+        return business_open(max(last + timedelta(seconds=every), now) if last else now)
     if every:
         return max(last + timedelta(seconds=every), now) if last else None
     if due(cfg, now, last):
@@ -656,6 +688,9 @@ def listing(c, settings, now=None, who=None, auth=None):
                 "can_change": bool(ctl and who is not None and auth is not None and can_change(auth, who, job.key)),
                 "last": None, "next": _stamp(following) if following else None}
         item["search"] = search_words(job, when_words, then_words, department)
+        if job.key == "task_manager_report":
+            from .task_manager import active as task_manager_active
+            item["note"] = None if task_manager_active(c) else "Opens no tasks while the Task Manager is paused (Settings > Bots)"
         if job.key == "health_scan":
             # Its own switch only says whether it may run; it finds nothing while the Health Monitor itself is off.
             from .health_monitor import active

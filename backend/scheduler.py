@@ -116,8 +116,18 @@ def run_ask_deadlines(store, auth, at, failures=None):
         run.did(SR.words_of(done, "ask settled", "No asks past their deadline"))
 
 
+def run_task_manager_report(store, auth, at, failures=None):
+    # One report per department, built in plain code (backend/task_manager.py). Nothing to report is a quiet run: no task
+    # and no model call. A department with something gets one "Task check" task for the Task Manager.
+    with SR.recording(store, "task_manager_report", failures, "task_manager") as run:
+        from . import task_manager
+        with store.transaction() as c:
+            made = task_manager.report(c, auth, store.settings, stamp(at))
+        run.did(made["words"], quiet=not made["items"])
+
+
 QUICK = {"still_wanted": run_still_wanted, "kpi_asks": run_kpi_asks, "health_scan": run_health_scan,
-         "ask_deadlines": run_ask_deadlines}
+         "ask_deadlines": run_ask_deadlines, "task_manager_report": run_task_manager_report}
 
 
 def run_now(store, auth, key, actor):

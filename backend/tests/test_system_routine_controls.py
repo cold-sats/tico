@@ -18,7 +18,7 @@ from backend.store import H
 from backend.tests.test_api import api, get, post, put  # noqa: F401  (fixture)
 from backend.tests.test_stale_review import FakeDecide
 
-SIX = {"stale_review", "still_wanted", "kpi_asks", "learnings", "health_scan", "ask_deadlines"}
+SIX = {"stale_review", "still_wanted", "kpi_asks", "learnings", "health_scan", "ask_deadlines", "task_manager_report"}      # six, and the Task Manager's report
 
 
 def rows(api, token="ana-test"):
