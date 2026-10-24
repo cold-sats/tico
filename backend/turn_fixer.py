@@ -132,7 +132,8 @@ def finding(c, settings, value):
         load = load_status(c, runner['id'])
         sample = load['latest_sample'] or {}
         computers.append({'label': runner['label'] or runner['id'], 'cpu_pct': sample.get('cpu_pct'),
-                          'mem_pct': sample.get('mem_pct'), 'overloaded': load['overloaded'],
+                          'mem_pct': sample.get('mem_pct'), 'stale': bool(sample.get('stale')),
+                          'overloaded': load['overloaded'],
                           'running': here['running']})
     now = H.now()
     running = []
@@ -156,8 +157,24 @@ def finding(c, settings, value):
     else:
         bottleneck = f"{value['running']} turns are running and making progress; the company is busy, not stuck."
     counts = ', '.join(f"{w['count']} waiting for {w['reason']}" for w in waits) or 'none waiting'
+    first = min(waits, key=lambda w: w['oldest'], default=None)
+    if first:
+        minutes = max(0, int((H.parse_ts(now) - H.parse_ts(first['oldest'])).total_seconds() // 60))
+        age = f"{minutes // 60} h {minutes % 60} min" if minutes >= 60 else f"{minutes} min"
+        oldest_words = f"oldest wait {age} ({first['reason']})"
+    else:
+        oldest_words = "no turn waiting"
+    sampled = [x for x in computers if not x['stale'] and (x['cpu_pct'] is not None or x['mem_pct'] is not None)]
+    if sampled:
+        top = max(sampled, key=lambda x: max(x['cpu_pct'] or 0, x['mem_pct'] or 0))
+        cpu = 'unknown' if top['cpu_pct'] is None else f"{round(top['cpu_pct'])}%"
+        mem = 'unknown' if top['mem_pct'] is None else f"{round(top['mem_pct'])}%"
+        load_words = f"busiest computer {top['label']} at CPU {cpu}, memory {mem}"
+    else:
+        load_words = "CPU and memory not reported"
     text = (f"{value['in_use']} company turns in use (warning {value['warning']}, stop {value['stop']}): "
-            f"{value['running']} running, {value['starting']} starting, {counts}. Likely bottleneck: {bottleneck}")
+            f"{value['running']} running, {value['starting']} starting, {counts}; {oldest_words}; {load_words}. "
+            f"Likely bottleneck: {bottleneck}")
     return {'text': text, 'bottleneck': bottleneck, 'waits': waits[:5], 'running': running[:RUNNING_LISTED],
             'stale_running': len(stale), 'computers': computers[:10], 'updated_at': now,
             'needs_person': NEEDS_PERSON.get(waits[0]['reason']) if waits else None}

@@ -109,7 +109,13 @@ def test_one_finding_per_incident_one_botops_task_and_owner_notice_only_when_due
     waiters(api, n=39, running=1)
     store = api.app.state.store
     with store.transaction() as c:
-        c.execute("UPDATE start_places SET wait_reason='pre-start requirements'")
+        c.execute("UPDATE start_places SET wait_reason='pre-start requirements',waiting_since=?",
+                  (H.shift(H.now(), minutes=-75),))
+        # A calm computer: the sentence still names its CPU and memory, not only when it is overloaded.
+        c.execute("UPDATE runners SET performance='on',label='Mac A'")
+        stamp = int(time.time())
+        c.execute("INSERT INTO runner_load_samples VALUES((SELECT id FROM runners LIMIT 1),?,?,42,50,100,0,0,1)",
+                  (stamp - stamp % 60, stamp))
 
     def incident():
         with store.read() as c:
@@ -132,6 +138,8 @@ def test_one_finding_per_incident_one_botops_task_and_owner_notice_only_when_due
     found = first['finding']
     assert found['waits'][0] == {'reason': 'pre-start requirements', 'count': 39, 'oldest': found['waits'][0]['oldest']}
     assert 'Likely bottleneck: Most turns are waiting for pre-start requirements' in found['text']
+    assert 'oldest wait 1 h 15 min (pre-start requirements)' in found['text']
+    assert 'busiest computer Mac A at CPU 42%, memory 50%' in found['text']
     assert found['running'][0]['turn'] == 'attempt-39' and 'computers' in found
     assert not first.get('task_id') and owner_notices() == 0
     age(minutes=-6)
