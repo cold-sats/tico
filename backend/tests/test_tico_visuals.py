@@ -8,7 +8,7 @@ import time
 import urllib.parse
 import urllib.request
 
-from backend import tico_storage
+from backend import file_metadata, tico_storage
 from backend import visuals as V
 from backend.tests.test_api import api, headers, post  # noqa: F401
 from backend.tests.test_storage_delivery import task
@@ -82,6 +82,15 @@ def test_a_page_and_an_svg_uploaded_to_tico_storage_show_inline_from_the_company
     # Each page and SVG stored there: the page as uploaded, the version posting it made (references removed) and the SVG.
     assert len(copies) == 3, sorted(bucket.objects)
     delivered = hq.edge.delivered.get(ADDRESS, 0)
+
+    class Unread:                                        # a read there is through the company's address, as delivery
+        directory = api.app.state.blobs.directory
+
+        def open_range(self, *args, **kwargs):
+            raise AssertionError("the media worker read an SVG it derives nothing from")
+    with api.app.state.store.read() as c:
+        svg = dict(c.execute("SELECT *, NULL AS poster_blob_id FROM blobs WHERE content_type='image/svg+xml'").fetchone())
+    file_metadata.Metadata(api.app.state.store, Unread()).process(svg)
 
     shown = items(api, tid, comment)
     for kind in ("page", "svg"):
