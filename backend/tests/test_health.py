@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from backend import onboarding, releases
+from backend import releases, replication
 from backend.auth import Identity
 from backend.store import H
 from backend.tests.test_getting_started import SIGNED_IN, add_bot, enrolled, heartbeat  # noqa: F401
@@ -23,8 +23,8 @@ def health_of(api, headers=None):
 
 
 def with_backup(monkeypatch, backup):
-    real = onboarding.config_view
-    monkeypatch.setattr(onboarding, "config_view", lambda *a, **k: {**real(*a, **k), **({"backup": backup} if backup else {})})
+    if backup:
+        monkeypatch.setattr(replication, "status", lambda: backup)
 
 
 def test_all_good(environment, monkeypatch):
@@ -116,7 +116,8 @@ def test_a_computer_stops_on_all_its_queued_work_not_what_the_viewer_may_read(en
     from backend.tests.test_people_access import person_headers
     api = environment()
     silent_computer(api, 1900)
-    monkeypatch.setattr(views.privacy, "job_count", lambda *a, **k: 0)      # someone else's private request
+    monkeypatch.setattr(views.pipeline_stats, "job_queues",                  # someone else's private request
+                        lambda c, who, bots, now=None: {b: {"queued": 0, "uncertain": 0} for b in bots})
     issue = machine_issue(api, person_headers(api, "riley"))
     assert issue["title"] == "Owner Mac stopped checking in" and issue["needs_person"]
 

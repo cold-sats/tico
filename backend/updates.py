@@ -168,6 +168,32 @@ def depths(c, slugs):
     return out
 
 
+def visible_authors(c, auth, who, mine=False, scope=None):
+    """The authors whose updates `who` may read: bots they have Read on, and every person on the
+    chart (`human:<id>`), since a person's update is for the whole company. An external agent
+    (`who.agent`) is outside the company and sees only its bots. With `mine`, only
+    the bots they operate (for the owner, also bots with no operator) and their own update, the
+    Updates page's My bots filter (the count must match what the feed shows). With
+    `scope=direct`, only their direct reports on the org chart: the one level that alerts.
+    The feed, the tree and the Updates chat's turn (backend/updates_chat.py) all read through this."""
+    from . import goals as G
+    from . import people as P
+    from . import views
+    readable = {slug for slug, level in auth.bot_accesses(c, who).items() if level["read"]}
+    if who.role in ("owner", "human") or (who.role == "bot" and not who.agent):
+        readable |= {H.human_actor(p["id"]) for p in P.visible_people(views.roster(c))}
+    if mine:
+        pid = H.actor_id(who.actor)
+        operators = {r[0]: r[1] for r in c.execute("SELECT bot, operator FROM bot_config")}
+        readable = {slug for slug in readable if slug == who.actor or operators.get(slug) == pid
+                    or (not is_person(slug) and not operators.get(slug) and who.role == "owner")}
+    if scope == "direct":
+        archived = {row["slug"] for row in H.bots(c) if row.get("state") == "archived"}
+        reports = G.reports_of(who.actor, views.roster(c), views.entries(c), archived)
+        readable &= {a if H.actor_kind(a) == "human" else H.actor_id(a) for a in reports}
+    return readable
+
+
 def restricted_bots(c):
     """The bots not every member may read: nothing of theirs goes into a person's company-wide update."""
     from . import bot_access as A

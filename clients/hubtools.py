@@ -3359,7 +3359,8 @@ def write_fixture(found, parent):
     return [str(folder / name) for name in files]
 
 
-@tool("hub_message_list", "Messages and notices waiting for you.", {})
+@tool("hub_message_list", "Messages and notices waiting for you: the newest 100 messages and your first 100 open "
+      "tasks; more_messages or more_tasks says more are waiting. Mark messages read to reach older ones.", {})
 def inbox(api, args):
     return api.get("messages", unread="1")
 

@@ -7,6 +7,7 @@ import math
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -16,9 +17,14 @@ ROOT = Path(__file__).resolve().parents[1]
 PYTHON_MAP = {"backend/task_loops.py": ["backend/tests/test_task_loops.py"]}
 UI_MAP = {"ui/app/chat.js": ["chat", "imported-history"],
           "ui/app/chat-outline.js": ["chat", "imported-history"],
-          "ui/app/visual-cards.js": ["visual-cards", "visual-fallback"],
+          "ui/app/visual-cards.js": ["visual-cards", "visual-fallback", "visual-hosted"],
           "ui/app/visual-media.js": ["visual-media", "visual-media-app"]}
 CONFORMANCE = "runner/tests/test_conformance.py"
+# Each crate's `cargo test --locked` runs in the conformance job when any of its test inputs change:
+# runner-rs tests read runner/ (harnesses, fixtures and the Python runner they compare against) and the
+# backend's gateway enroll contract fixture, which gateway_relay's tests check the runner against.
+RUST_INPUTS = {"relay-rs": ("relay-rs/",),
+               "runner-rs": ("runner-rs/", "runner/", "backend/tests/fixtures/gateway_enroll_contract.json")}
 CHANGELOG_REFUSAL = ("No PR edits CHANGELOG.md; the Technical Writer writes notes at the release cut. "
                      "Remove your CHANGELOG.md changes.")
 RELEASE_TRAILER = re.compile(r"^Changelog-Release:[ \t]*v?(\d+\.\d+\.\d+)[ \t]*$", re.M)
@@ -50,17 +56,35 @@ def guard_changelog(base, head="HEAD", root=None):
     # Release notes are a separate CHANGELOG-only cut. Do not exempt product PRs
     # that happen to contain a release trailer or a commit from an older cut.
     commits = git("log", "--no-merges", "--format=%H", f"{base}..{head}", "--", "CHANGELOG.md").splitlines()
+    # A merge that writes notes of its own (a line added or removed against every parent) needs its own trailer;
+    # bringing main's notes in, a clean union of the parents, stays allowed.
+    commits += [merge for merge in git("log", "--merges", "--format=%H", f"{base}..{head}").splitlines()
+                if merge_writes(git("show", "--cc", "--format=", merge, "--", "CHANGELOG.md"))]
     if changed == ["CHANGELOG.md"] and commits and all(
             RELEASE_TRAILER.search(git("show", "-s", "--format=%B", commit)) for commit in commits):
         return
     raise RuntimeError(CHANGELOG_REFUSAL)
 
 
+def merge_writes(combined):
+    """Whether a merge's combined diff (`git show --cc`) has a line that is new against every parent: in a hunk
+    headed by n+1 @s, the first n columns all + or all -. A line from one parent marks only its own column."""
+    parents = 0
+    for line in combined.splitlines():
+        if line.startswith("@@@"):
+            parents = len(line) - len(line.lstrip("@")) - 1
+        elif parents and line[:parents] in ("+" * parents, "-" * parents):
+            return True
+    return False
+
+
 def selection(changed, event="pull_request", root=ROOT):
     """None means the full default suite; an empty list means explicitly unaffected."""
     full = {"python": None, "browser": None, "caddy": True, "reason": "full default suite"}
-    runner = any(p.startswith(("runner/", "runner-rs/", "relay-rs/")) or
-                 p in ("backend/harness_actions.py", "backend/runner_versions.py") for p in changed)
+    rust = sorted(crate for crate, inputs in RUST_INPUTS.items() if any(p.startswith(inputs) for p in changed))
+    runner = bool(rust) or any(p.startswith(("runner/", "runner-rs/", "relay-rs/")) or
+                               p in ("backend/harness_actions.py", "backend/runner_versions.py") for p in changed)
+    full["rust"] = rust
     if event != "pull_request":
         return {**full, "conformance": runner, "reason": "main runs the full default suite"}
     python, browser = set(), set()
@@ -92,7 +116,7 @@ def selection(changed, event="pull_request", root=ROOT):
     if unknown:
         return {**full, "browser": ["--all"] if browser else None, "conformance": runner,
                 "reason": "unmapped, shared, deleted or uncertain change: full default suite"}
-    return {"python": sorted(python), "browser": sorted(browser), "conformance": runner,
+    return {"python": sorted(python), "browser": sorted(browser), "conformance": runner, "rust": rust,
             "caddy": False, "reason": "audited affected-test mapping"}
 
 
@@ -167,7 +191,7 @@ def prepare(event, base, output, timings_path=None):
         jobs += [{"suite": f"browser-{i + 1}", "files": names} for i, names in enumerate(browser_split) if names]
         loads += browser_loads
     if picked["conformance"]:
-        jobs.append({"suite": "conformance", "files": [CONFORMANCE]})
+        jobs.append({"suite": "conformance", "files": [CONFORMANCE], "crates": picked["rust"]})
     # An empty matrix is invalid in Actions; fail rather than silently omit a gate.
     if not jobs:
         raise RuntimeError("Selection produced no check jobs")
@@ -210,12 +234,32 @@ def run(plan_path, suite):
             command += ["-m", "slow"]
         command += files
     (ROOT / "ci-results").mkdir(exist_ok=True)
+    rust = cargo_tests(job.get("crates", [])) if suite == "conformance" else 0
     result = subprocess.run(command, cwd=ROOT, env=env)
     if result.returncode == 0 and not suite.startswith("browser-"):
         cases = list(ET.parse(ROOT / "ci-results" / f"{suite}.xml").iter("testcase"))
         if not any(t.find("skipped") is None for t in cases):
             raise RuntimeError("A Python job must pass at least one test, not skip every test")
-    return result.returncode
+    return result.returncode or rust
+
+
+def cargo_tests(crates):
+    """Run every selected crate's tests; a red crate stops neither the next crate nor the conformance tests."""
+    if crates and not shutil.which("cargo"):
+        raise RuntimeError("Rust tests were selected but cargo is not installed")
+    failed = []
+    for crate in crates:
+        if crate not in RUST_INPUTS:
+            raise RuntimeError(f"Unknown Rust crate selected: {crate}")
+        # runner-rs/target is the directory the conformance job caches; relay-rs builds in a nested target there.
+        target = ROOT / "runner-rs" / "target" / ("" if crate == "runner-rs" else crate)
+        print(f"cargo test --locked: {crate}", flush=True)
+        if subprocess.run(["cargo", "test", "--locked"], cwd=ROOT / crate,
+                          env={**os.environ, "CARGO_TARGET_DIR": str(target)}).returncode:
+            failed.append(crate)
+    if failed:
+        print(f"cargo test failed: {', '.join(failed)}", flush=True)
+    return 1 if failed else 0
 
 
 def durations(paths, browser_paths=()):
