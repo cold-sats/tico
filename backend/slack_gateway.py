@@ -794,7 +794,8 @@ class Gateway:
             return used_today(c, actor, at=self.clock()) >= daily_cap(self.settings, role)
 
     def audit(self, c, actor, event, fleet, outcome):
-        """One `judge.call` per message, the way `/api/v2/decisions` audits: never the message text. A try that
+        """One `judge.call` per message, the way `/api/v2/decisions` audits: the answers' values and confidences
+        (`J.summary`), never the message text. A try that
         will be retried is not one; the message counts once, when it is routed or finally fails."""
         asked = len(fleet) + len(JUDGE_SET["questions"])
         H.event(c, actor, "judge.call", JUDGE_LABEL, {"via": "slack", "event_id": event["event_id"], "questions": asked,
@@ -1042,7 +1043,7 @@ class Gateway:
             if answers is not None:
                 decision = self.decide(answers, fleet)
                 called = {"model": self.last_model, "usage": self.last_usage, "cost_usd": round(self.last_cost, 6),
-                          "ms": round((time.monotonic() - started) * 1000),
+                          "ms": round((time.monotonic() - started) * 1000), "answers": J.summary(answers),
                           **({"provider": self.last_provider} if self.last_provider else {})}
         with self.store.transaction() as c:
             if called:
