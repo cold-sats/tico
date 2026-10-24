@@ -282,7 +282,12 @@ def load_on_start(onboarding, c):
 
     A changed plan never replaces a configured company. An error raises, and the caller (`start`) keeps it for the
     owner to see instead of stopping the server or installing a different team."""
-    draft = starter.unpack(onboarding.settings.company_file_data)
+    settings = onboarding.settings
+    if settings.company_file_error:
+        raise Problem("company_file", settings.company_file_error, 422)
+    if not settings.company_file_data.strip():
+        raise Problem("company_file", "The company file setup gave this server is empty", 422)
+    draft = starter.unpack(settings.company_file_data)
     if (O.load(c).get("company_import") or {}).get("fingerprint") == hashlib.sha256(encode(draft).encode()).hexdigest():
         return None
     who = onboarding.auth.owner_identity(c)

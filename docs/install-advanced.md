@@ -43,7 +43,9 @@ A `--company-file` normally travels in the `.env` parameter, so it must pack to 
 plan at `plans/<name>/<sha256>` in that bucket before launch, grants the server's role `s3:GetObject` on
 `plans/<name>/*` only, and names the key and its sha256 in the `.env`. At first boot the server copies it to
 `/opt/tico/company-file/plan.b64` (0400, the server's user), refuses to start on a sha256 mismatch, and the app reads it
-from `TICO_COMPANY_FILE` (the server mounts that folder by its absolute path, `TICO_COMPANY_FILE_DIR`). Setup deletes the
+from `TICO_COMPANY_FILE` (the server mounts that folder by its absolute path, `TICO_COMPANY_FILE_DIR`). A copy the app can't use (missing, unreadable, empty or too big)
+starts the server with the built-in bots only and shows the owner why on first run and on Health, never another
+team in its place. Setup deletes the
 object once the running app reads its copy; if S3 refuses, setup says so and the object stays until you delete it or
 the bucket's lifecycle rule, if it has one, expires it. If the first boot stops (a copy or sha256 failure), fix the
 cause and re-run the same command: it finishes that boot. A server set up before `--plan-bucket` gets this release's

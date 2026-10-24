@@ -309,10 +309,13 @@ def test_install_bootstrap_lays_out_the_chosen_chart_once_and_never_falls_back_t
         assert rows(api, "SELECT id,title,reports_to FROM seats ORDER BY id") == initial_seats
 
 
-@pytest.mark.parametrize("broken", ["unreadable", "conflicting-id"])
-def test_a_chosen_chart_that_fails_to_import_is_shown_to_the_owner_and_no_sample_takes_its_place(tmp_path, broken):
+@pytest.mark.parametrize("broken", ["unreadable", "conflicting-id", "empty-file", "missing-file", "oversized-file"])
+def test_a_chosen_chart_that_fails_to_import_is_shown_to_the_owner_and_no_sample_takes_its_place(tmp_path, monkeypatch,
+                                                                                                broken):
     """Spec acceptance 2 (first-v1 rule): the server starts with the built-ins only, nothing of the file is left, no
-    sample company is made, and the owner sees why on first run and on Health. A later import that works clears it."""
+    sample company is made, and the owner sees why on first run and on Health. A later import that works clears it.
+    A file setup copied to the server (TICO_COMPANY_FILE) that is empty, missing or too big is such a failure too."""
+    from backend.config import Settings
     from clients.environments import seed_registry
     seed_registry(tmp_path, "Owner", OWNER_EMAIL,
                   {"company_name": "Acme Finance", "app_name": "Tico", "assistant_name": "Assistant"})
@@ -324,8 +327,24 @@ def test_a_chosen_chart_that_fails_to_import_is_shown_to_the_owner_and_no_sample
     conflicting = C.from_yaml(good)
     conflicting["bots"] = [b for b in conflicting["bots"] if b["template"] != "coo"]
     next(b for b in conflicting["bots"] if b["template"] == "bookkeeping")["id"] = "coo"   # the Assistant's own slug
-    bad = "not a packed company file" if broken == "unreadable" else starter.pack(C.to_yaml(conflicting))
-    settings.company_file_data, settings.sample_company = bad, True
+    settings.sample_company = True
+    if broken.endswith("-file"):
+        plan = tmp_path / "plan.b64"
+        if broken == "empty-file":
+            plan.write_text(" \n\n")
+        elif broken == "oversized-file":
+            plan.write_text("x" * (starter.MAX_PACKED + 1))
+        monkeypatch.setenv("TICO_DB", str(tmp_path / "hub.db"))
+        monkeypatch.delenv("TICO_REHEARSAL", raising=False)
+        monkeypatch.delenv("TICO_COMPANY_FILE_B64", raising=False)
+        monkeypatch.setenv("TICO_COMPANY_FILE", str(plan))
+        read = Settings.from_env()
+        settings.company_file_data, settings.company_file_configured, settings.company_file_error = (
+            read.company_file_data, read.company_file_configured, read.company_file_error)
+        assert settings.company_file_configured and not settings.company_file_data
+    else:
+        settings.company_file_data = "not a packed company file" if broken == "unreadable" else starter.pack(
+            C.to_yaml(conflicting))
     with TestClient(create_app(settings)) as api:
         record = api.get("/api/v2/setup", headers=signed_in()).json()
         failed = record["company_import_failed"]
@@ -545,12 +564,6 @@ def test_a_300_seat_plan_too_big_for_the_env_starts_the_server_from_its_file(tmp
     monkeypatch.setenv("TICO_COMPANY_FILE_B64", "from-the-env")
     assert Settings.from_env().company_file_data == "from-the-env"   # the env still wins (self-install, older setups)
     monkeypatch.delenv("TICO_COMPANY_FILE_B64")
-    for problem, path in (("cannot be read", tmp_path / "missing.b64"), ("larger than a starter plan", tmp_path / "big.b64")):
-        if problem.startswith("larger"):
-            path.write_text("x" * (starter.MAX_PACKED + 1))
-        monkeypatch.setenv("TICO_COMPANY_FILE", str(path))
-        with pytest.raises(RuntimeError, match=problem):              # never a server that starts as some other team
-            Settings.from_env()
 
     seed_registry(tmp_path, "Owner", OWNER_EMAIL, {"company_name": "Acme Finance", "app_name": "Tico", "assistant_name": "Assistant"})
     settings = settings_for(tmp_path)
