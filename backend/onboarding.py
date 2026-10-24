@@ -10,6 +10,7 @@ created at once, `needs_onboarding`, and its repository is materialized by the c
 still a task for BotOps. Nothing here reaches a machine: it writes definitions and tasks.
 """
 
+import difflib
 import json
 import os
 import re
@@ -384,17 +385,50 @@ def setup_body(slug, choice, answers):
     ])
 
 
-def job_description(card, names, reason=""):
-    """A seat's job description as setup writes it: the role's text from its template (what it does and owns), then why
-    the company chart has it. Anyone with access to the seat edits it from there."""
-    card = render(card, names) if card else {}
+def job_description(card, names, reason="", instructions="", display_name=""):
+    """A seat's job description as setup writes it: the role's text from its template (what it does and owns), why the
+    company chart has it, then what the owner changed in the template's instructions during setup. Those changes are
+    the duties and limits the owner reviewed, so recruiting must see them; the template's own instructions stay with the
+    template, which keeps the description short. Unedited or empty instructions add nothing. Anyone with access to the
+    seat edits it from there."""
+    raw = card or {}
+    card = render(raw, names) if raw else {}
     parts = [str(card.get("summary") or "").strip()]
     owns = [line for line in card.get("owns") or [] if str(line).strip()]
     if owns:
         parts.append("Owns:\n" + "\n".join("- " + str(line).strip() for line in owns))
     if str(reason or "").strip():
         parts.append("Why this role is on the company chart:\n" + str(reason).strip())
+    parts.append(_instruction_changes(raw, names, instructions, display_name))
     return "\n\n".join(part for part in parts if part)
+
+
+def _instruction_changes(card, names, instructions, display_name=""):
+    """The lines the owner added to or took out of a template's instructions, or "" when they left them as shown. The
+    wizard shows them filled with the company's names and, once saved, the role's own name (`Onboarding.catalog`)."""
+    text = str(instructions or "").strip()
+    if not text or not card:
+        return ""
+    shown = [render(card, names, name)["instructions"].strip() for name in ("", display_name)]
+    if text in shown:
+        return ""
+    base = min(shown, key=lambda default: sum(1 for line in difflib.ndiff(default.splitlines(), text.splitlines())
+                                                if line[:1] in "+-"))
+    added, removed, kept = [], [], 0
+    for line in difflib.ndiff(base.splitlines(), text.splitlines()):
+        if line[:2] in ("+ ", "- ") and line[2:].strip():
+            (added if line[0] == "+" else removed).append(line[2:].rstrip())
+        elif line[:2] == "  " and line[2:].strip():
+            kept += 1
+    if len(removed) > kept:
+        # Mostly rewritten: the owner's text is the instructions, and a list of the template's lines would bury it.
+        return "The owner wrote this role's instructions in setup:\n" + text
+    out = ["The owner changed this role's instructions in setup."]
+    if added:
+        out.append("Added:\n" + "\n".join(added))
+    if removed:
+        out.append("Taken out:\n" + "\n".join(removed))
+    return "\n\n".join(out) if added or removed else ""
 
 
 class Onboarding:
@@ -605,7 +639,8 @@ class Onboarding:
                 return parent
             return home
         rows = {slug: {"title": choice["display_name"], "team": teams.get(choice["template"], ""),
-                       "description": job_description(cards.get(choice["template"]) or {}, names, choice.get("reason", "")),
+                       "description": job_description(cards.get(choice["template"]) or {}, names, choice.get("reason", ""),
+                                                      choice.get("instructions", ""), choice["display_name"]),
                        "reports_to": line(choice)}
                 for slug, choice in todo.items()}
         return {**laid, **lifecycle.lay_out(c, who.actor, rows)}

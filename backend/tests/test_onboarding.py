@@ -154,8 +154,9 @@ def test_setup_lays_out_each_picked_role_once_as_a_recruiting_seat_and_creates_n
     reporting line; no bot, repository, computer slot or BotOps setup task. Completing twice changes nothing."""
     api = environment()
     machine(api)
-    draft(api, selected={"support": {"template": "support", "display_name": "Help",
-                                     "instructions": "Answer within a day."}})
+    # The owner's edits to the instructions are the duties and limits recruiting must see; the template's text is not.
+    edited = "# Help\n\nYou answer Acme's support inbox.\n\nRefund up to $40 without asking.\nNever phone a customer.\n"
+    draft(api, selected={"support": {"template": "support", "display_name": "Help", "instructions": edited}})
     first = api.post("/api/v2/onboarding/complete", json={}, headers=signed_in()).json()
     again = api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
     assert again.status_code == 200, again.text
@@ -164,7 +165,9 @@ def test_setup_lays_out_each_picked_role_once_as_a_recruiting_seat_and_creates_n
     assert sorted(row["slug"] for row in record["bots"]) == ["botops", "coo"]
     seat, = seats(api)
     assert record["seats"] == {"support": seat["id"]}
-    assert seat["title"] == "Help" and seat["reports_to"] == "human:morgan" and "Answer" in seat["description"]
+    assert seat["title"] == "Help" and seat["reports_to"] == "human:morgan" 
+    assert "Refund up to $40 without asking." in seat["description"] and "Never phone a customer." in seat["description"]
+    assert "Answers the support inbox." in seat["description"] and "You answer Acme" not in seat["description"]
     assert api.get("/api/v2/tasks", params={"owner": "botops"}, headers=signed_in()).json()["tasks"] == []
     with api.app.state.store.read() as c:
         assert not c.execute("SELECT 1 FROM bots WHERE slug='support'").fetchone()
@@ -190,8 +193,9 @@ def test_direct_signup_with_no_chosen_chart_is_the_built_ins_and_an_empty_chart(
 
 def test_completing_twice_duplicates_neither_a_bot_nor_a_task(environment):
     api = environment()
-    draft(api, selected={"support": {"template": "support", "display_name": "Help",
-                                     "instructions": "Answer within a day."}})
+    # The owner's edits to the instructions are the duties and limits recruiting must see; the template's text is not.
+    edited = "# Help\n\nYou answer Acme's support inbox.\n\nRefund up to $40 without asking.\nNever phone a customer.\n"
+    draft(api, selected={"support": {"template": "support", "display_name": "Help", "instructions": edited}})
     first = build_team(api)
     again = build_team(api)
     assert again["completed"] == first["completed"]

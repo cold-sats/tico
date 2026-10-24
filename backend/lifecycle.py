@@ -170,10 +170,11 @@ def _reports_to(c, value, seat_id=""):
 
 
 def _seat_chain(c, seat_id):
-    """This seat and the open seats above it, nearest first (a closed or missing seat ends the chain)."""
+    """This seat and the seats above it, nearest first. Closed seats count: the chart hangs a seat under a closed
+    seat's own manager (`org_parent`), so a line through one can still close a circle. A missing seat ends it."""
     chain = []
     while seat_id and seat_id not in chain:
-        row = c.execute("SELECT reports_to FROM seats WHERE id=? AND closed_at IS NULL", (seat_id,)).fetchone()
+        row = c.execute("SELECT reports_to FROM seats WHERE id=?", (seat_id,)).fetchone()
         if not row:
             break
         chain.append(seat_id)
@@ -183,11 +184,14 @@ def _seat_chain(c, seat_id):
 
 
 def _anchor(c, reports_to):
-    """The person or bot a seat answers to in the end: up through any seats above it."""
-    while reports_to.startswith(SEAT_PREFIX):
+    """The person or bot a seat answers to in the end: up through any seats above it. A line that goes round answers
+    to nobody, so only the owner may place under it."""
+    seen = set()
+    while reports_to.startswith(SEAT_PREFIX) and reports_to not in seen:
+        seen.add(reports_to)
         row = c.execute("SELECT reports_to FROM seats WHERE id=?", (reports_to[len(SEAT_PREFIX):],)).fetchone()
         reports_to = str(row["reports_to"] or "") if row else ""
-    return reports_to
+    return "" if reports_to.startswith(SEAT_PREFIX) else reports_to
 
 
 def _may_place(auth, c, who, reports_to):
