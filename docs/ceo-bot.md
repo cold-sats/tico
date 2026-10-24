@@ -158,9 +158,10 @@ gets no access it did not have before it was the CEO Bot.
 
 ## The CEO Bot log
 
-The CEO Bot's page shows its log on the **Info** tab, newest first. Everyone in the company can read it, but each entry
-names a task only to someone who can open that task. Anyone else reads "a task you can't open", without its words.
-It lists:
+The CEO Bot's page shows its log on the **Info** tab, newest first. The log is visible to the owner only: it shows
+what happened to bots' tasks, which other people may not be allowed to see. Nobody else sees the section, and the API
+refuses them. A task the owner can't open, such as a private task they are not part of, shows as "a task you can't
+open", without its words. It lists:
 - each decision it made on its own at **Acts on its own**, with its reason and the bot tasks it created, moved up,
   gave to another bot or closed;
 - each thing it proposed to you instead, because it stays yours or because a bot was offline.
@@ -174,8 +175,8 @@ the decision, their change stays, and a task the decision created that someone h
 put one task back, the others are still put back. A task that has a guest now keeps its owner, so the guest keeps it.
 The entry then says, in plain words, what could not be restored. An entry is undone once.
 
-Over the API, `GET /api/v2/ceo-bot/log` reads the log, `POST /api/v2/ceo-bot/log/{id}/undo` undoes an entry (the
-owner only), and the CEO Bot decides with `POST /api/v2/ceo-bot/decisions` (`hub goal ceo-bot-decide`), at level 3
-only.
+Over the API, the owner reads the log with `GET /api/v2/ceo-bot/log` (`hub goal ceo-bot-log`) and undoes an entry
+with `POST /api/v2/ceo-bot/log/{id}/undo`. The CEO Bot decides with `POST /api/v2/ceo-bot/decisions`
+(`hub goal ceo-bot-decide`), at level 3 only.
 
 Related: [Goals and KPIs](goals-and-kpis.md), [Team chart](org-chart.md).

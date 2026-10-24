@@ -431,7 +431,7 @@ STABLE = [
     ("/api/v2/ceo-bot/log", "get", "Goals", "listCeoBotLog",
      "The CEO Bot log, newest first: each decision it made alone and each thing it proposed because it stays the "
      "owner's (cost, publishing, outside sends, adding or removing bots, goal and KPI targets, the vision, a bot's "
-     "instructions, a person's task), with the reason. People in the company and the CEO Bot read it", "CeoBotLog"),
+     "instructions, a person's task), with the reason. The owner only; anyone else is refused (403)", "CeoBotLog"),
     ("/api/v2/ceo-bot/log/{action_id}/undo", "post", "Goals", "undoCeoBotDecision",
      "The owner, on their own click, undoes one decision the CEO Bot made alone: each task goes back where nobody "
      "changed it since, a later change is kept and named, a task it made is closed, and each bot is told",

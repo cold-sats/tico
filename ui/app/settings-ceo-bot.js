@@ -69,24 +69,31 @@ async function renderSettingsCeoBot() {
 const ceoLevelName = (v, level) => v.levels.find(lv => lv.level === level)?.name || 'Level ' + level;
 
 // The CEO Bot log on its page (backend/ceo_acts.py): each decision it made alone at level 3 and each thing it proposed
-// because it stays the owner's, newest first, with the reason. Everyone in the company reads it; only the owner sees
-// Undo, which asks once before it puts the tasks back. What Undo couldn't restore stays on the entry in plain words.
+// because it stays the owner's, newest first, with the reason. Only the owner reads it (the page shows it to them
+// alone) and only the owner sees Undo, which asks once before it puts the tasks back. What Undo couldn't restore stays
+// on the entry in plain words. The entries loaded so far, every page of them, are kept on the host: asking to Undo an
+// older entry, cancelling, or the Undo itself redraws them in place instead of going back to the first page.
 let CEO_LOG_UNDO = null;
 const CEO_LOG_STATE = {done: '', proposed: 'Proposed to you', undone: 'Undone'};
+const ceoBotLogShown = () => S.me?.role === 'owner';
 async function renderCeoBotLog(host, more) {
   if (!host) return;
   const page = await v2Get('/v2/ceo-bot/log' + (more ? '?before=' + encodeURIComponent(more) : ''));
-  const name = esc(ceoBotName());
-  if (!page) { host.innerHTML = `<div class="empty">Couldn't load the ${name} log. Try again in a moment.</div>`; return; }
-  const items = (more ? host._ceoLog || [] : []).concat(page.items);
-  host._ceoLog = items;
+  if (!page) { host.innerHTML = `<div class="empty">Couldn't load the ${esc(ceoBotName())} log. Try again in a moment.</div>`; return; }
+  host._ceoLog = (more ? host._ceoLog || [] : []).concat(page.items);
+  host._ceoLogNext = page.next_before || null;
+  host._ceoCanUndo = !!page.can_undo;
+  drawCeoBotLog(host);
+}
+function drawCeoBotLog(host) {
+  const name = esc(ceoBotName()), items = host._ceoLog || [];
   if (!items.length) { host.innerHTML = `<div class="empty">Nothing yet. What the ${name} decides on its own, at "Acts on its own", shows here with an Undo.</div>`; return; }
   const lines = x => [...x.done.map(d => esc(d.text)), ...x.left.map(l => `${esc(l.text)} <span class="muted">· not done: ${esc(l.why)}</span>`)];
   host.innerHTML = `<ul class="ceo-log">${items.map(x => `<li class="ceo-log-entry" data-ceo-log="${esc(x.id)}">
       <div class="row"><strong>${esc(x.reason || (x.kind === 'decision' ? 'A decision' : 'Stays yours'))}</strong>
         ${CEO_LOG_STATE[x.state] ? `<span class="pill">${esc(CEO_LOG_STATE[x.state])}</span>` : ''}
         <span class="muted">${esc(fmt(x.created))}</span>
-        ${page.can_undo && x.undoable ? `<button class="linkish" type="button" data-ceo-undo="${esc(x.id)}">Undo</button>` : ''}</div>
+        ${host._ceoCanUndo && x.undoable ? `<button class="linkish" type="button" data-ceo-undo="${esc(x.id)}">Undo</button>` : ''}</div>
       <ul>${lines(x).map(l => `<li>${l}</li>`).join('')}</ul>
       ${x.note ? `<p class="settings-cell-note">${esc(x.note)}</p>` : ''}
       ${x.proposal_task ? `<p class="settings-cell-note"><a href="#/task/${esc(x.proposal_task)}">In your Needs you</a></p>` : ''}
@@ -95,21 +102,23 @@ async function renderCeoBotLog(host, more) {
         <p><strong>Undo this decision?</strong> The tasks it changed go back as they were, unless someone changed them since; their bots are told.</p>
         <div class="row"><button class="primary" type="button" data-ceo-undo-confirm="${esc(x.id)}">Undo</button>
           <button class="ghost" type="button" data-ceo-undo-cancel>Cancel</button></div></div>` : ''}</li>`).join('')}</ul>
-    ${page.next_before ? `<button class="linkish" type="button" data-ceo-log-more="${esc(page.next_before)}">Older</button>` : ''}
+    ${host._ceoLogNext ? `<button class="linkish" type="button" data-ceo-log-more="${esc(host._ceoLogNext)}">Older</button>` : ''}
     <p class="settings-cell-note" data-ceo-log-status role="status"></p>`;
   host.onclick = async event => {
     const ask = event.target.closest('[data-ceo-undo]'), confirm = event.target.closest('[data-ceo-undo-confirm]');
     const older = event.target.closest('[data-ceo-log-more]');
     if (older) { void renderCeoBotLog(host, older.dataset.ceoLogMore); return; }
-    if (ask) { CEO_LOG_UNDO = ask.dataset.ceoUndo; void renderCeoBotLog(host); return; }
-    if (event.target.closest('[data-ceo-undo-cancel]')) { CEO_LOG_UNDO = null; void renderCeoBotLog(host); return; }
+    if (ask) { CEO_LOG_UNDO = ask.dataset.ceoUndo; drawCeoBotLog(host); return; }
+    if (event.target.closest('[data-ceo-undo-cancel]')) { CEO_LOG_UNDO = null; drawCeoBotLog(host); return; }
     if (!confirm) return;
     confirm.disabled = true;
     try {
       const done = await post(`/v2/ceo-bot/log/${encodeURIComponent(confirm.dataset.ceoUndoConfirm)}/undo`, {});
       CEO_LOG_UNDO = null;
       toast(done?.undo?.kept?.length ? 'Undone, except what changed since' : 'Undone');
-      void renderCeoBotLog(host);
+      // The undone entry is replaced where it is, so an older page stays loaded.
+      if (done?.id) host._ceoLog = host._ceoLog.map(x => x.id === done.id ? done : x);
+      drawCeoBotLog(host);
     } catch (e) {
       confirm.disabled = false;
       const status = host.querySelector('[data-ceo-log-status]');

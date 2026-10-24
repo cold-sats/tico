@@ -5204,7 +5204,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         new_owner = _reach(conn, actor, owner)
         if is_human(new_owner) and new_owner != row["owner"]:
             from .ceo_acts import TASK, gate
-            # The proposal lands in the company-wide CEO Bot log, which names the task only to who may open it.
+            # The proposal lands in the CEO Bot log, which names the task only to a reader who may open it.
             gate(conn, actor, "person_task", f"give {TASK} to {person_name(conn, new_owner)}", task_id=task_id)
         _takes_tasks(conn, actor, new_owner)
         if new_owner != row["owner"]:

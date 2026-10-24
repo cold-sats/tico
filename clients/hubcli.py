@@ -130,7 +130,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub goal ceo-bot-level3-offer          the CEO Bot: record the level-3 offer its Monday note made (when it is due)
     hub goal ceo-bot-decide "<reason>" '<changes json>' [--goal-id ID]
                                            the CEO Bot at level 3: one decision alone on bot tasks, logged with Undo
-    hub goal ceo-bot-log [--before TS]     the CEO Bot log: what it decided alone and what it proposed instead
+    hub goal ceo-bot-log [--before CURSOR] the CEO Bot log (the owner only): what it decided alone, proposed instead
     hub goal update <id> [--title ...] [--body ...|--body-file f] [--parent ID|--parent ""] [--owner X]
                     [--rank N|--top]
     hub kpi list [--goal ID] [--owner me|X] [--unlinked] [--bot SLUG] [--archived]
@@ -1203,7 +1203,8 @@ def parser():
                                    '"owner": "<bot>"}')
     s.add_argument("--goal-id", dest="goal_id", help="the goal this serves")
     s.set_defaults(fn="goal ceo-bot-decide")
-    s = goal.add_parser("ceo-bot-log", help="the CEO Bot log: what it decided alone and what it proposed instead")
+    s = goal.add_parser("ceo-bot-log", help="the CEO Bot log (the owner only): what it decided alone and what it "
+                                            "proposed instead")
     s.add_argument("--before", help="next_before from the previous page")
     s.set_defaults(fn="goal ceo-bot-log")
     def target_flags(s):

@@ -3,6 +3,8 @@ tests 9, 12 and 15). A decision changes bot tasks under one action id, logged wi
 without overwriting a later edit; anything on the owner's list, at any level, is refused on the server and becomes a
 proposal in their Needs you, and so does a change a bot offline can't take."""
 
+from urllib.parse import quote
+
 from backend import ceo_bot
 from backend.store import H, encode
 from backend.tests.test_api import api, get, headers, post  # noqa: F401
@@ -143,7 +145,7 @@ def test_everything_on_the_owners_list_is_refused_on_the_server_and_proposed_ins
     # reads the owner's work but is not the owner can't open it, find it in a list, or read it in the log.
     asked = proposals(api)
     assert asked and all(x["private"] for x in asked)
-    listed = str(get(api, "tasks?owner=ana", token="cara-test")) + str(get(api, "ceo-bot/log", token="cara-test"))
+    listed = str(get(api, "tasks?owner=ana", token="cara-test"))
     for item in asked:
         r = api.get(f"/api/v2/tasks/{item['id']}", headers=headers("cara-test"))
         assert r.status_code == 404 and item["title"] not in r.text, r.text
@@ -294,7 +296,8 @@ def test_a_decision_never_makes_a_task_private_and_undo_puts_back_one_made_priva
 
     bot(api, "coo")
     made = decide(api, ceo, [{"do": "reassign", "task_id": work, "owner": "coo"}])
-    assert made["state"] == "done" and made["done"][0]["before"]["private"] == 0
+    assert made["state"] == "done" and "before" not in made["done"][0]        # the owner's log keeps the fields
+    assert get(api, "ceo-bot/log")["items"][0]["done"][0]["before"]["private"] == 0
     with api.app.state.store.transaction() as c:          # made private since, by someone else
         c.execute("UPDATE tasks SET private=1, visibility='private' WHERE id=?", (work,))
     undone = post(api, f"ceo-bot/log/{made['id']}/undo", {})
@@ -317,32 +320,50 @@ def test_the_ceo_bot_publishes_only_with_a_real_approval_whatever_the_team_setti
     assert task(api, mine)["visibility"] != "public"
 
 
-def test_the_log_names_a_task_only_to_a_reader_who_can_open_it_now(api):
-    """The log is read with the reader's own task access (auth.task_sql): a task turned private after the decision
-    shows no title to someone who is not its party, and a company task owned by a bot a person may not read shows
-    them no title, body or note. Each line is named when it is read, so a title kept from before never leaks."""
+def test_only_the_owner_reads_the_log_and_it_names_a_task_as_it_is_now(api):
+    """An entry shows bot task activity (owners, status, queue places) a person or bot may not be allowed to read, so
+    only the owner reads the log: a member, an admin, a bot and the CEO Bot itself are refused, and the CEO Bot's own
+    decision comes back without the task fields Undo keeps. The owner reads each line named as the task is now: a task
+    turned private after the decision, which the owner is not a party to, shows no title, to them or in the Undo."""
     ceo = with_ceo_bot(api)
-    for slug in ("ops", "finance"):
-        bot(api, slug)
+    bot(api, "ops")
     level(api, 3)
     with api.app.state.store.transaction() as c:
         merge = H.task_create(c, CEO, "Merge with Globex", "Secret terms", "bot:ops", lint=False)["id"]
-        layoffs = H.task_create(c, CEO, "Plan the layoffs", "Secret list", "bot:finance", lint=False)["id"]
+        report = H.task_create(c, CEO, "Write the board report", "Numbers", "bot:ops", lint=False)["id"]
     made = decide(api, ceo, [{"do": "reorder", "task_id": merge},
-                             {"do": "close", "task_id": layoffs, "note": "Severance is two months"}])
+                             {"do": "close", "task_id": report, "note": "Moved to next month"}])
     assert made["state"] == "done" and "Merge with Globex" in str(made)     # the CEO Bot reads its own work
+    assert not any("before" in x or "after" in x for x in made["done"])
+    for token in ("ben-test", "cara-test", ceo, bot(api, "ops")):
+        r = api.get("/api/v2/ceo-bot/log", headers=headers(token))
+        assert r.status_code == 403 and "Merge with Globex" not in r.text, (token, r.text)
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE tasks SET private=1, visibility='private' WHERE id=?", (merge,))
-        c.execute("UPDATE bot_config SET access_json=? WHERE bot='finance'", (encode(
-            {"see": {"everyone": True}, "read": {"bots": ["goal-manager"]}, "write": {"everyone": True}}),))
-    owner = str(get(api, "ceo-bot/log"))                 # not a party to the private task; reads every bot
-    assert "Merge with Globex" not in owner and "a task you can't open" in owner
-    assert "Plan the layoffs" in owner and "Severance is two months" in owner
-    cara = str(get(api, "ceo-bot/log", token="cara-test"))  # may not read finance's work
-    for secret in ("Merge with Globex", "Plan the layoffs", "Severance is two months", "Secret", merge, layoffs):
-        assert secret not in cara, secret
+    owner = str(get(api, "ceo-bot/log"))
+    assert "Merge with Globex" not in owner and "Secret terms" not in owner and "a task you can't open" in owner
+    assert "Write the board report" in owner and "Moved to next month" in owner
     undone = str(post(api, f"ceo-bot/log/{made['id']}/undo", {}))
-    assert "Merge with Globex" not in undone and "Plan the layoffs" in undone
+    assert "Merge with Globex" not in undone and "Write the board report" in undone
+
+
+def test_the_log_pages_through_entries_made_in_the_same_instant(api):
+    """Older pages start after the last entry shown, by time and then id: no entry is skipped or shown twice, so an
+    entry past the first page is there to undo."""
+    with_ceo_bot(api)
+    at = H.now()
+    with api.app.state.store.transaction() as c:
+        for n in range(53):
+            c.execute("INSERT INTO ceo_actions (id, created, actor, kind, reason, state, changes_json) "
+                      "VALUES (?, ?, ?, 'decision', 'Same instant', 'proposed', '{}')", (f"a{n:02d}", at, CEO))
+    seen, before = [], None
+    while True:
+        page = get(api, "ceo-bot/log" + (f"?before={quote(before)}" if before else ""))
+        seen += [x["id"] for x in page["items"]]
+        before = page["next_before"]
+        if not before:
+            break
+    assert sorted(seen) == [f"a{n:02d}" for n in range(53)] and len(seen) == len(set(seen))
 
 
 def test_undo_keeps_a_guest_given_the_task_since_and_says_why_its_owner_stays(api):

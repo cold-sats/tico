@@ -273,18 +273,20 @@ def install(app, store, auth, mutate, settings):
             ceo_itself(c, who, "decides alone, at level 3")
             made = CA.decide(c, who.actor, body.reason, [x.model_dump(exclude_none=True) for x in body.changes],
                              body.goal_id or None)
-            return CA.entry(c, made, auth.task_sql(c, who))
+            return CA.receipt(CA.entry(c, made, auth.task_sql(c, who)))
         return mutate(request, body, work)
 
     @app.get("/api/v2/ceo-bot/log")
     def ceo_bot_log(request: Request, before: str | None = None, limit: int = CA.LOG_PAGE):
         """The CEO Bot log, newest first: each decision it made alone with its reason and what it changed, and each
-        thing it proposed instead because it stays the owner's. Every person in the company reads it, and the CEO Bot."""
+        thing it proposed instead because it stays the owner's. The owner reads it, who decides on its proposals and
+        undoes its decisions: an entry shows bot task activity (owners, status, queue places) that a person or bot may
+        not be allowed to read, so nobody else does."""
         who = request.state.identity
         auth.domain(who)
         with store.read() as c:
-            if who.role not in ("owner", "human") and who.actor != CA.CEO:
-                raise Problem("forbidden", f"People in the company and the {ceo_bot.name(c)} read its log", 403)
+            if who.role != "owner":
+                raise Problem("forbidden", f"Only the owner reads the {ceo_bot.name(c)} log", 403)
             out = CA.log(c, auth.task_sql(c, who), before, limit)
             out["can_undo"] = company_editor(who)
             return out

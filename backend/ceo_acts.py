@@ -131,7 +131,7 @@ WORDS = ("title", "body", "note")
 
 
 def _logged(c, item):
-    """One done or left item as the company-wide log keeps it: a private task's own words are left out."""
+    """One done or left item as the log keeps it: a private task's own words are left out."""
     task_id = item.get("task_id") or (item.get("change") or {}).get("task_id")
     row = H.task(c, task_id) if task_id else None
     if not row or not H.task_private(c, row):
@@ -153,7 +153,7 @@ def _refused(rule):
 
 def _bot_task(c, task_id):
     """A task the CEO Bot may change alone: live, owned by a bot, and company-visible. None otherwise. It never acts
-    alone on a private task, even one it may read: the company-wide log would carry the task's words (its note), and
+    alone on a private task, even one it may read: the log would carry the task's words (its note), and
     Undo, made as the owner, could neither write it nor give back its guest."""
     row = H.task(c, str(task_id or ""))
     if not row or row["status"] not in H.ACTIVE_STATUSES or not H.is_bot(row["owner"]):
@@ -435,14 +435,26 @@ def _as_read_by(c, can_read, row):
     return row
 
 
+def receipt(row):
+    """What the CEO Bot is told of its own decision: each line as it may read it, without the task fields Undo keeps
+    (owner, status, queue place, guest). The log with those is the owner's (GET /api/v2/ceo-bot/log)."""
+    def item(x):
+        return {k: v for k, v in x.items() if k not in ("before", "after")}
+    return {**row, "done": [item(x) for x in row["done"]], "left": [item(x) for x in row["left"]]}
+
+
 def log(c, visible, before=None, limit=LOG_PAGE):
     """The CEO Bot log, newest first, as a reader sees it (`visible`, their auth.task_sql): {items, next_before}.
-    Paged by `created`."""
+    Paged by `created`, then id: `next_before` is "<created>|<id>" of the page's last entry, so entries made in the
+    same instant are never skipped between pages. A bare time is read as before that time."""
     limit = max(1, min(int(limit or LOG_PAGE), LOG_PAGE))
-    rows = c.execute("SELECT id, created FROM ceo_actions WHERE (? IS NULL OR created<?) ORDER BY created DESC LIMIT ?",
-                     (before, before, limit + 1)).fetchall()
+    at, _, after_id = str(before or "").partition("|")
+    rows = c.execute("SELECT id, created FROM ceo_actions WHERE (?='' OR created<? OR (?!='' AND created=? AND id<?)) "
+                     "ORDER BY created DESC, id DESC LIMIT ?",
+                     (at, at, after_id, at, after_id, limit + 1)).fetchall()
     items = [entry(c, r[0], visible) for r in rows[:limit]]
-    return {"items": items, "next_before": rows[limit - 1][1] if len(rows) > limit else None}
+    last = rows[limit - 1] if len(rows) > limit else None
+    return {"items": items, "next_before": f"{last[1]}|{last[0]}" if last else None}
 
 
 # ----------------------------------------------------------------------------- undo

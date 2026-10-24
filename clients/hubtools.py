@@ -1232,7 +1232,8 @@ def goal_ceo_bot_decide(api, args):
 
 
 @tool("hub_goal_ceo_bot_log", "The CEO Bot log, newest first: each decision it made alone and each thing it proposed "
-      "instead because it stays the owner's, with the reason and what Undo restored.",
+      "instead because it stays the owner's, with the reason and what Undo restored. The owner only: anyone else, "
+      "the CEO Bot included, is refused.",
       {"before": _s("next_before from the previous page")})
 def goal_ceo_bot_log(api, args):
     return api.get("ceo-bot/log" + (f"?before={quote(args['before'])}" if args.get("before") else ""))
