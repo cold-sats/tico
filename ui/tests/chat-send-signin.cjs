@@ -81,6 +81,10 @@ async function scenario(browser, mode, edit, keeper = true, editedBefore = false
         await page.locator('.toast.err').waitFor();
         expired = true;
         await page.evaluate(() => get('/v2/me').catch(() => {}));
+      } else if (!keeper) {
+        // Legacy form errors do not check identity themselves. Confirm it directly, without relying
+        // on the mock event stream closing and a reconnect eventually probing the session.
+        await page.evaluate(() => get('/v2/me').catch(() => {}));
       }
     } else {
       expired = true;
