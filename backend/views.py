@@ -327,8 +327,10 @@ def machine(c, bot):
     # The declared access has its own route, behind the bot's visibility (backend/bot_tools.py). A missing
     # subscription sign-in the Gateway covers meanwhile is no problem (backend/models_preset.py as_served).
     from .models_preset import as_served
-    detail = {k: v for k, v in bot_readiness(row["readiness_json"], bot).items() if k != "tools"}
-    detail = as_served(c, bot, readiness_document(row["readiness_json"]), detail)
+    # One parse of the computer's report: /api/employees and Health call this once per bot.
+    document = readiness_document(row["readiness_json"])
+    detail = {k: v for k, v in bot_readiness(document, bot).items() if k != "tools"}
+    detail = as_served(c, bot, document, detail)
     return {"online": online, "awake": awake, "ready": online and detail.get("ready") is True,
             "readiness": detail,
             "machine": {**{k: row[k] for k in ("runner_id", "generation", "label", "operator", "last_seen",
@@ -1410,6 +1412,7 @@ def needs_items(c, auth, who, task_view, older=None):
     pipelines = H.type_list(c)
     asks_of = H.open_tasks_asks(c, cards, actor=privacy.actor(who))
     items = []
+    pipelines = H.type_list(c)     # once, not a borrowed connection and a type read per item
     for kind in ("tasks", "waiting", "declined"):
         for row in raw[kind]:
             try:
