@@ -1634,7 +1634,17 @@ impl Runner {
             fallback = None;
             subscription_unavailable = None;
         }
-        if self.drain.returning(&aid) {
+        // A host that aborts the next turn on an interrupted thread (`resume_after_interrupt = false`) loses its
+        // session below unless a native goal keeps it, so a retry starts a fresh thread.
+        let resumable = crate::harness_tools::caps(&runtime, "").resume_after_interrupt || goal.controlled;
+        if self.drain.capped(&aid) && !resumable {
+            // The capped turn ran and may have acted; a fresh thread could repeat that, so it is held for review like
+            // any interrupt rather than queued to continue.
+            drove = Drove { outcome: "interrupted".into(), yielded: false, limited: false, retryable: false, ..drove };
+            self.diagnose(&aid, crate::drain::HELD);
+            auth_rejected = None;
+            subscription_unavailable = None;
+        } else if self.drain.returning(&aid) {
             drove = Drove { outcome: "interrupted".into(), reply: String::new(), yielded: true, limited: false, retryable: false, ..drove };
             auth_rejected = None;
             subscription_unavailable = None;
@@ -1697,10 +1707,8 @@ impl Runner {
         if self.drain.returning(&aid) {
             let _ = self.state.append(&aid, "status", &json!({"waiting": ""}));
         }
-        if drove.outcome != "completed" && !crate::harness_tools::caps(&runtime, "").resume_after_interrupt && !goal.controlled {
+        if drove.outcome != "completed" && !resumable {
             if let Some(th) = &thread {
-                // A host that aborts the next turn on an interrupted thread at once (`resume_after_interrupt =
-                // false`): a retry starts fresh.
                 let _ = drop_session(&self.state, &bot, &conv, &runtime, th).await;
             }
         }
@@ -3189,6 +3197,37 @@ for line in sys.stdin:
     }
 
     #[tokio::test]
+    async fn drain_keeps_returning_a_task_claim_cancelled_at_its_worktree_git_lock() {
+        let _controls = RunControls;
+        let (url, seen, server) = recording_server().await;
+        let (runner, dir) = drain_runner_on(&url, 300).await;
+        // No installed harness can run even if the handback is lost.
+        HOST_COMMAND.with(|command| *command.borrow_mut() = Some(vec!["/bin/false".into()]));
+        let attempt = json!({"id": "a-git", "bot": "ops", "token": "synthetic", "lease_seconds": 120, "lane": "task:t-acme",
+                             "conversation": {"id": "c1"}, "message": {"refs": {}},
+                             "config": {"runtime": "pi", "harness": "pi", "model": "synthetic"}});
+        // The checkout is busy, so the task lane skips its refresh; another turn's git work holds the lock.
+        let checkout = runner.lanes.checkout("ops").lock_owned().await;
+        let main = crate::sessions::local_path(&runner.config, "ops", &attempt["config"]);
+        let git = runner.lanes.git_lock(&main).lock_owned().await;
+        let work = runner.clone().execute(attempt);
+        let drain = async {
+            while runner.lanes.lane("ops", "task:t-acme").try_lock_owned().is_ok() {
+                tokio::task::yield_now().await;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await; // parked on the git lock
+            runner.shut_down();
+        };
+        let result = tokio::time::timeout(Duration::from_secs(5), async { let (result, ()) = tokio::join!(work, drain); result }).await;
+        server.abort();
+        result.expect("a cancelled git-lock wait became a worktree wait that the drain no longer cancels").unwrap();
+        assert_drain_settled(&runner, "a-git");
+        assert_eq!(posted(&seen, "/attempts/a-git/started"), 0, "a returned claim acknowledged its start");
+        drop((git, checkout));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
     async fn a_completed_turn_is_not_replayed_on_fallback_when_local_session_state_cannot_be_saved() {
         let _controls = RunControls;
         for (failure, trigger) in [
@@ -3238,15 +3277,21 @@ print(json.dumps({'type':'result','subtype':'success','result':'Acme completed o
 
     #[tokio::test]
     async fn drain_execute_caps_a_host_blocked_in_inputs_and_resumes_its_canonical_session() {
-        capped_execute(false).await;
+        capped_execute(false, "claude").await;
     }
 
     #[tokio::test]
     async fn drain_execute_session_save_failure_still_settles_reaps_and_stops_renewing() {
-        capped_execute(true).await;
+        capped_execute(true, "claude").await;
     }
 
-    async fn capped_execute(fail_save: bool) {
+    #[tokio::test]
+    async fn drain_cap_holds_a_turn_for_review_when_its_harness_cannot_resume_an_interrupt() {
+        // Codex's capabilities (`resume_after_interrupt = false`) on the synthetic Claude process.
+        capped_execute(false, "codex").await;
+    }
+
+    async fn capped_execute(fail_save: bool, runtime: &str) {
         let _controls = RunControls;
         RENEW_EVERY.with(|v| *v.borrow_mut() = Some(Duration::from_millis(20)));
         let held_inputs = Arc::new(Notify::new());
@@ -3280,9 +3325,10 @@ else:
         pass
 "#).unwrap();
         HOST_COMMAND.with(|command| *command.borrow_mut() = Some(vec![crate::env::python().display().to_string(), script.display().to_string()]));
+        HOST_CLAUDE.with(|on| on.set(true));
         let attempt = json!({"id": "a-active", "bot": "ops", "token": "synthetic", "lease_seconds": 120,
                              "conversation": {"id": "c1"}, "message": {"refs": {}},
-                             "config": {"runtime": "claude", "harness": "claude", "model": "synthetic", "session": "bot"}});
+                             "config": {"runtime": runtime, "harness": runtime, "model": "synthetic", "session": "bot"}});
         let work = runner.clone().execute(attempt.clone());
         let drain = async {
             // The second inputs call is held by the fake server after drive consumed the init and partial output.
@@ -3294,6 +3340,19 @@ else:
         held_inputs.notify_waiters();
         assert!(result.is_ok(), "active host outlived the outer drain cap: {:?}", seen.lock().unwrap());
         result.unwrap().unwrap();
+        if runtime != "claude" {
+            // Settlement drops the session, so a queued continuation would start a fresh thread after the turn acted.
+            let completions: Vec<Value> = seen.lock().unwrap().iter().filter(|(_, p, _)| p.ends_with("/attempts/a-active/complete")).map(|(_, _, b)| b.clone()).collect();
+            assert_eq!(completions.len(), 1, "{completions:?}");
+            assert_eq!(completions[0]["outcome"], "interrupted");
+            assert_ne!(completions[0]["yielded"], true, "a turn that cannot resume was queued to continue: {completions:?}");
+            let events = seen.lock().unwrap().iter().filter(|(_, p, _)| p.ends_with("/attempts/a-active/events"))
+                .flat_map(|(_, _, b)| b["events"].as_array().cloned().unwrap_or_default()).collect::<Vec<_>>();
+            assert!(events.iter().any(|e| e["payload"]["text"] == crate::drain::HELD), "{events:?}");
+            server.abort();
+            std::fs::remove_dir_all(dir).ok();
+            return;
+        }
         assert_drain_settled(&runner, "a-active");
         assert_eq!(posted(&seen, "/attempts/a-active/started"), 1);
         assert_eq!(posted(&seen, "/attempts/a-active/complete"), 1);

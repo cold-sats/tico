@@ -921,7 +921,7 @@ impl Runner {
         let mut suffix = "";
         if !place.task.is_empty() {
             let session = path_for(&self.config.projects_dir(), &place.bot, &place.task);
-            let (mut tracked, mut problem) = self.task_worktree(place, &session, attempt, env).await;
+            let (mut tracked, mut problem) = self.task_worktree(place, &session, attempt, env).await?;
             if !problem.is_empty() && !place.person && problem != MISSING && problem != NO_UPSTREAM {
                 // In the checkout this turn would hold the bot's chats behind it for the whole turn, so it waits for
                 // its worktree first, holding nothing a chat needs.
@@ -943,7 +943,7 @@ impl Runner {
                             }
                         }
                     }
-                    (tracked, problem) = self.task_worktree(place, &session, attempt, env).await;
+                    (tracked, problem) = self.task_worktree(place, &session, attempt, env).await?;
                 }
             }
             if !problem.is_empty() {
@@ -973,21 +973,21 @@ impl Runner {
         Ok(suffix)
     }
 
-    /// Add or reuse the task's worktree under the checkout's git lock and rebase it onto its upstream.
-    async fn task_worktree(&self, place: &Place, session: &Path, attempt: &mut Value, env: &Env) -> (String, String) {
+    /// Add or reuse the task's worktree under the checkout's git lock and rebase it onto its upstream. Err only when
+    /// a drain hands the claim back while it waits for the lock: that is no worktree problem to wait out.
+    async fn task_worktree(&self, place: &Place, session: &Path, attempt: &mut Value, env: &Env) -> Result<(String, String), String> {
         if crate::product_files::unpushed(&place.bot) {
             // The worktree would sync from an upstream without the refreshed product files.
-            return (String::new(), "its refreshed product files are not pushed yet".into());
+            return Ok((String::new(), "its refreshed product files are not pushed yet".into()));
         }
-        let lock = self.during_drain(&text_of(&attempt["id"]), async {
+        let _git = self.during_drain(&text_of(&attempt["id"]), async {
             Ok(self.lanes.git_lock(&place.main_path).lock_owned().await)
-        }).await;
-        let _git = match lock { Ok(lock) => lock, Err(e) => return (String::new(), e.text) };
+        }).await.map_err(|e| e.text)?;
         let (tracked, problem) = ensure(&place.main_path, session, &place.task, env).await;
         if problem.is_empty() {
             attempt["branch_sync_problem"] = json!(sync_shared(session, env).await);
         }
-        (tracked, problem)
+        Ok((tracked, problem))
     }
 
     /// Whether the task a turn's session is keyed on is finished, read with the turn's own token.
