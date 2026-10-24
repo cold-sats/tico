@@ -372,3 +372,40 @@ def test_a_digest_turn_is_measured_from_each_event_and_split_over_its_tickets(ap
     assert token_saver["turns"] == 1 and token_saver["tokens"] == 900 and token_saver["accepted_tickets"] == 3
     assert token_saver["tokens_per_ticket"] == 300 and token_saver["turns_per_ticket"] == 0.33
     assert token_saver["pickup_seconds"]["held_p50"] >= 50 * 60          # from each event, not from the digest
+
+
+
+def stale_comments(api, task, n):
+    """Tico's reminders left as comments on the task: news, from neither a person nor the bot itself."""
+    with api.app.state.store.transaction() as c:
+        for i in range(n):
+            H.task_comment(c, H.KEEPER, task["id"], f"Still waiting on review {i}.", extra_refs={"stale_check": "s1"})
+
+
+def test_two_comments_inside_the_window_give_one_turn(api):
+    preset(api, "ops", "performance")
+    task = new_task(api, "tidy")
+    settled(api)
+    since, t0 = H.now(), H.shift(H.now(), hours=-1)
+    stale_comments(api, task, 2)
+    for n, job in enumerate(jobs(api, since=since)):
+        at(api, job["id"], H.shift(t0, seconds=20 * n))
+    tick(api, H.shift(t0, seconds=59))
+    assert [(j["held"], j["wake_class"]) for j in jobs(api, since=since)] == [(1, "notice")] * 2
+    tick(api, H.shift(t0, seconds=61))
+    assert [(j["state"], j["held"]) for j in jobs(api, since=since)] == [("completed", 0), ("queued", 0)]
+
+
+def test_a_persons_message_is_not_delayed_by_a_held_batch(api):
+    preset(api, "ops", "token_saver")
+    task = new_task(api, "tidy")
+    settled(api)
+    since = H.now()
+    stale_comments(api, task, 1)
+    tick(api, H.now())
+    [held] = jobs(api, since=since)
+    assert held["held"] == 1 and held["hold_until"] > H.now()
+    post(api, f"tasks/{task['id']}/comments", {"text": "Please also tidy the README."})  # the person who filed it
+    post(api, "chat/ops", {"text": "And send me the link when it is up."})
+    tick(api, H.now())
+    assert [(j["state"], j["held"], j["hold_until"]) for j in jobs(api, since=since)[1:]] == [("queued", 0, None)] * 2

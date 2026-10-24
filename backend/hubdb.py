@@ -2755,6 +2755,10 @@ def _write_message(conn, actor, target, body, conv, kind, refs, in_reply_to, wai
     event(conn, actor, f"message.{kind}", row["id"], {"to": target, "conversation": conv["id"]})
     if held:
         wake_rules.hold(conn, message(conn, row["id"]), held)
+    elif is_bot(target) and not (refs or {}).get("quiet"):
+        # Token saving 4/9: other news waits for the wake preset's batch; an immediate wake carries its room's batch.
+        from . import wake_presets
+        wake_presets.hold_news(conn, {**row, "refs": refs or {}}, wake_rules.CAUSE.get())
     return message(conn, row["id"])
 
 
