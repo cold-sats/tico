@@ -157,6 +157,21 @@ const manifestCaps = JSON.parse(require('node:child_process').execFileSync('pyth
       assert.equal(await add.locator(`[data-add-terminal=${tool}]`).count(), 0);
       assert.equal(await add.locator('[data-add-own]').isEnabled(), true);
       assert.equal(await add.locator('input[name=profile]').count(), 0);
+      if (tool === 'cursor') {
+        for (const viewport of [{width:1440,height:900}, {width:390,height:680}]) {
+          await page.setViewportSize(viewport);
+          if (process.env.SHOTS) await page.screenshot({path: `${process.env.SHOTS}/cursor-${viewport.width}.png`});
+          const rect = await add.evaluate(d => {
+            const box = el => el.getBoundingClientRect().toJSON();
+            return {dialog:box(d),header:box(d.querySelector('header')),back:box(d.querySelector('[data-add-back]')),
+              action:box(d.querySelector('[data-add-own]')),body:d.querySelector('.tmodal-body').getBoundingClientRect().toJSON()};
+          });
+          assert.ok(rect.back.top >= rect.header.top && rect.back.bottom <= rect.header.bottom, 'Back is in the header');
+          assert.ok(rect.action.left >= rect.body.left + 12 && rect.action.right <= rect.body.right - 12, 'sign-in action stays inside the padding');
+          assert.ok(rect.dialog.right <= viewport.width && rect.dialog.bottom <= viewport.height);
+        }
+        await page.setViewportSize({width:1440,height:900});
+      }
       await add.locator('[data-add-close]').first().click();
       await add.waitFor({state: 'detached'});
     }
