@@ -292,8 +292,9 @@ def guarded(c, auth, who, inner, function, columns=None):
               "WHERE review_state<>'live')")
     rules = {
         "conversations": conversations,
-        "messages": "EXISTS (SELECT 1 FROM conversations readable WHERE readable.id=source.conversation_id) "
-                    "AND deleted_at IS NULL AND " + msg_gate,
+        # Rooms are the small authorization set, unlike message/run history.
+        # Build their id set once rather than re-evaluate the room view per message.
+        "messages": "conversation_id IN (SELECT id FROM conversations) AND deleted_at IS NULL AND " + msg_gate,
         "tasks": tasks,
         "tags": tag_gate, "task_tags": by_task,
         "task_events": by_task + " AND " + content_gate(("old", "new", "note")), "task_delegations": by_task,
@@ -415,6 +416,11 @@ def connect(path, c, auth, who, trace=None):
         conn.execute(f'CREATE TEMP TABLE "{visible}"(id TEXT PRIMARY KEY) WITHOUT ROWID')
         conn.execute(f'INSERT INTO "{visible}" SELECT id FROM main.tasks WHERE ' + tables["tasks"][0])
         tables["tasks"] = (f'id IN (SELECT id FROM "{visible}")', tables["tasks"][1])
+        # Reuse the task-id set directly. Going through the tasks view rebuilds
+        # the same task list for every nested room lookup inside a privacy UDF.
+        tables = {table: (predicate.replace("IN (SELECT id FROM tasks)",
+                                            f'IN (SELECT id FROM "{visible}")'), hidden)
+                  for table, (predicate, hidden) in tables.items()}
         source_tables = set(tables) | {"blob_media", "live_meetings", "live_meeting_access", "live_meeting_bots",
                                        "live_meeting_turns"}
         class Source:
@@ -521,7 +527,7 @@ def connect(path, c, auth, who, trace=None):
             return sqlite3.SQLITE_DENY
         if schema == "temp":
             if table == visible:
-                return sqlite3.SQLITE_OK if context == "tasks" else sqlite3.SQLITE_DENY
+                return sqlite3.SQLITE_OK if context in tables else sqlite3.SQLITE_DENY
             if table in tables or table in views:
                 return sqlite3.SQLITE_OK
             if table in inner_names and context in views:

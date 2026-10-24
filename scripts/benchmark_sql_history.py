@@ -4,6 +4,7 @@ Run explicitly with a development venv:
 python -m pytest -q -s -o addopts='' -m slow scripts/benchmark_sql_history.py
 This manual timing receipt is excluded from the ordinary and release test suites.
 """
+import json
 import time
 
 import pytest
@@ -13,7 +14,8 @@ from backend.tests.test_api import api, assign, claim, headers, post, ready, run
 
 
 @pytest.mark.slow
-def test_bot_history_queries_finish_within_the_existing_timeout(api):
+@pytest.mark.parametrize("provenance", ["plain", "mixed"])
+def test_bot_history_queries_finish_within_the_existing_timeout(api, provenance):
     machine = runner(api)
     assign(api, machine, 'ops')
     ready(api, machine, ['ops'])
@@ -48,7 +50,11 @@ def test_bot_history_queries_finish_within_the_existing_timeout(api):
 
         mid = c.execute('SELECT message_id FROM jobs WHERE id=?', (attempt['job_id'],)).fetchone()[0]
         copies('messages', mid, count * 5, lambda i: {
-            'conversation_id': f'fixture-room-{i % rooms}', 'refs_json': '{}', 'in_reply_to': None})
+            'conversation_id': f'fixture-room-{i % rooms}',
+            'refs_json': '{}' if provenance == 'plain' else json.dumps({
+                'task': f'fixture-task-{i % rooms}', 'progress': {'sequence': i, 'note': 'Synthetic progress receipt'},
+                **({'turn_id': f'fixture-attempts-{i % count}'} if i % 10 == 0 else {})}),
+            'in_reply_to': f'fixture-messages-{i % rooms}' if provenance == 'mixed' and i >= rooms and i % 10 == 1 else None})
         event = c.execute('SELECT id FROM events LIMIT 1').fetchone()[0]
         copies('events', event, count * 15, lambda i: {})
         copies('jobs', attempt['job_id'], count, lambda i: {
