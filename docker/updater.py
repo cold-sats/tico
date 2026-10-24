@@ -491,28 +491,33 @@ os.makedirs(folder, exist_ok=True)
 for stale in glob.glob(os.path.join(folder, "pre-update-*.sqlite.part*")):
     os.remove(stale)      # an earlier attempt that ran out of time; each is as large as the database
 part, final = os.path.join(folder, name + ".part"), os.path.join(folder, name)
-source, target = sqlite3.connect("/data/hub.sqlite", timeout=30), sqlite3.connect(part)
-source.backup(target)     # a consistent copy while the server keeps writing
-# quick_check reads every page and b-tree but skips integrity_check's index-against-table cross-check, which on a
-# multi-gigabyte database is disk-bound for longer than an update can wait. It gets only the time the copy left, and
-# the timer interrupts it at the deadline, so no orphaned check keeps reading the disk after the update gives up.
-late = "the snapshot check did not finish within %d seconds" % seconds
-left = deadline - time.monotonic()
-if left <= 0:
-    ok = late
-else:
-    timer = threading.Timer(left, target.interrupt)
-    timer.start()
-    try:
-        ok = target.execute("PRAGMA quick_check").fetchone()[0]
-    except sqlite3.OperationalError:
-        ok = late
-    timer.cancel()
-target.close(); source.close()
-if ok != "ok":
+def remove_part():
     for leftover in glob.glob(part + "*"):
         os.remove(leftover)
-    sys.exit(ok if ok.startswith("the snapshot") else "the snapshot fails its integrity check")
+result = []
+def copy_and_check():
+    try:
+        source, target = sqlite3.connect("/data/hub.sqlite", timeout=30), sqlite3.connect(part)
+        source.backup(target)     # a consistent copy while the server keeps writing
+        # quick_check reads every page and b-tree but skips integrity_check's index-against-table cross-check, which on
+        # a multi-gigabyte database is disk-bound for longer than an update can wait.
+        result.append(target.execute("PRAGMA quick_check").fetchone()[0])
+        target.close(); source.close()
+    except sqlite3.Error as exc:
+        result.append("the snapshot copy failed: %s" % exc)
+# Neither backup() nor a check that has not started yet can be interrupted, so the copy and check run on a worker
+# and this thread keeps the one deadline: past it, the partial copy goes and the process ends, worker included,
+# inside the updater's own timeout.
+worker = threading.Thread(target=copy_and_check, daemon=True)
+worker.start()
+worker.join(max(0.0, deadline - time.monotonic()))
+if worker.is_alive():
+    remove_part()
+    print("the snapshot did not finish within %d seconds" % seconds, file=sys.stderr, flush=True)
+    os._exit(1)
+if result != ["ok"]:
+    remove_part()
+    sys.exit(result[0] if result and result[0].startswith("the snapshot") else "the snapshot fails its integrity check")
 os.replace(part, final)
 for old in sorted(glob.glob(os.path.join(folder, "pre-update-*.sqlite")))[:-keep]:
     os.remove(old)
