@@ -303,8 +303,8 @@ fn hand_over(folder: &Path) -> Result<(), String> {
             _ => {}
         }
     }
-    // Pinned, link-free and leaving foreign hardlinks alone (isolation::adopt).
-    crate::isolation::adopt(&homes);
+    // Pinned, link-free and leaving foreign hardlinks alone; the homes themselves go first (isolation::adopt_store).
+    crate::isolation::adopt_store(&homes);
     for home in &homes {
         match std::fs::symlink_metadata(home) {
             Ok(meta) if meta.is_dir() && meta.uid() == uid => {}
