@@ -374,7 +374,7 @@ step_new_runner() {
   fixture_intact || { say "the older releases' rows did not survive the upgrade"; return 1; }
   # A computer that lost the harness's own sessions (a move, a new HOME, cleaned files) still answers, on a fresh
   # thread, instead of failing every turn on the one it remembers.
-  docker exec "$RUNNER" find /home/runner/journey-threads -maxdepth 1 -name 'journey-*' -delete || return 1
+  docker exec "$RUNNER" find /home/runner/journey-threads -maxdepth 1 -type f -name 'journey-*' -delete || return 1
   ask moved || { say "the bot stopped answering once its saved session was gone"; return 1; }
   [ "$(fact resumed)" = no ] && [ "$(fact thread)" != "$SEED_THREAD" ] || { say "the turn after the session was lost: $(cat "$WORK/reply")"; return 1; }
 }
