@@ -40,6 +40,20 @@ reading it back (S3's own SHA-256 of what it received, `copy_one`): the company 
 own check.
 
 A 404 or `not_found` from HQ means it does not offer file hosting yet: nothing changes.
+
+Pages and SVG (Dev 458, spec test 1b). A page or SVG held in Tico's bucket also gets its cleaned copy there, beside it
+(`visual_link`): the bytes visuals.serve would show (visuals.clean, and the height reporter for a page) at
+`/visuals/<2 hex>/<name>`, typed `text/html; charset=utf-8` or `image/svg+xml`, inline, with the content policy's two
+slots in its metadata (`tico-visual-policy-version: 1`, `tico-visual-ancestors`, and `tico-visual-script` for a page),
+as agreed with DevOps on Dev 457 (docs/files.md, infra/files-edge). The edge builds the policy from its fixed templates
+and those slots, so nothing written there can lift the sandbox. `<name>` is a hash of the original's digest, the kind,
+the slots and `VISUAL_COPY`, so a new reporter or a new app address gets a new copy and an old one is never
+overwritten. The copy is made when the file is uploaded there (`Blobs._landing`), when Move existing files copies it
+there (`copy_one`), or else on its first view, and is checked like a moved file: S3's SHA-256 of what it received,
+size, type and disposition, and the metadata, by a body-less HEAD. After the usual access check a reader is sent to a
+five-minute link to it; the app's own address never serves a page or SVG. A first view reads the original once through
+the company's address (counted as delivery, as the view itself would be); uploads and moves have the bytes in hand. A
+place that no longer takes new files (credits out, stopped) makes no copy: such a file with none yet stays a card.
 """
 
 import base64
@@ -464,6 +478,157 @@ def _held(blobs, location, digest, size, mime):
     return held
 
 
+# ---------------------------------------------------------------------------------------------- pages and SVG
+# The stored type of each kind's copy; the edge sends a 404 for any other (infra/files-edge/response.js).
+VISUAL_TYPES = {"page": "text/html; charset=utf-8", "svg": "image/svg+xml"}
+# Raise when visuals.clean or visuals.with_reporter change what a copy holds: every copy is then made again.
+VISUAL_COPY = 1
+# The frame-ancestors sources the edge keeps (docs/files.md): the app writes only those, at most 8.
+ANCESTOR = re.compile(r"^(?:'self'|https://[a-z0-9.-]+(?::[0-9]{1,5})?|http://(?:localhost|127\.0\.0\.1)(?::[0-9]{1,5})?)$")
+
+
+def visual_kind(mime, size):
+    """"page" or "svg" for a version the copy is made for (by its stored type, within visuals.LIMITS), else None."""
+    from .visuals import kind_of
+    kind = kind_of(mime, size)
+    return kind if kind in VISUAL_TYPES else None
+
+
+def _visual(digest, kind, ancestors):
+    """(path below the company's folder, metadata) of the cleaned copy of `digest` for these frame ancestors."""
+    from .visuals import REPORTER_HASH
+    meta = {"tico-visual-policy-version": "1",
+            "tico-visual-ancestors": " ".join([a for a in dict.fromkeys(ancestors) if ANCESTOR.fullmatch(a)][:8])}
+    if kind == "page":
+        meta["tico-visual-script"] = "'" + REPORTER_HASH + "'"
+    name = hashlib.sha256("\n".join(["tico-visual", str(VISUAL_COPY), kind, digest, meta["tico-visual-ancestors"],
+                                      meta.get("tico-visual-script", "")]).encode()).hexdigest()
+    return f"/visuals/{name[:2]}/{name}", meta
+
+
+def _visual_ok(head, kind, meta, sha=None, size=None):
+    """Whether a HEAD of a copy shows it whole as made: S3's SHA-256 of what it received is the one it was written
+    with (`sha`, else the one in its metadata), and its type, disposition and policy slots are this kind's."""
+    stored = head.get("Metadata") or {}
+    sha = sha or stored.get("sha256", "")
+    if not re.fullmatch(r"[0-9a-f]{64}", sha or ""):
+        return False
+    return (head.get("ChecksumSHA256") == base64.b64encode(bytes.fromhex(sha)).decode()
+            and stored.get("sha256") == sha and (size is None or head.get("ContentLength") == size)
+            and (head.get("ContentType") or "").lower() == VISUAL_TYPES[kind]
+            and (head.get("ContentDisposition") or "").lower() == "inline"
+            and all(stored.get(k) == v for k, v in meta.items()) and set(meta) >= {
+                k for k in stored if k.startswith("tico-visual-")})
+
+
+def _visual_key(settings, path):
+    return (settings.blob_prefix + "/" if settings.blob_prefix else "") + path.lstrip("/")
+
+
+def _visual_held(blobs, found, path, kind, meta):
+    """Whether Tico's bucket holds the copy at `path` as made; a yes is kept, a no looked at again after MISS_SECONDS."""
+    seen, mark = blobs._edge_seen, (found["location"], path)
+    known = seen.get(mark)
+    if known is not None and (known is True or time.monotonic() - known < MISS_SECONDS):
+        return known is True
+    at = blobs.place_at(found["location"])
+    held = False
+    if at is not None:
+        settings, sources = at
+        try:
+            held = _visual_ok(sources.read_s3("head_object", Bucket=settings.blob_bucket,
+                                              Key=_visual_key(settings, path), ChecksumMode="ENABLED")[0], kind, meta)
+        except Exception:
+            held = False
+    if len(seen) > 50_000:
+        seen.clear()
+    seen[mark] = True if held else time.monotonic()
+    return held
+
+
+def _writable(blobs, found):
+    """The place new files go to now, when it is Tico's (copies are made only while it takes new files), else None."""
+    from .blobs import location_of
+    at = blobs.target()
+    return at if at.settings.blob_bucket and location_of(at.settings) == found["location"] else None
+
+
+def make_visual(blobs, digest, kind, data, ancestors):
+    """Write the cleaned copy of the page or SVG `data` (the bytes of `digest`) beside it in Tico's bucket and check
+    it there without reading it back. Whether it is held as made; never raises."""
+    from .visuals import clean, with_reporter
+    found = getattr(blobs, "edge", None)
+    at = _writable(blobs, found) if found else None
+    if at is None:
+        return False
+    path, meta = _visual(digest, kind, ancestors)
+    try:
+        body, _ = clean(data, kind)
+        if kind == "page":
+            body = with_reporter(body)
+        sha = hashlib.sha256(body).hexdigest()
+        key = _visual_key(at.settings, path)
+        s3 = at.s3 if at.s3 is not None else at.sources.client_for(at.sources.kind)
+        try:
+            s3.put_object(Bucket=at.settings.blob_bucket, Key=key, Body=body, ContentType=VISUAL_TYPES[kind],
+                          ContentDisposition="inline", CacheControl="private, no-cache", ServerSideEncryption="AES256",
+                          Metadata={**meta, "sha256": sha}, IfNoneMatch="*",
+                          ChecksumSHA256=base64.b64encode(bytes.fromhex(sha)).decode())
+        except Exception as exc:
+            # Made already (another server, or a view racing this one): the check below says whether it is whole.
+            if (getattr(exc, "response", None) or {}).get("Error", {}).get("Code") not in ("PreconditionFailed", "412"):
+                raise
+        head = (at.s3.head_object if at.s3 is not None else
+                lambda **kw: at.sources.read_s3("head_object", **kw)[0])(
+            Bucket=at.settings.blob_bucket, Key=key, ChecksumMode="ENABLED")
+        held = _visual_ok(head, kind, meta, sha, len(body))
+    except Exception:
+        LOG.warning("%s: the cleaned copy of a page or SVG could not be stored", LABEL, exc_info=True)
+        held = False
+    if held:
+        blobs._edge_seen[(found["location"], path)] = True
+    return held
+
+
+def visual_ready(blobs, digest, size, mime, ancestors):
+    """Whether a page or SVG version shows inline from the company's address: its file is held in Tico's bucket, and
+    its cleaned copy is there or can be made now. A card (visuals.decorate) otherwise."""
+    found = getattr(blobs, "edge", None)
+    kind = visual_kind(mime, size) if found else None
+    if not kind or not _held(blobs, found["location"], digest, size, mime):
+        return False
+    path, meta = _visual(digest, kind, ancestors)
+    return _writable(blobs, found) is not None or _visual_held(blobs, found, path, kind, meta)
+
+
+def visual_link(blobs, digest, size, mime, ancestors, now=None):
+    """A five-minute link to the cleaned copy of a page or SVG version on the company's address, making the copy first
+    when it is missing (`make_visual`, from the file read through that address), or None: then it can't show inline
+    from there. The caller has checked access already."""
+    found = getattr(blobs, "edge", None)
+    kind = visual_kind(mime, size) if found else None
+    if not kind or not _held(blobs, found["location"], digest, size, mime):
+        return None
+    path, meta = _visual(digest, kind, ancestors)
+    if not _visual_held(blobs, found, path, kind, meta):
+        if _writable(blobs, found) is None:
+            return None
+        try:
+            data = blobs.get(digest)
+        except Exception:
+            return None
+        if hashlib.sha256(data).hexdigest() != digest or not make_visual(blobs, digest, kind, data, ancestors):
+            return None
+    return _signed(found, path, now)
+
+
+def landed(blobs, digest, size, mime, data):
+    """A page or SVG just uploaded to Tico's bucket (Blobs._landing) or moved there (`copy_one`): its copy, now."""
+    kind = visual_kind(mime, size)
+    if kind and getattr(blobs, "visual_ancestors", None) is not None:
+        make_visual(blobs, digest, kind, data, blobs.visual_ancestors)
+
+
 # ---------------------------------------------------------------------------------------------- move
 def _target(at):
     """(label of the place `at` (Blobs.target), its bucket location or '' for this computer's disk)."""
@@ -602,6 +767,13 @@ def copy_one(blobs, digest, length, content_type, at):
             blobs._upload(staged, digest, length, content_type, at=at, whole=True)
             if not blobs.holds_whole(digest, length, at):
                 raise Problem("blob_integrity", "A moved file failed its integrity check", 503)
+            # Held whole, typed as uploaded: linked from now on, not after a "not there" seen before the move ends.
+            mime = (content_type or "").split(";", 1)[0].strip().lower()
+            blobs._edge_seen[(blobs.edge["location"], digest, mime)] = True
+            if visual_kind(mime, length):
+                # A page or SVG: its cleaned copy too, from the bytes in hand. A copy that fails is made on first view.
+                staged.seek(0)
+                landed(blobs, digest, length, mime, staged.read())
         elif at.settings.blob_bucket:
             blobs._upload(staged, digest, length, content_type, at=at)
             blobs.verify_s3(digest, at=at)
@@ -703,9 +875,12 @@ def startup(store, vault, blobs):
 
 def install(app, store, auth):
     from .company_storage import apply, require_owner
+    from .visuals import ancestors
     vault, blobs, settings = app.state.vault, app.state.blobs, store.settings
     with _lock:
         _live[id(store)] = (store, vault, blobs)
+    # Where pages and SVG on the company's address may be framed: the app's own address (`landed`).
+    blobs.visual_ancestors = ancestors(settings)
 
     def owner(request):
         who = request.state.identity

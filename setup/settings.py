@@ -95,6 +95,7 @@ class Settings:
     aws_permissions_boundary: str = ""
     plan_bucket: str = ""          # --plan-bucket: the starter plan goes to the server by this S3 bucket, not in the env
     plan_bucket_region: str = ""
+    plan_bucket_managed: bool = False  # setup's private, expiring bucket; never configure a caller-supplied bucket
     cloud_location: str = ""
     cloud_size: str = ""
     cloud_ssh_key: str = ""
@@ -136,7 +137,7 @@ class Settings:
     def private_env(self, env_text: str) -> str:
         """The .env this computer keeps. With --plan-bucket the server's env names only the plan's key, so the copy here
         keeps the plan itself too, for a re-run without --company-file."""
-        if self.company_file_data and self.plan_bucket:
+        if self.company_file_data and (self.plan_bucket or self.target in ("ssh", "local")):
             return env_text + envfile.render({"TICO_COMPANY_FILE_B64": self.company_file_data}).split("\n", 1)[1]
         return env_text
 
@@ -178,7 +179,7 @@ class Settings:
              "TICO_TAG": self.tag if self.tag != "latest" else "", "TICO_UPDATER_URL": contract.UPDATER_URL if self.updater else ""}
         if self.front_door == "cloudflared":
             e["CLOUDFLARE_TUNNEL_TOKEN"] = self.tunnel_token
-        if self.target == "aws":
+        if self.target in ("aws", "ssh", "local"):
             # Absolute, for compose.yaml's starter plan mount: the updater's Compose resolves ./ against its own /project.
             e["TICO_COMPANY_FILE_DIR"] = f"{contract.REMOTE_DIR}/{contract.COMPANY_FILE_DIR}"
         e.update({key: getattr(self, name) for name, key in RUNTIME_ENV.items() if getattr(self, name)})
@@ -211,6 +212,9 @@ class Settings:
                      TICO_COMPANY_FILE_S3_REGION=self.plan_bucket_region or self.aws_region,
                      TICO_COMPANY_FILE_SHA256=self.plan_sha256(),
                      TICO_COMPANY_FILE=f"{contract.COMPANY_FILE_MOUNT}/{contract.COMPANY_FILE_NAME}", TICO_SAMPLE_COMPANY="off")
+        elif self.company_file_data and self.target in ("ssh", "local"):
+            e.update(TICO_COMPANY_FILE=f"{contract.COMPANY_FILE_MOUNT}/{contract.COMPANY_FILE_NAME}",
+                     TICO_COMPANY_FILE_SHA256=self.plan_sha256(), TICO_SAMPLE_COMPANY="off")
         elif self.company_file_data:
             e.update(TICO_COMPANY_FILE_B64=self.company_file_data, TICO_SAMPLE_COMPANY="off")
         if self.inbound_key:

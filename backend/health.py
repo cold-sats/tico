@@ -1656,6 +1656,8 @@ def view(c, who, settings, auth, github, config):
     stalled = list(c.execute(
         "SELECT id,title,number,owner,updated FROM tasks WHERE owner LIKE 'bot:%' AND status IN ('open','doing') "
         f"AND coalesce(private,1)=0 AND ({auth.task_sql(c, who)}) "
+        # Redundant with the EXISTS; lets SQLite start from the few escalated tasks, not every task.
+        "AND tasks.id IN (SELECT target FROM events WHERE action='task.stall_escalated') "
         "AND EXISTS (SELECT 1 FROM events e WHERE e.action='task.stall_escalated' "
         "AND e.target=tasks.id AND e.ts>=tasks.updated) ORDER BY updated"))
     if stalled:
@@ -1732,7 +1734,9 @@ def view(c, who, settings, auth, github, config):
             "computers": computers if full else _bot_computers(computers) if kind == "bot" else [],
             "waiting": waiting if full else [], "slow": slow if full else [], "stuck": blocked,
             "on_fallback": on_fallback, "limited": limited,
-            "failures": failures if full or kind == "bot" else [], "stalled_runs": stalled_runs, "checked": H.now(),
+            "failures": failures if full or kind == "bot" else [], "stalled_runs": stalled_runs,
+            # To the minute, so an unchanged answer keeps its ETag (backend/json_response.py) between polls.
+            "checked": H.now()[:17] + "00.000000Z",
             # The sidebar's notice reads the same fresh answer, so the two never disagree.
             "update": config.get("update") or {}}
 
@@ -1765,7 +1769,7 @@ def install(app, store, auth, settings):
     from fastapi import Request
 
     from . import models as M
-    from . import onboarding
+    from . import replication
 
     @app.post("/api/v2/health/bot-access/dismiss")
     def dismiss_bot_access(request: Request, body: M.Empty):
@@ -1785,5 +1789,6 @@ def install(app, store, auth, settings):
         if who.role != "bot":
             _person(who)
         github = getattr(request.app.state, "github_app", None)
-        with store.read() as c:
-            return view(c, who, settings, auth, github, onboarding.config_view(c, settings, who))
+        with store.read_transaction() as c:
+            # Health reads only these two parts of the config; building all of it cost a changelog parse per poll.
+            return view(c, who, settings, auth, github, {"update": releases.notice(), "backup": replication.status()})

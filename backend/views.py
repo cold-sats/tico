@@ -22,7 +22,7 @@ from . import visuals
 from . import app_delivery, login_holds, providers, runner_versions
 from .harnesses import resolve_harness
 from . import personal_tokens, rooms, team_rules, turns, wake_presets
-from . import auto_tasks
+from . import auto_tasks, pipeline_stats
 from .execution import AWAKE_GAP, AWAKE_SETTLE, Execution, bump_bot_session_epoch, turns_here
 from pathlib import Path
 
@@ -77,12 +77,13 @@ def attempt_details(c, turn):
 def failed_attempts(c, who, auth, bot=None, since=None, limit=200):
     readable = auth.bot_accesses(c, who)
     rows = []
+    # One bot's runs as their own query text: `? IS NULL OR a.bot=?` would hide attempts_bot_state.
     for row in c.execute(
             "SELECT a.id,a.bot,a.started,a.created,a.finished,a.state,a.result_json,j.message_id FROM attempts a "
-            "JOIN jobs j ON j.id=a.job_id WHERE a.state IN ('failed','expired') AND (? IS NULL OR a.bot=?) "
+            "JOIN jobs j ON j.id=a.job_id WHERE a.state IN ('failed','expired') " + ("AND a.bot=? " if bot is not None else "") +
             "AND (? IS NULL OR coalesce(a.finished,a.created)>=?) AND NOT EXISTS "
             "(SELECT 1 FROM turns t WHERE t.id=a.id) ORDER BY coalesce(a.finished,a.created) DESC LIMIT ?",
-            (bot, bot, since, since, limit)):
+            ((bot,) if bot is not None else ()) + (since, since, limit)):
         if not (readable.get(row["bot"]) or {}).get("read"):
             continue
         message = H.message(c, row["message_id"])
@@ -327,8 +328,10 @@ def machine(c, bot):
     # The declared access has its own route, behind the bot's visibility (backend/bot_tools.py). A missing
     # subscription sign-in the Gateway covers meanwhile is no problem (backend/models_preset.py as_served).
     from .models_preset import as_served
-    detail = {k: v for k, v in bot_readiness(row["readiness_json"], bot).items() if k != "tools"}
-    detail = as_served(c, bot, readiness_document(row["readiness_json"]), detail)
+    # One parse of the computer's report: /api/employees and Health call this once per bot.
+    document = readiness_document(row["readiness_json"])
+    detail = {k: v for k, v in bot_readiness(document, bot).items() if k != "tools"}
+    detail = as_served(c, bot, document, detail)
     return {"online": online, "awake": awake, "ready": online and detail.get("ready") is True,
             "readiness": detail,
             "machine": {**{k: row[k] for k in ("runner_id", "generation", "label", "operator", "last_seen",
@@ -455,14 +458,15 @@ def operation_issues(c, who, auth):
                     add("bot", bot["display_name"] + " needs attention",
                         f"{runtime}; resumes at {retry[11:16]} UTC", bot=slug,
                         severity="warning", needs_person=False)
-        queued = privacy.job_count(c, who, slug)
+        jobs = pipeline_stats.job_queues(c, who, [slug])[slug]
+        queued = jobs["queued"]
         if location.get("agent"):
             # A synced agent is handed its messages at a sync, which marks them delivered; it never reads them in Tico.
             unread = "delivered_at IS NULL" if location["agent"].get("synced") else "read_at IS NULL"
             queued = sum(privacy.message_readable(c, privacy.actor(who), m) for m in c.execute(
                 "SELECT * FROM messages WHERE to_actor=? AND " + unread + " "
                 "AND (expires_at IS NULL OR expires_at > ?) AND deleted_at IS NULL", ("bot:" + slug, H.now())))
-        uncertain = privacy.job_count(c, who, slug, ("uncertain",))
+        uncertain = jobs["uncertain"]
         if uncertain and not mac_offline:
             noun = "run" if uncertain == 1 else "runs"
             queued_note = (f" {queued} other request{' is' if queued == 1 else 's are'} still queued."
@@ -825,13 +829,40 @@ KIND_RANK = {"approval": 0, "question": 1, "ask": 1, "waiting": 1, "setup": 1, "
 # for the person to do on it until the bot restates it (backend/restate_asks.py asks it to).
 
 
+_VISIBLE_TASK_SQL = "SELECT * FROM tasks WHERE id=? AND (%s)"
+
+
+def _prime_person_origins(c, visible_sql, ids):
+    """The rows person_origin reads, each task as `visible_sql` lets this reader see it or None, read in one query
+    per 500 with that same rule rather than one query per card and ancestor."""
+    if read_cache.cache(c) is None:
+        return
+    for part in H.chunks(sorted({tid for tid in ids if tid})):
+        found = {row["id"]: row for row in c.execute(
+            "SELECT * FROM tasks WHERE id IN (%s) AND (%s)" % (",".join("?" * len(part)), visible_sql), part)}
+        read_cache.prime(c, _VISIBLE_TASK_SQL % visible_sql, {(tid,): found.get(tid) for tid in part})
+
+
+def prime_list_origins(c, visible_sql, rows):
+    """Before person_origin runs for each row of a task list: the list's rows were read under `visible_sql` in this
+    snapshot, so they stand for that rule's answer as they are; their ancestry is read a level at a time and the
+    ancestors off the page are read under the same rule, so a long list walks no chain one query at a time."""
+    if read_cache.cache(c) is None or not rows:
+        return
+    read_cache.prime(c, _VISIBLE_TASK_SQL % visible_sql, {(row["id"],): row for row in rows})
+    TR.prime_ancestry(c, [row["id"] for row in rows])
+    # Only rows whose requester is not a person walk their ancestors (person_origin).
+    chain = {tid for row in rows if not H.is_human(row.get("requester")) for tid in TR.ancestors(c, row["id"])}
+    _prime_person_origins(c, visible_sql, chain - {row["id"] for row in rows})
+
+
 def person_origin(c, row, visible_sql, me=None):
     """The person a task traces back to: its requester when that is a person, else the nearest ancestor's.
     `visible_sql` is the reader's task rule (Auth.task_sql), so the walk stops at a task they may not open and
     the order never says what it holds. `me`'s own to-do (they asked themselves) does not count: it would lift
     their whole list over every bot. None for work bots made for themselves or each other."""
     def readable(tid):
-        return c.execute(f"SELECT * FROM tasks WHERE id=? AND ({visible_sql})", (tid,)).fetchone()
+        return read_cache.one(c, _VISIBLE_TASK_SQL % visible_sql, (tid,))
     if not row or not readable(row["id"]):
         return None
     if me and row.get("requester") == row.get("owner") == me:
@@ -1358,16 +1389,32 @@ def card_why(item):
     return line
 
 
-def needs_items(c, auth, who, task_view, older=None):
+def needs_items(c, auth, who, task_view, older=None, count_only=False):
     """The person's queue. A question unanswered for two business days stays, marked stale, until the weekday-morning
-    batch sends it back to its bot (backend/still_needed.py); `older`, a list the caller passes, stays empty."""
-    raw = H.needs_you(c, who.actor)
+    batch sends it back to its bot (backend/still_needed.py); `older`, a list the caller passes, stays empty.
+    `count_only`: the items unsorted and without their per-item headers and tiers, for a count."""
+    # The reader's rule first: it opens the read snapshot, so the list, the rows its cards read and every check
+    # against them see the same database.
     visible = auth.task_sql(c, who)
+    raw = H.needs_you(c, who.actor)
     H.hydrate_task_tags(c, raw["tasks"] + raw["waiting"] + raw["declined"])
     from . import ask_deadlines, team_rules
     rules = team_rules.load(c)
     from . import ceo_merge
     merged = ceo_merge.hidden_by_item(c, who.actor)
+    # Each card reads its task, its open asks, its origin and the chain of tasks above it. Those rows are read here
+    # for every card together, in this snapshot; each card is still checked one at a time by the same rules.
+    cards = raw["tasks"] + raw["waiting"] + raw["declined"]
+    chain = TR.prime_ancestry(c, [row["id"] for row in cards])
+    chain |= {row["task_id"] for row in raw["approvals"] if row.get("task_id")}
+    H.prime_tasks(c, chain)
+    H.prime_messages(c, [row["message_id"] for row in raw["approvals"]])
+    privacy.prime_messages(c, [m for row in raw["approvals"]
+                               if (m := H.message(c, row["message_id"])) and m["to_actor"] == who.actor])
+    H.prime_task_origins(c, [row["id"] for row in cards])
+    _prime_person_origins(c, visible, chain)
+    pipelines = H.type_list(c)
+    asks_of = H.open_tasks_asks(c, cards, actor=privacy.actor(who))
     items = []
     for kind in ("tasks", "waiting", "declined"):
         for row in raw[kind]:
@@ -1375,11 +1422,11 @@ def needs_items(c, auth, who, task_view, older=None):
                 auth.task(c, who, row["id"])
             except Problem:
                 continue
-            open_asks = H.open_task_asks(c, row, actor=privacy.actor(who))
+            open_asks = asks_of[row["id"]]
             ask = next((a for a in open_asks if a["to_actor"] == who.actor), None) or next(iter(open_asks), None)
             if ask and (ask.get("refs") or {}).get("if_no_answer"):
                 ask["goes_ahead_at"] = ask_deadlines.deadline(ask, rules)     # when the bot's default goes ahead
-            item = {**task_view(row),
+            item = {**task_view(row, pipelines=pipelines),
                     "kind": kind if kind in ("declined", "waiting") else "question" if ask else "task",
                     "origin_actor": H.task_origin(c, row), "ask": ask, "open_asks": len(open_asks),
                     "first_line": (row.get("body") or "").split("\n")[0],
@@ -1393,9 +1440,7 @@ def needs_items(c, auth, who, task_view, older=None):
             if ask and ask.get("to_actor") == who.actor and H.ask_older(ask):
                 ask["stale"] = True      # its one-click Clarify (backend/clarify_asks.py) shows on the card
             items.append(item)
-    for msg in H.loose_asks_to(c, who.actor):
-        if not privacy.message_readable(c, privacy.actor(who), msg):
-            continue
+    for msg in privacy.readable_messages(c, privacy.actor(who), H.loose_asks_to(c, who.actor)):
         msg["refs"] = H._json(msg.get("refs_json"), {}) or {}
         ask = {k: msg[k] for k in ("id", "from_actor", "to_actor", "body", "created", "conversation_id", "refs")}
         item = {"kind": "ask", "id": msg["id"], "message_id": msg["id"], "title": _clip(msg["body"], 160),
@@ -1441,13 +1486,16 @@ def needs_items(c, auth, who, task_view, older=None):
         if setup:
             items.append(setup)
     items = fold_related(items, c, who.actor)
+    if count_only:
+        return items
+    rows = {r["id"]: r for kind in ("tasks", "waiting", "declined") for r in raw[kind]}
     at = H.now()
     for item in items:
         item["pressing"] = pressing(item, at)
         item["need"] = need_of(item)
         own = None
         if item["kind"] in ("question", "waiting", "task", "declined"):
-            row = H.task(c, item["id"]) or item
+            row = rows.get(item["id"]) or H.task(c, item["id"]) or item
             item["holds_up"] = holds_up(c, row, lambda tid: _readable(auth, c, who, tid))
             if row.get("id") and row.get("status") not in ("closed", "declined", "done"):
                 own = roadmap_entry(c, row)
@@ -1614,7 +1662,12 @@ def install_views(app, store, auth, mutate, task_view):
 
     def employee_rows(c, who):
         people, configs = roster(c), entries(c, store.settings.github_owner)
-        archived = {row["slug"] for row in H.bots(c) if row.get("state") == "archived"}
+        bots = H.bots(c)
+        archived = {row["slug"] for row in bots if row.get("state") == "archived"}
+        registries = {r["bot"]: r for r in read_cache.configs(c)}
+        goals = {}
+        for bot, conversation in c.execute("SELECT bot,conversation_id FROM chat_goals WHERE status='active'"):
+            goals.setdefault(bot, []).append(conversation)
         company = providers.load(c, store.settings)
         rows = []
         access = auth.bot_accesses(c, who)
@@ -1633,15 +1686,13 @@ def install_views(app, store, auth, mutate, task_view):
 
         def helper(config):
             return str(config.get("template") or "") in helpers
-        for bot in H.bots(c):
+        from .chat_goals import readable_active
+        for bot in bots:
             slug = bot["slug"]
-            from .chat_goals import readable_active
-            bot["goal_active"] = readable_active(c, auth, who, slug)
             level = access.get(slug, auth.FULL)
             if bot.get("state") == "archived" or not level["see"]:
                 continue
-            registry = c.execute("SELECT operator,revision,goals,access_json,bot_owners_json FROM bot_config WHERE bot=?",
-                                 (slug,)).fetchone()
+            registry = registries.get(slug)
             # Who may manage the bot (`Auth.bot_manager`), with the audiences and its owners when they may.
             pid = H.actor_id(who.actor)
             manager = (who.role == "owner" or (who.role == "human" and (
@@ -1698,7 +1749,7 @@ def install_views(app, store, auth, mutate, task_view):
                          "operator": registry["operator"] if registry else None,
                          "revision": registry["revision"] if registry else None,
                          "goals": (registry["goals"] if registry else "") or "",
-                         "goal_active": bot["goal_active"],
+                         "goal_active": readable_active(c, auth, who, slug, goals.get(slug, [])),
                          **location,
                          "users": [P.brief(p) for p in P.primary_users(slug, people, configs)],
                          "icon": icon_of(config), "helper": helper(config),
@@ -1759,7 +1810,8 @@ def install_views(app, store, auth, mutate, task_view):
     @app.get("/api/employees")
     def employees(request: Request):
         human_only(request.state.identity)
-        with store.read() as c:
+        # One snapshot from the start, so read_cache serves the roster, configs and access rows once.
+        with store.read_transaction() as c:
             return employee_rows(c, request.state.identity)
 
     @app.get("/api/people")
@@ -1950,21 +2002,28 @@ def install_views(app, store, auth, mutate, task_view):
             # Cancelled and uncertain jobs are not "up next": uncertain work already
             # surfaces as a health issue, cancelled work is history.
             readable = auth.bot_accesses(c, who)
-            for row in c.execute("SELECT j.*,a.started,t.title AS task_title,m.from_actor FROM jobs j "
-                                 "LEFT JOIN attempts a ON a.id=j.attempt_id JOIN messages m ON m.id=j.message_id "
-                                 f"JOIN conversations cv ON cv.id=m.conversation_id LEFT JOIN tasks t ON t.id={H.MESSAGE_TASK_SQL} "
-                                 "WHERE j.state IN ('queued','leased','running','input') ORDER BY j.created"):
-                if readable.get(row["bot"], auth.FULL)["read"]:
-                    if not privacy.message_readable(c, privacy.actor(who), H.message(c, row["message_id"])):
-                        continue
-                    if row["attempt_id"] and not privacy.attempt_readable(c, privacy.actor(who), row["attempt_id"]):
-                        continue
-                    # Never the message text: a shared bot's private chats belong to their people.
-                    title = row["task_title"] or "Message from " + H.actor_id(row["from_actor"])
-                    item = {"employee": row["bot"], "bot": row["bot"], "id": row["id"], "started": row["started"],
-                            "state": row["state"], "created": row["created"],
-                            "title": title if len(title) <= 80 else title[:79].rstrip() + "\u2026"}
-                    (queued if row["state"] == "queued" else active).append(item)
+            jobs = [row for row in c.execute(
+                "SELECT j.*,a.started,t.title AS task_title,m.from_actor FROM jobs j "
+                "LEFT JOIN attempts a ON a.id=j.attempt_id JOIN messages m ON m.id=j.message_id "
+                f"JOIN conversations cv ON cv.id=m.conversation_id LEFT JOIN tasks t ON t.id={H.MESSAGE_TASK_SQL} "
+                "WHERE j.state IN ('queued','leased','running','input') ORDER BY j.created")
+                if readable.get(row["bot"], auth.FULL)["read"]]
+            # Every job's message and run are read and checked together, not a few queries per job. A deleted
+            # message is not readable, as H.message (which leaves it out) made it.
+            shown = {m["id"] for m in privacy.readable_messages(c, privacy.actor(who),
+                                                                [{"id": row["message_id"]} for row in jobs])}
+            privacy.prime_attempts(c, [row["attempt_id"] for row in jobs if row["message_id"] in shown])
+            for row in jobs:
+                if row["message_id"] not in shown:
+                    continue
+                if row["attempt_id"] and not privacy.attempt_readable(c, privacy.actor(who), row["attempt_id"]):
+                    continue
+                # Never the message text: a shared bot's private chats belong to their people.
+                title = row["task_title"] or "Message from " + H.actor_id(row["from_actor"])
+                item = {"employee": row["bot"], "bot": row["bot"], "id": row["id"], "started": row["started"],
+                        "state": row["state"], "created": row["created"],
+                        "title": title if len(title) <= 80 else title[:79].rstrip() + "\u2026"}
+                (queued if row["state"] == "queued" else active).append(item)
             from .routines import listing
             schedules = [{**row, 'last_checked': tick} for row in listing(c, summary=True) if readable.get(row['bot'], auth.FULL)['read']]
             return {"cloud": True, "last_tick": tick, "active": active, "queued": queued,
@@ -2027,9 +2086,13 @@ def install_views(app, store, auth, mutate, task_view):
             read = CL.read_ids(c, who.actor)
             products = [{**row, "unread": row["id"] not in read} for row in CL.products(c, store.settings)]
             entries = []
-            activity = H.tasks(c, status="done") if kind != "product" and not unread and since_version is None else []
+            # The newest bot-owned done tasks with a note long enough, in shipped_at order; 400 leaves room for unreadable ones.
+            activity = [dict(r) for r in c.execute(
+                "SELECT id,title,owner,note,done_at,updated FROM tasks WHERE status='done' AND substr(owner,1,4)='bot:' "
+                "AND length(note)>=20 ORDER BY COALESCE(NULLIF(done_at,''),updated) DESC LIMIT 400")] \
+                if kind != "product" and not unread and since_version is None else []
             for task in activity:
-                if not str(task.get("owner", "")).startswith("bot:") or len((task.get("note") or "").strip()) < 20:
+                if len((task.get("note") or "").strip()) < 20:
                     continue
                 try:
                     auth.task(c, who, task["id"])
@@ -2184,11 +2247,11 @@ def install_views(app, store, auth, mutate, task_view):
         items, with each one's place in the whole list (`positions`), to mend a held copy after a live `needs` event."""
         who = request.state.identity
         human_only(who)
-        with store.read() as c:
+        with store.read_transaction() as c:
+            if count:
+                return {"actor": who.actor, "count": len(needs_items(c, auth, who, task_view, count_only=True))}
             older = []
             items = needs_items(c, auth, who, task_view, older)
-            if count:
-                return {"actor": who.actor, "count": len(items)}
             current = needs_marks(items)[1]
             if version and version == current:
                 return {"actor": who.actor, "count": len(items), "version": current, "unchanged": True,

@@ -279,6 +279,170 @@ def test_history_lookups_keep_legacy_visibility_without_scanning_messages(api, w
         assert checked == ['message-public']
 
 
+def test_direct_messages_reuse_room_checks_and_match_recursive_privacy(api, world, monkeypatch):
+    from collections import Counter
+    from backend.auth import Identity
+    from backend.privacy_index import ReadIndex
+
+    store = api.app.state.store
+    with store.transaction() as c:
+        hidden = H.task_create(c, 'human:ben', 'Hidden direct source', '', 'bot:finance', private=True, lint=False)
+    who = Identity('bot:ops', 'bot', attempt_id=world['attempt']['id'])
+    room = world['ana_room']
+    public = world['coo_task']['id']
+    cases = [
+        ({'task': public}, True),
+        ({'task': [public]}, True),
+        ({'task': hidden['id']}, False),
+        ({'task': 'unknown-fixture-task'}, False),
+        ({'payload': {'source': 'task:' + hidden['id']}}, False),
+        ({'payload': 'https://synthetic.invalid/#/task/' + hidden['id']}, False),
+        ({'payload': json.dumps({'nested': hidden['id']})}, False),
+        ({'payload': 'x' * 5000 + '/tasks/' + hidden['id']}, False),
+        ({'live_meetings': ['unknown-fixture-meeting']}, False),
+        (['unsupported'], False),
+        ({'inputs': ['missing-fixture-message'], 'task': public}, True),
+        ({'turn_id': world['attempt']['id']}, True),
+    ]
+    with store.read() as c:
+        fast, recursive = ReadIndex(c, who), ReadIndex(c, who)
+        recursive.direct_message = lambda *args: None
+        for i, (refs, expected) in enumerate(cases):
+            args = (f'direct-fixture-{i}', room, json.dumps(refs), None)
+            assert bool(fast.message(*args)) == bool(recursive.message(*args)) == expected, refs
+
+        checks = Counter()
+        # A new request has no previously authorized rooms.
+        fast = ReadIndex(c, who)
+        readable = fast.meetings.conversation_readable
+        def counted(actor, cid):
+            checks[cid] += 1
+            return readable(actor, cid)
+        monkeypatch.setattr(fast.meetings, 'conversation_readable', counted)
+        for i in range(100):
+            cid = (room, world['coo_task']['conversation_id'])[i % 2]
+            # Distinct refs prevent a per-message cache hiding repeated room work.
+            assert fast.message(f'progress-{i}', cid, json.dumps({'task': public, 'progress': i}), None)
+            assert fast.conversation(cid)  # SQL's separate room predicate
+        assert checks == {room: 1, world['coo_task']['conversation_id']: 1}
+
+    # A fresh request must rebuild decisions after a task becomes private.
+    with store.transaction() as c:
+        c.execute("UPDATE tasks SET private=1,owner='bot:finance',requester='human:ben' WHERE id=?", (public,))
+    with store.read() as c:
+        assert not ReadIndex(c, who).message('progress-after-revocation', room, json.dumps({'task': public}), None)
+
+
+def test_direct_content_prefilter_keeps_escaped_and_nested_provenance(api, world):
+    from backend.auth import Identity
+    from backend.privacy_index import ReadIndex
+
+    store = api.app.state.store
+    with store.transaction() as c:
+        hidden = H.task_create(c, 'human:ben', 'Hidden escaped source', '', 'bot:finance', private=True, lint=False)
+    escaped = ''.join('\\u%04x' % ord(char) for char in hidden['id'])
+    payloads = [
+        json.dumps({'payload': {'nested': ['task:' + hidden['id']]}}),
+        json.dumps({'payload': 'https://synthetic.invalid/tasks/' + hidden['id']}),
+        json.dumps({'payload': hidden['id']}).replace(hidden['id'], escaped),
+        json.dumps({'payload': json.dumps({'nested': hidden['id']})}),
+        json.dumps({'payload': {'live_meeting': {'meeting_id': 'unknown-fixture-meeting'}}}),
+        '{"payload":{"live_\\u006deeting":{"meeting_id":"unknown-fixture-meeting"}}}',
+        json.dumps({'payload': [json.dumps({'live_meetings': ['unknown-fixture-meeting']})]}),
+    ]
+    with store.read() as c:
+        who = Identity('bot:ops', 'bot', attempt_id=world['attempt']['id'])
+        fast, recursive = ReadIndex(c, who), ReadIndex(c, who)
+        recursive.direct_message = lambda *args: None
+        for refs in payloads:
+            args = ('synthetic-encoded', world['ana_room'], refs, None)
+            assert not recursive.message(*args), refs
+            assert not fast.message(*args), refs
+        # Noncanonical task ids keep the structured authorization path.
+        fast = ReadIndex(c, who)
+        fast.uuid_denied = False
+        for refs in payloads:
+            assert not fast.message('synthetic-uncached', world['ana_room'], refs, None), refs
+
+
+def test_direct_reply_gate_matches_recursive_sources_and_keeps_depth_bound(api, world):
+    from backend.auth import Identity
+    from backend.privacy_index import ReadIndex
+
+    store = api.app.state.store
+    room, public = world['ana_room'], world['coo_task']['id']
+    with store.transaction() as c:
+        hidden = H.task_create(c, 'human:ben', 'Hidden reply source', '', 'bot:finance', private=True, lint=False)
+        parents = [H.say(c, 'human:ana', 'human:ben', 'Synthetic parent', conversation_id=room, refs=refs)
+                   for refs in ({'task': public}, {'task': hidden['id']}, {'task': 'unknown-fixture-task'},
+                                {'live_meetings': ['unknown-fixture-meeting']}, {'turn_id': world['attempt']['id']})]
+        chain = []
+        for i in range(100):
+            chain.append(H.say(c, 'human:ana', 'human:ben', 'Synthetic chain', conversation_id=room,
+                               in_reply_to=chain[-1]['id'] if chain else None))
+    with store.read() as c:
+        who = Identity('bot:ops', 'bot', attempt_id=world['attempt']['id'])
+        fast, recursive = ReadIndex(c, who), ReadIndex(c, who)
+        recursive.direct_message = lambda *args: None
+        for parent, expected in zip(parents, (True, False, False, False, True)):
+            args = ('synthetic-reply', room, json.dumps({'task': public}), parent['id'])
+            assert bool(fast.message(*args)) == bool(recursive.message(*args)) == expected
+        for parent, expected in ((chain[98], True), (chain[99], False)):
+            args = ('synthetic-depth', room, json.dumps({'task': public}), parent['id'])
+            assert bool(fast.message(*args)) == bool(recursive.message(*args)) == expected
+
+
+@pytest.mark.parametrize("source", ["input", "carried", "event"])
+def test_direct_run_messages_keep_denied_attempt_provenance(api, world, source):
+    from backend.auth import Identity
+    from backend.privacy_index import ReadIndex
+
+    store, aid = api.app.state.store, world['attempt']['id']
+    with store.transaction() as c:
+        hidden = H.task_create(c, 'human:ben', 'Hidden run source', '', 'bot:finance', private=True, lint=False)
+        if source == 'input':
+            msg = H.say(c, 'human:ben', 'human:ana', 'Synthetic input', conversation_id=world['ana_room'],
+                        refs={'task': hidden['id']})
+            c.execute('INSERT INTO attempt_inputs(attempt_id,message_id) VALUES(?,?)', (aid, msg['id']))
+        elif source == 'carried':
+            c.execute('UPDATE tasks SET carried_by=? WHERE id=?', (aid, hidden['id']))
+        else:
+            H.event(c, H.KEEPER, 'task.next-run.carried', aid, {'tasks': [hidden['id']]})
+    with store.read() as c:
+        who = Identity('bot:ops', 'bot', attempt_id=aid)
+        fast, recursive = ReadIndex(c, who), ReadIndex(c, who)
+        recursive.direct_message = lambda *args: None
+        recursive._direct_attempt = lambda *args: None
+        assert not fast.attempt(aid)
+        assert not recursive.attempt(aid)
+        for refs in ({'turn_id': aid}, {'run': {'attempt_id': aid}}):
+            args = ('synthetic-run-message', world['ana_room'], json.dumps(refs), None)
+            assert not fast.message(*args)
+            assert not recursive.message(*args)
+
+
+@pytest.mark.parametrize("unknown", [False, True])
+def test_direct_refs_cannot_override_denied_conversation_task(api, world, unknown):
+    from backend.auth import Identity
+    from backend.privacy_index import ReadIndex
+
+    store, room = api.app.state.store, world['ana_room']
+    with store.transaction() as c:
+        hidden = H.task_create(c, 'human:ben', 'Hidden conversation source', '', 'bot:finance', private=True, lint=False)
+        c.execute('UPDATE conversations SET task_id=? WHERE id=?',
+                  ('unknown-fixture-task' if unknown else hidden['id'], room))
+    # The attempt's room grant is still valid, isolating the provenance denial.
+    assert query(api, 'SELECT id FROM conversations WHERE id=?', world['attempt']['token'], params=[room])['rows'] == [[room]]
+    with store.read() as c:
+        who = Identity('bot:ops', 'bot', attempt_id=world['attempt']['id'])
+        fast, recursive = ReadIndex(c, who), ReadIndex(c, who)
+        recursive.direct_message = lambda *args: None
+        for refs in ({'task': world['coo_task']['id']}, {'task_id': world['coo_task']['id']}, {'progress': 1}):
+            args = ('synthetic-room-task', room, json.dumps(refs), None)
+            assert not fast.message(*args)
+            assert not recursive.message(*args)
+
+
 def test_attempt_time_index_upgrades_existing_history_without_changing_rows(api, world):
     store = api.app.state.store
     with store.transaction() as c:
