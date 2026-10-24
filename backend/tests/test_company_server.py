@@ -1,4 +1,5 @@
 """Linking a self-run server to its Tico company (backend/company_server.py), against a fake HQ."""
+import asyncio
 import hashlib
 import json
 import time
@@ -46,6 +47,9 @@ def connected(api, hq):
         return reply(201, {"company": COMPANY, "workspace_id": "ws_1", "server_key": SERVER_KEY,
                            "portal_url": "https://app.tico.dev/servers"})
     hq.answers[("POST", "/v1/portal/server-connection")] = connect
+    hq.answers.setdefault(("GET", "/v1/portal/server"), lambda request: reply(200, {
+        "company": COMPANY, "workspace_id": "ws_1", "portal_url": "https://app.tico.dev/servers",
+        "credit": {"balance_cents": None}}))
     r = api.post(PATH, headers=headers(), json={"code": CODE, "preview": False})
     assert r.status_code == 200, r.text
     return r.json()
@@ -62,8 +66,12 @@ def test_preview_then_connect_proves_the_address_and_seals_the_key(api, hq):
     assert set(sent) == {"code", "public_url", "install_id", "version", "proof", "preview"}
     assert api.get(PATH, headers=headers()).json() == {"company": None}
 
+    hq.answers[("GET", "/v1/portal/server")] = lambda request: reply(200, {
+        "company": COMPANY, "workspace_id": "ws_1", "portal_url": "https://app.tico.dev/servers",
+        "credit": {"balance_cents": 700}})
     view = connected(api, hq)
     assert view["company"] == COMPANY and view["portal_url"] == "https://app.tico.dev/servers"
+    assert view["credit"] == {"balance_cents": 700} and view["checked"]   # the balance is read right after connecting
     assert api.get(CS.PROOF_PATH).status_code == 404       # the proof ends with the connect
     with api.app.state.store.read() as c:
         everything = json.dumps([list(r) for r in c.execute("SELECT * FROM registry_metadata")]) + \
@@ -130,3 +138,45 @@ def test_a_key_hq_refuses_is_forgotten(api, hq):
     hq.answers[("POST", "/v1/portal/server/heartbeat")] = lambda request: reply(401, {"error": "unauthorized"})
     assert CS.heartbeat(api.app.state.store, api.app.state.vault) == "gone"
     assert api.get(PATH, headers=headers()).json() == {"company": None}
+
+
+def test_rehearsal_sends_hq_nothing_and_keeps_the_link(api, hq, monkeypatch):
+    connected(api, hq)
+    store, vault = api.app.state.store, api.app.state.vault
+    calls = len(hq.seen)
+    monkeypatch.setenv("TICO_REHEARSAL", "1")
+    assert CS.status(store, vault, now=time.time() + CS.FRESH_S + 1)["company"] == COMPANY
+    assert not CS.heartbeat_due(store, now=1e12) and CS.heartbeat(store, vault) == "failed"
+    assert api.delete(PATH, headers=headers()).status_code == 409
+    assert api.post(PATH, headers=headers(), json={"code": CODE, "preview": True}).status_code == 503
+    assert len(hq.seen) == calls and api.get(PATH, headers=headers()).json()["company"] == COMPANY
+
+
+def test_a_late_401_never_removes_a_newer_connection(api, hq):
+    connected(api, hq)
+    store, vault = api.app.state.store, api.app.state.vault
+
+    def replaced_then_refused(request):
+        # A new connect lands while HQ's refusal of the old key is on its way.
+        with store.transaction() as c:
+            CS._write(c, {**CS._row(c), "key": vault.cipher.seal(c, CS.CONTEXT, "tsk_newer_synthetic_key_0123456")})
+        return reply(401, {"error": "unauthorized"})
+    hq.answers[("GET", "/v1/portal/server")] = replaced_then_refused
+    CS.status(store, vault, now=time.time() + CS.FRESH_S + 1)
+    hq.answers[("DELETE", "/v1/portal/server")] = replaced_then_refused
+    assert api.delete(PATH, headers=headers()).json()["company"] == COMPANY
+    with store.read() as c:
+        assert vault.cipher.unseal(c, CS.CONTEXT, CS._row(c)["key"]) == "tsk_newer_synthetic_key_0123456"
+
+
+def test_a_slow_answer_is_cut_off_at_the_deadline(api, hq, monkeypatch):
+    class Drip(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b"{"
+            await asyncio.sleep(30)        # a read that never finishes on its own
+            yield b"}"
+    monkeypatch.setattr(CS, "WAIT_S", 0.5)
+    hq.answers[("POST", "/v1/portal/server-connection")] = lambda request: httpx.Response(200, stream=Drip())
+    began = time.monotonic()
+    r = api.post(PATH, headers=headers(), json={"code": CODE, "preview": True})
+    assert r.status_code == 503 and time.monotonic() - began < 5

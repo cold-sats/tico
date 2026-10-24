@@ -16,7 +16,7 @@ forgotten here too.
 
 HQ is only ever https://api.tico.dev or https://updates.tico.team (`<TICO_HQ_URL>`, backend/census.py `hq_url`); any
 other base URL leaves the feature unavailable. HQ's answers are read raw, capped at MAX_ANSWER bytes, with no redirects,
-and must have exactly the fields the contract names.
+and must have exactly the fields the contract names. Demo and rehearsal servers send HQ nothing (`off`).
 """
 
 import asyncio
@@ -38,6 +38,7 @@ from pydantic import ConfigDict, Field, ValidationError
 from clients.gateway import user_agent
 
 from .census import hq_url
+from .replication import rehearsal_on
 from .inbound import connection_json
 from .models import Contract
 from .store import H, Problem
@@ -104,9 +105,11 @@ def _write(c, record):
               (KEY, json.dumps(record, sort_keys=True)))
 
 
-def _forget(c, actor, action):
+def _forget(c, actor, action, sealed):
+    """Forget the link, but only while it still holds `sealed`, the key the caller read before asking HQ: a late 401
+    about an old key never removes a connection made since."""
     record = _row(c)
-    if not record.get("key"):
+    if not record.get("key") or record["key"] != sealed:
         return
     c.execute("DELETE FROM registry_metadata WHERE key=?", (KEY,))
     H.event(c, actor, action, record.get("workspace_id", ""), {"company_id": record.get("company", {}).get("id", "")})
@@ -128,6 +131,11 @@ def manager(auth, who):
         raise Problem("forbidden", "Only an owner or an admin sees the Tico company link", 403)
 
 
+def off(settings):
+    """Demo and rehearsal (a copy of real data) send nothing to HQ: not a connect, a read, a heartbeat or a disconnect."""
+    return bool(getattr(settings, "demo", False) or getattr(settings, "rehearsal", False) or rehearsal_on())
+
+
 def _base():
     base = hq_url().rstrip("/")
     if base not in HQ_ALLOWED:
@@ -135,27 +143,36 @@ def _base():
     return base
 
 
-def _call(method, path, body=None, key=""):
-    """(status, JSON or None) from HQ. Raises ValueError for anything that is not a small, plain JSON answer."""
+def _call(settings, method, path, body=None, key=""):
+    """(status, JSON or None) from HQ. Raises ValueError for anything that is not a small, plain JSON answer, and when
+    the whole exchange takes longer than WAIT_S: the timeout cancels a read that is still waiting, not only the next one.
+    Called on a worker thread (a sync route, `asyncio.to_thread` or the heartbeat's own), never on the event loop."""
+    if off(settings):
+        raise ValueError("off")
+    return asyncio.run(_exchange(method, path, body, key))
+
+
+async def _exchange(method, path, body, key):
     headers = {"User-Agent": user_agent(), "Accept-Encoding": "identity"}
     if key:
         headers["Authorization"] = "Bearer " + key
-    until = time.monotonic() + WAIT_S
     try:
-        with httpx.Client(transport=TRANSPORT, timeout=WAIT_S, trust_env=False, follow_redirects=False) as client:
-            with client.stream(method, _base() + path, json=body, headers=headers) as response:
-                if 300 <= response.status_code < 400:
-                    raise ValueError("redirect")
-                if response.headers.get("content-encoding", "identity").lower() not in ("", "identity"):
-                    raise ValueError("encoding")
-                chunks, total = [], 0
-                for chunk in response.iter_raw(chunk_size=1024):
-                    total += len(chunk)
-                    if total > MAX_ANSWER or time.monotonic() > until:
-                        raise ValueError("answer")
-                    chunks.append(chunk)
-                raw = b"".join(chunks)
-                return response.status_code, (connection_json(raw) if raw.strip() else None)
+        async with asyncio.timeout(WAIT_S):
+            async with httpx.AsyncClient(transport=TRANSPORT, timeout=WAIT_S, trust_env=False,
+                                         follow_redirects=False) as client:
+                async with client.stream(method, _base() + path, json=body, headers=headers) as response:
+                    if 300 <= response.status_code < 400:
+                        raise ValueError("redirect")
+                    if response.headers.get("content-encoding", "identity").lower() not in ("", "identity"):
+                        raise ValueError("encoding")
+                    chunks, total = [], 0
+                    async for chunk in response.aiter_raw():
+                        total += len(chunk)
+                        if total > MAX_ANSWER:
+                            raise ValueError("answer")
+                        chunks.append(chunk)
+                    raw = b"".join(chunks)
+                    return response.status_code, (connection_json(raw) if raw.strip() else None)
     except (httpx.HTTPError, httpx.StreamError, TimeoutError, UnicodeDecodeError, RecursionError) as exc:
         raise ValueError("unreachable") from exc
 
@@ -216,7 +233,7 @@ def public_url(settings):
 def connect(store, vault, settings, who, body, install_id):
     """Preview (company only, nothing spent) or connect (prove, then keep the server key). `install_id` is from
     backend/inbound.py `connection_actor`, which also checked the caller."""
-    if settings.demo or settings.rehearsal:
+    if off(settings):
         raise Problem("company_connection_unavailable", UNAVAILABLE, 503, retryable=True)
     address = public_url(settings)
     from .releases import version
@@ -227,7 +244,7 @@ def connect(store, vault, settings, who, body, install_id):
         if not body.preview:
             _hold(hashlib.sha256(proof.encode()).hexdigest())
         try:
-            answered, result = _call("POST", "/v1/portal/server-connection", {
+            answered, result = _call(settings, "POST", "/v1/portal/server-connection", {
                 "code": body.code, "public_url": address, "install_id": install_id, "version": version(),
                 "proof": proof, "preview": body.preview})
         finally:
@@ -255,10 +272,10 @@ def connect(store, vault, settings, who, body, install_id):
     with store.transaction() as c:
         at = H.now()
         _write(c, {"key": vault.cipher.seal(c, CONTEXT, result["server_key"]), "company": company,
-                   "workspace_id": workspace, "portal_url": portal, "credit": None, "checked": at, "heartbeat": at,
+                   "workspace_id": workspace, "portal_url": portal, "credit": None, "checked": "", "heartbeat": at,
                    "connected_at": at, "connected_by": who.actor})
         H.event(c, who.actor, "company_server.connected", workspace, {"company_id": company["id"], "name": company["name"]})
-        return view(c)
+    return status(store, vault)          # unchecked: reads the company's credit now
 
 
 def _key(store, vault):
@@ -270,12 +287,12 @@ def _key(store, vault):
 def status(store, vault, now=None):
     """The linked company, refreshed from HQ when the last read is older than FRESH_S. HQ down keeps the last word."""
     key, record = _key(store, vault)
-    if key and (now or time.time()) - _seconds(record.get("checked")) >= FRESH_S:
+    if key and not off(store.settings) and (now or time.time()) - _seconds(record.get("checked")) >= FRESH_S:
         try:
-            code, result = _call("GET", "/v1/portal/server", key=key)
+            code, result = _call(store.settings, "GET", "/v1/portal/server", key=key)
             if code == 401:
                 with store.transaction() as c:
-                    _forget(c, SYSTEM, "company_server.revoked")
+                    _forget(c, SYSTEM, "company_server.revoked", record["key"])
             elif code == 200:
                 if not isinstance(result, dict) or set(result) != {"company", "workspace_id", "portal_url", "credit"}:
                     raise ValueError("answer")
@@ -292,16 +309,18 @@ def status(store, vault, now=None):
 
 def disconnect(store, vault, who):
     """End the link on HQ, then forget the key. A key HQ already refuses is forgotten as well."""
-    key, _ = _key(store, vault)
+    if off(store.settings):
+        raise Problem("company_connection_unavailable", "A rehearsal or demo server cannot change the Tico company link.", 409)
+    key, record = _key(store, vault)
     if key:
         try:
-            code, _answer = _call("DELETE", "/v1/portal/server", key=key)
+            code, _answer = _call(store.settings, "DELETE", "/v1/portal/server", key=key)
         except ValueError:
             raise Problem("company_connection_unavailable", UNAVAILABLE, 503, retryable=True) from None
         if code not in (204, 401):
             raise Problem("company_connection_unavailable", UNAVAILABLE, 503, retryable=True)
         with store.transaction() as c:
-            _forget(c, who.actor, "company_server.disconnected")
+            _forget(c, who.actor, "company_server.disconnected", record["key"])
     with store.read() as c:
         return view(c)
 
@@ -316,7 +335,7 @@ def _seconds(stamp):
 def heartbeat_due(store, now=None):
     with store.read() as c:
         record = _row(c)
-    return bool(record.get("key")) and (now or time.time()) - _seconds(record.get("heartbeat")) >= HEARTBEAT_S
+    return bool(record.get("key")) and not off(store.settings) and (now or time.time()) - _seconds(record.get("heartbeat")) >= HEARTBEAT_S
 
 
 def heartbeat(store, vault):
@@ -329,14 +348,14 @@ def heartbeat(store, vault):
         if not key:
             return "gone"
         try:
-            code, _answer = _call("POST", "/v1/portal/server/heartbeat", {"version": version()}, key=key)
+            code, _answer = _call(store.settings, "POST", "/v1/portal/server/heartbeat", {"version": version()}, key=key)
         except ValueError:
             return "failed"
         with store.transaction() as c:
             if _row(c).get("key") != record["key"]:
                 return "gone"
             if code == 401:
-                _forget(c, SYSTEM, "company_server.revoked")
+                _forget(c, SYSTEM, "company_server.revoked", record["key"])
                 return "gone"
             if code != 204:
                 return "failed"
