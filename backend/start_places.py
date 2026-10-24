@@ -84,7 +84,10 @@ def reserve(c, attempt, settings=None):
     if place and place['start_until']:
         return {"reserved": place['start_until'] > H.now(), "start_until": place['start_until']}
     from . import org_turns
-    if settings and org_turns.observe(c, settings)['at_stop']:
+    # Admission is claim's job: a turn already counted in the company's in-use total (waiting, or an unmanaged
+    # live lease) takes its place without raising the count, so waiters cannot freeze a stopped company.
+    counted = (place and place['wait_reason']) or (attempt['lease_until'] > H.now() and not (place and place['managed']))
+    if settings and not counted and org_turns.observe(c, settings)['at_stop']:
         waiting(c, aid, org_turns.REASON)
         return {'reserved': False, 'waiting': org_turns.REASON}
     capacity = c.execute("SELECT capacity FROM runners WHERE id=?", (rid,)).fetchone()[0] or 1

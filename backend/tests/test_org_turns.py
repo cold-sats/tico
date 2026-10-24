@@ -168,3 +168,19 @@ def test_stop_level_idle_claim_keeps_computer_contact_fresh(api, monkeypatch):
     assert claim(api, machine, 'finance') is None
     with api.app.state.store.read() as c:
         assert c.execute('SELECT last_seen FROM runners WHERE id=?', (machine['runner_id'],)).fetchone()[0] == H.now()
+
+
+def test_stop_level_counted_waiter_takes_its_place_while_new_claims_wait(api):
+    """Every counted turn waits on a login: reserving one frees nothing, so it must not be refused."""
+    one_person(api)
+    machine = waiters(api, n=100, running=0)
+    other = runner(api, label='Other synthetic computer')
+    independent(api, other)
+    assert claim(api, other, 'finance') is None
+    grant = post(api, 'attempts/attempt-0/start-place', {}, machine['token'])
+    assert grant['reserved'] is True
+    from backend import org_turns
+    with api.app.state.store.read() as c:
+        assert org_turns.snapshot(c, api.app.state.store.settings)['in_use'] == 100
+    answer = post(api, 'jobs/claim', {'bot': 'finance', 'start_places': True}, other['token'])
+    assert answer['attempt'] is None and answer['waiting'] == REASON
