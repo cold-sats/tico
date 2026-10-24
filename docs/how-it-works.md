@@ -99,7 +99,8 @@ waiting for it reach 200 items or 2 MiB in all, or 50 items or 512 KiB from one 
 comment or notice to it is refused as `queue_full`. Every waiting message resume would hand over counts, whether
 it waits as a job, a carry-note or in an external agent's inbox; a quiet one nothing carries does not. What was
 already accepted is kept, a person's messages and system notices are never refused, and `queue_full` opens no review
-and never counts as a repeat. A note is kept the same way when a person leaves it, or, to a
+and never counts as a repeat. A message Tico sends for a bot on its own (a finished run's answer to the held bot's
+question) is only withheld (`reply.withheld`, reason `queue_full`): the run still completes with its text. A note is kept the same way when a person leaves it, or, to a
 quarantined bot, its manager bot (the bot it reports to on the org chart). A new task or hand-off to a paused,
 quarantined or planned bot is refused as `target_inactive`, with when the bot is back, and so is any other bot's note.
 That refusal is the target's state, not the sender reaching too far: it opens no review and never counts as a repeat,

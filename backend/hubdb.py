@@ -2676,6 +2676,29 @@ def held_queue_recheck(conn, message_id):
                           replacing=message_id)
 
 
+def unless_queue_full(conn, write):
+    """Run `write`, a system path's one extra message to a bot, so a full held queue withholds only that message.
+
+    Returns (result, None), or (None, the Refused) with everything `write` did undone when the recipient's held
+    queue was full. The work around it (a finished run, a stored change) stands: the sender did not choose to
+    send, so nothing is refused against it. Any other refusal is raised as before."""
+    conn.execute("SAVEPOINT held_queue_write")
+    try:
+        out = write()
+    except Refused as exc:
+        if exc.rule == "queue_full":
+            conn.execute("ROLLBACK TO held_queue_write")
+            conn.execute("RELEASE held_queue_write")
+            return None, exc
+        conn.execute("RELEASE held_queue_write")
+        raise
+    except BaseException:
+        conn.execute("RELEASE held_queue_write")
+        raise
+    conn.execute("RELEASE held_queue_write")
+    return out, None
+
+
 def _write_message(conn, actor, target, body, conv, kind, refs, in_reply_to, wait_s,
                    expires_at=None, delivered_at=None, read_at=None, *, check_cap=False):
     if actor == "bot:librarian":

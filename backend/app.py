@@ -2359,9 +2359,11 @@ def create_app(settings=None):
                     "Treat these as your current goals until they change again.")
             if not body.goals.strip():
                 text = f"{who_name} cleared your goals. Work from your standing instructions until new goals are set."
-            message = H.say(c, who.actor, "bot:" + bot, text, kind="notice")
-            H.event(c, who.actor, "bot.goals", bot, {"chars": len(body.goals)})
-            return {"bot": bot, "goals": body.goals, "message_id": message["id"]}
+            # The stored goals are the change: a bot manager's notice to a paused bot whose held queue is full is
+            # only withheld, and the goals stand on the bot's settings.
+            message, _ = H.unless_queue_full(c, lambda: H.say(c, who.actor, "bot:" + bot, text, kind="notice"))
+            H.event(c, who.actor, "bot.goals", bot, {"chars": len(body.goals), **({} if message else {"notice": "queue_full"})})
+            return {"bot": bot, "goals": body.goals, "message_id": message["id"] if message else None}
         return mutate(request, body, work)
 
     @app.get("/api/v2/models")

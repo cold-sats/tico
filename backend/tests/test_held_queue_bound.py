@@ -284,7 +284,7 @@ def test_final_chat_goal_metadata_is_charged_and_rejection_rolls_back(queue, mon
     assert domain(api) == before
 
 
-def test_automatic_answer_charges_final_run_references_and_can_finish_after_resume(api, monkeypatch):
+def test_full_queue_withholds_only_the_automatic_answer_and_the_run_completes(api, monkeypatch):
     machine = runner(api)
     assign(api, machine, 'ops')
     ready(api, machine, ['ops'])
@@ -294,16 +294,25 @@ def test_automatic_answer_charges_final_run_references_and_can_finish_after_resu
     post(api, f"attempts/{work['id']}/started", {'thread_id': 'fixture-thread'}, machine['token'])
     hold(api)
     monkeypatch.setattr(H, 'HELD_QUEUE_BYTES', 32)  # short answer fits; its final run/answers references do not
-    before = domain(api)
-    result = post(api, f"attempts/{work['id']}/complete", {'outcome': 'completed', 'text': 'ok', 'last_seq': 0},
-                  machine['token'], expected=422)
-    assert result['error']['code'] == 'queue_full'
-    assert domain(api) == before and pending(api) == []
+    done = {'outcome': 'completed', 'text': 'ok', 'last_seq': 0}
+    key = f"complete:{work['id']}"
+    post(api, f"attempts/{work['id']}/complete", done, machine['token'], key=key)
+    with api.app.state.store.read() as c:
+        attempt = c.execute('SELECT state, final_text FROM attempts WHERE id=?', (work['id'],)).fetchone()
+        assert (attempt['state'], attempt['final_text']) == ('completed', 'ok')
+        assert c.execute("SELECT state FROM jobs WHERE attempt_id=?", (work['id'],)).fetchone()[0] == 'completed'
+        assert c.execute('SELECT count(*) FROM messages WHERE in_reply_to=?', (asked['id'],)).fetchone()[0] == 0
+        withheld = c.execute("SELECT detail_json FROM events WHERE action='reply.withheld' AND target=?",
+                             (work['id'],)).fetchone()
+        assert withheld and '"queue_full"' in withheld[0]
+        assert not c.execute("SELECT 1 FROM refusals WHERE actor='bot:ops' AND rule='queue_full'").fetchone()
+    assert pending(api) == []
+    # The runner's retry under the same key replays the success, and posts nothing more after the bot resumes.
     with api.app.state.store.transaction() as c:
         H.status_set(c, 'human:ana', 'finance', state='active', reason='Fixture resume')
-    post(api, f"attempts/{work['id']}/complete", {'outcome': 'completed', 'text': 'ok', 'last_seq': 0}, machine['token'])
+    post(api, f"attempts/{work['id']}/complete", done, machine['token'], key=key)
     with api.app.state.store.read() as c:
-        assert c.execute('SELECT count(*) FROM messages WHERE in_reply_to=?', (asked['id'],)).fetchone()[0] == 1
+        assert c.execute('SELECT count(*) FROM messages WHERE in_reply_to=?', (asked['id'],)).fetchone()[0] == 0
 
 
 def test_queue_full_does_not_trigger_escalation_from_prior_refusals(queue, monkeypatch):
