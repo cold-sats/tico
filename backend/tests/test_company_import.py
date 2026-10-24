@@ -31,7 +31,7 @@ def company_text(reverse_builtins=False, through_new_parent=False, keep=("coo", 
     return C.to_yaml(draft) + "models:\n  source: gateway\n  by_department:\n    finance: mid\n"
 
 
-BUILTINS = {"coo", "botops", "librarian", "goal-manager"}
+BUILTINS = {"coo", "botops", "librarian", "goal-manager", "task-manager"}
 TWELVE = ("finance-lead", "controller", "bookkeeping", "billing", "ar-followup", "sales-lead", "sales", "sdr-research",
           "marketing-lead", "content", "seo-visibility", "ops-manager")
 
@@ -83,8 +83,8 @@ def test_a_chosen_chart_of_12_roles_lays_out_12_recruiting_seats_and_only_the_bu
                for r in rows(api, "SELECT onboarding_state FROM bot_config"))
     # No BotOps setup task, repository or computer slot for any role.
     assert not rows(api, "SELECT id FROM tasks WHERE title LIKE 'Set up %'")
-    assert not rows(api, "SELECT bot FROM bot_config WHERE bot NOT IN ('coo','botops','librarian','goal-manager')")
-    assert not rows(api, "SELECT bot FROM assignments WHERE bot NOT IN ('coo','botops','librarian','goal-manager')")
+    assert not rows(api, "SELECT bot FROM bot_config WHERE bot NOT IN ('coo','botops','librarian','goal-manager','task-manager')")
+    assert not rows(api, "SELECT bot FROM assignments WHERE bot NOT IN ('coo','botops','librarian','goal-manager','task-manager')")
     machine(api)
     assert {r["bot"] for r in rows(api, "SELECT bot FROM assignments")} <= BUILTINS
     assert {r["slug"]: r["state"] for r in rows(api, "SELECT slug,state FROM bots")}["botops"] == "active"
