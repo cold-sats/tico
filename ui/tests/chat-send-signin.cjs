@@ -40,7 +40,7 @@ async function scenario(browser, mode, edit, keeper = true, editedBefore = false
       if (p.endsWith('/snapshot')) return json({messages: delivered, execution: null});
       if (p === '/api/v2/events' || p.endsWith('/watch')) {
         response.writeHead(200, {'Content-Type': 'text/event-stream'});
-        response.write(': fixture\n\n');
+        response.write('event: ready\ndata: {"seq":0}\n\n');
         return;
       }
       if (p === (keeper ? '/api/v2/chat/botops' : '/api/employees/botops/chat')) {
@@ -65,7 +65,11 @@ async function scenario(browser, mode, edit, keeper = true, editedBefore = false
   const stored = () => page.evaluate(() => ({draft: chatDrafts().botops, otherDraft: chatDrafts().other,
     fields: JSON.parse(sessionStorage.getItem(SESSION_RETURN) || 'null')?.fields || []}));
   const frames = () => page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
-  const ready = () => page.waitForFunction(keeper => SESSION.seen && (keeper ? typeof V2C !== 'undefined' && V2C?.loaded : typeof CONV !== 'undefined' && CONV?.slug === 'botops'), keeper);
+  // A loaded conversation can precede its stream subscription. Navigating again while WebKit is
+  // still opening that connection reports a cancelled request as an access-control page error.
+  const ready = () => page.waitForFunction(keeper => SESSION.seen
+    && (keeper ? typeof V2C !== 'undefined' && V2C?.loaded : typeof CONV !== 'undefined' && CONV?.slug === 'botops')
+    && liveConnected() && LIVE.es?.readyState === EventSource.OPEN && LIVE.es.url === new URL(liveUrl(), location.href).href, keeper);
   const idle = () => page.waitForFunction(() => !BOT_PILL.sending && !document.querySelector('#chat-composer .p-send').disabled);
   const text = '  Keep this draft through sign-in  ';
   try {
