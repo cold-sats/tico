@@ -5977,6 +5977,11 @@ NEXT_RUN_WAITING_SQL = (
     "SELECT 1 FROM attempts a WHERE a.id=t.carried_by AND a.state IN ('leased','running','completed')))")
 
 
+# A carrier in one of these states still holds its next-run task (quiet_work.prime reads them for a whole list).
+NEXT_RUN_CARRIER_STATES = ("leased", "running", "completed")
+NEXT_RUN_CARRIER_SQL = "SELECT 1 FROM attempts WHERE id=? AND state IN ('leased','running','completed')"
+
+
 def next_run_waiting(conn, row):
     """Whether this task (a row) is a next-run task still waiting to be carried."""
     if not row or not row.get("next_run") or row.get("status") != "open" or row.get("snoozed_until") \
@@ -5985,8 +5990,7 @@ def next_run_waiting(conn, row):
     if not row.get("carried_by"):
         return True
     try:
-        return not _one(conn, "SELECT 1 FROM attempts WHERE id=? AND state IN ('leased','running','completed')",
-                        (row["carried_by"],))
+        return not _one(conn, NEXT_RUN_CARRIER_SQL, (row["carried_by"],))
     except sqlite3.OperationalError:     # a local hub has no attempts table and no runs
         return True
 
@@ -6612,8 +6616,7 @@ def note_waiting(conn, row):
     if not row.get("carried_by"):
         return True
     try:
-        return not _one(conn, "SELECT 1 FROM attempts WHERE id=? AND state IN ('leased','running','completed')",
-                        (row["carried_by"],))
+        return not _one(conn, NEXT_RUN_CARRIER_SQL, (row["carried_by"],))
     except sqlite3.OperationalError:     # a local hub has no attempts table and no runs
         return True
 

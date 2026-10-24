@@ -1055,7 +1055,8 @@ def create_app(settings=None):
         return value
 
     def task_views(rows, c, who, visible_sql="1"):
-        """Hydrate one task-list page with a fixed number of relation queries."""
+        """Hydrate one task-list page with a fixed number of relation queries. `rows` were read on `c` under
+        `visible_sql`, the reader's rule, as every list does: each row stands for that rule's answer for its task."""
         if not rows:
             return []
         H.hydrate_task_tags(c, rows)
@@ -1101,11 +1102,14 @@ def create_app(settings=None):
         asks, open_counts = {}, {}
         # Readability is checked here, not by a SQL function: installing one marks the pooled connection
         # as changed, so it was closed after every task list and the next read paid for a new one.
-        for message in c.execute(
-                "SELECT m.*,t.id AS ask_task_id FROM tasks t JOIN conversations cv ON cv.id=t.conversation_id "
-                f"JOIN messages m ON m.conversation_id=t.conversation_id AND {H.MESSAGE_TASK_SQL}=t.id "
-                f"WHERE t.id IN ({marks}) AND m.kind='ask' AND m.deleted_at IS NULL "
-                f"AND {H.OPEN_ASK_SQL} ORDER BY m.rowid DESC", ids).fetchall():
+        open_asks = c.execute(
+            "SELECT m.*,t.id AS ask_task_id FROM tasks t JOIN conversations cv ON cv.id=t.conversation_id "
+            f"JOIN messages m ON m.conversation_id=t.conversation_id AND {H.MESSAGE_TASK_SQL}=t.id "
+            f"WHERE t.id IN ({marks}) AND m.kind='ask' AND m.deleted_at IS NULL "
+            f"AND {H.OPEN_ASK_SQL} ORDER BY m.rowid DESC", ids).fetchall()
+        # Each ask's room is checked below; the rooms are read together first, not one room per task.
+        provenance.meetings.prime_conversations({message["conversation_id"] for message in open_asks})
+        for message in open_asks:
             if not provenance.message(message["id"], message["conversation_id"], message["refs_json"],
                                       message["in_reply_to"]):
                 continue
@@ -1132,6 +1136,10 @@ def create_app(settings=None):
             legacy_owner = H.human_actor(H.default_human(c))
         pipelines = H.type_list(c)
         summaries = H.children_summaries(c, ids, visible_sql)
+        # The rows each row's from_person and quiet state read, read for the whole page first; each row is still
+        # decided one at a time by the same code below.
+        views.prime_list_origins(c, visible_sql, rows)
+        quiet_work.prime(c, [row for row in rows if row.get("next_run")])
         result = []
         for row in rows:
             value = task_view(row, pipelines=pipelines)

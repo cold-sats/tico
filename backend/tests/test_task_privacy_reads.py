@@ -456,3 +456,39 @@ def test_needs_you_reads_a_fixed_number_of_statements_and_hides_private_items(ap
         assert {x["holds_up"]["title"] for x in page["items"] if x["title"].startswith(f"Step {size}-")} == {parent["title"]}
         assert hidden["id"] not in json.dumps(page) and "Private plan" not in json.dumps(page)
     assert counts[30] <= counts[3] + 5
+
+
+def test_task_list_reads_a_fixed_number_of_statements_and_hides_private_tasks(api):
+    """A board reads each row's origin (the person up its chain of parents), quiet state and question for the whole
+    page together, so 300 tasks cost what 30 do. A private task stays off another member's list and stops the chain:
+    a bot's subtask under it names no person to a reader who cannot open it."""
+    store = api.app.state.store
+    with store.transaction() as c:
+        hidden = H.task_create(c, "human:cara", "Private plan", "Secret", "human:cara", private=True, lint=False)
+        shared = H.task_create(c, "human:ana", "Release", "Checklist", "bot:ops", lint=False)
+
+    def tasks_for(size):
+        with store.transaction() as c:
+            for n in range(size):
+                row = H.task_create(c, "bot:ops", f"Step {size}-{n}", "Do it.", "bot:ops", lint=False,
+                                    next_run=n % 3 == 0)
+                c.execute("INSERT INTO task_relations(from_task,to_task,kind,created) VALUES(?,?,'parent','now')",
+                          (row["id"], (hidden if n % 2 else shared)["id"]))
+                if n % 5 == 0:
+                    H.say(c, "bot:ops", "human:ben", "Which region?", kind="ask",
+                          conversation_id=row["conversation_id"], refs={"task": row["id"]})
+
+    path, counts = "tasks?status=open,doing,waiting,declined", {}
+    for size in (30, 300):
+        tasks_for(size)
+        for brief in ("&brief=true", ""):
+            ben, counts[size, "ben", brief] = traced_get(api, path + brief, "ben-test")
+            cara, counts[size, "cara", brief] = traced_get(api, path + brief, "cara-test")
+            assert hidden["id"] not in json.dumps(ben) and "Private plan" not in json.dumps(ben)
+            assert hidden["id"] in {t["id"] for t in cara["tasks"]}
+            under = {int(t["title"].split("-")[1]) % 2: t["from_person"] for t in ben["tasks"] if t["title"].startswith("Step ")}
+            assert under == {1: None, 0: "human:ana"}
+            assert {t["from_person"] for t in cara["tasks"] if t["title"].startswith("Step ")} == {"human:ana", "human:cara"}
+    for key in ("ben", "cara"):
+        for brief in ("&brief=true", ""):
+            assert counts[300, key, brief] <= counts[30, key, brief] + 5, counts
