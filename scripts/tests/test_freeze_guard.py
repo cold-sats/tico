@@ -187,6 +187,11 @@ def test_an_untagged_older_candidate_is_checked_against_the_release_before_it(re
     assert kinds(result) == [("UNREVIEWED", 30, None)]
     with pytest.raises(freeze_guard.GuardError, match="--previous"):
         freeze_guard.check(str(repo), candidate, "v1.1.0", [], fetch=False)
+    # A shallow checkout is refused before walking a wrong range; the unmerged release branch above still passed.
+    shallow = repo.parent / "shallow"
+    subprocess.run(["git", "clone", "-q", "--depth", "1", "--no-single-branch", f"file://{repo}", str(shallow)], check=True)
+    with pytest.raises(freeze_guard.GuardError, match="unshallow"):
+        freeze_guard.check(str(shallow), "origin/main", "v1.0.1", [], fetch=False)
 
 
 def test_reviews_on_a_later_page_count(monkeypatch):
