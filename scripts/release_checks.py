@@ -19,7 +19,7 @@ side by side; two release checks must not run at once, since the journey's candi
 `--part product|python|browser|desktop` runs one slice of the same gate so the hosted Release validation workflow can
 spread it over several VMs: `product` is the journey, image builds, smoke, side-jobs and Docker isolation; `python`
 is the Python tests (with `--shard K/N`, the Kth of N file groups balanced by recorded time); `browser` is every browser
-test; `desktop` is the Linux desktop app's tests, its update from a company feed among them. Without `--part` the whole gate
+test (with `--shard K/N`, the Kth of N script groups); `desktop` is the Linux desktop app's tests, its update from a company feed among them. Without `--part` the whole gate
 runs on this machine, as before, with the desktop part only where the Linux app builds.
 
 `--shard K/N` without `--release` runs the Kth of N file groups of the default Python suite (plain `pytest`, what PR
@@ -249,6 +249,23 @@ def shard_files(index, total, env, selection=RELEASE_SELECTION):
     return sorted(mine)
 
 
+def browser_shard(index, total):
+    """The browser scripts of shard `index` of `total` of `ui-tests.cjs --all`, grouped like the Python files: by
+    recorded seconds ('browser' in TIMINGS) where there are any, otherwise one script weighs as much as another."""
+    scripts = subprocess.run(['node', 'scripts/ui-tests.cjs', '--list', '--all'], cwd=ROOT, capture_output=True,
+                             text=True, check=True).stdout.split()
+    if len(scripts) < total:
+        raise RuntimeError(f'{len(scripts)} browser scripts cannot fill {total} shards')
+    weights, _ = file_weights(dict.fromkeys(scripts, 1), recorded_timings('browser'))
+    loads, groups = [0.0] * total, [[] for _ in range(total)]
+    for name in sorted(scripts, key=lambda name: (-weights[name], name)):
+        lightest = min(range(total), key=lambda i: (loads[i], i))
+        loads[lightest] += weights[name]
+        groups[lightest].append(name)
+    print(f'Browser shard {index}/{total}: {len(groups[index - 1])} of {len(scripts)} scripts', flush=True)
+    return sorted(groups[index - 1])
+
+
 def recorded_timings(kind):
     """{test file: seconds} recorded for `kind`; empty when the file or kind is missing (shards then balance by
     test count)."""
@@ -383,7 +400,11 @@ def release(args):
             name = f'python-{shard[0]}-of-{shard[1]}'
         checks.append(Check(name, python_cmd, logs, test_env, tests=True))
     if runs('browser'):
-        checks.append(Check('all-browser', ['node', 'scripts/ui-tests.cjs', '--all'], logs, test_env))
+        if shard:
+            checks.append(Check(f'browser-{shard[0]}-of-{shard[1]}',
+                                ['node', 'scripts/ui-tests.cjs', *browser_shard(shard[0], shard[1])], logs, test_env))
+        else:
+            checks.append(Check('all-browser', ['node', 'scripts/ui-tests.cjs', '--all'], logs, test_env))
     # Its own VM in the hosted gate; a whole local gate runs it where the app can build and says when it cannot.
     if part == 'desktop' or part is None and desktop_buildable():
         checks.append(Check('desktop-update', DESKTOP_TEST, logs, test_env, tests=True))
@@ -427,12 +448,12 @@ def main(argv=None):
                         help='rewrite scripts/test-timings.json from junit reports of the default suite and the slow tests')
     parser.add_argument('--shard', type=parse_shard,
                         help='run file group K of N (K/N) of the Python tests: alone, of the default suite (PR checks); '
-                             'with --release --part python, of the release set')
+                             'with --release --part python, of the release set; with --part browser, of every script')
     args = parser.parse_args(argv)
     if args.part and not args.release:
         parser.error('--part needs --release')
-    if args.shard and args.release and args.part != 'python':
-        parser.error('--shard with --release needs --part python')
+    if args.shard and args.release and args.part not in ('python', 'browser'):
+        parser.error('--shard with --release needs --part python or browser')
     if args.record_timings:
         return record_timings(*args.record_timings)
     if args.release:
