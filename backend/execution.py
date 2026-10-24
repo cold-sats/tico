@@ -2830,9 +2830,11 @@ class Execution:
                      and (any(gateway.run_code(error) == gateway.NOT_ISOLATED for error in limit_errors(c, aid))
                           or body.primary_held and body.limited and not body.fallback)
                      or row["state"] == "leased" and body.outcome in ("failed", "interrupted") and bool(row["stop_requested"])
-                     or row["state"] == "leased" and skipped)
+                     or row["state"] == "leased" and skipped
+                     or row["state"] == "leased" and body.outcome == "interrupted" and body.yielded)
         # The runner reports a pre-start bailout as interrupted. A failed completion still requires
         # a start or one of the explicit exceptions above; it is not an unused lease being returned.
+        # A planned update yield settles below, without counting as a failed preparation attempt.
         returned = (row["state"] == "leased" and not unstarted and body.outcome == "interrupted"
                     and not row["stop_requested"] and not skipped)
         if not late and row["state"] != "running" and not unstarted and not returned:
