@@ -3775,9 +3775,14 @@ def create_app(settings=None):
                         "history": [privacy.status(c, who, r, **inputs) for r in H.status_history(c, bot, since=since_time(since))]}
             from .views import updating
             readable = auth.bot_accesses(c, who)
-            statuses = [s for s in H.status_all(c) if readable.get(s["bot"], auth.FULL)["read"]]
+            # A first-turn waiter may not have a bot_status row until /started. Include live candidates;
+            # status_line keeps only an actual wait when no stored status exists.
+            statuses = [s for s in c.execute("SELECT bot FROM bot_status UNION SELECT bot FROM attempts "
+                                             "WHERE state IN ('leased','running') ORDER BY bot")
+                        if readable.get(s["bot"], auth.FULL)["read"]]
             inputs = privacy.status_inputs(c, [s["bot"] for s in statuses])
-            return {"bots": [status_line(c, who, s["bot"], default, inputs[s["bot"]], auth=auth) for s in statuses],
+            return {"bots": [line for s in statuses
+                             if (line := status_line(c, who, s["bot"], default, inputs[s["bot"]], auth=auth)) is not None],
                     # Tico updating itself, shown beside the status line
                     "updating": updating(c)}
 

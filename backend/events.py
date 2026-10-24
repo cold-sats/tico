@@ -597,20 +597,26 @@ def runner_bell(store):
 # ---------------------------------------------------------------- what a viewer is sent
 
 def status_line(c, who, slug, default=None, inputs=None, auth=None):
-    """A bot's status as `GET /api/v2/status` lists it to `who`; None for no status row. With `auth`, a
-    person who manages a quarantined bot is also sent what was refused (`review`)."""
+    """A bot's status as `GET /api/v2/status` lists it to `who`; a first login wait needs no stored row.
+    With `auth`, a person who manages a quarantined bot is also sent what was refused (`review`)."""
     from . import task_privacy as privacy
     from . import usage_limits
     row = H.status(c, slug)
+    from .login_waits import waiting
+    live = c.execute("SELECT id,created FROM attempts WHERE bot=? AND state IN ('leased','running') "
+                     "ORDER BY created DESC LIMIT 1", (slug,)).fetchone()
+    line = waiting(c, live["id"], slug, who, auth) if live else None
     if not row:
-        return None
+        if not line:
+            return None
+        # Before /started, a newly created bot has never written a status. Project only its current
+        # wait, without manufacturing status history or copying private task content into a stored row.
+        row = {"bot": slug, "state": "waiting_bot", "focus": "", "task_id": None,
+               "since": live["created"], "last_turn_at": None, "last_result": None, "next_due": None,
+               "open_tasks": 0, "needs_human": 0, "updated_at": live["created"]}
     row = privacy.status(c, who, row, **(inputs or {}))
     row["bot_state"] = (H.bot(c, row["bot"]) or {}).get("state")
     # A turn waiting for its shared ChatGPT login is waiting, not stuck: the line says on whom and its place.
-    from .login_waits import waiting
-    live = c.execute("SELECT id FROM attempts WHERE bot=? AND state IN ('leased','running') ORDER BY created DESC LIMIT 1",
-                     (row["bot"],)).fetchone()
-    line = waiting(c, live[0], row["bot"], who, auth) if live else None
     if line:
         row["waiting"] = row["focus"] = line
     if row["bot_state"] == "quarantined":
