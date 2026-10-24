@@ -11,6 +11,8 @@ use crate::env::Env;
 use crate::isolation::{open_at, pinned_parent};
 
 pub const POOL_ENV: &str = "TICO_RUNNER_TURN_UIDS";
+/// Every slot is leased or quarantined: the turn waits for one instead of failing (execute.rs take_turn_user).
+pub const BUSY: &str = "All Docker turn users are busy";
 const FIRST: u32 = 10100;
 const LAST: u32 = 10163;
 const PRIVATE: &str = "/run/tico-runner/turns";
@@ -99,7 +101,7 @@ pub struct Lease {
 impl Lease {
     pub fn take() -> Result<Self, String> {
         let pool = pool()?.ok_or("Tico models need the current Docker runner image (not_isolated)")?;
-        let uid = pool.available.lock().unwrap().pop_first().ok_or("All Docker turn users are busy; retry this turn shortly")?;
+        let uid = pool.available.lock().unwrap().pop_first().ok_or(BUSY)?;
         let dir = Path::new(PRIVATE).join(uid.to_string());
         let made = (|| {
             std::fs::DirBuilder::new().mode(0o700).create(&dir)?;

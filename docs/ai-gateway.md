@@ -114,7 +114,7 @@ a fallback to a Tico model) gets a separate OS user from a pool of 64. Other bot
 open file descriptors or private temporary files, or use its Gateway connection. Workspace files remain shared
 through the bot group; subscription sign-ins and turns on other providers keep their existing boundary. At turn
 end the connection is revoked, remaining processes are killed and temporary files are cleaned before the user is
-reused. If all 64 users are busy, a new Gateway turn waits for a retry. Update the image as well as the runner binary;
+reused. If all 64 users are busy, a new Gateway turn waits, before it starts, until one is free. Update the image as well as the runner binary;
 an older image without the user pool cannot start a Gateway turn. On a computer that says it runs bots as itself (a Mac), the model
 list marks the Tico models **not on this computer** and Tico doesn't save one for a bot there: the reason says
 "<computer> can't run Tico Gateway work (it needs Tico's Docker runner)". A runner from before it said either way is

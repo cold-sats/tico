@@ -663,6 +663,39 @@ impl Runner {
         Ok(())
     }
 
+    /// A Gateway turn's leased OS user. While every user is busy the turn gives its computer place back and
+    /// waits, as for a busy login, rather than failing before it starts: an unstarted failure is refused by the
+    /// server (only `not_isolated` settles before a start), and a hand-back spends one of its pre-start tries.
+    async fn take_turn_user<T>(&self, attempt: &Value, flags: &Flags, mut take: impl FnMut() -> Result<T, String>) -> Result<T, Fail> {
+        let mut said = false;
+        loop {
+            match take() {
+                Ok(user) => return Ok(user),
+                Err(why) if why != crate::turn_users::BUSY => return Err(Fail::runtime(why)),
+                Err(_) if !said => {
+                    said = true;
+                    log(&format!("Tico runner: turn {}: waiting for a free Docker turn user", text_of(&attempt["id"])));
+                }
+                Err(_) => {}
+            }
+            self.wait_before_start(attempt, "Docker turn user").await?;
+            tokio::time::sleep(if cfg!(test) { Duration::from_millis(5) } else { Duration::from_secs(1) }).await;
+            self.wait_start_place(attempt, flags).await?;
+        }
+    }
+
+    /// A lease failure before the start. `not_isolated` is the one failure the server settles unstarted, and only
+    /// from its `error` event; anything else goes back as an interrupted (handed-back) run.
+    fn lease_failed(&self, aid: &str, e: Fail, drove: &mut Drove) -> Fail {
+        if e.text.contains("(not_isolated)") {
+            let _ = self.state.append(aid, "error", &json!({"error": e.text}));
+            drove.outcome = "failed".into();
+            drove.reply = e.text.clone();
+            drove.retryable = false;
+        }
+        e
+    }
+
     /// Release capacity only if a lane really blocks; all subsequent preparation needs a fresh grant.
     async fn pre_start_lock<T>(&self, attempt: &Value, flags: &Flags,
         waiting: impl Future<Output = Result<T, Fail>>) -> Result<T, Fail> {
@@ -1136,12 +1169,8 @@ impl Runner {
             });
             let ctx = EnvContext { url: &self.config.url(), projects_dir: &self.config.projects_dir(), state_dir: &self.state.directory };
             if crate::hosts::pi::is_gateway(model.as_deref()) {
-                vault.turn_user = Some(crate::turn_users::Lease::take().map_err(|why| {
-                    drove.outcome = "failed".into();
-                    drove.reply = why.clone();
-                    drove.retryable = !why.contains("(not_isolated)");
-                    Fail::runtime(why)
-                })?);
+                let taken = self.during_drain(&aid, self.take_turn_user(&attempt, &flags, crate::turn_users::Lease::take)).await;
+                vault.turn_user = Some(taken.map_err(|e| self.lease_failed(&aid, e, &mut drove))?);
             }
             env = crate::env::environment(&ctx, &attempt, &mut vault).await.map_err(Fail::runtime)?;
             // The subscription this bot runs on: Claude keys its login to HOME, so it is the turn's own environment,
@@ -2161,6 +2190,64 @@ mod tests {
         assert!(runner.wait_start_place(&turn, &flags).await.unwrap_err().text.contains("stop"));
         assert!(runner.places.lock().unwrap().is_empty());
         assert_eq!(seen.lock().unwrap().len(), 5);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    fn lease_runner(url: &str, name: &str) -> (Runner, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("tico-{name}-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(dir.join("projects")).unwrap();
+        let path = dir.join("runner.json");
+        std::fs::write(&path, json!({"url": url, "token": "synthetic", "runner_id": "r1", "capacity": 1,
+                                   "projects_dir": dir.join("projects")}).to_string()).unwrap();
+        let config = crate::config::Config::load(&path).unwrap();
+        let client = crate::client::Client::new(&config.url(), &config.token(), 5, 0).unwrap();
+        (Runner::new(config, client, crate::state::State::open(&dir.join("state")).unwrap()), dir)
+    }
+
+    fn lease_flags() -> Flags {
+        Flags { lost: AtomicBool::new(false), stopped: AtomicBool::new(false), done: AtomicBool::new(false),
+                done_notify: Notify::new(), deadline: Mutex::new(Instant::now() + Duration::from_secs(30)) }
+    }
+
+    #[tokio::test]
+    async fn a_runner_without_turn_users_reports_not_isolated_as_an_error_event() {
+        let (runner, dir) = lease_runner("http://127.0.0.1:9", "no-pool");
+        let turn = json!({"id": "a1", "start_reservation_seconds": 180});
+        runner.state.record(&turn).unwrap();
+        let failed = runner.take_turn_user(&turn, &lease_flags(), || -> Result<(), String> {
+            Err("Tico models need the current Docker runner image (not_isolated)".into())
+        }).await.unwrap_err();
+        let mut drove = Drove::interrupted();
+        runner.lease_failed("a1", failed, &mut drove);
+        // backend/execution.py complete settles a pre-start failure only from this event's code.
+        let events = runner.state.pending("a1").unwrap();
+        assert!(events.iter().any(|e| e.to_string().contains("\"error\"") && e.to_string().contains("(not_isolated)")), "{events:?}");
+        assert_eq!((drove.outcome.as_str(), drove.retryable), ("failed", false));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_busy_turn_user_pool_waits_for_a_user_without_completing() {
+        let (url, seen) = crate::client::tests::serve(vec![
+            (200, r#"{"waiting":true}"#),
+            (200, r#"{"reserved":true}"#),
+            (200, r#"{"waiting":true}"#),
+            (200, r#"{"reserved":true}"#),
+        ]).await;
+        let (runner, dir) = lease_runner(&url, "busy-pool");
+        let turn = json!({"id": "a1", "start_reservation_seconds": 180});
+        runner.state.record(&turn).unwrap();
+        runner.places.lock().unwrap().insert("a1".into());
+        let mut tries = 0;
+        let user = runner.take_turn_user(&turn, &lease_flags(), || {
+            tries += 1;
+            if tries < 3 { Err(crate::turn_users::BUSY.to_string()) } else { Ok(10100) }
+        }).await.unwrap();
+        assert_eq!((user, tries), (10100, 3));
+        // Each busy wait gave the place back and took a fresh grant; nothing was reported as failed.
+        assert_eq!(seen.lock().unwrap().len(), 4);
+        assert!(runner.places.lock().unwrap().contains("a1"));
+        assert!(runner.state.pending("a1").unwrap().is_empty());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
