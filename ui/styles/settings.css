@@ -683,6 +683,19 @@ fieldset.brepo>.repo-name+p{margin:-4px 0 4px 24px;font-size:var(--t-xs);line-he
 .billing-hour-head{display:flex;justify-content:space-between;color:var(--muted);font-size:var(--t-xs);margin-top:var(--s1)}
 a.primary.btn{display:inline-block;text-decoration:none;background:var(--accent);color:var(--accent-ink);border-radius:var(--r-ctl);padding:5px 14px;line-height:20px;font-weight:600}
 @media (max-width:640px){.billing-table td,.billing-table th{padding:4px 3px}.billing-balance{font-size:1.6rem}}
+
+.stopped-run-actions{position:sticky;bottom:-16px;padding:12px 0 4px;background:var(--surface);border-top:1px solid var(--line);margin-top:12px}
+.stopped-run-actions .row{flex-wrap:wrap}
+.stopped-run-actions [data-result]{overflow-wrap:anywhere}
+.stopped-run-actions [data-result]:empty{display:block;margin:0}
+.computer-add-dialog .computer-add-where{margin:0 0 8px}
+.computer-add-dialog .computer-add-choices{padding:0}
+.computer-add-dialog .model-login-body{padding:0}
+.computer-add-dialog .computer-add-terminal{margin:12px 0 0;overflow-wrap:anywhere}
+.computer-add-dialog .computer-add-terminal code{white-space:pre-wrap;overflow-wrap:anywhere}
+.model-login.tmodal-shell>.model-login-body{flex:1;min-height:0;overflow:auto}
+.model-login.tmodal-shell>:is(.model-login-status,.model-login-actions){flex:none}
+
 /* Settings > Computers: hosted servers (ui/app/settings-hosted.js) */
 .hosted-table{width:100%;border-collapse:collapse}.hosted-table td{padding:6px 8px;border-top:1px solid var(--line)}
 .hosted-table tr:first-child td{border-top:0}.hosted-actions{text-align:right}

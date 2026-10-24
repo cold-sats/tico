@@ -237,7 +237,9 @@ scheduler settles what needs no eyes: a delivery whose task is already done or c
 and a run whose host reports its tool calls, that only read (files, searches, web pages, subagents
 that only read) and consumed no approval, is resumed once, each with a note in the job's recovery
 record (`job.auto_reconcile` in the event log). A busy bot's runs are settled too: the scheduler waits only
-while a live run of the bot is on the same task (or the same chat, or the same task session). When the runner itself reported the run interrupted
+while a live run of the bot is on the same task (or the same chat, or the same task session). An operator can choose
+**Try again** or **Don’t retry** in Stopped runs; while such a run is still live, Tico saves the choice and applies it
+when that run ends. When the runner itself reported the run interrupted
 (it restarted), such a run resumes at once; when the same computer picks it up again it continues
 the same provider session. **Unreleased:** safe runs held after a usage limit also recover automatically, as described below.
 Other runs stay *owner review needed*, because Tico cannot see what a

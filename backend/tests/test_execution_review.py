@@ -952,7 +952,8 @@ def test_a_stop_after_the_lease_lapsed_takes_the_turns_id_and_a_job_still_on_it(
 
 
 def rival(api, machine, attempt, bot='ops'):
-    """Another run of the bot live in the lapsed turn's lane (a task turn moved into it)."""
+    """Another run of the bot live in the lapsed turn's task-session lane; an unrelated run in the main lane no
+    longer holds a stopped run back, so the rival shares the session."""
     from backend.store import H
     with api.app.state.store.transaction() as c:
         H.task_create(c, 'human:ana', 'Something else', 'Do something else.', 'bot:' + bot)
@@ -961,7 +962,7 @@ def rival(api, machine, attempt, bot='ops'):
     assert other and other['id'] != attempt['id']
     post(api, f"attempts/{other['id']}/started", {'thread_id': 'rival'}, machine['token'])
     with api.app.state.store.transaction() as c:
-        c.execute("UPDATE attempts SET lane=(SELECT lane FROM attempts WHERE id=?) WHERE id=?", (attempt['id'], other['id']))
+        c.execute("UPDATE attempts SET lane='session:rival' WHERE id IN (?,?)", (attempt['id'], other['id']))
     return other
 
 
@@ -1164,6 +1165,52 @@ def test_a_stop_on_a_lapsed_turn_ends_only_its_request_not_a_message_folded_into
         aged(api, attempt['id'], grace=True)
         assert sorted(d['state'] for d in sweep(api)) == ['cancelled', 'queued']
         assert job_state(api, attempt['job_id']) == 'cancelled' and job_state(api, follow['id']) == 'queued'
+
+
+@pytest.mark.parametrize('decision,expected', [('resume', 'queued'), ('dismiss', 'cancelled')])
+def test_review_choice_survives_a_busy_lane_and_applies_once_idle(api, decision, expected):
+    """The operator's explicit choice is durable, fences late output and waits only for its own lane."""
+    machine, message, attempt = interrupted(api)
+    other = rival(api, machine, attempt)
+    body = {'attempt_id': attempt['id'], 'decision': decision,
+            'note': 'Reviewed outside effects; apply this choice.', 'acknowledge_uncertain_effects': True}
+    post(api, f"jobs/{attempt['job_id']}/reconcile", body, token=machine['token'], expected=403)
+    post(api, f"jobs/{attempt['job_id']}/reconcile", {**body, 'attempt_id': other['id']}, expected=409)
+    path = f"jobs/{attempt['job_id']}/reconcile"
+    result = post(api, path, body, key='first-choice')
+    assert result == {'job_id': attempt['job_id'], 'state': 'uncertain', 'deferred': True}
+    review = next(j for j in get(api, 'bots/ops/execution-review')['jobs'] if j['id'] == attempt['job_id'])
+    assert review['pending_decision'] == {'decision': decision}
+    with api.app.state.store.read() as c:
+        saved = dict(c.execute("SELECT * FROM job_recovery WHERE job_id=?", (attempt['job_id'],)).fetchone())
+    assert saved['decision'] == decision and saved['actor'] == 'human:ana'
+    conflict = {**body, 'decision': 'dismiss' if decision == 'resume' else 'resume',
+                'note': 'A stale dialog submitted the opposite choice.'}
+    assert post(api, path, body, key='first-choice') == result
+    refused = post(api, path, conflict, key='stale-while-busy', expected=409)
+    assert refused['error']['code'] == 'uncertain'
+    with api.app.state.store.read() as c:
+        assert dict(c.execute("SELECT * FROM job_recovery WHERE job_id=?", (attempt['job_id'],)).fetchone()) == saved
+    filed = post(api, f"attempts/{attempt['id']}/complete",
+                 {'outcome': 'completed', 'last_seq': 1, 'text': 'A stale final answer.'}, machine['token'])
+    assert filed['filed'] is True and bot_replies(api, message) == []
+    assert sweep(api) == [] and job_state(api, attempt['job_id']) == 'uncertain'
+    post(api, f"attempts/{other['id']}/complete", {'outcome': 'completed', 'last_seq': 0, 'text': 'Other work done.'},
+         machine['token'])
+    # An idle lane is still held for the accepted choice until the scheduler applies it.
+    refused = post(api, path, conflict, key='stale-before-sweep', expected=409)
+    assert refused['error']['code'] == 'uncertain'
+    with api.app.state.store.read() as c:
+        assert dict(c.execute("SELECT * FROM job_recovery WHERE job_id=?", (attempt['job_id'],)).fetchone()) == saved
+    assert job_state(api, attempt['job_id']) == 'uncertain'
+    assert [d['state'] for d in sweep(api)] == [expected]
+    assert job_state(api, attempt['job_id']) == expected
+    with api.app.state.store.read() as c:
+        applied = dict(c.execute("SELECT * FROM job_recovery WHERE job_id=?", (attempt['job_id'],)).fetchone())
+    assert {k: applied[k] for k in ('decision', 'note', 'actor')} == {k: saved[k] for k in ('decision', 'note', 'actor')}
+    assert sweep(api) == []
+    assert get(api, 'bots/ops/execution-review')['jobs'] == []
+    post(api, path, body, expected=409)
 
 
 def test_a_busy_bots_stopped_run_is_judged_unless_a_live_run_is_on_the_same_task(api):
