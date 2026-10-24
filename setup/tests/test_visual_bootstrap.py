@@ -100,6 +100,7 @@ def test_generated_bootstrap_app_readiness_precedes_optional_source_failure(tmp_
     monkeypatch.setattr(remote.contract, "REMOTE_DIR", str(root))
     monkeypatch.setattr(remote, "docker_install_lines", lambda *args, **kwargs: [])
     (commands / "docker").write_text("#!/bin/sh\nexit 0\n")
+    (commands / "chown").write_text("#!/bin/sh\nexit 0\n")   # the script gives the company file to the server's user
     # The optional child fails, but records whether the real readiness marker
     # already exists. No Docker, network, host log or provider is accessible.
     (commands / "python3").write_text('#!/bin/sh\nif [ -f "' + str(root / '.bootstrapped') + '" ]; then '
