@@ -22,7 +22,7 @@ from . import models as M
 from . import people as P
 from .store import Problem, encode
 
-SYSTEM_BOTS = ("assistant", "botops", "librarian", "goal-manager", "health-monitor")
+SYSTEM_BOTS = ("assistant", "botops", "librarian", "goal-manager", "health-monitor", "task-manager")
 
 
 def _roster(c):

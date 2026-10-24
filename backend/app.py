@@ -164,6 +164,7 @@ def create_app(settings=None):
             with store.transaction() as c:
                 onboarding.ensure_librarian(c)
                 onboarding.ensure_goal_manager(c)
+                onboarding.ensure_task_manager(c)
         except Exception as exc:
             telemetry.capture("librarian", exc)
         # An assistant still named after the company becomes "Assistant" (idempotent).

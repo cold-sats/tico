@@ -95,12 +95,12 @@ def _login_target(runners, wanted):
 
 
 def built_in(settings):
-    """The four bots every install starts with."""
-    return {settings.assistant_bot, BOTOPS, LIBRARIAN, "goal-manager"}
+    """The bots every install starts with: the four a person talks to, and the Task Manager (docs/task-manager.md)."""
+    return {settings.assistant_bot, BOTOPS, LIBRARIAN, "goal-manager", "task-manager"}
 
 
 def own_bots(c, settings):
-    """Bots the company added, as opposed to the four built in."""
+    """Bots the company added, as opposed to the ones built in."""
     bootstrap = built_in(settings)
     return [row["slug"] for row in c.execute("SELECT slug FROM bots WHERE state!='archived' ORDER BY slug")
             if row["slug"] not in bootstrap]
