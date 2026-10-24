@@ -33,7 +33,7 @@ EMPTY = (
     # queued work
     "job_recovery", "service_jobs", "doc_source_jobs", "update_queue", "task_reminders", "calendar_actions",
     "meeting_deliveries", "worktree_waits", "idempotency", "idempotency_messages", "blob_media_retries",
-    "github_product_repo_operations",
+    "github_product_repo_operations", "github_review_operations",
     # milestone waits: each pending row is a wake the copy could send; the milestones seen only settle those
     "task_milestone_waits", "milestones",
     # routines and watchers
@@ -42,7 +42,7 @@ EMPTY = (
     # runner and bot sessions
     "enrollments", "hosting_enrollments", "assignments", "agent_pairings", "bot_sessions", "session_epochs", "bot_session_epochs", "model_logins", "model_login_cleared", "computer_keys", "model_login_key_off",
     "computer_profiles", "subscription_assignments", "runner_harness_actions", "runner_harness_choices",
-    "runner_versions",
+    "runner_versions", "start_places",
     # human sign-in and service keys
     "human_tokens", "oidc_sessions", "oidc_codes", "oauth_grants", "oauth_clients", "service_keys",
     "service_key_tasks", "owner_links",
@@ -87,7 +87,7 @@ KEEP = frozenset((
     "meeting_items", "meeting_versions", "meetings", "message_assets", "message_links", "message_links_dirty",
     "message_links_seen", "notes", "runner_load_samples", "perf_overloads", "perf_points", "perf_usage", "preferences", "rate_limits",
     "recording_source_refs", "recording_transcripts", "refusals", "registry_metadata", "repositories", "runners",
-    "service_health", "settings_changes", "slack_channels", "slack_digests", "slack_reads", "stale_judged",
+    "seats", "service_health", "settings_changes", "slack_channels", "slack_digests", "slack_reads", "stale_judged",
     "stale_suggestions", "system_runs", "tags", "task_assets",
     "task_check_models", "task_delegations", "task_events", "task_file_reviews", "task_links", "task_relations",
     "task_roles", "task_steps", "task_tags", "task_trash", "task_trash_assets", "task_types", "tasks",

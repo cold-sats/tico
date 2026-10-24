@@ -55,7 +55,7 @@ function pageTasks(forced, openId = '') {
       <div id="task-body"></div>
       <div class="tl-bulk" id="task-bulk" role="toolbar" aria-label="Selected tasks" hidden></div>
     </div></div>
-    <div id="task-filter-pop" class="tl-pop" popover></div>`;
+    <div id="task-filter-pop" class="tl-pop" popover></div><div id="task-card-pops"></div>`;
   $('#task-type').onclick = ev => {
     const button = ev.target.closest('[data-task-type]');
     if (button) taskPipelineSelect(state, button.dataset.taskType);
@@ -185,7 +185,7 @@ function pageTasks(forced, openId = '') {
     }
     tasksTools(state);
     tasksRender(state);
-    if (tasksFinishedView(state.view) && !state.doneLoaded && !state.doneLoading) void tasksLoadDone(state, true);
+    tasksDoneEnsure(state);
     await loading;
   })();
 }
@@ -195,8 +195,14 @@ function tasksSetView(state, view) {
   state.selectMode = false;
   if (state.selected.size || state.bulkMsg) tasksSelectionClear(state);
   tasksRemember(state); tasksURLWrite(state); tasksTools(state); tasksRender(state);
-  if (tasksFinishedView(state.view) && !state.doneLoaded && !state.doneLoading) void tasksLoadDone(state, true);
-  else if (tasksFinishedView(state.view)) void tasksDoneMerge(state);
+  if (tasksFinishedShown(state) && !state.doneLoaded && !state.doneLoading) void tasksLoadDone(state, true);
+  else if (tasksFinishedShown(state)) void tasksDoneMerge(state);
+}
+// Finished tasks are on screen: the Done or Closed tab, or a board with its finished steps unfolded.
+const tasksFinishedShown = state => tasksFinishedView(state.view) || taskBoardFinishedShown(state);
+// The Done list's newest page is read once finished tasks are on screen, through the one loading guard.
+function tasksDoneEnsure(state) {
+  if (tasksFinishedShown(state) && !state.doneLoaded && !state.doneLoading) void tasksLoadDone(state, true);
 }
 function tasksNormalise(state, forced) {
   if (!TASK_VIEWS.some(([k]) => k === state.view)) state.view = forced || 'foryou';
@@ -333,10 +339,6 @@ const activeTasksPath = (offset = 0) => `/v2/tasks?lane=company&status=${ACTIVE_
 const tasksChangedPath = cursor => `/v2/tasks?lane=company&snoozed=all&changed_after=${encodeURIComponent(cursor)}`;
 async function tasksLoad(state, opts = {}) {
   const seq = ++state.loadSeq;
-  // Done and Closed keep their own paging. A reload after a change folds in the newest page; the poll does that too, but
-  // only while one of them is on screen, and never more than that one page.
-  const doneShown = tasksFinishedView(state.view);
-  const reloadDone = opts.poll ? doneShown && state.doneLoaded : (state.doneLoaded || doneShown);
   // A list read in full keeps the cursor it was read at (`since`; `cursor` is the keyboard's row); from then on a load
   // asks only for what changed since (backend/task_reads.py), unless the server says to read in full again (`reset`).
   const cursor = state.since;
@@ -398,6 +400,11 @@ async function tasksLoad(state, opts = {}) {
     // Only a list read to its end can be caught up from its cursor.
     if (TASKS_ST === state && state.loadSeq === seq) state.since = active.cursor || null;
   }
+  // Done and Closed keep their own paging. A reload after a change folds in the newest page; the poll does that too, but
+  // only while finished tasks are on screen (Done, Closed, or an unfolded board), and never more than that one page.
+  // Asked only now: the board's type is known once the task types have loaded.
+  const doneShown = tasksFinishedShown(state);
+  const reloadDone = opts.poll ? doneShown && state.doneLoaded : (state.doneLoaded || doneShown);
   if (reloadDone && TASKS_ST === state && state.loadSeq === seq) await (state.doneLoaded ? tasksDoneMerge(state) : tasksLoadDone(state, true));
 }
 // A save took its task out of the view? Once a load that started after the save has drawn, the list and the peek
@@ -506,18 +513,19 @@ function tasksPatchNode(live, next) {
   if (a.length !== b.length) { live.replaceChildren(...b); return; }
   a.forEach((node, i) => tasksPatchNode(node, b[i]));
 }
-// Children that all carry a `data-patch-key` (the Stale tickets card's rows) are matched by key: a row that went is
-// removed, a new one inserted, and one that stayed is patched where it is, so focus on it is not lost, also when
-// one row goes and another comes in the same redraw.
+// Children that all carry a key (a `data-patch-key`, as the Stale tickets card's rows do, or a task's `data-task-key`,
+// as a board column's cards do) are matched by it: a row that went is removed, a new one inserted, and one that stayed
+// is patched where it is, so focus on it is not lost, also when one row goes and another comes in the same redraw.
+// A card moved to another step rebuilds that one card, not both columns.
 function tasksPatchKeyed(live, a, b) {
-  const keyed = n => n.nodeType === 1 && !!n.dataset.patchKey;
-  if (!a.length || !b.length || !a.every(keyed) || !b.every(keyed)) return false;
-  const old = new Map(a.map(n => [n.dataset.patchKey, n]));
-  if (old.size !== a.length || new Set(b.map(n => n.dataset.patchKey)).size !== b.length) return false;
-  const want = new Set(b.map(n => n.dataset.patchKey));
-  for (const n of a) if (!want.has(n.dataset.patchKey)) n.remove();
+  const key = n => n.nodeType === 1 ? n.dataset.patchKey || (n.dataset.taskKey ? 't:' + n.dataset.taskKey : '') : '';
+  if (!a.length || !b.length || !a.every(key) || !b.every(key)) return false;
+  const old = new Map(a.map(n => [key(n), n]));
+  if (old.size !== a.length || new Set(b.map(key)).size !== b.length) return false;
+  const want = new Set(b.map(key));
+  for (const n of a) if (!want.has(key(n))) n.remove();
   b.forEach((n, i) => {
-    const o = old.get(n.dataset.patchKey), at = live.childNodes[i] || null;
+    const o = old.get(key(n)), at = live.childNodes[i] || null;
     if (!o) { live.insertBefore(n, at); return; }
     if (o !== at) live.insertBefore(o, at);
     tasksPatchNode(o, n);
