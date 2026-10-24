@@ -2704,8 +2704,8 @@ except PermissionError:
         std::fs::write(named_home.join(".grok/auth.json"), "synthetic old named store").unwrap();
         chown(named_home.join(".grok"), Some(10002), Some(10002)).unwrap();
         let mut named_config = config.clone();
-        named_config.data["profiles"] = json!({"acme": {"dir": profiles.join("acme")},
-            "shared": {"dir": profiles.join("shared"), "share_operator": true}});
+        named_config.data.insert("profiles".into(), json!({"acme": {"dir": profiles.join("acme")},
+            "shared": {"dir": profiles.join("shared"), "share_operator": true}}));
         let (_, named_env, _) = login_env("grok", &named_config, "acme").unwrap();
         assert_eq!(named_env["HOME"], named_home.display().to_string());
         assert_eq!(home.metadata().unwrap().uid(), 10002, "named login must not hand over the operator store");
