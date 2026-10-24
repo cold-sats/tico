@@ -43,8 +43,8 @@ def in_use(c):
     now = H.now()
     return c.execute(
         "SELECT count(*) FROM attempts a LEFT JOIN start_places p ON p.attempt_id=a.id "
-        "WHERE a.state='running' OR (a.state='leased' AND ((p.wait_reason IS NOT NULL AND p.wait_reason!=?) "
-        "OR (p.wait_reason IS NULL AND a.lease_until>? AND (NOT coalesce(p.managed,0) OR coalesce(p.start_until,'')>?))))",
+        "WHERE a.state='running' OR (a.state='leased' AND ((coalesce(p.wait_reason,'')!='' AND p.wait_reason!=?) "
+        "OR (coalesce(p.wait_reason,'')='' AND a.lease_until>? AND (NOT coalesce(p.managed,0) OR coalesce(p.start_until,'')>?))))",
         (REASON, now, now)).fetchone()[0]
 
 

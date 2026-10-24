@@ -254,13 +254,17 @@ def test_queued_jobs_that_never_started_do_not_count_toward_the_stop(api):
     one_person(api)
     machine = waiters(api, n=0, running=150)
     with api.app.state.store.transaction() as c:
-        c.execute("UPDATE jobs SET state='queued',attempt_id=NULL WHERE bot='ops'")
-        c.execute("DELETE FROM attempts WHERE bot='ops'")
+        c.execute("UPDATE jobs SET state='queued',attempt_id=NULL WHERE bot='ops' AND attempt_id!='attempt-0'")
+        c.execute("DELETE FROM attempts WHERE bot='ops' AND id!='attempt-0'")
+        # A leased start whose start window lapsed gave up its place, though its lease is still live.
+        c.execute("UPDATE attempts SET state='leased' WHERE id='attempt-0'")
+        c.execute("INSERT INTO start_places(attempt_id,start_until,managed) VALUES('attempt-0',?,1)",
+                  (H.shift(H.now(), seconds=-1),))
         c.execute("UPDATE bots SET state='paused' WHERE slug='ops'")
     from backend import org_turns
     with api.app.state.store.transaction() as c:
         value = org_turns.observe(c, api.app.state.store.settings)
-        assert value['waiting'] == 150 and value['in_use'] == 0 and not value['at_stop']
+        assert value['waiting'] == 149 and value['in_use'] == 0 and not value['at_stop']
         assert c.execute('SELECT count(*) FROM org_turn_waits').fetchone()[0] == 0
     other = runner(api, label='Other synthetic computer')
     independent(api, other)
