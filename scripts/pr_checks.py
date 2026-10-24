@@ -138,6 +138,8 @@ class DependencyMap:
     def __init__(self, root):
         self.root = root
         self.files = git_files(root)
+        self.tracked = set(self.files)
+        self.consts = {}  # module-level NAME = "text" of the file being read, which path joins substitute
         modules = {str(Path(p).with_suffix("")).replace("/", "."): p for p in self.files if p.endswith(".py")}
         self.modules = {(m[:-9] if m.endswith(".__init__") else m): p for m, p in modules.items()}
         self.by_base, self.dirs = defaultdict(set), defaultdict(set)
@@ -209,6 +211,8 @@ class DependencyMap:
         if token in ("", ".", ".."):
             return
         name = token.rsplit("/", 1)[-1]
+        if token in self.tracked:  # a whole repository path, even with no folder or extension: "LICENSE"
+            (runs if self.code(token) else reads).add(token)
         if "/" in token or "." in name.strip(".") or bare_word:
             for found in self.by_base.get(name, ()):
                 if found == token or found.endswith("/" + token):
@@ -255,9 +259,11 @@ class DependencyMap:
         return {p for p in prefixes if p} if literal else set()
 
     def chain(self, node):
-        """Operands of an a / "b" / "c" path expression, in order."""
+        """Operands of an a / "b" / "c" path expression, in order; a module-level text constant counts as its text."""
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
             return self.chain(node.left) + self.chain(node.right)
+        if isinstance(node, ast.Name) and node.id in self.consts:
+            return [ast.Constant(self.consts[node.id])]
         return [node]
 
     def joined(self, parts, runs, reads):
@@ -277,6 +283,11 @@ class DependencyMap:
     def python(self, path, tree):
         runs, reads, names = set(), set(), set()
         package = path.split("/")[:-1]
+        self.consts = {}
+        for statement in tree.body:
+            if isinstance(statement, ast.Assign) and len(statement.targets) == 1 and isinstance(statement.targets[0], ast.Name) \
+                    and isinstance(statement.value, ast.Constant) and isinstance(statement.value.value, str):
+                self.consts[statement.targets[0].id] = statement.value.value
         bodies = [tree.body] + [n.body for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))]
         docstrings = {id(b[0].value) for b in bodies if b and isinstance(b[0], ast.Expr) and isinstance(b[0].value, ast.Constant)}
         nested = {id(n.left) for n in ast.walk(tree) if isinstance(n, ast.BinOp) and isinstance(n.op, ast.Div)}
@@ -393,7 +404,7 @@ class DependencyMap:
                 if last in GLOBS | LISTINGS and isinstance(node.func, ast.Attribute) or function in OS_LISTINGS:
                     # A listing of a folder this file names (`(ROOT / "docs").glob("*.md")`) reads the files it
                     # matches, or only their names when the function that lists reads no file contents. A listing of a
-                    # folder found from __file__ alone (Path(__file__).parent.glob("*.py"), ROOT.iterdir()) reads
+                    # folder found from a __file__ alone (Path(module.__file__).parent.glob("*.py"), ROOT.iterdir()) reads
                     # every tracked file its pattern matches; one of a folder found at run time (tmp_path) reads none.
                     os_call = function in OS_LISTINGS
                     receiver = (node.args[:1] if os_call else [node.func.value])
@@ -419,7 +430,8 @@ class DependencyMap:
                                 if found == folder or found.endswith("/" + folder):
                                     self.listings[path].update((found, t.rstrip("/").rsplit("/", 1)[-1] or "*", recursive, names_only)
                                                                for t in patterns)
-                    elif any(isinstance(n, ast.Name) and (n.id == "__file__" or n.id in located) for r in receiver for n in ast.walk(r)) or (
+                    elif any(isinstance(n, ast.Name) and (n.id == "__file__" or n.id in located) or
+                             isinstance(n, ast.Attribute) and n.attr == "__file__" for r in receiver for n in ast.walk(r)) or (
                             os_call and function.startswith("glob.")):
                         self.globs[path].update(t.rstrip("/").rsplit("/", 1)[-1] or "*" for t in patterns)
             elif isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings:
