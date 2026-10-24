@@ -838,6 +838,19 @@ def _prime_person_origins(c, visible_sql, ids):
         read_cache.prime(c, _VISIBLE_TASK_SQL % visible_sql, {(tid,): found.get(tid) for tid in part})
 
 
+def prime_list_origins(c, visible_sql, rows):
+    """Before person_origin runs for each row of a task list: the list's rows were read under `visible_sql` in this
+    snapshot, so they stand for that rule's answer as they are; their ancestry is read a level at a time and the
+    ancestors off the page are read under the same rule, so a long list walks no chain one query at a time."""
+    if read_cache.cache(c) is None or not rows:
+        return
+    read_cache.prime(c, _VISIBLE_TASK_SQL % visible_sql, {(row["id"],): row for row in rows})
+    TR.prime_ancestry(c, [row["id"] for row in rows])
+    # Only rows whose requester is not a person walk their ancestors (person_origin).
+    chain = {tid for row in rows if not H.is_human(row.get("requester")) for tid in TR.ancestors(c, row["id"])}
+    _prime_person_origins(c, visible_sql, chain - {row["id"] for row in rows})
+
+
 def person_origin(c, row, visible_sql, me=None):
     """The person a task traces back to: its requester when that is a person, else the nearest ancestor's.
     `visible_sql` is the reader's task rule (Auth.task_sql), so the walk stops at a task they may not open and
