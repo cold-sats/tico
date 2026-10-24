@@ -79,6 +79,28 @@ STABLE_PATH = re.compile("|".join(re.sub(r"\\\{[^}]+\\\}", "[^/]+", re.escape(sp
                                   for spelling in (path, *old_route_paths(path))))
 
 
+# The inbox sends at most this many messages and this many tasks; the rest wait for a later read.
+INBOX_LIMIT = 100
+
+
+def _newest_visible(items, visible):
+    """The newest `INBOX_LIMIT` of `items` (oldest first) that pass `visible`, checked newest first so a readable
+    backlog costs nothing, and whether one more item passes the same check: a hidden item never sets the flag."""
+    kept, more = _first_visible(items[::-1], visible)
+    return kept[::-1], more
+
+
+def _first_visible(items, visible):
+    """The first `INBOX_LIMIT` of `items` that pass `visible`, and whether one more item passes it too."""
+    kept = []
+    for item in items:
+        if visible(item):
+            if len(kept) == INBOX_LIMIT:
+                return kept, True
+            kept.append(item)
+    return kept, False
+
+
 def reset_bot_sessions(c, bot):
     """Keep durable history while fencing local provider sessions for one bot."""
     bump_bot_session_epoch(c, bot)
@@ -4535,19 +4557,24 @@ def create_app(settings=None):
         auth.domain(who)
         with store.read() as c:
             result = H.inbox(c, who.actor)
-            result["messages"] = [m for m in result["messages"] if privacy.message_readable(c, privacy.actor(who), m)]
-            result["tasks"] = [t for t in result.get("tasks", []) if privacy.task_readable(c, who, t)]
-            result["approvals"] = [a for a in result.get("approvals", [])
-                                   if privacy.message_readable(c, privacy.actor(who), H.message(c, a["message_id"]))]
-            if who.role == "bot":
-                visible = []
-                for message in result["messages"]:
+
+            def message_visible(message):
+                if not privacy.message_readable(c, privacy.actor(who), message):
+                    return False
+                if who.role == "bot":
                     try:
                         auth.conversation(c, who, message["conversation_id"])
-                        visible.append(message)
                     except Problem:
-                        pass
-                result["messages"] = visible
+                        return False
+                return True
+
+            # A bot that never marks messages read can hold thousands: the newest INBOX_LIMIT readable ones are
+            # checked and sent, oldest first as before, and `more_messages` says older ones are waiting.
+            result["messages"], result["more_messages"] = _newest_visible(result["messages"], message_visible)
+            result["tasks"], result["more_tasks"] = _first_visible(result.get("tasks", []),
+                                                                   lambda t: privacy.task_readable(c, who, t))
+            result["approvals"] = [a for a in result.get("approvals", [])
+                                   if privacy.message_readable(c, privacy.actor(who), H.message(c, a["message_id"]))]
             result["notices"] = [m for m in result["messages"] if m["kind"] == "notice"]
             return result
 
