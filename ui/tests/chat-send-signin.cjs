@@ -67,9 +67,14 @@ async function scenario(browser, mode, edit, keeper = true, editedBefore = false
   const frames = () => page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
   // A loaded conversation can precede its stream subscription. Navigating again while WebKit is
   // still opening that connection reports a cancelled request as an access-control page error.
-  const ready = () => page.waitForFunction(keeper => SESSION.seen
-    && (keeper ? typeof V2C !== 'undefined' && V2C?.loaded : typeof CONV !== 'undefined' && CONV?.slug === 'botops')
-    && liveConnected() && LIVE.es?.readyState === EventSource.OPEN && LIVE.es.url === new URL(liveUrl(), location.href).href, keeper);
+  const ready = () => page.waitForFunction(keeper => {
+    if (!SESSION.seen || !(keeper ? typeof V2C !== 'undefined' && V2C?.loaded : typeof CONV !== 'undefined' && CONV?.slug === 'botops')
+      || !liveConnected() || LIVE.es?.readyState !== EventSource.OPEN) return false;
+    const subscribed = new URL(LIVE.es.url), expected = new URL(liveUrl(), location.href);
+    // The ready event advances the cursor; only a change of subscription requires a new connection.
+    subscribed.searchParams.delete('after'); expected.searchParams.delete('after');
+    return subscribed.href === expected.href;
+  }, keeper);
   const idle = () => page.waitForFunction(() => !BOT_PILL.sending && !document.querySelector('#chat-composer .p-send').disabled);
   const text = '  Keep this draft through sign-in  ';
   try {
