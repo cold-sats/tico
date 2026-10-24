@@ -165,11 +165,6 @@ function machineAddHTML(machine, online, manage) {
   if (!manage || machine.revoked_at) return '';
   return `<div class="computer-add"><button class="ghost" type="button" data-add-connection="${esc(machine.id)}"${online ? '' : ' disabled title="Computer is offline"'}>Add connection</button></div>`;
 }
-// The Bots page, showing this computer's bots: where a bot is moved to another computer.
-function computerBotsPage(id) {
-  $('#set-machines dialog.computer-detail')?.close();
-  SETTINGS_BOTS_VIEW.computer = id; settingsBotsRemember(); settingsShow('bots'); renderSettingsBots();
-}
 // ---- the Add connection pop-up: 1 the tool, 2 subscription or API key, then the provider's sign-in of the computer's
 // one login for that tool in this same pop-up (ui/model-login.js open `into`), and the chip appears once the computer
 // reports it. A different account for the same tool means another computer: a bot has no sign-in of its own.

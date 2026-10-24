@@ -438,7 +438,7 @@ function renderSettingsMachines() {
     const shown = event.target.closest('[data-computer-bots]');
     if (shown) {
       event.preventDefault(); dialog?.close();
-      SETTINGS_BOTS_VIEW.computer = shown.dataset.computerBots; settingsBotsRemember(); settingsShow('bots'); renderSettingsBots();
+      settingsShow('bots'); renderSettingsBots();
       return;
     }
     const login = event.target.closest('[data-machine-copy-login]');
