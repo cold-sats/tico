@@ -96,6 +96,7 @@ def test_recovery_is_fifo_across_computers_and_new_requests_cannot_jump_waiters(
         c.execute("UPDATE jobs SET created=? WHERE bot='finance' AND state='queued'", (H.shift(H.now(), minutes=-2),))
         c.execute("UPDATE jobs SET created=? WHERE bot='doc-updater' AND state='queued'", (H.shift(H.now(), minutes=-1),))
     assert claim(api, other, 'doc-updater') is None
+    assert claim(api, machine, 'finance') is None  # A live runner keeps claiming through the stop.
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE attempts SET state='completed' WHERE id='attempt-99'")
         c.execute("UPDATE jobs SET state='completed' WHERE attempt_id='attempt-99'")
@@ -105,6 +106,33 @@ def test_recovery_is_fifo_across_computers_and_new_requests_cannot_jump_waiters(
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE attempts SET state='completed' WHERE id='attempt-98'")
         c.execute("UPDATE jobs SET state='completed' WHERE attempt_id='attempt-98'")
+    assert claim(api, other, 'doc-updater') is not None
+
+
+def test_recovery_does_not_hold_other_computers_behind_a_lane_busy_only_on_its_runner(api):
+    """A lane the attempts table does not show (a worker whose lease lapsed) is known only from the runner's
+    claims. Claims during the stop must keep it, or recovery waits on a job its own computer will not take."""
+    from backend import execution
+    from clients import sessions
+    one_person(api)
+    machine = waiters(api, n=99, running=1)
+    independent(api, machine)
+    other = runner(api, label='Other synthetic computer')
+    assign(api, other, 'doc-updater')
+    ready(api, other, ['doc-updater'])
+    post(api, 'chat/doc-updater', {'text': 'Younger synthetic request'})
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE jobs SET created=? WHERE bot='finance' AND state='queued'", (H.shift(H.now(), minutes=-2),))
+        c.execute("UPDATE jobs SET created=? WHERE bot='doc-updater' AND state='queued'", (H.shift(H.now(), minutes=-1),))
+    busy = {'bot': 'finance', 'start_places': True, 'busy_lanes': ['finance|' + sessions.MAIN_LANE]}
+    assert post(api, 'jobs/claim', busy, machine['token'])['waiting'] == REASON
+    # The stop outlasts the claimed-busy window; the runner's claims through it still say the lane is busy.
+    seen = execution.CLAIMED_BUSY[machine['runner_id']]
+    execution.CLAIMED_BUSY[machine['runner_id']] = (*seen[:2], seen[2] - execution.CLAIMED_FRESH - 1)
+    assert post(api, 'jobs/claim', busy, machine['token'])['waiting'] == REASON
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE attempts SET state='completed' WHERE id='attempt-99'")
+        c.execute("UPDATE jobs SET state='completed' WHERE attempt_id='attempt-99'")
     assert claim(api, other, 'doc-updater') is not None
 
 

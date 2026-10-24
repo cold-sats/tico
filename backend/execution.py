@@ -88,8 +88,16 @@ CLAIMED_FRESH = 120         # seconds a runner's busy lists are believed; a runn
 
 
 def note_claim(runner_id, body):
-    """Keep the busy lists of this claim for Health."""
+    """Keep the busy lists of every claim, before any early answer: Health and the company's stop-level waiter
+    order read them, and a claim answered early (at the stop level, say) still says what the runner is running."""
     CLAIMED_BUSY[runner_id] = (frozenset(body.busy_bots or ()), frozenset(body.busy_lanes or ()), time.monotonic())
+
+
+def claiming(runner_id):
+    """Whether the runner has claimed lately, so its busy lists are known. One that has stopped claiming (its own
+    places are full, perhaps with a worker whose lease lapsed) takes nothing, however free the server thinks it is."""
+    seen = CLAIMED_BUSY.get(runner_id)
+    return bool(seen) and time.monotonic() - seen[2] <= CLAIMED_FRESH
 
 
 def claimed_busy(runner_id):
@@ -1773,10 +1781,8 @@ class Execution:
                           (json.dumps(runtimes), H.now(), runner_id, profile))
         c.execute("UPDATE runners SET readiness_json=? WHERE id=?", (json.dumps(ready), runner_id))
 
-    def candidate(self, c, who, body, runner, *, job_id=None, record=True):
+    def candidate(self, c, who, body, runner, *, job_id=None):
         """The queued job this runner would be given next, or None. Reads only."""
-        if record:
-            note_claim(runner["id"], body)
         lanes, roots = lanes_on(runner), roots_on(runner)
         # Taken lanes, each "bot|lane": the server's active attempts and the runner's own busy list. A runner
         # without lanes runs one turn per bot, so any active attempt takes the whole bot.
@@ -1842,7 +1848,9 @@ class Execution:
         return None
 
     def company_waiter(self, c, who, body, runner):
-        """Oldest eligible stop-level waiter across computers; unavailable lanes do not block others."""
+        """Oldest eligible stop-level waiter across computers; unavailable lanes do not block others.
+        Another computer's waiter is eligible only while that computer claims: its claimed busy lists are the only
+        record of lanes the attempts table does not show, and an empty list from a silent computer is not "free"."""
         from .models import Claim
         from .performance import load_status
         for queued in c.execute("SELECT w.job_id,a.runner_id FROM org_turn_waits w JOIN jobs j ON j.id=w.job_id "
@@ -1850,7 +1858,8 @@ class Execution:
             rid = queued['runner_id']
             remote = rid != runner['id']
             target = c.execute('SELECT * FROM runners WHERE id=? AND revoked_at IS NULL', (rid,)).fetchone() if remote else runner
-            if (not target or not target['last_seen'] or target['last_seen'] < H.shift(H.now(), seconds=-90)
+            if (not target or (remote and not claiming(rid))
+                    or not target['last_seen'] or target['last_seen'] < H.shift(H.now(), seconds=-90)
                     or not self.awake(target['awake_since'], H.now()) or runner_versions.paused(c, rid)
                     or load_status(c, rid)['overloaded'] or start_places.ready_waiting(c, rid)
                     or sum(turns_here(c, rid).values()) >= target['capacity']):
@@ -1858,7 +1867,7 @@ class Execution:
             busy_bots, busy_lanes = claimed_busy(rid)
             scope = Claim(busy_bots=list(busy_bots), busy_lanes=['|'.join(x) for x in busy_lanes]) if remote else body
             identity = Identity('runner:' + rid, 'runner', runner_id=rid) if remote else who
-            if found := self.candidate(c, identity, scope, target, job_id=queued['job_id'], record=False):
+            if found := self.candidate(c, identity, scope, target, job_id=queued['job_id']):
                 return rid, found
         return None
 
@@ -1884,6 +1893,7 @@ class Execution:
         runner = self.runner(c, who)
         if not runner:
             return None
+        note_claim(runner["id"], body)
         now = H.now()
         if start_places.overdue(c):
             return None
@@ -1959,6 +1969,8 @@ class Execution:
 
     def claim(self, c, who, body, selected=None, *, prepared=False):
         runner = self.runner(c, who)
+        if runner:
+            note_claim(runner["id"], body)
         changes = c.total_changes
         self.expire(c, limit=CLAIM_MAINTENANCE)
         if c.total_changes != changes:
