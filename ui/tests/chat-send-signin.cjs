@@ -11,6 +11,17 @@ const engines = (process.env.TICO_UI_ENGINES || 'chromium,webkit').split(',');
 async function scenario(browser, mode, edit, keeper = true, editedBefore = false) {
   const page = await browser.newPage({viewport: {width: 1200, height: 800}, serviceWorkers: 'block'});
   const errors = [], posts = [], delivered = [];
+  const reads = new Set(), readWaiters = new Set();
+  page.on('request', request => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() === 'GET' && path !== '/api/v2/events' && !path.endsWith('/watch')) reads.add(request);
+  });
+  const readFinished = request => {
+    reads.delete(request);
+    if (!reads.size) for (const done of [...readWaiters]) done();
+  };
+  page.on('requestfinished', readFinished);
+  page.on('requestfailed', readFinished);
   page.on('pageerror', e => errors.push(e.message));
   let expired = false, hold = null, release;
   // A real same-origin fixture keeps event streams open across sign-in. Fulfilling an intercepted
@@ -66,8 +77,16 @@ async function scenario(browser, mode, edit, keeper = true, editedBefore = false
     fields: JSON.parse(sessionStorage.getItem(SESSION_RETURN) || 'null')?.fields || []}));
   const frames = () => page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
   const readsSettled = async () => {
-    await page.waitForFunction(() => !GET_INFLIGHT.size && !SESSION.probe);
-    await frames();
+    const deadline = Date.now() + 30000;
+    do {
+      if (reads.size) await new Promise((resolve, reject) => {
+        const done = () => { clearTimeout(timer); readWaiters.delete(done); resolve(); };
+        const timer = setTimeout(() => { readWaiters.delete(done); reject(new Error('Fixture reads did not settle')); }, Math.max(1, deadline - Date.now()));
+        readWaiters.add(done);
+      });
+      await frames();
+      assert.ok(Date.now() < deadline, 'fixture reads settle before navigation');
+    } while (reads.size);
   };
   // A loaded conversation can precede its stream subscription. Navigating again while WebKit is
   // still opening that connection reports a cancelled request as an access-control page error.
