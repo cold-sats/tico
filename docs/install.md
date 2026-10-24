@@ -538,6 +538,9 @@ local sign-in, each protected by its own one-time code, an HMAC or a long secret
 Otherwise computers join through the same hostname. If Access sits in front of all of it, give the runners a bypass or a
 service token for `/api/v2/runners/*` (the runner authenticates itself with its own token), and give `/api/v2/mcp` a
 Bypass policy so humans' own external agents can connect with their tokens ([Connect an external agent](connect-an-agent.md)).
+To link the server to its Tico company (Settings > General > Tico company), also bypass
+`GET /api/v2/company-connection/proof` on the app hostname: Tico checks it there, and it answers only while an owner's
+connect is pending.
 
 Or run the bots' computer on the server itself and skip Access altogether: the runner joins the server's own Docker
 network and talks to it directly. With a one-time code from Settings > Computers > Add computer, on the server:

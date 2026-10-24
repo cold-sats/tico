@@ -415,6 +415,11 @@ tr:hover .sb-task-mark,.sb-task-mark:focus-visible,.sb-task-mark[aria-expanded=t
 .settings-team-icon>span{display:grid;place-items:center;background:var(--surface)}
 .settings-team-icon>[hidden]{display:none}
 .settings-team-icon button{margin-top:10px}
+.settings-company{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;margin:12px 0}
+.settings-company dt{color:var(--muted)}
+.settings-company dd{margin:0}
+.settings-company-form{display:flex;flex-wrap:wrap;align-items:end;gap:10px;margin-top:12px}
+.settings-company-form>div,.settings-company-form>p{flex-basis:100%}
 .owner-picker{width:min(520px,92vw);padding:0;border:0;background:var(--surface);color:var(--ink)}
 .owner-picker-body{padding:18px}
 /* A bot's tab settings (ui/app/bot-tasks.js botTaskTabsSettings): each tab a name, then its filter. */

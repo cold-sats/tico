@@ -465,6 +465,14 @@ class Scheduler:
                 if held:
                     billing_check.read_later(self.store, self.store.settings)
                 run.did("Checked" if held else "Not used on this server")
+            # And once a day, while this self-run server is linked to its Tico company (backend/company_server.py):
+            # its version, for app.tico.dev and admin. On its own thread; no model turn.
+            with SR.recording(self.store, "company_heartbeat", failures) as run:
+                from . import company_server
+                due = company_server.heartbeat_due(self.store)
+                if due:
+                    company_server.heartbeat_later(self.store)
+                run.did("Sent" if due else "Nothing to send", quiet=not due)
         if self.stale_checked is None or at - self.stale_checked >= timedelta(minutes=5):
             # Stale ticket review (backend/stale_review.py), while the team has it on: its watermark and saved preset
             # space the passes (hourly by default);
