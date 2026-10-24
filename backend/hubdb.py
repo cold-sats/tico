@@ -150,6 +150,10 @@ SUPPORT_APPROVAL_KEYS = ("message", "content_sha256", "include_ids")
 CAP_PER_HOUR = 20               # rule 3: messages in one conversation between bots, per hour
 MAX_ASK_DEPTH = 3               # rule 3: A asks B asks C; C may not ask on
 UNSOLICITED_PER_DAY = int(os.environ.get("TICO_UNSOLICITED_PER_DAY", "10"))   # rule 4: per human, per bot, per UTC day
+HELD_QUEUE_ITEMS = int(os.environ.get("TICO_HELD_QUEUE_ITEMS", "200"))
+HELD_QUEUE_BYTES = int(os.environ.get("TICO_HELD_QUEUE_BYTES", "2097152"))
+HELD_QUEUE_SENDER_ITEMS = int(os.environ.get("TICO_HELD_QUEUE_SENDER_ITEMS", "50"))
+HELD_QUEUE_SENDER_BYTES = int(os.environ.get("TICO_HELD_QUEUE_SENDER_BYTES", "524288"))
 REVIEW_AT = 3                   # rule 8: refusals in a day that open a review task
 QUARANTINE_AT = 10              # rule 8: repeated refusals in a day that quarantine the bot
 QUARANTINE_TOTAL_AT = 3 * QUARANTINE_AT   # rule 8: any refusals in a day, repeated or not (a loop over new targets)
@@ -1862,10 +1866,11 @@ def _escalate(conn, actor, rule, detail, severity, ts, context=None):
     """Rule 8: count the day's refusals, open review tasks, quarantine when it is bad enough."""
     if not is_bot(actor):
         return
+    # Capacity waiting is legitimate, and must never feed review, repeats or the daily backstop.
     # A writing correction ("start the title with a verb") is fixed by retrying, not a sign the bot
     # is reaching where it should not: it neither counts nor quarantines. A bot was quarantined by
     # ten refusals, three of them lint on one task title.
-    if rule == "lint":
+    if rule in ("lint", "queue_full"):
         return
     slug = actor_id(actor)
     day = ts[:10]
@@ -1875,7 +1880,7 @@ def _escalate(conn, actor, rule, detail, severity, ts, context=None):
     since = max(day, (lifted or {}).get("ts") or "")
     counted, last, total = [], {}, 0
     for refused in _rows(conn.execute("SELECT rule, detail_json, ts FROM refusals WHERE actor=? AND ts>=? "
-                                      "AND rule<>'lint' ORDER BY ts, id", (actor, since))):
+                                      "AND rule NOT IN ('lint','queue_full') ORDER BY ts, id", (actor, since))):
         if refused["rule"] == "label":
             # A label refusal says who may make the change instead; retrying it is not reaching further, so
             # it counts once per task an hour (LABEL_REFUSAL_WINDOW_S). Nine in a minute quarantined a bot.
@@ -2422,19 +2427,6 @@ def say(conn, actor, to_actor, body, conversation_id=None, kind="say", refs=None
         conv = _pair_conversation(conn, actor, target,
                                   {"ask": "ask", "notice": "notice"}.get(kind, "chat"), allow_held=True)
 
-    # rule 3: the loop caps
-    if is_bot(actor) and is_bot(target):
-        since = shift(now(), hours=-1)
-        # The cap stops two bots talking in circles, so it counts bot-to-bot messages only: the
-        # keeper's notices (a routine's "new task", "finished") and a person's messages are not a
-        # loop. A bot's private room with its owner, with a sweep every 30 minutes, could hit
-        # the cap on messages of which many were notices or the owner's.
-        n = conn.execute("SELECT COUNT(*) FROM messages WHERE conversation_id=? AND created>=? "
-                         "AND from_actor LIKE 'bot:%' AND to_actor LIKE 'bot:%' AND kind<>'notice'",
-                         (conv["id"], since)).fetchone()[0]
-        if n >= CAP_PER_HOUR:
-            refuse(conn, actor, "cap",
-                   f"{n} messages in this conversation in the last hour; the cap is {CAP_PER_HOUR}")
     if kind == "ask":
         depth = _ask_depth(conn, actor, refs, in_reply_to)
         if depth > MAX_ASK_DEPTH:
@@ -2487,7 +2479,7 @@ def say(conn, actor, to_actor, body, conversation_id=None, kind="say", refs=None
     waits = bot_to_bot.can_wait(conn, actor, target, kind, refs, body, in_reply_to)
     if waits:
         refs.update(quiet=True, **{bot_to_bot.MARK: bot_to_bot.RULE})
-    msg = _write_message(conn, actor, target, body, conv, kind, refs, in_reply_to, wait_s)
+    msg = _write_message(conn, actor, target, body, conv, kind, refs, in_reply_to, wait_s, check_cap=True)
     if result_key:
         _deliver_subtask_result(conn, result_task, result_parent, body, result_key, source=msg["id"], resume_hint=True)
     if waits:
@@ -2585,8 +2577,51 @@ def librarian_text(body):
     return "".join(out)
 
 
+def _held_queue_admit(conn, actor, target, body, refs_json, *, replacing=None):
+    """Charge bot-authored pending messages across every room, including bot notices and quiet work.
+
+    Called with the final stored text/references under Store's BEGIN IMMEDIATE write transaction,
+    immediately before insertion. Permission/contact checks belong to the caller and still run first.
+    System notices, people, active recipients and recovery controls retain their existing behavior.
+    """
+    if not (is_bot(actor) and is_bot(target)):
+        return
+    state = (bot(conn, actor_id(target)) or {}).get("state")
+    if state not in HELD_STATES:
+        return
+    rows = conn.execute(
+        "SELECT from_actor, count(*) AS items, "
+        "sum(coalesce(length(CAST(body AS BLOB)),0) + coalesce(length(CAST(refs_json AS BLOB)),0)) AS bytes "
+        "FROM messages WHERE to_actor=? AND delivered_at IS NULL AND deleted_at IS NULL "
+        "AND from_actor LIKE 'bot:%' AND (? IS NULL OR id<>?) GROUP BY from_actor",
+        (target, replacing, replacing)).fetchall()
+    items = sum(r["items"] for r in rows)
+    size = sum(r["bytes"] for r in rows)
+    own = next((r for r in rows if r["from_actor"] == actor), None)
+    added = len(body.encode("utf-8")) + len(refs_json.encode("utf-8"))
+    for label, used, charge, limit in (
+        ("recipient item", items, 1, HELD_QUEUE_ITEMS),
+        ("recipient byte", size, added, HELD_QUEUE_BYTES),
+        ("your item", own["items"] if own else 0, 1, HELD_QUEUE_SENDER_ITEMS),
+        ("your byte", own["bytes"] if own else 0, added, HELD_QUEUE_SENDER_BYTES),
+    ):
+        if used + charge > limit:
+            refuse(conn, actor, "queue_full",
+                   f"{actor_id(target)} is {state}; its held queue is full ({label} limit {limit}). "
+                   "Already accepted items are kept. Wait until the recipient resumes before sending again. "
+                   "Waiting does not count against the sender and does not release a quarantine.")
+
+
+def held_queue_recheck(conn, message_id):
+    """Recheck a newly inserted message after its sending path adds stored references, in the same transaction."""
+    msg = message(conn, message_id)
+    if msg and not msg.get("delivered_at") and not msg.get("deleted_at"):
+        _held_queue_admit(conn, msg["from_actor"], msg["to_actor"], msg["body"], msg["refs_json"],
+                          replacing=message_id)
+
+
 def _write_message(conn, actor, target, body, conv, kind, refs, in_reply_to, wait_s,
-                   expires_at=None, delivered_at=None, read_at=None):
+                   expires_at=None, delivered_at=None, read_at=None, *, check_cap=False):
     if actor == "bot:librarian":
         body = librarian_text(body)
     if VIA.get() and is_human(actor):
@@ -2604,6 +2639,22 @@ def _write_message(conn, actor, target, body, conv, kind, refs, in_reply_to, wai
            "kind": kind, "body": str(body or ""), "refs_json": _dump(refs or {}),
            "in_reply_to": in_reply_to, "created": now(), "delivered_at": delivered_at,
            "read_at": read_at, "expires_at": expires_at, "wait_s": wait_s}
+    if delivered_at is None:
+        _held_queue_admit(conn, actor, target, row["body"], row["refs_json"])
+    # Capacity waiting is not loop misconduct, even when this conversation also hit its cap.
+    # rule 3: the loop caps
+    if check_cap and is_bot(actor) and is_bot(target):
+        since = shift(now(), hours=-1)
+        # The cap stops two bots talking in circles, so it counts bot-to-bot messages only: the
+        # keeper's notices (a routine's "new task", "finished") and a person's messages are not a
+        # loop. A bot's private room with its owner, with a sweep every 30 minutes, could hit
+        # the cap on messages of which many were notices or the owner's.
+        n = conn.execute("SELECT COUNT(*) FROM messages WHERE conversation_id=? AND created>=? "
+                         "AND from_actor LIKE 'bot:%' AND to_actor LIKE 'bot:%' AND kind<>'notice'",
+                         (conv["id"], since)).fetchone()[0]
+        if n >= CAP_PER_HOUR:
+            refuse(conn, actor, "cap",
+                   f"{n} messages in this conversation in the last hour; the cap is {CAP_PER_HOUR}")
     conn.execute(
         "INSERT INTO messages (id, conversation_id, from_actor, to_actor, kind, body, refs_json, "
         "in_reply_to, created, delivered_at, read_at, expires_at, wait_s) VALUES (:id, "
@@ -4606,6 +4657,8 @@ def task_comment_edit(conn, actor, task_id, message_id, text, approval_id=None):
         text = librarian_text(text)
     if text == msg["body"]:
         return msg                  # the same words are no edit: no mark, no history line
+    if not msg.get("delivered_at") and len(text.encode("utf-8")) > len(msg["body"].encode("utf-8")):
+        _held_queue_admit(conn, actor, msg["to_actor"], text, msg["refs_json"], replacing=message_id)
     ts = now()
     conn.execute("UPDATE messages SET body=?, edited_at=? WHERE id=?", (text, ts, message_id))
     _task_event(conn, task_id, actor, "comment", message_id, message_id)
