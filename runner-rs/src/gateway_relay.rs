@@ -736,6 +736,7 @@ mod tests {
         assert!(!peer_in_table("", "0100007F:A001", "0100007F:B002", 10100));
     }
 
+    #[cfg(target_os = "linux")] // the owner check reads /proc/net/tcp
     #[tokio::test]
     async fn the_real_socket_owner_is_checked_even_with_a_valid_token() {
         let (gateway, seen) = upstream(SSE.to_vec()).await;

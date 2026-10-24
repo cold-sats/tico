@@ -65,7 +65,7 @@ pub async fn share_workspace(paths: Vec<PathBuf>) -> Result<(), String> {
     tokio::task::spawn_blocking(move || share_workspace_blocking(&paths)).await.map_err(|e| e.to_string())?
 }
 
-fn share_workspace_blocking(paths: &[PathBuf]) -> Result<(), String> {
+pub(crate) fn share_workspace_blocking(paths: &[PathBuf]) -> Result<(), String> {
     let status = crate::isolation::std_command(crate::env::python()).args(["-c", r#"import errno,os,stat,sys
 def share(name,dir_fd=None):
  # Open relative to the pinned directory without following a link, then decide on the opened inode.

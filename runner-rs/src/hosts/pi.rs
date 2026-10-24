@@ -273,6 +273,11 @@ pub fn session_dir(bot: &str, settings: &Settings) -> PathBuf {
     let root = settings.env.get("HUB_WORKSPACE").filter(|w| !w.is_empty()).cloned().unwrap_or_else(|| if settings.cwd.is_empty() { ".".into() } else { settings.cwd.clone() });
     let path = PathBuf::from(root).join("runtime").join("pi-sessions").join(if bot.is_empty() { "pi" } else { bot });
     let _ = crate::isolation::mkdir(&path, 0o777);
+    // A leased turn user writes here through the shared group; the supervisor's umask left it owner-writable only,
+    // and earlier threads' session files may be owner-only too.
+    if settings.identity.is_some() {
+        if let Err(e) = crate::turn_users::share_workspace_blocking(std::slice::from_ref(&path)) { crate::util::log(&format!("Tico runner: {e}")); }
+    }
     path
 }
 
