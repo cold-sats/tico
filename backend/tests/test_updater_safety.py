@@ -57,11 +57,12 @@ def test_the_snapshot_script_removes_parts_left_by_an_attempt_that_ran_out_of_ti
                           capture_output=True, text=True)
     assert done.returncode == 0, done.stderr
     assert sorted(p.name for p in folder.iterdir()) == ["pre-update-v0.1.0-1.sqlite"]
-    # Out of time: whatever the worker reached, no partial copy is left and the process still ends.
+    # Out of time: the process still ends, and the next attempt sweeps whatever partial copy the worker reached.
     late = subprocess.run([sys.executable, "-c", script, str(folder), "pre-update-v0.1.0-2.sqlite", "3", "0"],
                           capture_output=True, text=True, timeout=30)
-    assert not [p for p in folder.iterdir() if ".part" in p.name]
     assert late.returncode == 0 or "did not finish" in late.stderr
+    subprocess.run([sys.executable, "-c", script, str(folder), "pre-update-v0.1.0-3.sqlite", "3", "60"], check=True)
+    assert not [p for p in folder.iterdir() if ".part" in p.name]
 
 def test_a_failed_health_check_restores_the_snapshot_because_migrations_may_have_run(monkeypatch, tmp_path):
     updater = load(monkeypatch, "", tmp_path)

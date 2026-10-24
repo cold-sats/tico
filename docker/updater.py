@@ -506,8 +506,8 @@ def copy_and_check():
     except sqlite3.Error as exc:
         result.append("the snapshot copy failed: %s" % exc)
 # Neither backup() nor a check that has not started yet can be interrupted, so the copy and check run on a worker
-# and this thread keeps the one deadline: past it, the partial copy goes and the process ends, worker included,
-# inside the updater's own timeout.
+# and this thread keeps the one deadline: past it, the process ends, worker included, inside the updater's own
+# timeout. The worker may still create the partial copy after it is removed here; the next attempt sweeps it above.
 worker = threading.Thread(target=copy_and_check, daemon=True)
 worker.start()
 worker.join(max(0.0, deadline - time.monotonic()))
