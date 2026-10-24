@@ -255,7 +255,12 @@ function pillLabel(P) {
   const btn = pq(P, '.p-send'); if (!btn) return;
   const goal = pillGoalMode(P);
   const word = goal ? 'Set goal' : P.action === 'task' ? 'Send as a task' : P.action === 'reply' ? `Reply on #${P.needsIssue}` : 'Send';
-  btn.innerHTML = goal ? word : ICON_SEND; btn.dataset.word = word;
+  // A redraw that replaces the arrow between press and release loses the click in every engine, so the
+  // contents change only when goal mode swaps the arrow for words (and ui/styles/chat.css makes the button
+  // itself the press target).
+  const shows = goal ? word : 'icon';
+  if (btn.dataset.shows !== shows) { btn.innerHTML = goal ? word : ICON_SEND; btn.dataset.shows = shows; }
+  btn.dataset.word = word;
   btn.setAttribute('aria-label', btn.disabled && btn.dataset.busy || word);
   btn.classList.toggle('p-send-goal', goal);
   pillWhy(P);
@@ -292,12 +297,16 @@ function pillMenu(P, open) {
     pillLabel(P); pillButtons(P); pillMenu(P, false); pq(P, '.p-text').focus();
   });
 }
-function pillAcknowledge(P, text, files) {
+function pillAcknowledge(P, text, files, scope) {
+  sessionAcknowledge(pq(P, '.p-text'), scope);
   // A slow upload must not erase the person's next draft or newly selected files.
   const nextText = pq(P, '.p-text').value;
   const remaining = P.files.filter(file => !files.includes(file));
   pillClear(P);
-  if (nextText.trim() !== text) pq(P, '.p-text').value = nextText;
+  if (nextText.trim() !== text) {
+    const box = pq(P, '.p-text');
+    box.value = nextText; box.dispatchEvent(new Event('input', {bubbles: true}));
+  }
   P.files.push(...remaining); pillChips(P); pillButtons(P); chatDraftSave(P);
 }
 function pillClear(P, keepText) {
@@ -310,7 +319,8 @@ function pillClear(P, keepText) {
 async function pillChat(P, text) {
   const btn = pq(P, '.p-send'), label = btn.textContent;
   btn.disabled = true; pillBtnSay(btn, 'Sending…');
-  const names = P.files.map(f => f.name);
+  const files = P.files.slice(), scope = sessionScope(pq(P, '.p-text'));
+  const names = files.map(f => f.name);
   try {
     const fd = new FormData();
     fd.append('text', text);
@@ -320,7 +330,7 @@ async function pillChat(P, text) {
     if (res.status === 409) { pillBusy(P, j, text); return; }
     if (!res.ok) throw new Error(j.error || res.statusText);
     convChatStarted(P.slug, j, text, names);
-    pillClear(P);
+    pillAcknowledge(P, text, files, scope);
   } catch (e) { toast(e.message, true); }
   finally { btn.disabled = false; pillBtnSay(btn, label); pillLabel(P); pillButtons(P); }
 }
@@ -346,6 +356,7 @@ function pillBusy(P, j, text) {
 async function pillTask(P, text) {
   const slug = P.slug, btn = pq(P, '.p-send'), label = btn.textContent;
   btn.disabled = true; pillBtnSay(btn, 'Creating…');
+  const files = P.files.slice(), scope = sessionScope(pq(P, '.p-text'));
   try {
     const fd = new FormData();
     fd.append('slug', slug); fd.append('title', text.split('\n')[0].trim().slice(0, 80));
@@ -354,7 +365,7 @@ async function pillTask(P, text) {
     const res = await fetch(`${API}/issues`, {method: 'POST', body: await memoryBody(fd)});
     const j = await res.json().catch(() => ({})); if (!res.ok) throw new Error(j.error || res.statusText);
     if (CONV?.slug === slug) { CONV.pending.push({text, number: j.number, url: j.url}); CONV.sent = true; convRender(CONV); }
-    pillClear(P); toast(`Queued as #${j.number}`);
+    pillAcknowledge(P, text, files, scope); toast(`Queued as #${j.number}`);
     await refresh(true); if (BOT?.slug === slug) loadBotIssues(slug);
   } catch (e) { toast(e.message, true); }
   btn.disabled = false; pillBtnSay(btn, label); pillLabel(P); pillButtons(P);
@@ -362,10 +373,11 @@ async function pillTask(P, text) {
 async function pillReply(P, text) {
   const n = P.needsIssue, btn = pq(P, '.p-send'), label = btn.textContent;
   btn.disabled = true; pillBtnSay(btn, 'Replying…');
+  const files = P.files.slice(), scope = sessionScope(pq(P, '.p-text'));
   try {
     await post(`/issues/${n}/comment`, {body: text, clear_needs_human: true});
     toast(`Replied on #${n}`);
-    pillClear(P); await refresh(true);
+    pillAcknowledge(P, text, files, scope); await refresh(true);
     if (CONV?.slug === P.slug) loadConversation(P.slug, CONV);
   } catch (e) { toast(e.message, true); }
   btn.disabled = false; pillBtnSay(btn, label); pillLabel(P); pillButtons(P);
@@ -380,7 +392,9 @@ async function pillSend(P) {
   if (P.send) return P.send(P, text);
   const slash = slashRun(P, text);
   if (slash === true) return;
-  if (slash !== 'plain' && runCommand(text, pq(P, '.p-cmd'), P.slug)) { pillClear(P, true); return; }
+  if (slash !== 'plain' && runCommand(text, pq(P, '.p-cmd'), P.slug)) {
+    sessionAcknowledge(box); pillClear(P, true); return;
+  }
   if (isKeeper(P.slug)) {                                     // hub.db, not an Issue comment
     return P.action === 'task' ? v2PillTask(P, text) : v2ChatSend(P, text);
   }

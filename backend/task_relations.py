@@ -97,9 +97,15 @@ def parent_sql(alias="tasks"):
 CHILD_IDS = "SELECT from_task FROM task_relations WHERE kind='parent' AND to_task=?"
 
 
+PARENT_SQL = "SELECT to_task FROM task_relations WHERE from_task=? AND kind='parent'"
+BLOCKED_SQL = "SELECT to_task FROM task_relations WHERE from_task=? AND kind='blocks' ORDER BY created, rowid"
+
+
 def parent_of(conn, task_id):
-    row = conn.execute("SELECT to_task FROM task_relations WHERE from_task=? AND kind='parent'",
-                       (task_id,)).fetchone()
+    # Through the snapshot's read cache, so a page that read its tasks' ancestry together (prime_ancestry) reads no
+    # parent twice.
+    from .read_cache import one
+    row = one(conn, PARENT_SQL, (task_id,))
     return row[0] if row else None
 
 
@@ -115,8 +121,36 @@ def blocker_ids(conn, task_id):
 
 def blocked_ids(conn, task_id):
     """The tasks this one blocks."""
-    return [r[0] for r in conn.execute("SELECT to_task FROM task_relations WHERE from_task=? AND kind='blocks' "
-                                       "ORDER BY created, rowid", (task_id,))]
+    from .read_cache import rows
+    return [r[0] for r in rows(conn, BLOCKED_SQL, (task_id,))]
+
+
+def prime_ancestry(conn, task_ids):
+    """Read the parents of these tasks and of all their ancestors, and the tasks each of them blocks, one query a
+    level, for the parent_of, ancestors and blocked_ids lookups that follow in this snapshot (a Needs you card walks
+    its task's chain). Returns every task id it met. Without a read snapshot it reads nothing: those lookups then
+    read for themselves."""
+    from .read_cache import cache, prime, prime_rows
+    met, walked, frontier = set(), set(), {tid for tid in task_ids if tid}
+    if cache(conn) is None:
+        return met
+    while frontier:
+        met |= frontier
+        walked |= frontier
+        parents, blocked = {}, {}
+        for part in _parts(sorted(frontier)):
+            for row in conn.execute("SELECT from_task,to_task,kind FROM task_relations WHERE from_task IN (%s) "
+                                    "AND kind IN ('parent','blocks') ORDER BY created, rowid"
+                                    % ",".join("?" * len(part)), part):
+                if row[2] == "parent":
+                    parents[row[0]] = (row[1],)
+                else:
+                    blocked.setdefault(row[0], []).append((row[1],))
+        prime(conn, PARENT_SQL, {(tid,): parents.get(tid) for tid in frontier})
+        prime_rows(conn, BLOCKED_SQL, {(tid,): blocked.get(tid, ()) for tid in frontier})
+        met |= {row[0] for found in blocked.values() for row in found}
+        frontier = {row[0] for row in parents.values()} - walked
+    return met
 
 
 def live_blocker(conn, task_id, statuses):

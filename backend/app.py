@@ -25,7 +25,7 @@ from clients.agent_skill import WHO_NEEDS_ME
 from . import go_live as pending_go_lives
 from . import repo_waits
 from . import built_on
-from . import agents, app_delivery, batch, external_sync, inbox_isolation, lifecycle, mcp_oauth, harness_actions, model_login, oidc, personal_tokens, views
+from . import agents, app_delivery, batch, external_sync, inbox_isolation, lifecycle, mcp_oauth, recruiting, harness_actions, model_login, oidc, personal_tokens, views
 from . import outcome_stats
 from . import ceo_bot, owner_link
 from . import login_holds
@@ -41,8 +41,8 @@ from . import models as M
 from .auth import LOCAL_COOKIE, LOCAL_COOKIE_DAYS, LOCAL_SIGNIN_PATH, LOGOUT_PATH, Auth, Identity, validate_identity
 from .config import Settings
 from .observability import Observability, browser_config, staff_display_name, route as error_route
-from .execution import (Execution, bot_repository, bump_bot_session_epoch, clear_limits, lift_after_model_change,
-                        model_choice, own_login_hold)
+from .execution import (Execution, bot_repository, bump_bot_session_epoch, claim_scope, clear_limits,
+                        lift_after_model_change, model_choice, own_login_hold)
 from .onboarding import BOTOPS, Onboarding
 from .recruit import Recruiter
 from . import rooms
@@ -77,6 +77,28 @@ from .store import H, P, Problem, Store, bot_readiness, encode, message_page, re
 STABLE_PATH = re.compile("|".join(re.sub(r"\\\{[^}]+\\\}", "[^/]+", re.escape(spelling))
                                   for path, *_ in STABLE_ROUTES if path != "/api/v2/events"
                                   for spelling in (path, *old_route_paths(path))))
+
+
+# The inbox sends at most this many messages and this many tasks; the rest wait for a later read.
+INBOX_LIMIT = 100
+
+
+def _newest_visible(items, visible):
+    """The newest `INBOX_LIMIT` of `items` (oldest first) that pass `visible`, checked newest first so a readable
+    backlog costs nothing, and whether one more item passes the same check: a hidden item never sets the flag."""
+    kept, more = _first_visible(items[::-1], visible)
+    return kept[::-1], more
+
+
+def _first_visible(items, visible):
+    """The first `INBOX_LIMIT` of `items` that pass `visible`, and whether one more item passes it too."""
+    kept = []
+    for item in items:
+        if visible(item):
+            if len(kept) == INBOX_LIMIT:
+                return kept, True
+            kept.append(item)
+    return kept, False
 
 
 def reset_bot_sessions(c, bot):
@@ -772,7 +794,8 @@ def create_app(settings=None):
             found = request.scope.get("route")
             route = getattr(found, "path", None) or ("static" if not route.startswith("/api") else "unmatched")
             total = (time.perf_counter() - started) * 1000
-            response.headers["Server-Timing"] = f"auth;dur={request.state.auth_ms:.1f}, app;dur={total:.1f}"
+            response.headers["Server-Timing"] = (f"auth;dur={request.state.auth_ms:.1f}, app;dur={total:.1f}"
+                                                + (f", sql;dur={cost[0]:.1f}, wait;dur={cost[1]:.1f}" if cost is not None else ""))
             return response
         finally:
             found = request.scope.get("route")
@@ -1032,7 +1055,8 @@ def create_app(settings=None):
         return value
 
     def task_views(rows, c, who, visible_sql="1"):
-        """Hydrate one task-list page with a fixed number of relation queries."""
+        """Hydrate one task-list page with a fixed number of relation queries. `rows` were read on `c` under
+        `visible_sql`, the reader's rule, as every list does: each row stands for that rule's answer for its task."""
         if not rows:
             return []
         H.hydrate_task_tags(c, rows)
@@ -1061,7 +1085,10 @@ def create_app(settings=None):
 
         links = {tid: [] for tid in ids}
         for link in c.execute(f"SELECT * FROM task_links WHERE task_id IN ({marks}) ORDER BY created", ids):
-            links[link["task_id"]].append({k: v for k, v in dict(link).items() if k not in ("detail_json", "pr_sha")})
+            # Not a link's record, its empty columns or its own write time (a computer's heartbeat rewrites that every
+            # minute): the task's read and its /links have them, and every open tab gets each list change.
+            links[link["task_id"]].append({k: v for k, v in dict(link).items()
+                                           if v is not None and k not in ("detail_json", "pr_sha", "updated")})
 
         attachments = {tid: [] for tid in ids}
         from .blobs import brief
@@ -1075,11 +1102,14 @@ def create_app(settings=None):
         asks, open_counts = {}, {}
         # Readability is checked here, not by a SQL function: installing one marks the pooled connection
         # as changed, so it was closed after every task list and the next read paid for a new one.
-        for message in c.execute(
-                "SELECT m.*,t.id AS ask_task_id FROM tasks t JOIN conversations cv ON cv.id=t.conversation_id "
-                f"JOIN messages m ON m.conversation_id=t.conversation_id AND {H.MESSAGE_TASK_SQL}=t.id "
-                f"WHERE t.id IN ({marks}) AND m.kind='ask' AND m.deleted_at IS NULL "
-                f"AND {H.OPEN_ASK_SQL} ORDER BY m.rowid DESC", ids).fetchall():
+        open_asks = c.execute(
+            "SELECT m.*,t.id AS ask_task_id FROM tasks t JOIN conversations cv ON cv.id=t.conversation_id "
+            f"JOIN messages m ON m.conversation_id=t.conversation_id AND {H.MESSAGE_TASK_SQL}=t.id "
+            f"WHERE t.id IN ({marks}) AND m.kind='ask' AND m.deleted_at IS NULL "
+            f"AND {H.OPEN_ASK_SQL} ORDER BY m.rowid DESC", ids).fetchall()
+        # Each ask's room is checked below; the rooms are read together first, not one room per task.
+        provenance.meetings.prime_conversations({message["conversation_id"] for message in open_asks})
+        for message in open_asks:
             if not provenance.message(message["id"], message["conversation_id"], message["refs_json"],
                                       message["in_reply_to"]):
                 continue
@@ -1106,6 +1136,10 @@ def create_app(settings=None):
             legacy_owner = H.human_actor(H.default_human(c))
         pipelines = H.type_list(c)
         summaries = H.children_summaries(c, ids, visible_sql)
+        # The rows each row's from_person and quiet state read, read for the whole page first; each row is still
+        # decided one at a time by the same code below.
+        views.prime_list_origins(c, visible_sql, rows)
+        quiet_work.prime(c, [row for row in rows if row.get("next_run")])
         result = []
         for row in rows:
             value = task_view(row, pipelines=pipelines)
@@ -1159,8 +1193,7 @@ def create_app(settings=None):
         return visuals.key_for(app, settings)
 
     def visual_ancestors():
-        from .visuals import origin_of
-        return list(dict.fromkeys(["'self'", origin_of(settings.public_url), *settings.cors_origins]))
+        return visuals.ancestors(settings)
 
     @app.api_route("/visuals/{token}", methods=["GET", "HEAD"], include_in_schema=False)
     def visual(request: Request, token: str):
@@ -1956,6 +1989,12 @@ def create_app(settings=None):
         slug = bot["slug"]
         row["task_flow"] = rows.task_flow.get(slug, {"going": 0, "waiting": 0})
         row["draining"] = slug in rows.draining
+        # The one task its claims are limited to (POST /api/v2/bots/{bot}/control scope): its id when this reader
+        # may read the task, or only that a limit is on.
+        scope = rows.scopes.get(slug)
+        scoped_task = H.task(c, scope) if scope else None
+        row["claim_scoped"] = bool(scope)
+        row["claim_task"] = scope if scoped_task and privacy.task_readable(c, who, scoped_task) else None
         status = rows.statuses.get(slug)
         row["status"] = privacy.status(c, who, dict(status), **rows.status_inputs[slug]) if status else status
         row["assignment"] = dict(assignment) if assignment else None
@@ -2395,25 +2434,8 @@ def create_app(settings=None):
 
     # ------------------------------------------------------------------ updates (backend/updates.py)
     def update_visible(c, who, mine=False, scope=None):
-        """The authors whose updates `who` may read: bots they have Read on, and every person on the
-        chart (`human:<id>`), since a person's update is for the whole company. An external agent
-        (`who.agent`) is outside the company and sees only its bots. With `mine`, only
-        the bots they operate (for the owner, also bots with no operator) and their own update, the
-        Updates page's My bots filter (the count must match what the feed shows). With
-        `scope=direct`, only their direct reports on the org chart: the one level that alerts."""
-        readable = {slug for slug, level in auth.bot_accesses(c, who).items() if level["read"]}
-        if who.role in ("owner", "human") or (who.role == "bot" and not who.agent):
-            readable |= {H.human_actor(p["id"]) for p in P.visible_people(views.roster(c))}
-        if mine:
-            pid = H.actor_id(who.actor)
-            operators = {r[0]: r[1] for r in c.execute("SELECT bot, operator FROM bot_config")}
-            readable = {slug for slug in readable if slug == who.actor or operators.get(slug) == pid
-                        or (not updates.is_person(slug) and not operators.get(slug) and who.role == "owner")}
-        if scope == "direct":
-            archived = {row["slug"] for row in H.bots(c) if row.get("state") == "archived"}
-            reports = G.reports_of(who.actor, views.roster(c), views.entries(c), archived)
-            readable &= {a if H.actor_kind(a) == "human" else H.actor_id(a) for a in reports}
-        return readable
+        """The authors whose updates `who` may read (backend/updates.py visible_authors)."""
+        return updates.visible_authors(c, auth, who, mine, scope)
 
     def update_scope(scope):
         if scope not in (None, "", "all", "direct"):
@@ -3050,7 +3072,7 @@ def create_app(settings=None):
             except Problem:
                 can_comment = False
             return {"task": task_view(row, c, visible_sql=auth.task_sql(c, who), who=who),
-                    "events": [e for e in H.task_history(c, tid) if privacy.content_readable(c, privacy.actor(who), e)],
+                    "events": privacy.content_readable_rows(c, privacy.actor(who), H.task_history(c, tid)),
                     "can_comment": can_comment,
                     "children": children,
                     # The task page reads as its session's chat: each bot reply carries the run behind it (`run`,
@@ -3103,9 +3125,10 @@ def create_app(settings=None):
         weighs who built what reads this, never the bot's configured model: a fallback turn ran elsewhere."""
         from .usage_records import ran_on
         actor = privacy.actor(who)
-        rows = [r for r in H._rows(c.execute("SELECT id,bot,started,finished,exit FROM turns WHERE task_id=? "
-                                             "ORDER BY started DESC LIMIT ?", (tid, limit)))
-                if privacy.attempt_readable(c, actor, r["id"])]
+        rows = H._rows(c.execute("SELECT id,bot,started,finished,exit FROM turns WHERE task_id=? "
+                                 "ORDER BY started DESC LIMIT ?", (tid, limit)))
+        privacy.prime_attempts(c, [r["id"] for r in rows])
+        rows = [r for r in rows if privacy.attempt_readable(c, actor, r["id"])]
         made = ran_on(c, [r["id"] for r in rows])
         return [{"run": r["id"], "bot": r["bot"], "started": r["started"], "finished": r["finished"],
                  "outcome": r["exit"], "ran_on": made[r["id"]]} for r in rows]
@@ -3911,6 +3934,45 @@ def create_app(settings=None):
         return mutate(request, body, lambda c: lifecycle.update_seat(auth, c, who, seat_id,
                                                                      body.model_dump(exclude_unset=True)))
 
+    @app.get("/api/v2/seats/{seat_id}")
+    def seat_show(request: Request, seat_id: str):
+        """One Recruiting seat, with whether the CEO Bot's draft of its job description is done (backend/recruiting.py)."""
+        who = request.state.identity
+        auth.domain(who)
+        with store.read() as c:
+            return recruiting.show(auth, c, who, seat_id)
+
+    @app.post("/api/v2/seats/{seat_id}/open")
+    def seat_open(request: Request, seat_id: str, body: M.Empty):
+        """Open a seat: the owner opening it asks the CEO Bot to draft its job description, unless a person wrote it."""
+        who = request.state.identity
+        auth.domain(who)
+        return mutate(request, body, lambda c: recruiting.open_seat(auth, c, who, seat_id))
+
+    @app.post("/api/v2/seats/{seat_id}/draft")
+    def seat_draft(request: Request, seat_id: str, body: M.SeatDraft):
+        """The CEO Bot's draft of the job description the owner asked for by opening the seat (`hub seat draft`)."""
+        who = request.state.identity
+        auth.domain(who)
+        return mutate(request, body, lambda c: recruiting.draft(auth, c, who, seat_id, body.text))
+
+    @app.post("/api/v2/seats/{seat_id}/recruit")
+    def seat_recruit(request: Request, seat_id: str, body: M.Empty):
+        """Recruit: up to three Tico templates for the seat at once, each with a one-line reason and a suggested model,
+        exactly one recommended. Local: nothing leaves this server."""
+        who = request.state.identity
+        auth.domain(who)
+        with store.read() as c:
+            return recruiting.candidates(auth, onboarding, c, who, seat_id)
+
+    @app.post("/api/v2/seats/{seat_id}/hire")
+    def seat_hire(request: Request, seat_id: str, body: M.SeatHire):
+        """Pick a candidate: the bot is created in Onboarding in the seat's place with its reporting line, and only
+        then its repository (by its computer for a starter, else BotOps)."""
+        who = request.state.identity
+        auth.domain(who)
+        return mutate(request, body, lambda c: recruiting.hire(auth, onboarding, c, who, seat_id, body))
+
     @app.post("/api/v2/seats/{seat_id}/close")
     def seat_close(request: Request, seat_id: str, body: M.Empty):
         """Take a seat off the chart; its row stays for the record."""
@@ -4485,19 +4547,24 @@ def create_app(settings=None):
         auth.domain(who)
         with store.read() as c:
             result = H.inbox(c, who.actor)
-            result["messages"] = [m for m in result["messages"] if privacy.message_readable(c, privacy.actor(who), m)]
-            result["tasks"] = [t for t in result.get("tasks", []) if privacy.task_readable(c, who, t)]
-            result["approvals"] = [a for a in result.get("approvals", [])
-                                   if privacy.message_readable(c, privacy.actor(who), H.message(c, a["message_id"]))]
-            if who.role == "bot":
-                visible = []
-                for message in result["messages"]:
+
+            def message_visible(message):
+                if not privacy.message_readable(c, privacy.actor(who), message):
+                    return False
+                if who.role == "bot":
                     try:
                         auth.conversation(c, who, message["conversation_id"])
-                        visible.append(message)
                     except Problem:
-                        pass
-                result["messages"] = visible
+                        return False
+                return True
+
+            # A bot that never marks messages read can hold thousands: the newest INBOX_LIMIT readable ones are
+            # checked and sent, oldest first as before, and `more_messages` says older ones are waiting.
+            result["messages"], result["more_messages"] = _newest_visible(result["messages"], message_visible)
+            result["tasks"], result["more_tasks"] = _first_visible(result.get("tasks", []),
+                                                                   lambda t: privacy.task_readable(c, who, t))
+            result["approvals"] = [a for a in result.get("approvals", [])
+                                   if privacy.message_readable(c, privacy.actor(who), H.message(c, a["message_id"]))]
             result["notices"] = [m for m in result["messages"] if m["kind"] == "notice"]
             return result
 
@@ -4599,7 +4666,10 @@ def create_app(settings=None):
             finally:
                 snapshot.rollback()
             def work(c):
-                unchanged = snapshot.execute("PRAGMA data_version").fetchone()[0] == version
+                from . import provenance_clock
+                clock = selected.get(("provenance_clock",))
+                unchanged = (provenance_clock.current(c) == clock if clock is not None else
+                             snapshot.execute("PRAGMA data_version").fetchone()[0] == version)
                 return execution.heartbeat(c, request.state.identity, body,
                                            live_tasks=selected if unchanged else None)
             return mutate(request, body, work)
@@ -5608,11 +5678,27 @@ def create_app(settings=None):
             config = c.execute("SELECT * FROM bot_config WHERE bot=?", (bot,)).fetchone()
             if config["revision"] != body.expected_revision:
                 raise Problem("version_conflict", "Bot configuration changed; refresh before controlling it", 409)
+            if body.action in ("scope", "unscope"):
+                # A narrower claim, never a wider one: the bot's pause, drain and every other claim check stand, and
+                # the work outside the task stays queued as it is (execution.scoped_sql).
+                task = H.task(c, body.task_id) if body.action == "scope" and body.task_id else None
+                if body.action == "scope" and not (task and privacy.task_readable(c, who, task)):
+                    raise Problem("not_found", "No such task", 404)
+                before = claim_scope(c, bot)
+                c.execute("INSERT INTO bot_control(bot,claim_task) VALUES(?,?) "
+                          "ON CONFLICT(bot) DO UPDATE SET claim_task=excluded.claim_task",
+                          (bot, task["id"] if task else None))
+                c.execute("UPDATE bot_config SET revision=revision+1 WHERE bot=?", (bot,))
+                H.event(c, who.actor, "bot." + body.action, bot,
+                        {"task_id": task["id"] if task else None, "previous": before})
+                return {"bot": bot, "action": body.action, "task_id": task["id"] if task else None,
+                        "revision": config["revision"] + 1}
             if H.bot(c, bot)["state"] == "quarantined" and body.action != "drain":
                 raise Problem("quarantined", "Review the refusal and use quarantine clear to resume this bot", 409)
             if body.action == "resume":
                 settings_admin.ensure_activation(c, who, bot)
-            c.execute("INSERT INTO bot_control VALUES(?,?) ON CONFLICT(bot) DO UPDATE SET draining=excluded.draining",
+            c.execute("INSERT INTO bot_control(bot,draining) VALUES(?,?) "
+                      "ON CONFLICT(bot) DO UPDATE SET draining=excluded.draining",
                       (bot, int(body.action in ("drain", "pause"))))
             if body.action != "drain":
                 c.execute("UPDATE bots SET state=? WHERE slug=?", ("active" if body.action == "resume" else "paused", bot))
@@ -5630,21 +5716,20 @@ def create_app(settings=None):
         # A read first: an idle runner asks every fraction of a second and must not take the write lock.
         with store.read() as c:
             selected = []
-            version = c.execute("PRAGMA data_version").fetchone()[0]
             idle = execution.idle_claim(c, request.state.identity, body,
                                         request.headers.get("idempotency-key"), selected)
             if idle is not None:
                 return idle
-            # Privacy checks open a coherent read snapshot. End it before data_version is
-            # checked under the write lock, or a newer commit stays hidden by that snapshot.
+            if not selected:
+                selected.append(execution.candidate(c, request.state.identity, body,
+                                                    execution.runner(c, request.state.identity)))
+            # End any transaction opened during selection before taking the writer lock. The selected
+            # job is checked against current policy in that transaction.
             if c.in_transaction:
                 c.rollback()
-            # Under the write lock, reuse the read result only if no other connection
-            # committed since that read began. A changed queue is selected afresh.
             def work(write):
-                unchanged = c.execute("PRAGMA data_version").fetchone()[0] == version
                 return execution.claim(write, request.state.identity, body,
-                                       selected=selected[0] if unchanged and selected else None)
+                                       selected=selected[0], prepared=True)
             return mutate(request, body, work)
 
     @app.post("/api/v2/attempts/{aid}/renew")
@@ -5672,6 +5757,10 @@ def create_app(settings=None):
     @app.post("/api/v2/attempts/{aid}/events")
     def events(request: Request, aid: str, body: M.EventBatch):
         body = scrub_attempt(aid, body)          # a secret set in this run never reaches the record
+        # Warm neutral provenance in a read snapshot. The transaction checks current
+        # permissions again, and only reuses this graph while its source clock matches.
+        with store.read_transaction() as c:
+            execution.attempt(c, request.state.identity, aid, active=False)
         return mutate(request, body, lambda c: execution.events(c, request.state.identity, aid, body))
 
     @app.post("/api/v2/attempts/{aid}/capture")
@@ -5696,13 +5785,16 @@ def create_app(settings=None):
 
     @app.post("/api/v2/attempts/{aid}/inputs")
     def inputs(request: Request, aid: str, body: M.Empty):
-        # Most polls find nothing queued: answer those outside the writer gate (execution.idle_inputs).
-        with store.read() as c:
-            validate_identity(c, request.state.identity)
-            idle = execution.idle_inputs(c, request.state.identity, aid)
-            if idle is not None:
-                privacy.require_payload(c, request.state.identity, idle)
-                return idle
+        key = request.headers.get("idempotency-key", "")
+        if 0 < len(key) <= 200:
+            with store.read_transaction() as c:
+                validate_identity(c, request.state.identity)
+                if not c.execute("SELECT 1 FROM idempotency WHERE actor=? AND operation=? AND key=?",
+                                 (request.state.identity.actor, request.url.path, key)).fetchone():
+                    idle = execution.idle_inputs(c, request.state.identity, aid)
+                    if idle is not None:
+                        privacy.require_payload(c, request.state.identity, idle)
+                        return idle
         return mutate(request, body, lambda c: execution.inputs(c, request.state.identity, aid))
 
     @app.post("/api/v2/attempts/{aid}/inputs/{mid}/ack")
@@ -5765,7 +5857,7 @@ def create_app(settings=None):
     from .chat_goals import install as install_chat_goals
     install_chat_goals(app, store, auth, mutate, send)
     from .bot_task_tabs import install as install_bot_task_tabs
-    install_bot_task_tabs(app, store, auth, mutate, settings)
+    install_bot_task_tabs(app, store, auth, mutate, settings, task_views)
     turn_work.install(app, store, auth)
     from . import run_view
     run_view.install(app, store, auth)
@@ -5812,6 +5904,8 @@ def create_app(settings=None):
     stale_review.install(app, store, auth, mutate)
     from . import system_routines
     system_routines.install(app, store, auth, mutate)
+    from . import task_rules
+    task_rules.install(app, store, auth, mutate)
     outcome_stats.install(app, store, auth)
     from .live_meetings import install_live_meetings
     install_live_meetings(app, store, auth, mutate)

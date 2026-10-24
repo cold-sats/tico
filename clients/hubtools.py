@@ -2239,6 +2239,13 @@ def seat_update(api, args):
     return api.patch(f"seats/{args['seat']}", body, key=_key(args))
 
 
+@tool("hub_seat_draft", "The CEO Bot's draft of a Recruiting seat's job description, on the task that asks for it "
+      "(the owner opened the seat). A description a person wrote is kept; Tico says so.",
+      {"seat": _s("The seat id"), "text": _s("The job description")}, required=("seat", "text"), writes=True)
+def seat_draft(api, args):
+    return api.post(f"seats/{args['seat']}/draft", {"text": args.get("text") or ""}, key=_key(args))
+
+
 @tool("hub_seat_close", "Take a Recruiting seat off the org chart, as a person it reports up to (or the owner).",
       {"seat": _s("The seat id")}, required=("seat",), writes=True)
 def seat_close(api, args):
@@ -2543,6 +2550,20 @@ tool("hub_bot_pause", "Pause a bot, as the person who asked you: it takes no new
      {"bot": _s("The bot's slug")}, required=("bot",), writes=True)(_control("pause"))
 tool("hub_bot_resume", "Resume a paused bot, as the person who asked you; one with no computer is placed on one.",
      {"bot": _s("The bot's slug")}, required=("bot",), writes=True)(_control("resume"))
+
+
+@tool("hub_bot_scope", "Limit a bot's claims to one task and its direct subtasks, as the person who asked you, or lift "
+      "that limit with release: its other queued and new work stays queued, untouched, and nothing is paused, resumed "
+      "or started.",
+      {"bot": _s("The bot's slug"), "task": _s("The task it may still work on"),
+       "release": {"type": "boolean", "description": "Lift the limit instead"}}, required=("bot",), writes=True)
+def _bot_scope(api, args):
+    if bool(args.get("task")) == bool(args.get("release")):
+        raise ValueError("Give a task to limit the bot to, or release to lift the limit")
+    who = _as_person(api)
+    revision = who.get(f"bots/{args['bot']}/access")["revision"]
+    body = ({"action": "unscope"} if args.get("release") else {"action": "scope", "task_id": args["task"]})
+    return who.post(f"bots/{args['bot']}/control", {**body, "expected_revision": revision}, key=_key(args))
 
 
 # A computer's full row runs to tens of thousands of characters (every repository, each bot's readiness, runtime
@@ -3338,7 +3359,8 @@ def write_fixture(found, parent):
     return [str(folder / name) for name in files]
 
 
-@tool("hub_message_list", "Messages and notices waiting for you.", {})
+@tool("hub_message_list", "Messages and notices waiting for you: the newest 100 messages and your first 100 open "
+      "tasks; more_messages or more_tasks says more are waiting. Mark messages read to reach older ones.", {})
 def inbox(api, args):
     return api.get("messages", unread="1")
 
@@ -4016,6 +4038,7 @@ AUDIENCE = {
     "hub_repo_product_create": ("owner", "bot", "botops"),   # a bot needs Create product repositories (server)
     **{name: REQUESTER for name in ("hub_credential_grant", "hub_credential_revoke", "hub_credential_import", "hub_credential_delete")},
     **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_restore", "hub_agent_pair_show", "hub_agent_pair_approve", "hub_agent_pair_decline", "hub_bot_place", "hub_bot_go_live", "hub_bot_model", "hub_bot_keep_tasks_going", "hub_bot_pause",
+                                    "hub_bot_scope",
                                     "hub_bot_resume", "hub_bot_access", "hub_bot_owners", "hub_human_add", "hub_group_update",
                                     "hub_tool_add", "hub_tool_update", "hub_tool_remove",
                                     "hub_bot_copy", "hub_bot_update_from_original", "hub_bot_suggest_to_original", "hub_skill_copy")},

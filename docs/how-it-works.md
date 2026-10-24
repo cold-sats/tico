@@ -236,9 +236,10 @@ becomes *Interrupted*. Fifteen minutes later (after the runner's own chance to r
 scheduler settles what needs no eyes: a delivery whose task is already done or closed is dismissed,
 and a run whose host reports its tool calls, that only read (files, searches, web pages, subagents
 that only read) and consumed no approval, is resumed once, each with a note in the job's recovery
-record (`job.auto_reconcile` in the event log). An operator can choose **Try again** or **Don’t retry**
-in Stopped runs. If another turn is busy in the same lane, Tico saves the choice and applies it when
-that turn ends. When the runner itself reported the run interrupted
+record (`job.auto_reconcile` in the event log). A busy bot's runs are settled too: the scheduler waits only
+while a live run of the bot is on the same task (or the same chat, or the same task session). An operator can choose
+**Try again** or **Don’t retry** in Stopped runs; while such a run is still live, Tico saves the choice and applies it
+when that run ends. When the runner itself reported the run interrupted
 (it restarted), such a run resumes at once; when the same computer picks it up again it continues
 the same provider session. **Unreleased:** safe runs held after a usage limit also recover automatically, as described below.
 Other runs stay *owner review needed*, because Tico cannot see what a

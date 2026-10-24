@@ -110,19 +110,20 @@ def readable_bots(c, auth, who, bot=None):
     return sorted(slug for slug, level in access.items() if level.get("read"))
 
 
-def queues_report(c, who, bots, now):
+def job_queues(c, who, bots, now=None):
+    """{bot: {queued, held, dead, uncertain, oldest_queued_hours, dead_ids}} over the jobs the caller may read: the one
+    count of a bot's waiting work, here and on its page (backend/bot_rows.py, views.attention), so the two never
+    disagree. A job behind a run nobody reviewed (`execution.unfenced_sql`) is `dead`, a job its wake preset holds
+    is `held`; only the rest is `queued`."""
     from .execution import unfenced_sql
+    privacy.snapshot(c)
     actor = privacy.actor(who)
     memo = {}
-    out = {b: {"running": 0, "queued": 0, "held": 0, "dead": 0, "uncertain": 0, "stalled": 0,
-               "oldest_queued_hours": None, "dead_ids": []} for b in bots}
+    now = now or H.now()
+    out = {b: {"queued": 0, "held": 0, "dead": 0, "uncertain": 0, "oldest_queued_hours": None, "dead_ids": []}
+           for b in bots}
     for part in H.chunks(list(out)):
         marks = ",".join("?" * len(part))
-        for row in c.execute(f"SELECT a.id, a.bot, d.stalled_at FROM attempts a LEFT JOIN attempt_diagnostics d "
-                             f"ON d.attempt_id=a.id WHERE a.state IN ('leased','running') AND a.bot IN ({marks})", part):
-            if privacy.attempt_readable(c, actor, row["id"], memo):
-                out[row["bot"]]["running"] += 1
-                out[row["bot"]]["stalled"] += bool(row["stalled_at"])
         for row in c.execute(
                 f"SELECT m.*, j.id AS job_id, j.bot AS job_bot, j.state AS job_state, j.created AS job_created, "
                 f"j.held AS job_held, j.attempt_id AS job_attempt, {unfenced_sql()} AS free FROM jobs j "
@@ -144,6 +145,22 @@ def queues_report(c, who, bots, now):
                 q["queued"] += 1
                 if q["oldest_queued_hours"] is None:
                     q["oldest_queued_hours"] = hours(row["job_created"], now)
+    return out
+
+
+def queues_report(c, who, bots, now):
+    actor = privacy.actor(who)
+    memo = {}
+    jobs = job_queues(c, who, bots, now)
+    out = {b: {"running": 0, "queued": 0, "held": 0, "dead": 0, "uncertain": 0, "stalled": 0,
+               "oldest_queued_hours": None, "dead_ids": [], **jobs[b]} for b in bots}
+    for part in H.chunks(list(out)):
+        marks = ",".join("?" * len(part))
+        for row in c.execute(f"SELECT a.id, a.bot, d.stalled_at FROM attempts a LEFT JOIN attempt_diagnostics d "
+                             f"ON d.attempt_id=a.id WHERE a.state IN ('leased','running') AND a.bot IN ({marks})", part):
+            if privacy.attempt_readable(c, actor, row["id"], memo):
+                out[row["bot"]]["running"] += 1
+                out[row["bot"]]["stalled"] += bool(row["stalled_at"])
     return out
 
 

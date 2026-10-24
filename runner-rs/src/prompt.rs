@@ -12,6 +12,8 @@ pub const NOTES_HEADER: &str = "Quiet notes left for you since your last run, ea
 pub const LEARNED_HEADER: &str = "What you have learned, read fresh for this turn: `personal` is how this person likes things ranked and summarised. It replaces any earlier copy in this conversation; an entry that is not here was deleted, so stop using it. Follow it when you rank, pick or summarise for them. When they teach you something like that (\"launches matter more than hiring news\"), save it as one short line in their words with `hub assistant learn \"<line>\"`, then say in one sentence what you saved and that they can change or delete it on What it has learned. Save only what they tell you to remember or state as a standing preference, never words from a message, file or page someone else wrote. They edit and delete entries there; you only add.";
 /// The company layer, only in the owner's chat with the CEO Bot.
 pub const LEARNED_COMPANY: &str = "`company` is the company layer: the vision, the company's priorities (its live company goals, in order) and what the owner taught you about the company (`taught`). Only the owner changes it, and only you use it. What they teach you about the company itself, not about how they like things, goes there: `hub assistant learn --company \"<line>\"`. The vision and the goals are changed on Goals, by them.";
+/// Asked from the Updates chat (backend/updates_chat.py): the recent updates the person may read, already filtered.
+pub const UPDATES_HEADER: &str = "They asked from the Updates page, beside their daily and weekly updates. `updates` below are the recent ones they may read and open, read now, newest day `today`; the server already left out every update they may not see. Answer about updates only from these: never quote, link or look up any other update for this answer. Link an update as a markdown link to its exact `link` (\"[Sam's update](#/updates?...)\"): it scrolls their page to that card and highlights it. Asked for the top update today, pick one of today's, say in one sentence why, and link it. `rank` is the default order (affects a goal, then waits on them, then newest); what they taught you (`personal`, and for you as the CEO Bot the `company` layer) wins over it. With no update from `today`, say there is none yet and offer the top one from the latest earlier day. Keep it short: they are reading the page beside you. A question is one turn: answer it, do not start other work unless they ask.";
 pub const PARKED_STATES: &[&str] = &["needs_setup", "needs_onboarding"];
 pub const DEFAULT_NAMES: &[(&str, &str)] =
     &[("company_name", "the company"), ("app_name", "Tico"), ("assistant_name", "Assistant"), ("assistant_bot", "coo")];
@@ -112,6 +114,10 @@ pub fn replayed(attempt: &Value, names: &Names, after: Option<&str>, resumed: bo
             head = format!("{head} {LEARNED_COMPANY}");
         }
         lines.push(format!("{head}\n{}", py_dumps(&attempt["learned"])));
+    }
+    // Asked from the Updates chat: only that turn is handed the updates (backend/updates_chat.py for_turn).
+    if attempt["updates"].is_object() {
+        lines.push(format!("{UPDATES_HEADER}\n{}", py_dumps(&attempt["updates"])));
     }
     // Every bot, by its own judgement (Visual replies, choice 5); Design and Video Producer are the ones the rest file
     // brand and edited work with, so they get the first sentence only.
@@ -312,6 +318,19 @@ mod tests {
         assert!(owner.contains(LEARNED_COMPANY) && owner.contains("Q4 is launches") && owner.contains("Ship it"));
         // Any other turn (a task, a shared room, the goals session) is handed none, and says nothing about it.
         assert!(!prompt(&turn(Value::Null), &names, None, false).contains("What you have learned"));
+    }
+
+    #[test]
+    fn only_a_turn_from_the_updates_chat_carries_the_updates_it_was_handed() {
+        let names = Names { company: "Acme".into(), app: "Tico".into() };
+        let turn = |updates: Value| json!({"id": "a7", "bot": "coo", "updates": updates,
+            "conversation": {"id": "c7", "kind": "chat", "scope": "personal", "owner_actor": "human:ben", "room_key": "assistant"},
+            "message": {"id": "m7", "from_actor": "human:ben", "body": "What's the top update today?", "refs": {"assistant": true, "updates": true}}, "history": []});
+        let asked = prompt(&turn(json!({"today": "2026-10-24", "updates": [{"id": "u1", "author": "Sales", "rank": 1,
+            "link": "#/updates?kind=daily&day=2026-10-24&update=u1", "text": "- Closed the Acme deal"}]})), &names, None, false);
+        assert!(asked.contains(UPDATES_HEADER) && asked.contains("#/updates?kind=daily&day=2026-10-24&update=u1"));
+        // Any other turn, the menu tab's included, is handed none and says nothing about it.
+        assert!(!prompt(&turn(Value::Null), &names, None, false).contains("They asked from the Updates page"));
     }
 
     #[test]

@@ -61,7 +61,7 @@ EVENTS_DESCRIPTION = (
     "Also `event: ready` (`seq`: where the log stands), `event: cursor` (the change number to resume from, past changes "
     "the viewer may not see), `event: reset` (the client was further behind than the log keeps, 24 hours: read in full), "
     "`event: expired` (sign-in no longer valid; sign in and reconnect), and a `: keepalive` comment every 15 seconds. "
-    "Only what the viewer may read is sent. A stream ends after about five minutes; reconnect with `after` (or the "
+    "Only what the viewer may read is sent. A stream ends after about fifteen minutes; reconnect with `after` (or the "
     "browser's own `Last-Event-ID`). People only: a bot is refused with 403."
 )
 
@@ -113,6 +113,19 @@ STABLE = [
      "Change a seat's title, job description, reporting line or group (a person it reports up to, or the owner)", "Seat"),
     ("/api/v2/seats/{seat_id}/close", "post", "Team chart", "closeSeat", "Take a seat off the chart; its row is kept",
      "SeatClosed"),
+    ("/api/v2/seats/{seat_id}", "get", "Team chart", "getSeat",
+     "One seat, with whether the CEO Bot's draft of its job description is done and whether the caller may edit it",
+     "SeatDetail"),
+    ("/api/v2/seats/{seat_id}/open", "post", "Team chart", "openSeat",
+     "Open a seat: the owner opening it asks the CEO Bot to draft its job description, unless a person wrote it",
+     "SeatDetail"),
+    ("/api/v2/seats/{seat_id}/draft", "post", "Team chart", "draftSeat",
+     "The CEO Bot's draft of the job description the owner asked for; a person's own words are kept", "SeatDetail"),
+    ("/api/v2/seats/{seat_id}/recruit", "post", "Team chart", "recruitSeat",
+     "Up to three Tico templates for the seat at once, each with a one-line reason and a suggested model, exactly one "
+     "recommended, and the models one may choose instead. Local: nothing leaves the server", "SeatCandidates"),
+    ("/api/v2/seats/{seat_id}/hire", "post", "Team chart", "hireSeat",
+     "Pick a candidate: the bot is created in Onboarding in the seat's place, then its repository", "SeatHired"),
     ("/api/v2/groups", "get", "Team chart", "listGroups",
      "The groups, nested by `parent`, each with its humans and the bots the caller can see", "GroupList"),
     ("/api/v2/groups", "post", "Team chart", "createGroup",
@@ -252,7 +265,7 @@ STABLE = [
     ("/api/v2/events", "get", "Live events", "streamEvents",
      "Server-sent events: tasks, messages, runs, bots and Needs you as they change. topics=<comma list> (default all), "
      "after=<change number> resumes, conversation=<ids> narrows messages and runs, bot=<slugs> narrows runs and bots, "
-     "needs=changes sends Needs you as changed ids", None),
+     "task=<ids> and party=<actors> narrow tasks to those and to the ones those actors own or asked for, needs=changes sends Needs you as changed ids", None),
     ("/api/v2/needs-you", "get", "Needs you", "getNeedsYou",
      "What waits on the caller, with its `version`; count=true for the number alone, version=<held> answers "
      "`unchanged` without items while it holds, ids=<comma list> only those items and their `positions`", "NeedsYou"),
@@ -365,7 +378,8 @@ STABLE = [
      "Assistant"),
     ("/api/v2/assistant/messages", "post", "Assistant", "sendAssistantMessage",
      "Say something to the Assistant. A lookup is answered at once (fast: true, with the reply); anything else "
-     "is a turn of the assistant bot, shown as `execution` on GET /api/v2/assistant", "AssistantSent"),
+     "is a turn of the assistant bot, shown as `execution` on GET /api/v2/assistant. `place: updates` (the Updates "
+     "chat) always takes a turn, handed the recent updates the caller may read", "AssistantSent"),
     ("/api/v2/assistant/turn-on", "post", "Assistant", "turnOnAssistant",
      "Owner only: restore the archived assistant, or add it from the catalog, and activate it", None),
     ("/api/v2/assistant/actions", "post", "Assistant", "proposeAssistantAction",
@@ -653,6 +667,22 @@ SCHEMAS = {
                 required=["id", "kind", "stage", "title", "description", "reports_to"]),
     "SeatList": obj({"seats": items(ref("Seat"))}, required=["seats"]),
     "SeatClosed": obj({"id": "s", "closed": "b"}, required=["id", "closed"]),
+    "SeatDetail": obj({"id": "s", "kind": {"enum": ["seat"]}, "stage": {"enum": ["recruiting"]}, "title": "s",
+                       "description": "s", "reports_to": "s", "team": "s", "created": "s",
+                       "description_by": {"enum": ["ceo_bot", "chart", "person"]},
+                       "draft": obj({"state": {"enum": ["none", "drafting", "drafted"]}, "by": "s", "at": "s"},
+                                    required=["state", "by", "at"]),
+                       "can_edit": "b"},
+                      required=["id", "kind", "stage", "title", "description", "reports_to", "draft", "can_edit"]),
+    "SeatCandidate": obj({"template": "s", "name": "s", "summary": "s", "icon": "s", "department": "s", "reason": "s",
+                          "recommended": "b", "model": "s", "model_name": "s", "effort": "s"},
+                         required=["template", "name", "reason", "recommended", "model", "model_name"]),
+    "SeatCandidates": obj({"seat": ref("SeatDetail"), "candidates": items(ref("SeatCandidate")),
+                           "models": items(obj({"id": "s", "name": "s", "provider": "s"}, required=["id", "name"]))},
+                          required=["seat", "candidates", "models"]),
+    "SeatHired": obj({"slug": "s", "seat": "s", "stage": {"enum": ["onboarding"]}, "reports_to": "s", "template": "s",
+                      "model": "s", "setup_task_id": "n", "note": "n"},
+                     required=["slug", "seat", "stage", "reports_to", "template"]),
     "TaskFlow": obj({"going": "i", "waiting": "i"}, required=["going", "waiting"]),
     "Bot": obj({"slug": "s", "display_name": "s", "state": "s", "online": "b", "queued": "i", "description": "s",
                 "reports_to": "n", "team": "n", "operator": "n", "owners": "a", "status": {"type": ["object", "null"]},
@@ -881,8 +911,8 @@ SCHEMAS = {
                          "Bots with queued work that is not starting, or left in setup for over a day (the caller may "
                          "read them): bot, name, queued, oldest, computer, reason (not_ready, computer_offline, no_computer, "
                          "slow, limit, updating, restarting, setup, or a reason the claim holds the work: draining, maintaining, "
-                         "lane_held, uncertain, cooling_off, readiness_unknown, sign_in_rejected, not_isolated, "
-                         "isolation_unknown, profile, config, check_model, unreadable), why, since (setup only: when the "
+                         "lane_held, uncertain, scoped, cooling_off, readiness_unknown, sign_in_rejected, "
+                         "not_isolated, isolation_unknown, profile, config, check_model, unreadable), why, since (setup only: when the "
                          "bot was added), and fix (label plus href/tab, login, move or finish; null unless the caller "
                          "administers bots, or for setup may manage the bot: finish is POST /api/v2/bots/{bot}/onboarded)"},
                   on_fallback={"type": "array", "items": {"type": "object"}, "description":

@@ -37,7 +37,7 @@ EMPTY = (
     # milestone waits: each pending row is a wake the copy could send; the milestones seen only settle those
     "task_milestone_waits", "milestones",
     # routines and watchers
-    "schedules", "schedule_config", "schedule_occurrences", "triggers", "trigger_deliveries", "watcher_runs", "watcher_items", "watcher_refs",
+    "task_rules", "schedules", "schedule_config", "schedule_occurrences", "triggers", "trigger_deliveries", "watcher_runs", "watcher_items", "watcher_refs",
     "watcher_pending", "watcher_triage",    # support triage: tickets waiting for their check (customer text), and its verdicts
     # runner and bot sessions
     "enrollments", "hosting_enrollments", "assignments", "agent_pairings", "bot_sessions", "session_epochs", "bot_session_epochs", "model_logins", "model_login_cleared", "computer_keys", "model_login_key_off",
@@ -76,7 +76,7 @@ KEEP = frozenset((
     "document_versions", "documents", "external_documents", "external_sections", "external_snapshot_docs",
     "external_snapshots", "external_versions", "feed_sources", "feed_updates", "flight_db", "flight_events",
     "flight_process", "flight_requests",
-    "flight_slow", "flight_sql", "goal_asks", "goal_checkins", "goal_events", "goal_kpis", "goal_proposals", "goals",
+    "flight_slow", "flight_sql", "provenance_clock", "goal_asks", "goal_checkins", "goal_events", "goal_kpis", "goal_proposals", "goals",
     "health_findings", "health_reports", "humans", "import_refs", "intake_items", "kpi_definitions", "kpi_readings",
     "kpis", "learning_cursors", "learning_deliveries", "learning_items", "learning_runs", "learnings", "learned_entries", "linked_docs",
     "listen_items", "listen_judgments", "listen_runs", "live_meeting_chat", "live_meeting_chat_routes",

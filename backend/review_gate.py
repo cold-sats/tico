@@ -36,13 +36,16 @@ def snapshot(service, prs):
             repo = pr.get("repo")
             if not repo or not pr.get("number"):
                 raise ValueError("unresolved PR")
-            token, _ = service.mint([repo], {"pull_requests": "read", "checks": "read", "statuses": "read"})
+            try:
+                token, _ = service.mint([repo], {"pull_requests": "read", "checks": "read", "statuses": "read"})
+            except Exception:
+                raise ValueError("the GitHub App could not sign in for " + repo)
             headers = {"Authorization": "Bearer " + token}
             base = f"/repos/{quote(repo, safe='/')}"
             def read(path, params=None):
                 response = service._call("GET", base + path, headers=headers, params=params)
                 if response.status_code != 200:
-                    raise ValueError("GitHub read failed")
+                    raise ValueError(f"GitHub answered {response.status_code}")
                 return response.json()
             data = read(f"/pulls/{pr['number']}")
             head = data["head"]["sha"]
@@ -68,8 +71,11 @@ def snapshot(service, prs):
             if read(f"/pulls/{pr['number']}")["head"]["sha"] != head:
                 raise ValueError("head changed during collection")
             out[pr["id"]] = {"head_sha": head, "checks": checks, "at": H.now()}
-        except Exception:
-            out[pr["id"]] = {"error": True}
+        except ValueError as exc:
+            out[pr["id"]] = {"error": True, "why": str(exc)}
+        except Exception as exc:
+            # Only the exception's type: a transport error's text can carry request details.
+            out[pr["id"]] = {"error": True, "why": "GitHub read failed: " + type(exc).__name__}
     return out
 
 
@@ -120,7 +126,11 @@ def check(c, actor, row, snapshots=None, note=None, require_pr=False):
         cached = H._json(pr.get("detail_json"), {}) or {}
         changed = snapshots is not None and (pr.get("updated") or "") > detail.get("at", "") and cached.get("head_sha") != head
         if changed or detail.get("error") or not test_receipts.SHA.fullmatch(head):
-            reject(c, actor, row, "ci", head, pr, f"Review refused: cannot verify the current head and CI for {pr['url']}. Refresh the PR link and retry the review move.")
+            why = (detail.get("why") or "GitHub read failed" if detail.get("error")
+                   else "the PR link changed while GitHub was read" if changed else "no PR head recorded")
+            # Every move reads GitHub afresh, so a transient failure clears on a plain retry.
+            reject(c, actor, row, "ci", head, pr, f"Review refused: cannot verify the current head and CI for {pr['url']} ({why}). "
+                                                  "Retry the review move; if it repeats, refresh the PR link.")
         failing = sorted(k.removeprefix("check:").removeprefix("status:") for k, v in (detail.get("checks") or {}).items() if v == "failing")
         if failing or snapshots is None and pr.get("checks") == "failing":
             names = ", ".join(failing) or "Checks (refresh the PR link for check names)"
