@@ -670,6 +670,7 @@ def delete(c, settings, auth, who, rule_id, expected_revision=None):
 def install(app, store, auth, mutate):
     from fastapi import Request
     from . import models as M
+    from .store import Problem
 
     @app.get("/api/v2/rules")
     def list_rules(request: Request, scope_kind: str | None = None, scope_id: str | None = None,
@@ -680,6 +681,22 @@ def install(app, store, auth, mutate):
         auth.domain(who)
         with store.read() as c:
             return listing(c, store.settings, auth, who, scope_kind, scope_id, event, limit, max(0, offset))
+
+    @app.get("/api/v2/rules/{rule_id}")
+    def read_rule(rule_id: str, request: Request):
+        """One rule (a built-in or a table row) with its 7-day figures."""
+        who = request.state.identity
+        auth.domain(who)
+        with store.read() as c:
+            found = next((r for r in BUILTINS if r["id"] == rule_id), None)
+            counts = usage(c, who.actor)
+            if found:
+                return {"rule": _with_usage({**found, "can_change": False}, counts)}
+            row = get(c, rule_id)
+            if not _visible(c, who, row):
+                raise Problem("not_found", "No such rule", 404)
+            return {"rule": _with_usage({**view(row), "can_change": can_change(
+                c, store.settings, auth, who, row["scope_kind"], row["scope_id"])}, counts)}
 
     @app.post("/api/v2/rules")
     def create_rule(request: Request, body: M.RuleCreate):
