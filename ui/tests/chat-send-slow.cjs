@@ -188,8 +188,11 @@ async function check(engine) {
     assert.equal(await box.inputValue(), 'A rule refused this draft');
     assert.equal(await page.evaluate(() => BOT_PILL.unconfirmed), null, 'confirmed refusal ends pending delivery');
     answer = 'ok';
+    const dump = () => page.evaluate(() => { const b = document.querySelector('#chat-composer .p-send'); return JSON.stringify({box: document.querySelector('#chat-composer textarea').value, sending: BOT_PILL.sending, unconfirmed: BOT_PILL.unconfirmed, action: BOT_PILL.action, goal: pillGoalMode(BOT_PILL), send: !!BOT_PILL.send, disabled: b.disabled, hidden: b.hidden, cls: b.className, toasts: [...document.querySelectorAll('.toast')].map(t => t.className + ':' + t.textContent), hash: location.hash, active: document.activeElement?.outerHTML?.slice(0, 120)}); });
+    const keysBefore = keys.length, b4 = await dump();
     await send.click();
-    await page.waitForFunction(() => !document.querySelector('#chat-composer textarea').value && !BOT_PILL.sending);
+    try { await page.waitForFunction(() => !document.querySelector('#chat-composer textarea').value && !BOT_PILL.sending, null, {timeout: 5000}); }
+    catch (e) { console.error('DEBUG', engine, 'before', b4, 'after', await dump(), 'keys', keys.length - keysBefore, 'sends', JSON.stringify(sends.slice(-2)), 'warn', JSON.stringify(warnings.slice(-3))); throw e; }
     assert.notEqual(keys.at(-1), refusedKey, 'confirmed refusal allows a later explicit send to evaluate again');
     assert.equal(sends.at(-1), 'A rule refused this draft');
     await page.evaluate(() => document.querySelectorAll('.toast').forEach(t => t.remove()));
