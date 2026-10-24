@@ -394,6 +394,7 @@ _PROPOSABLE = [(m, re.compile(p)) for m, p in (
     ("POST", r"/api/v2/tasks/[^/]+/(comments|links|labels|run-now|ask)"),
     ("POST", r"/api/v2/messages"), ("POST", r"/api/v2/chat/[^/]+"), ("POST", r"/api/v2/notes"),
     ("POST", r"/api/v2/updates/[^/]+/reply"), ("POST", r"/api/v2/assistant/batch"),
+    ("POST", r"/api/v2/seats/batch"),
     ("POST", r"/api/v2/bots"), ("POST", r"/api/v2/bots/[^/]+/(archive|definition|owners|co-owners|updates|goals)"),
     ("POST", r"/api/v2/bots/[^/]+/(assignment|placement)"), ("POST", r"/api/v2/credentials/[^/]+/grants"),
     ("POST", r"/api/v2/(?:people|humans)/[^/]+"), ("POST", r"/api/v2/access/(?:people|humans)(/[^/]+)?"),
@@ -1542,6 +1543,8 @@ def install(app, store, auth, mutate, onboarding):
         who = person(request)
 
         def work(c):
+            if normalize_path(body.path) == "/api/v2/seats/batch" and who.role != "owner":
+                raise Problem("forbidden", "Only the owner may confirm a chart-model re-org", 403)
             if normalize_path(body.path) in ("/api/v2/chat/" + settings.assistant_bot, "/api/v2/chat/" + ceo_bot.SLUG) \
                     or not valid_operation(body.method, body.path, settings):
                 raise Problem("operation", "That is not something the " + settings.assistant_name

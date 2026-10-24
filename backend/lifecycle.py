@@ -214,6 +214,14 @@ def create_seat(auth, c, who, title, description="", reports_to="", team="", des
     return _seat(seat(c, seat_id))
 
 
+def create_seats(auth, c, who, seats):
+    """Add one confirmed group of Recruiting seats; the caller's chain rule applies to every seat."""
+    if not seats or len(seats) > 50:
+        raise Problem("seats", "Add between 1 and 50 seats at a time", 422)
+    return {"seats": [create_seat(auth, c, who, item.title, item.description, item.reports_to, item.team)
+                       for item in seats]}
+
+
 def update_seat(auth, c, who, seat_id, fields):
     row = seat(c, seat_id)
     _may_place(auth, c, who, row["reports_to"])
