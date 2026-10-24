@@ -1204,6 +1204,41 @@ def goal_ceo_bot_level3_offer(api, args):
     return api.post("ceo-bot/level3-offer", {}, key=_key(args))
 
 
+@tool("hub_goal_ceo_bot_decide", "The CEO Bot only, at level 3: make one decision alone, with its reason: 1 to 10 "
+      "changes to bot tasks (create a task for a bot, reorder one to the top of its queue, reassign one to another "
+      "bot, close one), logged under one action id with an Undo for the owner. A task for a person, spending, "
+      "publishing, outside sends, bots, goals, targets, the vision and instructions stay the owner's: those parts, and "
+      "any a bot offline can't take, become one proposal in their Needs you.",
+      {"reason": _s("Why, in one sentence the owner reads in the log"),
+       "changes": {"type": "array", "items": {"type": "object", "properties": {
+           "do": {"type": "string", "enum": ["create", "reorder", "reassign", "close"]},
+           "task_id": _s("The bot task to reorder, reassign or close"),
+           "owner": _s("The bot for a new or reassigned task"), "title": _s("A new task's title"),
+           "body": _s("A new task's body"), "note": _s("Why a task closes")}, "required": ["do"]},
+           "description": "1 to 10 changes"},
+       "goal_id": _s("The goal this serves, if any")},
+      required=("reason", "changes"), writes=True)
+def goal_ceo_bot_decide(api, args):
+    changes = args["changes"]
+    if isinstance(changes, str):                # the CLI passes the list as JSON
+        try:
+            changes = json.loads(changes)
+        except ValueError as exc:
+            raise ValueError(f"changes is a JSON list of changes: {exc}") from None
+    body = {"reason": args["reason"], "changes": list(changes)}
+    if args.get("goal_id"):
+        body["goal_id"] = args["goal_id"]
+    return api.post("ceo-bot/decisions", body, key=_key(args))
+
+
+@tool("hub_goal_ceo_bot_log", "The CEO Bot log, newest first: each decision it made alone and each thing it proposed "
+      "instead because it stays the owner's, with the reason and what Undo restored. The owner only: anyone else, "
+      "the CEO Bot included, is refused.",
+      {"before": _s("next_before from the previous page")})
+def goal_ceo_bot_log(api, args):
+    return api.get("ceo-bot/log" + (f"?before={quote(args['before'])}" if args.get("before") else ""))
+
+
 @tool("hub_goal_update", "Edit a goal: title, body, the goal it serves, its owner, or its place in "
       "the owner's order. Moving it is for the parent's owner or someone above.",
       {"id": _s("Goal id"), "title": _s("New title"), "body": _s("New body"),
@@ -2218,6 +2253,12 @@ def bot_ready(api, args):
       "to, and no bot yet. A seat holds no work: work for its role stays with its manager.", {})
 def seat_list(api, args):
     return api.get("seats")
+
+
+@tool("hub_org_models", "The published Tico starter org chart models: recommendations come from these models only. "
+      "They contain Tico's public role and team catalog, never another company's bots or data.", {})
+def org_models(api, args):
+    return api.get("org-models")
 
 
 @tool("hub_seat_create", "Add a Recruiting seat, as a person: a role with its job description, reporting to you or "
@@ -3382,6 +3423,9 @@ def ack(api, args):
       "\"body\": {\"decision\": \"declined\", \"note\": \"<reason>\"}}, {\"path\": \"/api/v2/messages/<id>/answer\", "
       "\"body\": {\"text\": \"<their words>\"}}, ...]} (up to 100). Approving goes on a card only when the person's "
       "message names it (approve, merge, publish, send, spend); 'clear my queue' never approves. "
+      "The CEO Bot may propose one owner-confirmed org-chart change as POST /api/v2/seats/batch with body "
+      "{\"seats\":[{\"title\":\"...\",\"description\":\"...\",\"reports_to\":\"...\",\"team\":\"...\"}]} . "
+      "Use hub_org_models for published recommendations; no seat is added before the owner confirms. "
       "A task action, decline or answer the person clearly asked for needs no card: pass on_behalf_of to that tool instead. "
       "Nothing here runs until they confirm.",
       {"summary": _s("One plain sentence saying what will happen if they confirm"),
@@ -4067,6 +4111,7 @@ AUDIENCE = {
     "hub_bot_ready": BOTS,                          # an onboarding bot's own "I'm ready" (backend/lifecycle.py)
     # A seat is placed by a person under themselves (views and rights in backend/lifecycle.py).
     **{name: PEOPLE for name in ("hub_seat_create", "hub_seat_update", "hub_seat_close")},
+    "hub_org_models": KINDS,
     # Files are a bot's own: only a bot, or the computer running it, publishes them.
     **{name: BOTS for name in ("hub_file_publish", "hub_file_link", "hub_file_touch", "hub_file_import")},
     # Reads that go over POST, which the Assistant may not make on its own.

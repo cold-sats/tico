@@ -1206,6 +1206,8 @@ class RunnerRestart(Contract):
 
 
 class RunnerUpdate(Contract):
+    running: int | None = Field(default=None, ge=0, le=256)
+    handed_back: int | None = Field(default=None, ge=0, le=100_000)
     state: Literal["idle", "waiting", "updating", "failed", "rolled_back", "pinned", "blocked"]
     target: str = Field(default="", max_length=100)
     error: str = Field(default="", max_length=300)
@@ -1427,8 +1429,13 @@ class SeatCreate(Contract):
     """A Recruiting seat: a role on the org chart with its job description and reporting line, and no bot."""
     title: Annotated[str, Field(min_length=1, max_length=120)]
     description: Annotated[str, Field(max_length=8000)] = ""
-    reports_to: Annotated[str, Field(max_length=200)] = ""     # `human:<id>` or a bot's slug; the caller by default
+    reports_to: Annotated[str, Field(max_length=200)] = ""     # `human:<id>`, a bot's slug or `seat:<id>`; the caller by default
     team: Annotated[str, Field(max_length=100)] = ""
+
+
+class SeatBatchCreate(Contract):
+    """A single confirmed group of Recruiting seats."""
+    seats: Annotated[list[SeatCreate], Field(min_length=1, max_length=50)]
 
 
 class SeatUpdate(Contract):
@@ -1744,6 +1751,22 @@ class CeoBotMerge(Contract):
     tasks: list[str] = Field(min_length=2, max_length=10)
 
 
+# One change in a decision the CEO Bot makes alone at level 3 (backend/ceo_acts.py).
+class CeoBotChange(Contract):
+    do: Literal["create", "reorder", "reassign", "close"]
+    task_id: str | None = Field(default=None, max_length=100)
+    owner: str | None = Field(default=None, max_length=200)
+    title: str | None = Field(default=None, max_length=300)
+    body: str | None = Field(default=None, max_length=8000)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class CeoBotDecision(Contract):
+    reason: str = Field(min_length=1, max_length=1000)
+    goal_id: str | None = Field(default=None, max_length=100)
+    changes: list[CeoBotChange] = Field(min_length=1, max_length=10)
+
+
 class UsageCountNotice(Contract):
     state: Literal["shown", "dismissed"]
 
@@ -1886,6 +1909,12 @@ class OnboardingCompanyFile(Contract):
 
 class OnboardingCompanyImport(OnboardingCompanyFile):
     fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class OnboardingInvite(Contract):
+    """The email for a person the company file from setup names; Invite adds them and sends the invite. Empty once
+    they are on the roster: Invite then sends to the address they were added with."""
+    email: str = Field(default="", max_length=320)
 
 
 class Recruit(Contract):

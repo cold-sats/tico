@@ -27,7 +27,7 @@ from . import repo_waits
 from . import built_on
 from . import agents, app_delivery, batch, external_sync, inbox_isolation, lifecycle, mcp_oauth, recruiting, harness_actions, model_login, oidc, personal_tokens, views
 from . import outcome_stats
-from . import ceo_bot, owner_link
+from . import ceo_bot, invites, owner_link
 from . import login_holds
 from . import auto_tasks, check_models, run_triggers, task_models, team_rules, update_feeds, topic_change, usage_limits, bot_to_bot, wake_presets, visuals, wake_rules, quiet_work, milestone_waits
 from . import task_privacy as privacy
@@ -51,7 +51,7 @@ from . import names as actor_names
 from .openapi_v2 import STABLE as STABLE_ROUTES
 from .route_renames import old_paths as old_route_paths
 from . import updates
-from . import company_billing, gateway_connection
+from . import company_billing, company_server, gateway_connection
 from . import providers as Providers
 from . import access as Access
 from . import releases, runner_versions, ui_bundle
@@ -144,11 +144,15 @@ def create_app(settings=None):
         asyncio.get_running_loop().run_in_executor(None, auth.warm)   # Cloudflare's keys, before anyone signs in
         asyncio.get_running_loop().run_in_executor(None, app.state.vault.cipher.warm, store)   # the KMS data key
         # TICO_SAMPLE_COMPANY=on: a new company starts as the sample company, once (backend/sample_company.py).
-        if settings.company_file_data:
+        if settings.company_file_configured or settings.company_file_data:
+            # A file that can't be applied is kept for the owner to see; never a sample company in its place.
             from . import company_import
-            with store.transaction() as c:
-                company_import.load_on_start(onboarding, c)
-        elif settings.sample_company:
+            company_import.start(onboarding, store, telemetry)
+        else:
+            # The file setting was removed: a failure kept from it no longer describes this install.
+            from . import company_import
+            company_import.forget(store)
+        if not (settings.company_file_configured or settings.company_file_data) and settings.sample_company:
             try:
                 from . import sample_company
                 with store.transaction() as c:
@@ -335,6 +339,7 @@ def create_app(settings=None):
     app = FastAPI(title=settings.app_name + " API", version="2.0.0", lifespan=lifespan,
                   docs_url=None, redoc_url=None, openapi_url=None)
     app.state.store, app.state.auth, app.state.execution = store, auth, execution
+    app.state.onboarding = onboarding      # tests build a picked team as bots, as the sample company does
     from .ui_compression import UiCompression
     app.add_middleware(UiCompression)
 
@@ -389,6 +394,11 @@ def create_app(settings=None):
     async def storage_handler(request, exc):
         telemetry.capture("request", exc, 503, route=error_route(request))
         request.state.telemetry_captured = True
+        # The write lock stayed taken past store.WRITE_WAIT: a load answer, not a fault. Clients retry with the same
+        # Idempotency-Key (runner, clients/tico.py, ui/app/api.js), so the write lands once.
+        if "locked" in str(exc) or "busy" in str(exc):
+            return JSONResponse({"error": {"code": "busy", "detail": "Tico is busy; retry shortly", "retryable": True}},
+                                status_code=503, headers={"Retry-After": "2"})
         # No SQL, database paths, or request bodies in client-facing diagnostics.
         return JSONResponse({"error": {"code": "storage_unavailable", "detail": "Please retry shortly",
                                        "retryable": True}}, status_code=503)
@@ -497,6 +507,10 @@ def create_app(settings=None):
                 return await call_next(request)
             if request.url.path == "/api/v2/team/icon" and request.method == "GET":
                 return await call_next(request)
+            # Tico HQ's check that a self-run server is the one at its address (backend/company_server.py): only a
+            # digest, and only while an owner's connect is pending.
+            if request.url.path == company_server.PROOF_PATH and request.method == "GET":
+                return await call_next(request)
             # The repository webhook (backend/github.py) carries its own HMAC signature.
             if request.url.path == GITHUB_WEBHOOK_PATH and request.method == "POST":
                 return await call_next(request)
@@ -587,12 +601,14 @@ def create_app(settings=None):
                             raise Problem("too_large", "Request exceeds the upload limit", 413)
                         chunks.append(chunk)
                     request._body = b"".join(chunks)
+                # assistant_owns reads the database: off the event loop.
                 if (getattr(request.state, "identity", None) and request.state.identity.via
                         and not request.state.identity.confirmed
-                        and not assistant_writes(request.method, request.url.path, settings, getattr(request, "_body", b""),
-                                                 request.state.identity.actor,
-                                                 lambda tid, shared: assistant_owns(tid, request.state.identity.actor, shared),
-                                                 assistant_direct(), assistant_to_bot)):
+                        and not await asyncio.to_thread(lambda: assistant_writes(
+                            request.method, request.url.path, settings, getattr(request, "_body", b""),
+                            request.state.identity.actor,
+                            lambda tid, shared: assistant_owns(tid, request.state.identity.actor, shared),
+                            assistant_direct(), assistant_to_bot))):
                     # A task change, comment or link, a decline or an answer the person asked for in their own Assistant
                     # chat: the turn cites their message and it runs as them, recorded via assistant for that message
                     # (backend/assistant.py).
@@ -615,25 +631,30 @@ def create_app(settings=None):
                                       "/api/v2/assistant/batch); approving is a card unless the person lets you "
                                       "decide approvals, then their cited words. The person confirms a card in "
                                       + settings.app_name, 403)
-                    with store.read() as c:
-                        record = assistant_instruction(c, request.state.identity, asked)
-                        assistant_mod.require_on_task(c, auth, request.state.identity, request.url.path)
-                        if approves:
-                            # Recorded on the approval: decided by the Assistant for the person, their words quoted.
-                            # The bot whose turn it is: the person's Assistant, or the owner's CEO Bot.
-                            acting = request.state.identity.task_actor or "bot:" + settings.assistant_bot
-                            record = {**record, "assistant": acting,
-                                      **assistant_mod.approval_words(c, request.state.identity, record["cited"],
-                                                                     H.actor_id(acting),
-                                                                     assistant_mod.approval_id(request.url.path))}
-                        delegation_reset = H.DELEGATION.set(record)
+                    def cited():
+                        with store.read() as c:
+                            record = assistant_instruction(c, request.state.identity, asked)
+                            assistant_mod.require_on_task(c, auth, request.state.identity, request.url.path)
+                            if approves:
+                                # Recorded on the approval: decided by the Assistant for the person, their words quoted.
+                                # The bot whose turn it is: the person's Assistant, or the owner's CEO Bot.
+                                acting = request.state.identity.task_actor or "bot:" + settings.assistant_bot
+                                record = {**record, "assistant": acting,
+                                          **assistant_mod.approval_words(c, request.state.identity, record["cited"],
+                                                                         H.actor_id(acting),
+                                                                         assistant_mod.approval_id(request.url.path))}
+                            return record
+                    delegation_reset = H.DELEGATION.set(await asyncio.to_thread(cited))
             early = None
             caller = getattr(request.state, "identity", None)
             if caller:
                 request.state.privacy_source = caller
             if caller and request.method not in ("GET", "HEAD", "OPTIONS"):
-                with store.read() as c:
-                    privacy.guard_write(c, caller, request.url.path, auth)
+                # A bot caller walks its run's provenance here: in a thread, so the event loop keeps serving.
+                def guard():
+                    with store.read() as c:
+                        privacy.guard_write(c, caller, request.url.path, auth)
+                await asyncio.to_thread(guard)
             # The Assistant's citation was checked above; only BotOps borrows a requester's identity here.
             on_behalf = None if getattr(caller, "via", "") == "assistant" else request.headers.get(botops_act.HEADER)
             if (not on_behalf and getattr(request.state, "identity", None) is not None
@@ -1321,6 +1342,8 @@ def create_app(settings=None):
             stored = {**(message.get("refs") or {}), "attachments": attached}
             c.execute("UPDATE messages SET refs_json=? WHERE id=?", (encode(stored), message["id"]))
             message = {**visual_view(c, who, [H.message(c, message["id"])])[0], "visuals": report}
+        if (goal and goal["status"] == "active") or body.attachments:
+            H.held_queue_recheck(c, message["id"])
         if who.role == "bot":
             conv = H.conversation(c, message["conversation_id"])
             if who.attempt_id and all(p.startswith("bot:") for p in conv["participants"]):
@@ -1577,7 +1600,11 @@ def create_app(settings=None):
         admin_only(who, "sees who can sign in")
         with store.read() as c:
             return {**Access.view(c, settings, views.roster(c), settings.proxy_kind, auth.owner_id(c)),
-                    "rules": team_rules.load(c), "you": auth.company_role(who)}
+                    "rules": team_rules.load(c), "you": auth.company_role(who),
+                    # When each person was last sent an invite (backend/invites.py), and whether this install's
+                    # sign-in could send one at all: only the built-in sign-in, through a Tico account issuer.
+                    "invites": {pid: sent["at"] for pid, sent in invites.sent(c).items()},
+                    "invite_email": invites.can_email(settings)}
 
     @app.post("/api/v2/access/people")
     def access_person_add(request: Request, body: M.AccessPersonAdd):
@@ -1602,6 +1629,21 @@ def create_app(settings=None):
         with store.read() as c:
             auth.sync_access(c)
         return result
+
+    @app.post("/api/v2/access/people/{pid}/invite")
+    def access_person_invite(request: Request, pid: str, body: M.Empty):
+        """Owners and admins send someone on the roster an invite from Tico's own sign-in mail (backend/invites.py),
+        never the company's mailbox; a refusal says why, so the owner can tell the person themselves."""
+        who = request.state.identity
+        admin_only(who, "sends invites")
+        invites.request_key(request)
+        with store.read() as c:
+            person = P.person(pid, views.roster(c))
+        if not person or person.get("hidden"):
+            raise Problem("not_found", "Person not found", 404)
+        invites.once(store, auth, settings, who, request, body, person)
+        at = mutate(request, body, lambda c: invites.record(c, who.actor, pid))   # a repeat replays its receipt
+        return {"person": pid, "invited_at": at}
 
     @app.post("/api/v2/access/people/{pid}")
     def access_person_edit(request: Request, pid: str, body: M.AccessPersonEdit):
@@ -1802,6 +1844,27 @@ def create_app(settings=None):
         from . import company_import
         return mutate(request, body, lambda c: company_import.apply(
             onboarding, c, request.state.identity, body.company_yaml, body.fingerprint))
+
+    @app.post("/api/v2/onboarding/company/import-failure/dismiss")
+    def onboarding_company_import_failure_dismiss(request: Request, body: M.Empty):
+        """The owner leaves a kept setup-file failure they won't fix by importing (Health and the welcome page)."""
+        from . import company_import
+        return mutate(request, body, lambda c: company_import.dismiss(onboarding, c, request.state.identity))
+
+    @app.post("/api/v2/onboarding/company/people/{key}/invite")
+    def onboarding_company_invite(request: Request, key: str, body: M.OnboardingInvite):
+        """Invite one person the company file from setup names: they go on the roster with this email (the seats that
+        waited with the owner now report to them), then Tico's own sign-in mail invites them (backend/invites.py).
+        Added but not sent is a Problem the owner sees; Invite again sends again."""
+        from . import company_import
+        who = request.state.identity
+        owner_only(who, "invites the people from setup")
+        row = mutate(request, body, lambda c: company_import.add_invitee(onboarding, c, who, key, body.email))
+        sent = invites.once(store, auth, settings, who, request, body, row)
+        with store.transaction() as c:                  # not a second `mutate`: one request has one idempotency key
+            if sent or row["id"] not in invites.sent(c):      # a repeat keeps the first send's time
+                invites.record(c, who.actor, row["id"])
+            return onboarding.view(c, who)
 
     @app.post("/api/v2/onboarding/sample")
     def onboarding_sample(request: Request, body: M.Empty):
@@ -2125,14 +2188,24 @@ def create_app(settings=None):
             # the nearest thing above it that they may, like that bot's own reports.
             placed = {"b:" + r["id"] for r in bots} | {"p:" + r["id"] for r in view["people"]} | {
                 "g:" + r["id"] for r in view["org_groups"]}
-            seats = []
+            seats, every = [], lifecycle.all_seats(c)
+            parents = {}
             for seat in c.execute("SELECT * FROM seats WHERE closed_at IS NULL ORDER BY created,id").fetchall():
-                parent, seen = lifecycle.org_parent(seat, roster, chart, archived), set()
+                parent, seen = lifecycle.org_parent(seat, roster, chart, archived, every), set()
                 while parent.startswith("b:") and parent[2:] in by_id and parent not in seen \
                         and not access.get(parent[2:], auth.FULL)["see"]:
                     seen.add(parent)
                     parent = by_id[parent[2:]]["org_parent"]
-                if (person or team) and parent not in placed:
+                parents[seat["id"]] = parent
+
+            def shown_here(parent, seen=()):
+                """A seat under a seat is on this view while the top seat of its branch is."""
+                if parent.startswith("s:") and parent[2:] in parents and parent not in seen:
+                    return shown_here(parents[parent[2:]], (*seen, parent))
+                return parent in placed
+            for seat in c.execute("SELECT * FROM seats WHERE closed_at IS NULL ORDER BY created,id").fetchall():
+                parent = parents[seat["id"]]
+                if (person or team) and not shown_here(parent):
                     continue
                 shown = {k: v for k, v in dict(seat).items() if k in ("id", "title", "description", "team", "created")}
                 reports = seat["reports_to"]
@@ -2286,9 +2359,11 @@ def create_app(settings=None):
                     "Treat these as your current goals until they change again.")
             if not body.goals.strip():
                 text = f"{who_name} cleared your goals. Work from your standing instructions until new goals are set."
-            message = H.say(c, who.actor, "bot:" + bot, text, kind="notice")
-            H.event(c, who.actor, "bot.goals", bot, {"chars": len(body.goals)})
-            return {"bot": bot, "goals": body.goals, "message_id": message["id"]}
+            # The stored goals are the change: a bot manager's notice to a paused bot whose held queue is full is
+            # only withheld, and the goals stand on the bot's settings.
+            message, _ = H.unless_queue_full(c, lambda: H.say(c, who.actor, "bot:" + bot, text, kind="notice"))
+            H.event(c, who.actor, "bot.goals", bot, {"chars": len(body.goals), **({} if message else {"notice": "queue_full"})})
+            return {"bot": bot, "goals": body.goals, "message_id": message["id"] if message else None}
         return mutate(request, body, work)
 
     @app.get("/api/v2/models")
@@ -3932,7 +4007,15 @@ def create_app(settings=None):
         who = request.state.identity
         auth.domain(who)
         with store.read() as c:
-            return {"seats": lifecycle.seats(c)}
+            parents = views.seat_parents(c, settings, auth, who)
+            return {"seats": [{**seat, "org_parent": parents.get(seat["id"], "")} for seat in lifecycle.seats(c)]}
+
+    @app.get("/api/v2/org-models")
+    def org_models(request: Request):
+        """Published Tico starter org charts, the only chart models the CEO Bot uses for re-org recommendations."""
+        from . import org_models as published_models
+        auth.domain(request.state.identity)
+        return {"models": published_models.published()}
 
     @app.post("/api/v2/seats")
     def seat_create(request: Request, body: M.SeatCreate):
@@ -3941,6 +4024,13 @@ def create_app(settings=None):
         auth.domain(who)
         return mutate(request, body, lambda c: lifecycle.create_seat(auth, c, who, body.title, body.description,
                                                                      body.reports_to, body.team))
+
+    @app.post("/api/v2/seats/batch")
+    def seat_batch_create(request: Request, body: M.SeatBatchCreate):
+        """Add one confirmed group of Recruiting seats; the owner may place them anywhere, others only in their chain."""
+        who = request.state.identity
+        auth.domain(who)
+        return mutate(request, body, lambda c: lifecycle.create_seats(auth, c, who, body.seats))
 
     @app.patch("/api/v2/seats/{seat_id}")
     def seat_update(request: Request, seat_id: str, body: M.SeatUpdate):
@@ -4687,7 +4777,13 @@ def create_app(settings=None):
                              snapshot.execute("PRAGMA data_version").fetchone()[0] == version)
                 return execution.heartbeat(c, request.state.identity, body,
                                            live_tasks=selected if unchanged else None)
-            return mutate(request, body, work)
+            result = mutate(request, body, work)
+        # The roster, providers and repositories behind the assignments are read from a snapshot after the commit,
+        # not under the write lock: a heartbeat keeps no receipt (store.is_poll), so nothing replays them.
+        with store.read_transaction() as c:
+            result["assignments"] = execution.assigned(c, request.state.identity)
+            privacy.require_payload(c, request.state.identity, {"assignments": result["assignments"]})
+        return result
 
     @app.get("/api/v2/runners/desired")
     def desired_runner_release(request: Request):
@@ -4707,7 +4803,7 @@ def create_app(settings=None):
                                                           "usage_requests": True, "usage_request_main": True,
                                                           "run_pushes": True, "run_rotation": True,
                                                           "run_diagnostics": True, "load_snapshot": True,
-                                                          "attempt_thread": True}}
+                                                          "attempt_thread": True, "runner_drain": True}}
 
     @app.get("/api/v2/runners/assignments")
     def assigned(request: Request):
@@ -4845,7 +4941,11 @@ def create_app(settings=None):
 
     @app.get("/api/v2/runners/{rid}/logins/{lid}")
     def read_login(request: Request, rid: str, lid: str):
-        # A read that also expires: a sign-in nobody finished does not stay open.
+        # A read that also expires: a sign-in nobody finished does not stay open. Polled while a sign-in runs, so the
+        # write lock is taken only when something has run out.
+        with store.read() as c:
+            if not model_login.sweep_due(c):
+                return model_login.read(c, request.state.identity, rid, lid, auth=auth, swept=False)
         with store.transaction() as c:
             return model_login.read(c, request.state.identity, rid, lid, auth=auth)
 
@@ -4862,6 +4962,10 @@ def create_app(settings=None):
     @app.get("/api/v2/runner-logins")
     def runner_logins(request: Request):
         who = request.state.identity
+        with store.read() as c:
+            execution.runner(c, who)
+            if not model_login.sweep_due(c):
+                return {"logins": model_login.pending(c, who.runner_id, swept=False)}
         with store.transaction() as c:
             execution.runner(c, who)
             return {"logins": model_login.pending(c, who.runner_id)}
@@ -4886,6 +4990,11 @@ def create_app(settings=None):
     @app.get("/api/v2/runner-harness-actions")
     def runner_harness_actions(request: Request):
         who = request.state.identity
+        with store.read() as c:
+            execution.runner(c, who)
+            if not harness_actions.sweep_due(c):
+                return {"actions": harness_actions.pending(c, who.runner_id, swept=False),
+                        "choices": harness_actions.choices(c, who.runner_id)}
         with store.transaction() as c:
             execution.runner(c, who)
             return {"actions": harness_actions.pending(c, who.runner_id),
@@ -5535,6 +5644,8 @@ def create_app(settings=None):
     def model(request: Request, bot: str, body: M.BotModel):
         who = request.state.identity
         def work(c):
+            from . import ceo_acts
+            ceo_acts.gate(c, who.actor, "cost", f"change {bot}'s model to {body.model}")     # the owner's at every level
             settings_admin._manager(c, who, bot)
             from .shared_bots import refuse_copy
             refuse_copy(c, bot)
@@ -6002,6 +6113,7 @@ def create_app(settings=None):
     install_support(app, store, settings, census)
     from .inbound import install as install_inbound
     install_inbound(app, store, settings, auth)
+    company_server.install(app, store, settings, auth)
     from .support_access import install as install_support_access
     install_support_access(app, store, settings, auth)
     from .watchers import install as install_watchers

@@ -86,6 +86,11 @@ def test_a_change_that_undoes_a_shipped_pr_is_named_and_so_is_its_reapply(repo):
     assert kinds(result) == [("NET REVERT", 2, 1)]
     assert "PR #2" in result["findings"][0]["text"] and "PR #1" in result["findings"][0]["text"]
     assert "shipped in v1.0.0" in result["findings"][0]["text"]
+    # A revert receipt clears only the undo it names: the same receipt naming another change leaves this one reported.
+    meant = {"pr": 2, "reverts": result["findings"][0]["reverts"][:8], "source": "ticket 2"}
+    assert kinds(freeze_guard.check(str(repo), "main", "v1.0.0", receipts + [meant], fetch=False)) == []
+    other = {**meant, "reverts": git(repo, "rev-parse", "v1.0.0~1")[:8]}
+    assert kinds(freeze_guard.check(str(repo), "main", "v1.0.0", receipts + [other], fetch=False)) == [("NET REVERT", 2, 1)]
 
     # Putting the reverted work back undoes what the next release shipped: the re-apply is named too.
     git(repo, "tag", "v1.1.0")

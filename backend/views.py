@@ -196,6 +196,19 @@ def entries(c, github_owner=""):
     return read_cache.value(c, ("view_entries", github_owner), lambda: _entries(c, github_owner))
 
 
+def seat_parents(c, settings, auth, who):
+    """{open seat id: where it hangs on the team chart for this caller}, as GET /api/people draws it
+    (backend/lifecycle.py `chart_seats`): GET /api/v2/seats carries the same, so a client that refreshes the seats from
+    there still hangs a seat under a closed seat where that seat answered to."""
+    from . import ceo_bot
+    r, configs = roster(c), entries(c)
+    archived = {row["slug"] for row in H.bots(c) if row.get("state") == "archived"}
+    chart = ceo_bot.chart_entries(c, settings, r, configs, archived)
+    access = auth.bot_accesses(c, who)
+    return {seat["id"]: seat["org_parent"] for seat in lifecycle.chart_seats(
+        c, r, chart, archived, lambda slug: access.get(slug, auth.FULL)["see"])}
+
+
 def _entries(c, github_owner=""):
     result = {}
     for row in read_cache.configs(c):
@@ -703,7 +716,8 @@ def queued_label(c, bot, location, settings=None, human=False, behind=False):
                  else "Saved — queued for the next turn")
     elif runner_versions.holding_since(c, (location.get("machine") or {}).get("runner_id")):
         # Its computer takes no new work until its running turns end and it updates (docs/updates.md).
-        label = "Saved — waiting for the computer to update"
+        progress = runner_versions.drain_progress(c, (location.get("machine") or {}).get("runner_id"))
+        label = "Saved — waiting for the computer to update" + (f": {progress}" if progress else "")
     elif (computer := free_turn(c, bot, location, human)):
         label = "Saved — waiting for a free turn on " + computer
     return label, readiness_reason
@@ -1829,7 +1843,9 @@ def install_views(app, store, auth, mutate, task_view):
             access = auth.bot_accesses(c, who)
             from .report_order import positions
             places = positions(c)
-            return {**r, "by_team": P.by_team(r), "org_groups": view["org_groups"], "people": [{
+            from . import lifecycle
+            seats = lifecycle.chart_seats(c, r, chart, archived, lambda slug: access.get(slug, auth.FULL)["see"])
+            return {**r, "by_team": P.by_team(r), "org_groups": view["org_groups"], "seats": seats, "people": [{
                 **p, "org_parent": P.org_parent("person", p["id"], r, configs, archived),
                 "report_position": places.get("human:" + p["id"]),
                 **({"photo_url": "/api/humans/" + p["id"] + "/photo"}

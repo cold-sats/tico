@@ -394,6 +394,7 @@ _PROPOSABLE = [(m, re.compile(p)) for m, p in (
     ("POST", r"/api/v2/tasks/[^/]+/(comments|links|labels|run-now|ask)"),
     ("POST", r"/api/v2/messages"), ("POST", r"/api/v2/chat/[^/]+"), ("POST", r"/api/v2/notes"),
     ("POST", r"/api/v2/updates/[^/]+/reply"), ("POST", r"/api/v2/assistant/batch"),
+    ("POST", r"/api/v2/seats/batch"),
     ("POST", r"/api/v2/bots"), ("POST", r"/api/v2/bots/[^/]+/(archive|definition|owners|co-owners|updates|goals)"),
     ("POST", r"/api/v2/bots/[^/]+/(assignment|placement)"), ("POST", r"/api/v2/credentials/[^/]+/grants"),
     ("POST", r"/api/v2/(?:people|humans)/[^/]+"), ("POST", r"/api/v2/access/(?:people|humans)(/[^/]+)?"),
@@ -1389,6 +1390,18 @@ def install(app, store, auth, mutate, onboarding):
     def assistant(request: Request):
         """The caller's own chat: the CEO Bot chat for the owner, an Assistant room for everyone else."""
         who = own(request)
+        # Every chat load: read first, and take the write lock only when a confirm is overdue or the room needs
+        # opening or moving to this owner.
+        with store.read() as c:
+            create = availability(c, settings, who)["available"]
+            if chat_bot(c, settings, who) == ceo_bot.SLUG:
+                room = find_ceo_room(c)
+                ready = room.get("owner_actor") == who.actor if room else not create
+            else:
+                room = find_room(c, who.actor)
+                ready = bool(room) or not create
+            if ready and not expiring(c):
+                return view(c, who, room)
         with store.transaction() as c:
             expire(c)
             room = chat_room(c, settings, who, create=availability(c, settings, who)["available"])
@@ -1542,6 +1555,8 @@ def install(app, store, auth, mutate, onboarding):
         who = person(request)
 
         def work(c):
+            if normalize_path(body.path) == "/api/v2/seats/batch" and who.role != "owner":
+                raise Problem("forbidden", "Only the owner may confirm a chart-model re-org", 403)
             if normalize_path(body.path) in ("/api/v2/chat/" + settings.assistant_bot, "/api/v2/chat/" + ceo_bot.SLUG) \
                     or not valid_operation(body.method, body.path, settings):
                 raise Problem("operation", "That is not something the " + settings.assistant_name
@@ -1551,6 +1566,10 @@ def install(app, store, auth, mutate, onboarding):
             return create_proposal(c, settings, who, room, "assistant", body.summary, body.method, body.path, body.body,
                                    request.headers.get("x-tico-on-behalf-of"))
         return mutate(request, body, work)
+
+    def expiring(c):
+        return c.execute("SELECT 1 FROM assistant_actions WHERE status='running' AND running_since<? LIMIT 1",
+                         (H.shift(H.now(), seconds=-RUNNING_TTL_S),)).fetchone()
 
     def expire(c):
         """A confirm that never settled (a restart, a dropped connection) fails after two minutes."""

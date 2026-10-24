@@ -103,12 +103,16 @@ STABLE = [
     ("/api/v2/config", "get", "Team", "getConfig", "Team and app names, version, setup state", "Config"),
     ("/api/v2/org", "get", "Team chart", "getOrg",
      "Humans, the bots the caller can see and reports_to; ?can=read|write keeps the bots they can read or write to", "Org"),
+    ("/api/v2/org-models", "get", "Team chart", "listOrgModels",
+     "Published Tico starter org charts used for re-org recommendations; contains no customer org data", "OrgModels"),
     ("/api/v2/humans/{pid}", "post", "Team chart", "updatePerson", "Edit a person's profile or reports_to", None),
     ("/api/v2/seats", "get", "Team chart", "listSeats",
      "The Recruiting seats: roles on the chart with a job description and reporting line, and no bot. A seat holds no "
      "work: a task for it is refused and its role's work stays with its manager", "SeatList"),
     ("/api/v2/seats", "post", "Team chart", "createSeat",
      "Add a Recruiting seat: the owner anywhere, a person under themselves or someone below them", "Seat"),
+    ("/api/v2/seats/batch", "post", "Team chart", "createSeats",
+     "Add a group of Recruiting seats in one transaction; the owner anywhere, others only under themselves or below", "SeatBatch"),
     ("/api/v2/seats/{seat_id}", "patch", "Team chart", "updateSeat",
      "Change a seat's title, job description, reporting line or group (a person it reports up to, or the owner)", "Seat"),
     ("/api/v2/seats/{seat_id}/close", "post", "Team chart", "closeSeat", "Take a seat off the chart; its row is kept",
@@ -420,6 +424,18 @@ STABLE = [
      "The CEO Bot only: record that its Monday note offered level 3. Refused (422) unless level3_offer.due: 10 "
      "recoveries approved in a row with its pick unchanged, and no offer in 30 days. It never raises its own level",
      "CeoBotLevel3OfferResult"),
+    ("/api/v2/ceo-bot/decisions", "post", "Goals", "makeCeoBotDecision",
+     "The CEO Bot only, at level 3: one decision made alone, with its reason: bot tasks created, moved to the top of "
+     "their queue, given to another bot or closed, under one action id in the CEO Bot log. A person's task, a bot "
+     "offline or a refusal becomes one proposal in the owner's Needs you instead, never dropped", "CeoBotLogEntry"),
+    ("/api/v2/ceo-bot/log", "get", "Goals", "listCeoBotLog",
+     "The CEO Bot log, newest first: each decision it made alone and each thing it proposed because it stays the "
+     "owner's (cost, publishing, outside sends, adding or removing bots, goal and KPI targets, the vision, a bot's "
+     "instructions, a person's task), with the reason. The owner only; anyone else is refused (403)", "CeoBotLog"),
+    ("/api/v2/ceo-bot/log/{action_id}/undo", "post", "Goals", "undoCeoBotDecision",
+     "The owner, on their own click, undoes one decision the CEO Bot made alone: each task goes back where nobody "
+     "changed it since, a later change is kept and named, a task it made is closed, and each bot is told",
+     "CeoBotLogEntry"),
     ("/api/v2/company", "get", "Goals", "getCompany",
      "The company's Vision and Description (the Company section at the top of Goals), "
      "and whether the caller may edit them", "CompanyResult"),
@@ -733,6 +749,11 @@ SCHEMAS = {
                            required=["manager", "kind", "name", "can_order", "reports"]),
     "Org": obj({"people": items(ref("Person")), "bots": items(ref("OrgBot")), "seats": items(ref("Seat")),
                 "org_groups": "a", "teams": "o"}),
+    "OrgModelSeat": obj({"team": "s", "template": "s", "title": "s"}, required=["team", "template"]),
+    "OrgModel": obj({"model": "s", "name": "s", "about": "s", "seats": items(ref("OrgModelSeat"))},
+                     required=["model", "name", "about", "seats"]),
+    "OrgModels": obj({"models": items(ref("OrgModel"))}, required=["models"]),
+    "SeatBatch": obj({"seats": items(ref("Seat"))}, required=["seats"]),
     "BotList": items(ref("Bot")),
     "BotInstructions": obj({"bot": "s", "content": "s", "published": "b", "updated": "n", "source": "s"}),
     "BotOnboarded": obj({"bot": "s", "onboarding_state": "s", "stage": "s", "changed": "b", "ready": {
@@ -911,8 +932,9 @@ SCHEMAS = {
                          "Bots with queued work that is not starting, or left in setup for over a day (the caller may "
                          "read them): bot, name, queued, oldest, computer, reason (not_ready, computer_offline, no_computer, "
                          "slow, limit, updating, restarting, setup, or a reason the claim holds the work: draining, maintaining, "
-                         "lane_held, uncertain, scoped, cooling_off, readiness_unknown, sign_in_rejected, "
-                         "not_isolated, isolation_unknown, profile, config, check_model, unreadable), why, since (setup only: when the "
+                         "lane_held, uncertain, scoped, cooling_off, readiness_unknown, sign_in_rejected, not_isolated, "
+                         "isolation_unknown, profile, config, check_model, unreadable), why, drain_progress (counts of running "
+                         "and handed-back turns on update holds), since (setup only: when the "
                          "bot was added), and fix (label plus href/tab, login, move or finish; null unless the caller "
                          "administers bots, or for setup may manage the bot: finish is POST /api/v2/bots/{bot}/onboarded)"},
                   on_fallback={"type": "array", "items": {"type": "object"}, "description":
@@ -1049,6 +1071,19 @@ SCHEMAS = {
                                                          "description": "{person actor: items the CEO Bot put in their Needs you today (UTC)}"},
                        "level3_offer": ref("CeoBotLevel3Offer")},
                       required=["name", "regular_checks", "level", "levels", "daily_cap"]),
+    "CeoBotLogEntry": obj({"id": "s", "created": "s", "kind": {"type": "string", "enum": [
+                               "decision", "cost", "publish", "send", "bots", "target", "vision", "instructions",
+                               "person_task"]},
+                           "reason": "s", "goal_id": "s", "state": {"type": "string", "enum": ["done", "proposed", "undone"]},
+                           "proposal_task": {"type": "string", "description": "The owner's Needs you item, when filed"},
+                           "note": "s", "done": items({"type": "object", "additionalProperties": True}),
+                           "left": items({"type": "object", "additionalProperties": True}),
+                           "undoable": "b", "undone_at": "s", "undone_by": "s",
+                           "undo": {"type": "object", "additionalProperties": True,
+                                    "description": "What Undo restored and what it kept: {restored, kept, text}"}},
+                          required=["id", "created", "kind", "state", "done", "left", "undoable"]),
+    "CeoBotLog": obj({"items": items(ref("CeoBotLogEntry")), "next_before": "s", "can_undo": "b"},
+                     required=["items", "can_undo"]),
     "CeoBotLevel3Offer": obj({"streak": "i", "needed": "i", "due": "b", "last_offered_at": "s"},
                              required=["streak", "needed", "due"]),
     "CeoBotLevel3OfferResult": obj({"level3_offer": ref("CeoBotLevel3Offer")}),

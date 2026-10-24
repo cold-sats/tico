@@ -435,7 +435,8 @@ def test_a_bot_that_has_not_finished_setup_warns_once_its_held_work_is_old(envir
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE tasks SET created='2026-01-02T03:04:05Z' WHERE id=?", (task["id"],))
     check = health_of(api)[1]["setup:support"]
-    assert check["status"] == "warn" and check["summary"] == "support hasn't finished setup; 1 task waiting since 2026-01-02."
+    assert check["status"] == "warn" and check["summary"] == "support is still onboarding; 1 task waiting since 2026-01-02."
+    assert check["label"] == "Onboarding not finished"
     assert check["fixes"][0]["href"] == "#/bot/support"
     assert "setup:support" not in health_of(api, as_person(api, "quinn"))[1]
 
@@ -456,7 +457,7 @@ def test_a_bot_left_in_setup_for_a_day_is_stuck_and_its_manager_may_finish_it(en
     _parked(api, "sales", 0)                        # added today: setup may be under way
     stuck = {row["bot"]: row for row in health_of(api)[0]["stuck"]}
     assert set(stuck) == {"support"} and stuck["support"]["reason"] == "setup"
-    assert stuck["support"]["why"] == "Stuck in setup for 14 days"
+    assert stuck["support"]["why"] == "Stuck in onboarding for 14 days"
     assert stuck["support"]["fix"]["finish"] == {"bot": "support"}
     quinn = as_person(api, "quinn")                 # neither an owner of it nor an administrator
     assert all(row["fix"] is None for row in health_of(api, quinn)[0]["stuck"])
