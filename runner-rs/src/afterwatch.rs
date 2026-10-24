@@ -395,11 +395,15 @@ mod tests {
         assert!(poll(&mut turn, epoch_s()));
         assert_eq!(shell.wait().unwrap().signal(), Some(libc::SIGKILL));
         let reap_deadline = std::time::Instant::now() + Duration::from_secs(30);
-        while !workload.iter().all(|p| gone(*p)) {
-            assert!(std::time::Instant::now() < reap_deadline, "the killed suite workload did not exit");
+        let mut left = workload.clone();
+        while !left.is_empty() {
+            left.retain(|p| !gone(*p));
+            if left.is_empty() {
+                break;
+            }
+            assert!(std::time::Instant::now() < reap_deadline, "the killed suite workload did not exit: {left:?}");
             std::thread::yield_now();
         }
-        let left: Vec<&u32> = workload.iter().filter(|p| !gone(**p)).collect();
         let other_alive = !gone(other.id());
         let _ = other.kill();
         let _ = other.wait();
