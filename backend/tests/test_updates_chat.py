@@ -32,7 +32,7 @@ def test_a_question_from_updates_is_handed_only_the_updates_the_person_may_read_
         bot(api, slug, name)
     hidden = post(api, "tasks", {"title": "Quietly let the agency go", "body": "See notes", "owner": "fixer", "private": True})
     with api.app.state.store.transaction() as c:
-        restrict(c, "finance", people=["ana"])
+        restrict(c, "finance", people=["ana"], bots=["goal-manager"])
         updates.post(c, "sales", "- Closed the Acme renewal", day="2026-09-29")
         updates.post(c, "finance", "- Runway is nine months", day="2026-09-29")
         updates.post(c, "fixer", f"- Sorted out [the agency](#/task/{hidden['id']})", day="2026-09-29")
@@ -97,16 +97,22 @@ def test_private_references_in_links_and_prose_never_reach_an_updates_chat_turn(
             ("dev_number", None),
             ("private_bot_slug", "privatebot"),
             ("private_bot_name", "Private Bot"),
-            ("private_bot_link", "#/bot/privatebot")]
+            ("private_bot_link", "#/bot/privatebot"),
+            ("secret_bot_slug", "secretbot"),
+            ("secret_bot_name", "Secret Bot"),
+            ("secret_bot_link", "#/bot/secretbot")]
     bot(api, "privatebot", "Private Bot")
+    bot(api, "secretbot", "Secret Bot")
     bot(api, "source-public", "Public source")
     for slug, _ in rows:
         source = "source-" + slug.replace("_", "-")
         bot(api, source, "Source " + slug)
     with api.app.state.store.transaction() as c:
-        number = c.execute("SELECT coalesce(max(number),0)+1 FROM tasks").fetchone()[0]
+        number = 123456789012345678
         c.execute("UPDATE tasks SET number=? WHERE id=?", (number, hidden["id"]))
-        restrict(c, "privatebot", people=["ana"])
+        # Cara can read Private Bot, but her Assistant cannot; Secret Bot is hidden from both.
+        restrict(c, "privatebot", people=["cara"])
+        restrict(c, "secretbot", people=["ana"])
         rows = [(slug, (f"[task](#/tasks/{number})" if slug == "plural_number_link" else
                         f"Task #{number}" if slug == "number_hash" else
                         f"task {number}" if slug == "number_words" else
@@ -116,6 +122,8 @@ def test_private_references_in_links_and_prose_never_reach_an_updates_chat_turn(
             source = "source-" + slug.replace("_", "-")
             updates.post(c, source, "- Reviewed " + body, day="2026-09-29")
         updates.post(c, "source-public", "- Published the public launch note", day="2026-09-29")
+        updates.post(c, "privatebot", "- Private Bot report visible only to Cara", day="2026-09-29")
+        updates.post(c, "secretbot", "- Secret Bot report visible only to Ana", day="2026-09-29")
     r = runner(api)
     assign(api, r, "coo")
     ready(api, r, ["coo"])

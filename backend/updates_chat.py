@@ -30,7 +30,7 @@ LINKS = re.compile(r"(?:#/|/)(tasks?|bot|chat|conversations?)/([A-Za-z0-9_.:-]+)
 UUID = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I)
 SHORT_TASK = re.compile(r"^[0-9a-f]{8,}$", re.I)
 BARE_SHORT_TASK = re.compile(r"(?<![0-9a-f])([0-9a-f]{8,})(?![0-9a-f])", re.I)
-TASK_NUMBER = re.compile(r"(?:\b(?:task|dev)\s*#?\s*|#)(\d{1,9})\b", re.I)
+TASK_NUMBER = re.compile(r"(?:\b(?:task|dev)\s*#?\s*|#)(\d{1,18})\b", re.I)
 
 
 def _mentions(text, identifier):
@@ -113,11 +113,24 @@ def _clip(text):
     return text if len(text) <= BODY_MAX else text[:BODY_MAX].rsplit(" ", 1)[0] + "…"
 
 
-def recent(c, auth, who, at=None):
+def recent(c, auth, who, at=None, *, bot=None, attempt_id=""):
     """The recent daily and weekly updates `who` may read, newest first, each with its default rank and its link.
     Only what their Updates page would show them (bots they may Read, every person's, the meetings flag), less any
     update that links or names a task, chat or bot they may not open."""
     readable = U.visible_authors(c, auth, who)
+    if not readable:
+        return []
+    access = auth.bot_accesses(c, who)
+    if bot:
+        # A chat turn gets no more update sources than both its person and its acting bot can read.
+        # `who` has the person's rights plus task_actor; bot access is checked separately as the bot.
+        from .auth import Identity
+        acting = Identity("bot:" + bot, "bot", attempt_id=attempt_id)
+        bot_access = auth.bot_accesses(c, acting)
+        readable = {author for author in readable if U.is_person(author)
+                    or bot_access.get(author, {}).get("read", False)}
+        access = {slug: {"read": bool(level.get("read") and bot_access.get(slug, {}).get("read"))}
+                  for slug, level in access.items()}
     if not readable:
         return []
     today = U.today(at)
@@ -130,7 +143,6 @@ def recent(c, auth, who, at=None):
         f"WHERE {clause} AND {U._kept(U.meeting_reader(who))} AND ((u.kind='daily' AND u.day>=?) "
         "OR (u.kind='weekly' AND u.day>=?)) AND u.day<=? ORDER BY u.created DESC LIMIT ?",
         (who.actor, *values, since["daily"], since["weekly"], today, ITEMS_MAX * 3)).fetchall()
-    access = auth.bot_accesses(c, who)
     rows = [r for r in rows if opens_all(c, auth, who, r["body"], access)][:ITEMS_MAX]
     if not rows:
         return []
@@ -182,4 +194,4 @@ def for_turn(c, auth, settings, conversation, bot, message, attempt_id="", at=No
         return None
     # What the turn may open, which is never more than the person may: a private task of theirs the bot is no party
     # to stays out too (a claim that named it would be refused, task_privacy's response check).
-    return {"today": U.today(at), "updates": recent(c, auth, who, at)}
+    return {"today": U.today(at), "updates": recent(c, auth, who, at, bot=bot, attempt_id=attempt_id)}
