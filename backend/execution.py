@@ -85,6 +85,10 @@ def turns_here(c, runner_id):
 # (bot_refusal). In memory: after a server restart they are empty until each runner's next claim, a second later.
 CLAIMED_BUSY = {}
 CLAIMED_FRESH = 120         # seconds a runner's busy lists are believed; a runner claims several times a second
+# An idle runner whose event stream is up claims again only on a work event or after its backup poll (BACKUP_POLL_S,
+# 300 s, in runner-rs/src/events.rs), so the company's stop-level waiter order believes its lists that long and a
+# minute more: a computer still online and waiting is not mistaken for one that stopped claiming.
+CLAIMED_WAITING_FRESH = 360
 
 
 def note_claim(runner_id, body):
@@ -93,17 +97,17 @@ def note_claim(runner_id, body):
     CLAIMED_BUSY[runner_id] = (frozenset(body.busy_bots or ()), frozenset(body.busy_lanes or ()), time.monotonic())
 
 
-def claiming(runner_id):
+def claiming(runner_id, fresh=CLAIMED_FRESH):
     """Whether the runner has claimed lately, so its busy lists are known. One that has stopped claiming (its own
     places are full, perhaps with a worker whose lease lapsed) takes nothing, however free the server thinks it is."""
     seen = CLAIMED_BUSY.get(runner_id)
-    return bool(seen) and time.monotonic() - seen[2] <= CLAIMED_FRESH
+    return bool(seen) and time.monotonic() - seen[2] <= fresh
 
 
-def claimed_busy(runner_id):
+def claimed_busy(runner_id, fresh=CLAIMED_FRESH):
     """(bots, {(bot, lane)}) the runner said were busy on its latest claim; empty when it has not claimed lately."""
     seen = CLAIMED_BUSY.get(runner_id)
-    if not seen or time.monotonic() - seen[2] > CLAIMED_FRESH:
+    if not seen or time.monotonic() - seen[2] > fresh:
         return frozenset(), frozenset()
     return seen[0], frozenset(tuple(entry.split("|", 1)) for entry in seen[1] if "|" in entry)
 
@@ -1858,13 +1862,13 @@ class Execution:
             rid = queued['runner_id']
             remote = rid != runner['id']
             target = c.execute('SELECT * FROM runners WHERE id=? AND revoked_at IS NULL', (rid,)).fetchone() if remote else runner
-            if (not target or (remote and not claiming(rid))
+            if (not target or (remote and not claiming(rid, CLAIMED_WAITING_FRESH))
                     or not target['last_seen'] or target['last_seen'] < H.shift(H.now(), seconds=-90)
                     or not self.awake(target['awake_since'], H.now()) or runner_versions.paused(c, rid)
                     or load_status(c, rid)['overloaded'] or start_places.ready_waiting(c, rid)
                     or sum(turns_here(c, rid).values()) >= target['capacity']):
                 continue
-            busy_bots, busy_lanes = claimed_busy(rid)
+            busy_bots, busy_lanes = claimed_busy(rid, CLAIMED_WAITING_FRESH)
             scope = Claim(busy_bots=list(busy_bots), busy_lanes=['|'.join(x) for x in busy_lanes]) if remote else body
             identity = Identity('runner:' + rid, 'runner', runner_id=rid) if remote else who
             if found := self.candidate(c, identity, scope, target, job_id=queued['job_id']):

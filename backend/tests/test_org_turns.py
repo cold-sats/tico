@@ -28,6 +28,13 @@ def independent(api, machine):
     post(api, 'chat/finance', {'text': 'Independent synthetic work'})
 
 
+def age_claim(machine):
+    """Make the runner's latest claim as old as an idle runner's backup-poll backoff, without a new claim."""
+    from backend import execution
+    seen = execution.CLAIMED_BUSY[machine['runner_id']]
+    execution.CLAIMED_BUSY[machine['runner_id']] = (*seen[:2], seen[2] - execution.CLAIMED_FRESH - 180)
+
+
 def test_spec5_warning_starts_without_bot_alert_and_opens_health_incident(api):
     one_person(api)
     machine = waiters(api)
@@ -96,7 +103,9 @@ def test_recovery_is_fifo_across_computers_and_new_requests_cannot_jump_waiters(
         c.execute("UPDATE jobs SET created=? WHERE bot='finance' AND state='queued'", (H.shift(H.now(), minutes=-2),))
         c.execute("UPDATE jobs SET created=? WHERE bot='doc-updater' AND state='queued'", (H.shift(H.now(), minutes=-1),))
     assert claim(api, other, 'doc-updater') is None
-    assert claim(api, machine, 'finance') is None  # A live runner keeps claiming through the stop.
+    assert claim(api, machine, 'finance') is None
+    # Answered "waiting", the runner backs off to its backup poll: longer than CLAIMED_FRESH, still online.
+    age_claim(machine)
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE attempts SET state='completed' WHERE id='attempt-99'")
         c.execute("UPDATE jobs SET state='completed' WHERE attempt_id='attempt-99'")
@@ -112,7 +121,6 @@ def test_recovery_is_fifo_across_computers_and_new_requests_cannot_jump_waiters(
 def test_recovery_does_not_hold_other_computers_behind_a_lane_busy_only_on_its_runner(api):
     """A lane the attempts table does not show (a worker whose lease lapsed) is known only from the runner's
     claims. Claims during the stop must keep it, or recovery waits on a job its own computer will not take."""
-    from backend import execution
     from clients import sessions
     one_person(api)
     machine = waiters(api, n=99, running=1)
@@ -126,10 +134,8 @@ def test_recovery_does_not_hold_other_computers_behind_a_lane_busy_only_on_its_r
         c.execute("UPDATE jobs SET created=? WHERE bot='doc-updater' AND state='queued'", (H.shift(H.now(), minutes=-1),))
     busy = {'bot': 'finance', 'start_places': True, 'busy_lanes': ['finance|' + sessions.MAIN_LANE]}
     assert post(api, 'jobs/claim', busy, machine['token'])['waiting'] == REASON
-    # The stop outlasts the claimed-busy window; the runner's claims through it still say the lane is busy.
-    seen = execution.CLAIMED_BUSY[machine['runner_id']]
-    execution.CLAIMED_BUSY[machine['runner_id']] = (*seen[:2], seen[2] - execution.CLAIMED_FRESH - 1)
-    assert post(api, 'jobs/claim', busy, machine['token'])['waiting'] == REASON
+    # The runner backs off past CLAIMED_FRESH without claiming again; its last busy list still holds the lane.
+    age_claim(machine)
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE attempts SET state='completed' WHERE id='attempt-99'")
         c.execute("UPDATE jobs SET state='completed' WHERE attempt_id='attempt-99'")
@@ -229,3 +235,15 @@ def test_stop_level_counted_waiter_takes_its_place_while_new_claims_wait(api):
         assert org_turns.snapshot(c, api.app.state.store.settings)['in_use'] == 100
     answer = post(api, 'jobs/claim', {'bot': 'finance', 'start_places': True}, other['token'])
     assert answer['attempt'] is None and answer['waiting'] == REASON
+
+
+def test_stop_level_wait_is_a_warning_not_a_stuck_bot_outage(api):
+    """The configured stop is reported by the company-turns incident; a person's message held by it is not an outage."""
+    one_person(api)
+    machine = waiters(api, n=99, running=1)
+    independent(api, machine)
+    assert claim(api, machine, 'finance') is None
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE jobs SET created=? WHERE bot='finance' AND state='queued'", (H.shift(H.now(), minutes=-3),))
+    queue = next(x for x in get(api, 'health')['checks'] if x['id'] == 'queue')
+    assert queue['status'] == 'warn' and any(i.get('reason') == 'company_limit' for i in queue['items'])
