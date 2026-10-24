@@ -7,6 +7,12 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Decisions and bot runs record what became of them.** A caller that acts on a decision or classify answer records
+  what it did with `hub decision outcome` (one `decision.outcome` per call, by the answer's new `ref`), and a run whose
+  task result someone else closes, rewrites, sends back or hands on gets one `turn.outcome` (`accepted`, `edited` or
+  `overridden`). Existing runs and events are unchanged.
+
 ## [0.4.2] - 2026-10-23
 
 ### Added
