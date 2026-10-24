@@ -2410,6 +2410,22 @@ class Execution:
         result["prompt_tokens"] = own[-1][0] + own[-1][1] if own else None
         return result
 
+    def stamp_reply(self, c, reply, row, aid, msg):
+        """Mark a reply Tico posts for a run as that run's: counted as its write, with what it answered."""
+        # A reply (to a person, or an answer to a bot's ask) is the run acting, though Tico posts it for
+        # the run (backend/run_triggers.py). Only a newly written one: a reply already sent counts once.
+        c.execute("UPDATE turns SET writes=coalesce(writes,0)+1 WHERE id=?", (aid,))
+        # Which run wrote this and which messages it took in (the one it was started for and
+        # what was folded into it), kept in the reply's refs for the frontends to show.
+        handled = [msg["id"]] + [r[0] for r in c.execute(
+            "SELECT i.message_id FROM attempt_inputs i JOIN messages m ON m.id=i.message_id "
+            "WHERE i.attempt_id=? AND m.conversation_id=? AND m.deleted_at IS NULL ORDER BY m.rowid",
+            (aid, msg["conversation_id"]))]
+        refs = {**(H.message(c, reply["id"]).get("refs") or {}),
+                "run": {"job_id": row["job_id"], "attempt_id": aid}, "answers": handled}
+        c.execute("UPDATE messages SET refs_json=? WHERE id=?", (encode(refs), reply["id"]))
+        H.held_queue_recheck(c, reply["id"])
+
     def file_result(self, c, row, body):
         """A result whose job this runner no longer speaks for: a review decided it, another
         attempt owns the work now, or the bot moved to another Mac. The run is recorded against
@@ -2936,22 +2952,20 @@ class Execution:
                                              "a private task you can't read, so it was not posted here.",
                                              conv, "notice", {"withheld": {"bot": row["bot"]}}, None, None)
                     else:
-                        reply = H.answer(c, actor, msg["id"], body.text) if msg["kind"] == "ask" else H.say(
-                            c, actor, target, text, conversation_id=conv["id"],
-                            in_reply_to=msg["id"], refs=refs)
-        if reply:
-            # A reply (to a person, or an answer to a bot's ask) is the run acting, though Tico posts it for
-            # the run (backend/run_triggers.py). Only a newly written one: a reply already sent counts once.
-            c.execute("UPDATE turns SET writes=coalesce(writes,0)+1 WHERE id=?", (aid,))
-            # Which run wrote this and which messages it took in (the one it was started for and
-            # what was folded into it), kept in the reply's refs for the frontends to show.
-            handled = [msg["id"]] + [r[0] for r in c.execute(
-                "SELECT i.message_id FROM attempt_inputs i JOIN messages m ON m.id=i.message_id "
-                "WHERE i.attempt_id=? AND m.conversation_id=? AND m.deleted_at IS NULL ORDER BY m.rowid",
-                (aid, msg["conversation_id"]))]
-            refs = {**(H.message(c, reply["id"]).get("refs") or {}),
-                    "run": {"job_id": row["job_id"], "attempt_id": aid}, "answers": handled}
-            c.execute("UPDATE messages SET refs_json=? WHERE id=?", (encode(refs), reply["id"]))
+                        def post_reply():
+                            sent = H.answer(c, actor, msg["id"], body.text) if msg["kind"] == "ask" else H.say(
+                                c, actor, target, text, conversation_id=conv["id"],
+                                in_reply_to=msg["id"], refs=refs)
+                            if sent:
+                                self.stamp_reply(c, sent, row, aid, msg)
+                            return sent
+                        # A paused or quarantined bot's full held queue withholds only this answer: the run is
+                        # still done, its text kept on the attempt, so the runner's completion is not refused.
+                        reply, full = H.unless_queue_full(c, post_reply)
+                        if full:
+                            H.event(c, H.KEEPER, "reply.withheld", aid, {
+                                "bot": row["bot"], "to": target, "reason": "queue_full",
+                                **({"task": task["id"]} if task else {})})
         # A turn on a check subtask ran on the check's model, not the bot's (backend/check_models.py).
         # Decided by what the claim handed out: a check handed to another bot mid-turn still ran on the check's model.
         check_task, check = check_models.handed_out(c, aid)
