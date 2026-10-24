@@ -346,6 +346,7 @@ def test_direct_content_prefilter_keeps_escaped_and_nested_provenance(api, world
         json.dumps({'payload': 'https://synthetic.invalid/tasks/' + hidden['id']}),
         json.dumps({'payload': hidden['id']}).replace(hidden['id'], escaped),
         json.dumps({'payload': json.dumps({'nested': hidden['id']})}),
+        json.dumps({'payload': {'live_meeting': {'meeting_id': 'unknown-fixture-meeting'}}}),
         '{"payload":{"live_\\u006deeting":{"meeting_id":"unknown-fixture-meeting"}}}',
         json.dumps({'payload': [json.dumps({'live_meetings': ['unknown-fixture-meeting']})]}),
     ]
