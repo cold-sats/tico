@@ -153,13 +153,23 @@ class Host:
 
 
 def ssh_steps(r: Shell, *, env_text: str, compose: bytes | None, compose_url: str,
-              say: Callable[[str], None] = print, scrub: Callable[[str], str] = lambda s: s) -> list[Step]:
+              say: Callable[[str], None] = print, scrub: Callable[[str], str] = lambda s: s,
+              company_file_data: str = "") -> list[Step]:
     """Idempotent: each step checks before it changes, so a re-run only does what is missing."""
     d = contract.REMOTE_DIR
     h = Host(r, say, scrub)
 
     def files() -> None:
         h.ex(f"mkdir -p {d} && chmod 755 {d}", "Creating " + d)
+        h.ex(" && ".join(company_file_dir_lines()), "Creating the private starter plan folder")
+        if company_file_data:
+            f = f"{d}/{contract.COMPANY_FILE_DIR}/{contract.COMPANY_FILE_NAME}"
+            sha = hashlib.sha256(company_file_data.encode("ascii")).hexdigest()
+            # The payload travels only on SSH stdin; verify and set the container user's ownership before rename.
+            h.ex(f"umask 077; cat > {f}.new && "
+                 f'test "$(sha256sum {f}.new | cut -d\" \" -f1)" = {sha} && '
+                 f"chown 10001:10001 {f}.new && chmod 600 {f}.new && mv {f}.new {f} "
+                 f"|| {{ rm -f {f}.new; exit 1; }}", "Writing the starter plan", company_file_data.encode("ascii"))
         if compose is not None:
             h.ex(f"cat > {d}/compose.yaml.new && mv {d}/compose.yaml.new {d}/compose.yaml", "Writing compose.yaml", compose)
         else:
@@ -174,7 +184,12 @@ def ssh_steps(r: Shell, *, env_text: str, compose: bytes | None, compose_url: st
         h.write_private(f"{d}/.env", env_text.encode(), "Writing .env")
 
     def up() -> None:
-        h.ex(f"cd {d} && docker compose pull --quiet && docker compose up -d", "docker compose up -d")
+        if company_file_data:
+            h.ex("\n".join(["set -eu", f"cd {d}", "docker compose pull --quiet",
+                             *plan_read_lines(running=False), "docker compose up -d", *plan_read_lines()]),
+                 "Starting Tico with the selected starter plan")
+        else:
+            h.ex(f"cd {d} && docker compose pull --quiet && docker compose up -d", "docker compose up -d")
 
     return [
         Step("Check this machine's access (root or sudo)" if isinstance(r, LocalShell) else "Connect over SSH and check sudo", h.connect),
@@ -385,7 +400,7 @@ def plan_read_lines(running: bool = True) -> list[str]:
             "plan_try=1",
             f'until {run} -c {q(PLAN_READ)} "$plan_sha" >/dev/null 2>&1; do',
             '  [ "$plan_try" -ge ' + ("12" if running else "1") + ' ] && { echo "tico-setup: FAILED: the '
-            + ("running app" if running else "image") + ' does not read the starter plan; it stays in the plan bucket" >&2; exit 6; }',
+            + ("running app" if running else "image") + ' does not read the starter plan; the plan is kept for a retry" >&2; exit 6; }',
             "  plan_try=$((plan_try + 1)); sleep 10",
             "done"]
 
