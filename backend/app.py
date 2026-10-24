@@ -84,24 +84,19 @@ INBOX_LIMIT = 100
 
 
 def _newest_visible(items, visible):
-    """The newest `INBOX_LIMIT` of `items` (oldest first) that pass `visible`, checked newest first so an
-    old backlog costs nothing, and whether any older item was left unchecked."""
-    kept = []
-    for item in reversed(items):
-        if len(kept) == INBOX_LIMIT:
-            return kept[::-1], True
-        if visible(item):
-            kept.append(item)
-    return kept[::-1], False
+    """The newest `INBOX_LIMIT` of `items` (oldest first) that pass `visible`, checked newest first so a readable
+    backlog costs nothing, and whether one more item passes the same check: a hidden item never sets the flag."""
+    kept, more = _first_visible(items[::-1], visible)
+    return kept[::-1], more
 
 
 def _first_visible(items, visible):
-    """The first `INBOX_LIMIT` of `items` that pass `visible`, and whether any later item was left unchecked."""
+    """The first `INBOX_LIMIT` of `items` that pass `visible`, and whether one more item passes it too."""
     kept = []
     for item in items:
-        if len(kept) == INBOX_LIMIT:
-            return kept, True
         if visible(item):
+            if len(kept) == INBOX_LIMIT:
+                return kept, True
             kept.append(item)
     return kept, False
 
