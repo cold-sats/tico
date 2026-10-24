@@ -19447,6 +19447,9 @@
           "woke": {
             "type": "boolean"
           },
+          "delivered": {
+            "type": "boolean"
+          },
           "warning": {
             "type": "string"
           },
@@ -28094,12 +28097,16 @@
           },
           "woke": {
             "type": "boolean"
+          },
+          "delivered": {
+            "type": "boolean"
           }
         },
         "required": [
           "answer",
           "comment",
           "comments",
+          "delivered",
           "woke"
         ],
         "additionalProperties": true
