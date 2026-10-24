@@ -26,6 +26,7 @@ async function check(engine) {
     const page = await browser.newPage({viewport: {width: 1200, height: 800}, serviceWorkers: 'block'});
     const errors = [], sends = [], keys = [], warnings = [], uploads = [];
     page.on('pageerror', e => errors.push(e.message));
+    await page.addInitScript(() => { window.__ev = []; for (const t of ['pointerdown', 'mousedown', 'mouseup', 'click']) document.addEventListener(t, e => window.__ev.push(t + ':' + (e.target.tagName + '.' + e.target.className).slice(0, 40) + '@' + Math.round(performance.now())), true); });
     page.on('console', m => { if (m.type() === 'warning' && m.text().startsWith('chat send')) warnings.push(m.text()); });
     let answer = 'ok', busy = 0, hold = null, stopHold = null;
     const reads = new Set(), readWaiters = new Set(), serverErrors = [];
@@ -133,6 +134,13 @@ async function check(engine) {
     await page.goto(origin + '/#/bot/botops');
     const box = page.locator('#chat-composer textarea'), send = page.locator('#chat-composer .p-send');
     const slow = page.locator('#chat-composer .p-slow');
+    const dump = () => page.evaluate(() => { const b = document.querySelector('#chat-composer .p-send'); const r = b.getBoundingClientRect(); return JSON.stringify({box: document.querySelector('#chat-composer textarea').value, sending: BOT_PILL.sending, unconfirmed: BOT_PILL.unconfirmed, action: BOT_PILL.action, goal: pillGoalMode(BOT_PILL), disabled: b.disabled, hidden: b.hidden, cls: b.className, rect: [r.x, r.y, r.width, r.height], at: (() => { const e = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return e && (e.tagName + '.' + e.className); })(), sessionOut: SESSION.out, connected: b.isConnected, sameEl: BOT_PILL.el.contains(b), toasts: [...document.querySelectorAll('.toast')].map(t => t.className + ':' + t.textContent.slice(0, 80)), ev: (window.__ev || []).slice(-12)}); });
+    const clickSend = async (until, label) => {
+      const keysBefore = keys.length, b4 = await dump();
+      await send.click();
+      try { await page.waitForFunction(until, null, {timeout: 8000}); }
+      catch (e) { console.error('DEBUG', engine, label, 'before', b4, 'after', await dump(), 'keys+', keys.length - keysBefore, 'sends', JSON.stringify(sends.slice(-2)), 'warn', JSON.stringify(warnings.slice(-3))); throw e; }
+    };
     await ready();
     await page.evaluate(() => { CHAT_SEND.slow = 300; });
 
@@ -188,11 +196,7 @@ async function check(engine) {
     assert.equal(await box.inputValue(), 'A rule refused this draft');
     assert.equal(await page.evaluate(() => BOT_PILL.unconfirmed), null, 'confirmed refusal ends pending delivery');
     answer = 'ok';
-    const dump = () => page.evaluate(() => { const b = document.querySelector('#chat-composer .p-send'); return JSON.stringify({box: document.querySelector('#chat-composer textarea').value, sending: BOT_PILL.sending, unconfirmed: BOT_PILL.unconfirmed, action: BOT_PILL.action, goal: pillGoalMode(BOT_PILL), send: !!BOT_PILL.send, disabled: b.disabled, hidden: b.hidden, cls: b.className, toasts: [...document.querySelectorAll('.toast')].map(t => t.className + ':' + t.textContent), hash: location.hash, active: document.activeElement?.outerHTML?.slice(0, 120)}); });
-    const keysBefore = keys.length, b4 = await dump();
-    await send.click();
-    try { await page.waitForFunction(() => !document.querySelector('#chat-composer textarea').value && !BOT_PILL.sending, null, {timeout: 5000}); }
-    catch (e) { console.error('DEBUG', engine, 'before', b4, 'after', await dump(), 'keys', keys.length - keysBefore, 'sends', JSON.stringify(sends.slice(-2)), 'warn', JSON.stringify(warnings.slice(-3))); throw e; }
+    await clickSend(() => !document.querySelector('#chat-composer textarea').value && !BOT_PILL.sending, 'refused');
     assert.notEqual(keys.at(-1), refusedKey, 'confirmed refusal allows a later explicit send to evaluate again');
     assert.equal(sends.at(-1), 'A rule refused this draft');
     await page.evaluate(() => document.querySelectorAll('.toast').forEach(t => t.remove()));
@@ -210,8 +214,7 @@ async function check(engine) {
     assert.match(await page.locator('.toast.err').innerText(), /Not sent:/, 'recorded rule refusal is definitive after a retry');
     assert.equal(await page.evaluate(() => BOT_PILL.unconfirmed), null, 'recorded refusal ends the retry identity');
     answer = 'ok';
-    await send.click();
-    await page.waitForFunction(() => !BOT_PILL.sending && !document.querySelector('#chat-composer textarea').value);
+    await clickSend(() => !BOT_PILL.sending && !document.querySelector('#chat-composer textarea').value, 'site1');
     assert.notEqual(keys.at(-1), busyRefusedKey, 'a later explicit Send re-evaluates a confirmed refusal');
     assert.equal(sends.length, beforeBusyRefusal + 1, 'the later Send reaches the bot exactly once');
     await page.evaluate(() => document.querySelectorAll('.toast').forEach(t => t.remove()));
@@ -245,13 +248,11 @@ async function check(engine) {
     // Simulate sign-in restoring the session before a separate access denial on the same saved send.
     answer = 'access-refused';
     await page.evaluate(() => { SESSION.out = false; });
-    await send.click();
-    await page.waitForFunction(() => !BOT_PILL.sending);
+    await clickSend(() => !BOT_PILL.sending, 'site2');
     assert.equal(await page.evaluate(() => BOT_PILL.unconfirmed?.key), uncertainKey, '403 after sign-in also keeps the key');
     assert.equal(await page.evaluate(() => BOT_PILL.unconfirmed?.at), uncertainAt, 'another denial after reload keeps the original replay age');
     answer = 'ok';
-    await send.click();
-    await page.waitForFunction(() => !document.querySelector('#chat-composer textarea').value && !BOT_PILL.sending);
+    await clickSend(() => !document.querySelector('#chat-composer textarea').value && !BOT_PILL.sending, 'site3');
     // The reload while signed out kept the page's texts for after sign-in; the next redraw must not put the sent one back.
     await page.evaluate(() => new Promise(done => { document.body.append(document.createElement('div')); requestAnimationFrame(() => requestAnimationFrame(done)); }));
     assert.equal(await box.inputValue(), '', 'a sent message does not come back into the box after sign-in');
@@ -269,8 +270,7 @@ async function check(engine) {
     assert.equal(await page.evaluate(() => BOT_PILL.unconfirmed?.key), privacyKey, 'post-commit 403 keeps the identity on a first attempt');
     assert.match(await page.locator('.toast.err').innerText(), /Not confirmed:.*may already have sent.*Response access refused.*Check the chat before resending/);
     answer = 'ok';
-    await send.click();
-    await page.waitForFunction(() => !BOT_PILL.sending && !document.querySelector('#chat-composer textarea').value);
+    await clickSend(() => !BOT_PILL.sending && !document.querySelector('#chat-composer textarea').value, 'site4');
     assert.equal(keys.at(-1), privacyKey, 'post-commit denial replays the stored success');
     assert.equal(sends.length, beforePrivacy + 1, 'post-commit denial does not duplicate delivery');
     await page.evaluate(() => document.querySelectorAll('.toast').forEach(t => t.remove()));
@@ -289,8 +289,7 @@ async function check(engine) {
     await page.waitForFunction(() => !BOT_PILL.unconfirmed?.inFlight);
     assert.equal(await page.evaluate(() => BOT_PILL.unconfirmed), null, 'acknowledgement clears the identity in the restored composer');
     const beforeRepeat = sends.length;
-    await send.click();
-    await page.waitForFunction(() => !BOT_PILL.sending && !document.querySelector('#chat-composer textarea').value);
+    await clickSend(() => !BOT_PILL.sending && !document.querySelector('#chat-composer textarea').value, 'site5');
     assert.notEqual(keys.at(-1), switchKey, 'explicit Send of the acknowledged words is a new submission');
     assert.equal(sends.length, beforeRepeat + 1, 'the repeated words reach the bot');
 
@@ -325,8 +324,7 @@ async function check(engine) {
     assert.equal(sends.length, beforeUploadText + 1, 'the uncertain text reached storage');
     await page.locator('#chat-composer .p-file').setInputFiles({name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('fixture')});
     answer = 'ok';
-    await send.click();
-    await page.waitForFunction(() => !BOT_PILL.sending && !document.querySelector('#chat-composer textarea').value);
+    await clickSend(() => !BOT_PILL.sending && !document.querySelector('#chat-composer textarea').value, 'site6');
     assert.equal(uploads.length, 1, 'the changed payload takes the upload route');
     assert.ok(uploads[0].includes(uploadText) && uploads[0].includes('notes.txt'), 'the upload includes the text and attachment');
     assert.equal(await page.evaluate(() => BOT_PILL.unconfirmed), null, 'upload acknowledgement leaves no uncertain identity');
