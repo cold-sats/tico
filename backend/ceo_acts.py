@@ -347,7 +347,10 @@ def _propose(c, reason, left):
             f"\nNothing changed. Make the change yourself if you agree, or close this to leave it.")
     c.execute("SAVEPOINT ceo_propose")
     try:
-        made = H.task_create(c, CEO, title, body, owner, lint=False)
+        # Private, between the owner and the CEO Bot that asks: it names company tasks by their titles, which a
+        # person who reads the owner's work may not be allowed to open. The CEO Bot stays its requester, so the 5 a day
+        # and a repeated proposal are still counted (ceo_bot.asked_today).
+        made = H.task_create(c, CEO, title, body, owner, lint=False, private=True)
     except H.Refused as exc:
         c.execute("ROLLBACK TO ceo_propose")
         c.execute("RELEASE ceo_propose")

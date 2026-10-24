@@ -11,7 +11,7 @@ const {unrouted} = require('./support/routes.cjs');
 const LEVELS = [
   {level: 1, name: 'Passive', sentence: 'It keeps the regular checks running and otherwise acts only when you talk to it.', ready: true},
   {level: 2, name: 'Suggests actions', sentence: 'It also asks goal owners and suggests how your bots could recover a goal.', ready: true},
-  {level: 3, name: 'Acts on its own', sentence: 'It also makes bot tasks itself. Not yet: it does what level 2 does.', ready: false},
+  {level: 3, name: 'Acts on its own', sentence: 'It also decides on its own: it makes, moves up, reassigns and closes bot tasks, each with an Undo.', ready: true},
 ];
 
 async function open(browser, {role = 'owner', name = 'CEO Bot'} = {}) {
@@ -69,7 +69,7 @@ async function open(browser, {role = 'owner', name = 'CEO Bot'} = {}) {
       assert.equal(await levels.count(), 3);
       assert.match(await levels.nth(0).innerText(), /Passive[\s\S]*Now[\s\S]*acts only when you talk to it/);
       assert.equal(await levels.nth(0).getAttribute('aria-checked'), 'true');
-      assert.match(await levels.nth(2).innerText(), /Not yet/);
+      assert.match(await levels.nth(2).innerText(), /decides on its own/);
       const panel = await page.locator('#set-ceo-bot').innerText();
       assert.match(panel, /Regular checks[\s\S]*How much your CEO Bot does[\s\S]*Passive, where every company starts/);
       assert.doesNotMatch(panel, /Goal Manager|level 1|switch/i);

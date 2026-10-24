@@ -139,6 +139,15 @@ def test_everything_on_the_owners_list_is_refused_on_the_server_and_proposed_ins
     with api.app.state.store.read() as c:
         assert ceo_bot.room_today(c, OWNER) == 0
     assert proposals(api) and all(x["proposal_task"] or "5 items there today" in x["note"] for x in log)
+    # Each item is private to the owner (and the CEO Bot that asks): it names tasks by their titles, so a person who
+    # reads the owner's work but is not the owner can't open it, find it in a list, or read it in the log.
+    asked = proposals(api)
+    assert asked and all(x["private"] for x in asked)
+    listed = str(get(api, "tasks?owner=ana", token="cara-test")) + str(get(api, "ceo-bot/log", token="cara-test"))
+    for item in asked:
+        r = api.get(f"/api/v2/tasks/{item['id']}", headers=headers("cara-test"))
+        assert r.status_code == 404 and item["title"] not in r.text, r.text
+        assert item["id"] not in listed and item["title"] not in listed
     assert not any(x["undoable"] for x in log)
 
 

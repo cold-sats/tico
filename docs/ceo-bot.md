@@ -14,7 +14,7 @@ and won't do. Every company starts at **Passive**.
 |---|---|---|
 | 1 | **Passive** (default) | Keeps the regular checks running (KPI readings and the automatic goal colours) and otherwise acts only when you talk to it. It suggests KPIs, goals and Why lines when you ask, and changes nothing until you accept. |
 | 2 | **Suggests actions** | Also asks you for the vision, proposes Why lines, sends a Monday note, asks a goal's owner what is happening, and suggests how your bots could recover a goal that falls behind, as items in **Needs you** that you approve one by one. |
-| 3 | **Acts on its own** | Also makes, reorders and closes bot tasks itself to recover a goal, each with an Undo. |
+| 3 | **Acts on its own** | Also decides on its own: makes, reorders, reassigns and closes bot tasks itself to recover a goal, each decision with an Undo. |
 
 At level 3 the CEO Bot also decides on its own. One decision has a reason and up to 10 changes to bot tasks: a new task
 for a bot, a bot's task moved to the top of its queue, a bot's task given to another bot, or a bot's task closed. Each
