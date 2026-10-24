@@ -10,7 +10,7 @@ from datetime import timezone
 
 from clients import gateway, sessions
 
-from . import auto_tasks, start_places, app_delivery, check_models, learned, rooms, updates_chat, gateway_connection, inbox_isolation, login_holds, models_preset, providers, quiet_work, routines, run_triggers, runner_versions, screen, task_models, usage_limits, wake_presets, wake_rules
+from . import auto_tasks, start_places, org_turns, app_delivery, check_models, learned, rooms, updates_chat, gateway_connection, inbox_isolation, login_holds, models_preset, providers, quiet_work, routines, run_triggers, runner_versions, screen, task_models, usage_limits, wake_presets, wake_rules
 from . import task_privacy as privacy
 from .auth import Identity
 from .batch_work import isolated
@@ -85,17 +85,29 @@ def turns_here(c, runner_id):
 # (bot_refusal). In memory: after a server restart they are empty until each runner's next claim, a second later.
 CLAIMED_BUSY = {}
 CLAIMED_FRESH = 120         # seconds a runner's busy lists are believed; a runner claims several times a second
+# An idle runner whose event stream is up claims again only on a work event or after its backup poll (BACKUP_POLL_S,
+# 300 s, in runner-rs/src/events.rs), so the company's stop-level waiter order believes its lists that long and a
+# minute more: a computer still online and waiting is not mistaken for one that stopped claiming.
+CLAIMED_WAITING_FRESH = 360
 
 
 def note_claim(runner_id, body):
-    """Keep the busy lists of this claim for Health."""
+    """Keep the busy lists of every claim, before any early answer: Health and the company's stop-level waiter
+    order read them, and a claim answered early (at the stop level, say) still says what the runner is running."""
     CLAIMED_BUSY[runner_id] = (frozenset(body.busy_bots or ()), frozenset(body.busy_lanes or ()), time.monotonic())
 
 
-def claimed_busy(runner_id):
+def claiming(runner_id, fresh=CLAIMED_FRESH):
+    """Whether the runner has claimed lately, so its busy lists are known. One that has stopped claiming (its own
+    places are full, perhaps with a worker whose lease lapsed) takes nothing, however free the server thinks it is."""
+    seen = CLAIMED_BUSY.get(runner_id)
+    return bool(seen) and time.monotonic() - seen[2] <= fresh
+
+
+def claimed_busy(runner_id, fresh=CLAIMED_FRESH):
     """(bots, {(bot, lane)}) the runner said were busy on its latest claim; empty when it has not claimed lately."""
     seen = CLAIMED_BUSY.get(runner_id)
-    if not seen or time.monotonic() - seen[2] > CLAIMED_FRESH:
+    if not seen or time.monotonic() - seen[2] > fresh:
         return frozenset(), frozenset()
     return seen[0], frozenset(tuple(entry.split("|", 1)) for entry in seen[1] if "|" in entry)
 
@@ -1785,7 +1797,6 @@ class Execution:
 
     def candidate(self, c, who, body, runner, *, job_id=None):
         """The queued job this runner would be given next, or None. Reads only."""
-        note_claim(runner["id"], body)
         lanes, roots = lanes_on(runner), roots_on(runner)
         # Taken lanes, each "bot|lane": the server's active attempts and the runner's own busy list. A runner
         # without lanes runs one turn per bot, so any active attempt takes the whole bot.
@@ -1850,6 +1861,30 @@ class Execution:
                 return row
         return None
 
+    def company_waiter(self, c, who, body, runner):
+        """Oldest eligible stop-level waiter across computers; unavailable lanes do not block others.
+        Another computer's waiter is eligible only while that computer claims: its claimed busy lists are the only
+        record of lanes the attempts table does not show, and an empty list from a silent computer is not "free"."""
+        from .models import Claim
+        from .performance import load_status
+        for queued in c.execute("SELECT w.job_id,a.runner_id FROM org_turn_waits w JOIN jobs j ON j.id=w.job_id "
+                                 "JOIN assignments a ON a.bot=j.bot WHERE j.state='queued' ORDER BY w.created,w.job_id"):
+            rid = queued['runner_id']
+            remote = rid != runner['id']
+            target = c.execute('SELECT * FROM runners WHERE id=? AND revoked_at IS NULL', (rid,)).fetchone() if remote else runner
+            if (not target or (remote and not claiming(rid, CLAIMED_WAITING_FRESH))
+                    or not target['last_seen'] or target['last_seen'] < H.shift(H.now(), seconds=-90)
+                    or not self.awake(target['awake_since'], H.now()) or runner_versions.paused(c, rid)
+                    or load_status(c, rid)['overloaded'] or start_places.ready_waiting(c, rid)
+                    or sum(turns_here(c, rid).values()) >= target['capacity']):
+                continue
+            busy_bots, busy_lanes = claimed_busy(rid, CLAIMED_WAITING_FRESH)
+            scope = Claim(busy_bots=list(busy_bots), busy_lanes=['|'.join(x) for x in busy_lanes]) if remote else body
+            identity = Identity('runner:' + rid, 'runner', runner_id=rid) if remote else who
+            if found := self.candidate(c, identity, scope, target, job_id=queued['job_id']):
+                return rid, found
+        return None
+
     def idle_claim(self, c, who, body, key=None, selected=None):
         """The answer to a claim that changes nothing, from a read-only connection, or None when
         the claim has something to write or to hand out and must run in the write transaction.
@@ -1872,6 +1907,7 @@ class Execution:
         runner = self.runner(c, who)
         if not runner:
             return None
+        note_claim(runner["id"], body)
         now = H.now()
         if start_places.overdue(c):
             return None
@@ -1891,6 +1927,17 @@ class Execution:
                      "AND NOT EXISTS (SELECT 1 FROM job_recovery r WHERE r.job_id=j.id "
                      "AND r.attempt_id=j.attempt_id AND r.decision='resume') LIMIT 1",
                      (who.runner_id, H.KEEPER)).fetchone():
+            return None
+        company = org_turns.snapshot(c, self.store.settings)
+        if org_turns.needs_observation(c, company):
+            return None
+        if company['at_stop']:
+            # Record new jobs as waiters under the writer lock; an unchanged idle fleet stays read-only.
+            if c.execute("SELECT 1 FROM jobs j WHERE j.state='queued' AND NOT EXISTS "
+                         "(SELECT 1 FROM org_turn_waits w WHERE w.job_id=j.id) LIMIT 1").fetchone():
+                return None
+            return {'attempt': None, 'waiting': org_turns.REASON}
+        if c.execute('SELECT 1 FROM org_turn_waits LIMIT 1').fetchone():
             return None
         why = runner_versions.paused(c, who.runner_id)
         if why:
@@ -1941,6 +1988,8 @@ class Execution:
 
     def claim(self, c, who, body, selected=None, *, prepared=False):
         runner = self.runner(c, who)
+        if runner:
+            note_claim(runner["id"], body)
         changes = c.total_changes
         self.expire(c, limit=CLAIM_MAINTENANCE)
         if c.total_changes != changes:
@@ -1987,6 +2036,9 @@ class Execution:
                 # Clearing the status also publishes the new header to already-open pages.
                 settle_status(c, old["bot"], "idle", "")
             H.event(c,H.KEEPER,'job.suppress',old['id'],{'reason':'Task finished before keeper notice delivery','task_id':old['task_id']})
+        company = org_turns.observe(c, self.store.settings)
+        if company['at_stop']:
+            return {'attempt': None, 'waiting': org_turns.REASON}
         why = runner_versions.paused(c, who.runner_id)
         if why:
             return {"attempt": None, "paused": why}
@@ -2002,6 +2054,10 @@ class Execution:
         # Its work keeps its place in the queue and goes out once the machine is really up.
         if not self.awake(awake_since, now):
             return {"attempt": None}
+        if oldest := self.company_waiter(c, who, body, runner):
+            if oldest[0] != who.runner_id:
+                return {'attempt': None, 'waiting': org_turns.REASON}
+            selected, prepared = oldest[1], True
         # Selection scans the queue on a read connection. Recheck only that job's
         # current eligibility under the writer lock; a changed queue waits one poll.
         if prepared:
@@ -2066,9 +2122,11 @@ class Execution:
                   (aid, row["id"], row["bot"], who.runner_id, row["generation"], digest(token), until, H.now(), lane))
         if body.start_places:
             start_places.claim(c, aid)
+        c.execute('DELETE FROM org_turn_waits WHERE job_id=?', (row['id'],))
         from . import run_diagnostics
         run_diagnostics.touch(c, aid, "leased")
         c.execute("UPDATE jobs SET state='leased',attempt_id=? WHERE id=?", (aid, row["id"]))
+        org_turns.observe(c, self.store.settings)
         # What woke this turn and the wake preset in force, for its run record (backend/wake_presets.py).
         job = c.execute("SELECT wake_preset,wake_class,hold_until FROM jobs WHERE id=?", (row["id"],)).fetchone()
         c.execute("UPDATE attempts SET wake_json=?,handed_runtime=?,handed_model=? WHERE id=?",
@@ -2554,7 +2612,7 @@ class Execution:
             return {"reserved": False, "stop": True}
         if body.waiting:
             return {"reserved": False, **({"stop": True} if row["stop_requested"] else {})}
-        return start_places.reserve(c, row)
+        return start_places.reserve(c, row, self.store.settings)
 
     def started(self, c, who, aid, body):
         row = self.attempt(c, who, aid)
@@ -2563,7 +2621,7 @@ class Execution:
         # Older workers did not negotiate a short start; their in-flight delivery lease stays valid.
         if start_places.is_waiting(c, aid) and finished_before_start(c, row):
             raise Problem("start_wait", "Task finished while this turn was waiting", 409)
-        reserved = start_places.reserve(c, row) if start_places.managed(c, aid) else {"reserved": not row["stop_requested"]}
+        reserved = start_places.reserve(c, row, self.store.settings) if start_places.managed(c, aid) else {"reserved": not row["stop_requested"]}
         if not reserved["reserved"]:
             raise Problem("start_wait", reserved.get("waiting", "Start reservation expired or stopped"), 409)
         c.execute("UPDATE attempts SET state='running',started=? WHERE id=?", (H.now(), aid))
