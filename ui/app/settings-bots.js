@@ -439,15 +439,17 @@ function settingsBulkModelDialog() {
     const retry = dialog.querySelector('[data-bulk-retry]');
     if (retry) retry.disabled = true;
     dialog.querySelectorAll('[data-bot-choice] select,[data-choice-apply],[data-bulk-target]').forEach(control => control.disabled = true);
-    const results = {changed: 0, skipped: 0, blocked: 0, failed: []};
+    const results = {changed: 0, partial: 0, skipped: 0, blocked: 0, failed: []};
     for (const e of targets) {
       mark(e.name, 'working', 'Changing…');
       const result = await settingsBulkApplyOne(e.name, choice, target);
       mark(e.name, result.state, result.note);
+      if (result.partial) results.partial++;
       if (result.state === 'failed') results.failed.push(e); else results[result.state]++;
     }
     running = false;
-    const summary = [`${results.changed} changed`, results.skipped ? `${results.skipped} already on it` : '',
+    const summary = [results.changed || !results.partial ? `${results.changed} changed` : '',
+      results.partial ? `${results.partial} partly changed` : '', results.skipped ? `${results.skipped} already on it` : '',
       results.blocked ? `${results.blocked} can't run it` : '',
       results.failed.length ? `${results.failed.length} failed` : ''].filter(Boolean).join(' · ');
     dialog.querySelector('[data-bulk-summary]').textContent = summary;
@@ -479,7 +481,8 @@ async function settingsBulkApplyOne(slug, choice, target = 'bot') {
       catch {}
     }
   }
-  return {state: failed ? 'failed' : blocked ? 'blocked' : changed ? 'changed' : 'skipped', note: notes.join(' · ')};
+  return {state: failed ? 'failed' : blocked ? 'blocked' : changed ? 'changed' : 'skipped',
+    partial: changed && (failed || blocked), note: notes.join(' · ')};
 }
 async function settingsBulkApplyKind(slug, choice, kind) {
   for (let attempt = 0; attempt < 2; attempt++) {
