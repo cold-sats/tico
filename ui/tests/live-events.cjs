@@ -137,6 +137,7 @@ const block = (seq, event, data) => `id: ${seq}\nevent: ${event}\ndata: ${JSON.s
   await settled();
   await page.evaluate(() => { window.boardDraws = 0; const draw = tasksRender; tasksRender = (...a) => { window.boardDraws++; return draw(...a); }; });
   await send(() => true, block(16, 'tasks', {id: 't1', actor: 'bot:ops', task: task({title: 'Draft the final release notes', version: 4, links: [link('b')]})}));
+  await page.waitForFunction(() => TASKS_ST.tasks.find(x => x.id === 't1').links[0]?.updated === 'b', null, {timeout: t(5000)});   // settled alone can pass before the event is queued
   await settled();
   assert.equal(await page.evaluate(() => window.boardDraws), 0, 'a heartbeat-only change does not redraw the board');
   assert.equal(await page.evaluate(() => TASKS_ST.tasks.find(x => x.id === 't1').links[0].updated), 'b', 'the list keeps the newest copy');
