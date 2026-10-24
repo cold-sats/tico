@@ -398,10 +398,12 @@ def prepare(event, base, output, timings_path=None):
     picked = selection(changed, event, base=base)
     counts = collect() if picked["python"] != [] else Counter()
     if picked["python"] is not None:
-        missing = set(picked["python"]) - counts.keys()
+        # A changed test file whose tests are all slow has nothing in the default suite; the release gate runs it.
+        # A mapped file that collects nothing is still a broken mapping.
+        missing = set(picked["python"]) - counts.keys() - set(changed)
         if missing:
             raise RuntimeError(f"Affected mapping selected no default tests: {sorted(missing)}")
-        counts = Counter({f: counts[f] for f in picked["python"]})
+        counts = Counter({f: counts[f] for f in picked["python"] if f in counts})
     timings = {}
     if timings_path:
         source = Path(timings_path)
