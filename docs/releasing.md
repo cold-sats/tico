@@ -232,7 +232,7 @@ at the same time, each with its own Docker names; the journey proceeds once thos
   turn that opens a session and adds a task worktree), upgrade to the candidate with "Update now" (the updater
   applies the candidate's bundle and replaces itself), take a turn and add a worktree on the previous runner against
   the candidate server, move the computer to the candidate runner and check the variable, the session, the worktree
-  and the rows survived, roll back an update that migrates the database and never turns healthy (the pre-update
+  and the rows survived and that a turn still answers once the harness's saved session is gone, roll back an update that migrates the database and never turns healthy (the pre-update
   snapshot is restored, with the server's real entrypoint running Litestream), and update once more to a third build
   so the replaced updater has to pull its image, refresh the bundle and replace itself again.
 
