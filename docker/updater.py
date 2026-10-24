@@ -484,8 +484,9 @@ def reconcile_caddy(tag):
 
 
 SNAPSHOT_SCRIPT = """
-import glob, os, sqlite3, sys, threading
+import glob, os, sqlite3, sys, threading, time
 folder, name, keep, seconds = sys.argv[1], sys.argv[2], int(sys.argv[3]), float(sys.argv[4])
+deadline = time.monotonic() + seconds   # the whole attempt, copy and check, ends inside the updater's own timeout
 os.makedirs(folder, exist_ok=True)
 for stale in glob.glob(os.path.join(folder, "pre-update-*.sqlite.part*")):
     os.remove(stale)      # an earlier attempt that ran out of time; each is as large as the database
@@ -493,15 +494,20 @@ part, final = os.path.join(folder, name + ".part"), os.path.join(folder, name)
 source, target = sqlite3.connect("/data/hub.sqlite", timeout=30), sqlite3.connect(part)
 source.backup(target)     # a consistent copy while the server keeps writing
 # quick_check reads every page and b-tree but skips integrity_check's index-against-table cross-check, which on a
-# multi-gigabyte database is disk-bound for longer than an update can wait. The timer interrupts the check here,
-# before the updater's own timeout, so no orphaned check keeps reading the disk after the update gives up.
-timer = threading.Timer(seconds, target.interrupt)
-timer.start()
-try:
-    ok = target.execute("PRAGMA quick_check").fetchone()[0]
-except sqlite3.OperationalError:
-    ok = "the snapshot check did not finish within %d seconds" % seconds
-timer.cancel()
+# multi-gigabyte database is disk-bound for longer than an update can wait. It gets only the time the copy left, and
+# the timer interrupts it at the deadline, so no orphaned check keeps reading the disk after the update gives up.
+late = "the snapshot check did not finish within %d seconds" % seconds
+left = deadline - time.monotonic()
+if left <= 0:
+    ok = late
+else:
+    timer = threading.Timer(left, target.interrupt)
+    timer.start()
+    try:
+        ok = target.execute("PRAGMA quick_check").fetchone()[0]
+    except sqlite3.OperationalError:
+        ok = late
+    timer.cancel()
 target.close(); source.close()
 if ok != "ok":
     for leftover in glob.glob(part + "*"):
@@ -577,7 +583,7 @@ def take_snapshot(previous):
     """A consistent copy of the database, made by the running server's own container. Returns its file name."""
     name = "pre-update-%s-%s.sqlite" % (re.sub(r"[^0-9A-Za-z.-]", "", previous) or "unknown", time.strftime("%Y%m%d%H%M%S"))
     compose("exec", "-T", SERVICE, "python", "-c", SNAPSHOT_SCRIPT, SNAPSHOTS, name, str(KEEP_SNAPSHOTS),
-            str(max(SNAPSHOT_SECONDS - 60, 30)), timeout=SNAPSHOT_SECONDS)
+            str(max(SNAPSHOT_SECONDS - 60, SNAPSHOT_SECONDS * 4 // 5)), timeout=SNAPSHOT_SECONDS)
     return name
 
 
