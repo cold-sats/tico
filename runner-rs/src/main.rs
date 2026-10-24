@@ -398,7 +398,7 @@ async fn start(command: Command, config: config::Config) -> i32 {
     if isolation::enabled() {
         // Sign-ins a person ran as root (`docker exec`) go to the bot user, who runs the harnesses.
         let home = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default());
-        isolation::adopt(&[".codex", ".claude", ".claude.json", ".gemini", ".config"].map(|p| home.join(p)));
+        isolation::adopt_store(&[".codex", ".claude", ".claude.json", ".gemini", ".config"].map(|p| home.join(p)));
         hosts::grok::hand_login_to_bot();
         // Subscription profiles made before their homes were the bot user's, or by `profile add` without isolation.
         for profile in profiles::configured(&config.data) {

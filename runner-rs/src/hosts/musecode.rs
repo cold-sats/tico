@@ -434,7 +434,7 @@ pub fn prepare_config(home: &Path) -> Result<PathBuf, HostError> {
     }
     let directory = crate::isolation::mkdir(&home.join("muse"), 0o700).map_err(|e| failed(format!("Muse settings folder: {e}")))?;
     // Only this login's Muse home, not the profile directory or the runner's private state.
-    crate::isolation::adopt(&[home.to_path_buf()]);
+    crate::isolation::adopt_store(&[home.to_path_buf()]);
     let path = directory.join("settings.json");
     let stored = match std::fs::read_to_string(&path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(directory),
