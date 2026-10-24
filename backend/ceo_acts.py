@@ -161,10 +161,12 @@ class Caller:
     - `would_read(...)`: the same SQL on a task as a change would leave it, so a change never moves a task out of the
       CEO Bot's sight either.
     - `give(owner, task_id)`: why the CEO Bot may not hand this bot work (auth.target `write` and bot_contact), or
-      None; the route supplies it from the caller's identity."""
+      None; the route supplies it from the caller's identity.
+    - `sees(owner)`: whether the CEO Bot may see this bot (auth `see`). One it can't see does not exist for it
+      (docs/permissions.md): it is answered as a bot that isn't there, and never named (`name`)."""
 
-    def __init__(self, c, visible, give):
-        self.c, self.visible, self._give = c, visible, give
+    def __init__(self, c, visible, give, sees):
+        self.c, self.visible, self._give, self._sees = c, visible, give, sees
 
     def reads(self, row):
         return bool(row) and reads(self.c, self.visible)(row)
@@ -175,6 +177,14 @@ class Caller:
 
     def give(self, owner, task_id=None):
         return self._give(owner, task_id)
+
+    def sees(self, actor):
+        return not H.is_bot(actor) or bool(self._sees(actor))
+
+    def name(self, actor):
+        """An actor as the CEO Bot may name it: a bot it can't see by no more than the words it gave, as for a bot
+        that isn't there (`_name`)."""
+        return _name(self.c, actor) if self.sees(actor) else H.actor_id(actor)
 
     def task(self, actor, task_id):
         """The task a change names, refused as a task that isn't there when the CEO Bot can't read it: the log, the
@@ -201,16 +211,17 @@ def _offline(c, actor):
     return None if state == "active" else f"{_name(c, actor)} is {state or 'gone'} right now"
 
 
-def describe(c, change):
-    """One change in plain words, with TASK for the task it changes."""
+def describe(c, change, caller):
+    """One change in plain words, with TASK for the task it changes. A bot is named only as the CEO Bot sees it
+    (`Caller.name`)."""
     do = change.get("do")
     row = H.task(c, change.get("task_id") or "") if change.get("task_id") else None
     if do == "create":
-        return f'New task for {_name(c, change.get("owner", ""))}: "{change.get("title", "")}"'
+        return f'New task for {caller.name(change.get("owner", ""))}: "{change.get("title", "")}"'
     if do == "reorder":
-        return f"Move {TASK} to the top of {_name(c, (row or {}).get('owner', ''))}'s queue"
+        return f"Move {TASK} to the top of {caller.name((row or {}).get('owner', ''))}'s queue"
     if do == "reassign":
-        return f"Give {TASK} to {_name(c, change.get('owner', ''))}"
+        return f"Give {TASK} to {caller.name(change.get('owner', ''))}"
     if do == "close":
         return f"Close {TASK}"
     return PERSON_ONLY.get(do, str(do))
@@ -239,12 +250,14 @@ def _check(c, change, caller):
         if H.is_human(owner):
             change["owner"] = owner
             return "a task for a person stays the person's to give", "person_task"
-        if not H.is_bot(owner) or not H.bot(c, H.actor_id(owner)):
+        if not H.is_bot(owner) or not H.bot(c, H.actor_id(owner)) or not caller.sees(owner):
+            # A bot the CEO Bot can't see is answered as one that isn't there, in its own words, and `change` keeps
+            # them: nothing it writes back (the receipt, the proposal) tells the two apart.
             return f"no bot {change.get('owner') or '(none named)'} to give the task to", None
         change["owner"] = owner
         what = "a new task" if do == "create" else TASK
         if why := caller.give(owner, change.get("task_id") if do == "reassign" else None):
-            return f"giving {what} to {_name(c, owner)} stays the owner's: {why}", None
+            return f"giving {what} to {caller.name(owner)} stays the owner's: {why}", None
     if do == "create":
         change["title"] = " ".join(str(change.get("title") or "").split())[:300]
         change["body"] = str(change.get("body") or "").strip()[:8000]
@@ -258,7 +271,7 @@ def _check(c, change, caller):
     if not _bot_task(c, change.get("task_id")):
         return "name a live bot task (a finished or private one can't be changed)", None
     if do == "reassign" and change["owner"] == row["owner"]:
-        return f"{TASK} is already {_name(c, row['owner'])}'s", None
+        return f"{TASK} is already {caller.name(row['owner'])}'s", None
     if do == "reassign" and not caller.would_read(change["owner"], row["requester"], row.get("private") or 0):
         # A new owner drops the guest (task_update), so the task is read as it would be then.
         return f"giving {TASK} to {_name(c, change['owner'])} would put it out of the CEO Bot's sight", None
@@ -311,11 +324,11 @@ def _bump(c, task_id):
     c.execute("UPDATE tasks SET version=version+1 WHERE id=?", (task_id,))
 
 
-def decide(c, actor, reason, changes, goal_id=None, *, visible, give):
+def decide(c, actor, reason, changes, goal_id=None, *, visible, give, sees):
     """A decision the CEO Bot makes alone, at level 3: each change made on its own under one action id, the rest (a
     person's task, a bot offline, a refusal) one proposal in the owner's Needs you with the reason. `visible` is the
-    CEO Bot's auth.task_sql and `give` its check on handing a bot work (`Caller`). Returns the action id; the reader
-    reads it with `entry`."""
+    CEO Bot's auth.task_sql, `give` its check on handing a bot work and `sees` whether it may see a bot (`Caller`).
+    Returns the action id; the reader reads it with `entry`."""
     H._writer(c, actor)
     if not is_ceo(actor) or H.VIA.get():
         H.refuse(c, actor, "identity", f"Only the {ceo_bot.name(c)} decides alone, and only for itself")
@@ -329,7 +342,7 @@ def decide(c, actor, reason, changes, goal_id=None, *, visible, give):
         H.refuse(c, actor, "lint", f"a decision makes 1 to {MAX_CHANGES} changes")
     if goal_id and not c.execute("SELECT 1 FROM goals WHERE id=?", (goal_id,)).fetchone():
         H.refuse(c, actor, "not-found", f"no goal {goal_id}")
-    caller = Caller(c, visible, give)
+    caller = Caller(c, visible, give, sees)
     # Checked before anything is written: the log, the proposal and their events must say nothing about a task the
     # CEO Bot can't read, so such a decision is refused as a task that isn't there, like any task write it can't read.
     # `_check` asks again before each change, by the same rule.
@@ -343,7 +356,7 @@ def decide(c, actor, reason, changes, goal_id=None, *, visible, give):
             change = dict(change) if isinstance(change, dict) else {}
             why, kind = _check(c, change, caller)
             if why:
-                left.append({"change": change, "text": describe(c, change), "why": why, "kind": kind})
+                left.append({"change": change, "text": describe(c, change, caller), "why": why, "kind": kind})
                 continue
             c.execute("SAVEPOINT ceo_change")
             try:
@@ -351,11 +364,11 @@ def decide(c, actor, reason, changes, goal_id=None, *, visible, give):
             except H.Refused as exc:
                 c.execute("ROLLBACK TO ceo_change")
                 c.execute("RELEASE ceo_change")
-                left.append({"change": change, "text": describe(c, change), "rule": exc.rule,
+                left.append({"change": change, "text": describe(c, change, caller), "rule": exc.rule,
                              "why": _refusal(c, H.task(c, change.get("task_id") or ""), exc)})
                 continue
             c.execute("RELEASE ceo_change")
-            text = describe(c, change)
+            text = describe(c, change, caller)
             if out["made"]:
                 # Its title is the CEO Bot's, but the task is the company's now: named as it is when read.
                 text = f"New task for {_name(c, change['owner'])}: {TASK}"

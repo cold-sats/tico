@@ -432,3 +432,35 @@ def test_a_decision_never_touches_a_company_task_hidden_from_the_ceo_bot_by_its_
     assert task(api, work)["owner"] == "bot:ops"
     with api.app.state.store.read() as c:
         assert not c.execute("SELECT 1 FROM tasks WHERE title='Review the payroll'").fetchone()
+
+
+def test_a_bot_the_ceo_bot_cant_see_is_answered_as_a_bot_that_isnt_there(api):
+    """docs/permissions.md: a bot the caller can't see does not exist for them. Giving it a task, new or moved, is
+    answered word for word as for a slug no bot has, and neither the receipt nor the owner's Needs you item, which
+    the CEO Bot reads, carries its display name."""
+    ceo = with_ceo_bot(api)
+    bot(api, "ops")
+    bot(api, "finance")
+    level(api, 3)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bots SET display_name='Payroll Vault' WHERE slug='finance'")
+        c.execute("UPDATE bot_config SET access_json=? WHERE bot='finance'",
+                  ('{"see":{"people":["ana"]},"read":{"people":["ana"]},"write":{"people":["ana"]}}',))
+    work = bot_task(api, "ops", "Reconcile the vendor invoices")
+
+    def left(owner):
+        made = decide(api, ceo, [{"do": "reassign", "task_id": work, "owner": owner},
+                                 {"do": "create", "owner": owner, "title": "Review the payroll"}])
+        assert made["state"] == "proposed" and not made["done"], made
+        body = task(api, made["proposal_task"])["body"]
+        return made, [(x["text"], x["why"]) for x in made["left"]], body
+
+    hidden, hidden_left, hidden_body = left("finance")
+    assert "Payroll Vault" not in str(hidden) and "Payroll Vault" not in hidden_body
+    assert "Unknown recipient" not in str(hidden) and "Unknown recipient" not in hidden_body
+    with api.app.state.store.transaction() as c:          # answered, so the next one is asked again
+        H.task_close(c, OWNER, hidden["proposal_task"], "Seen")
+    _, missing_left, missing_body = left("nobody")       # the same words for a slug no bot has
+    assert hidden_left == [(t.replace("nobody", "finance"), w.replace("nobody", "finance")) for t, w in missing_left]
+    assert hidden_body == missing_body.replace("nobody", "finance"), (hidden_body, missing_body)
+    assert task(api, work)["owner"] == "bot:ops"

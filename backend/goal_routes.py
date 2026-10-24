@@ -280,7 +280,8 @@ def install(app, store, auth, mutate, settings):
                     return exc.detail
                 return None
             made = CA.decide(c, who.actor, body.reason, [x.model_dump(exclude_none=True) for x in body.changes],
-                             body.goal_id or None, visible=auth.task_sql(c, who), give=give)
+                             body.goal_id or None, visible=auth.task_sql(c, who), give=give,
+                             sees=lambda owner: auth.bot_access(c, who, H.actor_id(owner))["see"])
             return CA.receipt(CA.entry(c, made, auth.task_sql(c, who)))
         return mutate(request, body, work)
 
