@@ -240,6 +240,11 @@ def test_record_timings_writes_each_files_seconds_from_junit_reports(tmp_path, m
         'default': {'a.py': 3.5, 'b.py': 0.25}, 'release': {'a.py': 13.5, 'b.py': 0.25, 's.py': 4.0}}
     with pytest.raises(RuntimeError, match='xunit1'):
         release_checks.record_timings(report('xunit2.xml', [(None, 1)]), slow)
+    log = tmp_path / 'browser.log'
+    log.write_text('UI tests: jobs=3\nok    a.cjs (2.5s)\nFAIL  b.cjs (60.0s)\n      TimeoutError\nok    c.cjs (0.4s)\n')
+    assert release_checks.main(['--record-browser-timings', str(log)]) == 0
+    release_checks.record_timings(default, slow)   # the junit refresh keeps the browser record
+    assert json.loads(release_checks.TIMINGS.read_text())['browser'] == {'a': 2.5, 'c': 0.4}
 
 
 def test_shard_alone_runs_a_file_group_of_the_default_suite_pr_checks_run(monkeypatch, capsys):

@@ -26,7 +26,8 @@ runs on this machine, as before, with the desktop part only where the Linux app 
 checks run), balanced the same way, so the PR-check Python job can spread over several VMs. The N groups together run
 every file the single default run collects, each once. Groups balance by each file's recorded seconds in
 scripts/test-timings.json (a file with no record by its test count); refresh it with `--record-timings DEFAULT_XML
-SLOW_XML` from junit reports of a full run.
+SLOW_XML` from junit reports of a full run. Browser shards balance by the 'browser' seconds there; refresh those with
+`--record-browser-timings LOG...` from the browser logs of a release validation, every shard's.
 
 Use the test environment's Python to invoke this script. The release gate defaults to half the CPU count in
 Python workers (at least one); the browser runner selects free-core concurrency and load-scaled timeouts.
@@ -307,9 +308,30 @@ def record_timings(default_report, slow_report):
         release[name] = release.get(name, 0.0) + seconds
     timings = {kind: {name: round(seconds, 2) for name, seconds in sorted(table.items())}
                for kind, table in (('default', default), ('release', release))}
-    TIMINGS.write_text(json.dumps(timings, indent=1) + '\n')
+    browser = recorded_timings('browser')
+    TIMINGS.write_text(json.dumps({**timings, **({'browser': browser} if browser else {})}, indent=1) + '\n')
     print(f'Recorded {len(default)} default and {len(release)} release test files in {TIMINGS.name}: '
           f'{sum(default.values()):.0f}s and {sum(release.values()):.0f}s', flush=True)
+    return 0
+
+
+def record_browser_timings(*logs):
+    """Rewrite the 'browser' seconds in TIMINGS, by script name as `--list` prints it, from `ui-tests.cjs` logs
+    (`ok    name.cjs (12.3s)` lines). A failed script's time is how long it took to fail, not to pass, so it is left
+    out and weighs like an unrecorded one."""
+    seconds = {}
+    for log in logs:
+        for name, value in re.findall(r'^ok +(\S+)\.cjs \(([\d.]+)s\)$', Path(log).read_text(), re.M):
+            seconds[name] = float(value)
+    if not seconds:
+        raise RuntimeError('no passed browser scripts in ' + ', '.join(logs))
+    try:
+        timings = json.loads(TIMINGS.read_text())
+    except FileNotFoundError:
+        timings = {}
+    timings['browser'] = dict(sorted(seconds.items()))
+    TIMINGS.write_text(json.dumps(timings, indent=1) + '\n')
+    print(f'Recorded {len(seconds)} browser scripts in {TIMINGS.name}: {sum(seconds.values()):.0f}s', flush=True)
     return 0
 
 
@@ -446,6 +468,8 @@ def main(argv=None):
     parser.add_argument('--part', choices=PARTS, help='with --release: run only this slice of the gate')
     parser.add_argument('--record-timings', nargs=2, metavar=('DEFAULT_XML', 'SLOW_XML'),
                         help='rewrite scripts/test-timings.json from junit reports of the default suite and the slow tests')
+    parser.add_argument('--record-browser-timings', nargs='+', metavar='LOG',
+                        help="rewrite the 'browser' seconds in scripts/test-timings.json from browser-test logs")
     parser.add_argument('--shard', type=parse_shard,
                         help='run file group K of N (K/N) of the Python tests: alone, of the default suite (PR checks); '
                              'with --release --part python, of the release set; with --part browser, of every script')
@@ -456,6 +480,8 @@ def main(argv=None):
         parser.error('--shard with --release needs --part python or browser')
     if args.record_timings:
         return record_timings(*args.record_timings)
+    if args.record_browser_timings:
+        return record_browser_timings(*args.record_browser_timings)
     if args.release:
         return release(args)
     return python_shard(*args.shard) if args.shard else full()
@@ -467,7 +493,7 @@ def in_slot(env=os.environ):
 
 
 if __name__ == '__main__':
-    if not in_slot() and '--record-timings' not in sys.argv:
+    if not in_slot() and not {'--record-timings', '--record-browser-timings'} & set(sys.argv):
         # A local run first takes one of the box's heavy-job slots, at low priority (scripts/heavy.sh).
         os.execvp('bash', ['bash', str(ROOT / 'scripts/heavy.sh'), sys.executable, __file__, *sys.argv[1:]])
     raise SystemExit(main())

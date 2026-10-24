@@ -182,8 +182,8 @@ async function check(engine) {
     assert.ok(!(await page.locator('.toast.err').allInnerTexts()).some(t => /Not sent:/.test(t)), 'the UI does not claim the original was unsent');
     assert.equal(await box.inputValue(), uncertainText);
     await page.reload();
+    // The reload restores the normal 30 s deadline: these sends are answered, and a busy VM can take over a second.
     await page.waitForFunction(() => V2C?.loaded);
-    await page.evaluate(() => { CHAT_SEND.timeout = 1500; });
     assert.equal(await page.evaluate(() => BOT_PILL.unconfirmed?.key), uncertainKey, 'reload preserves the uncertain key');
     // Simulate sign-in restoring the session before a separate access denial on the same saved send.
     answer = 'access-refused';

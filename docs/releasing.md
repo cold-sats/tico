@@ -143,7 +143,8 @@ the manifests and files it would publish, and pushes nothing.
 The reviewed workflow controls and selected candidate have separate checkouts: a workflow merged after a candidate was
 frozen can check that candidate without changing it. The candidate's `scripts/release_checks.py --release` is unchanged.
 It can also run one slice of the gate (`--part product|browser|python|desktop`, with `--shard K/N` splitting the Python test
-files, or the browser scripts, into N groups balanced by recorded time). The hosted workflow selects product, two browser
+files, or the browser scripts, into N groups balanced by the times in `scripts/test-timings.json`; refresh the browser
+times with `--record-browser-timings` from a validation's browser logs). The hosted workflow selects product, two browser
 shards, eight Python shards and desktop. Only product needs the images: the other parts start as soon as the Linux
 binaries are built, and product waits for the image builds; without `--part`, the command runs the whole gate, with desktop only where the Linux app builds. The desktop
 part runs the Tauri app's tests on Linux, among them a company app updating from a feed this candidate publishes
