@@ -389,6 +389,7 @@ def run_pass(store, at=None, engine=None, clock=time.monotonic, force=False):
                 if verdict not in SUGGEST or confidence < threshold:
                     verdict = LEAVE
                 detail["verdict"] = {"value": verdict, "confidence": round(confidence, 3)}
+                detail["answers"] = J.summary(answers)     # what Decide answered, before the threshold left it
             off = False
             with store.transaction() as c:
                 H.event(c, H.KEEPER, "judge.call", label, detail)     # the call happened, whatever comes of it

@@ -268,6 +268,8 @@ class Blobs:
                 s3.complete_multipart_upload(Bucket=bucket, Key=key, UploadId=upload_id,
                                                  MultipartUpload={"Parts": parts}, IfNoneMatch="*")
             self._landing(digest, settings, at)
+            if at is None:
+                self._visual_copy(digest, size, content_type, settings, small_body, stream)
         except Exception as exc:
             if upload_id:
                 try:
@@ -302,6 +304,21 @@ class Blobs:
             if len(self._landed) > 200_000:
                 self._landed.clear()
             self._landed.add((found["location"], digest))
+
+    def _visual_copy(self, digest, size, content_type, settings, small_body, stream):
+        # A page or SVG uploaded to Tico file hosting's bucket gets its cleaned copy beside it from the bytes in hand
+        # (backend/tico_storage.py `landed`); one that fails is made on its first view. Never fails the upload.
+        from . import tico_storage
+        found, mime = self.edge, (content_type or "").split(";", 1)[0].strip().lower()
+        if not found or location_of(settings) != found["location"] or not tico_storage.visual_kind(mime, size):
+            return
+        try:
+            if small_body is None:
+                stream.seek(0)
+            data = small_body if small_body is not None else stream.read()
+        except Exception:
+            return
+        tico_storage.landed(self, digest, size, mime, data)
 
     def holds_whole(self, digest, size, at):
         """Whether the place `at` holds the file whole, by S3's own SHA-256 of what it received (a `whole` upload):

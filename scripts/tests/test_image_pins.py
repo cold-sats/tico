@@ -33,7 +33,7 @@ TRIXIE_RENAMED = ('libasound2', 'libatk-bridge2.0-0', 'libatk1.0-0', 'libatspi2.
 # Pins with no wheel for the image's Python that the venv stage builds (it has a compiler and their headers).
 BUILT_IN_THE_VENV_STAGE = {'pyyaml': 'libyaml-dev'}
 DIGEST = re.compile(r'@sha256:[0-9a-f]{64}$')
-# The images ship for both (.github/workflows/docker.yml); a pin needs a wheel for each.
+# The images ship for both (Release validation builds each, .github/workflows/ci.yml); a pin needs a wheel for each.
 ARCHES = ('x86_64', 'aarch64')
 # glibc in each Debian release (packages.debian.org/<release>/libc6); a manylinux wheel needing newer won't install.
 DEBIAN_GLIBC = {'bookworm': (2, 36), 'trixie': (2, 41)}

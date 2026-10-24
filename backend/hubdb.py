@@ -3441,6 +3441,10 @@ def tag_update(conn, actor, ident, version, *, label=None, metadata=None, markdo
     return tag(conn, row["id"])
 
 
+TASK_TAGS_SQL = ("SELECT tags.*,task_tags.task_id FROM task_tags JOIN tags ON tags.id=task_tags.tag_id "
+                 "WHERE task_tags.task_id IN (%s) ORDER BY task_tags.rowid")
+
+
 def hydrate_task_tags(conn, rows):
     """Read tag display data for a page in one query, including rows from older readers."""
     by_id = {row["id"]: row for row in rows}
@@ -3449,8 +3453,7 @@ def hydrate_task_tags(conn, rows):
     if by_id:
         marks = ",".join("?" * len(by_id))
         from .read_cache import rows as cached_rows
-        for row in cached_rows(conn, "SELECT tags.*,task_tags.task_id FROM task_tags JOIN tags ON tags.id=task_tags.tag_id "
-                                f"WHERE task_tags.task_id IN ({marks}) ORDER BY task_tags.rowid", tuple(by_id)):
+        for row in cached_rows(conn, TASK_TAGS_SQL % marks, tuple(by_id)):
             value = _tag_view(row)
             by_id[value.pop("task_id")]["tags"].append(value)
 
@@ -4473,11 +4476,17 @@ def task_comments(conn, task_id, *, actor=None):
     ids = named(conn, task_id, row["conversation_id"])
     if ids is not None:
         sql, args = "+conversation_id=? AND id IN (SELECT value FROM json_each(?))", args + [_dump(sorted(ids))]
-    for m in _rows(conn.execute("SELECT * FROM messages WHERE " + sql + " AND deleted_at IS NULL "
-                                "ORDER BY created", args)):
+    if actor is not None:
+        # The rows below are read in the snapshot their checks use, so each check takes the row as stored.
+        privacy.snapshot(conn)
+    rows = _rows(conn.execute("SELECT * FROM messages WHERE " + sql + " AND deleted_at IS NULL ORDER BY created", args))
+    for m in rows:
         m["refs"] = _json(m.get("refs_json"), {}) or {}
+    if actor is not None:
+        privacy.prime_messages(conn, rows)
+    for m in rows:
         if message_task_id(m, conv) == task_id and m.get("kind") in ("say", "ask", "answer"):
-            if actor is not None and not privacy.message_readable(conn, actor, m):
+            if actor is not None and not privacy.message_readable(conn, actor, m, current=True):
                 continue
             if m["kind"] == "ask" and m["refs"].get("questions"):
                 m["ask"] = {**{k: m["refs"].get(k) for k in ("questions", "who")}, "by": m["from_actor"]}
@@ -4517,6 +4526,29 @@ def open_task_asks(conn, task_row, *, actor=None):
     for ask in asks:
         ask["refs"] = _json(ask.get("refs_json"), {}) or {}
     return asks
+
+
+def open_tasks_asks(conn, task_rows, *, actor):
+    """{task id: open_task_asks(conn, row, actor=actor)} for many tasks: their open asks read in one query per 500
+    tasks and checked together (task_privacy.readable_messages), each by the same rule open_task_asks applies."""
+    from . import task_privacy as privacy
+    rows = [row for row in task_rows if row.get("conversation_id")]
+    out = {row["id"]: [] for row in task_rows}
+    asks = []
+    for part in chunks(rows):
+        found = _rows(conn.execute(
+            "SELECT m.*,t.id AS ask_task_id FROM tasks t JOIN messages m ON m.conversation_id=t.conversation_id "
+            f"JOIN conversations cv ON cv.id=m.conversation_id WHERE t.id IN ({','.join('?' * len(part))}) "
+            f"AND m.kind='ask' AND {MESSAGE_TASK_SQL}=t.id "
+            f"AND {OPEN_ASK_SQL} ORDER BY m.rowid DESC", [row["id"] for row in part]))
+        asks.extend(found)
+    tasks = [ask.pop("ask_task_id") for ask in asks]
+    shown = {id(ask) for ask in privacy.readable_messages(conn, actor, asks)}
+    for tid, ask in zip(tasks, asks):
+        if id(ask) in shown:
+            ask["refs"] = _json(ask.get("refs_json"), {}) or {}
+            out[tid].append(ask)
+    return out
 
 
 def comment_on(conn, task_row, message_id):
@@ -5945,6 +5977,11 @@ NEXT_RUN_WAITING_SQL = (
     "SELECT 1 FROM attempts a WHERE a.id=t.carried_by AND a.state IN ('leased','running','completed')))")
 
 
+# A carrier in one of these states still holds its next-run task (quiet_work.prime reads them for a whole list).
+NEXT_RUN_CARRIER_STATES = ("leased", "running", "completed")
+NEXT_RUN_CARRIER_SQL = "SELECT 1 FROM attempts WHERE id=? AND state IN ('leased','running','completed')"
+
+
 def next_run_waiting(conn, row):
     """Whether this task (a row) is a next-run task still waiting to be carried."""
     if not row or not row.get("next_run") or row.get("status") != "open" or row.get("snoozed_until") \
@@ -5953,8 +5990,7 @@ def next_run_waiting(conn, row):
     if not row.get("carried_by"):
         return True
     try:
-        return not _one(conn, "SELECT 1 FROM attempts WHERE id=? AND state IN ('leased','running','completed')",
-                        (row["carried_by"],))
+        return not _one(conn, NEXT_RUN_CARRIER_SQL, (row["carried_by"],))
     except sqlite3.OperationalError:     # a local hub has no attempts table and no runs
         return True
 
@@ -6052,7 +6088,8 @@ def stuck_tasks(conn, hours=STUCK_HOURS, hidden=()):
 # touches. If waking does not move it, BotOps gets one task to find out why.
 STALL_MINUTES = 5            # quiet this long with nothing set to move it: wake the bot
 STALL_NEXT_RUN_MINUTES = 30  # a next-run task was filed not to wake the bot at once; give it longer
-STALL_REPEAT_MINUTES = 30    # between two wakes for the same task
+STALL_REPEAT_MINUTES = 30    # between two wakes for the same task; doubles while the task stands unchanged
+STALL_BACKOFF_CAP_MINUTES = 480  # the longest wait between two wakes for a task that has not changed (token saving 4/9)
 STALL_WAKES_PER_DAY = 3      # then BotOps takes it
 # Spot checks, on the same path and the same cap: a task whose own session ran lately (or runs now) but
 # that has made no progress (a checkpoint, a comment, a status change, a message from its bot, a turn
@@ -6356,9 +6393,42 @@ def _settle_undiagnosed(conn, row, cause):
           {"bot": actor_id(row["owner"]), "recovery_task": None, "owner": None, "cause": cause})
 
 
+def _stall_stand(conn, row):
+    """What a stall check can tell moved: the task's status, step, owner, what it waits on, its relations and their
+    states, and every comment from anyone but its bot. The bot's own notes ("still waiting") are not a change."""
+    tid = row["id"]
+    parts = [row["status"], row.get("step_id"), row["owner"], row.get("waiting_on"),
+             [list(r) for r in conn.execute(
+                 "SELECT r.kind, r.from_task, r.to_task, o.status FROM task_relations r JOIN tasks o "
+                 "ON o.id=CASE WHEN r.from_task=? THEN r.to_task ELSE r.from_task END "
+                 "WHERE ? IN (r.from_task, r.to_task) ORDER BY r.kind, r.from_task, r.to_task", (tid, tid))],
+             [list(r) for r in conn.execute(
+                 "SELECT id, edited_at, deleted_at FROM messages WHERE conversation_id=? AND from_actor NOT IN (?,?) "
+                 "ORDER BY rowid", (row["conversation_id"], row["owner"], KEEPER))]]
+    return hashlib.sha256(json.dumps(parts, default=str).encode()).hexdigest()[:16]
+
+
+def _stall_streak(conn, row, stand):
+    """How many of the task's latest stall wakes in a row it stood unchanged through."""
+    streak = 0
+    for (detail,) in conn.execute("SELECT detail_json FROM events WHERE action='task.stall_wake' AND target=? "
+                                  "ORDER BY ts DESC LIMIT 6", (row["id"],)):
+        if _json(detail, {}).get("stand") != stand:
+            break
+        streak += 1
+    return streak
+
+
+def _stall_gap(conn, row, stand):
+    """Minutes to leave between two stall wakes. STALL_REPEAT_MINUTES after a wake that the task has changed since;
+    doubled for each earlier wake in a row the task stood unchanged through (30, 60, 120, then the cap)."""
+    streak = _stall_streak(conn, row, stand)
+    return min(STALL_REPEAT_MINUTES * 2 ** max(streak - 1, 0), STALL_BACKOFF_CAP_MINUTES)
+
+
 def wake_stalled(conn, at=None, task_ids=None, queued_here=None):
-    """Wake the owner of each stalled task (at most once per STALL_REPEAT_MINUTES, STALL_WAKES_PER_DAY
-    a day); past that, one diagnostic per stuck task, for BotOps. No diagnostic is filed about another
+    """Wake the owner of each stalled task (at most once per STALL_REPEAT_MINUTES, doubling to
+    STALL_BACKOFF_CAP_MINUTES while the task has not changed; STALL_WAKES_PER_DAY a day); past that, one diagnostic per stuck task, for BotOps. No diagnostic is filed about another
     diagnostic or sent to a person: when BotOps cannot take one, the stuck task carries the cause instead
     (_settle_undiagnosed). A bot still in setup
     is not woken: its task says why once and its setup goes to a person (_hold_for_setup).
@@ -6411,13 +6481,21 @@ def wake_stalled(conn, at=None, task_ids=None, queued_here=None):
                                  (row["id"], since)).fetchone()[0] or 0
             last = conn.execute("SELECT max(ts) FROM events WHERE action='task.stall_wake' AND target=?",
                                 (row["id"],)).fetchone()[0]
+            stand = _stall_stand(conn, row)
+            streak = _stall_streak(conn, row, stand)
             if last and last > shift(at, seconds=-STALL_REPEAT_MINUTES * 60):
                 continue
-            if count >= STALL_WAKES_PER_DAY:
+            # Escalation reads the same count as before, or the same number of checks in a row that moved nothing,
+            # which the back-off spreads over more than a day.
+            if count >= STALL_WAKES_PER_DAY or streak >= STALL_WAKES_PER_DAY:
                 if not conn.execute("SELECT 1 FROM events WHERE action='task.stall_escalated' AND target=? AND ts>?",
                                     (row["id"], shift(at, seconds=-86400))).fetchone():
-                    _escalate_stuck(conn, row, count)
+                    _escalate_stuck(conn, row, max(count, streak))
                     escalated.append(row["id"])
+                    continue
+                if count >= STALL_WAKES_PER_DAY:
+                    continue
+            if last and last > shift(at, seconds=-_stall_gap(conn, row, stand) * 60):
                 continue
             if row["id"] not in stalled:
                 # A spot check: one status check into the task's session per quiet stretch.
@@ -6430,7 +6508,7 @@ def wake_stalled(conn, at=None, task_ids=None, queued_here=None):
                     continue     # no attempted wake for the retry/escalation machinery to count
                 event(conn, KEEPER, "task.stall_wake", row["id"],
                       {"bot": actor_id(row["owner"]), "quiet_minutes": row["quiet_minutes"], "wake": count + 1,
-                       "kind": "status_check"})
+                       "kind": "status_check", "stand": stand})
                 checked.append(row["id"])
                 continue
             if row.get("own_blockers"):
@@ -6452,7 +6530,8 @@ def wake_stalled(conn, at=None, task_ids=None, queued_here=None):
             if row.get("next_run"):
                 conn.execute("UPDATE tasks SET next_run=0 WHERE id=?", (row["id"],))
             event(conn, KEEPER, "task.stall_wake", row["id"],
-                  {"bot": actor_id(row["owner"]), "quiet_minutes": row["quiet_minutes"], "wake": count + 1})
+                  {"bot": actor_id(row["owner"]), "quiet_minutes": row["quiet_minutes"], "wake": count + 1,
+                   "stand": stand})
             woke.append(row["id"])
     return {"woke": woke, "escalated": escalated, "checked": checked, "stuck": stuck, "held": held,
             "retried": retried_ids}
@@ -6537,8 +6616,7 @@ def note_waiting(conn, row):
     if not row.get("carried_by"):
         return True
     try:
-        return not _one(conn, "SELECT 1 FROM attempts WHERE id=? AND state IN ('leased','running','completed')",
-                        (row["carried_by"],))
+        return not _one(conn, NEXT_RUN_CARRIER_SQL, (row["carried_by"],))
     except sqlite3.OperationalError:     # a local hub has no attempts table and no runs
         return True
 
@@ -7101,11 +7179,23 @@ def humans(conn):
     return out
 
 
+CONVERSATION_SQL = "SELECT * FROM conversations WHERE id=?"
+
+
 def conversation(conn, conversation_id):
-    row = _one(conn, "SELECT * FROM conversations WHERE id=?", (conversation_id,))
+    row = _one(conn, CONVERSATION_SQL, (conversation_id,))
     if row:
         row["participants"] = _json(row.get("participants_json"), []) or []
     return row
+
+
+def prime_conversations(conn, ids):
+    """Read these conversations in one query per 500 for the conversation() lookups that follow in this snapshot."""
+    from .read_cache import prime
+    for part in chunks(sorted({cid for cid in ids if cid})):
+        found = {row["id"]: row for row in conn.execute(
+            "SELECT * FROM conversations WHERE id IN (%s)" % ",".join("?" * len(part)), part)}
+        prime(conn, CONVERSATION_SQL, {(cid,): found.get(cid) for cid in part})
 
 
 def conversations_for(conn, actor, limit=100):
@@ -7135,10 +7225,25 @@ def chats_with(conn, actor, bot_actor_id):
     return out
 
 
+MESSAGE_SQL = "SELECT * FROM messages WHERE id=?"
+
+
 def message(conn, message_id, *, include_deleted=False):
-    row = _one(conn, "SELECT * FROM messages WHERE id=?" + ("" if include_deleted else " AND deleted_at IS NULL"),
-               (message_id,))
+    row = _one(conn, MESSAGE_SQL + ("" if include_deleted else " AND deleted_at IS NULL"), (message_id,))
     return message_view(conn, row)
+
+
+def prime_messages(conn, ids):
+    """Read these messages in one query per 500 for the message() lookups that follow in this snapshot, deleted or not."""
+    from .read_cache import cache, prime
+    if cache(conn) is None:
+        return
+    for part in chunks(sorted({mid for mid in ids if mid})):
+        found = {row["id"]: row for row in conn.execute(
+            "SELECT * FROM messages WHERE id IN (%s)" % ",".join("?" * len(part)), part)}
+        prime(conn, MESSAGE_SQL, {(mid,): found.get(mid) for mid in part})
+        live = {mid: row for mid, row in found.items() if row["deleted_at"] is None}
+        prime(conn, MESSAGE_SQL + " AND deleted_at IS NULL", {(mid,): live.get(mid) for mid in part})
 
 
 def message_view(conn, row):
@@ -7227,8 +7332,27 @@ def notices(conn, actor, at=None):
     return rows
 
 
+TASK_SQL = "SELECT * FROM tasks WHERE id=?"
+
+
+def prime_tasks(conn, ids):
+    """Read these tasks and their tags in one query each per 500, for the task() lookups that follow in this snapshot
+    (a Needs you card reads its task, its ancestors and what they block, one at a time)."""
+    from .read_cache import cache, prime, prime_rows
+    if cache(conn) is None:
+        return
+    for part in chunks(sorted({tid for tid in ids if tid})):
+        marks = ",".join("?" * len(part))
+        found = {row["id"]: row for row in conn.execute("SELECT * FROM tasks WHERE id IN (%s)" % marks, part)}
+        prime(conn, TASK_SQL, {(tid,): found.get(tid) for tid in part})
+        tags = {tid: [] for tid in part}
+        for row in conn.execute(TASK_TAGS_SQL % marks, part):
+            tags[row["task_id"]].append(row)
+        prime_rows(conn, TASK_TAGS_SQL % "?", {(tid,): found for tid, found in tags.items()})
+
+
 def task(conn, task_id):
-    row = _one(conn, "SELECT * FROM tasks WHERE id=?", (task_id,))
+    row = _one(conn, TASK_SQL, (task_id,))
     if row:
         hydrate_task_tags(conn, [row])
     return row
@@ -7661,10 +7785,26 @@ def events(conn, since=None, actor=None, limit=200):
     return out
 
 
+TASK_ORIGIN_SQL = ("SELECT detail_json FROM events WHERE actor=? AND action='task.origin' "
+                   "AND target=? ORDER BY ts DESC LIMIT 1")
+
+
+def prime_task_origins(conn, ids):
+    """Read the origin events of these tasks in one query per 500, for the task_origin() calls that follow."""
+    from .read_cache import cache, prime
+    if cache(conn) is None:
+        return
+    for part in chunks(sorted({tid for tid in ids if tid})):
+        found = {}
+        for row in conn.execute("SELECT target,detail_json FROM events WHERE actor=? AND action='task.origin' "
+                                "AND target IN (%s) ORDER BY ts DESC" % ",".join("?" * len(part)), (KEEPER, *part)):
+            found.setdefault(row["target"], {"detail_json": row["detail_json"]})
+        prime(conn, TASK_ORIGIN_SQL, {(KEEPER, tid): found.get(tid) for tid in part})
+
+
 def task_origin(conn, row):
     """Trusted origin for a keeper review, including pre-metadata records; never parse titles."""
-    explicit = _one(conn, "SELECT detail_json FROM events WHERE actor=? AND action='task.origin' "
-                         "AND target=? ORDER BY ts DESC LIMIT 1", (KEEPER, row["id"]))
+    explicit = _one(conn, TASK_ORIGIN_SQL, (KEEPER, row["id"]))
     if explicit:
         origin = (_json(explicit["detail_json"], {}) or {}).get("bot")
         return origin if is_bot(origin) else None

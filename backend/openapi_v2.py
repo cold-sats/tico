@@ -61,7 +61,7 @@ EVENTS_DESCRIPTION = (
     "Also `event: ready` (`seq`: where the log stands), `event: cursor` (the change number to resume from, past changes "
     "the viewer may not see), `event: reset` (the client was further behind than the log keeps, 24 hours: read in full), "
     "`event: expired` (sign-in no longer valid; sign in and reconnect), and a `: keepalive` comment every 15 seconds. "
-    "Only what the viewer may read is sent. A stream ends after about five minutes; reconnect with `after` (or the "
+    "Only what the viewer may read is sent. A stream ends after about fifteen minutes; reconnect with `after` (or the "
     "browser's own `Last-Event-ID`). People only: a bot is refused with 403."
 )
 
@@ -265,7 +265,7 @@ STABLE = [
     ("/api/v2/events", "get", "Live events", "streamEvents",
      "Server-sent events: tasks, messages, runs, bots and Needs you as they change. topics=<comma list> (default all), "
      "after=<change number> resumes, conversation=<ids> narrows messages and runs, bot=<slugs> narrows runs and bots, "
-     "needs=changes sends Needs you as changed ids", None),
+     "task=<ids> and party=<actors> narrow tasks to those and to the ones those actors own or asked for, needs=changes sends Needs you as changed ids", None),
     ("/api/v2/needs-you", "get", "Needs you", "getNeedsYou",
      "What waits on the caller, with its `version`; count=true for the number alone, version=<held> answers "
      "`unchanged` without items while it holds, ids=<comma list> only those items and their `positions`", "NeedsYou"),
@@ -378,7 +378,8 @@ STABLE = [
      "Assistant"),
     ("/api/v2/assistant/messages", "post", "Assistant", "sendAssistantMessage",
      "Say something to the Assistant. A lookup is answered at once (fast: true, with the reply); anything else "
-     "is a turn of the assistant bot, shown as `execution` on GET /api/v2/assistant", "AssistantSent"),
+     "is a turn of the assistant bot, shown as `execution` on GET /api/v2/assistant. `place: updates` (the Updates "
+     "chat) always takes a turn, handed the recent updates the caller may read", "AssistantSent"),
     ("/api/v2/assistant/turn-on", "post", "Assistant", "turnOnAssistant",
      "Owner only: restore the archived assistant, or add it from the catalog, and activate it", None),
     ("/api/v2/assistant/actions", "post", "Assistant", "proposeAssistantAction",

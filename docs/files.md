@@ -399,7 +399,8 @@ Media fields live on each file version: `width`, `height`, `duration_ms`, `poste
 `thumb_blob_id`, and `media_state` (`pending`, `ready`, `none`). One background worker fills them;
 existing versions default to `none` and are not automatically backfilled. New versions are `pending`.
 Transient storage failures retry with bounded backoff; permanent decode failures become `none`.
-Missing tools or unsupported media never fail an upload. Pillow decodes only PNG/JPEG/GIF/WebP in a subprocess capped at 1 GiB memory, 20 CPU seconds,
+Missing tools or unsupported media never fail an upload, and a version nothing can be derived from (an SVG, or a
+video or PDF without its tool) becomes `none` without being read: in Tico's bucket every read is delivery. Pillow decodes only PNG/JPEG/GIF/WebP in a subprocess capped at 1 GiB memory, 20 CPU seconds,
 50 MP and a 30-second timeout (macOS uses parent RSS supervision for memory), and makes thumbnails up to 480 px; without Pillow, PNG/JPEG/GIF/WebP headers still provide dimensions. ffprobe/ffmpeg make
 video posters at the earlier of 1 second or 10% of duration, up to 640 px. pdftoppm renders PDF
 page one. A supplied poster is preserved.
