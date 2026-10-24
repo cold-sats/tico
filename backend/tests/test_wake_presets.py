@@ -8,6 +8,8 @@ from backend import github as G
 from backend import wake_presets as W
 from backend.store import H
 from backend.tests.test_api import api, claim, get, headers, post, ready, setup_attempt  # noqa: F401  (api is a fixture)
+from backend.tests.test_botops_parity import act
+from backend.tests.test_member_bots import botops, turn  # noqa: F401  (botops is a fixture)
 from backend.tests.test_task_lanes import new_task, task_bot
 
 PR = "https://github.com/ticoteam/tico/pull/412"
@@ -409,3 +411,19 @@ def test_a_persons_message_is_not_delayed_by_a_held_batch(api):
     post(api, "chat/ops", {"text": "And send me the link when it is up."})
     tick(api, H.now())
     assert [(j["state"], j["held"], j["hold_until"]) for j in jobs(api, since=since)[1:]] == [("queued", 0, None)] * 2
+
+
+
+def test_a_persons_act_through_botops_wakes_the_bot_at_once(api, botops):
+    """BotOps marking done, for the person, a task a bot asked them for: Tico's notice to that bot is the person's act,
+    as the same act from the app is, and no batch holds it."""
+    preset(api, "ops", "token_saver")
+    with api.app.state.store.transaction() as c:
+        task = H.task_create(c, "bot:ops", "Approve the vendor list", "Please check it.", "human:ana")
+    attempt = turn(api, botops, person="ana-test", text="Mark the vendor list done")
+    since = H.now()
+    version = get(api, "tasks/" + task["id"])["task"]["version"]
+    done = act(api, attempt, "POST", "tasks/" + task["id"], {"status": "done", "version": version})
+    assert done.status_code == 200, done.text
+    [told] = jobs(api, since=since)
+    assert (told["state"], told["held"], told["wake_class"]) == ("queued", 0, None)
