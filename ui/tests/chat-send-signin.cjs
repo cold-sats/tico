@@ -65,6 +65,10 @@ async function scenario(browser, mode, edit, keeper = true, editedBefore = false
   const stored = () => page.evaluate(() => ({draft: chatDrafts().botops, otherDraft: chatDrafts().other,
     fields: JSON.parse(sessionStorage.getItem(SESSION_RETURN) || 'null')?.fields || []}));
   const frames = () => page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
+  const readsSettled = async () => {
+    await page.waitForFunction(() => !GET_INFLIGHT.size && !SESSION.probe);
+    await frames();
+  };
   // A loaded conversation can precede its stream subscription. Navigating again while WebKit is
   // still opening that connection reports a cancelled request as an access-control page error.
   const ready = () => page.waitForFunction(keeper => {
@@ -106,12 +110,14 @@ async function scenario(browser, mode, edit, keeper = true, editedBefore = false
       kept.fields.push({scope: 'task:other', key: 'Message', value: 'Another task draft'});
       sessionSave(kept);
     });
+    await readsSettled();
     await page.click('#signed-out button');
     await page.waitForURL('**/auth/login**');
     expired = false;
     await page.click('#return');
     await page.waitForURL(origin + '/#/bot/botops');
     await ready();
+    await readsSettled();
     assert.equal(await box.inputValue(), text, 'return restores the draft');
     assert.ok((await stored()).fields.some(f => f.value === text), 'the return snapshot still holds a copy beside the restored local draft');
 
@@ -142,12 +148,14 @@ async function scenario(browser, mode, edit, keeper = true, editedBefore = false
         await frames();
       }
       assert.equal(posts.length, 2, 'the interrupted attempt and explicit resend are the only POSTs');
+      await readsSettled();
       await page.reload();
       await ready();
       await frames();
       assert.equal(await box.inputValue(), edit ? next : '', 'a later reload cannot revive confirmed text');
       assert.equal(posts.length, 2, 'reload sends nothing');
     } else {
+      await readsSettled();
       await page.reload();
       await ready();
       assert.equal(await box.inputValue(), text, 'an existing draft never sent survives return and another reload');
