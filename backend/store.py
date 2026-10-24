@@ -756,6 +756,8 @@ class Store:
             c.executescript(_watchers.SCHEMA)
             from . import bot_task_tabs as _bot_task_tabs
             c.executescript(_bot_task_tabs.SCHEMA)
+            # The sidebar's widgets: order, hidden and heights (Editable bot sidebar); NULL is the default four.
+            H.add_column(c, "bot_task_tabs", "widgets_json", "TEXT")
             from . import learned as _learned
             c.executescript(_learned.SCHEMA)
             from . import health_monitor as _health_monitor
