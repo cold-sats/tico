@@ -288,6 +288,24 @@ def place(c, settings, slugs, group_order=()):
     refresh_teams(c, roster)
 
 
+def seat_teams(c, settings, templates, group_order=()):
+    """{template: group id} for seats setup lays out (backend/lifecycle.py `lay_out`): the group a bot of that template
+    would go in (`place`), made when the team has none yet, new groups in `group_order` as `place` makes them. A template
+    with no group gets none."""
+    from . import recruit
+    homes = recruit.template_groups(settings)
+    roster = _roster(c)
+    made, out = set(roster["org_groups"]), {}
+    rank = {gid: i for i, gid in enumerate(group_order)}
+    for template in sorted(templates, key=lambda t: rank.get((homes.get(str(t or "")) or {}).get("id"), len(rank))):
+        home = homes.get(str(template or ""))
+        if home:
+            out[template] = ensure(roster, home["id"], home["name"])
+    if set(roster["org_groups"]) != made:
+        _save(c, roster)
+    return out
+
+
 # ----------------------------------------------------------------------------- the migration
 def migrate(c, settings):
     """Every team, org group and derived department becomes a group; every bot its group's member. Idempotent.

@@ -58,11 +58,13 @@ The same flag works with the non-interactive cloud setup. It validates the file 
 company name, and carries the normalized plan privately to the server. On first startup the app creates the selected
 AI employees and reporting lines, adds its built-in roles once, and leaves employees marked **later** paused.
 It preserves the plan across retries and refuses to replace an existing company. A selected file takes precedence
-over the recommended sample company. AWS stores this plan with the encrypted install settings in an Advanced
-Parameter Store parameter (charges apply); settings and compressed plan must fit its 8 KB limit.
-See [Finish setup](onboarding.md) for file support and choices saved for later. A larger file, such as any whole
-company model, is refused before anything is set up: run setup without `--company-file`, then on the first Welcome step
-in Tico, under **Already chose your team?**, choose the file in **Company YAML file** and click **Use this team**.
+over the recommended sample company. Charts up to 300 seats fit. AWS setup creates a private, encrypted bucket in
+your account, with public access blocked and a one-day expiry rule. It copies the plan to the server and deletes the
+bucket's copy once the app reads it. SSH and local setup write the plan to a private file, checking its checksum before
+starting Tico. The chart stays out of the server's environment and AWS Parameter Store size limit.
+See [Finish setup](onboarding.md) for file support and choices saved for later. You can also install without
+`--company-file`, then on the first Welcome step in Tico, under **Already chose your team?**, choose the file in
+**Company YAML file** and click **Use this team**.
 
 Nothing to set up first: no domain, no DNS, no sign-in provider. Tico runs on this computer only, at
 `http://127.0.0.1:8765`, and you sign in as the owner with a token kept on this computer. Add a domain and sign-in
@@ -536,6 +538,9 @@ local sign-in, each protected by its own one-time code, an HMAC or a long secret
 Otherwise computers join through the same hostname. If Access sits in front of all of it, give the runners a bypass or a
 service token for `/api/v2/runners/*` (the runner authenticates itself with its own token), and give `/api/v2/mcp` a
 Bypass policy so humans' own external agents can connect with their tokens ([Connect an external agent](connect-an-agent.md)).
+To link the server to its Tico company (Settings > General > Tico company), also bypass
+`GET /api/v2/company-connection/proof` on the app hostname: Tico checks it there, and it answers only while an owner's
+connect is pending.
 
 Or run the bots' computer on the server itself and skip Access altogether: the runner joins the server's own Docker
 network and talks to it directly. With a one-time code from Settings > Computers > Add computer, on the server:

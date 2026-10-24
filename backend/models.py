@@ -1206,6 +1206,8 @@ class RunnerRestart(Contract):
 
 
 class RunnerUpdate(Contract):
+    running: int | None = Field(default=None, ge=0, le=256)
+    handed_back: int | None = Field(default=None, ge=0, le=100_000)
     state: Literal["idle", "waiting", "updating", "failed", "rolled_back", "pinned", "blocked"]
     target: str = Field(default="", max_length=100)
     error: str = Field(default="", max_length=300)
@@ -1427,8 +1429,13 @@ class SeatCreate(Contract):
     """A Recruiting seat: a role on the org chart with its job description and reporting line, and no bot."""
     title: Annotated[str, Field(min_length=1, max_length=120)]
     description: Annotated[str, Field(max_length=8000)] = ""
-    reports_to: Annotated[str, Field(max_length=200)] = ""     # `human:<id>` or a bot's slug; the caller by default
+    reports_to: Annotated[str, Field(max_length=200)] = ""     # `human:<id>`, a bot's slug or `seat:<id>`; the caller by default
     team: Annotated[str, Field(max_length=100)] = ""
+
+
+class SeatBatchCreate(Contract):
+    """A single confirmed group of Recruiting seats."""
+    seats: Annotated[list[SeatCreate], Field(min_length=1, max_length=50)]
 
 
 class SeatUpdate(Contract):
@@ -1888,6 +1895,12 @@ class OnboardingCompanyImport(OnboardingCompanyFile):
     fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
+class OnboardingInvite(Contract):
+    """The email for a person the company file from setup names; Invite adds them and sends the invite. Empty once
+    they are on the roster: Invite then sends to the address they were added with."""
+    email: str = Field(default="", max_length=320)
+
+
 class Recruit(Contract):
     """One department's answer in the org builder, asking which bots to suggest. `share` is the person's own toggle on
     the card ("Suggestions from Tico HQ"); the server sends the answer only when it is on and the install allows it."""
@@ -2146,6 +2159,8 @@ class StopTurn(Contract):
 
 class AssistantMessage(Contract):
     text: Annotated[str, Field(min_length=1, max_length=8000)]
+    # Sent from the Updates chat (backend/updates_chat.py): the turn is handed the updates the person may read.
+    place: Literal["updates"] | None = None
 
 
 class LibrarianResearch(Contract):
@@ -2390,3 +2405,13 @@ class InboundTask(Contract):
     due: str | None = None
     close: bool = False
     note: str | None = Field(default=None, max_length=200_000)
+
+
+class TaskRuleUpdate(Contract):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    department: str | None = Field(default=None, min_length=1, max_length=80)
+    triggers: list[dict] | None = Field(default=None, min_length=1, max_length=8)
+    actions: list[str] | None = Field(default=None, min_length=1, max_length=8)
+    on: bool | None = None
+    preset: Literal["15m", "hourly", "4h", "daily"] | None = None
+    at: str | None = Field(default=None, max_length=5)

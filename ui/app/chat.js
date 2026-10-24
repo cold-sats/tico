@@ -197,16 +197,27 @@ function chatChipsHTML(files) {
     return titled ? `<span class="chat-titled">${thumb}<span class="chat-file-title" aria-hidden="true">${esc(label)}</span></span>` : thumb;
   }).join('')}</div>`;
 }
+// Thumbnails fetch only near the viewport, so a long history doesn't pull every picture at once.
+const CHAT_IO = typeof IntersectionObserver === 'function' ? new IntersectionObserver(entries => {
+  for (const e of entries) if (e.isIntersecting) { CHAT_IO.unobserve(e.target); chatThumbShow(e.target); }
+}, {rootMargin: '300px'}) : null;
 function chatThumbsLoad(root = document) {
   for (const button of root.querySelectorAll('.chat-thumb:not([data-loading])')) {
     button.dataset.loading = '1';
-    const f = {id: button.dataset.chatImage, content_type: button.dataset.type, name: button.dataset.name};
-    chatImageURL(f).then(url => { const img = button.querySelector('img'); img.src = url; img.hidden = false; button.classList.add('ready'); })
-      .catch(() => { (button.closest('.chat-titled') || button).replaceWith(Object.assign(document.createElement('a'), {className: 'pill', href: `${API}/v2/files/${encodeURIComponent(f.id)}`, download: f.name, textContent: button.dataset.title || f.name})); });
+    if (CHAT_IMAGES.has(button.dataset.chatImage) || !CHAT_IO) chatThumbShow(button); else CHAT_IO.observe(button);
   }
 }
-new MutationObserver(() => { if (document.querySelector('.chat-thumb:not([data-loading])')) chatThumbsLoad(); })
-  .observe(document.documentElement, {childList: true, subtree: true});
+function chatThumbShow(button) {
+  const f = {id: button.dataset.chatImage, content_type: button.dataset.type, name: button.dataset.name};
+  chatImageURL(f).then(url => { const img = button.querySelector('img'); img.src = url; img.hidden = false; button.classList.add('ready'); })
+    .catch(() => { (button.closest('.chat-titled') || button).replaceWith(Object.assign(document.createElement('a'), {className: 'pill', href: `${API}/v2/files/${encodeURIComponent(f.id)}`, download: f.name, textContent: button.dataset.title || f.name})); });
+}
+let CHAT_THUMBS_QUEUED = false;
+new MutationObserver(() => {
+  if (CHAT_THUMBS_QUEUED) return;
+  CHAT_THUMBS_QUEUED = true;
+  setTimeout(() => { CHAT_THUMBS_QUEUED = false; if (document.querySelector('.chat-thumb:not([data-loading])')) chatThumbsLoad(); }, 60);
+}).observe(document.documentElement, {childList: true, subtree: true});
 function chatImageOpen(button) {
   let d = $('#img-lightbox');
   if (!d) {
@@ -756,7 +767,7 @@ async function v2ChatSend(P, text, slug = P.slug, extraRefs = {}, extra = {}) {
   let sent; P.sent = new Promise(done => sent = done);
   const pending = P.unconfirmed;
   if (pending) pending.inFlight = P.sent;
-  const files = P.files.slice();
+  const files = P.files.slice(), draftScope = sessionScope(pq(P, '.p-text'));
   const btn = pq(P, '.p-send'), label = btn ? btn.textContent : '';
   // "Sending" is a spinner on the button, never the dimmed look of an empty box; after a few seconds a line under
   // the box says it is still going, and whether it is trying again.
@@ -771,7 +782,7 @@ async function v2ChatSend(P, text, slug = P.slug, extraRefs = {}, extra = {}) {
     if (!j?.message?.id) throw new Error('the server did not confirm it');
     watch.end('sent');
     if (pending) pending.acknowledged = true;       // restored composers share this identity too
-    pillAcknowledge(P, text, files);
+    pillAcknowledge(P, text, files, draftScope);
     if (j.message?.refs?.action_result) toast(j.message.refs.action_result.decision === 'approved' ? 'Approved' : 'Declined');
     v2ChatAdopt(slug, j);
     P.retryTries = 0;

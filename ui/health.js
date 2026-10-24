@@ -160,7 +160,7 @@ async function hlStuckMove(button) {
   void hlRefresh();
 }
 
-// A bot stuck in setup: the same setup-done call as its page's "Mark setup done" (POST /v2/bots/{bot}/onboarded).
+// A bot stuck in onboarding: the same call as its page's "Mark onboarding complete" (POST /v2/bots/{bot}/onboarded).
 async function hlStuckFinish(button) {
   const slug = button.dataset.stuckFinish;
   button.disabled = true; button.textContent = 'Finishing…';
@@ -168,7 +168,7 @@ async function hlStuckFinish(button) {
     const result = await post(`/v2/bots/${encodeURIComponent(slug)}/onboarded`, {});
     const bot = (S.emps || []).find(e => e.name === slug);
     if (bot) bot.onboarding_state = result.onboarding_state;
-    toast(`${botDisplayName(slug)} finished setup`);
+    toast(`${botDisplayName(slug)} finished onboarding`);
     void hlRefresh();
   } catch (error) {
     toast(error.message, true);
@@ -300,7 +300,12 @@ window.hlMount = function hlMount() {
 
 window.hlBoot = function () {
   void hlRefresh();
-  setInterval(() => { if (!document.hidden && S.me?.cloud) void hlRefresh(); }, 60000);
+  // Every minute, or every 2 while live events flow (the tab is in use and nothing is broken).
+  let at = 0;
+  setInterval(() => {
+    if (document.hidden || !S.me?.cloud || (typeof liveConnected === 'function' && liveConnected() && Date.now() - at < 119000)) return;
+    at = Date.now(); void hlRefresh();
+  }, 60000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden && S.me?.cloud) void hlRefresh(); });
 };
 

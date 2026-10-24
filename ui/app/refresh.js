@@ -3,32 +3,33 @@
 'use strict';
 
 // ----------------------------------------------------------------- refresh loop + router
+// Recruiting seats change only by a recruit flow here (each refreshes with force) or another person's: a poll reads
+// them every 5th time, or when the last answer is 10 minutes old.
+let SEATS_POLLS = 0, SEATS_AT = 0;
 async function refresh(force) {
   // Every read at once: hub.db status and needs-you (docs/history/hub-v2.md) and the campus's computers (only while it
   // is open) do not wait for the roster.
   const v2 = v2Refresh(), computers = overviewLoadComputers();
   try {
     // BotOps and other sessions can change the chart. Publish a complete roster together so groups and members agree.
-    const [st, issues, emps, people, seats] = await Promise.allSettled([get('/status'), get('/issues'), get('/employees'), get('/humans'),
-      get('/v2/seats')]);
+    // GitHub Issues are retired: /api/issues always answers [], so S.issues stays empty and is not read.
+    const seatsDue = force || S.seats === undefined || ++SEATS_POLLS % 5 === 0 || Date.now() - SEATS_AT > 600e3;
+    const [st, emps, people, seats] = await Promise.allSettled([get('/status'), get('/employees'), get('/humans'),
+      seatsDue ? get('/v2/seats') : null]);
     S.status = st.status === 'fulfilled' ? st.value : null;
     S.statusPending = false;
-    if (issues.status === 'fulfilled') S.issues = issues.value.map(i => {
-      if (!pendingClosedIssues.has(i.number)) return i;
-      if (i.state === 'CLOSED') pendingClosedIssues.delete(i.number);
-      return {...i, state: 'CLOSED', needs_human: false};
-    });
     if (emps.status === 'fulfilled' && people.status === 'fulfilled' && people.value?.people) {
       S.emps = namedRoster(emps.value);
       setPeople(people.value);
       S.overviewRosterFresh = true;
     } else S.overviewRosterFresh = false;
-    if (seats.status === 'fulfilled') S.seats = seats.value?.seats || [];     // Recruiting seats (backend/lifecycle.py)
+    if (seatsDue && seats.status === 'fulfilled') { S.seats = seats.value?.seats || []; SEATS_AT = Date.now(); }   // Recruiting seats (backend/lifecycle.py)
   } catch (e) { S.overviewRosterFresh = false; }
   await Promise.all([v2, computers]);
   overviewRefresh();
   if (S.me?.cloud) void updUnreadRefresh();
   renderTree(); renderHeartbeat(); pausedRender(); botAvatarsSync(); goalsFollowRoster();
+  tipRefresh();
   if (BOT?.tab === 'chat' && !BOT.split) void loadBotChatTasks(BOT.slug);
   botAlertDraw();
   if (BOT) botScreenRefresh(BOT.slug);   // the Screen row and header button follow the computer (online, screen offered)
@@ -110,8 +111,10 @@ function liveWire() {
   liveOn('tasks', d => { tasks.push(d); liveSoon('tasks', () => { const batch = tasks; tasks = []; liveTasksApply(batch); }, 200); });
   liveOn('bots', d => {
     if (d.status) S.v2.status[d.bot] = d.status; else delete S.v2.status[d.bot];
+    tipRefresh(d.bot);
     liveSoon('bots', () => {
       renderTree(); renderHeartbeat(); pausedRender(); botAvatarsSync(); goalsFollowRoster();
+      tipRefresh();
       botAlertDraw();
       overviewRefresh();                // the campus desks too, not only at the next refresh (no read: the model is local)
     }, 200);

@@ -188,6 +188,8 @@ async function check(engine) {
     assert.equal(await box.inputValue(), 'A rule refused this draft');
     assert.equal(await page.evaluate(() => BOT_PILL.unconfirmed), null, 'confirmed refusal ends pending delivery');
     answer = 'ok';
+    // A redraw can replace the arrow between press and release (a snapshot lands, goal mode flips); the click still sends.
+    await send.evaluate(b => b.addEventListener('pointerdown', () => { b.innerHTML = ICON_SEND; }, {once: true}));
     await send.click();
     await page.waitForFunction(() => !document.querySelector('#chat-composer textarea').value && !BOT_PILL.sending);
     assert.notEqual(keys.at(-1), refusedKey, 'confirmed refusal allows a later explicit send to evaluate again');
@@ -248,10 +250,11 @@ async function check(engine) {
     assert.equal(await page.evaluate(() => BOT_PILL.unconfirmed?.at), uncertainAt, 'another denial after reload keeps the original replay age');
     answer = 'ok';
     await send.click();
-    await page.waitForFunction(() => !document.querySelector('#chat-composer textarea').value && !BOT_PILL.sending);
-    // The reload while signed out kept the page's texts for after sign-in; the next redraw must not put the sent one back.
+    await page.waitForFunction(() => !BOT_PILL.sending);
+    // Restoration runs on animation frames after the send changes the DOM. An instant empty box can
+    // precede the stale snapshot refilling it; trigger a redraw and check the settled box before typing.
     await page.evaluate(() => new Promise(done => { document.body.append(document.createElement('div')); requestAnimationFrame(() => requestAnimationFrame(done)); }));
-    assert.equal(await box.inputValue(), '', 'a sent message does not come back into the box after sign-in');
+    assert.equal(await box.inputValue(), '', 'confirmed text stays cleared after sign-in restoration settles');
     assert.equal(keys.at(-1), uncertainKey, 'restored access replays the same key for an unchanged draft');
     assert.equal(sends.length, beforeUncertain + 1, 'same-key replay leaves exactly one message server-side');
     assert.equal(await page.evaluate(() => BOT_PILL.unconfirmed), null, 'acknowledged replay ends pending delivery');
@@ -495,8 +498,9 @@ async function check(engine) {
     // A pending Stop says so until the stop answers.
     let stopped; stopHold = new Promise(done => stopped = done);
     const stop = page.locator('#chat-composer .p-stop');
-    await page.evaluate(() => { BOT_PILL.running = {attempt_id: 'a1'}; pillButtons(BOT_PILL); document.querySelector('#chat-composer .p-stop').click(); });
-    assert.deepEqual(await stop.evaluate(b => [b.disabled, b.title, document.getElementById(b.getAttribute('aria-describedby'))?.textContent]),
+    // Read in the same task as the click: the fixture's run is not in its snapshots, so a late snapshot redraw clears it.
+    assert.deepEqual(await stop.evaluate(b => { BOT_PILL.running = {attempt_id: 'a1'}; pillButtons(BOT_PILL); b.click();
+      return [b.disabled, b.title, document.getElementById(b.getAttribute('aria-describedby'))?.textContent]; }),
       [true, 'Stopping…', 'Stopping…']);
     stopped();
     assert.deepEqual(errors, []);

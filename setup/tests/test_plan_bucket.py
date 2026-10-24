@@ -264,13 +264,14 @@ def test_a_saved_plan_bucket_does_not_follow_a_re_run_off_aws(big):
     small = starter.pack(C.to_yaml(draft), starter.ENV_PACKED)
     s = wizard.gather(CaptureIO(), args, saved(small), False)
     assert s.target == "ssh" and s.plan_bucket == s.plan_bucket_region == ""
-    assert "TICO_COMPANY_FILE_S3" not in s.to_env() and s.to_env()["TICO_COMPANY_FILE_B64"] == small
+    assert "TICO_COMPANY_FILE_S3" not in s.to_env() and "TICO_COMPANY_FILE_B64" not in s.to_env()
+    assert s.company_file_data == small and s.to_env()["TICO_COMPANY_FILE"].endswith("/plan.b64")
     io = CaptureIO()
-    s = wizard.gather(io, args, saved(wizard_pack(big)), False)               # the saved plan stays behind, said once
-    assert s.company_file_data == "" and "TICO_COMPANY_FILE_B64" not in s.to_env() and "Use this team" in io.text
-    args.company_file = "tico.company.yaml"                                   # one passed again is refused
-    with pytest.raises(MissingInput, match="without --company-file"):
-        wizard.gather(CaptureIO(), args, saved(wizard_pack(big)), False)
+    s = wizard.gather(io, args, saved(wizard_pack(big)), False)
+    assert s.company_file_data == wizard_pack(big) and "TICO_COMPANY_FILE_B64" not in s.to_env()
+    assert "Use this team" not in io.text
+    args.company_file = str(big)
+    assert wizard.gather(CaptureIO(), args, saved(wizard_pack(big)), False).company_file_data == wizard_pack(big)
 
 
 def wizard_pack(path):

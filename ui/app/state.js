@@ -169,9 +169,6 @@ function stateOf(slug) {
   const live = S.v2?.status?.[slug];
   if (live) return live.state === 'running' ? 'running' : ['waiting_human', 'blocked', 'crashed', 'quarantined'].includes(live.state) ? 'needs' : 'idle';
   if (S.status?.active?.some(a => a.employee === slug)) return 'running';
-  if (S.issues.some(i => i.owner === slug && i.state === 'OPEN' && (i.needs_human || i.status === 'blocked'))) return 'needs';
-  const last = (S.status?.recent_runs || []).find(r => r.employee === slug);
-  if (last && last.exit !== 0) return 'failed';
   return 'idle';
 }
 const openCount = slug => S.v2?.status?.[slug]?.open_tasks || 0;
@@ -182,3 +179,13 @@ function botNeeds(slug) {
     && companyNeedActor(it, it) === 'bot:' + slug) || (it.kind === 'ask' && it.requester === 'bot:' + slug));
 }
 function needsMeCount(slug) { return botNeeds(slug).length; }
+// needsMeCount for every bot in one pass over the needs list ("bot:<slug>" -> count), for views that count many rows.
+function needsMeCounts() {
+  const counts = new Map();
+  for (const it of S.v2?.needs || []) {
+    const actor = ['task', 'question', 'waiting'].includes(it.kind) && taskNeedsMe(it) ? companyNeedActor(it, it)
+      : it.kind === 'ask' ? it.requester : null;
+    if (typeof actor === 'string' && actor.startsWith('bot:')) counts.set(actor, (counts.get(actor) || 0) + 1);
+  }
+  return counts;
+}

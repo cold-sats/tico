@@ -117,8 +117,7 @@ That is the default suite: pytest in parallel without the tests marked `@pytest.
 core browser scripts (`CORE` in `scripts/ui-tests.cjs`) with the load-aware concurrency described below. The check records wall time and load and fails
 if the combined run reaches 300 seconds; it should take about two minutes. This is a hard budget for any suite that runs on merge or on a schedule. Keep it by keeping few tests, the ones
 that guard security and privacy boundaries, data safety and core contracts, and by cutting one when you add one. Release validation builds the three images and the Release workflow publishes them with the
-GitHub release. The PR checks workflow runs this full default suite on main and on uncertain PR selections; known PR mappings run the affected tests above. Release validation runs the full gate for an explicitly dispatched immutable candidate. The manual screenshots workflow
-generates documentation images from the Actions tab (Run workflow). `--release` runs this suite too, along with the
+GitHub release. The PR checks workflow runs this full default suite on main and on uncertain PR selections; known PR mappings run the affected tests above. Release validation runs the full gate for an explicitly dispatched immutable candidate. `--release` runs this suite too, along with the
 slow tests and every browser script, and release candidate validation covers that full suite.
 
 ## Hosted release validation
@@ -208,8 +207,9 @@ review receipt at that commit (an approval of an earlier head counts only when t
 and every commit that landed without a pull request. With no `--previous`, it takes the newest release tag that doesn't
 already contain the candidate, and refuses to check an empty range. `receipts.json` lists the heads
 the tickets' reviewers approved (`[{"pr": 639, "head": "<sha>", "source": "<ticket>"}]`); the script's docstring has
-the format. It exits 1 with findings: settle each one (an intended revert, or a review of the final head) before the
-candidate goes on.
+the format. It exits 1 with findings: settle each one before the candidate goes on, with a review of the final head
+or, for an intended revert, a receipt naming the pull request and the change it undoes
+(`{"pr": 640, "reverts": "<sha>", "source": "<ticket>"}`).
 
 ```
 python scripts/release_checks.py --release                     # this checkout is the candidate (v9.9.9)
@@ -322,7 +322,7 @@ The images set `TICO_VERSION` in the image, which is how the running app
 knows its version (a source checkout reports `dev`). There is no source archive: the server and the runners run from
 the images, and a Mac runner is a git checkout that moves to the release's tag. The Dockerfile copies the source tree
 last, after system packages, tools and the Python dependencies, so with the GitHub Actions layer cache a release
-rebuilds and pushes one small layer per image. The Docker workflow builds only an `edge` image, on demand.
+rebuilds and pushes one small layer per image.
 
 ## Desktop apps follow the release
 
@@ -384,10 +384,10 @@ publish`) that the owner approved, or the owner's own message on the task naming
 `playbooks/rollout.md` (`software/rollout.py` in its repository) without waiting on anyone:
 
 1. it creates the tag `vX.Y.Z` at the approved commit through the GitHub API, with its own write grant on the
-   repository. A tag made with the GitHub App's installation token starts the Release and Docker workflows, which a
+   repository. A tag made with the GitHub App's installation token starts the Release workflow, which a
    tag made with a workflow's `GITHUB_TOKEN` would not;
-2. it waits for the GitHub release, which installs update from, and stops if the Release or Docker workflow for the
-   tag fails;
+2. it waits for the GitHub release, which installs update from, and stops if the Release workflow for the tag
+   fails;
 3. it updates the canary, the team's own install, through that install's update key, and waits for the updater to
    report `healthy` and `/healthz` to report the new release, then for its computers to follow (reported, never a gate);
 4. it updates every other install together the same way;

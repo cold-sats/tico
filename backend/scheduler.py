@@ -14,7 +14,7 @@ from . import system_routines as SR
 from .batch_work import isolated
 from .harnesses import SYNCED_SQL
 from .statuses import PARKED_SQL
-from .store import H, encode, sweep_idempotency, sweep_mail
+from .store import H, encode, sweep_deltas, sweep_idempotency, sweep_mail
 
 
 def stamp(at):
@@ -368,6 +368,8 @@ class Scheduler:
         except Exception as exc:
             cfgs = None
             failures.append({"system_routines": type(exc).__name__})
+        from . import task_rules
+        task_rules.tick(self.store, at, failures)
         with SR.recording(self.store, "updates", failures) as run:
             from . import updates
             settings = self.store.settings
@@ -397,6 +399,7 @@ class Scheduler:
                     SR.prune(c)                                # each system job keeps its last runs
                 sweep_idempotency(self.store, stamp(at))
                 sweep_mail(self.store, stamp(at))
+                sweep_deltas(self.store, stamp(at))            # finished runs' streamed text pieces keep two weeks
                 from . import events
                 events.sweep(self.store, stamp(at))            # live events keep a day
                 from . import flight
@@ -463,6 +466,14 @@ class Scheduler:
                 if held:
                     billing_check.read_later(self.store, self.store.settings)
                 run.did("Checked" if held else "Not used on this server")
+            # And once a day, while this self-run server is linked to its Tico company (backend/company_server.py):
+            # its version, for app.tico.dev and admin. On its own thread; no model turn.
+            with SR.recording(self.store, "company_heartbeat", failures) as run:
+                from . import company_server
+                due = company_server.heartbeat_due(self.store)
+                if due:
+                    company_server.heartbeat_later(self.store)
+                run.did("Sent" if due else "Nothing to send", quiet=not due)
         if self.stale_checked is None or at - self.stale_checked >= timedelta(minutes=5):
             # Stale ticket review (backend/stale_review.py), while the team has it on: its watermark and saved preset
             # space the passes (hourly by default);

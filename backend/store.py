@@ -8,6 +8,7 @@ import threading
 from collections import deque
 from contextlib import ExitStack, contextmanager
 
+import orjson
 import yaml
 
 from . import goals as G
@@ -366,7 +367,6 @@ CREATE TABLE IF NOT EXISTS slack_events(
  edited TEXT, deleted TEXT, updated TEXT, UNIQUE(channel, ts));
 CREATE INDEX IF NOT EXISTS slack_events_thread ON slack_events(channel, thread_ts, ts);
 CREATE INDEX IF NOT EXISTS slack_events_state ON slack_events(state, received);
-CREATE INDEX IF NOT EXISTS slack_events_channel_ts ON slack_events(channel, ts);
 CREATE TABLE IF NOT EXISTS slack_reads(
  channel TEXT NOT NULL, reader TEXT NOT NULL, last_ts TEXT NOT NULL DEFAULT '',
  last_run TEXT, digests INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(channel, reader));
@@ -472,6 +472,54 @@ def sweep_idempotency(store, now=None, batch=5000):
             return deleted
 
 
+DELTA_RETENTION_DAYS = 14
+DELTA_SWEEP_MAX = 200_000     # rows one hourly pass deletes at most, so a first backlog drains over hours
+
+
+def sweep_deltas(store, now=None, batch=5000, most=DELTA_SWEEP_MAX):
+    """Delete the streamed text pieces (`attempt_events` kind 'delta', not a model's thought) of runs finished more
+    than DELTA_RETENTION_DAYS ago, in short transactions like `sweep_idempotency`; returns the count.
+
+    A finished run's text is whole in its `message` events and `attempts.final_text`; the pieces only typed the live
+    reply (turns.reply_parts, read while a run is live). Thought deltas stay: a turn's steps show them (turns.py).
+    Attempts are walked in creation order from a mark kept in registry_metadata, so a pass never rescans the table;
+    one created before the cutoff and still unfinished is passed over for good."""
+    at = now or H.now()
+    cutoff = H.shift(at, days=-DELTA_RETENTION_DAYS)
+    created_before = H.shift(at, days=-DELTA_RETENTION_DAYS - 1)     # a run finishing a day after it began is late
+    with store.read() as c:
+        mark = c.execute("SELECT value_json FROM registry_metadata WHERE key='delta-sweep-mark'").fetchone()
+    mark = json.loads(mark[0]) if mark else ["", ""]
+    deleted = 0
+    while deleted < most:
+        with store.read() as c:
+            rows = c.execute("SELECT id,created,finished FROM attempts WHERE created<? AND (created,id)>(?,?) "
+                             "ORDER BY created,id LIMIT 200", (created_before, *mark)).fetchall()
+        done = [r["id"] for r in rows if r["finished"] and r["finished"] < cutoff]
+        while done and deleted < most:
+            with store.transaction() as c:
+                removed = c.execute(
+                    "DELETE FROM attempt_events WHERE id IN (SELECT id FROM attempt_events WHERE attempt_id IN (%s) "
+                    "AND kind='delta' AND CASE WHEN json_valid(payload_json) THEN "
+                    "json_extract(payload_json,'$.delta_kind') END IS NOT 'thought' LIMIT ?)"
+                    % ",".join("?" * len(done)), (*done, batch)).rowcount
+            deleted += removed
+            if removed < batch:
+                break
+        else:
+            if done:
+                break                   # the cap was reached inside this group: it is taken up again next pass
+        if not rows:
+            break
+        mark = [rows[-1]["created"], rows[-1]["id"]]
+        with store.transaction() as c:
+            c.execute("INSERT INTO registry_metadata VALUES('delta-sweep-mark',?) "
+                      "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json", (json.dumps(mark),))
+        if len(rows) < 200:
+            break
+    return deleted
+
+
 def sweep_mail(store, now=None, batch=5000):
     """Delete mail older than the retention window, including matching FTS rows.
 
@@ -509,9 +557,9 @@ def readiness_document(value):
     """Return the canonical runner-readiness shape, including legacy heartbeats."""
     if hasattr(value, "model_dump"):
         value = value.model_dump()
-    if isinstance(value, str):
+    if isinstance(value, (str, bytes)):
         try:
-            value = json.loads(value)
+            value = orjson.loads(value)
         except (TypeError, ValueError):
             value = {}
     value = value if isinstance(value, dict) else {}
@@ -639,10 +687,16 @@ def _pooled(base):
     return type("Pooled" + base.__name__, (base,), body)
 
 
+# Seconds a writer waits for the gate, then for SQLite's lock (busy_timeout, other processes). Together they bound a
+# request's wait for the lock: past that it answers 503 `busy` with Retry-After (app.py storage_handler) instead of
+# holding one of the 40 request threads for a minute while client retries queue behind it.
+WRITE_WAIT = 10
+
+
 class WriterGate:
     """FIFO admission: a scheduler opening its next transaction goes behind already waiting requests."""
 
-    def __init__(self, timeout=30):
+    def __init__(self, timeout=WRITE_WAIT):
         self.lock = threading.Lock()
         self.queue = deque()
         self.timeout = timeout
@@ -692,17 +746,22 @@ class Store:
         self.provenance_cache = Cache()
 
     def connect(self, factory=None, check_same_thread=True):
-        c = sqlite3.connect(str(self.settings.db_path), timeout=30, isolation_level=None,
+        c = sqlite3.connect(str(self.settings.db_path), timeout=WRITE_WAIT, isolation_level=None,
                             factory=factory or self.factory, check_same_thread=check_same_thread)
         c.row_factory = sqlite3.Row
         c.execute("PRAGMA foreign_keys=ON")
-        # As hubdb.connect: a writer waits out a backup checkpoint or a long scheduler pass
-        # rather than answering storage_unavailable.
-        c.execute("PRAGMA busy_timeout=30000")
+        # A writer waits out a backup checkpoint or another process's pass, but not so long that requests pile up
+        # (WRITE_WAIT). hubdb.connect keeps 30 s: it opens the file at start-up, for migrations.
+        c.execute(f"PRAGMA busy_timeout={WRITE_WAIT * 1000}")
         # In WAL mode NORMAL syncs at checkpoints, not on every commit inside the writer gate, where a sync
         # waiting behind other disk writes on the host held every writer for seconds. The database cannot
         # corrupt; an OS crash or power loss can lose the last commits, as with hubdb.connect.
         c.execute(f"PRAGMA synchronous={H.synchronous('NORMAL')}")
+        # The 2 MB default page cache re-read hot index pages on every read of a multi-GB file. 16 MB per connection
+        # (POOL_IDLE kept, a few dozen at peak) fills lazily; the mmap is the OS page cache, shared by all of them.
+        c.execute("PRAGMA cache_size=-16384")
+        c.execute("PRAGMA temp_store=MEMORY")
+        c.execute("PRAGMA mmap_size=268435456")
         return c
 
     def initialize(self, *, seed_market=True, adopt_legacy=False):
@@ -730,6 +789,8 @@ class Store:
             c.executescript(_stale_review.SCHEMA)
             from . import system_routines as _system_routines
             c.executescript(_system_routines.SCHEMA)
+            from . import task_rules as _task_rules
+            c.executescript(_task_rules.SCHEMA)
             from . import owner_link as _owner_link
             c.executescript(_owner_link.SCHEMA)
             from . import docs as _docs
@@ -775,6 +836,8 @@ class Store:
                 H.add_column(c, "flight_slow", column, kind)
             from . import performance as _performance
             c.executescript(_performance.SCHEMA)
+            from . import invites as _invites
+            c.executescript(_invites.SCHEMA)
             _updates.purge_rejected(c)
             # Which stored retry answers quote which message (backend/idempotency_messages.py).
             idempotency_messages.ensure(c)
@@ -1364,7 +1427,33 @@ class Store:
                                    ("attempts_runner_finished", "attempts(runner_id, finished)"),
                                    # A computer asking after the tasks its session checkouts are kept for.
                                    ("attempts_bot_lane", "attempts(bot, lane)"),
+                                   # Recent failed and finished runs (Health, Fleet check, the census, /api/runs).
+                                   # Partial, so the scheduler's live-lease read keeps attempts_live_lease.
+                                   ("attempts_finished_state", "attempts(state, finished) WHERE finished IS NOT NULL"),
                                    ("events_action_target", "events(action, target, ts)"),
+                                   # Conversations newest first (hubdb.conversations_for, chats_with): the ORDER BY's
+                                   # expression word for word, or SQLite sorts every conversation.
+                                   ("conversations_recent", "conversations(COALESCE(last_message_at, created))"),
+                                   # A person's open chat with a bot (hubdb._pair_conversation, on every say()).
+                                   ("conversations_open_kind", "conversations(kind, COALESCE(last_message_at, created)) "
+                                    "WHERE closed_at IS NULL AND task_id IS NULL"),
+                                   # Open approvals: a task's (auto_tasks.waiting on the claim path), a requester's
+                                   # (status_counts, task_privacy), and the oldest first (expiry, Needs you).
+                                   ("approvals_open", "approvals(task_id) WHERE decision IS NULL"),
+                                   ("approvals_open_requester", "approvals(requested_by) WHERE decision IS NULL"),
+                                   ("approvals_open_created", "approvals(created) WHERE decision IS NULL"),
+                                   # Live jobs (/api/status), an attempt's jobs (lease expiry, finish) and uncertain
+                                   # jobs (auto_reconcile). Partial, so the claim reads keep jobs_queue and jobs_queued.
+                                   ("jobs_live_created", "jobs(created) WHERE state IN ('queued','leased','running','input')"),
+                                   ("jobs_attempt", "jobs(attempt_id) WHERE attempt_id IS NOT NULL"),
+                                   ("jobs_uncertain", "jobs(created) WHERE state='uncertain'"),
+                                   # Open asks to someone, deleted or not (hubdb.tasks_asked_of); conversation_id too,
+                                   # so Health's silent_waits keeps a good plan.
+                                   ("messages_open_ask_to",
+                                    "messages(to_actor, conversation_id) WHERE kind='ask' AND answered_by IS NULL"),
+                                   # PRs at a commit (github.pr_signal, on every check and status webhook): the
+                                   # query's expression word for word.
+                                   ("task_links_pr_head", "task_links(json_extract(detail_json,'$.head_sha')) WHERE kind='pr'"),
                                    # A task's runs (the task view's runs and its Runs section, backend/run_view.py).
                                    ("turns_task", "turns(task_id, started)"),
                                    # A blob's provenance (task_privacy.blob_readable), read for every
@@ -1378,6 +1467,8 @@ class Store:
                                     "bot_file_versions(thumb_blob_id) WHERE thumb_blob_id IS NOT NULL")):
                     c.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {spec}")
                 c.execute("DROP INDEX IF EXISTS jobs_state_bot_created")
+                # Duplicated the UNIQUE(channel, ts) autoindex.
+                c.execute("DROP INDEX IF EXISTS slack_events_channel_ts")
                 R.ensure_task_sweep(c)
                 # The Assistant's pending actions (backend/assistant.py) and the "via" of a task-history row.
                 from .assistant import ensure_schema as ensure_assistant_schema

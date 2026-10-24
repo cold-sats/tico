@@ -1598,6 +1598,7 @@ def parser():
     s.add_argument("--set", type=lambda text: [x.strip() for x in text.split(",") if x.strip()], metavar="A,B,C",
                    help="its reports in the new order, comma-separated; the ones left out keep their places")
     s.set_defaults(fn="org order")
+    org.add_parser("models", help="the published starter org chart models that recommendations come from").set_defaults(fn="org models")
     health = sub.add_parser("health", help="what is wrong, and where").add_subparsers(dest="sub")
     s = health.add_parser("check", help="what is wrong with the bots, most urgent first, each with its fix")
     s.set_defaults(fn="health check")

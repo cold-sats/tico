@@ -118,6 +118,7 @@ ACTIONS = {
     "clean_up": ("clear old events, mail, retry keys and recorder data", ("cleanup", "delete", "old")),
     "check_gateway": ("check this server's Gateway key and the month's cap", ("gateway", "key", "cap")),
     "read_billing": ("read HQ's nightly billing check", ("billing",)),
+    "send_heartbeat": ("tell app.tico.dev this server's version", ("company", "version", "portal")),
     "ask_updates": ("ask people and bots for today's updates", ("updates", "ask")),
     "sync_github": ("catch up on pull requests, merges and releases", ("github", "pr", "merge", "release")),
     "finish_repo_waits": ("finish a bot waiting for its repository or a worktree", ("repository", "worktree")),
@@ -182,6 +183,9 @@ JOBS = [
         HOUSEKEEPING, "Hourly", 3600, then=("check_gateway",)),
     Job("billing_check", "Billing check", "Reads HQ's nightly billing check for the owner's Health page.",
         HOUSEKEEPING, "Hourly", 3600, then=("read_billing",)),
+    Job("company_heartbeat", "Tico company heartbeat",
+        "Tells app.tico.dev this server's version once a day while it is linked to a Tico company.",
+        HOUSEKEEPING, "Daily", 86400, then=("send_heartbeat",)),
     Job("updates", "Updates", "Asks people and bots for today's updates, one at a time.",
         HOUSEKEEPING, "Every 10 seconds", 10, then=("ask_updates",)),
     Job("github_sync", "GitHub sync",
@@ -624,7 +628,8 @@ def listing(c, settings, now=None, who=None, auth=None):
     search matches."""
     now = now or datetime.now(timezone.utc)
     last, ai_last, cfgs = last_runs(c), last_ai_runs(c), config(c)
-    chart = {name.lower(): name for name in departments(c)}
+    from . import task_rules
+    chart = {d["name"].lower(): d["name"] for d in task_rules.departments(settings)}
     rows = []
     for job in JOBS:
         row, cfg, ctl = last.get(job.key), cfgs.get(job.key), CONTROLS.get(job.key)
@@ -664,7 +669,11 @@ def listing(c, settings, now=None, who=None, auth=None):
             item["fallback"] = answered["fallback"] if answered else None
             item["spent_this_month_usd"] = spent_this_month(c, job.labels, now)
         rows.append(item)
-    return {"jobs": rows, "departments": list(chart.values()), "now": _stamp(now)}
+    rows.extend(task_rules.listing(c, settings, who, auth, now))
+    return {"jobs": rows, "departments": list(chart.values()), "task_rule_departments": task_rules.departments(settings),
+            "task_rule_department": task_rules.department_of(c, settings, who.actor) if who else None,
+            "can_create_task_rule": bool(who and auth and (task_rules.department_of(c, settings, who.actor) or auth.bot_admin(who)) and not who.support),
+            "now": _stamp(now)}
 
 
 def row_of(c, settings, key, who=None, auth=None):

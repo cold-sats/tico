@@ -9,7 +9,7 @@ from backend import ceo_bot
 from backend.auth import Identity
 from backend.store import H
 from backend.tests.test_goal_manager import BASE, with_goal_manager
-from backend.tests.test_onboarding import (SUPPORT_AGENT, SUPPORT_CARD, as_person, draft,  # noqa: F401
+from backend.tests.test_onboarding import (SUPPORT_AGENT, SUPPORT_CARD, as_person, build_team, draft,  # noqa: F401
                                            environment, machine, signed_in)
 
 LEAD_CARD = {"template": "sales-lead", "slug": "sales-lead", "name": "Head of Sales", "required": False,
@@ -37,8 +37,7 @@ def company(environment):
     machine(api)
     draft(api, selected={slug: {"template": template, "display_name": slug.title(), "instructions": "Work.",
                                 "reports_to": boss} for slug, (template, boss) in TEAM.items()})
-    done = api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
-    assert done.status_code == 200, done.text
+    build_team(api)
     # The team builder put the Heads and their reports in the Heads' department (Sales); the owner has a group too.
     assert {g["id"]: g["bots"] for g in api.get("/api/v2/groups", headers=signed_in()).json()} == \
         {"sales": ["eng-lead", "sales-lead", "support"]}

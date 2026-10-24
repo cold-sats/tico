@@ -188,11 +188,6 @@ function machineAddHTML(machine, online, manage) {
   if (!manage || machine.revoked_at) return '';
   return `<div class="computer-add"><button class="ghost" type="button" data-add-connection="${esc(machine.id)}"${online ? '' : ' disabled title="Computer is offline"'}>Add connection</button></div>`;
 }
-// The Bots page, showing this computer's bots: where a bot is moved to another computer.
-function computerBotsPage(id) {
-  $('#set-machines dialog.computer-detail')?.close();
-  SETTINGS_BOTS_VIEW.computer = id; settingsBotsRemember(); settingsShow('bots'); renderSettingsBots();
-}
 // ---- the Add connection pop-up: 1 the tool, 2 subscription or API key, then the provider's sign-in of the computer's
 // one login for that tool in this same pop-up (ui/model-login.js open `into`), and the chip appears once the computer
 // reports it. A different account for the same tool means another computer: a bot has no sign-in of its own.
@@ -202,14 +197,15 @@ function computerAddTools(machine) {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 function computerAddStepHTML(machine, step) {
-  const head = (title, back) => `<header><h2 id="computer-add-title">${title}</h2>
+  const head = (title, back) => `<header class="tmodal-head"><h2 id="computer-add-title">${title}</h2>
+      ${back ? `<button class="ghost" type="button" data-add-back="${back}">Back</button>` : ''}
       <button class="ghost tmodal-x" type="button" data-add-close aria-label="Close">✕</button></header>
-    <p class="muted computer-add-where">${esc(machine.label)}${back ? ` · <button class="ghost machine-signin" type="button" data-add-back="${back}">Back</button>` : ''}</p>`;
+    <div class="tmodal-body"><p class="muted computer-add-where">${esc(machine.label)}</p>`;
   if (step.at === 'tool') {
     const tools = computerAddTools(machine).map(tool => `<button class="ghost computer-add-choice" type="button" data-add-tool="${esc(tool.runtime)}">${esc(tool.name)}</button>`).join('');
     // Installing is the owner's (Versions and updates > Installation and updates).
     return `${head('Add connection')}<p class="model-login-body">Which AI tool?</p><div class="computer-add-choices" data-add-step="tool">${tools || '<p class="muted">No AI tools reported on this computer yet.</p>'}
-      <button class="ghost computer-add-choice" type="button" data-add-install>Install another tool</button></div>`;
+      <button class="ghost computer-add-choice" type="button" data-add-install>Install another tool</button></div></div>`;
   }
   const tool = machineToolName(machine, step.runtime), caps = harnessCaps(step.runtime);
   const own = caps.browser_sign_in && machine.readiness?.runtimes?.[step.runtime]?.authenticated !== 'ready';
@@ -223,7 +219,7 @@ function computerAddStepHTML(machine, step) {
     return `${head(`Add ${esc(tool)}`, 'tool')}<p class="model-login-body">How does ${esc(tool)} sign in here?</p><div class="computer-add-choices" data-add-step="kind">
       <button class="ghost computer-add-choice" type="button" data-add-own${own ? '' : ' disabled'}><strong>Subscription</strong><span class="muted">${why}</span></button>
       <button class="ghost computer-add-choice" type="button" data-add-kind="api_key"><strong>API key</strong><span class="muted">Paste a key from the provider</span></button></div>
-      ${terminal ? `<p class="muted computer-add-terminal" data-add-terminal="${esc(step.runtime)}">Or sign the computer's login in from a terminal there:${terminal}</p>` : ''}`;
+      ${terminal ? `<p class="muted computer-add-terminal" data-add-terminal="${esc(step.runtime)}">Or sign the computer's login in from a terminal there:${terminal}</p>` : ''}</div>`;
   }
   if (step.at === 'api_key') {
     // A key of this computer's own (Dev 97, ui/model-login.js replaceKey), for a tool that takes one; a login its key
@@ -237,7 +233,7 @@ function computerAddStepHTML(machine, step) {
     const go = add ? `<span class="computer-add-terminal" data-add-key="${esc(step.runtime)}">${add}</span>`
       : keyed ? '' : '<a class="primary" href="#/credentials" data-add-credentials>Open Credentials</a>';
     return `${head(`Add ${esc(tool)} with an API key`, 'kind')}<div data-add-step="api_key"><p class="model-login-body">${body}</p>
-      <div class="model-login-actions"><button class="ghost" type="button" data-add-close>Close</button>${go}</div></div>`;
+      <div class="model-login-actions"><button class="ghost" type="button" data-add-close>Close</button>${go}</div></div></div>`;
   }
   return '';
 }
@@ -250,7 +246,7 @@ function computerAddOpen(id) {
   // Mouse clicks need not focus buttons; give the native dialog the same stable opener.
   opener?.focus({preventScroll: true});
   const dialog = document.createElement('dialog');
-  dialog.className = 'tmodal model-login computer-add-dialog';
+  dialog.className = 'tmodal tmodal-shell model-login computer-add-dialog';
   dialog.setAttribute('aria-labelledby', 'computer-add-title');
   document.body.appendChild(dialog);
   let step = {at: 'tool'}, signingIn = false;

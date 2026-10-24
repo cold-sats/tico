@@ -44,7 +44,7 @@ class Bucket(S3):
     leave it only through the edge (`Edge`): a direct read is refused, as reads there would go unmetered."""
     def __init__(self):
         super().__init__()
-        self.meta = {}
+        self.meta, self.metadata = {}, {}
 
     def get_object(self, **kw):
         from backend.company_storage import CHECK
@@ -55,6 +55,7 @@ class Bucket(S3):
     def put_object(self, **kw):
         super().put_object(**kw)
         self.meta[kw['Key']] = (kw.get('ContentType'), kw.get('ContentDisposition'))
+        self.metadata[kw['Key']] = dict(kw.get('Metadata') or {})
 
     def complete_multipart_upload(self, **kw):
         super().complete_multipart_upload(**kw)
@@ -62,7 +63,8 @@ class Bucket(S3):
     def head_object(self, **kw):
         found = super().head_object(**kw)
         kind, how = self.meta.get(kw['Key'], (None, None))
-        return {**found, **({'ContentType': kind} if kind else {}), **({'ContentDisposition': how} if how else {})}
+        return {**found, **({'ContentType': kind} if kind else {}), **({'ContentDisposition': how} if how else {}),
+                'Metadata': dict(self.metadata.get(kw['Key'], {}))}
 
 
 class NoWrite(S3):

@@ -107,7 +107,7 @@ def own_bots(c, settings):
 
 
 def _next_bot(c, settings):
-    """The starter bot to set up next: parked (`needs_setup`), in the order first run put them, which
+    """The starter bot to onboard next: Onboarding (`needs_setup`), in the order first run put them, which
     puts the team's first bot first. Returns (slug, name, why), or None when nothing is waiting."""
     rows = c.execute("SELECT bc.bot,b.display_name,bc.config_json FROM bot_config bc JOIN bots b ON b.slug=bc.bot "
                      "WHERE bc.onboarding_state IN " + PARKED_SQL + " AND b.state!='archived'").fetchall()
@@ -121,7 +121,7 @@ def _next_bot(c, settings):
 
 
 def _first_output(c):
-    """A starter bot has been onboarded: its setup is done and a person has seen its first
+    """A starter bot has been onboarded: its onboarding is complete and a person has seen its first
     result. The bot says so itself (`hub bot setup-done`), so this is what the database records."""
     return c.execute("SELECT bc.bot FROM bot_config bc JOIN bots b ON b.slug=bc.bot "
                      "WHERE bc.onboarding_state='onboarded' AND b.state!='archived' LIMIT 1").fetchone()
@@ -161,10 +161,10 @@ def checklist(c, who, settings, github):
         _item("first_bot", "Create your first bot", mine,
               "BotOps is building it." if building else "Say what it should do and BotOps builds it.",
               "#/task/" + building["id"] if building else "", action="" if building else "create-bot"),
-        _item("next_bot", "Set up " + waiting[1] if waiting else "No bot is waiting for setup", not waiting,
+        _item("next_bot", "Onboard " + waiting[1] if waiting else "No bot is onboarding", not waiting,
               waiting[2] if waiting else "", "#/bot/" + waiting[0] if waiting else ""),
         _item("first_output", "First approved output", _first_output(c),
-              "Set up a starter bot and approve the first thing it drafts. That is the point of the team.",
+              "Onboard a starter bot and approve the first thing it drafts. That is the point of the team.",
               "#/bot/" + waiting[0] if waiting else "#/tasks"),
         _item("first_update", "Your first update arrived",
               c.execute("SELECT 1 FROM updates LIMIT 1").fetchone(),

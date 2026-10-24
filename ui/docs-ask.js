@@ -92,6 +92,7 @@ html.demo .dask{top:var(--demo-h)}
   #main.librarian-open .docs-workspace{grid-template-columns:minmax(200px,240px) minmax(0,1fr)}
   .dask{width:var(--librarian-w);box-shadow:none;animation:none}
   body:has(#main.librarian-open) .toast{right:calc(var(--librarian-w) + 20px)}
+  body:has(#main.librarian-open) #topbar{margin-right:var(--librarian-w)}
 }
 /* The market's three columns need room the rail takes: under 1600px the graph moves below the note. */
 @media(min-width:761px) and (max-width:1599px){
@@ -515,7 +516,8 @@ html.demo .dask{top:var(--demo-h)}
       else if (!railHidden()) open(undefined, false);
     } else if (panel?.getAttribute('role') === 'complementary') close(false);
   };
-  window.addEventListener('resize', () => window.syncLibrarianRail());
+  let resizeSoon = 0;                               // once a frame while the window is dragged
+  window.addEventListener('resize', () => { cancelAnimationFrame(resizeSoon); resizeSoon = requestAnimationFrame(() => window.syncLibrarianRail()); });
   window.openDocsAsk = open;
   // The old entry point, until every page that called it says openDocsAsk.
   window.openDocsChat = () => open();
