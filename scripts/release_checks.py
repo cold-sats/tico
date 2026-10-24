@@ -10,8 +10,9 @@ runs the journey's previous-release install while it builds the candidate images
 it runs Python tests except Docker isolation (`pytest -m "slow or not slow"`) and every browser test
 (`node scripts/ui-tests.cjs --all`), alongside the Docker isolation tests
 and whole-product checks against the successfully built images: docker/smoke.sh,
-docker/side-jobs-smoke.sh and `scripts/journey-test.sh --release` (install the previous release, upgrade to the
-candidate, roll back a migrating update). The journey starts installing the previous release while the images build. Each check gets its own Docker names, smoke a free host port, and each compose stack its own edge network range
+docker/side-jobs-smoke.sh and `scripts/journey-test.sh --release` (install and seed the previous release, upgrade
+to the candidate, bot turns on the previous and the candidate runner, roll back a migrating update, a second updater
+hop). The journey starts installing the previous release while the images build. Each check gets its own Docker names, smoke a free host port, and each compose stack its own edge network range
 (EDGE, checked to be creatable side by side before any stack starts), so they run
 side by side; two release checks must not run at once, since the journey's candidate tags are fixed.
 
@@ -299,7 +300,9 @@ def python_shard(index, total):
     """File group `index` of `total` of the default Python suite: the PR-check Python job, split over VMs."""
     started, initial_load = time.monotonic(), load()
     env = {**os.environ, 'TICO_PYTHON': sys.executable}
-    result = subprocess.run([sys.executable, '-m', 'pytest', '-q'] + shard_files(index, total, env, selection=()),
+    # Alone on its VM, a shard uses every core rather than pytest.ini's shared-box cap.
+    workers = str(os.cpu_count() or 2)
+    result = subprocess.run([sys.executable, '-m', 'pytest', '-q', '-n', workers] + shard_files(index, total, env, selection=()),
                             cwd=ROOT, env=env)
     print(f'Python shard {index}/{total}: exit {result.returncode}, {time.monotonic() - started:.2f}s; '
           f'load {initial_load} -> {load()}', flush=True)
@@ -315,6 +318,18 @@ def phase_table(checks, started, not_run=()):
         print(f'| {name} | - | - | not run |', flush=True)
 
 
+def prebuilt_images():
+    """The images Release validation built for this candidate, {target: image@digest}, or {} to build them here.
+    TICO_RELEASE_IMAGES is `server=REF,runner=REF,updater=REF`; TICO_RELEASE_VERSION is the version baked into them."""
+    given = dict(item.split('=', 1) for item in os.environ.get('TICO_RELEASE_IMAGES', '').split(',') if '=' in item)
+    if not given:
+        return {}
+    missing = [target for target, _, _ in IMAGES if target not in given]
+    if missing or not os.environ.get('TICO_RELEASE_VERSION'):
+        raise SystemExit(f'TICO_RELEASE_IMAGES needs every image and TICO_RELEASE_VERSION; missing {missing or "the version"}')
+    return given
+
+
 def release(args):
     part, shard = getattr(args, 'part', None), getattr(args, 'shard', None)
     runs = lambda name: part in (None, name)
@@ -328,7 +343,10 @@ def release(args):
     workers = str(max(1, int(os.environ.get('TICO_PYTHON_WORKERS', default_workers))))
     test_env = {**base_env, 'TICO_PYTHON': sys.executable}
     scope = '' if part is None else f'; part {part}' + (f' {shard[0]}/{shard[1]}' if shard else '')
-    print(f'Release check: candidate {CANDIDATE} from {commit[:7]}{scope}; logs in {logs}', flush=True)
+    prebuilt = prebuilt_images() if runs('product') else {}
+    # The shipped images carry their real version; a local build is the journey's v9.9.9.
+    candidate = os.environ['TICO_RELEASE_VERSION'] if prebuilt else CANDIDATE
+    print(f'Release check: candidate {candidate} from {commit[:7]}{scope}; logs in {logs}', flush=True)
 
     builds, checks, built, not_run = [], [], True, ()
     if runs('product'):
@@ -338,15 +356,21 @@ def release(args):
             print('Release check failed: the gate stacks cannot hold their edge networks side by side', flush=True)
             return 1
         journey_env = {**base_env, 'TICO_JOURNEY_IMAGES_READY': str(ready), 'TICO_JOURNEY_EDGE': EDGE['journey'],
-                       'TICO_BACKUP_EDGE': EDGE['backup-test']}
+                       'TICO_BACKUP_EDGE': EDGE['backup-test'], 'TICO_JOURNEY_CANDIDATE': candidate}
         journey_cmd = ['bash', 'scripts/journey-test.sh', '--release'] + (['--previous', args.previous] if args.previous else [])
         checks.append(Check('journey', journey_cmd, logs, journey_env))   # installs the previous release while the images build
 
-        builds = [Check(f'build-{target}', ['docker', 'build', '-q', '--target', target,
-                                            '--build-arg', f'TICO_VERSION={CANDIDATE}', '--build-arg', f'TICO_COMMIT={commit}',
-                                            '--build-arg', f'TICO_REPOSITORY={os.environ.get("TICO_JOURNEY_REPOSITORY", "ticoteam/tico")}',
-                                            '-t', f'{published}:{CANDIDATE}', '-t', f'{local}:local', '.'], logs, base_env)
-                  for target, published, local in IMAGES]
+        if prebuilt:
+            # The images the release will publish, by digest: tested here, never rebuilt.
+            builds = [Check(f'pull-{target}', ['bash', '-c', 'docker pull -q "$0" && docker tag "$0" "$1" && docker tag "$0" "$2"',
+                                               prebuilt[target], f'{published}:{candidate}', f'{local}:local'], logs, base_env)
+                      for target, published, local in IMAGES]
+        else:
+            builds = [Check(f'build-{target}', ['docker', 'build', '-q', '--target', target,
+                                                '--build-arg', f'TICO_VERSION={CANDIDATE}', '--build-arg', f'TICO_COMMIT={commit}',
+                                                '--build-arg', f'TICO_REPOSITORY={os.environ.get("TICO_JOURNEY_REPOSITORY", "ticoteam/tico")}',
+                                                '-t', f'{published}:{CANDIDATE}', '-t', f'{local}:local', '.'], logs, base_env)
+                      for target, published, local in IMAGES]
         build_codes = [build.join() for build in builds]  # wait for every build, including after a failed one
         built = all(code == 0 for code in build_codes)
         ready.write_text('ok' if built else 'failed')
@@ -376,7 +400,10 @@ def release(args):
         checks.append(Check('isolation', [sys.executable, '-m', 'pytest', '-q', '-n', workers, '-m', 'slow or not slow',
                                          ISOLATION_FILE], logs,
                             {**test_env,
-                             'TICO_RUNNER_TEST_IMAGE': f"{local_env['TICO_RUNNER_IMAGE']}:{local_env['TICO_TAG']}"},
+                             'TICO_RUNNER_TEST_IMAGE': f"{local_env['TICO_RUNNER_IMAGE']}:{local_env['TICO_TAG']}",
+                             # The session handoff starts from the release the journey upgrades from (newest tag by default).
+                             **({'TICO_RUNNER_PREVIOUS_IMAGE': f'ghcr.io/ticoteam/tico-runner:{args.previous}'}
+                                if args.previous else {})},
                             tests=True))
     elif runs('product'):
         print('  isolation: not run (candidate image builds failed)', flush=True)
