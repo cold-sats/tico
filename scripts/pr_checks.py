@@ -169,8 +169,21 @@ def groups(counts, timings, total=None, kind="python", fallback=1.0):
     return [sorted(g) for g in out], loads
 
 
+def merge_parent(base, head="HEAD", root=None):
+    """The base a pull request is checked against. GitHub checks out the PR merged into the current base branch, while
+    the event's base sha is the branch tip when the PR was last updated; diffing from that older sha would count
+    everything main gained since as the PR's own change, CHANGELOG.md included."""
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=root or ROOT, capture_output=True, text=True)
+    parents = git("rev-list", "--parents", "-n", "1", head).stdout.split()[1:]
+    if base and len(parents) == 2 and git("merge-base", "--is-ancestor", base, parents[0]).returncode == 0:
+        return parents[0]
+    return base
+
+
 def prepare(event, base, output, timings_path=None):
     if event == "pull_request":
+        base = merge_parent(base)
         guard_changelog(base)
     changed = changed_files(base) if base else []
     picked = selection(changed, event)
