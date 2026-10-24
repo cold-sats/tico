@@ -1,5 +1,7 @@
 """A real newly created bot can wait before it has ever posted a stored status."""
 
+from backend import events as E
+from backend.auth import Identity
 from backend.store import H
 from backend.tests.test_api import api, as_member, assign, claim, get, post, ready, restrict, runner  # noqa: F401
 from backend.tests.test_run_view import events, task_attempt
@@ -74,3 +76,36 @@ def test_a_first_turn_old_wait_does_not_create_a_status_when_codex_locking_is_of
     first_wait(api)
     assert get(api, "status?bot=scribe")["status"] is None
     assert not [s for s in get(api, "status")["bots"] if s and s["bot"] == "scribe"]
+
+
+def test_wait_projection_streams_start_clear_and_termination_outside_its_conversation(api, queued_login):
+    store, auth = api.app.state.store, api.app.state.auth
+    ana = Identity("human:ana", "owner", "ana@acme.example")
+    with store.read() as c:
+        before = E.latest(c)
+    machine, task, attempt = first_wait(api)
+
+    def streamed(after, who=ana):
+        with store.read() as c:
+            sent, cursor, *_ = E.read(c, auth, who, after, topics=("runs", "bots"),
+                                     conversations=("unrelated-chat",), bots=("scribe",))
+        assert not [d for _, topic, d in sent if topic == "runs"]
+        return [d["status"] for _, topic, d in sent if topic == "bots"], cursor
+
+    rows, cursor = streamed(before)
+    assert len(rows) == 1 and rows[0]["waiting"] == get(api, "status?bot=scribe")["status"]["waiting"]
+    # Hydration uses the viewer's holder/task permissions, even on a global bot notification.
+    as_member(api, "ben@acme.example")
+    with store.transaction() as c:
+        restrict(c, "ops", people=["ana"])
+    rows, _ = streamed(before, Identity("human:ben", "human", "ben@acme.example"))
+    assert "another bot" in rows[0]["waiting"] and "private ledger" not in rows[0]["waiting"]
+    events(api, machine, attempt["id"], [("status", {"waiting": ""})], first=2)
+    rows, cursor = streamed(cursor)
+    assert rows == [None]
+    events(api, machine, attempt["id"], [("status", {"waiting": "waiting", "login": "ChatGPT login"})], first=3)
+    rows, cursor = streamed(cursor)
+    assert len(rows) == 1 and rows[0]["waiting"]
+    with store.transaction() as c:
+        c.execute("UPDATE attempts SET state='interrupted' WHERE id=?", (attempt["id"],))
+    assert streamed(cursor)[0] == [None]

@@ -194,12 +194,20 @@ TRIGGERS = [
     ("changes_attempt_events_insert", "INSERT", "attempt_events", None,
      _row("runs", "output", "NEW.attempt_id", ref="NEW.id",
           conversation=_RUN_CONVERSATION.format(aid="NEW.attempt_id"),
-          bot="(SELECT bot FROM attempts WHERE id=NEW.attempt_id)")),
+          bot="(SELECT bot FROM attempts WHERE id=NEW.attempt_id)")
+     # Status projections also change before the bot has written a stored status. They are global
+     # bot changes, independent of which conversation the viewer currently follows.
+     + _row("bots", "status", "(SELECT bot FROM attempts WHERE id=NEW.attempt_id)",
+            bot="(SELECT bot FROM attempts WHERE id=NEW.attempt_id)",
+            where="NEW.kind='status' AND json_type(NEW.payload_json,'$.waiting') IS NOT NULL")),
     ("changes_attempts_insert", "INSERT", "attempts", None,
      _row("runs", "attempt", "NEW.id", conversation=_RUN_CONVERSATION.format(aid="NEW.id"), bot="NEW.bot")),
     # A lease renewed is not a change; a run starting, finishing or failing is.
     ("changes_attempts_update", "UPDATE", "attempts", _changed("state"),
-     _row("runs", "attempt", "NEW.id", conversation=_RUN_CONVERSATION.format(aid="NEW.id"), bot="NEW.bot")),
+     _row("runs", "attempt", "NEW.id", conversation=_RUN_CONVERSATION.format(aid="NEW.id"), bot="NEW.bot")
+     + _row("bots", "status", "NEW.bot", bot="NEW.bot",
+            where="EXISTS (SELECT 1 FROM attempt_events WHERE attempt_id=NEW.id AND kind='status' "
+                  "AND json_type(payload_json,'$.waiting') IS NOT NULL)")),
     ("changes_jobs_insert", "INSERT", "jobs", None,
      _row("runs", "job", "NEW.attempt_id", ref="NEW.message_id",
           conversation="(SELECT conversation_id FROM messages WHERE id=NEW.message_id)", bot="NEW.bot")),
