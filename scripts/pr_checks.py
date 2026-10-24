@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # Audited feature leaves only. A matching filename alone does not establish isolation.
 PYTHON_MAP = {
     "backend/task_loops.py": ["backend/tests/test_task_loops.py", "backend/tests/test_health.py",
-                              "backend/tests/test_system_routines.py"],
+                              "backend/tests/test_system_routines.py", "backend/tests/test_scheduler.py"],
     "backend/aws_identity.py": ["backend/tests/test_aws_identity.py"],
     "backend/devcopy.py": ["backend/tests/test_devcopy.py"],
     "backend/operations.py": ["backend/tests/test_operations.py", "backend/tests/test_backup_bundle.py",

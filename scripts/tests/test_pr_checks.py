@@ -16,6 +16,8 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_only_audited_leaves_are_focused_shared_missing_and_main_run_everything(tmp_path):
     leaf = checks.selection(["backend/task_loops.py"])
     assert leaf["python"] == sorted(checks.PYTHON_MAP["backend/task_loops.py"])
+    # Scheduler.tick catches loop failures; its integration guard must stay selected.
+    assert "backend/tests/test_scheduler.py" in leaf["python"]
     assert leaf["browser"] == [] and leaf["caddy"] is False
     for changed in (["conftest.py"], ["backend/store.py"], [".github/workflows/pr-checks.yml"],
                     ["backend/missing.py"], [], ["backend/task_loops.py", "backend/auth.py"]):
@@ -54,7 +56,8 @@ def test_measured_groups_cover_files_once_and_do_not_repeat_the_old_count_imbala
 def test_plan_keeps_full_collection_on_main_and_conftest_and_never_runs_bare_pytest(tmp_path, monkeypatch):
     files = {"backend/tests/test_task_loops.py": 2, "backend/tests/test_auth.py": 10,
              "backend/tests/test_api.py": 30, "scripts/tests/test_release_checks.py": 6,
-             "backend/tests/test_health.py": 1, "backend/tests/test_system_routines.py": 1}
+             "backend/tests/test_health.py": 1, "backend/tests/test_system_routines.py": 1,
+             "backend/tests/test_scheduler.py": 1}
     monkeypatch.setattr(checks, "collect", lambda: Counter(files))
     guarded = []
     monkeypatch.setattr(checks, "guard_changelog", lambda base: guarded.append(base))
