@@ -375,7 +375,7 @@ def classify(message):
     if wake in ("stalled", "status_check") or refs.get("sweep") or wake == "occurrence":
         return "sweep", ("A scheduled routine run" if refs.get("sweep") or wake == "occurrence"
                          else "A stall check" if wake == "stalled" else "A status check")
-    if body.startswith(("New task from", "Open:", "Next-run task:")):
+    if body.startswith(("New task from", "Open:", "Next-run task:")) or refs.get("auto_start"):
         return "assignment", "An assignment"
     if body.startswith(("Unblocked:", "All subtasks done")) or refs.get("subtask") or refs.get("worktree_wait") \
             or wake in ("watcher", "watcher-done", "resume") or refs.get("approval") or refs.get("milestone"):
