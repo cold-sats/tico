@@ -4,7 +4,7 @@ as reading them one bot at a time, and about the same number of statements for 7
 import collections
 import json
 
-from backend import auto_tasks, agents, lifecycle, rooms, update_feeds, views, task_models, wake_presets
+from backend import auto_tasks, agents, lifecycle, pipeline_stats, rooms, update_feeds, views, task_models, wake_presets
 from backend import task_privacy as privacy
 from backend.chat_goals import readable_active
 from backend.harnesses import resolve_harness
@@ -80,7 +80,7 @@ def per_bot_view(c, settings, auth, bot, level, access, registry_roster, registr
     row["assignment"] = dict(assignment) if assignment else None
     row["online"] = bool(assignment and not assignment["revoked_at"] and assignment["last_seen"]
                          and assignment["last_seen"] > H.shift(H.now(), seconds=-60))
-    row["queued"] = privacy.job_count(c, who, bot["slug"])
+    row["queued"] = pipeline_stats.job_queues(c, who, [bot["slug"]])[bot["slug"]]["queued"]
     row["next_run"] = sum(privacy.task_readable(c, who, t) for t in H.next_run_tasks(c, bot["slug"]))
     row["notes"] = len(H.notes_waiting(c, bot["slug"], limit=500))
     external = agents.presence(c, bot["slug"])

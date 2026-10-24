@@ -1164,3 +1164,42 @@ def test_a_stop_on_a_lapsed_turn_ends_only_its_request_not_a_message_folded_into
         aged(api, attempt['id'], grace=True)
         assert sorted(d['state'] for d in sweep(api)) == ['cancelled', 'queued']
         assert job_state(api, attempt['job_id']) == 'cancelled' and job_state(api, follow['id']) == 'queued'
+
+
+def test_a_busy_bots_stopped_run_is_judged_unless_a_live_run_is_on_the_same_task(api):
+    """Dev 488: the sweep waited while the bot had any run in the stopped run's lane, so a bot that is always busy never
+    had its stopped runs judged, and the work fenced behind them never ran. It now waits only for a live run on the same
+    task; once judged, the fenced work is queued again, and the bot's page counts it as hub pipeline does."""
+    machine = runner(api)
+    assign(api, machine, 'ops')
+    ready(api, machine, ['ops'])
+    stopped = post(api, 'tasks', {'owner': 'ops', 'title': 'Read the notes', 'body': 'Read the notes.'})
+    attempt = claim(api, machine)
+    post(api, f"attempts/{attempt['id']}/started", {'thread_id': 'stopped'}, machine['token'])
+    events = [{'seq': 1, 'kind': 'status', 'payload': {'state': 'active', 'tool_events': True}},
+              {'seq': 2, 'kind': 'tool', 'payload': {'tool': 'Read', 'status': 'completed', 'item_id': 'call-0'}}]
+    post(api, f"attempts/{attempt['id']}/events", {'events': events}, machine['token'])
+    post(api, f"attempts/{attempt['id']}/complete", {'outcome': 'interrupted', 'last_seq': 2,
+         'text': 'Runner restarted during execution'}, machine['token'])
+    post(api, f"tasks/{stopped['id']}/comments", {'text': 'Any news?', 'needs_action': True})   # fenced behind it
+    busy = post(api, 'tasks', {'owner': 'ops', 'title': 'Something else', 'body': 'Do something else.'})
+    other = claim(api, machine)
+    post(api, f"attempts/{other['id']}/started", {'thread_id': 'busy'}, machine['token'])
+
+    def counts():
+        return get(api, 'pipeline')['queues']['ops'], get(api, 'bots/ops')['queued']
+
+    queue, page = counts()
+    assert (queue['uncertain'], queue['dead'], queue['queued']) == (1, 1, 0) and page == 0      # dead is never queued
+
+    # A live run on the same task still makes it wait: that run may be doing the same work.
+    with api.app.state.store.transaction() as c:
+        c.execute('UPDATE turns SET task_id=? WHERE id=?', (stopped['id'], other['id']))
+    assert sweep(api) == [] and job_state(api, attempt['job_id']) == 'uncertain'
+
+    # A live run on another task does not.
+    with api.app.state.store.transaction() as c:
+        c.execute('UPDATE turns SET task_id=? WHERE id=?', (busy['id'], other['id']))
+    assert [d['state'] for d in sweep(api)] == ['queued']
+    queue, page = counts()
+    assert (queue['uncertain'], queue['dead'], queue['queued']) == (0, 0, 2) and page == 2

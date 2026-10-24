@@ -625,29 +625,6 @@ def status(c, who, row, *, tasks=None, approvals=None, asks=None):
     return row
 
 
-def job_count(c, who, bot, states=("queued",)):
-    snapshot(c)
-    marks = ",".join("?" * len(states))
-    return sum(message_readable(c, actor(who), row) and
-               (not row["attempt_id"] or attempt_readable(c, actor(who), row["attempt_id"]))
-               for row in c.execute("SELECT m.*,j.attempt_id FROM jobs j JOIN messages m ON m.id=j.message_id "
-                                    f"WHERE j.bot=? AND j.state IN ({marks})", (bot, *states)))
-
-
-def job_counts(c, who, bots, states=("queued",)):
-    """`job_count` for many bots, reading their jobs in one query per 500 bots: {slug: count}.
-    Each job is still checked on its own."""
-    snapshot(c)
-    out = dict.fromkeys(bots, 0)
-    marks = ",".join("?" * len(states))
-    for part in H.chunks(out):
-        for row in c.execute("SELECT m.*,j.attempt_id,j.bot AS job_bot FROM jobs j JOIN messages m ON m.id=j.message_id "
-                             f"WHERE j.bot IN ({','.join('?' * len(part))}) AND j.state IN ({marks})", (*part, *states)):
-            out[row["job_bot"]] += bool(message_readable(c, actor(who), row, current=True) and
-                                        (not row["attempt_id"] or attempt_readable(c, actor(who), row["attempt_id"])))
-    return out
-
-
 def blob_readable(c, actor, bid, seen=None, memo=None):
     """A task attachment cannot regain access through uploader ownership or another link.
     `memo` is attempt_tasks' cache for one read transaction."""
