@@ -271,8 +271,9 @@ def install(app, store, auth, mutate, settings):
         def work(c):
             auth.domain(who)
             ceo_itself(c, who, "decides alone, at level 3")
-            return CA.decide(c, who.actor, body.reason, [x.model_dump(exclude_none=True) for x in body.changes],
+            made = CA.decide(c, who.actor, body.reason, [x.model_dump(exclude_none=True) for x in body.changes],
                              body.goal_id or None)
+            return CA.entry(c, made, auth.task_sql(c, who))
         return mutate(request, body, work)
 
     @app.get("/api/v2/ceo-bot/log")
@@ -284,7 +285,7 @@ def install(app, store, auth, mutate, settings):
         with store.read() as c:
             if who.role not in ("owner", "human") and who.actor != CA.CEO:
                 raise Problem("forbidden", f"People in the company and the {ceo_bot.name(c)} read its log", 403)
-            out = CA.log(c, before, limit, who.actor)
+            out = CA.log(c, auth.task_sql(c, who), before, limit)
             out["can_undo"] = company_editor(who)
             return out
 
@@ -298,7 +299,7 @@ def install(app, store, auth, mutate, settings):
             if not company_editor(who):
                 raise Problem("forbidden", f"Only the owner undoes what the {ceo_bot.name(c)} did, on their own click",
                               403)
-            return CA.undo(c, who.actor, action_id)
+            return CA.entry(c, CA.undo(c, who.actor, action_id), auth.task_sql(c, who))
         return mutate(request, body, work)
 
     @app.get("/api/v2/company/history")

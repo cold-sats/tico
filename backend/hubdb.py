@@ -5203,10 +5203,9 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     if owner is not None:
         new_owner = _reach(conn, actor, owner)
         if is_human(new_owner) and new_owner != row["owner"]:
-            from .ceo_acts import gate
-            # The proposal lands in the company-wide CEO Bot log, so a private task is named without its title.
-            named = "a private task" if task_private(conn, row) else f"\"{row['title']}\""
-            gate(conn, actor, "person_task", f"give {named} to {person_name(conn, new_owner)}")
+            from .ceo_acts import TASK, gate
+            # The proposal lands in the company-wide CEO Bot log, which names the task only to who may open it.
+            gate(conn, actor, "person_task", f"give {TASK} to {person_name(conn, new_owner)}", task_id=task_id)
         _takes_tasks(conn, actor, new_owner)
         if new_owner != row["owner"]:
             _learner(conn, actor)
