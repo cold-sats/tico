@@ -285,8 +285,8 @@ def published(c, target, url="", release_repo=""):
         for who, body, role in (
                 (qa, f"Released: {facts}. Run its check live tests now and watch the watch live items; "
                      "report to the ticket.", "qa"),
-                (writer, f"Released: {facts}. Update the docs for this change and write its release notes now "
-                         "that it is out.", "docs")):
+                (writer, f"Released: {facts}. Update the docs for this change now that it is out; the version's "
+                         "CHANGELOG section comes on its release notes task.", "docs")):
             if who and H._wake(c, ticket, H.bot_actor(who), body, trigger=EVENT,
                                refs={"wake": EVENT, "release": tag, "role": role}, source=target):
                 sent.setdefault(ticket["id"], []).append(who)

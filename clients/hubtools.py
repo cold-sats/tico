@@ -2037,7 +2037,7 @@ def routine_list(api, args):
        "title": _s("What the task is called"),
        "text": _s("What the bot is told each time", default=""),
        "cron": _s("Five-field cron, e.g. `0 7 * * 1-5`"),
-       "on": _s("A Tico event instead of a time: `meeting.ready`, or `webhook.<id>` for a trigger in hub_trigger_list"),
+       "on": _s("A Tico event instead of a time: `meeting.ready`, `release_published`, or `webhook.<id>` for a trigger in hub_trigger_list"),
        "timezone": _s("IANA zone for the cron; America/Los_Angeles by default"),
        "enabled": {"type": "boolean", "default": True},
        "bot": _s("Set it on another bot you operate; yourself by default")},

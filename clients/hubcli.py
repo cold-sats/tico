@@ -1466,7 +1466,7 @@ def parser():
     s.add_argument("key", help="a stable name, letters, digits, dots, dashes or underscores")
     s.add_argument("--title", required=True)
     s.add_argument("--cron", help="five fields, in --timezone (America/Los_Angeles by default)")
-    s.add_argument("--on", help="a Tico event instead of a time: meeting.ready, or webhook.<id> (hub trigger list)")
+    s.add_argument("--on", help="a Tico event instead of a time: meeting.ready, release_published, or webhook.<id> (hub trigger list)")
     s.add_argument("--text", default="", help="what the bot is told each time")
     s.add_argument("--text-file", dest="text_file")
     s.add_argument("--timezone")

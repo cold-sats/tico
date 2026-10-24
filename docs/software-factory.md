@@ -15,7 +15,7 @@ the roles, drop the ones you don't need, and change the steps in Settings → Ta
 | 4 | QA | `issue-triage` (QA Engineer) | Runs the acceptance tests before release, and again live after release |
 | 5 | Release Manager | `release-notes` (Release Manager) | Cuts the release, rolls back if needed |
 | 6 | Security | `security-engineer` (Security Engineer) | Tests each release build; holds a release only for serious problems (below) |
-| 7 | Technical Writer | `docs-writer` (Technical Writer) | Updates the help docs for every change people will see; writes the release notes at the cut |
+| 7 | Technical Writer | `docs-writer` (Technical Writer) | After each release, updates the help docs for every change in it that people will see and writes the release notes |
 | 8 | DevOps | `devops-engineer` (DevOps Engineer) | Failed builds and pipeline problems; watches the factory's cost and speed |
 
 Two leads sit above the line. **Head of Product** (`product-lead`) decides *what* to build: it triages feature ideas,
@@ -75,9 +75,9 @@ you create named Dev tickets. Move any tasks off a step before you delete it or 
 | Review 1 Fixes | doing | Builder | Builder acts on the feedback (skipped if there is none) |
 | Review 2 | review | Builder | Reviewer 2 comments on the updated change (skipped for small changes) |
 | Review 2 Fixes | doing | Builder | Builder acts on the feedback, then merges |
-| In QA | review | Builder | QA runs the acceptance tests; the Technical Writer updates the docs |
+| In QA | review | Builder | QA runs the acceptance tests |
 | QA Fixes | doing | QA | A test failed; the Builder fixes it and moves the ticket back to In QA |
-| Pending Release | review | QA | Passed; waits for the next release, where Security tests the release build |
+| Pending Release | review | QA | Passed; waits for the next release, where Security tests the release build. Arriving here is a note to the Release Manager, not a wake |
 | Post Release QA | review | Release Manager | Shipped; QA runs the *check live* tests and watches the *watch live* items for 48 hours |
 | Done | done | QA | Post-release QA passed |
 | Closed | closed | Head of Engineering | Closed without shipping, e.g. a duplicate, superseded or dropped ticket |
@@ -120,7 +120,6 @@ release.
 The Release Manager keeps one checklist per release:
 - a QA pass for each change people will see
 - the security result
-- the docs updated
 - the release notes
 - the roadmap items moved to Shipped
 

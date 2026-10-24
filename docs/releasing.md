@@ -21,6 +21,20 @@ task ("Release vX.Y.Z: <what>") instead of pushing the tag itself; the Release M
 so the tasks waiting on the release learn it shipped. Tico itself never moves a task on a tag, release or deploy; it
 only marks the merged PR links the running release contains as Shipped (backend/github.py).
 
+**When releases are cut.** The Release Manager hears about Dev tickets at Pending Release once, as one task:
+"Release: <n> tickets at Pending Release". It arrives once a day at a set hour (10:00 company time by default;
+an owner or admin changes the hour, adds a second one or turns it off in Settings, or with `hub release schedule`),
+and not at all when nothing is pending. A ticket arriving at Pending Release wakes no one. For a hotfix or a
+midday release, a person who moves Dev tickets (or a bot that may work them) runs `hub release now [--note ...]`;
+it sends the same task at once, or wakes the Release task the Release Manager already has open. The Release
+Manager is the bot the schedule setting names, else the one built from the `release-notes` starter; with neither,
+nothing is sent.
+
+**After a release is published**, Tico wakes, once per Dev ticket the release carries (at Pending Release with a
+pull request merged in the release repository; prereleases excepted), the ticket's QA owner (tickets tagged `qa`
+only: the post-release tests) and the Technical Writer (the docs for that change). Docs and release notes are
+not part of the pre-release checklist. Routines can run `on: release_published` for one task per release.
+
 ## The fast path
 
 1. **While building a PR**, run the focused tests for its changes; CI selects affected tests conservatively (below).
@@ -181,8 +195,8 @@ Technical Writer tasks and links. Security is outside the release pipeline; no S
 
 Evidence comes from the ticket owner's messages and the owners of step children titled `Review 1:`,
 `Review 2:`, `QA:`, `Docs:`, `Documentation:` or `Technical Writer:`. Review 1 always requires a verdict;
-Review 2 requires one when its step child exists, and `qa` tickets require a QA approval and completed docs
-child. The latest verdict must approve the merged PR head; older heads are flagged for the Release Manager
+Review 2 requires one when its step child exists, and `qa` tickets require a QA approval. Docs are not
+checked here: the Technical Writer starts after the release (below). The latest verdict must approve the merged PR head; older heads are flagged for the Release Manager
 to resolve with the recorded review delta. A passing test receipt names the full PR head, tests and a passing
 result on the same line (for example, `Tests: head <full-sha>: 12 passed, 0 failed`). The latest receipt for that
 head must pass; a newer pending result remains a gap. Any recorded failure at that head stays a gap for the Release
