@@ -385,6 +385,51 @@ def test_a_chosen_chart_that_fails_to_import_is_shown_to_the_owner_and_no_sample
         assert done.json()["company_import_failed"] is None
 
 
+def test_every_way_out_of_a_failed_setup_import_clears_it_on_a_company_already_set_up(tmp_path):
+    """Reverse state of the kept start failure: the applied file again (at start or imported), the file setting removed,
+    and the owner's Dismiss each end it, even once the company is set up and an import can't replace its team."""
+    from clients.environments import seed_registry
+    seed_registry(tmp_path, "Owner", OWNER_EMAIL,
+                  {"company_name": "Acme Finance", "app_name": "Tico", "assistant_name": "Assistant"})
+    good, settings = company_text(), settings_for(tmp_path)
+    app = create_app(settings)
+    app.state.store.initialize()
+    app.state.store.seed()
+    settings.company_file_data = starter.pack(good)
+    changed = starter.pack(good.replace("Acme Finance", "Another Company"))
+
+    def start(data="", configured=True, error=""):
+        settings.company_file_data, settings.company_file_configured, settings.company_file_error = data, configured, error
+        return TestClient(create_app(settings))
+
+    def failed(api):
+        return api.get("/api/v2/setup", headers=signed_in()).json()["company_import_failed"]
+
+    with start(settings.company_file_data) as api:
+        assert failed(api) is None and api.get("/api/v2/setup", headers=signed_in()).json()["completed"]
+    with start(error="The company file setup copied to this server can't be read (no access)") as api:
+        assert "can't be read" in failed(api)["reason"]
+    with start(starter.pack(good)) as api:              # the file is fixed: it is the one already applied
+        assert failed(api) is None
+    with start(changed) as api:
+        assert "already set up" in failed(api)["reason"]
+        checks = {row["id"]: row for row in api.get("/api/v2/health", headers=signed_in()).json()["checks"]}
+        assert "dismiss" in checks["company_import"]["summary"]
+        body = {"company_yaml": good}
+        body["fingerprint"] = api.post("/api/v2/setup/company/preview", json=body, headers=signed_in()).json()["fingerprint"]
+        done = api.post("/api/v2/setup/company/import", json=body, headers=signed_in())
+        assert done.status_code == 200 and done.json()["company_import_failed"] is None
+    with start(changed) as api:
+        assert failed(api)
+    with start(configured=False) as api:                # the file setting is removed
+        assert failed(api) is None
+    with start(changed) as api:
+        assert failed(api)
+        dismissed = api.post("/api/v2/setup/company/import-failure/dismiss", json={}, headers=signed_in())
+        assert dismissed.status_code == 200 and dismissed.json()["company_import_failed"] is None
+        assert not {row["id"] for row in api.get("/api/v2/health", headers=signed_in()).json()["checks"]} & {"company_import"}
+
+
 def test_reserved_alias_cannot_replace_a_custom_named_assistant_now_or_later(environment):
     api = environment(seed_roster=False, assistant_bot="ace")
     seed = {"ace": {"name": "ace", "status": "planned", "template": "assistant"},

@@ -192,6 +192,7 @@ def apply(onboarding, c, who, text, fingerprint):
     record = O.load(c)
     previous = record.get("company_import") or {}
     if previous.get("fingerprint") == fingerprint:
+        clear_failure(c)        # this file is the one already applied, so nothing from setup is left unimported
         return onboarding.view(c, who)
     builtins = set(summary["builtins"])
     existing = [r[0] for r in c.execute("SELECT slug FROM bots") if r[0] not in builtins]
@@ -237,7 +238,7 @@ def apply(onboarding, c, who, text, fingerprint):
     onboarding._store(c, record, who.actor)
     c.execute("INSERT INTO registry_metadata VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
               (PLAN_KEY, encode(saved)))
-    c.execute("DELETE FROM registry_metadata WHERE key=?", (FAILED_KEY,))
+    clear_failure(c)
     H.event(c, who.actor, "onboarding.company_imported", "", {"fingerprint": fingerprint,
                                                               "bots": sorted(body.selected), "seats": len(made)})
     return onboarding.view(c, who)
@@ -290,6 +291,7 @@ def load_on_start(onboarding, c):
         raise Problem("company_file", "The company file setup gave this server is empty", 422)
     draft = starter.unpack(settings.company_file_data)
     if (O.load(c).get("company_import") or {}).get("fingerprint") == hashlib.sha256(encode(draft).encode()).hexdigest():
+        clear_failure(c)        # a file fixed back to the one already applied ends an earlier start's failure
         return None
     who = onboarding.auth.owner_identity(c)
     summary = preview(onboarding, c, who, draft)
@@ -318,6 +320,29 @@ def start(onboarding, store, telemetry=None):
                       (FAILED_KEY, encode(failure)))
             H.event(c, "system", "onboarding.company_import_failed", "", {"reason": failure["reason"]})
         return failure
+
+
+def clear_failure(c, actor=""):
+    """End a kept start failure: an import that works, the applied file again, the file setting removed, a team set up
+    on the welcome page, or the owner dismissing it. An actor records who dismissed it."""
+    gone = c.execute("DELETE FROM registry_metadata WHERE key=?", (FAILED_KEY,)).rowcount
+    if gone and actor:
+        H.event(c, actor, "onboarding.company_import_failure_dismissed", "", {})
+    return bool(gone)
+
+
+def forget(store):
+    """No company file is configured any more, so a failure kept from one that was is no longer true (app startup)."""
+    with store.transaction() as c:
+        clear_failure(c)
+
+
+def dismiss(onboarding, c, who):
+    """The owner's way out of a kept failure they will not fix by import (a changed file on a company already set up,
+    say): Health and the welcome page stop showing it. A server start with the same file records it again."""
+    onboarding._owner(who)
+    clear_failure(c, who.actor)
+    return onboarding.view(c, who)
 
 
 def failure(c):

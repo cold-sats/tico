@@ -211,8 +211,23 @@ const onbImportPending = fields => (fields || []).map(field => ({goals: 'goals',
 function onbImportFailedHTML(state) {
   const failed = state.record.company_import_failed;
   return failed ? `<section class="card onb-import-failed" id="onb-import-failed" role="alert"><h2>Your chosen org chart wasn't imported</h2>
-    <p>${esc(failed.reason || '')}</p><p class="muted">No sample team was set up in its place.${state.record.completed ? ''
-      : ' Import the company file again below, or pick your team here.'}</p></section>` : '';
+    <p>${esc(failed.reason || '')}</p><p class="muted">No sample team was set up in its place.${state.record.completed
+      ? ' This company is already set up, so the file can\'t replace its team.'
+      : ' Import the company file again below, or pick your team here.'}</p>
+    <button class="ghost" type="button" id="onb-import-failed-dismiss">Dismiss</button></section>` : '';
+}
+// Dismiss is the way out when the owner won't fix the file by importing it (Health links here for it).
+async function onbDismissImportFailure(state, button) {
+  button.disabled = true;
+  try {
+    const record = await post('/v2/setup/company/import-failure/dismiss', {});
+    if (ONB !== state) return;
+    state.record.company_import_failed = record.company_import_failed;
+    onbRender(state);
+  } catch (error) {
+    button.disabled = false;
+    toast(error.message, true);
+  }
 }
 function onbCompanyFileHTML(state, done) {
   if (done) {
@@ -437,6 +452,8 @@ function onbWire(state, key) {
   if (companyFile) companyFile.onchange = () => void onbReadCompanyFile(state, companyFile.files?.[0]);
   const useCompanyFile = $('#onb-company-file-use');
   if (useCompanyFile) useCompanyFile.onclick = () => void onbUseCompanyFile(state);
+  const dismissFailure = $('#onb-import-failed-dismiss');
+  if (dismissFailure) dismissFailure.onclick = () => void onbDismissImportFailure(state, dismissFailure);
   const tasks = $('#onb-tasks');
   if (tasks) tasks.onclick = () => { location.hash = TASKS; };
   const connect = $('#onb-connect');

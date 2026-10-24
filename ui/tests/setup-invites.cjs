@@ -67,6 +67,11 @@ const REFUSED = {error: {code: 'invite_failed', detail: "Tico's sign-in mail cou
         record = {...record, company_import: {...record.company_import, people: setupPeople}};
         return json({...record, home: 'human:ana'});
       }
+      if (p === '/api/v2/setup/company/import-failure/dismiss' && method === 'POST') {
+        calls.push(['dismiss-import-failure']);
+        record = {...record, company_import_failed: null};
+        return json({...record, home: 'human:ana'});
+      }
       if (p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
       return json(unrouted(p));
     });
@@ -126,6 +131,10 @@ const REFUSED = {error: {code: 'invite_failed', detail: "Tico's sign-in mail cou
     await failed.waitFor();
     assert.equal(await failed.getAttribute('role'), 'alert');
     assert.match(await failed.innerText(), /Your chosen org chart wasn't imported.*not valid YAML \(line 3\).*No sample team was set up in its place/s);
+    // Dismiss is the way out when the owner won't import it again: the alert goes.
+    await failed.locator('#onb-import-failed-dismiss').click();
+    await failed.waitFor({state: 'detached'});
+    assert.deepEqual(calls.pop(), ['dismiss-import-failure']);
     assert.deepEqual(errors, []);
     console.log('setup-invites: ok');
   } finally { await browser.close(); }

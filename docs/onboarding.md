@@ -35,7 +35,10 @@ a role under a role included (`seat:<id>`). Only the built-ins become bots, once
 a seat, and an import cannot replace a company whose setup is complete. A file named at install
 (`TICO_COMPANY_FILE_B64` or `TICO_COMPANY_FILE`) is imported when the server starts; if it cannot be read or applied,
 the server still starts, **no sample team is set up in its place**, and the owner sees why on the welcome page and on
-Health ("Company file from setup not imported") until an import works.
+Health ("Company file from setup not imported") until it is over: an import works (the same file again included), the
+team is set up on the welcome page, the server starts with the file fixed back to the one already applied or with no
+company file at all, or the owner presses **Dismiss** on the welcome page. A server start with the same broken file
+shows it again.
 
 This starter import supports one owner and catalog AI employees with the default rules. The signed-in owner remains
 the owner; a file does not add sign-in accounts. A person the file names who holds a role has no seat or bot for it:

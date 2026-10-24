@@ -616,6 +616,9 @@ class Onboarding:
         record.update(selected={**plan, **roles}, completed=record["completed"] or H.now(), seats=laid)
         self._wire(c, record, who.actor)
         self._store(c, record, who.actor)
+        # Setting the team up here is one of the two ways out Health offers for a setup file that wasn't imported.
+        from . import company_import
+        company_import.clear_failure(c)
         H.event(c, who.actor, "onboarding.completed", "", {"bots": sorted(plan), "seats": sorted(roles)})
         return self.view(c, who)
 

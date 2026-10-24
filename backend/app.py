@@ -125,7 +125,11 @@ def create_app(settings=None):
             # A file that can't be applied is kept for the owner to see; never a sample company in its place.
             from . import company_import
             company_import.start(onboarding, store, telemetry)
-        elif settings.sample_company:
+        else:
+            # The file setting was removed: a failure kept from it no longer describes this install.
+            from . import company_import
+            company_import.forget(store)
+        if not (settings.company_file_configured or settings.company_file_data) and settings.sample_company:
             try:
                 from . import sample_company
                 with store.transaction() as c:
@@ -1789,6 +1793,12 @@ def create_app(settings=None):
         from . import company_import
         return mutate(request, body, lambda c: company_import.apply(
             onboarding, c, request.state.identity, body.company_yaml, body.fingerprint))
+
+    @app.post("/api/v2/onboarding/company/import-failure/dismiss")
+    def onboarding_company_import_failure_dismiss(request: Request, body: M.Empty):
+        """The owner leaves a kept setup-file failure they won't fix by importing (Health and the welcome page)."""
+        from . import company_import
+        return mutate(request, body, lambda c: company_import.dismiss(onboarding, c, request.state.identity))
 
     @app.post("/api/v2/onboarding/company/people/{key}/invite")
     def onboarding_company_invite(request: Request, key: str, body: M.OnboardingInvite):
