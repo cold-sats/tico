@@ -48,6 +48,7 @@ it.
 - What counts is the estimate of the runs the bots finished that started in the UTC clock hour, the UTC day, the week from Monday
   00:00 UTC, or the UTC month. Subscription runs count their API-equivalent unless the team turns off "Count subscription runs" (in
   the default limit), for every level.
+- Separate from these cost limits, each bot has a run budget (runs per hour and per day, default 60 and 400) that stops a runaway loop; see [Run budgets](how-it-works.md).
 - A message is sent once per bot or pool, period and limit, so raising a limit arms it again.
 
 `GET /api/v2/usage/limits`, `PUT /api/v2/usage/limits` (the default), `PUT /api/v2/usage/limits/{bot}` (empty follows the default),

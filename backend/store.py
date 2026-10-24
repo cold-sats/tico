@@ -1353,6 +1353,12 @@ class Store:
                 # Milestone waits (backend/milestone_waits.py). Unversioned like the trash.
                 from .milestone_waits import ensure as ensure_milestone_waits
                 ensure_milestone_waits(c)
+                # Failed-run back-off and run budgets (backend/run_backoff.py, backend/turn_budgets.py). Unversioned
+                # like the trash: an older release never reads the tables.
+                from .run_backoff import ensure as ensure_run_backoff
+                from .turn_budgets import ensure as ensure_turn_budgets
+                ensure_run_backoff(c)
+                ensure_turn_budgets(c)
                 # Recruiting seats (backend/lifecycle.py). Unversioned like the trash.
                 from .lifecycle import ensure as ensure_seats
                 ensure_seats(c)

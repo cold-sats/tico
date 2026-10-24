@@ -29,6 +29,7 @@ from . import agents, app_delivery, batch, external_sync, inbox_isolation, lifec
 from . import outcome_stats
 from . import ceo_bot, invites, owner_link
 from . import login_holds
+from . import bot_stops, turn_budgets
 from . import auto_tasks, check_models, run_triggers, task_models, team_rules, update_feeds, topic_change, usage_limits, bot_to_bot, wake_presets, visuals, wake_rules, quiet_work, milestone_waits
 from . import task_privacy as privacy
 from . import task_relations as TR
@@ -1350,7 +1351,7 @@ def create_app(settings=None):
                 c.execute("INSERT OR IGNORE INTO attempt_conversations VALUES(?,?)", (who.attempt_id, conv["id"]))
             auth.conversation(c, who, conv["id"])
         # An onboarding bot starts only a person's message or its manager's; anyone else's waits for it to be Active.
-        if note := (H.held_note(c, to) or usage_limits.warning(c, to)
+        if note := (H.held_note(c, to) or usage_limits.warning(c, to) or bot_stops.warning(c, to)
                     or (None if H.is_human(who.actor) else H.setup_hold(c, to, who.actor))):
             message = {**message, "warning": note}
         if held := bot_to_bot.held_reason(message):
@@ -3385,7 +3386,8 @@ def create_app(settings=None):
                 TRo.set_roles(c, who.actor, row["id"], body.roles, mover=mover(c, who) or None)
             except ValueError as exc:
                 raise Problem("roles", str(exc), 422)
-        note = " ".join(filter(None, (usage_limits.warning(c, owner) or H.setup_hold(c, owner), own_subtask)))
+        note = " ".join(filter(None, (usage_limits.warning(c, owner) or bot_stops.warning(c, owner) or H.setup_hold(c, owner),
+                                      own_subtask)))
         return {"task": task_view(H.task(c, row["id"]), c, visible_sql=auth.task_sql(c, who), who=who),
                 **({"readback": readback} if readback else {}),
                 **({"warning": note} if note else {}), **({"warnings": row["warnings"]} if row.get("warnings") else {})}
@@ -6053,6 +6055,7 @@ def create_app(settings=None):
     system_routines.install(app, store, auth, mutate)
     from . import task_rules
     task_rules.install(app, store, auth, mutate)
+    turn_budgets.install(app, store, auth, mutate, settings_admin)
     outcome_stats.install(app, store, auth)
     from .live_meetings import install_live_meetings
     install_live_meetings(app, store, auth, mutate)

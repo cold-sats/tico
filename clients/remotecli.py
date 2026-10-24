@@ -157,7 +157,7 @@ def run(args, who=None):
               "update create", "update redo", "update list", "update show", "update mark-read", "update reply", "update settings",
               "changelog list", "changelog mark-read",
               "needs-you start", "needs-you next", "needs-you respond", "needs-you commit", "needs-you abandon",
-              "brief", "pipeline", "mcp stats", "calendar list", "calendar status", "routine update", "team show", "org order", "run list",
+              "brief", "pipeline", "mcp stats", "calendar list", "calendar status", "routine update", "team show", "team budget", "org order", "run list",
               "message list", "message mark-read", "bot recent", "agent pair show", "agent pair approve", "agent pair decline",
               "slack channel list", "slack channel add", "slack channel remove", "slack channel import",
               "seat list", "seat create", "seat update", "seat close", "seat draft"):
@@ -744,7 +744,7 @@ def bots(client, args):
         except ValueError as exc:
             raise APIError("not_found", str(exc)) from None
     if args.fn in ("bot access", "bot mail", "bot owners", "bot setup-done", "bot ready", "bot place", "bot go-live", "bot model", "bot pause",
-                   "bot resume", "bot scope", "bot restore", "bot archive") or (args.fn == "bot create" and args.record_only):
+                   "bot resume", "bot scope", "bot restore", "bot archive", "bot budget", "bot release") or (args.fn == "bot create" and args.record_only):
         from clients import hubtools
         fields = {k: v for k, v in vars(args).items()
                   if k not in ("cmd", "sub", "subsub", "fn", "no_setup", "record_only") and v not in (None, [])}

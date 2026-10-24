@@ -207,6 +207,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub bot status history <bot> [--since 7d]
     hub bot recent [--days N] [--limit N]  the bots you have been working with lately and where each stands
     hub run list <bot> [--since 24h]       a bot's recent runs
+    hub team budget [--hour N] [--day N]    the team default runs per hour and per day (owner and admins)
     hub team show [--person ID] [--team NAME]
                                            humans and bots: who they are, Slack, what they own; each bot
                                            with its reports_to, group and template (the bots you may see)
@@ -288,6 +289,10 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub bot model <bot> [<model>] [--effort E]
                                            list the models, or change the bot's
     hub bot pause|resume <bot>             stop or restart a bot (resume places one that has no computer)
+    hub bot budget <bot> [--hour N] [--day N] | release
+                                           read or set a bot's runs per hour and per day (0 no limit, default follows the
+                                           team), or release it after Tico stopped it
+    hub bot release <bot>                  release a bot Tico stopped for failed runs or too many runs
     hub bot scope <bot> <task>|--release   limit a bot's claims to one task and its subtasks, or lift that
     hub bot copy <bot> [--slug S] [--name N] [--with-memory] [--computer C]
                                            copy a bot into a new one the requester owns: its instructions, skills, playbooks and
@@ -1585,6 +1590,10 @@ def parser():
     s.add_argument("--person", help="that human and everyone under them")
     s.add_argument("--team", help="a group id, like engineering or sales: that group and the groups in it")
     s.set_defaults(fn="team show")
+    s = team.add_parser("budget", help="read or set the team's default runs per hour and per day for bots (owner and admins)")
+    for window in ("hour", "day"):
+        s.add_argument("--" + window, type=int, help=f"runs allowed per {window} for bots with no budget of their own; 0 for no limit")
+    s.set_defaults(fn="team budget")
     seat = sub.add_parser("seat", help="Recruiting seats: roles on the chart with no bot yet").add_subparsers(dest="sub")
     seat.add_parser("list", help="the Recruiting seats").set_defaults(fn="seat list")
     s = seat.add_parser("create", help="add a seat under you or someone below you (a person)")
@@ -1852,6 +1861,16 @@ def parser():
     s.add_argument("bot")
     s.add_argument("limit", nargs="?", type=lambda v: None if v == 'unlimited' else 0 if v == 'off' else int(v), default=argparse.SUPPRESS)
     s.set_defaults(fn="bot keep-tasks-going")
+    s = bot.add_parser("budget", help="read or set a bot's runs per hour and per day, or release it from a hold")
+    s.add_argument("bot")
+    s.add_argument("action", nargs="?", choices=["release"], help="release the bot from a hold instead of changing a budget")
+    for window in ("hour", "day"):
+        s.add_argument("--" + window, type=lambda v: v if v == "default" else int(v),
+                       help=f"runs allowed per {window}: a number, 0 for no limit, or default to follow the team")
+    s.set_defaults(fn="bot budget")
+    s = bot.add_parser("release", help="release a bot Tico stopped (failed runs, or too many runs); its queue starts again")
+    s.add_argument("bot")
+    s.set_defaults(fn="bot release")
     s = bot.add_parser("model", help="list the models, or change this bot's (BotOps)")
     s.add_argument("bot")
     s.add_argument("model", nargs="?", help="a model id or name; leave out to list")

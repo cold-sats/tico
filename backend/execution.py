@@ -12,6 +12,7 @@ from clients import gateway, sessions
 
 from . import auto_tasks, start_places, org_turns, app_delivery, check_models, learned, rooms, updates_chat, gateway_connection, inbox_isolation, login_holds, models_preset, providers, quiet_work, routines, run_triggers, runner_versions, screen, task_models, usage_limits, wake_presets, wake_rules
 from . import task_privacy as privacy
+from . import run_backoff, turn_budgets
 from .auth import Identity
 from .batch_work import isolated
 from .harnesses import reports_tool_calls
@@ -933,6 +934,8 @@ def claim_refusal(c, settings, runner, bot, config_json, draining, ready, held_b
         return "draining", None
     if bot in held_bots:
         return ("maintaining" if lanes_on(runner) else "lane_held"), None
+    if why := run_backoff.refusal(c, bot):
+        return why, None            # waiting out failed runs, or held until a person releases it (backend/run_backoff.py)
     try:
         config = json.loads(config_json)
     except (ValueError, TypeError):
@@ -1116,6 +1119,8 @@ def job_refusal(c, job, followed, ready, busy, lanes, roots, live=frozenset()):
     message = H.message(c, job["message_id"])
     if not privacy.message_readable(c, "bot:" + job["bot"], message):
         return "unreadable"
+    if why := turn_budgets.refusal(c, job["bot"], message):
+        return why                  # over its run budget: held, except for a person's message (backend/turn_budgets.py)
     conversation = H.conversation(c, message["conversation_id"])
     task_id = H.message_task_id(message, conversation)
     task = H.task(c, task_id) if task_id else None
@@ -2075,6 +2080,8 @@ class Execution:
             c.execute("UPDATE jobs SET state='cancelled' WHERE id=?", (row["id"],))
             H.event(c, H.KEEPER, "job.suppress", row["id"], {"reason": "unreadable"})
             return {"attempt": None}
+        if turn_budgets.enforce(c, self.store.settings, row, msg):
+            return {"attempt": None}        # the bot is over its run budget: held now, its queue kept
         live_ref = (msg.get("refs") or {}).get("live_meeting")
         if (isinstance(live_ref, dict) and msg.get("from_actor") == H.KEEPER
                 and msg.get("to_actor") == "bot:" + row["bot"]):
@@ -3038,6 +3045,9 @@ class Execution:
         # interrupted or failed work, which may have acted, is held for review.
         # A turn a person stopped is over by their choice: nothing to retry and nothing to review.
         stopped = bool(row["stop_requested"]) and body.outcome != "completed" or skipped
+        # A provider limit inside any error is the usage limit's, whatever the runner flagged; a prompt too large to
+        # send starts the next run in a fresh session (backend/run_backoff.py).
+        failure = run_backoff.classify(c, aid, body) if body.outcome == "failed" and not stopped else None
         limited = body.outcome != "completed" and body.limited and not stopped
         # A model at capacity (backend/login_holds.py capacity) is a busy moment, not the login's quota: kept with the
         # run, so Health and a check's next model never count it as quota. Only a refusal before the bot did anything
@@ -3404,7 +3414,22 @@ class Execution:
                           "" if healthy else f"{refused}. This run is saved for later" if refused
                           else "One run stopped; saved for later",
                           claimed=row["created"], stop=aid if not healthy else None)
+        self.account_failure(c, row, body, aid, conv, failure, counts=not (stopped or limited or busy or yielded))
         return {"attempt_id": aid, "outcome": body.outcome, "message": reply}
+
+    def account_failure(self, c, row, body, aid, conv, failure, counts):
+        """What a finished run means for the bot's next ones (backend/run_backoff.py): a run that completed starts the
+        count over; a failure within a minute of starting makes the bot wait, and holds it after five in a row; a
+        prompt too large to send starts the next run in a fresh session. A Stop, a usage limit, a busy model and a
+        yield (`counts` False) are none of that."""
+        if body.outcome == "completed":
+            run_backoff.reset(c, row["bot"])
+            return
+        if body.outcome != "failed" or not counts:
+            return
+        if failure == run_backoff.PROMPT_TOO_LONG:
+            run_backoff.fresh_session(c, self.store.settings, row["bot"], conv["id"], aid)
+        run_backoff.failed(c, self.store.settings, row, body, aid)
 
     def retry(self, c, who, job_id, body):
         row = c.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()

@@ -102,6 +102,8 @@ MEANING = {
     "worktree_error": "A task worktree failed on its computer.",
     "server_cpu": f"The server averaged {SERVER_CPU:g}% CPU or more for an hour with under {QUIET_REQUESTS} requests.",
     "local_busy": "A process or container on a computer running Tico was busy in two hourly checks in a row while idle.",
+    "run_hold": "Tico stopped a bot after five runs in a row failed within a minute of starting.",
+    "turn_budget": "Tico stopped a bot that started more runs in an hour or a day than its budget allows.",
     **{p[0]: p[4] + "." for p in LOG_PATTERNS},
 }
 # What a Tico bug report says the fix is: one constant per tico-bug check, never a finding's own text.
@@ -529,6 +531,36 @@ def _bot_checks(c, settings=None):
                                     "BotOps: save any unique work in that worktree on a branch, then remove its link so "
                                     "the computer can make it again (docs/worktrees.md)."))
     out.extend(_quiet_work_checks(c))
+    out.extend(_stop_checks(c))
+    return out
+
+
+def _stop_checks(c):
+    """A bot Tico stopped for failed runs or for running away (backend/bot_stops.py): one finding per bot until it is
+    released. The signature carries the error class or the window, never the bot."""
+    from . import run_backoff, turn_budgets
+    out = []
+    for hold in run_backoff.held(c):
+        bot, kind = hold["bot"], hold["error_class"] or run_backoff.OTHER
+        name = (H.bot(c, bot) or {}).get("display_name") or bot
+        out.append(_finding(f"run_hold:{bot}", "run_hold", SETUP,
+                            f"{name} was stopped after {hold['fails']} failed runs in a row",
+                            f"{name}'s last {hold['fails']} runs each failed within a minute of starting, with "
+                            f"{run_backoff.CLASS_WORDS.get(kind, run_backoff.CLASS_WORDS[run_backoff.OTHER])}. Held "
+                            f"since {str(hold['held_at'])[:16]} UTC. Last error: {hold['error'] or 'none reported'}.",
+                            f"BotOps: read {name}'s last runs, fix the cause, then release it (hub bot release {bot}). "
+                            "Its queued work is kept.", subject=kind, severity=BAD))
+    for hold in turn_budgets.held(c):
+        bot = hold["bot"]
+        name = (H.bot(c, bot) or {}).get("display_name") or bot
+        out.append(_finding(f"turn_budget:{bot}", "turn_budget", SETUP,
+                            f"{name} was stopped: {hold['runs']} runs in the last {hold['window']}",
+                            f"{name} started {hold['runs']} runs in the last {hold['window']}, over its budget of "
+                            f"{hold['budget']}. Held since {str(hold['held_at'])[:16]} UTC. This looks like a runaway "
+                            "loop, not normal work.",
+                            f"BotOps: read {name}'s last runs for what keeps waking it, then release it "
+                            f"(hub bot release {bot}) or raise its budget (hub bot budget {bot} --{hold['window']} N).",
+                            subject=hold["window"], severity=BAD))
     return out
 
 

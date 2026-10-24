@@ -2548,6 +2548,48 @@ def bot_keep_tasks_going(api, args):
         "keep_tasks_going": args['limit'], "expected_revision": bot['revision']}, key=_key(args))
 
 
+BUDGET_VALUE = {"type": ["integer", "string"], "minimum": 0, "maximum": 100000,
+                "description": "Runs allowed; 0 is no limit, \"default\" follows the team"}
+
+
+@tool("hub_bot_budget", "Read or set how many runs a bot may start per hour and per day, as the person who asked you. "
+      "Tico holds a bot that goes over (a runaway loop, not normal work): its queued work is kept and a person's "
+      "messages still run. With neither hour nor day it reads the budget, the team default, the runs so far and any "
+      "hold. Raising a budget above the runs that held the bot releases it; release does that without a change.",
+      {"bot": _s("Bot slug"), "hour": BUDGET_VALUE, "day": BUDGET_VALUE,
+       "release": {"type": "boolean", "description": "Release the bot from a hold (failed runs or run budget) instead"}},
+      ("bot",), writes=True)
+def bot_budget(api, args):
+    who = _as_person(api)
+    path = f"bots/{args['bot']}/budget"
+    if args.get("release") or args.get("action") == "release":
+        return who.post(f"bots/{args['bot']}/release", {}, key=_key(args))
+    body = {}
+    for field, name in (("turns_per_hour", "hour"), ("turns_per_day", "day")):
+        if name in args:
+            body[field] = None if args[name] in (None, "default") else int(args[name])
+    current = who.get(path)
+    if not body:
+        return current
+    return who.post(path, {**body, "expected_revision": current["revision"]}, key=_key(args))
+
+
+@tool("hub_bot_release", "Release a bot Tico stopped, as the person who asked you: after five failed runs in a row, or "
+      "for starting too many runs. Check its last runs first. Its queued work, kept while it was held, starts again.",
+      {"bot": _s("Bot slug")}, ("bot",), writes=True)
+def bot_release(api, args):
+    return _as_person(api).post(f"bots/{args['bot']}/release", {}, key=_key(args))
+
+
+@tool("hub_team_budget", "Read or set the team's default runs per hour and per day for bots with no budget of their own "
+      "(owner and admins). 0 is no limit.",
+      {"hour": BUDGET_VALUE, "day": BUDGET_VALUE}, (), writes=True)
+def team_budget(api, args):
+    body = {field: int(args[name]) for field, name in (("turns_per_hour", "hour"), ("turns_per_day", "day"))
+            if name in args and args[name] != "default"}
+    return api.post("settings/turn-budgets", body, key=_key(args)) if body else api.get("settings/turn-budgets")
+
+
 @tool("hub_bot_model", "Show the models a bot may run on, or change its model, as the person who asked you. A change waits for a "
       "run in progress to end.",
       {"bot": _s("The bot's slug"), "model": _s("A model id or name from the list; leave out to list them"),
@@ -4097,7 +4139,7 @@ AUDIENCE = {
     "hub_repo_review": ("bot", "botops"),
     "hub_repo_product_create": ("owner", "bot", "botops"),   # a bot needs Create product repositories (server)
     **{name: REQUESTER for name in ("hub_credential_grant", "hub_credential_revoke", "hub_credential_import", "hub_credential_delete")},
-    **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_restore", "hub_agent_pair_show", "hub_agent_pair_approve", "hub_agent_pair_decline", "hub_bot_place", "hub_bot_go_live", "hub_bot_model", "hub_bot_keep_tasks_going", "hub_bot_pause",
+    **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_restore", "hub_agent_pair_show", "hub_agent_pair_approve", "hub_agent_pair_decline", "hub_bot_place", "hub_bot_go_live", "hub_bot_model", "hub_bot_keep_tasks_going", "hub_bot_budget", "hub_bot_release", "hub_bot_pause",
                                     "hub_bot_scope",
                                     "hub_bot_resume", "hub_bot_access", "hub_bot_owners", "hub_human_add", "hub_group_update",
                                     "hub_tool_add", "hub_tool_update", "hub_tool_remove",
