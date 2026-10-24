@@ -10,8 +10,8 @@ from pathlib import Path
 
 from backend import releases
 from backend.tests.test_api import claim, headers, post, ready
-from backend.tests.test_onboarding import (ASSISTANT_AGENT, ASSISTANT_CARD, BOTOPS_CARD, as_person, draft,  # noqa: F401
-                                           environment, machine, signed_in)
+from backend.tests.test_onboarding import (ASSISTANT_AGENT, ASSISTANT_CARD, BOTOPS_CARD, as_person, build_team,  # noqa: F401
+                                           draft, environment, machine, signed_in)
 
 CATALOG = Path(__file__).resolve().parents[2] / "templates" / "catalog"
 
@@ -33,7 +33,7 @@ def test_a_starter_is_created_onboarding_and_leaves_it_only_when_a_person_above_
                 "support": {"template": "support", "display_name": "Help desk", "instructions": "",
                             "reports_to": "chief-of-staff"}}
     assert draft(api, selected=selected).status_code == 200
-    record = api.post("/api/v2/onboarding/complete", json={}, headers=who).json()
+    record = build_team(api)          # what picking a candidate for each seat makes (bot-lifecycle-spec.md)
     rows = {row["slug"]: row for row in record["bots"]}
     assert rows["support"]["onboarding_state"] == rows["chief-of-staff"]["onboarding_state"] == "needs_setup"
     assert rows["botops"]["onboarding_state"] == rows["coo"]["onboarding_state"] == ""          # built in: they work at once
@@ -123,7 +123,7 @@ def test_finishing_setup_with_defaults_turns_the_first_routine_on_as_starting_it
     machine(api)
     selected = {"support": {"template": "support", "display_name": "Help desk", "instructions": ""}}
     assert draft(api, selected=selected).status_code == 200
-    api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
+    build_team(api)
 
     def enabled():
         with api.app.state.store.read() as c:
@@ -142,7 +142,7 @@ def test_go_live_turns_the_first_routine_on_once_and_a_strangers_message_does_no
     machine(api)
     selected = {"support": {"template": "support", "display_name": "Help desk", "instructions": ""}}
     assert draft(api, selected=selected).status_code == 200
-    api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
+    build_team(api)
 
     def enabled():
         with api.app.state.store.read() as c:

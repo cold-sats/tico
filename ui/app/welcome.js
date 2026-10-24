@@ -206,21 +206,47 @@ function onbSampleHTML(state, done) {
 const onbImportPending = fields => (fields || []).map(field => ({goals: 'goals', tool_connections: 'tool connections',
   first_jobs: 'first jobs', model_choices: 'model choices', routines: 'routines',
   open_seats: 'open seats', coworkers: 'coworkers'}[field] || field)).join(', ');
+// The company file chosen at install that could not be imported (backend/company_import.py `start`): said in words,
+// on every step, until an import works. No sample team took its place.
+function onbImportFailedHTML(state) {
+  const failed = state.record.company_import_failed;
+  return failed ? `<section class="card onb-import-failed" id="onb-import-failed" role="alert"><h2>Your chosen org chart wasn't imported</h2>
+    <p>${esc(failed.reason || '')}</p><p class="muted">No sample team was set up in its place.${state.record.completed
+      ? ' This company is already set up, so the file can\'t replace its team.'
+      : ' Import the company file again below, or pick your team here.'}</p>
+    <button class="ghost" type="button" id="onb-import-failed-dismiss">Dismiss</button></section>` : '';
+}
+// Dismiss is the way out when the owner won't fix the file by importing it (Health links here for it).
+async function onbDismissImportFailure(state, button) {
+  button.disabled = true;
+  try {
+    const record = await post('/v2/setup/company/import-failure/dismiss', {});
+    if (ONB !== state) return;
+    state.record.company_import_failed = record.company_import_failed;
+    onbRender(state);
+  } catch (error) {
+    button.disabled = false;
+    toast(error.message, true);
+  }
+}
 function onbCompanyFileHTML(state, done) {
   if (done) {
-    const imported = state.record.company_import;
-    return imported ? `<section class="card"><p>Your selected starter team was imported.</p>${imported.deferred?.length
-      ? `<p class="muted">Saved for later setup: ${esc(onbImportPending(imported.deferred))}.</p>` : ''}</section>` : '';
+    const imported = state.record.company_import, seats = imported?.seats || 0;
+    return onbImportFailedHTML(state) + (imported ? `<section class="card"><p>Your chosen org chart is laid out${seats
+      ? `: ${seats} ${seats === 1 ? 'role' : 'roles'} marked Recruiting, each waiting for a bot` : ''}.</p>${imported.deferred?.length
+      ? `<p class="muted">Saved for later setup: ${esc(onbImportPending(imported.deferred))}.</p>` : ''}${(imported.people || []).some(p => !p.invited_at)
+      ? '<p class="muted">Invite the people it names from <a href="#/settings/people">Settings › Humans</a>.</p>' : ''}</section>` : '');
   }
-  if (state.step !== 0 || state.record.completed) return '';
+  if (state.step !== 0 || state.record.completed) return onbImportFailedHTML(state);
   const preview = state.companyImport?.preview;
-  return `<section class="onb-sample" id="onb-company-file-box"><p><strong>Already chose your team?</strong>
+  return `${onbImportFailedHTML(state)}<section class="onb-sample" id="onb-company-file-box"><p><strong>Already chose your team?</strong>
     Import the company YAML you downloaded from Tico setup.</p>
     <label class="onb-field"><span class="k">Company YAML file</span><input type="file" id="onb-company-file" accept=".yaml,.yml"></label>
     <p id="onb-company-file-status" role="status">${esc(state.companyImportError || '')}</p>
     ${preview ? `<h3>${esc(preview.company_name)}</h3><ul>${preview.employees.map(bot =>
-      `<li>${esc(bot.title)}${bot.start === 'later' ? ' — starts paused' : ''}</li>`).join('')}</ul>
-      <p class="muted">Tico includes its required built-in roles once.</p>
+      `<li>${esc(bot.title)} — works from day one</li>`).join('')}${(preview.seats || []).map(seat =>
+      `<li>${esc(seat.title)} — <span class="pill waiting">Recruiting</span></li>`).join('')}</ul>
+      <p class="muted">Tico's built-in bots work from day one. Every other role is a Recruiting seat until you pick a bot for it.</p>
       ${preview.deferred.length ? `<p>These choices are saved for later setup: ${esc(onbImportPending(preview.deferred))}.</p>` : ''}
       <button class="primary" type="button" id="onb-company-file-use">Use this team</button>` : ''}</section>`;
 }
@@ -426,6 +452,8 @@ function onbWire(state, key) {
   if (companyFile) companyFile.onchange = () => void onbReadCompanyFile(state, companyFile.files?.[0]);
   const useCompanyFile = $('#onb-company-file-use');
   if (useCompanyFile) useCompanyFile.onclick = () => void onbUseCompanyFile(state);
+  const dismissFailure = $('#onb-import-failed-dismiss');
+  if (dismissFailure) dismissFailure.onclick = () => void onbDismissImportFailure(state, dismissFailure);
   const tasks = $('#onb-tasks');
   if (tasks) tasks.onclick = () => { location.hash = TASKS; };
   const connect = $('#onb-connect');

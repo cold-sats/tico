@@ -36,7 +36,14 @@ const orgBranchMark = e => (e.shared_from || e.is_branch) ? '<span class="org-br
 // A team made from the catalog has several "Head of …" bots, and a narrow row cut each one to "Head of …". The first
 // words a bot's name shares with another bot's on the chart are muted, and drop out whole when the row is too narrow
 // for all of it (ui/styles/sidebar.css), so the part that tells them apart stays; the row's tooltip has the whole name.
+let ORG_LEADS = {key: null, lead: null};           // the last answer, by its names: the tree redraws often
 function orgNameLeads(names) {
+  const key = JSON.stringify([...names]);
+  if (ORG_LEADS.key === key) return ORG_LEADS.lead;
+  ORG_LEADS = {key, lead: orgNameLeadsOf(names)};
+  return ORG_LEADS.lead;
+}
+function orgNameLeadsOf(names) {
   const words = name => String(name).match(/\S+\s*/g) || [];
   const lead = new Map();
   for (const name of names) {
@@ -87,10 +94,11 @@ function orgGroupUnderCeo(id) {
 // group of a Head it puts under the CEO Bot there too (`org_parent`, backend/ceo_bot.py), when the CEO Bot is on the chart.
 const orgGroupParent = (g, keys) => g.parent && keys.has('g:' + g.parent) ? 'g:' + g.parent
   : g.org_parent === 'b:goal-manager' && keys.has('b:goal-manager') ? 'b:goal-manager' : '';
-function orgGroupOf(people, bots) {
+function orgGroupOf(people, bots, seats = []) {
   const groups = orgGroupIds(), out = {};
   for (const p of people) if (groups.has(p.team)) out['p:' + p.id] = p.team;
   for (const e of bots) if (groups.has(e.team) && !isHelperBot(e)) out['b:' + e.name] = e.team;
+  for (const seat of seats) if (groups.has(seat.team)) out['s:' + seat.id] = seat.team;
   return out;
 }
 function orgTreeByParent() {
@@ -101,7 +109,8 @@ function orgTreeByParent() {
   // Built-in and message bots sit apart, as on Goals; a bot that reports to one hangs where it would have.
   const bots = (S.emps || []).filter(e => orgBranchVisible(e) && orgMineKeep(e));
   const empIds = new Set(bots.map(e => e.name));
-  const groupOf = orgGroupOf(people, bots);
+  const seats = S.seats || [];
+  const groupOf = orgGroupOf(people, bots, seats);
   const keys = new Set([...[...groups].map(id => 'g:' + id), ...bots.map(e => 'b:' + e.name)]);
   for (const g of (S.orgGroups || [])) {
     (byParent[orgGroupParent(g, keys)] ||= []).push({kind: 'group', id: g.id, name: g.name, order: g.order || 0});
@@ -117,12 +126,20 @@ function orgTreeByParent() {
     }
     (byParent[orgHang('b:' + e.name, boss, groupOf)] ||= []).push({kind: 'bot', ...e});
   }
-  // Recruiting seats hang where a bot in that place would: under the person or bot they report to, in their group.
-  for (const seat of S.seats || []) {
-    const to = String(seat.reports_to || ''), key = 's:' + seat.id;
-    const boss = to.startsWith('human:') ? 'p:' + to.slice(6) : empIds.has(to) ? 'b:' + to : '';
-    const group = groups.has(seat.team) ? {...groupOf, [key]: seat.team} : groupOf;
-    (byParent[orgHang(key, boss, group)] ||= []).push({kind: 'seat', id: seat.id, display_name: seat.title, seat});
+  // Recruiting seats (backend/lifecycle.py): a role with no bot yet, where a bot in that place would hang, or under the
+  // seat it reports to. Under a bot this view leaves out, it hangs from the next thing up that is left; with nothing
+  // left above it (say "Only bots I can read" on), it is not shown.
+  const seatIds = new Set(seats.map(seat => seat.id)), personIds = new Set(people.map(p => p.id));
+  for (const seat of seats) {
+    const to = String(seat.reports_to || '');
+    let boss = seat.org_parent || (to.startsWith('seat:') ? 's:' + to.slice(5)
+      : to.startsWith('human:') ? 'p:' + to.slice(6) : empIds.has(to) ? 'b:' + to : '');
+    for (let hops = 0; boss.startsWith('b:') && !empIds.has(boss.slice(2)) && hops < 20; hops++)
+      boss = orgBossKey({kind: 'bot', ...((S.emps || []).find(e => e.name === boss.slice(2)) || {})});
+    if (boss.startsWith('b:') && !empIds.has(boss.slice(2))) continue;
+    if (boss.startsWith('s:') && !seatIds.has(boss.slice(2))) continue;
+    if (boss.startsWith('p:') && !personIds.has(boss.slice(2))) continue;
+    (byParent[orgHang('s:' + seat.id, boss, groupOf)] ||= []).push({kind: 'seat', ...seat, seat});
   }
   return byParent;
 }
@@ -264,6 +281,7 @@ function saveCollapsed() {
 function setPeople(data) {
   if (!data) return;
   if (Array.isArray(data.people)) S.people = data.people;
+  if (Array.isArray(data.seats)) S.seats = data.seats;
   if (data.org_groups) S.orgGroups = data.org_groups;
 }
 // Rearranging the org chart: drag a person or a bot onto another person or bot. The owner may
@@ -578,9 +596,9 @@ function orgSorted(parent, kids) {
     // A group's own humans and bots come first, then the groups nested in it.
     if ((a.kind === 'group') !== (b.kind === 'group')) return a.kind === 'group' ? 1 : -1;
     if (a.kind === 'group' && b.kind === 'group') return (a.order || 0) - (b.order || 0);
-    // Seats being recruited follow a manager's humans and bots, oldest first.
+    // Recruiting seats follow the people and bots there; use chart order when present, then title.
     if ((a.kind === 'seat') !== (b.kind === 'seat')) return a.kind === 'seat' ? 1 : -1;
-    if (a.kind === 'seat') return String(a.seat.created).localeCompare(String(b.seat.created)) || a.id.localeCompare(b.id);
+    if (a.kind === 'seat') return chartNameKey(a.title).localeCompare(chartNameKey(b.title)) || String(a.id).localeCompare(String(b.id));
     if (placed(a, b)) return placed(a, b);               // a manager's reports in the order someone put them
     if (a.kind === 'bot' && b.kind === 'bot' && isHelperBot(a) && isHelperBot(b) && helperRank(a) !== helperRank(b)) return helperRank(a) - helperRank(b);
     return chartFallback(a, b);                          // then the chart's own order, as on the server
@@ -607,12 +625,16 @@ function renderTree() {
   const myId = mePerson()?.id;
   const curBot = S.route.startsWith('#/bot/') ? S.route.slice(6).split('/')[0] : null;
   const curPerson = S.route.startsWith('#/person/') ? decodeURIComponent(S.route.slice(9).split('/')[0]) : null;
+  let needCounts;                                   // counted once per render, on first use
+  const needN = slug => (needCounts ||= needsMeCounts()).get('bot:' + slug) || 0;
   // only "needs you" surfaces through a collapsed parent; running is not something to chase
   const subtreeNeeds = key => (byParent[key] || []).some(c =>
-    (c.kind === 'bot' && (stateOf(c.name) === 'needs' || needsMeCount(c.name) || subtreeNeeds('b:' + c.name))) ||
+    (c.kind === 'bot' && (stateOf(c.name) === 'needs' || needN(c.name) || subtreeNeeds('b:' + c.name))) ||
     (c.kind === 'person' && subtreeNeeds('p:' + c.id)) ||
+    (c.kind === 'seat' && subtreeNeeds('s:' + c.id)) ||
     (c.kind === 'group' && subtreeNeeds('g:' + c.id)));
-  const nameOf = n => n.kind === 'person' ? (n.person.name || n.id) : (n.display_name || '').replace(TEMP_RE, '');
+  const nameOf = n => n.kind === 'person' ? (n.person.name || n.id) : n.kind === 'seat' ? n.title || ''
+    : (n.display_name || '').replace(TEMP_RE, '');
   const leads = orgNameLeads(new Set(Object.values(byParent).flat().filter(n => n.kind === 'bot').map(nameOf).filter(Boolean)));
   const sources = {};
   for (const r of inboxNavRows()) (sources[r.bot] ||= []).push(r);
@@ -655,10 +677,15 @@ function renderTree() {
         <ul ${isCol ? 'hidden' : ''}>${adding ? `<li class="org-new">${orgGroupFieldHTML()}</li>` : ''}${rec(key, depth + 1)}</ul></li>`;
     }
     if (node.kind === 'seat') {
-      // A role with no bot yet: opening it shows its job description and Recruit (ui/app/recruit.js).
-      return `<li><div class="noderow"><a class="node seat" href="#" data-seat-open="${esc(node.id)}" title="${esc(node.display_name)}: Recruiting">
-        <span class="seat-avatar nav-icon" style="--size:${depth ? 16 : 20}px" aria-hidden="true">person_search</span><span class="nm">${esc(node.display_name)}</span>
-        <span class="tree-recruiting">Recruiting</span></a></div></li>`;
+      // A role still being recruited: its title, marked Recruiting, with the job description on hover. Not a drop
+      // target or dragged here (data-seat, not data-org): it is opened and moved from its own page.
+      const key = 's:' + node.id, kids = !flat && byParent[key], isCol = kids && collapsed.has(key);
+      const tip = node.title + ' (Recruiting)' + (node.description ? '\n\n' + node.description : '');
+      return `<li class="${kids ? 'dept' : ''}"><div class="noderow">
+        ${kids ? `<button class="chev ${isCol ? 'col' : ''}" data-toggle="${esc(key)}" aria-label="${isCol ? 'Expand' : 'Collapse'} ${esc(node.title)}">›</button>` : ''}
+        <a class="node seat" href="#" data-seat="${esc(node.id)}" data-seat-open="${esc(node.id)}" title="${esc(tip)}">
+          <span class="nav-icon seat-icon" aria-hidden="true">person_search</span><span class="nm">${esc(node.title)}</span><span class="pill waiting seat-pill">Recruiting</span></a></div>
+        ${kids ? `<ul ${isCol ? 'hidden' : ''}>${rec(key, depth + 1)}</ul>` : ''}</li>`;
     }
     if (node.kind === 'person') {
       const p = node.person, key = 'p:' + p.id, kids = !flat && byParent[key], isCol = kids && collapsed.has(key);
@@ -672,7 +699,7 @@ function renderTree() {
         ${mailPersonVisible(p) ? `<a class="person-mail-link${S.route.startsWith(MESSAGING) && messagingParams().bot === p.inbox_bot ? ' cur' : ''}" href="${MESSAGING}?bot=${encodeURIComponent(p.inbox_bot)}&source=${encodeURIComponent('email:' + p.email)}" title="${esc(p.name || p.id)} has a message bot" aria-label="Open ${esc(p.name || p.id)}'s message bot">forum</a>` : ''}</div>
         ${kids ? `<ul ${isCol ? 'hidden' : ''}>${rec(key, depth + 1)}</ul>` : ''}</li>`;
     }
-    const e = node, key = 'b:' + e.name, st = stateOf(e.name), n = needsMeCount(e.name), kids = !flat && byParent[key], isCol = kids && collapsed.has(key);
+    const e = node, key = 'b:' + e.name, st = stateOf(e.name), n = needN(e.name), kids = !flat && byParent[key], isCol = kids && collapsed.has(key);
     const helper = isHelperBot(e);                 // not on the chart: nothing is dragged onto or out of it
     const own = !flat && sources[e.name];
     if (own) INBOX_PLACED.add(e.name);

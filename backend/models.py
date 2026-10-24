@@ -44,6 +44,17 @@ class Contract(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
+class TurnLevels(Contract):
+    warning_per_person: Annotated[int, Field(strict=True, ge=1, le=10000)] = 40
+    stop_per_person: Annotated[int, Field(strict=True, ge=1, le=10000)] = 100
+
+    @model_validator(mode='after')
+    def ordered(self):
+        if self.warning_per_person > self.stop_per_person:
+            raise ValueError('The warning level must not exceed the stop level')
+        return self
+
+
 class ConversationCreate(Contract):
     participants: list[ID] = Field(min_length=1, max_length=20)
     kind: Literal["chat", "ask", "notice"] = "chat"
@@ -1429,7 +1440,7 @@ class SeatCreate(Contract):
     """A Recruiting seat: a role on the org chart with its job description and reporting line, and no bot."""
     title: Annotated[str, Field(min_length=1, max_length=120)]
     description: Annotated[str, Field(max_length=8000)] = ""
-    reports_to: Annotated[str, Field(max_length=200)] = ""     # `human:<id>` or a bot's slug; the caller by default
+    reports_to: Annotated[str, Field(max_length=200)] = ""     # `human:<id>`, a bot's slug or `seat:<id>`; the caller by default
     team: Annotated[str, Field(max_length=100)] = ""
 
 
@@ -1751,6 +1762,22 @@ class CeoBotMerge(Contract):
     tasks: list[str] = Field(min_length=2, max_length=10)
 
 
+# One change in a decision the CEO Bot makes alone at level 3 (backend/ceo_acts.py).
+class CeoBotChange(Contract):
+    do: Literal["create", "reorder", "reassign", "close"]
+    task_id: str | None = Field(default=None, max_length=100)
+    owner: str | None = Field(default=None, max_length=200)
+    title: str | None = Field(default=None, max_length=300)
+    body: str | None = Field(default=None, max_length=8000)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class CeoBotDecision(Contract):
+    reason: str = Field(min_length=1, max_length=1000)
+    goal_id: str | None = Field(default=None, max_length=100)
+    changes: list[CeoBotChange] = Field(min_length=1, max_length=10)
+
+
 class UsageCountNotice(Contract):
     state: Literal["shown", "dismissed"]
 
@@ -1893,6 +1920,12 @@ class OnboardingCompanyFile(Contract):
 
 class OnboardingCompanyImport(OnboardingCompanyFile):
     fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class OnboardingInvite(Contract):
+    """The email for a person the company file from setup names; Invite adds them and sends the invite. Empty once
+    they are on the roster: Invite then sends to the address they were added with."""
+    email: str = Field(default="", max_length=320)
 
 
 class Recruit(Contract):

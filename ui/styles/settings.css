@@ -415,6 +415,11 @@ tr:hover .sb-task-mark,.sb-task-mark:focus-visible,.sb-task-mark[aria-expanded=t
 .settings-team-icon>span{display:grid;place-items:center;background:var(--surface)}
 .settings-team-icon>[hidden]{display:none}
 .settings-team-icon button{margin-top:10px}
+.settings-company{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;margin:12px 0}
+.settings-company dt{color:var(--muted)}
+.settings-company dd{margin:0}
+.settings-company-form{display:flex;flex-wrap:wrap;align-items:end;gap:10px;margin-top:12px}
+.settings-company-form>div,.settings-company-form>p{flex-basis:100%}
 .owner-picker{width:min(520px,92vw);padding:0;border:0;background:var(--surface);color:var(--ink)}
 .owner-picker-body{padding:18px}
 /* A bot's tab settings (ui/app/bot-tasks.js botTaskTabsSettings): each tab a name, then its filter. */
@@ -642,6 +647,11 @@ fieldset.brepo>.repo-name+p{margin:-4px 0 4px 24px;font-size:var(--t-xs);line-he
 .ceo-level[aria-checked="true"]{border-color:var(--accent)}
 .ceo-confirm{padding:10px 12px;border:1px solid var(--accent);border-radius:8px;margin-bottom:8px}
 .ceo-confirm p{margin:0 0 8px}
+.ceo-log{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.ceo-log-entry{padding-bottom:10px;border-bottom:1px solid var(--line)}
+.ceo-log-entry:last-child{border-bottom:0}
+.ceo-log-entry .row{gap:8px;flex-wrap:wrap;align-items:baseline}
+.ceo-log-entry ul{margin:6px 0 0;padding-left:18px}
 /* Settings > Routines, the flat list of Tico's own routines (ui/app/settings-recurring.js) */
 .sysr-list{display:grid}
 .settings-bots-filters .settings-filter-search.sysr-search{width:min(100%,420px);flex:0 1 420px;max-width:100%}

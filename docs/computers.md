@@ -231,7 +231,12 @@ token refresh and session saves work. This includes its credentials, `config.tom
 bots using the computer login share that whole folder, including an existing personal Grok login there.
 Use a dedicated team login on that Computer. The runner repairs ownership in place at startup, sign-in,
 and before starting or resuming a Grok thread; it does not copy login files between bot homes or change
-file modes. A named profile uses its own runtime home; a shared-operator profile uses the computer home.
+file modes. A very large CLI folder is handed over shallowest first: if one pass (20,000 entries or 2 seconds)
+cannot finish it, the runner log says so and the rest continues in the background; if that still cannot finish,
+the next handover of the folder retries it. The same applies to the other harness login folders, Muse Code and
+Gemini homes, and subscription profile homes. Grok's sign-in status check follows no link a bot could have made
+anywhere in the auth file's path. A named profile uses its own runtime home; a shared-operator profile uses the
+computer home.
 Custom auth-folder overrides never select a folder for this ownership repair.
 
 A new computer whose team signs in with a plan needs its own sign-in: a plan login cannot be copied between computers.

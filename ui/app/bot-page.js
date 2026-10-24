@@ -238,9 +238,9 @@ function botLimitHTML(slug) {
 function botAlertDraw() {
   if (!BOT) return;
   const alert = $('#bot-alert'), limit = $('#bot-limit-host'), held = $('#bot-quarantine-host');
-  if (alert) alert.innerHTML = botAlertHTML(BOT.slug);
-  if (held) held.innerHTML = botQuarantineCard(BOT.slug);
-  if (limit) limit.innerHTML = botLimitHTML(BOT.slug);
+  if (alert) patchLiveHTML(alert, botAlertHTML(BOT.slug));
+  if (held) patchLiveHTML(held, botQuarantineCard(BOT.slug));
+  if (limit) patchLiveHTML(limit, botLimitHTML(BOT.slug));
 }
 // Files dragged over any part of a bot's chat attach to its composer, which lights up to say so
 // (#524, after bot-desk). A file dropped anywhere else on the page is swallowed: the browser's own
@@ -358,6 +358,8 @@ async function pageBot(slug, tab) {
     </div>
     <div id="pane-more" role="tabpanel" aria-labelledby="bot-tab-info" hidden>
     <div class="bot-more-top" id="bot-more-top"></div>
+    ${slug === GM && ceoBotLogShown() ? `<section class="card" id="ceo-bot-log-card"><header><h2>${esc(ceoBotName())} log</h2></header>
+      <div id="ceo-bot-log"><div class="empty">Loading…</div></div></section>` : ''}
     ${limited ? `    <section class="card"><header><h2>About</h2></header>
       <dl class="bot-setup">
         ${role ? `<dt>Role</dt><dd>${botRoleHTML(role)}</dd>` : ''}
@@ -635,6 +637,7 @@ function showBotTab(tab) {
     botLatestSeen();
   }
   if (view === 'info') once('toolslist', slug => window.botTools?.mountList($('#bot-tools'), {slug, get, esc}));
+  if (view === 'info' && BOT.slug === GM && ceoBotLogShown()) once('ceo-log', () => renderCeoBotLog($('#ceo-bot-log')));
   if (!BOT.limited) {
     if (view === 'history') {
       if (isKeeper(BOT.slug)) once('history', v2HistoryLoad);

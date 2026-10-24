@@ -207,8 +207,9 @@ review receipt at that commit (an approval of an earlier head counts only when t
 and every commit that landed without a pull request. With no `--previous`, it takes the newest release tag that doesn't
 already contain the candidate, and refuses to check an empty range. `receipts.json` lists the heads
 the tickets' reviewers approved (`[{"pr": 639, "head": "<sha>", "source": "<ticket>"}]`); the script's docstring has
-the format. It exits 1 with findings: settle each one (an intended revert, or a review of the final head) before the
-candidate goes on.
+the format. It exits 1 with findings: settle each one before the candidate goes on, with a review of the final head
+or, for an intended revert, a receipt naming the pull request and the change it undoes
+(`{"pr": 640, "reverts": "<sha>", "source": "<ticket>"}`).
 
 ```
 python scripts/release_checks.py --release                     # this checkout is the candidate (v9.9.9)

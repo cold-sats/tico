@@ -158,3 +158,47 @@ def test_an_onboarding_bot_leaves_no_note_answer_or_word_on_a_task_kept_from_bef
     with api.app.state.store.read() as c:
         assert c.execute("SELECT count(*) FROM messages WHERE from_actor='bot:ops'").fetchone()[0] == before
 
+
+
+def test_a_seat_may_report_to_an_open_seat_and_hangs_under_it_until_that_seat_closes(api):
+    """A chosen chart lays out roles under roles (bot-lifecycle-spec.md acceptance test 1): a seat reports to
+    `seat:<id>`, never in a circle, and who may place it is decided by the person or bot at the top of its branch."""
+    lead = post(api, "seats", {"title": "Head of Support", "reports_to": "coo"})
+    agent = post(api, "seats", {"title": "Support agent", "reports_to": "seat:" + lead["id"]})
+    assert agent["reports_to"] == "seat:" + lead["id"]
+    shown = {s["id"]: s for s in get(api, "org")["seats"]}
+    assert shown[agent["id"]]["org_parent"] == "s:" + lead["id"] and shown[lead["id"]]["org_parent"] == "b:coo"
+    people = {s["id"]: s for s in api.get("/api/people", headers=headers()).json()["seats"]}   # the sidebar's team chart reads these
+    assert people[agent["id"]]["org_parent"] == "s:" + lead["id"] and people[agent["id"]]["stage"] == "recruiting"
+
+    circle = api.patch(f"/api/v2/seats/{lead['id']}", json={"reports_to": "seat:" + agent["id"]}, headers=headers())
+    assert circle.status_code == 422 and circle.json()["error"]["code"] == "hierarchy", circle.text
+    assert api.patch(f"/api/v2/seats/{lead['id']}", json={"reports_to": "seat:nope"}, headers=headers()).status_code == 404
+
+    # Cara is not above the COO, so not above a seat under the COO's seat either.
+    as_member(api, "ben@acme.example")
+    post(api, "seats", {"title": "Night shift", "reports_to": "seat:" + agent["id"]}, token="cara-test", expected=403)
+
+    # A closed seat's reports hang where it did.
+    post(api, f"seats/{lead['id']}/close", {})
+    assert {s["id"]: s for s in get(api, "org")["seats"]}[agent["id"]]["org_parent"] == "b:coo"
+    # The sidebar refreshes its seats from GET /api/v2/seats (ui/app/refresh.js): those rows hang the same way.
+    listed = {s["id"]: s["org_parent"] for s in get(api, "seats")["seats"]}
+    people = {s["id"]: s["org_parent"] for s in api.get("/api/people", headers=headers()).json()["seats"]}
+    assert listed == people and listed[agent["id"]] == "b:coo"
+
+    # A line through a closed seat still counts: B <- A (closed) <- C, so B cannot move under C.
+    b = post(api, "seats", {"title": "B", "reports_to": "coo"})
+    a = post(api, "seats", {"title": "A", "reports_to": "seat:" + b["id"]})
+    c_seat = post(api, "seats", {"title": "C", "reports_to": "seat:" + a["id"]})
+    post(api, f"seats/{a['id']}/close", {})
+    circle = api.patch(f"/api/v2/seats/{b['id']}", json={"reports_to": "seat:" + c_seat["id"]}, headers=headers())
+    assert circle.status_code == 422 and circle.json()["error"]["code"] == "hierarchy", circle.text
+    assert {s["id"]: s for s in get(api, "org")["seats"]}[b["id"]]["reports_to"] == "coo"
+    d = post(api, "seats", {"title": "D", "reports_to": "coo"})
+    moved = api.patch(f"/api/v2/seats/{d['id']}", json={"reports_to": "seat:" + c_seat["id"]}, headers=headers())
+    assert moved.status_code == 200, moved.text
+    # A circle stored before this check answers to nobody: placing under it ends, and only the owner may.
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE seats SET reports_to=? WHERE id=?", ("seat:" + c_seat["id"], b["id"]))
+    post(api, "seats", {"title": "E", "reports_to": "seat:" + d["id"]}, token="cara-test", expected=403)
