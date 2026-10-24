@@ -212,13 +212,11 @@ const row = (page, key) => page.locator(`[data-system-routine="${key}"]`);
       assert.equal(await page.locator('.task-rule-dialog select[name=department]').inputValue(), 'engineering');
       assert.deepEqual(await page.locator('.task-rule-dialog select[name=department] option').evaluateAll(es => es.map(e => e.value)), ['', 'engineering', 'marketing']);
       await page.locator('.task-rule-dialog input[name=ruleName]').fill('Close exports');
-      fs.mkdirSync('build/dev356', {recursive: true});
       for (const dark of [false, true]) {
         await page.evaluate(d => document.documentElement.dataset.theme = d ? 'dark' : 'light', dark);
         for (const width of [1440, 390]) {
           await page.setViewportSize({width, height: 900});
           assert.equal(await page.locator('.task-rule-dialog').evaluate(el => el.scrollWidth <= el.clientWidth + 1), true);
-          await page.screenshot({path: `build/dev356/rule-${width}-${dark ? 'dark' : 'light'}.png`});
         }
       }
       await page.locator('.task-rule-dialog button[type=submit]').click();
