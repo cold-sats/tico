@@ -10,7 +10,7 @@ from datetime import timezone
 
 from clients import gateway, sessions
 
-from . import auto_tasks, start_places, app_delivery, check_models, learned, rooms, gateway_connection, inbox_isolation, login_holds, models_preset, providers, quiet_work, routines, run_triggers, runner_versions, screen, task_models, usage_limits, wake_presets, wake_rules
+from . import auto_tasks, start_places, app_delivery, check_models, learned, rooms, updates_chat, gateway_connection, inbox_isolation, login_holds, models_preset, providers, quiet_work, routines, run_triggers, runner_versions, screen, task_models, usage_limits, wake_presets, wake_rules
 from . import task_privacy as privacy
 from .auth import Identity
 from .batch_work import isolated
@@ -2232,6 +2232,9 @@ class Execution:
                             # What the person's chat bot has learned, read now: a deleted entry is gone from this turn
                             # (backend/learned.py; rendered by runner-rs/src/prompt.rs). None outside their own chat.
                             "learned": learned.for_turn(c, self.store.settings, conv, row["bot"]),
+                            # Asked from the Updates chat: the recent updates that person may read and open, read now as
+                            # them (backend/updates_chat.py). None for every other turn.
+                            "updates": updates_chat.for_turn(c, self.auth, self.store.settings, conv, row["bot"], msg, aid),
                             # The owner's CEO Bot chat is a session of its own (backend/rooms.py).
                             "config": rooms.session_config(conv, row["bot"], config),
                             # Bumped by a session clear or reset (views.py clear_session, app.py reset_bot_sessions):
@@ -2308,8 +2311,8 @@ class Execution:
         is still uncertain and still on this attempt, no review has decided it, and no other
         attempt is running in its lane, and no person pressed Stop on it: a Stop its runner never heard, because the
         computer slept through the lease, still stands over the answer the model went on to finish. A review — a person's or `auto_reconcile`'s — always
-        writes job_recovery and moves the job off `uncertain`, so a decision already taken wins
-        and a late result can never undo one. Elapsed time is what hands a job from the runner to
+        writes job_recovery, so a decision already taken wins even while it waits for an idle lane
+        with the job still `uncertain`, and a late result can never undo one. Elapsed time is what hands a job from the runner to
         the sweep; it is not what makes settling safe, and the longest turns are exactly the ones
         most likely to outlive a lease."""
         return bool(not row["stop_requested"] and self.holds(c, who, row))
@@ -2827,9 +2830,11 @@ class Execution:
                      and (any(gateway.run_code(error) == gateway.NOT_ISOLATED for error in limit_errors(c, aid))
                           or body.primary_held and body.limited and not body.fallback)
                      or row["state"] == "leased" and body.outcome in ("failed", "interrupted") and bool(row["stop_requested"])
-                     or row["state"] == "leased" and skipped)
+                     or row["state"] == "leased" and skipped
+                     or row["state"] == "leased" and body.outcome == "interrupted" and body.yielded)
         # The runner reports a pre-start bailout as interrupted. A failed completion still requires
         # a start or one of the explicit exceptions above; it is not an unused lease being returned.
+        # A planned update yield settles below, without counting as a failed preparation attempt.
         returned = (row["state"] == "leased" and not unstarted and body.outcome == "interrupted"
                     and not row["stop_requested"] and not skipped)
         if not late and row["state"] != "running" and not unstarted and not returned:
@@ -3334,7 +3339,9 @@ class Execution:
         if not self.reviewer(c, who, bot):
             raise Problem("forbidden", "Only this bot's operator can review interrupted work", 403)
         jobs = []
-        for row in c.execute("SELECT * FROM jobs WHERE bot=? AND state='uncertain' ORDER BY created", (bot,)):
+        for row in c.execute("SELECT j.*, r.decision AS pending_decision FROM jobs j "
+                             "LEFT JOIN job_recovery r ON r.job_id=j.id AND r.attempt_id=j.attempt_id "
+                             "WHERE j.bot=? AND j.state='uncertain' ORDER BY j.created", (bot,)):
             message = H.message(c, row['message_id'])
             if (not privacy.message_readable(c, privacy.actor(who), message)
                     or row['attempt_id'] and not privacy.attempt_readable(c, privacy.actor(who), row['attempt_id'])):
@@ -3384,7 +3391,8 @@ class Execution:
                          'output':output if readable else [], 'tools':calls if readable else [], 'reason':reason,
                          # `acted` names tools only, as `reason` always has, so a reader of none of the run's words
                          # still sees why it is held.
-                         'stopped':stopped, 'acted':acted})
+                         'stopped':stopped, 'acted':acted,
+                         'pending_decision': {'decision': row['pending_decision']} if row['pending_decision'] else None})
         return {'jobs':jobs}
 
     def reconcile_job(self, c, who, job_id, body):
@@ -3394,32 +3402,38 @@ class Execution:
         if (not body.acknowledge_uncertain_effects or row['state'] != 'uncertain'
                 or row['attempt_id'] != body.attempt_id):
             raise Problem("uncertain", "This run changed or its external effects have not been reviewed", 409)
-        # Only a run in the job's own lane can race the decision; the bot's other tasks run on.
-        if c.execute("SELECT 1 FROM attempts WHERE bot=? AND state IN ('leased','running') AND lane="
-                     "coalesce((SELECT lane FROM attempts WHERE id=?),'main')", (row['bot'], row['attempt_id'])).fetchone():
-            raise Problem("active_attempt", "Wait for the active run to finish before reconciling", 409)
+        # A deferred choice keeps the job uncertain; state alone cannot fence another open dialog.
+        if c.execute("SELECT 1 FROM job_recovery WHERE job_id=? AND attempt_id=?",
+                     (job_id, body.attempt_id)).fetchone():
+            raise Problem("uncertain", "A choice is already saved for this run. Refresh to see it.", 409)
         note = body.note.strip()
         if len(note) < 20:
             raise Problem("review_note", "Describe completed work and what should happen next", 422)
-        return self._decide(c, row, body.attempt_id, body.decision, note, who.actor)
+        # Save the operator's choice now, but keep the hold until the lane is idle. The recovery record also
+        # fences a late answer from the stopped run while the scheduler waits to apply the choice.
+        busy = c.execute("SELECT 1 FROM attempts WHERE bot=? AND state IN ('leased','running') AND lane="
+                         "coalesce((SELECT lane FROM attempts WHERE id=?),'main')",
+                         (row['bot'], row['attempt_id'])).fetchone()
+        return self._decide(c, row, body.attempt_id, body.decision, note, who.actor, deferred=bool(busy))
 
-    def _decide(self, c, row, attempt_id, decision, note, actor, *, action='job.reconcile', shown=None):
+    def _decide(self, c, row, attempt_id, decision, note, actor, *, action='job.reconcile', shown=None, deferred=False):
         """Record one decision on an uncertain job: resume queues it again, dismiss releases it. `shown` is the
-        line people read when the note itself is written to the bot."""
+        line people read when the note itself is written to the bot. A deferred choice stays held until its lane is idle."""
         job_id = row['id']
-        state = 'queued' if decision == 'resume' else 'cancelled'
+        state = 'uncertain' if deferred else 'queued' if decision == 'resume' else 'cancelled'
         c.execute("INSERT INTO job_recovery VALUES(?,?,?,?,?,?) ON CONFLICT(job_id) DO UPDATE SET "
                   "attempt_id=excluded.attempt_id,decision=excluded.decision,note=excluded.note,"
                   "actor=excluded.actor,created=excluded.created",
                   (job_id,attempt_id,decision,note,actor,H.now()))
-        if decision == 'dismiss':
+        if decision == 'dismiss' and not deferred:
             c.execute("UPDATE messages SET delivered_at=coalesce(delivered_at,?) WHERE id=?", (H.now(),row['message_id']))
         c.execute("UPDATE jobs SET state=? WHERE id=?", (state,job_id))
         H.event(c, actor, action, job_id, {'attempt_id':attempt_id, 'decision':decision, 'note':note,
+                                           **({'deferred': True} if deferred else {}),
                                            **({'shown':shown} if shown else {})})
         if not c.execute("SELECT 1 FROM jobs WHERE bot=? AND state='uncertain'", (row['bot'],)).fetchone():
             settle_status(c, row['bot'], 'idle', 'Stopped run reviewed')
-        return {'job_id':job_id, 'state':state}
+        return {'job_id':job_id, 'state':state, **({'deferred': True} if deferred else {})}
 
     def hold_unrunnable(self, c):
         """Keep one queued notice per conversation for a bot no machine runs.
@@ -3576,17 +3590,35 @@ class Execution:
         """
         cutoff = H.shift(H.now(), seconds=-STALL_MAX)
         decided, limit_said = [], {}
+        task_sql = queued_task_sql()
+        # Judged while the bot works on anything else (an always-busy bot never had a free lane, so its stopped runs and
+        # the work fenced behind them waited forever, Dev 488); it waits only for a live run that may be doing the same
+        # work: one that took this job or folded in its message, one on the same task (a chat with no task: the same
+        # conversation), or one in the same task session (a subtask's turn runs in its session root's lane).
         rows = c.execute("SELECT j.*, a.started, a.finished, a.state AS attempt_state, a.result_json, "
                          "a.stop_requested, a.job_id AS attempt_job, "
+                         "r.decision AS pending_decision, r.note AS review_note, r.actor AS reviewer, "
                          "coalesce(a.finished, j.created) <= ? AS aged "
                          "FROM jobs j LEFT JOIN attempts a ON a.id=j.attempt_id "
-                         "WHERE j.state='uncertain' AND (coalesce(a.finished, j.created) <= ? "
-                         "OR a.state='interrupted') "
-                         "AND NOT EXISTS(SELECT 1 FROM attempts t WHERE t.bot=j.bot AND t.state IN ('leased','running') "
-                         "AND t.lane=coalesce(a.lane,'main')) "
+                         "LEFT JOIN job_recovery r ON r.job_id=j.id AND r.attempt_id=j.attempt_id "
+                         "LEFT JOIN messages m ON m.id=j.message_id LEFT JOIN conversations cv ON cv.id=m.conversation_id "
+                         "WHERE j.state='uncertain' AND j.attempt_id IS NOT NULL "
+                         "AND (coalesce(a.finished, j.created) <= ? "
+                         "OR a.state='interrupted' OR r.job_id IS NOT NULL) "
+                         "AND NOT EXISTS(SELECT 1 FROM attempts t LEFT JOIN turns tt ON tt.id=t.id "
+                         "WHERE t.bot=j.bot AND t.state IN ('leased','running') AND (t.job_id=j.id "
+                         "OR t.id IN (SELECT attempt_id FROM attempt_inputs WHERE message_id=j.message_id) "
+                         f"OR tt.task_id={task_sql} "
+                         f"OR ({task_sql} IS NULL AND EXISTS(SELECT 1 FROM attempt_conversations ac "
+                         "WHERE ac.attempt_id=t.id AND ac.conversation_id=m.conversation_id)) "
+                         f"OR (t.lane=a.lane AND a.lane<>'{sessions.MAIN_LANE}'))) "
                          "ORDER BY j.created", (cutoff, cutoff)).fetchall()
         for row in rows:
             with isolated(c, "auto_reconcile", row["id"]):
+                if row['pending_decision']:
+                    decided.append(self._decide(c, row, row['attempt_id'], row['pending_decision'],
+                                                row['review_note'], row['reviewer']))
+                    continue
                 held = row['attempt_id'] and c.execute("SELECT 1 FROM events WHERE action='job.held' AND target=?",
                                                        (row['attempt_id'],)).fetchone()
                 calls, acted, safe = [], [], False

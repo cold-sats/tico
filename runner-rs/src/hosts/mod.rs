@@ -794,6 +794,14 @@ pub fn bot_key_sign_in(runtime: &str, assignments: &[Value]) -> (&'static str, S
     }
 }
 
+/// Hand a host's default computer-login store to the account that runs its CLI. Profile homes have their own handoff.
+pub fn prepare_login_home(runtime: &str, env: &Env) {
+    match runtime {
+        "grok" => grok::prepare_home(env),
+        _ => {}
+    }
+}
+
 /// Points `env` at the host's own config folder (`own_config_home`), so a login or status check sees the login its
 /// turns use rather than the operator's. False for a host without one.
 pub fn use_own_config_home(runtime: &str, profile: Option<&crate::profiles::Profile>, env: &mut Env) -> bool {

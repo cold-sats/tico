@@ -160,6 +160,34 @@ class Deployer:
         self.ssm.put_parameter(Name=self.param_name, Value=env_text, Type="SecureString", Overwrite=True, **tier)
         self.ssm.add_tags_to_resource(ResourceType="Parameter", ResourceId=self.param_name, Tags=tags(self.p.name))
 
+    def ensure_plan_bucket(self, s3, region: str) -> None:
+        """Configure only setup's dedicated bucket, in the installer's account. Never adopt an unrelated bucket.
+        Every safety setting precedes the first chart upload. Re-running repairs an interrupted configuration.
+        """
+        bucket = self.p.plan_bucket
+        owned = {"Bucket": bucket, "ExpectedBucketOwner": self.account_id}
+        try:
+            s3.head_bucket(**owned)
+        except Exception as exc:
+            code = str(getattr(exc, "response", {}).get("Error", {}).get("Code", ""))
+            if code not in ("404", "NoSuchBucket", "NotFound"):
+                raise
+            location = {} if region == "us-east-1" else {"CreateBucketConfiguration": {"LocationConstraint": region}}
+            # A collision is an error, never permission to reuse someone else's name.
+            s3.create_bucket(Bucket=bucket, **location)
+            s3.put_bucket_tagging(**owned, Tagging={"TagSet": tags(self.p.name)})
+        else:
+            if not is_ours(s3.get_bucket_tagging(**owned).get("TagSet"), self.p.name):
+                raise SystemExit("The starter plan bucket was not created by this setup; refusing to reuse it.")
+        s3.put_public_access_block(**owned, PublicAccessBlockConfiguration={
+            "BlockPublicAcls": True, "IgnorePublicAcls": True, "BlockPublicPolicy": True, "RestrictPublicBuckets": True})
+        s3.put_bucket_ownership_controls(**owned, OwnershipControls={"Rules": [{"ObjectOwnership": "BucketOwnerEnforced"}]})
+        s3.put_bucket_encryption(**owned, ServerSideEncryptionConfiguration={
+            "Rules": [{"ApplyServerSideEncryptionByDefault": {"SSEAlgorithm": "AES256"}}]})
+        s3.put_bucket_lifecycle_configuration(**owned, LifecycleConfiguration={"Rules": [{
+            "ID": "expire-starter-plans", "Status": "Enabled", "Filter": {"Prefix": f"plans/{self.p.name}/"},
+            "Expiration": {"Days": 1}, "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 1}}]})
+
     def put_plan(self, s3, key: str, data: str) -> None:
         """The packed starter plan, for the server to copy once at first boot (remote.bootstrap_script). Plan only:
         the env names the key and its sha256, never the plan."""

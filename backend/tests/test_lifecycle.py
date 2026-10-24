@@ -41,6 +41,21 @@ def test_a_recruiting_seat_holds_no_work_which_stays_with_its_manager(api):
     assert [s["id"] for s in get(api, "seats")["seats"]] == [seat["id"]]
 
 
+def test_seat_batch_checks_each_reporting_line_and_rolls_back_as_a_unit(api):
+    as_member(api, "ben@acme.example")
+    plan = {"seats": [{"title": "My analyst"}, {"title": "Outside seat", "reports_to": "coo"}]}
+    post(api, "seats/batch", plan, token="ben-test", expected=403)
+    assert get(api, "seats")["seats"] == []                         # first row rolled back with the refused second
+
+    own = post(api, "seats/batch", {"seats": [{"title": "My analyst"},
+                                                {"title": "My coordinator", "reports_to": "human:ben"}]},
+               token="ben-test")
+    assert [s["title"] for s in own["seats"]] == ["My analyst", "My coordinator"]
+    assert {s["reports_to"] for s in own["seats"]} == {"human:ben"}
+    anywhere = post(api, "seats/batch", {"seats": [{"title": "Owner analyst", "reports_to": "coo"}]})
+    assert anywhere["seats"][0]["reports_to"] == "coo"
+
+
 def test_an_onboarding_bot_learns_only_and_every_other_attempt_is_refused_plainly(api):
     onboarding(api, "ops")
     as_member(api, "ben@acme.example")

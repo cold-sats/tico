@@ -204,6 +204,13 @@ carries `can_complete_onboarding` and `onboarding_ready`. On an upgrade nothing 
 (`onboarding_state` `needs_setup` or `needs_onboarding`) shows as Onboarding, a `planned` bot without a computer keeps working as
 before, and no Active bot changes stage.
 
+### Re-org suggestions
+
+Ask the CEO Bot to compare the company chart with one of Tico's published starter charts. It uses the bundled public models
+only; its suggestions do not read another company's bots or data. The CEO Bot can propose adding Recruiting seats as one
+confirmation card. No seat is added until the owner confirms, and the server checks the owner's authority when it applies the
+whole change. Members can add seats under themselves or someone below them; only the owner can add seats elsewhere.
+
 ### After Create: one screen
 
 - **Your team is created**: the heading, then the one next step as the only primary button. With no computer yet it says

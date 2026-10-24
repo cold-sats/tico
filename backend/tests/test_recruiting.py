@@ -31,6 +31,19 @@ def draft_tasks(api):
                                            "AND title LIKE 'Draft the job description:%'")]
 
 
+def test_org_model_recommendations_are_only_the_published_starter_catalog(api):
+    models = get(api, "org-models")["models"]
+    software = next(model for model in models if model["model"] == "software")
+    assert software["name"] == "Software company"
+    assert {seat["team"] for seat in software["seats"]} >= {"engineering", "product"}
+    assert any(seat["template"] == "engineering-lead" for seat in software["seats"])
+    assert all(set(model) == {"model", "name", "about", "seats"} for model in models)
+    assert all("bots" not in model and "people" not in model and "tasks" not in model for model in models)
+    from clients import hubtools
+    offered = {tool["name"] for tool in hubtools.listing(kind="assistant")}
+    assert "hub_org_models" in offered and "hub_assistant_propose" in offered
+
+
 def test_the_owner_opening_a_seat_gets_the_ceo_bots_draft_and_a_person_s_words_are_never_drafted_over(api):
     ceo = ceo_bot(api)
     seat = post(api, "seats", {"title": "Support lead", "reports_to": "human:ben"})

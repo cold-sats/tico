@@ -75,7 +75,9 @@ jobs:
               exit 0
             fi
           fi
-          run="$(gh run list -R "$GITHUB_REPOSITORY" --workflow ci.yml --status success --limit 200 --json databaseId,displayTitle \
+          # Only a validation dispatched from main counts: one from another branch runs that branch's edited ci.yml
+          # under the same title, and its binaries and images would skip the frozen-main gate.
+          run="$(gh run list -R "$GITHUB_REPOSITORY" --workflow ci.yml --branch main --event workflow_dispatch --status success --limit 200 --json databaseId,displayTitle \
             | jq -r --arg want "Validate $GITHUB_SHA as $GITHUB_REF_NAME from " 'first(.[] | select(.displayTitle | startswith($want)) | .databaseId) // empty')"
           if [ -z "$run" ]; then
             echo "::error::No successful Release validation of $GITHUB_SHA as $GITHUB_REF_NAME. Validate this exact commit as this version before tagging (docs/releasing.md)."

@@ -90,6 +90,8 @@ impl Runner {
         goal: &mut GoalRun,
     ) -> Result<Drove, Fail> {
         let (aid, host, thread) = (d.aid, d.host, d.thread);
+        self.drain.register(aid);
+        if !self.drain.start(aid) { return Err(Fail::runtime(crate::drain::WAITING)); }
         // A host whose native goal keeps running across turns (`goal_runs_across_turns`): a completed turn is not
         // the end of the run, and a clear it reports is checked against the goal.
         let across_turns = crate::harness_tools::caps(d.runtime, "").goal_runs_across_turns;
@@ -154,6 +156,11 @@ impl Runner {
                 let _ = host.interrupt(thread, &turn).await;
                 return Ok(Drove { outcome: "interrupted".into(), reply: answer(&earlier, &reply), tokens: spent(&earlier_tokens, &tokens), limited: false, capacity: false, retryable: false, turn, yielded: false });
             }
+            if let Some(line) = self.drain.due(aid, Instant::now()) {
+                let _ = self.state.append(aid, "status", &json!({"yielded": line}));
+                let _ = host.interrupt(thread, &turn).await;
+                return Ok(Drove { outcome: "interrupted".into(), reply: answer(&earlier, &reply), tokens: spent(&earlier_tokens, &tokens), limited: false, capacity: false, retryable: false, turn, yielded: true });
+            }
             if yielding.is_some_and(|by| Instant::now() >= by) {
                 // No safe point within the grace: the work so far stays in the worktree and on the task.
                 let _ = host.interrupt(thread, &turn).await;
@@ -191,7 +198,11 @@ impl Runner {
                     // Its `session_id` where the harness names the session apart from the thread (Claude), else the thread.
                     if let Some(f) = d.fresh {
                         let session = Some(text_of(&event["session_id"])).filter(|s| !s.is_empty()).unwrap_or_else(|| thread.to_string());
-                        self.confirm_thread(f, &session).await?;
+                        // A local save error must not discard a completed answer queued behind this event.
+                        // Settlement retries the save outside the cancellable drive and retains completed work.
+                        if self.confirm_thread(f, &session).await.is_err() {
+                            let _ = self.state.append(aid, "diagnostic", &json!({"text": "Session is running; local session state could not be saved. Settlement will retry the save."}));
+                        }
                     }
                     continue;
                 }
@@ -810,21 +821,44 @@ mod tests {
 
     #[tokio::test]
     async fn a_buffered_codex_goal_clear_does_not_query_the_harness_before_the_answer_is_read() {
-        // R1 delta 2: Codex reports `thread/goal/cleared` with no turn id; checking it asks the app server, which can
+        // Codex reports `thread/goal/cleared` with no turn id; checking it asks the app server, which can
         // take two minutes or, with the process gone as here, fail. Neither may cost the answer queued behind it.
         let (url, _) = lapsed_hub().await;
         let (runner, dir) = runner_at(&url);
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        let host = Host::Codex(crate::hosts::codex::CodexHost::on_home(Default::default(), tx.clone(), None));
+        let codex = crate::hosts::codex::CodexHost::on_home(Default::default(), tx.clone(), None);
+        let host = Host::Codex(codex.clone());
         tx.send(json!({"kind": "goal", "thread_id": "th-11", "status": "cleared", "objective": "Finish the Acme renewal summary"})).unwrap();
         for ev in answer_events("th-11", "turn-1") {
             tx.send(ev).unwrap();
         }
-        let (f, began) = (flags(true), Instant::now());
+        let f = flags(true);
         let (drove, _, _) = drive_with(&runner, &host, &mut rx, &f, "th-11", "codex", Some(acme_goal()), BTreeMap::new()).await;
+        assert_eq!(codex.requests_started(), 0, "salvage must read the queued answer without asking the harness");
         let drove = drove.unwrap_or_else(|e| panic!("refused: {}", e.text));
         assert_eq!((drove.outcome.as_str(), drove.reply.as_str()), ("completed", "Acme's renewal summary is ready."));
-        assert!(began.elapsed() < SALVAGE, "{:?}", began.elapsed());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn drain_keeps_a_native_goal_active_for_its_continuation() {
+        let (url, _) = lapsed_hub().await;
+        let (runner, dir) = runner_at(&url);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let host = Host::Claude(ClaudeHost::new("acme", vec![], tx));
+        runner.drain.register("acme-late");
+        assert!(runner.drain.start("acme-late"));
+        runner.drain.begin(Instant::now() - Duration::from_secs(crate::drain::DEFAULT_LIMIT_S));
+        let mut f = flags(false);
+        *f.deadline.get_mut().unwrap() = Instant::now() + Duration::from_secs(60);
+        let original = acme_goal();
+        let (result, _, goal) = drive_with(&runner, &host, &mut rx, &f, "th-drain", "codex", Some(original.clone()), BTreeMap::new()).await;
+        let result = result.unwrap();
+        assert_eq!(result.outcome, "interrupted");
+        assert!(result.yielded);
+        assert_eq!(goal.chat_goal, Some(original));
+        assert!(goal.failure.is_none() && goal.paused.is_none() && !goal.controlled);
+        assert!(!runner.state.pending("acme-late").unwrap().iter().any(|e| e["kind"] == "goal"));
         std::fs::remove_dir_all(dir).ok();
     }
 

@@ -26,8 +26,8 @@ from .views import roster
 
 QUEUE_MINUTES = 15          # work that has waited this long on a computer that is up is stuck
 PERSON_QUEUE_MINUTES = 2    # a person's own message, sooner: someone is sitting there waiting for the reply
-# A Restart a person pressed claims for 20 minutes, then waits up to 14 for its running turns (runner-rs runner.rs
-# RESTART_DRAIN_S + STOP_DRAIN_S): past that it is stuck, and Health Monitor says so.
+# Keep the stuck threshold compatible with older runners' twenty-minute claim window and fourteen-minute stop.
+# New runners hand unstarted work back immediately and cap active turns at five minutes by default.
 RESTART_STUCK_MINUTES = 34
 SILENT_MINUTES = 10         # a computer this quiet while work is queued for it has stopped, not blinked
 NEEDS_YOU_MINUTES = 30      # this quiet, its owner is asked to bring it back
@@ -499,8 +499,8 @@ def _waiting(c, online_ids, settings=None):
     # updates (runner-rs follow.rs blocks_claims): its queued work waits on that, not on a Tico bug.
     updating = {r["runner_id"]: r["update_target"] for r in c.execute(
         "SELECT runner_id,update_target FROM runner_versions WHERE update_state IN ('waiting','updating')")}
-    # A computer a person pressed Restart for claims for a while, then claims nothing until its running turns end and
-    # it restarts (runner-rs runner.rs RESTART_DRAIN_S); it says so in its heartbeat until it has.
+    # A requested Restart holds new work while running turns finish or reach the drain cap; older runners first
+    # keep claiming for a while. Every heartbeat names the restart until it happens.
     restarting = {r["id"] for r in c.execute("SELECT id FROM runners WHERE restart_since IS NOT NULL AND revoked_at IS NULL")}
     documents = {}      # one parse per computer, and only for bots with queued work: Health is polled by every tab
 
@@ -565,7 +565,7 @@ def _waiting(c, online_ids, settings=None):
             if idle:
                 stuck.append({**row, "reason": reason, "runner_id": where[0], "runtime": report.get("runtime") or ""}
                              | ({"target": updating[where[0]], "running": running.get(where[0], 0),
-                                  "turns": held(where[0])} if reason == "updating" else {}))
+                                  "turns": held(where[0]), "drain_progress": runner_versions.drain_progress(c, where[0])} if reason == "updating" else {}))
     return waiting, slow, stuck
 
 
@@ -778,6 +778,8 @@ def updating_words(row, advise=True):
     """Why work waits on a computer that is updating: the update, and the running turns it waits for, by bot, task
     and start. `advise` adds what a turn that only watches something elsewhere should do."""
     to = f" to Tico {row['target']}" if row.get("target") else ""
+    if row.get("drain_progress"):
+        return f"{row['computer']} is holding new work to update{to}: {row['drain_progress']}"
     if row.get("running"):
         held = row.get("turns") or []
         if len(held) == 1:
@@ -1654,6 +1656,8 @@ def view(c, who, settings, auth, github, config):
     stalled = list(c.execute(
         "SELECT id,title,number,owner,updated FROM tasks WHERE owner LIKE 'bot:%' AND status IN ('open','doing') "
         f"AND coalesce(private,1)=0 AND ({auth.task_sql(c, who)}) "
+        # Redundant with the EXISTS; lets SQLite start from the few escalated tasks, not every task.
+        "AND tasks.id IN (SELECT target FROM events WHERE action='task.stall_escalated') "
         "AND EXISTS (SELECT 1 FROM events e WHERE e.action='task.stall_escalated' "
         "AND e.target=tasks.id AND e.ts>=tasks.updated) ORDER BY updated"))
     if stalled:
@@ -1730,7 +1734,9 @@ def view(c, who, settings, auth, github, config):
             "computers": computers if full else _bot_computers(computers) if kind == "bot" else [],
             "waiting": waiting if full else [], "slow": slow if full else [], "stuck": blocked,
             "on_fallback": on_fallback, "limited": limited,
-            "failures": failures if full or kind == "bot" else [], "stalled_runs": stalled_runs, "checked": H.now(),
+            "failures": failures if full or kind == "bot" else [], "stalled_runs": stalled_runs,
+            # To the minute, so an unchanged answer keeps its ETag (backend/json_response.py) between polls.
+            "checked": H.now()[:17] + "00.000000Z",
             # The sidebar's notice reads the same fresh answer, so the two never disagree.
             "update": config.get("update") or {}}
 
@@ -1763,7 +1769,7 @@ def install(app, store, auth, settings):
     from fastapi import Request
 
     from . import models as M
-    from . import onboarding
+    from . import replication
 
     @app.post("/api/v2/health/bot-access/dismiss")
     def dismiss_bot_access(request: Request, body: M.Empty):
@@ -1783,5 +1789,6 @@ def install(app, store, auth, settings):
         if who.role != "bot":
             _person(who)
         github = getattr(request.app.state, "github_app", None)
-        with store.read() as c:
-            return view(c, who, settings, auth, github, onboarding.config_view(c, settings, who))
+        with store.read_transaction() as c:
+            # Health reads only these two parts of the config; building all of it cost a changelog parse per poll.
+            return view(c, who, settings, auth, github, {"update": releases.notice(), "backup": replication.status()})

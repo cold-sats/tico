@@ -5,6 +5,7 @@ import base64
 import json
 import os
 import re
+import secrets
 import shlex
 import shutil
 import socket
@@ -83,9 +84,9 @@ def gather_company_file(args, s):
     if not path and not s.company_file_data:
         return
     from backend.company_file import DraftError, starter
-    # By the plan bucket the plan reaches the server as a file, so only the plan's own size bounds it; in the env it
-    # must stay small (starter.ENV_PACKED).
-    limit = starter.MAX_PACKED if getattr(args, "plan_bucket", None) or s.plan_bucket else starter.ENV_PACKED
+    # Validate the chart before asking for a target. File transports have their own bounds; any remaining
+    # env-only target checks ENV_PACKED once gather() knows which target the person chose.
+    limit = starter.MAX_PACKED
     try:
         if path:
             with Path(path).expanduser().open("rb") as stream:
@@ -130,7 +131,10 @@ def gather(io: IO, args, s: Settings, dry: bool) -> Settings:
         s.aws_permissions_boundary = (getattr(args, "aws_permissions_boundary", None) or s.aws_permissions_boundary or "").strip()
         if s.aws_permissions_boundary and not awsmod.POLICY_ARN_RE.fullmatch(s.aws_permissions_boundary):
             raise MissingInput("--aws-permissions-boundary is an IAM policy ARN (arn:aws:iam::<account>:policy/<name>)")
-        s.plan_bucket = (getattr(args, "plan_bucket", None) or s.plan_bucket or "").strip()
+        given_bucket = getattr(args, "plan_bucket", None)
+        if given_bucket and given_bucket != s.plan_bucket:
+            s.plan_bucket_managed = False
+        s.plan_bucket = (given_bucket or s.plan_bucket or "").strip()
         s.plan_bucket_region = (getattr(args, "plan_bucket_region", None) or s.plan_bucket_region or "").strip()
         if s.plan_bucket and not awsmod.BUCKET_RE.fullmatch(s.plan_bucket):
             raise MissingInput("--plan-bucket is an S3 bucket name (3 to 63 lowercase letters, digits, dots and dashes)")
@@ -139,10 +143,11 @@ def gather(io: IO, args, s: Settings, dry: bool) -> Settings:
     elif getattr(args, "name", None) or getattr(args, "aws_permissions_boundary", None) or getattr(args, "plan_bucket", None):
         raise MissingInput("--name, --aws-permissions-boundary and --plan-bucket are for a server on AWS (--cloud aws)")
     else:
-        # A bucket saved by an earlier AWS run names a role this server does not have; its plan goes in the env instead.
+        # A bucket saved by an earlier AWS run names a role this server does not have.
         s.plan_bucket = s.plan_bucket_region = ""
+        s.plan_bucket_managed = False
         from backend.company_file import starter
-        if len(s.company_file_data) > starter.ENV_PACKED:
+        if s.target not in ("ssh", "local") and len(s.company_file_data) > starter.ENV_PACKED:
             if getattr(args, "company_file", None):
                 raise MissingInput(starter.TOO_LARGE)
             # The plan saved here by that AWS run would refuse every re-run, so it stays behind; the app imports it.
@@ -316,6 +321,9 @@ def plan_lines(s: Settings, zone: dnsmod.Zone | None, records: list[dnsmod.Recor
         p = aws_plan(s)
         add("Create the AWS server:")
         L += [f"       - {x}" for x in p.lines()]
+        if s.plan_bucket_managed:
+            L.append("       - Setup creates the private starter plan bucket in your account, with encryption, public access "
+                     "blocked and a one-day expiry rule; it deletes the chart once the server reads its copy.")
         L += [f"       ! {w}" for w in p.warnings]
     elif s.target in cloudmod.PROVIDERS:
         pv = cloudmod.PROVIDERS[s.target]
@@ -469,6 +477,11 @@ def run(args, io: IO, deps: Deps) -> int:
         io.say(f"Resuming from the last run for {domain_hint} (secrets kept in {state.home() / domain_hint}).")
     gather(io, args, s, dry)
     hosted.gather(args, s, dry)
+    if s.target == "aws" and s.company_file_data and not s.plan_bucket and not s.hosted:
+        # Saved before any cloud writes, so retries use the same bucket and chart. No credentials in its name.
+        s.plan_bucket = "tico-setup-plans-" + secrets.token_hex(16)
+        s.plan_bucket_region = s.aws_region
+        s.plan_bucket_managed = True
     st.gather_runtime(args, s)
     gather_identity(io, args, s, dry)
     gather_backup(io, args, s, dry)
@@ -559,7 +572,8 @@ def run(args, io: IO, deps: Deps) -> int:
                 return 2
         runner = deps.local_shell() if s.target == "local" else deps.ssh_shell(s.ssh_host, s.ssh_port, s.ssh_identity)
         io.say("\nServer")
-        for step in remote.ssh_steps(runner, env_text=env_text, compose=compose, compose_url=url, say=io.say, scrub=scrub):
+        for step in remote.ssh_steps(runner, env_text=env_text, compose=compose, compose_url=url, say=io.say, scrub=scrub,
+                                     company_file_data=s.company_file_data):
             io.say(f"  - {step.description}")
             try:
                 step.run()
@@ -632,8 +646,15 @@ def _aws(io, args, s, deps, zone, records, cf, env_text, compose, url, timeout) 
     io.say("\nAWS")
     ec2, iam, ssm, account = deps.aws_clients(s.aws_region, s.aws_profile)
     d = awsmod.Deployer(plan, ec2, iam, ssm, account, say=io.say, sleep=deps.sleep)
-    d.put_env(env_text, company_file=bool(s.company_file_data) and not plan.plan_bucket)
     plan_s3 = deps.aws_s3(s.plan_bucket_region or s.aws_region, s.aws_profile) if plan.plan_bucket else None
+    if plan_s3 and s.plan_bucket_managed:
+        try:
+            d.ensure_plan_bucket(plan_s3, s.plan_bucket_region or s.aws_region)
+        except Exception as exc:
+            code = str(getattr(exc, "response", {}).get("Error", {}).get("Code") or type(exc).__name__)
+            raise MissingInput(f"Cannot prepare the private starter plan bucket ({code}). Check your AWS bucket "
+                               "permissions and re-run setup; no chart was uploaded and the saved chart stays on this computer.") from None
+    d.put_env(env_text, company_file=bool(s.company_file_data) and not plan.plan_bucket)
     if plan_s3:
         # Before launch: the server copies it at first boot. A re-run puts it again, for pull-env.sh below.
         d.put_plan(plan_s3, s.plan_key(), s.company_file_data)

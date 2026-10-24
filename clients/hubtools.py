@@ -2220,6 +2220,12 @@ def seat_list(api, args):
     return api.get("seats")
 
 
+@tool("hub_org_models", "The published Tico starter org chart models: recommendations come from these models only. "
+      "They contain Tico's public role and team catalog, never another company's bots or data.", {})
+def org_models(api, args):
+    return api.get("org-models")
+
+
 @tool("hub_seat_create", "Add a Recruiting seat, as a person: a role with its job description, reporting to you or "
       "someone below you (the owner: anyone). It has no bot, repository or computer until it is filled.",
       {"title": _s("The role's title"), "description": _s("Its job description"),
@@ -3359,7 +3365,8 @@ def write_fixture(found, parent):
     return [str(folder / name) for name in files]
 
 
-@tool("hub_message_list", "Messages and notices waiting for you.", {})
+@tool("hub_message_list", "Messages and notices waiting for you: the newest 100 messages and your first 100 open "
+      "tasks; more_messages or more_tasks says more are waiting. Mark messages read to reach older ones.", {})
 def inbox(api, args):
     return api.get("messages", unread="1")
 
@@ -3381,6 +3388,9 @@ def ack(api, args):
       "\"body\": {\"decision\": \"declined\", \"note\": \"<reason>\"}}, {\"path\": \"/api/v2/messages/<id>/answer\", "
       "\"body\": {\"text\": \"<their words>\"}}, ...]} (up to 100). Approving goes on a card only when the person's "
       "message names it (approve, merge, publish, send, spend); 'clear my queue' never approves. "
+      "The CEO Bot may propose one owner-confirmed org-chart change as POST /api/v2/seats/batch with body "
+      "{\"seats\":[{\"title\":\"...\",\"description\":\"...\",\"reports_to\":\"...\",\"team\":\"...\"}]} . "
+      "Use hub_org_models for published recommendations; no seat is added before the owner confirms. "
       "A task action, decline or answer the person clearly asked for needs no card: pass on_behalf_of to that tool instead. "
       "Nothing here runs until they confirm.",
       {"summary": _s("One plain sentence saying what will happen if they confirm"),
@@ -4066,6 +4076,7 @@ AUDIENCE = {
     "hub_bot_ready": BOTS,                          # an onboarding bot's own "I'm ready" (backend/lifecycle.py)
     # A seat is placed by a person under themselves (views and rights in backend/lifecycle.py).
     **{name: PEOPLE for name in ("hub_seat_create", "hub_seat_update", "hub_seat_close")},
+    "hub_org_models": KINDS,
     # Files are a bot's own: only a bot, or the computer running it, publishes them.
     **{name: BOTS for name in ("hub_file_publish", "hub_file_link", "hub_file_touch", "hub_file_import")},
     # Reads that go over POST, which the Assistant may not make on its own.

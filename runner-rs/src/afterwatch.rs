@@ -362,35 +362,48 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let dir = std::fs::canonicalize(dir).unwrap();
         let out = dir.join("s1.output");
-        // A suite under a shell that waits for it, with a worker under that: no exec anywhere.
+        // The child writes `ready` only after its worker has started; the parent snapshot then describes the whole
+        // workload rather than racing shell startup.
+        let ready = dir.join("ready");
         let mut shell = Child(std::process::Command::new("sh")
             .arg("-c")
-            .arg("sh -c 'sleep 30; true'; true")
+            .arg(format!("sh -c 'sleep 30 & echo ready > {}; wait; true'; true", ready.display()))
             .stdout(std::fs::File::create(&out).unwrap())
             .process_group(0)
             .spawn()
             .unwrap());
         // Another command's job, in a group of its own.
         let mut other = Child(std::process::Command::new("sleep").arg("30").stdout(std::process::Stdio::null()).process_group(0).spawn().unwrap());
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        // A long timeout is only a deadlock guard. Normal progress is driven by the child readiness marker.
+        let setup_deadline = std::time::Instant::now() + Duration::from_secs(30);
+        while !ready.exists() {
+            assert!(std::time::Instant::now() < setup_deadline, "the suite worker did not start");
+            std::thread::yield_now();
+        }
         let workload = loop {
             let parent = crate::hosts::claude::parents();
             let under: Vec<u32> = parent.iter().filter(|(_, &p)| p == shell.id() || parent.get(&p) == Some(&shell.id())).map(|(&c, _)| c).collect();
-            if under.len() >= 2 || std::time::Instant::now() > deadline {
+            if under.len() >= 2 {
                 break under;
             }
-            std::thread::sleep(Duration::from_millis(20));
+            assert!(std::time::Instant::now() < setup_deadline, "the suite process tree did not appear");
+            std::thread::yield_now();
         };
         assert_eq!(workload.len(), 2, "the suite and its worker");
         let mut turn = json!({"aid": "a2", "deadline": epoch_s() - 1.0, "status_file": null,
                               "commands": [{"task_id": "s1", "description": "Run the full suite", "pid": shell.id(), "output_file": out.display().to_string()}]});
         assert!(poll(&mut turn, epoch_s()));
         assert_eq!(shell.wait().unwrap().signal(), Some(libc::SIGKILL));
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        while !workload.iter().all(|p| gone(*p)) && std::time::Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(20));
+        let reap_deadline = std::time::Instant::now() + Duration::from_secs(30);
+        let mut left = workload.clone();
+        while !left.is_empty() {
+            left.retain(|p| !gone(*p));
+            if left.is_empty() {
+                break;
+            }
+            assert!(std::time::Instant::now() < reap_deadline, "the killed suite workload did not exit: {left:?}");
+            std::thread::yield_now();
         }
-        let left: Vec<&u32> = workload.iter().filter(|p| !gone(**p)).collect();
         let other_alive = !gone(other.id());
         let _ = other.kill();
         let _ = other.wait();

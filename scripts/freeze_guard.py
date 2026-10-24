@@ -346,7 +346,16 @@ def lookback_base(repo, previous, releases):
 def check(repo, head, previous=None, receipts=(), github=None, releases=None, fetch=True):
     """Check the candidate against every earlier release, or only the last `releases` of them when given."""
     head = git(repo, "rev-parse", "--verify", f"{head}^{{commit}}").strip()
+    # A shallow checkout cuts history off at its depth: the previous tag looks parentless, the range runs back to the
+    # cut, and every old pull request in it is looked up on GitHub before anything is reported.
+    if git(repo, "rev-parse", "--is-shallow-repository").strip() == "true":
+        raise GuardError("this checkout has shallow history, so the range to the previous release would be wrong; "
+                         "run `git fetch --unshallow --tags origin` and check again")
     previous = previous or previous_release(repo, head)
+    # A release branch that was never merged back still forks from main; no shared commit means missing history.
+    if not git(repo, "merge-base", previous, head, check=False).strip():
+        raise GuardError(f"{previous} and {head[:12]} share no history in this checkout; fetch the full history "
+                         f"(`git fetch --unshallow --tags origin`) or name the right release with --previous")
     changes = first_parent_log(repo, f"{previous}..{head}")
     if not changes:
         raise GuardError(f"nothing between {previous} and {head[:12]}: {previous} is not an earlier release of this "
