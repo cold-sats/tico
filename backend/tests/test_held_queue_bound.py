@@ -6,7 +6,7 @@ import pytest
 
 from backend import hubdb as H
 from backend.store import Store
-from backend.tests.test_api import api, post, restrict, runner, assign, ready, claim, setup_attempt  # noqa: F401
+from backend.tests.test_api import api, get, post, restrict, runner, assign, ready, claim, setup_attempt  # noqa: F401
 from backend.tests.test_member_bots import finish
 
 
@@ -81,7 +81,7 @@ def test_byte_boundary_uses_final_utf8_body_and_refs(queue, monkeypatch, setting
     size = retained(pending(api))
     assert size > len(body) + len(first['refs_json'])
     monkeypatch.setattr(H, setting, size * 2)
-    send(queue, text=body, kind='notice')
+    send(queue, text='🙂界', kind='notice')  # same bytes; an identical repeat is a duplicate wake, not queued
     assert retained(pending(api)) == size * 2
     before = domain(api)
     result = send(queue, text='x', kind='notice', expected=422)
@@ -109,7 +109,7 @@ def test_concurrent_admission_cannot_overshoot_on_independent_connections(queue,
     api, _, _ = queue
     hold(api)
     # Measure this exact stored notice; every candidate below has the same byte size.
-    send(queue, text='界🙂', kind='notice')
+    send(queue, text='界🙂9', kind='notice')
     charge = retained(pending(api))
     monkeypatch.setattr(H, setting, 3 if setting.endswith('ITEMS') else 3 * charge)
     barrier = Barrier(8)
@@ -119,7 +119,7 @@ def test_concurrent_admission_cannot_overshoot_on_independent_connections(queue,
         # Separate Stores have independent writer gates and connection pools: SQLite must serialize them.
         with Store(api.app.state.store.settings).transaction() as c:
             try:
-                return H.say(c, 'bot:' + sender, 'bot:finance', '界🙂', kind='notice', refs={'needs_action': True})['id']
+                return H.say(c, 'bot:' + sender, 'bot:finance', f'界🙂{i}', kind='notice', refs={'needs_action': True})['id']
             except H.Refused as exc:
                 assert exc.rule == 'queue_full'
                 raise
@@ -214,8 +214,11 @@ def test_permission_denial_precedes_capacity(queue, monkeypatch, state, denial):
 def test_author_cannot_grow_a_pending_comment_past_byte_bound(queue, monkeypatch):
     api, tokens, tasks = queue
     hold(api)
+    from backend import bot_to_bot
+    # A comment that wakes (wake_rules.always_wakes) keeps plain references, so its author can still edit it.
+    monkeypatch.setattr(bot_to_bot, 'can_wait', lambda *a, **k: False)
     with api.app.state.store.transaction() as c:
-        comment = H.task_comment(c, 'bot:ops', tasks[0]['id'], 'Small', wake=False)
+        comment = H.task_comment(c, 'bot:ops', tasks[0]['id'], 'Small')
     monkeypatch.setattr(H, 'HELD_QUEUE_BYTES', retained(pending(api)))
     before = domain(api)
     result = post(api, f"tasks/{tasks[0]['id']}/comments/{comment['id']}", {'text': 'Much larger 🙂'},
@@ -315,3 +318,41 @@ def test_queue_full_does_not_trigger_escalation_from_prior_refusals(queue, monke
     with api.app.state.store.read() as c:
         assert H.bot(c, 'ops')['state'] == 'active'
         assert not c.execute("SELECT 1 FROM tasks WHERE title LIKE 'Review ops%'").fetchone()
+
+
+def test_messages_resume_never_drains_are_not_charged_and_goal_events_still_post(api, monkeypatch):
+    from backend.tests.test_chat_goals import setup, action, goal_event
+    machine, cid = setup(api)
+    action(api, cid, objective='Produce the Acme summary')
+    attempt = claim(api, machine)
+    post(api, f"attempts/{attempt['id']}/started", {'thread_id': 'fixture-thread'}, machine['token'])
+    with api.app.state.store.transaction() as c:
+        H.quarantine(c, 'ops', 'Fixture hold mid-turn')
+    monkeypatch.setattr(H, 'HELD_QUEUE_ITEMS', 1)
+    with api.app.state.store.transaction() as c:
+        # A quiet comment (wake=False) gets neither a job nor a carry-note: resume never delivers it.
+        H._write_message(c, 'bot:finance', 'bot:ops', 'Fixture quiet note', H.conversation(c, cid), 'say',
+                         {'comment': True, 'quiet': True}, None, None)
+    # The in-flight turn's goal ends with a notice from the bot to itself: never charged, never refused.
+    goal_event(api, machine, attempt, 'met', 'The condition holds.', started=False)
+    assert get(api, f'conversations/{cid}/goal')['goal']['status'] == 'met'
+    with api.app.state.store.transaction() as c:
+        H.say(c, 'bot:finance', 'bot:ops', 'Fixture delivered one', refs={'needs_action': True})
+    with pytest.raises(H.Refused) as refused, api.app.state.store.transaction() as c:
+        H.say(c, 'bot:finance', 'bot:ops', 'Fixture delivered two', refs={'needs_action': True})
+    assert refused.value.rule == 'queue_full'
+
+
+def test_goal_command_is_charged_with_its_stored_objective(queue, monkeypatch):
+    api, tokens, tasks = queue
+    from backend import chat_goals
+    monkeypatch.setattr(chat_goals, 'capabilities', lambda c, auth, conv: ('finance', True, []))
+    hold(api)
+    objective = 'Reconcile the Acme fixture invoices. ' * 80
+    # The "/goal <objective>" body and its references fit; the objective stored again in goal_objective does not.
+    monkeypatch.setattr(H, 'HELD_QUEUE_BYTES', len(objective) + 1000)
+    before = domain(api)
+    result = post(api, f"conversations/{tasks[0]['conversation_id']}/goal", {'action': 'set', 'objective': objective},
+                  token=tokens['ops'], expected=422)
+    assert result['error']['code'] == 'queue_full'
+    assert domain(api) == before

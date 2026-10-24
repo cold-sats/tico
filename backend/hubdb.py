@@ -2577,14 +2577,42 @@ def librarian_text(body):
     return "".join(out)
 
 
+# A held message is charged only while resume will still hand it over: a job not yet finished or cancelled
+# (store.QUEUE_TRIGGER), or a carry-note still waiting (bot_to_bot.hold, wake_rules.hold). A quiet message with
+# neither (a bot's notice to itself, a wake=False comment, a verdict delivered on the parent) never drains,
+# and charging it would fill the cap for good.
+_HELD_QUEUE_PENDING_SQL = (
+    "(EXISTS(SELECT 1 FROM jobs j WHERE j.message_id=m.id AND j.state NOT IN ('completed','cancelled')) "
+    "OR EXISTS(SELECT 1 FROM notes n WHERE n.to_actor=m.to_actor AND n.message_id=m.id AND {notes_waiting}))")
+
+
+def _held_queue_drains(actor, target, refs_json):
+    """Whether a message about to be stored will be handed over on resume: the same test as
+    _HELD_QUEUE_PENDING_SQL, read from the references before the job or note exists."""
+    if actor == target:
+        return False                       # store.QUEUE_TRIGGER queues no job for a bot's message to itself
+    try:
+        refs = json.loads(refs_json or "{}")
+    except ValueError:
+        return True
+    if not isinstance(refs, dict):
+        return True
+    from . import bot_to_bot, wake_rules
+    if refs.get("quiet"):
+        held = refs.get(wake_rules.MARK)
+        return refs.get(bot_to_bot.MARK) == bot_to_bot.RULE or bool(held and held != "same_state")
+    live = refs.get("live")
+    return not (isinstance(live, dict) and live.get("kind") in ("transcript", "decision", "tool"))
+
+
 def _held_queue_admit(conn, actor, target, body, refs_json, *, replacing=None):
-    """Charge bot-authored pending messages across every room, including bot notices and quiet work.
+    """Charge bot-authored pending messages across every room that resume will deliver.
 
     Called with the final stored text/references under Store's BEGIN IMMEDIATE write transaction,
     immediately before insertion. Permission/contact checks belong to the caller and still run first.
     System notices, people, active recipients and recovery controls retain their existing behavior.
     """
-    if not (is_bot(actor) and is_bot(target)):
+    if not (is_bot(actor) and is_bot(target)) or not _held_queue_drains(actor, target, refs_json):
         return
     state = (bot(conn, actor_id(target)) or {}).get("state")
     if state not in HELD_STATES:
@@ -2592,8 +2620,9 @@ def _held_queue_admit(conn, actor, target, body, refs_json, *, replacing=None):
     rows = conn.execute(
         "SELECT from_actor, count(*) AS items, "
         "sum(coalesce(length(CAST(body AS BLOB)),0) + coalesce(length(CAST(refs_json AS BLOB)),0)) AS bytes "
-        "FROM messages WHERE to_actor=? AND delivered_at IS NULL AND deleted_at IS NULL "
-        "AND from_actor LIKE 'bot:%' AND (? IS NULL OR id<>?) GROUP BY from_actor",
+        "FROM messages m WHERE to_actor=? AND delivered_at IS NULL AND deleted_at IS NULL "
+        "AND from_actor LIKE 'bot:%' AND from_actor<>to_actor AND (? IS NULL OR id<>?) "
+        "AND " + _HELD_QUEUE_PENDING_SQL.format(notes_waiting=NOTE_WAITING_SQL) + " GROUP BY from_actor",
         (target, replacing, replacing)).fetchall()
     items = sum(r["items"] for r in rows)
     size = sum(r["bytes"] for r in rows)
