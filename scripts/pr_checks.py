@@ -658,7 +658,8 @@ def prepare(event, base, output, timings_path=None):
         image_checks(changed)
     counts = collect() if picked["python"] != [] else Counter()
     if picked["python"] is not None:
-        # Selected files with no default test (slow-only, helpers) have nothing to run here.
+        # A selected file with no default test (a changed test whose tests are all slow, which the release gate runs;
+        # a test helper the map follows) has nothing to run here.
         counts = Counter({f: counts[f] for f in picked["python"] if f in counts})
         picked["python"] = sorted(counts)
     timings = {}
