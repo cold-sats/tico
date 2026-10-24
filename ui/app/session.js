@@ -102,8 +102,11 @@ const sessionScope = el => {
   const task = el.closest('[data-task]')?.dataset.task, d = el.closest('dialog');
   return task ? 'task:' + task : location.hash + (d ? '|' + (d.id || d.getAttribute('aria-label') || '') : '');
 };
+// A chat box keeps its own draft (pill.js chatDraftSave) and clears it once the message is sent; kept here too, its
+// text came back into the emptied box after sign-in, ready to send a second time.
+const chatBox = el => typeof PILLS !== 'undefined' && [...PILLS].some(P => P.mode === 'chat' && P.el?.contains(el));
 const sessionBoxes = () => [...document.querySelectorAll('textarea, input[type="text"]')]
-  .filter(el => !el.readOnly && !el.disabled && !/search|filter/i.test(sessionKey(el)));
+  .filter(el => !el.readOnly && !el.disabled && !/search|filter/i.test(sessionKey(el)) && !chatBox(el));
 const sessionSave = kept => {
   try {
     if (kept.fields.length || kept.task || kept.hash) sessionStorage.setItem(SESSION_RETURN, JSON.stringify(kept));
