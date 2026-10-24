@@ -114,6 +114,8 @@ pub struct Vault {
     /// The turn's relay to the Tico AI Gateway (gateway_relay.rs), stopped with the vault.
     pub relay: Option<crate::gateway_relay::Relay>,
     pub turn_user: Option<crate::turn_users::Lease>,
+    /// The leased user's own credential socket (crate::gitcred::TurnSocket), closed before the user is cleaned.
+    pub turn_socket: Option<crate::gitcred::TurnSocket>,
 }
 
 impl Vault {
@@ -153,6 +155,7 @@ impl Drop for Vault {
     fn drop(&mut self) {
         // Revoke the connection before a cleaned UID can be lent to another turn.
         self.relay.take();
+        self.turn_socket.take();
         self.remove_files();
         self.turn_user.take();
     }

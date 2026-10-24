@@ -684,6 +684,21 @@ impl Runner {
         }
     }
 
+    /// A Gateway turn's git: its leased user trusts exactly its checkout (git refuses a work tree another user owns)
+    /// and asks for GitHub tokens through its own owner-only socket, since the shared one is the bot user's.
+    fn turn_git(&self, vault: &mut Vault, env: &mut Env, paths: &[PathBuf]) -> Result<(), Fail> {
+        crate::gitcred::trust_directories(env, paths);
+        let (Some(shared), Some(user)) = (&self.socket, &vault.turn_user) else { return Ok(()) };
+        if let Some(own) = &vault.turn_socket {
+            shared.repoint(env, &own.path); // a fallback hop on the same lease
+            return Ok(());
+        }
+        let own = shared.serve_for(env, &user.dir.join("git-credential.sock"), user.identity())
+            .map_err(|e| Fail::runtime(format!("cannot give the turn user its credential socket: {e}")))?;
+        vault.turn_socket = Some(own);
+        Ok(())
+    }
+
     /// A lease failure before the start. `not_isolated` is the one failure the server settles unstarted, and only
     /// from its `error` event; anything else goes back as an interrupted (handed-back) run.
     fn lease_failed(&self, aid: &str, e: Fail, drove: &mut Drove) -> Fail {
@@ -1300,6 +1315,7 @@ impl Runner {
             if turn_identity.is_some() {
                 let mut paths = vec![p.main_path.clone(), execution_path.clone()];
                 paths.extend(p.add_dirs.iter().map(PathBuf::from));
+                self.turn_git(&mut vault, &mut env, &paths)?;
                 crate::turn_users::share_workspace(paths).await.map_err(Fail::runtime)?;
             }
             let made = if persistent {
@@ -1580,7 +1596,8 @@ impl Runner {
                 let rx = &mut receivers.last_mut().unwrap().1;
                 if turn_identity.is_some() {
                     let mut paths = vec![execution_path.clone()];
-                    paths.extend(place.as_ref().into_iter().flat_map(|p| p.add_dirs.iter().map(PathBuf::from)));
+                    paths.extend(place.as_ref().into_iter().flat_map(|p| std::iter::once(p.main_path.clone()).chain(p.add_dirs.iter().map(PathBuf::from))));
+                    self.turn_git(&mut vault, &mut hop_env, &paths)?;
                     crate::turn_users::share_workspace(paths).await.map_err(Fail::runtime)?;
                 }
                 let h = host.insert(self.make_host(&bot, &hop.runtime, &hop_config, &hop_env, selected.as_ref(), tx)?);

@@ -856,6 +856,8 @@ mod tests {
         settings.env.insert(KEY_ENV.into(), relay.token.clone());
         settings.env.insert(URL_ENV.into(), relay.url.clone());
         settings.env.insert(DIR_ENV.into(), user.dir.join("pi").display().to_string());
+        // The turn's real git trust: exactly its checkout, as execute.rs turn_git gives it (no `safe.directory=*`).
+        crate::gitcred::trust_directories(&mut settings.env, &[workspace.clone()]);
         let mut argv = vec![crate::env::python().display().to_string()];
         argv.extend(["-u", "-c", r#"import os,pathlib,subprocess,sys,time
 assert os.getegid()==10002
@@ -868,11 +870,11 @@ assert pathlib.Path(sys.argv[2]).read_text()=='previous turn'
 for p in sys.argv[3:]:
  pathlib.Path(p).write_text('from isolated turn'); os.chmod(p,0o600)
 subprocess.run(['git','init','-q',str(pathlib.Path(sys.argv[3]).parent)],check=True)
-subprocess.run(['git','-c','safe.directory=*','-C',str(pathlib.Path(sys.argv[3]).parent),'-c','user.name=fixture','-c','user.email=fixture@example.invalid','add','.'],check=True)
-subprocess.run(['git','-c','safe.directory=*','-C',str(pathlib.Path(sys.argv[3]).parent),'-c','user.name=fixture','-c','user.email=fixture@example.invalid','commit','-qm','synthetic'],check=True)
+subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'-c','user.name=fixture','-c','user.email=fixture@example.invalid','add','.'],check=True)
+subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'-c','user.name=fixture','-c','user.email=fixture@example.invalid','commit','-qm','synthetic'],check=True)
 remote=str(pathlib.Path(sys.argv[3]).parent/'.git'/'fixture-remote.git')
 subprocess.run(['git','init','--bare','-q',remote],check=True)
-subprocess.run(['git','-c','safe.directory=*','-C',str(pathlib.Path(sys.argv[3]).parent),'push','-q',remote,'HEAD:refs/heads/main'],check=True)
+subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'push','-q',remote,'HEAD:refs/heads/main'],check=True)
 print(os.getpid(),flush=True)
 time.sleep(300)
 "#, &private.display().to_string(), &old.display().to_string(), &written.display().to_string(), &tmp.display().to_string(), &shm.display().to_string()].map(String::from));
