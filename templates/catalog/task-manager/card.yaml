@@ -6,7 +6,7 @@ required: true
 bootstrap: true
 # A helper: it works for the install, not for a department, so it is in no group and not on the team chart.
 kind: helper
-icon: checklist
+icon: assignment_turned_in
 default: true
 # The cheap model: it reads a short list and makes small, reversible task fixes.
 model: claude-haiku-5-5
