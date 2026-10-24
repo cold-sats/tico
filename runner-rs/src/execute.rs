@@ -2255,7 +2255,7 @@ mod tests {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
-        let seen = Arc::new(Mutex::new(vec![]));
+        let seen = Arc::new(Mutex::new(Vec::<(String, String, Value)>::new()));
         let kept = seen.clone();
         let server = tokio::spawn(async move {
             loop {
