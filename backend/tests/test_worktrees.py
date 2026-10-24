@@ -320,6 +320,29 @@ def test_heartbeat_writes_only_changes_and_backs_off_a_refused_cleanup(prepared)
         assert json.loads(c.execute('SELECT detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()[0])['cleanup_gave_up']
 
 
+def test_a_removed_checkout_reported_every_heartbeat_is_not_a_task_change(prepared):
+    api, tid, _ = prepared
+    link = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}).json()
+    report = {'link_id': link['link_id'], 'state': 'present', 'branch': link['branch'], 'ahead': 0, 'dirty_files': 0,
+              'last_commit': 'abc', 'last_activity': 1792560695.4}
+    body = {'version': '0.3.2', 'platform': 'linux', 'readiness': {'schema_version': 1, 'bots': {}, 'worktrees': True},
+            'worktrees': [report]}
+    post(api, 'runners/heartbeat', body, 'runner-test')
+    # Gone from disk, the computer reports only the link and its state: no commit, no activity.
+    body['worktrees'] = [{'link_id': link['link_id'], 'state': 'removed'}]
+    post(api, 'runners/heartbeat', body, 'runner-test')
+
+    def written():
+        with api.app_state.store.read() as c:
+            return (c.execute("SELECT count(*) FROM changes WHERE topic='tasks' AND kind='link' AND subject_id=?",
+                              (tid,)).fetchone()[0],
+                    c.execute('SELECT updated,detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone())
+    seen = written()
+    for _ in range(3):
+        assert post(api, 'runners/heartbeat', body, 'runner-test').status_code == 200
+    assert written() == seen, 'a removed checkout reported again is not activity'
+
+
 def test_a_refused_cleanup_keeps_its_error_across_a_computer_restart(prepared):
     api, tid, _ = prepared
     link = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}).json()
@@ -600,6 +623,35 @@ def test_a_report_built_from_an_older_record_never_moves_it_forward_either(prepa
         c.execute("UPDATE task_links SET state='pending' WHERE id=?", (link['link_id'],))
     state, detail, _ = beat(state='present', checkout_state='ready', record_updated=requeued)
     assert state == 'pending' and detail['checkout_state'] == 'ready'
+
+
+@pytest.mark.parametrize('cleanup_requested', [False, True])
+@pytest.mark.parametrize('stamp', ['stale', 'equal', 'newer', 'unstamped'])
+def test_removed_heartbeat_respects_the_record_stamp(prepared, cleanup_requested, stamp):
+    api, tid, _ = prepared
+    link = post(api, f'tasks/{tid}/worktrees', {'repo': 'Acme/product'}).json()
+    assert mark_ready(api, tid, link['link_id']).status_code == 200
+    changed = '2026-10-24T03:06:28.000000Z'
+    with api.app_state.store.transaction() as c:
+        row = c.execute('SELECT detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()
+        detail = {**json.loads(row['detail_json']), 'record_changed': changed}
+        if cleanup_requested:
+            detail['cleanup_requested'] = True
+        c.execute('UPDATE task_links SET detail_json=?,updated=? WHERE id=?',
+                  (json.dumps(detail), changed, link['link_id']))
+    report = {'link_id': link['link_id'], 'state': 'removed'}
+    if stamp != 'unstamped':
+        report['record_updated'] = {'stale': '2026-10-24T03:06:27.000000Z', 'equal': changed,
+                                    'newer': '2026-10-24T03:06:29.000000Z'}[stamp]
+    response = post(api, 'runners/heartbeat', {**HEARTBEAT, 'worktrees': [report]}, 'runner-test')
+    assert response.status_code == 200, response.text
+    with api.app_state.store.read() as c:
+        row = c.execute('SELECT state,detail_json FROM task_links WHERE id=?', (link['link_id'],)).fetchone()
+    detail = json.loads(row['detail_json'])
+    assert row['state'] == ('present' if stamp == 'stale' else 'removed')
+    assert detail['checkout_state'] == 'ready' and detail['setup_pending'] is False
+    assert detail.get('removed_by') == ('cleanup' if cleanup_requested and stamp != 'stale' else None)
+    assert len(released_events(api, tid)) == int(cleanup_requested and stamp != 'stale')
 
 
 def test_an_older_runner_can_still_add_a_worktree_and_finish_its_setup(prepared):

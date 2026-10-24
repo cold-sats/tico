@@ -403,8 +403,10 @@ def heartbeat(c, who, reports, capable, default_org="", live_tasks=None):
                                and not detail.get('setup_pending'))
                               or legacy_restore_passthrough)
         now = H.now()
-        changed = (detail.get('last_commit') != report.last_commit or detail.get('dirty_files') != report.dirty_files
-                   or detail.get('last_activity') != report.last_activity)
+        # A report that leaves a reading out (a removed checkout has no commit or activity) changes nothing:
+        # detail keeps the last value, so comparing None with it would count as activity on every heartbeat.
+        changed = any(getattr(report, key) is not None and detail.get(key) != getattr(report, key)
+                      for key in ('last_commit', 'dirty_files', 'last_activity'))
         # A push changes none of the above; only the count of commits not on the remote drops.
         pushed = report.ahead < detail.get('ahead', 0)
         if (changed or pushed) and detail.get('release_requested'):
@@ -437,16 +439,16 @@ def heartbeat(c, who, reports, capable, default_org="", live_tasks=None):
                 if since and not detail.get(key) and (datetime.now(timezone.utc) - datetime.fromisoformat(since.replace('Z', '+00:00'))).total_seconds() >= days * 86400:
                     H._wake(c, task, task['owner'], message + ': ' + row['path'], trigger='stall_check', source=row['id'])
                     detail[key] = True
-        if report.state == 'removed' and detail.get('cleanup_requested'):
-            if row['state'] != 'removed':
-                released_event(c, row, detail)
-            detail['removed_by'] = 'cleanup'
         # A stamped report is stale when the record was added, attached, re-queued or patched after the
         # computer read it; heartbeat writes don't count, or a busy worktree's reports would always be stale.
         # An unstamped one (an older computer) is stale only when it would move the checkout back.
         stale = (report.record_updated < (detail.get('record_changed') or row['updated'] or '')
                  if report.record_updated is not None
                  else stale_checkout_report(detail, report.checkout_state))
+        if report.state == 'removed' and not stale and detail.get('cleanup_requested'):
+            if row['state'] != 'removed':
+                released_event(c, row, detail)
+            detail['removed_by'] = 'cleanup'
         reported = report.model_dump(exclude_none=True,
                                      exclude={'link_id', 'state', 'branch', 'checkout_state', 'record_updated',
                                               *(IDENTITY if stale else ())})
@@ -469,7 +471,7 @@ def heartbeat(c, who, reports, capable, default_org="", live_tasks=None):
                               and not detail.get('setup_pending')) or legacy_present
                              or (checkout_state == 'legacy_present' and not detail.get('setup_pending')
                                  and row['state'] in ('present', 'unknown')))
-        state = ('removed' if report.state == 'removed' else
+        state = ((row['state'] if stale else 'removed') if report.state == 'removed' else
                  report.state if legacy_passthrough else
                  'pending' if not completion_proven else
                  row['state'] if stale and report.state in ('pending', 'present') else
