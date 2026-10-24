@@ -305,6 +305,24 @@ def test_a_decision_never_makes_a_task_private_and_undo_puts_back_one_made_priva
     assert "its owner" in undone["undo"]["text"] and "could not be put back" not in undone["undo"]["text"]
 
 
+def test_a_decision_never_creates_a_task_for_a_bot_that_keeps_its_tasks_private(api):
+    """A new task for a bot that keeps its tasks private would be private from the start: the owner could neither read
+    nor close it, and Undo could not take it back once the bot edited it. Refused as the reassign is, before anything
+    is made, and proposed to the owner instead."""
+    ceo = with_ceo_bot(api)
+    bot(api, "finance")
+    level(api, 3)
+    with api.app.state.store.transaction() as c:
+        config = H._json(c.execute("SELECT config_json FROM bot_config WHERE bot='finance'").fetchone()[0], {})
+        c.execute("UPDATE bot_config SET config_json=? WHERE bot='finance'",
+                  (encode({**config, "private_tasks_default": True}), ))
+    held = decide(api, ceo, [{"do": "create", "owner": "finance", "title": "Review the vendor contract"}])
+    assert held["state"] == "proposed" and not held["done"]
+    assert "keeps its tasks private" in held["left"][0]["why"]
+    with api.app.state.store.read() as c:
+        assert not c.execute("SELECT 1 FROM tasks WHERE owner='bot:finance'").fetchone()
+
+
 def test_the_ceo_bot_publishes_only_with_a_real_approval_whatever_the_team_setting(api):
     """With bot approvals for public changes off, any approval id once let the CEO Bot publish: the id is checked."""
     ceo = with_ceo_bot(api)

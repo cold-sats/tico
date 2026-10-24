@@ -181,6 +181,15 @@ def describe(c, change):
     return PERSON_ONLY.get(do, str(do))
 
 
+def _keeps_private(c, owner, what):
+    """Why a task can't go to a bot that keeps its tasks private, or None. Giving it one makes the task private
+    (task_create, task_update): the owner could then neither read it nor put it back or close it, so the CEO Bot does
+    not do it alone, for a new task or a reassigned one."""
+    if H.private_tasks_default(c, owner):
+        return f"{_name(c, owner)} keeps its tasks private, so giving it {what} stays the owner's"
+    return None
+
+
 def _check(c, change):
     """Why this change can't be made alone, in plain words, with whether it is a person's (`PERSON_ONLY`) — or None.
     Cleans `change` in place: owners become actors and text is trimmed."""
@@ -200,7 +209,7 @@ def _check(c, change):
         change["body"] = str(change.get("body") or "").strip()[:8000]
         if not change["title"]:
             return "a new task needs a title", None
-        return _offline(c, change["owner"]), None
+        return _keeps_private(c, change["owner"], "a new task") or _offline(c, change["owner"]), None
     row = H.task(c, str(change.get("task_id") or ""))
     if row and H.is_human(row["owner"]):
         return f"{TASK} is a person's task, so it stays theirs", "person_task"
@@ -208,10 +217,8 @@ def _check(c, change):
         return "name a live bot task (a finished or private one can't be changed)", None
     if do == "reassign" and change["owner"] == row["owner"]:
         return f"{TASK} is already {_name(c, row['owner'])}'s", None
-    if do == "reassign" and H.private_tasks_default(c, change["owner"]):
-        # Giving it to a bot that keeps its tasks private makes it private (task_update): the owner could then
-        # neither read it nor put it back, so the CEO Bot does not do it alone.
-        return f"{_name(c, change['owner'])} keeps its tasks private, so giving it {TASK} stays the owner's", None
+    if do == "reassign" and (private := _keeps_private(c, change["owner"], TASK)):
+        return private, None
     if do == "close":
         change["note"] = " ".join(str(change.get("note") or "").split())[:1000]
     return _offline(c, row["owner"]) or (_offline(c, change["owner"]) if do == "reassign" else None), None
