@@ -467,12 +467,12 @@ document.addEventListener('click', ev => {
 async function v2PillTask(P, text) {
   if (P.sending) return;
   P.sending = true;
-  const files = P.files.slice();
+  const files = P.files.slice(), scope = sessionScope(pq(P, '.p-text'));
   const btn = pq(P, '.p-send'), label = btn.textContent;
   btn.disabled = true; pillBtnSay(btn, 'Creating…');
   try {
     await cloudCompose('/v2/tasks', {title: text.split('\n')[0].trim().slice(0, 80), body: text, owner: P.slug}, files);
-    pillAcknowledge(P, text, files);
+    pillAcknowledge(P, text, files, scope);
     toast(`Task for ${empName(P.slug)} created`);
     await v2Refresh();
     if (BOT?.slug === P.slug) {

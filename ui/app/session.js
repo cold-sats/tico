@@ -110,13 +110,13 @@ const sessionSave = kept => {
     else sessionStorage.removeItem(SESSION_RETURN);
   } catch {}
 };
-// A confirmed send consumes only its own saved text, including the copy the return watcher still holds.
+// A confirmed send consumes every saved version of its own box, including the live return watcher copy.
 // Capture the scope before sending: the person can visit another page while the request is out.
-function sessionAcknowledge(el, text, scope = sessionScope(el)) {
+function sessionAcknowledge(el, scope = sessionScope(el)) {
   const key = sessionKey(el);
   const consume = kept => {
     if (!kept?.fields) return;
-    kept.fields = kept.fields.filter(f => f.scope !== scope || f.key !== key || f.value.trim() !== text);
+    kept.fields = kept.fields.filter(f => f.scope !== scope || f.key !== key);
   };
   consume(SESSION.restoring);
   try {

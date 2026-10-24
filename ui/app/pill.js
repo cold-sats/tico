@@ -293,12 +293,15 @@ function pillMenu(P, open) {
   });
 }
 function pillAcknowledge(P, text, files, scope) {
-  sessionAcknowledge(pq(P, '.p-text'), text, scope);
+  sessionAcknowledge(pq(P, '.p-text'), scope);
   // A slow upload must not erase the person's next draft or newly selected files.
   const nextText = pq(P, '.p-text').value;
   const remaining = P.files.filter(file => !files.includes(file));
   pillClear(P);
-  if (nextText.trim() !== text) pq(P, '.p-text').value = nextText;
+  if (nextText.trim() !== text) {
+    const box = pq(P, '.p-text');
+    box.value = nextText; box.dispatchEvent(new Event('input', {bubbles: true}));
+  }
   P.files.push(...remaining); pillChips(P); pillButtons(P); chatDraftSave(P);
 }
 function pillClear(P, keepText) {
@@ -384,7 +387,9 @@ async function pillSend(P) {
   if (P.send) return P.send(P, text);
   const slash = slashRun(P, text);
   if (slash === true) return;
-  if (slash !== 'plain' && runCommand(text, pq(P, '.p-cmd'), P.slug)) { pillClear(P, true); return; }
+  if (slash !== 'plain' && runCommand(text, pq(P, '.p-cmd'), P.slug)) {
+    sessionAcknowledge(box); pillClear(P, true); return;
+  }
   if (isKeeper(P.slug)) {                                     // hub.db, not an Issue comment
     return P.action === 'task' ? v2PillTask(P, text) : v2ChatSend(P, text);
   }

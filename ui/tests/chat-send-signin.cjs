@@ -7,7 +7,7 @@ const {html, uiFile} = require('./support/page.cjs');
 const {unrouted} = require('./support/routes.cjs');
 const engines = (process.env.TICO_UI_ENGINES || 'chromium,webkit').split(',');
 
-async function scenario(browser, mode, edit, keeper = true) {
+async function scenario(browser, mode, edit, keeper = true, editedBefore = false) {
   const page = await browser.newPage({viewport: {width: 1200, height: 800}, serviceWorkers: 'block'});
   const errors = [], posts = [], delivered = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -49,7 +49,7 @@ async function scenario(browser, mode, edit, keeper = true) {
     return json(unrouted(p));
   });
   const box = page.locator('#chat-composer textarea'), send = page.locator('#chat-composer .p-send');
-  const stored = () => page.evaluate(() => ({draft: chatDrafts().botops,
+  const stored = () => page.evaluate(() => ({draft: chatDrafts().botops, otherDraft: chatDrafts().other,
     fields: JSON.parse(sessionStorage.getItem(SESSION_RETURN) || 'null')?.fields || []}));
   const frames = () => page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
   const ready = () => page.waitForFunction(keeper => SESSION.seen && (keeper ? typeof V2C !== 'undefined' && V2C?.loaded : typeof CONV !== 'undefined' && CONV?.slug === 'botops'), keeper);
@@ -59,6 +59,7 @@ async function scenario(browser, mode, edit, keeper = true) {
     await page.goto('https://tico-ui.test/#/bot/botops');
     await ready();
     await box.fill(text);
+    await page.evaluate(() => localStorage.setItem(CHAT_DRAFTS, JSON.stringify({...chatDrafts(), other: 'Another bot draft'})));
     if (mode !== 'unsent') {
       if (mode === 'timeout') await page.evaluate(() => { CHAT_SEND.timeout = 250; });
       await send.click();
@@ -74,6 +75,11 @@ async function scenario(browser, mode, edit, keeper = true) {
     }
     await page.locator('#signed-out:not([hidden])').waitFor();
     assert.equal(await box.inputValue(), text, 'sign-out keeps the unsent text');
+    await page.evaluate(() => {
+      const kept = JSON.parse(sessionStorage.getItem(SESSION_RETURN));
+      kept.fields.push({scope: 'task:other', key: 'Message', value: 'Another task draft'});
+      sessionSave(kept);
+    });
     await page.click('#signed-out button');
     await page.waitForURL('**/auth/login**');
     expired = false;
@@ -84,10 +90,12 @@ async function scenario(browser, mode, edit, keeper = true) {
     assert.ok((await stored()).fields.some(f => f.value === text), 'the return snapshot still holds a copy beside the restored local draft');
 
     if (mode !== 'unsent') {
+      const sentText = editedBefore ? 'Edited after sign-in, before sending' : text.trim();
+      if (editedBefore) await box.fill(sentText);
       if (edit) hold = new Promise(done => release = done);
       await send.click();
       await page.waitForFunction(() => BOT_PILL.sending || document.querySelector('#chat-composer .p-send').disabled || !document.querySelector('#chat-composer textarea').value);
-      const next = 'Next draft typed while the resend is out';
+      const next = 'Next draft typed while the resend is out\nA second line\nA third line';
       if (edit) {
         await box.fill(next);
         release(); hold = null;
@@ -95,10 +103,12 @@ async function scenario(browser, mode, edit, keeper = true) {
       await idle();
       await frames(); // let the sign-in return watcher respond to the send's DOM changes
       assert.equal(await box.inputValue(), edit ? next : '', 'confirmed text never comes back; later edits stay');
+      if (edit) assert.ok(await box.evaluate(el => el.clientHeight >= el.scrollHeight - 2), 'later multiline edits keep the composer expanded');
       const saved = await stored();
       assert.equal(saved.draft, edit ? next : undefined, 'the persistent bot draft agrees with the composer');
-      assert.ok(!saved.fields.some(f => f.value === text), 'the saved sign-in snapshot consumed the confirmed text');
+      assert.ok(!saved.fields.some(f => f.value === text), 'the saved sign-in snapshot consumed the composer draft, including its pre-edit copy');
       assert.equal(delivered.length, 1, 'one successful delivery');
+      assert.equal(delivered[0].body, sentText, 'the edited text is the text sent');
       if (!edit) {
         assert.equal(await send.evaluate(button => getComputedStyle(button).opacity), '0.45', 'the empty composer dims Send');
         await box.press('Enter');
@@ -117,9 +127,12 @@ async function scenario(browser, mode, edit, keeper = true) {
       assert.equal(await box.inputValue(), text, 'an existing draft never sent survives return and another reload');
       assert.equal(posts.length, 0, 'an unsent draft makes no POST');
     }
+    const final = await stored();
+    assert.equal(final.otherDraft, 'Another bot draft', 'other bots keep their unsent drafts');
+    assert.ok(final.fields.some(f => f.scope === 'task:other' && f.value === 'Another task draft'), 'other boxes keep their sign-in snapshots');
     assert.ok(posts.every(request => request.method === 'POST'), 'all send requests use POST');
     assert.deepEqual(errors, [], 'no browser errors');
-    console.log('ok -', keeper ? 'keeper' : 'local', mode, edit ? 'preserves later edits' : 'sign-in return');
+    console.log('ok -', keeper ? 'keeper' : 'local', mode, editedBefore ? 'edited restored draft' : edit ? 'preserves later edits' : 'sign-in return');
   } finally { release?.(); await page.close(); }
 }
 
@@ -128,6 +141,8 @@ async function scenario(browser, mode, edit, keeper = true) {
     const browser = await ({chromium, webkit}[engine]).launch({headless: true,
       ...(engine === 'chromium' ? {channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined} : {})});
     try {
+      await scenario(browser, '401', false, true, true);
+      await scenario(browser, '401', false, false, true);
       await scenario(browser, '401', false);
       await scenario(browser, 'timeout', false);
       await scenario(browser, '401', true);
