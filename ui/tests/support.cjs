@@ -19,8 +19,8 @@ const UNREACHABLE = 'Not sent. Could not reach Tico support. Try again in a mome
 (async () => {
   const browser = await chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
   try {
-    const visit = async ({enabled = true, seed = [], native = false, feedback = null, viewport = {width: 1440, height: 900}, access = null, hash = '#/tasks', theme = 'light', keyboard = false} = {}) => {
-      const ctx = await browser.newContext({viewport, serviceWorkers: 'block'});
+    const visit = async ({enabled = true, seed = [], native = false, feedback = null, viewport = {width: 1440, height: 900}, access = null, hash = '#/tasks', theme = 'light', keyboard = false, userAgent} = {}) => {
+      const ctx = await browser.newContext({viewport, serviceWorkers: 'block', userAgent});
       await ctx.addInitScript(v => localStorage.setItem('tico.theme', v), theme);   // ui/theme.js
       // A phone keyboard, as iOS Safari reports it: the layout viewport keeps its size while window.visualViewport
       // shrinks to what is left above the keyboard and pans (offsetTop); pinch zoom divides its height by the scale.
@@ -493,7 +493,8 @@ const UNREACHABLE = 'Not sent. Could not reach Tico support. Try again in a mome
 
     // Inside the desktop app: a request carries the app's version labelled apart from the server's, and diagnostics
     // carry the end of the app's log.
-    v = await visit({native: true});
+    // The page reports whether the app runs on a Mac from its user agent, so the test pins one rather than the host's.
+    v = await visit({native: true, userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'});
     await openSupport(v.page);
     await v.page.locator('[data-attach-label]').click();
     assert.match(await v.page.locator('[data-sent]').textContent(), /version 0\.2\.17, app version 0\.3\.48, install ID/);
