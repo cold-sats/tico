@@ -9,7 +9,7 @@ import re
 
 from .store import H, Problem
 from . import task_privacy as privacy
-from .live_privacy import Sources as MeetingSources
+from .live_privacy import ROOM_PREFIX, Sources as MeetingSources
 
 
 TASK_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
@@ -17,7 +17,7 @@ TASK_IDS = re.compile("(?=(" + TASK_ID.pattern + "))")
 
 
 class ReadIndex:
-    def __init__(self, c, who):
+    def __init__(self, c, who, rooms=False):
         privacy.snapshot(c)
         self.c, self.who = c, who
         self.principals = privacy.actor(who)
@@ -45,6 +45,20 @@ class ReadIndex:
         # Noncanonical ids keep the full structured check rather than compiling
         # an alternation that grows with the private-task inventory.
         self.uuid_denied = all(TASK_ID.fullmatch(tid) for tid in self.denied)
+        # A caller that checks every room (SQL) finds the few rooms with meeting provenance once. Every other
+        # room's meeting set is empty, which reads as allowed, so it needs no lookup per room.
+        self.bound_rooms = self.meeting_rooms = None
+        if rooms:
+            self.bound_rooms = {row[0] for row in c.execute(
+                "SELECT id FROM conversations WHERE substr(room_key,1,?)=?", (len(ROOM_PREFIX), ROOM_PREFIX))}
+            self.meeting_rooms = set(self.bound_rooms)
+            if c.execute("SELECT 1 FROM live_meeting_turns LIMIT 1").fetchone():
+                # The legacy keeper inputs live_privacy.Sources reads room by room, for every room at once.
+                self.meeting_rooms.update(row[0] for row in c.execute(
+                    "SELECT DISTINCT m.conversation_id FROM messages m JOIN live_meeting_turns t "
+                    "ON t.id=json_extract(m.refs_json,'$.live_meeting.turn_id') "
+                    "AND t.meeting_id=json_extract(m.refs_json,'$.live_meeting.meeting_id') "
+                    "WHERE m.from_actor=? AND m.to_actor='bot:'||t.bot", (H.KEEPER,)))
 
     @cached_property
     def task_ids(self):
@@ -90,10 +104,18 @@ class ReadIndex:
                 and self.meetings.readable(self.principals, self.meetings.references(value)))
 
     def conversation(self, cid):
+        if self.meeting_rooms is not None and cid not in self.meeting_rooms:
+            return True
         return self.meetings.conversation_readable(self.principals, cid)
 
     def meeting_room(self, cid):
-        return self.meetings.bound_conversation(cid) and self.conversation(cid)
+        bound = cid in self.bound_rooms if self.bound_rooms is not None else self.meetings.bound_conversation(cid)
+        return bound and self.conversation(cid)
+
+    def unreadable_rooms(self):
+        """Rooms whose plain messages a caller may not read: an unreadable meeting room, or a room of a denied or
+        unknown task. Small, unlike the rooms themselves."""
+        return {cid for cid in self.conversation_tasks if not self._plain_room(cid)}
 
     def attempts(self):
         if self._attempts is None:
