@@ -44,8 +44,6 @@ for its turns. Upgraded runners opt in after a successful heartbeat and keep the
 
 ### The turn fixer
 
-**Unreleased.**
-
 A built-in system routine, **Turn fixer**, checks every computer every 10 seconds. It is plain code: no AI and no
 cost. It frees only turns that are proven dead: a start a person stopped, or a turn whose lease is lost and whose
 computer no longer runs its bot (the computer was removed, or its latest claim does not list the bot). A slow reply or
@@ -82,7 +80,7 @@ Below the stop level, eligible waiting work starts in order across computers. Wo
 Below the warning level, Health marks the incident resolved and records the time. Crossing the warning again opens a new incident.
 The Health record works even when the optional [Health Monitor](health-monitor.md) is off.
 
-These settings provide the warning record and start limit. The separate automatic fixer has not shipped with these settings.
+These settings provide the warning record and start limit. See [The turn fixer](#the-turn-fixer) for automatic recovery.
 The company-limit message does not confirm that an automatic repair has run.
 
 ### Change the company turn levels
