@@ -1464,6 +1464,8 @@ def view(c, who, settings, auth, github, config):
             said.append("gave up on events for " + ", ".join(hooks["failed"][:3]) + (f" and {len(hooks['failed']) - 3} more" if len(hooks["failed"]) > 3 else ""))
         if hooks["flaky"]:
             said.append("more than half of the attempts to " + ", ".join(hooks["flaky"][:3]) + " failed")
+        if hooks["disabled"]:
+            said.append("turned off " + ", ".join(hooks["disabled"][:3]) + " after five days of failed attempts")
         if hooks["skipped"]:
             said.append(f"{hooks['skipped']} events skipped endpoints past the limit of {webhooks.MAX_PER_EVENT} per event")
         if said:

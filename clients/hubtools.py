@@ -2554,12 +2554,12 @@ def trigger_show(api, args):
     return api.get(f"triggers/{args['id']}")["trigger"]
 
 
-@tool("hub_trigger_update", "Change a trigger: `name`; `preset` (none, hmac, github, standard, stripe: how calls are "
+@tool("hub_trigger_update", "Change a trigger: `name`; `preset` (none, hmac, github, standard, stripe, slack: how calls are "
       "verified; needs a signing secret, see hub_trigger_sign); `type_from` (a header name or a JSON pointer such as "
       "/type; empty uses the preset's default); `hourly` (1-600); `keep_days` (1-30: how long calls can be read and "
       "run again); `unheard` (log, or note: tell the maker, at most hourly, when no routine or rule acted). The owner, "
       "whoever made it and BotOps.",
-      {**TRIGGER, "name": _s("New name"), "preset": {"type": "string", "enum": list(("none", "hmac", "github", "standard", "stripe"))},
+      {**TRIGGER, "name": _s("New name"), "preset": {"type": "string", "enum": list(("none", "hmac", "github", "standard", "stripe", "slack"))},
        "type_from": _s("A header name or a JSON pointer starting with /; empty for the preset's default"),
        "hourly": {"type": "integer", "minimum": 1, "maximum": 600},
        "keep_days": {"type": "integer", "minimum": 1, "maximum": 30},
@@ -2579,7 +2579,7 @@ def trigger_rotate(api, args):
 @tool("hub_trigger_sign", "Verify every call to a trigger. `preset`: hmac (GitHub's X-Hub-Signature-256 or X-Signature), "
       "github, standard (Standard Webhooks; the secret is whsec_ and base64) or stripe; the current preset, else hmac, "
       "when empty. `secret` is the one the sender gave you; empty makes a new one, returned once. `off` stops checking.",
-      {**TRIGGER, "preset": {"type": "string", "enum": ["hmac", "github", "standard", "stripe"]},
+      {**TRIGGER, "preset": {"type": "string", "enum": ["hmac", "github", "standard", "stripe", "slack"]},
        "secret": _s("The sender's signing secret, 16+ characters; empty makes one"),
        "off": {"type": "boolean", "description": "true stops checking signatures"}},
       required=("id",), writes=True)
@@ -2609,6 +2609,16 @@ def trigger_deliveries(api, args):
       required=("id", "delivery"))
 def trigger_delivery(api, args):
     return api.get(f"triggers/{args['id']}/deliveries/{_delivery_path(args['delivery'])}", part=args.get("part") or 1)["delivery"]
+
+
+@tool("hub_trigger_recover", "Run again, under the trigger's current secret and preset, every call refused in the last "
+      "`since` hours (1-720, default 24) whose body is still kept: after a secret was fixed, the calls it refused are not lost. "
+      "Each keeps its delivery id, so a later retry by the sender is a duplicate. The answer counts found, recovered, "
+      "duplicate and still_refused. Whoever manages the trigger.",
+      {**TRIGGER, "since": {"type": "integer", "minimum": 1, "maximum": 720, "description": "Hours back (default 24)"}},
+      required=("id",), writes=True)
+def trigger_recover(api, args):
+    return api.post(f"triggers/{args['id']}/recover", {"since_hours": args.get("since") or 24}, key=_key(args))["recover"]
 
 
 @tool("hub_trigger_replay", "Run one stored call again: its routines and rules start as a new occurrence "
@@ -3183,8 +3193,10 @@ _RULE_FIELDS = {
                                               "For a webhook event only trigger (the webhook's id) and type (order.* "
                                               "matches a prefix)"},
     "params": {"type": "object", "description": "An action rule names params.action: close, move_step, set_wait, relate, "
-                                                "note, wake_bot {bot, text} or send_webhook {webhook, type, data}; text and "
-                                                "data may hold {{path}} placeholders (data.order, type, trigger.name). "
+                                                "note, wake_bot {bot, text}, send_webhook {webhook, type, data}, "
+                                                "create_task {owner (a bot), title, body} or forward {webhook} (the last two "
+                                                "only on webhook.received); text, data, title and body may hold {{path}} "
+                                                "placeholders (data.order, type, trigger.name). "
                                                 "A wake rule for an event with no task names params.bot and params.text"},
     "on": {"type": "boolean", "description": "false turns the rule off"},
     "position": {"type": "integer", "minimum": 0, "description": "Order inside its scope; lower first"},
@@ -3222,6 +3234,41 @@ _WEBHOOK_EVENTS = {"type": "array", "items": {"type": "string"},
                    "description": "Event names (`task.done`), groups (`task.*`) or `*`; see hub_event_types"}
 
 
+_WEBHOOK_FILTER = {"type": "object", "description": "Which events the endpoint gets, beyond its event names: departments, bots "
+                   "(slugs) and task_types (ids or names), each a list; empty or missing means all. Applies to events about a "
+                   "task or a bot; the rest (a release, a health finding) always pass",
+                   "properties": {"departments": {"type": "array", "items": {"type": "string"}},
+                                  "bots": {"type": "array", "items": {"type": "string"}},
+                                  "task_types": {"type": "array", "items": {"type": "string"}}}}
+_WEBHOOK_HEADERS = {"type": "array", "maxItems": 10, "description": "Up to 10 custom headers sent with every post, replacing the "
+                    "list. A `secret` header's value is sealed and never shown again: leave `value` out to keep it. Tico sets "
+                    "webhook-*, host, content-length, content-type, transfer-encoding and connection itself",
+                    "items": {"type": "object", "properties": {"name": {"type": "string"}, "value": {"type": "string"},
+                                                              "secret": {"type": "boolean"}}, "required": ["name"]}}
+
+
+def webhook_options(fields):
+    """The CLI's flags as the tool's arguments: `--departments/--bots/--task-types` become `filter`, `--header` and
+    `--secret-header` ("Name: value") become `headers`; `--no-filter` and `--no-headers` clear them."""
+    picked = {k: fields.pop(k) for k in ("departments", "bots", "task_types") if k in fields}
+    if picked:
+        fields["filter"] = picked
+    if fields.pop("no_filter", False):
+        fields["filter"] = {}
+    headers = []
+    for flag, secret in (("header", False), ("secret_header", True)):
+        for text in fields.pop(flag, None) or []:
+            name, colon, value = text.partition(":")
+            if not colon and not secret:
+                raise ValueError(f"--header is Name: value, not {text!r}")
+            headers.append({"name": name.strip(), "secret": secret, **({"value": value.strip()} if colon else {})})
+    if headers:
+        fields["headers"] = headers
+    if fields.pop("no_headers", False):
+        fields["headers"] = []
+    return fields
+
+
 def _hook_path(args, *tail):
     from urllib.parse import quote
     return "/".join(["webhooks", quote(args["id"], safe=""), *tail])
@@ -3241,9 +3288,10 @@ def webhook_list(api, args):
       {"name": _s("What it is for"), "url": _s("The https address Tico posts to"), "events": _WEBHOOK_EVENTS,
        "rate_per_hour": {"type": "integer", "minimum": 1, "description": "Most sends an hour (default 600); more wait"},
        "allow_http": {"type": "boolean", "description": "Owner only: allow plain http to this computer (localhost), for development"},
+       "filter": _WEBHOOK_FILTER, "headers": _WEBHOOK_HEADERS,
        "on_behalf_of": ON_BEHALF_OF}, required=("name", "url"), writes=True)
 def webhook_create(api, args):
-    body = {k: args[k] for k in ("name", "url", "events", "rate_per_hour", "allow_http") if args.get(k) is not None}
+    body = {k: args[k] for k in ("name", "url", "events", "rate_per_hour", "allow_http", "filter", "headers") if args.get(k) is not None}
     return _as_person(api, args.get("on_behalf_of")).post("webhooks", body, key=_key(args))
 
 
@@ -3253,14 +3301,16 @@ def webhook_show(api, args):
     return _as_person(api, args.get("on_behalf_of")).get(_hook_path(args))
 
 
-@tool("hub_webhook_update", "Change an endpoint's name, address, events or hourly rate (and, for the owner, the plain-http switch).",
+@tool("hub_webhook_update", "Change an endpoint's name, address, events, filter, custom headers or hourly rate (and, for the owner, the plain-http switch).",
       {"id": _s("The endpoint id"), "name": _s("New name"), "url": _s("New https address"), "events": _WEBHOOK_EVENTS,
        "rate_per_hour": {"type": "integer", "minimum": 1},
        "allow_http": {"type": "boolean", "description": "Owner only"},
+       "filter": _WEBHOOK_FILTER, "headers": _WEBHOOK_HEADERS,
        "expected_revision": {"type": "integer", "minimum": 1, "description": "The revision you read; a stale one answers 409"},
        "on_behalf_of": ON_BEHALF_OF}, required=("id",), writes=True)
 def webhook_update(api, args):
-    body = {k: args[k] for k in ("name", "url", "events", "rate_per_hour", "allow_http", "expected_revision") if args.get(k) is not None}
+    body = {k: args[k] for k in ("name", "url", "events", "rate_per_hour", "allow_http", "filter", "headers", "expected_revision")
+            if args.get(k) is not None}
     return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "update"), body, key=_key(args))
 
 
@@ -3322,6 +3372,30 @@ def webhook_retry(api, args):
     from urllib.parse import quote
     return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "sends", quote(args["send"], safe=""), "retry"),
                                                            {}, key=_key(args))
+
+
+@tool("hub_webhook_recover", "Send again every send that gave up since a date (`2026-10-20` or a time): same ids and bodies, so a "
+      "receiver that kept the first one drops the repeat. At most 500 at a time (`more` says run it again). The endpoint must be on.",
+      {"id": _s("The endpoint id"), "since": _s("A date like 2026-10-20, or a time"), "on_behalf_of": ON_BEHALF_OF},
+      required=("id", "since"), writes=True)
+def webhook_recover(api, args):
+    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "recover"), {"since": args["since"]}, key=_key(args))
+
+
+@tool("hub_webhook_replay", "Send the events since a date that this endpoint should have had and has no send for (it was added "
+      "late, or its filter changed). The same tests as a live event: its event names, its filter, and what its owner may read. "
+      "Events are kept 30 days. At most 500 at a time (`more`). The endpoint must be on.",
+      {"id": _s("The endpoint id"), "since": _s("A date like 2026-10-20, or a time"), "on_behalf_of": ON_BEHALF_OF},
+      required=("id", "since"), writes=True)
+def webhook_replay(api, args):
+    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "replay"), {"since": args["since"]}, key=_key(args))
+
+
+@tool("hub_webhook_enable", "Turn an endpoint back on. After Tico turned it off for failing (five days of failed attempts), "
+      "the answer's `recover` says the date to give hub_webhook_recover to send again what it held back.",
+      {"id": _s("The endpoint id"), "on_behalf_of": ON_BEHALF_OF}, required=("id",), writes=True)
+def webhook_enable(api, args):
+    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "enable"), {}, key=_key(args))
 
 
 @tool("hub_webhook_example", "Send an event type's example to one endpoint, to test the receiver (default `custom.example`).",

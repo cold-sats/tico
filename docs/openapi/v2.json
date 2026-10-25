@@ -18885,6 +18885,75 @@
         ]
       }
     },
+    "/api/v2/triggers/{trigger_id}/recover": {
+      "post": {
+        "summary": "Run again, under the current secret and preset, the calls refused in the last since_hours (1-720) whose body is kept; each keeps its delivery id",
+        "operationId": "recoverTrigger",
+        "parameters": [
+          {
+            "name": "trigger_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Trigger Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TriggerRecover"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Triggers"
+        ]
+      }
+    },
     "/api/v2/triggers/{trigger_id}/relay": {
       "post": {
         "summary": "Give a trigger an address through Tico Gateway; the answer carries the secret once (people who manage the trigger, and BotOps)",
@@ -19169,7 +19238,7 @@
     },
     "/api/v2/triggers/{trigger_id}/signing": {
       "post": {
-        "summary": "Verify calls with a preset (hmac, github, standard, stripe) or stop; the signing secret is shown once",
+        "summary": "Verify calls with a preset (hmac, github, standard, stripe, slack) or stop; the signing secret is shown once",
         "operationId": "signTrigger",
         "parameters": [
           {
@@ -20357,6 +20426,77 @@
         ]
       }
     },
+    "/api/v2/webhooks/{hook_id}/enable": {
+      "post": {
+        "summary": "Turn an endpoint back on; after an automatic turn-off the answer offers `recover` with the date to send again from",
+        "operationId": "enableWebhook",
+        "parameters": [
+          {
+            "name": "hook_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Hook Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookEnabled"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Webhooks"
+        ]
+      }
+    },
     "/api/v2/webhooks/{hook_id}/example": {
       "post": {
         "summary": "Send an event type's example to one endpoint",
@@ -20469,6 +20609,148 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/WebhookChanged"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Webhooks"
+        ]
+      }
+    },
+    "/api/v2/webhooks/{hook_id}/recover": {
+      "post": {
+        "summary": "Send again every send that gave up since a date (same ids and bodies)",
+        "operationId": "recoverWebhookSends",
+        "parameters": [
+          {
+            "name": "hook_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Hook Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookSince"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookRecovered"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Webhooks"
+        ]
+      }
+    },
+    "/api/v2/webhooks/{hook_id}/replay": {
+      "post": {
+        "summary": "Send the events since a date that the endpoint should have had and has no send for",
+        "operationId": "replayWebhookEvents",
+        "parameters": [
+          {
+            "name": "hook_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Hook Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookSince"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookReplayed"
                 }
               }
             }
@@ -20933,7 +21215,7 @@
     },
     "/api/v2/webhooks/{hook_id}/update": {
       "post": {
-        "summary": "Change the name, address, events, hourly rate or (owner only) the plain-http switch",
+        "summary": "Change the name, address, events, filter, custom headers, hourly rate or (owner only) the plain-http switch",
         "operationId": "updateWebhook",
         "parameters": [
           {
@@ -25574,6 +25856,37 @@
         ],
         "additionalProperties": true
       },
+      "FilterIn": {
+        "properties": {
+          "departments": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "Departments"
+          },
+          "bots": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "Bots"
+          },
+          "task_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "Task Types"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "FilterIn"
+      },
       "Goal": {
         "type": "object",
         "properties": {
@@ -27543,6 +27856,39 @@
         "type": "object",
         "title": "GroupUpdate",
         "description": "Rename a group, move it under another (`parent`; \"\" = top level), and add or remove teammates. A teammate\nadded to a group leaves the one it was in."
+      },
+      "HeaderIn": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "secret": {
+            "type": "boolean",
+            "title": "Secret",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "HeaderIn"
       },
       "Health": {
         "type": "object",
@@ -36207,6 +36553,20 @@
         ],
         "title": "TriggerCreate"
       },
+      "TriggerRecover": {
+        "properties": {
+          "since_hours": {
+            "type": "integer",
+            "maximum": 720.0,
+            "minimum": 1.0,
+            "title": "Since Hours",
+            "default": 24
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "TriggerRecover"
+      },
       "TriggerSigning": {
         "properties": {
           "secret": {
@@ -36230,7 +36590,7 @@
         "additionalProperties": false,
         "type": "object",
         "title": "TriggerSigning",
-        "description": "`secret` the sender was given (GitHub lets you type one); empty makes a new one. `preset` says how calls are\nchecked (hmac, github, standard, stripe; the current one, else hmac, when empty). `off` stops checking."
+        "description": "`secret` the sender was given (GitHub lets you type one); empty makes a new one. `preset` says how calls are\nchecked (hmac, github, standard, stripe, slack; the current one, else hmac, when empty). `off` stops checking."
       },
       "TriggerUpdate": {
         "properties": {
@@ -37326,6 +37686,29 @@
               "pending"
             ],
             "additionalProperties": true
+          },
+          "filter": {
+            "type": "object",
+            "description": "departments, bots, task_types; an empty list means all"
+          },
+          "headers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "name, secret, and value unless secret (then set: true)"
+            }
+          },
+          "disabled_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "disabled_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -37333,8 +37716,12 @@
           "can_change",
           "created",
           "created_by",
+          "disabled_at",
+          "disabled_reason",
           "enabled",
           "events",
+          "filter",
+          "headers",
           "host",
           "id",
           "last_7_days",
@@ -37394,6 +37781,24 @@
             "type": "boolean",
             "title": "Allow Http",
             "default": false
+          },
+          "filter": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FilterIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "headers": {
+            "items": {
+              "$ref": "#/components/schemas/HeaderIn"
+            },
+            "type": "array",
+            "maxItems": 10,
+            "title": "Headers"
           }
         },
         "additionalProperties": false,
@@ -37417,6 +37822,26 @@
           }
         },
         "required": [],
+        "additionalProperties": true
+      },
+      "WebhookEnabled": {
+        "type": "object",
+        "properties": {
+          "webhook": {
+            "$ref": "#/components/schemas/Webhook"
+          },
+          "recover": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "{since, failed} after an automatic turn-off"
+          }
+        },
+        "required": [
+          "recover",
+          "webhook"
+        ],
         "additionalProperties": true
       },
       "WebhookExample": {
@@ -37467,6 +37892,30 @@
         "required": [
           "queued",
           "type"
+        ],
+        "additionalProperties": true
+      },
+      "WebhookRecovered": {
+        "type": "object",
+        "properties": {
+          "webhook": {
+            "type": "string"
+          },
+          "since": {
+            "type": "string"
+          },
+          "recovered": {
+            "type": "integer"
+          },
+          "more": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "more",
+          "recovered",
+          "since",
+          "webhook"
         ],
         "additionalProperties": true
       },
@@ -37595,6 +38044,34 @@
         },
         "required": [
           "relay"
+        ],
+        "additionalProperties": true
+      },
+      "WebhookReplayed": {
+        "type": "object",
+        "properties": {
+          "webhook": {
+            "type": "string"
+          },
+          "since": {
+            "type": "string"
+          },
+          "checked": {
+            "type": "integer"
+          },
+          "queued": {
+            "type": "integer"
+          },
+          "more": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "checked",
+          "more",
+          "queued",
+          "since",
+          "webhook"
         ],
         "additionalProperties": true
       },
@@ -37738,6 +38215,22 @@
         ],
         "additionalProperties": true
       },
+      "WebhookSince": {
+        "properties": {
+          "since": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Since"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "since"
+        ],
+        "title": "WebhookSince"
+      },
       "WebhookUpdate": {
         "properties": {
           "name": {
@@ -37804,6 +38297,31 @@
               }
             ],
             "title": "Allow Http"
+          },
+          "filter": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FilterIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "headers": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/HeaderIn"
+                },
+                "type": "array",
+                "maxItems": 10
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Headers"
           },
           "expected_revision": {
             "anyOf": [

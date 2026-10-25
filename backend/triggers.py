@@ -71,12 +71,14 @@ UNHEARD = ("log", "note")
 NOTE_EVERY_HOURS = 1             # a trigger tells its maker at most this often that nothing listened
 REPLAY = ":replay:"              # a re-run delivery is `<delivery>:replay:<n>`
 SWEEP_BATCH = 2000
+MAX_RECOVER_HOURS = 30 * 24      # how far back a recovery may reach (a refused call is kept at most MAX_KEEP_DAYS)
+RECOVER_BATCH = 200              # refused calls one recovery re-runs; `more` says another round waits
 
 
 @dataclass
 class Received:
     """What one call to a trigger came to; every outcome is final (the Gateway relay acks after the commit)."""
-    outcome: str                 # accepted | duplicate | refused | rate_limited | not_found
+    outcome: str                 # accepted | duplicate | refused | rate_limited | not_found | challenge
     status: int                  # the HTTP status a direct sender gets
     delivery: Optional[str]
     reason: Optional[str]
@@ -84,6 +86,7 @@ class Received:
     rules: list = field(default_factory=list)
     type: str = ""
     code: str = ""               # the error code a direct sender's refusal carries
+    answer: str = ""             # what a direct sender is answered with before the call counts (a Slack challenge)
 
 
 class TriggerCreate(Contract):
@@ -93,11 +96,15 @@ class TriggerCreate(Contract):
 
 class TriggerSigning(Contract):
     """`secret` the sender was given (GitHub lets you type one); empty makes a new one. `preset` says how calls are
-    checked (hmac, github, standard, stripe; the current one, else hmac, when empty). `off` stops checking."""
+    checked (hmac, github, standard, stripe, slack; the current one, else hmac, when empty). `off` stops checking."""
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=False)   # the sender signs with it exactly as typed
     secret: str = Field(default="", max_length=200)
     preset: str = Field(default="", max_length=20)
     off: bool = False
+
+
+class TriggerRecover(Contract):
+    since_hours: int = Field(default=24, ge=1, le=MAX_RECOVER_HOURS)
 
 
 class TriggerUpdate(Contract):
@@ -328,9 +335,10 @@ def deliveries(c, trigger_id):
         "SELECT delivery,sent_id,received_at,bytes,tasks,outcome,reason,type,via,rules FROM trigger_deliveries "
         "WHERE trigger_id=? ORDER BY received_at DESC LIMIT ?", (trigger_id, LOGGED)).fetchall()]
     now = H.now()
-    for r in rows:     # whether the call can still be read and run again
+    for r in rows:     # whether the call can still be read and run again; a refused row's call is kept under the id it carried
+        key = r["sent_id"] if r["outcome"] == "refused" and r["sent_id"] else base_of(r["delivery"])
         r["stored"] = bool(c.execute("SELECT 1 FROM trigger_bodies WHERE trigger_id=? AND delivery=? AND expires_at>?",
-                                     (trigger_id, base_of(r["delivery"]), now)).fetchone())
+                                     (trigger_id, key, now)).fetchone())
     return rows
 
 
@@ -344,12 +352,25 @@ def _log(c, trigger_id, delivery, sent_id, body, fired, outcome, reason="", *, t
               (trigger_id, outcome, trigger_id, outcome, KEEP))
 
 
-def _refused(c, trigger_id, sent_id, body, status, code, reason, via, outcome="refused"):
-    """Log a refused delivery (at most HOURLY an hour) and say so; the caller commits, then answers."""
+def _refused(c, found, ident, body, headers, at, status, code, reason, via, secret=None, outcome="refused",
+             recovering=False):
+    """Log a refused delivery (at most HOURLY an hour), keep its call so `recover` can run it again, and say so; the
+    caller commits, then answers. `ident` is the id the call would have had. A recovery logs nothing."""
+    trigger_id = found["id"]
     hour = c.execute("SELECT count(*) FROM trigger_deliveries WHERE trigger_id=? AND outcome='refused' AND received_at>?",
                      (trigger_id, H.shift(H.now(), hours=-1))).fetchone()[0]
-    if hour < HOURLY:
-        _log(c, trigger_id, H.new_id(), sent_id, body, 0, "refused", reason, via=via)
+    if hour < HOURLY and not recovering:
+        _log(c, trigger_id, H.new_id(), ident, body, 0, "refused", reason, via=via)
+        # Kept under the id the call carries, so the sender's retry or a recovery replaces it; never over an accepted call.
+        c.execute("INSERT INTO trigger_bodies(trigger_id,delivery,received_at,expires_at,type,via,headers_json,body,outcome) "
+                  "VALUES(?,?,?,?,'',?,?,?,'refused') ON CONFLICT(trigger_id,delivery) DO UPDATE SET "
+                  "received_at=excluded.received_at,expires_at=excluded.expires_at,via=excluded.via,"
+                  "headers_json=excluded.headers_json,body=excluded.body WHERE trigger_bodies.outcome='refused'",
+                  (trigger_id, ident, at, H.shift(at, days=found["keep_days"]), via,
+                   json.dumps(P.kept_headers(headers, secret)), body))
+        c.execute("DELETE FROM trigger_bodies WHERE trigger_id=? AND outcome='refused' AND delivery NOT IN "
+                  "(SELECT delivery FROM trigger_bodies WHERE trigger_id=? AND outcome='refused' "
+                  "ORDER BY received_at DESC LIMIT ?)", (trigger_id, trigger_id, KEEP))
     return Received(outcome, status, None, reason, code=code)
 
 
@@ -444,8 +465,11 @@ def _route(c, found, delivery, type_, via, body, headers, auth):
     content = content_of(body, headers.get("content-type"))
     cut = len(_text_of(body, headers.get("content-type"))) > MAX_CONTENT
     shown = content + (f"\nThe rest: hub trigger delivery {trigger_id} {delivery} --part 2" if cut else "")
+    payload = _payload_of(body)
     fired = routines.emit(c, event_of(trigger_id), delivery, {"trigger": found["name"], "type": type_},
-                          content=shown, auth=auth)
+                          content=shown, auth=auth,
+                          values={"payload": payload, "data": payload, "type": type_,
+                                  "trigger": {"id": trigger_id, "name": found["name"]}})
     if builtin(trigger_id):
         # A notice from Tico Team is judged once, as `tico.notice`; `webhook.received` is for senders outside Tico.
         return fired, tico_notices.arrived(c, found, delivery, type_, via, body, _payload_of(body), content, _judge)
@@ -475,40 +499,47 @@ def _unheard(c, found, delivery, type_):
 
 
 def receive(c, trigger_id: str, body: bytes, headers: Mapping[str, str], *, secret: Optional[str], via: str = "direct",
-            delivery_id: Optional[str] = None, received_at: Optional[str] = None, auth=None, vault=None) -> Received:
+            delivery_id: Optional[str] = None, received_at: Optional[str] = None, auth=None, vault=None,
+            recovering: bool = False) -> Received:
     """What one call to a trigger does, once its address is known. Runs in the caller's write transaction; a refusal
     worth logging is logged and comes back as a Received for the caller to answer after the commit.
 
     `via="gateway"`: HQ checked the address secret and its own hourly cap, so `secret` is None and neither is checked
-    here; the signature, dedupe, storage, routines and rules run as for a direct call."""
+    here; the signature, dedupe, storage, routines and rules run as for a direct call.
+
+    `recovering`: `recover` re-runs a refused call under the current secret. The address was checked when the call
+    first came, the hourly cap does not apply, and a call that is refused again is not logged again."""
     headers = P.lowered(headers)
     found = c.execute("SELECT * FROM triggers WHERE id=? AND deleted_at IS NULL", (trigger_id,)).fetchone()
-    if not found or (via == "direct" and (builtin(trigger_id) or
+    if not found or (via == "direct" and not recovering and (builtin(trigger_id) or
             not secret or not hmac.compare_digest(found["secret_hash"], digest(secret)))):
         return Received("not_found", 404, None, "Not found")
     sender = P.sender_id(headers)
     if len(body) > MAX_BODY:
         return Received("refused", 413, None, f"A webhook body is at most {MAX_BODY // 1024} KB", code="too_large")
     at = received_at or H.now()
+    delivery = delivery_id or sender or P.fallback_id(headers, body, at)
     preset = effective_preset(found)
     if preset != "none":
         if vault is None:
-            return _refused(c, trigger_id, sender, body, 503, "vault_unavailable",
-                            "This trigger's signing secret cannot be read here", via)
+            return _refused(c, found, delivery, body, headers, at, 503, "vault_unavailable",
+                            "This trigger's signing secret cannot be read here", via, secret, recovering=recovering)
         key = vault.cipher.unseal(c, sealed_as(trigger_id), found["signing_secret"])
         ok, why = P.verify(preset, headers, body, key, H.parse_ts(at).timestamp())
         if not ok:
-            return _refused(c, trigger_id, sender, body, 401, "signature", why, via)
-    delivery = delivery_id or sender or P.fallback_id(headers, body, at)
+            return _refused(c, found, delivery, body, headers, at, 401, "signature", why, via, secret,
+                            recovering=recovering)
+        if preset == "slack" and (challenge := P.slack_challenge(body)) is not None:
+            return Received("challenge", 200, None, None, answer=challenge)      # a handshake, not a delivery
     if c.execute("SELECT 1 FROM trigger_seen WHERE trigger_id=? AND delivery=?", (trigger_id, delivery)).fetchone():
         return Received("duplicate", 200, delivery, None)
     cap = hourly_of(found)
-    if via == "direct" and c.execute(
+    if via == "direct" and not recovering and c.execute(
             # The ledger, not the log: the log keeps only KEEP rows, fewer than the largest cap.
             "SELECT count(*) FROM trigger_seen WHERE trigger_id=? AND seen_at>? AND instr(delivery,?)=0",
             (trigger_id, H.shift(H.now(), hours=-1), REPLAY)).fetchone()[0] >= cap:
-        return _refused(c, trigger_id, sender, body, 429, "rate_limited",
-                        f"This trigger takes {cap} deliveries an hour; try again later", via, "rate_limited")
+        return _refused(c, found, delivery, body, headers, at, 429, "rate_limited",
+                        f"This trigger takes {cap} deliveries an hour; try again later", via, secret, "rate_limited")
     type_ = P.type_of(type_spec(found), headers, body)
     c.execute("INSERT INTO trigger_seen(trigger_id,delivery,seen_at) VALUES(?,?,?)", (trigger_id, delivery, at))
     c.execute("INSERT OR REPLACE INTO trigger_bodies(trigger_id,delivery,received_at,expires_at,type,via,headers_json,body) "
@@ -524,11 +555,20 @@ def receive(c, trigger_id: str, body: bytes, headers: Mapping[str, str], *, secr
 
 def replay(c, who, auth, trigger_id, delivery):
     """Run one stored delivery again: routines and rules see it as `<delivery>:replay:<n>`, a new occurrence, and the
-    original is left as it was. Refused once its body has expired."""
+    original is left as it was. Refused once its body has expired, and for a call that was refused when it came (that
+    one is recovered, so it is checked again)."""
+    _no_change(trigger_id, "run again")
     found = _row(c, trigger_id)
     may_manage(c, who, found)
     base = base_of(delivery)
+    refused = c.execute("SELECT sent_id FROM trigger_deliveries WHERE trigger_id=? AND delivery=? AND outcome='refused'",
+                        (trigger_id, base)).fetchone()
+    if refused and refused["sent_id"]:
+        base = refused["sent_id"]
     stored = c.execute("SELECT * FROM trigger_bodies WHERE trigger_id=? AND delivery=?", (trigger_id, base)).fetchone()
+    if stored and stored["outcome"] == "refused":
+        raise Problem("refused", "This call was refused when it came. Recover it (hub trigger recover) to check it again "
+                                 "under the current secret", 409)
     if not stored:
         if c.execute("SELECT 1 FROM trigger_deliveries WHERE trigger_id=? AND delivery=?", (trigger_id, base)).fetchone():
             raise Problem("expired", "This call's body is no longer kept, so it cannot be run again", 410)
@@ -546,6 +586,47 @@ def replay(c, who, auth, trigger_id, delivery):
          type=stored["type"], via=stored["via"], rules=len(results))
     H.event(c, who.actor, "trigger.replayed", trigger_id, {"delivery": base, "replay": again, "tasks": len(fired)})
     return {"delivery": again, "of": base, "tasks": len(fired), "rules": len(results)}
+
+
+def recover(c, who, auth, vault, trigger_id, since_hours=24):
+    """Run again, under the trigger's current secret and preset, every call refused in the last `since_hours` whose body
+    is still kept (the secret was typed wrong, the preset was the wrong one). Each is judged as it was when it came: a
+    timestamped signature is checked against the time it arrived. A call that passes now keeps its own delivery id,
+    so the sender's later retry is a duplicate. One that still fails stays as it was. At most RECOVER_BATCH a round."""
+    _no_change(trigger_id, "recovered")
+    found = _row(c, trigger_id)
+    if who.role not in ("human", "owner"):
+        raise Problem("forbidden", "Only a person who manages this trigger recovers its refused calls", 403)
+    may_manage(c, who, found)
+    if not 1 <= since_hours <= MAX_RECOVER_HOURS:
+        raise Problem("trigger", f"Recover reaches back 1 to {MAX_RECOVER_HOURS} hours", 422)
+    now = H.now()
+    rows = c.execute("SELECT * FROM trigger_bodies WHERE trigger_id=? AND outcome='refused' AND received_at>=? AND "
+                     "expires_at>? ORDER BY received_at, delivery LIMIT ?",
+                     (trigger_id, H.shift(now, hours=-since_hours), now, RECOVER_BATCH + 1)).fetchall()
+    out = {"trigger": trigger_id, "since_hours": since_hours, "found": min(len(rows), RECOVER_BATCH), "recovered": 0,
+           "duplicate": 0, "still_refused": 0, "more": len(rows) > RECOVER_BATCH}
+    for row in rows[:RECOVER_BATCH]:
+        c.execute("SAVEPOINT trigger_recover")
+        try:
+            got = receive(c, trigger_id, bytes(row["body"]), json.loads(row["headers_json"] or "{}"), secret=None,
+                          via=row["via"], received_at=row["received_at"], auth=auth, vault=vault, recovering=True)
+            c.execute("RELEASE trigger_recover")
+        except Exception:
+            c.execute("ROLLBACK TO trigger_recover")
+            c.execute("RELEASE trigger_recover")
+            got = Received("refused", 500, None, "failed")
+        if got.outcome in ("accepted", "duplicate", "challenge"):
+            # Accepted put its own row under this id; a duplicate or challenge leaves the refused one to mark spent.
+            c.execute("UPDATE trigger_bodies SET outcome='recovered' WHERE trigger_id=? AND delivery=? AND outcome='refused'",
+                      (trigger_id, row["delivery"]))
+            c.execute("UPDATE trigger_deliveries SET reason=reason||' (recovered)' WHERE trigger_id=? AND sent_id=? AND "
+                      "outcome='refused' AND reason NOT LIKE '%(recovered)'", (trigger_id, row["delivery"]))
+        key = {"accepted": "recovered", "duplicate": "duplicate"}.get(got.outcome, "still_refused")
+        out[key] += 1 if got.outcome != "challenge" else 0
+    H.event(c, who.actor, "trigger.recovered", trigger_id,
+            {k: out[k] for k in ("since_hours", "found", "recovered", "duplicate", "still_refused")})
+    return out
 
 
 def _delivery_match(column, base):
@@ -573,9 +654,11 @@ def read(c, who, trigger_id, delivery, part=1):
     base = base_of(delivery)
     allowed = (who.role in ("human", "owner") and manages(who, found)) or (
         who.role == "bot" and (manages(who, found) or given_to(c, who.actor, trigger_id, base)))
-    stored = c.execute("SELECT * FROM trigger_bodies WHERE trigger_id=? AND delivery=?", (trigger_id, base)).fetchone()
     logged = c.execute("SELECT * FROM trigger_deliveries WHERE trigger_id=? AND delivery=?", (trigger_id, delivery)).fetchone() \
         or c.execute("SELECT * FROM trigger_deliveries WHERE trigger_id=? AND delivery=?", (trigger_id, base)).fetchone()
+    if logged and logged["outcome"] == "refused" and logged["sent_id"]:
+        base = logged["sent_id"]                    # a refused call is kept under the id it carried
+    stored = c.execute("SELECT * FROM trigger_bodies WHERE trigger_id=? AND delivery=?", (trigger_id, base)).fetchone()
     if not allowed or not (stored or logged):
         raise Problem("not_found", "Delivery not found", 404)
     row = dict(logged) if logged else {}
@@ -669,7 +752,7 @@ def install(app, settings, store, auth, mutate):
 
     @app.post("/api/v2/triggers/{trigger_id}/signing")
     def trigger_signing(request: Request, trigger_id: str, body: TriggerSigning):
-        """Verify each delivery with a preset (hmac, github, standard, stripe), or stop with `off`. The secret is shown only now."""
+        """Verify each delivery with a preset (hmac, github, standard, stripe, slack), or stop with `off`. The secret is shown only now."""
         return once(request, body, lambda c: sign(c, request.state.identity, request.app.state.vault, trigger_id, body))
 
     @app.get("/api/v2/triggers/{trigger_id}/deliveries")
@@ -692,6 +775,12 @@ def install(app, settings, store, auth, mutate):
         with store.read() as c:
             return {"delivery": read(c, who, trigger_id, delivery, part)}
 
+    @app.post("/api/v2/triggers/{trigger_id}/recover")
+    def trigger_recover(request: Request, trigger_id: str, body: TriggerRecover):
+        """Run again, under the current secret and preset, every refused call of the last `since_hours` that is still kept."""
+        return mutate(request, body, lambda c: {"recover": recover(
+            c, request.state.identity, auth, getattr(request.app.state, "vault", None), trigger_id, body.since_hours)})
+
     @app.post("/api/v2/triggers/{trigger_id}/delete")
     def trigger_delete(request: Request, trigger_id: str, body: M.Empty):
         """Routines that listened for it stay, and fire again if the same id is made again."""
@@ -705,6 +794,8 @@ def install(app, settings, store, auth, mutate):
             return receive(c, trigger_id, body, headers, secret=secret, auth=auth, vault=vault)
 
     def answer(got):
+        if got.outcome == "challenge":
+            return JSONResponse({"challenge": got.answer}, status_code=200)
         if got.outcome == "accepted":
             return JSONResponse({"ok": True, "tasks": got.tasks, "delivery": got.delivery, "type": got.type,
                                  "rules": len(got.rules)}, status_code=202)

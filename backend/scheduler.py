@@ -460,6 +460,8 @@ class Scheduler:
                     rules.prune_events(c)                      # the webhook rules' repeat ledger keeps 30 days
                     from . import webhook_delivery
                     webhook_delivery.prune(c, stamp(at))       # outgoing webhooks: events and finished sends keep a month
+                    from . import webhooks
+                    webhooks.auto_disable(c, stamp(at))        # an endpoint that failed every attempt for five days is turned off
                 sweep_idempotency(self.store, stamp(at))
                 sweep_mail(self.store, stamp(at))
                 sweep_deltas(self.store, stamp(at))            # finished runs' streamed text pieces keep two weeks
