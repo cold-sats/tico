@@ -211,6 +211,39 @@ Stored keys, room-mode `shared`, independent copy routes and older runner payloa
 
 Public roadmap publication, requesters and anonymous endpoints are described in [Public roadmaps](roadmaps.md).
 
+## Outgoing webhooks
+
+Tico posts an event to an address you choose when something happens: a task is made, finishes or is blocked; an approval is
+asked or decided; a bot is held or fails; a release is published; and more. Settings has no page for them yet; use the API,
+`hub webhook` or the `hub_webhook_*` tools.
+
+```
+hub webhook create --name "Acme orders" --url https://hooks.acme.example/tico --events 'task.*' 'custom.*'
+```
+
+`POST /api/v2/webhooks` answers with the secret (`whsec_...`) once; keep it. `GET /api/v2/webhooks` lists endpoints with
+their delivered and failed counts for 7 days; `GET /api/v2/webhooks/{id}/sends` is the send log (state, attempts, last status,
+next try). Per endpoint: `update`, `rotate` (the old secret also signs for 24 hours), `pause`, `resume`, `delete`, `send`
+(a `custom.*` event), `example` (a sample of any event) and `sends/{id}/retry`.
+
+A delivery is a `POST` of
+
+```json
+{"type": "task.done", "version": 1, "timestamp": "2026-10-25T10:00:00Z", "data": {"id": "t_1", "title": "Ship it"},
+ "links": {"app": "https://tico.acme.example/#/task/t_1", "api": "https://tico.acme.example/api/v2/tasks/t_1"}}
+```
+
+signed as [Standard Webhooks](https://www.standardwebhooks.com): `webhook-id` (stable across retries), `webhook-timestamp`
+(fresh on each try) and `webhook-signature: v1,<base64 HMAC-SHA256>` over `id.timestamp.body` with the key in the secret.
+Delivery is at-least-once, so a receiver dedupes on `webhook-id`. Any `2xx` is delivered; `webhook-delivery: abort-message`
+cancels the send; anything else, redirects included (never followed), retries after 5 seconds, 5 minutes, 30 minutes, 2, 5 and
+10 hours, and 10 hours again, then fails and says so in Health and Needs you (once a day per endpoint). Each endpoint has
+`rate_per_hour` (600): sends over it wait, none are dropped. Events are kept 30 days.
+
+Addresses are checked on every try: `https` only (plain `http` for `localhost` when the owner allows it), no credentials in
+the address, no proxy, and every address the name resolves to must be public. The response is not read past 1 KB.
+Who may make and send is in [Permissions](permissions.md#outgoing-webhooks).
+
 ## Company inbound email and SMS
 
 Settings > More > Email & Phone opens Inbox's shared company message table (`#/settings/company-inbox`; existing

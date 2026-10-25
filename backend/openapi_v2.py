@@ -1374,6 +1374,51 @@ SCHEMAS.update({
     'InboundPhoneRequests': obj({'phone_requests':items({'type':'object'}),'next':{'type':['string','null']}}),
 })
 
+TAGS['Webhooks'] = "Outgoing webhooks: endpoints a person owns, the events Tico sends them, and each send's log (docs/webhooks.md)."
+STABLE.extend([
+    ('/api/v2/webhooks', 'get', 'Webhooks', 'listWebhooks', 'Your outgoing endpoints (an admin sees all) with 7-day '
+     'delivered, failed and pending counts; paged', 'WebhookList'),
+    ('/api/v2/webhooks', 'post', 'Webhooks', 'createWebhook', 'A person makes an endpoint; the secret is in the answer '
+     'once. A bot files an approval and the answer says so', 'WebhookCreated'),
+    ('/api/v2/webhooks/{hook_id}', 'get', 'Webhooks', 'getWebhook', 'One endpoint and its last ten attempts', 'WebhookShown'),
+    ('/api/v2/webhooks/{hook_id}/update', 'post', 'Webhooks', 'updateWebhook', 'Change the name, address, events, '
+     'hourly rate or (owner only) the plain-http switch', 'WebhookChanged'),
+    ('/api/v2/webhooks/{hook_id}/rotate', 'post', 'Webhooks', 'rotateWebhookSecret', 'A new secret, shown once; the old '
+     'one signs beside it for 24 hours', 'WebhookCreated'),
+    ('/api/v2/webhooks/{hook_id}/pause', 'post', 'Webhooks', 'pauseWebhook', 'Stop sending; queued sends wait', 'WebhookChanged'),
+    ('/api/v2/webhooks/{hook_id}/resume', 'post', 'Webhooks', 'resumeWebhook', 'Send again', 'WebhookChanged'),
+    ('/api/v2/webhooks/{hook_id}/delete', 'post', 'Webhooks', 'deleteWebhook', 'Delete the endpoint and cancel its '
+     'pending sends', None),
+    ('/api/v2/webhooks/{hook_id}/send', 'post', 'Webhooks', 'sendWebhook', 'A custom.<name> event to one endpoint: '
+     'people, and bots with sending on', 'WebhookQueued'),
+    ('/api/v2/webhooks/{hook_id}/example', 'post', 'Webhooks', 'sendWebhookExample', 'Send an event type\'s example '
+     'to one endpoint', 'WebhookQueued'),
+    ('/api/v2/webhooks/{hook_id}/sends', 'get', 'Webhooks', 'listWebhookSends', 'The send log, newest first: type, '
+     'subject, state, attempts, last status, next attempt', 'WebhookSends'),
+    ('/api/v2/webhooks/{hook_id}/sends/{send_id}', 'get', 'Webhooks', 'getWebhookSend', 'One send with its attempts', None),
+    ('/api/v2/webhooks/{hook_id}/sends/{send_id}/retry', 'post', 'Webhooks', 'retryWebhookSend', 'Try a failed or '
+     'cancelled send again now', None),
+])
+SCHEMAS.update({
+    'Webhook': obj({'id': 's', 'name': 's', 'url': 's', 'host': 's', 'events': items({'type': 'string'}), 'enabled': 'b',
+                    'paused_reason': 's', 'rate_per_hour': 'i', 'allow_http': 'b', 'created_by': 's',
+                    'requested_by': 'n', 'created': 's', 'updated': 's', 'revision': 'i', 'old_secret_until': 'n',
+                    'can_change': 'b', 'last_7_days': obj({'delivered': 'i', 'failed': 'i', 'pending': 'i'})}),
+    'WebhookSendRow': obj({'id': 's', 'webhook_id': 's', 'event_id': 's', 'type': 's', 'subject': 's', 'state': {
+        'enum': ['ready', 'sending', 'delivered', 'failed', 'cancelled', 'withheld']}, 'attempts': 'i',
+        'last_status': {'type': ['integer', 'null']}, 'last_error': 's', 'next_attempt': 'n', 'created': 's',
+        'delivered_at': 'n'}),
+})
+SCHEMAS.update({
+    'WebhookList': obj({'items': items(ref('Webhook')), 'more': 'b', 'next_offset': 'i'}, required=['items', 'more']),
+    'WebhookCreated': obj({'webhook': {**ref('Webhook'), 'description': 'With `secret` once; `replayed: true` on a retry, without it'},
+                           'approval': {'type': 'object', 'description': 'A bot\'s request: {id, status: pending}'}}, required=[]),
+    'WebhookShown': obj({'webhook': ref('Webhook'), 'recent_attempts': items({'type': 'object'})}),
+    'WebhookChanged': obj({'webhook': ref('Webhook')}),
+    'WebhookQueued': obj({'queued': 'i', 'type': 's'}),
+    'WebhookSends': obj({'items': items(ref('WebhookSendRow')), 'more': 'b', 'next_offset': 'i'}, required=['items', 'more']),
+})
+
 ANSWERS = SCHEMAS
 
 # Documentation for the two sign-in routes whose bodies the handlers read by hand.

@@ -1456,6 +1456,19 @@ def view(c, who, settings, auth, github, config):
                              "; ".join(f"{bot}: {DENIED_WARNING}{rest}" for bot, rest in denied[:3])
                              + ("." if len(denied) <= 3 else f"; and {len(denied) - 3} more."),
                              [_fix("Open bots", "#/settings", "bots")]))
+    if full:
+        from . import webhooks
+        hooks = webhooks.health_summary(c)
+        said = []
+        if hooks["failed"]:
+            said.append("gave up on events for " + ", ".join(hooks["failed"][:3]) + (f" and {len(hooks['failed']) - 3} more" if len(hooks["failed"]) > 3 else ""))
+        if hooks["flaky"]:
+            said.append("more than half of the attempts to " + ", ".join(hooks["flaky"][:3]) + " failed")
+        if hooks["skipped"]:
+            said.append(f"{hooks['skipped']} events skipped endpoints past the limit of {webhooks.MAX_PER_EVENT} per event")
+        if said:
+            checks.append(_check("webhooks", "Outgoing webhooks", "warn", "In the last 24 hours Tico " + "; ".join(said) + ".",
+                                 [_fix("Open webhooks", "#/settings", "webhooks")]))
     if full and (denies := _harness_denies_check(c, settings)):
         checks.append(denies)
     if full:
