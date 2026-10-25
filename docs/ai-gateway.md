@@ -227,10 +227,10 @@ cap; **Picks in use** (name, model, version or Auto, number of bots, price); and
 (Live, On request, Next, Later), price and the tools that use it. The key and the connect controls stay in
 **Settings → Computers → Models**, one link away.
 
-Services today: **Decide** and **Classify** (live), **Inbox** email addresses (live) and numbers (on request), and **Search**
-(live), with browsing, transcription, sending email, enrichment, voice and physical mail planned. Bots and agents read
+Services today: **Decide** and **Classify** (live), **Inbox** email addresses (live) and numbers (on request), **Search** and **Fetch**
+(live), with transcription, sending email, enrichment, voice and physical mail planned. Bots and agents read
 the same list with the `hub_gateway_catalog` tool and search the web with `hub_gateway_search` (`hub gateway catalog [query]`,
-`hub gateway search QUERY`); search is billed like Low tokens plus $0.00875 per answered search, from the same cap. The
+`hub gateway search QUERY`, `hub gateway fetch URL`); search is billed like Low tokens plus $0.00875 per answered search, from the same cap. `hub_gateway_fetch` reads a page or PDF by URL, billed like Low tokens plus $0.00125 per page. The
 skill is `skills/gateway/SKILL.md`.
 
 ## Credit and the minimum balance

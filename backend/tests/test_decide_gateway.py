@@ -593,9 +593,9 @@ def test_every_client_that_asks_for_a_decision_waits_longer_than_the_chain_takes
             return io.BytesIO(b"{}")
     monkeypatch.setattr(tico.urllib.request, "build_opener", lambda *args: Opener())
     hub = Client("https://hub.example", "lease", timeout=30)
-    for path in ("decisions", "gateway/search", "tasks"):
+    for path in ("decisions", "gateway/search", "gateway/fetch", "tasks"):
         hub.request("POST", "/api/v2/" + path, {})
-    assert opened == [("decisions", SLOW_WAIT), ("gateway/search", SLOW_WAIT), ("tasks", 30)]
+    assert opened == [("decisions", SLOW_WAIT), ("gateway/search", SLOW_WAIT), ("gateway/fetch", SLOW_WAIT), ("tasks", 30)]
     assert SLOW_WAIT > B.SLOW_CHAIN_SECONDS and "timeout=30)" in (ROOT / "clients" / "hubmcp.py").read_text()
 
 
