@@ -380,8 +380,10 @@ def classify(message):
     return "notice", "A Tico notice"
 
 
-def record(c, job, message):
-    """The wake a turn starts from, kept on its attempt: what woke it, the preset in force and how long it waited."""
+def record(c, job, message, bot=None):
+    """The wake a turn starts from, kept on its attempt: what woke it, the preset in force, the bot's profile then
+    (backend/profiles.py; its settings and the run show the profile, the preset stays for older clients) and how long
+    it waited."""
     cls, words = classify(message)
     if job["wake_class"] in (*BATCH_KINDS, "digest", "sweep"):
         cls = "sweep" if job["wake_class"] == "sweep" else "batched"
@@ -389,6 +391,10 @@ def record(c, job, message):
     name = job["wake_preset"] or CURRENT
     out = {"class": cls, "reason": words, "preset": name, "preset_label": LABELS.get(name, LABELS[CURRENT]),
            "event_at": message.get("created")}
+    if bot:
+        from . import profiles
+        out["profile"] = profiles.of_bot(c, bot)
+        out["profile_label"] = profiles.SPEC[out["profile"]]["label"]
     if job["hold_until"]:
         out["held_until"] = job["hold_until"]
     return out

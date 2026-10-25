@@ -96,7 +96,7 @@ New tasks and chats addressed to the original go to your active branch while bra
 People without an active branch reach the original. Selecting another person's branch addresses it directly, with the usual access checks.
 Existing task threads keep their participants and history.
 
-A branch follows the original's model, harness, runtime, effort, Compact at, session mode and fallback. Its editor changes only its status (and, coming soon, its own **Wakes**);
+A branch follows the original's model, harness, runtime, effort, Compact at, session mode and fallback. Its editor changes only its status and its **Profile**;
 change the original to change its definition. Every task is its own provider session by default, and chat keeps its own; `session: task` also gives each chat conversation its own, and `session: bot` keeps one session for everything. A subtask someone else files under the bot's task continues that task's session (one the bot files for itself gets its own) unless `subtask_session: own` (`hub bot update <slug> --subtask-session own`) gives each its own ([Sessions](sessions.md), [Tasks](tasks.md#subtasks-and-prs)).
 Routines run only on the original, including event routines. Archiving the original archives its branches, and restoring it restores
 those branches to their previous statuses with their work and computers preserved. Branches archived separately stay archived.
@@ -604,11 +604,12 @@ Levers set in **Settings → Bots**, not in the repository:
   **Responder**, **Monitor** or **Custom**; each choice has a line saying what it does ([Profiles](how-it-works.md#profiles)).
   A Doer holds nonblocking news (a request it asked for finished, review comments, a failing check nobody waits on) and
   sends it as one wake at most every 15 minutes, and runs an enabled routine or stall check at most every 15 minutes; a
-  Lead hears the same news once a day, at an hour you pick. A bot that was on **Token saver** is a Doer with a 30-minute
+  Lead hears the same news once a day, at the hour in **Digest at**. A bot that was on **Token saver** is a Doer with a 30-minute
   window (2 hours between sweeps); **Performance** became the plain Doer. In every profile, a person's message, a question,
   an approval and a gate verdict wake the bot at once, and only once when the same event repeats before its run is over.
-  **Custom** opens the Rules page filtered to this bot, with the profile's rows copied there to edit; choosing a named
-  profile again deletes them after a confirm. A profile turns on no routine, hook, subscription or permission, and leaves
+  **Custom** adds **Pulls**, **Takes** and **Sweeps**, and a **Wake rules** link to the Rules page filtered to this
+  bot, with the profile's rows copied there to edit; choosing a named profile again deletes them after a confirm that
+  says how many. A profile turns on no routine, hook, subscription or permission, and leaves
   Compact at alone. The line under the picker shows what the bot runs on. Each run in a task's **Runs** says what woke it.
   A branch picks its own. The old **Wakes** setting (`wake_preset`) is still read and set by older clients: it changes only
   the Doer's window.

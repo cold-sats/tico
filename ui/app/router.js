@@ -92,8 +92,11 @@ function route() {
   else if (S.route === '#/settings/storage') { SETTINGS_TAB = 'storage'; location.replace(SETTINGS); return; }   // Health's Set up S3
   // Settings > Rules; `?task=` narrows the wake rules to one task's (the task modal's Wake rules link).
   else if (S.route === '#/settings/rules' || S.route.startsWith('#/settings/rules?')) {
-    RULES_TASK = new URLSearchParams(S.route.split('?')[1] || '').get('task') || ''; RULES_TASK_TITLE = '';
-    SETTINGS_TAB = 'recurring'; SETTINGS_REVEAL = RULES_TASK ? '#set-rules-card' : ''; location.replace(SETTINGS); return;
+    // ?task=<id>, ?bot=<slug>, or the API's own scope_kind=task|bot&scope_id=<id>.
+    const q = new URLSearchParams(S.route.split('?')[1] || ''), kind = q.get('task') ? 'task' : q.get('bot') ? 'bot' : q.get('scope_kind');
+    const id = q.get('task') || q.get('bot') || q.get('scope_id') || '';
+    RULES_FOR = ['task', 'bot'].includes(kind) && id ? `${kind}:${id}` : ''; RULES_FOR_TITLE = '';
+    SETTINGS_TAB = 'recurring'; SETTINGS_REVEAL = RULES_FOR ? '#set-rules-card' : ''; location.replace(SETTINGS); return;
   }
   else if (S.route === '#/settings/routines') { SETTINGS_TAB = 'recurring'; location.replace(SETTINGS); return; }   // General > Team's moved switches
   else if (S.route === '#/settings/people') { SETTINGS_TAB = 'people'; location.replace(SETTINGS); return; }   // setup's people to invite

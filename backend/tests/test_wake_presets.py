@@ -262,6 +262,7 @@ def test_a_turn_records_its_wake_and_the_measures_count_it_by_preset(api):
     assert claim(api, machine)
     [run] = get(api, f"tasks/{task['id']}/run-view")["attempts"]
     assert run["wake"]["class"] == "assignment" and run["wake"]["preset_label"] == "Token saver"
+    assert run["wake"]["profile"] == "doer" and run["wake"]["profile_label"] == "Doer"   # what the run page shows
     measures = {p["preset"]: p for p in get(api, "wake-presets/measures?since=" + since)["presets"]}
     assert measures["token_saver"]["turns"] == 1 and measures["token_saver"]["pickup_seconds"]["immediate_p50"] is not None
     assert measures["token_saver"]["missed_actions"] == 0 and measures["performance"]["jobs"] == 0

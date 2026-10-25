@@ -939,8 +939,10 @@ class SettingsAdmin:
             except (ValueError, Problem, TypeError, KeyError):
                 # A field an older release wrote, or a bot deleted since: history still shows it.
                 current = None
-            value["can_undo"] = (row["field"] in ("owners", "co_owners", "model", "placement", "fallback", "access")
-                                 and not row["undone_at"] and current == value["after"])
+            value["can_undo"] = (row["field"] in ("owners", "co_owners", "model", "placement", "fallback", "access", "profile")
+                                 and not row["undone_at"] and current == value["after"]
+                                 # A profile change from a bot that had none has nothing to go back to (undo: 409).
+                                 and (row["field"] != "profile" or bool((value["before"] or {}).get("profile"))))
             changes.append(value)
         transitions = [self.get(c, who, row[0]) for row in c.execute(
             "SELECT id FROM bot_transitions ORDER BY created DESC LIMIT ?", (limit,))]

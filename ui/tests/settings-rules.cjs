@@ -26,6 +26,9 @@ function fixture(role) {
       enabled: true, revision: 1, can_change: change, runs_7d: 0, no_op_rate_7d: null},
   ];
 }
+// What a bot's own listing adds (backend/rules.py profile_listing): its profile's rows, built-in and read-only.
+const profileRows = [{id: 'profile_lead_blocker', scope_kind: 'bot', scope_id: 'ops', event: 'blocker', when: {}, then: 'wake', params: {},
+  enabled: true, built_in: true, group: 'profile', profile: 'lead', words: 'a blocker needs it', can_change: false, runs_7d: 1, no_op_rate_7d: 0}];
 const taskRow = {id: 'r-task', scope_kind: 'task', scope_id: 't-acme', event: 'comment', when: {}, then: 'ignore', params: {}, note: '',
   enabled: true, revision: 1, can_change: true, runs_7d: 2, no_op_rate_7d: 1};
 
@@ -57,7 +60,7 @@ async function open(browser, role, hash = '#/settings/rules', viewport = {width:
     if (p === '/api/v2/rules' && req.method() === 'GET') {
       lists.push(url.search);
       const kind = url.searchParams.get('scope_kind');
-      const rows = kind === 'task' ? [{...taskRow}] : kind === 'builtin' ? builtins : rules;
+      const rows = kind === 'task' ? [{...taskRow}] : kind === 'builtin' ? builtins : kind === 'bot' ? [...profileRows, rules.find(r => r.id === 'r-bot')] : rules;
       return json({rules: rows, events: ['person_message', 'comment'], outcomes: ['wake', 'note', 'batch', 'ignore'], scopes: [], more: false});
     }
     if (p === '/api/v2/rules') {
@@ -142,11 +145,23 @@ const row = (page, id) => page.locator(`[data-rule="${id}"]`);
       await row(page, 'r-task').waitFor();
       assert.ok(lists.some(q => q.includes('scope_kind=task') && q.includes('scope_id=t-acme')), lists.join(' | '));
       assert.equal(await page.locator('#set-rules [data-rule]').count(), 1, 'the built-ins are read for their words only');
-      await page.waitForFunction(() => /Renew the acme\.example domain/.test(document.querySelector('[data-rules-task]')?.textContent || ''));
-      assert.equal(await page.locator('[data-rules-task] a[href="#/task/t-acme"]').count(), 1);
+      await page.waitForFunction(() => /Renew the acme\.example domain/.test(document.querySelector('[data-rules-filter]')?.textContent || ''));
+      assert.equal(await page.locator('[data-rules-filter] a[href="#/task/t-acme"]').count(), 1);
       await page.locator('[data-rules-all]').click();
       await row(page, 'r-team').waitFor();
-      assert.equal(await page.locator('[data-rules-task]').count(), 0);
+      assert.equal(await page.locator('[data-rules-filter]').count(), 0);
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
+    {
+      // A bot's rules (the profile picker's Wake rules link): its profile rows read-only under the profile, its own editable.
+      const {page, errors, lists} = await open(browser, 'owner', '#/settings/rules?bot=ops');
+      await row(page, 'profile_lead_blocker').waitFor();
+      assert.ok(lists.some(q => q.includes('scope_kind=bot') && q.includes('scope_id=ops')), lists.join(' | '));
+      assert.equal(await page.locator('[data-rule-profile="lead"]').count(), 1);
+      assert.equal(await row(page, 'profile_lead_blocker').locator('[data-rule-on], [data-rule-edit]').count(), 0);
+      assert.equal(await row(page, 'r-bot').locator('[data-rule-edit]').count(), 1);
+      assert.equal(await page.locator('[data-rules-filter] a[href="#/bot/ops/settings"]').count(), 1);
       assert.deepEqual(errors, []);
       await page.close();
     }

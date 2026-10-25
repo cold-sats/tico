@@ -6,7 +6,10 @@
 // WHEN <event> [AND <conditions>] THEN <outcome>, with its 7-day runs and no-op rate. A row the viewer may change
 // (`can_change`, which the server also enforces) has a switch and Edit. Writes carry the row's revision, so a row
 // someone else changed answers 409 instead of being overwritten.
-let RULES = null, RULES_AT = 0, RULES_Q = '', RULES_SCOPE = '', RULES_TASK = '', RULES_TASK_TITLE = '';
+let RULES = null, RULES_AT = 0, RULES_Q = '', RULES_SCOPE = '';
+// One task's or one bot's rules (#/settings/rules?task=<id> or ?bot=<slug>): 'task:<id>', 'bot:<slug>' or '' for all.
+let RULES_FOR = '', RULES_FOR_TITLE = '';
+const rulesFor = () => { const at = RULES_FOR.indexOf(':'); return at < 0 ? {kind: '', id: ''} : {kind: RULES_FOR.slice(0, at), id: RULES_FOR.slice(at + 1)}; };
 const RULES_BUSY = new Set();
 const RULE_SCOPES = [['builtin', 'Built-in'], ['team', 'Team'], ['type', 'Type'], ['department', 'Department'], ['bot', 'Bot'], ['task', 'Task']];
 const RULE_BUILTIN_GROUPS = {always: 'Always wakes', awaited: 'Awaited', filter: 'Waits', batch: 'Batched', wake: 'Wakes', system: 'System'};
@@ -44,7 +47,7 @@ function ruleScopeWords(r) {
   if (r.scope_kind === 'bot') return 'Bot · ' + empName(id);
   if (r.scope_kind === 'type') return 'Type · ' + (TASK_TYPES.find(t => t.id === id)?.name || id);
   if (r.scope_kind === 'department') return 'Department · ' + ((SYSTEM_ROUTINES?.task_rule_departments || []).find(d => d.id === id)?.name || id);
-  if (r.scope_kind === 'task') return 'Task · ' + (id === RULES_TASK && RULES_TASK_TITLE ? RULES_TASK_TITLE : id.slice(0, 8));
+  if (r.scope_kind === 'task') return 'Task · ' + (RULES_FOR === 'task:' + id && RULES_FOR_TITLE ? RULES_FOR_TITLE : id.slice(0, 8));
   return '';
 }
 function ruleUsageHTML(r) {
@@ -67,14 +70,15 @@ function ruleRowHTML(r) {
   </div>`;
 }
 function ruleMatches(r) {
-  if (RULES_TASK && r.built_in) return false;   // read for their words only
+  if (RULES_FOR && r.scope_kind === 'builtin') return false;   // read for their words only
   if (RULES_SCOPE && r.scope_kind !== RULES_SCOPE) return false;
   if (!RULES_Q) return true;
   return searchIncludes([r.words, r.event, ruleEventWords(r.event), ruleThenWords(r), ruleScopeWords(r), r.note, ...ruleWhenWords(r.when || {})], RULES_Q);
 }
 function ruleGroupsHTML() {
   const rows = (RULES?.rules || []).filter(ruleMatches);
-  if (!rows.length) return `<div class="empty" data-rules-none>${RULES_TASK ? 'No rules for this task. The team, type, bot and built-in rules decide.' : 'No rule matches.'}</div>`;
+  const none = {task: 'No rules for this task. The team, type, bot and built-in rules decide.', bot: 'No rules for this bot.'}[rulesFor().kind];
+  if (!rows.length) return `<div class="empty" data-rules-none>${none || 'No rule matches.'}</div>`;
   return RULE_SCOPES.map(([kind, label]) => {
     const mine = rows.filter(r => r.scope_kind === kind);
     if (!mine.length) return '';
@@ -83,20 +87,37 @@ function ruleGroupsHTML() {
         const sub = mine.filter(r => r.group === g);
         return sub.length ? `<h4 class="wr-sub">${esc(name)}</h4>${sub.map(ruleRowHTML).join('')}` : '';
       }).join('')
-      : mine.map(ruleRowHTML).join('');
+      : kind === 'bot' ? ruleBotRowsHTML(mine) : mine.map(ruleRowHTML).join('');
     // The built-ins are long and fixed, so they start folded unless a search is narrowing them.
     const open = kind !== 'builtin' || RULES_Q || RULES_SCOPE === 'builtin';
     return `<details class="wr-group" data-rule-group="${kind}"${open ? ' open' : ''}><summary><span>${esc(label)}</span><span class="cnt">${mine.length}</span></summary>${body}</details>`;
   }).join('');
 }
-const rulesMayAdd = () => !!RULES_TASK || settingsIsAdmin() || canMove() || (S.emps || []).some(settingsCanManageBot);
+// A bot's profile rows (backend/rules.py profile_listing) come only with that bot's own listing: read-only, under the
+// profile's name, above the rows the bot has of its own.
+function ruleBotRowsHTML(rows) {
+  const profile = rows.filter(r => r.group === 'profile'), own = rows.filter(r => r.group !== 'profile');
+  if (!profile.length) return own.map(ruleRowHTML).join('');
+  const name = profile[0].profile || '';
+  return `<h4 class="wr-sub" data-rule-profile="${esc(name)}">Profile · ${esc(name[0]?.toUpperCase() + name.slice(1))}</h4>${profile.map(ruleRowHTML).join('')}
+    ${own.length ? `<h4 class="wr-sub">Its own</h4>${own.map(ruleRowHTML).join('')}` : ''}`;
+}
+function rulesMayAdd() {
+  const f = rulesFor();
+  if (f.kind === 'task') return true;
+  if (f.kind === 'bot') return settingsCanManageBot((S.emps || []).find(e => e.name === f.id));
+  return settingsIsAdmin() || canMove() || (S.emps || []).some(settingsCanManageBot);
+}
 function rulesHTML() {
   const opt = (v, label) => `<option value="${esc(v)}"${v === RULES_SCOPE ? ' selected' : ''}>${esc(label)}</option>`;
-  const task = RULES_TASK ? `<div class="wr-filter" data-rules-task><span>Rules for <strong>${esc(RULES_TASK_TITLE || RULES_TASK.slice(0, 8))}</strong></span>
-      <a href="#/task/${encodeURIComponent(RULES_TASK)}">Open task</a><a href="#/settings/rules" data-rules-all>All rules</a></div>` : '';
+  const f = rulesFor();
+  const name = f.kind === 'task' ? RULES_FOR_TITLE || f.id.slice(0, 8) : empName(f.id);
+  const open = f.kind === 'task' ? `<a href="#/task/${encodeURIComponent(f.id)}">Open task</a>` : `<a href="#/bot/${encodeURIComponent(f.id)}/settings">Open bot</a>`;
+  const task = f.kind ? `<div class="wr-filter" data-rules-filter="${esc(f.kind)}"><span>Rules for <strong>${esc(name)}</strong></span>
+      ${open}<a href="#/settings/rules" data-rules-all>All rules</a></div>` : '';
   return `${task}<div class="settings-bots-filters">${rulesMayAdd() ? '<button type="button" class="primary" data-rule-new>Add rule</button>' : ''}
       <input class="settings-filter-search" type="search" autocomplete="off" data-rules-search value="${esc(RULES_Q)}" placeholder="Search rules" aria-label="Search rules">
-      ${RULES_TASK ? '' : `<select class="settings-inline-select" data-rules-scope aria-label="Scope">${opt('', 'All scopes')}${RULE_SCOPES.map(([k, v]) => opt(k, v)).join('')}</select>`}</div>
+      ${RULES_FOR ? '' : `<select class="settings-inline-select" data-rules-scope aria-label="Scope">${opt('', 'All scopes')}${RULE_SCOPES.map(([k, v]) => opt(k, v)).join('')}</select>`}</div>
     <!-- Suggestions (propose_demotions): rules whose runs are mostly no-ops, each offered as a one-click change, land here. -->
     <div class="wr-suggest" data-rules-suggestions hidden></div>
     <div class="wr-list" data-rules-list>${ruleGroupsHTML()}</div>`;
@@ -104,13 +125,13 @@ function rulesHTML() {
 function rulesPaint() {
   const el = $('#set-rules'); if (!el || !RULES) return;
   const list = el.querySelector('[data-rules-list]');
-  if (list && el.dataset.rulesFor === RULES_TASK) list.innerHTML = ruleGroupsHTML();
-  else { el.innerHTML = rulesHTML(); el.dataset.rulesFor = RULES_TASK; }
+  if (list && el.dataset.rulesFor === RULES_FOR) list.innerHTML = ruleGroupsHTML();
+  else { el.innerHTML = rulesHTML(); el.dataset.rulesFor = RULES_FOR; }
   rulesBind(el);
 }
 // The listing is paged (`more`); the built-ins come on the first page only, so later pages add table rows.
 async function rulesLoad() {
-  const scope = RULES_TASK ? `&scope_kind=task&scope_id=${encodeURIComponent(RULES_TASK)}` : '';
+  const f = rulesFor(), scope = f.kind ? `&scope_kind=${f.kind}&scope_id=${encodeURIComponent(f.id)}` : '';
   let offset = 0, out = null;
   for (let page = 0; page < 5; page++) {
     const data = await get(`/v2/rules?limit=200&offset=${offset}${scope}`);
@@ -119,26 +140,27 @@ async function rulesLoad() {
     if (!data.more) break;
     offset += 200;
   }
-  // A task's own listing has no built-ins, and the event words come from them; read them once.
-  if (RULES_TASK && !out.rules.some(r => r.built_in)) {
-    const builtins = RULES?.rules?.filter(r => r.built_in) || (await get('/v2/rules?scope_kind=builtin')).rules || [];
+  // A task's or bot's own listing has no built-ins, and the event words come from them; read them once.
+  if (f.kind && !out.rules.some(r => r.scope_kind === 'builtin')) {
+    const known = RULES?.rules?.filter(r => r.scope_kind === 'builtin');
+    const builtins = known?.length ? known : (await get('/v2/rules?scope_kind=builtin')).rules || [];
     out.rules = [...builtins, ...out.rules];
   }
   return out;
 }
 async function renderSettingsRules(force) {
   const el = $('#set-rules'); if (!el) return;
-  const task = RULES_TASK;
+  const task = RULES_FOR, f = rulesFor();
   if (RULES && el.dataset.rulesFor === task && !force && Date.now() - RULES_AT < 60000) { rulesPaint(); return; }
   RULES_AT = Date.now();
-  if (task && !RULES_TASK_TITLE) get('/v2/tasks/' + encodeURIComponent(task)).then(t => {
-    RULES_TASK_TITLE = (t.task || t).title || '';
-    if (RULES_TASK === task && RULES) { delete el.dataset.rulesFor; rulesPaint(); }   // the heading names it too
+  if (f.kind === 'task' && !RULES_FOR_TITLE) get('/v2/tasks/' + encodeURIComponent(f.id)).then(t => {
+    RULES_FOR_TITLE = (t.task || t).title || '';
+    if (RULES_FOR === task && RULES) { delete el.dataset.rulesFor; rulesPaint(); }   // the heading names it too
   }).catch(() => {});
   // The type names are read alongside, so a type row never shows a bare id; the department names come with the
   // routines above (renderSystemRoutines repaints this list when they land).
   const types = taskTypesLoad({cached: true}).catch(() => {});
-  try { const data = await rulesLoad(); await types; if (RULES_TASK !== task) return; RULES = data; }
+  try { const data = await rulesLoad(); await types; if (RULES_FOR !== task) return; RULES = data; }
   catch (e) { if (!RULES) el.innerHTML = `<div class="empty">Couldn't load the rules: ${esc(e.message || 'try again')}</div>`; return; }
   if (RULES_BUSY.size || formBusy(el.querySelector('[data-rules-list]'))) return;
   rulesPaint();
@@ -198,7 +220,7 @@ function ruleTargetHTML(kind, value) {
   if (kind === 'type') return pick(TASK_TYPES.map(t => opt(t.id, t.name)).join(''));
   if (kind === 'department') return pick((SYSTEM_ROUTINES?.task_rule_departments || []).map(d => opt(d.id, d.name)).join(''));
   if (kind === 'bot') return pick((S.emps || []).filter(settingsCanManageBot).map(e => opt(e.name, empName(e.name))).sort().join(''));
-  if (kind === 'task') return `<label>Task ID<input name="scope_id" required maxlength="120" value="${esc(value || RULES_TASK)}"></label>`;
+  if (kind === 'task') return `<label>Task ID<input name="scope_id" required maxlength="120" value="${esc(value || (rulesFor().kind === 'task' ? rulesFor().id : ''))}"></label>`;
   return '';
 }
 function ruleEditor(rule) {
@@ -207,11 +229,12 @@ function ruleEditor(rule) {
   const when = rule?.when || {}, first = v => ruleList(v)[0] || '';
   const opt = (v, label, cur) => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(label)}</option>`;
   const scopes = ruleScopeChoices();
-  const kind = rule?.scope_kind || (RULES_TASK ? 'task' : scopes[0]?.[0] || 'task');
+  const f = rulesFor();
+  const kind = rule?.scope_kind || f.kind || scopes[0]?.[0] || 'task';
   const events = ['*', ...(RULES?.events || [])].map(e => opt(e, (RULE_FLOOR.has(e) ? 'Always: ' : '') + ruleEventWords(e), rule?.event || 'comment')).join('');
   dialog.innerHTML = `<form class="task-rule-form" data-rule-form><header><h2>${rule ? 'Edit rule' : 'Add rule'}</h2><button type="button" class="ghost" data-close>Cancel</button></header>
     ${rule ? `<p class="muted">${esc(ruleScopeWords(rule))}</p>` : `<label>Scope<select name="scope_kind" data-rule-kind>${scopes.map(([k, v]) => opt(k, v, kind)).join('')}</select></label>
-    <div data-rule-target>${ruleTargetHTML(kind, '')}</div>`}
+    <div data-rule-target>${ruleTargetHTML(kind, kind === f.kind ? f.id : '')}</div>`}
     <label>WHEN<select name="event">${events}</select></label>
     <div class="wr-when">
       <label>From<select name="actor">${opt('', 'Anyone', first(when.actor))}${Object.entries(RULE_ACTORS).map(([k, v]) => opt(k, v, first(when.actor))).join('')}</select></label>
