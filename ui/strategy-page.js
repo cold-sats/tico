@@ -16,6 +16,9 @@ const STRAT_SECTIONS = [
   {key: 'not', title: "What we won't do", prompt: 'The trade-offs: what the team refuses'},
 ];
 const STRAT_WRONG_KINDS = {kpi: 'KPI', thesis: 'Market', text: 'Sentence'};
+// A sentence wrong-if needs a day to look again (strategy._wrong_if); left empty, it is 90 days out.
+const STRAT_CHECK_DAYS = 90;
+const stratCheckBy = () => new Date(Date.now() + STRAT_CHECK_DAYS * 864e5).toISOString().slice(0, 10);
 
 // The heading and the two tabs, the same on both, so switching tabs never moves them.
 window.strategyHeadHtml = function strategyHeadHtml(tab) {
@@ -231,6 +234,7 @@ function strategyWrongFromForm(el) {
   } else {
     w = {kind: 'text', text: el.wrong_text.value.trim()};
     if (!w.text && !check_by) return null;
+    if (w.text && !check_by) return {...w, check_by: stratCheckBy()};
   }
   return {...w, check_by};
 }

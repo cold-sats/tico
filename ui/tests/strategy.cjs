@@ -113,6 +113,8 @@ async function open(browser, {role = 'owner', route = '#/strategy', viewport = D
         return json(st.current);
       }
       const one = p.match(/^\/api\/v2\/strategy\/bets\/([^/]+)$/);
+      // The server's rule (strategy._wrong_if): a sentence wrong-if has a Check by.
+      if (body.wrong_if?.kind === 'text' && !body.wrong_if.check_by) return json({error: {code: 'lint', detail: 'a wrong-if in words needs a check_by date: the day to look again'}}, 422);
       if (one) { const c = st.bets.find(x => x.id === one[1]); Object.assign(c, body); return json({bet: c, revision: ++st.draft.revision}); }
       if (p === '/api/v2/strategy/bets') { const c = {id: 'b-new', since_n: null, until_n: null, rank: st.bets.length, status: 'proposed', why: '', rules_out: '', wrong_if: null, cites: [], ...body}; st.bets.push(c); return json({bet: c, revision: ++st.draft.revision}); }
     }
@@ -268,6 +270,20 @@ const sectionTitles = page => page.locator('[data-section] .strat-sec-head .stra
       await page.locator('[data-section-form] button[type="submit"]').click();
       await page.locator('[data-strat-publish]:not([disabled])').waitFor();
       assert.equal(await page.locator('[data-strat-why-not]').count(), 0);
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
+    // A sentence wrong-if saved with no Check by gets one 90 days out: the server refuses it without a date.
+    {
+      const {page, errors, sent} = await open(browser);
+      await page.locator('li[data-bet="b-weekly"] [data-bet-edit]').click();
+      const form = page.locator('[data-bet-form="b-weekly"]');
+      await form.locator('input[name="wrong_text"]').fill('Weekly churn above 10%');
+      await form.locator('button[type="submit"]').click();
+      await form.waitFor({state: 'detached'});
+      const {wrong_if} = sent.find(x => x[1] === '/bets/b-weekly')[2];
+      assert.equal(wrong_if.text, 'Weekly churn above 10%');
+      assert.equal(wrong_if.check_by, new Date(Date.now() + 90 * 864e5).toISOString().slice(0, 10));
       assert.deepEqual(errors, []);
       await page.close();
     }
