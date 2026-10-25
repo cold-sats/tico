@@ -238,6 +238,9 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub event-types [--group task]         every event Tico names, with an example payload (routines, rules, webhooks)
     hub trigger relay create|rotate|delete <trigger>
                                            a second address through Tico Gateway (shown once); hub relay status
+    hub sleep status                       stop this hosted server after quiet hours; show the setting
+    hub sleep set --hours N [--runners on|off]
+                                           1-24 quiet hours, 0 = off; bot computers stop with it unless --runners off
     hub release now [--note "..."]         ask the Release Manager to release what is at Pending Release now
     hub release schedule [--on|--off] [--time HH:MM ...] [--manager BOT] [--writer BOT]
                                            show or change the daily release (company time; an owner or admin)
@@ -606,6 +609,24 @@ def cmd_task_dry_run(args, who):
 
 
 # ----------------------------------------------------------------------------- parser
+def quiet_hours(word):
+    """0 to 24, whole hours."""
+    try:
+        hours = int(word)
+    except ValueError:
+        hours = -1
+    if not 0 <= hours <= 24:
+        raise argparse.ArgumentTypeError("use a whole number of hours from 0 to 24")
+    return hours
+
+
+def on_off(word):
+    """`on` or `off` as the boolean the tool takes."""
+    if word not in ("on", "off"):
+        raise argparse.ArgumentTypeError("use on or off")
+    return word == "on"
+
+
 def parser():
     p = argparse.ArgumentParser(prog="hub", description="the company hub: messages, tasks, status")
     sub = p.add_subparsers(dest="cmd")
@@ -1791,6 +1812,13 @@ def parser():
     relay_top = sub.add_parser("relay", help="webhooks through Tico Gateway").add_subparsers(dest="sub")
     s = relay_top.add_parser("status", help="the Gateway key, the addresses, the last pull and what waits at the Gateway")
     s.set_defaults(fn="relay status")
+    sleep = sub.add_parser("sleep", help="Sleep when idle: a hosted server stops after quiet hours").add_subparsers(dest="sub")
+    s = sleep.add_parser("status", help="hosted or not, the hours, what keeps the server up and Tico's last answer")
+    s.set_defaults(fn="sleep status")
+    s = sleep.add_parser("set", help="turn it on (1-24 quiet hours) or off (0); an owner or an admin")
+    s.add_argument("--hours", type=quiet_hours, metavar="N", help="quiet hours before it sleeps; 0 turns it off")
+    s.add_argument("--runners", type=on_off, metavar="on|off", help="stop the bot computers with the server (default on)")
+    s.set_defaults(fn="sleep set")
 
     release = sub.add_parser("release", help="the team's releases: ask for one now, or set the daily hour").add_subparsers(dest="sub")
     s = release.add_parser("now", help="ask the Release Manager to release what is at Pending Release now (hotfix, "
