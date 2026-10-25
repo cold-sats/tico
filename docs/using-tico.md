@@ -171,8 +171,9 @@ facts), commit and push. The computer pulls before the next run; if you maintain
 hand, pull the update there too. Model, effort, computer, owners and status are changed in
 **Bot → Settings**. One-off requests are tasks, not edits.
 
-How often a bot wakes for routine news is its **Wakes** row in **Bot → Settings**: **Token saver** (the default for
-new bots) or **Performance**. Under **Subscribe to updates** in its Settings tab you choose whether it hears about
+What wakes a bot, and which tasks it takes, is its **Profile** row in **Bot → Settings**: **Doer** (the default for
+new bots), **Reviewer**, **Lead**, **Responder**, **Monitor** or **Custom** ([Profiles](how-it-works.md#profiles)).
+Under **Subscribe to updates** in its Settings tab you choose whether it hears about
 template changes and Tico releases. See [Creating bots](creating-bots.md#subscribe-to-updates).
 
 **How do I contact the Tico team?**

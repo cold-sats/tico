@@ -296,6 +296,9 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            read or set a bot's runs per hour and per day (0 no limit, default follows the
                                            team), or release it after Tico stopped it
     hub bot release <bot>                  release a bot Tico stopped for failed runs or too many runs
+    hub bot profile <bot> [doer|reviewer|lead|responder|monitor|custom] [--batch-seconds N] [--digest-hour H]
+                                           read or set what wakes a bot and which tasks it takes (--sweeps/--pulls/--takes
+                                           are for custom; --confirm-drop-rules when leaving custom deletes its own rules)
     hub bot scope <bot> <task>|--release   limit a bot's claims to one task and its subtasks, or lift that
     hub bot copy <bot> [--slug S] [--name N] [--with-memory] [--computer C]
                                            copy a bot into a new one the requester owns: its instructions, skills, playbooks and
@@ -1892,6 +1895,20 @@ def parser():
         s.add_argument("--" + window, type=lambda v: v if v == "default" else int(v),
                        help=f"runs allowed per {window}: a number, 0 for no limit, or default to follow the team")
     s.set_defaults(fn="bot budget")
+    s = bot.add_parser("profile", help="read or set a bot's profile: what wakes it and which tasks it takes")
+    s.add_argument("bot")
+    s.add_argument("profile", nargs="?", choices=["doer", "reviewer", "lead", "responder", "monitor", "custom"],
+                   help="the profile to set; leave out to read the bot's and the choices")
+    s.add_argument("--batch-seconds", dest="batch_seconds", type=int, help="how long news waits to be batched (seconds)")
+    s.add_argument("--sweep-seconds", dest="sweep_seconds", type=int, help="least seconds between two runs of the same sweep")
+    s.add_argument("--digest-hour", dest="digest_hour", type=int, help="the hour (0-23, team time) of a lead's daily digest")
+    s.add_argument("--pulls", choices=["all", "review", "none"], help="custom: which open tasks it starts by itself")
+    s.add_argument("--sweeps", type=lambda v: {"on": True, "off": False}[v], metavar="on|off",
+                   help="custom: whether stall checks and routines may wake it")
+    s.add_argument("--takes", choices=["all", "review", "watcher", "none"], help="custom: which tasks it may be given")
+    s.add_argument("--confirm-drop-rules", dest="confirm_drop_rules", action="store_true", default=None,
+                   help="leaving custom deletes the wake rules it copied into the rules table")
+    s.set_defaults(fn="bot profile")
     s = bot.add_parser("release", help="release a bot Tico stopped (failed runs, or too many runs); its queue starts again")
     s.add_argument("bot")
     s.set_defaults(fn="bot release")

@@ -2669,6 +2669,34 @@ def bot_budget(api, args):
     return who.post(path, {**body, "expected_revision": current["revision"]}, key=_key(args))
 
 
+_PROFILES = ["doer", "reviewer", "lead", "responder", "monitor", "custom"]
+
+
+@tool("hub_bot_profile", "Read or set a bot's profile, as the person who asked you: what wakes the bot and which tasks it takes. "
+      "doer works its tasks (news batched); reviewer takes review and QA requests only; lead hears the rest once a day; "
+      "responder answers people in chat and takes no tasks; monitor takes its watcher's tasks; custom keeps its own wake "
+      "rules on the Rules page. With no profile it reads the bot's and the choices. Leaving custom deletes the wake rules "
+      "it copied into the rules table, so say confirm_drop_rules.",
+      {"bot": _s("Bot slug"), "profile": {"type": "string", "enum": _PROFILES, "description": "The profile to set; leave out to read"},
+       "batch_seconds": {"type": "integer", "minimum": 0, "maximum": 604800, "description": "How long news waits to be batched"},
+       "sweep_seconds": {"type": "integer", "minimum": 0, "maximum": 604800, "description": "Least time between two runs of a sweep"},
+       "digest_hour": {"type": "integer", "minimum": 0, "maximum": 23, "description": "Hour of a lead's daily digest, team time"},
+       "pulls": {"type": "string", "enum": ["all", "review", "none"], "description": "Custom: which open tasks it starts by itself"},
+       "sweeps": {"type": "boolean", "description": "Custom: whether stall checks and routines may wake it"},
+       "takes": {"type": "string", "enum": ["all", "review", "watcher", "none"], "description": "Custom: which tasks it may be given"},
+       "confirm_drop_rules": {"type": "boolean", "description": "Leaving custom: delete the rules it copied"}},
+      ("bot",), writes=True)
+def bot_profile(api, args):
+    who = _as_person(api)
+    path = f"bots/{args['bot']}/profile"
+    current = who.get(path)
+    if not args.get("profile"):
+        return {**current, "choices": who.get("profiles")["profiles"]}
+    body = {k: args[k] for k in ("batch_seconds", "sweep_seconds", "digest_hour", "pulls", "sweeps", "takes", "confirm_drop_rules")
+            if args.get(k) is not None}
+    return who.post(path, {**body, "profile": args["profile"], "expected_revision": current["revision"]}, key=_key(args))
+
+
 @tool("hub_bot_release", "Release a bot Tico stopped, as the person who asked you: after five failed runs in a row, or "
       "for starting too many runs. Check its last runs first. Its queued work, kept while it was held, starts again.",
       {"bot": _s("Bot slug")}, ("bot",), writes=True)
@@ -4265,7 +4293,7 @@ AUDIENCE = {
     "hub_repo_review": ("bot", "botops"),
     "hub_repo_product_create": ("owner", "bot", "botops"),   # a bot needs Create product repositories (server)
     **{name: REQUESTER for name in ("hub_credential_grant", "hub_credential_revoke", "hub_credential_import", "hub_credential_delete")},
-    **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_restore", "hub_agent_pair_show", "hub_agent_pair_approve", "hub_agent_pair_decline", "hub_bot_place", "hub_bot_go_live", "hub_bot_model", "hub_bot_keep_tasks_going", "hub_rule_set", "hub_rule_update", "hub_rule_delete", "hub_bot_budget", "hub_bot_release", "hub_bot_pause",
+    **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_restore", "hub_agent_pair_show", "hub_agent_pair_approve", "hub_agent_pair_decline", "hub_bot_place", "hub_bot_go_live", "hub_bot_model", "hub_bot_keep_tasks_going", "hub_rule_set", "hub_rule_update", "hub_rule_delete", "hub_bot_budget", "hub_bot_profile", "hub_bot_release", "hub_bot_pause",
                                     "hub_bot_scope",
                                     "hub_bot_resume", "hub_bot_access", "hub_bot_owners", "hub_human_add", "hub_group_update",
                                     "hub_tool_add", "hub_tool_update", "hub_tool_remove",

@@ -1242,6 +1242,25 @@ SCHEMAS.update({
     "TeamBudgetState": obj({"turns_per_hour": "i", "turns_per_day": "i", "defaults": {"type": "object"}}),
 })
 
+# Bot profiles (backend/profiles.py).
+STABLE.extend([
+    ("/api/v2/profiles", "get", "Bots", "listProfiles",
+     "Every bot profile with its one-line description, its values and the wake rows it adds, for a picker", "ProfileChoices"),
+    ("/api/v2/bots/{bot}/profile", "get", "Bots", "getBotProfile",
+     "A bot's profile and the values it runs on", "BotProfileState"),
+    ("/api/v2/bots/{bot}/profile", "post", "Bots", "setBotProfile",
+     "Set the bot's profile (doer, reviewer, lead, responder, monitor, custom); leaving custom deletes the wake rules it "
+     "copied and needs confirm_drop_rules", "BotProfileState"),
+])
+SCHEMAS.update({
+    "ProfileChoice": obj({"name": "s", "label": "s", "description": "s", "batch_seconds": "i", "batch_scope": "s",
+                          "sweep_seconds": "i", "digest_hour": {"type": ["integer", "null"]}, "pulls": "s", "sweeps": "b",
+                          "takes": "s", "rules": {"type": "array", "items": {"type": "object"}}}),
+    "ProfileChoices": obj({"profiles": items(ref("ProfileChoice"))}),
+    "BotProfileState": obj({"bot": "s", "profile": {"type": "object"}, "wake": {"type": "object"}, "rules": "i",
+                            "revision": "i"}),
+})
+
 SCHEMAS.update({
     "Repository": obj({"full_name": "s", "enabled": "b", "bot_repo": "b", "default_branch": "n",
                        "setup_command": "n", "setup_source": "n", "reachable": "b", "last_seen": "n"}),

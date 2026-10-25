@@ -92,6 +92,10 @@ child or a workspace frees a place. Delegated review children have no task cap; 
 own session as computer turns become free. Usage holds, computer readiness and computer capacity
 still apply. The Bots page shows how many tasks are going and how many eligible tasks wait to start.
 
+Only a Doer starts its open tasks by itself; a Reviewer starts only its review and QA requests, and a Lead, Responder or
+Monitor starts a task when it is handed to them ([Profiles](how-it-works.md#profiles)). A Responder is given no task at all,
+and a Reviewer is given only a review or QA subtask: filing any other task for it is refused with the reason.
+
 `hub bot keep-tasks-going <bot> 3` sets a cap; `off` turns it off and `unlimited` restores the default.
 Omit the value to read it. The matching MCP tool and `POST /api/v2/bots/{bot}/keep-tasks-going` use
 the same permissions and revision check. **Settings → Rules** lists **Start assigned tasks** using
@@ -368,6 +372,11 @@ Whether a message about a task wakes its bot or waits is decided by wake rules, 
 verdict always wake. A rule can be set for the whole team, a task type, a department, a bot or one task, and the most
 specific wins (`hub rule list`, `hub rule set`; Settings → Rules → **What wakes a bot**). The message and the run both record the rule, and the
 Rules page and `rule_weekly` in `hub sql` show how often each woke a bot and how often that run did nothing.
+
+A bot's **profile** (Doer, Reviewer, Lead, Responder, Monitor, Custom) adds a few bot-level rows of its own: a Reviewer wakes for
+its review and QA requests and people and notes the rest, a Lead gets everything but people, escalations and approvals in a daily
+digest, a Responder and a Monitor note the rest. `hub rule list` shows them as the profile's, and a Custom bot's copies as its own
+([Profiles](how-it-works.md#profiles)).
 
 ## Snoozing a task
 

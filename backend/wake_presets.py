@@ -1,7 +1,7 @@
 """Per-bot wake presets: how soon a bot's nonblocking notices and its enabled sweeps start a turn.
 
 A bot's `config_json.wake_preset` is `token_saver` or `performance`. Existing bots without a preset,
-including the former `current` setting, use Performance. New bots start on NEW_BOT_PRESET.
+including the former `current` setting, use Performance. New bots start as Doers.
 
 Under a preset, two kinds of job wait at enqueue time (the `wake_preset_hold` trigger on jobs, so every
 event source is held the same way): a nonblocking notice the server marks with `refs.wake_batch`
@@ -17,6 +17,10 @@ being worked, and for DUPLICATE_SECONDS after its turn ended. A notice a batch c
 live while its carrier is, so a redelivery after the batch is let go still matches. A message from a person or a bot
 repeats only when nothing else was said in between, so the same words sent again after an answer are a new request.
 A preset grants nothing: it is one key in the bot's configuration and the hold reads nothing else.
+
+A bot with a profile (backend/profiles.py) runs on the profile's numbers instead of its preset's: a window, a scope, a
+sweep gap and, for a Lead, the hour of its daily digest. The preset kept on the bot's configuration and its jobs is then
+only the label older readers and the hold trigger use (Token saver when the window is 30 minutes or more).
 
 The values below are starting points to evaluate, not measured optima. TICO_WAKE_PRESETS overrides them
 per install without a code change, e.g. `{"token_saver": {"batch_seconds": 900}}`.
@@ -35,7 +39,7 @@ RUN_TOKENS = ("CASE WHEN t.input_tokens IS NOT NULL THEN t.input_tokens+coalesce
 CURRENT = "current"
 TOKEN_SAVER = "token_saver"
 PERFORMANCE = "performance"
-NEW_BOT_PRESET = TOKEN_SAVER
+NEW_BOT_PRESET = PERFORMANCE      # a new bot is a Doer (backend/profiles.py), 15 min on the old label
 # batch_seconds: how long a nonblocking notice waits. batch_scope "bot" spaces the bot's batches at least
 # batch_seconds apart (at most one batched wake per window); "conversation" only coalesces notices for one
 # task inside the window. sweep_seconds: the least time between two runs of the same enabled sweep.
@@ -139,17 +143,40 @@ def preset_of(config):
 
 
 def effective(config):
-    """What the bot's settings and the API show: the preset and the values it runs on."""
+    """What the bot's settings and the API show: the preset and the values it runs on. A profile's own numbers
+    stand over the preset's, which then only names the closest of the two."""
+    from . import profiles
     name = preset_of(config)
-    spec = values().get(name)
+    spec = dict(values().get(name))
+    own = profiles.numbers(config)
+    if own:
+        spec.update(own)
     batch = _duration(spec["batch_seconds"])
     summary = (f"{spec['label']}: finished requests, review comments and check results wait up to {batch}"
                + (" (at most one such wake per " + batch + ")" if spec["batch_scope"] == "bot" else "")
                + f"; an enabled routine or stall check runs at most every {_duration(spec['sweep_seconds'])}. "
                "People, assignments, questions, awaited results, blockers and review requests wake it at once.")
+    if own and own.get("digest_hour") is not None:
+        summary = (f"The rest of the news arrives once a day, at {own['digest_hour']:02d}:00 team time. "
+                   "People, escalations and approvals wake it at once.")
     return {"preset": name, "label": spec["label"], "chosen": True, "batch_seconds": spec["batch_seconds"],
-            "batch_scope": spec["batch_scope"], "sweep_seconds": spec["sweep_seconds"], "immediate": list(IMMEDIATE),
+            "batch_scope": spec["batch_scope"], "sweep_seconds": spec["sweep_seconds"],
+            "digest_hour": spec.get("digest_hour"), "profile": profiles.name_of(config), "immediate": list(IMMEDIATE),
             "summary": summary}
+
+
+def numbers_for(c, bot, label, cache=None):
+    """The window, scope, sweep gap and digest hour a held job of this bot is planned on: its profile's when it has
+    one, else the preset its job carries (None when that is unknown)."""
+    from . import profiles
+    if cache is not None and bot in cache:
+        own = cache[bot]
+    else:
+        row = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (bot,)).fetchone()
+        own = profiles.numbers(H._json(row[0], {}) if row else {})
+        if cache is not None:
+            cache[bot] = own
+    return {**values()[label], **own} if own and label in PRESETS else (own or values().get(label))
 
 
 def _duration(seconds):
@@ -168,11 +195,11 @@ def tick(c, at=None):
     """Plan each newly held job's release, then let go of the ones that are due. Runs in the scheduler's write
     transaction every tick; a release is an UPDATE of `held`, which tells the bot's computer there is work."""
     at = at or H.now()
-    spec = values()
+    cache = {}
     for job in c.execute("SELECT j.id,j.bot,j.wake_preset,j.wake_class,j.created,m.conversation_id,m.refs_json "
                          "FROM jobs j JOIN messages m ON m.id=j.message_id "
                          "WHERE j.held=1 AND j.hold_until IS NULL AND j.state='queued' ORDER BY j.created,j.id").fetchall():
-        values_of = spec.get(job["wake_preset"])
+        values_of = numbers_for(c, job["bot"], job["wake_preset"], cache)
         if not values_of:
             c.execute("UPDATE jobs SET held=0 WHERE id=?", (job["id"],))
             continue
@@ -192,7 +219,7 @@ def tick(c, at=None):
         if job["wake_class"] == "sweep":
             c.execute("UPDATE jobs SET held=0 WHERE id=?", (job["id"],))
             continue
-        scope = (spec.get(job["wake_preset"]) or {}).get("batch_scope")
+        scope = (numbers_for(c, job["bot"], job["wake_preset"], cache) or {}).get("batch_scope")
         groups.setdefault((job["bot"], job["conversation_id"] if scope == "conversation" else ""), []).append(job)
     for (bot, _), jobs in groups.items():
         _release(c, bot, jobs)
@@ -224,12 +251,15 @@ def _batch_slot(c, job, values_of):
     under a per-conversation scope), else a window after it arrived, and under a per-bot scope never sooner than a
     window after the bot's last batch went out."""
     gap, per_bot = values_of["batch_seconds"], values_of["batch_scope"] == "bot"
+    hour = values_of.get("digest_hour")
     kinds = ",".join(f"'{k}'" for k in BATCH_KINDS)
     waiting = c.execute("SELECT min(j.hold_until) FROM jobs j JOIN messages m ON m.id=j.message_id WHERE j.bot=? "
                         f"AND j.held=1 AND j.state='queued' AND j.hold_until IS NOT NULL AND j.wake_class IN ({kinds}) "
                         "AND (? OR m.conversation_id=?)", (job["bot"], per_bot, job["conversation_id"])).fetchone()[0]
     if waiting:
         return waiting
+    if hour is not None:
+        return digest_time(job["created"], hour)
     due = H.shift(job["created"], seconds=gap)
     if per_bot:
         last = c.execute(f"SELECT max(hold_until) FROM jobs WHERE bot=? AND wake_class IN ({kinds},'digest') "
@@ -237,6 +267,17 @@ def _batch_slot(c, job, values_of):
         if last:
             due = max(due, H.shift(last, seconds=gap))
     return due
+
+
+def digest_time(created, hour):
+    """The next `hour`:00 in the team's time zone after `created` (a Lead's daily digest), as a UTC timestamp."""
+    from datetime import timedelta, timezone
+    from .updates import ZONE
+    at = (H.parse_ts(created) or H.parse_ts(H.now())).astimezone(ZONE)
+    due = at.replace(hour=hour, minute=0, second=0, microsecond=0)
+    if due <= at:
+        due = (due.replace(tzinfo=None) + timedelta(days=1)).replace(tzinfo=ZONE)
+    return due.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
 
 
 def _release(c, bot, jobs):
@@ -266,8 +307,12 @@ def _release(c, bot, jobs):
         lines.append(f"- {what}: {where}; read them with `hub conversation show {conversation}`"
                      + (f" (the oldest is from {first.get('created')}: page back with --before to reach it)"
                         if len(held) > 1 else ""))
-    label = LABELS.get(jobs[0]["wake_preset"], "")
-    sent = H.say(c, H.KEEPER, "bot:" + bot, f"{len(jobs)} updates held by your {label} wake preset:\n"
+    from . import profiles
+    row = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (bot,)).fetchone()
+    mine = profiles.name_of(H._json(row[0], {}) if row else {})
+    held_by = (f"your {profiles.SPEC[mine]['label']} profile" if mine
+               else f"your {LABELS.get(jobs[0]['wake_preset'], '')} wake preset")
+    sent = H.say(c, H.KEEPER, "bot:" + bot, f"{len(jobs)} updates held by {held_by}:\n"
                  + "\n".join(lines) + "\nOpen each task that needs you; the rest is news.", kind="notice",
                  refs={"wake_digest": [j["id"] for j in jobs]})
     held_until = max(c.execute("SELECT hold_until FROM jobs WHERE id=?", (j["id"],)).fetchone()[0] for j in jobs)
