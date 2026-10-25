@@ -29,6 +29,10 @@ def test_done_with_a_verdict_and_head_wakes_the_parent_owner_with_both(api):
     assert (row["verdict"], row["verdict_head"]) == ("approve", HEAD)
     assert len(woke) == 1 and not woke[0]["refs"].get("quiet")
     assert (woke[0]["refs"]["verdict"], woke[0]["refs"]["verdict_head"]) == ("approve", HEAD)
+    # The parent's Subtasks list reads the tree: the verdict rides on its node.
+    with api.app.state.store.read() as c:
+        node = H.task_tree(c, parent["id"])[0]
+    assert (node["verdict"], node["verdict_head"]) == ("approve", HEAD)
 
 
 def test_a_prose_verdict_line_fills_the_fields_and_a_newer_one_replaces_them(api):

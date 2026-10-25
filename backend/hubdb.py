@@ -4266,7 +4266,9 @@ def pr_state(links):
 
 def task_tree(conn, task_id, visible_ids=None):
     rows = descendants(conn, task_id)
-    nodes = {r["id"]: {k: r[k] for k in ("id", "title", "status", "owner")} for r in rows}
+    # A review or QA child's verdict rides along, so the parent's Subtasks list shows it (ui/app/task-code.js).
+    nodes = {r["id"]: {**{k: r[k] for k in ("id", "title", "status", "owner")},
+                       "verdict": r.get("verdict"), "verdict_head": r.get("verdict_head")} for r in rows}
     links = {}
     if nodes:
         marks = ",".join("?" * len(nodes))
