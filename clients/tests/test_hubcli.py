@@ -38,6 +38,27 @@ def run_hub(*args, env=None):
         return done.returncode, {"_stdout": done.stdout, "_stderr": done.stderr}
 
 
+def test_wake_url_commands_reach_the_tools_that_put_the_owners_address(monkeypatch):
+    from clients import hubtools, remotecli
+    calls = []
+    class Api:
+        def __init__(self, *args, **kw):
+            self.__dict__["_tico_is_botops"] = False
+        def get(self, path, **query):
+            calls.append(("GET", path))
+            return {"url": None, "set_at": None, "set_by": None}
+        def call(self, method, path, body=None, key=None, query=None, delegate=False):
+            calls.append((method, path, body))
+            return {"url": body["url"], "secret": None}
+    monkeypatch.setattr(remotecli, "Client", Api)
+    monkeypatch.setenv("HUB_API_URL", "https://tico.acme.example/api/v2")
+    for words in (["show"], ["set", "https://wake.acme.example/start"], ["off"]):
+        remotecli.run(hubcli.parser().parse_args(["relay", "wake-url", *words]))
+    assert calls == [("GET", "hooks/wake-url"), ("PUT", "hooks/wake-url", {"url": "https://wake.acme.example/start"}),
+                     ("PUT", "hooks/wake-url", {"url": None})]
+    assert {"hub_relay_wake_url_show", "hub_relay_wake_url_set", "hub_relay_wake_url_off"} <= set(hubtools.BY_NAME)
+
+
 def test_review_command_and_mcp_preserve_head_body_and_retry_identity(tmp_path, monkeypatch):
     from clients import remotecli, hubtools
     calls = []

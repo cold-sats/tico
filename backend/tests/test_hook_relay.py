@@ -10,7 +10,7 @@ import pytest
 
 from backend import hook_relay, triggers
 from backend import hubdb as H
-from backend.tests.test_api import api, get, post  # noqa: F401
+from backend.tests.test_api import api, get, post, put  # noqa: F401
 
 KEY = "tgw_acme_test_key"
 BASE = "https://api.tico.dev"
@@ -26,6 +26,7 @@ class HQ:
         self.cursor_floor = None              # when set, pull and ack answer cursor_ahead with this cursor
         self.down = False
         self.key = KEY
+        self.wake = None                      # the address HQ would knock on
 
     def deliver(self, relay_id, delivery_id, body=b'{"order": 42}', headers=None):
         seq = len(self.queue) + 1
@@ -43,6 +44,11 @@ class HQ:
         assert request.headers["authorization"] == "Bearer " + self.key and request.headers["user-agent"].startswith("Tico-Client/")
         if path in self.status:
             return httpx.Response(self.status[path], json={"error": "forced"})
+        if path == "wake":
+            if body["url"] and "bad" in body["url"]:
+                return httpx.Response(422, json={"error": "invalid_url"})
+            self.wake = body["url"]
+            return httpx.Response(200, json={"url": body["url"], "secret": "whsec_test" if body["url"] else None})
         if path == "relays" and request.method == "GET":
             return httpx.Response(200, json={"items": [
                 {"relay_id": r["id"], "trigger_id": r["trigger_id"], "name": "", "address_prefix": "", "wake": r.get("wake", False),
@@ -385,3 +391,56 @@ def test_receipt_time_reaches_receive_in_the_servers_own_format_or_is_replaced(a
     now = H.now()
     for name in ("junk", "future", "none"):
         assert by[name][:10] == now[:10] and by[name].endswith("Z") and len(by[name]) == len(now)
+
+
+def test_the_owner_sets_and_clears_the_wake_address_and_the_secret_is_shown_once(api, hq):
+    assert get(api, "hooks/wake-url") == {"url": None, "set_at": None, "set_by": None}
+    url = "https://wake.acme.example/start?token=t0ken"
+    made = put(api, "hooks/wake-url", {"url": url})
+    assert made == {"url": url, "secret": "whsec_test"}
+    method, path, body, headers = hq.calls[-1]
+    assert (method, path, body) == ("POST", "wake", {"url": url, "secret": None}) and headers["idempotency-key"]
+    shown = get(api, "hooks/wake-url")
+    assert shown["url"] == url and shown["set_by"] == "human:ana" and shown["set_at"] and "whsec" not in json.dumps(shown)
+    with api.app.state.store.read() as c:           # HQ signs: the secret is nowhere here, and the audit names only the host
+        assert "whsec_test" not in json.dumps([tuple(r) for r in c.execute("SELECT * FROM hook_relay_state")])
+        audit = [dict(r) for r in c.execute("SELECT action, detail_json FROM events WHERE action LIKE 'hooks.wake_url%'")]
+    assert [a["action"] for a in audit] == ["hooks.wake_url_set"] and "t0ken" not in audit[0]["detail_json"]
+    assert "wake.acme.example" in audit[0]["detail_json"]
+
+    assert put(api, "hooks/wake-url", {"url": None}) == {"url": None, "secret": None}
+    assert hq.calls[-1][2] == {"url": None, "secret": None} and hq.wake is None
+    assert get(api, "hooks/wake-url") == {"url": None, "set_at": None, "set_by": None}
+
+
+def test_only_the_owner_reads_or_changes_the_wake_address(api, hq):
+    for token in ("ben-test", "cara-test"):
+        get(api, "hooks/wake-url", token=token, expected=403)
+        put(api, "hooks/wake-url", {"url": "https://wake.acme.example/start"}, token=token, expected=403)
+    assert hq.calls == []
+
+
+def test_the_wake_address_needs_the_gateway_key_and_never_leaves_a_rehearsal(api, hq, monkeypatch):
+    url = {"url": "https://wake.acme.example/start"}
+    monkeypatch.delenv("TICO_GATEWAY_KEY")
+    refused = put(api, "hooks/wake-url", url, expected=409)
+    assert "Settings > Gateway" in refused["error"]["detail"] and hq.calls == []
+    monkeypatch.setenv("TICO_GATEWAY_KEY", KEY)
+    svc = service(api)
+    monkeypatch.setattr(svc, "settings", dataclasses.replace(svc.settings, rehearsal=True))
+    put(api, "hooks/wake-url", url, expected=409)
+    assert hq.calls == [] and get(api, "hooks/wake-url")["url"] is None
+
+
+@pytest.mark.parametrize("url", ["http://wake.acme.example/start", "https://ana:pw@wake.acme.example/start", "ftp://wake.acme.example",
+                                 "https:///start", "wake.acme.example", "", "https://wake.acme.example/a b"])
+def test_a_wake_address_that_is_not_plain_https_is_refused_before_hq_is_asked(api, hq, url):
+    put(api, "hooks/wake-url", {"url": url}, expected=422)
+    assert hq.calls == []
+
+
+def test_an_address_hq_refuses_is_a_422_and_leaves_the_old_one(api, hq):
+    put(api, "hooks/wake-url", {"url": "https://wake.acme.example/start"})
+    refused = put(api, "hooks/wake-url", {"url": "https://bad.acme.example/start"}, expected=422)
+    assert "public https" in refused["error"]["detail"]
+    assert get(api, "hooks/wake-url")["url"] == "https://wake.acme.example/start"

@@ -236,6 +236,8 @@ working beside it. It needs the Tico Gateway connected in Settings → Gateway (
 - On a server Tico hosts, a call through the Gateway also wakes a server that is [asleep](#sleep-when-idle), if the address's
   **wake** switch is on. HQ keeps the switch and Tico shows it on the address (`wake`). Change it with
   `hub relay set github --wake off`. The owner, an admin and whoever made the webhook can; BotOps can for them.
+- A server you run yourself can ask Tico to knock on an address of yours when a call has waited over a minute, so something you
+  run can turn it on: `hub relay wake-url set <https address>`. See [Wake on webhook](install.md#wake-on-webhook).
 - `hub relay status` shows the key, the addresses, the last collection and what waits. Health speaks when collecting has failed for
   15 minutes or a call has waited over an hour. A rehearsal copy never collects.
 
@@ -462,8 +464,9 @@ The owner can edit or switch these off in Settings → Rules, but not delete the
 | Outgoing: endpoints | `hub webhook list`, `create`, `show`, `update`, `rotate`, `pause`, `resume`, `delete` | `hub_webhook_list`, `hub_webhook_create`, `hub_webhook_show`, `hub_webhook_update`, `hub_webhook_rotate`, `hub_webhook_pause`, `hub_webhook_resume`, `hub_webhook_delete` |
 | Outgoing: send, log, retry, example | `hub webhook send`, `sends`, `retry`, `example` | `hub_webhook_send`, `hub_webhook_sends`, `hub_webhook_retry`, `hub_webhook_example` |
 | Outgoing: turn on, recover, replay | `hub webhook enable`, `recover --since`, `replay --since` | `hub_webhook_enable`, `hub_webhook_recover`, `hub_webhook_replay` |
+| Wake address for a server you run | `hub relay wake-url show`, `set <url>`, `off` | `hub_relay_wake_url_show`, `hub_relay_wake_url_set`, `hub_relay_wake_url_off` |
 | Sleep when idle | `hub sleep status`, `hub sleep set` | `hub_sleep_status`, `hub_sleep_set` |
 | Notices | `hub notice list` | `hub_notice_list` |
 
-The API routes are under `/api/v2/triggers`, `/api/v2/webhooks`, `/api/v2/event-types`, `/api/v2/relay` and `/api/v2/notices`,
+The API routes are under `/api/v2/triggers`, `/api/v2/webhooks`, `/api/v2/event-types`, `/api/v2/relay`, `/api/v2/hooks/wake-url` and `/api/v2/notices`,
 and in the OpenAPI file ([API](api.md)).
