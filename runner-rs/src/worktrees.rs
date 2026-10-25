@@ -640,7 +640,7 @@ fn setup_environment(env: &Env) -> Env {
 }
 
 /// Run the repository's setup command in a new worktree (worktrees.setup): as the bot user, its own process
-/// group, output discarded, at most ten minutes.
+/// group, output discarded, at most ten minutes. It gets no granted credentials, so it takes no leased turn user.
 async fn setup(path: &Path, command: &str, env: &Env) -> R<()> {
     if command.is_empty() {
         return Ok(());

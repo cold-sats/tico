@@ -1191,9 +1191,7 @@ impl Runner {
             // runs it as `bot`). Harnesses whose sign-in files are 0600 in the bot's home run as `bot`; with them a
             // turn can still enter every bot's checkout, as can the runner's own git (SECURITY.md).
             let own_user = |r: &str, h: &str| crate::harness_tools::caps(r, h).isolated_user;
-            let hop = crate::fallback::configured(&config);
-            let wants_user = own_user(&runtime, &text_of(&config["harness"])) || hop.as_ref().is_some_and(|h| own_user(&h.runtime, &h.harness));
-            if crate::hosts::pi::is_gateway(model.as_deref()) || (wants_user && crate::turn_users::available()) {
+            if crate::hosts::pi::is_gateway(model.as_deref()) || (own_user(&runtime, &text_of(&config["harness"])) && crate::turn_users::available()) {
                 let taken = self.during_drain(&aid, self.take_turn_user(&attempt, &flags, crate::turn_users::Lease::take)).await;
                 vault.turn_user = Some(taken.map_err(|e| self.lease_failed(&aid, e, &mut drove))?);
             }
@@ -1212,7 +1210,7 @@ impl Runner {
                 env.insert(crate::gitcred::SOCKET_ENV.into(), p.display().to_string());
             }
             crate::gitcred::apply(&mut env, &self.client, &self.tokens, &bot, socket_path.as_deref(), &self.state.directory).await;
-            let hop_runtime = hop.map(|h| h.runtime);
+            let hop_runtime = crate::fallback::configured(&config).map(|h| h.runtime);
             for keyed in std::iter::once(runtime.as_str()).chain(hop_runtime.as_deref()) {
                 if let Some((name, key)) = self.turn_key(keyed, selected.as_ref()) {
                     if env.get(&name).is_none_or(|v| v.is_empty()) {
@@ -1588,6 +1586,14 @@ impl Runner {
                 });
                 let mut hop_env = selected.as_ref().map_or_else(|| base.clone(), |p| p.environment(&hop.runtime, &base));
                 let own = crate::harness_tools::caps(&hop.runtime, &hop.harness).isolated_user;
+                if own && vault.turn_user.is_none() && crate::turn_users::available() {
+                    // Leased only now, so a primary that runs as `bot` costs no lease and cleanup sweep. The turn has
+                    // started, so it does not wait for a free user: with none free the fallback runs as `bot`.
+                    match crate::turn_users::Lease::take() {
+                        Ok(user) => vault.turn_user = Some(user),
+                        Err(e) => log(&format!("Tico runner: turn {aid}: its {} fallback runs as the bot user: {e}", hop.harness)),
+                    }
+                }
                 let turn_identity = vault.for_model(&mut hop_env, Some(&hop.model), own).map_err(Fail::runtime)?;
                 env = hop_env.clone();
                 // Named with the harness it moved to, so the task's Runs say where the turn went and why.

@@ -117,26 +117,29 @@ fn gate_one(path: &Path, bot: u32) -> std::io::Result<Option<u32>> {
     // A root this runner was gating when it stopped is still the supervisor's, with a checkout group: finish it.
     let interrupted = info.st_uid == me && (FIRST..=LAST).contains(&info.st_gid);
     if !(info.st_uid == bot || interrupted) || !checkout { return Ok(None); }
-    let key = path.display().to_string();
-    let gid = {
-        let mut g = groups().lock().unwrap();
-        match g.by_path.get(&key) {
+    // Spelled one way however the caller wrote it. Never resolved through a link: the open above refuses one, so a
+    // bot that swaps its checkout for a link to another's cannot get that checkout's group for its turn.
+    let key = path.components().collect::<PathBuf>().display().to_string();
+    // Held through the ownership change too, so two turns starting in one checkout never interleave it.
+    let mut g = groups().lock().unwrap();
+    let current = (FIRST..=LAST).contains(&info.st_gid).then_some(info.st_gid);
+    let holder = |gid: u32| g.by_path.iter().find(|(_, v)| **v == gid).map(|(k, _)| k.clone());
+    // The group already on the root stays (a running turn holds it) unless another root has it in the map.
+    let gid = match current.filter(|c| holder(*c).is_none_or(|k| k == key)) {
+        Some(c) => c,
+        None => match g.by_path.get(&key) {
             Some(gid) => *gid,
             None => {
                 let used: BTreeSet<u32> = g.by_path.values().copied().collect();
-                // A root gated before the map was lost keeps its group if no other root holds it.
-                let gid = if (FIRST..=LAST).contains(&info.st_gid) && !used.contains(&info.st_gid) {
-                    info.st_gid
-                } else {
-                    (FIRST..=LAST).find(|c| !used.contains(c) && !system_group(*c))
-                        .ok_or_else(|| std::io::Error::other("no free checkout group"))?
-                };
-                g.by_path.insert(key, gid);
-                save(&g)?;
-                gid
+                (FIRST..=LAST).find(|c| !used.contains(c) && !system_group(*c))
+                    .ok_or_else(|| std::io::Error::other("no free checkout group"))?
             }
-        }
+        },
     };
+    if g.by_path.get(&key) != Some(&gid) {
+        g.by_path.insert(key, gid);
+        save(&g)?;
+    }
     let mode = u32::from(info.st_mode) & 0o7777;
     let wanted_mode = (mode & 0o7000) | 0o770;
     let fd = fd.as_raw_fd();

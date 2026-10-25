@@ -61,9 +61,9 @@ fn pool() -> Result<Option<Arc<Pool>>, String> {
 
 pub fn initialize() -> Result<(), String> { pool().map(|_| ()) }
 
-/// Whether this runner lends turn users at all (the Docker image's pool). Without one, a harness that could run as
+/// Whether this runner lends turn users (the Docker image's pool, once initialize has run). Without one, a harness that could run as
 /// its own user (`isolated_user`) runs as `bot`, as before; only a Gateway turn needs a lease and fails without it.
-pub fn available() -> bool { matches!(pool(), Ok(Some(_))) }
+pub fn available() -> bool { matches!(POOL.get(), Some(Ok(Some(_)))) } // never starts the pool's sweep: initialize does
 
 /// Existing workspace files may be owner-only. Widen only bot-owned ordinary workspace inodes,
 /// as their existing owner, so a leased user has the same file access through the shared group.
