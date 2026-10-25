@@ -50,7 +50,7 @@ function peopleRow(p, view) {
     : `<span class="people-role" data-role="${esc(p.role)}">${PEOPLE_ROLE[p.role] || 'Member'}</span>`;
   const locked = p.owner || p.id === S.me?.id || !p.email || (!owner && p.role === 'admin');
   return `<li class="people-row" data-person="${esc(p.id)}">
-    <div class="people-who">${face}<div class="people-id"><div class="people-name">${esc(p.name)}</div><div class="people-email">${esc(p.email || 'No email')}</div>${invited ? `<div class="people-invited muted" data-invited title="${esc(fmt(invited))}">Invited ${esc(ago(invited))}</div>` : ''}</div></div>
+    <div class="people-who">${face}<div class="people-id"><div class="people-name">${esc(p.name)}</div><div class="people-email">${esc(p.email || 'No email')}</div>${invited ? `<div class="people-invited muted" data-invited>Invited ${agoSpan(invited)}</div>` : ''}</div></div>
     <div class="people-cell-role">${role}</div>
     ${p.owner ? '<div class="people-cell-signin"><span class="muted" title="The owner can always sign in">Always</span></div>'   /* the owner's own sign-in is not a switch */
       : `<label class="people-cell-signin">${peopleSwitch('data-person-signin', p.can_sign_in, locked, local ? 'Sign-in access when configured' : 'Can sign in')}<span class="people-switch-label">${local ? 'When configured' : 'Can sign in'}</span></label>`}
@@ -290,7 +290,7 @@ async function peopleFromSetup(el) {
   if (!people.length || !el.isConnected) { el.innerHTML = ''; return; }
   const row = p => `<li class="people-row setup-person" data-setup-person="${esc(p.id)}">
       <div class="people-who">${personAvatar({id: p.id, name: p.name}, 32)}<div class="people-id"><div class="people-name">${esc(p.name)}</div><div class="people-email">${esc(p.title || '')}</div></div></div>
-      ${p.invited_at ? `<div class="muted" data-setup-invited>Invited ${esc(ago(p.invited_at))}</div>`
+      ${p.invited_at ? `<div class="muted" data-setup-invited>Invited ${agoSpan(p.invited_at)}</div>`
         : `<form class="people-add setup-invite" novalidate><input name="email" type="text" inputmode="email" autocapitalize="off" spellcheck="false" placeholder="Email" aria-label="Email for ${esc(p.name)}"${p.person ? ' hidden' : ''}>
            <button class="primary" type="submit">Invite</button><span class="people-status" role="status"></span></form>`}</li>`;
   el.innerHTML = `<section class="card people-list-card" id="setup-people"><header><h2>From your setup</h2><span class="muted tnum">${people.length}</span></header>

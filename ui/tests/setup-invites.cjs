@@ -127,6 +127,11 @@ const REFUSED = {error: {code: 'invite_failed', detail: "Tico's sign-in mail cou
     await menuAct('ben', 'invite');
     await row('ben').locator('[data-invited]').waitFor();
     assert.deepEqual(calls.shift(), ['invite', 'ben', {}]);
+    // The time moves on without a redraw and carries the full date on hover.
+    const when = row('ben').locator('[data-invited] [data-ago]');
+    assert.ok((await when.getAttribute('title')).length > 5);
+    await when.evaluate(n => { n.dataset.ago = new Date(Date.now() - 3 * 3600e3).toISOString(); agoTick(); });
+    assert.equal(await when.innerText(), '3h ago');
     await row('ben').locator('.people-more').click();
     assert.equal((await row('ben').locator('[data-person-act=invite]').innerText()).trim(), 'Send invite again');
     await page.keyboard.press('Escape');

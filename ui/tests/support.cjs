@@ -173,7 +173,7 @@ const UNREACHABLE = 'Not sent. Could not reach Tico support. Try again in a mome
     // The chat now shows the new request: its title and status above, a You bubble, the delivered line.
     assert.equal(await form.locator('[name=diag]').isChecked(), false, 'follow-up attachments are opt-in');
     assert.equal(await attach.locator('[data-attach-label]').innerText(), 'Attach details');
-    assert.match(await pop.locator('[data-title]').innerText(), /^The board will not load\. <img/);
+    assert.match(await pop.locator('[data-title]').innerText(), /^The board will not load\.$/, 'the first line is the title');
     assert.match(await pop.locator('[data-status] .support-badge').innerText(), /Open/);
     assert.equal(await pop.locator('.support-msg.you .support-who').innerText().then(s => s.split(' · ')[0]), 'You');
     assert.equal(await pop.locator('.support-delivered').innerText(), 'Delivered to Tico support. Their reply will appear here.');
@@ -304,7 +304,7 @@ const UNREACHABLE = 'Not sent. Could not reach Tico support. Try again in a mome
     const reply = (id, m) => ({id, created: at(m), from: 'staff', body: 'Reply ' + id});
     v = await visit({seed: [
       {id: 'sup_a', created: at(300), status: 'closed', message: 'Old question', messages: [reply(1, 1)], sent: {}},
-      {id: 'sup_b', created: at(100), status: 'open', message: 'Waiting question', messages: [], sent: {}},
+      {id: 'sup_b', created: at(100), status: 'open', message: 'Waiting question\nIt still fails after a restart.', messages: [], sent: {}},
       {id: 'sup_c', created: at(400), status: 'answered', message: 'Answered question', messages: [reply(1, 50), reply(2, 5)], sent: {}},
       {id: 'sup_d', created: at(2), status: 'gone', message: 'Removed question', messages: [], sent: {}},
     ]});
@@ -315,12 +315,16 @@ const UNREACHABLE = 'Not sent. Could not reach Tico support. Try again in a mome
     assert.equal(await vpop.locator('[data-title]').innerText(), 'Answered question');
     assert.equal(await vpop.locator('[data-status]').innerText(), 'Answered');
     await v.page.waitForFunction(() => document.querySelector('#help-open')?.getAttribute('data-support-unread') === '1');
-    assert.equal(await vpop.locator('[data-mine]').innerText(), 'Your requests (1)', 'requests with an unread reply');
+    assert.equal(await vpop.locator('[data-mine]').innerText(), 'Your requests (4)', 'every request in the list');
     assert.deepEqual(v.calls.filter(c => c.endsWith('/read')), ['POST tickets/sup_c/read'], 'the request shown is read');
     await vpop.locator('[data-mine]').click();
     const rows = await vpop.locator('[data-requests] .support-item').evaluateAll(els => els.map(el =>
       [el.querySelector('.support-item-title').textContent, el.querySelector('.support-badge').textContent, !!el.querySelector('.support-dot')]));
     assert.deepEqual(rows, [['Old question', 'Closed', true], ['Removed question', 'Removed', false], ['Answered question', 'Answered', false], ['Waiting question', 'Open', false]]);
+    // The first line is the title; the lines after it are a muted preview. Access off on the server says so in words.
+    assert.equal(await vpop.locator('.support-item', {hasText: 'Waiting question'}).locator('.support-item-body').innerText(), 'It still fails after a restart.');
+    assert.equal(await vpop.locator('.support-item-body').count(), 1);
+    assert.equal(await vpop.locator('[data-access]').innerText(), 'Support access is turned off on this server.');
     // A closed request opens to read, with no box.
     await vpop.locator('[data-requests] .support-item').first().click();
     assert.equal(await vpop.locator('[data-title]').innerText(), 'Old question');
