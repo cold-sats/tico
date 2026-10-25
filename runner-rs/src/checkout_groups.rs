@@ -81,7 +81,7 @@ pub fn gate_blocking(paths: &[PathBuf]) -> Vec<u32> {
     let Some((bot, _)) = crate::isolation::identity() else { return vec![] };
     let mut out = BTreeSet::new();
     for path in paths.iter().collect::<BTreeSet<_>>() {
-        match gate_one(path, bot) {
+        match gate_one(path, bot, false) {
             Ok(Some(gid)) => { out.insert(gid); }
             Ok(None) => {}
             Err(e) => crate::util::log(&format!("Tico runner: cannot give {} its own group: {e}", path.display())),
@@ -91,7 +91,7 @@ pub fn gate_blocking(paths: &[PathBuf]) -> Vec<u32> {
 }
 
 /// The workspace's checkouts (`<ws>/<name>`), task-lane worktrees (`<ws>/sessions/<bot>/<task>`) and computer
-/// task worktrees (`<ws>/tasks/<name>`), so a checkout no turn has run in yet is closed to leased turns too.
+/// task worktrees (`<ws>/tasks/<task>/<repository>`), so a checkout no turn has run in yet is closed to leased turns too.
 pub fn gate_workspace(workspace: &Path) {
     if !wanted() { return; }
     let children = |dir: &Path| -> Vec<PathBuf> {
@@ -99,7 +99,8 @@ pub fn gate_workspace(workspace: &Path) {
     };
     let mut roots = children(workspace);
     for lane in children(&workspace.join("sessions")) { roots.extend(children(&lane)); }
-    roots.extend(children(&workspace.join("tasks")));
+    // A computer task's worktrees sit one level inside its folder (`tasks/<task>/<repository>`).
+    for task in children(&workspace.join("tasks")) { roots.extend(children(&task)); }
     let Some((bot, _)) = crate::isolation::identity() else { return };
     // The folders that hold other bots' checkouts are writable by the pool's group, so without the sticky bit a
     // leased turn could rename a sibling's checkout aside and put its own in its place.
@@ -133,7 +134,25 @@ fn seal(dir: &Path, bot: u32) -> std::io::Result<()> {
     changed
 }
 
-fn gate_one(path: &Path, bot: u32) -> std::io::Result<Option<u32>> {
+/// Make the folder a new worktree or checkout is about to fill, already gated, so the bot's files are never open to
+/// the pool's group (a leased turn could otherwise read them, or hard-link them away, while git writes them).
+pub async fn prepare(path: PathBuf) {
+    if !wanted() { return; }
+    let Some((bot, _)) = crate::isolation::identity() else { return };
+    let shown = path.display().to_string();
+    let made = tokio::task::spawn_blocking(move || {
+        crate::isolation::mkdir(&path, 0o700)?;
+        gate_one(&path, bot, true)
+    }).await;
+    match made {
+        Ok(Ok(_)) => {}
+        Ok(Err(e)) => crate::util::log(&format!("Tico runner: cannot give {shown} its own group before filling it: {e}")),
+        Err(e) => crate::util::log(&format!("Tico runner: cannot give {shown} its own group before filling it: {e}")),
+    }
+}
+
+/// `fresh` also takes an empty folder that has no `.git` yet (prepare).
+fn gate_one(path: &Path, bot: u32, fresh: bool) -> std::io::Result<Option<u32>> {
     let Some((parent, name)) = pinned_parent(path) else { return Ok(None) };
     let Some(fd) = open_at(parent.as_raw_fd(), &name, libc::O_RDONLY | libc::O_DIRECTORY) else { return Ok(None) };
     let info = stat(fd.as_raw_fd())?;
@@ -141,7 +160,8 @@ fn gate_one(path: &Path, bot: u32) -> std::io::Result<Option<u32>> {
     let dot_git = std::ffi::CString::new(".git").unwrap();
     let mut probe = std::mem::MaybeUninit::<libc::stat>::uninit();
     // SAFETY: fstatat on a descriptor this process owns, without following a link.
-    let checkout = unsafe { libc::fstatat(fd.as_raw_fd(), dot_git.as_ptr(), probe.as_mut_ptr(), libc::AT_SYMLINK_NOFOLLOW) } == 0;
+    let checkout = unsafe { libc::fstatat(fd.as_raw_fd(), dot_git.as_ptr(), probe.as_mut_ptr(), libc::AT_SYMLINK_NOFOLLOW) } == 0
+        || (fresh && std::fs::read_dir(format!("/proc/self/fd/{}", fd.as_raw_fd())).is_ok_and(|mut d| d.next().is_none()));
     // SAFETY: geteuid has no preconditions.
     let me = unsafe { libc::geteuid() };
     // A root this runner was gating when it stopped is still the supervisor's, with a checkout group: finish it.

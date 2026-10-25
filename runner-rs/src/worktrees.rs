@@ -621,11 +621,18 @@ async fn create_or_resume(path: &Path, c: &Checkout<'_>, base: &Path, default: &
             crate::isolation::mkdir(parent, 0o755)?;
         }
         write_marker(c.workspace, &with_phase(&identity, "materializing"))?;
+        // Given its own group before git writes the bot's files into it (sessions.rs does the same).
+        crate::checkout_groups::prepare(path.to_path_buf()).await;
         let p = path.display().to_string();
-        if target == format!("refs/heads/{branch}") {
-            git(base, c.env, &["worktree", "add", &p, branch], true).await?;
+        let added = if target == format!("refs/heads/{branch}") {
+            git(base, c.env, &["worktree", "add", &p, branch], true).await
         } else {
-            git(base, c.env, &["worktree", "add", "--no-track", "-b", branch, &p, &target], true).await?;
+            git(base, c.env, &["worktree", "add", "--no-track", "-b", branch, &p, &target], true).await
+        };
+        if let Err(e) = added {
+            // The prepared folder goes if git left it empty, so the next attempt finds the path absent as before.
+            let _ = std::fs::remove_dir(path);
+            return Err(e);
         }
         resume_interrupted(path, c, &expected, &expected_base, &identity).await?;
     }

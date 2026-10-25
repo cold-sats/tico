@@ -333,6 +333,8 @@ pub async fn ensure(main: &Path, path: &Path, task: &str, turn: &Env) -> (String
             }
             crate::isolation::chown(parent);
         }
+        // Given its own group before git writes the bot's files into it.
+        crate::checkout_groups::prepare(path.to_path_buf()).await;
         let branch = format!("{BRANCH}{task}");
         let exists = g(main, &env, &["show-ref", "--verify", "--quiet", &format!("refs/heads/{branch}")], 15).await?.ok();
         let p = path.display().to_string();
