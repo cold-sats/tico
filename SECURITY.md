@@ -98,7 +98,8 @@ work of any bot assigned to that computer, so code a bot runs must not be able t
   quarantines a UID instead of reusing it. The pool holds up to 64 concurrent leased turns.
   **Turn users for other harnesses:** a turn on a harness whose manifest sets `isolated_user` (pi, which reads its
   key from the turn's environment) leases a user the same way, with a private HOME, temporary directory and copies of
-  its file credentials. Every checkout and worktree root has a group of its own (owner `bot`, mode 0770), and a leased
+  its file credentials. Every checkout and worktree root has a group of its own (owner `bot`, mode 0770, and an ACL entry for the runner's
+  own user, whose git reads checkouts), and a leased
   user gets only the groups of the checkouts its turn runs in, so it cannot enter or write another bot's checkout or
   task worktree. Readiness reports per tool whether its turns run as their own user (`turn_user`), and the
   computer's tool chip says so.

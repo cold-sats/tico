@@ -1,6 +1,6 @@
 //! Per-checkout groups on the Docker runner. Every bot's files are group-shared with its turn users (the pool's
 //! group), so the group alone would let one leased turn into every bot's checkout. Each checkout and worktree root
-//! instead gets a group of its own (owner `bot`, mode 0770), and a leased turn user is given only the groups of the
+//! instead gets a group of its own (owner `bot`, mode 0770, plus an ACL entry for the supervisor's user), and a leased turn user is given only the groups of the
 //! paths its turn runs in (crate::isolation::prefix_for). Below a root nothing changes: the pool's group still lets
 //! that turn write the bot's files once it is inside.
 //!
@@ -142,22 +142,68 @@ fn gate_one(path: &Path, bot: u32) -> std::io::Result<Option<u32>> {
     }
     let mode = u32::from(info.st_mode) & 0o7777;
     let wanted_mode = (mode & 0o7000) | 0o770;
+    let acl = supervisor_acl(me);
     let fd = fd.as_raw_fd();
-    // SAFETY: fchown and fchmod on the pinned descriptor. The supervisor may change any owner (CAP_CHOWN) but only
-    // its own inode's mode (no CAP_FOWNER), so a mode change borrows ownership for that one call.
-    unsafe {
-        if mode != wanted_mode || interrupted {
-            if libc::fchown(fd, me, gid) != 0 { return Err(std::io::Error::last_os_error()); }
-            let changed = libc::fchmod(fd, wanted_mode as libc::mode_t);
-            let error = std::io::Error::last_os_error();
-            if libc::fchown(fd, bot, gid) != 0 { return Err(std::io::Error::last_os_error()); }
-            if changed != 0 { return Err(error); }
-        } else if info.st_gid != gid && libc::fchown(fd, bot, gid) != 0 {
-            return Err(std::io::Error::last_os_error());
-        }
+    if mode == wanted_mode && !interrupted && read_acl(fd).as_deref() == Some(acl.as_slice()) {
+        // SAFETY: fchown on the pinned descriptor.
+        if info.st_gid != gid && unsafe { libc::fchown(fd, bot, gid) } != 0 { return Err(std::io::Error::last_os_error()); }
+        return Ok(Some(gid));
     }
-    Ok(Some(gid))
+    // The supervisor may change any owner (CAP_CHOWN) but only its own inode's mode and ACL (no CAP_FOWNER), so the
+    // change borrows ownership on the pinned descriptor and hands it back.
+    // SAFETY: fchown and fchmod on the pinned descriptor.
+    if unsafe { libc::fchown(fd, me, gid) } != 0 { return Err(std::io::Error::last_os_error()); }
+    let changed = write_acl(fd, &acl).and_then(|()| {
+        // SAFETY: as above.
+        if unsafe { libc::fchmod(fd, wanted_mode as libc::mode_t) } != 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) }
+    });
+    // Without the ACL the root keeps the shared group, which the supervisor's own git needs (below).
+    let group = if changed.is_ok() { gid } else { info.st_gid };
+    // SAFETY: as above.
+    if unsafe { libc::fchown(fd, bot, group) } != 0 { return Err(std::io::Error::last_os_error()); }
+    changed.map(|()| Some(gid))
 }
+
+/// The root's ACL: its owner, the supervisor's user and its group get everything, others nothing. The supervisor
+/// runs git in checkouts as itself (crate::gitrun), and git checks with access(2), which ignores the supervisor's
+/// capabilities: it reaches the checkout through this entry, as it did through the shared group, and a turn user
+/// (another UID with the same group) gains nothing from it.
+fn supervisor_acl(supervisor: u32) -> Vec<u8> {
+    const UNDEFINED: u32 = u32::MAX;
+    let mut out = 2u32.to_le_bytes().to_vec();
+    // Sorted by tag as the kernel requires: owner, named user, owning group, mask, other.
+    for (tag, perm, id) in [(0x01u16, 7u16, UNDEFINED), (0x02, 7, supervisor), (0x04, 7, UNDEFINED), (0x10, 7, UNDEFINED), (0x20, 0, UNDEFINED)] {
+        out.extend(tag.to_le_bytes());
+        out.extend(perm.to_le_bytes());
+        out.extend(id.to_le_bytes());
+    }
+    out
+}
+
+const ACL_NAME: &std::ffi::CStr = c"system.posix_acl_access";
+
+#[cfg(target_os = "linux")]
+fn read_acl(fd: i32) -> Option<Vec<u8>> {
+    let mut buf = vec![0u8; 256];
+    // SAFETY: the buffer is as long as the length passed.
+    let n = unsafe { libc::fgetxattr(fd, ACL_NAME.as_ptr(), buf.as_mut_ptr().cast(), buf.len()) };
+    (n >= 0).then(|| { buf.truncate(n as usize); buf })
+}
+
+#[cfg(target_os = "linux")]
+fn write_acl(fd: i32, acl: &[u8]) -> std::io::Result<()> {
+    // SAFETY: the value is as long as the length passed.
+    if unsafe { libc::fsetxattr(fd, ACL_NAME.as_ptr(), acl.as_ptr().cast(), acl.len(), 0) } != 0 {
+        return Err(std::io::Error::other(format!("no ACL on this filesystem, so the checkout stays shared: {}", std::io::Error::last_os_error())));
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn read_acl(_: i32) -> Option<Vec<u8>> { None }
+
+#[cfg(not(target_os = "linux"))]
+fn write_acl(_: i32, _: &[u8]) -> std::io::Result<()> { Err(std::io::Error::other("checkout groups need Linux")) }
 
 fn stat(fd: i32) -> std::io::Result<libc::stat> {
     let mut raw = std::mem::MaybeUninit::<libc::stat>::uninit();
