@@ -96,12 +96,17 @@ SCHEMA = (
 
 def ensure(c):
     """The tables, the goals column, and once the draft: from the company profile's vision (the vision) and
-    description (what we sell) where an install has them, empty otherwise."""
+    description (what we sell) where an install has them, empty otherwise. Every start brings
+    company_profile.vision in line with the team's vision (sync_vision), whatever an older release left there."""
     for statement in SCHEMA:
         c.execute(statement)
     H.add_column(c, "goals", "bet_id", "TEXT")
     c.execute("CREATE INDEX IF NOT EXISTS goals_bet ON goals(bet_id) WHERE bet_id IS NOT NULL")
     if c.execute("SELECT 1 FROM strategy_versions LIMIT 1").fetchone():
+        try:
+            sync_vision(c)
+        except sqlite3.OperationalError:      # an install from before the company profile
+            pass
         return False
     try:
         profile = H._one(c, "SELECT vision, description FROM company_profile WHERE id='company'") or {}
@@ -441,14 +446,26 @@ def update_draft(c, actor, revision=None, guide_id=None, summary=None, vision=No
         # Before the first publish the draft's vision is the team's (vision()), so its history goes beside the
         # description's (GET /company/history); after it, an unpublished vision stays the owner's until publish.
         _vision_event(c, actor, row["vision"], changes["vision"])
+        sync_vision(c)
     H.event(c, actor, "strategy.draft", "", {"fields": sorted(changes)})
     return draft(c)
 
 
 def _vision_event(c, actor, old, new):
-    """The vision's history on the Goals page (GET /company/history); the text itself lives only in the versions."""
+    """The vision everyone sees changed: its history on the Goals page (GET /company/history)."""
     c.execute("INSERT INTO company_events (id, ts, actor, field, old, new) VALUES (?,?,?,?,?,?)",
               (H.new_id(), H.now(), actor, "vision", old, new))
+
+
+def sync_vision(c):
+    """company_profile.vision, which hub SQL readers see, set to the vision everyone sees (vision()). The text
+    lives in the versions; the column only follows them."""
+    public = vision(c)
+    row = c.execute("SELECT vision FROM company_profile WHERE id='company'").fetchone()
+    if row and row[0] == public:
+        return
+    c.execute("INSERT INTO company_profile (id, vision, description) VALUES ('company',?,'') "
+              "ON CONFLICT(id) DO UPDATE SET vision=excluded.vision", (public,))
 
 
 # ----------------------------------------------------------------------------- bets
@@ -706,6 +723,7 @@ def publish(c, actor, note="", revision=None):
     c.execute("UPDATE strategy_bets SET until_n=? WHERE status='retired' AND until_n IS NULL", (n,))
     if last and last["vision"] != row["vision"]:
         _vision_event(c, actor, last["vision"], row["vision"])
+    sync_vision(c)
     _event(c, actor, "published", {"n": n, "note": note})
     H.event(c, actor, "strategy.publish", f"v{n}", {"n": n})
     published = version(c, n)

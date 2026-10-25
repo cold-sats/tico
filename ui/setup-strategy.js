@@ -47,8 +47,11 @@ function ssCollectBuilding(state) {
 // a plain form.
 async function ssResearch(state) {
   const url = state.record.names.website || '', text = (state.record.answers.building || '').trim(), key = url + '\n' + text;
-  if ((!url && !text) || state.strat.asked === key) return '';
-  const last = state.strat.job || await v2Get('/v2/strategy/draft-from/latest', {fresh: true});
+  if (state.strat.asked === key) return '';
+  // Both cleared: nothing to draft from, and the run the server had is stopped (PUT /setup), so the step is a form.
+  if (!url && !text) { Object.assign(state.strat, {job: null, checked: true, asked: key}); return ''; }
+  // A start this page never heard back from may have committed: the server's newest run says.
+  const last = state.strat.job?.id ? state.strat.job : await v2Get('/v2/strategy/draft-from/latest', {fresh: true});
   if (ONB !== state) return '';
   state.strat.checked = true;
   if (last && (last.url || '') === url && (last.text || '') === text && last.state !== 'failed') {
@@ -59,6 +62,7 @@ async function ssResearch(state) {
   } catch (error) {
     if (error?.status === 422) return error.message;
     state.strat.job = {state: 'failed', url, text, error: {code: 'error', message: error.message}};
+    return '';               // unconfirmed: the same Next asks again
   }
   state.strat.asked = key;
   return '';

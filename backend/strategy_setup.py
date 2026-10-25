@@ -162,13 +162,27 @@ def _find(c, job_id):
     return next((j for j in jobs if j["id"] == job_id), None)
 
 
+INTERRUPTED = {"code": "interrupted", "message": "The research was cut off; start again"}
+
+
+def _stale(job):
+    return job["state"] == "running" and H.shift(job["started"], seconds=STALE_S) < H.now()
+
+
 def view(job):
-    """What the API answers: the job without its bookkeeping, a run cut off by a restart as `failed`."""
+    """What the API answers: the job without its bookkeeping, a run cut off (a restart, a hung lookup) as `failed`."""
     out = {k: v for k, v in job.items() if k not in ("claimed", "actor")}
-    if out["state"] == "running" and H.shift(out["started"], seconds=STALE_S) < H.now():
-        out.update(state="failed", step=None, error={"code": "interrupted", "message": "The server restarted while "
-                                                     "reading; start again"})
+    if _stale(out):
+        out.update(state="failed", step=None, error=INTERRUPTED)
     return out
+
+
+def stop_running(c, error=INTERRUPTED):
+    """Every job still `running` becomes `failed`: at start-up (backend/app.py lifespan; no thread of this process
+    runs them), and when the owner clears the website and the line in setup (nothing is left to draft from)."""
+    for job in _jobs(c):
+        if job["state"] == "running":
+            _put(c, {**job, "state": "failed", "step": None, "finished": H.now(), "error": error})
 
 
 def read(c, job_id):
@@ -332,6 +346,8 @@ def finish(c, job_id, found):
     job = _find(c, job_id)
     if not job or job["state"] != "running":
         return None
+    if _stale(job):          # the owner was already told it stopped and given the form
+        return _put(c, {**job, "state": "failed", "step": None, "finished": H.now(), "error": INTERRUPTED})
     row = S.draft(c)
     newest = _jobs(c)[0]["id"] == job_id
     if row["revision"] != job["revision"] or not newest:
