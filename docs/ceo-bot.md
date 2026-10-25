@@ -2,8 +2,9 @@
 
 Every Tico install has a **CEO Bot**, at the top of the [team chart](org-chart.md). It is the built-in bot that was called
 the Goal Manager; its slug is still `goal-manager`, so its KPI readings, goal history and old messages stay its own.
-This page says how much it does, who changes that, and what stays yours. There is no On/Off switch: you choose how
-much it does, from **Passive** up.
+It owns three things, in this order: the team's [strategy](strategy.md), the org chart proposals that follow from it,
+and the [goals and KPIs](goals-and-kpis.md) that say whether it is working. This page says how much it does, who
+changes that, and what stays yours. There is no On/Off switch: you choose how much it does, from **Passive** up.
 
 ## The three levels
 
@@ -12,9 +13,9 @@ and won't do. Every company starts at **Passive**.
 
 | Level | Name | What the CEO Bot does |
 |---|---|---|
-| 1 | **Passive** (default) | Keeps the regular checks running (KPI readings and the automatic goal colours) and otherwise acts only when you talk to it. It suggests KPIs, goals and Why lines when you ask, and changes nothing until you accept. |
-| 2 | **Suggests actions** | Also asks you for the vision, proposes Why lines, sends a Monday note, asks a goal's owner what is happening, and suggests how your bots could recover a goal that falls behind, as items in **Needs you** that you approve one by one. |
-| 3 | **Acts on its own** | Also decides on its own: makes, reorders, reassigns and closes bot tasks itself to recover a goal, each decision with an Undo. |
+| 1 | **Passive** (default) | Keeps the regular checks running (KPI readings and the automatic goal colours) and otherwise acts only when you talk to it. It shows the Strategy page and drafts it with you when you ask, as a proposal; it suggests KPIs, goals and Why lines when you ask, and changes nothing until you accept. |
+| 2 | **Suggests actions** | Also proposes strategy drafts and checks, asks you for the vision, proposes Why lines, sends a Monday note, asks a goal's owner what is happening, and suggests how your bots could recover a goal that falls behind, as items in **Needs you** that you approve one by one. |
+| 3 | **Acts on its own** | Also writes the strategy draft and its choices itself (never publishes), and decides on its own: makes, reorders, reassigns and closes bot tasks itself to recover a goal, each decision with an Undo. |
 
 At level 3 the CEO Bot also decides on its own. One decision has a reason and up to 10 changes to bot tasks: a new task
 for a bot, a bot's task moved to the top of its queue, a bot's task given to another bot, or a bot's task closed. Each
@@ -42,8 +43,8 @@ goal's automatic colour is worked out at once. A colour a person set by hand sta
 
 **Changes** at the bottom lists each change with who made it, when, and the level before and after.
 
-Only the owner changes the level, the regular checks, the CEO Bot's name and the
-[Company section](goals-and-kpis.md#the-company-section), and only by their own click. An admin cannot. A bot cannot, the
+Only the owner changes the level, the regular checks, the CEO Bot's name and publishes a
+[strategy version](strategy.md#who-may-do-what), and only by their own click. An admin cannot. A bot cannot, the
 CEO Bot included, and neither can your Assistant acting for the owner. Choosing the level you are already on changes
 nothing and logs nothing.
 
@@ -54,12 +55,31 @@ Over the API, `GET /api/v2/ceo-bot` shows `name`, `regular_checks`, `level` and 
 `POST /api/v2/ceo-bot/level` with `{"level": 2}` changes the level and `POST /api/v2/ceo-bot/checks` with
 `{"on": false}` the regular checks. `hub goal ceo-bot` reads them and each person's count for today.
 
+## Strategy
+
+The [Strategy](strategy.md) page is the CEO Bot's first job at every level, and the level says how it writes:
+
+- **Drafting.** A task "Draft the strategy", or you asking in your chat, runs its `draft-the-strategy` playbook. It reads
+  the market pages, the setup answers and the frameworks, commits to positions instead of listing options, surfaces
+  the choices (the "bets") the team already lives by with why and what each rules out, fills "What we won't do", and
+  interviews you one question at a time, only the questions the draft cannot answer, at most eight. It never invents
+  a number. At **Passive** and **Suggests actions** the result is one `strategy_draft` proposal in your **Needs you**;
+  confirming writes the draft as you. At **Acts on its own** it writes the draft and the choices itself, and you see
+  them fill in on the page.
+- **Publishing is yours.** At every level the CEO Bot ends a drafting run by asking you to publish from the Strategy
+  page. It cannot publish: the server refuses every bot.
+- **The strategy check** (its `strategy-check` playbook) reads the market delta, the goal colours and the KPI readings
+  against the active choices once a month and proposes changes, never edits. The routine is declared and **stays off**
+  until the fit-check work is finished; only you can turn it on, and a run while off ends with one line saying so.
+- **Goals from the strategy.** When you ask for goals, or after you publish, it suggests one or two per active choice,
+  each tied to its choice, and the Monday note names each choice that no goal serves.
+
 ## What the CEO Bot does at Passive
 
 - **Runs the regular checks.** It posts KPI readings and keeps each goal's automatic colour. Nothing else happens on its
   own.
-- **Answers when you talk to it.** Ask it for a KPI, a goal or a Why line and it suggests one. It changes nothing until
-  you accept ([A goal's Why](goals-and-kpis.md#a-goals-why)).
+- **Answers when you talk to it.** Ask it for the strategy, a KPI, a goal or a Why line and it suggests one. It changes nothing until
+  you accept ([A goal's Why](goals-and-kpis.md#a-goals-why), [Strategy](#strategy)).
 - **Asks for nothing.** There is no vision ask, no Why bundle in **Needs you**, no ask to a goal's owner and no Monday
   note. Those start at **Suggests actions**. An ask filed earlier stays until it is settled.
 - **Changes no tasks.** It creates, reorders, reassigns and closes nothing of anyone's. Going down to Passive withdraws
@@ -68,9 +88,10 @@ Over the API, `GET /api/v2/ceo-bot` shows `name`, `regular_checks`, `level` and 
 ## What the CEO Bot does at Suggests actions
 
 Everything at Passive, plus these. Going up from Passive starts the Monday note.
-- **Asks you for the vision.** While the company's Vision is empty, the first item in the owner's **Needs you** is "Tell
-  your CEO Bot what this company is for". Writing the vision in the
-  [Company section](goals-and-kpis.md#the-company-section) at the top of Goals closes it.
+- **Proposes the strategy.** A drafting run, or the strategy check once it is on, ends in a `strategy_draft` proposal you
+  confirm ([Strategy](#strategy)); it writes nothing to the page itself.
+- **Asks you for the vision.** While the team's vision is empty, the first item in the owner's **Needs you** is "Tell
+  your CEO Bot what this company is for". Writing the vision on the [Strategy](strategy.md) page closes it.
 - **Proposes a Why for each goal that has none**, as one **Needs you** item for each person who decides them, never one
   per goal. You accept, edit or replace each on its goal.
 - **Sends a Monday note** in the owner's chat: a short weekly goals review that opens with a line on the vision (or that
@@ -129,7 +150,7 @@ It keeps two layers, both on **What it has learned** at the top of your chat (`#
 
 - **About you**: how you like things ranked and summarised, the same private layer your [Assistant](assistant.md#what-it-has-learned)
   used. It stays yours if you hand ownership on.
-- **About the company**: the vision and the company goals (both changed on Goals), and what you taught it about the
+- **About the company**: the vision (changed on Strategy) and the company goals (changed on Goals), and what you taught it about the
   company ("launches matter more than hiring news for us"). Only you, the owner, read and change it, and only the CEO
   Bot uses it, in your chat: Assistants never see it, administrators cannot add to it, and its goals session is not
   handed it. It stays with the owner seat: a new owner gets it, and you no longer see it.
@@ -142,11 +163,11 @@ reply on.
 
 At every level, these stay yours, and the server refuses the CEO Bot each one:
 - anything that raises cost: a new routine or a routine that runs more often, a bot's model, fallback or wake settings;
-- publishing to a public roadmap without your approval;
+- publishing to a public roadmap without your approval, and publishing a strategy version at all;
 - sending anything outside the company, such as a calendar invitation to someone outside it;
 - adding, removing or bringing back bots;
 - changing a goal, or a goal's KPI target;
-- changing the vision or the description;
+- below **Acts on its own**, writing the strategy draft or its choices (it proposes instead);
 - changing a bot's instructions or settings;
 - giving a task to a person.
 
@@ -182,4 +203,4 @@ Over the API, the owner reads the log with `GET /api/v2/ceo-bot/log` (`hub goal 
 with `POST /api/v2/ceo-bot/log/{id}/undo`. The CEO Bot decides with `POST /api/v2/ceo-bot/decisions`
 (`hub goal ceo-bot-decide`), at level 3 only.
 
-Related: [Goals and KPIs](goals-and-kpis.md), [Team chart](org-chart.md).
+Related: [Strategy](strategy.md), [Goals and KPIs](goals-and-kpis.md), [Team chart](org-chart.md).

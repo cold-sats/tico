@@ -11,10 +11,14 @@ The words Tico uses, and what each replaces.
 - **Human**: a human teammate. The **Humans** page lists them.
 - **Bot**: an AI teammate.
 - **Task Manager**: a built-in helper bot that tidies tasks once an hour on weekdays: it closes what is plainly done, fixes obvious status and step drift, and leaves one Needs-you line per department for anything it is unsure of. It sits outside the org chart and never touches bots, credentials, sends or spending ([Task Manager](task-manager.md)).
-- **Built-in**: a bot that comes with Tico, serves everyone and belongs to no group: Assistant, BotOps, Librarian, CEO Bot. The Task Manager and the Health Monitor are built-in helpers too, outside the chart. These four appear as **Built-in** in Settings > Bots. Assistant and BotOps have main rail entries; the CEO Bot is on Goals and the Librarian is on Docs and Market. The Assistant, BotOps and the Librarian stay out of the team chart and goal owner list; the CEO Bot is at the top of the chart.
-- **CEO Bot**: the built-in bot on every install that keeps KPIs and goal colours current. It sits under the owner at the top of the team chart, with the Heads under it ([Goals](goals-and-kpis.md#the-ceo-bot)). How much it does is a level only the owner picks, **Passive** by default ([Your CEO Bot](ceo-bot.md)).
-- **Company section**: the Vision and Description at the top of Goals, the owner writes it ([Goals](goals-and-kpis.md#the-company-section)).
-- **Why**: one line on a goal tying it to the company's Vision. The CEO Bot proposes it and a person accepts it ([Goals](goals-and-kpis.md#a-goals-why)).
+- **Built-in**: a bot that comes with Tico, serves everyone and belongs to no group: Assistant, BotOps, Librarian, CEO Bot. The Task Manager and the Health Monitor are built-in helpers too, outside the chart. These four appear as **Built-in** in Settings > Bots. Assistant and BotOps have main rail entries; the CEO Bot is on Goals and Strategy, and the Librarian is on Docs and Strategy's Market tab. The Assistant, BotOps and the Librarian stay out of the team chart and goal owner list; the CEO Bot is at the top of the chart.
+- **CEO Bot**: the built-in bot on every install that drafts the strategy with the owner, proposes the org chart that follows from it, and keeps KPIs and goal colours current. It sits under the owner at the top of the team chart, with the Heads under it ([Goals](goals-and-kpis.md#the-ceo-bot)). How much it does is a level only the owner picks, **Passive** by default ([Your CEO Bot](ceo-bot.md)). It never publishes a strategy version.
+- **Strategy**: the section (`#/strategy`) where the team writes how it means to win: a **summary** every bot reads on every run, a **vision**, a few **sections**, and the **choices**. The owner publishes it; **Market** is a tab under it ([Strategy](strategy.md)).
+- **Choice** (shown as **Bets** by default): one of the three to seven short decisions on the Strategy page that could turn out wrong, each with a why, what it rules out, and a status (proposed, active, retired). Goals link to the choice they serve; the framework picks the word shown (Bets, Guiding policy, Choices, Strategies, Methods, Positions).
+- **Framework**: the lens the Strategy page is written through: Plain (default), Rumelt's kernel, Playing to Win, OGSM, V2MOM, Positioning. It sets the sections and the word for the choices; the stored shape is the same, so switching keeps the summary, vision and choices.
+- **Version**: a published strategy, numbered, with a note. There is one draft at a time; publishing stamps it and opens the next draft. Also a Tico release.
+- **Company section**: the old Vision and Description at the top of Goals; both now live on the Strategy page, and Goals shows one line linking there ([Goals](goals-and-kpis.md#the-company-section)).
+- **Why**: one line on a goal tying it to the team's vision. The CEO Bot proposes it and a person accepts it ([Goals](goals-and-kpis.md#a-goals-why)).
 - **Message bot**: a bot that works a human's email or a Slack channel, such as Inbox Manager. These appear separately under **Message bots** in the sidebar, Goals and setup.
 - **External agent**: an agent outside the team connected to Tico (Codex, Claude, Grok), run by a human or a bot.
 - **MCP** and **CLI**: two ways for humans and agents to reach the same shared Tico tools; an external agent connects over MCP with a token.
@@ -44,7 +48,7 @@ The words Tico uses, and what each replaces.
 - **Routine**: a task that repeats on a schedule.
 - **Needs you**: only when it needs the viewer. Otherwise **Needs <Name>**, as in "Needs Sam".
 - **Approval**: a yes or no on one exact action.
-- **Proposal**: a suggested change to a goal or KPI, for its owner to confirm.
+- **Proposal**: a suggested change to a goal, a KPI or the strategy draft, for its owner to confirm.
 - **Run**: one time a bot works.
 - **Update**: a bot's daily or weekly post, and a new Tico version.
 - **Message**, **Comment**, **Note**: a message is chat. A comment is on a task. A note is quiet, for a bot's next run ([leave work for the next run](using-tico.md#leave-work-for-the-next-run)).
@@ -58,7 +62,7 @@ The words Tico uses, and what each replaces.
 
 ## Knowledge
 
-Docs (internal and linked), Files, Meetings, Market, Listening, Goals, KPIs, Check-ins, Usage.
+Docs (internal and linked), Files, Meetings, Strategy (with Market as its tab), Listening, Goals, KPIs, Check-ins, Usage.
 
 ## Instead of
 

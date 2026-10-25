@@ -8,9 +8,11 @@ This page is the model, the colours, the override rule, the CEO Bot, the automat
 
 ## The model
 
-**Goal.** A title, an owner (Team, a human or a bot; payload values are `company`, `human:x` or `bot:x`), an optional goal it supports, a
-colour and a note. Team goals are visible to everyone; a bot's own goals are visible to whoever may Read the bot
-([permissions](permissions.md)).
+**Goal.** A title, an owner (Team, a human or a bot; payload values are `company`, `human:x` or `bot:x`), an optional goal it supports, an
+optional strategy choice it serves (`choice_id`, shown as **Supports** in the goal editor next to the parent picker;
+[Strategy](strategy.md)), a colour and a note. Team goals are visible to everyone; a bot's own goals are visible to whoever may Read the bot
+([permissions](permissions.md)). A goal with no choice is shown as "not tied to a choice", a filter on the Strategy page, never a nag; a
+retired choice keeps its goals.
 
 **KPI.** A standalone record. A goal links to zero or more KPIs, one KPI can serve several goals, and not every goal has one.
 
@@ -111,10 +113,13 @@ Goals; nobody archives it, and only the team owner edits it. A team from before 
 computer and a model exist. Its template is `templates/catalog/goal-manager/`; its playbooks are the product.
 
 There is no On/Off switch. How much it does is the [level](ceo-bot.md) the owner picks, and a new install starts at
-**Passive**. It does five things:
+**Passive**. Its first job is the team's [strategy](strategy.md): it drafts the Strategy page with the owner and, once
+the fit check is on, keeps the choices honest against the market and the results; the owner publishes, never the bot.
+On goals and KPIs it does five things:
 
 1. **Goals make sense.** It flags vague, duplicate or unmeasured goals and suggests a KPI or clearer wording, as proposals on
-   the goal. At Passive it does this when you ask it.
+   the goal. At Passive it does this when you ask it. It prefers goals that serve a strategy choice, and suggests one or two
+   per choice that none serves.
 2. **KPIs.** It is the steward of every KPI. Each has a folder in its repository, `kpis/<slug>/`, with `definition.md`,
    `sources.md`, the query or script (`hub sql`, PostHog or another API through a tool the team declared), a
    known-values check it runs before trusting a number, and a changelog. It computes each KPI on its cadence in one routine
@@ -138,7 +143,7 @@ that report to no one under it ([Team chart](org-chart.md)). Only the picture mo
 CEO Bot gets no new access: it does the five things above and proposes each goal's [Why](#a-goals-why), nothing more.
 
 Its name is **CEO Bot** unless the owner gives it another in **Settings > Bots**. `GET /api/v2/ceo-bot` shows the name,
-the level and whether the regular checks are on. The Goals page also opens with the [Company section](#the-company-section)
+the level and whether the regular checks are on. The Goals page also opens with a line to the [Strategy](#the-company-section)
 and each goal gets a [Why line](#a-goals-why).
 
 ### How much your CEO Bot does
@@ -151,7 +156,7 @@ decision with an Undo ([Your CEO Bot](ceo-bot.md#the-ceo-bot-log)).
   it. It suggests KPIs, goals and Why lines when asked and changes nothing until accepted. There is no vision ask, no Why
   bundle, no ask to goal owners and no Monday note.
 - **Regular checks** off stops the KPI pass and the automatic colours until the owner turns them back on.
-- Only the owner changes the level, the regular checks, the CEO Bot's name and the Company section. An admin cannot.
+- Only the owner changes the level, the regular checks, the CEO Bot's name and the strategy's vision. An admin cannot.
 - The CEO Bot puts at most 5 items a day in one person's **Needs you**.
 
 The levels, who changes them and what stays yours are on [Your CEO Bot](ceo-bot.md).
@@ -177,20 +182,16 @@ a month (`level3_offer` in `GET /api/v2/ceo-bot`). The CEO Bot never raises its 
 
 ### The Company section
 
-The top of Goals is a **Company** section with two fields:
+The top of Goals used to be a **Company** section with two fields, a **Vision** (400 characters) and a **Description**
+(2000 characters). Both now live on the [Strategy](strategy.md) page: the vision is the strategy's `vision`, and the
+description became the *What we sell* section of the first draft. The top of Goals is one line, "Strategy v3 ·
+<summary…>", linking to the Strategy page; while nothing is published it says so and links the owner to the draft.
+The vision is still what a goal's [Why](#a-goals-why) ties to.
 
-- **Vision**: one or two sentences on where the company is going, up to 400 characters, on one line.
-- **Description**: a short paragraph on what the company does and for whom, up to 2000 characters.
-
-While both are empty, the section says "Tell your CEO Bot what this company is for." and shows the two fields to
-the owner. Once something is saved, they change it with **Edit**. Everyone else signed in reads it and
-cannot change it.
-
-**History** lists every change to either field, newest first: which field, who changed it, when, the new words and
-what they replaced. Saving the same words again adds nothing.
-
-Only the owner writes the Vision and the Description, on their own click. An admin cannot. No bot can,
-the CEO Bot included, and neither can the Assistant acting for the owner.
+Only the owner writes the vision and publishes a version, on their own click. An admin cannot. No bot publishes, the
+CEO Bot included; at **Acts on its own** the CEO Bot may write the draft, and below that it proposes
+([Strategy](strategy.md#who-may-do-what)). `GET/POST /api/v2/company` and `/company/history` still answer with the
+vision and description and their history for older clients.
 
 ### A goal's Why
 
@@ -298,8 +299,8 @@ check-in and **Add KPI**; tapping a KPI shows its history (a chart and the readi
 and version, its owner, its targets and the CEO Bot's latest check-in, with a way back. **Add goal** and **Add KPI**
 (a KPI no goal uses yet) are at the bottom, owned by whoever was tapped, and the KPIs no goal uses are listed there too.
 Someone with no goal opens on a new one; the team line opens the team goal. The
-[Company section](#the-company-section) sits above everything, and each goal in a panel shows its
-[Why](#a-goals-why). **Needs you** is a short strip at the
+[Strategy line](#the-company-section) sits above everything, each goal in a panel shows its
+[Why](#a-goals-why), and the goal editor's **Supports** picker links it to a strategy choice. **Needs you** is a short strip at the
 top, shown only when something waits: red KPIs on goals you own, stale data on KPIs you own, and definitions and targets
 waiting for your confirmation. Each line links to its task. Initial page load makes two requests, the tree and Needs you; the CEO Bot panel and
 the historical KPI view load only when opened.
@@ -308,7 +309,8 @@ from active KPIs; a KPI's detail panel offers **Restore KPI** to return it to ac
 
 ## Permissions
 
-- Everyone signed in reads the Company section and its history. Only the owner edits it, on their own click.
+- Everyone signed in reads the strategy and its versions. Only the owner publishes one, on their own click
+  ([Strategy](strategy.md#who-may-do-what)).
 - Team goals and team KPIs are visible to everyone signed in. A bot's goals and KPIs, and its automatic KPIs, are
   visible to whoever may Read the bot.
 - A goal's owner, the owner of the goal it supports and anyone above the owner on the team chart set its colour, edit it and
@@ -324,7 +326,7 @@ from active KPIs; a KPI's detail panel offers **Restore KPI** to return it to ac
 hub goal list [--owner X] [--all]              hub kpi list [--goal ID] [--owner X] [--unlinked] [--bot SLUG] [--archived]
 hub goal show <id>                         hub kpi show <id>
                                              hub kpi archive <id> | restore <id>
-hub goal create / update                   hub kpi create "<name>" [--goal ID] [--definition ..] [--unit ..]
+hub goal create / update [--choice ID]     hub kpi create "<name>" [--goal ID] [--definition ..] [--unit ..]
 hub goal status <id> <colour> "<why>"          [--direction ..] [--cadence ..] [--owner ..] [target flags]
 hub goal status <id> auto                         hub kpi update <id> [fields]
 hub goal refresh                           hub kpi link <goal> <kpi> [target flags]  |  hub kpi unlink <goal> <kpi>
@@ -347,7 +349,7 @@ The stable v2 routes are in [openapi/v2.json](openapi/v2.json):
 | Route | What it does |
 |---|---|
 | `GET /api/v2/goals`, `/goals/tree`, `/goals/{id}` | list (mine, or `all=1`), the whole tree with each goal's KPIs, one goal with its KPIs, check-ins, tasks and history |
-| `POST /api/v2/goals`, `/goals/{id}` | create, edit |
+| `POST /api/v2/goals`, `/goals/{id}` | create, edit; `choice_id` links the goal to a strategy choice ([Strategy](strategy.md)) and is returned in the list and the tree |
 | `POST /api/v2/goals/{id}/status` | set the colour by hand: an override with a note |
 | `POST /api/v2/goals/{id}/status/auto` | hand the colour back to the CEO Bot |
 | `POST /api/v2/goals/refresh` | the status pass (the CEO Bot or the owner) |
@@ -360,7 +362,7 @@ The stable v2 routes are in [openapi/v2.json](openapi/v2.json):
 | `GET/POST /api/v2/kpis/{id}/readings` | the readings (`?effective=true` leaves out corrected ones); post one |
 | `GET /api/v2/bots/{bot}/kpis` | a bot's automatic KPIs |
 | `GET/POST /api/v2/proposals`, `POST .../{id}/decide` | list, propose, confirm or reject |
-| `GET/POST /api/v2/company` | read the Vision and Description (with whether you may edit); save them (owner) |
+| `GET/POST /api/v2/company` | read the Vision and Description (with whether you may edit); save them (owner). Kept for older clients: the vision now lives on the [Strategy](strategy.md) page |
 | `GET /api/v2/company/history` | every change to the Vision and Description, newest first, with who and when |
 | `POST /api/v2/goals/{id}/why` | set a goal's Why (`{"why": "..."}`; empty clears it); a person who may change the goal |
 
