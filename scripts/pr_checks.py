@@ -316,6 +316,10 @@ class DependencyMap:
                     if found:
                         self.values[node.targets[0].id] |= found
                         deferred.add(id(node.value))
+        # A listing uses only names when nothing in the file reads file contents: a read elsewhere in the module (at
+        # module level, in another function or a helper it calls) may read what was listed, so edits reach it too.
+        reads_content = any(isinstance(n, ast.Call) and dotted_name(n.func).rsplit(".", 1)[-1] in CONTENT
+                            for n in ast.walk(tree))
         listed = set()
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in GLOBS | LISTINGS:
@@ -403,7 +407,7 @@ class DependencyMap:
                         self.everything.add(path)
                 if last in GLOBS | LISTINGS and isinstance(node.func, ast.Attribute) or function in OS_LISTINGS:
                     # A listing of a folder this file names (`(ROOT / "docs").glob("*.md")`) reads the files it
-                    # matches, or only their names when the function that lists reads no file contents. A listing of a
+                    # matches, or only their names when the file reads no file contents anywhere. A listing of a
                     # folder found from a __file__ alone (Path(module.__file__).parent.glob("*.py"), ROOT.iterdir()) reads
                     # every tracked file its pattern matches; one of a folder found at run time (tmp_path) reads none.
                     os_call = function in OS_LISTINGS
@@ -415,13 +419,7 @@ class DependencyMap:
                         patterns = ["*"]
                     recursive = last in ("rglob", "walk") or any("**" in t or "/" in t for t in patterns)
                     folders = {f for r in receiver for f in self.paths_of(r)}
-                    scope_node = node
-                    while id(scope_node) in parents and not isinstance(scope_node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-                        if isinstance(parents[id(scope_node)], ast.Module):
-                            break
-                        scope_node = parents[id(scope_node)]
-                    names_only = not any(isinstance(n, ast.Call) and dotted_name(n.func).rsplit(".", 1)[-1] in CONTENT
-                                         for n in ast.walk(scope_node))
+                    names_only = not reads_content
                     if folders:
                         for folder in folders:
                             folder = folder.strip("/")

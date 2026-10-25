@@ -368,7 +368,7 @@ def test_caddy_job_follows_the_image_inputs_and_a_selective_plan_runs_the_image_
         checks.image_checks([], tmp_path)
 
 
-def test_a_listing_that_uses_only_names_sees_added_files_and_a_content_listing_sees_edits(tmp_path):
+def test_a_listing_that_uses_only_names_sees_added_files_and_a_content_listing_sees_edits(tmp_path, mapped):
     source(tmp_path, "skills/a.md", "a\n")
     head = "from pathlib import Path\nSKILLS = Path(__file__).parents[1] / 'skills'\n"
     source(tmp_path, "tests/test_names.py", head + "def test_x(): assert [p.name for p in SKILLS.glob('*.md')]\n")
@@ -377,6 +377,16 @@ def test_a_listing_that_uses_only_names_sees_added_files_and_a_content_listing_s
     assert edited["python"] == ["tests/test_bodies.py"]
     added = checks.selection(["skills/a.md"], root=tmp_path, core=[], added=["skills/a.md"])
     assert added["python"] == ["tests/test_bodies.py", "tests/test_names.py"]
+    # A read anywhere in the file (module level, another function) may read what was listed: edits reach it.
+    source(tmp_path, "tests/test_module.py", head + "FILES = sorted(SKILLS.glob('*.md'))\nTEXT = [p.read_text() for p in FILES]\n")
+    source(tmp_path, "tests/test_split.py", head + "def names(): return list(SKILLS.iterdir())\n"
+                                                   "def test_x(): assert [p.read_bytes() for p in names()]\n")
+    edited = checks.selection(["skills/a.md"], root=tmp_path, core=[], added=[])["python"]
+    assert {"tests/test_module.py", "tests/test_split.py"} <= set(edited) and "tests/test_names.py" not in edited
+    # On this checkout, edits (CI passes only --diff-filter=A files as added) reach the guards that list and read.
+    corpus = checks.selection(["backend/tests/fixtures/golden_corpus/kept/handbook.md"], added=[])["python"]
+    assert "backend/tests/test_golden_corpus.py" in corpus
+    assert "backend/tests/test_icon_font.py" in checks.selection(["ui/app/api.js"], added=[])["python"]
 
 
 def test_groups_are_sized_to_the_job_target_and_browser_scripts_split_by_measured_time(tmp_path, monkeypatch, mapped):
