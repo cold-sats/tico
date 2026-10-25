@@ -2330,7 +2330,8 @@ class Execution:
                             "worktrees": worktrees.attached(c, task["id"], who.runner_id, row["bot"]) if task else [],
                             "history": history, "principal": principal,
                             # What the person's chat bot has learned, read now: a deleted entry is gone from this turn
-                            # (backend/learned.py; rendered by runner-rs/src/prompt.rs). None outside their own chat.
+                            # (backend/learned.py; rendered by runner-rs/src/prompt.rs). Outside their own chat only
+                            # `strategy`, the team's published strategy, which every turn carries (backend/strategy.py).
                             "learned": learned.for_turn(c, self.store.settings, conv, row["bot"]),
                             # Asked from the Updates chat: the recent updates that person may read and open, read now as
                             # them (backend/updates_chat.py). None for every other turn.

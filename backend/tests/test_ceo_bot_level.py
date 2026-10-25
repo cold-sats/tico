@@ -115,7 +115,7 @@ def test_no_vision_is_the_first_thing_it_asks_above_passive_and_saving_one_close
     raise_level(api, 2)
     sync(api)
     vision = [a for a in asks(api, OWNER) if a["kind"] == "vision"]
-    assert [(a["title"], a["status"]) for a in vision] == [("Tell your CEO Bot what this company is for", "open")]
+    assert [(a["title"], a["status"]) for a in vision] == [("Tell your CEO Bot what this team is for", "open")]
     with api.app.state.store.read() as c:
         mine = H.tasks(c, owner=OWNER, status=H.ACTIVE_STATUSES)
     assert mine[0]["id"] == vision[0]["id"]                                 # first in the owner's queue

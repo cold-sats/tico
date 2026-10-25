@@ -124,6 +124,8 @@ def load(doc, owner=None):
                        "root": _clean(body.get("root"))}
         if isinstance(body.get("order"), int):
             groups[gid]["order"] = body["order"]
+        if isinstance(body.get("bet_id"), str) and body["bet_id"].strip():
+            groups[gid]["bet_id"] = body["bet_id"].strip()       # the strategy bet it serves (backend/strategy.py)
     for gid, root in roots.items():             # a roster written before groups: each team is a group
         group = groups.setdefault(gid, {"id": gid, "name": gid.replace("-", " ").title(), "reports_to": "",
                                         "parent": "", "root": ""})

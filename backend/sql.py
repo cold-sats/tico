@@ -346,6 +346,11 @@ def guarded(c, auth, who, inner, function, columns=None):
         "goal_asks": "task_id IN (SELECT id FROM tasks)",
         # The company's Vision and Description and their history: everyone's to read, like the company's goals.
         "company_profile": "id IS NOT NULL", "company_events": "id IS NOT NULL",
+        # The team's strategy (backend/strategy.py): the published versions are everyone's, like the goals. The draft,
+        # the live bets (their words may be unpublished) and the history of both are the owner's.
+        "strategy_versions": "id IS NOT NULL" if owner else "status='published'",
+        "strategy_bets": "id IS NOT NULL" if owner else "id IS NULL",
+        "strategy_events": "id IS NOT NULL" if owner else "id IS NULL",
         # The market graph is the company's, the same way goals are.
         "market_entities": "1", "market_edges": "1", "market_evidence": "1",
         "market_citations": "1", "market_insights": "1", "market_events": "1",
