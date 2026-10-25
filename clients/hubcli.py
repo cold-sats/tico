@@ -240,6 +240,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub event-types [--group task]         every event Tico names, with an example payload (routines, rules, webhooks)
     hub trigger relay create|rotate|delete <trigger>
                                            a second address through Tico Gateway (shown once); hub relay status
+    hub relay set <trigger> --wake on|off  whether a delivery to that address starts a sleeping server
     hub webhook list|create|show|update|rotate|pause|resume|delete|send|sends|retry|example
     hub webhook recover|replay <id> --since DATE|enable <id>
                                            send again what gave up / what was never sent since a date; turn an endpoint back on
@@ -1824,6 +1825,10 @@ def parser():
     relay_top = sub.add_parser("relay", help="webhooks through Tico Gateway").add_subparsers(dest="sub")
     s = relay_top.add_parser("status", help="the Gateway key, the addresses, the last pull and what waits at the Gateway")
     s.set_defaults(fn="relay status")
+    s = relay_top.add_parser("set", help="whether a delivery to a trigger's Gateway address starts a sleeping server")
+    s.add_argument("trigger", help="the trigger id from `hub trigger list`")
+    s.add_argument("--wake", type=on_off, metavar="on|off", required=True, help="start the server on a delivery (on) or not (off)")
+    s.set_defaults(fn="relay set")
     sleep = sub.add_parser("sleep", help="Sleep when idle: a hosted server stops after quiet hours").add_subparsers(dest="sub")
     s = sleep.add_parser("status", help="hosted or not, the hours, what keeps the server up and Tico's last answer")
     s.set_defaults(fn="sleep status")
@@ -1944,7 +1949,7 @@ def parser():
     s.add_argument("--limit", type=int)
     s.add_argument("--offset", type=int)
     s.set_defaults(fn="webhook sends")
-    s = webhook.add_parser("retry", help="try a failed or cancelled send again now")
+    s = webhook.add_parser("retry", help="send a failed, cancelled or delivered send again now")
     s.add_argument("id")
     s.add_argument("send")
     s.set_defaults(fn="webhook retry")
@@ -2593,8 +2598,8 @@ def parser():
     s.set_defaults(fn="rule list")
 
     def rule_fields(s):
-        s.add_argument("--event", help="the event, or * for every event that is not always-wake; webhook.received, release.published, "
-                                       "health.finding and tico.notice (or a prefix like webhook.*) have no task")
+        s.add_argument("--event", help="the event, or * for every event that is not always-wake; webhook.received and tico.notice "
+                                       "(or a prefix like webhook.*) have no task")
         s.add_argument("--then", choices=["ignore", "note", "batch", "wake", "ask", "action"],
                        help="wake starts a run, note and ignore wait; ask raises a Needs-you; action runs params.action")
         s.add_argument("--when", help='JSON of conditions, all must hold: {"actor":"bot","role":"owner","step":"Review 1","tag":"x","state":"waiting"}; '

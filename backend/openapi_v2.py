@@ -1229,7 +1229,7 @@ STABLE.append(("/api/v2/event-types", "get", "Events", "listEventTypes",
                "Every named event with its description, version and an example payload (`group` narrows it)", "EventTypeList"))
 SCHEMAS.update({
     "EventType": obj({"name": "s", "group": "s", "description": "s", "version": "i", "example": "o",
-                      "aliases": items("s"), "sourceless": "b"},
+                      "aliases": items("s"), "sourceless": "b", "outbound": "b"},
                      required=["name", "group", "description", "version", "example"]),
     "EventTypeList": obj({"items": items(ref("EventType"))}, required=["items"]),
 })
@@ -1407,6 +1407,8 @@ STABLE.extend([
      'Tico Gateway; the answer carries the secret once (people who manage the trigger, and BotOps)', 'WebhookRelayAddress'),
     ('/api/v2/triggers/{trigger_id}/relay/rotate', 'post', 'Webhook relay', 'rotateWebhookRelay', 'Replace the Gateway '
      'address\'s secret; the old address stops at once and the new one is shown once', 'WebhookRelayAddress'),
+    ('/api/v2/triggers/{trigger_id}/relay/wake', 'post', 'Webhook relay', 'setWebhookRelayWake', 'Say whether a delivery to '
+     'the Gateway address starts a sleeping server (people who manage the trigger, and BotOps)', 'WebhookRelayWake'),
     ('/api/v2/triggers/{trigger_id}/relay/delete', 'post', 'Webhook relay', 'deleteWebhookRelay', 'Remove the Gateway address; '
      'the trigger and its own address stay', 'WebhookRelayDeleted'),
 ])
@@ -1433,6 +1435,7 @@ SCHEMAS.update({
                                            'oldest': {'type': ['string', 'null']}, 'deleting': 'i', 'active': 'b'})}),
     'WebhookRelayAddress': obj({'relay': obj({'trigger': 's', 'relay_id': 's', 'address_prefix': 's', 'address': 's',
                                              'replayed': 'b'})}),
+    'WebhookRelayWake': obj({'relay': obj({'trigger': 's', 'relay_id': 's', 'wake': 'b'})}),
     'WebhookRelayDeleted': obj({'relay': obj({'trigger': 's', 'deleted': 'b', 'gateway_told': 'b'})}),
 })
 TAGS['Webhooks'] = "Outgoing webhooks: endpoints a person owns, the events Tico sends them, and each send's log (docs/webhooks.md)."
@@ -1463,8 +1466,8 @@ STABLE.extend([
     ('/api/v2/webhooks/{hook_id}/sends', 'get', 'Webhooks', 'listWebhookSends', 'The send log, newest first: type, '
      'subject, state, attempts, last status, next attempt', 'WebhookSends'),
     ('/api/v2/webhooks/{hook_id}/sends/{send_id}', 'get', 'Webhooks', 'getWebhookSend', 'One send with its attempts', None),
-    ('/api/v2/webhooks/{hook_id}/sends/{send_id}/retry', 'post', 'Webhooks', 'retryWebhookSend', 'Try a failed or '
-     'cancelled send again now', None),
+    ('/api/v2/webhooks/{hook_id}/sends/{send_id}/retry', 'post', 'Webhooks', 'retryWebhookSend', 'Send a failed, '
+     'cancelled or delivered send again now', None),
 ])
 SCHEMAS.update({
     'Webhook': obj({'id': 's', 'name': 's', 'url': 's', 'host': 's', 'events': items({'type': 'string'}), 'enabled': 'b',

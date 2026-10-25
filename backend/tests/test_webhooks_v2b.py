@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 
+import httpx
 import pytest
 
 from backend import hubdb as H
@@ -17,7 +18,7 @@ from backend.tests.test_task_rules import department
 from backend.tests.test_triggers import hook, sig
 from backend.tests.test_triggers_incoming import as_bot, routine, stored_rows
 from backend.tests.test_wake_rules import setup
-from backend.tests.test_webhooks import make, net, publish, run, sends, verify  # noqa: F401
+from backend.tests.test_webhooks import due, make, net, publish, run, sends, verify  # noqa: F401
 
 # Slack's published request-signing example (api.slack.com/authentication/verifying-requests-from-slack): its
 # secret, timestamp, form body and signature.
@@ -80,7 +81,7 @@ def test_recover_runs_refused_calls_again_once_and_the_senders_retry_is_a_duplic
     post(api, "triggers/shop/signing", {"preset": "hmac", "secret": "b" * 20})          # Tico had the typo
     as_bot(api, "ops")
     post(api, "triggers/shop/recover", {}, token="ops-test", expected=403)
-    post(api, "triggers/shop/recover", {}, token="ben-test", expected=403)
+    post(api, "triggers/shop/recover", {}, token="cara-test", expected=403)
     done = post(api, "triggers/shop/recover", {"since_hours": 24})["recover"]
     assert (done["found"], done["recovered"], done["still_refused"]) == (2, 1, 1)
     assert len([t for t in get(api, "tasks?owner=bot:ops")["tasks"] if t.get("routine_id")]) == 1
@@ -144,7 +145,7 @@ def test_create_task_files_a_templated_task_once_and_is_written_only_by_someone_
     tasks = [t for t in get(api, "tasks?owner=bot:cpo")["tasks"] if t["title"].startswith("Order 42")]
     assert len(tasks) == 1 and tasks[0]["title"] == "Order 42 for Buyer"
     body = get(api, "tasks/" + tasks[0]["id"])["task"]["body"]
-    assert body.startswith("Look at order.created.") and "hub trigger delivery shop d1" in body
+    assert body == "Look at order.created."                     # nothing was cut: no line about the rest
     assert get(api, "tasks/" + tasks[0]["id"])["task"]["requester"] == "human:ben"          # in the rule maker's name
 
     base = {"scope_kind": "team", "event": "webhook.received", "then": "action"}
@@ -204,26 +205,26 @@ def test_replay_missing_queues_exactly_the_events_an_endpoint_lacks(api, net):
     run(api, net)
 
 
-def test_five_days_of_failures_turn_an_endpoint_off_only_past_twelve_hours_and_enable_offers_recover(api, net):
+def test_five_days_of_failing_turn_an_endpoint_off_but_thirteen_hours_after_a_quiet_spell_do_not(api, net):
     post_w = __import__("backend.tests.test_webhooks", fromlist=["post"]).post
     hook_ = make(api, events=["custom.*"])
     publish(api, "custom.a", "s1", {"n": 1}, "human:ana")
     send = sends(api, hook_["id"])[0]
-    long_ago = H.shift(H.now(), days=-6)
-    start = H.shift(H.now(), days=-4)
 
-    def attempts(gap_minutes, ok=False):
+    def failing(since, last):
+        """The endpoint began failing at `since`; its latest attempt was at `last`."""
         with api.app.state.store.transaction() as c:
             c.execute("DELETE FROM webhook_attempts")
-            c.execute("UPDATE webhooks SET created=? WHERE id=?", (long_ago, hook_["id"]))
-            c.execute("UPDATE webhook_sends SET state='failed', next_attempt=? WHERE id=?", (start, send["id"]))
-            for n, (minutes, status) in enumerate(((0, 500), (gap_minutes, 200 if ok else 500)), 1):
-                c.execute("INSERT INTO webhook_attempts(send_id,webhook_id,n,at,timestamp_sent,status,ms) VALUES(?,?,?,?,?,?,0)",
-                          (send["id"], hook_["id"], n, H.shift(start, minutes=minutes), 0, status))
+            c.execute("UPDATE webhooks SET failing_since=? WHERE id=?", (since, hook_["id"]))
+            c.execute("UPDATE webhook_sends SET state='failed', next_attempt=? WHERE id=?", (since, send["id"]))
+            c.execute("INSERT INTO webhook_attempts(send_id,webhook_id,n,at,timestamp_sent,status,ms) VALUES(?,?,1,?,0,500,0)",
+                      (send["id"], hook_["id"], last))
             return W.auto_disable(c)
-    assert attempts(12 * 60 - 1) == []                          # a failing run just under twelve hours is one burst
-    assert attempts(12 * 60 + 1, ok=True) == []                 # a success inside the five days keeps it on
-    assert attempts(12 * 60 + 1) == [hook_["id"]]
+    now = H.now()
+    assert failing(H.shift(now, hours=-13), now) == []         # quiet for days, then failing for 13 hours: still on
+    assert failing(H.shift(now, days=-5, hours=1), now) == []   # a run just under five days
+    assert failing(H.shift(now, days=-5, hours=-1), H.shift(now, days=-5, hours=-1, minutes=1)) == []    # one burst
+    assert failing(H.shift(now, days=-5, hours=-1), now) == [hook_["id"]]
     shown = post_w(api, f"webhooks/{hook_['id']}/update", {})["webhook"]
     assert shown["enabled"] is False and shown["disabled_reason"] and shown["disabled_at"]
     with api.app.state.store.transaction() as c:
@@ -266,3 +267,30 @@ def test_custom_headers_go_out_and_a_secret_one_is_never_shown_again(api, net):
     post_w(api, "webhooks/" + made["id"] + "/update", {"headers": [{"name": f"x-{n}", "value": "v"} for n in range(11)]}, expected=422)
     post_w(api, "webhooks/" + made["id"] + "/update", {"headers": []})
     assert get(api, "webhooks/" + made["id"])["webhook"]["headers"] == []
+
+
+def test_failing_since_starts_at_the_first_failure_and_any_success_or_enabling_clears_it(api, net):
+    post_w = __import__("backend.tests.test_webhooks", fromlist=["post"]).post
+    hook_ = make(api, events=["custom.*"])
+
+    def since():
+        with api.app.state.store.read() as c:
+            return c.execute("SELECT failing_since FROM webhooks WHERE id=?", (hook_["id"],)).fetchone()[0]
+    net.reply = lambda request: httpx.Response(500)
+    publish(api, "custom.a", "s1", {"n": 1}, "human:ana")
+    run(api, net)
+    first = since()
+    assert first
+    due(api)
+    run(api, net)
+    assert since() == first                                      # the later failures do not move it
+    net.reply = lambda request: httpx.Response(200)
+    due(api)
+    run(api, net)
+    assert since() is None                                       # a 2xx resets the run
+    net.reply = lambda request: httpx.Response(500)
+    publish(api, "custom.a", "s2", {"n": 2}, "human:ana")
+    run(api, net)
+    assert since() and since() != first
+    post_w(api, f"webhooks/{hook_['id']}/enable", {})
+    assert since() is None                                       # so does turning it on

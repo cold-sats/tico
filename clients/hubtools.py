@@ -2513,8 +2513,8 @@ def routine_update(api, args):
 @tool("hub_event_types", "Every event Tico names (task.done, release.published, webhook.received, custom.<name>...), each with "
       "its group, a plain description, its version and an example payload (`data`). Routines (`on`), rules (`event`) and "
       "outgoing webhooks read this one list; some events have an older spelling (`aliases`) that still works, and "
-      "`sourceless` marks the events a rule judges with no task (webhook.received, release.published, health.finding, "
-      "tico.notice).",
+      "`sourceless` marks the events a rule judges with no task (webhook.received, tico.notice); `outbound` is false "
+      "for those two, which an outgoing webhook cannot subscribe to.",
       {"group": _s("Only this group: task, approval, needs_you, bot, release, meeting, strategy, market, inbound, health, "
                    "webhook, tico, custom")})
 def event_types(api, args):
@@ -2649,6 +2649,14 @@ def trigger_relay_rotate(api, args):
       "Deleting the trigger removes this address too.", {"trigger": TRIGGER}, required=("trigger",), writes=True)
 def trigger_relay_delete(api, args):
     return api.post(f"triggers/{args['trigger']}/relay/delete", {}, key=_key(args))["relay"]
+
+
+@tool("hub_relay_set", "Say whether a delivery to a trigger's Tico Gateway address starts a sleeping server (Sleep when idle). "
+      "The switch lives at the Gateway; a trigger's `relay.wake` shows it. People who manage the trigger, and BotOps.",
+      {"trigger": TRIGGER, "wake": {"type": "boolean", "description": "Start the server on a delivery"}},
+      required=("trigger", "wake"), writes=True)
+def relay_set(api, args):
+    return api.post(f"triggers/{args['trigger']}/relay/wake", {"wake": bool(args["wake"])}, key=_key(args))["relay"]
 
 
 @tool("hub_relay_status", "Webhooks through Tico Gateway: whether the Gateway key is connected (`key`: connected, none or "
@@ -3181,7 +3189,7 @@ _RULE_SCOPES = ["team", "type", "department", "bot", "task"]
 _RULE_THEN = ["ignore", "note", "batch", "wake", "ask", "action"]
 _RULE_FIELDS = {
     "event": _s("The event the rule is for, or * for every event that is not always-wake (hub_rule_list shows them). "
-                "webhook.received, release.published, health.finding and tico.notice (or a prefix like webhook.*) have no "
+                "webhook.received and tico.notice (or a prefix like webhook.*) have no "
                 "task: team, department and bot scopes only (hub_event_types)"),
     "then": {"type": "string", "enum": _RULE_THEN,
              "description": "wake: start a run; note: write it quietly and carry a note to the next run; batch: hold it "
@@ -3219,7 +3227,7 @@ def _rule_body(args, keys):
 @tool("hub_rule_list", "List the wake rules that decide whether a message starts a bot's run: the built-in rules and the "
       "rules set for the team, a task type, a department, a bot or a task, each with its 7-day run count and the share of "
       "those runs that did nothing. A scoped rule overrides the built-ins; a person's message always wakes. Rules also say "
-      "what an event with no task does (a webhook arriving, a release): `sourceless_events` names them. When `more` is "
+      "what an event with no task does (a webhook arriving, a Tico notice): `sourceless_events` names them. When `more` is "
       "true, list again from `next_offset`.",
       {"scope_kind": {"type": "string", "enum": ["builtin"] + _RULE_SCOPES}, "scope_id": _s("The type, department, bot or task"),
        "event": _s("Only this event"), "limit": {"type": "integer", "minimum": 1, "maximum": 500},
@@ -3365,7 +3373,7 @@ def webhook_sends(api, args):
     return who.get(_hook_path(args, "sends"), state=args.get("state"), limit=args.get("limit"), offset=args.get("offset"))
 
 
-@tool("hub_webhook_retry", "Try a failed or cancelled send again now; it keeps its id, so a receiver that already got it drops the repeat.",
+@tool("hub_webhook_retry", "Send a failed, cancelled or delivered send again now (a delivered one is a resend); it keeps its id, so a receiver that already got it drops the repeat.",
       {"id": _s("The endpoint id"), "send": _s("The send's id (wh_...)"), "on_behalf_of": ON_BEHALF_OF},
       required=("id", "send"), writes=True)
 def webhook_retry(api, args):

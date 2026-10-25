@@ -71,9 +71,8 @@ arrive again once the secret is fixed. Use **Run again** in Tico for any kept ca
 
 ## Duplicates
 
-Stripe does not name its deliveries in a header. Tico treats the same body in the same minute as the same delivery. Stripe
-sending the same event again a minute later will start a second task, so make the bot's work safe to do twice, or have it look at
-the event id in the body (`id`, like `evt_...`) before it acts.
+Stripe does not name its deliveries in a header, so Tico uses the event id in the body (`id`, like `evt_...`). When Stripe sends
+the same event again, even days later, nothing new starts.
 
 ## Act on one type without a task
 

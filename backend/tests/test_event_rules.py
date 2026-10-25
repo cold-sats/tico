@@ -135,6 +135,7 @@ def hooks(monkeypatch):
         module.calls.append((kind, subject, data, by, only, revision))
         return 1
     module.publish, module.Refused = publish, Refused
+    module.check_usable = lambda *args: None
     monkeypatch.setitem(sys.modules, "backend.webhooks", module)
     monkeypatch.setattr(sys.modules["backend"], "webhooks", module, raising=False)
     return module
@@ -173,7 +174,16 @@ def test_send_webhook_is_written_only_by_someone_who_could_send(api):
     post(api, "rules", body, token="cara-test", expected=403)
     post(api, "rules", {**body, "params": {**body["params"], "type": "custom.*"}}, expected=422)
     post(api, "rules", {**body, "params": {**body["params"], "data": "text"}}, expected=422)
-    assert post(api, "rules", body)["rule"]["params"]["webhook"] == "crm"
+    assert "No webhook endpoint crm" in json.dumps(post(api, "rules", body, expected=422))      # saved only for a real one
+    hook = post(api, "webhooks", {"name": "crm", "url": "https://hooks.acme.example/crm", "events": ["custom.*"]})["webhook"]
+    assert post(api, "rules", {**body, "params": {**body["params"], "webhook": hook["id"]}})["rule"]["params"]["webhook"] == hook["id"]
+
+
+def test_a_woken_bot_is_told_where_to_read_the_rest_only_when_the_body_was_cut():
+    values = {"type": "order.created"}
+    call = {"trigger": "shop", "delivery": "d1", "content": "{...}"}
+    assert "--part 2" not in R._wake_text({"text": "New {{type}}"}, values, call, "x")
+    assert "hub trigger delivery shop d1 --part 2" in R._wake_text({"text": "New {{type}}"}, values, {**call, "cut": True}, "x")
 
 
 def test_wake_bot_needs_the_right_to_change_that_bot_and_a_known_bot(api):
@@ -191,7 +201,10 @@ def test_rows_for_events_without_a_task_are_checked_when_written(api):
     for bad in ({"when": {"tag": ["a"]}}, {"when": {"type": "a*b"}}):
         post(api, "rules", {"scope_kind": "team", "event": "webhook.received", "then": "note", "params": {"bot": "cpo"},
                             **bad}, expected=422)
-    for good in ("webhook.received", "webhook.*", "release.published", "health.finding"):
+    for only_for_hooks in ("release.published", "health.finding"):                 # they have a source: a rule has no scope there
+        post(api, "rules", {"scope_kind": "team", "event": only_for_hooks, "then": "note", "params": {"bot": "cpo"}},
+             expected=422)
+    for good in ("webhook.received", "webhook.*"):
         rule(api, event=good, then="note", params={"bot": "cpo"}, when={"type": "a*"} if good == "webhook.*" else {})
     post(api, "rules", {"scope_kind": "team", "event": "status_or_relation", "then": "note", "when": {"trigger": "x"}},
          expected=422)

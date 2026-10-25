@@ -19167,6 +19167,77 @@
         ]
       }
     },
+    "/api/v2/triggers/{trigger_id}/relay/wake": {
+      "post": {
+        "summary": "Say whether a delivery to the Gateway address starts a sleeping server (people who manage the trigger, and BotOps)",
+        "operationId": "setWebhookRelayWake",
+        "parameters": [
+          {
+            "name": "trigger_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Trigger Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RelayWake"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookRelayWake"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Webhook relay"
+        ]
+      }
+    },
     "/api/v2/triggers/{trigger_id}/rotate": {
       "post": {
         "summary": "A new address secret; the old one stops at once",
@@ -21137,7 +21208,7 @@
     },
     "/api/v2/webhooks/{hook_id}/sends/{send_id}/retry": {
       "post": {
-        "summary": "Try a failed or cancelled send again now",
+        "summary": "Send a failed, cancelled or delivered send again now",
         "operationId": "retryWebhookSend",
         "parameters": [
           {
@@ -25469,6 +25540,9 @@
             "items": "s"
           },
           "sourceless": {
+            "type": "boolean"
+          },
+          "outbound": {
             "type": "boolean"
           }
         },
@@ -31671,6 +31745,20 @@
           "runtime"
         ],
         "title": "Refresh"
+      },
+      "RelayWake": {
+        "properties": {
+          "wake": {
+            "type": "boolean",
+            "title": "Wake"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "wake"
+        ],
+        "title": "RelayWake"
       },
       "Release": {
         "properties": {
@@ -38038,6 +38126,35 @@
               "oldest",
               "pending",
               "relays"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "relay"
+        ],
+        "additionalProperties": true
+      },
+      "WebhookRelayWake": {
+        "type": "object",
+        "properties": {
+          "relay": {
+            "type": "object",
+            "properties": {
+              "trigger": {
+                "type": "string"
+              },
+              "relay_id": {
+                "type": "string"
+              },
+              "wake": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "relay_id",
+              "trigger",
+              "wake"
             ],
             "additionalProperties": true
           }

@@ -395,7 +395,7 @@ Needs you list of the task's human (its requester if a person, else its owner's 
 and writes the message as a note; if the action fails the bot is woken instead (`fail_open`).
 
 **Events without a task.** Some events are not a message to a bot and have no task: `webhook.received` (an incoming
-webhook was accepted), `release.published`, `health.finding` and `tico.notice`. A rule names one as its `event`
+webhook was accepted) and `tico.notice`. A rule names one as its `event`
 (or a prefix such as `webhook.*`) and `hub event-types` lists them. Rules on these events are judged by `judge_event`,
 which fires every enabled row, bot rows before department rows before team rows, then by position, at most one row per
 target. A bot's first row decides it, so a bot-scope `ignore` silences the team's wake for that bot and no other. An

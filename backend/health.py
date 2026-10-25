@@ -1671,7 +1671,7 @@ def view(c, who, settings, auth, github, config):
     # Webhooks waiting at Tico Gateway that this server is not collecting (backend/hook_relay.py).
     if kind == "owner" and (relay := hook_relay.health(c, settings)):
         checks.append(_check("hook_relay", "Webhooks through Tico Gateway", relay["status"], relay["summary"],
-                             [_fix("Open Triggers", "#/settings", "triggers")]))
+                             [_fix("Open Webhooks", "#/settings", "webhooks")]))
     # Sleep when idle is on but Tico could not be asked to stop this server (backend/sleep_idle.py).
     if kind == "owner" and (sleep := sleep_idle.health(c, settings)):
         checks.append(_check("sleep_idle", "Sleep when idle", sleep["status"], sleep["summary"],

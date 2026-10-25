@@ -39,7 +39,7 @@ from . import gateway_connection as GC
 from . import hubdb as H
 from . import tico_notices
 from .auth import validate_identity
-from .models import Empty
+from .models import Contract, Empty
 from .store import Problem
 
 TRANSPORT = None                 # tests' fake HQ, never the live one
@@ -58,6 +58,10 @@ POISON = 5                       # a delivery whose handling raised this many ti
 RELAY = re.compile(r"hr_[0-9a-f]{16}")
 NO_KEY = "Connect the Tico Gateway in Settings > Gateway first: an address through Tico Gateway needs its key."
 now = time.time                  # tests' controlled clock
+
+
+class RelayWake(Contract):
+    wake: bool
 
 
 class Stop(Exception):
@@ -97,11 +101,14 @@ def _row(c, trigger_id):
 
 
 def public(row):
-    return {"address_prefix": row["address_prefix"], "created": row["created"]} if row else None
+    """The relay as a trigger shows it. `wake` is whether a delivery starts a sleeping server (HQ's switch, as last
+    listed), null until HQ has said."""
+    return {"address_prefix": row["address_prefix"], "created": row["created"],
+            "wake": None if row["wake"] is None else bool(row["wake"])} if row else None
 
 
 def attach(c, items):
-    """Each listed trigger gains `relay`: `{address_prefix, created}` or null (backend/triggers.py `listing`)."""
+    """Each listed trigger gains `relay`: `{address_prefix, created, wake}` or null (backend/triggers.py `listing`)."""
     relays = {r["trigger_id"]: r for r in live(c)}
     for item in items:
         item["relay"] = public(relays.get(item["id"]))
@@ -379,10 +386,12 @@ class HookRelay:
         items = answer.get("items")
         found = [i.get("relay_id") for i in items if isinstance(i, dict) and i.get("system") is True
                  and i.get("trigger_id") == tico_notices.ID] if isinstance(items, list) else []
-        if len(found) == 1:
-            with self.store.transaction() as c:
-                if tico_notices.record_relay(c, found[0]):
-                    tico_notices.ensure(c, self.owner(c))
+        with self.store.transaction() as c:
+            for item in items if isinstance(items, list) else []:
+                if isinstance(item, dict) and isinstance(item.get("wake"), bool):
+                    c.execute("UPDATE trigger_relays SET wake=? WHERE relay_id=?", (int(item["wake"]), str(item.get("relay_id"))))
+            if len(found) == 1 and tico_notices.record_relay(c, found[0]):
+                tico_notices.ensure(c, self.owner(c))
 
     def sweep_deleted(self, link):
         """Tell HQ about relays deleted here, a few at a time; HQ having no such relay is as good as deleted."""
@@ -470,6 +479,7 @@ class HookRelay:
             self.ask(link, "POST", f"relays/{extra}/delete", {}, "forget:" + extra, quiet=True)
             raise Problem("relay", "This trigger already has an address through Tico Gateway", 409)
         replayed = not secret
+        self.listed = 0.0                           # the next tick lists HQ's relays, which say whether this one wakes
         return {"relay": {"trigger": trigger_id, "relay_id": relay_id, "address_prefix": prefix,
                           "address": prefix if replayed else f"{prefix}/{secret}", "replayed": replayed}}
 
@@ -484,6 +494,17 @@ class HookRelay:
         return {"relay": {"trigger": trigger_id, "relay_id": relay["relay_id"], "address_prefix": relay["address_prefix"],
                           "address": relay["address_prefix"] if not secret else f"{relay['address_prefix']}/{secret}",
                           "replayed": not secret}}
+
+    def wake(self, request, trigger_id, on, key):
+        """Whether a delivery to this address starts a sleeping server (backend/sleep_idle.py); HQ keeps the switch."""
+        who, link, _, relay = self.gate(request, trigger_id)
+        answer = self.ask(link, "POST", f"relays/{relay['relay_id']}", {"wake": on},
+                          f"relay-wake:{relay['relay_id']}:{key or H.new_id()}")
+        on = answer["wake"] if isinstance(answer.get("wake"), bool) else on
+        with self.store.transaction() as c:
+            c.execute("UPDATE trigger_relays SET wake=? WHERE relay_id=?", (int(on), relay["relay_id"]))
+            H.event(c, who.actor, "trigger.relay_wake", trigger_id, {"relay": relay["relay_id"], "wake": on})
+        return {"relay": {"trigger": trigger_id, "relay_id": relay["relay_id"], "wake": on}}
 
     def remove(self, request, trigger_id):
         who, link, _, relay = self.gate(request, trigger_id)
@@ -588,6 +609,11 @@ def install(app, settings, store, auth):
     def relay_rotate(request: Request, trigger_id: str, body: Empty):
         """A new secret for the Gateway address; the old one stops working at once."""
         return service.rotate(request, trigger_id, request.headers.get("idempotency-key"))
+
+    @app.post("/api/v2/triggers/{trigger_id}/relay/wake")
+    def relay_wake(request: Request, trigger_id: str, body: RelayWake):
+        """Whether a delivery to the Gateway address starts a sleeping server. HQ keeps the switch."""
+        return service.wake(request, trigger_id, body.wake, request.headers.get("idempotency-key"))
 
     @app.post("/api/v2/triggers/{trigger_id}/relay/delete")
     def relay_delete(request: Request, trigger_id: str, body: Empty):

@@ -91,6 +91,12 @@ def subscribed(events, name):
     return any(matches(p, name) for p in events)
 
 
+def _outbound(catalog, name):
+    """Whether an endpoint can hear `name`: not an incoming webhook's own event, nor one only rules see."""
+    event = catalog.EVENTS.get(name) if catalog else None
+    return event.outbound if event else not name.startswith("webhook.")
+
+
 def clean_events(events):
     """A subscription list: catalog names, `group.*` patterns or `*`, each once, aliases in their catalog spelling."""
     out = []
@@ -103,8 +109,11 @@ def clean_events(events):
             name = canonical(item)
             if not name:
                 raise Problem("webhook", f"{item} is not an event Tico sends", 422)
+            if not _outbound(catalog, name):
+                raise Problem("webhook", f"{name} is not sent to webhooks: use a rule with forward", 422)
             item = name
-        elif item != "*" and catalog and not any(matches(item, n) for n in catalog.EVENTS) and not item.startswith("custom."):
+        elif item != "*" and catalog and not item.startswith("custom.") and not any(
+                matches(item, n) for n, e in catalog.EVENTS.items() if e.outbound):
             raise Problem("webhook", f"{item} matches no event Tico sends", 422)
         if item not in out:
             out.append(item)
@@ -488,13 +497,25 @@ def _actor_may_use(c, actor, hook, name):
     if actor == H.KEEPER:
         return
     if H.is_bot(actor):
-        if not subscribed(json.loads(hook["events_json"]), name):
+        if name and not subscribed(json.loads(hook["events_json"]), name):
             raise Refused("That endpoint does not listen for this event")
         return
     if not _state.get("auth"):
         return
     if hook["created_by"] != actor and not _admin(c, actor, {}):
         raise Refused("Only the person who made this endpoint, or an admin, may send to it")
+
+
+def check_usable(c, actor, endpoint_id, name=None):
+    """When a rule is saved: the endpoint it names exists and `actor` may send to it (and, for a bot, to `name`).
+    Raises Problem with the reason in plain words."""
+    hook = c.execute("SELECT * FROM webhooks WHERE id=? AND deleted_at IS NULL", (endpoint_id,)).fetchone()
+    if not hook:
+        raise Problem("webhook", f"No webhook endpoint {endpoint_id}: see hub webhook list", 422)
+    try:
+        _actor_may_use(c, actor, hook, name)
+    except Refused as exc:
+        raise Problem("webhook", exc.reason, 422) from exc
 
 
 # ------------------------------------------------------------------------------------------------------ endpoint rights
@@ -787,7 +808,7 @@ def pause(c, who, hook_id, reason=""):
 def resume(c, who, hook_id):
     hook = _row(c, hook_id)
     may_manage(who, hook)
-    c.execute("UPDATE webhooks SET enabled=1, paused_reason='', disabled_at=NULL, disabled_reason='', "
+    c.execute("UPDATE webhooks SET enabled=1, paused_reason='', disabled_at=NULL, disabled_reason='', failing_since=NULL, "
               "revision=revision+1, updated=? WHERE id=?", (H.now(), hook_id))
     H.event(c, who.actor, "webhook.resumed", hook_id, {})
     _refresh(c)
@@ -865,7 +886,8 @@ def one_send(c, who, hook_id, send_id):
 
 
 def retry(c, who, hook_id, send_id):
-    """Try a finished send again now. Its id and body stay, so a receiver that kept the first still drops the repeat."""
+    """Send a failed, cancelled or delivered send again now (a delivered one is a resend). Its id and body stay, so a
+    receiver that kept the first still drops the repeat."""
     hook = _row(c, hook_id)
     may_manage(who, hook)
     row = c.execute("SELECT * FROM webhook_sends WHERE id=? AND webhook_id=?", (send_id, hook_id)).fetchone()
@@ -960,7 +982,7 @@ def enable(c, who, hook_id):
     hook = _row(c, hook_id)
     offer = None
     if hook["disabled_at"]:
-        since = H.shift(hook["disabled_at"], days=-DISABLE_DAYS)
+        since = hook["failing_since"] or H.shift(hook["disabled_at"], days=-DISABLE_DAYS)
         failed = c.execute("SELECT count(*) FROM webhook_sends WHERE webhook_id=? AND state='failed' AND next_attempt>=?",
                            (hook_id, since)).fetchone()[0]
         offer = {"since": since, "failed": failed}
@@ -969,20 +991,17 @@ def enable(c, who, hook_id):
 
 
 def auto_disable(c, now=None):
-    """The hourly check: an endpoint that has not delivered anything for five days, whose attempts in that time all
-    failed and began and ended at least twelve hours apart (one burst is not a dead endpoint), is turned off. It
-    keeps its queue. One audit row, one Health line (health_summary) and one Needs-you line to its owner, once,
-    since a disabled endpoint is no longer looked at. The endpoint must be five days old. Names the endpoints."""
+    """The hourly check: an endpoint that has been failing since `failing_since` (its first failed attempt, cleared by
+    any 2xx) for five days, with its latest attempt at least twelve hours after that start (one burst is not a dead
+    endpoint), is turned off. It keeps its queue. One audit row, one Health line (health_summary) and one Needs-you
+    line to its owner, once, since a disabled endpoint is no longer looked at. Names the endpoints."""
     now = now or H.now()
     window = H.shift(now, days=-DISABLE_DAYS)
     off = []
-    for hook in c.execute("SELECT * FROM webhooks WHERE enabled=1 AND deleted_at IS NULL AND created<=?", (window,)).fetchall():
-        row = c.execute("SELECT count(*) n, sum(CASE WHEN status BETWEEN 200 AND 299 THEN 1 ELSE 0 END) ok, min(at) earliest, "
-                        "max(at) latest FROM webhook_attempts WHERE webhook_id=? AND at>=?", (hook["id"], window)).fetchone()
-        if not row["n"] or row["ok"]:
-            continue
-        span = H.parse_ts(row["latest"]) - H.parse_ts(row["earliest"])
-        if span.total_seconds() < DISABLE_SPAN_HOURS * 3600:
+    for hook in c.execute("SELECT * FROM webhooks WHERE enabled=1 AND deleted_at IS NULL AND failing_since<=?", (window,)).fetchall():
+        row = c.execute("SELECT count(*) n, max(at) latest FROM webhook_attempts WHERE webhook_id=? AND at>=?",
+                        (hook["id"], hook["failing_since"])).fetchone()
+        if not row["n"] or row["latest"] <= H.shift(hook["failing_since"], hours=DISABLE_SPAN_HOURS):
             continue
         reason = f"Every delivery failed for {DISABLE_DAYS} days"
         c.execute("UPDATE webhooks SET enabled=0, disabled_at=?, disabled_reason=?, paused_reason=?, revision=revision+1, "
@@ -1151,5 +1170,5 @@ def install(app, settings, store, auth, mutate):
 
     @app.post("/api/v2/webhooks/{hook_id}/sends/{send_id}/retry")
     def webhook_retry(request: Request, hook_id: str, send_id: str, body: M.Empty):
-        """Try a failed or cancelled send again."""
+        """Send a failed, cancelled or delivered send again."""
         return mutate(request, body, lambda c: {"send": retry(c, request.state.identity, hook_id, send_id)})
