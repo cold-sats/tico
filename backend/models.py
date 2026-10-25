@@ -2477,6 +2477,10 @@ class RuleDelete(Contract):
     expected_revision: int | None = Field(default=None, ge=1)
 
 
+class RuleSuggestionAct(Contract):
+    pass
+
+
 class TaskRuleUpdate(Contract):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     department: str | None = Field(default=None, min_length=1, max_length=80)

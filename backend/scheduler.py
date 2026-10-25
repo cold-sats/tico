@@ -126,8 +126,18 @@ def run_task_manager_report(store, auth, at, failures=None):
         run.did(made["words"], quiet=not made["items"])
 
 
+def run_propose_demotions(store, auth, at, failures=None):
+    # Plain code, no model: each wake rule that mostly woke a bot for nothing this week becomes one suggestion to make it a
+    # note (backend/rule_suggestions.py). Nothing changes until a person applies it.
+    with SR.recording(store, "propose_demotions", failures) as run:
+        from . import rule_suggestions
+        with store.transaction() as c:
+            found = rule_suggestions.propose_demotions(c, stamp(at))
+        run.did(SR.words_of(found["made"], "rule suggested", "No rules to suggest"))
+
+
 QUICK = {"still_wanted": run_still_wanted, "kpi_asks": run_kpi_asks, "health_scan": run_health_scan,
-         "ask_deadlines": run_ask_deadlines, "task_manager_report": run_task_manager_report}
+         "ask_deadlines": run_ask_deadlines, "task_manager_report": run_task_manager_report, "propose_demotions": run_propose_demotions}
 
 
 def run_now(store, auth, key, actor):

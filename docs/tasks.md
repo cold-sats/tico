@@ -375,6 +375,15 @@ verdict always wake. A rule can be set for the whole team, a task type, a depart
 specific wins (`hub rule list`, `hub rule set`; the Rules page). The message and the run both record the rule, and the
 Rules page and `rule_weekly` in `hub sql` show how often each woke a bot and how often that run did nothing.
 
+Once a week, **Suggest quieter rules** (Settings > System routines) turns each rule above 50% no-op over 7 days with at
+least 20 runs into one suggestion, "make this a note": a table rule's outcome becomes `note`; a built-in gets a team rule
+for its event, because built-ins are read-only. The always-wake events, awaited results and scheduled or assigned work
+(routines, assignments, due dates) are never suggested. Nothing changes by itself. `hub rule suggestions` lists the ones
+you may act on, `hub rule apply <id>` edits the rule with your own right to edit it, and `hub rule dismiss <id>` declines
+an open suggestion (that rule is not suggested again for 28 days) or, on an applied one, puts the rule back if nobody has
+changed it since. The same three are `hub_rule_suggestions`, `hub_rule_apply` and `hub_rule_dismiss`, and
+`GET /api/v2/rules/suggestions` with `POST .../{id}/apply` and `.../{id}/dismiss`.
+
 ## Snoozing a task
 
 **Snooze** sets a task aside until a date: it tells its bot or person that nobody plans to get to it

@@ -34,7 +34,7 @@ The list refreshes when you open the tab and at most once a minute while it stay
 | Task rule | Members of its department, including humans and bots in nested teams; the owner or an admin for any department | On or off, **Edit**, and schedule presets |
 | **Stale ticket review**, **Nightly learnings**, **Still wanted?**, **KPI stale asks**, **Ask go-ahead** | Owner or admin | On or off, schedule presets, **Run now** |
 | **Health scan** | Owner only | On or off, schedule presets, **Run now** |
-| **Task Manager report** | Owner or admin | On or off, schedule presets, **Run now** |
+| **Task Manager report**, **Suggest quieter rules** | Owner or admin | On or off, schedule presets, **Run now** |
 | **Start fresh when the topic changes**, **Quiet task triage** | Owner or admin | On or off |
 | Housekeeping and other fixed built-ins | No switch or schedule editor on this page | Fixed operation; housekeeping cannot be switched off |
 
@@ -52,10 +52,11 @@ Choose from the presets offered on the row:
 | **Task Manager report** | Hourly on weekdays 08:00 to 18:00 (the default), Hourly, Every 4 hours, Daily at a time |
 | **Stale ticket review** | Hourly, Every 4 hours, Daily at a time |
 | **Nightly learnings** | Nightly at a time; initially 03:00 |
+| **Suggest quieter rules** | Weekly |
 
 Daily times use Pacific time. Leave the time field or press Enter to save it. These rows offer no cron expressions or custom intervals.
 
-**Run now** appears only on the seven scheduled built-ins in the permissions table. Switch the job on first. It runs through the same checks and caps as its scheduled run, then shows the result on the row. A job asking Decide shows **Running…** while it works. Task rules, **Start fresh when the topic changes** and **Quiet task triage** have no **Run now** button.
+**Run now** appears only on the eight scheduled built-ins in the permissions table. Switch the job on first. It runs through the same checks and caps as its scheduled run, then shows the result on the row. A job asking Decide shows **Running…** while it works. Task rules, **Start fresh when the topic changes** and **Quiet task triage** have no **Run now** button.
 
 Nightly learnings runs once per night. A failed, capped, or unconfigured night waits until the next night unless an authorized person uses **Run now**.
 
@@ -127,6 +128,7 @@ Built-ins appear in one flat list. This table gives their default schedules; sav
 | **Approval expiry** | Takes approvals and asks nobody will act on out of Needs you. | Hourly |
 | **Unanswered questions** | On weekday mornings, sends questions unanswered for two business days back to their bots. | Hourly |
 | **Bot routine timer** | Starts each bot routine below when it is due. | Every 10 seconds |
+| **Suggest quieter rules** | Once a week, in plain code with no model, finds each wake rule that woke a bot and found nothing to do on more than half of at least 20 runs in the last 7 days, and stores one suggestion to make it a note (a built-in rule gets a team rule instead). A person applies or dismisses it on the Rules page; nothing changes by itself. See [Wake rules](tasks.md#wake-rules). | Weekly |
 | **Quiet task triage** (AI) | Before a stall check stays silent on a quiet task nothing has changed on, Decide reads its last six messages: it sets the wait the messages name, closes the task if it is finished, or lets one stall wake through if it is stuck; unsure changes nothing and shows in the Task Manager's report. Off by default; see [Stalled tasks](tasks.md). | When it happens |
 | **Stall checks** | Wakes the bot on a task nothing is moving, never one with a live session or a recorded wait, no sooner than 30 minutes after the last check and doubling to 8 hours while the task stays unchanged (only other people's comments, status, step, owner, waiting-on and related tasks count as change), and drops queued work its bot can no longer read. | Every minute |
 | **Waiting checks** | Sends bot tasks waiting on nothing back to work, and turns a bot's plain ask to a person into a small task. | Hourly |

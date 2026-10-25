@@ -135,6 +135,8 @@ ACTIONS = {
     "sync_meetings": ("bring in meeting notes from each person's Granola", ("meetings", "granola", "notes")),
     "sync_docs": ("refresh linked documents from their sources", ("documents", "docs")),
     "start_fresh": ("start a fresh session, like Clear", ("chat", "fresh", "clear", "session")),
+    "suggest_notes": ("suggest making a rule a note when it mostly wakes a bot for nothing",
+                      ("rules", "wake", "note", "suggest", "no-op")),
     "triage_quiet": ("have Decide read its last messages: set the wait it names, close it if finished, or let one wake through",
                      ("decide", "stalled", "tasks", "wait", "close", "wake")),
 }
@@ -214,6 +216,10 @@ JOBS = [
         HOUSEKEEPING, "Every 30 seconds", 30, records=False, then=("sync_meetings",)),
     Job("doc_sync", "Document sync", "Refreshes linked documents from their sources.",
         HOUSEKEEPING, "Every few seconds", 5, records=False, then=("sync_docs",)),
+    Job("propose_demotions", "Suggest quieter rules",
+        "Once a week, finds each wake rule that woke a bot and found nothing to do on over half of at least 20 runs, and "
+        "suggests making it a note in Settings > Rules. Nothing changes until a person applies it.",
+        CHECKS, "Weekly", 7 * 86400, control=True, then=("suggest_notes",)),
     Job("stall_triage", "Quiet task triage",
         "Before a stall check stays silent on a quiet task nothing has changed on, Decide reads its last messages: "
         "if it waits on someone it sets that wait, if it is finished it closes it, if it is stuck one wake goes through.",
@@ -227,9 +233,10 @@ BY_KEY = {job.key: job for job in JOBS}
 
 
 # ----------------------------------------------------------------------------- what a person may change
-FIFTEEN, HOURLY, FOUR_HOURS, DAILY, BUSINESS = "15m", "hourly", "4h", "daily", "business"
+FIFTEEN, HOURLY, FOUR_HOURS, DAILY, BUSINESS, WEEKLY = "15m", "hourly", "4h", "daily", "business", "weekly"
 PRESETS = {FIFTEEN: ("Every 15 minutes", 900), HOURLY: ("Hourly", 3600), FOUR_HOURS: ("Every 4 hours", 4 * 3600),
-           DAILY: ("Daily at {at}", None), BUSINESS: ("Hourly on weekdays, 08:00 to 18:00", 3600)}
+           DAILY: ("Daily at {at}", None), BUSINESS: ("Hourly on weekdays, 08:00 to 18:00", 3600),
+           WEEKLY: ("Weekly", 7 * 86400)}
 BUSINESS_HOURS = (clock(8), clock(18))      # company time (updates.ZONE), Monday to Friday
 EVERY_PRESET = (FIFTEEN, HOURLY, FOUR_HOURS, DAILY)
 AI_PRESETS = (HOURLY, FOUR_HOURS, DAILY)        # a job that asks Decide is never offered every 15 minutes
@@ -257,12 +264,13 @@ CONTROLS = {
     "ask_deadlines": Control(presets=EVERY_PRESET, preset=HOURLY, at="09:00"),
     # Hourly while people are at work: a report outside business hours would wait on nobody to read it.
     "task_manager_report": Control(presets=(BUSINESS, HOURLY, FOUR_HOURS, DAILY), preset=BUSINESS, at="09:00"),
+    "propose_demotions": Control(presets=(WEEKLY,), preset=WEEKLY),
     "topic_fresh": Control(rule="topic_fresh"),
     "stall_triage": Control(rule="stall_triage"),
 }
 
 
-QUICK_KEYS = ("still_wanted", "kpi_asks", "health_scan", "ask_deadlines", "task_manager_report")   # run by backend/scheduler.py QUICK
+QUICK_KEYS = ("still_wanted", "kpi_asks", "health_scan", "ask_deadlines", "task_manager_report", "propose_demotions")   # run by backend/scheduler.py QUICK
 
 
 def zone():
