@@ -932,10 +932,15 @@ print(os.getpid(),flush=True)
 time.sleep(300)
 "#, &private.display().to_string(), &old.display().to_string(), &written.display().to_string(), &tmp.display().to_string(), &shm.display().to_string()].map(String::from));
         // Exercise the actual OneShot/Pi process-launch boundary, including Settings.identity.
-        let (mut child, _stderr) = host.launch(&argv, &settings).unwrap();
+        let (mut child, stderr) = host.launch(&argv, &settings).unwrap();
         eprintln!("probe: launching the isolated turn");
         let mut line = String::new();
         BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).await.unwrap();
+        if line.trim().is_empty() {
+            let _ = child.wait().await;
+            stderr.drained().await;
+            panic!("the isolated turn failed: {}", stderr.tail());
+        }
         let pid: u32 = line.trim().parse().unwrap();
         eprintln!("probe: turn finished its git work");
         std::fs::remove_file(sibling_config).unwrap();
