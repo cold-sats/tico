@@ -577,6 +577,7 @@ def _stop_checks(c):
                             f"{run_backoff.CLASS_WORDS.get(kind, run_backoff.CLASS_WORDS[run_backoff.OTHER])}. Held "
                             f"since {str(hold['held_at'])[:16]} UTC. Last error: {hold['error'] or 'none reported'}.",
                             f"BotOps: read {name}'s last runs, fix the cause, then release it (hub bot release {bot}). "
+                            "Tico also tries one run on its own at growing intervals and releases it when one completes. "
                             "Its queued work is kept.", subject=kind, severity=BAD))
     for hold in turn_budgets.held(c):
         bot = hold["bot"]

@@ -2087,6 +2087,8 @@ class Execution:
             return {"attempt": None}
         if turn_budgets.enforce(c, self.store.settings, row, msg):
             return {"attempt": None}        # the bot is over its run budget: held now, its queue kept
+        if run_backoff.probe(c, row["bot"]):
+            return {"attempt": None}        # held for failed runs and its next try is not due, or another took it
         live_ref = (msg.get("refs") or {}).get("live_meeting")
         if (isinstance(live_ref, dict) and msg.get("from_actor") == H.KEEPER
                 and msg.get("to_actor") == "bot:" + row["bot"]):
