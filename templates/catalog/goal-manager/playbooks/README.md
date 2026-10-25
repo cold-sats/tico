@@ -1,10 +1,10 @@
 One file per recurring kind of work. A playbook is the checklist you would hand a new hire.
 
 - `draft-the-strategy.md`: a task "Draft the strategy", or the owner asking in chat. From the market pages and the
-  framework, commit to positions, interview the owner one question at a time, write the draft (level 3) or propose
-  it (below), and ask the owner to publish. Never publish.
-- `strategy-check.md`: the monthly routine, declared off and not yet on. Active choices against the market delta
-  and the goal colours; contradictions and choices with no goal become proposals, never edits.
+  default guide, build claims the owner confirms or strikes, propose three to five bets and the four sections as
+  one `strategy_draft` proposal, and ask the owner to confirm and publish. Never write the page, never publish.
+- `bet-tripped.md`: a task "Bet N: may be wrong", filed by the server when a bet's wrong-if trips, at every level.
+  One Decide card: retire, rewrite, or keep with a new wrong-if, and your pick.
 - `kpi-pass.md`: the daily routine. Every KPI due on its cadence, one pass, a time budget each, then the status pass.
 - `new-kpi.md`: what to build the first time a KPI needs computing, and how to change one that is wrong.
 - `status-pass.md`: `hub goal refresh` after the readings, and how to report what it did.
@@ -24,13 +24,13 @@ to a file, then `hub proposal create --kind <kind> [--goal ID] [--kpi ID] --payl
 | kind | needs | payload |
 |---|---|---|
 | `flag` | `--goal` | `{"issue": "vague" \| "duplicate" \| "unmeasured", "note": "one sentence"}` |
-| `goal_wording` | `--goal` | `{"title": "...", "body": "..."}` (either one) |
+| `goal_wording` | `--goal` | `{"title": "...", "body": "...", "bet_id": "..."}` (any of them; `bet_id` links the goal to a bet) |
 | `goal_kpi` | `--goal` | `{"kpi_id": "..."}` to link an existing KPI, or `{"kpi": {"name", "definition", "unit", "direction", "cadence", "source_note"}, "owner": "...", "target": {...}}` for a new one |
 | `kpi_definition` | `--kpi` | any of `{"name", "definition", "unit", "direction", "cadence", "source_note"}` |
-| `goal_why` | `--goal` | `{"why": "one line tying the goal to the vision"}` (only where the CEO Bot is on) |
+| `goal_why` | `--goal` | `{"why": "one line tying the goal to the vision"}` (only where the CEO Bot is on, and only for a goal with no bet) |
 | `recovery` | `--goal` | `{"evidence": "...", "options": [{"label": "...", "actions": [...]}], "pick": 0}` (the CEO Bot at level 2; `playbooks/recoveries.md`) |
 | `kpi_target` | `--kpi` and `--goal` | `{"kind": "improve", "baseline": 40, "target": 65, "deadline": "2026-12-31"}` or `{"kind": "maintain", "min": 40, "max": 60}` |
-| `strategy_draft` | nothing | any of `{"framework", "summary", "vision", "sections": {key: markdown}, "choices": [{"id"?, "statement", "why", "rules_out", "status"}]}`; the owner confirms, and confirming writes the draft and the choices as them (below level 3, `playbooks/draft-the-strategy.md` and `playbooks/strategy-check.md`). Publishing stays a separate click of theirs |
+| `strategy_draft` | nothing | any of `{"summary", "vision", "sections": {"serve", "sell", "know", "not", "extra": {key: {"title", "body"}}}, "bets": [{"id"?, "statement", "why"?, "rules_out"?, "wrong_if"?, "cites"?, "status"?}]}`, where `wrong_if` is `{"kind": "kpi", "kpi_id", "direction": "above" \| "below", "threshold", "check_by"}`, `{"kind": "thesis", "market_id", "check_by"}` or `{"kind": "text", "text", "check_by"}`. Partial: only the fields you send change. The owner confirms, and confirming writes the draft and the bets as them, at every level (`playbooks/draft-the-strategy.md`, `playbooks/bet-tripped.md`). Publishing stays a separate click of theirs |
 
 `direction` is up, down or range; `cadence` is daily, weekly or monthly. An improvement target needs a target and a
 deadline; a range needs a min, a max or both. The server refuses anything else with the reason.

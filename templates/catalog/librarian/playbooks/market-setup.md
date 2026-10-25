@@ -31,10 +31,9 @@ describes the team. A blank answer means: find it yourself.
   you verify, not a fact: find its site, and tier it from what you read (core unless a source shows otherwise).
 - **What to watch** names the channels, topics, rules and people the owner wants followed (steps 3.3 to 3.5).
 
-- A task with no address: read `hub strategy show`. If present, setup stored the team's website there, and the
-  summary and vision say what the team sells in the owner's words; take the website as the first address and the
-  summary as "the owner's description". Nothing there either: work from the task's words alone and say so in the
-  note.
+- A task with no address: read `hub strategy show`. If it names the team's website, take that as the first
+  address, and the summary and *What we sell* as "the owner's description". Nothing there either: work from the
+  task's words alone and say so in the note.
 - Fetch each address the owner gave: `hub doc fetch <url>`. Start with the home page, then its "about",
   "pricing", "customers", "solutions", "blog" or "press" pages, taken from that page's own links (a
   `/sitemap.xml` at the same site, once, is a fast way to pick them). Read the pages, do not crawl.
