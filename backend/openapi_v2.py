@@ -1385,6 +1385,20 @@ SCHEMAS.update({
     'InboundPhoneRequests': obj({'phone_requests':items({'type':'object'}),'next':{'type':['string','null']}}),
 })
 
+TAGS['Triggers'] = 'Webhook triggers: an address any sender can post to, how its calls are verified, kept and run again.'
+STABLE.extend([
+    ('/api/v2/triggers','get','Triggers','listTriggers','Every trigger with its address (no secret), settings and routines',None),
+    ('/api/v2/triggers','post','Triggers','createTrigger','Make a trigger (a person or a bot); the address with its secret is shown once',None),
+    ('/api/v2/triggers/{trigger_id}','get','Triggers','getTrigger','One trigger',None),
+    ('/api/v2/triggers/{trigger_id}','post','Triggers','updateTrigger','Change its name, preset, type source, hourly limit, keep days or unheard setting',None),
+    ('/api/v2/triggers/{trigger_id}/rotate','post','Triggers','rotateTrigger','A new address secret; the old one stops at once',None),
+    ('/api/v2/triggers/{trigger_id}/signing','post','Triggers','signTrigger','Verify calls with a preset (hmac, github, standard, stripe) or stop; the signing secret is shown once',None),
+    ('/api/v2/triggers/{trigger_id}/delete','post','Triggers','deleteTrigger','Delete a trigger and its kept calls',None),
+    ('/api/v2/triggers/{trigger_id}/deliveries','get','Triggers','listTriggerDeliveries','The latest calls, newest first',None),
+    ('/api/v2/triggers/{trigger_id}/deliveries/{delivery}','get','Triggers','getTriggerDelivery','One kept call: redacted headers and body (a bot reads fenced 20,000-character parts, only of a call it was given)',None),
+    ('/api/v2/triggers/{trigger_id}/deliveries/{delivery}/replay','post','Triggers','replayTriggerDelivery','Run a kept call again as a new occurrence',None),
+])
+
 ANSWERS = SCHEMAS
 
 # Documentation for the two sign-in routes whose bodies the handlers read by hand.

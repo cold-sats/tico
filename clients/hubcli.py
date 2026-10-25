@@ -222,7 +222,19 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                     [--timezone Z] [--enable|--disable] [--bot X]
                                            --enable / --disable turn it on or off; another bot's, as the requester (BotOps)
     hub routine delete <id>
-    hub trigger list                       webhooks people made; a routine runs --on webhook.<id>
+    hub trigger list                       webhooks people and bots made; a routine runs --on webhook.<id>
+    hub trigger create <name> [--id X]     make one; the address (with its secret) is shown once
+    hub trigger show <id>                  address, settings, 24-hour counts, routines
+    hub trigger update <id> [--name N] [--preset none|hmac|github|standard|stripe] [--type-from H|/pointer]
+                    [--hourly 1-600] [--keep-days 1-30] [--unheard log|note]
+    hub trigger rotate <id>                a new secret; the old address stops
+    hub trigger sign <id> [--preset P] [--secret S] [--off]
+                                           verify each call (preset default hmac); the secret is shown once
+    hub trigger delete <id>
+    hub trigger deliveries <id>            the latest calls: delivery id, type, outcome, stored
+    hub trigger delivery <id> <delivery> [--part N]
+                                           one stored call, headers redacted; long bodies read in parts
+    hub trigger replay <id> <delivery>     run a stored call again as a new occurrence
     hub event-types [--group task]         every event Tico names, with an example payload (routines, rules, webhooks)
     hub release now [--note "..."]         ask the Release Manager to release what is at Pending Release now
     hub release schedule [--on|--off] [--time HH:MM ...] [--manager BOT] [--writer BOT]
@@ -1726,6 +1738,46 @@ def parser():
     trigger = sub.add_parser("trigger", help="webhooks that start routines (Settings > Triggers)").add_subparsers(dest="sub")
     s = trigger.add_parser("list")
     s.set_defaults(fn="trigger list")
+    s = trigger.add_parser("create", help="make a webhook trigger; the address with its secret is shown once")
+    s.add_argument("name")
+    s.add_argument("--id", help="lowercase letters, digits and dashes; made from the name by default")
+    s.set_defaults(fn="trigger create")
+    s = trigger.add_parser("show")
+    s.add_argument("id")
+    s.set_defaults(fn="trigger show")
+    s = trigger.add_parser("update", help="change a trigger's name or settings")
+    s.add_argument("id")
+    s.add_argument("--name")
+    s.add_argument("--preset", choices=["none", "hmac", "github", "standard", "stripe"], help="how calls are verified (needs a signing secret)")
+    s.add_argument("--type-from", dest="type_from", help="a header name or a JSON pointer (/type); empty for the preset's default")
+    s.add_argument("--hourly", type=int, help="calls an hour, 1-600 (60 by default)")
+    s.add_argument("--keep-days", dest="keep_days", type=int, help="days calls stay readable and can run again, 1-30 (7 by default)")
+    s.add_argument("--unheard", choices=["log", "note"], help="note: tell the maker, at most hourly, when no routine or rule acted")
+    s.set_defaults(fn="trigger update")
+    s = trigger.add_parser("rotate", help="a new secret; the old address stops working")
+    s.add_argument("id")
+    s.set_defaults(fn="trigger rotate")
+    s = trigger.add_parser("sign", help="verify each call with a preset; the signing secret is shown once")
+    s.add_argument("id")
+    s.add_argument("--preset", choices=["hmac", "github", "standard", "stripe"], help="the current one, else hmac")
+    s.add_argument("--secret", help="the sender's own secret (16+ characters); a new one is made when left out")
+    s.add_argument("--off", action="store_true", help="stop checking signatures")
+    s.set_defaults(fn="trigger sign")
+    s = trigger.add_parser("delete")
+    s.add_argument("id")
+    s.set_defaults(fn="trigger delete")
+    s = trigger.add_parser("deliveries", help="the latest calls to a trigger")
+    s.add_argument("id")
+    s.set_defaults(fn="trigger deliveries")
+    s = trigger.add_parser("delivery", help="one stored call: redacted headers and the body (long bodies in parts)")
+    s.add_argument("id")
+    s.add_argument("delivery")
+    s.add_argument("--part", type=int, help="which 20,000-character part of a long body (from 1)")
+    s.set_defaults(fn="trigger delivery")
+    s = trigger.add_parser("replay", help="run a stored call again as a new occurrence")
+    s.add_argument("id")
+    s.add_argument("delivery")
+    s.set_defaults(fn="trigger replay")
 
     release = sub.add_parser("release", help="the team's releases: ask for one now, or set the daily hour").add_subparsers(dest="sub")
     s = release.add_parser("now", help="ask the Release Manager to release what is at Pending Release now (hotfix, "

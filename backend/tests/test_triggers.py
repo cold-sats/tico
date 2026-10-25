@@ -32,12 +32,12 @@ def test_a_delivery_opens_one_task_per_listening_routine_and_only_with_the_secre
     assert hook(api, base + "/wrong").status_code == 404
     assert hook(api, base).status_code == 404               # no secret at all
     secret = made["url"].rsplit("/", 1)[1]
-    assert hook(api, base, headers={"Authorization": "Bearer " + secret}).status_code == 202
+    assert hook(api, base, headers={"Authorization": "Bearer " + secret, "Idempotency-Key": "d2"}).status_code == 202
 
     # Another person may not change it; the owner replaces the secret and the old address dies.
     post(api, "triggers/shop/delete", {}, token="ben-test", expected=403)
     fresh = post(api, "triggers/shop/rotate", {})["trigger"]["url"]
-    assert hook(api, made["url"]).status_code == 404 and hook(api, fresh).status_code == 202
+    assert hook(api, made["url"]).status_code == 404 and hook(api, fresh, headers={"Idempotency-Key": "d3"}).status_code == 202
     post(api, "triggers/shop/delete", {})
     assert hook(api, fresh).status_code == 404 and get(api, "triggers")["triggers"] == []
 

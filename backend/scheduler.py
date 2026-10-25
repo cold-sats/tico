@@ -458,6 +458,8 @@ class Scheduler:
                 sweep_deltas(self.store, stamp(at))            # finished runs' streamed text pieces keep two weeks
                 from . import events
                 events.sweep(self.store, stamp(at))            # live events keep a day
+                from . import triggers
+                triggers.sweep(self.store, stamp(at))          # webhook bodies keep their trigger's days, delivery ids 30
                 from . import flight
                 flight.sweep(self.store, at.timestamp())       # the flight recorder's minutes become hours
                 from . import performance
