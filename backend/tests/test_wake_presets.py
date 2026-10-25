@@ -427,3 +427,48 @@ def test_a_persons_act_through_botops_wakes_the_bot_at_once(api, botops):
     assert done.status_code == 200, done.text
     [told] = jobs(api, since=since)
     assert (told["state"], told["held"], told["wake_class"]) == ("queued", 0, None)
+
+
+# A held notice is queued but starts no run: every immediate wake that checks for a run already waiting still goes out.
+
+def held_notice(api, task):
+    stale_comments(api, task, 1)
+    [held] = [j for j in jobs(api) if j["wake_class"] == "notice"]
+    assert held["held"] == 1 and held["state"] == "queued"
+    return held
+
+
+def test_run_now_wakes_the_bot_while_a_notice_on_the_task_is_held(api):
+    preset(api, "ops", "token_saver")
+    task = new_task(api, "tidy")
+    settled(api)
+    held_notice(api, task)
+    assert post(api, f"tasks/{task['id']}/run-now", {})["queued"] is True
+    [run] = [j for j in jobs(api) if j["body"].startswith("Run now:")]
+    assert (run["state"], run["held"]) == ("queued", 0)
+
+
+def test_a_resumed_task_wakes_while_a_notice_on_it_is_held(api):
+    from backend import quiet_work
+    preset(api, "ops", "token_saver")
+    task = new_task(api, "tidy")
+    settled(api)
+    held_notice(api, task)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET next_run=1, resume_json=? WHERE id=?", (json.dumps({"until": H.now()}), task["id"]))
+        quiet_work.resume(c, H.task(c, task["id"]), "Its date came.", "schedule")
+    [resumed] = [j for j in jobs(api) if j["body"].startswith("Resume:")]
+    assert (resumed["state"], resumed["held"]) == ("queued", 0)
+
+
+def test_an_update_request_and_an_automatic_start_go_out_while_a_notice_is_held(api):
+    from backend import updates
+    from backend.tests.test_auto_tasks import deck, take
+    machine = task_bot(api, lanes=True)
+    preset(api, "ops", "token_saver")
+    [task] = deck(api, 1)
+    held_notice(api, task)
+    with api.app.state.store.read() as c:
+        assert not updates._busy(c, "ops")
+    started = take(api, machine)
+    assert started and started["task"]["id"] == task["id"] and started["message"]["body"].startswith("Start assigned task")
