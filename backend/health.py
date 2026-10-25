@@ -12,8 +12,8 @@ import os
 import shlex
 from datetime import datetime, timezone
 
-from . import (access, billing_check, blob_s3, gateway_connection, inbox_isolation, model_login, providers, releases, roadmaps, runner_versions,
-               setup_stuck, watchers)
+from . import (access, billing_check, blob_s3, gateway_connection, hosted_updates, inbox_isolation, model_login, providers,
+               releases, roadmaps, runner_versions, setup_stuck, watchers)
 from .getting_started import _online_runners, _signed_in_runtime, _wanted_runtimes, _person
 
 
@@ -1391,7 +1391,11 @@ def view(c, who, settings, auth, github, config):
 
     if full:
         notice = config.get("update") or {}
-        if notice.get("available"):
+        if notice.get("scheduled"):           # Tico support's update of this hosted server (backend/hosted_updates.py)
+            checks.append(_check("version", "Version", "info",
+                                 f"Tico will update this server to {_v(notice['scheduled'])} when idle.",
+                                 [_fix("What is new", "#/changelog")]))
+        elif notice.get("available"):
             checks.append(_check("version", "Version", "warn",
                                  f"{_v(notice.get('latest'))} is available. You are on {_v(releases.version())}.",
                                  [_fix("Update", click="#new-version"), _fix("What is new", "#/changelog")]))
@@ -1845,4 +1849,5 @@ def install(app, store, auth, settings):
         github = getattr(request.app.state, "github_app", None)
         with store.read_transaction() as c:
             # Health reads only these two parts of the config; building all of it cost a changelog parse per poll.
-            return view(c, who, settings, auth, github, {"update": releases.notice(), "backup": replication.status()})
+            return view(c, who, settings, auth, github, {"update": hosted_updates.notice(c, settings),
+                                                     "backup": replication.status()})
