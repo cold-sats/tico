@@ -46,10 +46,9 @@ ROWS = {
 }
 # The row a fast tier points at (`tico-fast-low-1.0`, `tico-fast-high-1.0` at Tico HQ). Fast is measurably faster and may
 # cost more. Low Fast is DeepSeek V4.1 Flash; Medium Fast and High Fast are both Claude Opus 5.5 in Anthropic's fast mode,
-# the only fast route at or above Medium's quality. Cached input is 10% of input only where the provider prices cache
-# reads: Opus fast does; for DeepSeek on this route none is known, so a cache read costs the input rate.
+# the only fast route at or above Medium's quality. Cached input is 10% of input for both (HQ prices DeepSeek cache reads at a tenth).
 FAST_ROWS = {
-    "low": {"model": "DeepSeek V4.1 Flash", "price": (0.45, 0.45, 1.80), "long": None},
+    "low": {"model": "DeepSeek V4.1 Flash", "price": (0.45, 0.045, 1.80), "long": None},
     "medium": {"model": "Claude Opus 5.5 (fast mode)", "price": (10.0, 1.0, 50.0), "long": None},
     "high": {"model": "Claude Opus 5.5 (fast mode)", "price": (10.0, 1.0, 50.0), "long": None},
 }
@@ -58,14 +57,14 @@ DECISIONS = (
     {"id": "tico-decide-low", "level": "low", "name": "Decide · Low", "model": "Jev 1.13", "price": (0.06, 0.006, 0.0),
      "types": ["noul", "choice", "score"],
      "when": "Yes/no, which-one and how-much questions about a state; fastest and cheapest. The default."},
-    {"id": "tico-decide-medium", "level": "medium", "name": "Decide · Medium", "model": "", "price": None,
+    {"id": "tico-decide-medium", "level": "medium", "name": "Decide · Medium", "model": "Claude Sonnet 5.5", "price": (2.50, 0.25, 12.50),
      "types": ["noul", "choice", "score"], "when": "The same questions when Low gets close calls wrong; slower."},
-    {"id": "tico-decide-high", "level": "high", "name": "Decide · High", "model": "", "price": None,
+    {"id": "tico-decide-high", "level": "high", "name": "Decide · High", "model": "Claude Opus 5.5", "price": (5.0, 0.50, 25.0),
      "types": ["noul", "choice", "score"], "when": "The same questions that need careful judgment; slowest."},
     {"id": "tico-classify-low", "level": "low", "name": "Classify · Low", "model": "Jev 1.13", "price": (0.06, 0.006, 0.0),
      "types": ["choice"], "when": "Sorting one text into one of your labels."},
 )
-# Medium and High serve the same typed contract from a language model; their rows come from HQ's catalog.
+# Medium and High serve the same typed contract from a language model, at that model's price.
 
 SERVICES = (
     {"id": "decide", "name": "Decide · Classify", "for": "Calibrated answers to typed questions about a state",
@@ -74,7 +73,7 @@ SERVICES = (
      "price": "Free addresses · $0.14 per 1,000 received", "status": "live",
      "tools": ["hub_inbound_create_email", "hub_inbound_wait"]},
     {"id": "inbox.numbers", "name": "Inbox · Numbers", "for": "Receive texts and codes on a number",
-     "price": "From $14 per 30 days", "status": "approval", "tools": ["hub_inbound_list", "hub_inbound_wait"]},
+     "price": "From $14 per 30 days", "status": "approval", "tools": []},
     {"id": "search", "name": "Search", "for": "Web search with sources and a short answer",
      "price": "Tokens like Low · $0.00875 per search", "status": "live",
      "tools": ["hub_gateway_search"]},

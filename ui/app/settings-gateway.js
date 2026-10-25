@@ -19,7 +19,7 @@ function gatewayPicksHTML(rows) {
   if (!rows.length) return '<p class="muted">No bot uses a Gateway model.</p>';
   return `<table class="gw-table" data-gateway-picks><thead><tr><th>Pick</th><th>Model</th><th>Version</th><th class="num">Bots</th><th>Price</th></tr></thead><tbody>${rows.map(r =>
     `<tr data-gateway-pick="${esc(r.id)}"><td class="gw-name">${esc(r.name)}</td><td class="gw-model">${esc(r.model)}</td>
-      <td class="gw-version">${r.version === 'auto' ? 'Auto' : esc(r.version)}</td><td class="num gw-bots">${r.bots}</td><td class="gw-price">${esc(r.price)}</td></tr>`).join('')}</tbody></table>`;
+      <td class="gw-version">${r.version === 'auto' ? 'Auto' : esc(r.version)}</td><td class="num gw-bots">${r.bots}<span class="gw-bots-word"> ${r.bots === 1 ? 'bot' : 'bots'}</span></td><td class="gw-price">${esc(r.price)}</td></tr>`).join('')}</tbody></table>`;
 }
 function gatewayServicesHTML(rows) {
   return `<table class="gw-table" data-gateway-services><thead><tr><th>Service</th><th>Status</th><th>Price</th><th>Tools</th></tr></thead><tbody>${rows.map(r =>

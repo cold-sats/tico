@@ -128,7 +128,7 @@ pick at the current version. A template can start a bot on another level: its `b
 `gateway: {level: low, fast: true}` ([Creating bots](creating-bots.md#7-harness-model-effort-and-fallback)).
 
 **Settings → Computers → Models** has **Decisions**, the level Decide runs at: Low (the default, the fast and cheap
-`tico-decide-1.0`), Medium or High (`tico-decide-medium-1.0`, `tico-decide-high-1.0`: a language model, with up to 30
+`tico-decide-1.0`), Medium or High (`tico-decide-medium-1.0`, `tico-decide-high-1.0`: Claude Sonnet 5.5 at $2.50 / $12.50 and Claude Opus 5.5 at $5 / $25 per 1M, with up to 30
 seconds per try instead of 8). Higher costs more per question and answers slower.
 
 No bot ever holds the gateway key. For a bot on a Tico model, or with a Tico model as its own fallback, the computer

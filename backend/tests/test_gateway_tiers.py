@@ -165,3 +165,25 @@ def test_a_templates_gateway_block_holds_only_a_level_and_fast():
             assert T.bot_model("sales", block).startswith("tico-sales-" + block["level"])
     assert seen >= 5
     assert T.clean_block({"level": "extreme"}) is None and T.clean_block({"fast": False}) is None and T.clean_block("low") is None
+
+
+def test_the_shipped_snapshot_matches_a_copy_of_the_gateways_own_catalog():
+    """Prices and models cannot drift from what Tico HQ publishes: tiers (with long-prompt rates) and decision levels."""
+    from pathlib import Path
+    hq = json.loads((Path(__file__).parent / "fixtures" / "gateway_catalog_hq.json").read_text())
+    ours = T.SNAPSHOT
+
+    def versions(cat, kind):
+        return {v["id"]: (v["model"], v["price"], v.get("long_prompt")) for row in cat[kind] for v in row["versions"]}
+    assert versions(ours, "models") == versions(hq, "models") and len(versions(hq, "models")) == 60
+    assert versions(ours, "decisions") == versions(hq, "decisions")
+    assert {row["id"]: row["current"] for row in ours["models"]} == {row["id"]: row["current"] for row in hq["models"]}
+    # Medium and High Decide are priced like their model, so no Decide call is counted at the ceiling.
+    assert T.resolve("tico-decide-high-1.0")["price"] == {"input": 5.0, "output": 25.0, "cached_input": 0.5}
+
+
+def test_every_tool_a_service_names_is_a_hub_tool():
+    from clients import hubtools
+    known = {entry["name"] for entry in hubtools.TOOLS}
+    named = {name for service in T.SNAPSHOT["services"] for name in service["tools"]}
+    assert {"hub_inbound_wait", "hub_gateway_search", "hub_decision_ask"} <= named and named <= known, named - known

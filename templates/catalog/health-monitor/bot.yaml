@@ -10,7 +10,6 @@ max_run_minutes: 20
 # What the Tico AI Gateway gives this bot when nobody picked a model: its group's pick at this level and Fast.
 gateway:
   level: low
-  fast: true
 
 # It sends nothing outside the team itself: its bug reports go through Tico's support route (docs/health-monitor.md).
 outbound_send: false

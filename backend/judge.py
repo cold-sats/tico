@@ -184,10 +184,9 @@ def cost_usd(settings, model, usage):
             return round(float(value), 6)
     fresh, cached, out = tokens(usage)
     if model in J.GATEWAY_MODELS:
-        # Jev's price for Low (and the ids before levels); Medium and High at their catalog price, else counted high.
+        # Every Decide level has a catalog price (Low is Jev's); the flat rate covers an id the catalog lacks.
         listed = providers.price_of(model)
-        rate_in, rate_out = (listed[0], listed[2]) if listed else GATEWAY_USD_PER_MTOK if "-medium" not in model \
-            and "-high" not in model else CEILING
+        rate_in, rate_out = (listed[0], listed[2]) if listed else GATEWAY_USD_PER_MTOK
     elif priced(settings, model) and str(model or "").lower().startswith("jev"):
         rate_in, rate_out = settings.decisions_jev_usd_per_mtok_input, settings.decisions_jev_usd_per_mtok_output
     elif priced(settings, model):
