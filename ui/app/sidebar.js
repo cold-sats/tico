@@ -566,7 +566,7 @@ const MESSAGE_BOTS_GROUP = '__message_bots';
 const isHelperBot = e => (isBuiltInBot(e.name) && e.name !== 'goal-manager') || !!e.helper
   || (S.people || []).some(p => p.inbox_bot === e.name);
 // The order here and on Goals: the Assistant, then the other built-ins, then message bots.
-const HELPER_ORDER = ['botops', 'librarian', 'goal-manager', 'inbox'];
+const HELPER_ORDER = ['botops', 'librarian', 'goal-manager', 'task-manager', 'inbox'];
 const helperRank = e => e.name === assistantBot() ? -1 : HELPER_ORDER.includes(e.name) ? HELPER_ORDER.indexOf(e.name) : 99;
 function orgTreeWithHelpers(byParent) {
   const out = {}, helpers = [], bot = {}, parentOf = {};

@@ -1,4 +1,4 @@
-/* ui/app/settings-recurring.js — Settings > Routines
+/* ui/app/settings-recurring.js — Settings > Rules: routines
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
@@ -48,7 +48,7 @@ function renderSettingsRecurring() {
   };
 }
 
-// The Routines list above the bot routines: every job Tico runs on its own (backend/system_routines.py) in one flat list,
+// "What Tico runs on its own", above the wake rules and the bot routines: every job Tico runs on its own (backend/system_routines.py) in one flat list,
 // no group headings, with a search box that matches name, trigger, action, department tag and group word. Each row reads
 // WHEN <trigger> THEN <action>, with its department tag, schedule, last and next run and, for a job that asks Decide,
 // which route answered and this month's spend. An owner or admin switches the six AI/people jobs (and Topic changed),
@@ -72,10 +72,12 @@ function systemRoutineRuleHTML(j) {
   const part = list => list.map(esc).join(' <b class="sysr-and">AND</b> ');
   return `<div class="sysr-rule" data-sysr-rule><b>WHEN</b> ${part(j.when || [])} <b>THEN</b> ${part(j.then || [])}</div>`;
 }
+// An hour range reads 08:00–18:00, the way the rest of Settings writes one.
+const systemRoutineHours = text => String(text || '').replace(/(\d\d:\d\d) to (\d\d:\d\d)/g, '$1–$2');
 function systemRoutineScheduleHTML(j) {
   const busy = SYSTEM_ROUTINE_BUSY.has(j.key);
-  if (!(j.presets || []).length || !j.can_change) return `<span data-sysr-schedule>${esc(j.schedule)}</span>`;
-  const options = j.presets.map(p => `<option value="${esc(p.key)}"${p.key === j.preset ? ' selected' : ''}>${esc(p.key === 'daily' ? (j.key === 'learnings' ? 'Nightly at' : 'Daily at') : p.label)}</option>`).join('');
+  if (!(j.presets || []).length || !j.can_change) return `<span data-sysr-schedule>${esc(systemRoutineHours(j.schedule))}</span>`;
+  const options = j.presets.map(p => `<option value="${esc(p.key)}"${p.key === j.preset ? ' selected' : ''}>${esc(p.key === 'daily' ? (j.key === 'learnings' ? 'Nightly at' : 'Daily at') : systemRoutineHours(p.label))}</option>`).join('');
   const pick = j.presets.length === 1 ? `<span>${esc(j.key === 'learnings' ? 'Nightly at' : 'Daily at')}</span>`
     : `<select class="settings-inline-select" data-sysr-preset aria-label="${esc(j.name)} schedule"${busy ? ' disabled' : ''}>${options}</select>`;
   return `${pick}
@@ -198,6 +200,7 @@ async function renderSystemRoutines(force) {
   SYSTEM_ROUTINES_AT = Date.now();
   try { SYSTEM_ROUTINES = await get('/v2/system-routines'); }
   catch (e) { if (!SYSTEM_ROUTINES) el.innerHTML = `<div class="empty">Couldn't load the routines: ${esc(e.message || 'try again')}</div>`; return; }
+  if (RULES && !RULES_BUSY.size) rulesPaint();   // the wake rules name departments from this answer
   if (SYSTEM_ROUTINE_BUSY.size || formBusy(el.querySelector('[data-sysr-list]'))) return;
   systemRoutinesPaint();
 }

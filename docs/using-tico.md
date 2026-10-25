@@ -156,7 +156,7 @@ reports. The same rule decides whose profile, goals, bot settings and routines y
 your own, and anyone's below you.
 
 **How do I add a routine?**
-**Settings → Routines → New routine** (or the Routines card on the bot's page): pick the bot, a
+**Settings → Rules → New routine** (or the Routines card on the bot's page): pick the bot, a
 title, a cron (five fields, America/Los_Angeles by default) or a Tico event, and the text the bot
 is told each time. A bot can set up its own with `hub routine set`. Details: [Routines](routines.md).
 

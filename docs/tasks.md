@@ -94,7 +94,7 @@ still apply. The Bots page shows how many tasks are going and how many eligible 
 
 `hub bot keep-tasks-going <bot> 3` sets a cap; `off` turns it off and `unlimited` restores the default.
 Omit the value to read it. The matching MCP tool and `POST /api/v2/bots/{bot}/keep-tasks-going` use
-the same permissions and revision check. **Settings → Routines** lists **Start assigned tasks** using
+the same permissions and revision check. **Settings → Rules** lists **Start assigned tasks** using
 WHEN/THEN wording; its `start_task` catalog action uses the same task delivery and claim checks.
 
 ## Work that is waiting
@@ -253,11 +253,11 @@ suggestions cover the quiet week.
 Stale ticket review finds open tasks that look finished or forgotten and suggests what to do with
 them. It only suggests: nothing changes unless the task's owner accepts.
 
-**Turn it on.** Go to **Settings > Routines** and switch on **Stale ticket review**. It is off by
+**Turn it on.** Go to **Settings > Rules** and switch on **Stale ticket review**. It is off by
 default, and an owner or an admin can turn it on or off, pick how often it runs, or run it now. (A server started with
 `TICO_STALE_REVIEW=1` has it on by default; a choice saved in Settings wins.)
 
-**What it looks for.** Once an hour (or on the schedule picked in Settings > Routines), Tico checks every open, doing, waiting and review task that is
+**What it looks for.** Once an hour (or on the schedule picked in Settings > Rules), Tico checks every open, doing, waiting and review task that is
 not snoozed and has no run going. A task is a candidate when one of these is true:
 
 - every pull request linked to it is merged, closed or shipped;
@@ -366,7 +366,7 @@ is due later or waits on someone else, and the bot hears why. Hourly, `backend/a
 Whether a message about a task wakes its bot or waits is decided by wake rules, each with an id (`parked`, `own_write`,
 `same_state`, `bot_to_bot`, `batch_*`, `assignment`, `stall`, ...). A person's message, an ask, an approval and a gate
 verdict always wake. A rule can be set for the whole team, a task type, a department, a bot or one task, and the most
-specific wins (`hub rule list`, `hub rule set`; the Rules page). The message and the run both record the rule, and the
+specific wins (`hub rule list`, `hub rule set`; Settings → Rules → **What wakes a bot**). The message and the run both record the rule, and the
 Rules page and `rule_weekly` in `hub sql` show how often each woke a bot and how often that run did nothing.
 
 ## Snoozing a task

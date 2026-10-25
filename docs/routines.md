@@ -1,6 +1,6 @@
 # Routines
 
-This page is about bot routines. For the flat list of built-in jobs and task rules at the top of **Settings → Routines**, see [System routines](system-routines.md).
+This page is about bot routines. For the flat list of built-in jobs and task rules at the top of **Settings → Rules**, see [System routines](system-routines.md).
 
 A routine is a row in Tico: a bot, a time (or a trigger), a title, and the text the bot is
 told. The server runs the clock. When a routine is due it opens a task for the bot with that
@@ -14,7 +14,7 @@ a compaction is the bot's runtime's business.
 
 Three doors, one table (`schedules`, `backend/routines.py`):
 
-- **The site.** Settings > Routines → *New routine*, or the Routines card on a bot's More tab.
+- **The site.** Settings > Rules → *New routine*, or the Routines card on a bot's More tab.
   Expand a routine's row for *Edit*, *Pause*/*Resume* and *Delete*. A routine in the Routines list on a
   bot's page opens the same editor: its instruction, its schedule (every day, weekdays, a day of the
   week or of the month at a time, or a cron), *Run now*, *Pause* and *Delete*. Someone who may not edit

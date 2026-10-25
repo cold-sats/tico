@@ -150,7 +150,7 @@ A message bot is assigned to one human on the roster. **Settings → Bots → Ad
 the Finish setup cards) show a human picker when the template is `inbox`. The chosen address is
 appended to the instructions as `Mailbox: <email>`, and BotOps fills `{{mailbox}}` in
 `bot.yaml` from that line. The bot is created `planned`, with `outbound_send: false`, one
-routine, the weekday 07:30 email brief in America/Los_Angeles (change its timezone in Settings → Routines),
+routine, the weekday 07:30 email brief in America/Los_Angeles (change its timezone in Settings → Rules),
 declared off and switched on when its setup starts, and gmail `read`/`draft` plus calendar `read` on that mailbox. It reads only that mailbox;
 `org_read: true`, which also reads everyone who reports to the human, is added by the owner
 deliberately. It starts with filing off (no labels, no archive) and shows what it would do.
@@ -411,7 +411,7 @@ it is optional, decided by a human and used once. See [Permissions](permissions.
 
 A routine is a row in Tico owned by the bot: a cron (or a Tico event), a title, and the text the
 bot is told. The server runs the clock and turns each occurrence into a normal task
-(`docs/routines.md`). Humans add them on the site (Settings → Routines); a bot adds its own from a
+(`docs/routines.md`). Humans add them on the site (Settings → Rules); a bot adds its own from a
 run:
 
 ```
@@ -423,7 +423,7 @@ A template may declare the same thing under `routines:` in its `bot.yaml`
 (`id`, `title`, `cron` or `on`, `timezone`, `template: playbooks/<file>.md`, and optionally
 `enabled: false`); `hub bot create` seeds the new bot's routines from it once, and from then on
 Tico's rows are the routines. The starter templates declare their first routine with `enabled: false`:
-it exists and is visible under Settings → Routines, and is switched on when the bot's setup starts (**Set up**, go-live),
+it exists and is visible under Settings → Rules, and is switched on when the bot's setup starts (**Set up**, go-live),
 so nobody approves it separately. Quote `"on":` in the
 YAML; an unquoted `on` is read as a boolean.
 

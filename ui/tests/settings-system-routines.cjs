@@ -1,4 +1,4 @@
-// Settings > Routines (ui/app/settings-recurring.js): one flat list above the bot routines, no group headings, a search box
+// Settings > Rules (ui/app/settings-recurring.js): one flat list above the wake rules and bot routines, no group headings, a search box
 // that matches name, trigger, action and department; each row reads WHEN ... THEN ... with one department tag, its
 // schedule, last run in words (a failure in red with its reason), next run, and for a Decide job the route that answered,
 // a fallback in words and this month's spend. Housekeeping says Tico needs it. An owner or admin gets a switch, a
@@ -109,8 +109,8 @@ const row = (page, key) => page.locator(`[data-system-routine="${key}"]`);
     for (const role of ['owner', 'admin', 'member']) {
       const {page, errors, asked, writes} = await open(browser, role);
       // One flat list above the bot routines: no group headings, a search box on top.
-      const headings = await page.locator('#settings-recurring h2').allInnerTexts();
-      assert.deepEqual(headings.map(h => h.trim()), ['Routines', 'Bot routines'], role);
+      const headings = await page.locator('#settings-recurring h2:visible').allInnerTexts();
+      assert.deepEqual(headings.map(h => h.trim()), ['What Tico runs on its own', 'What wakes a bot', 'Bot routines'], role);
       assert.equal(await page.locator('#set-system-routines h3').count(), 0, 'no group headings');
       assert.equal(await page.locator('#set-system-routines [data-sysr-search]').count(), 1);
       assert.equal(await page.locator('#set-system-routines [data-system-routine]').count(), 9);

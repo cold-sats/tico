@@ -29,7 +29,7 @@ model subscriptions and sends the results back. The in-app Help page (**?** in t
 | BotOps (built-in) | Sets up and fixes bots, computers, Tools and Credentials | Sidebar | “Add a bot that answers #support” |
 | Librarian (built-in) | Answers from your docs and the Tico manual, with sources | Ask the Librarian on Docs and Market | “What is our refund limit?” |
 | CEO Bot (built-in) | Keeps KPIs and goal colours current | Top of Goals | “Why is this goal yellow?” |
-| Task Manager (built-in) | Tidies tasks hourly on weekdays: closes what is done, fixes drifted steps, one Needs-you line per department | Its “Task check” tasks; Settings → Routines | `hub task-manager status` |
+| Task Manager (built-in) | Tidies tasks hourly on weekdays: closes what is done, fixes drifted steps, one Needs-you line per department | Its “Task check” tasks; Settings → Rules | `hub task-manager status` |
 | Your bots | Do the team's work from their Instructions | Team in the sidebar: chat or a task | “Draft replies to the open tickets” |
 | Message bots (Beta) | Work a human's email or a Slack channel | Message bots in the sidebar | “Sort today's email” |
 
@@ -127,7 +127,7 @@ in so that each channel's readers see it within the hour (`docs/slack-gateway.md
 Pages: **Tasks** (where the app opens), **Meetings** (imported transcripts, source sync status, Import, and each meeting's
 action items), **Docs**,
 **Tools**, **Changelog**, the **Team** tree, and under your email **Settings**
-and, for the owner and admins, **SQL**. Tasks has List, Board and Done; Routines are in **Settings → Routines**.
+and, for the owner and admins, **SQL**. Tasks has List, Board and Done; Routines are in **Settings → Rules**.
 Credentials are in **Tools → Credentials**. See [Navigation](navigation.md). A bot's page has **Chat**,
 **Tasks**, **Docs** and **More**. The assistant (Tico, `coo`), BotOps, the Librarian, the CEO Bot and the Task Manager are built in and cannot be archived or deleted (`409 system_bot`); the assistant
 and the Librarian work in the background and are not listed for humans. Each human has one private **Assistant** chat, its own page from the left rail
@@ -235,7 +235,7 @@ an ask, an approval and a gate verdict always wake the bot (`person_message`, `a
 write (`own_write`), news about a task that waits on something (`parked`), a stall check on a task that has not moved
 (`same_state`) and a plain bot-to-bot message (`bot_to_bot`) wait for the bot's next run; a finished request, review
 comments and a failing check are batched (`batch_*`); everything else wakes. Teams, task types, departments, bots and
-single tasks can override these with rules of their own (Rules page, `hub rule list`). Every message to a bot records the
+single tasks can override these with rules of their own (Settings → Rules → **What wakes a bot**, `hub rule list`). Every message to a bot records the
 rule that decided it, and every run records the rule that woke it, so `rule_weekly` in `hub sql` shows runs, tokens and
 runs that did nothing per rule ([Querying Tico with SQL](hub-sql.md)).
 
@@ -459,7 +459,7 @@ the change is live on the next run once that checkout has it: push, and pull on 
 if you edited elsewhere. Do not edit while the bot is running there.
 
 **You change a routine.** Routines are rows in Tico (`docs/routines.md`): edit one on the
-site under Settings → Routines, or a bot changes its own with `hub routine set`. The change is in
+site under Settings → Rules, or a bot changes its own with `hub routine set`. The change is in
 the table at once; a sleeping Mac does not block it. **You change a bot's switches.** Tools
 read `tools:` from the Mac checkout each time a bot sends or posts; whether it may send without approval comes from the mail switch a person sets in Tico (`outbound_send` in bot.yaml only asks). Model, effort, computer, humans, name,
 status and reporting line are changed in **Settings → Bots**, not in the file.
