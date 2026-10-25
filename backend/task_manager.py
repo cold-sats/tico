@@ -9,7 +9,7 @@ and no model call. Each department's report is built here from queries Tico alre
 - review and QA tickets with no linked pull request, or two open for one parent and step;
 - tickets whose pull request merged or whose release shipped but whose step did not move (`task_links`);
 - tasks blocked only by their own quiet subtasks (`H.stalled_tasks` `own_blockers`);
-- bots held (back-off or a turn budget; read defensively, skipped when this install has no such columns);
+- bots held by back-off or a turn budget;
 - runs that wait for their owner's review for more than an hour (`jobs` in `uncertain`);
 - duplicate titles between the same requester and owner.
 
@@ -227,29 +227,28 @@ def _merged(c, at):
 
 
 def _held(c):
-    """Bots held by back-off or a turn budget. This install may not record either, so a missing table or column is no line."""
-    try:
-        have = {r[1] for r in c.execute("PRAGMA table_info(bot_control)")}
-    except sqlite3.Error:
-        return []
-    column = next((name for name in ("held_until", "held", "hold_reason", "held_reason", "backoff_until") if name in have), None)
-    if not column:
-        return []
-    reason = next((name for name in ("hold_reason", "held_reason") if name in have), None)
-    try:
-        rows = c.execute(f"SELECT bot, {column} AS held" + (f", {reason} AS reason" if reason else "") +
-                         f" FROM bot_control WHERE coalesce({column},'') NOT IN ('', 0)").fetchall()
-    except sqlite3.Error:
-        return []
-    out = []
-    for row in rows:
-        if not H.bot(c, row["bot"]) or H.bot(c, row["bot"])["state"] != "active":
+    """Bots held after five fast failures in a row (run_backoff) or for going over a turn budget (turn_budgets). Each
+    hold already has its Needs-you item; this line hands the look at its runs to BotOps, since the Task Manager never
+    releases a bot itself."""
+    rows = []
+    for sql, why in (("SELECT bot, held_at, error_class AS reason FROM run_backoff WHERE held_at IS NOT NULL",
+                      "held after five fast failures in a row"),
+                     ("SELECT bot, held_at, runs || ' runs in the last ' || coalesce(window,'hour') AS reason "
+                      "FROM bot_budget WHERE held_at IS NOT NULL", "held by its turn budget, a likely runaway loop")):
+        try:
+            rows += [(r, why) for r in c.execute(sql).fetchall()]
+        except sqlite3.Error:           # a database from before back-off and budgets
             continue
-        why = str(dict(row).get("reason") or "").strip()
-        out.append(_item("held", None, f"{row['bot']} is held" + (f": {why[:160]}" if why else " by back-off or a turn budget"),
+    out = []
+    for row, why in rows:
+        bot = H.bot(c, row["bot"])
+        if not bot or bot["state"] != "active":
+            continue
+        detail = str(row["reason"] or "").strip()
+        out.append(_item("held", None, f"{row['bot']} is {why}" + (f" ({detail[:120]})" if detail else ""),
                          f"hub task create --owner botops --title \"Look at the held bot {row['bot']}\" "
-                         f"--body \"It is held; check its last runs, then release it or raise its budget.\"",
-                         owner="bot:" + row["bot"], stamp=str(row["held"])))
+                         f"--body \"It is held; check its last runs, then release it (hub bot release) or raise its budget.\"",
+                         owner="bot:" + row["bot"], stamp=str(row["held_at"])))
     return out
 
 
