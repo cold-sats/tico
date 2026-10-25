@@ -60,7 +60,7 @@ async function open(browser, {mode = 'model', viewport = DESKTOP} = {}) {
   const check_by = '2027-01-23';
   const research = () => {
     // The first poll is still drafting; the second has the answer.
-    if (job.state !== 'running' || ++polls < 2) { if (job.state === 'running') job.step = 'thinking'; return; }
+    if (job.state !== 'running' || mode === 'hang' || ++polls < 2) { if (job.state === 'running') job.step = 'thinking'; return; }
     if (mode === 'failed') Object.assign(job, {state: 'failed', step: null, error: {code: 'timeout', message: 'The site did not answer in time.'}});
     else if (mode === 'gave_up') Object.assign(job, {state: 'gave_up', step: null, found: {...FOUND, bets: FOUND.bets.slice(0, 1)}, error: {code: 'edited', message: 'The draft changed'}});
     else {
@@ -100,6 +100,7 @@ async function open(browser, {mode = 'model', viewport = DESKTOP} = {}) {
     if (p === '/api/v2/strategy/draft-from' && method === 'POST') {
       const body = req.postDataJSON();
       sent.push(['POST', '/draft-from', body]);
+      if (mode === 'drop_once' && posts(sent, '/draft-from').length === 1) return json({error: {code: 'internal', detail: 'Something went wrong'}}, 500);
       if (mode === 'refuse') return json({error: {code: 'validation', detail: "That address is this computer or an internal one; give the team's public website"}}, 422);
       job = {id: 'job-1', state: mode === 'no_model' ? 'no_model' : 'running', step: mode === 'no_model' ? null : body.url ? 'reading' : 'thinking',
         url: body.url, text: body.text, revision: st.draft.revision, pages: [], found: null, written: null, error: null,
@@ -280,6 +281,33 @@ async function building(page, website, text) {
       await page.locator('#ss-side').getByText(FOUND.serve).waitFor();
       assert.deepEqual(posts(sent, '/draft')[0][2], {sections: {serve: FOUND.serve}, revision});
       assert.equal(await found.locator('.ss-found-row').count(), 1);
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
+    // A start the page never heard back from: Next again asks again, and the research runs.
+    {
+      const {page, errors, sent} = await open(browser, {mode: 'drop_once'});
+      await building(page, 'acme.example', SITE);
+      await page.locator('[data-bet-form="new"]').waitFor();
+      await page.click('#onb-back');
+      await page.locator('#onb-website').waitFor();
+      await page.click('#onb-next');
+      await page.locator('li[data-ss-bet]').first().waitFor();
+      assert.equal(posts(sent, '/draft-from').length, 2);
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
+    // A run still going when the owner clears the website and the line: the step is the plain form, not that run.
+    {
+      const {page, errors, sent} = await open(browser, {mode: 'hang'});
+      await building(page, 'acme.example', SITE);
+      await page.locator('#ss-job .ss-job').waitFor();
+      await page.click('#onb-back');
+      await page.locator('#onb-website').waitFor();
+      await building(page, '', '');
+      await page.locator('[data-bet-form="new"]').waitFor();
+      assert.equal(await page.locator('#ss-job').innerText(), '');
+      assert.equal(posts(sent, '/draft-from').length, 1);
       assert.deepEqual(errors, []);
       await page.close();
     }

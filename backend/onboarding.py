@@ -543,16 +543,22 @@ class Onboarding:
         else:
             names["team_domain"] = record["names"].get("team_domain") or ""      # a client that never asks keeps it
         if "website" in body.names.model_fields_set:
-            from .strategy_setup import normalize_url
+            from .strategy_setup import normalize_url, refuse_unsafe
             try:
                 names["website"] = normalize_url(names["website"])
             except ValueError as exc:
                 raise Problem("validation", str(exc), 422) from None
+            if names["website"]:
+                refuse_unsafe(names["website"])
         else:
             names["website"] = record["names"].get("website") or ""
         answers = body.answers.model_dump()
         answers["building"] = answers["building"].strip() if "building" in body.answers.model_fields_set \
             else record["answers"].get("building") or ""
+        if not names["website"] and not answers["building"] and (record["names"].get("website") or
+                                                                 record["answers"].get("building")):
+            from .strategy_setup import stop_running
+            stop_running(c, {"code": "cleared", "message": "The website and the line were cleared"})
         record.update(names=names, answers=answers, selected=selected)
         # The owner's name goes on their roster entry (first run only knew their email).
         owner = self.auth.owner_id(c)

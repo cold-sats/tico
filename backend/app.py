@@ -168,6 +168,13 @@ def create_app(settings=None):
                 onboarding.ensure_task_manager(c)
         except Exception as exc:
             telemetry.capture("librarian", exc)
+        # A strategy research run the last process was doing has no thread now: it stops, and setup shows the form.
+        try:
+            from . import strategy_setup
+            with store.transaction() as c:
+                strategy_setup.stop_running(c)
+        except Exception as exc:
+            telemetry.capture("strategy_setup", exc)
         # An assistant still named after the company becomes "Assistant" (idempotent).
         try:
             with store.transaction() as c:

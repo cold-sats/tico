@@ -174,6 +174,41 @@ def test_setup_keeps_the_website_and_the_one_line_and_an_older_client_keeps_them
     assert api.get("/api/v2/strategy", headers=signed_in()).json()["website"] == "https://acme.example"
     bad = api.put("/api/v2/onboarding", json={**body, "names": {"website": "mailto:ana@acme.example"}}, headers=signed_in())
     assert bad.status_code == 422
+    # An internal address is refused when saved, as the research refuses it: nothing reaches the Librarian's task.
+    for url in ("http://10.0.0.1", "http://169.254.169.254/latest", "http://[::1]/", "intranet.local"):
+        bad = api.put("/api/v2/onboarding", json={**body, "names": {"website": url}}, headers=signed_in())
+        assert bad.status_code == 422 and bad.json()["error"]["reason"] == "private_address", url
+    assert api.get("/api/v2/strategy", headers=signed_in()).json()["website"] == "https://acme.example"
+
+
+def test_a_run_cut_off_or_left_with_nothing_to_read_stops_and_never_writes(environment, monkeypatch):
+    monkeypatch.setattr(SS, "spawn", lambda work: None)                              # the run never answers by itself
+    monkeypatch.setattr(SS, "writer", lambda c, settings, store: lambda system, user: FOUND)
+    api = environment()
+    store = api.app.state.store
+    body = {"names": {"company_name": "Acme", "website": ""}, "answers": {"building": "Bots that run small rentals."},
+            "selected": {}}
+    assert api.put("/api/v2/onboarding", json=body, headers=signed_in()).status_code == 200
+    start = lambda: api.post("/api/v2/strategy/draft-from", json={"text": "Bots that run small rentals."},
+                             headers=signed_in()).json()
+    latest = lambda: api.get("/api/v2/strategy/draft-from/latest", headers=signed_in()).json()
+    # The owner clears the website and the line: nothing is left to draft from, so the run stops.
+    assert start()["state"] == "running"
+    cleared = api.put("/api/v2/onboarding", json={**body, "answers": {"building": ""}}, headers=signed_in())
+    assert cleared.status_code == 200, cleared.json()
+    assert latest()["state"] == "failed" and latest()["error"]["code"] == "cleared"
+    # A restart: no thread of the new process runs it (install stops every running job at start-up).
+    start()
+    with store.transaction() as c:
+        SS.stop_running(c)
+    assert latest()["state"] == "failed" and latest()["error"]["code"] == "interrupted"
+    # A run past STALE_S was already shown as failed: when it answers at last, it writes nothing.
+    job = start()
+    with store.transaction() as c:
+        SS._put(c, {**SS._find(c, job["id"]), "started": H.shift(H.now(), seconds=-SS.STALE_S - 1)})
+        SS.finish(c, job["id"], FOUND)
+    assert latest()["state"] == "failed" and latest()["written"] is None
+    assert api.get("/api/v2/strategy", headers=signed_in()).json()["bets"] == []
 
 
 def test_the_org_builder_names_the_bet_a_group_serves_and_setup_stores_it(environment):

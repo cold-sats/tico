@@ -145,7 +145,7 @@ polls it:
 | `running` | `step` is `reading` (fetching pages) then `thinking` (the model call) |
 | `done` | `written` is `{sections, bets, revision}`: the sections filled, the proposed bet ids, the draft's new revision |
 | `gave_up` | the owner wrote the draft meanwhile (`error.code` `edited`) or a newer job started (`superseded`); nothing was written and `found` holds what the research found, to offer by hand |
-| `failed` | `error.code` is the fetch code (`private_address`, `timeout` ...), the model's, `empty`, or `interrupted` when the server restarted mid-run |
+| `failed` | `error.code` is the fetch code (`private_address`, `timeout` ...), the model's, `empty`, `interrupted` when the server restarted mid-run (or it ran 10 minutes; it then writes nothing), or `cleared` when setup's website and line were cleared |
 | `no_model` | no model provider: the step is a plain form |
 
 Every job also carries `url`, `text`, `pages` (`[{url, title}]` or `{url, error}`, never page text), `found`
