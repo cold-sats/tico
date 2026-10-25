@@ -28,7 +28,7 @@ number**: the evidence is the reading, the market change or the date in the task
 
 One `strategy_draft` proposal that does one of three things to this bet:
 
-- **retire** it: `{"bets": [{"id": "<bet id>", "statement": "<as it is>", "status": "retired"}]}`. Its goals stay;
+- **retire** it: `{"bets": [{"id": "<bet id>", "status": "retired"}]}`. Its goals stay;
   the owner's realignment card on publish lists them;
 - **rewrite** it: a new statement, why, rules out or wrong-if, with the same `id`;
 - **keep** it with a new wrong-if: the same statement and a `wrong_if` the evidence has not already crossed, with a
@@ -37,8 +37,8 @@ One `strategy_draft` proposal that does one of three things to this bet:
     hub proposal create --kind strategy_draft --payload-file bet.json --reason "<the evidence in one line, then your pick and why>"
 
 The reason is a few lines at most: what tripped, with its date and source; which of the three you recommend; and
-why, in one sentence. Pick one; do not leave it as a menu. Read `asked_today` in `hub goal ceo-bot` first: at 5,
-leave the task open and file the card tomorrow.
+why, in one sentence. Pick one; do not leave it as a menu. A trip card does not count toward the five a day: a
+wrong bet should not wait until tomorrow.
 
 ## 3. Finish
 
