@@ -140,8 +140,13 @@ def fresh_session(c, settings, bot, conversation_id, aid):
 
 
 # ---------------------------------------------------------------------------------------------------- the state
+GET_SQL = "SELECT * FROM run_backoff WHERE bot=?"
+
+
 def get(c, bot):
-    row = c.execute("SELECT * FROM run_backoff WHERE bot=?", (bot,)).fetchone()
+    """The bot's row, read once per snapshot (read_cache): a status page primes every bot's (events.prime_status_lines)."""
+    from .read_cache import one
+    row = one(c, GET_SQL, (bot,))
     return dict(row) if row else {}
 
 
@@ -153,11 +158,11 @@ def wait_for(fails):
 def refusal(c, bot):
     """Why a claim passes over all of the bot's work for its failed runs: "run_hold" while it is held (until its next
     try is due), "backoff" until its wait ends, else None. Read only, as every refusal (execution.claim_refusal)."""
-    row = c.execute("SELECT held_at,wait_until FROM run_backoff WHERE bot=?", (bot,)).fetchone()
+    row = get(c, bot)
     if not row:
         return None
     if row["held_at"]:
-        return None if probe_due(c, bot, dict(row)) else "run_hold"
+        return None if probe_due(c, bot, row) else "run_hold"
     return "backoff" if row["wait_until"] and row["wait_until"] > H.now() else None
 
 

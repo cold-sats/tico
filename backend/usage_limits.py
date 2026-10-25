@@ -76,8 +76,12 @@ def _caps(row):
     return {key: (row[key] if row and key in row.keys() else None) for key in KEYS}
 
 
+OWN_SQL = "SELECT * FROM usage_limits WHERE bot=?"
+
+
 def own(c, bot):
-    return _caps(c.execute("SELECT * FROM usage_limits WHERE bot=?", (bot,)).fetchone())
+    from .read_cache import one
+    return _caps(one(c, OWN_SQL, (bot,)))
 
 
 def effective(c, bot, default=None):

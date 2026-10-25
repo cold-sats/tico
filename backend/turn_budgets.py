@@ -90,8 +90,13 @@ def counts(c, bot, floor="", now=None):
 
 
 # ---------------------------------------------------------------------------------------------------- the hold
+GET_SQL = "SELECT * FROM bot_budget WHERE bot=?"
+
+
 def get(c, bot):
-    row = c.execute("SELECT * FROM bot_budget WHERE bot=?", (bot,)).fetchone()
+    """The bot's row, read once per snapshot (read_cache): a status page primes every bot's (events.prime_status_lines)."""
+    from .read_cache import one
+    row = one(c, GET_SQL, (bot,))
     return dict(row) if row else {}
 
 
