@@ -33,6 +33,14 @@ def company_editor(who):
     return who.role == "owner" and not who.via
 
 
+def strategy_visible(who, proposal):
+    """A strategy proposal carries unpublished draft text (strategy_draft) or every affected goal's title
+    (strategy_realign): the owner reads it, and the bot that proposed it; no one else."""
+    if proposal["kind"] not in ("strategy_draft", "strategy_realign"):
+        return True
+    return company_editor(who) or proposal.get("proposed_by") == who.actor
+
+
 def _hidden_owners(c, auth, who):
     """The bots whose goals this caller may not read, as owner actors. The CEO Bot reads every goal."""
     if who.role == "bot" and who.actor == G.AUTO_ACTOR:
@@ -403,7 +411,8 @@ def install(app, store, auth, mutate, settings):
             other = [K.view(r, data.get(r["id"], []), None) for r in loose]
             names.update(owner_names(c, other))
             visible = {r["id"] for r in rows}
-            pending = [p for p in G.proposals(c, "pending") if not p["goal_id"] or p["goal_id"] in visible]
+            pending = [p for p in G.proposals(c, "pending") if (not p["goal_id"] or p["goal_id"] in visible)
+                       and strategy_visible(who, p)]
             return {"goals": rows, "owners": names, "unaligned": unaligned, "other_kpis": other,
                     "proposals": [{**p, "may_decide": decider(c, who, p)} for p in pending]}
 
@@ -799,6 +808,8 @@ def install(app, store, auth, mutate, settings):
             hidden = hidden_owners(c, who)
             rows = []
             for p in G.proposals(c, status if status != "all" else None, goal_id, kpi_id):
+                if not strategy_visible(who, p):
+                    continue
                 goal = G.goal(c, p["goal_id"]) if p["goal_id"] else None
                 record = K.kpi(c, p["kpi_id"]) if p["kpi_id"] else None
                 if (goal and goal["owner"] in hidden) or (record and record["owner"] in hidden):

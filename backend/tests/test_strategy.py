@@ -87,6 +87,12 @@ def test_only_the_owner_writes_and_reads_the_draft_a_bot_proposes_at_any_level(a
         "summary": "Acme runs rentals for small landlords.",
         "bets": [{"id": bet["id"], "status": "retired"}, {"statement": "Landlords refer landlords"}]}},
         token=ceo)["proposal"]
+    # The proposal carries the unpublished draft: the owner and the bot that made it read it, no one else.
+    for token in ("ben-test", "cara-test"):
+        assert not [p for p in get(api, "goal-proposals", token=token)["proposals"] if p["kind"] == "strategy_draft"]
+        assert not [p for p in get(api, "goals/tree", token=token)["proposals"] if p["kind"] == "strategy_draft"]
+    assert [p["id"] for p in get(api, "goal-proposals", token=ceo)["proposals"]] == [proposal["id"]]
+    assert [p["id"] for p in get(api, "goal-proposals")["proposals"]] == [proposal["id"]]
     post(api, f"goal-proposals/{proposal['id']}/decide", {"decision": "confirm"}, token=ceo, expected=403)
     post(api, f"goal-proposals/{proposal['id']}/decide", {"decision": "confirm"})
     view = get(api, "strategy")
@@ -183,6 +189,24 @@ def test_a_kpi_reading_past_the_wrong_if_trips_the_bet_once_per_version(api):
     assert "Evidence:" in tasks[0]["body"]
 
 
+def test_an_open_bet_task_from_an_earlier_trip_holds_the_trip_until_it_closes(api):
+    with_ceo_bot(api)
+    goal, kpi = goal_with_kpi(api)
+    ready(api, wrong_if={"kind": "kpi", "kpi_id": kpi["id"], "direction": "below", "threshold": 30})
+    with api.app.state.store.transaction() as c:
+        H.task_create(c, H.KEEPER, "Bet 1: may be wrong", "From strategy v0.", "bot:goal-manager", lint=False)
+    publish(api)
+    log(api, kpi["id"], 20)
+    with api.app.state.store.transaction() as c:
+        assert not c.execute("SELECT 1 FROM strategy_events WHERE kind=?", (S.TRIPPED,)).fetchone()
+        c.execute("UPDATE tasks SET status='done' WHERE title='Bet 1: may be wrong'")
+    log(api, kpi["id"], 15)
+    with api.app.state.store.read() as c:
+        tasks = H._rows(c.execute("SELECT status FROM tasks WHERE title='Bet 1: may be wrong' ORDER BY created"))
+        assert [t["status"] for t in tasks][-1] != "done" and len(tasks) == 2
+        assert c.execute("SELECT count(*) FROM strategy_events WHERE kind=?", (S.TRIPPED,)).fetchone()[0] == 1
+
+
 def test_a_text_wrong_if_trips_after_its_check_by_and_nothing_trips_with_checks_off(api):
     ready(api)
     publish(api)
@@ -253,3 +277,16 @@ def test_the_owner_runs_the_strategy_through_the_hub_tools(api):
     err, out = ok("hub_goal_create", {"owner": "ana", "title": "Sign 10 landlords",
                                       "bet_id": get(api, "strategy")["bets"][0]["id"]})
     assert not err and out["bet_id"]
+
+
+def test_an_unpublished_vision_stays_out_of_the_company_history_until_publish(api):
+    ready(api)
+    write(api, vision="Every landlord on Acme.")
+    publish(api)
+    seen = lambda: [e["new"] for e in get(api, "company/history", token="cara-test")["events"] if e["field"] == "vision"]
+    assert seen() == ["Every landlord on Acme."]                     # before v1 the draft's vision was the team's
+    write(api, vision="Every small landlord on Acme.")
+    assert seen() == ["Every landlord on Acme."]
+    assert get(api, "company", token="cara-test")["company"]["vision"] == "Every landlord on Acme."
+    publish(api, "Second")
+    assert seen()[0] == "Every small landlord on Acme."
