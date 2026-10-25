@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from backend import strategy_prompt as SP
 from backend import strategy_setup as SS
 from backend.store import H
 from backend.tests.test_api import api, get, post, put  # noqa: F401
@@ -113,6 +114,30 @@ def test_the_job_reads_the_site_and_writes_unconfirmed_sections_and_proposed_bet
     again = get(api, "strategy/draft-from/" + post(api, "strategy/draft-from", {"url": "acme.example"})["id"])
     assert again["state"] == "done" and again["written"]["bets"] == [] and again["written"]["sections"] == []
     assert get(api, "strategy")["draft"]["sections"]["serve"] == write["draft"]["sections"]["serve"] == "Mine."
+
+
+def fixture_answer():
+    """The model's answer for the shared fixture company (fictional Acme Build): the strategy block's summary, vision,
+    four sections and bets, as the prompt asks for them."""
+    block = json.loads((Path(__file__).parent / "fixtures" / "company_strategy" / "draft.json").read_text())["strategy"]
+    return {"summary": block["summary"], "vision": block["vision"], **block["sections"],
+            "bets": [{k: b[k] for k in SP.BET_FIELDS} for b in block["bets"]]}
+
+
+def test_the_shared_prompt_drafts_summary_vision_four_sections_and_three_bets(api, research):
+    answer = fixture_answer()
+    assert set(SP.SCHEMA["required"]) == set(answer) == set(SS.draft(lambda s, u: answer, {"text": "", "url": ""}, []))
+    assert SS.INSTRUCTIONS == SP.INSTRUCTIONS and "Never invent a number" in SP.INSTRUCTIONS
+    research.state["write"] = lambda system, user: answer if system == SP.INSTRUCTIONS else pytest.fail(system)
+    job = get(api, "strategy/draft-from/" + post(api, "strategy/draft-from", {"text": "Schedules for field crews"})["id"])
+    assert job["state"] == "done" and job["written"]["fields"] == ["summary", "vision"], job
+    assert job["written"]["sections"] == ["know", "not", "sell", "serve"] and len(job["written"]["bets"]) == 3
+    draft = get(api, "strategy")["draft"]
+    assert draft["summary"] == answer["summary"] and draft["vision"] == answer["vision"]
+    for key in ("serve", "sell", "know", "not"):
+        assert draft["sections"][key] == SS.unconfirmed(answer[key], "your description")
+    assert {b["status"] for b in get(api, "strategy")["bets"]} == {"proposed"}
+    assert get(api, "strategy/versions") == []
 
 
 def test_the_job_gives_up_and_reports_when_the_owner_wrote_the_draft_meanwhile(api, research):
