@@ -4038,6 +4038,8 @@ def create_app(settings=None):
                                              "WHERE state IN ('leased','running') ORDER BY bot")
                         if readable.get(s["bot"], auth.FULL)["read"]]
             inputs = privacy.status_inputs(c, [s["bot"] for s in statuses])
+            from .events import prime_status_lines
+            prime_status_lines(c, [s["bot"] for s in statuses])
             return {"bots": [line for s in statuses
                              if (line := status_line(c, who, s["bot"], default, inputs[s["bot"]], auth=auth)) is not None],
                     # Tico updating itself, shown beside the status line

@@ -1619,7 +1619,7 @@ def fleet_snapshot(c, auth, identity, task_view):
     access = auth.bot_accesses(c, principal)
     bot_rows = H.bots(c)
     allowed = {row["slug"] for row in bot_rows if access.get(row["slug"], auth.FULL)["write"]}
-    task_rows = [dict(t) for t in c.execute("SELECT * FROM tasks WHERE " + privacy.STATUS_TASKS_SQL)]
+    task_rows = [dict(t) for t in c.execute(f"SELECT {privacy.STATUS_TASK_COLUMNS} FROM tasks WHERE {privacy.STATUS_TASKS_SQL}")]
     bot_tasks = {}
     for task in task_rows:
         for actor in {task["owner"], task["requester"]}:
