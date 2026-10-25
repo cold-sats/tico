@@ -133,6 +133,26 @@ def test_refresh_heartbeat_and_disconnect_use_the_server_key(api, hq):
     assert CS.heartbeat(store, vault) == "gone" and not CS.heartbeat_due(store, now=1e12)
 
 
+def test_a_new_version_is_due_within_the_hour(api, hq, monkeypatch):
+    monkeypatch.setenv("TICO_VERSION", "v0.4.5")
+    connected(api, hq)
+    store, vault = api.app.state.store, api.app.state.vault
+    assert not CS.heartbeat_due(store)                          # connecting told HQ this version
+    monkeypatch.setenv("TICO_VERSION", "v0.4.6")                # updated and restarted
+    assert CS.heartbeat_due(store)
+    hq.answers[("POST", "/v1/portal/server/heartbeat")] = lambda request: reply(503, {"error": "down"})
+    assert CS.heartbeat(store, vault) == "failed" and CS.heartbeat_due(store)   # still due: the next hour tries again
+    hq.answers[("POST", "/v1/portal/server/heartbeat")] = lambda request: reply(204)
+    assert CS.heartbeat(store, vault) == "sent" and json.loads(hq.seen[-1].content) == {"version": "0.4.6"}
+    assert not CS.heartbeat_due(store)
+    with store.transaction() as c:                              # a record from before the version was kept
+        CS._write(c, {k: v for k, v in CS._row(c).items() if k != "version"})
+    assert CS.heartbeat_due(store)
+    calls = len(hq.seen)
+    monkeypatch.setenv("TICO_REHEARSAL", "1")                   # a changed version still sends nothing from a rehearsal
+    assert not CS.heartbeat_due(store) and len(hq.seen) == calls
+
+
 def test_a_key_hq_refuses_is_forgotten(api, hq):
     connected(api, hq)
     hq.answers[("POST", "/v1/portal/server/heartbeat")] = lambda request: reply(401, {"error": "unauthorized"})

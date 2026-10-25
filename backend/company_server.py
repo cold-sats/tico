@@ -10,9 +10,9 @@ connect is pending. On a match HQ answers with the company and a server key (`ts
 The server key is sealed with the credential vault's data key (backend/credentials.py `CredentialCipher.seal`) in
 `registry_metadata` KEY, like the gateway key: no read returns it, and no event or log line carries it. With it the
 server reads its company and credit (`GET /v1/portal/server`, at most every FRESH_S when Settings asks), says its
-version once a day (`POST /v1/portal/server/heartbeat`, the `company_heartbeat` system routine, no model turn) and
-disconnects (`DELETE /v1/portal/server`). HQ refusing the key (401) means the link was ended on the portal: the key is
-forgotten here too.
+version once a day, and within the hour after it changes (`POST /v1/portal/server/heartbeat`, the `company_heartbeat`
+system routine, no model turn) and disconnects (`DELETE /v1/portal/server`). HQ refusing the key (401) means the link
+was ended on the portal: the key is forgotten here too.
 
 HQ is only ever https://api.tico.dev or https://updates.tico.team (`<TICO_HQ_URL>`, backend/census.py `hq_url`); any
 other base URL leaves the feature unavailable. HQ's answers are read raw, capped at MAX_ANSWER bytes, with no redirects,
@@ -49,7 +49,7 @@ PROOF_PATH = "/api/v2/company-connection/proof"
 HQ_ALLOWED = ("https://api.tico.dev", "https://updates.tico.team")
 PENDING_S = 120          # a proof answers HQ this long after Connect
 FRESH_S = 60             # Settings reads HQ's word on the company at most this often
-HEARTBEAT_S = 23 * 3600  # the hourly sweep sends the version once this long has passed
+HEARTBEAT_S = 23 * 3600  # the hourly sweep sends the version once this long has passed, or sooner once it changes
 WAIT_S = 25              # HQ's whole answer, including its 10-second fetch of the proof
 MAX_ANSWER = 4096
 TRANSPORT = None         # tests replace it with an httpx.MockTransport: nothing reaches the network
@@ -273,7 +273,7 @@ def connect(store, vault, settings, who, body, install_id):
         at = H.now()
         _write(c, {"key": vault.cipher.seal(c, CONTEXT, result["server_key"]), "company": company,
                    "workspace_id": workspace, "portal_url": portal, "credit": None, "checked": "", "heartbeat": at,
-                   "connected_at": at, "connected_by": who.actor})
+                   "version": version(), "connected_at": at, "connected_by": who.actor})
         H.event(c, who.actor, "company_server.connected", workspace, {"company_id": company["id"], "name": company["name"]})
     return status(store, vault)          # unchecked: reads the company's credit now
 
@@ -333,9 +333,13 @@ def _seconds(stamp):
 
 
 def heartbeat_due(store, now=None):
+    """A day since the last heartbeat, or the running version is not the one HQ last heard (an update, or a record from
+    before `version` was kept): app.tico.dev and admin see the new version within the hour, not the next day."""
+    from .releases import version
     with store.read() as c:
         record = _row(c)
-    return bool(record.get("key")) and not off(store.settings) and (now or time.time()) - _seconds(record.get("heartbeat")) >= HEARTBEAT_S
+    return bool(record.get("key")) and not off(store.settings) and (
+        record.get("version") != version() or (now or time.time()) - _seconds(record.get("heartbeat")) >= HEARTBEAT_S)
 
 
 def heartbeat(store, vault):
@@ -347,8 +351,9 @@ def heartbeat(store, vault):
         key, record = _key(store, vault)
         if not key:
             return "gone"
+        running = version()
         try:
-            code, _answer = _call(store.settings, "POST", "/v1/portal/server/heartbeat", {"version": version()}, key=key)
+            code, _answer = _call(store.settings, "POST", "/v1/portal/server/heartbeat", {"version": running}, key=key)
         except ValueError:
             return "failed"
         with store.transaction() as c:
@@ -359,7 +364,7 @@ def heartbeat(store, vault):
                 return "gone"
             if code != 204:
                 return "failed"
-            _write(c, {**_row(c), "heartbeat": H.now()})
+            _write(c, {**_row(c), "heartbeat": H.now(), "version": running})
             return "sent"
     finally:
         _heartbeat.release()
