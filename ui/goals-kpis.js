@@ -472,7 +472,7 @@ function goalStatusNote(g) {
 function goalTreeRows(actor, depth, goals, loose, standing = '') {
   const info = goalOwnerInfo(actor);
   const av = actor === GOAL_COMPANY ? `<span class="av gt-co-av" aria-hidden="true">${esc(String(info.name || 'C').trim()[0] || 'C').toUpperCase()}</span>` : info.avatar;
-  const choice = g => { const st = GOALS_ST?.strategy, c = g.choice_id && (st?.choices || []).find(x => x.id === g.choice_id); return c ? ` · ${st.label || 'Bets'}: ${c.statement}` : ''; };
+  const choice = g => { const st = GOALS_ST?.strategy, c = g.choice_id && (st?.choices || []).find(x => x.id === g.choice_id); return c ? ` · ${st.label_one || st.label || 'Bet'}: ${c.statement}` : ''; };
   const goalCell = g => `<span class="gt-goal" title="${esc(g.title + ' · Why: ' + (g.why || GOAL_NOT_TIED) + choice(g))}">${gdot(g.status, goalStatusNote(g))}<span class="gt-title">${esc(g.title)}</span></span>`;
   const row = (cls, goal, inner) => `<li class="gt-row${cls}" data-owner="${esc(actor)}"${goal ? ` data-goal="${esc(goal.id)}"` : ''} style="--d:${depth}" tabindex="0" role="button">`
     + `<span class="gt-ind" aria-hidden="true"></span>${inner}</li>`;
@@ -498,7 +498,7 @@ function goalStrategyHtml(state) {
 function goalChoiceLineHtml(state, g) {
   const st = state.strategy, c = g.choice_id && (st?.choices || []).find(x => x.id === g.choice_id);
   if (!c) return '';
-  return `<div class="goal-why goal-choice-line" data-goal-choice="${esc(c.id)}"><span class="goal-why-k">${esc(st.label || 'Bets')}</span> <a href="${STRATEGY}?choice=${encodeURIComponent(c.id)}">${esc(c.statement)}</a>${c.status === 'retired' ? ' <span class="muted">· retired</span>' : ''}</div>`;
+  return `<div class="goal-why goal-choice-line" data-goal-choice="${esc(c.id)}"><span class="goal-why-k">${esc(st.label_one || st.label || 'Bet')}</span> <a href="${STRATEGY}?choice=${encodeURIComponent(c.id)}">${esc(c.statement)}</a>${c.status === 'retired' ? ' <span class="muted">· retired</span>' : ''}</div>`;
 }
 
 // ---------------------------------------------------------------- a goal's Why

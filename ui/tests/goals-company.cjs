@@ -47,7 +47,7 @@ async function open(browser, {role = 'owner', strategy = null, needs = []} = {})
     if (p === '/api/v2/goals/tree') return json({goals: state.goals, owners: {}, other_kpis: [], proposals: state.proposals.filter(x => x.status === 'pending')});
     if (p === '/api/v2/goals/needs-you') return json({actor: 'human:ana', items: needs});
     if (p === '/api/v2/bots/goal-manager/routines') return json({routines: []});
-    if (p === '/api/v2/strategy') return json({draft: null, current: strategy, choices: strategy?.choices || [], label: 'Bets', frameworks: [], goals_by_choice: {}});
+    if (p === '/api/v2/strategy') return json({draft: null, current: strategy, choices: strategy?.choices || [], label: 'Bets', label_one: 'Bet', may_edit: role === 'owner', frameworks: [], goals_by_choice: {}});
     const decide = p.match(/^\/api\/v2\/proposals\/([^/]+)\/decide$/);
     if (decide) {
       const body = req.postDataJSON(), prop = state.proposals.find(x => x.id === decide[1]);

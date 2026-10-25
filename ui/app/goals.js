@@ -163,7 +163,7 @@ function goalChoiceHtml(g, may) {
   const st = GOALS_ST?.strategy, all = st?.choices || [];
   const options = all.filter(c => c.status === 'active' || c.id === g.choice_id).sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9));
   if (!options.length) return '';
-  return `<label class="goal-f goal-choice-f"><span>${esc(st.label || 'Bets')}</span><select name="choice"${may ? '' : ' disabled'}>
+  return `<label class="goal-f goal-choice-f"><span>${esc(st.label_one || st.label || 'Bet')}</span><select name="choice"${may ? '' : ' disabled'}>
       <option value=""${g.choice_id ? '' : ' selected'}>None</option>${options.map(c =>
         `<option value="${esc(c.id)}"${c.id === g.choice_id ? ' selected' : ''}>${esc(c.statement)}</option>`).join('')}</select></label>`;
 }

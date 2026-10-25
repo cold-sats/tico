@@ -62,7 +62,9 @@ function strategyView(data) {
   const version = owner ? data.draft || data.current : data.current;
   const choices = (owner ? data.choices : version?.choices) || [];
   const fw = strategyFramework(data, version?.framework);
-  return {owner, version, choices: choices.slice().sort(stratRank), fw, label: fw.choices_label || data.label || 'Bets'};
+  // label names the list ("Bets"); one names a single choice ("Bet"), falling back to label on an older server.
+  const label = fw.choices_label || data.label || 'Bets';
+  return {owner, version, choices: choices.slice().sort(stratRank), fw, label, one: fw.choice_label || data.label_one || label};
 }
 // Whether the draft says anything the latest published version does not: its words, its framework, or its choices.
 function strategyDiffers(data) {
@@ -146,7 +148,7 @@ function strategyChoicesHtml(data, view) {
   const adding = view.owner && STRAT?.editChoice === 'new';
   return `<section class="strat-sec strat-choices-sec" id="strat-sec-choices" aria-labelledby="strat-choices-h">
       <div class="strat-sec-head"><h2 class="strat-k" id="strat-choices-h">${esc(view.label)}</h2><span class="cnt tnum">${live.length || ''}</span>
-        ${view.owner && !adding ? '<button class="ghost strat-mini" type="button" data-choice-add>Add</button>' : ''}</div>
+        ${view.owner && !adding ? `<button class="ghost strat-mini" type="button" data-choice-add aria-label="Add ${esc(view.one)}" title="Add ${esc(view.one)}">Add</button>` : ''}</div>
       ${live.length ? `<ol class="strat-choices">${live.map((c, n) => strategyChoiceHtml(c, n, view, data, live.length)).join('')}</ol>`
         : adding ? '' : `<p class="muted strat-empty">None yet</p>`}
       ${adding ? `<div class="strat-choice strat-choice-new">${strategyChoiceFormHtml()}</div>` : ''}
@@ -343,9 +345,8 @@ function strategyBind() {
       ev.preventDefault();
       const text = area.value.trim(), now = view.version?.sections || {};
       if (text === stratText(now[key])) { done(); return; }
-      // Every section the framework has goes with it, so the server keeps the others whether it merges or replaces.
-      const sections = {};
-      for (const s of view.fw.sections) if (s.key === key || stratText(now[s.key])) sections[s.key] = s.key === key ? text : now[s.key];
+      // The server merges sections, so only this one goes; an empty one clears it.
+      const sections = {[key]: text};
       sform.querySelectorAll('button').forEach(b => { b.disabled = true; });
       state.editSection = '';
       const ok = await strategyWrite(() => put('/v2/strategy/draft', {sections}));

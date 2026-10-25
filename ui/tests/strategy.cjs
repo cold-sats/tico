@@ -25,10 +25,10 @@ const shot = async (page, name, themes = ['dark', 'light']) => {
 const bot = (name, display_name, org_parent, over) => ({name, display_name, org_parent, host: 'keeper', status: 'active', can_chat: true, ...over});
 const bots = [bot('coo', 'Assistant', ''), bot('botops', 'BotOps', ''), bot('librarian', 'Librarian', ''),
   bot('goal-manager', 'CEO Bot', 'p:ana', {reports_to: ''}), bot('cmo', 'Head of Marketing', 'b:goal-manager', {reports_to: ''})];
-const plain = {id: 'plain', name: 'Plain', choices_label: 'Bets', sections: [
+const plain = {id: 'plain', name: 'Plain', choices_label: 'Bets', choice_label: 'Bet', sections: [
   {key: 'serve', title: 'Who we serve', prompt: 'Who buys, and why'}, {key: 'sell', title: 'What we sell', prompt: ''},
   {key: 'win', title: 'How we win', prompt: ''}, {key: 'not', title: "What we won't do", prompt: ''}]};
-const kernel = {id: 'kernel', name: "Rumelt's kernel", choices_label: 'Guiding policy', sections: [
+const kernel = {id: 'kernel', name: "Rumelt's kernel", choices_label: 'Guiding policy', choice_label: 'Guiding policy', sections: [
   {key: 'diagnosis', title: 'Diagnosis', prompt: ''}, {key: 'policy', title: 'Policy', prompt: ''}, {key: 'actions', title: 'Actions', prompt: ''}]};
 const choices = [
   {id: 'c-auto', statement: 'Charge as if fully automated, with humans behind it', why: 'Customers pay for the outcome.', rules_out: 'Hourly pricing',
@@ -53,7 +53,7 @@ async function open(browser, {role = 'owner', route = '#/strategy', viewport = {
     {id: 'g-top', title: 'Grow rentals 30%', owner: 'company', parent_id: null, status: 'green', status_source: 'auto', rank: 0, kpis: [], why: '', choice_id: 'c-auto'},
     {id: 'g-cmo', title: 'Double organic signups', owner: 'bot:cmo', parent_id: 'g-top', status: 'red', status_source: 'auto', rank: 0, kpis: [], why: '', choice_id: null},
   ];
-  const strategy = () => ({...st, label: 'Bets', frameworks: [plain, kernel],
+  const strategy = () => ({...st, label: 'Bets', label_one: 'Bet', may_edit: role === 'owner', frameworks: [plain, kernel],
     goals_by_choice: {'c-auto': [{id: 'g-top', title: 'Grow rentals 30%', colour: 'green'}, {id: 'g-cmo', title: 'Double organic signups', colour: 'red'}]}});
   await page.route('**/*', async route => {
     const req = route.request(), url = new URL(req.url()), p = url.pathname, method = req.method();
@@ -75,7 +75,12 @@ async function open(browser, {role = 'owner', route = '#/strategy', viewport = {
       const body = req.postDataJSON();
       sent.push([method, p.slice('/api/v2/strategy'.length), body]);
       if (role !== 'owner') return json({error: {code: 'forbidden', detail: 'Only the owner'}}, 403);
-      if (p === '/api/v2/strategy/draft') { st.draft = {...st.draft, ...body}; return json(st.draft); }
+      if (p === '/api/v2/strategy/draft') {
+        // Merges sections, as the server does; an empty one clears it.
+        const sections = {...st.draft.sections, ...(body.sections || {})};
+        for (const k of Object.keys(sections)) if (!sections[k]) delete sections[k];
+        st.draft = {...st.draft, ...body, sections}; return json(st.draft);
+      }
       if (p === '/api/v2/strategy/publish') {
         const n = (st.current?.n || 0) + 1;
         st.current = {...st.draft, n, status: 'published', note: body.note, choices: st.choices.map(c => ({...c})), published: new Date().toISOString(), published_by: 'human:ana'};
@@ -126,6 +131,7 @@ async function open(browser, {role = 'owner', route = '#/strategy', viewport = {
       assert.equal(await page.locator('.strat-retired li[data-choice="c-old"]').count(), 1, 'retired choices sit apart');
       assert.deepEqual(await page.locator('[data-section] .strat-sec-head .strat-k').allInnerTexts(), ['WHO WE SERVE', 'WHAT WE SELL', 'HOW WE WIN', "WHAT WE WON'T DO"]);
       assert.equal(await page.locator('[data-section="serve"] .strat-md strong').innerText(), 'small offices', 'sections are markdown');
+      assert.equal(await page.locator('[data-choice-add]').getAttribute('aria-label'), 'Add Bet');
       await shot(page, 'desktop');
       // The summary saves on Enter, as a partial draft.
       await summary.fill('Acme cleans homes at half the price.');
@@ -133,6 +139,12 @@ async function open(browser, {role = 'owner', route = '#/strategy', viewport = {
       await page.waitForFunction(() => document.activeElement?.dataset?.stratField !== 'summary');
       await page.waitForFunction(() => document.querySelector('[data-strat-publish]'));
       assert.deepEqual(sent.find(x => x[1] === '/draft'), ['PUT', '/draft', {summary: 'Acme cleans homes at half the price.'}]);
+      // A section saves alone: the server merges sections.
+      await page.locator('[data-section="sell"] [data-section-edit]').click();
+      await page.locator('[data-section-form] textarea').fill('Weekly and monthly cleaning.');
+      await page.locator('[data-section-form] button[type="submit"]').click();
+      await page.locator('[data-section="sell"] .strat-md', {hasText: 'monthly'}).waitFor();
+      assert.deepEqual(sent.filter(x => x[1] === '/draft').at(-1)[2], {sections: {sell: 'Weekly and monthly cleaning.'}});
       // Publish asks for one line, then posts it.
       await page.locator('[data-strat-publish]').click();
       const form = page.locator('[data-strat-publish-form]');
@@ -194,7 +206,7 @@ async function open(browser, {role = 'owner', route = '#/strategy', viewport = {
       const panel = page.locator('#goal-panel[open]');
       await panel.locator('[data-gp-edit="g-cmo"]').click();
       const picker = panel.locator('select[name="choice"]');
-      assert.equal(await panel.locator('.goal-choice-f > span').innerText(), 'Bets');
+      assert.equal(await panel.locator('.goal-choice-f > span').innerText(), 'Bet', 'one goal serves one choice: the singular');
       assert.deepEqual(await picker.locator('option').allInnerTexts(), ['None', 'Charge as if fully automated, with humans behind it', 'Prices low enough to win 100x the customers']);
       await picker.selectOption('c-cheap');
       await shot(page, 'goals-picker');
@@ -204,7 +216,7 @@ async function open(browser, {role = 'owner', route = '#/strategy', viewport = {
       await panel.locator('button[type="submit"]').click();
       await page.waitForFunction(() => !document.querySelector('#goal-panel [data-goal-form]'));
       assert.deepEqual(sent.find(x => x[1] === '/goals/g-cmo'), ['POST', '/goals/g-cmo', {choice_id: 'c-cheap'}]);
-      assert.match(await panel.locator('[data-goal-choice="c-cheap"]').innerText(), /Bets\s+Prices low enough/);
+      assert.match(await panel.locator('[data-goal-choice="c-cheap"]').innerText(), /Bet\s+Prices low enough/);
       assert.deepEqual(errors, []);
       await page.close();
     }
