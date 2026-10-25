@@ -71,6 +71,10 @@ The company-limit message does not confirm that an automatic repair has run.
 
 You must be the owner or an admin. The server rejects changes from anyone else.
 
+![Settings with Computers selected and Company turn levels showing warning 40, stop 100, four people, company thresholds 160 and 400, and Save turn levels](images/settings-company-turn-levels-desktop-light.png)
+
+Example owner/admin view of **Settings → Computers → Company turn levels**, using synthetic data: four people and no turns in use.
+
 1. Open **Settings → Computers**.
 2. Find **Company turn levels**.
 3. Enter **Warning level per person**.
