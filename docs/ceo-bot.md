@@ -13,9 +13,9 @@ and won't do. Every company starts at **Passive**.
 
 | Level | Name | What the CEO Bot does |
 |---|---|---|
-| 1 | **Passive** (default) | Keeps the regular checks running (KPI readings and the automatic goal colours) and otherwise acts only when you talk to it. It shows the Strategy page and drafts it with you when you ask, as a proposal; it suggests KPIs, goals and Why lines when you ask, and changes nothing until you accept. |
-| 2 | **Suggests actions** | Also proposes strategy drafts and checks, asks you for the vision, proposes Why lines, sends a Monday note, asks a goal's owner what is happening, and suggests how your bots could recover a goal that falls behind, as items in **Needs you** that you approve one by one. |
-| 3 | **Acts on its own** | Also writes the strategy draft and its choices itself (never publishes), and decides on its own: makes, reorders, reassigns and closes bot tasks itself to recover a goal, each decision with an Undo. |
+| 1 | **Passive** (default) | Keeps the regular checks running (KPI readings and the automatic goal colours) and otherwise acts only when you talk to it. It proposes a strategy draft when you ask, writes the card when a bet's wrong-if trips, suggests KPIs, goals and Why lines when you ask, and changes nothing until you accept. |
+| 2 | **Suggests actions** | Also takes "Draft the strategy" tasks, asks you for the vision, proposes Why lines, sends a Monday note, asks a goal's owner what is happening, and suggests how your bots could recover a goal that falls behind, as items in **Needs you** that you approve one by one. |
+| 3 | **Acts on its own** | Also decides on its own: makes, reorders, reassigns and closes bot tasks itself to recover a goal, each decision with an Undo. |
 
 At level 3 the CEO Bot also decides on its own. One decision has a reason and up to 10 changes to bot tasks: a new task
 for a bot, a bot's task moved to the top of its queue, a bot's task given to another bot, or a bot's task closed. Each
@@ -57,22 +57,23 @@ Over the API, `GET /api/v2/ceo-bot` shows `name`, `regular_checks`, `level` and 
 
 ## Strategy
 
-The [Strategy](strategy.md) page is the CEO Bot's first job at every level, and the level says how it writes:
+The [Strategy](strategy.md) page is the CEO Bot's first job. At every level it **proposes**; you write the draft and
+the bets, and you publish:
 
 - **Drafting.** A task "Draft the strategy", or you asking in your chat, runs its `draft-the-strategy` playbook. It reads
-  the market pages, the setup answers and the frameworks, commits to positions instead of listing options, surfaces
-  the choices (the "bets") the team already lives by with why and what each rules out, fills "What we won't do", and
-  interviews you one question at a time, only the questions the draft cannot answer, at most eight. It never invents
-  a number. At **Passive** and **Suggests actions** the result is one `strategy_draft` proposal in your **Needs you**;
-  confirming writes the draft as you. At **Acts on its own** it writes the draft and the choices itself, and you see
-  them fill in on the page.
-- **Publishing is yours.** At every level the CEO Bot ends a drafting run by asking you to publish from the Strategy
-  page. It cannot publish: the server refuses every bot.
-- **The strategy check** (its `strategy-check` playbook) reads the market delta, the goal colours and the KPI readings
-  against the active choices once a month and proposes changes, never edits. The routine is declared and **stays off**
-  until the fit-check work is finished; only you can turn it on, and a run while off ends with one line saying so.
-- **Goals from the strategy.** When you ask for goals, or after you publish, it suggests one or two per active choice,
-  each tied to its choice, and the Monday note names each choice that no goal serves.
+  the market pages, the setup answers, the goals and KPIs, and puts **claims** to you to keep, edit or strike ("Your
+  site implies you compete on price; that rules out white-glove service"), at most eight. It proposes three to five
+  bets, each with why, what it rules out and what would prove it wrong, and the four sections, and never invents a
+  number. The result is one `strategy_draft` proposal in your **Needs you**; confirming writes it into your draft.
+  This is the same at every level.
+- **Publishing is yours.** The CEO Bot ends a drafting run by asking you to confirm and publish from the Strategy page.
+  It cannot publish, and it cannot write the draft: the server refuses every bot.
+- **When a bet may be wrong.** When a bet's wrong-if trips (a KPI crosses its threshold, a cited market entity
+  changes, a check-by date passes), the server files a task and the CEO Bot writes one Decide card: retire the bet,
+  rewrite it, or keep it with a new wrong-if, with its pick. This happens at every level, Passive included.
+- **Goals from the strategy.** When you ask for goals, or after you publish, it suggests one or two per active bet,
+  each tied to its bet with a KPI, and the Monday note names each active bet with no KPI-backed goal or with gray
+  health. A goal tied to a bet needs no Why line.
 
 ## What the CEO Bot does at Passive
 
@@ -81,21 +82,23 @@ The [Strategy](strategy.md) page is the CEO Bot's first job at every level, and 
 - **Answers when you talk to it.** Ask it for the strategy, a KPI, a goal or a Why line and it suggests one. It changes nothing until
   you accept ([A goal's Why](goals-and-kpis.md#a-goals-why), [Strategy](#strategy)).
 - **Asks for nothing.** There is no vision ask, no Why bundle in **Needs you**, no ask to a goal's owner and no Monday
-  note. Those start at **Suggests actions**. An ask filed earlier stays until it is settled.
+  note. Those start at **Suggests actions**. An ask filed earlier stays until it is settled. The one exception is a
+  bet whose wrong-if trips: the server detects it, so its Decide card still reaches you.
 - **Changes no tasks.** It creates, reorders, reassigns and closes nothing of anyone's. Going down to Passive withdraws
   the recoveries still waiting, and pauses a Monday note the server started when you went up.
 
 ## What the CEO Bot does at Suggests actions
 
 Everything at Passive, plus these. Going up from Passive starts the Monday note.
-- **Proposes the strategy.** A drafting run, or the strategy check once it is on, ends in a `strategy_draft` proposal you
-  confirm ([Strategy](#strategy)); it writes nothing to the page itself.
+- **Takes "Draft the strategy" tasks.** A drafting run ends in a `strategy_draft` proposal you confirm
+  ([Strategy](#strategy)), as at every level; it writes nothing to the page itself.
 - **Asks you for the vision.** While the team's vision is empty, the first item in the owner's **Needs you** is "Tell
   your CEO Bot what this company is for". Writing the vision on the [Strategy](strategy.md) page closes it.
-- **Proposes a Why for each goal that has none**, as one **Needs you** item for each person who decides them, never one
+- **Proposes a Why for each goal that has none and is not tied to a bet**, as one **Needs you** item for each person who decides them, never one
   per goal. You accept, edit or replace each on its goal.
-- **Sends a Monday note** in the owner's chat: a short weekly goals review that opens with a line on the vision (or that
-  it is still empty) and how many goals still have no Why. A person who pauses it stays paused.
+- **Sends a Monday note** in the owner's chat: a short weekly goals review with a line on the strategy (or that none is
+  published), how many goals still have no bet and no Why, and each active bet with no KPI-backed goal or gray health.
+  A person who pauses it stays paused.
 - **Asks a goal's owner what is happening** when a goal is red or stalled, as a **Needs you** item for that owner. The
   ask closes by itself when the cause clears.
 - **Suggests a recovery** when a goal is red or stalled, as one **Needs you** item for the goal's owner in place of
@@ -167,7 +170,7 @@ At every level, these stay yours, and the server refuses the CEO Bot each one:
 - sending anything outside the company, such as a calendar invitation to someone outside it;
 - adding, removing or bringing back bots;
 - changing a goal, or a goal's KPI target;
-- below **Acts on its own**, writing the strategy draft or its choices (it proposes instead);
+- writing the strategy draft or a bet (it proposes instead);
 - changing a bot's instructions or settings;
 - giving a task to a person.
 

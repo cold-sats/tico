@@ -169,11 +169,12 @@ claim. It never invents a number: a size, price or share appears only when a sou
 thirty, then finishes the task with a short note saying what it found and what it could not read.
 
 The strategy and the market stay apart, and each reads the other. A task with no website makes the Librarian read
-`hub strategy show`: if present, setup stored the team's website there (the setup wizard's Strategy step, once it ships, files
-"Set up the market map" from it), and the strategy summary stands in for the owner's description. The other way round, the daily
-curate routine says in its sweep report when an insight contradicts an active strategy choice and names the CEO Bot
-(`bot:goal-manager`) in the task it files, so the CEO Bot can check the fit; the Librarian applies the insight on its own
-evidence and never judges whether the choice should change ([Strategy](strategy.md#what-the-ceo-bot-does-with-it)).
+`hub strategy show`: if it names the team's website, that is the first address, and the summary and *What we sell* stand in for
+the owner's description (once setup's new steps ship, "Set up the market map" is filed from the website given there). The other
+way round, when an insight contradicts an active bet, the daily curate routine says so in one line of its sweep report and
+sends the CEO Bot a note naming the bet and the entity, so it can propose the entity as one of the bet's `cites`; a change to a
+cited entity then trips the bet's wrong-if. The Librarian applies the insight on its own evidence, never writes the strategy,
+and never judges whether the bet should change ([Strategy](strategy.md#the-fit-check)).
 
 After that the Librarian keeps the map current. It is the market's only curator besides the owner: everyone else reports
 (`hub market report`) and it decides. Its daily **Curate the market** routine (04:00) turns new insights into evidence, entities,
