@@ -233,8 +233,10 @@ the bot's main chat gets one-line reports ([Sessions](sessions.md)).
 **A message to a bot may wake it, or wait.** One set of wake rules decides, each with an id: a person's message,
 an ask, an approval and a gate verdict always wake the bot (`person_message`, `ask`, `approval`, `verdict`); a bot's own
 write (`own_write`), news about a task that waits on something (`parked`), a stall check on a task that has not moved
-(`same_state`) and a plain bot-to-bot message (`bot_to_bot`) wait for the bot's next run; a finished request, review
-comments and a failing check are batched (`batch_*`); everything else wakes. Teams, task types, departments, bots and
+(`same_state`) and a plain bot-to-bot message (`bot_to_bot`) wait for the bot's next run; a finished request and a
+person's review comments are batched (`batch_*`); one check finishing is ignored (`pr_check`) and a head whose checks
+all finished wakes the ticket's owner at a working step (`pr_checks_done`) or is a note (`pr_checks_note`); everything
+else wakes. Teams, task types, departments, bots and
 single tasks can override these with rules of their own (Rules page, `hub rule list`). Every message to a bot records the
 rule that decided it, and every run records the rule that woke it, so `rule_weekly` in `hub sql` shows runs, tokens and
 runs that did nothing per rule ([Querying Tico with SQL](hub-sql.md)).

@@ -625,14 +625,16 @@ refresh for repositories the App can reach. Refreshes are grouped, capped at 20 
 cached for three minutes; failures back off from five minutes up to one hour. People
 can still move tasks without webhooks or a successful refresh.
 
-Failing checks, new conflicts, requests for changes, review comments from others and PRs
-closed without merging wake the owner with the specific item, grouped into one notice within
-three minutes. Conflicts wake once per head until a known clean result clears the marker.
-A new push resets mergeability to Unknown while GitHub recomputes it; label and text edits
-keep the last known mergeability. Pending or passing checks and the bot's own comments
-do not wake it. Tico recognises the GitHub App identity, configured bot login and PR author.
-A head pusher counts as the bot only when their login matches the PR author. Requests for
-changes always wake the owner, including requests from those identities.
+New conflicts, requests for changes, review comments from a person and PRs closed without
+merging wake the owner with the specific item, grouped into one notice within three minutes.
+Conflicts wake once per head until a known clean result clears the marker. A single check finishing
+sends nothing; when every check on a head has finished the owner gets one `pr_checks_done` (pass or
+fail, naming the failures) for it. It wakes the owner while the ticket is at a working step (status open or
+doing) and is a note at any other step; a link armed with `--wake-once` hears it at any step. A review or comment
+from a bot or a GitHub App is a note, never a wake. A new push resets mergeability to Unknown while GitHub recomputes
+it; label and text edits keep the last known mergeability. The bot's own comments do not wake it. Tico recognises
+the GitHub App identity, configured bot login and PR author. A head pusher counts as the bot only when their login
+matches the PR author.
 A merged PR becomes Shipped once the running release includes its merge commit; the task stays
 where it is. PRs in another repository stay Merged.
 

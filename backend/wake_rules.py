@@ -128,7 +128,7 @@ def awaited(refs):
     wake = refs.get("wake")
     if refs.get("blocker_done"):
         return "blocker_done"
-    if refs.get("trigger") == "pr_checks":
+    if refs.get("trigger") == "pr_checks" and wake != "pr_review":      # a review note is news, not a result
         return "wake_once"
     if refs.get("subtask"):
         return "subtask"

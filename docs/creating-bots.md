@@ -601,7 +601,7 @@ Levers set in **Settings → Bots**, not in the repository:
 - **Compact at**: how full the bot's conversation gets before it is compacted: 150k, 250k tokens (the default),
   400k, 600k or 1M. Claude Code and Codex only. Changing it keeps the session.
 - **Wakes**: how soon news starts a run. **Token saver**, the default for a new bot, holds
-  nonblocking news (a request it asked for finished, review comments, a failing check nobody waits on) and
+  nonblocking news (a request it asked for finished, a person's review comments) and
   sends it as one wake at most every 30 minutes. It also runs an enabled routine, or a stall check on a task,
   at most every 2 hours. **Performance** coalesces the same news for 1 minute and runs those sweeps at most
   every 15 minutes. Existing bots without a preset, including the former Current behaviour setting,
