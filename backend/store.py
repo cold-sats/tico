@@ -1521,6 +1521,9 @@ class Store:
                 # The Goal Manager becomes the CEO Bot on every install, once (backend/ceo_bot.py). Idempotent.
                 from . import ceo_bot as CeoBot
                 CeoBot.migrate(c)
+                # Every bot gets a profile by its name, once; a bot that has one is left alone (backend/profiles.py).
+                from . import profiles as Profiles
+                Profiles.migrate(c)
                 from . import releases as Releases
                 Releases.record_start(c, H.now())
                 from .credentials import FILE_MIGRATION, HUB_MIGRATION

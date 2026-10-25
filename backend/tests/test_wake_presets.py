@@ -61,7 +61,7 @@ def employee(api, bot):
     return {e["name"]: e for e in api.get("/api/employees", headers=headers()).json()}[bot]
 
 
-def test_existing_bots_use_performance_and_new_bots_start_on_token_saver(api):
+def test_existing_bots_use_performance_and_new_bots_start_as_doers(api):
     view = get(api, "bots/ops")["wake"]
     assert view["preset"] == "performance" and view["batch_seconds"] == 60
     task = new_task(api, "existing")
@@ -71,10 +71,10 @@ def test_existing_bots_use_performance_and_new_bots_start_on_token_saver(api):
                               "repo": "emp-scout", "thread_mode": "personal", "model": "hermes-profile",
                               "effort": "as-configured", "harness": "hermes", "operator": "ana", "owners": ["ana"],
                               "runner_id": None})
-    assert made["wake"]["preset"] == "token_saver"
+    assert made["wake"]["preset"] == "performance" and made["profile"]["name"] == "doer"
     listed = {b["slug"]: b for b in get(api, "bots")}
-    assert listed["scout"]["wake"]["batch_seconds"] == 1800 and listed["ops"]["wake"]["preset"] == "performance"
-    assert employee(api, "scout")["wake"]["preset"] == "token_saver" and employee(api, "ops")["wake"]["preset"] == "performance"
+    assert listed["scout"]["wake"]["batch_seconds"] == 900 and listed["ops"]["wake"]["preset"] == "performance"
+    assert employee(api, "scout")["wake"]["batch_seconds"] == 900 and employee(api, "ops")["wake"]["batch_seconds"] == 60
     preset(api, "ops", "performance")
     assert employee(api, "ops")["wake"]["summary"].startswith("Performance")
     preset(api, "ops", "current")                                        # older clients select Performance through the legacy alias

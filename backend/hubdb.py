@@ -2220,9 +2220,11 @@ def _reach(conn, actor, target, allow_planned=False, allow_held=False):
     return resolved
 
 
-def _takes_tasks(conn, actor, target):
+def _takes_tasks(conn, actor, target, title=None, parent=None, routine=False):
     """A bot a person syncs in from another platform reads only its chat with them, so a task for it would
-    sit open with nobody to work it: it is refused with what to do instead."""
+    sit open with nobody to work it: it is refused with what to do instead. So is a task its profile says it does
+    not take (backend/profiles.py): none for a Responder, only review and QA subtasks for a Reviewer, only its
+    watcher's for a Monitor. `title` and `parent` say what is being filed; `routine` is a routine's own run."""
     if not is_bot(target) or not _has_table(conn, "bot_config"):
         return
     from .harnesses import SYNCED_HARNESSES, resolve_harness
@@ -2232,6 +2234,12 @@ def _takes_tasks(conn, actor, target):
         name = row["display_name"] or actor_id(target)
         refuse(conn, actor, "external-bot", f"{name} works on another platform and only syncs its chat here, so it "
                "never sees tasks. Write to it in its chat, or give this task to a bot that runs in Tico.")
+    if row:
+        from . import profiles
+        found = profiles.refusal(row["display_name"] or actor_id(target), _json(row["config_json"], {}) or {},
+                                 actor, title, parent, routine)
+        if found:
+            refuse(conn, actor, *found)
 
 
 def recruiting(conn, target):
@@ -4953,7 +4961,7 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     owner = route(conn, actor, owner)
     _learner(conn, actor)
     target = _reach(conn, actor, owner, allow_planned=allow_planned)
-    _takes_tasks(conn, actor, target)
+    _takes_tasks(conn, actor, target, title, parent_id)
     _learning(conn, actor, target)
     from . import ceo_bot
     ceo_bot.check_cap(conn, actor, target)          # at most 5 a day in one person's Needs you (backend/ceo_bot.py)
@@ -5376,7 +5384,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
             from .ceo_acts import TASK, gate
             # The proposal lands in the CEO Bot log, which names the task only to a reader who may open it.
             gate(conn, actor, "person_task", f"give {TASK} to {person_name(conn, new_owner)}", task_id=task_id)
-        _takes_tasks(conn, actor, new_owner)
+        _takes_tasks(conn, actor, new_owner, row["title"], TR.parent_of(conn, task_id))
         if new_owner != row["owner"]:
             _learner(conn, actor)
             _learning(conn, actor, new_owner)

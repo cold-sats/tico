@@ -600,16 +600,18 @@ Levers set in **Settings → Bots**, not in the repository:
   ([Computers](computers.md#which-connection-a-bot-runs-on)).
 - **Compact at**: how full the bot's conversation gets before it is compacted: 150k, 250k tokens (the default),
   400k, 600k or 1M. Claude Code and Codex only. Changing it keeps the session.
-- **Wakes**: how soon news starts a run. **Token saver**, the default for a new bot, holds
-  nonblocking news (a request it asked for finished, review comments, a failing check nobody waits on) and
-  sends it as one wake at most every 30 minutes. It also runs an enabled routine, or a stall check on a task,
-  at most every 2 hours. **Performance** coalesces the same news for 1 minute and runs those sweeps at most
-  every 15 minutes. Existing bots without a preset, including the former Current behaviour setting,
-  move to Performance. In every preset, these wake the bot at once, and only once
-  when the same event repeats before its run is over: a person's message, an assignment, a question, something it waits on
-  resolving, a blocker, and a review or QA request. A preset turns on no routine, hook, subscription or
-  permission, and leaves Compact at alone. The line under the picker shows what the bot runs on. Each run
-  in a task's **Runs** says what woke it. A branch picks its own.
+- **Profile**: what wakes the bot and which tasks it takes: **Doer** (the default for a new bot), **Reviewer**, **Lead**,
+  **Responder**, **Monitor** or **Custom**; each choice has a line saying what it does ([Profiles](how-it-works.md#profiles)).
+  A Doer holds nonblocking news (a request it asked for finished, review comments, a failing check nobody waits on) and
+  sends it as one wake at most every 15 minutes, and runs an enabled routine or stall check at most every 15 minutes; a
+  Lead hears the same news once a day, at an hour you pick. A bot that was on **Token saver** is a Doer with a 30-minute
+  window (2 hours between sweeps); **Performance** became the plain Doer. In every profile, a person's message, a question,
+  an approval and a gate verdict wake the bot at once, and only once when the same event repeats before its run is over.
+  **Custom** opens the Rules page filtered to this bot, with the profile's rows copied there to edit; choosing a named
+  profile again deletes them after a confirm. A profile turns on no routine, hook, subscription or permission, and leaves
+  Compact at alone. The line under the picker shows what the bot runs on. Each run in a task's **Runs** says what woke it.
+  A branch picks its own. The old **Wakes** setting (`wake_preset`) is still read and set by older clients: it changes only
+  the Doer's window.
 - **`max_run_minutes`**: the ceiling on one run. Set it from the longest real routine, not hope.
 - **`background_wait_s`** (Claude bots): how long an answered turn may wait only on its own background commands
   before the runner ends it, in seconds; 300 when unset, 0 to wait for them as before. The commands keep running,
