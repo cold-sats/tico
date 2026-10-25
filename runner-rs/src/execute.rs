@@ -689,7 +689,7 @@ impl Runner {
     /// owner-only socket, since the shared one is the bot user's.
     fn turn_git(&self, vault: &mut Vault, env: &mut Env, paths: &[PathBuf]) -> Result<(), Fail> {
         let Some(user) = &vault.turn_user else { return Ok(()) };
-        crate::safegit::for_turn_user(env, paths, &user.dir.join("gitconfig"))
+        crate::safegit::for_turn_user(env, paths, &user.dir.join("gitconfig"), Some(user.identity()))
             .map_err(|e| Fail::runtime(format!("cannot prepare the turn user's git: {e}")))?;
         let Some(shared) = &self.socket else { return Ok(()) };
         if let Some(own) = &vault.turn_socket {

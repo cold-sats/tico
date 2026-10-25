@@ -893,7 +893,7 @@ chmod 755 "$1/.git/hooks/pre-commit" "$1/.git/fsmonitor"; git -C "$1" config cor
         settings.env.insert(DIR_ENV.into(), user.dir.join("pi").display().to_string());
         // The turn's real git settings, as execute.rs turn_git gives them: exactly its checkout trusted (the image's
         // `safe.directory = *` unread), no repository-named programs.
-        crate::safegit::for_turn_user(&mut settings.env, &[workspace.clone()], &user.dir.join("gitconfig")).unwrap();
+        crate::safegit::for_turn_user(&mut settings.env, &[workspace.clone()], &user.dir.join("gitconfig"), Some(user.identity())).unwrap();
         let mut argv = vec![crate::env::python().display().to_string()];
         argv.extend(["-u", "-c", r#"import os,pathlib,subprocess,sys,time
 assert os.getegid()==10002

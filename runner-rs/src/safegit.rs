@@ -129,9 +129,9 @@ pub fn environment(turn: &Env) -> Env {
 /// A Gateway turn's own git: the model's, run as its leased user in a checkout the bot user and the shared group
 /// can write. Like the runner's git it runs no repository-named program (hooks, fsmonitor), and it reads no system
 /// or bot-owned global config, where `safe.directory = *` would widen trust: its global config is `global`, a file
-/// the supervisor writes with only the machine's identity, default branch and proxy settings. It trusts exactly
-/// `paths`.
-pub fn for_turn_user(env: &mut Env, paths: &[PathBuf], global: &Path) -> std::io::Result<()> {
+/// the supervisor writes with only the machine's identity, default branch and proxy settings, owned by the leased
+/// user `owner` so its cleanup removes it with the rest of its files. It trusts exactly `paths`.
+pub fn for_turn_user(env: &mut Env, paths: &[PathBuf], global: &Path, owner: Option<(u32, u32)>) -> std::io::Result<()> {
     let mut machine: Env = env.iter().filter(|(k, _)| crate::env::SETTINGS.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
     for key in ["GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"] {
         if let Some(v) = env.get(key) { machine.insert(key.into(), v.clone()); }
@@ -162,6 +162,10 @@ pub fn for_turn_user(env: &mut Env, paths: &[PathBuf], global: &Path) -> std::io
         use std::os::unix::fs::OpenOptionsExt;
         let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o644).custom_flags(libc::O_NOFOLLOW).open(global)?;
         file.write_all(lines.as_bytes())?;
+        if let Some((uid, gid)) = owner {
+            use std::os::fd::AsRawFd;
+            if unsafe { libc::fchown(file.as_raw_fd(), uid, gid) } != 0 { return Err(std::io::Error::last_os_error()); }
+        }
     }
     env.insert("GIT_CONFIG_GLOBAL".into(), global.display().to_string());
     env.insert("GIT_CONFIG_SYSTEM".into(), "/dev/null".into());
@@ -217,7 +221,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
         let global = dir.join("turn.gitconfig");
-        for_turn_user(&mut env, &[repo.clone()], &global).unwrap();
+        for_turn_user(&mut env, &[repo.clone()], &global, None).unwrap();
         let written = std::fs::read_to_string(&global).unwrap();
         assert!(written.contains("Fixture") && !written.contains("safe"), "{written}");
         assert_eq!((env["GIT_CONFIG_NOSYSTEM"].as_str(), env["GIT_CONFIG_GLOBAL"].as_str()), ("1", global.to_str().unwrap()));
