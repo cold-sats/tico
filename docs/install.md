@@ -32,6 +32,10 @@ any option, or piped without a terminal, it asks nothing and installs as before.
 prints the owner sign-in link, as the quick start does. What is left is one step: open the link, then **Settings >
 Computers > Server computer > Sign in**, to Claude and to ChatGPT.
 
+A local install has no public address, and it can still link to your Tico company (**Settings > General > Tico company**,
+with a server code from app.tico.dev Hosting > **Connect your own server**) for Tico models and billing. It shows there as
+a local server, with no Open link.
+
 - `--support off` turns Tico Support off (`TICO_SUPPORT=off`: the **?** chat sends nothing; [PRIVACY.md](../PRIVACY.md)).
   With Support on, its tickets are tied to this install. On an installed Tico, `sh install.sh --local --support off`
   (or `on`) saves the switch and restarts; every other setting stays as it is.
