@@ -216,10 +216,13 @@ fn processes(uid: u32) -> Result<Vec<i32>, String> {
 fn stop_processes(uid: u32, gid: u32) -> Result<(), String> {
     for _ in 0..10 {
         if processes(uid)?.is_empty() { return Ok(()); }
-        // kill(-1) as the slot user can reach only its own processes, including detached descendants.
+        // kill(-1) as the slot user reaches only its own processes, detached descendants included, in one call a
+        // forking process cannot outrun. Linux spares the caller (and setpriv execs kill, leaving no wrapper), but
+        // the helper dying of SIGKILL would not be a failure either: /proc, checked again above, decides.
+        use std::os::unix::process::ExitStatusExt;
         let status = crate::isolation::std_command_as(Some((uid, gid)), "/bin/kill")
             .args(["-KILL", "--", "-1"]).env_clear().status().map_err(|e| e.to_string())?;
-        if !status.success() { return Err("cannot kill turn-user processes".into()); }
+        if !status.success() && status.signal() != Some(libc::SIGKILL) { return Err(format!("cannot kill turn-user processes: {status}")); }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     Err("turn-user processes are still alive".into())

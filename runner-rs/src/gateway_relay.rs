@@ -845,11 +845,15 @@ mod tests {
         assert_eq!(stale.metadata().unwrap().uid(), 10003);
         // The bot user (or a sibling, through the shared group) plants programs git would run: a hook and fsmonitor.
         let (hook_mark, fsmonitor_mark) = (format!("/tmp/tico-hostile-hook-{}", uuid::Uuid::new_v4().simple()), format!("/tmp/tico-hostile-fsmonitor-{}", uuid::Uuid::new_v4().simple()));
+        // ... and in the checkout's own config, which every bot can write: a filter, an ssh command and a proxy.
+        let (filter_mark, ssh_mark) = (format!("/tmp/tico-hostile-filter-{}", uuid::Uuid::new_v4().simple()), format!("/tmp/tico-hostile-ssh-{}", uuid::Uuid::new_v4().simple()));
         let plant = r#"set -e; git init -q "$1"
 printf '#!/bin/sh\ntouch "%s"\n' "$2" > "$1/.git/hooks/pre-commit"; printf '#!/bin/sh\ntouch "%s"\n' "$3" > "$1/.git/fsmonitor"
-chmod 755 "$1/.git/hooks/pre-commit" "$1/.git/fsmonitor"; git -C "$1" config core.fsmonitor "$1/.git/fsmonitor""#;
+chmod 755 "$1/.git/hooks/pre-commit" "$1/.git/fsmonitor"; git -C "$1" config core.fsmonitor "$1/.git/fsmonitor"
+echo '* filter=sibling' > "$1/.gitattributes"; git -C "$1" config filter.sibling.clean "touch $4"; git -C "$1" config filter.sibling.smudge "touch $4"
+git -C "$1" config core.sshCommand "touch $5"; git -C "$1" config http.proxy http://127.0.0.1:9; git -C "$1" config http.https://github.com/.proxy http://127.0.0.1:9"#;
         let planted = crate::isolation::command_as(Some((10003, 10002)), "/bin/sh")
-            .args(["-c", plant, "plant", &workspace.display().to_string(), &hook_mark, &fsmonitor_mark])
+            .args(["-c", plant, "plant", &workspace.display().to_string(), &hook_mark, &fsmonitor_mark, &filter_mark, &ssh_mark])
             .env_clear().env("PATH", "/usr/bin:/bin").output().await.unwrap();
         assert!(planted.status.success(), "{}", String::from_utf8_lossy(&planted.stderr));
         crate::turn_users::share_workspace(vec![workspace.clone()]).await.unwrap();
@@ -916,7 +920,9 @@ for p in sys.argv[3:]:
  pathlib.Path(p).write_text('from isolated turn'); os.chmod(p,0o600)
 subprocess.run(['git','init','-q',str(pathlib.Path(sys.argv[3]).parent)],check=True)
 subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'status','--short'],check=True,stdout=subprocess.DEVNULL)
-assert subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'config','--get-regexp','^http\\.'],capture_output=True,text=True).stdout=='', 'a sibling http setting reached the turn'
+assert '127.0.0.1' not in subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'config','--get-regexp','^http\\.'],capture_output=True,text=True).stdout, 'a sibling http setting reached the turn'
+assert subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'config','--get-urlmatch','http.proxy','https://github.com/o/r.git/info/refs'],capture_output=True,text=True).stdout.strip()=='', 'a sibling proxy reached the turn'
+subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'ls-remote','ssh://example.invalid/x'],capture_output=True)
 subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'-c','user.name=fixture','-c','user.email=fixture@example.invalid','add','.'],check=True)
 subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'-c','user.name=fixture','-c','user.email=fixture@example.invalid','commit','-qm','synthetic'],check=True)
 remote=str(pathlib.Path(sys.argv[3]).parent/'.git'/'fixture-remote.git')
@@ -934,6 +940,7 @@ time.sleep(300)
         eprintln!("probe: turn finished its git work");
         std::fs::remove_file(sibling_config).unwrap();
         assert!(!std::path::Path::new(&hook_mark).exists() && !std::path::Path::new(&fsmonitor_mark).exists(), "a planted program ran as the leased user");
+        assert!(!std::path::Path::new(&filter_mark).exists() && !std::path::Path::new(&ssh_mark).exists(), "the checkout's config ran a program as the leased user");
         // Control: the same git run by the repository's owner with its own config does run them, so the check is not vacuous.
         let control = crate::isolation::command_as(Some((10003, 10002)), "/usr/bin/git")
             .args(["-C", &workspace.display().to_string(), "-c", "user.name=c", "-c", "user.email=c@example.invalid", "commit", "-q", "--allow-empty", "-m", "control"])
@@ -1020,6 +1027,11 @@ print(json.dumps(r))
         drop(user);
         assert!(!socket_path.exists(), "the turn's credential socket outlives its lease");
         assert!(!child.wait().await.unwrap().success(), "detached process survives cleanup");
+        let survivors: Vec<_> = std::fs::read_dir("/proc").unwrap().flatten()
+            .filter(|e| e.file_name().to_string_lossy().parse::<u32>().is_ok() && e.metadata().is_ok_and(|m| m.uid() == uid))
+            .filter(|e| !std::fs::read_to_string(e.path().join("stat")).unwrap_or_default().rsplit(')').next().unwrap_or_default().trim_start().starts_with('Z'))
+            .map(|e| e.file_name()).collect();
+        assert!(survivors.is_empty(), "turn user {uid} still runs {survivors:?}");
         if let Ok(left) = std::fs::read_dir(&dir) {
             for entry in left.flatten() { eprintln!("probe: left in the private directory: {:?} {:?}", entry.file_name(), entry.metadata().map(|m| (m.uid(), m.mode()))); }
         }
@@ -1029,7 +1041,7 @@ print(json.dumps(r))
             .env_clear().output().await.unwrap();
         assert!(next.status.success(), "next bot turn must edit an owner-only file");
         let mut reused = crate::turn_users::Lease::take().unwrap();
-        assert_eq!(reused.uid, uid);
+        assert_eq!(reused.uid, uid, "a turn that left a process behind must leave its user swept and reusable, not quarantined");
         // Even the next borrower of the same UID cannot use a revoked relay.
         assert!(TcpStream::connect(("127.0.0.1", url::Url::parse(&relay.url).unwrap().port().unwrap())).await.is_err());
         // The next borrower binds the same fixed socket path, and keeps it until its own lease ends.

@@ -372,6 +372,15 @@ pub fn add_config(env: &mut Env, key: &str, value: &str) {
     env.insert("GIT_CONFIG_COUNT".into(), (count + 1).to_string());
 }
 
+/// One more command-line config entry, even an empty one: for a key git reads as a list (`credential.helper`,
+/// `http.extraHeader`) an empty value clears what came before it, and for most others it means "none".
+pub fn push_config(env: &mut Env, key: &str, value: &str) {
+    let count: usize = env.get("GIT_CONFIG_COUNT").and_then(|c| c.parse().ok()).unwrap_or(0);
+    env.insert(format!("GIT_CONFIG_KEY_{count}"), key.into());
+    env.insert(format!("GIT_CONFIG_VALUE_{count}"), value.into());
+    env.insert("GIT_CONFIG_COUNT".into(), (count + 1).to_string());
+}
+
 /// The helper git runs on every `get`: this binary asking the socket.
 pub fn fresh_helper(socket: &Path, bot: &str) -> String {
     let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "tico-runner".into());
@@ -560,7 +569,7 @@ pub fn git_credential_main(socket: Option<String>) -> i32 {
     let _ = std::io::stdin().read_to_string(&mut input);
     let wanted: HashMap<String, String> = input.lines().filter_map(|l| l.split_once('=')).map(|(k, v)| (k.into(), v.into())).collect();
     let host = std::env::var("TICO_GITHUB_HOST").ok().filter(|h| !h.is_empty()).unwrap_or_else(|| "github.com".into());
-    if wanted.get("host") != Some(&host) {
+    if wanted.get("host") != Some(&host) || wanted.get("protocol").is_some_and(|p| p != "https") {
         return 0;
     }
     let repo = wanted.get("path").and_then(|p| repository_name(p));

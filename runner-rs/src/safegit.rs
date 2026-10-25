@@ -186,7 +186,85 @@ pub fn for_turn_user(env: &mut Env, paths: &[PathBuf], global: &Path, owner: Opt
     env.insert("GIT_CONFIG_NOSYSTEM".into(), "1".into());
     crate::gitcred::add_config(env, "core.hooksPath", "/dev/null");
     crate::gitcred::add_config(env, "core.fsmonitor", "false");
+    let trusted = |key: &str| entries.iter().rev().find(|(k, _)| k == key).map(|(_, v)| v.clone());
+    neutralize_repositories(env, paths, trusted("http.proxy"), trusted("http.sslcainfo"))?;
     crate::gitcred::trust_directories(env, paths);
+    Ok(())
+}
+
+/// A checkout's own config is the bot user's to write, and every bot runs as that user: a sibling can put a program,
+/// a proxy or a CA there for the leased user's git to run or trust with the turn's tokens. Command-line entries
+/// outrank it. Those here fix the keys whose names are fixed and that have a harmless value (ssh command, proxy,
+/// signing, editor, pager, transports), so a later change cannot reach them either; the rest, and the ones whose
+/// names a repository picks (a filter or diff driver, one URL's http settings), are neutralized as they stand when
+/// the turn starts. What no later entry undoes refuses the turn (an include) or the file transport
+/// (a remote's own upload-pack or receive-pack). Proxy and CA come from trusted system config or the runner's own
+/// environment (the supervisor's), never the turn's.
+fn neutralize_repositories(env: &mut Env, paths: &[PathBuf], proxy: Option<String>, ca: Option<String>) -> std::io::Result<()> {
+    use crate::gitcred::push_config;
+    let runner = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
+    // An empty http.proxy turns every proxy off, the turn environment's included.
+    let proxy = proxy.or_else(|| runner("HTTPS_PROXY")).or_else(|| runner("https_proxy")).unwrap_or_default();
+    let existing = |p: &str| Path::new(p).exists().then(|| p.to_string());
+    // Git takes these over any http.<url>.sslCAInfo or sslCAPath, so they hold however the config changes.
+    if let Some(file) = ca.or_else(|| runner("SSL_CERT_FILE")).or_else(|| existing("/etc/ssl/certs/ca-certificates.crt")).or_else(|| existing("/etc/ssl/cert.pem")) {
+        env.insert("GIT_SSL_CAINFO".into(), file.clone());
+        env.insert("GIT_PROXY_SSL_CAINFO".into(), file);
+    }
+    if let Some(dir) = runner("SSL_CERT_DIR").or_else(|| existing("/etc/ssl/certs")) { env.insert("GIT_SSL_CAPATH".into(), dir); }
+    env.remove("GIT_SSL_NO_VERIFY");
+    for (key, value) in [
+        ("core.sshCommand", "ssh -F /dev/null"), ("core.gitProxy", "none"), ("core.editor", ":"), ("sequence.editor", ":"),
+        ("core.pager", "cat"), ("commit.gpgSign", "false"), ("tag.gpgSign", "false"), ("tag.forceSignAnnotated", "false"),
+        ("push.gpgSign", "false"), ("gpg.program", "gpg"), ("gpg.openpgp.program", "gpg"), ("gpg.x509.program", "gpgsm"),
+        ("gpg.ssh.program", "ssh-keygen"), ("protocol.ext.allow", "never"), ("protocol.fd.allow", "never"),
+        ("http.sslVerify", "true"), ("http.extraHeader", ""), ("http.cookieFile", ""), ("http.curloptResolve", ""), ("http.proxy", &proxy),
+    ] {
+        push_config(env, key, value);
+    }
+    // The runner's own helper (gitcred::git_environment) comes after an empty entry that clears the checkout's;
+    // without one, clear them here.
+    let count: usize = env.get("GIT_CONFIG_COUNT").and_then(|c| c.parse().ok()).unwrap_or(0);
+    if !(0..count).any(|i| env.get(&format!("GIT_CONFIG_KEY_{i}")).is_some_and(|k| k.eq_ignore_ascii_case("credential.helper"))) {
+        push_config(env, "credential.helper", "");
+    }
+    let hooks = format!("core.hooksPath={}", hooks().display());
+    let mut file_transport = false;
+    for path in paths.iter().filter(|p| p.is_dir()) {
+        // Read as the supervisor, which runs no program for `config --list`; only this listing trusts `*`.
+        let out = std::process::Command::new("git")
+            .args(["--no-optional-locks", "-c", &hooks, "-c", "core.fsmonitor=false", "-c", "safe.directory=*", "-C"]).arg(path)
+            .args(["config", "--list", "--name-only", "--null"])
+            .env_clear().env("PATH", env.get("PATH").map(String::as_str).unwrap_or("/usr/bin:/bin"))
+            .env("GIT_CONFIG_NOSYSTEM", "1").env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).output()?;
+        for key in String::from_utf8_lossy(&out.stdout).split('\0').filter(|k| !k.is_empty()) {
+            let Some((section, rest)) = key.split_once('.') else { continue };
+            let (sub, name) = match rest.rsplit_once('.') { Some((sub, name)) => (Some(sub), name), None => (None, rest) };
+            let (section, name) = (section.to_ascii_lowercase(), name.to_ascii_lowercase());
+            let neutral = match (section.as_str(), sub, name.as_str()) {
+                ("include", None, "path") | ("includeif", Some(_), "path") => {
+                    return Err(std::io::Error::other(format!("{} includes other config, which a Tico model turn cannot read safely", path.display())));
+                }
+                ("remote", Some(_), "uploadpack" | "receivepack") => { file_transport = true; continue; }
+                ("filter", Some(driver), "clean" | "smudge" | "process") => {
+                    push_config(env, &format!("filter.{driver}.required"), "false");
+                    ""
+                }
+                // An empty one of these is a command git then fails to run: the turn's git fails there instead.
+                ("diff", Some(_), "command" | "textconv") | ("merge", Some(_), "driver") | ("tar", Some(_), "command") => "",
+                ("diff", None, "external") | ("core", None, "askpass" | "alternaterefscommand") => "",
+                ("gpg", Some(_), "defaultkeycommand") => "",
+                ("pager", _, _) | ("alias", _, _) => "",
+                ("http", Some(_), "proxy") | ("remote", Some(_), "proxy") => &proxy,
+                ("http", Some(_), "sslverify") => "true",
+                ("http", Some(_), "extraheader" | "cookiefile" | "curloptresolve") => "",
+                _ => continue,
+            };
+            push_config(env, key, neutral);
+        }
+    }
+    if file_transport { push_config(env, "protocol.file.allow", "never"); }
     Ok(())
 }
 
@@ -229,6 +307,7 @@ pub fn committing_environment(turn: &Env) -> Env {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
 
     #[test]
     fn a_turn_users_git_runs_no_repository_program_and_reads_no_wider_trust() {
@@ -254,6 +333,11 @@ mod tests {
         let listed = git(&env, &["-C", &repo.display().to_string(), "config", "--get-all", "safe.directory"]);
         assert_eq!(String::from_utf8_lossy(&listed.stdout).trim(), repo.display().to_string());
         assert!(git(&env, &["-C", &repo.display().to_string(), "commit", "-q", "--allow-empty", "-m", "turn"]).status.success());
+        std::fs::write(repo.join("f.txt"), "one\n").unwrap();
+        assert!(git(&env, &["-C", &repo.display().to_string(), "add", "f.txt"]).status.success());
+        std::fs::write(repo.join("f.txt"), "two\n").unwrap();
+        let diff = git(&env, &["-C", &repo.display().to_string(), "diff"]);
+        assert!(diff.status.success() && String::from_utf8_lossy(&diff.stdout).contains("+two"), "the turn's overrides break plain git diff");
         assert!(!mark.exists(), "the repository's hook ran");
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -284,7 +368,73 @@ mod tests {
         assert!(!written.to_lowercase().contains("proxy") && !written.to_lowercase().contains("sslcainfo") && !written.contains("Sibling"), "{written}");
         assert!(written.contains("Ops Bot") && written.contains("ops@bots.invalid"), "{written}");
         let listed = std::process::Command::new("git").args(["config", "--get-regexp", "^http\\."]).current_dir(&dir).env_clear().envs(&env).output().unwrap();
-        assert_eq!(String::from_utf8_lossy(&listed.stdout), "", "the turn user's git sees a sibling's http settings");
+        let listed = String::from_utf8_lossy(&listed.stdout);
+        assert!(!listed.contains("127.0.0.1") && !listed.contains("sibling-ca"), "the turn user's git sees a sibling's http settings: {listed}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_siblings_repository_config_runs_nothing_and_routes_nothing_for_the_turn_user() {
+        let dir = std::env::temp_dir().join(format!("tico-turn-repo-config-{}", uuid::Uuid::new_v4().simple()));
+        let (repo, remote) = (dir.join("repo"), dir.join("remote.git"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut env = Env::new();
+        env.insert("PATH".into(), std::env::var("PATH").unwrap_or_default());
+        env.insert("HOME".into(), dir.display().to_string());
+        let git = |env: &Env, args: &[&str]| std::process::Command::new("git").arg("-C").arg(&repo).args(args).env_clear().envs(env)
+            .stdin(std::process::Stdio::null()).output().unwrap();
+        let plain = |args: &[&str]| { let mut e = env.clone(); e.insert("GIT_CONFIG_NOSYSTEM".into(), "1".into()); e.insert("GIT_CONFIG_GLOBAL".into(), "/dev/null".into()); git(&e, args) };
+        assert!(std::process::Command::new("git").args(["init", "-q"]).arg(&repo).output().unwrap().status.success());
+        assert!(std::process::Command::new("git").args(["init", "-q", "--bare"]).arg(&remote).output().unwrap().status.success());
+        std::fs::write(repo.join("f.txt"), "one\n").unwrap();
+        std::fs::write(repo.join(".gitattributes"), "* filter=evil diff=evil\n").unwrap();
+        assert!(plain(&["-c", "user.name=t", "-c", "user.email=t@t", "add", "."]).status.success());
+        assert!(plain(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "one"]).status.success());
+        // What a sibling bot, which runs as the checkout's owner, plants in the checkout's own config before the turn.
+        let mark = |what: &str| dir.join(format!("ran-{what}"));
+        let touch = |what: &str| format!("touch '{}'", mark(what).display());
+        let planted = format!(
+            "[filter \"evil\"]\n\tclean = {}\n\tsmudge = {}\n\trequired = true\n[diff \"evil\"]\n\ttextconv = {}\n\tcommand = {}\n\
+             [commit]\n\tgpgSign = true\n[gpg]\n\tprogram = {}\n[credential \"https://github.com\"]\n\thelper = !{}\n\
+             [http]\n\tproxy = http://127.0.0.1:9\n\tsslVerify = false\n[http \"https://github.com/\"]\n\tproxy = http://127.0.0.1:9\n\tsslVerify = false\n\
+             [remote \"origin\"]\n\turl = {}\n\tproxy = http://127.0.0.1:9\n[alias]\n\tst = !{}\n",
+            touch("clean"), touch("smudge"), touch("textconv"), touch("diff"), touch("gpg"), touch("credential"), remote.display(), touch("alias"));
+        std::fs::OpenOptions::new().append(true).open(repo.join(".git/config")).unwrap().write_all(planted.as_bytes()).unwrap();
+        let global = dir.join("turn.gitconfig");
+        let mut turn = env.clone();
+        for_turn_user(&mut turn, &[repo.clone()], &global, None).unwrap();
+        // ... and changes during the turn: a key with a fixed name stays overridden.
+        std::fs::OpenOptions::new().append(true).open(repo.join(".git/config")).unwrap()
+            .write_all(format!("[core]\n\tsshCommand = {}\n\tpager = {}\n", touch("ssh"), touch("pager")).as_bytes()).unwrap();
+        std::fs::write(repo.join("f.txt"), "two\n").unwrap();
+        for args in [&["add", "f.txt"][..], &["diff", "HEAD"], &["log", "-p", "-1"], &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "two"],
+                     &["ls-remote", "ssh://example.invalid/x"], &["st"], &["push", "-q", "origin", "HEAD:refs/heads/main"]] {
+            let _ = git(&turn, args);
+        }
+        let _ = std::fs::remove_file(repo.join("f.txt"));
+        let _ = git(&turn, &["checkout-index", "-f", "f.txt"]);
+        let filled = std::process::Command::new("git").arg("-C").arg(&repo).args(["credential", "fill"]).env_clear().envs(&turn)
+            .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null()).spawn().unwrap();
+        { let mut filled = filled; filled.stdin.take().unwrap().write_all(b"protocol=https\nhost=github.com\npath=o/r.git\n\n").unwrap(); let _ = filled.wait(); }
+        for what in ["clean", "smudge", "textconv", "diff", "gpg", "credential", "ssh", "pager", "alias"] {
+            assert!(!mark(what).exists(), "the checkout's config ran its {what} program as the turn user");
+        }
+        let get = |args: &[&str]| String::from_utf8_lossy(&git(&turn, args).stdout).trim().to_string();
+        for url in ["https://github.com/o/r.git/info/refs", "https://example.invalid/x"] {
+            assert_eq!(get(&["config", "--get-urlmatch", "http.proxy", url]), "", "{url}");
+            assert_eq!(get(&["config", "--type=bool", "--get-urlmatch", "http.sslverify", url]), "true", "{url}");
+        }
+        assert_eq!(get(&["config", "--get", "remote.origin.proxy"]), "");
+        assert_eq!(get(&["config", "--get", "core.sshcommand"]), "ssh -F /dev/null");
+        // Neither an include nor a remote's own upload-pack can be overridden afterwards.
+        let mut uploads = env.clone();
+        plain(&["config", "remote.origin.uploadpack", &touch("upload")]);
+        for_turn_user(&mut uploads, &[repo.clone()], &dir.join("uploads.gitconfig"), None).unwrap();
+        let _ = git(&uploads, &["fetch", "-q", "origin"]);
+        assert!(!mark("upload").exists(), "a remote's upload-pack ran as the turn user");
+        plain(&["config", "include.path", &dir.join("sibling.gitconfig").display().to_string()]);
+        let refused = for_turn_user(&mut env.clone(), &[repo.clone()], &dir.join("included.gitconfig"), None).unwrap_err();
+        assert!(refused.to_string().contains("includes other config"), "{refused}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
