@@ -273,9 +273,12 @@ def test_who_may_read_a_stored_body(api):
     assert "part 1 of" in part1["content"] and len(part1["content"]) < triggers.MAX_CONTENT + 400
     get(api, path + "?part=99", token="ops-test", expected=404)
     get(api, path, token="coo-test", expected=404)                                          # a bot it was not given to
-    # A message naming the delivery gives it to that bot.
+    # A person's message with the same refs gives the bot nothing; Tico's own notice naming the delivery does.
+    from backend import hubdb as H
     with api.app.state.store.transaction() as c:
-        from backend import hubdb as H
+        H.notice(c, "human:ben", "bot:coo", "Look at this", refs={"trigger": "shop", "delivery": "big"})
+    get(api, path, token="coo-test", expected=404)
+    with api.app.state.store.transaction() as c:
         H.notice(c, H.KEEPER, "bot:coo", "Look at this", refs={"trigger": "shop", "delivery": "big"})
     assert get(api, path, token="coo-test")["delivery"]["part"] == 1
     with api.app.state.store.transaction() as c:
@@ -334,3 +337,10 @@ def test_the_hub_tools_cover_the_whole_life_of_a_trigger(api):
     assert call(api, "hub_trigger_list")[1]["result"][0]["preset"] == "github"
     assert call(api, "hub_trigger_rotate", {"id": "shop"})[1]["url"] != made["url"]
     assert call(api, "hub_trigger_delete", {"id": "shop"})[1]["deleted"] is True
+
+
+def test_a_cap_above_the_log_size_still_holds(api):
+    made = post(api, "triggers", {"name": "Shop"})["trigger"]
+    post(api, "triggers/shop", {"hourly": 250})
+    codes = [hook(api, made["url"], b"{}", {"Webhook-Id": f"c{i}"}).status_code for i in range(251)]
+    assert codes[:250] == [202] * 250 and codes[250] == 429

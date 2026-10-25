@@ -481,8 +481,9 @@ def receive(c, trigger_id: str, body: bytes, headers: Mapping[str, str], *, secr
         return Received("duplicate", 200, delivery, None)
     cap = hourly_of(found)
     if via == "direct" and c.execute(
-            "SELECT count(*) FROM trigger_deliveries WHERE trigger_id=? AND outcome='accepted' AND received_at>?",
-            (trigger_id, H.shift(H.now(), hours=-1))).fetchone()[0] >= cap:
+            # The ledger, not the log: the log keeps only KEEP rows, fewer than the largest cap.
+            "SELECT count(*) FROM trigger_seen WHERE trigger_id=? AND seen_at>? AND instr(delivery,?)=0",
+            (trigger_id, H.shift(H.now(), hours=-1), REPLAY)).fetchone()[0] >= cap:
         return _refused(c, trigger_id, sender, body, 429, "rate_limited",
                         f"This trigger takes {cap} deliveries an hour; try again later", via, "rate_limited")
     type_ = P.type_of(type_spec(found), headers, body)
@@ -536,14 +537,15 @@ def given_to(c, bot, trigger_id, base):
                  (bot, *params)).fetchone():
         return True
     on, params = _delivery_match("json_extract(refs_json,'$.delivery')", base)
-    return bool(c.execute("SELECT 1 FROM messages WHERE to_actor=? AND json_extract(refs_json,'$.trigger')=? AND " + on
-                          + " LIMIT 1", (bot, trigger_id, *params)).fetchone())
+    # Only Tico's own notices count: a person can put any refs on a message they send.
+    return bool(c.execute("SELECT 1 FROM messages WHERE to_actor=? AND from_actor=? AND json_extract(refs_json,'$.trigger')=? AND "
+                          + on + " LIMIT 1", (bot, H.KEEPER, trigger_id, *params)).fetchone())
 
 
 def read(c, who, trigger_id, delivery, part=1):
     """One stored call: what happened, its headers (credentials hidden) and its body. People who manage the trigger
     get the whole body; a bot gets it in fenced parts, and only a bot that manages the trigger or was given this call
-    (a task made from it, or a message naming it). Anyone else finds nothing."""
+    (a task made from it, or a notice from Tico naming it). Anyone else finds nothing."""
     found = _row(c, trigger_id)
     base = base_of(delivery)
     allowed = (who.role in ("human", "owner") and manages(who, found)) or (

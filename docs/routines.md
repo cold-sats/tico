@@ -95,7 +95,7 @@ bot did not write. Rules (`webhook.received`) see the same call.
   headers (anything named like a signature, authorization, token, secret or key) show as `[redacted]`, and a cookie
   is never kept. People who may manage the webhook read the whole body (`hub trigger delivery <id> <delivery>`);
   a bot reads it in fenced 20,000-character parts (`--part n`), only for a call that opened one of its tasks or
-  that a message to it names. *Run again* (`hub trigger replay`) starts the routines and rules again for one kept
+  that a notice from Tico to it names. *Run again* (`hub trigger replay`) starts the routines and rules again for one kept
   call as a new occurrence, `<delivery>:replay:<n>`; it is refused once the body has expired.
 - `unheard` is what a call that reached no routine and no rule does: `log` (the log row only) or `note` (also a
   notice to whoever made the webhook, at most once an hour).
