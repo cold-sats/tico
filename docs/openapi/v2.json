@@ -101,6 +101,10 @@
     {
       "name": "Inbound",
       "description": "Shared company inbound email and SMS for people and agents; reads never consume messages."
+    },
+    {
+      "name": "Webhook relay",
+      "description": "Addresses for triggers through Tico Gateway: they keep deliveries while this server is off (backend/hook_relay.py)."
     }
   ],
   "paths": {
@@ -12627,6 +12631,47 @@
         ]
       }
     },
+    "/api/v2/relay": {
+      "get": {
+        "summary": "The Gateway key, how many relay addresses exist, the last pull, the last problem and what waits at the Gateway",
+        "operationId": "getWebhookRelay",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookRelayState"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Webhook relay"
+        ]
+      }
+    },
     "/api/v2/repositories": {
       "get": {
         "summary": "Team repositories",
@@ -18136,6 +18181,219 @@
         },
         "tags": [
           "Tasks"
+        ]
+      }
+    },
+    "/api/v2/triggers/{trigger_id}/relay": {
+      "post": {
+        "summary": "Give a trigger an address through Tico Gateway; the answer carries the secret once (people who manage the trigger, and BotOps)",
+        "operationId": "createWebhookRelay",
+        "parameters": [
+          {
+            "name": "trigger_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Trigger Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookRelayAddress"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Webhook relay"
+        ]
+      }
+    },
+    "/api/v2/triggers/{trigger_id}/relay/delete": {
+      "post": {
+        "summary": "Remove the Gateway address; the trigger and its own address stay",
+        "operationId": "deleteWebhookRelay",
+        "parameters": [
+          {
+            "name": "trigger_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Trigger Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookRelayDeleted"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Webhook relay"
+        ]
+      }
+    },
+    "/api/v2/triggers/{trigger_id}/relay/rotate": {
+      "post": {
+        "summary": "Replace the Gateway address's secret; the old address stops at once and the new one is shown once",
+        "operationId": "rotateWebhookRelay",
+        "parameters": [
+          {
+            "name": "trigger_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Trigger Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookRelayAddress"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Webhook relay"
         ]
       }
     },
@@ -34920,6 +35178,134 @@
           "after"
         ],
         "title": "Wait"
+      },
+      "WebhookRelayAddress": {
+        "type": "object",
+        "properties": {
+          "relay": {
+            "type": "object",
+            "properties": {
+              "trigger": {
+                "type": "string"
+              },
+              "relay_id": {
+                "type": "string"
+              },
+              "address_prefix": {
+                "type": "string"
+              },
+              "address": {
+                "type": "string"
+              },
+              "replayed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "address",
+              "address_prefix",
+              "relay_id",
+              "replayed",
+              "trigger"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "relay"
+        ],
+        "additionalProperties": true
+      },
+      "WebhookRelayDeleted": {
+        "type": "object",
+        "properties": {
+          "relay": {
+            "type": "object",
+            "properties": {
+              "trigger": {
+                "type": "string"
+              },
+              "deleted": {
+                "type": "boolean"
+              },
+              "gateway_told": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "deleted",
+              "gateway_told",
+              "trigger"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "relay"
+        ],
+        "additionalProperties": true
+      },
+      "WebhookRelayState": {
+        "type": "object",
+        "properties": {
+          "relay": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "relays": {
+                "type": "integer"
+              },
+              "cursor": {
+                "type": "integer"
+              },
+              "last_pull": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "last_error": {
+                "type": "string"
+              },
+              "pending": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "oldest": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "deleting": {
+                "type": "integer"
+              },
+              "active": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "active",
+              "cursor",
+              "deleting",
+              "key",
+              "last_error",
+              "last_pull",
+              "oldest",
+              "pending",
+              "relays"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "relay"
+        ],
+        "additionalProperties": true
       },
       "backend__inbound__Create": {
         "properties": {

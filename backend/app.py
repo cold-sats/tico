@@ -223,6 +223,8 @@ def create_app(settings=None):
         stop = asyncio.Event()
         # Always runs: local 90-day retention must not depend on the inbound key or HQ (sync itself stays off).
         inbound_task = asyncio.create_task(app.state.inbound.loop(stop))
+        # Webhooks waiting at Tico Gateway; the loop does nothing without a relay, a key, or outside a rehearsal.
+        hook_relay_task = asyncio.create_task(app.state.hook_relay.loop(stop))
         screen_relay_task = None
         if settings.screen_relay_url:
             await asyncio.to_thread(screen_sessions.start)
@@ -323,6 +325,7 @@ def create_app(settings=None):
             stop.set()
             if inbound_task:
                 await inbound_task
+            await hook_relay_task
             if screen_relay_task:
                 await screen_relay_task
             else:
@@ -6288,6 +6291,8 @@ def create_app(settings=None):
     install_support(app, store, settings, census)
     from .inbound import install as install_inbound
     install_inbound(app, store, settings, auth)
+    from .hook_relay import install as install_hook_relay
+    install_hook_relay(app, settings, store, auth)
     company_server.install(app, store, settings, auth)
     from .support_access import install as install_support_access
     install_support_access(app, store, settings, auth)

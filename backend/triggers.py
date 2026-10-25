@@ -34,6 +34,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from pydantic import ConfigDict, Field
 
+from . import hook_relay
 from . import hubdb as H
 from . import routines
 from . import models as M
@@ -136,6 +137,7 @@ def listing(c, settings):
                     "url": address(settings, t["id"]), "created_by": t["created_by"], "created_at": t["created_at"],
                     "last_received": last, "received_24h": day, "refused_24h": refused,
                     "signed": bool(t["signing_secret"]), "routines": used})
+    hook_relay.attach(c, out)
     return out
 
 
@@ -216,6 +218,7 @@ def _refuse(c, trigger_id, sent_id, body, problem):
 def remove(c, who, trigger_id):
     may_manage(c, who, _row(c, trigger_id))
     c.execute("UPDATE triggers SET deleted_at=?,updated_at=? WHERE id=?", (H.now(), H.now(), trigger_id))
+    hook_relay.forget(c, trigger_id)      # its Tico Gateway address goes with it
     H.event(c, who.actor, "trigger.deleted", trigger_id, {})
     return {"id": trigger_id, "deleted": True}
 

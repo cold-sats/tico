@@ -2518,6 +2518,37 @@ def trigger_list(api, args):
             for t in api.get("triggers")["triggers"]]
 
 
+TRIGGER = _s("The trigger id (`id` in hub_trigger_list)")
+
+
+@tool("hub_trigger_relay_create", "Give a trigger a second address through Tico Gateway, which keeps what is sent to it "
+      "while this server is off or unreachable and hands it over when the server is back. Needs the Tico Gateway "
+      "connected in Settings > Gateway. The answer's `address` carries the secret and is shown only now; the trigger's "
+      "own address keeps working. The server still checks signatures itself.",
+      {"trigger": TRIGGER}, required=("trigger",), writes=True)
+def trigger_relay_create(api, args):
+    return api.post(f"triggers/{args['trigger']}/relay", {}, key=_key(args))["relay"]
+
+
+@tool("hub_trigger_relay_rotate", "Replace the secret of a trigger's Tico Gateway address; the old address stops at once. "
+      "The new `address` is shown only now.", {"trigger": TRIGGER}, required=("trigger",), writes=True)
+def trigger_relay_rotate(api, args):
+    return api.post(f"triggers/{args['trigger']}/relay/rotate", {}, key=_key(args))["relay"]
+
+
+@tool("hub_trigger_relay_delete", "Remove a trigger's Tico Gateway address. The trigger and its own address stay. "
+      "Deleting the trigger removes this address too.", {"trigger": TRIGGER}, required=("trigger",), writes=True)
+def trigger_relay_delete(api, args):
+    return api.post(f"triggers/{args['trigger']}/relay/delete", {}, key=_key(args))["relay"]
+
+
+@tool("hub_relay_status", "Webhooks through Tico Gateway: whether the Gateway key is connected (`key`: connected, none or "
+      "revoked), how many addresses exist (`relays`), the last time this server pulled (`last_pull`), the last problem "
+      "(`last_error`, empty when fine) and how many deliveries wait at the Gateway (`pending`, `oldest`).", {})
+def relay_status(api, args):
+    return api.get("relay")["relay"]
+
+
 @tool("hub_release_schedule", "The team's release schedule: when the Release Manager is asked to release what is at "
       "Pending Release (`times`, company time; `on`), who that bot is (`release_manager`) and the Technical Writer "
       "(`technical_writer`), the next hour, the last hour's result and how many tickets are pending now. Send any of "
