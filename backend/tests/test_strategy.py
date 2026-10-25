@@ -290,3 +290,20 @@ def test_an_unpublished_vision_stays_out_of_the_company_history_until_publish(ap
     assert get(api, "company", token="cara-test")["company"]["vision"] == "Every landlord on Acme."
     publish(api, "Second")
     assert seen()[0] == "Every small landlord on Acme."
+
+
+def test_hub_sql_shows_strategy_proposals_only_to_the_owner_and_the_bot_that_proposed_them(api):
+    ceo = with_ceo_bot(api)
+    one = ready(api)
+    add_bet(api, "Landlords refer landlords")
+    post(api, "goals", {"title": "Sign 10 landlords", "owner": "cara", "bet_id": one["id"]})
+    publish(api)
+    post(api, f"strategy/bets/{one['id']}", {"status": "retired"})
+    publish(api, "Second")                                              # files a strategy_realign card
+    post(api, "goal-proposals", {"kind": "strategy_draft", "reason": "r", "payload": {
+        "sections": {"not": "Unannounced: no franchise deals."}}}, token=ceo)
+    query = {"sql": "SELECT kind, payload_json FROM goal_proposals WHERE kind LIKE 'strategy_%' ORDER BY kind"}
+    assert [r[0] for r in post(api, "sql", query)["rows"]] == ["strategy_draft", "strategy_realign"]
+    for token in ("ben-test", "cara-test"):
+        assert post(api, "sql", query, token=token)["rows"] == []
+    assert [r[0] for r in post(api, "sql", query, token=ceo)["rows"]] == ["strategy_draft"]

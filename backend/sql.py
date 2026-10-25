@@ -342,7 +342,10 @@ def guarded(c, auth, who, inner, function, columns=None):
         "goals": goals, "goal_events": "goal_id IN (SELECT id FROM goals)", "kpis": kpis,
         "kpi_readings": "kpi_id IN (SELECT id FROM kpis)", "kpi_definitions": "kpi_id IN (SELECT id FROM kpis)",
         "goal_kpis": "goal_id IN (SELECT id FROM goals)", "goal_checkins": "goal_id IN (SELECT id FROM goals)",
-        "goal_proposals": "goal_id IS NULL OR goal_id IN (SELECT id FROM goals)",
+        # A strategy proposal carries the unpublished draft or every affected goal's title (goal_routes.strategy_visible):
+        # the owner's, and the bot's that proposed it.
+        "goal_proposals": "(goal_id IS NULL OR goal_id IN (SELECT id FROM goals)) AND " + (
+            "1" if owner else f"(kind NOT IN ('strategy_draft','strategy_realign') OR proposed_by={me})"),
         "goal_asks": "task_id IN (SELECT id FROM tasks)",
         # The company's Vision and Description and their history: everyone's to read, like the company's goals.
         "company_profile": "id IS NOT NULL", "company_events": "id IS NOT NULL",
