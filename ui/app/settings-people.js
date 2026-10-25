@@ -90,7 +90,7 @@ async function renderSettingsPeople() {
             <button class="primary" type="submit">Add</button></form>`
           : owner ? '<div id="directory-sync"></div>'
           : `<p class="muted people-synced">Synced from ${esc(PEOPLE_SOURCE[view.directory] || view.directory)}</p>`}
-        <p class="people-note">No email is sent.${S.config?.local ? ` Only the owner can sign in locally. <a href="${GH}/blob/main/docs/install.md#add-a-domain-and-sign-in-later" target="_blank" rel="noopener noreferrer">Add a domain and sign-in</a> so humans can join.` : ''}</p>
+        <p class="people-note">${view?.invite_email ? 'No email is sent until you choose Send invite.' : 'No email is sent.'}${S.config?.local ? ` Only the owner can sign in locally. <a href="${GH}/blob/main/docs/install.md#add-a-domain-and-sign-in-later" target="_blank" rel="noopener noreferrer">Add a domain and sign-in</a> so humans can join.` : ''}</p>
         ${proxy && added ? `<p class="people-note" id="people-proxy-note">Also allow ${esc(added)} in <a href="${esc(help)}" target="_blank" rel="noopener noreferrer">${esc(proxy)}</a></p>` : ''}
         ${home ? `<label class="people-line">${peopleSwitch('id="people-domain"', view.domain_sign_in, !owner, `Anyone at ${home} has sign-in access`)}<span>Anyone at <b>${esc(home)}</b> ${S.config?.local ? 'has access when sign-in is configured' : 'can sign in'}</span></label>` : ''}
         ${extras.length ? `<div class="people-line people-extras"><span class="muted">Also allowed</span><ul class="allow-chips">${extras.map(x =>
