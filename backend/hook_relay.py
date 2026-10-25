@@ -1,7 +1,7 @@
 """Webhooks through Tico Gateway, the install's side.
 
 A trigger's own address needs this server to be up and reachable. A relay is a second address at Tico HQ
-(`https://api.tico.dev/v1/hooks/<relay_id>/<secret>`): HQ checks the secret, stores the delivery and answers 202, and
+(`https://hooks.tico.dev/<relay_id>/<secret>`, or the older `https://api.tico.dev/v1/hooks/<relay_id>/<secret>`): HQ checks the secret, stores the delivery and answers 202, and
 this server pulls what is waiting every 15 seconds and feeds each delivery to `triggers.receive` with `via="gateway"`,
 exactly as if the sender had posted it here. A stopped or local server loses nothing; it catches up when it is back.
 The trigger's own address keeps working in parallel.
@@ -62,6 +62,16 @@ FAILING_FOR = 15 * 60            # Health speaks after pulls have failed this lo
 OLD_PENDING = 3600               # ... or when the oldest waiting delivery is this old
 POISON = 5                       # a delivery whose handling raised this many times is skipped, so one cannot block the rest
 RELAY = re.compile(r"hr_[0-9a-f]{16}")
+
+
+def _prefix(address, relay_id):
+    """The address up to its relay id: `https://api.tico.dev/v1/hooks/<id>` or the short `https://hooks.tico.dev/<id>`
+    (HQ's HQ_HOOKS_HOST). "" when HQ's answer is not an https address that ends in `<id>` or `<id>/<secret>`."""
+    parts = urllib.parse.urlsplit(address)
+    segments = parts.path.split("/")
+    if parts.scheme != "https" or not parts.netloc or parts.query or parts.fragment or relay_id not in segments[-2:]:
+        return ""
+    return f"https://{parts.netloc}" + "/".join(segments[:segments.index(relay_id, len(segments) - 2) + 1])
 WAKE_URL_MAX = 2000
 NO_KEY = "Connect the Tico Gateway in Settings > Gateway first: an address through Tico Gateway needs its key."
 now = time.time                  # tests' controlled clock
@@ -488,9 +498,7 @@ class HookRelay:
         relay_id, secret = str(answer.get("relay_id") or ""), answer.get("secret")
         if not RELAY.fullmatch(relay_id):
             raise Problem("gateway", "The Tico Gateway gave an answer this server cannot use. Try again.", 502)
-        address = str(answer.get("address") or "")
-        marker = "/v1/hooks/" + relay_id
-        prefix = address[:address.index(marker) + len(marker)] if marker in address else ""
+        prefix = _prefix(str(answer.get("address") or ""), relay_id)
         if not prefix:
             raise Problem("gateway", "The Tico Gateway gave an answer this server cannot use. Try again.", 502)
         extra = None
