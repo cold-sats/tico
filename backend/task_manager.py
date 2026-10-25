@@ -4,7 +4,8 @@ Tico finds what needs tidying in plain code, once an hour on weekdays (the syste
 scheduler.py), and wakes the bot only when a department has something. Nothing to report is a quiet run record: no task
 and no model call. Each department's report is built here from queries Tico already has:
 
-- tasks quiet longer than the stall gap with no wait set (`H.stalled_tasks`);
+- tasks quiet longer than the stall gap with no wait set (`H.stalled_tasks`), with the class Decide gave from the task's
+  last messages where it read it (`stall_triage.class_of`: unsure or stuck);
 - asks past their deadline, and questions a person has not answered for a business day (`ask_deadlines.open_asks`);
 - review and QA tickets with no linked pull request, or two open for one parent and step;
 - tickets whose pull request merged or whose release shipped but whose step did not move (`task_links`);
@@ -132,6 +133,16 @@ def _age(minutes):
     return f"{minutes // 1440} days"
 
 
+def _decide_words(c, row):
+    """What Decide made of a quiet task when it read its last messages (backend/stall_triage.py), for the item's line: the
+    class it gave at the way the task stands now, or nothing."""
+    from . import stall_triage
+    cls = stall_triage.class_of(c, row)
+    return {stall_triage.UNSURE: "; Decide read its last messages and could not tell why (class: unsure)",
+            stall_triage.STUCK: "; Decide read its last messages and found it stuck (class: stuck), one wake was sent"
+            }.get(cls, "")
+
+
 def _quiet(c, at):
     out = []
     for row in H.stalled_tasks(c, at):
@@ -145,7 +156,8 @@ def _quiet(c, at):
                              f"--note \"<why>\"; if it is not needed: hub task relate {row['id']} "
                              f"{blockers.split(', ')[0]} --kind blocked_by --remove"))
         else:
-            out.append(_item("quiet", row, "quiet for " + _age(row["quiet_minutes"]) + " with nothing it waits on",
+            decide = _decide_words(c, row)
+            out.append(_item("quiet", row, "quiet for " + _age(row["quiet_minutes"]) + " with nothing it waits on" + decide,
                              f"hub task get {row['id']}; if it is done: hub task close {row['id']} --note \"<what was done>\"; "
                              f"if it waits on someone: hub task update {row['id']} --status waiting --note \"<on whom>\""))
     return out

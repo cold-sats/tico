@@ -6308,6 +6308,7 @@ STALL_WAKES_PER_DAY = 3      # then BotOps takes it
 SPOT_CHECK_MINUTES = 30
 SPOT_STUCK_MINUTES = 30
 SPOT_SESSION_HOURS = 24      # a session idle longer than this is not "recent": the stall wake covers it
+STUCK_TRIAGE = "stuck"        # refs.triaged on the one wake Decide's "stuck" lets through (backend/stall_triage.py)
 STATUS_CHECK = "Status check: checkpoint where you are, or mark it blocked or done."
 STUCK_RETRY = ("Still no progress after the status check. Carry the task on now, checkpoint where you are, or mark it "
                "blocked or done; if it is still stuck, BotOps is asked to find why.")
@@ -6684,7 +6685,7 @@ def wake_stalled(conn, at=None, task_ids=None, queued_here=None):
     (spot_check_tasks) that is not stalled gets one status check per quiet stretch; a status check or a
     stall wake with still no progress SPOT_STUCK_MINUTES later retries its bot once, and SPOT_STUCK_MINUTES after
     that reports it stuck to BotOps (_report_stuck), never to a person. Returns what it did."""
-    from . import wake_rules
+    from . import stall_triage, wake_rules
     at = at or now()
     woke, escalated, checked, stuck, held, retried_ids = [], [], [], [], [], []
     stalled = {row["id"]: row for row in stalled_tasks(conn, at, task_ids=task_ids, queued_here=queued_here)}
@@ -6732,6 +6733,10 @@ def wake_stalled(conn, at=None, task_ids=None, queued_here=None):
                                 (row["id"],)).fetchone()[0]
             stand = _stall_stand(conn, row)
             streak = _stall_streak(conn, row, stand)
+            # Tico Decide read the task at this stand and called it stuck (backend/stall_triage.py): this one wake is
+            # let through the same_state hold, at the place and under the gap and cap below.
+            triaged = ({"triaged": STUCK_TRIAGE} if _has_table(conn, "stall_triage")
+                       and stall_triage.go_ahead(conn, row, stand) else {})
             if last and last > shift(at, seconds=-STALL_REPEAT_MINUTES * 60):
                 continue
             # Escalation reads the same count as before, or the same number of checks in a row that moved nothing,
@@ -6750,11 +6755,14 @@ def wake_stalled(conn, at=None, task_ids=None, queued_here=None):
                 # A spot check: one status check into the task's session per quiet stretch.
                 if nudged:
                     continue
-                msg = _wake(conn, row, row["owner"], STATUS_CHECK, {"wake": "status_check"}, trigger="stall_check")
+                msg = _wake(conn, row, row["owner"], STATUS_CHECK, {"wake": "status_check", **triaged},
+                            trigger="stall_check")
                 if queued_here is not None and msg:
                     queued_here.append(msg["id"])
                 if msg and msg["refs"].get(wake_rules.MARK) in wake_rules.SILENT:
                     continue     # no attempted wake for the retry/escalation machinery to count
+                if triaged:
+                    stall_triage.sent(conn, row, at)
                 event(conn, KEEPER, "task.stall_wake", row["id"],
                       {"bot": actor_id(row["owner"]), "quiet_minutes": row["quiet_minutes"], "wake": count + 1,
                        "kind": "status_check", "stand": stand})
@@ -6771,11 +6779,13 @@ def wake_stalled(conn, at=None, task_ids=None, queued_here=None):
                 text = (f"Stalled {row['quiet_minutes']} min: {row['title']}. Nothing is set to move it. Carry it on now, "
                         f"or, when someone else must act, file a subtask for them (hub task create --parent {row['id']} "
                         "--owner <bot or person>) and set this waiting; finishing the subtask wakes it.")
-            msg = _wake(conn, row, row["owner"], text, {"wake": "stalled"}, trigger="stall_check")
+            msg = _wake(conn, row, row["owner"], text, {"wake": "stalled", **triaged}, trigger="stall_check")
             if queued_here is not None and msg:
                 queued_here.append(msg["id"])
             if msg and msg["refs"].get(wake_rules.MARK) in wake_rules.SILENT:
                 continue
+            if triaged:
+                stall_triage.sent(conn, row, at)
             if row.get("next_run"):
                 conn.execute("UPDATE tasks SET next_run=0 WHERE id=?", (row["id"],))
             event(conn, KEEPER, "task.stall_wake", row["id"],

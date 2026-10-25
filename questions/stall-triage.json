@@ -3,7 +3,7 @@
   "version": 1,
   "owner": "engineering-lead",
   "summary": "One task a bot owns that has gone quiet, nothing has changed on it since the bot's last checkpoint, and nothing it waits on is recorded: is it waiting on someone, finished but never marked, stuck, or unclear? Asked by the server before the stall check would otherwise stay silent (backend/stall_triage.py); a confident waiting_on_someone sets the wait it names, finished_unmarked closes the task, stuck lets one stall wake through, unsure goes to the Task Manager's next report.",
-  "state": ["task", "options"],
+  "state": ["task"],
   "questions": {
     "class": {
       "type": "choice",

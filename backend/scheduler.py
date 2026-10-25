@@ -526,9 +526,19 @@ class Scheduler:
                 # Discover candidates in a WAL snapshot, then recheck one task under each
                 # short lock. Unrelated runner writes can progress between tasks.
                 with self.store.read_transaction() as c:
-                    task_ids = list(dict.fromkeys(row["id"] for row in
-                                    [*H.stalled_tasks(c, stamp(at)), *H.spot_check_tasks(c, stamp(at))]
-                                    if not H.stall_skip(c, row, stamp(at))))
+                    rows = [row for row in [*H.stalled_tasks(c, stamp(at)), *H.spot_check_tasks(c, stamp(at))]
+                            if not H.stall_skip(c, row, stamp(at))]
+                    task_ids = list(dict.fromkeys(row["id"] for row in rows))
+                    try:
+                        from . import stall_triage
+                        triage = stall_triage.inputs(c, stamp(at), rows)
+                    except Exception as exc:
+                        triage = []
+                        failures.append({"stall_triage": type(exc).__name__})
+                # Decide reads the quiet tasks that stand as at their bot's checkpoint (backend/stall_triage.py) on its
+                # own thread, off this lock; the wake loop below sees its verdict from the next minute on.
+                if triage:
+                    stall_triage.tick(self.store, triage, stamp(at))
                 woke = {key: [] for key in ("woke", "escalated", "checked", "stuck", "held", "retried")}
                 # Our earlier task wake must not make the same bot appear busy for
                 # the rest of this pass. Other newly queued work still fences it.

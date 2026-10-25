@@ -8,7 +8,7 @@ reschedules (`control`). The trigger/action catalog (TRIGGERS, ACTIONS) is share
 searched the same way.
 
 `CONTROLS` holds what a person may change: on/off and a schedule preset for the six jobs that use AI or reach people,
-and the Topic changed switch. Stale ticket review and Topic changed keep their on/off in the team rules
+and the Topic changed and Quiet task triage switches. Stale ticket review, Topic changed and Quiet task triage keep their on/off in the team rules
 (backend/team_rules.py), so the value they had in Settings > General carries over; the rest live here in
 `registry_metadata` CONFIG_KEY. An owner or admin changes them; Health scan only the owner. `due` is when a job's
 preset says it runs again, read by the scheduler and the job's next run alike. Run now runs a job once, through the same
@@ -82,6 +82,8 @@ class Job:
 TRIGGERS = {
     "schedule": ("", ()),                    # the job's schedule in words: "every hour", "every day at 09:00"
     "topic_changed": ("a message in a direct chat changes the topic", ("chat", "topic", "message")),
+    "quiet_task": ("a bot's task is quiet, waits on nothing recorded and stands as at the bot's last checkpoint",
+                   ("stalled", "tasks", "quiet")),
     "free_turn": ("a bot has a free turn and assigned work that is not snoozed or blocked", ("tasks", "assigned", "turn", "prerequisite")),
     "directory": ("a company directory is connected", ("directory",)),
 }
@@ -133,6 +135,8 @@ ACTIONS = {
     "sync_meetings": ("bring in meeting notes from each person's Granola", ("meetings", "granola", "notes")),
     "sync_docs": ("refresh linked documents from their sources", ("documents", "docs")),
     "start_fresh": ("start a fresh session, like Clear", ("chat", "fresh", "clear", "session")),
+    "triage_quiet": ("have Decide read its last messages: set the wait it names, close it if finished, or let one wake through",
+                     ("decide", "stalled", "tasks", "wait", "close", "wake")),
 }
 
 
@@ -210,6 +214,11 @@ JOBS = [
         HOUSEKEEPING, "Every 30 seconds", 30, records=False, then=("sync_meetings",)),
     Job("doc_sync", "Document sync", "Refreshes linked documents from their sources.",
         HOUSEKEEPING, "Every few seconds", 5, records=False, then=("sync_docs",)),
+    Job("stall_triage", "Quiet task triage",
+        "Before a stall check stays silent on a quiet task nothing has changed on, Decide reads its last messages: "
+        "if it waits on someone it sets that wait, if it is finished it closes it, if it is stuck one wake goes through.",
+        CHECKS, "When it happens", ai=True, control=True, labels=("stall-triage",), records=False, when="quiet_task",
+        then=("triage_quiet",)),
     Job("topic_fresh", "Start fresh when the topic changes",
         "In a direct chat, a message on a new topic starts a fresh session, like Clear.",
         CHAT, "When it happens", records=False, when="topic_changed", then=("start_fresh",)),
@@ -249,6 +258,7 @@ CONTROLS = {
     # Hourly while people are at work: a report outside business hours would wait on nobody to read it.
     "task_manager_report": Control(presets=(BUSINESS, HOURLY, FOUR_HOURS, DAILY), preset=BUSINESS, at="09:00"),
     "topic_fresh": Control(rule="topic_fresh"),
+    "stall_triage": Control(rule="stall_triage"),
 }
 
 
