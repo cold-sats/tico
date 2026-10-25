@@ -71,7 +71,7 @@ The company-limit message does not confirm that an automatic repair has run.
 
 You must be the owner or an admin. The server rejects changes from anyone else.
 
-1. Open **Settings → General**.
+1. Open **Settings → Computers**.
 2. Find **Company turn levels**.
 3. Enter **Warning level per person**.
 4. Enter **Stop level per person**.
