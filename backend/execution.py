@@ -1129,7 +1129,7 @@ def job_refusal(c, job, followed, ready, busy, lanes, roots, live=frozenset()):
     task = H.task(c, task_id) if task_id else None
     if (task and task['owner'] == 'bot:' + job['bot'] and message['from_actor'] == H.KEEPER
             and not (message.get("refs") or {}).get("run_now")):
-        if why := auto_tasks.refusal(c, task, followed):
+        if why := auto_tasks.refusal(c, task, followed, woken=True):
             return why
     wanted = check_models.of(c, task_id, job["bot"])
     if not check_models.runs_here(ready, wanted) or (wanted and check_models.held(c, task_id)):
@@ -2122,7 +2122,7 @@ class Execution:
         handed = providers.bot_choice(c, self.store.settings, followed)
         # A check subtask's turns run on its own model, in its own session (backend/check_models.py).
         check = check_models.of(c, task["id"], row["bot"]) if task else None
-        if (task and task['owner'] == 'bot:' + row['bot'] and not auto_tasks.refusal(c, task, followed)
+        if (task and task['owner'] == 'bot:' + row['bot'] and not auto_tasks.refusal(c, task, followed, woken=True)
                 and not (msg.get("refs") or {}).get("run_now")):
             task = auto_tasks.started(c, task)
         roots, lanes = roots_on(runner), lanes_on(runner)
