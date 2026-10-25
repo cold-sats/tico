@@ -18,7 +18,10 @@ Built-in rules are defined here, in code, with stable ids. They reproduce what t
 were rules: the ALWAYS_WAKE classes (a person's message, an ask, an approval, a needs-action flag, a reply, a gate
 verdict) and AWAITED results wake; a bot's own write (`own_write`), news about a parked task (`parked`) and a stall
 check on a task that stands as at the last checkpoint (`same_state`) wait; a plain bot-to-bot message waits
-(`bot_to_bot`); a finished request, review comments and a failing check are batched (`batch_*`); anything else
+(`bot_to_bot`); a finished request and a person's review comments are batched (`batch_*`); one check finishing is
+ignored (`pr_check`), every check on a pull request head finished (`pr_checks_done`) wakes the ticket's owner at a
+working step and is a note otherwise (`pr_checks_note`), and a review that is not a person's is a note
+(`pr_review_note`: the PR_RULES block); anything else
 wakes under the rule named for its event (`assignment`, `stall`, `routine`, ...) or `default_wake`. The logic of
 the filters stays in backend/wake_rules.py and backend/bot_to_bot.py; this module orders them and names them.
 

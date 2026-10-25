@@ -104,6 +104,35 @@ def test_no_diagnostic_is_filed_about_a_diagnostic_or_for_a_person_and_the_stuck
 
 
 
+def test_a_task_with_a_recorded_wait_or_a_profile_without_sweeps_is_never_swept_but_stays_in_reports(api, monkeypatch):
+    from backend import rules
+    store = api.app.state.store
+    with store.transaction() as c:
+        row = H.task_create(c, H.human_actor("ana"), "Recheck the cash warning", "Before the deadline.", "bot:finance")
+        c.execute("UPDATE jobs SET state='completed' WHERE bot='finance'")
+        aged(c, row["id"], 6)
+        task = lambda: H.task(c, row["id"])
+        assert H.stall_skip(c, task()) is None
+        # A pending approval, a milestone wait and an open subtask are each a wait the sweep respects.
+        c.execute("INSERT INTO approvals(id,kind,task_id,payload_json,requested_by,created) VALUES('ap1','send',?,'{}','bot:finance',?)",
+                  (row["id"], H.now()))
+        assert H.stall_skip(c, task()) == "approval"
+        c.execute("DELETE FROM approvals")
+        child = H.task_create(c, H.human_actor("ana"), "A subtask", "x", "bot:finance", parent_id=row["id"])
+        c.execute("UPDATE jobs SET state='completed' WHERE bot='finance'")
+        aged(c, row["id"], 6)
+        assert H.stall_skip(c, task()) in ("subtask", "blocked_by")
+        H.task_close(c, H.human_actor("ana"), child["id"], note="not needed")
+        c.execute("UPDATE jobs SET state='completed' WHERE bot='finance'")
+        aged(c, row["id"], 6)
+        assert H.stall_skip(c, task()) is None
+        # A profile with no stall sweeps: nothing wakes it, yet the Task Manager's list still names the task.
+        monkeypatch.setattr(rules, "sweeps_on", lambda conn, bot: False)
+        assert H.stall_skip(c, task()) == "sweeps_off"
+        assert not any(H.wake_stalled(c).values())
+        assert row["id"] in [t["id"] for t in H.stalled_tasks(c)]
+
+
 def test_a_chat_task_gets_its_own_room_reports_once_and_a_quiet_session_is_checked_then_flagged(api):
     from backend.tests.test_api import headers, post
     room = post(api, "chat/finance", {"text": "Can you look at cash?"})["conversation_id"]
@@ -122,6 +151,9 @@ def test_a_chat_task_gets_its_own_room_reports_once_and_a_quiet_session_is_check
                   "VALUES('a1',?,'finance','r1',1,'a1','running',?,?,?)",
                   (job, H.shift(H.now(), seconds=600), H.shift(H.now(), seconds=-2400), "task:" + task["id"]))
         aged(c, task["id"], 40)
+        assert H.wake_stalled(c) == {k: [] for k in ("woke", "escalated", "checked", "stuck", "held", "retried")}, \
+            "a live session on the task is never checked"
+        c.execute("UPDATE attempts SET state='completed', finished=? WHERE id='a1'", (H.shift(H.now(), seconds=-2400),))
         out = H.wake_stalled(c)
         assert out["checked"] == [task["id"]] and out["woke"] == [] and out["stuck"] == []
         assert H.wake_stalled(c)["checked"] == []                       # once per quiet stretch
@@ -315,9 +347,10 @@ def test_between_the_retry_and_the_stuck_report_no_stall_wake_and_the_report_cou
                              conversation_id=room)
         c.execute("INSERT INTO runners(id,label,operator,token_hash,created) VALUES('r1','r','ana','h','t')")
         job = c.execute("SELECT id FROM jobs WHERE bot='finance' ORDER BY created DESC LIMIT 1").fetchone()[0]
-        c.execute("INSERT INTO attempts(id,job_id,bot,runner_id,generation,token_hash,state,lease_until,created,lane) "
-                  "VALUES('a1',?,'finance','r1',1,'a1','running',?,?,?)",
-                  (job, H.shift(H.now(), seconds=600), H.shift(H.now(), seconds=-2400), "task:" + task["id"]))
+        c.execute("INSERT INTO attempts(id,job_id,bot,runner_id,generation,token_hash,state,lease_until,created,lane,finished) "
+                  "VALUES('a1',?,'finance','r1',1,'a1','completed',?,?,?,?)",
+                  (job, H.shift(H.now(), seconds=600), H.shift(H.now(), seconds=-2400), "task:" + task["id"],
+                   H.shift(H.now(), seconds=-2300)))
         aged(c, task["id"], 40)
         assert H.wake_stalled(c)["checked"] == [task["id"]]
         c.execute("UPDATE events SET ts=? WHERE action='task.stall_wake' AND target=?",

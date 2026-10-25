@@ -6636,6 +6636,43 @@ def _stall_gap(conn, row, stand):
     return min(STALL_REPEAT_MINUTES * 2 ** max(streak - 1, 0), STALL_BACKOFF_CAP_MINUTES)
 
 
+def stall_skip(conn, row, at=None):
+    """Why a stall or status check leaves this task alone, or None when it may be checked: the owner has a live
+    session on it (a leased or running attempt in its lane), it waits on something recorded (a blocker, a subtask,
+    an approval, an ask, a due date, a snooze, a stored resume, a pull request armed with wake_once or a milestone),
+    or the owner's profile has no stall sweeps (rules.sweeps_on). A task held only by its own quiet subtasks
+    (`own_blockers`) keeps being checked: that deadlock is what the check is for. Task Manager reports read
+    `stalled_tasks`, not this, so a task no sweep wakes still reaches a person's report."""
+    from . import rules, wake_rules
+    at = at or now()
+    slug = actor_id(row["owner"])
+    if not rules.sweeps_on(conn, slug):
+        return "sweeps_off"
+    if _has_table(conn, "attempts"):
+        lanes, _ = _session_lanes(conn, row)
+        if conn.execute("SELECT 1 FROM attempts WHERE bot=? AND lane IN (?,?) AND state IN ('leased','running') "
+                        "LIMIT 1", (slug, *lanes)).fetchone():
+            return "live_session"
+    if unanswered_ask(conn, row):
+        return "ask"
+    if TS.snoozed(row, at):
+        return "snooze"
+    if due_later(row, at):
+        return "due"
+    if row.get("resume_json"):
+        return "resume"
+    if conn.execute("SELECT 1 FROM approvals WHERE task_id=? AND decision IS NULL AND consumed_at IS NULL LIMIT 1",
+                    (row["id"],)).fetchone():
+        return "approval"
+    if not row.get("own_blockers") and not own_stuck_blockers(conn, row, at):
+        parked = wake_rules.parked(conn, row)
+        if parked:
+            return parked
+        if open_children(conn, row["id"]):
+            return "subtask"
+    return None
+
+
 def wake_stalled(conn, at=None, task_ids=None, queued_here=None):
     """Wake the owner of each stalled task (at most once per STALL_REPEAT_MINUTES, doubling to
     STALL_BACKOFF_CAP_MINUTES while the task has not changed; STALL_WAKES_PER_DAY a day); past that, one diagnostic per stuck task, for BotOps. No diagnostic is filed about another
@@ -6655,6 +6692,8 @@ def wake_stalled(conn, at=None, task_ids=None, queued_here=None):
     parked = parked_bots(conn)
     for row in [*stalled.values(), *[r for r in spots.values() if r["id"] not in stalled]]:
         with isolated(conn, "wake_stalled", row["id"]):
+            if stall_skip(conn, row, at):
+                continue
             if actor_id(row["owner"]) in parked:
                 if row["id"] in stalled and _hold_for_setup(conn, row):
                     held.append(row["id"])
