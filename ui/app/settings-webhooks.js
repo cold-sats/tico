@@ -15,8 +15,8 @@ const whRefused = r => r.outcome === 'refused' || r.outcome === 'rate_limited';
 const WH_SEND_STATES = {delivered: 'ok', failed: 'fail', ready: 'waiting', sending: 'waiting', cancelled: '', withheld: ''};
 const WH_TABS = [['incoming', 'Incoming'], ['outgoing', 'Outgoing'], ['gateway', 'Through Tico Gateway', 'Gateway']];
 // The open tab and item, and the one set of secrets on screen: {id, url?, signing?, relay?} for an incoming webhook,
-// {id, secret} for an endpoint.
-const WH = {tab: 'incoming', trigger: '', hook: '', shown: null, hookShown: null};
+// {id, secret} for an endpoint. The wake address's signing secret stays until the person dismisses it.
+const WH = {tab: 'incoming', trigger: '', hook: '', shown: null, hookShown: null, wakeSecret: ''};
 let WH_RUN = 0, WH_HOOKS = null;
 // The event catalog (backend/event_catalog.py): the rules editor, the routine editor and the endpoint picker read it.
 let EVENT_TYPES = [], EVENT_TYPES_P = null;
@@ -74,7 +74,7 @@ function whHeadHTML(title, pills, actions) {
 async function whClick(ev) {
   const copy = ev.target.closest('[data-wh-copy]');
   if (copy) {
-    const key = copy.dataset.whCopy, value = key === 'secret' ? WH.hookShown?.secret : WH.shown?.[key];
+    const key = copy.dataset.whCopy, value = key === 'secret' ? WH.hookShown?.secret : key === 'wake' ? WH.wakeSecret : WH.shown?.[key];
     if (value) { await copyText(value); toast('Copied'); }
     return;
   }
@@ -575,8 +575,10 @@ async function whHookDetail(el, run) {
 async function whGateway(el, run) {
   // Wake this server (backend/hook_relay.py `wake`): only a server Tico hosts sleeps (GET /v2/sleep `hosted`). Null is
   // on: HQ wakes a hosted install for a new relay until told otherwise (contract C8).
-  const [relay, list, hosted] = await Promise.all([get('/v2/relay', {fresh: true}).then(d => d.relay), whTriggersFresh(),
-    get('/v2/sleep').then(d => !!d.sleep?.hosted).catch(() => false)]);
+  // The wake address is the owner's alone (403 for anyone else) and only for a server people run themselves.
+  const [relay, list, hosted, wake] = await Promise.all([get('/v2/relay', {fresh: true}).then(d => d.relay), whTriggersFresh(),
+    get('/v2/sleep').then(d => !!d.sleep?.hosted).catch(() => false),
+    S.me?.role === 'owner' ? get('/v2/hooks/wake-url', {fresh: true}).catch(() => null) : null]);
   if (run !== WH_RUN) return;
   const link = settingsIsAdmin() ? ' <a href="#/settings" data-wh-gateway-link>Gateway</a>' : '';
   if (relay.key === 'none') { el.innerHTML = `<div class="empty" data-wh-no-key>Connect the Gateway first.${link}</div>`; return; }
@@ -585,6 +587,7 @@ async function whGateway(el, run) {
     Number.isFinite(relay.pending) ? `<span class="tnum">${relay.pending}</span> waiting` : ''].filter(Boolean).join(' · ');
   el.innerHTML = `${relay.key === 'revoked' ? `<p class="err">The Gateway refused this server's key.${link}</p>` : ''}
     <p class="settings-cell-note" data-wh-relay-status>${status}${relay.last_error ? ` · <span class="wh-bad">${esc(relay.last_error)}</span>` : ''}</p>
+    ${wake && !hosted ? '<div class="wh-wake-url" data-wh-wake-url></div>' : ''}
     ${WH.shown?.relay ? whSecretHTML(`Gateway address · ${(list.find(t => t.id === WH.shown.id) || {}).name || ''}`, WH.shown.relay, 'relay') : ''}
     ${rows.length ? `<div class="wh-list" data-wh-relays>${rows.map(t => `<div class="wh-row wh-gw" data-wh-relay="${esc(t.id)}">
         <span class="wh-name"><strong>${esc(t.name)}</strong></span>
@@ -592,6 +595,8 @@ async function whGateway(el, run) {
         <span class="wh-call-ctl">${hosted && t.relay ? `<label class="sysr-switch wh-wake">${peopleSwitch('data-wh-wake', t.relay.wake !== false, !whMine(t), 'Wake this server')}<span>Wake this server</span></label>` : ''}${whMine(t) ? (t.relay ? `<button class="ghost" type="button" data-wh-relay-do="rotate">New secret</button><button class="ghost" type="button" data-wh-relay-do="delete">Remove</button>`
           : `<button class="ghost" type="button" data-wh-relay-do="make">Make address</button>`) : ''}</span></div>`).join('')}</div>`
       : '<div class="empty">No incoming webhooks yet.</div>'}`;
+  const wakeEl = el.querySelector('[data-wh-wake-url]');
+  if (wakeEl) whWakeUrl(wakeEl, wake);
   el.querySelectorAll('[data-wh-wake]').forEach(box => { box.onchange = async () => {
     const id = box.closest('[data-wh-relay]').dataset.whRelay;
     box.disabled = true;
@@ -611,4 +616,43 @@ async function whGateway(el, run) {
       void renderSettingsWebhooks();
     } catch (e) { toast(e.message, true); b.disabled = false; }
   }; });
+}
+// The wake address (backend/hook_relay.py `set_wake_url`, docs/install.md "Wake on webhook"): HQ posts a signed
+// `tico.wake` there when a call has waited at the Gateway. One row: the address or Off, edited in place. Setting it
+// answers with the signing secret once; turning it off makes any secret shown useless, so it goes too.
+function whWakeUrl(el, wake, {editing = false, error = '', draft = wake.url || ''} = {}) {
+  const how = `<a href="${GH}/blob/main/docs/install.md#wake-on-webhook" target="_blank" rel="noopener noreferrer">How</a>`;
+  const secret = WH.wakeSecret ? `<div class="trigger-secret" role="status" data-wh-secret="wake"><p><strong>Wake signing secret</strong> <span class="muted">Signs the tico.wake posts. Not shown again.</span></p>
+    <div class="row"><code class="trigger-url">${esc(WH.wakeSecret)}</code><button class="ghost" type="button" data-wh-copy="wake">Copy</button><button class="ghost" type="button" data-wh-wake-do="done">Done</button></div></div>` : '';
+  const row = editing ? `<form class="wh-row wh-gw" data-wh-wake-form novalidate>
+      <span class="wh-name"><strong>Wake address</strong></span>
+      <span class="wh-meta"><input type="url" name="url" value="${esc(draft)}" placeholder="https://" aria-label="Wake address" required data-wh-wake-input></span>
+      <span class="wh-call-ctl">${how}<button type="submit" class="primary">Save</button><button class="ghost" type="button" data-wh-wake-do="cancel">Cancel</button></span></form>`
+    : `<div class="wh-row wh-gw">
+      <span class="wh-name"><strong>Wake address</strong></span>
+      <span class="wh-meta" data-wh-wake-value>${wake.url ? `<code${wake.set_at ? ` title="Set ${esc(ago(wake.set_at))}"` : ''}>${esc(wake.url)}</code>` : '<span class="muted">Off</span>'}</span>
+      <span class="wh-call-ctl">${how}<button class="ghost" type="button" data-wh-wake-do="edit">${wake.url ? 'Change' : 'Set'}</button>${wake.url ? '<button class="ghost danger" type="button" data-wh-wake-do="off">Turn off</button>' : ''}</span></div>`;
+  el.innerHTML = secret + row + (error ? `<p class="err" role="status" data-wh-wake-error>${esc(error)}</p>` : '');
+  const save = async (url, button) => {
+    if (button) button.disabled = true;
+    try {
+      const r = await put('/v2/hooks/wake-url', {url});
+      WH.wakeSecret = r.url ? r.secret || '' : '';
+      whWakeUrl(el, {url: r.url, set_at: r.url ? new Date().toISOString() : null, set_by: r.url ? 'human:' + (S.me?.id || '') : null});
+    } catch (e) { whWakeUrl(el, wake, {editing: url !== null, error: e.message || 'Try again', draft: url || wake.url || ''}); }
+  };
+  el.querySelectorAll('[data-wh-wake-do]').forEach(b => { b.onclick = () => {
+    const what = b.dataset.whWakeDo;
+    if (what === 'done') { WH.wakeSecret = ''; whWakeUrl(el, wake); }
+    else if (what === 'off') void save(null, b);
+    else whWakeUrl(el, wake, {editing: what === 'edit'});
+    if (what === 'edit') el.querySelector('[data-wh-wake-input]')?.focus();
+  }; });
+  const form = el.querySelector('[data-wh-wake-form]');
+  if (form) form.onsubmit = ev => {
+    ev.preventDefault();
+    const url = form.elements.url.value.trim();
+    if (!url) { whWakeUrl(el, wake, {editing: true, error: 'Enter an https:// address', draft: ''}); return; }
+    void save(url, form.querySelector('[type="submit"]'));
+  };
 }

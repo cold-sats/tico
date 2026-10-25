@@ -673,6 +673,8 @@ fieldset.brepo>.repo-name+p{margin:-4px 0 4px 24px;font-size:var(--t-xs);line-he
 .wh-hdr input:not([type=checkbox]){width:100%}
 .wh-hdr .wh-hdr-secret{gap:6px;font-size:var(--t-sm);white-space:nowrap}
 .wh-wake{font-size:var(--t-sm);white-space:nowrap}
+.wh-wake-url{margin-bottom:12px}.wh-wake-url input{width:100%;min-width:0}
+.wh-wake-url .err{margin:0;font-size:var(--t-sm)}
 @media (max-width:640px){
   .wh-hdr{grid-template-columns:minmax(0,1fr) auto auto}.wh-hdr [data-hdr-value]{grid-column:1/-1;grid-row:2}
   #settings-webhooks .sb-wide{display:none}#settings-webhooks .sb-narrow{display:inline}
