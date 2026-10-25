@@ -18,6 +18,10 @@ day that is not Monday, stop at once.
 4. Write the evidence row first, then the entity or edge that cites it. `hub market apply` does that and closes the insight as applied.
    A verified batch from research is one `hub market import <file.jsonl> --note "<where it came from>"`: one entity or edge per line with its evidence, matched by id, name, alias or domain, recorded as one applied insight; run it with `--dry-run` first and send each needs-human line to the owner.
 5. Otherwise close it: `merged` into another insight, `rejected` with one sentence, or `needs-human` when two credible sources disagree and it matters.
+   An insight that contradicts an active strategy choice (`hub strategy show`, the choices with status `active` and their `why`) is still
+   applied or closed on its own evidence: you curate the market, not the strategy. Say so in one line of the sweep report, and name
+   `bot:goal-manager` in the task the run files (the owner's needs-human task, or your own task's note) so the CEO Bot can check the fit.
+   You do not judge whether the choice should change.
 6. Close the listening items you filed: an insight you applied or merged resolves its listening item
    `accepted` with `--ref <insight id>`; one you rejected resolves it `rejected` with the same
    sentence; one still `new` or `needs-human` leaves it `new`. The insight's `source_ref` is the

@@ -7,12 +7,14 @@ finished. Budget 15 minutes. The outcome is five recorded answers, a first draft
 
 ## 1. Read before you ask
 
+    hub strategy show
     hub goal list --all
     hub team show
     hub update list --kind weekly --limit 8
     hub meeting search --since <90 days ago>
 
-Do not ask what these already say. If there are no goals at all, say so and draft from tasks and updates instead of asking the human to invent goals.
+Do not ask what these already say. A published strategy answers question 1: write `knowledge/strategy.md` from its
+summary, choices and "What we won't do", say so, and ask only what the page leaves open. If there are no goals at all, say so and draft from tasks and updates instead of asking the human to invent goals.
 
 ## 2. Introduce yourself in three lines
 

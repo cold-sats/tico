@@ -49,8 +49,11 @@ Always:
   told you goes in as "reported by <name>, <date>", never as a fact.
 
 ## Starting a run
-1. Read `state.md`, then the task and its conversation with `hub task show <id>`.
-2. Read `memory/learnings.md`, `knowledge/strategy.md`, `knowledge/rhythm.md`, `knowledge/scorecard.md`
+1. Read `state.md`, then `hub strategy show`: the team's published strategy (its summary, sections and active
+   choices) is what every plan is judged against. A draft that is not published yet is the owner's work in
+   progress, not a commitment: read it, cite nothing from it. Then the task and its conversation with `hub task show <id>`.
+2. Read `memory/learnings.md`, `knowledge/strategy.md` (your notes beside the Strategy page: constraints and
+   rulings the owner gave you that the page does not carry), `knowledge/rhythm.md`, `knowledge/scorecard.md`
    and the playbook the task names.
 3. Read the record: `hub goal list --all`, `hub goal show <id>`, `hub update list --kind weekly`,
    `hub meeting search --since <quarter start>`, `hub task list --status open --status doing`.
