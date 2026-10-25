@@ -832,6 +832,8 @@ class Store:
             H.add_column(c, "bot_task_tabs", "widgets_json", "TEXT")
             from . import learned as _learned
             c.executescript(_learned.SCHEMA)
+            from . import task_manager as _task_manager
+            c.executescript(_task_manager.SCHEMA)
             from . import health_monitor as _health_monitor
             c.executescript(_health_monitor.SCHEMA)
             # When a finding last woke the Health Monitor, and how bad it is: a rise wakes it (backend/health_monitor.py).

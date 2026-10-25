@@ -63,6 +63,9 @@ CLI_TOOL_ALIASES = {
     "hub_task_child": ("hub_task_child_create",),
     "hub_repo_tick": ("hub_repo_update",), "hub_repo_untick": ("hub_repo_update",),
     "hub_bot_repos": ("hub_bot_repos_get", "hub_bot_repos_set"),
+    "hub_task_manager_status": ("hub_task_manager",), "hub_task_manager_on": ("hub_task_manager_set",),
+    "hub_task_manager_off": ("hub_task_manager_set",), "hub_task_manager_schedule": ("hub_task_manager_set",),
+    "hub_task_manager_bot": ("hub_task_manager_set",),
     "hub_task_show": ("hub_task_show", "hub_task_show_many"),      # `hub task show a b c` is one read
 }
 
@@ -3181,6 +3184,37 @@ def health_monitor_report(api, args):
         raise ValueError("name a finding's key, or --process")
     from urllib.parse import quote
     return api.post("health-monitor/findings/" + quote(key, safe="") + "/report", {}, key=_key(args))
+
+
+@tool("hub_task_manager", "The Task Manager: whether the helper bot is on, the hourly report's switch and schedule, its last run "
+      "(\"3 departments, 7 items\" or \"Nothing to do\"), and each department's last check and open check task.", {})
+def task_manager_status(api, args):
+    return api.get("task-manager")
+
+
+@tool("hub_task_manager_set", "The Task Manager: switch its hourly report on or off, pick the schedule (business = hourly on "
+      "weekdays 08:00 to 18:00, hourly, 4h, daily; `at` is the daily time), or turn the helper bot itself on or off. The owner "
+      "or an admin; the bot's own off switch is the owner's.",
+      {"on": {"type": "boolean", "description": "The hourly report on or off"},
+       "preset": {"type": "string", "enum": ["business", "hourly", "4h", "daily"]},
+       "at": _s("HH:MM for the daily preset"),
+       "bot": {"type": "string", "enum": ["on", "off"], "description": "Turn the Task Manager bot itself on or off"}}, writes=True)
+def task_manager_set(api, args):
+    out = {}
+    if args.get("bot"):
+        out["bot"] = api.post("task-manager/turn-" + args["bot"], {}, key=_key(args, ":bot"))
+    body = {k: args[k] for k in ("on", "preset", "at") if args.get(k) is not None}
+    if body:
+        out["job"] = api.call("PUT", "system-routines/task_manager_report", body, _key(args))["job"]
+    if not out:
+        raise ValueError("name something to change: --on/--off, --preset, --at or --bot")
+    return out
+
+
+@tool("hub_task_manager_run", "The Task Manager: run the department check once now (the owner or an admin). It opens a check task "
+      "per department only when there is something to look at; 409 while the report is off.", {}, writes=True)
+def task_manager_run(api, args):
+    return api.call("POST", "system-routines/task_manager_report/run", {}, _key(args))
 
 
 # ----------------------------------------------------------------------------- approvals

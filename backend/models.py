@@ -2171,7 +2171,7 @@ class SystemRoutineUpdate(Contract):
     """One system routine's switch, schedule preset or daily time (backend/system_routines.py); only what is sent
     changes."""
     on: bool | None = None
-    preset: Literal["15m", "hourly", "4h", "daily"] | None = None
+    preset: Literal["15m", "hourly", "4h", "daily", "business"] | None = None
     at: str | None = Field(default=None, max_length=5)
 
 

@@ -2930,6 +2930,22 @@ def type_bot_works(conn, actor, row):
     return is_bot(actor) and task_private_readable(conn, actor, row) and type_bots(conn, row) == "work"
 
 
+TASK_MANAGER = "bot:task-manager"
+
+
+def task_manager_acts(conn, actor, row):
+    """The Task Manager's narrow mover right (docs/task-manager.md): on a task it may read it closes with a note, sets
+    status, step and waits, relates, comments and reassigns within the department. It is not a `mover` (no lane, number,
+    labels, types or tags) and never a bot with rights on a bot, a credential, a send or spending. The slug alone is not
+    enough: the bot behind it must be built from the task-manager template, so a bot someone names the same cannot ride on
+    it. A private task it is not on stays unreadable (task_private_readable), so this never widens privacy."""
+    if actor != TASK_MANAGER or not row:
+        return False
+    built = _one(conn, "SELECT json_extract(config_json,'$.template') AS template FROM bot_config WHERE bot=?",
+                 ("task-manager",)) if _has_table(conn, "bot_config") else None
+    return (built or {}).get("template") == "task-manager" and task_private_readable(conn, actor, row)
+
+
 def task_private(conn, row):
     """Read partial rows conservatively; callers often select only the task's identity fields."""
     if not row:
@@ -4106,7 +4122,8 @@ def _task_link_allowed(conn, actor, row, mover=None, kind=None):
     delegated = _one(conn, "SELECT 1 FROM task_delegations WHERE task_id=? AND delegate=? AND expires>?",
                      (row["id"], actor, now()))
     if (not mover and actor not in (row["owner"], row["requester"]) and not delegated
-            and not task_ancestor_party(conn, actor, row) and not type_bot_works(conn, actor, row)):
+            and not task_ancestor_party(conn, actor, row) and not type_bot_works(conn, actor, row)
+            and not (kind is None and task_manager_acts(conn, actor, row))):     # relations only, never pull request links
         refuse(conn, actor, "identity", "This task is not yours to change")
 
 
@@ -5192,7 +5209,8 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     mine = actor in (row["owner"], row["requester"])
     delegated = _one(conn, "SELECT message_id FROM task_delegations WHERE task_id=? AND delegate=? AND expires>? LIMIT 1",
                      (task_id, actor, now()))
-    mine = mine or bool(delegated) or task_ancestor_party(conn, actor, row) or type_bot_works(conn, actor, row)
+    mine = (mine or bool(delegated) or task_ancestor_party(conn, actor, row) or type_bot_works(conn, actor, row)
+            or task_manager_acts(conn, actor, row))
     if mover is None:
         mover = actor == KEEPER or is_human(actor) and can_move(conn, actor)
     labels_only = labels is not None and not clear_size and all(v is None for v in (
@@ -5349,6 +5367,11 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         sets.append("updated=:updated")
     if owner is not None:
         new_owner = _reach(conn, actor, owner)
+        if actor == TASK_MANAGER and new_owner != row["owner"]:
+            from . import task_manager
+            if not task_manager.same_department(conn, row["owner"], new_owner):
+                refuse(conn, actor, "identity", "The Task Manager reassigns only within the owner's department; "
+                       "leave a comment for the department instead")
         if is_human(new_owner) and new_owner != row["owner"]:
             from .ceo_acts import TASK, gate
             # The proposal lands in the CEO Bot log, which names the task only to a reader who may open it.
@@ -5736,6 +5759,7 @@ def _task_close_allowed(conn, actor, row, note):
     _task_private_writer(conn, actor, row)
     # A board's shipped column is ready; a bot that works the board (a deploy bot) closes what shipped.
     shipped = row["status"] == "ready" and type_bot_works(conn, actor, row)
+    shipped = shipped or task_manager_acts(conn, actor, row)       # it closes with a note: the one rule below, not a mover
     if actor != row["requester"] and not is_human(actor) and actor != KEEPER and not shipped:
         refuse(conn, actor, "close", f"{actor_id(row['requester'])} asked for this; only they close it")
     # A person closes without giving a reason; the requesting bot is still told it was closed (task_close wakes it).

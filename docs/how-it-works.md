@@ -13,7 +13,9 @@ model subscriptions and sends the results back. The in-app Help page (**?** in t
 - **Team**: humans and bots are teammates on one team chart, in groups.
 - **Built-in**: four bots every team gets. The [Assistant](assistant.md) is each human's own helper; BotOps sets up and
   fixes bots, computers, Tools and Credentials; the [Librarian](librarian.md) answers from the team's docs and the Tico
-  manual; the [CEO Bot](goals-and-kpis.md#the-ceo-bot) keeps KPIs and goal status current.
+  manual; the [CEO Bot](goals-and-kpis.md#the-ceo-bot) keeps KPIs and goal status current. The [Task Manager](task-manager.md)
+  and the [Health Monitor](health-monitor.md) are built-in helpers outside the chart: once an hour they look for tasks
+  that stopped moving and for install faults, and wake only when they find something.
 - **Message bots** work a human's email or a Slack channel. **External agents** (Hermes, OpenClaw, Codex, Claude) connect
   over MCP with a token ([Connect an external agent](connect-an-agent.md)).
 - **Tools and Credentials**: a bot gets only the Credentials granted to it, and drafts to outsiders until its send switch
@@ -27,6 +29,7 @@ model subscriptions and sends the results back. The in-app Help page (**?** in t
 | BotOps (built-in) | Sets up and fixes bots, computers, Tools and Credentials | Sidebar | “Add a bot that answers #support” |
 | Librarian (built-in) | Answers from your docs and the Tico manual, with sources | Ask the Librarian on Docs and Market | “What is our refund limit?” |
 | CEO Bot (built-in) | Keeps KPIs and goal colours current | Top of Goals | “Why is this goal yellow?” |
+| Task Manager (built-in) | Tidies tasks hourly on weekdays: closes what is done, fixes drifted steps, one Needs-you line per department | Its “Task check” tasks; Settings → Routines | `hub task-manager status` |
 | Your bots | Do the team's work from their Instructions | Team in the sidebar: chat or a task | “Draft replies to the open tickets” |
 | Message bots (Beta) | Work a human's email or a Slack channel | Message bots in the sidebar | “Sort today's email” |
 
@@ -126,7 +129,7 @@ action items), **Docs**,
 **Tools**, **Changelog**, the **Team** tree, and under your email **Settings**
 and, for the owner and admins, **SQL**. Tasks has List, Board and Done; Routines are in **Settings → Routines**.
 Credentials are in **Tools → Credentials**. See [Navigation](navigation.md). A bot's page has **Chat**,
-**Tasks**, **Docs** and **More**. The assistant (Tico, `coo`), BotOps, the Librarian and the CEO Bot are built in and cannot be archived or deleted (`409 system_bot`); the assistant
+**Tasks**, **Docs** and **More**. The assistant (Tico, `coo`), BotOps, the Librarian, the CEO Bot and the Task Manager are built in and cannot be archived or deleted (`409 system_bot`); the assistant
 and the Librarian work in the background and are not listed for humans. Each human has one private **Assistant** chat, its own page from the left rail
 (also the first tab on their own page, and "Ask the Assistant…" in search): it looks things up at once, does low-risk things as that human, and
 proposes anything with a side effect for their own click ([The Assistant](assistant.md)). There is no shared

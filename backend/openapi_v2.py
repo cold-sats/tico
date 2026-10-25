@@ -545,6 +545,19 @@ STABLE = [
      "the redacted diagnostics, a message on it when it comes back, or a support approval when the team rule is off", None),
     ("/api/v2/health-monitor/local-findings", "post", "Health", "recordLocalHealthFinding",
      "The Health Monitor: record a process or container its watcher saw busy, as a finding it can report", None),
+    ("/api/v2/task-manager", "get", "Health", "getTaskManager",
+     "People and bots: whether the Task Manager is on, its hourly report's switch, schedule and last run, and each "
+     "department's last check and open check task", None),
+    ("/api/v2/task-manager/turn-on", "post", "Health", "turnOnTaskManager",
+     "Owner only: add the Task Manager from the catalog (or wake a paused one) and activate it", None),
+    ("/api/v2/task-manager/turn-off", "post", "Health", "turnOffTaskManager", "Owner only: pause the Task Manager", None),
+    ("/api/v2/system-routines", "get", "Health", "listSystemRoutines",
+     "Every job Tico runs on its own: schedule, last and next run, on or off, and what the viewer may change", None),
+    ("/api/v2/system-routines/{key}", "put", "Health", "saveSystemRoutine",
+     "The owner or an admin: switch a system routine on or off, pick its schedule preset (15m, hourly, 4h, daily, "
+     "business) or its daily time", "SystemRoutineUpdate"),
+    ("/api/v2/system-routines/{key}/run", "post", "Health", "runSystemRoutine",
+     "The owner or an admin: run one controlled system routine once, now; 409 while it is off or already running", None),
 ]
 
 

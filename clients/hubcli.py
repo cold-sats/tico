@@ -349,6 +349,12 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub health-monitor findings            the Health Monitor: what the last hourly scan found
     hub health-monitor report <key> | --process process:<name> --cpu N --mb N
                                            report a finding as a Tico bug, one ticket per signature
+    hub task-manager status                the Task Manager: bot, hourly report switch and schedule, last run, each department
+    hub task-manager on|off                the hourly department report (the owner or an admin)
+    hub task-manager schedule <business|hourly|4h|daily> [--at HH:MM]
+                                           when the report runs (business = hourly, weekdays 08:00 to 18:00)
+    hub task-manager run                   run the department check now
+    hub task-manager bot on|off            turn the Task Manager bot itself on or off (the owner)
     hub service-key create --label "Billing backend"
                                            the owner or an admin: a key another system uses to file, update and close
                                            tasks (POST /api/v2/inbound/tasks, docs/service-keys.md); shown once
@@ -2107,6 +2113,18 @@ def parser():
     s.add_argument("--cpu", type=float, default=0, help="with --process: its CPU percent")
     s.add_argument("--mb", type=float, default=0, help="with --process: its memory in MB")
     s.set_defaults(fn="health-monitor report")
+    manager = sub.add_parser("task-manager", help="the Task Manager's hourly department check (docs/task-manager.md)").add_subparsers(dest="sub")
+    manager.add_parser("status", help="bot, report switch and schedule, last run, each department's last check").set_defaults(fn="task-manager status")
+    manager.add_parser("on", help="switch the hourly report on").set_defaults(fn="task-manager on")
+    manager.add_parser("off", help="switch the hourly report off").set_defaults(fn="task-manager off")
+    manager.add_parser("run", help="run the department check now").set_defaults(fn="task-manager run")
+    s = manager.add_parser("schedule", help="pick when the report runs")
+    s.add_argument("preset", choices=["business", "hourly", "4h", "daily"])
+    s.add_argument("--at", help="HH:MM for the daily preset")
+    s.set_defaults(fn="task-manager schedule")
+    s = manager.add_parser("bot", help="turn the Task Manager bot itself on or off")
+    s.add_argument("state", choices=["on", "off"])
+    s.set_defaults(fn="task-manager bot")
     roadmap = sub.add_parser("roadmap", help="public roadmaps: ranking and company settings (docs/roadmaps.md)").add_subparsers(dest="sub")
     s = roadmap.add_parser("tasks", help="roadmap tasks ranked by requests, organization or size")
     s.add_argument("--sort", choices=["requester_count", "external_requesters", "important", "organization", "size"])
