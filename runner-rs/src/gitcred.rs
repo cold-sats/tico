@@ -145,15 +145,21 @@ pub struct CredentialSocket {
 
 /// A Gateway turn's own door to the credential socket: in its private directory, owned by its leased user and
 /// owner-only, so neither the bot user nor a sibling turn can connect through it. Answers like the shared one.
+/// The turn's lease owns it (crate::turn_users::Lease::hold_socket), so it closes before the UID can be lent again.
 pub struct TurnSocket {
     pub path: PathBuf,
     task: tokio::task::JoinHandle<()>,
+    /// The (dev, ino) bound at `path`: the path is fixed per UID, and a later turn's socket there is not this one's.
+    bound: (u64, u64),
 }
 
 impl Drop for TurnSocket {
     fn drop(&mut self) {
+        use std::os::unix::fs::MetadataExt;
         self.task.abort();
-        let _ = std::fs::remove_file(&self.path);
+        if std::fs::symlink_metadata(&self.path).is_ok_and(|m| (m.dev(), m.ino()) == self.bound) {
+            let _ = std::fs::remove_file(&self.path);
+        }
     }
 }
 
@@ -213,8 +219,10 @@ impl CredentialSocket {
     pub fn serve_for(&self, env: &mut Env, path: &Path, owner: (u32, u32)) -> std::io::Result<TurnSocket> {
         let _ = std::fs::remove_file(path);
         let listener = tokio::net::UnixListener::bind(path)?;
+        use std::os::unix::fs::MetadataExt;
+        let info = std::fs::symlink_metadata(path)?;
         let task = accept(listener, self.attempts.clone(), self.client.clone(), self.cache.clone());
-        let turn = TurnSocket { path: path.to_path_buf(), task };
+        let turn = TurnSocket { path: path.to_path_buf(), task, bound: (info.dev(), info.ino()) };
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
         std::os::unix::fs::lchown(path, Some(owner.0), Some(owner.1))?;
         self.repoint(env, path);
@@ -708,6 +716,32 @@ mod tests {
         assert!(reply.contains("bad request"), "{reply}");
         drop(turn);
         assert!(!dir.join("turn.sock").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_finished_turn_leaves_the_next_borrowers_socket_at_the_same_path() {
+        let dir = PathBuf::from("/tmp").join(format!("tico-turn-reuse-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir(&dir).unwrap();
+        let client = Client::new("http://127.0.0.1:9", "synthetic", 5, 0).unwrap();
+        let shared = CredentialSocket { path: dir.join("shared.sock"), dir: None, attempts: Default::default(), client, cache: Arc::new(TokenCache::new()) };
+        let owner = unsafe { (libc::geteuid(), libc::getegid()) };
+        // The path is fixed per UID: the next turn on the same UID binds it while the old one is still being dropped.
+        let own = dir.join("git-credential.sock");
+        let old = shared.serve_for(&mut Env::new(), &own, owner).unwrap();
+        let new = shared.serve_for(&mut Env::new(), &own, owner).unwrap();
+        drop(old);
+        let path = own.clone();
+        let reply = tokio::task::spawn_blocking(move || {
+            let mut stream = std::os::unix::net::UnixStream::connect(&path).unwrap();
+            stream.write_all(b"not json\n").unwrap();
+            let mut line = String::new();
+            BufReader::new(stream).read_line(&mut line).unwrap();
+            line
+        }).await.unwrap();
+        assert!(reply.contains("bad request"), "{reply}");
+        drop(new);
+        assert!(!own.exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

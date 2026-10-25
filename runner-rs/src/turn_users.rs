@@ -96,6 +96,8 @@ pub struct Lease {
     pub uid: u32,
     pub dir: PathBuf,
     reusable: bool,
+    /// The turn's own credential socket at a fixed path in `dir`, closed first when the lease ends.
+    socket: Option<crate::gitcred::TurnSocket>,
 }
 
 impl Lease {
@@ -111,10 +113,16 @@ impl Lease {
             // Fail closed: the next runner start sweeps this slot before making it available again.
             return Err(format!("cannot prepare turn user {uid}: {e}"));
         }
-        Ok(Self { pool, uid, dir, reusable: false })
+        Ok(Self { pool, uid, dir, reusable: false, socket: None })
     }
 
     pub fn identity(&self) -> (u32, u32) { (self.uid, self.pool.gid) }
+
+    /// The lease keeps the turn's credential socket, so the socket cannot outlive it: a later borrower of this UID
+    /// binds the same path, and a socket dropped after the UID's return would race that turn's.
+    pub fn hold_socket(&mut self, socket: crate::gitcred::TurnSocket) { self.socket = Some(socket); }
+
+    pub fn socket(&self) -> Option<&crate::gitcred::TurnSocket> { self.socket.as_ref() }
 
     /// Called only after the relay listener and all in-flight model calls have actually stopped.
     pub fn permit_reuse(&mut self) { self.reusable = true; }
@@ -153,6 +161,7 @@ impl Lease {
 
 impl Drop for Lease {
     fn drop(&mut self) {
+        self.socket.take();
         match self.pool.clean(self.uid) {
             Ok(()) if self.reusable => { self.pool.available.lock().unwrap().insert(self.uid); }
             Ok(()) => crate::util::log(&format!("Tico runner: turn user {} quarantined after interrupted cleanup", self.uid)),

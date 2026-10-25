@@ -992,8 +992,8 @@ print(json.dumps(r))
             assert!(asked.status.success(), "{id:?}: {}", String::from_utf8_lossy(&asked.stderr));
             assert!(String::from_utf8_lossy(&asked.stdout).contains(expected), "{id:?}: {}", String::from_utf8_lossy(&asked.stdout));
         }
-        drop(turn_socket);
-        drop(shared_socket);
+        let socket_path = turn_socket.path.clone();
+        user.hold_socket(turn_socket); // as execute does: the lease closes it before the UID returns
         let allowed = crate::isolation::command_as(Some(user.identity()), crate::env::python())
             .args(["-c", "import sys,urllib.request; r=urllib.request.Request(sys.argv[1]+'/chat/completions',data=b'{}',headers={'Authorization':'Bearer '+sys.argv[2]}); print(urllib.request.urlopen(r,timeout=3).status)", &relay.url, &relay.token])
             .env_clear().output().await.unwrap();
@@ -1007,6 +1007,7 @@ print(json.dumps(r))
         grant_vault.remove_files();
         user.permit_reuse();
         drop(user);
+        assert!(!socket_path.exists(), "the turn's credential socket outlives its lease");
         assert!(!child.wait().await.unwrap().success(), "detached process survives cleanup");
         if let Ok(left) = std::fs::read_dir(&dir) {
             for entry in left.flatten() { eprintln!("probe: left in the private directory: {:?} {:?}", entry.file_name(), entry.metadata().map(|m| (m.uid(), m.mode()))); }
@@ -1020,7 +1021,15 @@ print(json.dumps(r))
         assert_eq!(reused.uid, uid);
         // Even the next borrower of the same UID cannot use a revoked relay.
         assert!(TcpStream::connect(("127.0.0.1", url::Url::parse(&relay.url).unwrap().port().unwrap())).await.is_err());
+        // The next borrower binds the same fixed socket path, and keeps it until its own lease ends.
+        let again = shared_socket.serve_for(&mut crate::env::Env::new(), &socket_path, reused.identity()).unwrap();
+        reused.hold_socket(again);
+        let asked = crate::isolation::command_as(Some(reused.identity()), crate::env::python())
+            .args(["-c", ask, &socket_path.display().to_string()]).env_clear().output().await.unwrap();
+        assert!(String::from_utf8_lossy(&asked.stdout).contains("bad request"), "reused: {}{}", String::from_utf8_lossy(&asked.stdout), String::from_utf8_lossy(&asked.stderr));
         reused.permit_reuse(); drop(reused);
+        assert!(!socket_path.exists());
+        drop(shared_socket);
         // A second name for a turn-owned temp file must not survive readable, nor return its UID to the pool.
         let (first, second) = (format!("/tmp/tico-turn-link-{}", uuid::Uuid::new_v4().simple()), format!("/tmp/tico-turn-link-{}", uuid::Uuid::new_v4().simple()));
         let linked = crate::isolation::command_as(Some(other.identity()), "/bin/sh")
