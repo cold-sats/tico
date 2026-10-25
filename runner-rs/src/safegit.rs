@@ -127,34 +127,48 @@ pub fn environment(turn: &Env) -> Env {
 }
 
 /// A Gateway turn's own git: the model's, run as its leased user in a checkout the bot user and the shared group
-/// can write. Like the runner's git it runs no repository-named program (hooks, fsmonitor), and it reads no system
-/// or bot-owned global config, where `safe.directory = *` would widen trust: its global config is `global`, a file
-/// the supervisor writes with only the machine's identity, default branch and proxy settings, owned by the leased
-/// user `owner` so its cleanup removes it with the rest of its files. It trusts exactly `paths`.
+/// can write. Like the runner's git it runs no repository-named program (hooks, fsmonitor), and it reads no config
+/// a bot can write, nor `safe.directory = *`: its global config is `global`, a file the supervisor writes, owned by
+/// the leased user `owner` so its cleanup removes it with the rest of its files. It trusts exactly `paths`.
+/// Proxy, CA and default branch come only from a system config root owns and no group can write (trusted_system);
+/// the shared HOME's ~/.gitconfig and ~/.config/git/config are any sibling bot's to write, and a proxy or CA bundle
+/// from there would see the turn's GitHub token. The proxy and CA variables the supervisor set reach git unchanged.
+/// The identity is the turn's GIT_COMMITTER_*/GIT_AUTHOR_* (as committing_environment), else the system's, else Tico's.
 pub fn for_turn_user(env: &mut Env, paths: &[PathBuf], global: &Path, owner: Option<(u32, u32)>) -> std::io::Result<()> {
-    let mut machine: Env = env.iter().filter(|(k, _)| crate::env::SETTINGS.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
-    for key in ["GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"] {
-        if let Some(v) = env.get(key) { machine.insert(key.into(), v.clone()); }
-    }
-    let mut lines = String::new();
-    for scope in ["--system", "--global"] {
+    let mut entries: Vec<(String, String)> = vec![];
+    if let Some(system) = trusted_system(env) {
         let hooks = format!("core.hooksPath={}", hooks().display());
         let out = std::process::Command::new("git")
-            .args(["--no-optional-locks", "-c", &hooks, "-c", "core.fsmonitor=false", "config", scope, "--no-includes", "--null",
-                   "--get-regexp", r"^(user\.(name|email)|init\.defaultbranch|http\.(.*\.)?(proxy|sslcainfo))$"])
-            .current_dir("/").env_clear().envs(&machine)
+            .args(["--no-optional-locks", "-c", &hooks, "-c", "core.fsmonitor=false", "config", "--file"]).arg(&system)
+            .args(["--no-includes", "--null", "--get-regexp", r"^(user\.(name|email)|init\.defaultbranch|http\.(.*\.)?(proxy|sslcainfo))$"])
+            .current_dir("/").env_clear().env("PATH", env.get("PATH").map(String::as_str).unwrap_or("/usr/bin:/bin"))
+            .env("GIT_CONFIG_NOSYSTEM", "1").env("GIT_CONFIG_GLOBAL", "/dev/null")
             .stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).output();
-        let Ok(out) = out else { continue };
-        for entry in String::from_utf8_lossy(&out.stdout).split('\0') {
-            let Some((key, value)) = entry.split_once('\n') else { continue };
-            let Some((section, name)) = key.rsplit_once('.') else { continue };
-            if value.contains('\n') { continue; }
-            let section = match section.split_once('.') {
-                Some((head, sub)) => format!("{head} \"{}\"", sub.replace('\\', "\\\\").replace('"', "\\\"")),
-                None => section.to_string(),
-            };
-            lines.push_str(&format!("[{section}]\n\t{name} = \"{}\"\n", value.replace('\\', "\\\\").replace('"', "\\\"")));
+        if let Ok(out) = out {
+            for entry in String::from_utf8_lossy(&out.stdout).split('\0') {
+                let Some((key, value)) = entry.split_once('\n') else { continue };
+                if !value.contains('\n') { entries.push((key.to_string(), value.to_string())); }
+            }
         }
+    }
+    let identity = committing_environment(env);
+    for (key, var) in [("user.name", "GIT_COMMITTER_NAME"), ("user.email", "GIT_COMMITTER_EMAIL")] {
+        let author = var.replace("COMMITTER", "AUTHOR");
+        let set = [var, author.as_str()].iter().any(|v| env.get(*v).is_some_and(|x| !x.is_empty()));
+        if set || !entries.iter().any(|(k, _)| k == key) {
+            entries.retain(|(k, _)| k != key);
+            entries.push((key.into(), identity[var].clone()));
+        }
+    }
+    let quote = |v: &str| v.replace('\\', "\\\\").replace('"', "\\\"");
+    let mut lines = String::new();
+    for (key, value) in &entries {
+        let Some((section, name)) = key.rsplit_once('.') else { continue };
+        let section = match section.split_once('.') {
+            Some((head, sub)) => format!("{head} \"{}\"", quote(sub)),
+            None => section.to_string(),
+        };
+        lines.push_str(&format!("[{section}]\n\t{name} = \"{}\"\n", quote(value)));
     }
     let _ = std::fs::remove_file(global);
     {
@@ -174,6 +188,18 @@ pub fn for_turn_user(env: &mut Env, paths: &[PathBuf], global: &Path, owner: Opt
     crate::gitcred::add_config(env, "core.fsmonitor", "false");
     crate::gitcred::trust_directories(env, paths);
     Ok(())
+}
+
+/// The system git config, if no bot can have written it: a regular file, not a link, that root owns and no group
+/// or other user can write, in a directory likewise. Git's own `$GIT_CONFIG_SYSTEM`, else the image's /etc/gitconfig.
+fn trusted_system(env: &Env) -> Option<PathBuf> {
+    if env.get("GIT_CONFIG_NOSYSTEM").is_some_and(|v| !v.is_empty() && v != "0" && v != "false") { return None; }
+    let path = PathBuf::from(env.get("GIT_CONFIG_SYSTEM").filter(|v| !v.is_empty()).map(String::as_str).unwrap_or("/etc/gitconfig"));
+    use std::os::unix::fs::MetadataExt;
+    let safe = |m: &std::fs::Metadata| m.uid() == 0 && m.mode() & 0o022 == 0;
+    let file = std::fs::symlink_metadata(&path).ok()?;
+    let parent = std::fs::symlink_metadata(path.parent()?).ok()?;
+    (file.is_file() && safe(&file) && parent.is_dir() && safe(&parent)).then_some(path)
 }
 
 const IDENTITY: [&str; 4] = ["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"];
@@ -223,12 +249,42 @@ mod tests {
         let global = dir.join("turn.gitconfig");
         for_turn_user(&mut env, &[repo.clone()], &global, None).unwrap();
         let written = std::fs::read_to_string(&global).unwrap();
-        assert!(written.contains("Fixture") && !written.contains("safe"), "{written}");
+        assert!(!written.contains("Fixture") && !written.contains("safe"), "{written}");
         assert_eq!((env["GIT_CONFIG_NOSYSTEM"].as_str(), env["GIT_CONFIG_GLOBAL"].as_str()), ("1", global.to_str().unwrap()));
         let listed = git(&env, &["-C", &repo.display().to_string(), "config", "--get-all", "safe.directory"]);
         assert_eq!(String::from_utf8_lossy(&listed.stdout).trim(), repo.display().to_string());
         assert!(git(&env, &["-C", &repo.display().to_string(), "commit", "-q", "--allow-empty", "-m", "turn"]).status.success());
         assert!(!mark.exists(), "the repository's hook ran");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_sibling_writable_gitconfig_gives_the_turn_user_no_proxy_or_ca() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("tico-turn-proxy-{}", uuid::Uuid::new_v4().simple()));
+        let home = dir.join("home");
+        std::fs::create_dir_all(home.join(".config/git")).unwrap();
+        // Any bot can write the shared HOME (1770), so these are a sibling's: a proxy it runs and a CA bundle it made.
+        let hostile = "[http]\n\tproxy = http://127.0.0.1:9\n\tsslCAInfo = /home/runner/sibling-ca.pem\n[http \"https://github.com/\"]\n\tproxy = http://127.0.0.1:9\n[user]\n\tname = Sibling\n";
+        let system = dir.join("gitconfig");
+        for file in [home.join(".gitconfig"), home.join(".config/git/config"), system.clone()] {
+            std::fs::write(&file, hostile).unwrap();
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o664)).unwrap();
+        }
+        let mut env = Env::new();
+        env.insert("HOME".into(), home.display().to_string());
+        env.insert("XDG_CONFIG_HOME".into(), home.join(".config").display().to_string());
+        env.insert("GIT_CONFIG_SYSTEM".into(), system.display().to_string()); // not root's, so not trusted either
+        env.insert("PATH".into(), std::env::var("PATH").unwrap_or_default());
+        env.insert("GIT_AUTHOR_NAME".into(), "Ops Bot".into());
+        env.insert("GIT_AUTHOR_EMAIL".into(), "ops@bots.invalid".into());
+        let global = dir.join("turn.gitconfig");
+        for_turn_user(&mut env, &[dir.join("repo")], &global, None).unwrap();
+        let written = std::fs::read_to_string(&global).unwrap();
+        assert!(!written.to_lowercase().contains("proxy") && !written.to_lowercase().contains("sslcainfo") && !written.contains("Sibling"), "{written}");
+        assert!(written.contains("Ops Bot") && written.contains("ops@bots.invalid"), "{written}");
+        let listed = std::process::Command::new("git").args(["config", "--get-regexp", "^http\\."]).current_dir(&dir).env_clear().envs(&env).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&listed.stdout), "", "the turn user's git sees a sibling's http settings");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

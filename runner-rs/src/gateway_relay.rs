@@ -893,7 +893,16 @@ chmod 755 "$1/.git/hooks/pre-commit" "$1/.git/fsmonitor"; git -C "$1" config cor
         settings.env.insert(DIR_ENV.into(), user.dir.join("pi").display().to_string());
         // The turn's real git settings, as execute.rs turn_git gives them: exactly its checkout trusted (the image's
         // `safe.directory = *` unread), no repository-named programs.
+        // A sibling bot can write the shared HOME: its proxy and CA bundle must not reach the turn's git and token.
+        let sibling_config = std::path::Path::new("/home/runner/.gitconfig");
+        let planted = crate::isolation::command_as(Some((10003, 10002)), "/bin/sh")
+            .args(["-c", "umask 002; printf '[http]\\n\\tproxy = http://127.0.0.1:9\\n\\tsslCAInfo = /home/runner/sibling-ca.pem\\n' > \"$1\"", "fixture", &sibling_config.display().to_string()])
+            .env_clear().output().await.unwrap();
+        assert!(planted.status.success(), "{}", String::from_utf8_lossy(&planted.stderr));
+        settings.env.insert("HOME".into(), "/home/runner".into());
         crate::safegit::for_turn_user(&mut settings.env, &[workspace.clone()], &user.dir.join("gitconfig"), Some(user.identity())).unwrap();
+        let turn_config = std::fs::read_to_string(user.dir.join("gitconfig")).unwrap().to_lowercase();
+        assert!(!turn_config.contains("proxy") && !turn_config.contains("sslcainfo"), "{turn_config}");
         let mut argv = vec![crate::env::python().display().to_string()];
         argv.extend(["-u", "-c", r#"import os,pathlib,subprocess,sys,time
 assert os.getegid()==10002
@@ -907,6 +916,7 @@ for p in sys.argv[3:]:
  pathlib.Path(p).write_text('from isolated turn'); os.chmod(p,0o600)
 subprocess.run(['git','init','-q',str(pathlib.Path(sys.argv[3]).parent)],check=True)
 subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'status','--short'],check=True,stdout=subprocess.DEVNULL)
+assert subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'config','--get-regexp','^http\\.'],capture_output=True,text=True).stdout=='', 'a sibling http setting reached the turn'
 subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'-c','user.name=fixture','-c','user.email=fixture@example.invalid','add','.'],check=True)
 subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'-c','user.name=fixture','-c','user.email=fixture@example.invalid','commit','-qm','synthetic'],check=True)
 remote=str(pathlib.Path(sys.argv[3]).parent/'.git'/'fixture-remote.git')
@@ -922,6 +932,7 @@ time.sleep(300)
         BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).await.unwrap();
         let pid: u32 = line.trim().parse().unwrap();
         eprintln!("probe: turn finished its git work");
+        std::fs::remove_file(sibling_config).unwrap();
         assert!(!std::path::Path::new(&hook_mark).exists() && !std::path::Path::new(&fsmonitor_mark).exists(), "a planted program ran as the leased user");
         // Control: the same git run by the repository's owner with its own config does run them, so the check is not vacuous.
         let control = crate::isolation::command_as(Some((10003, 10002)), "/usr/bin/git")
