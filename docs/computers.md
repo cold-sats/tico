@@ -9,8 +9,6 @@ These used to be a separate AI providers tab, and Subscriptions before that; old
 
 ## Turn counts
 
-**Unreleased.** The following counts and start rules apply with this update.
-
 The computers list, each computer's pop-up and **Settings → Health** show four counts:
 
 | Count | What it means |
@@ -43,6 +41,54 @@ their existing delivery leases, including preparation already underway, until th
 three-minute deadline. Legacy waiting turns retain their place too, because those runners cannot obtain a fresh
 reservation before starting. Update the runner to release those places safely and enable the new capacity rules
 for its turns. Upgraded runners opt in after a successful heartbeat and keep the older rules against an older server.
+
+## Company turn levels
+
+Company turn levels apply across **all computers**, separately from each computer's capacity and CPU or memory brake.
+The company count includes running and starting turns, plus waiting turns already admitted to run. It is not the sum of every displayed **Waiting** count.
+Queued work blocked on quota, spending, computer readiness or a paused bot does not count. Neither does work held by the company stop itself.
+
+Each level is multiplied by the number of people who can sign in to Tico, with a minimum of one person.
+Guests, hidden or departed people, and people whose sign-in is disabled do not count.
+This counts people with sign-in access, not the number currently online or the AI tools' logins.
+
+| Level | Default per person | What happens at or above it |
+|---|---|---|
+| **Warning** | **40** | New turns can still start. **Settings → Health → Company turns** records the crossing as an incident. Tico sends no “no more slots” alert to a bot. |
+| **Stop** | **100** | New turns wait with “Your company is at its limit; Tico is fixing what's stuck.” Running turns continue. |
+
+For example, four people who can sign in, plus one guest, give a warning at **160** and a stop at **400**.
+One person, or no people with sign-in access, gives **40** and **100**.
+
+Below the stop level, eligible waiting work starts in order across computers. Work still waiting for a login, quota or computer remains held for that reason.
+Below the warning level, Health marks the incident resolved and records the time. Crossing the warning again opens a new incident.
+The Health record works even when the optional [Health Monitor](health-monitor.md) is off.
+
+These settings provide the warning record and start limit. The separate automatic fixer has not shipped with these settings.
+The company-limit message does not confirm that an automatic repair has run.
+
+### Change the company turn levels
+
+You must be the owner or an admin. The server rejects changes from anyone else.
+
+1. Open **Settings → General**.
+2. Find **Company turn levels**.
+3. Enter **Warning level per person**.
+4. Enter **Stop level per person**.
+5. Click **Save turn levels**.
+
+Both values must be whole numbers from **1** to **10,000**, and warning must not exceed stop.
+For example, enter **45** and **110** for four people. After saving, the confirmation shows warning at **180** and stop at **440** company turns.
+The card shows the current people count, company thresholds and turns in use.
+
+Saved values apply to the current company count. Lowering stop to or below that count holds new turns; running turns continue.
+Raising stop above the count lets eligible waiting work resume. Raising warning above the count resolves an active warning incident.
+To restore the defaults, enter **40** and **100** and click **Save turn levels** again.
+
+If saving fails, read the error beside the button and correct the values before trying again.
+If the card is missing, ask an owner or admin to change the levels.
+Check **Settings → Health** for the company count and **Settings → Computers** for individual wait reasons.
+Changing the levels does not add computer capacity or clear a login, quota or overload wait.
 
 ## Connections
 
