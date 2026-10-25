@@ -112,6 +112,11 @@ def run(args, who=None):
     fn = args.fn
     if args.cmd == "inbound":
         return via_tool(client,args)
+    if fn.startswith(("trigger relay ", "relay ", "sleep ")):
+        return via_tool(client, args)
+    # The other webhook leaves of docs/webhooks.md: each runs the tool of its own name, as on the server's own shell.
+    if fn.startswith(("trigger ", "rule ", "notice ")) or fn == "event-types":
+        return via_tool(client, args)
     if fn == "team icon":
         with Path(args.file).open("rb") as source:
             return client.post_bytes("team/icon", source)
@@ -301,6 +306,22 @@ def run(args, who=None):
         if fn == "service-key revoke":
             return client.post("service-keys/" + args.id + "/revoke", {}, key=os.environ.get("HUB_OPERATION_ID"))
         return client.get("service-keys")["keys"]
+    if args.cmd == "webhook":
+        from clients import hubtools
+        fields = {k: v for k, v in vars(args).items() if k not in ("cmd", "sub", "fn") and v is not None}
+        fields["operation_id"] = os.environ.get("HUB_OPERATION_ID")
+        if fn in ("webhook create", "webhook update"):
+            try:
+                hubtools.webhook_options(fields)
+            except ValueError as exc:
+                raise APIError("header", str(exc), 422) from None
+        if fn == "webhook send":
+            raw = fields.pop("data", None) or "{}"
+            try:
+                fields["data"] = json.loads(Path(raw[1:]).read_text() if raw.startswith("@") else raw)
+            except (OSError, ValueError):
+                raise APIError("data", "--data must be JSON, or @file holding JSON") from None
+        return hubtools.BY_NAME[tool_name(fn)]["fn"](client, fields)
     identity = client.get("me")
     actor = identity["actor"]
     key = os.environ.get("HUB_OPERATION_ID")

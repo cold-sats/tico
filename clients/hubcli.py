@@ -222,7 +222,35 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                     [--timezone Z] [--enable|--disable] [--bot X]
                                            --enable / --disable turn it on or off; another bot's, as the requester (BotOps)
     hub routine delete <id>
-    hub trigger list                       webhooks people made; a routine runs --on webhook.<id>
+    hub trigger list                       webhooks people and bots made; a routine runs --on webhook.<id>
+    hub trigger create <name> [--id X]     make one; the address (with its secret) is shown once
+    hub trigger show <id>                  address, settings, 24-hour counts, routines
+    hub trigger update <id> [--name N] [--preset none|hmac|github|standard|stripe|slack] [--type-from H|/pointer]
+                    [--hourly 1-600] [--keep-days 1-30] [--unheard log|note]
+    hub trigger rotate <id>                a new secret; the old address stops
+    hub trigger sign <id> [--preset P] [--secret S] [--off]
+                                           verify each call (preset default hmac); the secret is shown once
+    hub trigger delete <id>
+    hub trigger deliveries <id>            the latest calls: delivery id, type, outcome, stored
+    hub trigger delivery <id> <delivery> [--part N]
+                                           one stored call, headers redacted; long bodies read in parts
+    hub trigger replay <id> <delivery>     run a stored call again as a new occurrence
+    hub trigger recover <id> [--since HOURS]
+                                           run again the calls refused in the last hours (a fixed secret) whose body is kept
+    hub event-types [--group task]         every event Tico names, with an example payload (routines, rules, webhooks)
+    hub trigger relay create|rotate|delete <trigger>
+                                           a second address through Tico Gateway (shown once); hub relay status
+    hub relay set <trigger> --wake on|off  whether a delivery to that address starts a sleeping server
+    hub relay wake-url show|off|set <url>  the https address Tico Gateway knocks on to start a server you run when a webhook
+                                           waits for it; the owner (set shows the signing secret once)
+    hub webhook list|create|show|update|rotate|pause|resume|delete|send|sends|retry|example
+    hub webhook recover|replay <id> --since DATE|enable <id>
+                                           send again what gave up / what was never sent since a date; turn an endpoint back on
+                                           outgoing webhooks: endpoints Tico posts events to (hub webhook create --help)
+    hub sleep status                       stop this hosted server after quiet hours; show the setting
+    hub sleep set --hours N [--runners on|off]
+                                           1-24 quiet hours, 0 = off; bot computers stop with it unless --runners off
+    hub notice list                        notices from Tico Team, newest first (tico.notice in rules)
     hub release now [--note "..."]         ask the Release Manager to release what is at Pending Release now
     hub release schedule [--on|--off] [--time HH:MM ...] [--manager BOT] [--writer BOT]
                                            show or change the daily release (company time; an owner or admin)
@@ -592,6 +620,24 @@ def cmd_task_dry_run(args, who):
 
 
 # ----------------------------------------------------------------------------- parser
+def quiet_hours(word):
+    """0 to 24, whole hours."""
+    try:
+        hours = int(word)
+    except ValueError:
+        hours = -1
+    if not 0 <= hours <= 24:
+        raise argparse.ArgumentTypeError("use a whole number of hours from 0 to 24")
+    return hours
+
+
+def on_off(word):
+    """`on` or `off` as the boolean the tool takes."""
+    if word not in ("on", "off"):
+        raise argparse.ArgumentTypeError("use on or off")
+    return word == "on"
+
+
 def parser():
     p = argparse.ArgumentParser(prog="hub", description="the company hub: messages, tasks, status")
     sub = p.add_subparsers(dest="cmd")
@@ -1719,9 +1765,91 @@ def parser():
     s.add_argument("id")
     s.set_defaults(fn="routine run")
 
-    trigger = sub.add_parser("trigger", help="webhooks that start routines (Settings > Triggers)").add_subparsers(dest="sub")
+    s = sub.add_parser("event-types", help="every event Tico names, with a one-line description and an example payload")
+    s.add_argument("--group", help="only this group: task, approval, needs_you, bot, release, meeting, strategy, market, "
+                                   "inbound, health, webhook, tico, custom")
+    s.set_defaults(fn="event-types")
+    trigger = sub.add_parser("trigger", help="webhooks that start routines (Settings > Webhooks)").add_subparsers(dest="sub")
     s = trigger.add_parser("list")
     s.set_defaults(fn="trigger list")
+    s = trigger.add_parser("create", help="make a webhook trigger; the address with its secret is shown once")
+    s.add_argument("name")
+    s.add_argument("--id", help="lowercase letters, digits and dashes; made from the name by default")
+    s.set_defaults(fn="trigger create")
+    s = trigger.add_parser("show")
+    s.add_argument("id")
+    s.set_defaults(fn="trigger show")
+    s = trigger.add_parser("update", help="change a trigger's name or settings")
+    s.add_argument("id")
+    s.add_argument("--name")
+    s.add_argument("--preset", choices=["none", "hmac", "github", "standard", "stripe", "slack"], help="how calls are verified (needs a signing secret)")
+    s.add_argument("--type-from", dest="type_from", help="a header name or a JSON pointer (/type); empty for the preset's default")
+    s.add_argument("--hourly", type=int, help="calls an hour, 1-600 (60 by default)")
+    s.add_argument("--keep-days", dest="keep_days", type=int, help="days calls stay readable and can run again, 1-30 (7 by default)")
+    s.add_argument("--unheard", choices=["log", "note"], help="note: tell the maker, at most hourly, when no routine or rule acted")
+    s.set_defaults(fn="trigger update")
+    s = trigger.add_parser("rotate", help="a new secret; the old address stops working")
+    s.add_argument("id")
+    s.set_defaults(fn="trigger rotate")
+    s = trigger.add_parser("sign", help="verify each call with a preset; the signing secret is shown once")
+    s.add_argument("id")
+    s.add_argument("--preset", choices=["hmac", "github", "standard", "stripe", "slack"], help="the current one, else hmac")
+    s.add_argument("--secret", help="the sender's own secret (16+ characters); a new one is made when left out")
+    s.add_argument("--off", action="store_true", help="stop checking signatures")
+    s.set_defaults(fn="trigger sign")
+    s = trigger.add_parser("delete")
+    s.add_argument("id")
+    s.set_defaults(fn="trigger delete")
+    s = trigger.add_parser("deliveries", help="the latest calls to a trigger")
+    s.add_argument("id")
+    s.set_defaults(fn="trigger deliveries")
+    s = trigger.add_parser("delivery", help="one stored call: redacted headers and the body (long bodies in parts)")
+    s.add_argument("id")
+    s.add_argument("delivery")
+    s.add_argument("--part", type=int, help="which 20,000-character part of a long body (from 1)")
+    s.set_defaults(fn="trigger delivery")
+    s = trigger.add_parser("replay", help="run a stored call again as a new occurrence")
+    s.add_argument("id")
+    s.add_argument("delivery")
+    s.set_defaults(fn="trigger replay")
+    s = trigger.add_parser("recover", help="run again, under the current secret and preset, every call refused in the last "
+                                           "hours whose body is kept; a sender's later retry of one is a duplicate")
+    s.add_argument("id")
+    s.add_argument("--since", type=int, default=24, help="hours back, 1-720 (24 by default)")
+    s.set_defaults(fn="trigger recover")
+    relay = trigger.add_parser("relay", help="a second address through Tico Gateway, so nothing is lost while this "
+                                             "server is off").add_subparsers(dest="subsub")
+    for word, text in (("create", "make the address; its secret is shown once"),
+                       ("rotate", "replace the secret; the old address stops at once"),
+                       ("delete", "remove the address; the trigger and its own address stay")):
+        s = relay.add_parser(word, help=text)
+        s.add_argument("trigger", help="the trigger id from `hub trigger list`")
+        s.set_defaults(fn="trigger relay " + word)
+    relay_top = sub.add_parser("relay", help="webhooks through Tico Gateway").add_subparsers(dest="sub")
+    s = relay_top.add_parser("status", help="the Gateway key, the addresses, the last pull and what waits at the Gateway")
+    s.set_defaults(fn="relay status")
+    s = relay_top.add_parser("set", help="whether a delivery to a trigger's Gateway address starts a sleeping server")
+    s.add_argument("trigger", help="the trigger id from `hub trigger list`")
+    s.add_argument("--wake", type=on_off, metavar="on|off", required=True, help="start the server on a delivery (on) or not (off)")
+    s.set_defaults(fn="relay set")
+    wake_url = relay_top.add_parser("wake-url", help="an address Tico Gateway knocks on to start a server you run when a "
+                                                     "webhook waits for it").add_subparsers(dest="subsub")
+    wake_url.add_parser("show", help="the address, who set it and when").set_defaults(fn="relay wake-url show")
+    wake_url.add_parser("off", help="stop knocking").set_defaults(fn="relay wake-url off")
+    s = wake_url.add_parser("set", help="set the address; the signing secret is shown once")
+    s.add_argument("url", help="an https address you run")
+    s.set_defaults(fn="relay wake-url set")
+    sleep = sub.add_parser("sleep", help="Sleep when idle: a hosted server stops after quiet hours").add_subparsers(dest="sub")
+    s = sleep.add_parser("status", help="hosted or not, the hours, what keeps the server up and Tico's last answer")
+    s.set_defaults(fn="sleep status")
+    s = sleep.add_parser("set", help="turn it on (1-24 quiet hours) or off (0); an owner or an admin")
+    s.add_argument("--hours", type=quiet_hours, metavar="N", help="quiet hours before it sleeps; 0 turns it off")
+    s.add_argument("--runners", type=on_off, metavar="on|off", help="stop the bot computers with the server (default on)")
+    s.set_defaults(fn="sleep set")
+
+    notice = sub.add_parser("notice", help="notices from Tico Team").add_subparsers(dest="sub")
+    s = notice.add_parser("list", help="the notices Tico Team sent, newest first")
+    s.set_defaults(fn="notice list")
 
     release = sub.add_parser("release", help="the team's releases: ask for one now, or set the daily hour").add_subparsers(dest="sub")
     s = release.add_parser("now", help="ask the Release Manager to release what is at Pending Release now (hotfix, "
@@ -1764,6 +1892,93 @@ def parser():
     s.add_argument("--note", default="")
     s.add_argument("--on-behalf-of", metavar="MESSAGE_ID", help=ASKED)
     s.set_defaults(fn="approval decline")
+
+    webhook = sub.add_parser("webhook", help="outgoing webhooks: Tico posts events to an address you choose "
+                                              "(Settings > Webhooks)").add_subparsers(dest="sub")
+    s = webhook.add_parser("list", help="the endpoints you may see, with 7-day delivered and failed counts")
+    s.add_argument("--limit", type=int)
+    s.add_argument("--offset", type=int)
+    s.set_defaults(fn="webhook list")
+    s = webhook.add_parser("create", help="make an endpoint; the signing secret is printed once. A bot files an approval instead")
+    s.add_argument("--name", required=True)
+    s.add_argument("--url", required=True, help="an https address")
+    s.add_argument("--events", nargs="+", help="event names, groups (task.*) or * (default all)")
+    s.add_argument("--rate-per-hour", dest="rate_per_hour", type=int, help="most sends an hour (default 600)")
+    s.add_argument("--allow-http", dest="allow_http", action="store_true", default=None,
+                   help="owner only: plain http to localhost, for development")
+    s.add_argument("--departments", nargs="+", help="only events about work in these departments (default all)")
+    s.add_argument("--bots", nargs="+", help="only events that involve these bots (default all)")
+    s.add_argument("--task-types", dest="task_types", nargs="+", help="only events about tasks of these types (default all)")
+    s.add_argument("--header", action="append", help='a header to send, "Name: value" (up to 10; every use replaces the list)')
+    s.add_argument("--secret-header", dest="secret_header", action="append",
+                   help='like --header, the value is sealed and never shown; "Name" alone keeps the value it has')
+    s.set_defaults(fn="webhook create")
+    s = webhook.add_parser("show", help="one endpoint and its last attempts")
+    s.add_argument("id")
+    s.set_defaults(fn="webhook show")
+    s = webhook.add_parser("update", help="change an endpoint")
+    s.add_argument("id")
+    s.add_argument("--name")
+    s.add_argument("--url")
+    s.add_argument("--events", nargs="+")
+    s.add_argument("--rate-per-hour", dest="rate_per_hour", type=int)
+    s.add_argument("--allow-http", dest="allow_http", action=argparse.BooleanOptionalAction, default=None)
+    s.add_argument("--expected-revision", dest="expected_revision", type=int)
+    s.add_argument("--departments", nargs="+", help="only events about work in these departments (default all)")
+    s.add_argument("--bots", nargs="+", help="only events that involve these bots (default all)")
+    s.add_argument("--task-types", dest="task_types", nargs="+", help="only events about tasks of these types (default all)")
+    s.add_argument("--header", action="append", help='a header to send, "Name: value" (up to 10; every use replaces the list)')
+    s.add_argument("--secret-header", dest="secret_header", action="append",
+                   help='like --header, the value is sealed and never shown; "Name" alone keeps the value it has')
+    s.add_argument("--no-filter", dest="no_filter", action="store_true", help="send every event the endpoint listens for")
+    s.add_argument("--no-headers", dest="no_headers", action="store_true", help="remove every custom header")
+    s.set_defaults(fn="webhook update")
+    s = webhook.add_parser("rotate", help="a new signing secret, printed once; the old one signs for 24 more hours")
+    s.add_argument("id")
+    s.set_defaults(fn="webhook rotate")
+    s = webhook.add_parser("pause", help="stop sending; queued sends wait")
+    s.add_argument("id")
+    s.add_argument("--reason")
+    s.set_defaults(fn="webhook pause")
+    s = webhook.add_parser("resume", help="send again")
+    s.add_argument("id")
+    s.set_defaults(fn="webhook resume")
+    s = webhook.add_parser("delete", help="delete the endpoint and cancel its queued sends")
+    s.add_argument("id")
+    s.set_defaults(fn="webhook delete")
+    s = webhook.add_parser("send", help="send a custom event (custom.<name>) to one endpoint")
+    s.add_argument("id")
+    s.add_argument("--type", required=True, help="custom.<name>")
+    s.add_argument("--data", help="JSON, or @file with the JSON")
+    s.add_argument("--subject")
+    s.set_defaults(fn="webhook send")
+    s = webhook.add_parser("sends", help="an endpoint's send log; --send ID shows one send with its attempts")
+    s.add_argument("id")
+    s.add_argument("--send")
+    s.add_argument("--state", choices=["ready", "sending", "delivered", "failed", "cancelled", "withheld"])
+    s.add_argument("--limit", type=int)
+    s.add_argument("--offset", type=int)
+    s.set_defaults(fn="webhook sends")
+    s = webhook.add_parser("retry", help="send a failed, cancelled or delivered send again now")
+    s.add_argument("id")
+    s.add_argument("send")
+    s.set_defaults(fn="webhook retry")
+    s = webhook.add_parser("recover", help="send again every send that gave up since a date (same ids and bodies)")
+    s.add_argument("id")
+    s.add_argument("--since", required=True, help="a date like 2026-10-20 or a time")
+    s.set_defaults(fn="webhook recover")
+    s = webhook.add_parser("replay", help="send the events since a date that the endpoint should have had and has no send for")
+    s.add_argument("id")
+    s.add_argument("--since", required=True, help="a date like 2026-10-20 or a time")
+    s.add_argument("--after", help="with --since: continue where a round that said `more` stopped (its next_since and next_after)")
+    s.set_defaults(fn="webhook replay")
+    s = webhook.add_parser("enable", help="turn an endpoint back on; after Tico turned it off for failing, it offers to send again what it held back")
+    s.add_argument("id")
+    s.set_defaults(fn="webhook enable")
+    s = webhook.add_parser("example", help="send an event type's example to one endpoint")
+    s.add_argument("id")
+    s.add_argument("--type", help="an event name (default custom.example)")
+    s.set_defaults(fn="webhook example")
 
     s = sub.add_parser("pipeline", help="a task type's steps (count, age, owners, whom they wait on, open PRs), each bot's "
                        "running, queued, held and dead jobs, and failed runs by cause")
@@ -2398,10 +2613,17 @@ def parser():
     s.set_defaults(fn="rule list")
 
     def rule_fields(s):
-        s.add_argument("--event", help="the event, or * for every event that is not always-wake")
-        s.add_argument("--then", choices=["ignore", "note", "batch", "wake", "ask", "action"])
-        s.add_argument("--when", help='JSON of conditions, all must hold: {"actor":"bot","role":"owner","step":"Review 1","tag":"x","state":"waiting"}')
-        s.add_argument("--params", help='JSON, e.g. {"action":"close"} for an action rule')
+        s.add_argument("--event", help="the event, or * for every event that is not always-wake; webhook.received and tico.notice "
+                                       "(or a prefix like webhook.*) have no task")
+        s.add_argument("--then", choices=["ignore", "note", "batch", "wake", "ask", "action"],
+                       help="wake starts a run, note and ignore wait; ask raises a Needs-you; action runs params.action")
+        s.add_argument("--when", help='JSON of conditions, all must hold: {"actor":"bot","role":"owner","step":"Review 1","tag":"x","state":"waiting"}; '
+                                      'for a webhook event only {"trigger":"shop","type":"order.*"}')
+        s.add_argument("--params", help='JSON, e.g. {"action":"close"} for an action rule; {"action":"wake_bot","bot":"ops","text":"Order {{data.order}}"} '
+                                        'or {"action":"send_webhook","webhook":"<id>","type":"custom.order","data":{"id":"{{data.order}}"}}; '
+                                        '{"action":"create_task","owner":"ops","title":"Order {{data.order}}","body":"..."} or '
+                                        '{"action":"forward","webhook":"<id>"} (webhook.received only); '
+                                        '{"bot":"ops","text":"..."} on a wake rule for a webhook event')
         s.add_argument("--on", dest="on", action=argparse.BooleanOptionalAction, default=None, help="--off turns the rule off")
         s.add_argument("--position", type=int, help="order inside its scope; lower first")
         s.add_argument("--note", help="why the rule exists")
@@ -2535,6 +2757,7 @@ RENAMED = [
     (("judge",), ("decision", "ask"), (), None),
 ]
 RENAMED.sort(key=lambda rule: -len(rule[0]))
+NOTICE_COMMANDS = ("list",)                             # the subcommands `hub notice` has now
 
 
 def rename_argv(argv):
@@ -2542,6 +2765,8 @@ def rename_argv(argv):
     argv = list(argv)
     if argv[:1] == ["note"] and len(argv) > 1 and argv[1] not in ("create", "list", "delete") and not argv[1].startswith("-"):
         return ["note", "create"] + argv[1:], '"hub note <bot> <text>" is now "hub note create <bot> <text>"'
+    if argv[:1] == ["notice"] and len(argv) > 1 and (argv[1] in NOTICE_COMMANDS or argv[1].startswith("-")):
+        return argv, None                              # `hub notice list` is new; only `hub notice <text>` is the old send
     if argv[:2] == ["org", "order"]:                   # `hub org` alone is the old `hub team show`; this one is new
         return argv, None
     for old, new, tail, rewrite in RENAMED:

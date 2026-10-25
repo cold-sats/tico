@@ -441,6 +441,11 @@ class Scheduler:
             market_watch.tick(self.store, at)
         except Exception as exc:
             failures.append({"market_watch": type(exc).__name__})
+        try:
+            from . import webhook_delivery
+            webhook_delivery.ensure()                          # a delivery worker that died comes back on the next tick
+        except Exception as exc:
+            failures.append({"webhook_delivery": type(exc).__name__})
         if self.swept is None or at - self.swept >= timedelta(hours=1):
             # Outside the scheduling transaction: the sweep takes its own short write
             # locks. Marked first so a failing sweep retries hourly, not every tick.
@@ -451,11 +456,19 @@ class Scheduler:
                     # A duplicate is not a failure (batch_work.isolated); rows an older server wrote for one go.
                     c.execute("DELETE FROM service_health WHERE service LIKE 'background:%' AND last_error LIKE '%: duplicate: %'")
                     SR.prune(c)                                # each system job keeps its last runs
+                    from . import rules
+                    rules.prune_events(c)                      # the webhook rules' repeat ledger keeps 30 days
+                    from . import webhook_delivery
+                    webhook_delivery.prune(c, stamp(at))       # outgoing webhooks: events and finished sends keep a month
+                    from . import webhooks
+                    webhooks.auto_disable(c, stamp(at))        # an endpoint that failed every attempt for five days is turned off
                 sweep_idempotency(self.store, stamp(at))
                 sweep_mail(self.store, stamp(at))
                 sweep_deltas(self.store, stamp(at))            # finished runs' streamed text pieces keep two weeks
                 from . import events
                 events.sweep(self.store, stamp(at))            # live events keep a day
+                from . import triggers
+                triggers.sweep(self.store, stamp(at))          # webhook bodies keep their trigger's days, delivery ids 30
                 from . import flight
                 flight.sweep(self.store, at.timestamp())       # the flight recorder's minutes become hours
                 from . import performance

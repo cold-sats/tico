@@ -12,8 +12,8 @@ import os
 import shlex
 from datetime import datetime, timezone
 
-from . import (access, billing_check, blob_s3, gateway_connection, hosted_updates, inbox_isolation, model_login, providers,
-               releases, roadmaps, runner_versions, setup_stuck, watchers)
+from . import (access, billing_check, blob_s3, gateway_connection, hook_relay, hosted_updates, inbox_isolation, model_login, providers,
+               releases, roadmaps, runner_versions, setup_stuck, sleep_idle, watchers)
 from .getting_started import _online_runners, _signed_in_runtime, _wanted_runtimes, _person
 
 
@@ -1456,6 +1456,21 @@ def view(c, who, settings, auth, github, config):
                              "; ".join(f"{bot}: {DENIED_WARNING}{rest}" for bot, rest in denied[:3])
                              + ("." if len(denied) <= 3 else f"; and {len(denied) - 3} more."),
                              [_fix("Open bots", "#/settings", "bots")]))
+    if full:
+        from . import webhooks
+        hooks = webhooks.health_summary(c)
+        said = []
+        if hooks["failed"]:
+            said.append("gave up on events for " + ", ".join(hooks["failed"][:3]) + (f" and {len(hooks['failed']) - 3} more" if len(hooks["failed"]) > 3 else ""))
+        if hooks["flaky"]:
+            said.append("more than half of the attempts to " + ", ".join(hooks["flaky"][:3]) + " failed")
+        if hooks["disabled"]:
+            said.append("turned off " + ", ".join(hooks["disabled"][:3]) + " after five days of failed attempts")
+        if hooks["skipped"]:
+            said.append(f"{hooks['skipped']} events skipped endpoints past the limit of {webhooks.MAX_PER_EVENT} per event")
+        if said:
+            checks.append(_check("webhooks", "Outgoing webhooks", "warn", "In the last 24 hours Tico " + "; ".join(said) + ".",
+                                 [_fix("Open webhooks", "#/settings", "webhooks")]))
     if full and (denies := _harness_denies_check(c, settings)):
         checks.append(denies)
     if full:
@@ -1653,6 +1668,14 @@ def view(c, who, settings, auth, github, config):
     if kind == "owner" and (gateway := gateway_connection.health(c, settings)):
         checks.append(_check("gateway", "Tico AI Gateway", gateway["status"], gateway["summary"],
                              [_fix("Open Models", "#/settings", "models")]))
+    # Webhooks waiting at Tico Gateway that this server is not collecting (backend/hook_relay.py).
+    if kind == "owner" and (relay := hook_relay.health(c, settings)):
+        checks.append(_check("hook_relay", "Webhooks through Tico Gateway", relay["status"], relay["summary"],
+                             [_fix("Open Webhooks", "#/settings", "webhooks")]))
+    # Sleep when idle is on but Tico could not be asked to stop this server (backend/sleep_idle.py).
+    if kind == "owner" and (sleep := sleep_idle.health(c, settings)):
+        checks.append(_check("sleep_idle", "Sleep when idle", sleep["status"], sleep["summary"],
+                             [_fix("Open Computers", "#/settings", "devices")]))
     # Tico HQ's nightly billing check, on the Tico team's own install only (the one server holding HQ's read-only staff
     # key): each mismatch, and a check that missed a night or cannot be read, red (backend/billing_check.py).
     if kind == "owner":

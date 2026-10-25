@@ -135,6 +135,7 @@ def post(c, who, week, title, body, items):
     if not before or (bets and set(bets) != set(again)):
         subject = week if not before else week + "." + hashlib.sha256(",".join(sorted(bets)).encode()).hexdigest()[:6]
         routines.emit(c, EVENT, subject, {"week": week, "bets": ", ".join(bets)}, title=title)
+        H.hook(c, "market.briefing", subject, lambda: {"week": week, "bets": list(bets)}, who.actor, revision=0)
     return get(c, week)
 
 
