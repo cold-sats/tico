@@ -179,10 +179,11 @@ function renderNewVersion() {
   const wrap = $('#new-version-wrap');
   if (!wrap) return;
   const u = S.config.update;
-  const show = !!(u && u.available && u.latest && !nvDismissed(u.latest)) || nvBusy;
+  // `scheduled`: the release Tico support set for this hosted server (backend/hosted_updates.py), shown until it is on it.
+  const show = !!(u && u.available && u.latest && !nvDismissed(u.latest)) || !!u?.scheduled || nvBusy;
   wrap.hidden = !show;
   if (!show) { setNewVersionPop(false); return; }
-  $('#new-version-label').textContent = 'New version ' + nvVersion(u.latest);
+  $('#new-version-label').textContent = 'New version ' + nvVersion(u.scheduled || u.latest);
   if (!nvBusy) nvRenderPop();
 }
 function setNewVersionPop(open) {
@@ -195,7 +196,8 @@ function nvRenderPop() {
   const u = S.config.update, pop = $('#new-version-pop');
   const owner = S.me?.role === 'owner';
   const safeUrl = /^https:\/\//.test(u.url || '') ? u.url : '';
-  pop.innerHTML = `<p><strong>Update available.</strong> ${esc(appName())} ${esc(nvVersion(u.latest))} is out. You are on ${esc(nvVersion(u.current))}.</p>
+  pop.innerHTML = `${u.available ? `<p><strong>Update available.</strong> ${esc(appName())} ${esc(nvVersion(u.latest))} is out. You are on ${esc(nvVersion(u.current))}.</p>` : ''}${u.scheduled ? `
+    <p class="nv-status" id="nv-scheduled">Tico will update this server to ${esc(nvVersion(u.scheduled))} when idle.</p>` : ''}
     <div class="nv-actions">${safeUrl ? `<a class="ghost btnlike" id="nv-changelog" href="${esc(safeUrl)}" target="_blank" rel="noopener noreferrer">View changelog</a>` : ''}${owner ? '<button class="primary" id="nv-update" type="button">Update now</button>' : ''}</div>
     <div id="nv-out"></div>
     <button class="nv-dismiss" id="nv-dismiss" type="button">Dismiss for this version</button>`;

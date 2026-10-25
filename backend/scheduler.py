@@ -182,6 +182,7 @@ class Scheduler:
         self.gateway_checked = None
         self.billing_checked = None
         self.stale_checked = None
+        self.hosted_checked = None
         self.marks = {}             # a controlled job's last start in this process, if its record could not be written
 
     def due(self, key, at, cfgs, last):
@@ -527,6 +528,18 @@ class Scheduler:
                 if due:
                     company_server.heartbeat_later(self.store)
                 run.did("Sent" if due else "Nothing to send", quiet=not due)
+        if self.hosted_checked is None or at - self.hosted_checked >= timedelta(minutes=1):
+            # Every minute on a hosted server: the release Tico support scheduled for it, read from HQ every 15
+            # minutes, started once no bot turn runs (backend/hosted_updates.py). On its own thread; nothing at all on
+            # a self-run server, and nothing until support sets one.
+            self.hosted_checked = at
+            from . import hosted_updates
+            if hosted_updates.on(self.store.settings):
+                with SR.recording(self.store, "hosted_update", failures) as run:
+                    due = hosted_updates.due(self.store)
+                    if due:
+                        hosted_updates.tick_later(self.store)
+                    run.did("Checked" if due else "Nothing scheduled", quiet=not due)
         if self.stale_checked is None or at - self.stale_checked >= timedelta(minutes=5):
             # Stale ticket review (backend/stale_review.py), while the team has it on: its watermark and saved preset
             # space the passes (hourly by default);

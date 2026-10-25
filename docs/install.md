@@ -930,6 +930,12 @@ Use **Update now**, or run the target release's installer again to update both t
 Pulling an unchanged pinned tag does not upgrade Tico. See [Updates](updates.md) for manual updates, self-update and rollback.
 Data lives in named volumes and survives updates. Computers follow the server's release.
 
+A server Tico hosts (`TICO_HOSTED`) never follows new releases by itself either. Tico support can schedule a release
+for it: the server reads it from Tico HQ with its Gateway key every 15 minutes, waits until no bot turn runs (two hours
+at most), and updates through the same updater as **Update now**. Settings and Health say "Tico will update this server
+to vX when idle" meanwhile. A failed or rolled-back update is reported to support and is not tried again until they
+schedule it again. A self-run server never asks.
+
 ### One-click updates
 
 With `updater` in `COMPOSE_PROFILES` and `TICO_UPDATER_URL=http://updater:8080` in `.env` (both are in

@@ -208,10 +208,12 @@ function pageSettings() {
   settingsShow(SETTINGS_TAB);
   loadSettings();
 }
-// The server's version, and the desktop app's own when the page runs inside it (app/src/main.rs bridge_script), with
+// The server's version (and the release Tico support will update a hosted one to), and the desktop app's own when the page runs inside it (app/src/main.rs bridge_script), with
 // a way to the app's log file (app/src/applog.rs) when the shell keeps one (it says so in ticoNativeFeatures).
 function settingsVersionHTML() {
   const parts = [S.config.version && `Version ${esc(nvVersion(S.config.version))}`,
+    // Tico support's scheduled update of a hosted server (backend/hosted_updates.py).
+    S.config.update?.scheduled && `Tico will update this server to ${esc(nvVersion(S.config.update.scheduled))} when idle`,
     window.ticoNativeVersion && `App ${esc(nvVersion(window.ticoNativeVersion))}`,
     (window.ticoNativeFeatures || []).includes('showLog') && '<button class="settings-log" type="button" id="settings-app-log">Show the app\'s log</button>'].filter(Boolean);
   return parts.length ? `<p class="settings-version" id="settings-version">${parts.join(' · ')}</p>` : '';
