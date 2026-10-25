@@ -356,11 +356,18 @@ def deliveries(c, trigger_id):
     return rows
 
 
-def _log(c, trigger_id, delivery, sent_id, body, fired, outcome, reason="", *, type="", via="direct", rules=0, at=None):
+def _worked(results):
+    """The rules whose action worked: what a call's `rules` counts. A rule that failed (a wake for a planned bot) is
+    kept in the delivery's `rule_results` with its reason, not counted."""
+    return sum(1 for r in results if r.get("ok"))
+
+
+def _log(c, trigger_id, delivery, sent_id, body, fired, outcome, reason="", *, type="", via="direct", results=(), at=None):
     # REPLACE: an id the ledger forgot (30 days) can outlive its log row, and may be sent again
-    c.execute("INSERT OR REPLACE INTO trigger_deliveries(trigger_id,delivery,received_at,bytes,tasks,outcome,reason,sent_id,type,via,rules) "
-              "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-              (trigger_id, delivery, at or H.now(), len(body), fired, outcome, reason, sent_id, type, via, rules))
+    c.execute("INSERT OR REPLACE INTO trigger_deliveries(trigger_id,delivery,received_at,bytes,tasks,outcome,reason,sent_id,type,via,"
+              "rules,rule_results) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+              (trigger_id, delivery, at or H.now(), len(body), fired, outcome, reason, sent_id, type, via, _worked(results),
+               json.dumps(list(results)) if results else ""))
     c.execute("DELETE FROM trigger_deliveries WHERE trigger_id=? AND outcome=? AND delivery NOT IN (SELECT delivery FROM "
               "trigger_deliveries WHERE trigger_id=? AND outcome=? ORDER BY received_at DESC LIMIT ?)",
               (trigger_id, outcome, trigger_id, outcome, KEEP))
@@ -374,13 +381,15 @@ def _refused(c, found, ident, body, headers, at, status, code, reason, via, secr
     hour = c.execute("SELECT count(*) FROM trigger_deliveries WHERE trigger_id=? AND outcome='refused' AND received_at>?",
                      (trigger_id, H.shift(H.now(), hours=-1))).fetchone()[0]
     if hour < HOURLY and not recovering:
-        _log(c, trigger_id, H.new_id(), ident, body, 0, "refused", reason, via=via)
+        # The type is read from an unverified call, so it is only a label for the log; nothing acts on it.
+        type_ = P.type_of(type_spec(found), headers, body)
+        _log(c, trigger_id, H.new_id(), ident, body, 0, "refused", reason, type=type_, via=via)
         # Kept under the id the call carries, so the sender's retry or a recovery replaces it; never over an accepted call.
         c.execute("INSERT INTO trigger_bodies(trigger_id,delivery,received_at,expires_at,type,via,headers_json,body,outcome) "
-                  "VALUES(?,?,?,?,'',?,?,?,'refused') ON CONFLICT(trigger_id,delivery) DO UPDATE SET "
-                  "received_at=excluded.received_at,expires_at=excluded.expires_at,via=excluded.via,"
+                  "VALUES(?,?,?,?,?,?,?,?,'refused') ON CONFLICT(trigger_id,delivery) DO UPDATE SET "
+                  "received_at=excluded.received_at,expires_at=excluded.expires_at,type=excluded.type,via=excluded.via,"
                   "headers_json=excluded.headers_json,body=excluded.body WHERE trigger_bodies.outcome='refused'",
-                  (trigger_id, ident, at, H.shift(at, days=found["keep_days"]), via,
+                  (trigger_id, ident, at, H.shift(at, days=found["keep_days"]), type_, via,
                    json.dumps(P.kept_headers(headers, secret)), body))
         c.execute("DELETE FROM trigger_bodies WHERE trigger_id=? AND outcome='refused' AND delivery NOT IN "
                   "(SELECT delivery FROM trigger_bodies WHERE trigger_id=? AND outcome='refused' "
@@ -562,7 +571,7 @@ def receive(c, trigger_id: str, body: bytes, headers: Mapping[str, str], *, secr
               (trigger_id, delivery, at, H.shift(at, days=found["keep_days"]), type_, via,
                json.dumps(P.kept_headers(headers, secret)), body))
     fired, results = _route(c, found, delivery, type_, via, body, headers, auth)
-    _log(c, trigger_id, delivery, sender, body, len(fired), "accepted", type=type_, via=via, rules=len(results), at=at)
+    _log(c, trigger_id, delivery, sender, body, len(fired), "accepted", type=type_, via=via, results=results, at=at)
     if not _acted(fired, results):
         _unheard(c, found, delivery, type_)
     return Received("accepted", 202, delivery, None, tasks=len(fired), rules=results, type=type_)
@@ -600,9 +609,9 @@ def replay(c, who, auth, trigger_id, delivery):
     headers = json.loads(stored["headers_json"] or "{}")
     fired, results = _route(c, found, again, stored["type"], stored["via"], bytes(stored["body"]), headers, auth)
     _log(c, trigger_id, again, base, stored["body"], len(fired), "replayed", f"replay of {base}",
-         type=stored["type"], via=stored["via"], rules=len(results))
+         type=stored["type"], via=stored["via"], results=results)
     H.event(c, who.actor, "trigger.replayed", trigger_id, {"delivery": base, "replay": again, "tasks": len(fired)})
-    return {"delivery": again, "of": base, "tasks": len(fired), "rules": len(results)}
+    return {"delivery": again, "of": base, "tasks": len(fired), "rules": _worked(results)}
 
 
 def recover(c, who, auth, vault, trigger_id, since_hours=24):
@@ -685,7 +694,7 @@ def read(c, who, trigger_id, delivery, part=1):
     out = {"id": delivery, "trigger": trigger_id, "received_at": (stored or logged)["received_at"],
            "type": (stored or logged)["type"], "via": (stored or logged)["via"],
            "outcome": row.get("outcome", "accepted"), "tasks": row.get("tasks", 0), "rules": row.get("rules", 0),
-           "reason": row.get("reason", ""), "bytes": len(stored["body"]) if live else row.get("bytes", 0),
+           "rule_results": json.loads(row.get("rule_results") or "[]"), "reason": row.get("reason", ""), "bytes": len(stored["body"]) if live else row.get("bytes", 0),
            "expires_at": stored["expires_at"] if stored else None, "expired": not live,
            "content_type": headers.get("content-type", ""), "headers": P.redacted(headers)}
     if not live:
@@ -817,7 +826,7 @@ def install(app, settings, store, auth, mutate):
             return JSONResponse({"challenge": got.answer}, status_code=200)
         if got.outcome == "accepted":
             return JSONResponse({"ok": True, "tasks": got.tasks, "delivery": got.delivery, "type": got.type,
-                                 "rules": len(got.rules)}, status_code=202)
+                                 "rules": _worked(got.rules)}, status_code=202)
         if got.outcome == "duplicate":
             return JSONResponse({"ok": True, "duplicate": True, "tasks": 0, "delivery": got.delivery}, status_code=200)
         raise Problem(got.code or "not_found", got.reason or "Not found", got.status)

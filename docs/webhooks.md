@@ -37,7 +37,7 @@ The word *trigger* in the CLI, the API and routines means the same thing as an i
 
 | Answer | Meaning |
 |---|---|
-| 202 | Accepted. The reply says how many tasks and rules it started. |
+| 202 | Accepted. The reply says how many tasks it started and how many rules worked (`rules`; see [Rules](#rules-on-webhookreceived)). |
 | 200 with `"duplicate": true` | Tico has seen this delivery before and did nothing. |
 | 401 | The signature is missing or wrong. |
 | 404 | No such webhook, or the secret is wrong. |
@@ -94,8 +94,13 @@ and Tico also leaves a notice for whoever made the webhook, at most once an hour
 ### The delivery log
 
 Under each webhook, **Recent calls** lists the last 50: accepted, refused (bad or missing signature, over the cap) and run
-again, with the sender's delivery id and the type. Tico logs only calls to the right address, and at most 60 refusals an hour,
+again, with the delivery id and the type. Tico logs only calls to the right address, and at most 60 refusals an hour,
 so a stranger cannot fill the log.
+
+A refused call is listed under an id Tico made, which is its handle for `hub trigger delivery`. The sender's own id for it is
+`sent_id`, and it stays out of the duplicate list, so the sender's next correctly signed try with that id is accepted. A refused
+call also shows its type, read from the header or pointer **type from** names even though the signature failed. Treat it as a
+label from a stranger.
 
 ```
 hub trigger deliveries github
@@ -109,7 +114,8 @@ Other headers, such as `Idempotency-Key` and `Webhook-Id`, show as sent. A cooki
 **Run again** (`hub trigger replay github <delivery>`) starts the routines and rules again for one kept call, as a new
 occurrence named `<delivery>:replay:<n>`. It does not count toward the hourly cap, and it is refused once the body has expired.
 A sender's own redelivery button usually reuses the same delivery id, which Tico treats as a duplicate for 30 days. Use Run
-again in Tico instead.
+again in Tico instead. Run again on a refused call is refused: use Recover below, which checks the call again under the current
+secret.
 
 ### Recover refused calls
 
@@ -124,6 +130,8 @@ hub trigger recover github --since 24
 its own delivery id, so the sender's later retry of it is a duplicate. One that still fails stays as it was. The answer counts
 found, recovered, duplicate and still refused. Tico runs at most 200 a round; `more` says to run it again. Only a person who
 manages the webhook can do this.
+
+A recovered call stays in the log: its refused row is marked *(recovered)* and sits beside the new accepted row.
 
 ### How a bot reads a call
 
@@ -202,6 +210,11 @@ cannot write its own template. Output is cut at a limit, ending with ` ... (cut)
 **Order.** Rules run bot first, then group, then team, each in its position. At most one rule acts on each target (a bot to wake,
 an endpoint to send to). An *ignore* with no bot named stops the rules after it. A given call runs the rules once, even if the
 sender posts it again.
+
+**What `rules` counts.** The answer to the sender (`rules`) and the call's row in the log count the rules whose action worked. A
+rule that failed is not counted, but it is kept: `hub trigger delivery <id> <delivery>` lists each rule's result as `rule_results`,
+with `ok: false` and the reason (`cpo is planned`). A wake rule, or a `wake_bot` action, reaches a bot that exists and has been
+started. A bot that is still *planned* is not reached; a paused or quarantined bot keeps the message until it is back.
 
 **Nothing matches, nothing happens.** There is no catch-all. If no rule matches or one fails, the call is still logged, a routine
 on the webhook still runs, and the failure is in History as `rule.event_error`.
@@ -389,8 +402,10 @@ hub webhook replay acme --since 2026-10-20
 
 ### Allowed addresses
 
-Tico checks the address on every try. It must be `https`, with no name or password in it, and every address its name resolves to
-must be a public one. Tico uses no proxy. For development, the owner can switch on **Allow plain http to this computer** for one
+Tico checks the address twice. When you save it, it must be `https`, with no name or password in it, and it may not be an IP
+address outside public space (`10.0.0.1`, `192.168.1.10`, `169.254.169.254`, `::1`) or a local name (`localhost`, `*.localhost`,
+`*.local`, `*.internal`); Tico looks nothing up then. On every try it checks again, and every address the name resolves to must be
+a public one. Tico uses no proxy. For development, the owner can switch on **Allow plain http to this computer** for one
 endpoint (`--allow-http`), which lets that endpoint use `http://localhost`, `127.0.0.1` or `::1`, and nothing else.
 
 ### Rehearsal copies
@@ -401,7 +416,8 @@ A copy of real data run in rehearsal mode ([Environments](environments.md)) send
 ### Custom events
 
 `hub webhook send <id> --type custom.deploy-done --data '{"app":"web"}'` sends your own event to one endpoint. A rule's
-`send_webhook` does the same. The endpoint must list `custom.*` or that exact name when a bot sends.
+`send_webhook` does the same. The endpoint must list `custom.*` or that exact name when a bot sends. A send to a paused endpoint
+is refused (`hub webhook example` too); turn the endpoint back on first.
 
 ### Rights
 

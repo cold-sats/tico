@@ -191,6 +191,24 @@ def test_an_address_the_guard_refuses_cannot_be_saved(api, url):
     post(api, "webhooks", {"name": "Bad", "url": url, "events": ["*"]}, expected=422)
 
 
+@pytest.mark.parametrize("url", ["https://10.0.0.1/", "https://169.254.169.254/latest", "https://192.168.1.10/x", "https://localhost/x",
+                                 "https://[::1]/x", "https://[::ffff:10.0.0.5]/x", "https://2130706433/x", "https://127.1/x",
+                                 "https://api.localhost/x", "https://printer.local/x", "https://db.internal/x", "https://localhost./x"])
+def test_an_https_address_that_is_not_public_by_its_spelling_cannot_be_saved_or_set(api, url):
+    """No name lookup at save: an IP literal outside public space, or a local name, is refused like its http twin."""
+    post(api, "webhooks", {"name": "Bad", "url": url, "events": ["*"]}, expected=422)
+    post(api, "webhooks", {"name": "Bad", "url": url, "events": ["*"], "allow_http": True}, expected=422)
+    made = make(api)
+    refused = post(api, f"webhooks/{made['id']}/update", {"url": url}, expected=422)
+    assert "public" in refused["error"]["detail"] or "local" in refused["error"]["detail"]
+    assert get(api, f"webhooks/{made['id']}")["webhook"]["url"] == made["url"]
+
+
+def test_a_public_ip_literal_and_a_name_that_only_looks_local_can_be_saved(api):
+    make(api, "https://8.8.8.8/hook")
+    make(api, "https://dead.beef/hook")
+
+
 def test_plain_http_is_for_localhost_and_the_owner_switch_alone(api, net):
     post(api, "webhooks", {"name": "Dev", "url": "http://localhost:9000/x", "events": ["*"]}, expected=422)
     post(api, "webhooks", {"name": "Dev", "url": "http://localhost:9000/x", "events": ["*"], "allow_http": True},
