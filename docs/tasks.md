@@ -66,6 +66,10 @@ On the engineering board, moving a ticket with a linked open PR into **Review 1*
 
 A failing check refuses the move and names the check. Pending checks are allowed. A missing, stale, failed or unrecognised test receipt refuses the move and names the current PR head and newest receipt head. The ticket keeps its step and the reviewer stays asleep. If someone other than the Builder tried the move, the Builder also gets the same comment once per ticket, check kind and head. When GitHub is connected, the server reads the current head and checks before accepting a handoff; an unavailable or incomplete read refuses it.
 
+A ticket has at most one open **Review 1**, **Review 2** or **QA** subtask for a pull request head. A second request for the same check on the same head (or when the head is unknown) is refused with the open subtask's id; a push gives a new head and with it a new check. Reviewers and Security give a verdict and never move the ticket: a bot that owns a Review 1, Review 2 or Security subtask of a Dev ticket (and does not own the ticket) is refused a status, step or type change, and told to finish its review task with a verdict. The Builder, QA and people move the ticket.
+
+A reviewer or QA records the verdict as fields on its own subtask: `hub task done <id> --verdict approve|changes|pass|fail --head <sha>` (also `hub task update --verdict --head`, the `hub_task_done` and `hub_task_update` tools, and `verdict` and `verdict_head` on `POST /api/v2/tasks/{id}`). A `VERDICT: approve PR #12 head <sha>` line in its note or comment fills the same fields when no flag is given; the latest one wins. The ticket's owner is woken once with the verdict and the head it judged (`verdict`, `verdict_head`), and the subtask shows both.
+
 Receipts stay ordinary text, for example `Tests: base <40-character SHA> head <40-character SHA>: 9 passed, 0 failed`. The result and head belong on one line. The reader evaluates the sentence containing the head, so separate sentences about corrected historical failures or other checks still pending do not override that result. The shared reader used by review handoffs and the release checklist accepts ticket notes, owner messages, keeper ready-for-review notices and review-child evidence from the reviewer or Builder. It accepts `356 pass / 0 fail`, distinguishes an unrecognised receipt from no receipt, and rejects failures such as `40 passed, 2 failing/errored`. A recorded failure at a head cannot be cleared by a passing rerun at that same head.
 
 At engineering-ticket creation, `change_paths` supplies the known paths for the QA rule. The CLI accepts repeated `--change-path` flags. An explicit `qa` boolean (`--qa yes` or `--qa no`) overrides the rule; an author-supplied `qa` tag is retained.
@@ -369,6 +373,22 @@ verdict always wake. A rule can be set for the whole team, a task type, a depart
 specific wins (`hub rule list`, `hub rule set`; the Rules page). The message and the run both record the rule, and the
 Rules page and `rule_weekly` in `hub sql` show how often each woke a bot and how often that run did nothing.
 
+An event no rule names waits as a note (`default_note`): the bot reads it on its next run. Work still wakes the bot: an
+assignment or a task handed back to it, a review or QA request, a blocker, a routine, a schedule, a due date, a snooze
+ending, a requested update, an unanswered ask restated, a release published, the Task Manager's report, a pull request's
+checks finishing, a subtask or a blocker finishing, a stall check, and a task the requester finished or declined. A plain
+comment, another bot's status or step move, and the bot's own write (`own_write`, ignored) do not. A rule's outcome is
+`ignore`, `note`, `batch`, `wake`, `ask` or `action`. **Ask** writes the message as a note and puts one item in the
+Needs you list of the task's human (its requester if a person, else its owner's operator), once per task and rule.
+**Action** runs `close`, `move_step`, `set_wait`, `relate` or `note` as the keeper, with the rule id in the task's history,
+and writes the message as a note; if the action fails the bot is woken instead (`fail_open`).
+
+A task entering a step is the event `step_entered`; a rule's `when` can name the `step` and the `role` (`owner`,
+`requester`, `qa`, `release_manager`, `other`). A team with no `step_entered` rule writes nothing on a step move. A Dev
+tickets type is given three editable rows when it is created or renamed: **QA Fixes** wakes the Builder that owns the
+ticket, **Pending Release** is a note to the Release Manager, and **In QA** wakes QA only. Delete a row and it stays
+deleted.
+
 ## Snoozing a task
 
 **Snooze** sets a task aside until a date: it tells its bot or person that nobody plans to get to it
@@ -568,7 +588,9 @@ A bot that filed the subtask may close it explicitly; until then it stays Done. 
 requester hears when the parent itself finishes, so a manager's task → builder task → review
 subtask sends the review back to the builder, and the completed build back to the manager.
 
-A review verdict on a subtask's comment or final reply takes the same direct path. Its comment,
+A review verdict on a subtask's comment or final reply takes the same direct path, and the parent owner's wake carries the
+subtask's `verdict` and `verdict_head`. The parent's requester is told in notes, and woken only when the task is
+declined, blocked or done. Its comment,
 Done note and final reply are one delivery for that verdict and review cycle; reopening the
 subtask permits a new review. Completed or closed parents record late results quietly. Private
 subtask text returns on the parent only when that parent's readers may receive it; otherwise the
