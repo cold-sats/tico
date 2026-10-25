@@ -147,8 +147,8 @@ def summary(name, spec):
     sweep = f"; a stall check or routine runs at most every {_duration(spec['sweep_seconds'])}" if spec["sweeps"] else ""
     if name == DOER or (name == CUSTOM and spec["sweeps"]):
         return f"News about its tasks waits up to {_duration(spec['batch_seconds'])}{sweep}."
-    if name == LEAD or (name == CUSTOM and spec["digest_hour"] is not None):
-        hour = spec["digest_hour"] if spec["digest_hour"] is not None else DIGEST_HOUR
+    if name == CUSTOM and spec["digest_hour"] is not None:     # a Lead's description and hour picker say it already
+        hour = spec["digest_hour"]
         return f"The rest of the news arrives once a day, at {hour:02d}:00 team time."
     return ""
 
