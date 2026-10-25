@@ -127,8 +127,18 @@ def run_task_manager_report(store, auth, at, failures=None):
         run.did(made["words"], quiet=not made["items"])
 
 
+def run_propose_demotions(store, auth, at, failures=None):
+    # Plain code, no model: each wake rule that mostly woke a bot for nothing this week becomes one suggestion to make it a
+    # note (backend/rule_suggestions.py). Nothing changes until a person applies it.
+    with SR.recording(store, "propose_demotions", failures) as run:
+        from . import rule_suggestions
+        with store.transaction() as c:
+            found = rule_suggestions.propose_demotions(c, stamp(at))
+        run.did(SR.words_of(found["made"], "rule suggested", "No rules to suggest"))
+
+
 QUICK = {"still_wanted": run_still_wanted, "kpi_asks": run_kpi_asks, "health_scan": run_health_scan,
-         "ask_deadlines": run_ask_deadlines, "task_manager_report": run_task_manager_report}
+         "ask_deadlines": run_ask_deadlines, "task_manager_report": run_task_manager_report, "propose_demotions": run_propose_demotions}
 
 
 def run_now(store, auth, key, actor):
@@ -527,8 +537,19 @@ class Scheduler:
                 # Discover candidates in a WAL snapshot, then recheck one task under each
                 # short lock. Unrelated runner writes can progress between tasks.
                 with self.store.read_transaction() as c:
-                    task_ids = list(dict.fromkeys(row["id"] for row in
-                                    [*H.stalled_tasks(c, stamp(at)), *H.spot_check_tasks(c, stamp(at))]))
+                    rows = [row for row in [*H.stalled_tasks(c, stamp(at)), *H.spot_check_tasks(c, stamp(at))]
+                            if not H.stall_skip(c, row, stamp(at))]
+                    task_ids = list(dict.fromkeys(row["id"] for row in rows))
+                    try:
+                        from . import stall_triage
+                        triage = stall_triage.inputs(c, stamp(at), rows)
+                    except Exception as exc:
+                        triage = []
+                        failures.append({"stall_triage": type(exc).__name__})
+                # Decide reads the quiet tasks that stand as at their bot's checkpoint (backend/stall_triage.py) on its
+                # own thread, off this lock; the wake loop below sees its verdict from the next minute on.
+                if triage:
+                    stall_triage.tick(self.store, triage, stamp(at))
                 woke = {key: [] for key in ("woke", "escalated", "checked", "stuck", "held", "retried")}
                 # Our earlier task wake must not make the same bot appear busy for
                 # the rest of this pass. Other newly queued work still fences it.

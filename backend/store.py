@@ -794,12 +794,17 @@ class Store:
             c.executescript(_learnings.SCHEMA)
             from . import stale_review as _stale_review
             c.executescript(_stale_review.SCHEMA)
+            from . import stall_triage as _stall_triage
+            c.executescript(_stall_triage.SCHEMA)
+            from . import rule_suggestions as _rule_suggestions
+            c.executescript(_rule_suggestions.SCHEMA)
             from . import system_routines as _system_routines
             c.executescript(_system_routines.SCHEMA)
             from . import task_rules as _task_rules
             c.executescript(_task_rules.SCHEMA)
             from . import rules as _rules
             c.executescript(_rules.SCHEMA)
+            _rules.seed_dev(c)
             from . import owner_link as _owner_link
             c.executescript(_owner_link.SCHEMA)
             from . import docs as _docs

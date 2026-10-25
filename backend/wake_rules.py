@@ -52,6 +52,9 @@ ALWAYS_KINDS = frozenset({"ask", "answer", "steer"})
 ALWAYS_REFS = frozenset({"approval", "questions", "command", "run_now"})
 FLAG = "needs_action"
 VERDICT = re.compile(r"^\s*VERDICT:\s*(approve|changes)\s+PR\s+#\d+\s+head\s+[0-9a-f]{7,40}\b", re.I | re.M)
+# The same line read for its fields: a review or QA child's verdict and the head it judged (hubdb.record_verdict).
+VERDICT_FIELDS = re.compile(r"^\s*VERDICT:\s*(approve|changes|pass|fail)\b(?:\s+PR\s+#\d+)?(?:\s+head\s+([0-9a-f]{7,40})\b)?",
+                            re.I | re.M)
 
 # What a parked task waits for, by the refs its wake carries. These wake even when the bot's own write caused them.
 AWAITED = (
@@ -71,10 +74,11 @@ HOLDABLE_TRIGGERS = ("comment", "status_or_relation")
 HOLDABLE_CLASSES = ("notice", "message")
 # The references news carries: a plain message's, the trigger stamp, a finished task's summary. Anything else (a
 # wake kind, a batch, an answer) is more than news, and so is a reference no rule here knows yet.
+# `news` names the event of a notice that is news but not a plain comment (rules.NOTE_EVENTS, task_done...).
 # The person whose own act a keeper notice reports (H._write_message): kept on the message, after the request ends.
 CAUSED_BY = "caused_by"
 NEWS_REFS = frozenset({"task", "comment", "attachments", "files", "unsolicited", "turn_id", "warnings", "via",
-                       FLAG, "trigger", "trigger_source", "task_completion", CAUSED_BY, "rule"})
+                       FLAG, "trigger", "trigger_source", "task_completion", CAUSED_BY, "rule", "news"})
 
 # The stall checks that only ask "has anything moved?"; same_state may hold these. A stuck run, a setup that is
 # held, a restated ask, a due date and a snooze ending are other news and keep waking.
@@ -128,7 +132,7 @@ def awaited(refs):
     wake = refs.get("wake")
     if refs.get("blocker_done"):
         return "blocker_done"
-    if refs.get("trigger") == "pr_checks":
+    if refs.get("trigger") == "pr_checks" and wake != "pr_review":      # a review note is news, not a result
         return "wake_once"
     if refs.get("subtask"):
         return "subtask"
@@ -279,6 +283,22 @@ def settled_state(conn, task_row, bot, started, attempt_id):
         return None
 
 
+def at_checkpoint(conn, task_row, target):
+    """Whether the task stands exactly as at `target`'s last checkpoint on it, with no newer turn of its running:
+    no stored state, a blocked checkpoint, someone else's checkpoint or any difference is False."""
+    if not task_row or task_row.get("owner") != target or task_row.get("checkpoint_blocked") \
+            or not task_row.get("checkpoint_state") or task_row.get("checkpoint_by") != target:
+        return False
+    from . import hubdb as H
+    lanes, _ = H._session_lanes(conn, task_row)
+    # A completed turn's checkpoint says nothing about a newer active turn's health. Its
+    # first status check seeds the retry and diagnostic path when it stops making progress.
+    if conn.execute("SELECT 1 FROM attempts WHERE bot=? AND lane IN (?,?) "
+                    "AND state IN ('leased','running') LIMIT 1", (H.actor_id(target), *lanes)).fetchone():
+        return False
+    return state_of(conn, task_row) == task_row["checkpoint_state"]
+
+
 def same_state(conn, actor, target, kind, refs, body, task_row, cause=None, in_reply_to=None):
     """Whether this wake is a plain stall or status check about a task `target` owns that stands exactly as at its
     last checkpoint. Nothing on ALWAYS_WAKE or AWAITED is ever held."""
@@ -290,14 +310,7 @@ def same_state(conn, actor, target, kind, refs, body, task_row, cause=None, in_r
         return None
     if always_wakes(conn, actor, target, kind, refs, body, CAUSE.get() if cause is None else cause, in_reply_to):
         return None
-    from . import hubdb as H
-    lanes, _ = H._session_lanes(conn, task_row)
-    # A completed turn's checkpoint says nothing about a newer active turn's health. Its
-    # first status check seeds the retry and diagnostic path when it stops making progress.
-    if conn.execute("SELECT 1 FROM attempts WHERE bot=? AND lane IN (?,?) "
-                    "AND state IN ('leased','running') LIMIT 1", (H.actor_id(target), *lanes)).fetchone():
-        return None
-    return "same_state" if state_of(conn, task_row) == task_row["checkpoint_state"] else None
+    return "same_state" if at_checkpoint(conn, task_row, target) else None
 
 
 def gate(conn, actor, target, kind, refs, body, conv, in_reply_to=None):

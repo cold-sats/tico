@@ -93,5 +93,10 @@ def test_a_published_release_gives_the_writer_one_task_and_qa_a_wake_per_ticket(
     assert json.loads(_release_wakes(api, plain)[0][1])["quiet"] is True
     roles = sorted(json.loads(r)["role"] for _, r in _release_wakes(api, tested))
     assert roles == ["note", "qa"], "QA is woken for the qa-labelled ticket only"
+    wakes = {json.loads(r)["role"]: json.loads(r) for _, r in _release_wakes(api, tested)}
+    assert wakes["qa"]["rule"] == "release_published" and not wakes["qa"].get("quiet"), "QA's wake is the named event"
+    with api.app.state.store.read() as c:
+        written = c.execute("SELECT refs_json FROM messages WHERE body LIKE 'New task from%Docs for v1.2.3%'").fetchall()
+    assert [json.loads(r[0])["rule"] for r in written] == ["release_published"], "the writer's docs task wakes under it too"
     docs = [t for t in _tasks(api, "cpo", "Docs for")]
     assert docs == ["Docs for v1.2.3: 2 tickets"], "one docs task for the release, however many tickets or replays"

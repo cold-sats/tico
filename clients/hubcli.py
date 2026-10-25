@@ -358,6 +358,8 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            when the report runs (business = hourly, weekdays 08:00 to 18:00)
     hub task-manager run                   run the department check now
     hub task-manager bot on|off            turn the Task Manager bot itself on or off (the owner)
+    hub stall-triage [--on|--off]          quiet task triage: Decide reads a quiet task's last messages before its stall check
+                                           stays silent (the owner or an admin; off by default)
     hub service-key create --label "Billing backend"
                                            the owner or an admin: a key another system uses to file, update and close
                                            tasks (POST /api/v2/inbound/tasks, docs/service-keys.md); shown once
@@ -969,8 +971,20 @@ def parser():
     s.add_argument("--step-rank", dest="step_rank", type=float, help="its place within its step, lower first")
     s.add_argument("--number", type=int, help="movers: the number of a task that has none")
     s.add_argument("--role", action="append", help="who is on it by role, NAME=person,person (repeat for more roles; NAME= clears one)")
+    s.add_argument("--verdict", choices=["approve", "changes", "pass", "fail"],
+                   help="a review or QA subtask's verdict; the task that asked for it is woken with it")
+    s.add_argument("--head", dest="verdict_head", help="the pull request head (commit sha) the verdict judged")
     s.add_argument("--on-behalf-of", metavar="MESSAGE_ID", help=ASKED)
     s.set_defaults(fn="task update")
+    s = task.add_parser("done", help="finish a task you own with its result; a review or QA subtask adds its --verdict "
+                                     "and the --head it judged")
+    s.add_argument("id")
+    s.add_argument("--note", help="the result, in a few plain sentences")
+    s.add_argument("--verdict", choices=["approve", "changes", "pass", "fail"])
+    s.add_argument("--head", dest="verdict_head", help="the pull request head (commit sha) the verdict judged")
+    s.add_argument("--quiet", action="store_true", help="keep detailed notes on the task")
+    s.add_argument("--on-behalf-of", metavar="MESSAGE_ID", help=ASKED)
+    s.set_defaults(fn="task done")
     s = task.add_parser("comment", help="leave a comment on a task, on the record with your name")
     s.add_argument("--public", action="store_true", default=None)
     s.add_argument("--approval-id", dest="approval_id")
@@ -2142,6 +2156,10 @@ def parser():
     s = manager.add_parser("bot", help="turn the Task Manager bot itself on or off")
     s.add_argument("state", choices=["on", "off"])
     s.set_defaults(fn="task-manager bot")
+    s = sub.add_parser("stall-triage", help="quiet task triage: Decide reads a quiet task before its stall check stays silent (docs/tasks.md)")
+    s.add_argument("--on", dest="on", action=argparse.BooleanOptionalAction, default=None,
+                   help="--on switches it on, --off off; leave out to read the switch")
+    s.set_defaults(fn="stall-triage")
     roadmap = sub.add_parser("roadmap", help="public roadmaps: ranking and company settings (docs/roadmaps.md)").add_subparsers(dest="sub")
     s = roadmap.add_parser("tasks", help="roadmap tasks ranked by requests, organization or size")
     s.add_argument("--sort", choices=["requester_count", "external_requesters", "important", "organization", "size"])
@@ -2193,6 +2211,19 @@ def parser():
     s.add_argument("id")
     s.add_argument("--on-behalf-of", help="the open task a person asked you for, when something else started this run")
     s.set_defaults(fn="rule delete")
+    s = rule.add_parser("suggestions", help="the rules Tico suggests making a note, each with its 7-day runs and no-op share (the ones you may change)")
+    s.add_argument("--status", choices=["open", "all"], help="open (default), or all: also applied and dismissed in the last 30 days")
+    s.add_argument("--limit", type=int)
+    s.add_argument("--offset", type=int)
+    s.set_defaults(fn="rule suggestions")
+    s = rule.add_parser("apply", help="make a suggested rule a note, as the person who asked; a built-in gets a team rule")
+    s.add_argument("id", help="the suggestion's id")
+    s.add_argument("--on-behalf-of", help="the open task a person asked you for, when something else started this run")
+    s.set_defaults(fn="rule apply")
+    s = rule.add_parser("dismiss", help="decline a suggestion, or take an applied one back")
+    s.add_argument("id", help="the suggestion's id")
+    s.add_argument("--on-behalf-of", help="the open task a person asked you for, when something else started this run")
+    s.set_defaults(fn="rule dismiss")
     keys = sub.add_parser("service-key", help="keys another system uses to file tasks, or to update this install (owner and admins)").add_subparsers(dest="sub")
     s = keys.add_parser("create", help="make a key; it is shown this once")
     s.add_argument("--label", required=True, help="the system that holds it; every task it files says so")

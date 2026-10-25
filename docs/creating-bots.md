@@ -602,7 +602,7 @@ Levers set in **Settings → Bots**, not in the repository:
   400k, 600k or 1M. Claude Code and Codex only. Changing it keeps the session.
 - **Profile**: what wakes the bot and which tasks it takes: **Doer** (the default for a new bot), **Reviewer**, **Lead**,
   **Responder**, **Monitor** or **Custom**; each choice has a line saying what it does ([Profiles](how-it-works.md#profiles)).
-  A Doer holds nonblocking news (a request it asked for finished, review comments, a failing check nobody waits on) and
+  A Doer holds nonblocking news (a request it asked for finished, a person's review comments) and
   sends it as one wake at most every 15 minutes, and runs an enabled routine or stall check at most every 15 minutes; a
   Lead hears the same news once a day, at the hour in **Digest at**. A bot that was on **Token saver** is a Doer with a 30-minute
   window (2 hours between sweeps); **Performance** became the plain Doer. In every profile, a person's message, a question,

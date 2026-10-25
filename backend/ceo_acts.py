@@ -671,7 +671,8 @@ def _tell(c, actor, task, held_by):
     for bot in dict.fromkeys((task["owner"], held_by)):
         if bot and H.is_bot(bot):
             H._wake(c, task, bot, said + ("." if bot == task["owner"] else
-                                          f", with {_name(c, task['owner'])}. It is no longer yours."))
+                                          f", with {_name(c, task['owner'])}. It is no longer yours."),
+                    {"wake": "assignment"} if bot == task["owner"] else None)
 
 
 def _undo_text(restored, kept):

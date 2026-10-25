@@ -89,7 +89,14 @@ ticket stays at its step with a Waiting tag.
   sends.
 - **Changes nobody will see** skip In QA and QA Fixes.
 - **A failure after release** goes back to QA Fixes for a hotfix, or the Release Manager rolls back.
-- **Reviewers and Security only comment.** They never move a ticket.
+- **Reviewers and Security only comment.** They never move a ticket: a reviewer or Security bot that tries is refused
+  and told to finish its review task with a verdict (`hub task done <id> --verdict approve|changes --head <sha>`). QA
+  gives `pass` or `fail`. The Builder is woken once with the verdict and the head it judged.
+- **One check per head.** A ticket has one open Review 1, Review 2 or QA subtask for a pull request head; a second request
+  for the same check on the same head is refused with the open one's id.
+- **Moving a step wakes nobody unless a rule says so.** A Dev tickets type comes with three editable rules: **QA Fixes**
+  wakes the Builder, **In QA** wakes QA only, and **Pending Release** is a note to the Release Manager. Change them in the
+  Rules page (`hub rule list --scope-kind type --scope-id <type>`).
 - **Bots move a ticket by its step** (`hub task update <id> --step "Review 1"`), not by its status. Several steps
   share a status, and setting a status lands on the first step that has it.
 

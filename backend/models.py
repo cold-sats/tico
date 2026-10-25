@@ -240,6 +240,9 @@ class TaskUpdate(Contract):
     step: str | None = Field(default=None, max_length=200)   # "" clears the step
     step_rank: float | None = Field(default=None, allow_inf_nan=False)   # its place within its step
     number: TaskNumber | None = None      # a mover's, for a task that has none
+    # A review or QA subtask's verdict and the pull request head it judged; its parent's owner is woken with both.
+    verdict: Literal["approve", "changes", "pass", "fail"] | None = None
+    verdict_head: str | None = Field(default=None, pattern=r"^[0-9a-fA-F]{7,40}$")
     # Replace the people in the roles named: {role: [actors]}; [] clears one.
     roles: dict[str, list[str]] | None = None
     # BotOps applying a person's own request to a task they own or requested (backend/app.py
@@ -1836,6 +1839,7 @@ class AccessRules(Contract):
     support_access: bool | None = None
     stale_review: bool | None = None
     topic_fresh: bool | None = None
+    stall_triage: bool | None = None
     go_ahead_days: Annotated[int, Field(strict=True, ge=1, le=14)] | None = None
 
 
@@ -2474,6 +2478,10 @@ class RuleUpdate(Contract):
 
 class RuleDelete(Contract):
     expected_revision: int | None = Field(default=None, ge=1)
+
+
+class RuleSuggestionAct(Contract):
+    pass
 
 
 class TaskRuleUpdate(Contract):

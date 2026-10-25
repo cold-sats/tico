@@ -21,6 +21,11 @@ def plain_task(c, title="Plain work", clear=True):
     return H.task(c, task["id"])
 
 
+def reopened(c, task):
+    """A wake an event names (the task was handed back to its owner): it starts a run under the rule `assignment`."""
+    return H._wake(c, task, task["owner"], "Open: " + task["title"])
+
+
 def test_every_message_to_a_bot_names_its_rule_and_the_filters_are_unchanged(api):
     setup(api)
     post(api, "chat/cpo", {"text": "Run your check"})
@@ -32,9 +37,12 @@ def test_every_message_to_a_bot_names_its_rule_and_the_filters_are_unchanged(api
         person = H.message(c, c.execute("SELECT id FROM messages WHERE from_actor='human:ana' LIMIT 1").fetchone()[0])
     assert person["refs"]["rule"] == "person_message"
     assert held["refs"]["rule"] == "parked" and held["refs"]["quiet"] is True
-    assert plain["refs"]["rule"] == "status_or_relation" and not plain["refs"].get("quiet")
+    # News no rule names waits as a note; an event that hands the bot work wakes under its own rule.
+    assert plain["refs"]["rule"] == "status_or_relation" and plain["refs"]["quiet"] is True
+    with api.app.state.store.transaction() as c:
+        assert not reopened(c, plain_task(c, "Reopened work"))["refs"].get("quiet")
     with api.app.state.store.read() as c:
-        assert [s["detail"]["rule_id"] for s in skips(c)] == ["parked"]
+        assert [s["detail"]["rule_id"] for s in skips(c)] == ["parked", "status_or_relation"]
 
 
 def test_rows_override_by_scope_task_over_bot_over_team_and_the_floor_stays(api):
@@ -68,16 +76,16 @@ def test_rows_override_by_scope_task_over_bot_over_team_and_the_floor_stays(api)
 def test_a_run_records_the_rule_that_woke_it_and_fail_open_wakes(api, monkeypatch):
     r = setup(api)
     with api.app.state.store.transaction() as c:
-        news(c, plain_task(c))
+        reopened(c, plain_task(c))
     attempt = claim(api, r, "cpo")
     finish(api, r, attempt)
     with api.app.state.store.read() as c:
-        assert c.execute("SELECT rule_id FROM turns WHERE id=?", (attempt["id"],)).fetchone()[0] == "status_or_relation"
+        assert c.execute("SELECT rule_id FROM turns WHERE id=?", (attempt["id"],)).fetchone()[0] == "assignment"
     monkeypatch.setattr(R, "_judge", lambda *a, **k: 1 / 0)
     with api.app.state.store.transaction() as c:
         other = plain_task(c, "Other work", clear=False)
         before = jobs(c, "cpo")
-        woke = news(c, other)
+        woke = reopened(c, other)
         assert woke["refs"]["rule"] == R.FAIL_OPEN and jobs(c, "cpo") == before + 1
 
 
@@ -107,9 +115,57 @@ def test_rule_writes_follow_the_scope_and_the_list_shows_builtins_and_counts(api
 def test_rule_weekly_counts_runs_per_rule(api):
     r = setup(api)
     with api.app.state.store.transaction() as c:
-        news(c, plain_task(c))
+        reopened(c, plain_task(c))
     finish(api, r, claim(api, r, "cpo"))
     out = api.post("/api/v2/sql", json={"sql": "SELECT rule, runs FROM rule_weekly WHERE bot='cpo'"},
                    headers={"Authorization": "Bearer ana-test"})
     assert out.status_code == 200, out.text
-    assert ["status_or_relation", 1] in [list(row) for row in out.json()["rows"]]
+    assert ["assignment", 1] in [list(row) for row in out.json()["rows"]]
+
+
+def test_an_event_no_rule_names_is_a_note_and_a_named_one_wakes(api):
+    setup(api)
+    with api.app.state.store.transaction() as c:
+        task = plain_task(c)
+        plain = news(c, task, "Related task changed")
+        assert plain["refs"]["rule"] == "status_or_relation" and plain["refs"]["quiet"] is True
+        assert c.execute("SELECT count(*) FROM notes WHERE message_id=?", (plain["id"],)).fetchone()[0] == 1
+        assert R._rule_for_event("brand_new_event") == (R.NOTE, R.DEFAULT_NOTE)
+        for event in ("subtask_finished", "task_done", "blocker", "release_published", "backlog"):
+            woke = news(c, task, "x", refs={"wake": event})
+            assert woke["refs"]["rule"] == event and not woke["refs"].get("quiet"), event
+        assert jobs(c, "cpo") == 5
+
+
+def test_an_ask_rule_writes_quietly_and_raises_one_needs_you_item_per_task_and_rule(api):
+    setup(api)
+    row = rule_row(api, then="ask")["rule"]
+    with api.app.state.store.transaction() as c:
+        task = H.task_create(c, "human:ana", "Plan the launch", "Plan it", "bot:cpo")
+        c.execute("DELETE FROM jobs")
+        first, again = news(c, H.task(c, task["id"])), news(c, H.task(c, task["id"]))
+        for msg in (first, again):
+            assert msg["refs"]["rule"] == row["id"] and msg["refs"]["quiet"] is True
+        assert jobs(c, "cpo") == 0
+        cards = c.execute("SELECT t.owner, t.title, t.body FROM events e JOIN tasks t ON t.id=e.target "
+                          "WHERE e.action='rule.ask'").fetchall()
+        assert len(cards) == 1 and cards[0]["owner"] == "human:ana" and row["id"] in cards[0]["body"]
+
+
+def test_an_action_rule_runs_as_the_keeper_and_a_failed_action_wakes_the_bot(api):
+    setup(api)
+    row = rule_row(api, then="action", params={"action": "close", "note": "Not needed"})["rule"]
+    with api.app.state.store.transaction() as c:
+        task = plain_task(c)
+        msg = news(c, task)
+        assert msg["refs"]["rule"] == row["id"] and msg["refs"]["quiet"] is True
+        assert H.task(c, task["id"])["status"] == "closed"
+        ran = c.execute("SELECT detail_json FROM events WHERE action='rule.action' AND target=?", (task["id"],)).fetchone()
+        assert json.loads(ran[0]) == {"rule": row["id"], "action": "close"}
+    post(api, f"rules/{row['id']}", {"expected_revision": 1, "params": {"action": "move_step", "step": "No such step"}})
+    with api.app.state.store.transaction() as c:
+        other = plain_task(c, "Other work", clear=False)
+        before = jobs(c, "cpo")
+        woke = news(c, other)
+        assert woke["refs"]["rule"] == R.FAIL_OPEN and jobs(c, "cpo") == before + 1
+        assert H.task(c, other["id"])["status"] != "closed"
