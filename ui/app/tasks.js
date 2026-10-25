@@ -338,6 +338,8 @@ function taskStatusGroups(items, {always = []} = {}) {
 // columns: [{id, name, hint, kind, items, drop, fold, foldable}] — readable columns share spare width; an empty one is
 // a 34px strip, and so is a folded run of backlog or finished steps (`fold`, ui/app/task-board.js). `drop` is the step
 // a card dropped on the column moves to; a board with any is one cards are dragged on.
+// The Dev tickets step a release ships from; its header gets Release now (settings-release.js fills it).
+const RELEASE_COLUMN = /^pending release$/i;
 function boardColumnsHTML(columns, {head = ''} = {}) {
   const anyWork = columns.some(c => c.items.length);
   const narrow = c => c.fold || anyWork && !c.items.length;
@@ -352,7 +354,7 @@ function boardColumnsHTML(columns, {head = ''} = {}) {
     </section>`;
     const fold = column.foldable ? `<button type="button" class="bfold-x" data-board-fold="${esc(column.foldable)}" aria-label="Fold" title="Fold">${TL_ICON.caret}</button>` : '';
     return `<section class="bcol${empty ? ' is-empty' : ''}" data-col="${esc(column.id)}"${drop} aria-label="${esc(column.name)}${column.hint ? `: ${esc(column.hint)}` : ''}">
-      <header${column.hint ? ` title="${esc(column.hint)}"` : ''}><h2>${esc(column.name)}</h2><span class="cnt tnum">${count}</span>${fold}</header>
+      <header${column.hint ? ` title="${esc(column.hint)}"` : ''}><h2>${esc(column.name)}</h2><span class="cnt tnum">${count}</span>${RELEASE_COLUMN.test(column.name) ? '<span class="board-release-slot" data-release-slot></span>' : ''}${fold}</header>
       ${empty ? '' : `<div class="bcol-body">${column.items.map(taskCard).join('') || '<div class="empty">Nothing here</div>'}</div>`}
     </section>`;
   }).join('')}</div>`;
