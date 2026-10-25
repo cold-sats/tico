@@ -90,7 +90,7 @@ KEEP = frozenset((
     "message_links_seen", "notes", "runner_load_samples", "perf_overloads", "perf_points", "perf_usage", "preferences", "rate_limits",
     "recording_source_refs", "recording_transcripts", "refusals", "registry_metadata", "repositories", "rule_suggestions", "rules", "run_backoff", "runners",
     "seats", "service_health", "settings_changes", "slack_channels", "slack_digests", "slack_reads", "stale_judged",
-    "stale_suggestions", "stall_triage", "storage_moves", "strategy_choices", "strategy_events", "strategy_versions",
+    "stale_suggestions", "stall_triage", "storage_moves", "strategy_bets", "strategy_events", "strategy_versions",
     "system_runs", "tags", "task_assets",
     "task_check_models", "task_delegations", "task_events", "task_file_reviews", "task_links", "task_relations",
     "task_roles", "task_steps", "task_tags", "task_trash", "task_trash_assets", "task_types", "tasks",

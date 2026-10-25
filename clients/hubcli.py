@@ -113,7 +113,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub goal list [--owner me|X] [--all]   what you are for: your goals in order, the chain above
                                            them, and your reports' goals; --all is every goal
     hub goal show <id>                     the goal, its KPIs (target, colour), tasks, check-ins, history
-    hub goal create --owner me|X --title "..." [--parent ID] [--body "..."|--body-file f] [--top]
+    hub goal create --owner me|X --title "..." [--parent ID] [--body "..."|--body-file f] [--top] [--bet ID]
                                            set a goal; a parent is optional. With one, whoever owns the parent gives its first colour
     hub goal status <id> red|yellow|green|done|dropped "<one sentence>"
                                            set the colour by hand: it sticks (with your name) until handed back
@@ -132,7 +132,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            the CEO Bot at level 3: one decision alone on bot tasks, logged with Undo
     hub goal ceo-bot-log [--before CURSOR] the CEO Bot log (the owner only): what it decided alone, proposed instead
     hub goal update <id> [--title ...] [--body ...|--body-file f] [--parent ID|--parent ""] [--owner X]
-                    [--rank N|--top]
+                    [--rank N|--top] [--bet ID|--bet ""]
     hub kpi list [--goal ID] [--owner me|X] [--unlinked] [--bot SLUG] [--archived]
                                            KPIs with latest reading and colour; --bot: that bot's five automatic KPIs
     hub kpi show <id> [--effective]        definition and versions, the goals using it, every reading, check-ins
@@ -151,12 +151,27 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                 [--evidence "url or note"] [--quality measured|estimate|partial|--estimate] [--source posthog]
                 [--definition-version N] [--supersedes READING-ID]
                                            a reading: a fact with its period; to correct one, supersede it
-    hub proposal create --kind goal_wording|goal_kpi|kpi_definition|kpi_target|flag|goal_why|recovery [--goal ID] [--kpi ID]
+    hub proposal create --kind goal_wording|goal_kpi|kpi_definition|kpi_target|flag|goal_why|recovery|strategy_draft
+                        [--goal ID] [--kpi ID]
                         (--payload '{json}'|--payload-file f.json) [--reason "..."]
                                            a change you may not make yourself, for the owner to confirm
     hub proposal list [--status pending|confirmed|rejected|all] [--goal ID] [--kpi ID]
     hub proposal decide <id> confirm|reject [--note "..."] [--option N]
                                            a person's own decision; a bot is refused. --option: a recovery's other option
+    hub strategy show                      the published strategy, its bets with their goals and colour, the website
+    hub strategy summary                   the text every run carries
+    hub strategy versions [N]              published versions, newest first; N: that version whole
+    hub strategy diff --from N --to N      what changed between two versions
+    hub strategy guides                    the question guides the CEO Bot drafts with
+    hub strategy draft [--summary ...] [--vision ...] [--section KEY=TEXT ...] [--revision N]
+    hub strategy publish [--note "..."] [--revision N]
+    hub strategy bet add --statement "..." [--why ...] [--rules-out ...] [--status proposed|active] [--rank N]
+                         [--wrong-if-kpi ID --wrong-if-direction above|below --wrong-if-threshold N |
+                          --wrong-if-thesis MARKET-ID | --wrong-if-text "..." --check-by YYYY-MM-DD] [--cite ID ...]
+    hub strategy bet update <id> [same flags]
+    hub strategy bet retire <id>
+                                           draft, publish and bets: the owner only; a bot proposes with
+                                           proposal create --kind strategy_draft
     hub approval request --kind send|spend|publish|merge|support --payload-file f.json [--task ID] [--supersedes ID]
                                            if the owner already said send in Tico, skip this and
                                            `mail send --approve <their-message-id>`
@@ -1186,6 +1201,7 @@ def parser():
     s.add_argument("--body", default="")
     s.add_argument("--body-file", dest="body_file")
     s.add_argument("--top", action="store_true", help="put it first in the owner's order")
+    s.add_argument("--bet", dest="bet_id", help="the strategy bet it serves (hub strategy show lists them)")
     s.set_defaults(fn="goal create")
     s = goal.add_parser("status", help="set the colour by hand: red, yellow or green with one sentence, done or dropped "
                                      "when it ends; it sticks until a person hands it back (status auto)")
@@ -1202,6 +1218,7 @@ def parser():
     s.add_argument("--owner")
     s.add_argument("--rank", type=int)
     s.add_argument("--top", action="store_true")
+    s.add_argument("--bet", dest="bet_id", help='the strategy bet it serves; "" unlinks it')
     s.set_defaults(fn="goal update")
     s = goal.add_parser("refresh", help="the CEO Bot's status pass: work automatic colours out again")
     s.add_argument("--goal", action="append", dest="goal_ids", help="only this goal; repeatable")
@@ -1331,6 +1348,58 @@ def parser():
     s.add_argument("--note", default="")
     s.add_argument("--option", type=int, help="a recovery: approve this option (0 is the first) instead of the pick")
     s.set_defaults(fn="proposal decide")
+
+    strategy = sub.add_parser("strategy", help="the team's strategy: its bets, the four sections, the versions").add_subparsers(dest="sub")
+    s = strategy.add_parser("show", help="the published strategy, its bets and their goals; the owner also gets the draft")
+    s.set_defaults(fn="strategy show")
+    s = strategy.add_parser("summary", help="the text every run's context carries")
+    s.set_defaults(fn="strategy summary")
+    s = strategy.add_parser("draft", help="owner only: change the draft; a bot proposes instead (proposal create --kind strategy_draft)")
+    s.add_argument("--summary")
+    s.add_argument("--vision")
+    s.add_argument("--section", action="append", default=[], metavar="KEY=TEXT",
+                   help="serve, sell, know, not, or an extra section's key; KEY= clears it; repeatable")
+    s.add_argument("--revision", type=int, help="the draft's revision you read; default the current one")
+    s.set_defaults(fn="strategy draft")
+    s = strategy.add_parser("publish", help="owner only: the draft becomes the next version")
+    s.add_argument("--note", default="")
+    s.add_argument("--revision", type=int, help="the draft's revision you read; default the current one")
+    s.set_defaults(fn="strategy publish")
+    s = strategy.add_parser("versions", help="the published versions, newest first; with N, that version whole")
+    s.add_argument("n", nargs="?", type=int)
+    s.set_defaults(fn="strategy versions")
+    s = strategy.add_parser("diff", help="what changed between two published versions")
+    s.add_argument("--from", dest="from_n", type=int, required=True)
+    s.add_argument("--to", dest="to_n", type=int, required=True)
+    s.set_defaults(fn="strategy diff")
+    s = strategy.add_parser("guides", help="the guides: their questions and the words for bets")
+    s.set_defaults(fn="strategy guides")
+    bet = strategy.add_parser("bet", help="owner only: add, change or retire a bet").add_subparsers(dest="subsub")
+
+    def bet_flags(s):
+        s.add_argument("--why")
+        s.add_argument("--rules-out", dest="rules_out")
+        s.add_argument("--wrong-if-kpi", dest="wrong_if_kpi", metavar="ID", help="wrong if this KPI crosses the threshold")
+        s.add_argument("--wrong-if-direction", dest="wrong_if_direction", choices=["above", "below"])
+        s.add_argument("--wrong-if-threshold", dest="wrong_if_threshold", type=float, metavar="N")
+        s.add_argument("--wrong-if-thesis", dest="wrong_if_thesis", metavar="MARKET_ID", help="wrong if this market entity or page changes")
+        s.add_argument("--wrong-if-text", dest="wrong_if_text", metavar="TEXT", help="wrong if this turns out true (needs --check-by)")
+        s.add_argument("--check-by", dest="check_by", metavar="DATE", help="YYYY-MM-DD: the day to look again")
+        s.add_argument("--cite", action="append", dest="cites", metavar="MARKET_ID", help="a market id the bet rests on; repeatable")
+        s.add_argument("--status", choices=["proposed", "active", "retired"])
+        s.add_argument("--rank", type=int)
+    s = bet.add_parser("add")
+    s.add_argument("--statement", required=True, help="one sentence that could turn out wrong")
+    bet_flags(s)
+    s.set_defaults(fn="strategy bet add")
+    s = bet.add_parser("update")
+    s.add_argument("id")
+    s.add_argument("--statement")
+    bet_flags(s)
+    s.set_defaults(fn="strategy bet update")
+    s = bet.add_parser("retire", help="its goals keep their link")
+    s.add_argument("id")
+    s.set_defaults(fn="strategy bet retire")
 
     market = sub.add_parser("market", help="the shared market graph: read it, report into it, curate it").add_subparsers(dest="sub")
     s = market.add_parser("show", help="one entity, its edges both ways, the evidence, the last ten events")

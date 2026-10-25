@@ -1135,12 +1135,14 @@ def goal_show(api, args):
        "title": _s("Plain English: what you are going for"),
        "parent_id": _s("The goal this one supports, if any; leave it out when there is none"),
        "body": _s("What it means, what counts, what does not", default=""),
-       "top": {"type": "boolean", "default": False, "description": "Put it first in the owner's order"}},
+       "top": {"type": "boolean", "default": False, "description": "Put it first in the owner's order"},
+       "bet_id": _s("The strategy bet it serves (hub_strategy_show lists them)")},
       required=("owner", "title"), writes=True)
 def goal_create(api, args):
     return api.post("goals", {"owner": _target(api, args["owner"]), "title": args["title"],
                               "parent_id": args.get("parent_id"), "body": args.get("body") or "",
-                              "top": bool(args.get("top"))}, key=_key(args))["goal"]
+                              "top": bool(args.get("top")), "bet_id": args.get("bet_id") or None},
+                    key=_key(args))["goal"]
 
 
 @tool("hub_goal_status", "Set a goal's colour by hand: red, yellow or green with one honest sentence; "
@@ -1267,10 +1269,11 @@ def goal_ceo_bot_log(api, args):
        "parent_id": _s("The goal it supports; an empty string unlinks it"),
        "owner": _s("New owner: a bot slug or a person id"),
        "rank": {"type": "integer", "description": "Position in the owner's order"},
-       "top": {"type": "boolean", "default": False}},
+       "top": {"type": "boolean", "default": False},
+       "bet_id": _s("The strategy bet it serves; an empty string unlinks it")},
       required=("id",), writes=True)
 def goal_update(api, args):
-    body = {k: args.get(k) for k in ("title", "body", "parent_id", "rank")}
+    body = {k: args.get(k) for k in ("title", "body", "parent_id", "rank", "bet_id")}
     body["owner"] = _target(api, args["owner"]) if args.get("owner") else None
     body["top"] = bool(args.get("top"))
     return api.post("goals/" + args["id"], body, key=_key(args))["goal"]
@@ -1412,10 +1415,12 @@ def kpi_log(api, args):
       "flag (flag: payload issue vague|duplicate|unmeasured), or, where the CEO Bot is on, a goal's Why (goal_why: "
       "payload why, one line tying the goal to the company's vision), or, from the CEO Bot at level 2 or 3, a red or "
       "stalled goal's recovery (recovery: payload evidence, options [{label, actions}], pick; actions create, "
-      "reorder or settle), or, from the CEO Bot below level 3, a change to the strategy draft (strategy_draft: "
-      "payload framework, summary, vision, sections {key: markdown}, choices [{id?, statement, why, rules_out, "
-      "status}], each optional; confirmed, it is written to the draft and its choices, never published). The CEO "
-      "Bot cannot change a definition or a target it is judged against without one.",
+      "reorder or settle), or, from any bot at any level, a change to the strategy draft (strategy_draft: payload "
+      "summary, vision, sections {serve, sell, know, not, extra: {key: {title, body}}}, bets [{id?, statement, why, "
+      "rules_out, wrong_if, cites, status}], each optional; a bet with an id changes only the fields sent, one "
+      "without is new; source bet_tripped when a tripped bet prompted it; confirmed, the owner's draft and bets "
+      "change, nothing is published). goal_wording may be only {bet_id} to link a goal to a bet. The CEO Bot "
+      "cannot change a definition or a target it is judged against without one.",
       {"kind": {"type": "string", "enum": list(PROPOSAL_KINDS)}, "goal_id": _s("The goal it is about"),
        "kpi_id": _s("The KPI it is about"), "payload": {"type": "object", "description": "The proposed change"},
        "reason": _s("One sentence: why")},
@@ -1445,6 +1450,145 @@ def proposal_decide(api, args):
     if args.get("option") is not None:
         body["option"] = int(args["option"])
     return api.post(f"proposals/{args['id']}/decide", body, key=_key(args))["proposal"]
+
+
+# ----------------------------------------------------------------------------- strategy
+def _wrong_if(args):
+    """The wrong-if the flags describe, {} to clear it when every flag is empty strings, None when none is sent."""
+    if args.get("wrong_if") is not None:
+        return args["wrong_if"]
+    if args.get("wrong_if_kpi"):
+        out = {"kind": "kpi", "kpi_id": args["wrong_if_kpi"], "direction": args.get("wrong_if_direction"),
+               "threshold": args.get("wrong_if_threshold")}
+    elif args.get("wrong_if_thesis"):
+        out = {"kind": "thesis", "market_id": args["wrong_if_thesis"]}
+    elif args.get("wrong_if_text"):
+        out = {"kind": "text", "text": args["wrong_if_text"]}
+    else:
+        return None
+    if args.get("check_by"):
+        out["check_by"] = args["check_by"]
+    return out
+
+
+def _draft_revision(api, args):
+    if args.get("revision") is not None:
+        return int(args["revision"])
+    draft = _as_person(api).get("strategy").get("draft")
+    if not draft:
+        raise APIError("forbidden", "Only the owner writes the strategy; a bot proposes a change with "
+                       "hub_proposal_create, kind strategy_draft", 403)
+    return draft["revision"]
+
+
+BET_PROPS = {
+    "why": _s("The reasoning, one or two sentences"),
+    "rules_out": _s("What the bet refuses; an active bet needs one"),
+    "wrong_if": {"type": "object", "description": "What would show it is wrong: {kind: kpi, kpi_id, direction "
+                 "above|below, threshold}, {kind: thesis, market_id} or {kind: text, text, check_by}; check_by "
+                 "(YYYY-MM-DD) on any. An active bet needs one; {} clears it"},
+    "wrong_if_kpi": _s("Instead of wrong_if: the KPI id"), "wrong_if_direction": {"type": "string", "enum": ["above", "below"]},
+    "wrong_if_threshold": {"type": "number"}, "wrong_if_thesis": _s("Instead of wrong_if: the market id it watches"),
+    "wrong_if_text": _s("Instead of wrong_if: the observation, in words (needs check_by)"),
+    "check_by": _s("YYYY-MM-DD: the day to look again"),
+    "cites": {"type": "array", "items": {"type": "string"}, "description": "Market entity or page ids it rests on"},
+    "status": {"type": "string", "enum": ["proposed", "active", "retired"]},
+    "rank": {"type": "integer", "description": "Its place in the list"},
+}
+
+
+def _bet_body(args):
+    body = {k: args.get(k) for k in ("statement", "why", "rules_out", "cites", "status", "rank", "revision")
+            if args.get(k) is not None}
+    wrong = _wrong_if(args)
+    if wrong is not None:
+        body["wrong_if"] = wrong
+    return body
+
+
+@tool("hub_strategy_show", "The team's published strategy: summary, vision, the four sections, the bets with their "
+      "wrong-ifs, each bet's goals and colour, and the team's website. The owner also gets the draft.", {})
+def strategy_show(api, args):
+    return _as_person(api).get("strategy")
+
+
+@tool("hub_strategy_summary", "The published strategy as the text every run's context carries: the summary, one line "
+      "per active bet with what would show it wrong, what we won't do, the version.", {})
+def strategy_summary(api, args):
+    return api.get("strategy/summary")
+
+
+@tool("hub_strategy_draft", "Owner only: change the strategy draft, only the fields sent (\"\" clears one). A bot "
+      "proposes instead: hub_proposal_create, kind strategy_draft.",
+      {"summary": _s("At most 400 characters: what every bot reads"), "vision": _s("One or two sentences"),
+       "sections": {"type": "object", "description": "{serve, sell, know, not, extra: {key: {title, body}}}, any of them"},
+       "section": {"type": "array", "items": {"type": "string"}, "description": "KEY=TEXT, instead of sections"},
+       "revision": {"type": "integer", "description": "The draft's revision you read; default the current one"}},
+      writes=True)
+def strategy_draft(api, args):
+    sections = dict(args.get("sections") or {})
+    for item in args.get("section") or []:
+        key, _, text = str(item).partition("=")
+        if key.strip() in ("serve", "sell", "know", "not"):
+            sections[key.strip()] = text
+        else:
+            sections.setdefault("extra", {})[key.strip()] = {"title": key.strip().replace("-", " ").capitalize(),
+                                                             "body": text} if text else ""
+    body = {"revision": _draft_revision(api, args)}
+    for k in ("summary", "vision"):
+        if args.get(k) is not None:
+            body[k] = args[k]
+    if sections:
+        body["sections"] = sections
+    return _as_person(api).call("PUT", "strategy/draft", body, _key(args))["draft"]
+
+
+@tool("hub_strategy_publish", "Owner only: the draft becomes the next numbered version. Needs an active bet with "
+      "rules_out and wrong_if, and \"What we won't do\".",
+      {"note": _s("What this version is for, in a line", default=""),
+       "revision": {"type": "integer", "description": "The draft's revision you read; default the current one"}},
+      writes=True)
+def strategy_publish(api, args):
+    return _as_person(api).post("strategy/publish", {"note": args.get("note") or "", "revision": _draft_revision(api, args)},
+                    key=_key(args))
+
+
+@tool("hub_strategy_versions", "The published strategy versions, newest first; with n, that version whole.",
+      {"n": {"type": "integer", "description": "One version's number"}})
+def strategy_versions(api, args):
+    return api.get(f"strategy/versions/{int(args['n'])}") if args.get("n") else api.get("strategy/versions")
+
+
+@tool("hub_strategy_diff", "What changed between two published versions: fields, and bets added, retired or changed.",
+      {"from_n": {"type": "integer"}, "to_n": {"type": "integer"}}, required=("from_n", "to_n"))
+def strategy_diff(api, args):
+    return api.get("strategy/diff", **{"from": int(args["from_n"]), "to": int(args["to_n"])})
+
+
+@tool("hub_strategy_guides", "The strategy guides: the questions the CEO Bot asks, suggested sections, and the word "
+      "for bets.", {})
+def strategy_guides(api, args):
+    return api.get("strategy/guides")
+
+
+@tool("hub_strategy_bet_add", "Owner only: a new bet, proposed unless status says otherwise. A bot proposes one with "
+      "hub_proposal_create, kind strategy_draft.",
+      {"statement": _s("One sentence that could turn out wrong"), **BET_PROPS}, required=("statement",), writes=True)
+def strategy_bet_add(api, args):
+    return _as_person(api).post("strategy/bets", _bet_body(args), key=_key(args))
+
+
+@tool("hub_strategy_bet_update", "Owner only: change a bet, only the fields sent.",
+      {"id": _s("Bet id"), "statement": _s("One sentence that could turn out wrong"), **BET_PROPS},
+      required=("id",), writes=True)
+def strategy_bet_update(api, args):
+    return _as_person(api).post("strategy/bets/" + args["id"], _bet_body(args), key=_key(args))
+
+
+@tool("hub_strategy_bet_retire", "Owner only: retire a bet. Its goals keep their link; the next publish asks the "
+      "owner what to do with them.", {"id": _s("Bet id")}, required=("id",), writes=True)
+def strategy_bet_retire(api, args):
+    return _as_person(api).post("strategy/bets/" + args["id"], {"status": "retired"}, key=_key(args))
 
 
 # ----------------------------------------------------------------------------- market

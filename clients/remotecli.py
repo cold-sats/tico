@@ -558,15 +558,15 @@ def run(args, who=None):
         if sub == "create":
             body = Path(args.body_file).read_text() if args.body_file else args.body
             return post("goals", {"owner": target(args.owner), "title": args.title, "parent_id": args.parent,
-                        "body": body or "", "top": bool(args.top)})["goal"]
+                        "body": body or "", "top": bool(args.top), "bet_id": args.bet_id})["goal"]
         if sub == "update":
             body = {"title": args.title, "parent_id": args.parent, "owner": target(args.owner) if args.owner else None,
-                    "rank": args.rank, "top": bool(args.top)}
+                    "rank": args.rank, "top": bool(args.top), "bet_id": args.bet_id}
             if args.body_file or args.body is not None:
                 body["body"] = Path(args.body_file).read_text() if args.body_file else args.body
             return post("goals/" + args.id, body)["goal"]
         return tool(client, args)
-    if cmd in ("kpi", "proposal"):
+    if cmd in ("kpi", "proposal", "strategy"):
         return tool(client, args)
     if cmd == "market":
         if sub == "show":

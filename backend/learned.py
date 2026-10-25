@@ -79,8 +79,10 @@ def priorities(c):
 
 
 def company_layer(c):
+    """The owner's alone (`company_reader`), so the vision is their strategy draft's (backend/strategy.py)."""
+    from . import strategy
     profile = C.profile(c)
-    return {"vision": profile["vision"], "description": profile["description"], "priorities": priorities(c),
+    return {"vision": strategy.vision(c, editor=True), "description": profile["description"], "priorities": priorities(c),
             "entries": entries(c, "company")}
 
 
