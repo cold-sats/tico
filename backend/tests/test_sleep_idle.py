@@ -105,8 +105,7 @@ def test_each_thing_that_keeps_the_server_up_is_named_and_stops_the_sleep(api, h
     add_routine(api, at + 10 * 60)
     assert quiet(api)["blocker"] == "routine_due" and quiet(api)["idle"] is False
     with api.app.state.store.transaction() as c:
-        c.execute("CREATE TABLE webhook_sends(id TEXT, state TEXT, next_attempt TEXT)")    # the outgoing queue, once it exists
-        c.execute("INSERT INTO webhook_sends VALUES('wh_1','ready',NULL)")   # NULL: due now
+        c.execute("INSERT INTO webhook_sends(id,event_id,webhook_id,type,body,state,next_attempt,created) VALUES('wh_1','we_1','ep_1','task.done','{}','ready',?,?)", (sleep_idle.stamp(at), sleep_idle.stamp(at)))    # due now
     assert quiet(api)["blocker"] == "send_pending"
     r = runner(api, "ana")
     with api.app.state.store.transaction() as c:
@@ -255,13 +254,12 @@ def test_a_daily_system_job_sets_the_wake_time_and_an_interval_job_does_not(api,
 def test_a_send_waiting_for_a_far_retry_does_not_keep_the_server_up_but_sets_the_wake_time(api, hq):
     at = hq.clock[0]
     with api.app.state.store.transaction() as c:
-        c.execute("CREATE TABLE webhook_sends(id TEXT, state TEXT, next_attempt TEXT)")
-        c.execute("INSERT INTO webhook_sends VALUES('wh_1','ready',?)", (sleep_idle.stamp(at + 10 * 3600),))
+        c.execute("INSERT INTO webhook_sends(id,event_id,webhook_id,type,body,state,next_attempt,created) VALUES('wh_1','we_1','ep_1','task.done','{}','ready',?,?)", (sleep_idle.stamp(at + 10 * 3600), sleep_idle.stamp(at)))
     with api.app.state.store.read() as c:
         assert sleep_idle.busy(c, at) == ""
         assert sleep_idle.wake_time(c, at) == pytest.approx(at + 10 * 3600, abs=1)
-    for later, state, due in ((at + 600, "ready", True), (at + 10 * 3600, "sending", True), (None, "ready", True)):
+    for later, state, due in ((at + 600, "ready", True), (at + 10 * 3600, "sending", True), (at - 60, "ready", True)):
         with api.app.state.store.transaction() as c:
-            c.execute("UPDATE webhook_sends SET state=?, next_attempt=?", (state, sleep_idle.stamp(later) if later else None))
+            c.execute("UPDATE webhook_sends SET state=?, next_attempt=?", (state, sleep_idle.stamp(later)))
         with api.app.state.store.read() as c:
             assert (sleep_idle.busy(c, at) == "send_pending") is due
