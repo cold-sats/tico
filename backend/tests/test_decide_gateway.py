@@ -176,7 +176,9 @@ def test_a_tico_model_is_counted_at_tico_decides_price_not_the_unknown_model_cei
     settings = Settings(db_path=tmp_path / "hub.db")
     for model in J.GATEWAY_MODELS:
         assert B.priced(settings, model)
-        assert B.cost_usd(settings, model, {"input_tokens": 1_000_000, "output_tokens": 1_000_000}) == 0.06
+        cost = B.cost_usd(settings, model, {"input_tokens": 1_000_000, "output_tokens": 1_000_000})
+        # Low (Jev) is Tico Decide's price; Medium and High have none in this release and are counted high, never as nothing.
+        assert (cost == 0.06) is not ("medium" in model or "high" in model) and cost >= 0.06
     unknown = B.reservation(settings, ["no-such-model"], {"team": "Acme"}, QUESTIONS)
     assert B.reservation(settings, [J.GATEWAY_MODEL], {"team": "Acme"}, QUESTIONS) < unknown / 100
 

@@ -241,6 +241,21 @@ class SettingsAdmin:
         mode, access = manifest.get("repo_access_mode"), manifest.get("repo_all_access", "read")
         return {"repo_access_mode": mode, "repo_all_access": access} if mode in ("own", "all") and access in ("read", "write") else {}
 
+    def template_gateway(self, template):
+        """The template's bot.yaml `gateway:` block ({level, fast}, docs/creating-bots.md), kept in the new bot's settings
+        so a Gateway bot with no model of its own starts on that level; {} when it names none."""
+        from pathlib import Path
+        import yaml
+        from . import gateway_tiers
+        if not template:
+            return {}
+        try:
+            manifest = yaml.safe_load((Path(self.settings.catalog_dir) / template / "bot.yaml").read_text()) or {}
+        except (OSError, yaml.YAMLError):
+            return {}
+        block = gateway_tiers.clean_block(manifest.get("gateway") if isinstance(manifest, dict) else None)
+        return {"gateway": block} if block else {}
+
     def pick_slug(self, c, name, fallback="bot"):
         """A free slug from the bot's name: never one in use, archived or reserved for the company's own bots."""
         return free_slug(name, lambda slug: bool(H.bot(c, slug)) or self.auth.system_bot(slug) or slug == "coo",
@@ -333,6 +348,7 @@ class SettingsAdmin:
         profiles.apply(config, profiles.DOER, {})
         if body.template:
             config["template"] = body.template
+            config.update(self.template_gateway(body.template))
             if privileged:
                 config.update(self.template_repo_defaults(body.template))
         team = self._team(c, body.slug, config)

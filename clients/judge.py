@@ -55,9 +55,30 @@ KEY_ENV = "TYPESAFE_API_KEY"
 # for a choice-mode classify; the app asks as `tico-decide-1.0` and keeps whichever of the two the Gateway answers as.
 GATEWAY_PROVIDER = "Tico AI Gateway"
 GATEWAY_MODEL = "tico-decide-1.0"
-GATEWAY_MODELS = ("tico-decide-1.0", "tico-classify-1.0")
+# How hard the Gateway thinks on a decision: Low is Jev, as it was before levels; Medium and High are language models and
+# take longer (the lineup's `tico-decide-{level}-1.0`, backend/gateway_tiers.py).
+DECIDE_LEVELS = ("low", "medium", "high")
+GATEWAY_MODELS = ("tico-decide-1.0", "tico-classify-1.0", "tico-classify-low", "tico-classify-low-1.0") + tuple(
+    name for level in DECIDE_LEVELS for name in (f"tico-decide-{level}", f"tico-decide-{level}-1.0"))
 GATEWAY_PATH = "/v1/gateway/decisions"
 GATEWAY_TIMEOUT = 8
+GATEWAY_SLOW_TIMEOUT = 30
+
+
+def normalize_level(value):
+    value = str(value or "").strip().lower()
+    return value if value in DECIDE_LEVELS else DECIDE_LEVELS[0]
+
+
+def decide_model(level):
+    """The id the Gateway is asked for at `level`. Low stays `tico-decide-1.0`, the id it has always been asked as."""
+    level = normalize_level(level)
+    return GATEWAY_MODEL if level == "low" else f"tico-decide-{level}-1.0"
+
+
+def decide_timeout(level):
+    """The most one Gateway try takes at `level`: Jev's 8 seconds, or 30 for the language models."""
+    return GATEWAY_TIMEOUT if normalize_level(level) == "low" else GATEWAY_SLOW_TIMEOUT
 TYPESAFE_PROVIDER = "TypeSafe"
 LLM_PROVIDERS = {"anthropic": "Anthropic", "openai": "OpenAI", "google": "Google", "xai": "xAI",
                  "openrouter": "OpenRouter"}
