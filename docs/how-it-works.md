@@ -464,6 +464,37 @@ the table at once; a sleeping Mac does not block it. **You change a bot's switch
 read `tools:` from the Mac checkout each time a bot sends or posts; whether it may send without approval comes from the mail switch a person sets in Tico (`outbound_send` in bot.yaml only asks). Model, effort, computer, humans, name,
 status and reporting line are changed in **Settings → Bots**, not in the file.
 
+### Profiles
+
+A bot's **profile** says what wakes it and which tasks it takes. It is a fixed set of wake rules for that bot, a batch
+window and a gap between sweeps, and it grants no right.
+
+| Profile | Wakes at once for | Everything else | Takes |
+|---|---|---|---|
+| **Doer** (the default) | people, hand-offs, asks, awaited results | batched, 15 minutes | any task; pulls its open tasks by itself |
+| **Reviewer** | its review or QA request, a verdict it waits for, people | a note | review and QA subtasks only; any other task is refused with the reason |
+| **Lead** | people, escalations, a ticket it asked for ending declined, blocked or done, approvals | one digest a day (09:00 team time by default) | any task, started only when a person or a bot asks |
+| **Responder** | people | a note | no task: refused like a bot synced from another platform |
+| **Monitor** | its own watcher, people | a note | its watcher's tasks only |
+| **Custom** | what its rules say | its rules | what its settings say |
+
+A bot's own clock still wakes it: a routine or schedule wakes a Reviewer, Lead and Monitor, and a due date or a snooze
+ending wakes a Lead and Monitor; a Responder has no routines. Stall and status checks run only for a Doer (and for a
+Custom bot that keeps them on). Doers pull open tasks themselves; the others start a task only when it is handed to them.
+**Custom** copies the profile's rows into the Rules table, marked as the profile's, to edit there; choosing a named profile
+again deletes them after a confirm. Set a profile in **Settings → Bots → Edit**, with `hub bot profile <bot> [name]`, MCP
+`hub_bot_profile`, or `POST /api/v2/bots/{bot}/profile` with `expected_revision` (`GET /api/v2/profiles` lists the choices
+with a line each); the bot's owner, operator, a person it reports up to, or BotOps may. The profile also shows on every bot read.
+
+Starting the server gives each bot without a profile one by its name once: `*-monitor`, `*-watch`, `listening` and
+`sentry-triage` are Monitors; `*reviewer*`, `qa-*`, `security*` and `reviewer-*` Reviewers (a bot named `pr-reviewer` that
+owns Dev tickets stays a Doer); the leads, the C-level Heads and `*-manager` Leads; the Assistant and bots synced from
+another platform Responders; BotOps, the Health Monitor, the Task Manager and the Librarian Custom; everything else a Doer.
+Each owner gets one notice naming their bots and profiles. The old wake preset is part of the profile: Token saver became a
+Doer with a 30-minute window and Performance a Doer; `wake_preset` and `POST /api/v2/bots/{bot}/wake-preset` still read and
+set that window. **Keep N tasks going** stays the Doer's cap. Health reports a Reviewer that owns tasks other than reviews,
+a Responder with tasks, and a Doer whose runs for a week all did nothing.
+
 ## Calling the API from a script
 
 A human is normally the browser sign-in (Cloudflare Access). A **personal API token** is the
