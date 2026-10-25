@@ -1008,6 +1008,9 @@ print(json.dumps(r))
         user.permit_reuse();
         drop(user);
         assert!(!child.wait().await.unwrap().success(), "detached process survives cleanup");
+        if let Ok(left) = std::fs::read_dir(&dir) {
+            for entry in left.flatten() { eprintln!("probe: left in the private directory: {:?} {:?}", entry.file_name(), entry.metadata().map(|m| (m.uid(), m.mode()))); }
+        }
         assert!(!dir.exists() && !tmp.exists() && !shm.exists());
         assert_eq!(written.metadata().unwrap().uid(), 10003);
         let next = crate::isolation::command("/bin/sh").args(["-c", "cat \"$1\"; echo next >> \"$1\"", "fixture", &written.display().to_string()])
