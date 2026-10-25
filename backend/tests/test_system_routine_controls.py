@@ -18,7 +18,8 @@ from backend.store import H
 from backend.tests.test_api import api, get, post, put  # noqa: F401  (fixture)
 from backend.tests.test_stale_review import FakeDecide
 
-SIX = {"stale_review", "still_wanted", "kpi_asks", "learnings", "health_scan", "ask_deadlines"}
+SIX = {"stale_review", "still_wanted", "kpi_asks", "learnings", "health_scan", "ask_deadlines", "task_manager_report",
+       "propose_demotions"}      # six, the Task Manager's report and the weekly rule suggestions
 
 
 def rows(api, token="ana-test"):
@@ -29,7 +30,7 @@ def test_admin_sees_a_switch_and_a_schedule_on_the_six_and_housekeeping_has_none
     jobs = rows(api, "ben-test")
     timed = {k for k, j in jobs.items() if j["presets"]}
     assert timed == SIX | {"task-rule-close-after-done"}
-    assert {k for k, j in jobs.items() if j["switch"]} == SIX | {"topic_fresh", "task-rule-close-after-done"}
+    assert {k for k, j in jobs.items() if j["switch"]} == SIX | {"topic_fresh", "stall_triage", "task-rule-close-after-done"}
     for key in SIX - {"health_scan"}:
         assert jobs[key]["can_change"] is True, key
     for key, job in jobs.items():

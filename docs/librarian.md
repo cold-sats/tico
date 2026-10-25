@@ -1,8 +1,14 @@
 # The Librarian
 
 The Librarian is a built-in bot that answers questions from the team's docs. Humans ask it from **Ask the Librarian** on Docs
-and Market; other bots and the Assistant ask it with `hub doc ask`. It cites every claim, says "Not in the docs." plainly when the
+and on the Market tab of [Strategy](strategy.md) (`#/strategy/market`); other bots and the Assistant ask it with `hub doc ask`. It cites every claim, says "Not in the docs." plainly when the
 docs do not say, and keeps a map of the docs so the next question is cheaper. It never answers from general knowledge.
+
+## Watching competitor pages and the weekly briefing
+
+The Librarian watches the pricing, changelog and careers pages of each core competitor ([Market watch](market-watch.md)): the
+server reads them daily and files an insight when one changes, and the Librarian applies what matters and rejects noise. On
+Mondays, after its sweep, it writes the week's [briefing](market-briefing.md).
 
 ## What it reads
 
@@ -51,7 +57,7 @@ pages web search returns).
 
 ## Asking
 
-**Humans.** Docs and Market show an **Ask the Librarian** rail on the right on desktop. Its arrow hides it and **Ask the
+**Humans.** Docs and the Market tab show an **Ask the Librarian** rail on the right on desktop. Its arrow hides it and **Ask the
 Librarian** brings it back; the choice is kept per viewer in this browser. On a phone, the button opens a full-screen sheet.
 On Docs, matching internal, indexed external, linked and manual docs appear at once
 from search; choose **All docs**, **Team docs** or **Tico manual** to narrow the matches.
@@ -140,7 +146,8 @@ source, builds the map (`_librarian/index.md`, `where-things-live.md`, `glossary
 any place it could not read, with what a person can do about it. **Import files** opens the Docs import. **Skip for now** is
 the person's own choice; **Set up with the Librarian…** in the Docs menu brings the card back at any time.
 
-**Market.** On a first visit to an empty Market page the owner answers four questions, one at a time: what you sell, who
+**Market.** Market is a tab of [Strategy](strategy.md) (`#/strategy/market`; the old `#/market` redirects there). On a
+first visit to an empty Market tab the owner answers four questions, one at a time: what you sell, who
 buys it, who you compete with, and what to watch. Only the first must be answered. Each answer is kept on the server as it
 is given, so **Skip for now** leaves and **Continue** picks up at the same question, in any browser. The last question's
 **Start research** files "Set up the market map" (below), which builds the map from the answers and sets what Market tracks:
@@ -167,6 +174,14 @@ their tier, segments, channels, people and rules as entities and edges, each wit
 claim. It never invents a number: a size, price or share appears only when a source states it. It aims at ten minutes and stops at
 thirty, then finishes the task with a short note saying what it found and what it could not read.
 
+The strategy and the market stay apart, and each reads the other. A task with no website makes the Librarian read
+`hub strategy show`: if it names the team's website, that is the first address, and the summary and *What we sell* stand in for
+the owner's description (finishing setup with a website files "Set up the market map" from it). The other
+way round, when an insight contradicts an active bet, the daily curate routine says so in one line of its sweep report and
+sends the CEO Bot a note naming the bet and the entity, so it can propose the entity as one of the bet's `cites`; a change to a
+cited entity then trips the bet's wrong-if. The Librarian applies the insight on its own evidence, never writes the strategy,
+and never judges whether the bet should change ([Strategy](strategy.md#the-fit-check)).
+
 After that the Librarian keeps the map current. It is the market's only curator besides the owner: everyone else reports
 (`hub market report`) and it decides. Its daily **Curate the market** routine (04:00) turns new insights into evidence, entities,
 edges and pages, and refreshes the weekly delta on Mondays; it stops at once when there is nothing new. Its **Urgent market
@@ -175,6 +190,72 @@ insight** routine runs when someone reports with `--urgent`. A large verified ba
 gets them at its next start. The server accepts market writes only from the Librarian and the owner. Outside market work it
 still writes only under `_librarian/` and `FAQ.md`. Earlier releases had a separate Market Analyst bot; an install that still has
 one archives it at its next start and hands its open tasks to the Librarian.
+
+**Customer themes.** The Librarian keeps one more market page, **Customer themes** (`market/customer-themes`): what customers keep
+asking for, complaining about and objecting to, each with a count, the date last seen and short quotes. Its **Customer themes**
+routine runs on `meeting.ready`, so it reads only live team meetings; a private, pending or dismissed meeting never reaches it
+([Meetings](meetings.md)). For each meeting it files a piece of evidence per theme (source kind `meeting`, a quote of 200
+characters or fewer, no personal or company names) and rewrites the page. A meeting counts once for a theme. A theme seen in
+three or more meetings is marked **Thesis**, which the CEO Bot can cite in a bet. It reads mail only if a mailbox is granted to
+it. A new team gets the routine with the Librarian; an existing install gets it when the Librarian's template is next applied
+(or add it with `hub routine set customer-themes --on meeting.ready`, as in [Routines](routines.md)).
+
+**Sources a team brings.** Some sources do not allow resale, so Tico cannot supply them. A team can grant its own Crunchbase,
+Similarweb or similar credential to the Librarian, and the sources catalog marks those sources `team_key`.
+
+## Market spend
+
+The market graph has no numbers. Spend is the other half: the market defined, cut into segments, and each segment sized
+in US dollars a year, every figure tied to evidence. Only the owner and the Librarian write it; everyone who can read the
+market reads it, and the tables are readable in hub SQL like the other market tables (`market_sizes`, `market_figures`,
+`market_sources`; the definition is served by `GET /api/v2/market/spend`).
+
+- **Definition.** What the market is, what is in and out, how to count, the year, and shared parameters: named numbers
+  (`smb_share`) that a formula reads as `$smb_share`, each with a source or marked a judgement.
+- **Segments.** `segment` entities joined by `member_of` edges, at most four levels deep. The total sums the top level only.
+- **Sizes.** Several estimates per segment, one per method (`top_down`, `bottom_up`, `player_sum`, `owner`), each with a
+  range (`low_usd <= spend_usd <= high_usd`), its arithmetic in words, its evidence, a confidence, what it overlaps with, and
+  the analyst headline figures as `spread` text. Every method except `owner` cites evidence. An estimate is filed `proposed`;
+  accepting one sends the previous accepted estimate for the same segment, dimension (offering or buyer), basis (product or
+  platform) and year back to `proposed`. Two estimates more than twice apart mark the segment as disagreeing.
+- **Formulas.** Arithmetic over numbers, the estimate's own parameters and shared `$names`: `+ - * /` and parentheses, nothing
+  else (no power, no call). The server works the spend out when the estimate is filed. When a shared parameter changes, reads
+  work it out again and scale the range by the same ratio; the stored row is not rewritten. If that puts the spend below
+  zero or past the cap, the estimate reads with no spend and an `error`, and the total leaves it out. The owner changing a
+  parameter of an estimate files a new accepted `owner` estimate. Each segment carries `rolled_usd`: its own size, else the
+  sum of its parts at any depth, else null. The total is the sum of the top-level segments' `rolled_usd`.
+- **Figures.** A player's revenue, ARR, customers or seats in a segment, with `kind` (reported, estimated, claimed), `as_of`
+  and evidence.
+- **Bets.** An accepted size, or a shared parameter changing an accepted size, is a market event on the segment, so a bet that
+  cites the segment gets its fit check ([Strategy](strategy.md#the-fit-check)). A proposed size is logged but does not trip a bet.
+- **Value chain.** `GET /api/v2/market/value-chain` lays the graph out in five layers (suppliers, platforms, us and rivals,
+  channels, buyers) from `competes_with`, `integrates_with`, `partners_with`, `distributes_through` and `sells_to` edges around
+  `company/self`; at most 40 nodes a layer.
+- **Sources.** `backend/market_sources/catalog.yaml` lists where to look: for each source what it covers (sizing, players,
+  buyers, pricing, signals, value chain), whether it is free, needs the team's key or goes through the gateway, and how far to
+  trust it (primary, secondary, estimate, signal). A team adds its own with `hub market sources --add-file`; one with a shipped
+  id replaces it.
+
+The owner asks for the work with **Size the market** (`POST /api/v2/market/spend/research {description}`), which files one
+Librarian task following `playbooks/size-the-market.md`; asking again while it is open returns the same task. A first market
+setup ends by pointing at the same playbook.
+
+| Route | Who | |
+|---|---|---|
+| `GET /api/v2/market/spend?dimension=&basis=&year=` | anyone who reads the market | definition, total, segments with sizes, estimates (with their evidence), players |
+| `PUT /api/v2/market/definition` | owner, Librarian | the definition; `root_name` makes the root |
+| `POST /api/v2/market/segments` | owner, Librarian | `{name, parent_id?, summary?}` |
+| `POST /api/v2/market/sizes` | owner, Librarian | an estimate; `accept: true` accepts it |
+| `POST /api/v2/market/sizes/{id}/accept`, `/reject` | owner, Librarian | |
+| `POST /api/v2/market/sizes/{id}/params` | owner | `{params: {name: number}}` |
+| `POST /api/v2/market/figures` | owner, Librarian | a player's figure |
+| `GET`, `POST /api/v2/market/sources` | read: anyone; add: owner, Librarian | the catalog |
+| `POST /api/v2/market/spend/research` | owner | `{description}`; returns `{task_id}` |
+| `GET /api/v2/market/value-chain` | anyone who reads the market | the five layers |
+
+CLI: `hub market define`, `segment add|tree`, `size add|accept|reject|params|list`, `figure add`, `sources`, `spend`,
+`research`. MCP: `hub_market_spend`, `hub_market_define`, `hub_market_segment_add`, `hub_market_size_add`,
+`hub_market_size_decide`, `hub_market_figure_add`, `hub_market_sources`, `hub_market_research`.
 
 ## Built-in
 

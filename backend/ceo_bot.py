@@ -192,7 +192,7 @@ def reconcile(c):
 
 
 def _outside(slug, entry, assistant, helpers):
-    return slug in ("assistant", "botops", "librarian", SLUG, "health-monitor") or slug == assistant \
+    return slug in ("assistant", "botops", "librarian", SLUG, "health-monitor", "task-manager") or slug == assistant \
         or str((entry or {}).get("template") or "") in helpers
 
 
@@ -367,7 +367,7 @@ def room_today(c, person, at=None):
 def check_cap(c, actor, owner):
     """Refuse a sixth task today from the CEO Bot to one person. Like any refusal it counts toward the bot's quarantine,
     so its playbooks read `asked_today` in `GET /api/v2/ceo-bot` first and keep the rest for tomorrow; the asks
-    backend/goal_asks.py files check `room_today` and never reach this."""
+    backend/goal_asks.py files check `room_today`, and the urgent ones pass `capped=False`."""
     if actor != "bot:" + SLUG or not H.is_human(owner):
         return
     if room_today(c, owner) == 0:

@@ -564,9 +564,9 @@ class Auth:
     FULL = {"see": True, "read": True, "write": True}
 
     def system_bot(self, slug):
-        """The built-in bots (the Assistant, BotOps, the Librarian, the CEO Bot, the Health Monitor): they act for
+        """The built-in bots (the Assistant, BotOps, the Librarian, the CEO Bot, the Health Monitor, the Task Manager): they act for
         the whole company, so only the company owner changes them. Admins manage every other bot."""
-        return slug in (self.settings.assistant_bot, "assistant", "botops", "librarian", "goal-manager", "health-monitor")
+        return slug in (self.settings.assistant_bot, "assistant", "botops", "librarian", "goal-manager", "health-monitor", "task-manager")
 
     def bot_manager(self, c, who, slug, operator=None):
         """Whether this person may manage the bot: the one "can manage this bot" rule (docs/permissions.md).

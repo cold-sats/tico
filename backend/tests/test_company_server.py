@@ -2,6 +2,7 @@
 import asyncio
 import hashlib
 import json
+import re
 import time
 
 import httpx
@@ -15,6 +16,8 @@ INSTALL_ID = "cc4a8541-2661-4eb8-a1d3-a34e913571c0"
 COMPANY = {"id": "2615c13e-d164-414f-94a5-782f0ea1b2f8", "name": "Acme", "slug": "acme"}
 SERVER_KEY = "tsk_synthetic_server_key_0123456789"
 PATH = "/api/v2/company/server-connection"
+ADDRESS = "https://tico.example.com"
+REAL_PUBLIC_URL = CS.public_url
 
 
 def reply(status, body=None):
@@ -27,12 +30,16 @@ def hq(api, monkeypatch):
     monkeypatch.setenv("TICO_HQ_URL", "https://api.tico.dev")
     with api.app.state.store.transaction() as c:
         c.execute("INSERT OR REPLACE INTO registry_metadata VALUES('usage-count',?)", (json.dumps({"install_id": INSTALL_ID}),))
-    fake = type("HQ", (), {"seen": [], "answers": {}})()
+    fake = type("HQ", (), {"seen": [], "answers": {}, "gateway_soon": []})()
+    from backend import gateway_connection
+    # Connect asks for the Gateway key on a thread; the Gateway tests below tick it themselves.
+    monkeypatch.setattr(gateway_connection, "check_soon", lambda *args, **kwargs: fake.gateway_soon.append(args))
 
     def handle(request):
         fake.seen.append(request)
         return fake.answers[(request.method, request.url.path)](request)
     monkeypatch.setattr(CS, "TRANSPORT", httpx.MockTransport(handle))
+    monkeypatch.setattr(CS, "public_url", lambda settings: ADDRESS)     # the test app itself is on loopback http
     return fake
 
 
@@ -62,7 +69,7 @@ def test_preview_then_connect_proves_the_address_and_seals_the_key(api, hq):
     r = api.post(PATH, headers=headers(), json={"code": CODE, "preview": True})
     assert r.status_code == 200 and r.json() == {"company": COMPANY, "preview": True}
     sent = json.loads(hq.seen[0].content)
-    assert sent["preview"] is True and sent["install_id"] == INSTALL_ID and sent["public_url"].startswith("http://127.0.0.1")
+    assert sent["preview"] is True and sent["install_id"] == INSTALL_ID and sent["public_url"] == ADDRESS
     assert set(sent) == {"code", "public_url", "install_id", "version", "proof", "preview"}
     assert api.get(PATH, headers=headers()).json() == {"company": None}
 
@@ -78,6 +85,34 @@ def test_preview_then_connect_proves_the_address_and_seals_the_key(api, hq):
             json.dumps([list(r) for r in c.execute("SELECT * FROM events")])
         assert CS.view(c)["company"] == COMPANY
     assert SERVER_KEY not in everything and SERVER_KEY not in json.dumps(view)
+
+
+@pytest.mark.parametrize("configured,sent", [
+    ("http://127.0.0.1:8765", None), ("http://localhost:8765/", None), ("http://192.168.1.20:8765", None),
+    ("http://tico.example.com", None), ("", None), ("https://tico.example.com/", "https://tico.example.com")])
+def test_only_an_https_address_is_sent_to_hq(configured, sent):
+    assert REAL_PUBLIC_URL(type("S", (), {"public_url": configured})()) == sent
+
+
+def test_a_local_server_links_with_no_address_and_shows_the_company(api, hq, monkeypatch):
+    monkeypatch.setattr(CS, "public_url", REAL_PUBLIC_URL)             # the test app's own address: http on loopback
+    bodies = []
+
+    def connect(request):
+        bodies.append(json.loads(request.content))
+        return reply(201, {"company": COMPANY, "workspace_id": "ws_1", "server_key": SERVER_KEY,
+                           "portal_url": "https://app.tico.dev/servers"})
+    hq.answers[("POST", "/v1/portal/server-connection")] = connect
+    hq.answers[("GET", "/v1/portal/server")] = lambda request: reply(200, {
+        "company": COMPANY, "workspace_id": "ws_1", "portal_url": "https://app.tico.dev/servers",
+        "credit": {"balance_cents": 250}})
+    r = api.post(PATH, headers=headers(), json={"code": CODE, "preview": False})
+    assert r.status_code == 200, r.text
+    assert bodies[0]["public_url"] is None and bodies[0]["install_id"] == INSTALL_ID
+    assert set(bodies[0]) == {"code", "public_url", "install_id", "version", "proof", "preview"}
+    assert r.json()["company"] == COMPANY and r.json()["credit"] == {"balance_cents": 250}
+    assert api.get(PATH, headers=headers()).json()["company"] == COMPANY
+    assert len(hq.gateway_soon) == 1                                    # its company Gateway key is asked for as usual
 
 
 def test_hq_refusals_and_bad_answers_are_plain_errors(api, hq, monkeypatch):
@@ -133,6 +168,26 @@ def test_refresh_heartbeat_and_disconnect_use_the_server_key(api, hq):
     assert CS.heartbeat(store, vault) == "gone" and not CS.heartbeat_due(store, now=1e12)
 
 
+def test_a_new_version_is_due_within_the_hour(api, hq, monkeypatch):
+    monkeypatch.setenv("TICO_VERSION", "v0.4.5")
+    connected(api, hq)
+    store, vault = api.app.state.store, api.app.state.vault
+    assert not CS.heartbeat_due(store)                          # connecting told HQ this version
+    monkeypatch.setenv("TICO_VERSION", "v0.4.6")                # updated and restarted
+    assert CS.heartbeat_due(store)
+    hq.answers[("POST", "/v1/portal/server/heartbeat")] = lambda request: reply(503, {"error": "down"})
+    assert CS.heartbeat(store, vault) == "failed" and CS.heartbeat_due(store)   # still due: the next hour tries again
+    hq.answers[("POST", "/v1/portal/server/heartbeat")] = lambda request: reply(204)
+    assert CS.heartbeat(store, vault) == "sent" and json.loads(hq.seen[-1].content) == {"version": "0.4.6"}
+    assert not CS.heartbeat_due(store)
+    with store.transaction() as c:                              # a record from before the version was kept
+        CS._write(c, {k: v for k, v in CS._row(c).items() if k != "version"})
+    assert CS.heartbeat_due(store)
+    calls = len(hq.seen)
+    monkeypatch.setenv("TICO_REHEARSAL", "1")                   # a changed version still sends nothing from a rehearsal
+    assert not CS.heartbeat_due(store) and len(hq.seen) == calls
+
+
 def test_a_key_hq_refuses_is_forgotten(api, hq):
     connected(api, hq)
     hq.answers[("POST", "/v1/portal/server/heartbeat")] = lambda request: reply(401, {"error": "unauthorized"})
@@ -180,3 +235,103 @@ def test_a_slow_answer_is_cut_off_at_the_deadline(api, hq, monkeypatch):
     began = time.monotonic()
     r = api.post(PATH, headers=headers(), json={"code": CODE, "preview": True})
     assert r.status_code == 503 and time.monotonic() - began < 5
+
+
+GATEWAY_KEY = "tgw_synthetic_company_gateway_key_0123456789ab"
+
+
+def gateway_setup(api, hq, monkeypatch):
+    """The vault and an HQ that enrolls the install for the company: `hq.gateway` keeps each request's body."""
+    from backend.tests.test_gateway_connection import setup as connection_setup
+    connection_setup(api, monkeypatch)
+    from backend import gateway_connection
+    monkeypatch.setattr(gateway_connection, "check_soon", lambda *args, **kwargs: hq.gateway_soon.append(args))
+    monkeypatch.delenv("TICO_GATEWAY_INVITE", raising=False)
+    hq.gateway = []
+
+    def enroll(request):
+        hq.gateway.append(json.loads(request.content))
+        return reply(201, {"key": GATEWAY_KEY + str(len(hq.gateway)), "key_id": "gk_0123456789ab",
+                           "rotate_after": "2099-01-01T00:00:00Z"})
+    hq.answers[("POST", "/v1/portal/server/gateway")] = enroll
+
+
+def tick(api):
+    from backend import gateway_connection as GC
+    return GC.auto_tick(api.app.state.store, api.app.state.vault, api.app.state.store.settings)
+
+
+def gateway_row(api):
+    from backend import gateway_connection as GC
+    with api.app.state.store.read() as c:
+        return GC._row(c), GC.view(c, api.app.state.store.settings, manage=True)
+
+
+def test_a_linked_server_gets_its_gateway_key_from_its_company_and_loses_it_with_the_link(api, hq, monkeypatch):
+    gateway_setup(api, hq, monkeypatch)
+    assert tick(api) is None and hq.seen == []                  # not linked, no invite: nothing to ask
+    connected(api, hq)
+    assert len(hq.gateway_soon) == 1                            # Connect asks for the key right away
+    assert tick(api) == "enrolled"
+    asked = [r for r in hq.seen if r.url.path == "/v1/portal/server/gateway"]
+    assert len(asked) == 1 and asked[0].headers["authorization"] == "Bearer " + SERVER_KEY
+    body = hq.gateway[0]
+    assert set(body) == {"install", "secret"} and re.fullmatch(r"gi_[0-9a-f]{24}", body["install"])
+    record, view = gateway_row(api)
+    assert record["via"] == "company" and record["key_id"] == "gk_0123456789ab"
+    assert view["connected"] and view["automatic"] and view["source"] == "settings"
+    with api.app.state.store.read() as c:
+        stored = json.dumps([list(r) for r in c.execute("SELECT * FROM registry_metadata")]) + \
+            json.dumps([list(r) for r in c.execute("SELECT * FROM events")])
+    assert GATEWAY_KEY not in stored and body["secret"] not in stored
+    assert tick(api) is None                                    # it has its key: nothing is due
+    # Disconnect: HQ revokes the key, and it is forgotten here; the install stays itself and asks nothing unlinked.
+    hq.answers[("DELETE", "/v1/portal/server")] = lambda request: reply(204)
+    assert api.delete(PATH, headers=headers()).json() == {"company": None}
+    record, view = gateway_row(api)
+    assert not view["connected"] and "key" not in record and record["install"] == body["install"]
+    calls = len(hq.seen)
+    assert tick(api) is None and len(hq.seen) == calls
+    from backend import gateway_connection as GC
+    with api.app.state.store.read() as c:
+        assert not GC.maintained(c, api.app.state.store.settings) and GC.health(c, api.app.state.store.settings) is None
+    # Linked again: the same install asks again.
+    connected(api, hq)
+    assert tick(api) == "enrolled" and hq.gateway[-1] == body
+
+
+def test_a_pasted_key_wins_and_hq_refusals_are_kept_like_enrolls(api, hq, monkeypatch):
+    from backend import gateway_connection as GC
+    gateway_setup(api, hq, monkeypatch)
+    connected(api, hq)
+    store, vault = api.app.state.store, api.app.state.vault
+    who = type("Who", (), {"role": "owner", "actor": "human:ana"})()
+    with store.transaction() as c:
+        GC.save(c, vault, who, {"key": "tgw-pasted-staff-key-0042", "expected_revision": 0}, "2026-10-25T00:00:00Z")
+    assert tick(api) is None and hq.gateway == []               # the owner's pasted key wins
+    with store.transaction() as c:
+        GC.clear(c, who, "2026-10-25T00:00:01Z")                # cleared: the company's key takes over
+    assert tick(api) == "enrolled" and len(hq.gateway) == 1
+    with store.transaction() as c:
+        GC.clear(c, who, "2026-10-25T00:00:02Z")                # an automatic key cleared stays off until asked
+    assert tick(api) is None
+    with store.transaction() as c:
+        GC.automatic_on(c, who, "2026-10-25T00:00:03Z")
+    hq.answers[("POST", "/v1/portal/server/gateway")] = lambda request: reply(403, {"error": "install_revoked"})
+    assert tick(api) == "stopped"                               # staff turned it off: not asked again
+    assert tick(api) is None
+    with store.read() as c:
+        assert GC.health(c, store.settings)["summary"] == GC.STOPPED
+    with store.transaction() as c:
+        GC.automatic_on(c, who, "2026-10-25T00:00:04Z")
+    hq.answers[("POST", "/v1/portal/server/gateway")] = lambda request: reply(401, {"error": "unauthorized"})
+    assert tick(api) == "unauthorized"                          # the link ended on the portal: it is forgotten
+    assert api.get(PATH, headers=headers()).json() == {"company": None}
+
+
+def test_rehearsal_asks_hq_for_no_gateway_key(api, hq, monkeypatch):
+    gateway_setup(api, hq, monkeypatch)
+    connected(api, hq)
+    monkeypatch.setenv("TICO_REHEARSAL", "1")
+    calls = len(hq.seen)
+    assert tick(api) is None and len(hq.seen) == calls and hq.gateway == []

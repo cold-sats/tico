@@ -104,10 +104,12 @@ function machineSharedWords(shared) {
   const names = (shared.computers || []).map(c => c.label).join(', ');
   return shared.every ? `Shared with every computer${names ? ` (${names})` : ''}` : `Shared with ${names}`;
 }
+// On a Docker runner, whether this tool's turns each run as their own user or share the bot user (readiness `turn_user`).
+const machineTurnUserWords = conn => ({own: 'Each turn runs as its own user', bot: "Turns share the bot user (not isolated from other bots' checkouts)"})[conn.value?.turn_user] || '';
 // One chip per connection: the tool, a thin bar and the % left; a red dot only when it needs attention.
 function machineChipHTML(machine, conn) {
   const left = machineLeft(conn.state.weekly), warn = machineAttentionWords(conn);
-  const title = [`${conn.tool} · ${conn.name}`, conn.shared ? machineSharedWords(conn.shared) : '', warn, machineLeftWords(conn.state.weekly)].filter(Boolean).join(' · ');
+  const title = [`${conn.tool} · ${conn.name}`, conn.shared ? machineSharedWords(conn.shared) : '', warn, machineLeftWords(conn.state.weekly), machineTurnUserWords(conn)].filter(Boolean).join(' · ');
   return `<button type="button" class="machine-chip${conn.attention ? ' attention' : ''}" data-computer-open="${esc(machine.id)}" data-chip="${esc(conn.key)}" title="${esc(title)}" aria-label="${esc(title)}">`
     + `${conn.attention ? '<span class="machine-chip-dot" aria-hidden="true"></span>' : ''}<span>${esc(conn.tool)}</span>`
     + `${left !== null ? `<meter class="machine-chip-bar" min="0" max="100" low="20" optimum="100" value="${left}" aria-hidden="true"></meter><span class="machine-chip-pct">${left}%</span>` : ''}</button>`;

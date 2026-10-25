@@ -362,6 +362,12 @@ def test_sql_event_privacy_scales_with_matching_attempts_not_their_cross_product
 
 def traced_get(api, path, token):
     """The response to one GET and the number of SQL statements it ran on every pooled connection."""
+    response, statements = traced(api, lambda: get(api, path, token))
+    return response, len(statements)
+
+
+def traced(api, request):
+    """The result of `request()` and the SQL statements it ran on every pooled connection."""
     store = api.app.state.store
     statements, take, give = [], store._take, store._give
 
@@ -375,7 +381,7 @@ def traced_get(api, path, token):
         give(c)
     store._take, store._give = traced, untraced
     try:
-        return get(api, path, token), len(statements)
+        return request(), statements
     finally:
         store._take, store._give = take, give
 
@@ -492,3 +498,158 @@ def test_task_list_reads_a_fixed_number_of_statements_and_hides_private_tasks(ap
     for key in ("ben", "cara"):
         for brief in ("&brief=true", ""):
             assert counts[300, key, brief] <= counts[30, key, brief] + 5, counts
+
+
+def busy(api):
+    """Another bot's write: it moves the provenance clock, so the next request rebuilds what it caches by it."""
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE provenance_clock SET value=value+1 WHERE id=1")
+
+
+def running_turn(api):
+    r = runner(api)
+    assign(api, r, "ops")
+    ready(api, r, ["ops"])
+    work = post(api, "tasks", {"owner": "ops", "title": "Release", "body": "Ship it."})
+    attempt = claim(api, r)
+    post(api, f"attempts/{attempt['id']}/started", {"thread_id": "t"}, r["token"])
+    with api.app.state.store.read() as c:
+        cid = c.execute("SELECT conversation_id FROM tasks WHERE id=?", (work["id"],)).fetchone()[0]
+    return r, work, attempt, cid
+
+
+def queue(c, mid, cid, refs, *, sender="human:ana", in_reply_to=None):
+    """A message to bot:ops as stored; the jobs trigger queues it."""
+    c.execute("INSERT INTO messages(id,conversation_id,from_actor,to_actor,kind,body,created,refs_json,in_reply_to) "
+              "VALUES(?,?,?,'bot:ops','say','More',?,?,?)", (mid, cid, sender, H.now(), encode(refs), in_reply_to))
+
+
+def test_long_run_reads_a_fixed_number_of_statements_and_keeps_private_provenance(api):
+    """Each event batch and input poll of a running turn checks the run against every task its inputs name, through
+    the messages they reply to and answer. Those are read together, so a run that took in 50 inputs costs what one
+    that took in 5 does, and a private task named only by a message an input replies to still fences the run."""
+    store = api.app.state.store
+    r, work, attempt, cid = running_turn(api)
+    aid = attempt["id"]
+    hidden = task(api, requester="human:cara", owner="bot:ops")         # Cara's; Ana is no party to it
+    with store.transaction() as c:
+        queue(c, "plan", cid, {"see": "task:" + hidden["id"]}, sender="human:cara")
+        c.execute("UPDATE jobs SET state='done' WHERE message_id='plan'")   # never an input of this run
+
+    def took(size):
+        with store.transaction() as c:
+            start = c.execute("SELECT count(*) FROM attempt_inputs WHERE attempt_id=?", (aid,)).fetchone()[0]
+            for i in range(start, size):
+                ref = H.task_create(c, "human:ana", f"Ref {i}", "x", "human:ben", lint=False)["id"]
+                # Chains of five: each input replies to the one before it and answers the two before that.
+                queue(c, f"input-{i}", cid, {"task": work["id"], "see": "task:" + ref,
+                                             "answers": [f"input-{k}" for k in range(max(i - i % 5, i - 2), i)]},
+                      in_reply_to=f"input-{i - 1}" if i % 5 else ("plan" if i == 0 else None))
+                c.execute("UPDATE jobs SET state='input',attempt_id=? WHERE message_id=?", (aid, f"input-{i}"))
+                c.execute("INSERT INTO attempt_inputs(attempt_id,message_id,acked_at) VALUES(?,?,?)",
+                          (aid, f"input-{i}", H.now()))
+
+    counts = {}
+    for size in (5, 50):
+        took(size)
+        busy(api)
+        _, events = traced(api, lambda: post(api, f"attempts/{aid}/events",
+                                             {"events": [{"seq": len(counts) + 1, "kind": "delta", "payload": {"text": "x"}}]},
+                                             r["token"]))
+        busy(api)
+        polled, inputs = traced(api, lambda: post(api, f"attempts/{aid}/inputs", {}, r["token"]))
+        counts[size] = len(events), len(inputs)
+        assert polled["messages"] == []
+        busy(api)
+        with store.read() as c:
+            assert hidden["id"] in task_privacy.attempt_tasks(c, aid)
+            assert task_privacy.attempt_readable(c, "human:cara", aid)
+            assert not task_privacy.attempt_readable(c, "human:ana", aid)
+    assert counts[50][0] <= counts[5][0] + 5 and counts[50][1] <= counts[5][1] + 5, counts
+
+
+def test_input_poll_passes_over_private_backlog_without_the_write_lock(api, monkeypatch):
+    """A running turn polls for inputs a few times a second. A message queued in its room that names another private
+    task is never folded into the run (it would make the run private) and waits for its own. The poll that passes over
+    such a backlog reads only: no write transaction, and no more statements for 30 of them than for 3. A message the
+    run may take still goes through the write transaction and reaches it."""
+    store = api.app.state.store
+    r, work, attempt, cid = running_turn(api)
+    aid = attempt["id"]
+    hidden = task(api, requester="human:cara", owner="bot:ops")
+    writes, transaction = [], store.transaction
+
+    def counted():
+        writes.append(1)
+        return transaction()
+    monkeypatch.setattr(store, "transaction", counted)
+    counts = {}
+    for size in (3, 30):
+        with transaction() as c:
+            for i in range(len(counts) * 3, size):
+                queue(c, f"held-{i}", cid, {"see": "task:" + hidden["id"]}, sender="human:cara")
+        busy(api)
+        writes.clear()
+        polled, statements = traced(api, lambda: post(api, f"attempts/{aid}/inputs", {}, r["token"]))
+        counts[size] = len(statements)
+        assert polled["messages"] == [] and not writes
+    assert counts[30] <= counts[3] + 5, counts
+    with transaction() as c:
+        queue(c, "follow-up", cid, {})
+    polled = post(api, f"attempts/{aid}/inputs", {}, r["token"])
+    assert [m["id"] for m in polled["messages"]] == ["follow-up"] and writes
+    with store.read() as c:
+        assert [row[0] for row in c.execute("SELECT message_id FROM attempt_inputs WHERE attempt_id=?", (aid,))] == [
+            "follow-up"]
+        assert "queued" in {row[0] for row in c.execute("SELECT state FROM jobs WHERE message_id LIKE 'held-%'")}
+
+
+def test_status_reads_a_fixed_number_of_statements_and_hides_private_queued_work(api):
+    """Status lists every queued and running job whose message its reader may read. Each job's room, with the meeting
+    it may have come from, is read with the rest, so 100 queued tasks cost what 10 do, and a private task's job stays
+    off the list of a member who is no party to it."""
+    store = api.app.state.store
+
+    def queue_tasks(size, start):
+        with store.transaction() as c:
+            for n in range(start, size):
+                H.task_create(c, "human:cara" if n % 2 else "human:ana", f"Step {n}", "Do it.", "bot:ops",
+                              private=bool(n % 2), lint=False)
+
+    counts, start = {}, 0
+    for size in (10, 100):
+        queue_tasks(size, start)
+        start = size
+        busy(api)
+        (ana, counts[size]), (cara, _) = (traced(api, lambda: api.get("/api/status", headers=headers()).json()),
+                                          traced(api, lambda: api.get("/api/status", headers=headers("cara-test")).json()))
+        counts[size] = len(counts[size])
+        mine = {item["title"] for item in ana["queued"]}
+        assert {f"Step {n}" for n in range(0, size, 2)} <= mine and not {f"Step {n}" for n in range(1, size, 2)} & mine
+        assert {f"Step {n}" for n in range(size)} <= {item["title"] for item in cara["queued"]}
+    assert counts[100] <= counts[10] + 5, counts
+
+
+def test_bot_inbox_reads_a_fixed_number_of_statements_and_hides_private_messages(api):
+    """A bot that never marks messages read keeps a long unread backlog, checked on every inbox read. The newest are
+    read together, so 100 unread cost what 10 do, and a message naming a private task the bot is no party to stays
+    out of its inbox."""
+    store = api.app.state.store
+    r, work, attempt, cid = running_turn(api)
+    hidden = task(api, requester="human:cara", owner="human:ben")       # nothing to do with bot:ops
+
+    def unread(size, start):
+        with store.transaction() as c:
+            for n in range(start, size):
+                queue(c, f"note-{n}", cid, {"see": "task:" + hidden["id"]} if n % 2 else {"task": work["id"]})
+
+    counts, start = {}, 0
+    for size in (10, 100):
+        unread(size, start)
+        start = size
+        busy(api)
+        inbox, statements = traced(api, lambda: get(api, "inbox", attempt["token"]))
+        counts[size] = len(statements)
+        shown = {m["id"] for m in inbox["messages"]}
+        assert {f"note-{n}" for n in range(0, size, 2)} <= shown and not {f"note-{n}" for n in range(1, size, 2)} & shown
+    assert counts[100] <= counts[10] + 5, counts

@@ -80,7 +80,7 @@ const SAMPLE_BOTS = [['coo', 'Assistant'], ['botops', 'BotOps'], ['head-of-produ
     page.on('pageerror', e => errors.push(e.message));
     await page.goto('https://tico-ui.test/');
     await page.waitForFunction(() => location.hash === '#/welcome');
-    await page.locator('#onb-company').waitFor();
+    await page.locator('#onb-website').waitFor();
     // The first screen offers it, in plain words.
     assert.equal(await page.locator('#onb-sample').textContent(), 'Start with a sample company');
     assert.match(await page.locator('#onb-sample-box').textContent(), /five bots plus the built-in helpers.*approve it\. Nothing is sent outside\./s);
@@ -108,9 +108,10 @@ const SAMPLE_BOTS = [['coo', 'Assistant'], ['botops', 'BotOps'], ['head-of-produ
     const later = await context.newPage();
     record = {...record, completed: null, needed: true, sample: null, bots: []};
     await later.goto('https://tico-ui.test/');
-    await later.locator('#onb-company').waitFor();
+    later.on('pageerror', e => errors.push(e.message));
+    await later.locator('#onb-website').waitFor();
     await later.locator('#onb-next').click();
-    await later.locator('#onb-what').waitFor();
+    await later.locator('#ss').waitFor();
     assert.equal(await later.locator('#onb-sample').count(), 0);
 
     // A picker file is previewed first. Applying it uses its own endpoint once,

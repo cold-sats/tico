@@ -159,10 +159,8 @@ def ticket_evidence(task, pr):
             docs.append({"task": child["id"], "title": child["title"], "status": child["status"],
                          "links": child.get("links", []),
                          "receipts": [source(child, m) for m in owner_messages(child)]})
-    if qa and not docs:
-        gaps.append("Docs: no completed Technical Writer task")
-    if any(d["status"] not in ("done", "closed") for d in docs):
-        gaps.append("Docs: incomplete Technical Writer task")
+    # Docs are no gap: the Technical Writer starts on `release_published`, after the release, so a docs task is
+    # listed as evidence when one exists and never required.
     return {"id": task["id"], "number": task.get("number"), "title": task["title"],
             "step": (task.get("step") or {}).get("name", "unknown"),
             "qa": qa, "reviews": reviews, "test_receipts": tests,

@@ -21,8 +21,8 @@ from . import changelog as CL
 from . import visuals
 from . import app_delivery, login_holds, providers, runner_versions
 from .harnesses import resolve_harness
-from . import personal_tokens, rooms, team_rules, turns, wake_presets
-from . import auto_tasks, pipeline_stats
+from . import personal_tokens, profiles, rooms, team_rules, turns, wake_presets
+from . import auto_tasks, bot_stops, pipeline_stats
 from .execution import AWAKE_GAP, AWAKE_SETTLE, Execution, bump_bot_session_epoch, turns_here
 from pathlib import Path
 
@@ -689,6 +689,9 @@ def queued_label(c, bot, location, settings=None, human=False, behind=False):
         label = "Saved — this bot is paused; this starts when it's resumed"
     elif bot_state != "active":
         label = "Saved — bot " + bot_state
+    elif (stop := bot_stops.queued_reason(c, bot, human)):
+        # Tico stopped the bot (failed runs, run budget) or it waits out a failed run: the words say why.
+        label = "Saved — " + stop
     elif not location["online"]:
         label = "Saved — waiting for " + ((location["machine"] or {}).get("label") or "a registered computer")
     elif not location["awake"]:
@@ -1616,7 +1619,7 @@ def fleet_snapshot(c, auth, identity, task_view):
     access = auth.bot_accesses(c, principal)
     bot_rows = H.bots(c)
     allowed = {row["slug"] for row in bot_rows if access.get(row["slug"], auth.FULL)["write"]}
-    task_rows = [dict(t) for t in c.execute("SELECT * FROM tasks WHERE " + privacy.STATUS_TASKS_SQL)]
+    task_rows = [dict(t) for t in c.execute(f"SELECT {privacy.STATUS_TASK_COLUMNS} FROM tasks WHERE {privacy.STATUS_TASKS_SQL}")]
     bot_tasks = {}
     for task in task_rows:
         for actor in {task["owner"], task["requester"]}:
@@ -1748,6 +1751,9 @@ def install_views(app, store, auth, mutate, task_view):
         def helper(config):
             return str(config.get("template") or "") in helpers
         from .chat_goals import readable_active
+        from . import gateway_tiers
+        from .task_manager import Chart
+        departments = Chart(c, store.settings)         # the Gateway department a bot's model picker starts from
         for bot in bots:
             slug = bot["slug"]
             level = access.get(slug, auth.FULL)
@@ -1805,6 +1811,7 @@ def install_views(app, store, auth, mutate, task_view):
                          "keep_tasks_going": auto_tasks.of(config),
                          "task_flow": auto_tasks.counts(c, slug, who),
                          "team": P.team_of(slug, configs, people),
+                         "gateway_department": gateway_tiers.department_of(departments.of("bot:" + slug)),
                          "org_parent": P.org_parent("bot", slug, people, chart, archived),
                          "report_position": places.get("bot:" + slug),
                          "operator": registry["operator"] if registry else None,
@@ -1816,6 +1823,7 @@ def install_views(app, store, auth, mutate, task_view):
                          "icon": icon_of(config), "helper": helper(config),
                          # What Settings and the branch editor show and pick from (backend/wake_presets.py).
                          "wake": wake_presets.effective(config),
+                         "profile": profiles.effective(config),
                          "my_access": level, **policy,
                          "can_chat": level["write"] and slug not in (auth.settings.assistant_bot, CEO_BOT),
                          # Onboarding or Active, and whether this person may mark onboarding complete (backend/lifecycle.py).
@@ -2459,5 +2467,6 @@ def runnable_choices(c, who, auth, settings):
         if tico:
             answer = runtime_choice(c, bot, "pi", who, computers, harness="pi", model=sorted(tico)[0])
             if answer.get("can_run") is False:
-                out.setdefault(bot, {}).update({model: answer for model in tico})
+                # `tico`: any pick of the Gateway's lineup, which the picker cannot list one by one.
+                out.setdefault(bot, {}).update({model: answer for model in tico} | {"tico": answer})
     return out

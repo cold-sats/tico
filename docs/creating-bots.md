@@ -96,7 +96,7 @@ New tasks and chats addressed to the original go to your active branch while bra
 People without an active branch reach the original. Selecting another person's branch addresses it directly, with the usual access checks.
 Existing task threads keep their participants and history.
 
-A branch follows the original's model, harness, runtime, effort, Compact at, session mode and fallback. Its editor changes only its status (and, coming soon, its own **Wakes**);
+A branch follows the original's model, harness, runtime, effort, Compact at, session mode and fallback. Its editor changes only its status and its **Profile**;
 change the original to change its definition. Every task is its own provider session by default, and chat keeps its own; `session: task` also gives each chat conversation its own, and `session: bot` keeps one session for everything. A subtask someone else files under the bot's task continues that task's session (one the bot files for itself gets its own) unless `subtask_session: own` (`hub bot update <slug> --subtask-session own`) gives each its own ([Sessions](sessions.md), [Tasks](tasks.md#subtasks-and-prs)).
 Routines run only on the original, including event routines. Archiving the original archives its branches, and restoring it restores
 those branches to their previous statuses with their work and computers preserved. Branches archived separately stay archived.
@@ -150,7 +150,7 @@ A message bot is assigned to one human on the roster. **Settings → Bots → Ad
 the Finish setup cards) show a human picker when the template is `inbox`. The chosen address is
 appended to the instructions as `Mailbox: <email>`, and BotOps fills `{{mailbox}}` in
 `bot.yaml` from that line. The bot is created `planned`, with `outbound_send: false`, one
-routine, the weekday 07:30 email brief in America/Los_Angeles (change its timezone in Settings → Routines),
+routine, the weekday 07:30 email brief in America/Los_Angeles (change its timezone in Settings → Rules),
 declared off and switched on when its setup starts, and gmail `read`/`draft` plus calendar `read` on that mailbox. It reads only that mailbox;
 `org_read: true`, which also reads everyone who reports to the human, is added by the owner
 deliberately. It starts with filing off (no labels, no archive) and shows what it would do.
@@ -201,7 +201,7 @@ own paths, so renaming later is real work.
 | Path | What it is for |
 |---|---|
 | `AGENT.md` | The Instructions. Read at the start of every run. **Required.** `AGENTS.md` and `CLAUDE.md` are one-line pointers at it, so any model CLI finds it |
-| `bot.yaml` | Identity and switches: `name`, optional runtime overrides, `tools:`, `outbound_send`, `reads:`. An older `employee.yaml` (with `access:` and `schedules:`) is still read for one release; the template refresh renames it |
+| `bot.yaml` | Identity and switches: `name`, optional runtime overrides, `gateway:`, `tools:`, `outbound_send`, `reads:`. An older `employee.yaml` (with `access:` and `schedules:`) is still read for one release; the template refresh renames it |
 | `state.md` | Current focus, open threads, next step. Rewritten at the end of each run |
 | `memory/learnings.md` | How to do the job: the flag it forgot, the tool that refused, dated |
 | `memory/decisions.md` | What was decided, when, why. Dated. This is where history goes |
@@ -411,7 +411,7 @@ it is optional, decided by a human and used once. See [Permissions](permissions.
 
 A routine is a row in Tico owned by the bot: a cron (or a Tico event), a title, and the text the
 bot is told. The server runs the clock and turns each occurrence into a normal task
-(`docs/routines.md`). Humans add them on the site (Settings → Routines); a bot adds its own from a
+(`docs/routines.md`). Humans add them on the site (Settings → Rules); a bot adds its own from a
 run:
 
 ```
@@ -423,7 +423,7 @@ A template may declare the same thing under `routines:` in its `bot.yaml`
 (`id`, `title`, `cron` or `on`, `timezone`, `template: playbooks/<file>.md`, and optionally
 `enabled: false`); `hub bot create` seeds the new bot's routines from it once, and from then on
 Tico's rows are the routines. The starter templates declare their first routine with `enabled: false`:
-it exists and is visible under Settings → Routines, and is switched on when the bot's setup starts (**Set up**, go-live),
+it exists and is visible under Settings → Rules, and is switched on when the bot's setup starts (**Set up**, go-live),
 so nobody approves it separately. Quote `"on":` in the
 YAML; an unquoted `on` is read as a boolean.
 
@@ -581,8 +581,9 @@ Levers set in **Settings → Bots**, not in the repository:
 - **Harness**: which CLI performs the run (`openai` / Codex, `claude`, `gemini`, `antigravity`,
   `grok`, `cursor` / Cursor Agent, `musecode` / Muse Code, `pi`). A harness whose provider is off still
   shows in the picker, greyed out, with where to turn it on. **Model**: the latest model in that family (Sol, Astra, Grok 4.6, Gemini Flash,
-  Claude Opus 5, Claude Fable 5.1). While the [Tico AI Gateway](ai-gateway.md) is connected, `pi` also offers
-  Tico Cheap 1.1, Mid 1.0 and Power 1.0, each listed with what runs underneath. Search the picker: `grok` shows `grok/grok 4.6` at every
+  Claude Opus 5, Claude Fable 5.1). While the [Tico AI Gateway](ai-gateway.md) is connected, the harness list
+  also offers **Tico AI Gateway**: instead of a model list it shows Department (the bot's group's), Level, Fast and Version,
+  with the model underneath and its price on one line. Search the picker: `grok` shows `grok/grok 4.6` at every
   effort; `sol` shows `openai/gpt 5.6 sol`. The same levers set the built-in BotOps bot: it may
   run on any harness and model here, limited in practice to the providers the company enabled
   and what its computer is signed in to.
@@ -600,17 +601,27 @@ Levers set in **Settings → Bots**, not in the repository:
   ([Computers](computers.md#which-connection-a-bot-runs-on)).
 - **Compact at**: how full the bot's conversation gets before it is compacted: 150k, 250k tokens (the default),
   400k, 600k or 1M. Claude Code and Codex only. Changing it keeps the session.
-- **Wakes**: how soon news starts a run. **Token saver**, the default for a new bot, holds
-  nonblocking news (a request it asked for finished, review comments, a failing check nobody waits on) and
-  sends it as one wake at most every 30 minutes. It also runs an enabled routine, or a stall check on a task,
-  at most every 2 hours. **Performance** coalesces the same news for 1 minute and runs those sweeps at most
-  every 15 minutes. Existing bots without a preset, including the former Current behaviour setting,
-  move to Performance. In every preset, these wake the bot at once, and only once
-  when the same event repeats before its run is over: a person's message, an assignment, a question, something it waits on
-  resolving, a blocker, and a review or QA request. A preset turns on no routine, hook, subscription or
-  permission, and leaves Compact at alone. The line under the picker shows what the bot runs on. Each run
-  in a task's **Runs** says what woke it. A branch picks its own.
+- **Profile**: what wakes the bot and which tasks it takes: **Doer** (the default for a new bot), **Reviewer**, **Lead**,
+  **Responder**, **Monitor** or **Custom**; each choice has a line saying what it does ([Profiles](how-it-works.md#profiles)).
+  A Doer holds nonblocking news (a request it asked for finished, a person's review comments) and
+  sends it as one wake at most every 15 minutes, and runs an enabled routine or stall check at most every 15 minutes; a
+  Lead hears the same news once a day, at the hour in **Digest at**. A bot that was on **Token saver** is a Doer with a 30-minute
+  window (2 hours between sweeps); **Performance** became the plain Doer. In every profile, a person's message, a question,
+  an approval and a gate verdict wake the bot at once, and only once when the same event repeats before its run is over.
+  A stall check on a task that has not changed waits 30 minutes after the last one, doubling to at most 8 hours.
+  **Custom** adds **Pulls**, **Takes** and **Sweeps**, and a **Wake rules** link to the Rules page filtered to this
+  bot, with the profile's rows copied there to edit; choosing a named profile again deletes them after a confirm that
+  says how many. A profile turns on no routine, hook, subscription or permission, and leaves
+  Compact at alone. The line under the picker shows what the bot runs on. Each run in a task's **Runs** says what woke it.
+  A branch picks its own. The old **Wakes** setting (`wake_preset`) is still read and set by older clients: it changes only
+  the Doer's window.
 - **`max_run_minutes`**: the ceiling on one run. Set it from the longest real routine, not hope.
+- **`gateway:`** (optional, in a template's `bot.yaml`): `level: low | medium | high` and `fast: true` (Fast costs more and runs on another vendor, so no template turns it on). A bot made from the
+  template that runs on the [Tico AI Gateway](ai-gateway.md) with no model of its own starts on its department's pick at that
+  level, for example `gateway: {level: low}` on a mail watcher, or `level: high` on an engineering builder. It
+  is read once when the bot is created and kept in the bot's settings; the pick in **Settings → Bots** replaces it. Left
+  out, it is Medium and not Fast. The Inbox, Health Monitor, Dispatcher, Issue Triage and Spend Watcher templates use Low;
+  DevOps, Security and Software Architect use High.
 - **`background_wait_s`** (Claude bots): how long an answered turn may wait only on its own background commands
   before the runner ends it, in seconds; 300 when unset, 0 to wait for them as before. The commands keep running,
   and the bot gets one message with their exit codes when they end, or when the run's time limit kills them.

@@ -167,8 +167,13 @@ function frNextHTML(state) {
       <select data-fr-owner="${esc(bot.slug)}" aria-label="Add an owner for ${esc(bot.display_name || bot.slug)}"><option value="">Add an owner…</option>${frPeople().map(person =>
         `<option value="${esc(person.id)}">${esc(person.name || person.id)}${('human:' + person.id) === frOwner() ? ' (you)' : ''}</option>`).join('')}</select>
       <span class="muted" data-fr-owned="${esc(bot.slug)}">${esc(frPersonName(S.me?.id))} owns it</span></div>`).join('');
+  // Getting started's "Publish your strategy" (backend/getting_started.py): setup saved a draft, and publishing is a
+  // deliberate click on the Strategy page.
+  const strategy = GS?.items?.find(item => item.id === 'strategy');
+  // AI providers stays first: without one no bot runs.
   return `<p class="fr-providers" id="fr-providers"><strong>AI providers:</strong> ${esc(frProvidersName(state))}.
       <a href="#/settings" data-gs-tab="models">${S.config?.providers_configured === false ? 'Add an AI provider' : 'Change'}</a></p>
+    ${strategy?.done ? '' : '<p class="fr-strategy" id="fr-strategy"><strong>Strategy:</strong> a draft. <a href="#/strategy">Publish your strategy</a></p>'}
     <details class="fr-owners" id="fr-owners"><summary><span>${bots.length ? `You own all ${bots.length} bots.` : 'No bots yet.'}</span> <span class="linkish">Change</span></summary>
       <div class="fr-owner-list">${owners}</div></details>
     <details class="fr-admin" id="fr-admin"><summary>Add an admin <span class="muted">(optional)</span></summary>

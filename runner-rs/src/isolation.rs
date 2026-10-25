@@ -35,11 +35,19 @@ pub fn prefix() -> Option<Vec<String>> {
 }
 
 fn prefix_for((uid, gid): (u32, u32)) -> Vec<String> {
+    // A leased turn user also gets the groups of the checkouts its turn runs in (crate::checkout_groups); every other
+    // identity runs with none.
+    let extra = crate::checkout_groups::granted(uid);
+    let groups = if extra.is_empty() {
+        "--clear-groups".into()
+    } else {
+        format!("--groups={}", std::iter::once(gid).chain(extra).map(|g| g.to_string()).collect::<Vec<_>>().join(","))
+    };
     vec![
         SETPRIV.into(),
         format!("--reuid={uid}"),
         format!("--regid={gid}"),
-        "--clear-groups".into(),
+        groups,
         "--inh-caps=-all".into(),
         "--ambient-caps=-all".into(),
     ]
@@ -54,7 +62,12 @@ fn umask_group() -> std::io::Result<()> {
 /// A command that runs `program` as the bot user when isolation is on (with umask 002: the bot's files are
 /// group-writable), else as itself. Arguments added later follow the program.
 pub fn command(program: impl AsRef<std::ffi::OsStr>) -> tokio::process::Command {
-    match prefix() {
+    command_as(identity(), program)
+}
+
+/// An explicitly leased identity; None preserves the ordinary bot identity.
+pub fn command_as(id: Option<(u32, u32)>, program: impl AsRef<std::ffi::OsStr>) -> tokio::process::Command {
+    match id.or_else(identity).map(prefix_for) {
         None => tokio::process::Command::new(program),
         Some(p) => {
             let mut cmd = tokio::process::Command::new(&p[0]);
@@ -82,8 +95,12 @@ pub fn command_under(parent: &[std::ffi::OsString], program: impl AsRef<std::ffi
 
 /// `command` for std's blocking Command.
 pub fn std_command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    std_command_as(identity(), program)
+}
+
+pub fn std_command_as(id: Option<(u32, u32)>, program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
     use std::os::unix::process::CommandExt;
-    match prefix() {
+    match id.or_else(identity).map(prefix_for) {
         None => std::process::Command::new(program),
         Some(p) => {
             let mut cmd = std::process::Command::new(&p[0]);
@@ -218,7 +235,7 @@ fn adopt_store_with(paths: &[PathBuf], uid: u32, gid: u32, budget: Budget) -> bo
     false
 }
 
-fn open_at(parent: i32, name: &std::ffi::CStr, flags: i32) -> Option<std::os::fd::OwnedFd> {
+pub(crate) fn open_at(parent: i32, name: &std::ffi::CStr, flags: i32) -> Option<std::os::fd::OwnedFd> {
     use std::os::fd::FromRawFd;
     // SAFETY: name is NUL-terminated; the returned descriptor has one owner and is close-on-exec.
     let fd = unsafe { libc::openat(parent, name.as_ptr(), flags | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
@@ -227,7 +244,7 @@ fn open_at(parent: i32, name: &std::ffi::CStr, flags: i32) -> Option<std::os::fd
 
 /// The pinned parent directory of `path` and its last name, opened one component at a time without
 /// following a link. None for an empty path, / or . (never an ownership-handoff root).
-fn pinned_parent(path: &Path) -> Option<(std::os::fd::OwnedFd, std::ffi::CString)> {
+pub(crate) fn pinned_parent(path: &Path) -> Option<(std::os::fd::OwnedFd, std::ffi::CString)> {
     use std::ffi::CString;
     use std::os::fd::AsRawFd;
     use std::os::unix::ffi::OsStrExt;
@@ -595,5 +612,11 @@ mod tests {
         assert_eq!(identity_from(s("10003"), s("10002"), 10002), Some((10003, 10002)));
         let p = prefix_for((10003, 10002));
         assert_eq!(p, ["/usr/bin/setpriv", "--reuid=10003", "--regid=10002", "--clear-groups", "--inh-caps=-all", "--ambient-caps=-all"]);
+        // A leased turn user gets exactly its own checkouts' groups, a sibling none, and the UID's next borrower none.
+        crate::checkout_groups::grant(10150, &[20001, 20002]);
+        assert_eq!(prefix_for((10150, 10002))[3], "--groups=10002,20001,20002");
+        assert_eq!(prefix_for((10151, 10002))[3], "--clear-groups");
+        crate::checkout_groups::revoke(10150);
+        assert_eq!(prefix_for((10150, 10002))[3], "--clear-groups");
     }
 }

@@ -7,6 +7,12 @@ team-wide model settings: the models choice, which providers are on, the default
 out**, **Check model** and the [Tico AI Gateway](ai-gateway.md) key. The owner changes them; everyone else sees them.
 These used to be a separate AI providers tab, and Subscriptions before that; old links to either open Computers.
 
+Tico model turns on the current Docker runner each use a separate temporary OS user. Other bots on the computer
+cannot read the turn's live environment, open file descriptors or private temporary files, or use its Gateway
+connection. Workspace files stay shared through the bot group. This does not separate subscription sign-ins or
+turns on other providers. See [the Gateway boundary](ai-gateway.md#pick-a-tico-model-for-a-bot) and
+[Docker runner setup](install.md#linux-or-cloud-server-docker).
+
 ## Turn counts
 
 The computers list, each computer's pop-up and **Settings → Health** show four counts:
@@ -524,4 +530,4 @@ a turn ran in when it is a named one; empty profile fields are omitted.
 
 Each run pins its selected local profile directory before preparing the provider environment. Changes to the local default or a profile directory affect later runs, not an in-progress primary or fallback attempt. Environment, host setup, session reuse, usage and rejection attribution use the same binding; fallback still checks its runtime eligibility and known sign-in state. A run started on the unnamed operator login does not acquire a newly configured profile midway through execution. Changing a profile directory starts a separate provider session. The first run after upgrading to directory-bound session keys also starts a fresh provider session for named profiles; the Tico conversation remains intact. This pins the login slot, not the provider account inside it: avoid replacing credentials in a slot while it has active runs.
 
-Profile directories separate provider logins. Browser-created profiles live outside the bot workspace, with directories set to 0700 and owned by the same user that runs sign-in, probes and turns. Linux Docker harnesses currently retain the existing shared bot Unix user; profiles do not yet provide a Unix permission boundary between groups. Do not rely on profiles to isolate files from another bot on the same Computer.
+Profile directories separate provider logins. Browser-created profiles live outside the bot workspace, with directories set to 0700 and owned by the same user that runs sign-in, probes and turns. Linux Docker harnesses that keep shared sign-in files (every one but pi) retain the existing shared bot Unix user; profiles do not yet provide a Unix permission boundary between groups. Do not rely on profiles to isolate files from another bot on the same Computer.

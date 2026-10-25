@@ -1,6 +1,7 @@
 """Transactions and additive cloud schema over the existing Hub domain layer."""
 
 import hashlib
+import logging
 import json
 import os
 import sqlite3
@@ -794,10 +795,17 @@ class Store:
             c.executescript(_learnings.SCHEMA)
             from . import stale_review as _stale_review
             c.executescript(_stale_review.SCHEMA)
+            from . import stall_triage as _stall_triage
+            c.executescript(_stall_triage.SCHEMA)
+            from . import rule_suggestions as _rule_suggestions
+            c.executescript(_rule_suggestions.SCHEMA)
             from . import system_routines as _system_routines
             c.executescript(_system_routines.SCHEMA)
             from . import task_rules as _task_rules
             c.executescript(_task_rules.SCHEMA)
+            from . import rules as _rules
+            c.executescript(_rules.SCHEMA)
+            _rules.seed_dev(c)
             from . import owner_link as _owner_link
             c.executescript(_owner_link.SCHEMA)
             from . import docs as _docs
@@ -830,6 +838,8 @@ class Store:
             H.add_column(c, "bot_task_tabs", "widgets_json", "TEXT")
             from . import learned as _learned
             c.executescript(_learned.SCHEMA)
+            from . import task_manager as _task_manager
+            c.executescript(_task_manager.SCHEMA)
             from . import health_monitor as _health_monitor
             c.executescript(_health_monitor.SCHEMA)
             # When a finding last woke the Health Monitor, and how bad it is: a rise wakes it (backend/health_monitor.py).
@@ -848,6 +858,9 @@ class Store:
             _updates.purge_rejected(c)
             # Which stored retry answers quote which message (backend/idempotency_messages.py).
             idempotency_messages.ensure(c)
+            # Destinations saved in Settings > Listening (backend/listening.py).
+            from . import listening as _listening
+            _listening.ensure(c)
             c.execute("BEGIN IMMEDIATE")
             try:
                 # Who may see, read and write to each bot (backend/bot_access.py); NULL is Open.
@@ -1342,6 +1355,9 @@ class Store:
                     c.execute("INSERT INTO cloud_migrations VALUES(63,?)", (H.now(),))
                 from .public_roadmaps import migrate as migrate_public_roadmaps
                 migrate_public_roadmaps(c)
+                # Notes a completed run carried are settled (hubdb.notes_settle): one pass settles the ones from before the
+                # column, in one UPDATE. Unversioned and idempotent; it reads only the small unsettled-carried index.
+                H.notes_settle_catch_up(c, None)
                 H.ensure_market_reads(c)
                 # Deleted tasks wait here until restored or purged; created unversioned, like the
                 # trigger below, so it never takes a migration number another change needs.
@@ -1353,6 +1369,12 @@ class Store:
                 # Milestone waits (backend/milestone_waits.py). Unversioned like the trash.
                 from .milestone_waits import ensure as ensure_milestone_waits
                 ensure_milestone_waits(c)
+                # Failed-run back-off and run budgets (backend/run_backoff.py, backend/turn_budgets.py). Unversioned
+                # like the trash: an older release never reads the tables.
+                from .run_backoff import ensure as ensure_run_backoff
+                from .turn_budgets import ensure as ensure_turn_budgets
+                ensure_run_backoff(c)
+                ensure_turn_budgets(c)
                 # Recruiting seats (backend/lifecycle.py). Unversioned like the trash.
                 from .lifecycle import ensure as ensure_seats
                 ensure_seats(c)
@@ -1360,6 +1382,19 @@ class Store:
                 # Unversioned like the trash: an older release never reads the tables or the columns.
                 from .company import ensure as ensure_company
                 ensure_company(c)
+                # The team's strategy: versions, choices, their history, and each goal's choice (backend/strategy.py).
+                # Unversioned the same way; the first run makes the draft from the company profile.
+                from .strategy import ensure as ensure_strategy
+                ensure_strategy(c)
+                # Lens runs (backend/lenses.py): the exercises run against the strategy or the market. Unversioned too.
+                from .lenses import ensure as ensure_lenses
+                ensure_lenses(c)
+                # Page monitors and the weekly market briefing (backend/market_watch.py, backend/market_briefing.py).
+                # Unversioned the same way: an older release never reads the tables.
+                from .market_briefing import ensure as ensure_market_briefing
+                from .market_watch import ensure as ensure_market_watch
+                ensure_market_watch(c)
+                ensure_market_briefing(c)
                 # Temporary task assignments are retired (#420): their actors are archived and off every computer,
                 # their open tasks back with the role. Unversioned and idempotent like the trash; the tables stay inert.
                 from .shared_bots import retire_assignments
@@ -1511,6 +1546,9 @@ class Store:
                 # The Goal Manager becomes the CEO Bot on every install, once (backend/ceo_bot.py). Idempotent.
                 from . import ceo_bot as CeoBot
                 CeoBot.migrate(c)
+                # Every bot gets a profile by its name, once; a bot that has one is left alone (backend/profiles.py).
+                from . import profiles as Profiles
+                Profiles.migrate(c)
                 from . import releases as Releases
                 Releases.record_start(c, H.now())
                 from .credentials import FILE_MIGRATION, HUB_MIGRATION
@@ -1594,6 +1632,7 @@ class Store:
         c.read_cache = {}
         c.provenance_cache = self.provenance_cache
         c.write_transaction = False
+        c.after_commit = []
         c.provenance_changes = c.total_changes
         c.provenance_start = None
         return c
@@ -1632,8 +1671,16 @@ class Store:
                 yield c
                 message_links.refresh_dirty(c)
                 c.commit()
+                # Work that must see the committed rows (a delivery worker's doorbell) runs once the write is durable.
+                for after in c.after_commit:
+                    try:
+                        after()
+                    except Exception:
+                        logging.getLogger(__name__).exception("after-commit callback failed")
+                c.after_commit.clear()
             except BaseException:
                 c.rollback()
+                c.after_commit.clear()
                 raise
             finally:
                 done()

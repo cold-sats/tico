@@ -22,8 +22,40 @@ from . import goals as G
 from . import kpis as K
 from . import models as M
 from . import names as N
+from . import strategy as S
 from . import views
 from .store import H, Problem
+
+
+def company_editor(who):
+    """The owner, on their own click: never an admin or a member, never a bot (the CEO Bot proposes), never someone
+    acting for the owner. The CEO Bot's level, its regular checks, the vision and the strategy are theirs."""
+    return who.role == "owner" and not who.via
+
+
+def strategy_visible(who, proposal):
+    """A strategy proposal carries unpublished draft text (strategy_draft) or every affected goal's title
+    (strategy_realign): the owner reads it, and the bot that proposed it; no one else."""
+    if proposal["kind"] not in ("strategy_draft", "strategy_realign"):
+        return True
+    return company_editor(who) or proposal.get("proposed_by") == who.actor
+
+
+def _hidden_owners(c, auth, who):
+    """The bots whose goals this caller may not read, as owner actors. The CEO Bot reads every goal."""
+    if who.role == "bot" and who.actor == G.AUTO_ACTOR:
+        return set()
+    return {"bot:" + slug for slug in auth.unreadable_bots(c, who)}
+
+
+def readable_goals(c, auth, who, rows):
+    """A bot's goals are its work: a caller sees them only when they may Read the bot (People's goals stay the
+    team's, as before). The CEO Bot reads every goal, as it keeps every KPI."""
+    hidden = _hidden_owners(c, auth, who)
+    return [row for row in rows if row["owner"] not in hidden] if hidden else list(rows)
+
+
+_readable_goals = readable_goals          # install's closures of the same name call these
 
 
 def install(app, store, auth, mutate, settings):
@@ -104,15 +136,10 @@ def install(app, store, auth, mutate, settings):
         return row
 
     def hidden_owners(c, who):
-        if is_manager(who):
-            return set()
-        return {"bot:" + slug for slug in auth.unreadable_bots(c, who)}
+        return _hidden_owners(c, auth, who)
 
     def readable_goals(c, who, rows):
-        """A bot's goals are its work: a caller sees them only when they may Read the bot (People's goals stay the
-        company's, as before). The CEO Bot reads every goal, as it keeps every KPI."""
-        hidden = hidden_owners(c, who)
-        return [row for row in rows if row["owner"] not in hidden] if hidden else list(rows)
+        return _readable_goals(c, auth, who, rows)
 
     def kpi_or_404(c, who, kpi_id):
         record = K.kpi(c, kpi_id)
@@ -151,6 +178,8 @@ def install(app, store, auth, mutate, settings):
         """Whether this person may confirm the proposal: a person's own decision, by whoever owns what changes."""
         if who.role not in ("owner", "human") or who.via:
             return False
+        if item["kind"] in ("strategy_draft", "strategy_realign"):     # the strategy is the owner's (backend/strategy.py)
+            return company_editor(who)
         goal = G.goal(c, item["goal_id"]) if item["goal_id"] else None
         record = K.kpi(c, item["kpi_id"]) if item["kpi_id"] else None
         by_goal = bool(goal) and may_colour(c, who, goal)
@@ -161,18 +190,14 @@ def install(app, store, auth, mutate, settings):
             return by_kpi
         return by_goal or by_kpi
 
-    def company_editor(who):
-        """The owner, on their own click: never an admin or a member, never a bot (the CEO Bot proposes), never
-        someone acting for the owner. The CEO Bot's level, its regular checks and the Company section are theirs."""
-        return who.role == "owner" and not who.via
-
     def refuse_bot_why(who):
         if who.role not in ("owner", "human") or who.via:
             raise Problem("forbidden", "A person sets a goal's Why on their own click; a bot proposes one "
                           "(POST /api/v2/goal-proposals, kind goal_why)", 403)
 
     def company_view(c, who):
-        record = C.profile(c)
+        # The vision has one source, the strategy: the owner reads the draft's, everyone else the published one.
+        record = {**C.profile(c), "vision": S.vision(c, editor=company_editor(who))}
         by = record.get("updated_by")
         known = N.lookup(c, {by}) if by else {}
         return {"company": {**record, "updated_by_name": known.get(by, H.actor_id(by or "") or "")},
@@ -200,7 +225,10 @@ def install(app, store, auth, mutate, settings):
                 raise Problem("forbidden", "Only the owner writes the company's Vision and Description, on their own "
                               f"click; an admin or a member asks them, and a bot, the {ceo_bot.name(c)} included, "
                               "proposes", 403)
-            C.update(c, who.actor, vision=body.vision, description=body.description)
+            if body.vision is not None:
+                S.update_draft(c, who.actor, vision=body.vision)
+            if body.description is not None:
+                C.update(c, who.actor, description=body.description)
             return company_view(c, who)
         return mutate(request, body, work)
 
@@ -383,7 +411,8 @@ def install(app, store, auth, mutate, settings):
             other = [K.view(r, data.get(r["id"], []), None) for r in loose]
             names.update(owner_names(c, other))
             visible = {r["id"] for r in rows}
-            pending = [p for p in G.proposals(c, "pending") if not p["goal_id"] or p["goal_id"] in visible]
+            pending = [p for p in G.proposals(c, "pending") if (not p["goal_id"] or p["goal_id"] in visible)
+                       and strategy_visible(who, p)]
             return {"goals": rows, "owners": names, "unaligned": unaligned, "other_kpis": other,
                     "proposals": [{**p, "may_decide": decider(c, who, p)} for p in pending]}
 
@@ -446,7 +475,8 @@ def install(app, store, auth, mutate, settings):
                 if not (owner == who.actor or (parent and parent["owner"] == who.actor) or stands_above(c, who, owner)):
                     raise Problem("forbidden", "You can set a goal for yourself, under a goal you own, "
                                   "or for someone below you on the org chart", 403)
-            row = G.create(c, who.actor, body.title, owner, body.parent_id, body.body, top=body.top)
+            row = G.create(c, who.actor, body.title, owner, body.parent_id, body.body, top=body.top,
+                           bet_id=body.bet_id)
             return {"goal": G.view(c, row)}
         return mutate(request, body, work)
 
@@ -500,7 +530,8 @@ def install(app, store, auth, mutate, settings):
                 raise Problem("forbidden", "Moving a goal is for the owner of the goal it serves or someone "
                               "above its owner", 403)
             structural = body.parent_id is not None or body.owner is not None
-            if body.parent_id is not None and not may_colour(c, who, row):
+            # Linking it to the goal it serves, or to the strategy bet it serves, is the same right.
+            if (body.parent_id is not None or body.bet_id is not None) and not may_colour(c, who, row):
                 raise Problem("forbidden", "Linking a goal is for its owner, the owner of the goal it serves, "
                               "or someone above its owner", 403)
             if not structural and not may_colour(c, who, row):
@@ -508,7 +539,7 @@ def install(app, store, auth, mutate, settings):
             owner = goal_owner(c, who, body.owner) if body.owner else None
             return {"goal": G.view(c, G.update(c, who.actor, gid, title=body.title, body=body.body,
                                                parent_id=body.parent_id, owner=owner, rank=body.rank,
-                                               top=body.top))}
+                                               top=body.top, bet_id=body.bet_id))}
         return mutate(request, body, work)
 
     @app.post("/api/v2/goals/{gid}/why")
@@ -777,6 +808,8 @@ def install(app, store, auth, mutate, settings):
             hidden = hidden_owners(c, who)
             rows = []
             for p in G.proposals(c, status if status != "all" else None, goal_id, kpi_id):
+                if not strategy_visible(who, p):
+                    continue
                 goal = G.goal(c, p["goal_id"]) if p["goal_id"] else None
                 record = K.kpi(c, p["kpi_id"]) if p["kpi_id"] else None
                 if (goal and goal["owner"] in hidden) or (record and record["owner"] in hidden):
@@ -810,5 +843,6 @@ def install(app, store, auth, mutate, settings):
                 raise Problem("not_found", "Unknown proposal", 404)
             if not decider(c, who, item):
                 raise Problem("forbidden", "Whoever owns the goal or the KPI decides, and only a person, on their own click", 403)
-            return {"proposal": G.decide(c, who.actor, pid, body.decision, body.note, why=body.why, option=body.option)}
+            return {"proposal": G.decide(c, who.actor, pid, body.decision, body.note, why=body.why, option=body.option,
+                                         moves=body.moves)}
         return mutate(request, body, work)

@@ -315,18 +315,18 @@ def test_a_second_active_turn_keeps_status_retry_and_diagnostic_recovery(api, mo
         assert row["status"] == "doing" and not row["next_run"]
         assert row["checkpoint_state"] == W.state_of(c, row)
         start = H.now()
-        # A real second turn, resuming the same thread, has made no task progress.
-        for minutes, expected in ((31, "checked"), (60, None), (61, "retried"), (90, None), (91, "stuck")):
+        # A real second turn, resuming the same thread, has made no task progress. While it is live, no check or
+        # retry steers it (H.stall_skip); the checks run again only once the turn ends.
+        for minutes in (31, 61, 91):
             at = H.shift(start, seconds=minutes * 60)
             monkeypatch.setattr(H, "now", lambda: at)
             assert tid in [t["id"] for t in H.spot_check_tasks(c, at)]
-            result = H.wake_stalled(c, at)
-            assert {k: v for k, v in result.items() if v} == ({expected: [tid]} if expected else {})
-        assert not [s for s in skips(c) if s["detail"]["rule"] == "same_state"]
-        assert c.execute("SELECT count(*) FROM events WHERE action='task.stall_wake' AND target=?",
-                         (tid,)).fetchone()[0] == 1
-        diagnostic = c.execute("SELECT owner,body FROM tasks WHERE title LIKE 'Find why %'").fetchall()
-        assert [(d[0], tid in d[1]) for d in diagnostic] == [("bot:botops", True)]
+            assert H.stall_skip(c, H.task(c, tid), at) == "live_session"
+            assert not any(H.wake_stalled(c, at).values())
+        assert c.execute("SELECT count(*) FROM events WHERE target=? AND action IN "
+                         "('task.stall_wake','task.stuck_retry','task.stuck','task.stall_escalated')",
+                         (tid,)).fetchone()[0] == 0
+        assert c.execute("SELECT count(*) FROM tasks WHERE title LIKE 'Find why %'").fetchone()[0] == 0
 
 
 def test_a_related_task_changed_by_another_lane_of_the_same_bot_is_not_seen(api):

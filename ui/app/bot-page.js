@@ -140,7 +140,7 @@ function botRecurringHTML(e, slug) {
   const next = r => paused(r) ? '<span class="muted" title="kept, not running">paused</span>'
     : r.held_by_bot ? '<span class="muted" title="fires again when the bot resumes">paused with the bot</span>'
     : !r.active ? '<span class="muted">not armed</span>'
-    : r.on ? '<span class="muted">on trigger</span>'
+    : r.on ? '<span class="muted">on event</span>'
     : r.next ? `<span class="tnum" title="${esc(fmt(r.next))}">${esc(until(r.next))}</span>` : '';
   return `<h2 class="rail-h">Routines</h2>
     <ul class="bot-recurring-list">${rows.map(r => `<li class="${paused(r) ? 'paused' : ''}"><button type="button" data-routine="${esc(r.id || '')}" data-bot="${esc(slug)}" title="${esc(r.title + ' · ' + words(r))}">
@@ -202,6 +202,8 @@ function botAlertHTML(slug) {
   const e = S.emps.find(x => x.name === slug) || {}, s = v2StatusOf(slug);
   let word = '', why = '';
   if (s?.state === 'crashed' && s.last_stop) return lastStopHTML(slug);
+  // Tico stopped it (failed runs, or over its run budget): the words are the server's, Release lifts it.
+  if (s?.stopped) return `<span class="bot-alert" role="status" title="${esc(s.focus || '')}" data-bot-stopped="${esc(s.stopped)}"><span aria-hidden="true">⚠</span> Stopped</span>${botReleaseButton(slug, 'primary bot-alert-resume')}`;
   if (s && ['crashed', 'quarantined', 'limited', 'blocked'].includes(s.state)) {
     word = s.state === 'crashed' ? 'Last run stopped' : V2_WORD[s.state]; why = s.state === 'quarantined' ? quarantineWhy(slug) : s.focus || '';
   }

@@ -5,14 +5,21 @@ pastes a one-time server code from the portal. Preview asks HQ which company the
 Connect makes a one-time proof, keeps only its digest here for PENDING_S, and sends the proof to HQ with this server's
 public address, install id (backend/census.py) and version. HQ fetches `GET <public address>/api/v2/company-connection/
 proof`, the one route here with no sign-in (backend/app.py `request_guard`), which answers the digest only while a
-connect is pending. On a match HQ answers with the company and a server key (`tsk_...`).
+connect is pending. On a match HQ answers with the company and a server key (`tsk_...`). A server with no https public
+address (the local install, `http://127.0.0.1:8765`) sends `public_url: null`: HQ skips the proof, links it on the code
+alone and shows it as a local server, with no address.
 
 The server key is sealed with the credential vault's data key (backend/credentials.py `CredentialCipher.seal`) in
 `registry_metadata` KEY, like the gateway key: no read returns it, and no event or log line carries it. With it the
 server reads its company and credit (`GET /v1/portal/server`, at most every FRESH_S when Settings asks), says its
-version once a day (`POST /v1/portal/server/heartbeat`, the `company_heartbeat` system routine, no model turn) and
-disconnects (`DELETE /v1/portal/server`). HQ refusing the key (401) means the link was ended on the portal: the key is
-forgotten here too.
+version once a day, and within the hour after it changes (`POST /v1/portal/server/heartbeat`, the `company_heartbeat`
+system routine, no model turn) and disconnects (`DELETE /v1/portal/server`). HQ refusing the key (401) means the link
+was ended on the portal: the key is forgotten here too.
+
+While linked, the server's Tico AI Gateway key comes from its company (`gateway_key`, `POST /v1/portal/server/gateway`):
+HQ enrolls the install backend/gateway_connection.py `auto_tick` made and bills its use to the company's credit. It is
+asked right after Connect and hourly while there is no key; a pasted or environment key wins. When the link ends, HQ
+revokes that key and it is forgotten here too (gateway_connection.py `company_ended`).
 
 HQ is only ever https://api.tico.dev or https://updates.tico.team (`<TICO_HQ_URL>`, backend/census.py `hq_url`); any
 other base URL leaves the feature unavailable. HQ's answers are read raw, capped at MAX_ANSWER bytes, with no redirects,
@@ -49,7 +56,7 @@ PROOF_PATH = "/api/v2/company-connection/proof"
 HQ_ALLOWED = ("https://api.tico.dev", "https://updates.tico.team")
 PENDING_S = 120          # a proof answers HQ this long after Connect
 FRESH_S = 60             # Settings reads HQ's word on the company at most this often
-HEARTBEAT_S = 23 * 3600  # the hourly sweep sends the version once this long has passed
+HEARTBEAT_S = 23 * 3600  # the hourly sweep sends the version once this long has passed, or sooner once it changes
 WAIT_S = 25              # HQ's whole answer, including its 10-second fetch of the proof
 MAX_ANSWER = 4096
 TRANSPORT = None         # tests replace it with an httpx.MockTransport: nothing reaches the network
@@ -67,6 +74,8 @@ COMPANY_NAME_MAX = 100
 SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")
 WORKSPACE = re.compile(r"[A-Za-z0-9_-]{1,100}")
 SERVER_KEY = re.compile(r"tsk_[A-Za-z0-9_-]{16,200}")
+GATEWAY_ANSWER = {"key", "key_id", "rotate_after"}
+ERROR_CODE = re.compile(r"[a-z][a-z_]{0,39}")
 
 _pending = {"digest": "", "until": 0.0}
 _pending_lock = threading.Lock()
@@ -113,6 +122,13 @@ def _forget(c, actor, action, sealed):
         return
     c.execute("DELETE FROM registry_metadata WHERE key=?", (KEY,))
     H.event(c, actor, action, record.get("workspace_id", ""), {"company_id": record.get("company", {}).get("id", "")})
+    from . import gateway_connection
+    gateway_connection.company_ended(c)        # HQ revoked the Gateway key the link gave
+
+
+def linked(c, settings=None):
+    """Whether this server is linked to its company and may ask HQ (not a demo or rehearsal)."""
+    return bool(_row(c).get("key")) and not off(settings)
 
 
 def view(c):
@@ -221,13 +237,10 @@ def _refusal(status, result):
 
 
 def public_url(settings):
-    """This server's address as HQ must reach it: https, or http on loopback (a test HQ)."""
+    """This server's address as HQ must reach it, or None when it has none: only an https address can be proved, so
+    a local install (http on loopback or a private address) links without one."""
     url = str(settings.public_url or "").rstrip("/")
-    parsed = urlparse(url)
-    if parsed.scheme == "https" or (parsed.scheme == "http" and parsed.hostname in ("127.0.0.1", "localhost", "::1")):
-        return url
-    raise Problem("company_connection_unavailable", "This server needs an https public address (TICO_PUBLIC_URL) "
-                  "before it can link to a Tico company.", 409)
+    return url if urlparse(url).scheme == "https" else None
 
 
 def connect(store, vault, settings, who, body, install_id):
@@ -273,8 +286,10 @@ def connect(store, vault, settings, who, body, install_id):
         at = H.now()
         _write(c, {"key": vault.cipher.seal(c, CONTEXT, result["server_key"]), "company": company,
                    "workspace_id": workspace, "portal_url": portal, "credit": None, "checked": "", "heartbeat": at,
-                   "connected_at": at, "connected_by": who.actor})
+                   "version": version(), "connected_at": at, "connected_by": who.actor})
         H.event(c, who.actor, "company_server.connected", workspace, {"company_id": company["id"], "name": company["name"]})
+    from . import gateway_connection
+    gateway_connection.check_soon(store, vault, settings)   # its Gateway key, if it has none, on its own thread
     return status(store, vault)          # unchecked: reads the company's credit now
 
 
@@ -325,6 +340,30 @@ def disconnect(store, vault, who):
         return view(c)
 
 
+def gateway_key(store, vault, install, secret):
+    """This server's own Gateway key from its company, for gateway_connection.py `auto_tick`: (status, {key, key_id,
+    rotate_after} or {}, error code), as clients/gateway.py `enroll` answers. Status 0: HQ not reached, or an answer
+    not of that shape. A 401 forgets the link, as every other call does. Never logs the key or the secret."""
+    key, record = _key(store, vault)
+    if not key:
+        return 401, {}, "unauthorized"
+    try:
+        code, result = _call(store.settings, "POST", "/v1/portal/server/gateway", {"install": install, "secret": secret},
+                             key=key)
+    except ValueError:
+        return 0, {}, ""
+    if code == 401:
+        with store.transaction() as c:
+            _forget(c, SYSTEM, "company_server.revoked", record["key"])
+        return code, {}, "unauthorized"
+    if code == 201:
+        if isinstance(result, dict) and set(result) == GATEWAY_ANSWER and all(_text(result[k], 200) for k in GATEWAY_ANSWER):
+            return code, result, ""
+        return 0, {}, ""
+    error = result.get("error") if isinstance(result, dict) else None
+    return code, {}, error if isinstance(error, str) and ERROR_CODE.fullmatch(error) else ""
+
+
 def _seconds(stamp):
     try:
         return datetime.fromisoformat(str(stamp).replace("Z", "+00:00")).timestamp()
@@ -333,9 +372,13 @@ def _seconds(stamp):
 
 
 def heartbeat_due(store, now=None):
+    """A day since the last heartbeat, or the running version is not the one HQ last heard (an update, or a record from
+    before `version` was kept): app.tico.dev and admin see the new version within the hour, not the next day."""
+    from .releases import version
     with store.read() as c:
         record = _row(c)
-    return bool(record.get("key")) and not off(store.settings) and (now or time.time()) - _seconds(record.get("heartbeat")) >= HEARTBEAT_S
+    return bool(record.get("key")) and not off(store.settings) and (
+        record.get("version") != version() or (now or time.time()) - _seconds(record.get("heartbeat")) >= HEARTBEAT_S)
 
 
 def heartbeat(store, vault):
@@ -347,8 +390,9 @@ def heartbeat(store, vault):
         key, record = _key(store, vault)
         if not key:
             return "gone"
+        running = version()
         try:
-            code, _answer = _call(store.settings, "POST", "/v1/portal/server/heartbeat", {"version": version()}, key=key)
+            code, _answer = _call(store.settings, "POST", "/v1/portal/server/heartbeat", {"version": running}, key=key)
         except ValueError:
             return "failed"
         with store.transaction() as c:
@@ -359,7 +403,7 @@ def heartbeat(store, vault):
                 return "gone"
             if code != 204:
                 return "failed"
-            _write(c, {**_row(c), "heartbeat": H.now()})
+            _write(c, {**_row(c), "heartbeat": H.now(), "version": running})
             return "sent"
     finally:
         _heartbeat.release()

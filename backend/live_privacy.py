@@ -67,12 +67,14 @@ class Sources:
             return frozenset((room[len(ROOM_PREFIX):],))
         # Existing rooms predate the durable room binding. Their original keeper input
         # remains provenance even when its message is deleted or the bot is detached.
-        # The sender index scans every keeper notice in the company for each ordinary room.
-        # Bind this legacy lookup to its room even when SQLite estimates the sender is selective.
-        rows = self.c.execute("SELECT m.refs_json FROM messages m INDEXED BY messages_conversation JOIN live_meeting_turns t "
+        # The sender index scans every keeper notice in the company for each ordinary room, and the room index every
+        # message of the room: the meeting-input index holds only the messages that name a meeting turn.
+        rows = self.c.execute("SELECT m.refs_json FROM messages m INDEXED BY messages_live_meeting_input "
+                              "JOIN live_meeting_turns t "
                               "ON t.id=json_extract(m.refs_json,'$.live_meeting.turn_id') "
                               "AND t.meeting_id=json_extract(m.refs_json,'$.live_meeting.meeting_id') "
-                              "WHERE m.conversation_id=? AND m.from_actor=? AND m.to_actor='bot:'||t.bot LIMIT 101",
+                              "WHERE m.conversation_id=? AND json_extract(m.refs_json,'$.live_meeting.turn_id') IS NOT NULL "
+                              "AND m.from_actor=? AND m.to_actor='bot:'||t.bot LIMIT 101",
                               (cid, H.KEEPER)).fetchall()
         return self._legacy_room([row[0] for row in rows])
 
@@ -95,10 +97,11 @@ class Sources:
             inputs = {cid: [] for cid in part}
             for cid, refs in self.c.execute(
                     "SELECT conversation_id,refs_json FROM (SELECT m.conversation_id,m.refs_json,"
-                    "row_number() OVER (PARTITION BY m.conversation_id) AS n FROM messages m INDEXED BY messages_conversation "
+                    "row_number() OVER (PARTITION BY m.conversation_id) AS n FROM messages m INDEXED BY messages_live_meeting_input "
                     "JOIN live_meeting_turns t ON t.id=json_extract(m.refs_json,'$.live_meeting.turn_id') "
                     "AND t.meeting_id=json_extract(m.refs_json,'$.live_meeting.meeting_id') "
-                    "WHERE m.conversation_id IN (%s) AND m.from_actor=? AND m.to_actor='bot:'||t.bot) WHERE n<=101"
+                    "WHERE m.conversation_id IN (%s) AND json_extract(m.refs_json,'$.live_meeting.turn_id') IS NOT NULL "
+                    "AND m.from_actor=? AND m.to_actor='bot:'||t.bot) WHERE n<=101"
                     % ",".join("?" * len(part)), (*part, H.KEEPER)):
                 inputs[cid].append(refs)
             for cid, found in inputs.items():
@@ -202,6 +205,12 @@ class Sources:
                               "WHERE i.attempt_id=?", (aid, aid)).fetchall()
         moved = [row[0] for row in self.c.execute(
             "SELECT detail_json FROM events WHERE action='attempt.input.moved' AND target=?", (aid,))]
+        # The walk below reads each input's parents and room one at a time: for a long run they are read together.
+        moved_ids = [detail.get("message_id") for detail in (H._json(d, {}) or {} for d in moved)
+                     if isinstance(detail, dict) and isinstance(detail.get("message_id"), str)]
+        rows = list(rows)
+        H.prime_message_rows(self.c, rows + list(H.prime_messages(self.c, moved_ids).values()))
+        self.prime_conversations({row["conversation_id"] for row in rows})
         return self._attempt_from(rows, moved)
 
     def _attempt_from(self, rows, moved):

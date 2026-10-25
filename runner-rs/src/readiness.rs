@@ -578,6 +578,12 @@ pub fn document(runtimes: &Map<String, Value>, checks: &[Map<String, Value>], st
             let mut row = row.clone();
             if let Some(r) = row.as_object_mut() {
                 r.remove("profiles");
+                // Where bots run as their own user, whether this tool's turns also each run as their own leased user
+                // ("own") or share the bot user ("bot"), which can enter every bot's checkout (`isolated_user`).
+                if crate::isolation::enabled() && crate::fallback::server_takes_turn_user() {
+                    let own = crate::harness_tools::caps(name, "").isolated_user && crate::turn_users::available();
+                    r.insert("turn_user".into(), json!(if own { "own" } else { "bot" }));
+                }
             }
             (name.clone(), row)
         })

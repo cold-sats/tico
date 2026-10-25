@@ -68,11 +68,17 @@ def counts(c, bot, who=None, tasks=None):
     return {'going': going, 'waiting': queued}
 
 
-def refusal(c, row, config):
+def refusal(c, row, config, woken=False):
+    """Why this open task is not started now, or None. `woken` is a start a wake rule already decided (a claimed job,
+    or the attempt it becomes): the profile's `pulls` only limits what Tico starts by itself, so it does not veto
+    that, while waits, the off switch and the task cap still do."""
     if not startable(c, row):
         return None
     if waiting(c, row, starting=True):
         return 'task_wait'
+    from . import profiles
+    if not woken and (why := profiles.pull_refusal(c, row, config)):
+        return why                  # the profile does not pull open tasks by itself (backend/profiles.py)
     cap = of(config)
     if cap == 0:
         return 'auto_start_off'
@@ -100,6 +106,10 @@ def missing(c, settings, runner, body):
         slug = bot['bot']
         if bot['onboarding_state'] in ('needs_setup', 'needs_onboarding'):
             continue
+        # Most bots own no open task: asking first spares each a claim_refusal (readiness, spend, logins), which was
+        # most of an idle claim's time on an install of forty bots.
+        if not c.execute("SELECT 1 FROM tasks WHERE owner=? AND status='open' LIMIT 1", ('bot:' + slug,)).fetchone():
+            continue
         why, config = E.claim_refusal(c, settings, runner, slug, bot['config_json'], bot['draining'], ready, held_bots)
         if why:
             continue
@@ -122,7 +132,8 @@ def missing(c, settings, runner, body):
                          "JOIN conversations cv ON cv.id=m.conversation_id "
                          "LEFT JOIN jobs carrier ON carrier.id=j.wake_carrier "
                          f"WHERE j.bot=? AND {H.MESSAGE_TASK_SQL}=? AND (j.state NOT IN ('completed','cancelled') "
-                         "OR carrier.state NOT IN ('completed','cancelled')) LIMIT 1",
+                         f"AND {H.unheld_sql()} OR carrier.state NOT IN ('completed','cancelled') "
+                         f"AND {H.unheld_sql('carrier')}) LIMIT 1",
                          (slug, row['id'])).fetchone():
                 continue
             return row

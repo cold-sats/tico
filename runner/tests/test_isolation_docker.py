@@ -12,6 +12,7 @@ update: it must still read its registration and state and run a harness, and `bo
 """
 import json
 import os
+import platform
 import shutil
 import subprocess
 import time
@@ -45,6 +46,23 @@ def volume():
 
 
 CAPS = [a for cap in ("CHOWN", "DAC_OVERRIDE", "KILL", "SETGID", "SETUID") for a in ("--cap-add", cap)]
+
+
+def probe_binary():
+    """The runner's Linux test executable, built from this checkout to run inside the candidate image."""
+    if platform.system() != "Linux":
+        pytest.skip("Building the turn-user probe needs Linux; set TICO_RUNNER_TEST_BINARY to a Linux test executable")
+    if not shutil.which("cargo"):
+        pytest.fail("cargo is required to build the Gateway turn-user probe for the candidate image")
+    root = Path(__file__).resolve().parents[2]
+    built = subprocess.run(["cargo", "test", "--locked", "--manifest-path", str(root / "runner-rs/Cargo.toml"),
+                            "--no-run", "--message-format=json"], capture_output=True, text=True, timeout=1200)
+    assert built.returncode == 0, built.stderr[-4000:]
+    executables = [message["executable"] for message in map(json.loads, built.stdout.splitlines())
+                   if message.get("reason") == "compiler-artifact" and message.get("executable")
+                   and message["target"]["name"] == "tico-runner" and message["profile"]["test"]]
+    assert len(executables) == 1, executables
+    return executables[0]
 
 
 def test_a_turn_cannot_read_the_registration_but_can_run_a_harness_and_push(volume):
@@ -201,6 +219,7 @@ def harnesses():
                 "version_args": (manifest.get("version") or {}).get("args") or ["--version"],
                 "status": caps.get("sign_in_status") or {},
                 "key_env": ((manifest.get("auth") or {}).get("api_key_env") or [""])[0],
+                "isolated": bool(caps.get("isolated_user")),
             })
     return found
 
@@ -327,8 +346,10 @@ def registration(bots):
 
 
 def probe_problems(table, done, logs):
-    """Each turn must have completed as the bot user, with no capabilities, in its task's own worktree, unable to read
-    the runner's registration, state or legacy secrets, and able to commit and pull there."""
+    """Each turn must have completed with no capabilities, in its task's own worktree, unable to read the runner's
+    registration, state or legacy secrets, and able to commit and pull there. A harness with `isolated_user` runs as a
+    leased turn user that cannot enter or write another bot's checkout or worktree; every other harness signs in and
+    runs as the bot user, unchanged, which still can (the control that makes the denial mean something)."""
     problems = []
     for h in table:
         body = next((b for a, b in done.items() if a.endswith("-" + h["bot"])), None)
@@ -340,9 +361,15 @@ def probe_problems(table, done, logs):
             problems.append(f"{h['harness']}: {body.get('outcome')}: {text[:300]}")
             continue
         seen = json.loads(text[text.index("probe {") + 6:].strip())
-        want = {"uid": 10003, "caps": "0000000000000000", "registration": False, "state": False, "secrets": False,
+        want = {"caps": "0000000000000000", "registration": False, "state": False, "secrets": False,
                 "commit": "ok", "pull": "ok", "where": f"sessions > bot-{h['bot']} > t-{h['bot']}"}
+        want.update({"sibling_enter": False, "sibling_write": False, "sibling_rename": False} if h["isolated"] else
+                    {"uid": 10003, "sibling_enter": True, "sibling_write": True, "sibling_rename": True})
         wrong = {k: seen.get(k) for k, v in want.items() if seen.get(k) != v}
+        if h["isolated"] and not 10100 <= int(seen.get("uid") or 0) <= 10163:
+            wrong["uid"] = seen.get("uid")
+        if not seen.get("siblings_seen"):
+            wrong["siblings_seen"] = 0   # nothing to try: the denial would prove nothing
         if wrong:
             problems.append(f"{h['harness']}: {wrong}")
     return problems + ([f"runner log:\n{logs}"] if problems else [])
@@ -443,9 +470,40 @@ def test_handing_an_older_releases_session_to_the_bot_changes_no_owner_outside_i
     stack.must("stop", "-t", "20", stack.runner)
     after = stack.owners(IMAGE)
     inside = (f"/home/runner/{session}", f"/home/runner/workspace/bot-{bot}/")
+    def gated(path):
+        # A checkout root given its own group (runner-rs/src/checkout_groups.rs): same owner, a group from that range.
+        (was, now) = (before[path][0].split(":"), after[path][0].split(":"))
+        return was[0] == now[0] and 20000 <= int(now[1]) <= 59999 and os.path.isabs(path) and \
+            path.rstrip("/").count("/") == "/home/runner/workspace/x".count("/")
     changed = [f"{path}: {before[path][0]} -> {after[path][0]}" for path in sorted(before)
-               if path in after and before[path][0] != after[path][0] and not path.startswith(inside)]
+               if path in after and before[path][0] != after[path][0] and not path.startswith(inside) and not gated(path)]
     assert not changed, f"the handoff from {previous} to {IMAGE} changed owners outside the session:\n" + "\n".join(changed[:40])
     assert not problems, "\n".join(problems)
     for name in ("acme-root-file", "acme-supervisor-file", "acme-dir/nested"):
         assert after[f"/home/runner/{session}/{name}"][0].startswith("10003:"), (name, after[f"/home/runner/{session}/{name}"])
+
+
+def test_gateway_turn_users_block_siblings_and_clean_before_reuse(volume):
+    """The source-pinned Rust probe exercises the real pool and relay in the candidate image.
+
+    On Linux the test builds the probe from this checkout (`cargo test --no-run`), so the release gate runs it;
+    TICO_RUNNER_TEST_BINARY names a prebuilt one instead. No host home, credential or database is mounted.
+    The probe verifies its fingerprint against the candidate's runner and all 64 passwd entries.
+    """
+    binary = os.environ.get("TICO_RUNNER_TEST_BINARY", "").strip() or probe_binary()
+    binary = Path(binary).resolve(strict=True)
+    assert binary.is_file() and os.access(binary, os.X_OK), binary
+    configured = docker("run", "--rm", "--user", "0", "--cap-drop", "ALL", *CAPS,
+                        "--security-opt", "no-new-privileges:true", "--network", "none",
+                        "-v", f"{volume}:/home/runner", IMAGE, "python", "-c",
+                        "import os; print(os.geteuid(),os.environ['TICO_RUNNER_TURN_UIDS'])")
+    assert configured.returncode == 0, configured.stdout + configured.stderr
+    assert configured.stdout.strip().splitlines()[-1] == "10002 10100-10163", configured.stdout
+    result = docker("run", "--rm", "--user", "0", "--cap-drop", "ALL", *CAPS,
+                    "--security-opt", "no-new-privileges:true", "--network", "none",
+                    "-e", "TICO_TEST_DISPOSABLE=1", "-v", f"{volume}:/home/runner",
+                    "-v", f"{binary}:/turn-user-probe:ro", "--entrypoint", "/turn-user-probe", IMAGE,
+                    "--ignored", "--exact", "gateway_relay::tests::docker_turn_user_blocks_siblings_and_cleans_before_reuse",
+                    "--nocapture", "--test-threads=1")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "1 passed" in result.stdout and "0 failed" in result.stdout, result.stdout

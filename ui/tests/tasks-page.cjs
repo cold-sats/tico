@@ -620,7 +620,8 @@ async function properties(browser) {
   const rows = await props.locator('.prop').evaluateAll(rs => rs.map(r => [r.querySelector('.prop-k').textContent,
     [...r.querySelectorAll('.prop-txt, .tlabel > [data-tag-key]')].map(x => x.textContent.trim()).join(' ')]));
   assert.deepEqual(rows, [['Status', 'Waiting'], ['Owner', 'Engineer'], ['Asked by', 'You'], ['Private', 'Everyone'], ['Due', 'Add due date'], ['Tags', 'checkout'],
-    ['Part of', 'Add parent']]);
+    ['Part of', 'Add parent'], ['Wake rules', 'Defaults']]);
+  assert.equal(await props.locator('[data-wake-rules]').getAttribute('href'), '#/settings/rules?task=t-checkout');
   assert.match(await props.locator('[data-prop="status"]').innerText(), /Waiting/);
   // Detail names the status; the status-grouped list uses its heading. "blocked" is a small chip.
   assert.equal(await peek.locator('.tmodal-head .tstatus').innerText(), 'Waiting');

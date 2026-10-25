@@ -21,9 +21,29 @@ task ("Release vX.Y.Z: <what>") instead of pushing the tag itself; the Release M
 so the tasks waiting on the release learn it shipped. Tico itself never moves a task on a tag, release or deploy; it
 only marks the merged PR links the running release contains as Shipped (backend/github.py).
 
+**When releases are cut.** The Release Manager hears about Dev tickets at Pending Release once, as one task:
+"Release: <n> tickets at Pending Release". It arrives once a day at a set hour (10:00 company time by default;
+an owner or admin changes the hour, adds a second one or turns it off in Settings, or with `hub release schedule`),
+and not at all when nothing is pending. A ticket arriving at Pending Release wakes no one. For a hotfix or a
+midday release, a person who moves Dev tickets (or the Release Manager or Head of Engineering bot) runs `hub release now [--note ...]`;
+it sends the same task at once, or wakes the Release task the Release Manager already has open. With nothing at
+Pending Release, a person's `--note` still asks (work often reaches main as pull requests that were never Dev tickets):
+the task, "Release: requested by <name>", carries the note and no ticket list. A bot's request, or a person's with no
+note, sends nothing. The Release
+Manager is the bot the schedule setting names, else the one built from the `release-notes` starter; with neither,
+nothing is sent.
+
+**After a release is published**, Tico acts on the Dev tickets the release carries (at Pending Release with a
+pull request merged in the release repository; prereleases excepted). It wakes each ticket's QA owner (tickets
+tagged `qa` only: the post-release tests), leaves each ticket a quiet "Shipped in vX.Y.Z" note, and files the
+Technical Writer ONE task for the release, "Docs for vX.Y.Z: N tickets", listing each ticket with its pull request.
+It is separate from the release command's "Release notes for vX.Y.Z" task. Docs and release notes are not part of
+the pre-release checklist. Only the owner, a person who moves Dev tickets, the Release Manager and the bot that
+manages the Dev tickets type run `hub release now`. Routines can run `on: release_published` for one task per release.
+
 ## The fast path
 
-1. **While building a PR**, run the focused tests for its changes; CI selects affected tests conservatively (below).
+1. **While building a PR**, run the focused tests for its changes; CI selects the tests a change can reach (below).
 2. **Freeze main.** The Release Manager runs the release command's freeze guard on current main.
 3. **Build and validate that exact commit.** The release command dispatches the full hosted Release validation for the
    frozen commit as the new version: it builds the runner binaries and the three images once, then tests those. The
@@ -75,9 +95,13 @@ new commit to borrow an old run. Roll back this tooling change by reverting it; 
 
 ## Tests on a PR
 
-Run tests on your computer while you work. The PR checks workflow uses audited affected-test mappings on pull requests to main. Unknown or shared changes
-(including conftest, workflows, dependencies and unmapped backend modules) fall back to the full default Python
-suite and core browser scripts. Main pushes always run that full default suite, and a newer main push never
+Run tests on your computer while you work. On pull requests to main, the PR checks workflow runs the default tests
+that a measured static dependency map says use a changed file: what each tracked file imports (transitively), runs
+by path (scripts, `-m` modules, shell and JavaScript) and reads by path (data files, folders it lists or globs). The
+Caddy image job runs only when a change reaches the image inputs or `backend/caddy_assets.py`; otherwise the plan
+compiles the changed files and runs the Dockerfile's import check itself. Conftest, `pytest.ini`, workflows,
+dependencies, `docs/` (except `docs/images` and `docs/history`), CHANGELOG.md, the selector, and deleted or
+unparsable files fall back to the full default Python suite and core browser scripts. Main pushes always run that full default suite, and a newer main push never
 cancels an earlier one; only a pull request's superseded run is cancelled. Runner/harness changes also run
 slow conformance on the Rust runner and all its fake harnesses; UI changes select their browser scripts, including
 imported-history for chat changes, or every browser script when the UI mapping is uncertain.
@@ -93,8 +117,9 @@ seconds per test; untimed browser scripts count 20 seconds. The **PR job timings
 fails if a required job failed or was cancelled. The target is under ten minutes from start to completed checks;
 hosted run receipts, including cache state, establish whether that target is met.
 
-The initial backend leaf mapping is deliberately small (`backend/task_loops.py` to its feature test); extend
-`scripts/pr_checks.py` only after checking related coverage. Filename similarity alone does not prove isolation.
+Nothing is mapped by hand or by filename: a test that uses a file in a way the map cannot see (a path built at run
+time from a parameter, a subprocess's own reads) must name that file or folder literally, or the change will not
+select it. A file that makes a computed import or lists the repository with `git ls-files` runs on every change.
 The Release validation workflow retains its full candidate gate and never cancels a running validation.
 
 Write unit
@@ -181,8 +206,8 @@ Technical Writer tasks and links. Security is outside the release pipeline; no S
 
 Evidence comes from the ticket owner's messages and the owners of step children titled `Review 1:`,
 `Review 2:`, `QA:`, `Docs:`, `Documentation:` or `Technical Writer:`. Review 1 always requires a verdict;
-Review 2 requires one when its step child exists, and `qa` tickets require a QA approval and completed docs
-child. The latest verdict must approve the merged PR head; older heads are flagged for the Release Manager
+Review 2 requires one when its step child exists, and `qa` tickets require a QA approval. Docs are not
+checked here: the Technical Writer starts after the release (below). The latest verdict must approve the merged PR head; older heads are flagged for the Release Manager
 to resolve with the recorded review delta. A passing test receipt names the full PR head, tests and a passing
 result on the same line (for example, `Tests: head <full-sha>: 12 passed, 0 failed`). The latest receipt for that
 head must pass; a newer pending result remains a gap. Any recorded failure at that head stays a gap for the Release

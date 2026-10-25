@@ -408,17 +408,25 @@ A PR event updates every task linked to that PR. Checks record passing, failing 
 PR updates record clean, conflict or unknown mergeability. Reviews record approved, changes
 requested or commented; review comment creation/deletion updates the pending count. Commit
 statuses are matched to the PR's last reported head commit. The owner receives the specific
-failed check, new conflict, request for changes, comment from someone else or PR closed without
-merging, with events per task grouped into one wake within three minutes. Passing and pending
-checks and the bot's own comments never wake it. Requests for changes always wake it. A
+new conflict, request for changes, comment from a person or PR closed without
+merging, with events per task grouped into one wake within three minutes. A single check
+finishing sends nothing. Once every check suite, run and status on a head has finished the
+owner gets one `pr_checks_done` for it, naming the failures, and one more only if the head's
+result changes. It wakes the owner when the ticket is at a working step (status open or doing);
+at any other step it is a note carried by the owner's next run. A review or comment that is
+not from a person (a GitHub App's `[bot]` login, a bot's own configured login or anything
+posted through an App) is a note too, and a person's keeps the grouped wake. The bot's own
+comments never wake it. A
 reviewer who pushes to a bot's PR remains a reviewer; only a pusher matching the PR author
 counts as the bot. New heads reset mergeability to Unknown, and conflicts wake once per head
 until a clean result clears the marker. Check suites are tracked separately by App.
 The grouping survives server restarts and keeps at most 50 distinct notice items per burst.
+Rules page (`hub rule list`) rows for `pr_checks_done` and `pr_review` change what these do.
 
 A bot waiting on one result can arm a one-shot wake on a PR link: `hub task link <task> <pr url> --wake-once`
 (`wake_once: true` on `POST /api/v2/tasks/{id}/links` or `hub_task_link`; `--no-wake-once` disarms it). The
-owner then hears once, in the task's conversation, at the first of: every check suite, check run and status
+owner then hears once, in the task's conversation (the head's `pr_checks_done`, so a link armed for it
+is never woken twice for one head, at any step), at the first of: every check suite, check run and status
 GitHub has reported on the PR's current head has completed (passed, or failed naming every failing suite, run
 and status, with the checks link and commit; judged when a suite completes, or when a run or status that was
 pending finishes after one has; a run whose own suite is still running holds it), a review is submitted approving or requesting changes (with the reviewer and
