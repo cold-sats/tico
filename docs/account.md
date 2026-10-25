@@ -129,9 +129,11 @@ and stop the bot computers with it (**Stop bot computers too**, on by default). 
 `hub sleep set --hours 2` and `hub sleep status`; `hours` 0 turns it off. A self-run server never shows the setting.
 
 The server is quiet when, for all of those hours, nobody used the app signed in and no run started or ended, and right
-now nothing is queued or running, no computer is working on a job, nothing waits to be sent (Slack posts, outgoing
-webhooks) and no routine is due in the next 15 minutes. Tico then records "server.sleep" in History and asks to stop the
-server, passing the time of the next routine as its wake-up time.
+now nothing is queued or running, no computer is working on a job, nothing is being sent or due to be retried within
+15 minutes (Slack posts, outgoing webhooks) and no routine, daily system job or release hour is due in the next 15 minutes.
+Jobs that repeat every few hours or less are housekeeping that catches up after a wake and never keep it up.
+Tico then records "server.sleep" in History and asks to stop the
+server, passing the time of the next routine, daily job, release hour or send retry as its wake-up time.
 
 A sleeping server starts again when a webhook arrives at an address through Tico Gateway (Settings > Webhooks >
 Through Tico Gateway), when that routine time comes, or when someone signs in at your account page. A server Tico stopped

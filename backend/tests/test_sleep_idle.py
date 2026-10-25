@@ -36,7 +36,7 @@ class HQ:
             if self.on_sleep:
                 self.on_sleep()
             status, answer = self.sleep_answer
-            return httpx.Response(status, json=answer if status < 400 else {"error": answer})
+            return httpx.Response(status, json=answer if status < 400 or isinstance(answer, dict) else {"error": answer})
         return httpx.Response(404, json={"error": "not_found"})
 
 
@@ -49,7 +49,20 @@ def hq(api, monkeypatch):
     monkeypatch.setattr(sleep_idle, "now", lambda: clock[0])
     fake.clock = clock
     service(api).started = 0                 # the server has been up longer than any setting
+    system_jobs(api)                         # no system job or release hour is near, whatever the hour the test runs at
     return fake
+
+
+def system_jobs(api, **on):
+    """Every controlled system job off except the ones named (`key=(preset, "HH:MM")`), and the release hours off."""
+    from backend import release_flow
+    from backend import system_routines as SR
+    config = {key: {"on": False} for key in SR.CONTROLS}
+    config.update({key: {"on": True, "preset": preset, "at": at} for key, (preset, at) in on.items()})
+    with api.app.state.store.transaction() as c:
+        for key, value in ((SR.CONFIG_KEY, config), (release_flow.KEY, {"on": False})):
+            c.execute("INSERT INTO registry_metadata VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
+                      (key, json.dumps(value)))
 
 
 def service(api):
@@ -92,8 +105,8 @@ def test_each_thing_that_keeps_the_server_up_is_named_and_stops_the_sleep(api, h
     add_routine(api, at + 10 * 60)
     assert quiet(api)["blocker"] == "routine_due" and quiet(api)["idle"] is False
     with api.app.state.store.transaction() as c:
-        c.execute("CREATE TABLE webhook_sends(id TEXT, state TEXT)")    # the outgoing queue, once it exists
-        c.execute("INSERT INTO webhook_sends VALUES('wh_1','ready')")
+        c.execute("CREATE TABLE webhook_sends(id TEXT, state TEXT, next_attempt TEXT)")    # the outgoing queue, once it exists
+        c.execute("INSERT INTO webhook_sends VALUES('wh_1','ready',NULL)")   # NULL: due now
     assert quiet(api)["blocker"] == "send_pending"
     r = runner(api, "ana")
     with api.app.state.store.transaction() as c:
@@ -167,8 +180,7 @@ def test_never_in_rehearsal_and_never_when_not_hosted(api, hq):
 
 def test_not_now_answers_are_quiet_and_a_failure_backs_off_and_reaches_health(api, hq):
     turn_on(api, 1)
-    svc = service(api)
-    hq.sleep_answer = (409, "cooldown")
+    hq.sleep_answer = (409, {"error": {"code": "cooldown", "detail": "Started 3 minutes ago"}})
     tick(api)
     state = get(api, "sleep")["sleep"]
     assert len(hq.sleeps) == 1 and state["last_request"]["result"] == "cooldown" and state["last_error"] == ""
@@ -213,3 +225,43 @@ def test_only_an_owner_or_an_admin_changes_it_and_anyone_signed_in_reads_it(api,
     with api.app.state.store.read() as c:
         assert c.execute("SELECT count(*) FROM events WHERE action='server.sleep_set'").fetchone()[0] == 2
 
+
+
+def test_a_daily_system_job_sets_the_wake_time_and_an_interval_job_does_not(api, hq):
+    from datetime import datetime
+
+    from backend import system_routines as SR
+    zone = SR.zone()
+    noon = datetime(2026, 10, 26, 12, 0, tzinfo=zone)                    # Monday noon, company time
+    hq.clock[0] = noon.timestamp()
+    system_jobs(api, learnings=("daily", "03:00"), kpi_asks=("15m", "09:00"))
+    with api.app.state.store.transaction() as c:                         # tonight's 03:00 run already happened today
+        c.execute("INSERT INTO learning_runs(id,night,status,started) VALUES('lr1','2026-10-26','done',?)", (H.now(),))
+    with api.app.state.store.read() as c:
+        assert sleep_idle.busy(c, hq.clock[0]) == ""                     # the 15-minute job never keeps the server up
+        night = sleep_idle.wake_time(c, hq.clock[0])
+    assert night == datetime(2026, 10, 27, 3, 0, tzinfo=zone).timestamp()
+
+    system_jobs(api, kpi_asks=("15m", "09:00"))                          # only the interval job left
+    with api.app.state.store.read() as c:
+        assert sleep_idle.wake_time(c, hq.clock[0]) is None and sleep_idle.busy(c, hq.clock[0]) == ""
+    system_jobs(api, still_wanted=("daily", "12:10"))                    # ten minutes away: it keeps the server up
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO system_runs(id,job,started) VALUES('sr1','still_wanted',?)", (sleep_idle.stamp(hq.clock[0] - 3600),))
+    with api.app.state.store.read() as c:
+        assert sleep_idle.busy(c, hq.clock[0]) == "routine_due"
+
+
+def test_a_send_waiting_for_a_far_retry_does_not_keep_the_server_up_but_sets_the_wake_time(api, hq):
+    at = hq.clock[0]
+    with api.app.state.store.transaction() as c:
+        c.execute("CREATE TABLE webhook_sends(id TEXT, state TEXT, next_attempt TEXT)")
+        c.execute("INSERT INTO webhook_sends VALUES('wh_1','ready',?)", (sleep_idle.stamp(at + 10 * 3600),))
+    with api.app.state.store.read() as c:
+        assert sleep_idle.busy(c, at) == ""
+        assert sleep_idle.wake_time(c, at) == pytest.approx(at + 10 * 3600, abs=1)
+    for later, state, due in ((at + 600, "ready", True), (at + 10 * 3600, "sending", True), (None, "ready", True)):
+        with api.app.state.store.transaction() as c:
+            c.execute("UPDATE webhook_sends SET state=?, next_attempt=?", (state, sleep_idle.stamp(later) if later else None))
+        with api.app.state.store.read() as c:
+            assert (sleep_idle.busy(c, at) == "send_pending") is due

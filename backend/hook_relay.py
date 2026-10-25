@@ -135,7 +135,7 @@ class Link:
         if status == 401:
             raise Stop()
         if status >= 400:
-            error = answer.get("error")
+            error = answer.get("error", answer.get("code"))      # {"error": "x"}, {"error": {"code": "x"}} or {"code": "x"}
             error = error.get("code") if isinstance(error, dict) else error
             raise Failed(error if isinstance(error, str) and re.fullmatch(r"[a-z_]{1,40}", error) else f"http_{status}",
                          status, answer)

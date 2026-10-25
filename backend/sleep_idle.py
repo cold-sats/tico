@@ -39,8 +39,10 @@ ANSWER_CAP = 64 * 1024
 HOURS_MAX = 24
 NOT_NOW = ("busy", "cooldown")   # HQ refusals that are no failure
 STREAM = "/api/v2/stream"        # an open stream says nothing about a person being there
-OPEN_SENDS = {"slack_posts": "state IN ('ready','retry','sending','rate_limited')",
-              "webhook_sends": "state IN ('ready','sending')"}
+# Outgoing sends: a row waiting for its next try (`next_attempt`, NULL = now) keeps the server up only when that try is
+# near; one Svix-style retry ten hours away must not. `sending` always does.
+SENDS = {"slack_posts": "state IN ('ready','retry','rate_limited')",
+         "webhook_sends": "state IN ('ready')"}
 NO_KEY = "Connect the Tico Gateway in Settings > Gateway first: Sleep when idle asks Tico with its key."
 NOT_HOSTED = "Sleep when idle is only for servers Tico hosts."
 now = time.time                  # tests' controlled clock
@@ -87,7 +89,10 @@ def table(c, name):
 
 
 def routine_times(c, at):
-    """When each live routine is next due, soonest first. A routine already overdue is due now."""
+    """When the server next has something to do on a clock, soonest first: each live bot routine (an overdue one is due
+    now), the controlled system jobs that run at a fixed time, the daily release hours, and the later tries of waiting
+    sends. Jobs that repeat on an interval are housekeeping that catches up after a wake, so they are left out: a
+    15-minute job would otherwise keep the server up for good."""
     from .scheduler import SCHEDULES_SQL, schedule_due
     when = datetime.fromtimestamp(at, timezone.utc)
     out = []
@@ -96,7 +101,44 @@ def routine_times(c, at):
             out.append(schedule_due(row, when).timestamp())
         except Exception:
             continue                        # a routine with a bad cron is the scheduler's to report
+    out.extend(t for t in fixed_times(c, when) if t > at)      # one already past is being run by the scheduler now
+    out.extend(later_sends(c, at))
     return sorted(out)
+
+
+def fixed_times(c, when):
+    """Next run of each switched-on system job set to a time of day, and of the release schedule."""
+    from . import release_flow
+    from . import system_routines as SR
+    out = []
+    try:
+        last = SR.last_started(c, list(SR.CONTROLS))
+        for key, cfg in SR.config(c).items():
+            if cfg["on"] and cfg["preset"] == SR.DAILY:
+                found = SR.next_night(c, cfg, when) if key == "learnings" else SR.next_due(cfg, last.get(key), when)
+                if found:
+                    out.append(found.timestamp())
+    except Exception:
+        pass
+    try:
+        found = release_flow.next_at(release_flow.load(c), when)
+        if found:
+            out.append(found.timestamp())
+    except Exception:
+        pass
+    return out
+
+
+def later_sends(c, at):
+    """The earliest `next_attempt` of each kind of waiting send that is beyond the 15 minutes `busy` already covers."""
+    out = []
+    for name, where in SENDS.items():
+        if table(c, name):
+            row = c.execute(f"SELECT min(next_attempt) FROM {name} WHERE {where} AND next_attempt>?",
+                            (stamp(at + SOON),)).fetchone()
+            if row and row[0] and (found := epoch(row[0])):
+                out.append(found)
+    return out
 
 
 def busy(c, at):
@@ -110,8 +152,10 @@ def busy(c, at):
         return "task_session"
     if c.execute("SELECT 1 FROM runner_harness_actions WHERE state IN ('requested','running') LIMIT 1").fetchone():
         return "runner_job"
-    for name, where in OPEN_SENDS.items():
-        if table(c, name) and c.execute(f"SELECT 1 FROM {name} WHERE {where} LIMIT 1").fetchone():
+    for name, where in SENDS.items():
+        if table(c, name) and c.execute(
+                f"SELECT 1 FROM {name} WHERE state='sending' OR ({where} AND coalesce(next_attempt,'')<=?) LIMIT 1",
+                (stamp(at + SOON),)).fetchone():
             return "send_pending"
     if (times := routine_times(c, at)) and times[0] <= at + SOON:
         return "routine_due"
