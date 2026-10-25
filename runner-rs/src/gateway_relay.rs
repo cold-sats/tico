@@ -920,7 +920,7 @@ for p in sys.argv[3:]:
  pathlib.Path(p).write_text('from isolated turn'); os.chmod(p,0o600)
 subprocess.run(['git','init','-q',str(pathlib.Path(sys.argv[3]).parent)],check=True)
 subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'status','--short'],check=True,stdout=subprocess.DEVNULL)
-assert '127.0.0.1' not in subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'config','--get-regexp','^http\\.'],capture_output=True,text=True).stdout, 'a sibling http setting reached the turn'
+assert '127.0.0.1' not in subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'config','--global','--get-regexp','^http\\.'],capture_output=True,text=True).stdout, 'a sibling HOME http setting reached the turn'
 assert subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'config','--get-urlmatch','http.proxy','https://github.com/o/r.git/info/refs'],capture_output=True,text=True).stdout.strip()=='', 'a sibling proxy reached the turn'
 subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'ls-remote','ssh://example.invalid/x'],capture_output=True)
 subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'-c','user.name=fixture','-c','user.email=fixture@example.invalid','add','.'],check=True)
