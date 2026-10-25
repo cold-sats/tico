@@ -2267,7 +2267,7 @@ def release_schedule(api, args):
 @tool("hub_release_now", "Ask the Release Manager to cut a release of what is at Pending Release now, without waiting "
       "for the daily hour (a hotfix, a midday release): ONE task listing the tickets, or a wake on its unfinished "
       "Release task. For a person who moves Dev tickets, the Release Manager or the Head of Engineering bot. `sent` is false with a `reason` "
-      "when nothing is pending or nobody was asked.",
+      "when nothing is pending or nobody was asked. A person's note asks even with nothing at Pending Release.",
       {"note": _s("Why now; goes in the Release Manager's task")}, writes=True)
 def release_now(api, args):
     return api.post("release/now", {"note": args["note"]} if args.get("note") else {}, key=_key(args))

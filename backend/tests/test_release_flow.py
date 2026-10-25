@@ -81,6 +81,24 @@ def test_release_now_is_for_those_who_move_dev_tickets_and_wakes_an_open_release
     assert len(_tasks(api, "cmo")) == 1, "a second Release task is never filed beside an open one"
 
 
+def test_a_persons_release_now_with_a_note_goes_out_with_nothing_pending_and_nobody_else_does(api):
+    _team(api)
+    assert post(api, "release/now", {})["reason"] == "nothing_pending", "a person with no note"
+    assert post(api, "release/now", {"note": "  "})["reason"] == "nothing_pending"
+    with api.app.state.store.transaction() as c:
+        assert RF.request_now(c, "bot:cpo", "merged PRs")["reason"] == "nothing_pending", "a bot keeps today's answer"
+    assert _tasks(api, "cmo") == []
+    first = post(api, "release/now", {"note": "PRs merged straight to main"})
+    assert first["sent"] is True and first["tickets"] == 0 and first["reason"] is None
+    assert len(_tasks(api, "cmo")) == 1 and _tasks(api, "cmo")[0].startswith("Release: requested by ")
+    with api.app.state.store.read() as c:
+        body = H.task(c, first["task"])["body"]
+    assert "PRs merged straight to main" in body and "Nothing is at Pending Release" in body
+    again = post(api, "release/now", {"note": "and one more"})
+    assert again["reason"] == "already_open" and again["task"] == first["task"]
+    assert len(_tasks(api, "cmo")) == 1, "an open Release task is woken, not doubled"
+
+
 def test_a_published_release_gives_the_writer_one_task_and_qa_a_wake_per_ticket(api):
     dev = _team(api)
     tested = _ticket(api, dev, "Visual replies", 412, tags=["qa"])

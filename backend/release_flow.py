@@ -7,7 +7,10 @@ Three things, all in plain code, none asked of a model:
   at Pending Release", listing them; with nothing at Pending Release nobody is woken. Pending Release arrivals are
   notes, so the Release Manager hears about the tickets only here (or from `release now`).
 - **Release now** (`hub release now`): a person or bot who moves Dev tickets asks for the same task at once, for a
-  hotfix or a midday release. An unfinished Release task is woken instead of a second one being filed.
+  hotfix or a midday release. An unfinished Release task is woken instead of a second one being filed. A PERSON who
+  gives a note is heard even with nothing at Pending Release ("Release: requested by <name>", the note and an empty
+  listing): work often reaches main as pull requests that were never Dev tickets. A bot, or a person with no note,
+  gets `nothing_pending`; the daily hour never sends on an empty step.
 - **`release_published`**: when a release is published, each Dev ticket it carries wakes its QA owner (post-release
   tests, only for a ticket tagged `qa`: tests are per ticket) and gets a quiet note that it shipped in the version.
   The Technical Writer gets ONE task per release, "Docs for vX.Y.Z: N tickets", listing each ticket with its pull
@@ -178,6 +181,9 @@ def _listing(c, tickets, more_where):
 
 
 def _task_body(c, tickets, why):
+    if not tickets:
+        return (f"{why}\n\nNothing is at Pending Release now; the work may be merged pull requests that were never Dev "
+                "tickets. Cut a release for what is on main with your release playbook and docs/releasing.md.")
     return (f"{why}\n\nAt Pending Release now:\n" + _listing(c, tickets, 'with `hub task list --step "Pending Release"`') +
             "\n\nCut one release for them with your release playbook and docs/releasing.md. When it is published, "
             "Tico wakes each ticket's QA owner and the Technical Writer by itself.")
@@ -195,19 +201,21 @@ def _unfinished(c, owner):
 def request(c, actor, *, source, note=""):
     """Ask the Release Manager for a release of what is at Pending Release: ONE task, or a wake on its unfinished
     Release task. Returns `{sent, reason, task, tickets}`; `reason` says why nothing was sent (`no_release_manager`,
-    `nothing_pending`) or that a wake went to the open task (`already_open`)."""
+    `nothing_pending`) or that a wake went to the open task (`already_open`). A person's release now with a `note` goes
+    out even with nothing at Pending Release (`tickets` is 0); nobody else's does."""
     manager = release_manager(c)
     if not manager:
         return {"sent": False, "reason": "no_release_manager", "task": None, "tickets": 0}
     owner = H.bot_actor(manager)
     tickets = pending(c, owner)
-    if not tickets:
+    if not tickets and not (source == "release_now" and not H.is_bot(actor) and actor != H.KEEPER and note.strip()):
         return {"sent": False, "reason": "nothing_pending", "task": None, "tickets": 0}
     if actor == H.KEEPER:
         who = "The daily release time came."
     else:
         who = f"Asked by {H.actor_id(actor)}" + (f": {note}" if note else ".")
-    title = f"{TITLE}{len(tickets)} ticket{'s' if len(tickets) != 1 else ''} at Pending Release"
+    title = (f"{TITLE}{len(tickets)} ticket{'s' if len(tickets) != 1 else ''} at Pending Release" if tickets
+             else f"{TITLE}requested by {H.actor_id(actor)}")
     body = _task_body(c, tickets, who)
     open_task = _unfinished(c, owner)
     if open_task:
@@ -399,7 +407,8 @@ def install(app, store, auth, mutate):
     def release_now(request: Request, body: M.ReleaseNow):
         """Ask the Release Manager to cut a release of what is at Pending Release now, without waiting for the daily
         hour (a hotfix, a midday release). ONE task, or a wake on its unfinished Release task. A person who moves Dev
-        tickets, or the Release Manager or Head of Engineering bot. `sent` is false, with a `reason`, when nobody was asked."""
+        tickets, or the Release Manager or Head of Engineering bot. With nothing at Pending Release a person's `note`
+        still asks (work merged without a Dev ticket); otherwise `sent` is false, with a `reason`, when nobody was asked."""
         who = request.state.identity
         auth.domain(who)
         with store.read() as c:
