@@ -104,11 +104,19 @@ function routineById(id) {
 // edit it, for reading what it says. What it saves is the hub's row; the bot reads the task the row opens
 // when it is due (backend/routines.py). A schedule is picked as words (every day, weekdays, a weekday, a
 // day of the month, at a time) and saved as a cron; anything else stays a cron to type.
-const ROUTINE_EVENTS = [['meeting.ready', 'When a meeting is imported'],
-  ['recording.ready', 'When a meeting is imported (legacy)'], ['market.insight.urgent', 'When a market insight is urgent'],
-  ['release_published', 'When a release is published'], ['strategy.published', 'When a strategy version is published'],
-  ['market.briefing', 'When a market briefing is posted']];
-let ROUTINE_TRIGGERS = null;     // Settings > Triggers (GET /v2/triggers), loaded when the editor or that tab opens
+// "In Tico" events come from the catalog (GET /v2/event-types). Only these groups' producers start routines
+// (backend/routines.py emit callers); the catalog has no flag for it, and task, approval and bot events reach
+// outgoing webhooks and rules only.
+const ROUTINE_EVENT_GROUPS = new Set(['meeting', 'market', 'release', 'strategy']);
+function routineEvents(current) {
+  const out = EVENT_TYPES.filter(t => ROUTINE_EVENT_GROUPS.has(t.group) && !t.name.includes('*')).map(t => {
+    // A routine saved under an older spelling (recording.ready, release_published) keeps it, under the event's words.
+    const value = (t.aliases || []).includes(current) ? current : t.name;
+    return [value, t.description.replace(/\.$/, '')];
+  });
+  return out;
+}
+let ROUTINE_TRIGGERS = null;     // Settings > Webhooks > Incoming (GET /v2/triggers), loaded when the editor or that tab opens
 async function routineTriggersLoad() {
   try { ROUTINE_TRIGGERS = (await get('/v2/triggers')).triggers || []; } catch { ROUTINE_TRIGGERS = ROUTINE_TRIGGERS || []; }
   return ROUTINE_TRIGGERS;
@@ -158,7 +166,7 @@ function routineEditorOpen(r = null, bot = '') {
         <label data-routine-pick="custom">Cron<input name="cron" type="text" autocomplete="off" spellcheck="false" value="${esc(r?.cron || '0 9 * * 1-5')}" placeholder="0 9 * * 1-5" maxlength="100" ${off}></label>
         <label data-routine-cron>Timezone<input name="timezone" type="text" autocomplete="off" spellcheck="false" value="${esc(r?.timezone || 'America/Los_Angeles')}" maxlength="100" ${off}></label>
         <label data-routine-event>Trigger<select name="on" ${off}></select></label>
-        <p class="settings-cell-note bot-editor-wide" data-routine-event>Webhooks are added in <a href="#/triggers" data-routine-close>Settings › Triggers</a>.</p>
+        <p class="settings-cell-note bot-editor-wide" data-routine-event>Webhooks are added in <a href="#/settings/webhooks" data-routine-close>Settings › Webhooks</a>.</p>
         <label class="bot-editor-wide">Instruction<textarea name="text" maxlength="100000" placeholder="Go through the messages and…" ${off}>${esc(r?.text || '')}</textarea></label>
       </div>
       <div class="row" style="margin-top:16px">${may ? `<button class="primary" type="submit">${editing ? 'Save routine' : 'Add routine'}</button>` : ''}<button class="ghost" type="button" data-routine-close>${may ? 'Cancel' : 'Close'}</button>
@@ -169,14 +177,14 @@ function routineEditorOpen(r = null, bot = '') {
   const form = dialog.querySelector('form'), status = dialog.querySelector('[data-routine-status]');
   dialog.querySelectorAll('[data-routine-close]').forEach(b => b.addEventListener('click', () => dialog.close()));
   const fillTriggers = list => {
-    const webhooks = (list || []).map(t => [t.event, t.name]);
-    const known = [...webhooks, ...ROUTINE_EVENTS].some(([v]) => v === r?.on);
+    const webhooks = (list || []).map(t => [t.event, t.name]), tico = routineEvents(r?.on);
+    const known = [...webhooks, ...tico].some(([v]) => v === r?.on);
     form.elements.on.innerHTML = (webhooks.length ? `<optgroup label="Webhooks">${webhooks.map(([v, w]) => opt(v, w, r?.on)).join('')}</optgroup>` : '')
-      + `<optgroup label="In Tico">${ROUTINE_EVENTS.map(([v, w]) => opt(v, w, r?.on)).join('')}</optgroup>`
+      + (tico.length ? `<optgroup label="In Tico">${tico.map(([v, w]) => opt(v, w, r?.on)).join('')}</optgroup>` : '')
       + (r?.on && !known ? `<optgroup label="Removed">${opt(r.on, r.on, r.on)}</optgroup>` : '');
   };
   fillTriggers(ROUTINE_TRIGGERS);
-  routineTriggersLoad().then(list => { if (dialog.open) fillTriggers(list); });
+  Promise.all([routineTriggersLoad(), eventTypesLoad().catch(() => [])]).then(([list]) => { if (dialog.open) fillTriggers(list); });
   const show = () => {
     const isCron = form.elements.kind.value === 'cron', repeat = form.elements.repeat.value;
     dialog.querySelectorAll('[data-routine-cron]').forEach(el => { el.hidden = !isCron; });
