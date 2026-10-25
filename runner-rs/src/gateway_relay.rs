@@ -772,9 +772,9 @@ mod tests {
                 .arg(std::env::current_exe().unwrap())
                 .args(["--ignored", "--exact", "gateway_relay::tests::docker_turn_user_blocks_siblings_and_cleans_before_reuse", "--nocapture", "--test-threads=1"])
                 .env_clear().env("TICO_TEST_DISPOSABLE", "1").env("PATH", "/usr/local/bin:/usr/bin:/bin")
-                .output().unwrap();
-            assert!(output.status.success(), "{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
-            println!("{}", String::from_utf8_lossy(&output.stdout));
+                // Inherited output: a failed probe's leftover turn processes must not hold a pipe open and hide it.
+                .status().unwrap();
+            assert!(output.success(), "the supervisor-side probe failed; its output is above");
             return;
         }
         assert_eq!(unsafe { libc::geteuid() }, 10002, "actual Docker supervisor identity");
