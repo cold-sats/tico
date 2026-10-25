@@ -9,6 +9,7 @@ connecting and reading: httpx's own timeout restarts on every byte, so a server 
 a worker past the point where a crashed send is handed to another.
 """
 import ipaddress
+import re
 import socket
 import threading
 import time
@@ -53,6 +54,38 @@ def resolve(host):
     return found
 
 
+LOCAL_NAMES = ("localhost",)
+LOCAL_SUFFIXES = (".localhost", ".local", ".internal")
+
+
+def literal_address(host):
+    """The ip_address a host spelled as a number is (`10.0.0.1`, `::1`, `2130706433`, `127.1`), else None. No lookup."""
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        if not re.fullmatch(r"[0-9a-fA-FxX.]+", host):
+            return None
+        try:                                        # the short and whole-number spellings the system's resolver also takes
+            address = ipaddress.IPv4Address(socket.inet_aton(host))
+        except OSError:
+            return None
+    return getattr(address, "ipv4_mapped", None) or address
+
+
+def check_name(parts):
+    """Blocked when an https host is, by its spelling alone, not a public address: an IP literal outside public space,
+    or a name that is this machine or a local network (localhost, *.localhost, *.local, *.internal). The rule
+    `address_for` applies to the addresses a name resolves to; this one needs no lookup, so it can answer when an
+    address is saved. A name that merely resolves somewhere private is still stopped at each send."""
+    host = parts.hostname.rstrip(".").lower()
+    address = literal_address(host)
+    if address is not None:
+        if not address.is_global:
+            raise Blocked(f"{parts.hostname} is not a public address")
+    elif host in LOCAL_NAMES or host.endswith(LOCAL_SUFFIXES):
+        raise Blocked(f"{parts.hostname} is a name for this machine or a local network, not a public address")
+
+
 def check(url, allow_http=False):
     """The parts of `url` when Tico may send to it, else Blocked. Needs no network."""
     try:
@@ -66,6 +99,8 @@ def check(url, allow_http=False):
         raise Blocked("The address must not carry a user name or password")
     if parts.scheme == "http" and not allow_http:
         raise Blocked("Plain http is allowed only to this machine, and only when the endpoint allows it")
+    if parts.scheme == "https":
+        check_name(parts)
     return parts
 
 

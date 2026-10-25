@@ -385,3 +385,37 @@ def test_an_admin_manages_a_trigger_someone_else_made_and_a_plain_person_does_no
     post(api, "triggers/caras/rotate", {}, token="ben-test")                  # ben is an admin
     post(api, "triggers", {"name": "Bens"}, token="ben-test")
     post(api, "triggers/bens/rotate", {}, token="cara-test", expected=403)
+
+
+def test_rules_counts_only_the_rules_that_worked_and_the_delivery_shows_why_the_rest_did_not(api):
+    made = post(api, "triggers", {"name": "Shop"})["trigger"]
+    post(api, "rules", {"scope_kind": "team", "event": "webhook.received", "then": "action",
+                        "params": {"action": "wake_bot", "bot": "cpo", "text": "Order {{type}}"}})
+    post(api, "rules", {"scope_kind": "team", "event": "webhook.received", "then": "action",
+                        "params": {"action": "wake_bot", "bot": "ops", "text": "Order {{type}}"}})
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bots SET state='planned' WHERE slug='cpo'")
+        c.execute("UPDATE bots SET state='active' WHERE slug='ops'")
+    got = hook(api, made["url"], b'{"order": 1}', {"Idempotency-Key": "d1"}).json()
+    assert got["rules"] == 1                                   # the planned bot's wake did not work
+    assert get(api, "triggers/shop/deliveries")["deliveries"][0]["rules"] == 1
+    detail = get(api, "triggers/shop/deliveries/d1")["delivery"]
+    assert detail["rules"] == 1
+    by_bot = {r["target"]: r for r in detail["rule_results"]}
+    assert by_bot["ops"]["ok"] is True and by_bot["cpo"]["ok"] is False and "planned" in by_bot["cpo"]["detail"]
+    replayed = post(api, "triggers/shop/deliveries/d1/replay", {})["replay"]
+    assert replayed["rules"] == 1                              # a replay counts the same way
+
+
+def test_a_refused_call_keeps_the_type_its_header_names_and_its_server_id(api):
+    made = post(api, "triggers", {"name": "Repo"})["trigger"]
+    post(api, "triggers/repo/signing", {"preset": "github", "secret": "k" * 20})
+    body = b'{"zen": "x"}'
+    refused = hook(api, made["url"], body, {"X-GitHub-Event": "push", "X-GitHub-Delivery": "g1", "X-Hub-Signature-256": "sha256=00"})
+    assert refused.status_code == 401
+    row = get(api, "triggers/repo/deliveries")["deliveries"][0]
+    assert row["outcome"] == "refused" and row["type"] == "push"
+    assert row["sent_id"] == "g1" and row["delivery"] != "g1"          # the row's handle is Tico's, the sender's id is sent_id
+    assert get(api, "triggers/repo/deliveries/" + row["delivery"])["delivery"]["type"] == "push"
+    good = hook(api, made["url"], body, {"X-GitHub-Event": "push", "X-GitHub-Delivery": "g1", "X-Hub-Signature-256": sig("k" * 20, body)})
+    assert good.status_code == 202 and good.json()["type"] == "push"        # the refusal did not enter the dedupe ledger

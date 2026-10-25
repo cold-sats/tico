@@ -2752,6 +2752,7 @@ RENAMED = [
     (("judge",), ("decision", "ask"), (), None),
 ]
 RENAMED.sort(key=lambda rule: -len(rule[0]))
+NOTICE_COMMANDS = ("list",)                             # the subcommands `hub notice` has now
 
 
 def rename_argv(argv):
@@ -2759,6 +2760,8 @@ def rename_argv(argv):
     argv = list(argv)
     if argv[:1] == ["note"] and len(argv) > 1 and argv[1] not in ("create", "list", "delete") and not argv[1].startswith("-"):
         return ["note", "create"] + argv[1:], '"hub note <bot> <text>" is now "hub note create <bot> <text>"'
+    if argv[:1] == ["notice"] and len(argv) > 1 and (argv[1] in NOTICE_COMMANDS or argv[1].startswith("-")):
+        return argv, None                              # `hub notice list` is new; only `hub notice <text>` is the old send
     if argv[:2] == ["org", "order"]:                   # `hub org` alone is the old `hub team show`; this one is new
         return argv, None
     for old, new, tail, rewrite in RENAMED:
