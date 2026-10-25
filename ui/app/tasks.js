@@ -253,7 +253,7 @@ function rowTagChips(t, max = 2) {
   return shown + (rest > 0 ? `<span class="tlabel more" title="${esc(keys.slice(max).join(', '))}">+${rest}</span>` : '');
 }
 function taskChipsHTML(t, opts = {}) {
-  return (opts.tags === false ? '' : rowTagChips(t, opts.maxTags)) + prStateBadge(taskPRState(t)) + subProgressChip(t) + dueChip(t) + snoozeChip(t);
+  return (opts.tags === false ? '' : rowTagChips(t, opts.maxTags)) + prStateBadge(taskPRState(t)) + taskVerdictHTML(t) + subProgressChip(t) + dueChip(t) + snoozeChip(t);
 }
 // A face for an actor: a bot's avatar, a person's photo or initials.
 function actorFace(actor, size = 18) {
@@ -285,6 +285,14 @@ function taskRowNote(t) {
   return {text, mine: taskNeedsViewer(t)};
 }
 
+// A refused move (a reviewer moving its ticket, a step the type refuses) says why on the row or card it was tried on,
+// until that task changes or is tried again.
+function taskRefusedSet(state, t, message) { (state.refused ||= new Map()).set(String(t.id), {message, version: Number(t.version)}); }
+function taskRefused(state, t) {
+  const r = t && state?.refused?.get(String(t.id));
+  return r && r.version === Number(t.version) ? r.message : '';
+}
+
 // ---- the board: one column per state; an empty column folds to a thin strip with its name and count
 // A small count of the card's related tasks, like an attachment count.
 function taskRelChip(t) {
@@ -296,7 +304,7 @@ function taskRelChip(t) {
 // question, the owner's face and the age.
 function taskCard(it) {
   const t = it.task, st = TASKS_ST;
-  const chips = t ? taskChipsHTML(t, {maxTags: 2}) : '';
+  const chips = t ? taskChipsHTML(t, {maxTags: 2}) : '', refused = taskRefused(st, t);
   void st;   // selection, cursor and peek are painted on (task-list.js), so the card's signature only changes with its content
   return tasksSigned(`<div class="bcard" data-task-key="${esc(it.key)}">${t ? taskBlockedStrip(it) + taskCoverHTML(t) : ''}
     <button class="bcard-open" type="button" data-open-task="${esc(it.key)}" title="${esc(t ? taskRowTip(t) : it.title)}" tabindex="-1">
@@ -306,6 +314,7 @@ function taskCard(it) {
         ? `<button type="button" class="tl-face bcard-owner" data-card-owner="${esc(it.key)}" aria-haspopup="true" aria-label="${esc(`Owner: ${actorLabel(it.actor)}. Change`)}" title="${esc(actorLabel(it.actor))}">${actorFace(it.actor, 16)}</button>`
         : `<span class="tl-face" aria-hidden="true">${actorFace(it.actor, 16)}</span>`}
       <span class="age tnum" title="${esc(fmt(it.updated))}">${esc(ageShort(it.updated))}</span></div>
+    ${refused ? `<p class="bcard-err" role="alert" data-task-refused>${esc(refused)}</p>` : ''}
   </div>`);
 }
 // The status a task is grouped by: 'needsme', 'needs:human:sam', 'needs-someone', 'waiting', 'doing', 'scheduled'.

@@ -391,3 +391,9 @@ button.linkish.tl-clear:hover{color:var(--ink)}
 /* Release now on the Pending Release column (ui/app/settings-release.js) */
 .board-release-slot:empty{display:none}
 .board-release-slot .board-release{padding:2px 8px;font-size:var(--t-sm);min-height:0}
+
+/* A refused move says why where it was tried (tasks.js taskRefused), so it keeps its words at every width. */
+.tl-row .tl-note.tl-refused{color:var(--fail)}
+.tl-refused .tl-note-text{display:block}
+@media (max-width:760px){.tl-refused .tl-note-text{display:-webkit-box}}
+.bcard-err{margin:6px 0 0;color:var(--fail);font-size:var(--t-sm);line-height:1.35;overflow-wrap:anywhere}

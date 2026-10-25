@@ -97,6 +97,7 @@ function taskPropsHTML(t, opts = {}) {
     const step = type.steps.find(s => s.id === t.step_id);
     rows.push(row('step', 'Step', step ? txt(step.name) : txt('Add step'), {edit: r.edit || (!r.live && r.reopen), empty: !step, words: step?.name || 'none'}));
   }
+  if (t.verdict) rows.push(row('verdict', 'Verdict', taskVerdictHTML(t), {words: VERDICT_WORDS[t.verdict]?.[0] || t.verdict}));
   if (S.me?.cloud && t.id) rows.push(taskWakeRulesRowHTML(t));
   return `<div class="props">${rows.join('')}</div><div class="props-msg" data-props-msg role="status" aria-live="polite"></div>`;
 }

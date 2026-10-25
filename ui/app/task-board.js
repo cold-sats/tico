@@ -287,6 +287,7 @@ function taskBoardDrop(state, d) {
 // A card's change (a move, a new owner) drawn at once, before the server answers; a refusal puts it back and says why.
 function taskBoardSave(state, t, body, fields, refused) {
   const id = String(t.id);
+  state.refused?.delete(id);
   state.boardMoves ||= new Map();
   state.boardMoves.set(id, {fields, version: Number(t.version), pending: true});
   state.tasks = state.tasks.map(x => x === t ? {...t, ...fields} : x);
@@ -302,7 +303,8 @@ function taskBoardSave(state, t, body, fields, refused) {
       if (TASKS_ST !== state) return;
       state.boardMoves.delete(id);
       state.tasks = state.tasks.map(x => String(x.id) === id && Number(x.version) <= Number(t.version) ? t : x);
-      toast(e.status === 409 ? 'Changed elsewhere. Showing the latest.' : `${refused}: ${e.message || 'refused'}`, true);
+      if (e.status === 409) toast('Changed elsewhere. Showing the latest.', true);
+      else taskRefusedSet(state, t, `${refused}: ${e.message || 'refused'}`);
       tasksRender(state);
     }
     void tasksLoad(state);
