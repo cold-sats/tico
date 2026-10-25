@@ -14,6 +14,11 @@ version once a day, and within the hour after it changes (`POST /v1/portal/serve
 system routine, no model turn) and disconnects (`DELETE /v1/portal/server`). HQ refusing the key (401) means the link
 was ended on the portal: the key is forgotten here too.
 
+While linked, the server's Tico AI Gateway key comes from its company (`gateway_key`, `POST /v1/portal/server/gateway`):
+HQ enrolls the install backend/gateway_connection.py `auto_tick` made and bills its use to the company's credit. It is
+asked right after Connect and hourly while there is no key; a pasted or environment key wins. When the link ends, HQ
+revokes that key and it is forgotten here too (gateway_connection.py `company_ended`).
+
 HQ is only ever https://api.tico.dev or https://updates.tico.team (`<TICO_HQ_URL>`, backend/census.py `hq_url`); any
 other base URL leaves the feature unavailable. HQ's answers are read raw, capped at MAX_ANSWER bytes, with no redirects,
 and must have exactly the fields the contract names. Demo and rehearsal servers send HQ nothing (`off`).
@@ -67,6 +72,8 @@ COMPANY_NAME_MAX = 100
 SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")
 WORKSPACE = re.compile(r"[A-Za-z0-9_-]{1,100}")
 SERVER_KEY = re.compile(r"tsk_[A-Za-z0-9_-]{16,200}")
+GATEWAY_ANSWER = {"key", "key_id", "rotate_after"}
+ERROR_CODE = re.compile(r"[a-z][a-z_]{0,39}")
 
 _pending = {"digest": "", "until": 0.0}
 _pending_lock = threading.Lock()
@@ -113,6 +120,13 @@ def _forget(c, actor, action, sealed):
         return
     c.execute("DELETE FROM registry_metadata WHERE key=?", (KEY,))
     H.event(c, actor, action, record.get("workspace_id", ""), {"company_id": record.get("company", {}).get("id", "")})
+    from . import gateway_connection
+    gateway_connection.company_ended(c)        # HQ revoked the Gateway key the link gave
+
+
+def linked(c, settings=None):
+    """Whether this server is linked to its company and may ask HQ (not a demo or rehearsal)."""
+    return bool(_row(c).get("key")) and not off(settings)
 
 
 def view(c):
@@ -275,6 +289,8 @@ def connect(store, vault, settings, who, body, install_id):
                    "workspace_id": workspace, "portal_url": portal, "credit": None, "checked": "", "heartbeat": at,
                    "version": version(), "connected_at": at, "connected_by": who.actor})
         H.event(c, who.actor, "company_server.connected", workspace, {"company_id": company["id"], "name": company["name"]})
+    from . import gateway_connection
+    gateway_connection.check_soon(store, vault, settings)   # its Gateway key, if it has none, on its own thread
     return status(store, vault)          # unchecked: reads the company's credit now
 
 
@@ -323,6 +339,30 @@ def disconnect(store, vault, who):
             _forget(c, who.actor, "company_server.disconnected", record["key"])
     with store.read() as c:
         return view(c)
+
+
+def gateway_key(store, vault, install, secret):
+    """This server's own Gateway key from its company, for gateway_connection.py `auto_tick`: (status, {key, key_id,
+    rotate_after} or {}, error code), as clients/gateway.py `enroll` answers. Status 0: HQ not reached, or an answer
+    not of that shape. A 401 forgets the link, as every other call does. Never logs the key or the secret."""
+    key, record = _key(store, vault)
+    if not key:
+        return 401, {}, "unauthorized"
+    try:
+        code, result = _call(store.settings, "POST", "/v1/portal/server/gateway", {"install": install, "secret": secret},
+                             key=key)
+    except ValueError:
+        return 0, {}, ""
+    if code == 401:
+        with store.transaction() as c:
+            _forget(c, SYSTEM, "company_server.revoked", record["key"])
+        return code, {}, "unauthorized"
+    if code == 201:
+        if isinstance(result, dict) and set(result) == GATEWAY_ANSWER and all(_text(result[k], 200) for k in GATEWAY_ANSWER):
+            return code, result, ""
+        return 0, {}, ""
+    error = result.get("error") if isinstance(result, dict) else None
+    return code, {}, error if isinstance(error, str) and ERROR_CODE.fullmatch(error) else ""
 
 
 def _seconds(stamp):
