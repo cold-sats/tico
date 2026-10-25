@@ -1048,3 +1048,21 @@ def test_base_url_takes_one_setting_for_both_endpoints():
     assert G.base_url("https://gw.example/v1/gateway/decisions/") == "https://gw.example/v1/gateway"
     assert G.decisions_url("https://gw.example/v1/gateway") == "https://gw.example/v1/gateway/decisions"
     assert G.cap_reached("429 {\"error\":{\"code\":\"cap_reached\"}}") and not G.cap_reached("429 rate_limited")
+
+
+def test_a_new_bot_on_the_gateway_default_takes_its_templates_level(api, monkeypatch):
+    setup(api, monkeypatch)
+    with fake_gateway() as fake:
+        fake.active(KEY, 0.1)
+        save(api, fake)
+        view = get(api, "providers")
+        put(api, "providers", {"enabled": ["anthropic"], "model": "tico-general-medium-1.0", "expected_revision": view["revision"]})
+        # The Inbox template says Low; a bot with no template, or one that names its own model, is not touched.
+        made = new_bot(api, "mailwatch", template="inbox")
+        plain = new_bot(api, "plain")
+        own = new_bot(api, "chosen", template="inbox", model="tico-general-high-1.0", harness="pi", effort="high")
+        with api.app.state.store.read() as c:
+            models = dict(c.execute("SELECT slug, model FROM bots WHERE slug IN ('mailwatch','plain','chosen')").fetchall())
+            stored = json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot='mailwatch'").fetchone()[0])
+        assert models == {"mailwatch": "tico-general-low-1.0", "plain": "tico-general-medium-1.0", "chosen": "tico-general-high-1.0"}, (made, plain, own)
+        assert stored["model"] == "tico-general-low-1.0" and stored["gateway"] == {"level": "low"}

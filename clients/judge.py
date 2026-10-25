@@ -97,6 +97,9 @@ MAX_STATE_CHARS = 120_000
 MAX_INSTRUCTIONS = 8_000
 MAX_LABEL = 80
 TIMEOUT = 20
+# How long a caller of the hub waits for a decision: past the longest chain the server runs (backend/judge.py
+# SLOW_CHAIN_SECONDS, 35 s, with Decisions at Medium or High), so the server's answer is not cut off.
+HUB_WAIT = 45
 RETRIES = 2
 BACKOFF = (0.5, 1.5)
 # Keys a question may carry beyond `type`; `dynamic` is ours (see `with_options`) and is stripped.
@@ -784,7 +787,7 @@ def from_env(env=None):
     url, token = env.get("HUB_API_URL"), env.get("HUB_TOKEN")
     if url and token:
         from clients.tico import Client
-        return through_hub(Client(url, token, timeout=TIMEOUT + 10))
+        return through_hub(Client(url, token, timeout=HUB_WAIT))
     key = (env.get(KEY_ENV) or "").strip()
     if key:
         return direct(key)

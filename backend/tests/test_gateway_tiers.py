@@ -187,3 +187,53 @@ def test_every_tool_a_service_names_is_a_hub_tool():
     known = {entry["name"] for entry in hubtools.TOOLS}
     named = {name for service in T.SNAPSHOT["services"] for name in service["tools"]}
     assert {"hub_inbound_wait", "hub_gateway_search", "hub_decision_ask"} <= named and named <= known, named - known
+
+
+def test_a_medium_or_high_decision_reserves_the_spend_of_the_model_that_will_run(api, monkeypatch):
+    from backend import judge as B
+    store = api.app.state.store
+    store.settings.gateway_key, store.settings.gateway_url = "gw-synthetic", "https://hq.example/v1/gateway/decisions"
+    view = get(api, "providers")
+    body = {"enabled": view["enabled"], "model": view["default"]["model"], "decide_level": "low"}
+    step = B.gateway(store.settings, store)
+    seen = []
+    real = B.reservation
+    monkeypatch.setattr(B, "reservation", lambda s, models, *a: seen.append(list(models)) or real(s, models, *a))
+    monkeypatch.setattr(B, "fallback_engine", lambda *args, **kwargs: None)
+    for level, want in (("low", "tico-decide-1.0"), ("high", "tico-decide-high-1.0")):
+        view = get(api, "providers")
+        put = api.put("/api/v2/providers", json={**body, "decide_level": level, "expected_revision": view["revision"]},
+                      headers=headers("ana-test"))
+        assert put.status_code == 200, put.text
+        assert B.step_models([step]) == [want]
+        with store.read() as c:
+            engine = B.server_engine(store, c, step)
+        store.settings.decisions_monthly_usd = 50
+        with pytest.raises(J.JudgeError):           # the fake host answers nothing; only the reservation matters
+            engine({"team": "Acme"}, {"q": {"type": "choice", "question": "?", "criteria": {"a": "a", "b": "b"}}})
+        assert seen[-1] == [want], seen
+
+
+def test_a_rehearsal_server_searches_nothing_even_with_a_gateway_key(api, monkeypatch):
+    settings = api.app.state.store.settings
+    settings.gateway_key, settings.gateway_url, settings.rehearsal = "gw-synthetic", "https://hq.example/v1/gateway/decisions", True
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("A rehearsal must not call the Gateway")
+    monkeypatch.setattr(G, "_post", forbidden)
+    monkeypatch.setattr(T, "refresh", forbidden)
+    result = api.post("/api/v2/gateway/search", json={"query": "acme pricing"}, headers=headers("ana-test"))
+    assert result.status_code == 503 and result.json()["error"]["code"] == "rehearsal"
+    assert get(api, "gateway/catalog")["models"]
+
+
+def test_a_saved_task_model_on_the_old_lineup_still_runs_but_a_retired_model_does_not(api):
+    from backend import task_models
+    store = api.app.state.store
+    retired = next(row["id"] for row in providers.MODEL_CATALOG if row.get("deprecated") and row.get("lineup") != "old")
+    with store.read() as c:
+        for model, is_retired in (("tico-mid-1.0", False), ("tico-cheap-1.1", False), ("tico-power-1.0", False), (retired, True)):
+            choice = {"runtime": providers.MODEL_BY_ID[model]["runtime"], "model": model}
+            why = task_models.why_not(c, store.settings, "ops", choice, "runner-1")
+            assert ("is retired" in why) is is_retired, (model, why)
+

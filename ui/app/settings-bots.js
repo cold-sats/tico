@@ -161,7 +161,9 @@ function settingsWireChoiceFields(fields, onChange = () => {}) {
     const key = settingsTierKey(t.department, t.level, t.fast);
     if (!gw.tiers[key]) return;
     legacy = false;
-    const next = {...t, tier: key};
+    // Auto stays Auto; a pinned version stays only where the destination tier has it, else that tier's current one.
+    const has = version => (gw.tiers[key].versions || []).some(v => v.version === version);
+    const next = {...t, tier: key, version: t.version === 'auto' || has(t.version) ? t.version : gw.tiers[key].current};
     const efforts = tierEfforts(next);
     picked = {harness: 'tico', model: settingsTierId(next), effort: efforts.list.includes(picked.effort) ? picked.effort : efforts.def};
   };
@@ -221,7 +223,8 @@ function settingsWireChoiceFields(fields, onChange = () => {}) {
     effort.disabled = readonly || efforts.length <= 1;
   };
   const value = () => picked.model ? settingsChoiceValue(real().harness, picked.model, picked.effort) : '';
-  const tierValid = () => { const t = settingsTierParse(picked.model); return !!t && tierEfforts(t).list.includes(picked.effort) && !block('tico'); };
+  const tierValid = () => { const t = settingsTierParse(picked.model);
+    return !!t && (t.version === 'auto' || gw.tiers[t.tier].versions.some(v => v.version === t.version)) && tierEfforts(t).list.includes(picked.effort) && !block('tico'); };
   const valid = () => (inTier() ? tierValid() : (choices.some(row => row.value === value()) && !block(picked.harness)))
     || (!picked.harness && fields.hasAttribute('data-allow-none'));
   // Whether the three fields show something other than what the bot has, finished or not.

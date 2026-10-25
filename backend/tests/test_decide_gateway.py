@@ -579,10 +579,10 @@ def test_every_client_that_asks_for_a_decision_waits_longer_than_the_chain_takes
     monkeypatch.setattr(remotecli, "Client", client)
     with pytest.raises(Stop):
         remotecli.run(type("Args", (), {"cmd": "decision", "fn": "decision ask"})())
-    assert waits == [30]
-    assert J.TIMEOUT + 10 > B.CHAIN_SECONDS                     # `J.from_env` through the Hub
-    assert "Client(url, token, timeout=30)" in (ROOT / "clients" / "hubmcp.py").read_text()     # the MCP tools
-    assert B.CHAIN_SECONDS + 1 < min(waits)
+    assert waits == [45]
+    assert J.HUB_WAIT > B.SLOW_CHAIN_SECONDS > B.CHAIN_SECONDS      # `J.from_env` through the Hub, Decisions at any level
+    assert f"Client(url, token, timeout={J.HUB_WAIT})" in (ROOT / "clients" / "hubmcp.py").read_text()     # the MCP tools
+    assert B.SLOW_CHAIN_SECONDS + 1 < min(waits)
 
 
 # ----------------------------------------------------------------------------- 4. no provider at all

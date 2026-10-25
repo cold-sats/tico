@@ -68,7 +68,7 @@ DAILY_CALLS = {role: getattr(Settings, "decisions_daily_calls_" + role) for role
 # provider answers, so a caller never waits through several long attempts only to receive a 503.
 JEV_TIMEOUT = 8
 # The most one chain of providers takes, all of them together: each is asked with what is left (`J.within`), so the
-# server answers before its slowest caller stops waiting (30 s: `hub decision ask`, the MCP tools, `J.from_env`).
+# server answers before its slowest caller stops waiting (`J.HUB_WAIT`, 45 s: `hub decision ask`, the MCP tools, `J.from_env`).
 CHAIN_SECONDS = 25
 # The same when the Gateway answers decisions with a language model (Decisions level Medium or High: 30 s for its own try).
 SLOW_CHAIN_SECONDS = J.GATEWAY_SLOW_TIMEOUT + 5
@@ -328,6 +328,7 @@ def gateway(settings, store=None, vault=None):
             return providers.load(c, settings)["decide_level"]
     engine.model, engine.provider, engine.saved = J.GATEWAY_MODEL, J.GATEWAY_PROVIDER, not settings.gateway_key
     engine.level = level
+    engine.current_model = lambda: J.decide_model(level())
     return engine
 
 
@@ -383,8 +384,10 @@ def ordered(steps):
 
 
 def step_models(steps, default=J.MODEL):
-    """The model each of `steps` asks as (`default` for one that does not say: a test's fake)."""
-    return [getattr(step, "model", "") or default for step in steps]
+    """The model each of `steps` asks as (`default` for one that does not say: a test's fake). A step whose model follows
+    the company's Decisions level says it now (`current_model`), so the spend reservation prices the model that will run."""
+    return [(getattr(step, "current_model", None) or (lambda: ""))() or getattr(step, "model", "") or default
+            for step in steps]
 
 
 def primary_engine(settings, store=None, vault=None):

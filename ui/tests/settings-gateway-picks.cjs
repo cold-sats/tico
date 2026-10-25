@@ -14,6 +14,10 @@ const shotsDir = process.env.TICO_SHOTS || '';
   const served = JSON.parse(execFileSync(process.env.TICO_PYTHON || 'python3', ['-c',
     'import json; from backend import providers, gateway_tiers; print(json.dumps({"models": list(providers.MODEL_CATALOG), "gateway": gateway_tiers.view()}))'],
     {cwd: path.join(__dirname, '../..')}).toString());
+  // Finance Medium has a newer 1.1 than every other tier: a pin to it has nowhere to go but its own tier.
+  const medium = served.gateway.tiers['tico-finance-medium'];
+  medium.versions.unshift({...medium.versions[0], version: '1.1', id: 'tico-finance-medium-1.1'});
+  medium.current = '1.1';
   const browser = await chromium.launch({headless: true});
   try {
     const page = await browser.newPage({viewport: {width: 1280, height: 900}, serviceWorkers: 'block'});
@@ -25,7 +29,7 @@ const shotsDir = process.env.TICO_SHOTS || '';
       keep_tasks_going: null, task_flow: {going: 0, waiting: 0}, task_model: null, thread_mode: 'personal', bot_contact: 'open',
       gateway_department: department, machine: {runner_id: 'r1', label: 'Box', operator: 'ana', generation: 1}, ...extra});
     const bots = [bot('seller', 'Seller', 'tico-sales-medium-1.0', 'sales'), bot('old', 'Old Hand', 'tico-mid-1.0', 'general'),
-      bot('writer', 'Writer', 'tico-marketing-low-fast', 'marketing')];
+      bot('writer', 'Writer', 'tico-marketing-low-fast', 'marketing'), bot('banker', 'Banker', 'tico-finance-medium-1.1', 'finance')];
     let decide = 'low', saved = null;
     await page.route('**/*', route => {
       const req = route.request(), p = new URL(req.url()).pathname;
@@ -106,6 +110,21 @@ const shotsDir = process.env.TICO_SHOTS || '';
     assert.equal(await model.locator('[data-choice-model-label]').isVisible(), true);
     await model.locator('[data-choice-harness]').selectOption('tico');
     assert.equal(await pick(), 'pi::tico-sales-medium-1.0::high');
+
+    // 1b. A pinned version stays only where the destination tier has it; otherwise that tier's current one. Auto stays Auto.
+    await edit('banker');
+    assert.equal(await pick(), 'pi::tico-finance-medium-1.1::high');
+    await model.locator('[data-tier-level=high]').click();
+    assert.equal(await pick(), 'pi::tico-finance-high-1.0::high', 'High has no 1.1: it takes its own current version');
+    assert.equal(await model.locator('[data-tier-version] option:checked').innerText(), '1.0 (current)');
+    await model.locator('[data-tier-level=medium]').click();
+    assert.equal(await pick(), 'pi::tico-finance-medium-1.0::high', 'back at Medium the version 1.0 it holds exists there');
+    await model.locator('[data-tier-version]').selectOption('1.1');
+    await model.locator('[data-tier-fast]').check();
+    assert.equal(await pick(), 'pi::tico-finance-medium-fast-1.0::high', 'Fast has no 1.1 either');
+    await model.locator('[data-tier-version]').selectOption('auto');
+    await model.locator('[data-tier-level=high]').click();
+    assert.equal(await pick(), 'pi::tico-finance-high-fast::high', 'Auto stays Auto');
 
     // 2. An old-lineup id shows as it is until a control changes it, and nothing is offered of the old lineup.
     await edit('old');

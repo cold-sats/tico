@@ -10,7 +10,8 @@ from . import gateway_connection, gateway_tiers, providers
 
 def catalog(c, settings=None):
     """The catalog in use, asking HQ for a fresh one in the background while the Gateway is connected."""
-    base = gateway_connection.url(c, settings) if gateway_connection.connected(c, settings) else None
+    rehearsal = getattr(settings, "rehearsal", False)      # a copy of real data asks HQ for nothing
+    base = gateway_connection.url(c, settings) if gateway_connection.connected(c, settings) and not rehearsal else None
     return gateway_tiers.refresh_soon(base)
 
 

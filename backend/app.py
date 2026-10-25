@@ -1540,6 +1540,8 @@ def create_app(settings=None):
         bot, as that bot. Whoever may call the API may ask; the Gateway meters it."""
         who = request.state.identity
         auth.domain(who)
+        if settings.rehearsal:
+            raise Problem("rehearsal", "Search is off in rehearsal mode; nothing is sent to the Gateway", 503)
         with store.read() as c:
             key = gateway_connection.key(c, app.state.vault, settings) if gateway_connection.connected(c, settings) else ""
             base = gateway_connection.url(c, settings)
