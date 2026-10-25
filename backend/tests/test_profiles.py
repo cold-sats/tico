@@ -139,6 +139,8 @@ def test_a_lead_is_woken_by_people_and_hears_the_rest_once_a_day(api):
         W.tick(c, job["created"])
         due = c.execute("SELECT hold_until FROM jobs WHERE id=?", (job["id"],)).fetchone()[0]
         assert due == W.digest_time(job["created"], 9) and due > job["created"]
+        W.tick(c, due)
+        assert c.execute("SELECT held FROM jobs WHERE id=?", (job["id"],)).fetchone()[0] == 0
         # A person's message, and a declined ticket it asked for, wake it at once.
         assert R.judge(c, "human:ana", "bot:boss", "message", {}, "Status?", None).outcome == "wake"
         assert task["id"]
@@ -172,6 +174,15 @@ def test_setting_a_profile_needs_the_bots_manager_and_the_current_revision(api):
     # The old wake-preset route still works and leaves the profile where it is.
     post(api, "bots/ops/wake-preset", {"wake_preset": "token_saver", "expected_revision": get(api, "bots/ops")["revision"]})
     assert get(api, "bots/ops")["profile"]["name"] == "lead"
+
+
+def test_the_rules_page_lists_a_bots_profile_rows_as_built_in(api):
+    set_profile(api, "ops", "reviewer")
+    listed = get(api, "rules?scope_kind=bot&scope_id=ops")["rules"]
+    mine = [r for r in listed if r.get("profile") == "reviewer"]
+    assert {r["id"] for r in mine} >= {"profile_reviewer_request", "profile_reviewer_note"}
+    assert all(r["built_in"] and not r["can_change"] for r in mine)
+    post(api, "rules/profile_reviewer_note/delete", {}, expected=403)
 
 
 def test_custom_copies_the_rows_and_leaving_it_needs_a_confirm(api):
@@ -210,3 +221,89 @@ def test_the_cli_and_mcp_tool_read_the_choices_and_send_the_revision():
     assert tool(api, {"bot": "ops"})["choices"] == [{"name": "doer"}]
     tool(api, {"bot": "ops", "profile": "lead", "digest_hour": 7})
     assert api.posts == [("bots/ops/profile", {"digest_hour": 7, "profile": "lead", "expected_revision": 4})]
+
+
+def test_the_profiles_catch_all_never_beats_a_team_or_type_rule_and_a_leads_own_writes_are_not_digested(api):
+    from backend.tests.test_wake_rules import as_cause
+    with api.app.state.store.transaction() as c:
+        add_bot(c, "checker")
+        put(c, "checker", P.REVIEWER)
+        add_bot(c, "boss")
+        put(c, "boss", P.LEAD)
+        c.execute("INSERT INTO rules(id,scope_kind,scope_id,event,when_json,then_outcome,params_json,enabled,position,"
+                  "created_by,created,updated,revision) VALUES('team-wake','team','','status_or_relation','{}','wake','{}',"
+                  "1,1,'human:ana',?,?,1)", (H.now(), H.now()))
+        parent = H.task_create(c, "bot:ops", "Build 1/9", "x", "bot:cpo")
+        review = H.task_create(c, "bot:ops", "QA: check it", "x", "bot:checker", parent_id=parent["id"])
+        c.execute("DELETE FROM jobs")
+        assert news(c, H.task(c, review["id"]))["refs"]["rule"] == "team-wake" and jobs(c, "checker") == 1
+        c.execute("DELETE FROM rules")
+        task = H.task_create(c, "bot:ops", "Ask around", "x", "bot:boss")
+        c.execute("DELETE FROM jobs")
+        with as_cause("bot:boss"):
+            mine = news(c, H.task(c, task["id"]))
+        # The lead caused this itself: it is not held for tomorrow's digest, and not woken either.
+        assert "wake_batch" not in mine["refs"] and jobs(c, "boss") == 0
+
+
+def test_the_old_wake_preset_route_moves_only_the_window_and_the_label_the_hold_reads(api):
+    set_profile(api, "ops", "doer")
+    revision = lambda: get(api, "bots/ops")["revision"]  # noqa: E731
+    saver = post(api, "bots/ops/wake-preset", {"wake_preset": "token_saver", "expected_revision": revision()})
+    assert saver["wake"]["batch_seconds"] == 1800 and saver["wake"]["profile"] == "doer"
+    with api.app.state.store.read() as c:
+        assert profile_of(c, "ops")["wake_preset"] == "token_saver"
+    back = post(api, "bots/ops/wake-preset", {"wake_preset": "performance", "expected_revision": revision()})
+    assert back["wake"]["batch_seconds"] == 900 and get(api, "bots/ops")["profile"]["options"] == {}
+    with api.app.state.store.read() as c:
+        assert profile_of(c, "ops")["wake_preset"] == "performance"
+
+
+def test_a_reviewer_may_be_handed_a_review_child_but_not_an_ordinary_task_and_still_runs_routines(api):
+    from backend import routines
+    with api.app.state.store.transaction() as c:
+        add_bot(c, "checker")
+        put(c, "checker", P.REVIEWER)
+        parent = H.task_create(c, "bot:ops", "Build 1/9", "x", "bot:cpo")
+        child = H.task_create(c, "bot:ops", "QA: check it", "x", "bot:cpo", parent_id=parent["id"])
+        plain = H.task_create(c, "bot:ops", "Fix the thing", "x", "bot:cpo")
+        H.task_update(c, "bot:ops", child["id"], owner="bot:checker")
+        with pytest.raises(H.Refused) as raised:
+            H.task_update(c, "bot:ops", plain["id"], owner="bot:checker")
+        assert raised.value.rule == "profile"
+        assert routines.create(c, "human:ana", "checker", {"title": "Weekly sweep", "cron": "0 9 * * 1"}) is not None
+
+
+def test_a_custom_bot_that_takes_no_task_runs_no_routine_and_the_migration_copies_rows_once(api):
+    from backend import routines
+    with api.app.state.store.transaction() as c:
+        add_bot(c, "quiet")
+        put(c, "quiet", P.CUSTOM, takes="none")
+        with pytest.raises(H.Refused):
+            H.task_create(c, "human:ana", "Anything", "x", "bot:quiet")
+        c.execute("INSERT INTO schedules(id,bot,event_name,title,playbook) VALUES('old','quiet','meeting.ready','Notes','x')")
+        assert routines.emit(c, "meeting.ready", "m1") == []
+        # The Librarian becomes a Custom bot with the Monitor's clock rows, copied once however often the server starts.
+        add_bot(c, "librarian")
+        P.migrate(c)
+        P.migrate(c)
+        copied = c.execute("SELECT count(*) FROM rules WHERE scope_id='librarian' AND created_by='profile'").fetchone()[0]
+        assert copied == len(R.PROFILE_RULES[P.MONITOR]) and profile_of(c, "librarian")["profile"] == P.CUSTOM
+
+
+def last_change(api, bot="ops"):
+    with api.app.state.store.read() as c:
+        return c.execute("SELECT id FROM settings_changes WHERE bot=? AND field='profile' ORDER BY rowid DESC",
+                         (bot,)).fetchone()[0]
+
+
+def test_undoing_a_profile_change_restores_it_but_not_rules_that_were_dropped(api):
+    set_profile(api, "ops", "reviewer")
+    set_profile(api, "ops", "lead", digest_hour=7)
+    post(api, f"settings/history/{last_change(api)}/undo", {"expected_revision": get(api, "bots/ops")["revision"]})
+    assert get(api, "bots/ops")["profile"]["name"] == "reviewer"
+    # Leaving Custom deletes the bot's own rules; undoing that cannot bring them back, so it says so.
+    set_profile(api, "ops", "custom")
+    set_profile(api, "ops", "doer", confirm_drop_rules=True)
+    post(api, f"settings/history/{last_change(api)}/undo", {"expected_revision": get(api, "bots/ops")["revision"]}, expected=409)
+    assert get(api, "bots/ops")["profile"]["name"] == "doer"

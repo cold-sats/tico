@@ -176,6 +176,15 @@ def profile_of(conn, bot):
     return row[0] if row and row[0] in PROFILES else "doer"
 
 
+def profile_listing(conn, slug):
+    """A bot's profile rows as the Rules page lists them: built-in, read-only, tagged with the profile."""
+    name = profile_of(conn, slug)
+    return [{"id": r["id"], "scope_kind": "bot", "scope_id": slug, "event": r["event"], "when": r["when"],
+             "then": r["then_outcome"], "params": {}, "enabled": True, "position": n, "built_in": True,
+             "protected": False, "group": "profile", "words": r["words"], "profile": name, "can_change": False}
+            for n, r in enumerate(PROFILE_RULES.get(name, ()))]
+
+
 def sweeps_on(conn, bot):
     """Whether stall and status checks (the sweeps) may wake this bot's tasks: False for a reviewer, lead, responder
     and monitor, and for a custom profile that turned them off. Fails open: a bot whose profile cannot be read is
@@ -659,6 +668,8 @@ def listing(c, settings, auth, who, scope_kind=None, scope_id=None, event=None, 
     if scope_kind in (None, "builtin") and not offset and not scope_id:
         items = [_with_usage({**r, "can_change": False}, counts) for r in BUILTINS if event in (None, r["event"])]
     more = False
+    if scope_kind == "bot" and scope_id and not offset:
+        items += [_with_usage(r, counts) for r in profile_listing(c, scope_id) if event in (None, r["event"])]
     if scope_kind != "builtin":
         sql, args = "SELECT * FROM rules WHERE 1=1", []
         for column, value in (("scope_kind", scope_kind), ("scope_id", scope_id), ("event", event)):
@@ -679,7 +690,7 @@ def get(c, rule_id):
     from .store import Problem
     row = c.execute("SELECT * FROM rules WHERE id=?", (rule_id,)).fetchone()
     if not row:
-        if rule_id in BUILTIN_IDS:
+        if rule_id in BUILTIN_IDS or rule_id in PROFILE_RULE_IDS:
             raise Problem("forbidden", "Built-in rules are read-only; override one with a scoped rule", 403)
         raise Problem("not_found", "No such rule", 404)
     return row
