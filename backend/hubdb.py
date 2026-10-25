@@ -1145,6 +1145,14 @@ def migrate(conn, adopt_legacy=False):
     conn.execute("CREATE INDEX IF NOT EXISTS notes_to_created ON notes(to_actor, created)")
     # A bot-to-bot message that could wait (backend/bot_to_bot.py) rides to the next run as a note linked to it.
     add_column(conn, "notes", "message_id", "TEXT")
+    # `settled_at`: the carrying run completed, so the note is read for good. It only narrows the waiting scan to
+    # recent notes; NOTE_WAITING_SQL still asks the carrier, so a note no path settled is merely slower, never lost.
+    # Both indexes hold unsettled rows only, so they stay small however many notes a bot has been sent.
+    add_column(conn, "notes", "settled_at", "TEXT")
+    conn.execute("CREATE INDEX IF NOT EXISTS notes_waiting ON notes(to_actor, created, id) "
+                 "WHERE cancelled_at IS NULL AND settled_at IS NULL")
+    conn.execute("CREATE INDEX IF NOT EXISTS notes_unsettled_carried ON notes(carried_by) "
+                 "WHERE carried_by IS NOT NULL AND settled_at IS NULL")
     conn.execute("CREATE INDEX IF NOT EXISTS tasks_owner_rank ON tasks(owner, rank)")
     # Health's waits-on-a-person check (backend/health.py silent_waits) reads only these few rows.
     conn.execute("CREATE INDEX IF NOT EXISTS tasks_waiting_on ON tasks(waiting_on) WHERE waiting_on IS NOT NULL")
@@ -6961,7 +6969,7 @@ def task_run_now(conn, actor, task_id):
 # manager bot a note after each check, and its daily report reads them.
 NOTE_MAX = 8000
 NOTE_WAITING_SQL = (
-    "n.cancelled_at IS NULL AND (n.carried_by IS NULL OR NOT EXISTS("
+    "n.cancelled_at IS NULL AND n.settled_at IS NULL AND (n.carried_by IS NULL OR NOT EXISTS("
     "SELECT 1 FROM attempts a WHERE a.id=n.carried_by AND a.state IN ('leased','running','completed')))")
 
 
@@ -6993,7 +7001,7 @@ def note(conn, note_id):
 
 def note_waiting(conn, row):
     """Whether this note (a row) is still waiting for its bot's next run."""
-    if not row or row.get("cancelled_at"):
+    if not row or row.get("cancelled_at") or row.get("settled_at"):
         return False
     if not row.get("carried_by"):
         return True
@@ -7027,6 +7035,24 @@ def notes_waiting(conn, bot, limit=50):
     return _rows(conn.execute(
         f"SELECT n.* FROM notes n WHERE n.to_actor=? AND {NOTE_WAITING_SQL} "
         f"ORDER BY NOT (n.from_actor=? AND n.message_id IS NULL),n.created,n.id LIMIT ?", ("bot:" + bot, KEEPER, limit)))
+
+
+def notes_settle(conn, attempt_id):
+    """Mark the notes a completed run carried as read for good (`settled_at`), where its result is recorded."""
+    conn.execute("UPDATE notes SET settled_at=? WHERE carried_by=? AND settled_at IS NULL", (now(), attempt_id))
+
+
+def notes_settle_catch_up(conn, limit=500):
+    """Settle up to `limit` notes whose carrier completed but no path marked them (None settles them all: the
+    migration's one pass). Reads the small unsettled-carried index, so it is cheap on every scheduler tick, and
+    a note it leaves for the next pass stays correct, since waiting is still decided by the carrier. Returns the count."""
+    if not _has_table(conn, "attempts"):
+        return 0
+    stamp = now()
+    return conn.execute(
+        "UPDATE notes SET settled_at=? WHERE id IN (SELECT n.id FROM notes n JOIN attempts a ON a.id=n.carried_by "
+        "WHERE n.carried_by IS NOT NULL AND n.settled_at IS NULL AND a.state='completed' LIMIT ?)",
+        (stamp, -1 if limit is None else limit)).rowcount
 
 
 def notes_waiting_counts(conn, bots, limit=500):
