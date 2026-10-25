@@ -78,6 +78,10 @@ def test_a_prompt_too_large_to_send_starts_a_fresh_session_and_five_fast_failure
             at(monkeypatch, api, H.shift(now, seconds=wait - 1))
             ready(api, machine, ["ops"])
             assert claim(api, machine) is None                           # still pausing after the failed run
+            if fails == 1:
+                # The pages see the wait beside the bot's state, which a back-off leaves alone.
+                line = get(api, "status?bot=ops")["status"]
+                assert line["backoff"] and line.get("stopped") is None and line["state"] != "paused"
             now = H.shift(now, seconds=wait + 1)
             at(monkeypatch, api, now)
             ready(api, machine, ["ops"])

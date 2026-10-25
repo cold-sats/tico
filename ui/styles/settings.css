@@ -699,6 +699,9 @@ fieldset.brepo>.repo-name+p{margin:-4px 0 4px 24px;font-size:var(--t-xs);line-he
 /* Releases and Task Manager cards (ui/app/settings-release.js) */
 .rel-line{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-width:0}
 .rel-line input[type=time]{width:auto;max-width:100%}
+.budget-field{display:inline-flex;gap:4px;align-items:center;white-space:nowrap}
+/* Beats the bot editor's full-width inputs: a run count needs a few digits, not the row. */
+.sb-row .budget-field input.budget-input[type=number]{width:96px;min-width:0;flex:none}
 .tm-head{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin-bottom:6px;font-size:var(--t-sm)}
 .tm-list{display:grid}
 .tm-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:4px 12px;padding:6px 0;border-top:1px solid var(--line);align-items:center;font-size:var(--t-sm)}
