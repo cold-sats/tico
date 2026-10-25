@@ -851,7 +851,8 @@ mod tests {
 printf '#!/bin/sh\ntouch "%s"\n' "$2" > "$1/.git/hooks/pre-commit"; printf '#!/bin/sh\ntouch "%s"\n' "$3" > "$1/.git/fsmonitor"
 chmod 755 "$1/.git/hooks/pre-commit" "$1/.git/fsmonitor"; git -C "$1" config core.fsmonitor "$1/.git/fsmonitor"
 echo '* filter=sibling' > "$1/.gitattributes"; git -C "$1" config filter.sibling.clean "touch $4"; git -C "$1" config filter.sibling.smudge "touch $4"
-git -C "$1" config core.sshCommand "touch $5"; git -C "$1" config http.proxy http://127.0.0.1:9; git -C "$1" config http.https://github.com/.proxy http://127.0.0.1:9"#;
+git -C "$1" config core.sshCommand "touch $5"; git -C "$1" config http.proxy http://127.0.0.1:9; git -C "$1" config http.https://github.com/.proxy http://127.0.0.1:9
+git -C "$1" config credential.helper '!echo password=planted'; git -C "$1" config credential.https://github.com.helper '!echo password=planted'"#;
         let planted = crate::isolation::command_as(Some((10003, 10002)), "/bin/sh")
             .args(["-c", plant, "plant", &workspace.display().to_string(), &hook_mark, &fsmonitor_mark, &filter_mark, &ssh_mark])
             .env_clear().env("PATH", "/usr/bin:/bin").output().await.unwrap();
@@ -919,6 +920,8 @@ git -C "$1" config core.sshCommand "touch $5"; git -C "$1" config http.proxy htt
                    "fixture", &site.display().to_string(), &site_mark, &pth_mark])
             .env_clear().env("PATH", "/usr/bin:/bin").output().await.unwrap();
         assert!(planted_site.status.success(), "{}", String::from_utf8_lossy(&planted_site.stderr));
+        // The turn's GitHub helper, as gitcred::apply sets it before turn_git, must still answer afterwards.
+        crate::gitcred::git_environment(&mut settings.env, "SYNTHETIC-GH-TOKEN", "!printf 'username=x-access-token\\npassword=SYNTHETIC-GH-TOKEN\\n'");
         crate::safegit::for_turn_user(&mut settings.env, &[workspace.clone()], &user.dir.join("gitconfig"), Some(user.identity())).unwrap();
         let turn_config = std::fs::read_to_string(user.dir.join("gitconfig")).unwrap().to_lowercase();
         assert!(!turn_config.contains("proxy") && !turn_config.contains("sslcainfo"), "{turn_config}");
@@ -937,6 +940,8 @@ subprocess.run(['git','init','-q',str(pathlib.Path(sys.argv[3]).parent)],check=T
 subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'status','--short'],check=True,stdout=subprocess.DEVNULL)
 assert '127.0.0.1' not in subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'config','--global','--get-regexp','^http\\.'],capture_output=True,text=True).stdout, 'a sibling HOME http setting reached the turn'
 assert subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'config','--get-urlmatch','http.proxy','https://github.com/o/r.git/info/refs'],capture_output=True,text=True).stdout.strip()=='', 'a sibling proxy reached the turn'
+filled=subprocess.run(['git','-C',sys.argv[2].rsplit('/',1)[0],'credential','fill'],input='protocol=https\nhost=github.com\npath=o/r.git\n\n',capture_output=True,text=True)
+assert 'password=SYNTHETIC-GH-TOKEN' in filled.stdout and 'planted' not in filled.stdout, 'the turn helper did not answer: '+filled.stdout+filled.stderr
 subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'ls-remote','ssh://example.invalid/x'],capture_output=True)
 subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'-c','user.name=fixture','-c','user.email=fixture@example.invalid','add','.'],check=True)
 subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'-c','user.name=fixture','-c','user.email=fixture@example.invalid','commit','-qm','synthetic'],check=True)

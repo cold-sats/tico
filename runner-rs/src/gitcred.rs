@@ -336,7 +336,7 @@ pub fn token_problem(e: &ApiError, repository: &str) -> String {
 
 // ----------------------------------------------------------------------------- the turn's environment
 
-fn git_environment(env: &mut Env, token: &str, helper: &str) {
+pub(crate) fn git_environment(env: &mut Env, token: &str, helper: &str) {
     for (k, v) in [
         ("GH_TOKEN", token),
         ("GITHUB_TOKEN", token),
