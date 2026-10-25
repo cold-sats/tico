@@ -46,7 +46,7 @@ The word *trigger* in the CLI, the API and routines means the same thing as an i
 
 ### Check who is calling
 
-By default anyone with the address can post. Turn on **Require signature** and Tico checks every call, and refuses one that
+By default anyone with the address can post. Turn on **Signing** and Tico checks every call, and refuses one that
 fails with 401 before anything starts. Tico makes a signing secret and shows it once, or you can paste the sender's own (at least
 16 characters). `hub trigger sign <id> --preset github` does the same; `--off` stops checking.
 

@@ -110,29 +110,39 @@ document.addEventListener('click', ev => {
   S.config.usage_count_notice = false; renderUsageNotice();
   post('/v2/system/usage-count/notice', {state: 'dismissed'}).catch(() => {});
 });
-// A short message Tico HQ has for this version (backend/releases.py), shown once to each person in this browser: it is
-// marked seen as it appears, so a reload or another tab does not bring it back.
+// Notices from Tico: the message Tico HQ has for this version (backend/releases.py) and the ones Tico Team sent this
+// install (backend/tico_notices.py), as `update.messages` (backend/hosted_updates.py). Each is shown once to each
+// person in this browser: marked seen as it appears, so a reload or another tab does not bring it back. A notice's
+// `kind` sets its tone: security stands out, billing is plain, info is quiet.
 const VM_KEY = 'tico.version-message.seen';
+const VM_MAX = 3;
 const vmSeenKey = () => VM_KEY + ':' + (S.me?.id || S.me?.email || '');
-let vmShowing = 0;
+let vmDrawn = false;
 function renderVersionMessage() {
-  const bar = $('#version-message'), m = S.config.update?.message;
+  const bar = $('#version-message');
   if (!bar) return;
-  if (vmShowing) { bar.hidden = vmShowing === -1; return; }
+  if (vmDrawn) { bar.hidden = !bar.querySelector('.vm-item'); return; }
+  const update = S.config.update || {};
+  const all = (Array.isArray(update.messages) ? update.messages : [update.message]).filter(m => m && m.id != null && m.id !== '' && m.body);
   let seen = [];
-  try { seen = JSON.parse(localStorage.getItem(vmSeenKey()) || '[]'); } catch {}
-  if (!m || !m.id || !S.me || seen.includes(m.id)) { bar.hidden = true; return; }
-  $('#version-message-text').textContent = m.body;
-  const link = $('#version-message-link');
-  link.hidden = !/^https:\/\//.test(m.url || '');
-  if (!link.hidden) link.href = m.url;
+  try { seen = JSON.parse(localStorage.getItem(vmSeenKey()) || '[]').map(String); } catch {}
+  const shown = S.me ? all.filter(m => !seen.includes(String(m.id))).slice(0, VM_MAX) : [];
+  if (!shown.length) { bar.hidden = true; return; }
+  bar.innerHTML = shown.map(m => {
+    const kind = ['security', 'billing', 'info'].includes(m.kind) ? m.kind : '';
+    const link = /^https:\/\//.test(m.url || '') ? `<a href="${esc(m.url)}" target="_blank" rel="noopener noreferrer" data-vm-link>Read more</a>` : '';
+    return `<div class="vm-item" data-kind="${kind}" data-vm-id="${esc(String(m.id))}"><span class="vm-text">${esc(m.body)}</span>${link}
+      <button class="ghost" type="button" data-vm-x>Dismiss</button></div>`;
+  }).join('');
   bar.hidden = false;
-  vmShowing = m.id;
-  try { localStorage.setItem(vmSeenKey(), JSON.stringify([...seen, m.id].slice(-20))); } catch {}
+  vmDrawn = true;
+  try { localStorage.setItem(vmSeenKey(), JSON.stringify([...seen, ...shown.map(m => String(m.id))].slice(-40))); } catch {}
 }
 document.addEventListener('click', ev => {
-  if (!ev.target.closest('#version-message-x')) return;
-  vmShowing = -1; $('#version-message').hidden = true;
+  const x = ev.target.closest('#version-message [data-vm-x]');
+  if (!x) return;
+  x.closest('.vm-item').remove();
+  $('#version-message').hidden = !$('#version-message .vm-item');
 });
 
 // "How is Tico working for you?" (backend/support_asks.py): after the first bot result and 7 and 30 days on, once
