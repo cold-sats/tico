@@ -70,8 +70,8 @@ computer in **Settings > Computers**.
 
 ### Bots on one computer share a trust boundary, on purpose
 
-Tico shares workspace files and model sign-ins between bots on the same computer. Except for Docker Gateway
-turns described below, they run as the same OS user,
+Tico shares workspace files and model sign-ins between bots on the same computer. Except for the Docker turn
+users described below, they run as the same OS user,
 in the same workspace, with the same model sign-ins. The runner delivers only credentials granted to that bot,
 not the whole environment or `_shared.env`; upgrades automatically grant each bot the shared credentials it already uses.
 This delivery filter is not OS isolation: bot code can still read another bot's files and credentials on that computer. This is a design choice, not a bug: it keeps setup simple and lets
@@ -95,14 +95,34 @@ work of any bot assigned to that computer, so code a bot runs must not be able t
   Non-Gateway hosts are never given that relay token. The runner stops the relay and all of its calls, kills the
   leased user's descendants, removes private state and temporary files, and returns workspace ownership to the
   ordinary bot user before returning the lease. Startup sweeps crash leftovers; failed or incomplete cleanup
-  quarantines a UID instead of reusing it. The pool holds up to 64 concurrent Gateway attempts.
+  quarantines a UID instead of reusing it. The pool holds up to 64 concurrent leased turns.
+  **Turn users for other harnesses:** a turn on a harness whose manifest sets `isolated_user` (pi, which reads its
+  key from the turn's environment) leases a user the same way, with a private HOME, temporary directory and copies of
+  its file credentials. Every checkout and worktree root has a group of its own (owner `bot`, mode 0770, and an ACL entry for the runner's
+  own user, whose git reads checkouts), and a leased
+  user gets only the groups of the checkouts its turn runs in, so it cannot enter or write another bot's checkout or
+  task worktree. The folders that hold checkouts (the workspace, `sessions`, each bot's lane, `tasks`, `repos`) are
+  sticky, so it cannot rename another bot's checkout aside and put its own in its place. Readiness reports per tool whether its turns run as their own user (`turn_user`), and the
+  computer's tool chip says so.
+- **Not separated on the Docker runner, by design for now:**
+  - Harnesses that keep owner-only sign-in state shared across turns: Claude Code (`~/.claude/.credentials.json`,
+    `~/.claude.json`), Codex (`~/.codex/auth.json`), Gemini CLI, Cursor, Grok, Muse Code and Antigravity. Their
+    sign-in files are 0600 and rewritten by the CLI, so another user could not sign in. Their turns run as `bot`,
+    which owns every checkout and can enter any of them.
+  - The runner's own git (publishing, refreshing checkouts) runs as `bot` or the supervisor and honours the
+    repository's config.
+  - Shared base clones (`workspace/repos/<base>`), which every computer task worktree of that base uses.
+  - Watchers and repository setup commands, which run as `bot`.
+  The follow-up that closes the sign-in item gives each turn its own sign-in: Claude Code through
+  `CLAUDE_CODE_OAUTH_TOKEN` and a per-turn `CLAUDE_CONFIG_DIR`, Codex through a per-turn `CODEX_HOME` whose
+  refreshed login is written back under a lock.
 - **Mac runner:** one user runs the runner and the bots, so the registration sits in the same account the
   bots run as: treat the Mac as one trust group. A second macOS account for the bots is possible by hand but
   not built in.
 - **Still shared, by default:** the `bot` user's workspace, credentials and model sign-ins, so one bot can read
-  another's repository, shared credentials and subscription sign-ins. Non-Gateway turns still share process
-  identity and environment access. The Gateway exception protects live turn state, not the workspace or shared
-  sign-ins; separate computers or separate containers remain the boundary for unrelated trust domains.
+  another's repository, shared credentials and subscription sign-ins. Turns that run as `bot` still share process
+  identity and environment access. Leased turn users protect live turn state and keep a leased turn out of other
+  bots' checkouts, not the shared sign-ins; separate computers or separate containers remain the boundary for unrelated trust domains.
 
 Practical guidance:
 

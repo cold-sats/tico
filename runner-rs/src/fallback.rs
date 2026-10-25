@@ -303,6 +303,13 @@ pub fn server_takes_data_problem() -> bool {
     SERVER_DATA_PROBLEM.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Whether the server takes a readiness runtime row's `turn_user` (`readiness_turn_user`), as `data_problem`.
+static SERVER_TURN_USER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn server_takes_turn_user() -> bool {
+    SERVER_TURN_USER.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Whether a config answer has been kept since start.
 pub fn config_seen() -> bool {
     CHOICES.lock().unwrap().is_some()
@@ -316,6 +323,7 @@ pub fn remember(config: &Value) {
     // Each answer decides, so a server rolled back to one that refuses the field gets heartbeats without it again.
     SERVER_DATA_PROBLEM.store(config["readiness_data_problem"] == true, std::sync::atomic::Ordering::Relaxed);
     SERVER_COMPUTER_LOGINS.store(config["computer_logins_v1"] == true, std::sync::atomic::Ordering::Relaxed);
+    SERVER_TURN_USER.store(config["readiness_turn_user"] == true, std::sync::atomic::Ordering::Relaxed);
     let rows = config["fallback_models"].as_array().map(|r| r.iter().filter(|v| v.is_object()).cloned().collect()).unwrap_or_default();
     *CHOICES.lock().unwrap() = Some((Instant::now(), rows));
     // The server's saved holds on this computer's logins (backend/login_holds.py): after a restart this runner has

@@ -117,6 +117,9 @@ pub struct Capabilities {
     pub serial_cold_start: bool,
     /// A subscription login serves one turn at a time on this computer (crate::login_turns); a key login does not.
     pub one_turn_per_login: bool,
+    /// The CLI keeps no owner-only state shared across turns (a 0600 sign-in file in the bot's home), so a turn can
+    /// run as a leased per-turn OS user (crate::turn_users) and still sign in. Without it the turn runs as `bot`.
+    pub isolated_user: bool,
     pub compaction: bool,
     pub resume_command: String,
     /// "" | host | command
@@ -153,6 +156,7 @@ impl Default for Capabilities {
             goal_runs_across_turns: false,
             serial_cold_start: false,
             one_turn_per_login: false,
+            isolated_user: false,
             compaction: false,
             resume_command: String::new(),
             model_list: String::new(),
@@ -496,6 +500,7 @@ fn parse_capabilities(raw: Option<&toml::Value>, at: &str) -> Result<Capabilitie
             "goal_runs_across_turns" => c.goal_runs_across_turns = flag(k, v)?,
             "serial_cold_start" => c.serial_cold_start = flag(k, v)?,
             "one_turn_per_login" => c.one_turn_per_login = flag(k, v)?,
+            "isolated_user" => c.isolated_user = flag(k, v)?,
             "compaction" => c.compaction = flag(k, v)?,
             "resume_command" => c.resume_command = text(k, v)?,
             "model_list" => c.model_list = choice(k, v, &["host", "command"])?,

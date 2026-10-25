@@ -910,6 +910,9 @@ class RuntimeReadiness(GoalReadiness):
     controls: list[Literal["interrupt", "new-session"]] = Field(default_factory=list)
     detail: str = Field(default="", max_length=500)
     data_problem: Annotated[str, _cut(500)] = ""      # as ProfileReadiness
+    # On a Docker runner: "own" when each turn on this tool runs as its own leased OS user, "bot" when its turns share
+    # the bot user and can enter every bot's checkout (its sign-in is owner-only state; runner/harnesses `isolated_user`).
+    turn_user: Literal["", "own", "bot"] = ""
     # One machine may hold several subscriptions for the same runtime. The runtime row keeps
     # the profile that needs attention first; this is the per-profile breakdown behind it.
     profiles: dict[str, ProfileReadiness] = Field(default_factory=dict, max_length=50)

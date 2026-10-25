@@ -179,7 +179,10 @@ pub async fn hand_to_turn(
     }
     // The key first: a Gateway turn without one is settled unstarted (`not_isolated`, from its error event), and
     // its leased user goes back to the pool unused.
-    let release = |vault: &mut Vault| if let Some(mut user) = vault.turn_user.take() { user.permit_reuse(); };
+    // A lease taken for a Gateway turn goes back early; one taken because the harness runs as its own user
+    // (`isolated_user`) stays with the turn, which returns it at cleanup.
+    let gateway = crate::hosts::pi::is_gateway(attempt["config"]["model"].as_str());
+    let release = |vault: &mut Vault| if gateway { if let Some(mut user) = vault.turn_user.take() { user.permit_reuse(); } };
     let pinned = match credentials(client, &text_of(&attempt["id"])).await {
         Ok(pinned) => pinned,
         Err(e) => { release(vault); return Err(e); }
@@ -873,11 +876,11 @@ git -C "$1" config credential.helper "!touch $4-credential"; git -C "$1" config 
         attach(relay, private_dir.join("pi"), &mut grant_env, &mut grant_vault);
         let canonical = grant_env.clone();
         // A subscription primary/fallback keeps the bot identity; the Gateway hop gets a private copy again.
-        assert_eq!(grant_vault.for_model(&mut grant_env, Some("opus-5-5")).unwrap(), None);
+        assert_eq!(grant_vault.for_model(&mut grant_env, Some("opus-5-5"), false).unwrap(), None);
         assert_eq!(std::fs::metadata(&grant_env["SYNTHETIC_FILE"]).unwrap().uid(), 10003);
         assert!(!grant_env.contains_key(KEY_ENV));
         grant_env = canonical;
-        assert!(grant_vault.for_model(&mut grant_env, Some("tico-mid-1.0")).unwrap().is_some());
+        assert!(grant_vault.for_model(&mut grant_env, Some("tico-mid-1.0"), false).unwrap().is_some());
         let mut user = grant_vault.turn_user.take().unwrap();
         let mut relay = grant_vault.relay.take().unwrap();
         let private = user.dir.join("private");

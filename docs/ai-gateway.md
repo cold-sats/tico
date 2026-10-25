@@ -111,8 +111,8 @@ running it fetches the key and passes the bot's model calls on to the Gateway. T
 that run and only for model calls. That is why Tico models need a computer that runs bots as their own user: Tico's
 Docker runner does, and says so when it checks in. On the current Docker runner, every Tico model turn (including
 a fallback to a Tico model) gets a separate OS user from a pool of 64. Other bots cannot read its live environment,
-open file descriptors or private temporary files, or use its Gateway connection. Workspace files remain shared
-through the bot group; subscription sign-ins and turns on other providers keep their existing boundary. At turn
+open file descriptors or private temporary files, or use its Gateway connection, and it can enter only the checkouts
+its turn runs in. Workspace files remain shared through the bot group; subscription sign-ins and turns on other providers keep their existing boundary. At turn
 end the connection is revoked, remaining processes are killed and temporary files are cleaned before the user is
 reused. If all 64 users are busy, a new Gateway turn waits, before it starts, until one is free. Update the image as well as the runner binary;
 an older image without the user pool cannot start a Gateway turn. On a computer that says it runs bots as itself (a Mac), the model

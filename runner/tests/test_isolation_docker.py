@@ -219,6 +219,7 @@ def harnesses():
                 "version_args": (manifest.get("version") or {}).get("args") or ["--version"],
                 "status": caps.get("sign_in_status") or {},
                 "key_env": ((manifest.get("auth") or {}).get("api_key_env") or [""])[0],
+                "isolated": bool(caps.get("isolated_user")),
             })
     return found
 
@@ -345,8 +346,10 @@ def registration(bots):
 
 
 def probe_problems(table, done, logs):
-    """Each turn must have completed as the bot user, with no capabilities, in its task's own worktree, unable to read
-    the runner's registration, state or legacy secrets, and able to commit and pull there."""
+    """Each turn must have completed with no capabilities, in its task's own worktree, unable to read the runner's
+    registration, state or legacy secrets, and able to commit and pull there. A harness with `isolated_user` runs as a
+    leased turn user that cannot enter or write another bot's checkout or worktree; every other harness signs in and
+    runs as the bot user, unchanged, which still can (the control that makes the denial mean something)."""
     problems = []
     for h in table:
         body = next((b for a, b in done.items() if a.endswith("-" + h["bot"])), None)
@@ -358,9 +361,15 @@ def probe_problems(table, done, logs):
             problems.append(f"{h['harness']}: {body.get('outcome')}: {text[:300]}")
             continue
         seen = json.loads(text[text.index("probe {") + 6:].strip())
-        want = {"uid": 10003, "caps": "0000000000000000", "registration": False, "state": False, "secrets": False,
+        want = {"caps": "0000000000000000", "registration": False, "state": False, "secrets": False,
                 "commit": "ok", "pull": "ok", "where": f"sessions > bot-{h['bot']} > t-{h['bot']}"}
+        want.update({"sibling_enter": False, "sibling_write": False, "sibling_rename": False} if h["isolated"] else
+                    {"uid": 10003, "sibling_enter": True, "sibling_write": True, "sibling_rename": True})
         wrong = {k: seen.get(k) for k, v in want.items() if seen.get(k) != v}
+        if h["isolated"] and not 10100 <= int(seen.get("uid") or 0) <= 10163:
+            wrong["uid"] = seen.get("uid")
+        if not seen.get("siblings_seen"):
+            wrong["siblings_seen"] = 0   # nothing to try: the denial would prove nothing
         if wrong:
             problems.append(f"{h['harness']}: {wrong}")
     return problems + ([f"runner log:\n{logs}"] if problems else [])
@@ -461,8 +470,13 @@ def test_handing_an_older_releases_session_to_the_bot_changes_no_owner_outside_i
     stack.must("stop", "-t", "20", stack.runner)
     after = stack.owners(IMAGE)
     inside = (f"/home/runner/{session}", f"/home/runner/workspace/bot-{bot}/")
+    def gated(path):
+        # A checkout root given its own group (runner-rs/src/checkout_groups.rs): same owner, a group from that range.
+        (was, now) = (before[path][0].split(":"), after[path][0].split(":"))
+        return was[0] == now[0] and 20000 <= int(now[1]) <= 59999 and os.path.isabs(path) and \
+            path.rstrip("/").count("/") == "/home/runner/workspace/x".count("/")
     changed = [f"{path}: {before[path][0]} -> {after[path][0]}" for path in sorted(before)
-               if path in after and before[path][0] != after[path][0] and not path.startswith(inside)]
+               if path in after and before[path][0] != after[path][0] and not path.startswith(inside) and not gated(path)]
     assert not changed, f"the handoff from {previous} to {IMAGE} changed owners outside the session:\n" + "\n".join(changed[:40])
     assert not problems, "\n".join(problems)
     for name in ("acme-root-file", "acme-supervisor-file", "acme-dir/nested"):

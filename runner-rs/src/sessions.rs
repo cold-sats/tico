@@ -296,7 +296,12 @@ pub async fn ensure(main: &Path, path: &Path, task: &str, turn: &Env) -> (String
         return (String::new(), MISSING.into());
     }
     let made: Result<(String, String), Fault> = async {
-        let common = gitrun::git(main, &env, &["rev-parse", "--path-format=absolute", "--git-common-dir"], 15).await?.stdout.trim().to_string();
+        let asked = gitrun::git(main, &env, &["rev-parse", "--path-format=absolute", "--git-common-dir"], 15).await?;
+        if !asked.ok() {
+            // Said as git says it, not taken for shared metadata.
+            return Ok((String::new(), format!("can't read the bot's checkout: {}", git_reason(&asked))));
+        }
+        let common = asked.stdout.trim().to_string();
         if Path::new(&common).canonicalize().ok() != main.join(".git").canonicalize().ok() {
             return Ok((String::new(), "the bot's checkout shares Git metadata outside its own repository; left as it is".into()));
         }
@@ -328,6 +333,8 @@ pub async fn ensure(main: &Path, path: &Path, task: &str, turn: &Env) -> (String
             }
             crate::isolation::chown(parent);
         }
+        // Given its own group before git writes the bot's files into it.
+        crate::checkout_groups::prepare(path.to_path_buf()).await;
         let branch = format!("{BRANCH}{task}");
         let exists = g(main, &env, &["show-ref", "--verify", "--quiet", &format!("refs/heads/{branch}")], 15).await?.ok();
         let p = path.display().to_string();

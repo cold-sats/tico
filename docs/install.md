@@ -674,13 +674,16 @@ directory, as in every earlier release. Everything a bot runs (each run's model 
 its `git`, the sign-in flows) runs as the unprivileged `bot` user, whose home holds the workspace, `secrets/` and the
 model logins. So a bot cannot read the runner's own credential, which could claim any bot's work; a run gets its
 run token, and asks the runner for its bot's GitHub token over a local socket. Bots still share the `bot` user with
-one another, except for Tico model turns: each Gateway harness uses its own temporary OS user from a pool of 64,
-in the same workspace group. A sibling bot cannot read that turn's process environment, open file descriptors or
+one another, except for Tico model turns and turns on a harness that keeps no shared sign-in file (pi): each such
+turn uses its own temporary OS user from a pool of 64, in the same workspace group. Each checkout and worktree has a
+group of its own too, and a leased turn is let into only the checkouts its turn runs in. A sibling bot cannot read that turn's process environment, open file descriptors or
 private temporary files, or use its Gateway connection, even with its relay pass. The workspace remains shared;
 owner-only workspace files are made available through the group, and files a Gateway turn creates return to the
 ordinary bot user when it ends. The runner revokes the connection, kills leftover processes and cleans temporary
-files before reusing a user; an incomplete cleanup keeps that user out of the pool until restart. Subscription
-sign-ins and non-Gateway turns retain the existing shared-user boundary
+files before reusing a user; an incomplete cleanup keeps that user out of the pool until restart. Turns on Claude
+Code, Codex, Gemini CLI, Cursor, Grok, Muse Code and Antigravity still run as `bot`, because their sign-in files are
+owner-only and shared across turns; the tool's chip in **Settings > Computers** says which tools' turns share the bot
+user. They, the runner's own git, watchers and shared base clones retain the existing shared-user boundary
 ([SECURITY.md](../SECURITY.md#bots-on-one-computer-share-a-trust-boundary-on-purpose)). The first start of a volume from an older image
 changes its ownership to match (one time, a minute on a large workspace). If an update is rolled back, the previous
 image still starts on the migrated volume and reads its own files; the bots then run as the runner's user again until
