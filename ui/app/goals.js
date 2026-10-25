@@ -222,7 +222,7 @@ function bindGoalForm(form, g, goals, {company = false, owner = ''} = {}, done) 
         const body = {};
         if (words !== g.title) body.title = words;
         if (parentSel && parentSel.value !== (g.parent_id || '')) body.parent_id = parentSel.value;
-        if (betSel && betSel.value !== (g.bet_id || '')) body.bet_id = betSel.value || null;
+        if (betSel && betSel.value !== (g.bet_id || '')) body.bet_id = betSel.value;   // "" unlinks it
         if (Object.keys(body).length) await post('/v2/goals/' + encodeURIComponent(g.id), body);
       } else {
         const body = {title: words, owner: company ? GOAL_COMPANY : ownerSel ? ownerSel.value : owner || 'me'};

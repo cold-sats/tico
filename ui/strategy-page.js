@@ -493,9 +493,10 @@ function strategyBind() {
 // A key for a new extra section, from its title, not taken by another one.
 function strategyExtraKey(title, version) {
   const taken = new Set([...STRAT_SECTIONS.map(s => s.key), 'extra', ...Object.keys(stratExtra(version))]);
-  const base = title.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'section';
+  // The server takes lowercase letters, digits and dashes (backend/strategy.py EXTRA_KEY).
+  const base = title.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 36) || 'section';
   let key = base, n = 2;
-  while (taken.has(key)) key = `${base}_${n++}`;
+  while (taken.has(key)) key = `${base}-${n++}`;
   return key;
 }
 
@@ -529,10 +530,13 @@ function strategyBindBetForm(bform, state, view) {
     const was = (data.bets || []).find(c => c.id === id);
     const same = (k, v) => k === 'wrong_if' ? JSON.stringify(v || null) === JSON.stringify(was.wrong_if || null) : v === (was[k] || '');
     const change = was ? Object.fromEntries(Object.entries(now).filter(([k, v]) => !same(k, v))) : now;
+    // An emptied wrong-if is sent as {}: null means unchanged.
+    if (was && 'wrong_if' in change && !change.wrong_if) change.wrong_if = {};
     if (was && !Object.keys(change).length) { done(); return; }
     bform.querySelectorAll('button').forEach(b => { b.disabled = true; });
     state.editBet = '';
-    const ok = await strategyWrite(() => post(was ? `/v2/strategy/bets/${encodeURIComponent(id)}` : '/v2/strategy/bets', change));
+    const ok = await strategyWrite(() => post(was ? `/v2/strategy/bets/${encodeURIComponent(id)}` : '/v2/strategy/bets',
+      {...change, revision: data.draft?.revision ?? null}));
     if (!ok && STRAT === state) { state.editBet = id; bform.querySelectorAll('button').forEach(b => { b.disabled = false; }); }
   };
 }

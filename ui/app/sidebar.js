@@ -496,7 +496,7 @@ async function orgBetSave(select) {
   if (!group || select.value === (group.bet_id || '')) return;
   select.disabled = true;
   try {
-    await patch(`/v2/groups/${encodeURIComponent(id)}`, {bet_id: select.value || null});
+    await patch(`/v2/groups/${encodeURIComponent(id)}`, {bet_id: select.value});   // "" unlinks it
     group.bet_id = select.value || null;
     ORG_BET = null;
     await refresh(true);

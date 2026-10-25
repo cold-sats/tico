@@ -182,16 +182,16 @@ const sectionTitles = page => page.locator('[data-section] .strat-sec-head .stra
       assert.deepEqual(sent.filter(x => x[1] === '/draft').at(-1)[2], {sections: {sell: 'Weekly cleaning, $79 a visit.'}, revision: 8});
       // Add a section: it goes under extra, after the others; renaming keeps its key; removing clears it.
       await page.locator('[data-section-add]').click();
-      await page.locator('[data-section-new] input[name="title"]').fill('Channels');
+      await page.locator('[data-section-new] input[name="title"]').fill('Sales channels');
       await page.locator('[data-section-new] textarea').fill('Property managers, then word of mouth.');
       await page.locator('[data-section-new] button[type="submit"]').click();
-      await page.locator('[data-section="channels"]').waitFor();
-      assert.deepEqual(sent.filter(x => x[1] === '/draft').at(-1)[2], {sections: {extra: {channels: {title: 'Channels', body: 'Property managers, then word of mouth.'}}}, revision: 9});
-      assert.deepEqual((await sectionTitles(page)).slice(3), ["WHAT WE WON'T DO", 'BRAND', 'CHANNELS']);
-      await page.locator('[data-section="channels"] [data-section-edit]').click();
+      await page.locator('[data-section="sales-channels"]').waitFor();
+      assert.deepEqual(sent.filter(x => x[1] === '/draft').at(-1)[2], {sections: {extra: {'sales-channels': {title: 'Sales channels', body: 'Property managers, then word of mouth.'}}}, revision: 9});
+      assert.deepEqual((await sectionTitles(page)).slice(3), ["WHAT WE WON'T DO", 'BRAND', 'SALES CHANNELS']);
+      await page.locator('[data-section="sales-channels"] [data-section-edit]').click();
       await page.locator('[data-section-form] input[name="title"]').fill('Channels we use');
       await page.locator('[data-section-form] button[type="submit"]').click();
-      await page.locator('[data-section="channels"] .strat-k', {hasText: 'Channels we use'}).waitFor();
+      await page.locator('[data-section="sales-channels"] .strat-k', {hasText: 'Channels we use'}).waitFor();
       await page.locator('[data-section="brand"] [data-section-edit]').click();
       page.once('dialog', d => d.accept());
       await page.locator('[data-section-remove]').click();
@@ -260,7 +260,7 @@ const sectionTitles = page => page.locator('[data-section] .strat-sec-head .stra
       await form.locator('button[type="submit"]').click();
       await form.waitFor({state: 'detached'});
       assert.deepEqual(sent.find(x => x[1] === '/bets/b-price'), ['POST', '/bets/b-price', {rules_out: 'Premium add-ons, custom quotes.',
-        wrong_if: {kind: 'kpi', kpi_id: 'k-margin', direction: 'below', threshold: 25, check_by: '2027-01-31'}, status: 'active'}]);
+        wrong_if: {kind: 'kpi', kpi_id: 'k-margin', direction: 'below', threshold: 25, check_by: '2027-01-31'}, status: 'active', revision: 1}]);
       await page.locator('[data-strat-why-not]', {hasText: "Needs What we won't do"}).waitFor();
       assert.equal(await publish.isDisabled(), true);
       await page.locator('[data-section="not"] [data-section-edit]').click();

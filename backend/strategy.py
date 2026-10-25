@@ -437,13 +437,18 @@ def update_draft(c, actor, revision=None, guide_id=None, summary=None, vision=No
         return row
     _bump(c, actor, row, changes)
     _event(c, actor, "draft", {"old": {k: row[k] for k in changes}, "new": changes})
-    if "vision" in changes:
-        # The Goals page keeps the vision's history beside the description's (GET /company/history), whichever page
-        # wrote it; the text itself lives only here.
-        c.execute("INSERT INTO company_events (id, ts, actor, field, old, new) VALUES (?,?,?,?,?,?)",
-                  (H.new_id(), H.now(), actor, "vision", row["vision"], changes["vision"]))
+    if "vision" in changes and not current(c):
+        # Before the first publish the draft's vision is the team's (vision()), so its history goes beside the
+        # description's (GET /company/history); after it, an unpublished vision stays the owner's until publish.
+        _vision_event(c, actor, row["vision"], changes["vision"])
     H.event(c, actor, "strategy.draft", "", {"fields": sorted(changes)})
     return draft(c)
+
+
+def _vision_event(c, actor, old, new):
+    """The vision's history on the Goals page (GET /company/history); the text itself lives only in the versions."""
+    c.execute("INSERT INTO company_events (id, ts, actor, field, old, new) VALUES (?,?,?,?,?,?)",
+              (H.new_id(), H.now(), actor, "vision", old, new))
 
 
 # ----------------------------------------------------------------------------- bets
@@ -699,6 +704,8 @@ def publish(c, actor, note="", revision=None):
     # A bet's span in versions: first published active here, or retired as of here.
     c.execute("UPDATE strategy_bets SET since_n=? WHERE status='active' AND since_n IS NULL", (n,))
     c.execute("UPDATE strategy_bets SET until_n=? WHERE status='retired' AND until_n IS NULL", (n,))
+    if last and last["vision"] != row["vision"]:
+        _vision_event(c, actor, last["vision"], row["vision"])
     _event(c, actor, "published", {"n": n, "note": note})
     H.event(c, actor, "strategy.publish", f"v{n}", {"n": n})
     published = version(c, n)
@@ -894,11 +901,13 @@ def watch(c, kpi_id=None, market_id=None, today=None):
             try:
                 task = H.task_create(c, H.KEEPER, f"Bet {number}: may be wrong", body, G.AUTO_ACTOR, lint=False)
             except H.Refused as exc:
-                if exc.rule != "duplicate":       # the same bet number is already being looked at
+                if exc.rule != "duplicate":
                     raise
-                task = None
+                # An open "Bet N" task (an earlier version's, or this bet's) holds the title: not recorded, so the
+                # next pass files it once that task is closed.
+                continue
             _event(c, H.KEEPER, TRIPPED, {"bet_id": item["id"], "n": row["n"], "evidence": evidence,
-                                          "task_id": task and task["id"]})
+                                          "task_id": task["id"]})
             H.event(c, H.KEEPER, "strategy.bet_tripped", item["id"], {"n": row["n"]})
             tripped.append(item["id"])
     return tripped
