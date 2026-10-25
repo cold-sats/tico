@@ -232,7 +232,9 @@ def _row(c, trigger_id):
 
 
 def show(c, settings, trigger_id):
-    return summary(c, settings, _row(c, trigger_id))
+    out = [summary(c, settings, _row(c, trigger_id))]
+    hook_relay.attach(c, out)
+    return out[0]
 
 
 def rotate(c, who, settings, trigger_id):
@@ -453,7 +455,8 @@ def _route(c, found, delivery, type_, via, body, headers, auth):
 
 
 def _acted(fired, results):
-    return bool(fired) or any(r.get("ok") and r.get("outcome") != "ignore" for r in results)
+    # A rule that chose `ignore` heard the call: the owner asked for silence, so no "nobody listened" note.
+    return bool(fired) or any(r.get("ok") for r in results)
 
 
 def _unheard(c, found, delivery, type_):
