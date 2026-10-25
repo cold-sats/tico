@@ -903,7 +903,22 @@ git -C "$1" config core.sshCommand "touch $5"; git -C "$1" config http.proxy htt
             .args(["-c", "umask 002; printf '[http]\\n\\tproxy = http://127.0.0.1:9\\n\\tsslCAInfo = /home/runner/sibling-ca.pem\\n' > \"$1\"", "fixture", &sibling_config.display().to_string()])
             .env_clear().output().await.unwrap();
         assert!(planted.status.success(), "{}", String::from_utf8_lossy(&planted.stderr));
-        settings.env.insert("HOME".into(), "/home/runner".into());
+        // The turn's HOME is its own (turn_users::Lease::private_home), and Python reads no user site at all.
+        assert_eq!(settings.env["HOME"], user.dir.join("home").display().to_string());
+        assert_eq!(std::fs::symlink_metadata(user.dir.join("home")).unwrap().uid(), user.uid);
+        assert_eq!(settings.env["PYTHONNOUSERSITE"], "1");
+        // A sibling plants Python code in the shared HOME's user site, which any Python as the turn user would run.
+        let (site_mark, pth_mark) = (format!("/tmp/tico-hostile-site-{}", uuid::Uuid::new_v4().simple()), format!("/tmp/tico-hostile-pth-{}", uuid::Uuid::new_v4().simple()));
+        let shared_python = |id: (u32, u32), code: &str| crate::isolation::command_as(Some(id), crate::env::python())
+            .args(["-c", code]).env_clear().env("HOME", "/home/runner").output();
+        let site = shared_python((10003, 10002), "import site; print(site.getusersitepackages())").await.unwrap();
+        let site = std::path::PathBuf::from(String::from_utf8_lossy(&site.stdout).trim());
+        assert!(site.starts_with("/home/runner"), "{}", site.display());
+        let planted_site = crate::isolation::command_as(Some((10003, 10002)), "/bin/sh")
+            .args(["-c", "umask 002; mkdir -p \"$1\" && printf \"open('%s','w')\\n\" \"$2\" > \"$1/usercustomize.py\" && printf \"import os; open('%s','w')\\n\" \"$3\" > \"$1/sibling.pth\"",
+                   "fixture", &site.display().to_string(), &site_mark, &pth_mark])
+            .env_clear().env("PATH", "/usr/bin:/bin").output().await.unwrap();
+        assert!(planted_site.status.success(), "{}", String::from_utf8_lossy(&planted_site.stderr));
         crate::safegit::for_turn_user(&mut settings.env, &[workspace.clone()], &user.dir.join("gitconfig"), Some(user.identity())).unwrap();
         let turn_config = std::fs::read_to_string(user.dir.join("gitconfig")).unwrap().to_lowercase();
         assert!(!turn_config.contains("proxy") && !turn_config.contains("sslcainfo"), "{turn_config}");
@@ -943,6 +958,12 @@ time.sleep(300)
         }
         let pid: u32 = line.trim().parse().unwrap();
         eprintln!("probe: turn finished its git work");
+        assert!(!std::path::Path::new(&site_mark).exists() && !std::path::Path::new(&pth_mark).exists(), "a sibling's Python user site ran as the turn user");
+        // Control: the same Python with the shared HOME runs both, so the check is not vacuous.
+        assert!(shared_python(user.identity(), "pass").await.unwrap().status.success());
+        assert!(std::path::Path::new(&site_mark).exists() && std::path::Path::new(&pth_mark).exists(), "control: the planted user site never runs");
+        for mark in [&site_mark, &pth_mark] { let _ = std::fs::remove_file(mark); }
+        for name in ["usercustomize.py", "sibling.pth"] { std::fs::remove_file(site.join(name)).unwrap(); }
         std::fs::remove_file(sibling_config).unwrap();
         assert!(!std::path::Path::new(&hook_mark).exists() && !std::path::Path::new(&fsmonitor_mark).exists(), "a planted program ran as the leased user");
         assert!(!std::path::Path::new(&filter_mark).exists() && !std::path::Path::new(&ssh_mark).exists(), "the checkout's config ran a program as the leased user");

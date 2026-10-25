@@ -1263,7 +1263,9 @@ impl Runner {
             // What the bot kept in its AI tool's own memory moves into its repository, in whichever checkout the
             // turn runs: the bot's own or a task's worktree (crate::harness_memory).
             if crate::harness_memory::is_checkout(&execution_path) {
-                let home = env.get("HOME").filter(|h| !h.is_empty()).cloned().or_else(|| std::env::var("HOME").ok()).unwrap_or_default();
+                // A Gateway turn's HOME is its own empty one (turn_users::Lease::private_home); the tools' memory is in the real one.
+                let own = env.get("HOME").filter(|h| !h.is_empty() && turn_identity.is_none()).cloned();
+                let home = own.or_else(|| std::env::var("HOME").ok()).unwrap_or_default();
                 let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
                 let day: String = text_of(&crate::util::iso(&json!(secs))).chars().take(10).collect();
                 let moved = crate::harness_memory::move_for_turn(Path::new(&home), &p.main_path, &execution_path,

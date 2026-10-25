@@ -200,6 +200,12 @@ pub fn for_turn_user(env: &mut Env, paths: &[PathBuf], global: &Path, owner: Opt
 /// the turn starts. What no later entry undoes refuses the turn (an include) or the file transport
 /// (a remote's own upload-pack or receive-pack). Proxy and CA come from trusted system config or the runner's own
 /// environment (the supervisor's), never the turn's.
+///
+/// Known residual: a key whose name the repository picks, added to the checkout's config during the turn (a new
+/// filter or diff driver, a new URL's http settings, `url.*.insteadOf`, a changed include target), is not
+/// neutralized: only the names present when the turn starts are. Taking the checkout away from the bot user for the
+/// turn would break that bot's other turns and the runner's own git, which write the same `.git` as the bot user.
+/// The per-turn user for every bot turn (task 0918d271) closes it: the shared bot UID then no longer writes the repo.
 fn neutralize_repositories(env: &mut Env, paths: &[PathBuf], proxy: Option<String>, ca: Option<String>) -> std::io::Result<()> {
     use crate::gitcred::push_config;
     let runner = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());

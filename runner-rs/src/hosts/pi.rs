@@ -97,10 +97,11 @@ pub(crate) fn gateway_agent_dir(settings: &Settings, env: &Env) -> Option<PathBu
     let models = gateway_models_json(env.get(GATEWAY_URL_ENV).map(String::as_str).unwrap_or_default());
     let settings_json = json!({"retry": {"enabled": false}, "shellCommandPrefix": format!("unset {GATEWAY_KEY_ENV}")});
     // The agent directory can be changed by the turn. Prepare it as that unprivileged user;
-    // no privileged open or write may follow a link planted by a harness or a sibling.
+    // no privileged open or write may follow a link planted by a harness or a sibling. Isolated (-I): with no HOME,
+    // Python finds the passwd home, the shared one, and would run a sibling's user site as the turn user.
     let mut child = crate::isolation::std_command_as(settings.identity, crate::env::python())
         .env_clear()
-        .args(["-c", r#"import json,os,sys
+        .args(["-I", "-c", r#"import json,os,sys
 root=sys.argv[1]
 os.makedirs(root,mode=0o700,exist_ok=True)
 body=json.load(sys.stdin)

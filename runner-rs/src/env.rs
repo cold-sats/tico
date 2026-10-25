@@ -136,6 +136,7 @@ impl Vault {
         user.move_files(env, &mut self.files, id, &dir)?;
         for (name, index) in &self.file_vars { env.insert(name.clone(), self.files[*index].display().to_string()); }
         if gateway {
+            user.private_home(env)?;
             for name in ["TMPDIR", "TMP", "TEMP"] { env.insert(name.into(), user.dir.display().to_string()); }
             env.insert(crate::gateway_relay::DIR_ENV.into(), user.dir.join("pi").display().to_string());
         }

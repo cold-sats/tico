@@ -124,6 +124,25 @@ impl Lease {
 
     pub fn socket(&self) -> Option<&crate::gitcred::TurnSocket> { self.socket.as_ref() }
 
+    /// The turn's own HOME, in its private directory and removed with it. The shared HOME is every bot's to write,
+    /// and what reads it (Python's user site and `.pth` files, ssh, shells, npm and pip config) would run a sibling's
+    /// code as this user, Gateway key and all. pi needs nothing from there: its agent directory is the turn's own.
+    pub fn private_home(&self, env: &mut Env) -> Result<(), String> {
+        let home = self.dir.join("home");
+        match std::fs::DirBuilder::new().mode(0o700).create(&home) {
+            Ok(()) => std::os::unix::fs::lchown(&home, Some(self.uid), Some(self.pool.gid)).map_err(|e| e.to_string())?,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {} // a fallback hop on the same lease
+            Err(e) => return Err(format!("cannot make the turn user's home: {e}")),
+        }
+        let info = std::fs::symlink_metadata(&home).map_err(|e| e.to_string())?;
+        if !info.is_dir() || info.uid() != self.uid { return Err("invalid private turn home".into()); }
+        for (name, under) in [("HOME", ""), ("XDG_CONFIG_HOME", ".config"), ("XDG_CACHE_HOME", ".cache"), ("XDG_DATA_HOME", ".local/share"), ("XDG_STATE_HOME", ".local/state")] {
+            env.insert(name.into(), home.join(under).display().to_string().trim_end_matches('/').to_string());
+        }
+        env.insert("PYTHONNOUSERSITE".into(), "1".into());
+        Ok(())
+    }
+
     /// Called only after the relay listener and all in-flight model calls have actually stopped.
     pub fn permit_reuse(&mut self) { self.reusable = true; }
 
