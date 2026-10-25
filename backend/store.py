@@ -794,10 +794,17 @@ class Store:
             c.executescript(_learnings.SCHEMA)
             from . import stale_review as _stale_review
             c.executescript(_stale_review.SCHEMA)
+            from . import stall_triage as _stall_triage
+            c.executescript(_stall_triage.SCHEMA)
+            from . import rule_suggestions as _rule_suggestions
+            c.executescript(_rule_suggestions.SCHEMA)
             from . import system_routines as _system_routines
             c.executescript(_system_routines.SCHEMA)
             from . import task_rules as _task_rules
             c.executescript(_task_rules.SCHEMA)
+            from . import rules as _rules
+            c.executescript(_rules.SCHEMA)
+            _rules.seed_dev(c)
             from . import owner_link as _owner_link
             c.executescript(_owner_link.SCHEMA)
             from . import docs as _docs
@@ -830,6 +837,8 @@ class Store:
             H.add_column(c, "bot_task_tabs", "widgets_json", "TEXT")
             from . import learned as _learned
             c.executescript(_learned.SCHEMA)
+            from . import task_manager as _task_manager
+            c.executescript(_task_manager.SCHEMA)
             from . import health_monitor as _health_monitor
             c.executescript(_health_monitor.SCHEMA)
             # When a finding last woke the Health Monitor, and how bad it is: a rise wakes it (backend/health_monitor.py).
@@ -1353,6 +1362,12 @@ class Store:
                 # Milestone waits (backend/milestone_waits.py). Unversioned like the trash.
                 from .milestone_waits import ensure as ensure_milestone_waits
                 ensure_milestone_waits(c)
+                # Failed-run back-off and run budgets (backend/run_backoff.py, backend/turn_budgets.py). Unversioned
+                # like the trash: an older release never reads the tables.
+                from .run_backoff import ensure as ensure_run_backoff
+                from .turn_budgets import ensure as ensure_turn_budgets
+                ensure_run_backoff(c)
+                ensure_turn_budgets(c)
                 # Recruiting seats (backend/lifecycle.py). Unversioned like the trash.
                 from .lifecycle import ensure as ensure_seats
                 ensure_seats(c)
@@ -1511,6 +1526,9 @@ class Store:
                 # The Goal Manager becomes the CEO Bot on every install, once (backend/ceo_bot.py). Idempotent.
                 from . import ceo_bot as CeoBot
                 CeoBot.migrate(c)
+                # Every bot gets a profile by its name, once; a bot that has one is left alone (backend/profiles.py).
+                from . import profiles as Profiles
+                Profiles.migrate(c)
                 from . import releases as Releases
                 Releases.record_start(c, H.now())
                 from .credentials import FILE_MIGRATION, HUB_MIGRATION

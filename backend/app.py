@@ -29,7 +29,8 @@ from . import agents, app_delivery, batch, external_sync, inbox_isolation, lifec
 from . import outcome_stats
 from . import ceo_bot, invites, owner_link
 from . import login_holds
-from . import auto_tasks, check_models, run_triggers, task_models, team_rules, update_feeds, topic_change, usage_limits, bot_to_bot, wake_presets, visuals, wake_rules, quiet_work, milestone_waits
+from . import bot_stops, turn_budgets
+from . import auto_tasks, check_models, profiles, run_triggers, task_models, team_rules, update_feeds, topic_change, usage_limits, bot_to_bot, wake_presets, visuals, wake_rules, quiet_work, milestone_waits
 from . import task_privacy as privacy
 from . import task_relations as TR
 from . import task_roles as TRo
@@ -164,6 +165,7 @@ def create_app(settings=None):
             with store.transaction() as c:
                 onboarding.ensure_librarian(c)
                 onboarding.ensure_goal_manager(c)
+                onboarding.ensure_task_manager(c)
         except Exception as exc:
             telemetry.capture("librarian", exc)
         # An assistant still named after the company becomes "Assistant" (idempotent).
@@ -1355,7 +1357,7 @@ def create_app(settings=None):
                 c.execute("INSERT OR IGNORE INTO attempt_conversations VALUES(?,?)", (who.attempt_id, conv["id"]))
             auth.conversation(c, who, conv["id"])
         # An onboarding bot starts only a person's message or its manager's; anyone else's waits for it to be Active.
-        if note := (H.held_note(c, to) or usage_limits.warning(c, to)
+        if note := (H.held_note(c, to) or usage_limits.warning(c, to) or bot_stops.warning(c, to)
                     or (None if H.is_human(who.actor) else H.setup_hold(c, to, who.actor))):
             message = {**message, "warning": note}
         if held := bot_to_bot.held_reason(message):
@@ -2065,6 +2067,7 @@ def create_app(settings=None):
                         "task_model_warning": task_models.warning(c, settings, bot["slug"], declared,
                                                                   task_models.of(declared)),
                         "wake": wake_presets.effective(declared),
+                        "profile": profiles.effective(declared),
                         "thread_mode": config["thread_mode"] or rooms.thread_mode(c, bot["slug"], config)})
         configured = json.loads(config["owner_ids_json"]) if config and config["owner_ids_json"] else None
         owner_rows = ([rows.human(owner) for owner in configured] if configured is not None
@@ -2998,6 +3001,9 @@ def create_app(settings=None):
                         for field in ("body", "acceptance_criteria", "acceptance_json", "public_title", "public_summary",
                                       "requester_count", "external_requesters", "internal_requesters", "important_requesters", "organization", "size"):
                             row.pop(field, None)
+                        for field in ("verdict", "verdict_head"):   # only a review or QA subtask has one
+                            if row.get(field) is None:
+                                row.pop(field, None)
                         if isinstance(row.get("step"), dict):
                             row["step"].pop("public_name", None)
             if changed_after is not None:
@@ -3390,7 +3396,8 @@ def create_app(settings=None):
                 TRo.set_roles(c, who.actor, row["id"], body.roles, mover=mover(c, who) or None)
             except ValueError as exc:
                 raise Problem("roles", str(exc), 422)
-        note = " ".join(filter(None, (usage_limits.warning(c, owner) or H.setup_hold(c, owner), own_subtask)))
+        note = " ".join(filter(None, (usage_limits.warning(c, owner) or bot_stops.warning(c, owner) or H.setup_hold(c, owner),
+                                      own_subtask)))
         return {"task": task_view(H.task(c, row["id"]), c, visible_sql=auth.task_sql(c, who), who=who),
                 **({"readback": readback} if readback else {}),
                 **({"warning": note} if note else {}), **({"warnings": row["warnings"]} if row.get("warnings") else {})}
@@ -3470,7 +3477,8 @@ def create_app(settings=None):
             if body.close:
                 if any(v is not None for v in (body.title, body.status, body.owner, body.due, body.body, body.lane,
                                                body.labels, body.waiting_on, body.rank, body.roles,
-                                               body.goal_id, body.type, body.step, body.step_rank, body.number, body.private, body.visibility, body.public_title, body.public_summary, body.size)):
+                                               body.goal_id, body.type, body.step, body.step_rank, body.number, body.private, body.visibility, body.public_title, body.public_summary, body.size,
+                                               body.verdict, body.verdict_head)):
                     raise Problem("close", "Close and edit are separate operations", 422)
                 note = body.note or ""
                 if (note.strip() and getattr(who, "via", "") == "botops" and who.actor != "bot:" + BOTOPS
@@ -6058,6 +6066,13 @@ def create_app(settings=None):
     system_routines.install(app, store, auth, mutate)
     from . import task_rules
     task_rules.install(app, store, auth, mutate)
+    from . import rule_suggestions, rules as wake_rules_api
+    rule_suggestions.install(app, store, auth, mutate)      # before the rules' `/{rule_id}`
+    wake_rules_api.install(app, store, auth, mutate)
+    turn_budgets.install(app, store, auth, mutate, settings_admin)
+    profiles.install(app, store, auth, mutate, settings_admin)
+    from . import release_flow
+    release_flow.install(app, store, auth, mutate)
     outcome_stats.install(app, store, auth)
     from .live_meetings import install_live_meetings
     install_live_meetings(app, store, auth, mutate)
@@ -6146,6 +6161,8 @@ def create_app(settings=None):
     install_watchers(app, store, auth, execution, mutate)
     from .health_monitor import install as install_health_monitor
     install_health_monitor(app, store, auth, mutate, onboarding, settings_admin, settings)
+    from .task_manager import install as install_task_manager
+    install_task_manager(app, store, auth, mutate, onboarding, settings_admin, settings)
     # A computer's screen in the app (backend/screen.py); its websockets go before the static mounts below.
     from .screen import install as install_screen
     screen_sessions = install_screen(app, store, auth, mutate, execution, settings)

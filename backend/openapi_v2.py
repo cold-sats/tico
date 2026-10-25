@@ -545,6 +545,19 @@ STABLE = [
      "the redacted diagnostics, a message on it when it comes back, or a support approval when the team rule is off", None),
     ("/api/v2/health-monitor/local-findings", "post", "Health", "recordLocalHealthFinding",
      "The Health Monitor: record a process or container its watcher saw busy, as a finding it can report", None),
+    ("/api/v2/task-manager", "get", "Health", "getTaskManager",
+     "People and bots: whether the Task Manager is on, its hourly report's switch, schedule and last run, and each "
+     "department's last check and open check task", None),
+    ("/api/v2/task-manager/turn-on", "post", "Health", "turnOnTaskManager",
+     "Owner only: add the Task Manager from the catalog (or wake a paused one) and activate it", None),
+    ("/api/v2/task-manager/turn-off", "post", "Health", "turnOffTaskManager", "Owner only: pause the Task Manager", None),
+    ("/api/v2/system-routines", "get", "Health", "listSystemRoutines",
+     "Every job Tico runs on its own: schedule, last and next run, on or off, and what the viewer may change", None),
+    ("/api/v2/system-routines/{key}", "put", "Health", "saveSystemRoutine",
+     "The owner or an admin: switch a system routine on or off, pick its schedule preset (15m, hourly, 4h, daily, "
+     "business) or its daily time", "SystemRoutineUpdate"),
+    ("/api/v2/system-routines/{key}/run", "post", "Health", "runSystemRoutine",
+     "The owner or an admin: run one controlled system routine once, now; 409 while it is off or already running", None),
 ]
 
 
@@ -941,7 +954,7 @@ SCHEMAS = {
                          "Bots with queued work that is not starting, or left in setup for over a day (the caller may "
                          "read them): bot, name, queued, oldest, computer, reason (not_ready, computer_offline, no_computer, "
                          "slow, limit, updating, restarting, setup, or a reason the claim holds the work: draining, maintaining, "
-                         "lane_held, uncertain, scoped, cooling_off, readiness_unknown, sign_in_rejected, not_isolated, "
+                         "lane_held, uncertain, scoped, cooling_off, run_hold, budget, backoff, readiness_unknown, sign_in_rejected, not_isolated, "
                          "isolation_unknown, profile, config, check_model, unreadable), why, drain_progress (counts of running "
                          "and handed-back turns on update holds), since (setup only: when the "
                          "bot was added), and fix (label plus href/tab, login, move or finish; null unless the caller "
@@ -1206,6 +1219,47 @@ SCHEMAS.update({
                       "next_offset": {"type": ["integer", "null"]}}),
 })
 SCHEMAS["Task"]["properties"]["tags"] = items(ref("Tag"))
+
+# Failed-run back-off and run budgets (backend/run_backoff.py, backend/turn_budgets.py).
+STABLE.extend([
+    ("/api/v2/bots/{bot}/budget", "get", "Bots", "getBotBudget",
+     "A bot's run budget (runs per hour and per day), the team default, its runs so far and any hold; for the people who manage it", "BotBudgetState"),
+    ("/api/v2/bots/{bot}/budget", "post", "Bots", "setBotBudget",
+     "Set the bot's own runs per hour and per day: null follows the team, 0 is no limit; raising it above the runs that held the bot releases it", "BotBudgetState"),
+    ("/api/v2/bots/{bot}/release", "post", "Bots", "releaseBot",
+     "Release a bot Tico stopped for failed runs or too many runs; its queued work starts again", "BotReleased"),
+    ("/api/v2/settings/turn-budgets", "get", "Bots", "getTeamBudgets",
+     "The team default runs per hour and per day for bots with no budget of their own (owner and admins)", "TeamBudgetState"),
+    ("/api/v2/settings/turn-budgets", "post", "Bots", "setTeamBudgets",
+     "Set the team default runs per hour and per day; 0 is no limit (owner and admins)", "TeamBudgetState"),
+])
+SCHEMAS.update({
+    "BotBudgetState": obj({"bot": "s", "turns_per_hour": "i", "turns_per_day": "i", "own": {"type": "object"},
+                      "team": {"type": "object"}, "runs": {"type": "object"},
+                      "held": {"type": ["object", "null"]}, "run_hold": {"type": ["object", "null"]},
+                      "revision": "i", "released": "b"}),
+    "BotReleased": obj({"bot": "s", "released": {"type": "object"}}),
+    "TeamBudgetState": obj({"turns_per_hour": "i", "turns_per_day": "i", "defaults": {"type": "object"}}),
+})
+
+# Bot profiles (backend/profiles.py).
+STABLE.extend([
+    ("/api/v2/profiles", "get", "Bots", "listProfiles",
+     "Every bot profile with its one-line description, its values and the wake rows it adds, for a picker", "ProfileChoices"),
+    ("/api/v2/bots/{bot}/profile", "get", "Bots", "getBotProfile",
+     "A bot's profile and the values it runs on", "BotProfileState"),
+    ("/api/v2/bots/{bot}/profile", "post", "Bots", "setBotProfile",
+     "Set the bot's profile (doer, reviewer, lead, responder, monitor, custom); leaving custom deletes the wake rules it "
+     "copied and needs confirm_drop_rules", "BotProfileState"),
+])
+SCHEMAS.update({
+    "ProfileChoice": obj({"name": "s", "label": "s", "description": "s", "batch_seconds": "i", "batch_scope": "s",
+                          "sweep_seconds": "i", "digest_hour": {"type": ["integer", "null"]}, "pulls": "s", "sweeps": "b",
+                          "takes": "s", "rules": {"type": "array", "items": {"type": "object"}}}),
+    "ProfileChoices": obj({"profiles": items(ref("ProfileChoice"))}),
+    "BotProfileState": obj({"bot": "s", "profile": {"type": "object"}, "wake": {"type": "object"}, "rules": "i",
+                            "revision": "i"}),
+})
 
 SCHEMAS.update({
     "Repository": obj({"full_name": "s", "enabled": "b", "bot_repo": "b", "default_branch": "n",

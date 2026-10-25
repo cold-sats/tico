@@ -4,6 +4,7 @@ import os
 import pty
 import stat
 import subprocess
+import sys
 import time
 
 import pytest
@@ -220,6 +221,9 @@ def test_on_a_terminal_with_nothing_chosen_the_install_asks_and_the_recommended_
 
 def test_with_nothing_chosen_and_no_terminal_nothing_is_asked_and_the_wizard_runs_on_flags_as_before(server):
     # A fresh install, no mode and no --yes: only the missing terminal keeps the question away. Its own session has none.
+    # This one runs the wizard, which needs Python 3.10+: pin python3 to the test's interpreter, not the host's /usr/bin one.
+    (server["stubs"] / "python3").write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
+    (server["stubs"] / "python3").chmod(0o755)
     variables = {"PATH": f"{server['stubs']}:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin",
                  "HOME": str(server["tmp"]), "STUB_LOG": str(server["log"]),
                  "TICO_INSTALL_RELEASES_URL": "file://" + str(server["rel"]),

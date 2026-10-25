@@ -586,7 +586,7 @@ def test_a_held_notice_does_not_make_an_idle_bot_miss_its_meeting_turn(live):
     with live.app.state.store.transaction() as c:
         task = H.task_create(c, H.human_actor("ana"), "Tidy the notes", "Please tidy them.", "bot:ops")
         c.execute("UPDATE jobs SET state='completed' WHERE bot='ops'")
-        H.task_comment(c, H.KEEPER, task["id"], "Still waiting on review.", extra_refs={"stale_check": "s1"})
+        H._wake(c, H.task(c, task["id"]), "bot:ops", "Finished: the review", {"wake_batch": "completion"})
         assert c.execute("SELECT held FROM jobs WHERE bot='ops' AND state='queued'").fetchone()[0] == 1
     meeting = connect(live)
     attach(live, meeting["id"], "ops")

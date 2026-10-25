@@ -1152,6 +1152,127 @@
         ]
       }
     },
+    "/api/v2/bots/{bot}/budget": {
+      "get": {
+        "summary": "A bot's run budget (runs per hour and per day), the team default, its runs so far and any hold; for the people who manage it",
+        "operationId": "getBotBudget",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotBudgetState"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Bots"
+        ]
+      },
+      "post": {
+        "summary": "Set the bot's own runs per hour and per day: null follows the team, 0 is no limit; raising it above the runs that held the bot releases it",
+        "operationId": "setBotBudget",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BotBudget"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotBudgetState"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Bots"
+        ]
+      }
+    },
     "/api/v2/bots/{bot}/files": {
       "get": {
         "summary": "A bot's files the caller may see, newest activity first, with the visible total; limit and cursor page",
@@ -1546,6 +1667,198 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BotOnboarded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Bots"
+        ]
+      }
+    },
+    "/api/v2/bots/{bot}/profile": {
+      "get": {
+        "summary": "A bot's profile and the values it runs on",
+        "operationId": "getBotProfile",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotProfileState"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Bots"
+        ]
+      },
+      "post": {
+        "summary": "Set the bot's profile (doer, reviewer, lead, responder, monitor, custom); leaving custom deletes the wake rules it copied and needs confirm_drop_rules",
+        "operationId": "setBotProfile",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BotProfile"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotProfileState"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Bots"
+        ]
+      }
+    },
+    "/api/v2/bots/{bot}/release": {
+      "post": {
+        "summary": "Release a bot Tico stopped for failed runs or too many runs; its queued work starts again",
+        "operationId": "releaseBot",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseBot"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotReleased"
                 }
               }
             }
@@ -11996,6 +12309,47 @@
         ]
       }
     },
+    "/api/v2/profiles": {
+      "get": {
+        "summary": "Every bot profile with its one-line description, its values and the wake rows it adds, for a picker",
+        "operationId": "listProfiles",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileChoices"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Bots"
+        ]
+      }
+    },
     "/api/v2/proposals": {
       "get": {
         "summary": "Proposals (pending by default; status=confirmed|rejected|all), each saying whether the caller may decide it",
@@ -13406,6 +13760,107 @@
         ]
       }
     },
+    "/api/v2/settings/turn-budgets": {
+      "get": {
+        "summary": "The team default runs per hour and per day for bots with no budget of their own (owner and admins)",
+        "operationId": "getTeamBudgets",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamBudgetState"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Bots"
+        ]
+      },
+      "post": {
+        "summary": "Set the team default runs per hour and per day; 0 is no limit (owner and admins)",
+        "operationId": "setTeamBudgets",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamBudgets"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamBudgetState"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Bots"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
     "/api/v2/stale-review/accept-all": {
       "post": {
         "summary": "Accept the suggestions your Stale tickets card showed (their ids and task versions), each as your own change; a row whose task changed since is refused on its own and a row added since is left",
@@ -13740,6 +14195,176 @@
         ]
       }
     },
+    "/api/v2/system-routines": {
+      "get": {
+        "summary": "Every job Tico runs on its own: schedule, last and next run, on or off, and what the viewer may change",
+        "operationId": "listSystemRoutines",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/api/v2/system-routines/{key}": {
+      "put": {
+        "summary": "The owner or an admin: switch a system routine on or off, pick its schedule preset (15m, hourly, 4h, daily, business) or its daily time",
+        "operationId": "saveSystemRoutine",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SystemRoutineUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemRoutineUpdate"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/api/v2/system-routines/{key}/run": {
+      "post": {
+        "summary": "The owner or an admin: run one controlled system routine once, now; 409 while it is off or already running",
+        "operationId": "runSystemRoutine",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Health"
+        ]
+      }
+    },
     "/api/v2/tags": {
       "get": {
         "summary": "Tags and templates",
@@ -14068,6 +14693,165 @@
         },
         "tags": [
           "Tags"
+        ]
+      }
+    },
+    "/api/v2/task-manager": {
+      "get": {
+        "summary": "People and bots: whether the Task Manager is on, its hourly report's switch, schedule and last run, and each department's last check and open check task",
+        "operationId": "getTaskManager",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/api/v2/task-manager/turn-off": {
+      "post": {
+        "summary": "Owner only: pause the Task Manager",
+        "operationId": "turnOffTaskManager",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Health"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
+    "/api/v2/task-manager/turn-on": {
+      "post": {
+        "summary": "Owner only: add the Task Manager from the catalog (or wake a paused one) and activate it",
+        "operationId": "turnOnTaskManager",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Health"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
         ]
       }
     },
@@ -19035,6 +19819,102 @@
         ],
         "additionalProperties": true
       },
+      "BotBudget": {
+        "properties": {
+          "turns_per_hour": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turns Per Hour"
+          },
+          "turns_per_day": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turns Per Day"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision"
+        ],
+        "title": "BotBudget",
+        "description": "Fields left out stay as they are; null clears the bot's own value so it follows the team; 0 is no limit."
+      },
+      "BotBudgetState": {
+        "type": "object",
+        "properties": {
+          "bot": {
+            "type": "string"
+          },
+          "turns_per_hour": {
+            "type": "integer"
+          },
+          "turns_per_day": {
+            "type": "integer"
+          },
+          "own": {
+            "type": "object"
+          },
+          "team": {
+            "type": "object"
+          },
+          "runs": {
+            "type": "object"
+          },
+          "held": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "run_hold": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "released": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "bot",
+          "held",
+          "own",
+          "released",
+          "revision",
+          "run_hold",
+          "runs",
+          "team",
+          "turns_per_day",
+          "turns_per_hour"
+        ],
+        "additionalProperties": true
+      },
       "BotDetail": {
         "type": "object",
         "properties": {
@@ -19442,6 +20322,182 @@
           "bot",
           "changed",
           "onboarding_state"
+        ],
+        "additionalProperties": true
+      },
+      "BotProfile": {
+        "properties": {
+          "profile": {
+            "type": "string",
+            "enum": [
+              "doer",
+              "reviewer",
+              "lead",
+              "responder",
+              "monitor",
+              "custom"
+            ],
+            "title": "Profile"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          },
+          "batch_seconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 604800.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Seconds"
+          },
+          "batch_scope": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "bot",
+                  "conversation"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Scope"
+          },
+          "sweep_seconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 604800.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sweep Seconds"
+          },
+          "digest_hour": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 23.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Digest Hour"
+          },
+          "pulls": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "all",
+                  "review",
+                  "none"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pulls"
+          },
+          "sweeps": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sweeps"
+          },
+          "takes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "all",
+                  "review",
+                  "watcher",
+                  "none"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Takes"
+          },
+          "confirm_drop_rules": {
+            "type": "boolean",
+            "title": "Confirm Drop Rules",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "profile",
+          "expected_revision"
+        ],
+        "title": "BotProfile",
+        "description": "Set a bot's profile. A named profile takes its own values (send only the numbers to change); the numbers\nset again each time. `pulls`, `sweeps` and `takes` are for `custom`, whose rows are edited on the Rules page.\nLeaving `custom` for a named profile drops the rows it copied into the rules table: `confirm_drop_rules`."
+      },
+      "BotProfileState": {
+        "type": "object",
+        "properties": {
+          "bot": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "object"
+          },
+          "wake": {
+            "type": "object"
+          },
+          "rules": {
+            "type": "integer"
+          },
+          "revision": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "bot",
+          "profile",
+          "revision",
+          "rules",
+          "wake"
+        ],
+        "additionalProperties": true
+      },
+      "BotReleased": {
+        "type": "object",
+        "properties": {
+          "bot": {
+            "type": "string"
+          },
+          "released": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "bot",
+          "released"
         ],
         "additionalProperties": true
       },
@@ -23810,7 +24866,7 @@
             "items": {
               "type": "object"
             },
-            "description": "Bots with queued work that is not starting, or left in setup for over a day (the caller may read them): bot, name, queued, oldest, computer, reason (not_ready, computer_offline, no_computer, slow, limit, updating, restarting, setup, or a reason the claim holds the work: draining, maintaining, lane_held, uncertain, scoped, cooling_off, readiness_unknown, sign_in_rejected, not_isolated, isolation_unknown, profile, config, check_model, unreadable), why, drain_progress (counts of running and handed-back turns on update holds), since (setup only: when the bot was added), and fix (label plus href/tab, login, move or finish; null unless the caller administers bots, or for setup may manage the bot: finish is POST /api/v2/bots/{bot}/onboarded)"
+            "description": "Bots with queued work that is not starting, or left in setup for over a day (the caller may read them): bot, name, queued, oldest, computer, reason (not_ready, computer_offline, no_computer, slow, limit, updating, restarting, setup, or a reason the claim holds the work: draining, maintaining, lane_held, uncertain, scoped, cooling_off, run_hold, budget, backoff, readiness_unknown, sign_in_rejected, not_isolated, isolation_unknown, profile, config, check_model, unreadable), why, drain_progress (counts of running and handed-back turns on update holds), since (setup only: when the bot was added), and fix (label plus href/tab, login, move or finish; null unless the caller administers bots, or for setup may manage the bot: finish is POST /api/v2/bots/{bot}/onboarded)"
           },
           "on_fallback": {
             "type": "array",
@@ -26909,6 +27965,79 @@
         ],
         "additionalProperties": true
       },
+      "ProfileChoice": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "batch_seconds": {
+            "type": "integer"
+          },
+          "batch_scope": {
+            "type": "string"
+          },
+          "sweep_seconds": {
+            "type": "integer"
+          },
+          "digest_hour": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "pulls": {
+            "type": "string"
+          },
+          "sweeps": {
+            "type": "boolean"
+          },
+          "takes": {
+            "type": "string"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "batch_scope",
+          "batch_seconds",
+          "description",
+          "digest_hour",
+          "label",
+          "name",
+          "pulls",
+          "rules",
+          "sweep_seconds",
+          "sweeps",
+          "takes"
+        ],
+        "additionalProperties": true
+      },
+      "ProfileChoices": {
+        "type": "object",
+        "properties": {
+          "profiles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProfileChoice"
+            }
+          }
+        },
+        "required": [
+          "profiles"
+        ],
+        "additionalProperties": true
+      },
       "PublicComment": {
         "type": "object",
         "properties": {
@@ -27377,6 +28506,13 @@
         "additionalProperties": false,
         "type": "object",
         "title": "Release"
+      },
+      "ReleaseBot": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ReleaseBot",
+        "description": "Release a bot from every hold Tico put on it (failed runs, run budget)."
       },
       "RepoAccessUpdate": {
         "properties": {
@@ -29351,6 +30487,55 @@
           "title"
         ],
         "title": "Suggestion"
+      },
+      "SystemRoutineUpdate": {
+        "properties": {
+          "on": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On"
+          },
+          "preset": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "15m",
+                  "hourly",
+                  "4h",
+                  "daily",
+                  "business"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preset"
+          },
+          "at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 5
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SystemRoutineUpdate",
+        "description": "One system routine's switch, schedule preset or daily time (backend/system_routines.py); only what is sent\nchanges."
       },
       "Tag": {
         "type": "object",
@@ -31481,6 +32666,35 @@
             ],
             "title": "Number"
           },
+          "verdict": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "approve",
+                  "changes",
+                  "pass",
+                  "fail"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict"
+          },
+          "verdict_head": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{7,40}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict Head"
+          },
           "roles": {
             "anyOf": [
               {
@@ -31518,6 +32732,60 @@
           "version"
         ],
         "title": "TaskUpdate"
+      },
+      "TeamBudgetState": {
+        "type": "object",
+        "properties": {
+          "turns_per_hour": {
+            "type": "integer"
+          },
+          "turns_per_day": {
+            "type": "integer"
+          },
+          "defaults": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "defaults",
+          "turns_per_day",
+          "turns_per_hour"
+        ],
+        "additionalProperties": true
+      },
+      "TeamBudgets": {
+        "properties": {
+          "turns_per_hour": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turns Per Hour"
+          },
+          "turns_per_day": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turns Per Day"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "TeamBudgets",
+        "description": "The team defaults for bots with no budget of their own. Fields left out stay as they are; 0 is no limit."
       },
       "Token": {
         "type": "object",

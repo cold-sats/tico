@@ -140,7 +140,8 @@ def test_busy_install_routes(api, monkeypatch):
     rec.drain()
     print('SCALE_RECEIPT', json.dumps(receipt, sort_keys=True))
     print('SCALE_HOLDERS', json.dumps(sorted(holds, key=lambda h:-h['hold_s'])[:20]))
-    print('SCALE_CPU', sorted(os.sched_getaffinity(0)))
+    # sched_getaffinity is Linux only; elsewhere the receipt records the machine's CPU count.
+    print('SCALE_CPU', sorted(os.sched_getaffinity(0)) if hasattr(os, 'sched_getaffinity') else os.cpu_count())
     assert not failures, failures
     with store.read() as c:
         assert c.execute("SELECT count(*) FROM attempts WHERE id LIKE 'attempt-%' AND state='running' AND lease_until>?", (H.now(),)).fetchone()[0] == 100

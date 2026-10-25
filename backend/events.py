@@ -643,7 +643,8 @@ def status_line(c, who, slug, default=None, inputs=None, auth=None):
             # The task is named only to someone who may read it; the refused words are theirs to review.
             review["task"] = {"id": task["id"], "title": task["title"]} if task and privacy.task_readable(c, who, task) else None
             row["quarantine"]["review"] = review
-    return usage_limits.overlay(c, row, usage_limits.company(c) if default is None else default)
+    from . import bot_stops
+    return bot_stops.overlay(c, usage_limits.overlay(c, row, usage_limits.company(c) if default is None else default))
 
 
 def _trashed_visible(c, who, task_id):

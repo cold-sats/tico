@@ -73,6 +73,9 @@ def refusal(c, row, config):
         return None
     if waiting(c, row, starting=True):
         return 'task_wait'
+    from . import profiles
+    if why := profiles.pull_refusal(c, row, config):
+        return why                  # the profile does not pull open tasks by itself (backend/profiles.py)
     cap = of(config)
     if cap == 0:
         return 'auto_start_off'

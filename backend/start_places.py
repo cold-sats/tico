@@ -137,7 +137,7 @@ def summary(c, runner_id, settings):
     overloaded = performance.load_status(c, runner_id)['overloaded']
     reasons = {'cooling_off': 'quota', 'limit': 'spending limit', 'not_ready': 'computer readiness',
                'readiness_unknown': 'computer readiness', 'sign_in_rejected': 'sign-in',
-               'draining': 'bot paused'}
+               'draining': 'bot paused', 'run_hold': 'stopped runs', 'backoff': 'a failed run', 'budget': 'run budget'}
     for row in c.execute("SELECT j.bot,count(*) n,min(j.created) oldest,bc.config_json,b.state bot_state "
                          "FROM jobs j JOIN assignments a ON a.bot=j.bot JOIN bots b ON b.slug=j.bot "
                          "JOIN bot_config bc ON bc.bot=j.bot WHERE a.runner_id=? AND j.state='queued' GROUP BY j.bot",

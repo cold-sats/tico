@@ -18,7 +18,7 @@ from . import providers
 from . import app_delivery
 from . import rooms
 from . import shared_bots
-from . import auto_tasks, task_models, update_feeds, wake_presets
+from . import auto_tasks, profiles, task_models, update_feeds, wake_presets
 from .auth import Identity
 from .execution import _reported, stranded
 from .harnesses import EXTERNAL_HARNESSES, HARNESS_BY_ID, normalize_fallback, resolve_harness, runtime_of
@@ -196,6 +196,7 @@ class SettingsAdmin:
                 "compact_at": compact_at(effective),
                 # The bot's own, never its original's: a branch's queue is its own (backend/wake_presets.py).
                 "wake": wake_presets.effective(_json(config["config_json"], {}) or {}),
+                "profile": profiles.effective(_json(config["config_json"], {}) or {}),
                 "session": effective.get("session"),
                 "subtask_session": effective.get("subtask_session"),
                 "task_goal": effective.get("task_goal"),
@@ -328,7 +329,8 @@ class SettingsAdmin:
                   "harness": harness, "reasoning_effort": effort, "thread_mode": body.thread_mode, "shared": body.shared,
                   "private_tasks_default": (body.private_tasks_default if "private_tasks_default" in body.model_fields_set
                                             else body.template == "general-counsel"),
-                  "model_managed_by": "cloud", "wake_preset": wake_presets.NEW_BOT_PRESET}
+                  "model_managed_by": "cloud"}
+        profiles.apply(config, profiles.DOER, {})
         if body.template:
             config["template"] = body.template
             if privileged:
@@ -461,10 +463,11 @@ class SettingsAdmin:
 
     def archive(self, c, who, bot, body):
         CA.gate(c, who.actor, "bots", f"remove {bot}")
-        # The assistant, BotOps, the Librarian and the CEO Bot are built in: nobody archives them, the owner included.
-        if bot in (self.settings.assistant_bot, "botops", "librarian", "goal-manager"):
+        # The assistant, BotOps, the Librarian, the CEO Bot and the Task Manager are built in: nobody archives them, the owner included.
+        if bot in (self.settings.assistant_bot, "botops", "librarian", "goal-manager", "task-manager"):
             raise Problem("system_bot", (self.settings.assistant_name if bot == self.settings.assistant_bot
                                          else "BotOps" if bot == "botops" else "The Librarian" if bot == "librarian"
+                                         else "The Task Manager" if bot == "task-manager"
                                          else "The " + ceo_bot.name(c))
                           + " is built in to every team and cannot be archived or deleted; you can pause or rename it", 409)
         self._manager(c, who, bot)
@@ -668,6 +671,8 @@ class SettingsAdmin:
             return auto_tasks.of(_json(config["config_json"], {}) or {})
         if field == "wake_preset":
             return wake_presets.preset_of(_json(config["config_json"], {}))
+        if field == "profile":
+            return profiles.snapshot(_json(config["config_json"], {}) or {})
         if field == "placement":
             row = c.execute("SELECT a.runner_id,a.generation,r.label,r.operator AS runner_operator "
                             "FROM assignments a JOIN runners r ON r.id=a.runner_id WHERE a.bot=?", (bot,)).fetchone()
@@ -934,8 +939,10 @@ class SettingsAdmin:
             except (ValueError, Problem, TypeError, KeyError):
                 # A field an older release wrote, or a bot deleted since: history still shows it.
                 current = None
-            value["can_undo"] = (row["field"] in ("owners", "co_owners", "model", "placement", "fallback", "access")
-                                 and not row["undone_at"] and current == value["after"])
+            value["can_undo"] = (row["field"] in ("owners", "co_owners", "model", "placement", "fallback", "access", "profile")
+                                 and not row["undone_at"] and current == value["after"]
+                                 # A profile change from a bot that had none has nothing to go back to (undo: 409).
+                                 and (row["field"] != "profile" or bool((value["before"] or {}).get("profile"))))
             changes.append(value)
         transitions = [self.get(c, who, row[0]) for row in c.execute(
             "SELECT id FROM bot_transitions ORDER BY created DESC LIMIT ?", (limit,))]
@@ -1005,6 +1012,20 @@ class SettingsAdmin:
         if change["field"] == auto_tasks.KEY:
             return self.set_keep_tasks_going(c, who, bot, SimpleNamespace(
                 keep_tasks_going=before, expected_revision=body.expected_revision), undo_change_id=change_id)
+        if change["field"] == "profile":
+            if not (before or {}).get("profile"):
+                raise Problem("not_reversible", "The bot had no profile before this change", 409)
+            if before["profile"] == profiles.CUSTOM and self.snapshot(c, bot, "profile")["profile"] != profiles.CUSTOM:
+                raise Problem("not_reversible", "Its own wake rules were deleted when it left Custom; choose Custom "
+                              "again to start from a profile's rows", 409)
+            return profiles.set_profile(self, c, who, bot, SimpleNamespace(
+                profile=before["profile"], expected_revision=body.expected_revision, confirm_drop_rules=True,
+                **{k: v for k, v in (before.get("options") or {}).items()}), undo_change_id=change_id)
+        if change["field"] == "turn_budget":
+            from . import turn_budgets
+            return turn_budgets.set_bot(self, c, who, bot, SimpleNamespace(
+                model_fields_set=set(turn_budgets.KEYS), expected_revision=body.expected_revision,
+                **{key: (before or {}).get(key) for key in turn_budgets.KEYS}), undo_change_id=change_id)
         if change["field"] == "task_model":
             return self.set_task_model(c, who, bot, SimpleNamespace(
                 task_model=SimpleNamespace(effort=before.get("reasoning_effort"), **{
@@ -1188,6 +1209,9 @@ class SettingsAdmin:
         # Old clients may still send `current`; it now selects Performance.
         chosen = wake_presets.preset_of({"wake_preset": body.wake_preset})
         declared["wake_preset"] = chosen
+        if profiles.name_of(declared):
+            # A bot with a profile keeps it: the old setting only changes the profile's window (backend/profiles.py).
+            profiles.apply_preset(declared, chosen)
         c.execute("UPDATE bot_config SET config_json=?,revision=revision+1 WHERE bot=?", (encode(declared), bot))
         wake_presets.replan(c, bot)
         self.record(c, who.actor, bot, "wake_preset", before, chosen)
