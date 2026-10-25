@@ -1326,6 +1326,15 @@ def event(conn, actor, action, target="", detail=None):
     return row
 
 
+def _building(conn, task_id):
+    """Mark the task being made on this connection. A plain sqlite3 connection (an upgrade script's) takes no
+    attributes; there the mark is skipped, and the only cost is a state-change event beside task.created."""
+    try:
+        conn.building = task_id
+    except AttributeError:
+        pass
+
+
 def hook(conn, type, subject, data, actor, revision=None):
     """Tell the outgoing webhooks (backend/webhooks.py) that `type` happened to `subject`, in the caller's write. `data`
     is a function that makes the event's thin payload, called only when some endpoint is listening. Never raises: a
@@ -5234,7 +5243,7 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
                  "(:id, :title, :body, :requester, :owner, :due, "
                  ":conversation_id, :created, :updated, :done_at, :closed_at, :closed_by, :note, "
                  ":lane, :rank, :goal_id, :next_run, :number, :private)", row)
-    conn.building = row["id"]      # its first status and step are part of task.created, not changes (_task_changed)
+    _building(conn, row["id"])     # its first status and step are part of task.created, not changes (_task_changed)
     if parent:
         # Filed under its parent as it is made: _task_parent above checked the parent.
         TR._insert(conn, actor, row["id"], parent["id"], "parent", ts)
@@ -5277,7 +5286,7 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
         _task_event(conn, row["id"], KEEPER, "lint", None, "; ".join(plain), "")
         event(conn, actor, "task.lint", row["id"], {"problems": plain})
     event(conn, actor, "task.create", row["id"], {"owner": target, "title": title})
-    conn.building = None
+    _building(conn, None)
     hook(conn, "task.created", row["id"], lambda: _task_facts(conn, row["id"], actor, parent_id=parent_id), actor, revision=0)
     # Give a bot the rest of this relationship's active work with the new task. The runner puts
     # current-message refs in its prompt, so the bot can reuse or reconcile overlapping work

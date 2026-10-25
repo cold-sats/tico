@@ -10,6 +10,7 @@ from backend.tests.test_api import api, get, post  # noqa: F401
 from backend.tests.test_triggers import hook
 from backend.tests.test_triggers_incoming import as_bot
 from backend.tests.test_wake_rules import jobs, setup
+from backend.tests.test_webhooks import net  # noqa: F401
 
 
 def wake_rule(api, **when):
@@ -68,3 +69,24 @@ def test_a_call_through_the_gateway_relay_runs_the_same_rule(api):
         logged = c.execute("SELECT via, received_at FROM trigger_deliveries WHERE delivery='g1'").fetchone()
     assert refs["via"] == "gateway" and refs["delivery"] == "g1"
     assert logged["via"] == "gateway" and logged["received_at"] == "2026-10-25T10:00:00.000000Z"
+
+
+def test_a_call_a_rule_forwards_reaches_the_outgoing_endpoint_signed(api, net):
+    from backend import webhook_delivery as D
+    from backend.tests.test_webhooks import make, run, verify
+    made = post(api, "triggers", {"name": "Shop"})["trigger"]
+    endpoint = make(api, events=["custom.*"], token="ana-test")
+    post(api, "rules", {"scope_kind": "team", "event": "webhook.received", "then": "action", "when": {"trigger": "shop"},
+                        "params": {"action": "send_webhook", "webhook": endpoint["id"], "type": "custom.order",
+                                   "data": {"order": "{{data.order}}", "from": "{{trigger.name}}"}}}, token="ana-test")
+    got = hook(api, made["url"], b'{"order": 42}', {"Webhook-Id": "w9"}).json()
+    assert got["rules"] == 1
+    run(api, net)
+    assert len(net.seen) == 1
+    sent = net.seen[0]
+    body = json.loads(sent.content)
+    assert body["type"] == "custom.order" and body["data"] == {"order": "42", "from": "Shop"}
+    assert verify(endpoint["secret"], {k.lower(): v for k, v in sent.headers.items()}, sent.content)
+    assert hook(api, made["url"], b'{"order": 42}', {"Webhook-Id": "w9"}).status_code == 200    # a retry sends nothing new
+    run(api, net)
+    assert len(net.seen) == 1 and D.MAX_ATTEMPTS == 8
