@@ -2,7 +2,8 @@
 
 A bot's run that fails within FAST seconds of starting is not the same as one that fails after real work: it
 changed nothing and will fail the same way again. Each such failure makes the bot wait before its next run, per bot,
-15 s doubling to 8 h and reset by a run that completes normally. After HOLD_AFTER of them in a row the bot is held:
+15 s doubling to 8 h and reset by a run that completes normally. A person's message sent after the last failure does not wait it out:
+it is the retry someone is watching, and its failure counts like any other (re-queued, it then waits as the rest do). After HOLD_AFTER of them in a row the bot is held:
 no claim starts its queued work (a person's chat message included) until a person releases it, and the bot's
 operator gets one Needs-you item while Health names the error class. The held bot's queued work is kept.
 
@@ -149,6 +150,26 @@ def refusal(c, bot):
     if row["held_at"]:
         return "run_hold"
     return "backoff" if row["wait_until"] and row["wait_until"] > H.now() else None
+
+
+def _since_failure(c, bot):
+    row = c.execute("SELECT last_failed FROM run_backoff WHERE bot=?", (bot,)).fetchone()
+    return (row and row["last_failed"]) or ""
+
+
+def person_waiting(c, bot):
+    """Whether a person wrote to the bot since its last failed run: the job a back-off wait lets through."""
+    return bool(c.execute("SELECT 1 FROM jobs j JOIN messages m ON m.id=j.message_id WHERE j.bot=? AND j.state='queued' "
+                          "AND m.from_actor LIKE 'human:%' AND m.created>? LIMIT 1", (bot, _since_failure(c, bot))).fetchone())
+
+
+def job_refusal(c, bot, message):
+    """"backoff" for a job the bot's wait holds: any but a person's message sent since the last failure. Read only
+    (execution.job_refusal)."""
+    if refusal(c, bot) != "backoff":
+        return None
+    fresh = str(message.get("from_actor") or "").startswith("human:") and str(message.get("created") or "") > _since_failure(c, bot)
+    return None if fresh else "backoff"
 
 
 def reset(c, bot):

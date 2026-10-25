@@ -374,7 +374,8 @@ fresh provider session, as Clear does, instead of resuming the session into the 
 
 **Failed runs wait, then stop.** A run that fails within 60 seconds of starting did no work and will fail the same way again. The bot
 waits before its next run, 15 seconds after the first such failure, doubling each time up to 8 hours; a run that completes normally
-starts the count over. A run a person stopped, a usage limit, a model at capacity, a handed-back run and a failure after 60 seconds do
+starts the count over. A message a person sends during the wait runs at once (it is the retry someone is watching), and
+its failure counts like any other. A run a person stopped, a usage limit, a model at capacity, a handed-back run and a failure after 60 seconds do
 not count. After five in a row Tico holds the bot: nothing it has queued starts (a person's message included; it is kept and
 starts after the release), the bot reads *paused*, a message to it says why ("Saved — waiting: Tico stopped <bot>: its last 5 runs
 failed within a minute ..."), the bot's operator gets one Needs-you item, and Health shows `run_hold` naming the kind of error.

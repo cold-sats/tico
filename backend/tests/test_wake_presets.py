@@ -352,6 +352,20 @@ def test_a_batch_bigger_than_the_room_page_goes_out_as_a_digest_that_names_it(ap
                          "AND m.delivered_at IS NOT NULL").fetchone()[0] == 0
 
 
+def test_a_digest_over_many_rooms_names_the_newest_and_counts_the_rest(api):
+    from backend import wake_presets as WP
+    preset(api, "ops", "token_saver")
+    tasks = [new_task(api, f"room {n}") for n in range(WP.DIGEST_ROOMS + 5)]
+    since, t0 = H.now(), H.shift(H.now(), hours=-1)
+    for n, task in enumerate(tasks):
+        notice(api, task, f"Finished: part {n}", wake_batch="completion")
+        at(api, jobs(api, since=since)[-1]["id"], H.shift(t0, seconds=n))
+    tick(api, H.shift(t0, minutes=31))
+    digest = jobs(api, since=since)[-1]["body"]
+    assert "and updates in 5 more rooms" in digest
+    assert tasks[-1]["conversation_id"] in digest and tasks[0]["conversation_id"] not in digest   # newest first
+
+
 def test_a_digest_turn_is_measured_from_each_event_and_split_over_its_tickets(api):
     machine = task_bot(api, lanes=True)
     preset(api, "ops", "token_saver")

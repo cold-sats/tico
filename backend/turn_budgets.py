@@ -246,9 +246,15 @@ def set_team(c, actor, body):
                 stored[key] = getattr(body, key)
     save_metadata(c, TEAM_KEY, stored)
     after = team(c)
+    freed = []
     if after != before:
         H.event(c, actor, "settings.turn_budgets", "team", {"before": before, "after": after})
-    return {**after, "defaults": DEFAULTS}
+        # A held bot that follows the team's budget is let go when the new one leaves it room, as its own would.
+        for row in c.execute("SELECT b.bot, g.config_json FROM bot_budget b JOIN bot_config g ON g.bot=b.bot "
+                             "WHERE b.held_at IS NOT NULL").fetchall():
+            if _release_if_room(c, actor, row["bot"], _declared(row["config_json"])):
+                freed.append(row["bot"])
+    return {**after, "defaults": DEFAULTS, "released": freed}
 
 
 # ---------------------------------------------------------------------------------------------------- the routes

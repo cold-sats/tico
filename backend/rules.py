@@ -686,11 +686,15 @@ def _ask(conn, decision, row, actor, body):
         who = H.human_actor(person["id"]) if person else None
     if not who:
         raise ValueError("no person to ask")
+    private = H.task_private(conn, row)
+    if private and not H.task_private_readable(conn, who, row):
+        raise ValueError("no person who may read the task")     # the bot is woken instead of naming it to someone else
     sender = "Tico" if actor == H.KEEPER else H.actor_id(actor)
     text = str(body or "").strip()[:1500]
+    # The card carries the task's title and the message, so it is as private as the task it is about.
     card = H.task_create(conn, H.KEEPER, f"A rule needs you: {row['title']}"[:300],
                          f"The rule {decision.rule} asked for a person on {row['title']} ({row['id']}).\n\n"
-                         f"From {sender}: {text}", who, lint=False, deduplicate=False)
+                         f"From {sender}: {text}", who, lint=False, deduplicate=False, private=True if private else None)
     H.event(conn, H.KEEPER, ASKED, card["id"], {"rule": decision.rule, "task": row["id"]})
 
 
@@ -870,7 +874,7 @@ def can_change(c, settings, auth, who, scope_kind, scope_id):
         return mover
     if scope_kind == "department":
         from . import task_rules
-        return mover or task_rules.can_change(c, settings, auth, who, scope_id)
+        return mover or who.role == "human" and task_rules.can_change(c, settings, auth, who, scope_id)
     if scope_kind == "bot":
         return bool(auth.bot_manager(c, who, scope_id) or auth.botops_manages(c, who, scope_id))
     if scope_kind == "task":
@@ -887,9 +891,24 @@ def _require(c, settings, auth, who, scope_kind, scope_id):
         raise Problem("forbidden", {
             "team": "Only the owner or an admin changes team wake rules",
             "type": "Only task movers change a task type's wake rules",
-            "department": "Only task movers and this department's members change its wake rules",
+            "department": "Only task movers and the people in this department change its wake rules",
             "bot": "Only a bot's owners, its operator or BotOps change its wake rules",
             "task": "Only the task's movers and parties change its wake rules"}[scope_kind], 403)
+
+
+def _action_writer(c, auth, who, then, params):
+    """An action row runs as Tico (the keeper), so only someone who could make that change on any task writes one:
+    the owner, an admin or a person who moves tasks; and a task it names must be one they may read."""
+    from .store import Problem
+    if then != ACTION:
+        return
+    if not (who.role == "owner" or auth.bot_admin(who) or who.role == "human" and H.can_move(c, who.actor)):
+        raise Problem("forbidden", "An action rule acts as Tico: only the owner, an admin or a task mover writes one",
+                      403)
+    for key in ("task", "blocked_by"):
+        named = H.task(c, str(params.get(key) or "")) if params.get(key) else None
+        if params.get(key) and not (named and H.task_private_readable(c, who.actor, named)):
+            raise Problem("not_found", f"No task {params[key]}", 404)
 
 
 def _visible(c, who, row):
@@ -956,6 +975,7 @@ def create(c, settings, auth, who, body):
     scope_id, when, params = validate(c, settings, body.scope_kind, body.scope_id, body.event, body.then,
                                       body.when, body.params)
     _require(c, settings, auth, who, body.scope_kind, scope_id)
+    _action_writer(c, auth, who, body.then, params)
     if c.execute("SELECT count(*) FROM rules").fetchone()[0] >= MAX_ROWS:
         raise Problem("conflict", "The rule list is full; edit or delete a rule", 409)
     position = body.position
@@ -983,6 +1003,8 @@ def update(c, settings, auth, who, rule_id, body):
     when = body.when if body.when is not None else H._json(before["when_json"], {})
     params = body.params if body.params is not None else H._json(before["params_json"], {})
     validate(c, settings, before["scope_kind"], before["scope_id"], event, then, when, params)
+    if then == ACTION and (body.on is True or any(v is not None for v in (body.then, body.event, body.when, body.params))):
+        _action_writer(c, auth, who, then, params)       # turning one off, moving or deleting it needs only the scope
     c.execute("UPDATE rules SET event=?,when_json=?,then_outcome=?,params_json=?,enabled=?,position=?,note=?,"
               "updated=?,revision=revision+1 WHERE id=?",
               (event, json.dumps(when, sort_keys=True), then, json.dumps(params, sort_keys=True),

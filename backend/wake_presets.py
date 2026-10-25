@@ -61,6 +61,8 @@ DUPLICATE_SECONDS = 2 * 60
 BATCH_KINDS = ("completion", "review", "ci", "rule")
 # Jobs held as `notice` by an earlier build's news hold, let go with the batch above.
 NOTICE = "notice"
+DIGEST_ROOMS = 40        # rooms a digest names; it counts the rest
+DIGEST_IDS = 200         # job ids its event keeps
 HELD_CLASSES = (*BATCH_KINDS, NOTICE)
 # Sweeps: refs.wake on a keeper notice, or refs.sweep (a routine's scheduled run, by schedule id).
 SWEEP_WAKES = ("stalled", "status_check", "occurrence")
@@ -302,7 +304,10 @@ def _release(c, bot, jobs):
     for job in jobs:
         groups.setdefault(job["conversation_id"], []).append(job)
     lines = []
-    for conversation, held in groups.items():
+    # A Lead's day of news is one digest: it names at most DIGEST_ROOMS rooms, newest first, and counts the rest.
+    place = {job["id"]: n for n, job in enumerate(jobs)}
+    rooms = sorted(groups.items(), key=lambda kv: place[kv[1][-1]["id"]], reverse=True)
+    for conversation, held in rooms[:DIGEST_ROOMS]:
         first, newest = H.message(c, held[0]["message_id"]) or {}, H.message(c, held[-1]["message_id"]) or {}
         task = H.task(c, (H._json(held[-1]["refs_json"], {}) or {}).get("task") or "")
         what = classify(newest)[1] + (f" and {len(held) - 1} more" if len(held) > 1 else "")
@@ -312,6 +317,8 @@ def _release(c, bot, jobs):
         lines.append(f"- {what}: {where}; read them with `hub conversation show {conversation}`"
                      + (f" (the oldest is from {first.get('created')}: page back with --before to reach it)"
                         if len(held) > 1 else ""))
+    if len(rooms) > DIGEST_ROOMS:
+        lines.append(f"- and updates in {len(rooms) - DIGEST_ROOMS} more rooms; your open tasks list them")
     from . import profiles
     row = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (bot,)).fetchone()
     mine = profiles.name_of(H._json(row[0], {}) if row else {})
@@ -319,7 +326,7 @@ def _release(c, bot, jobs):
                else f"your {LABELS.get(jobs[0]['wake_preset'], '')} wake preset")
     sent = H.say(c, H.KEEPER, "bot:" + bot, f"{len(jobs)} updates held by {held_by}:\n"
                  + "\n".join(lines) + "\nOpen each task that needs you; the rest is news.", kind="notice",
-                 refs={"wake_digest": [j["id"] for j in jobs]})
+                 refs={"wake_digest": len(jobs)})
     held_until = max(c.execute("SELECT hold_until FROM jobs WHERE id=?", (j["id"],)).fetchone()[0] for j in jobs)
     c.execute("UPDATE jobs SET wake_class='digest',wake_preset=?,hold_until=? WHERE message_id=?",
               (jobs[0]["wake_preset"], held_until, (sent or {}).get("id")))
@@ -327,7 +334,7 @@ def _release(c, bot, jobs):
     for job in jobs:
         c.execute("UPDATE jobs SET state='cancelled',held=0,wake_carrier=? WHERE id=?",
                   (digest[0] if digest else None, job["id"]))
-    H.event(c, H.KEEPER, "job.wake_digest", bot, {"jobs": [j["id"] for j in jobs]})
+    H.event(c, H.KEEPER, "job.wake_digest", bot, {"jobs": [j["id"] for j in jobs[:DIGEST_IDS]], "count": len(jobs)})
 
 
 def _on_one_page(c, jobs):

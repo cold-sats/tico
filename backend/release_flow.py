@@ -128,6 +128,18 @@ def qa_owner(c, ticket):
     return found[0] if len(found) == 1 else None
 
 
+def _qa_room(c, ticket, qa):
+    """Where QA hears that a ticket shipped: the ticket, or on a private ticket it may not read its own newest `QA:`
+    subtask (the ticket's title stays with its audience). None when it has neither."""
+    if H.task_private_readable(c, H.bot_actor(qa), ticket):
+        return ticket, _name(ticket)
+    from . import task_relations as TR
+    mine = [k for k in (H.task(c, i) for i in TR.child_ids(c, ticket["id"]))
+            if k and QA_CHILD.match(k["title"] or "") and k["owner"] == H.bot_actor(qa)]
+    newest = max(mine, key=lambda k: k["created"], default=None)
+    return (newest, str(newest["title"]).strip()) if newest else (None, None)
+
+
 # ----------------------------------------------------------------------------- what is waiting for a release
 def pending(c, reader=None):
     """The Dev tickets at the Pending Release step, oldest first: dicts of the task row plus `prs` (its pull request
@@ -310,11 +322,12 @@ def published(c, target, url="", release_repo=""):
     writer, tickets = technical_writer(c, cfg), carried(c, repo)
     sent = {}
     for ticket in tickets:
-        facts = f"{_name(ticket)} is in {tag}" + (f" ({url})" if url else "")
         qa = qa_owner(c, ticket) if "qa" in H.task_labels(ticket) else None
-        if qa and H._wake(c, ticket, H.bot_actor(qa), f"Released: {facts}. Run its check live tests now and watch the "
-                          "watch live items; report to the ticket.", trigger=EVENT,
-                          refs={"wake": EVENT, "release": tag, "role": "qa"}, source=target):
+        room, named = _qa_room(c, ticket, qa) if qa else (None, None)
+        facts = f"{named} is in {tag}" + (f" ({url})" if url else "")
+        if room and H._wake(c, room, H.bot_actor(qa), f"Released: {facts}. Run its check live tests now and watch the "
+                            "watch live items; report to the ticket.", trigger=EVENT,
+                            refs={"wake": EVENT, "release": tag, "role": "qa"}, source=target):
             sent.setdefault(ticket["id"], []).append(qa)
         if H.is_bot(ticket["owner"]) and ticket["owner"] != (H.bot_actor(qa) if qa else None):
             H._wake(c, ticket, ticket["owner"], f"Shipped in {tag}.", quiet_bots=True, quiet=True, trigger=EVENT,

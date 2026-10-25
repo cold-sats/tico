@@ -934,7 +934,7 @@ def claim_refusal(c, settings, runner, bot, config_json, draining, ready, held_b
         return "draining", None
     if bot in held_bots:
         return ("maintaining" if lanes_on(runner) else "lane_held"), None
-    if why := run_backoff.refusal(c, bot):
+    if (why := run_backoff.refusal(c, bot)) and not (why == "backoff" and run_backoff.person_waiting(c, bot)):
         return why, None            # waiting out failed runs, or held until a person releases it (backend/run_backoff.py)
     try:
         config = json.loads(config_json)
@@ -1119,8 +1119,8 @@ def job_refusal(c, job, followed, ready, busy, lanes, roots, live=frozenset()):
     message = H.message(c, job["message_id"])
     if not privacy.message_readable(c, "bot:" + job["bot"], message):
         return "unreadable"
-    if why := turn_budgets.refusal(c, job["bot"], message):
-        return why                  # over its run budget: held, except for a person's message (backend/turn_budgets.py)
+    if why := turn_budgets.refusal(c, job["bot"], message) or run_backoff.job_refusal(c, job["bot"], message):
+        return why                  # over its run budget or waiting out failed runs: except for a person's message
     conversation = H.conversation(c, message["conversation_id"])
     task_id = H.message_task_id(message, conversation)
     task = H.task(c, task_id) if task_id else None

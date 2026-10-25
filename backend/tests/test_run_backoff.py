@@ -145,3 +145,32 @@ def test_a_bot_over_its_run_budget_is_held_but_a_persons_message_still_runs_unti
     revision = get(api, "bots/ops/budget")["revision"]
     freed = post(api, "bots/ops/budget", {"turns_per_hour": 50, "expected_revision": revision})
     assert freed["released"] is True and freed["held"] is None
+
+
+def test_a_persons_message_runs_through_the_wait_and_its_failure_counts(api, monkeypatch):
+    machine = setup(api, monkeypatch, tasks=2)
+    fail(api, machine, claim(api, machine), TOO_BIG)
+    ready(api, machine, ["ops"])
+    assert claim(api, machine) is None                                   # the bot's own work waits out the 15 s
+    at(monkeypatch, api, "2026-10-24T12:00:05.000000Z")
+    post(api, "chat/ops", {"text": "Are you there?"})
+    ready(api, machine, ["ops"])
+    mine = claim(api, machine)
+    assert mine and mine["message"]["from_actor"] == "human:ana"         # the person's retry does not wait
+    fail(api, machine, mine, TOO_BIG)
+    with api.app.state.store.read() as c:
+        assert run_backoff.get(c, "ops")["fails"] == 2
+    at(monkeypatch, api, "2026-10-24T12:00:10.000000Z")
+    ready(api, machine, ["ops"])
+    assert claim(api, machine) is None                                   # re-queued, the message now waits too
+
+
+def test_raising_the_team_budget_lets_go_a_bot_that_follows_it(api, monkeypatch):
+    machine = setup(api, monkeypatch, tasks=6)
+    post(api, "settings/turn-budgets", {"turns_per_hour": 2})
+    for _ in range(2):
+        complete(api, machine, claim(api, machine))
+    assert claim(api, machine) is None and get(api, "bots/ops/budget")["held"]
+    assert post(api, "settings/turn-budgets", {"turns_per_hour": 50})["released"] == ["ops"]
+    ready(api, machine, ["ops"])
+    assert claim(api, machine) and get(api, "bots/ops/budget")["held"] is None

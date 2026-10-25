@@ -114,3 +114,19 @@ def test_a_private_ticket_is_counted_but_never_named_in_the_docs_task(api):
         body = c.execute("SELECT body FROM tasks WHERE owner='bot:cpo' AND title LIKE 'Docs for%'").fetchone()["body"]
     assert "Visual replies" in body and "1 private ticket, not named here" in body
     assert "Acme payroll" not in body and "/413" not in body
+
+
+def test_qa_hears_a_private_ticket_shipped_on_its_own_qa_subtask(api):
+    dev = _team(api)
+    secret = _ticket(api, dev, "Acme payroll export", 413, tags=["qa"])
+    with api.app.state.store.transaction() as c:
+        check = H.task_create(c, "bot:cpo", "QA: payroll export", "Check it live.", "bot:qab", parent_id=secret["id"],
+                              lint=False)
+        c.execute("UPDATE tasks SET private=1 WHERE id IN (?,?)", (secret["id"], check["id"]))
+    hook(api, "release", {"action": "published", "release": {"tag_name": "v1.2.3", "html_url": RELEASE_URL},
+                          "repository": {"full_name": "ticoteam/tico"}})
+    with api.app.state.store.read() as c:
+        woke = c.execute("SELECT m.body FROM messages m JOIN conversations cv ON cv.id=m.conversation_id "
+                         f"WHERE {H.MESSAGE_TASK_SQL}=? AND m.to_actor='bot:qab' "
+                         "AND json_extract(m.refs_json,'$.wake')='release_published'", (check["id"],)).fetchall()
+    assert len(woke) == 1 and "QA: payroll export" in woke[0][0] and "Acme payroll export" not in woke[0][0]

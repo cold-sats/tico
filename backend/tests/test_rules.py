@@ -153,6 +153,30 @@ def test_an_ask_rule_writes_quietly_and_raises_one_needs_you_item_per_task_and_r
         assert len(cards) == 1 and cards[0]["owner"] == "human:ana" and row["id"] in cards[0]["body"]
 
 
+def test_an_ask_card_about_a_private_task_is_private(api):
+    setup(api)
+    rule_row(api, then="ask")
+    with api.app.state.store.transaction() as c:
+        task = H.task_create(c, "human:ana", "Acme layoff plan", "Plan it", "bot:cpo", private=True)
+        c.execute("DELETE FROM jobs")
+        news(c, H.task(c, task["id"]))
+        card = c.execute("SELECT t.id, t.private FROM events e JOIN tasks t ON t.id=e.target "
+                         "WHERE e.action='rule.ask'").fetchone()
+        assert card and card["private"] == 1
+        assert not H.task_private_readable(c, "human:cara", H.task(c, card["id"]))
+
+
+def test_an_action_rule_is_written_only_by_someone_who_could_make_the_change(api):
+    setup(api)
+    with api.app.state.store.transaction() as c:
+        task = H.task_create(c, "human:cara", "Cara's errand", "x", "bot:cpo")
+    rule_row(api, token="cara-test", scope_kind="task", scope_id=task["id"])            # a party sets a note row
+    rule_row(api, token="cara-test", scope_kind="task", scope_id=task["id"], then="action",
+             params={"action": "close"}, expected=403)                                    # an action acts as Tico
+    made = rule_row(api, scope_kind="task", scope_id=task["id"], then="action", params={"action": "close"})["rule"]
+    post(api, f"rules/{made['id']}", {"expected_revision": 1, "on": False}, token="cara-test")   # turning it off is hers
+
+
 def test_an_action_rule_runs_as_the_keeper_and_a_failed_action_wakes_the_bot(api):
     setup(api)
     row = rule_row(api, then="action", params={"action": "close", "note": "Not needed"})["rule"]
