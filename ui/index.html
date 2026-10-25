@@ -49,6 +49,7 @@
 <link rel="stylesheet" href="/tico/ui/styles/visual-media.css">
 <link rel="stylesheet" href="/tico/ui/styles/chat-goal.css">
 <link rel="stylesheet" href="/tico/ui/styles/goals.css">
+<link rel="stylesheet" href="/tico/ui/styles/strategy.css">
 <link rel="stylesheet" href="/tico/ui/styles/tasks.css">
 <link rel="stylesheet" href="/tico/ui/styles/task-pipelines.css">
 <link rel="stylesheet" href="/tico/ui/styles/task-code.css">
@@ -83,7 +84,7 @@
   <header class="side-head">
     <button class="side-close" type="button" aria-label="Close navigation">×</button>
   </header>
-  <!-- The rail is Tasks, the Assistant, BotOps, Goals, Docs, Market and Meetings, then the team and
+  <!-- The rail is Tasks, the Assistant, BotOps, Goals, Docs, Strategy (with Market) and Meetings, then the team and
        the message bots. Tools, Runs, Replay, Usage, Changelog and Settings sit in the account menu below.
        The phone drawer (More) shows the same, opened. -->
   <nav class="side-scroll" aria-label="Pages and bots">
@@ -100,8 +101,8 @@
       <a class="nav-librarian" id="nav-docs-librarian" href="#/bot/librarian/more" hidden title="Librarian settings" aria-label="Librarian settings"><span class="nav-icon" aria-hidden="true">settings</span></a>
     </div>
     <div class="nav-row">
-      <a class="nav-link" href="#/market" data-nav="market"><span class="nav-icon" aria-hidden="true">storefront</span>Market</a>
-      <a class="nav-librarian" id="nav-market-librarian" href="#/bot/librarian/more" hidden title="Librarian settings" aria-label="Librarian settings"><span class="nav-icon" aria-hidden="true">settings</span></a>
+      <a class="nav-link" href="#/strategy" data-nav="strategy"><span class="nav-icon" aria-hidden="true">strategy</span>Strategy</a>
+      <a class="nav-librarian" id="nav-strategy-librarian" href="#/bot/librarian/more" hidden title="Librarian settings" aria-label="Librarian settings"><span class="nav-icon" aria-hidden="true">settings</span></a>
     </div>
     <a class="nav-link" href="#/meetings" data-nav="meetings"><span class="nav-icon" aria-hidden="true">forum</span>Meetings<span class="nav-badge meet-pending-badge" data-meet-pending hidden></span></a>
     <section class="side-pins" id="nav-pins" aria-labelledby="nav-pins-h" hidden><h2 class="side-pins-h" id="nav-pins-h">Pipelines</h2><ul class="pin-list" id="pin-list"></ul></section>
@@ -186,6 +187,7 @@
 <script src="/tico/ui/docs-ask.js"></script>
 <script src="/tico/ui/docs-page.js"></script>
 <script src="/tico/ui/market-page.js"></script>
+<script src="/tico/ui/strategy-page.js"></script>
 <script src="/tico/ui/changelog.js"></script>
 <script src="/tico/ui/observability.js"></script>
 <script src="/tico/ui/github-connect.js"></script>

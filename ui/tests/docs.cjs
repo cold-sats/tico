@@ -364,7 +364,7 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
     assert.equal(requests.filter(r => r.api === 'docs/ask').length, docsAsks);
     assert.equal(await page.locator('[data-docs-ask] [data-answer]').innerText(), 'Rival competes on price.');
     await page.locator('.dask-cites .dask-cite').click();
-    await page.waitForFunction(() => location.hash === '#/market?note=company%2Frival');
+    await page.waitForFunction(() => location.hash === '#/strategy/market?note=company%2Frival');
     await page.locator('#market-read [data-market-research="company/rival"]').click();
     await page.locator('form[data-research-form] textarea').fill('Find their pricing');
     await page.locator('form[data-research-form] [type=submit]').click();

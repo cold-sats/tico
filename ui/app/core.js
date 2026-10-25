@@ -24,6 +24,7 @@ const SETTINGS = '#/settings';
 const HELP = '#/help';                // old Help links: Overview with the Support pop-up open (ui/support.js)
 const CREDENTIALS = '#/credentials';   // the owner's connections: what is connected and whether it works
 const SQL_PAGE = '#/sql';              // the owner's and admins' read-only query page over the hub database
+const STRATEGY = '#/strategy';       // the team's strategy, with Market as its second tab (ui/strategy-page.js)
 const DOCS = '#/docs';              // team-wide documentation, separate from bot Docs tabs
 const INTEGRATIONS = '#/integrations'; // integrations/*.md: how a bot uses each outside system, its queries, shared learnings
 const MAIL = '#/mail';                // server-stored mail copies; #/inbox redirects here
