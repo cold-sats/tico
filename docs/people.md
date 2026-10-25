@@ -32,6 +32,10 @@ The page answers three things: how humans get here, who is here, and what each h
   their profile, not here.
 - **Mark as left.** They drop off the team chart, their API tokens are revoked, and they can no longer sign in. **Restore** (under
   **Left**) brings them back (their old tokens stay revoked).
+- **Remove** (under **Left**, owner only) deletes someone added by mistake for good, with their unused tokens, sent invites
+  and allow-list address. Only a left human with no history can be removed: nothing they did (an event, a message, a task, an
+  approval, a used token) or that names them anywhere else, and not synced from a directory. Anyone else stays as left
+  (`Has history; stays as left`). The audit event `person.removed` keeps their name and email.
 - **Bot limit per member**: 25 active bots by default. A team still on the old default of 5 is moved to 25 once on upgrade;
   a 5 someone set by changing it from another number, and any other number, stays.
 
@@ -199,7 +203,8 @@ source), `POST /api/v2/access/humans`, `POST /api/v2/access/humans/{id}` (`role`
 `add_people`, `left: false`), `PUT /api/v2/access/limits` (owners and admins), and owner only `PUT /api/v2/access/allow` (with
 `expected_revision`), `POST /api/v2/access/owner` (with `expected_revision` and `confirm: true`), `POST /api/v2/access/owner/email`
 (`email`, `confirm_email`, `expected_revision` and `confirm: true`; signed in as the owner, not with a token). Marking someone as left
-uses `POST /api/v2/humans/{id}` with `left: true` (owner only).
+uses `POST /api/v2/humans/{id}` with `left: true` (owner only); removing a left human with no history uses
+`DELETE /api/v2/humans/{id}` (owner only; `removable` in `GET /api/v2/access` says whether the People tab offers it).
 
 ## Directory sync
 
