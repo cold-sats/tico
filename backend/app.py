@@ -56,6 +56,7 @@ from clients import gateway as gateway_client
 from . import company_billing, company_server, gateway_connection, gateway_page, gateway_tiers
 from . import providers as Providers
 from . import access as Access
+from . import people_remove
 from . import hosted_updates, releases, runner_versions, ui_bundle
 from .bot_rows import BotRows
 from .census import Census
@@ -2415,6 +2416,34 @@ def create_app(settings=None):
                 return P.profile(row)
             raise Problem("not_found", "Person not found", 404)
         return mutate(request, body, work)
+
+    @app.delete("/api/v2/people/{pid}")
+    def person_remove(request: Request, pid: str):
+        """The owner removes a left person who has no history, such as one added by mistake, for good
+        (backend/people_remove.py). Anyone with history stays as left."""
+        who = request.state.identity
+        auth.domain(who)
+        if who.role != "owner":
+            raise Problem("forbidden", "Only the owner removes someone", 403)
+
+        def person(c):
+            found = P.person(pid, views.roster(c))
+            if not found:
+                raise Problem("not_found", "Person not found", 404)
+            return found
+        with store.read_transaction() as c:          # every table is read once, outside the write lock
+            found = P.person(pid, views.roster(c))     # gone already: a retry's replay, or the 404 below
+            if found and not people_remove.check(found) and people_remove.history(c, pid):
+                raise Problem("has_history", people_remove.KEEPS, 409)
+
+        def work(c):
+            roster = views.roster(c)
+            people_remove.remove(c, who.actor, roster, person(c))
+            return {"person": pid, "removed": True}
+        result = mutate(request, M.Empty(), work)
+        with store.read() as c:
+            auth.sync_access(c)
+        return result
 
     @app.get("/api/v2/people/{pid}/slack")
     def person_slack(request: Request, pid: str):

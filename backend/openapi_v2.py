@@ -107,6 +107,8 @@ STABLE = [
     ("/api/v2/org-models", "get", "Team chart", "listOrgModels",
      "Published Tico starter org charts used for re-org recommendations; contains no customer org data", "OrgModels"),
     ("/api/v2/humans/{pid}", "post", "Team chart", "updatePerson", "Edit a person's profile or reports_to", None),
+    ("/api/v2/humans/{pid}", "delete", "Team chart", "removePerson",
+     "Remove a left person with no history for good (owner only); anyone with history stays as left", None),
     ("/api/v2/seats", "get", "Team chart", "listSeats",
      "The Recruiting seats: roles on the chart with a job description and reporting line, and no bot. A seat holds no "
      "work: a task for it is refused and its role's work stays with its manager", "SeatList"),
