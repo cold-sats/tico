@@ -269,3 +269,24 @@ def test_queued_jobs_that_never_started_do_not_count_toward_the_stop(api):
     other = runner(api, label='Other synthetic computer')
     independent(api, other)
     assert claim(api, other, 'finance') is not None
+
+
+def test_waiters_are_dropped_below_the_warning_so_claims_stop_taking_the_write_lock(api, monkeypatch):
+    """A waiter that cannot run (its bot cooling off a limit) stayed one for good, and while any waiter was left every
+    claim of every computer went to the write lock to check them all: 5-10 s holds per claim on a live install."""
+    one_person(api)
+    machine = waiters(api, n=99, running=1)
+    independent(api, machine)
+    assert claim(api, machine, 'finance') is None
+    with api.app.state.store.transaction() as c:
+        assert c.execute('SELECT count(*) FROM org_turn_waits').fetchone()[0] == 1
+        c.execute("UPDATE attempts SET state='completed' WHERE state IN ('leased','running')")
+        c.execute("UPDATE jobs SET state='completed' WHERE state IN ('leased','running')")
+        c.execute("UPDATE bots SET state='paused' WHERE slug='finance'")
+    assert claim(api, machine, 'finance') is None
+    with api.app.state.store.read() as c:
+        assert c.execute('SELECT count(*) FROM org_turn_waits').fetchone()[0] == 0
+    wrote = []
+    monkeypatch.setattr(api.app.state.execution, 'claim', lambda *a, **k: wrote.append(1) or {'attempt': None})
+    assert claim(api, machine, 'finance') is None
+    assert not wrote                # answered on the read connection

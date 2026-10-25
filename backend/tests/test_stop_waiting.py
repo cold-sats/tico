@@ -127,6 +127,27 @@ def test_obsolete_notice_is_cancelled_even_when_idle_claim_finds_no_candidate(ap
         assert c.execute("SELECT state FROM jobs WHERE message_id=?", (notice["id"],)).fetchone()[0] == "cancelled"
 
 
+def test_a_notice_a_person_caused_on_a_finished_task_leaves_idle_claims_read_only(api, monkeypatch):
+    """The claim keeps it (it owes that person an answer), so the idle claim must not count it as one to cancel: it did,
+    and every claim from that computer took the write lock while the bot waited out a usage limit."""
+    machine, task, original = task_attempt(api)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE attempts SET state='completed',finished=? WHERE id=?", (H.now(), original["id"]))
+        c.execute("UPDATE jobs SET state='completed' WHERE id=?", (original["job_id"],))
+        c.execute("UPDATE tasks SET status='done' WHERE id=?", (task["id"],))
+        notice = H.say(c, H.KEEPER, "bot:ops", "Task closed by human:ana", kind="notice",
+                       conversation_id=task["conversation_id"],
+                       refs={"task": task["id"], "trigger": "other", "wake": "update", "caused_by": "human:ana"})
+        W.tick(c, H.shift(H.now(), minutes=2))
+        c.execute("UPDATE bots SET state='paused' WHERE slug='ops'")
+    wrote = []
+    monkeypatch.setattr(api.app.state.execution, "claim", lambda *a, **k: wrote.append(1) or {"attempt": None})
+    assert claim(api, machine) is None
+    assert not wrote                # answered on the read connection
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT state FROM jobs WHERE message_id=?", (notice["id"],)).fetchone()[0] == "queued"
+
+
 @pytest.mark.parametrize("cause", ["stop", "done", "declined"])
 def test_expiry_judges_folded_inputs_by_their_own_task(api, cause):
     machine, task, attempt = task_attempt(api)

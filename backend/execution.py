@@ -1142,6 +1142,28 @@ def job_refusal(c, job, followed, ready, busy, lanes, roots, live=frozenset()):
     return None
 
 
+def obsolete_notices_sql():
+    """FROM and WHERE of the keeper notices a claim cancels, for one runner (?), the keeper (?) and now (?): any queued
+    on a task already finished, unless a person's own act caused it (H._write_message: it still owes that person its
+    answer), and a self-filed task's "New task" notice while the task is parked and its filing turn has ended. The
+    idle claim asks the same question: when it counted notices the claim keeps, every claim from that computer went
+    on to the write lock for nothing. It goes from this computer's bots to their queued jobs (jobs_queue): left to
+    itself SQLite starts from every keeper notice ever sent, tens of milliseconds on each of a runner's claims."""
+    return ("FROM assignments x CROSS JOIN jobs j CROSS JOIN messages m "
+            f"JOIN conversations cv ON cv.id=m.conversation_id JOIN tasks t ON t.id={H.MESSAGE_TASK_SQL} "
+            "WHERE x.runner_id=? AND j.bot=x.bot AND j.state='queued' AND m.id=j.message_id "
+            "AND m.from_actor=? AND m.kind='notice' "
+            "AND ((t.status IN ('done','closed','declined') "
+            "AND coalesce(json_extract(m.refs_json,'$.caused_by'),'') NOT LIKE 'human:%') "
+            "OR (m.body LIKE 'New task from %' AND m.to_actor=t.owner "
+            "AND json_extract(m.refs_json,'$.filed_in') IS NOT NULL "
+            "AND (t.status IN ('waiting','blocked') OR t.snoozed_until>?) "
+            "AND NOT EXISTS (SELECT 1 FROM attempts fa WHERE fa.id=json_extract(m.refs_json,'$.filed_in') "
+            "AND fa.state IN ('leased','running')))) "
+            "AND NOT EXISTS (SELECT 1 FROM job_recovery r WHERE r.job_id=j.id "
+            "AND r.attempt_id=j.attempt_id AND r.decision='resume')")
+
+
 HAND_BACK_WAIT = 15          # seconds before a handed-back job is handed out again, doubled for each hand-back
 HAND_BACK_MAX = 300
 
@@ -1928,15 +1950,7 @@ class Execution:
         if (awake_since != runner["awake_since"] or not runner["last_seen"]
                 or runner["last_seen"] <= H.shift(now, seconds=-CONTACT_EVERY)):
             return None
-        # From this computer's bots to their queued jobs (jobs_queue): left to itself SQLite starts from
-        # every keeper notice ever sent, tens of milliseconds on each of a runner's frequent claims.
-        if c.execute("SELECT 1 FROM assignments x CROSS JOIN jobs j CROSS JOIN messages m "
-                     f"JOIN conversations cv ON cv.id=m.conversation_id JOIN tasks t ON t.id={H.MESSAGE_TASK_SQL} "
-                     "WHERE x.runner_id=? AND j.bot=x.bot AND j.state='queued' AND m.id=j.message_id "
-                     "AND m.from_actor=? AND m.kind='notice' AND t.status IN ('done','closed','declined') "
-                     "AND NOT EXISTS (SELECT 1 FROM job_recovery r WHERE r.job_id=j.id "
-                     "AND r.attempt_id=j.attempt_id AND r.decision='resume') LIMIT 1",
-                     (who.runner_id, H.KEEPER)).fetchone():
+        if c.execute("SELECT 1 " + obsolete_notices_sql() + " LIMIT 1", (who.runner_id, H.KEEPER, now)).fetchone():
             return None
         company = org_turns.snapshot(c, self.store.settings)
         if org_turns.needs_observation(c, company):
@@ -2020,21 +2034,8 @@ class Execution:
         # wakes of every kind, while preserving people's messages and explicitly resumed jobs.
         # A keeper notice of a person's own act still owes that person its answer (H._write_message).
         # A self-filed task left parked when its filing turn ended waits for its actual trigger instead.
-        obsolete = c.execute("SELECT j.id,j.bot,j.attempt_id,j.message_id,t.id AS task_id FROM assignments x "
-            "CROSS JOIN jobs j CROSS JOIN messages m "
-            f"JOIN conversations cv ON cv.id=m.conversation_id JOIN tasks t ON t.id={H.MESSAGE_TASK_SQL} "
-            "WHERE x.runner_id=? AND j.bot=x.bot AND j.state='queued' AND m.id=j.message_id "
-            "AND m.from_actor=? AND m.kind='notice' "
-            "AND ((t.status IN ('done','closed','declined') "
-            "AND coalesce(json_extract(m.refs_json,'$.caused_by'),'') NOT LIKE 'human:%') "
-            "OR (m.body LIKE 'New task from %' AND m.to_actor=t.owner "
-            "AND json_extract(m.refs_json,'$.filed_in') IS NOT NULL "
-            "AND (t.status IN ('waiting','blocked') OR t.snoozed_until>?) "
-            "AND NOT EXISTS (SELECT 1 FROM attempts fa WHERE fa.id=json_extract(m.refs_json,'$.filed_in') "
-            "AND fa.state IN ('leased','running')))) "
-            "AND NOT EXISTS (SELECT 1 FROM job_recovery r WHERE r.job_id=j.id "
-            "AND r.attempt_id=j.attempt_id AND r.decision='resume') ORDER BY j.created,j.id LIMIT ?",
-            (who.runner_id,H.KEEPER,now,CLAIM_MAINTENANCE)).fetchall()
+        obsolete = c.execute("SELECT j.id,j.bot,j.attempt_id,j.message_id,t.id AS task_id " + obsolete_notices_sql() +
+                             " ORDER BY j.created,j.id LIMIT ?", (who.runner_id, H.KEEPER, now, CLAIM_MAINTENANCE)).fetchall()
         for old in obsolete:
             if not prepared:
                 selected = None

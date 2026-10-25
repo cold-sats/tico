@@ -103,6 +103,10 @@ def missing(c, settings, runner, body):
         slug = bot['bot']
         if bot['onboarding_state'] in ('needs_setup', 'needs_onboarding'):
             continue
+        # Most bots own no open task: asking first spares each a claim_refusal (readiness, spend, logins), which was
+        # most of an idle claim's time on an install of forty bots.
+        if not c.execute("SELECT 1 FROM tasks WHERE owner=? AND status='open' LIMIT 1", ('bot:' + slug,)).fetchone():
+            continue
         why, config = E.claim_refusal(c, settings, runner, slug, bot['config_json'], bot['draining'], ready, held_bots)
         if why:
             continue
