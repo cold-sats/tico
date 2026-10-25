@@ -296,7 +296,12 @@ pub async fn ensure(main: &Path, path: &Path, task: &str, turn: &Env) -> (String
         return (String::new(), MISSING.into());
     }
     let made: Result<(String, String), Fault> = async {
-        let common = gitrun::git(main, &env, &["rev-parse", "--path-format=absolute", "--git-common-dir"], 15).await?.stdout.trim().to_string();
+        let asked = gitrun::git(main, &env, &["rev-parse", "--path-format=absolute", "--git-common-dir"], 15).await?;
+        if !asked.ok() {
+            // Said as git says it, not taken for shared metadata.
+            return Ok((String::new(), format!("can't read the bot's checkout: {}", git_reason(&asked))));
+        }
+        let common = asked.stdout.trim().to_string();
         if Path::new(&common).canonicalize().ok() != main.join(".git").canonicalize().ok() {
             return Ok((String::new(), "the bot's checkout shares Git metadata outside its own repository; left as it is".into()));
         }
