@@ -33,7 +33,8 @@ const whPresetName = p => (WH_PRESETS.find(([k]) => k === p) || [p, p])[1];
 // A local day `offset` days from today, as an <input type=date> value.
 const whDay = offset => { const d = new Date(Date.now() + offset * 864e5); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const whPlural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
-const whMine = t => !t.builtin && (S.me?.role === 'owner' || t.created_by === 'human:' + (S.me?.id || ''));
+// Who manages an incoming webhook (backend/triggers.py `manages`): the owner, an admin, or whoever made it.
+const whMine = t => !t.builtin && (settingsIsAdmin() || t.created_by === 'human:' + (S.me?.id || ''));
 const whOpt = (v, label, cur) => `<option value="${esc(v)}"${String(v) === String(cur) ? ' selected' : ''}>${esc(label)}</option>`;
 
 async function renderSettingsWebhooks() {
@@ -393,14 +394,89 @@ function whEventsValue(box) {
   });
   return out;
 }
+// The events an endpoint may subscribe to: the catalog less the ones only rules see (`outbound: false`).
+const whOutbound = types => types.filter(t => t.outbound !== false);
+// Filters (backend/webhooks.py FilterIn): departments, bots, task types. A list left empty lets every event through.
+// A name the lists no longer have (a removed bot) stays, checked, so saving keeps it.
+const WH_FILTERS = [['departments', 'Departments'], ['bots', 'Bots'], ['task_types', 'Task types']];
+let WH_DEPTS = null;
+async function whFilterChoices() {
+  const [routines] = await Promise.all([SYSTEM_ROUTINES || WH_DEPTS || get('/v2/system-routines').catch(() => null), taskTypesLoad({cached: true}).catch(() => [])]);
+  if (routines?.task_rule_departments) WH_DEPTS = {task_rule_departments: routines.task_rule_departments};
+  return {
+    departments: (routines?.task_rule_departments || []).map(d => [d.id, d.name]),
+    bots: (S.emps || []).filter(e => e.status !== 'archived').map(e => [e.name, empName(e.name)]).sort((a, b) => a[1].localeCompare(b[1])),
+    task_types: (TASK_TYPES || []).map(t => [t.id, t.name]),
+  };
+}
+const whFilterIds = (key, list) => (list || []).map(v => key === 'bots' ? String(v).replace(/^bot:/, '') : String(v));
+function whFiltersHTML(filter, choices) {
+  const cols = WH_FILTERS.map(([key, label]) => {
+    const chosen = new Set(whFilterIds(key, filter?.[key])), known = new Set(choices[key].map(([v]) => v));
+    const items = [...choices[key], ...[...chosen].filter(v => !known.has(v)).map(v => [v, v])];
+    if (!items.length) return '';
+    return `<div class="wh-ev-group wh-filter" data-filter="${key}"><span class="wh-filter-head">${label} <span class="muted" data-filter-all>All</span></span>
+      <div class="wh-filter-items">${items.map(([v, w]) => `<label><input type="checkbox" value="${esc(v)}"${chosen.has(v) ? ' checked' : ''}> ${esc(w)}</label>`).join('')}</div></div>`;
+  }).join('');
+  return cols ? `<fieldset class="wh-events" data-wh-filters><legend>Filters</legend><div class="wh-ev-groups">${cols}</div></fieldset>` : '';
+}
+function whFiltersBind(box) {
+  const sync = () => box.querySelectorAll('[data-filter]').forEach(g => { g.querySelector('[data-filter-all]').hidden = !!g.querySelector('input:checked'); });
+  box.addEventListener('change', sync); sync();
+}
+function whFiltersValue(box) {
+  const out = {departments: [], bots: [], task_types: []};
+  box.querySelectorAll('[data-filter]').forEach(g => { out[g.dataset.filter] = [...g.querySelectorAll('input:checked')].map(i => i.value); });
+  return out;
+}
+// Custom headers (backend/webhooks.py HeaderIn), at most ten. A secret's value never comes back: its row says "set",
+// and left empty it keeps the value it has.
+const WH_MAX_HEADERS = 10;
+function whHeaderRowHTML(x = {}) {
+  const kept = x.secret && x.set;
+  return `<div class="wh-hdr" data-hdr>
+    <input data-hdr-name maxlength="64" autocomplete="off" spellcheck="false" placeholder="Name" aria-label="Header name" value="${esc(x.name || '')}">
+    <input data-hdr-value type="${x.secret ? 'password' : 'text'}" maxlength="1000" autocomplete="new-password" spellcheck="false" aria-label="Value" placeholder="${kept ? 'set' : 'Value'}" value="${kept ? '' : esc(x.value || '')}">
+    <label class="wh-hdr-secret"><input type="checkbox" data-hdr-secret${x.secret ? ' checked' : ''}> Secret</label>
+    <button type="button" class="ghost" data-hdr-remove aria-label="Remove header">✕</button></div>`;
+}
+function whHeadersHTML(list) {
+  return `<fieldset class="wh-events" data-wh-headers><legend>Headers</legend><div class="wh-hdrs">${(list || []).map(whHeaderRowHTML).join('')}</div>
+    <div><button type="button" class="ghost" data-hdr-add>Add header</button></div></fieldset>`;
+}
+function whHeadersBind(box) {
+  const rows = box.querySelector('.wh-hdrs'), add = box.querySelector('[data-hdr-add]');
+  const sync = () => { add.hidden = rows.children.length >= WH_MAX_HEADERS; };
+  add.onclick = () => { rows.insertAdjacentHTML('beforeend', whHeaderRowHTML()); sync(); rows.lastElementChild.querySelector('[data-hdr-name]').focus(); };
+  box.addEventListener('click', ev => { const x = ev.target.closest('[data-hdr-remove]'); if (x) { x.closest('[data-hdr]').remove(); sync(); } });
+  // A secret is typed hidden.
+  box.addEventListener('change', ev => {
+    if (ev.target.matches('[data-hdr-secret]')) ev.target.closest('[data-hdr]').querySelector('[data-hdr-value]').type = ev.target.checked ? 'password' : 'text';
+  });
+  sync();
+}
+function whHeadersValue(box) {
+  const out = [];
+  box.querySelectorAll('[data-hdr]').forEach(r => {
+    const name = r.querySelector('[data-hdr-name]').value.trim(), value = r.querySelector('[data-hdr-value]').value, secret = r.querySelector('[data-hdr-secret]').checked;
+    if (!name && !value) return;
+    if (!name) throw new Error('Name each header');
+    out.push(secret && !value ? {name, secret} : {name, value, secret});
+  });
+  return out;
+}
 async function whHookDialog(h) {
-  const types = await eventTypesLoad().catch(() => []);
+  const [types, choices] = await Promise.all([eventTypesLoad().catch(() => []), whFilterChoices()]);
   const dialog = whDialog(h ? 'Edit endpoint' : 'New endpoint', `<label>Name<input name="name" maxlength="100" required autocomplete="off" value="${esc(h?.name || '')}"></label>
     <label>URL<input name="url" type="url" maxlength="2000" required autocomplete="off" spellcheck="false" placeholder="https://" value="${esc(h?.url || '')}"></label>
     <label data-wh-http hidden><input type="checkbox" name="allow_http"${h?.allow_http ? ' checked' : ''}> Allow plain http to this computer</label>
-    ${whEventsHTML(types, h?.events || ['*'])}`, `<button type="submit" class="primary">${h ? 'Save' : 'Create'}</button>`);
+    ${whEventsHTML(whOutbound(types), h?.events || ['*'])}${whFiltersHTML(h?.filter, choices)}${whHeadersHTML(h?.headers)}`,
+  `<button type="submit" class="primary">${h ? 'Save' : 'Create'}</button>`);
   const form = dialog.querySelector('form'), events = dialog.querySelector('[data-wh-events]');
+  const filters = dialog.querySelector('[data-wh-filters]'), headers = dialog.querySelector('[data-wh-headers]');
   whEventsBind(events);
+  if (filters) whFiltersBind(filters);
+  whHeadersBind(headers);
   const http = () => { dialog.querySelector('[data-wh-http]').hidden = !/^http:/i.test(form.elements.url.value.trim()); };
   form.elements.url.oninput = http; http();
   whSubmit(dialog, async v => {
@@ -408,10 +484,13 @@ async function whHookDialog(h) {
     if (!chosen.length) throw new Error('Pick at least one event');
     const url = String(v.get('url')).trim();
     const body = {name: String(v.get('name')).trim(), url, events: chosen, allow_http: /^http:/i.test(url) && v.has('allow_http')};
+    const filter = filters ? whFiltersValue(filters) : null, sent = whHeadersValue(headers);
     if (h) {
-      await post(`/v2/webhooks/${encodeURIComponent(h.id)}/update`, {...body, expected_revision: h.revision});
+      await post(`/v2/webhooks/${encodeURIComponent(h.id)}/update`, {...body, ...(filter ? {filter} : {}), headers: sent, expected_revision: h.revision});
       dialog.close(); void renderSettingsWebhooks(); return;
     }
+    if (filter && Object.values(filter).some(x => x.length)) body.filter = filter;
+    if (sent.length) body.headers = sent;
     const made = await post('/v2/webhooks', body);
     dialog.close();
     if (!made.webhook) { toast('Sent for approval'); void renderSettingsWebhooks(); return; }
@@ -423,18 +502,22 @@ async function whHookDialog(h) {
 }
 async function whHookDetail(el, run) {
   const id = WH.hook, path = `/v2/webhooks/${encodeURIComponent(id)}`;
-  const [d, sends, types] = await Promise.all([get(path, {fresh: true}), get(path + '/sends?limit=50', {fresh: true}), eventTypesLoad().catch(() => [])]);
+  const [d, sends, types, choices] = await Promise.all([get(path, {fresh: true}), get(path + '/sends?limit=50', {fresh: true}), eventTypesLoad().catch(() => []),
+    whFilterChoices()]);
   if (run !== WH_RUN) return;
   const h = d.webhook, items = sends.items || [], may = h.can_change;
   const actions = may ? `<button class="ghost" type="button" data-wh-hook-edit>Edit</button>
     <button class="ghost" type="button" data-wh-hook-pause>${h.enabled ? 'Pause' : 'Resume'}</button>
     <button class="ghost" type="button" data-wh-hook-rotate>New secret</button><button class="ghost" type="button" data-wh-hook-delete>Delete</button>` : '';
-  const names = types.filter(t => !t.name.includes('*')).map(t => t.name);
+  const names = whOutbound(types).filter(t => !t.name.includes('*')).map(t => t.name);
+  const filterWords = WH_FILTERS.flatMap(([key]) => whFilterIds(key, h.filter?.[key]).map(v => (choices[key].find(([id]) => id === v) || [v, v])[1]));
   el.innerHTML = `${whHeadHTML(h.name, whHookPills(h), actions)}
     ${WH.hookShown?.id === id ? whSecretHTML('Signing secret', WH.hookShown.secret, 'secret') : ''}
     <dl class="wh-facts">
       <dt>URL</dt><dd><code>${esc(h.url)}</code></dd>
       <dt>Events</dt><dd>${h.events.includes('*') ? 'All events' : h.events.map(e => `<code>${esc(e)}</code>`).join(' ')}</dd>
+      ${filterWords.length ? `<dt>Filters</dt><dd data-wh-filter-facts>${esc(filterWords.join(' · '))}</dd>` : ''}
+      ${h.headers?.length ? `<dt>Headers</dt><dd data-wh-header-facts>${h.headers.map(x => `<code>${esc(x.name)}</code>${x.secret ? ' <span class="muted">secret</span>' : ''}`).join(', ')}</dd>` : ''}
       <dt>7 days</dt><dd><span class="tnum">${h.last_7_days.delivered} sent</span> · <span class="tnum${h.last_7_days.failed ? ' wh-bad' : ''}">${h.last_7_days.failed} failed</span>${h.last_7_days.pending ? ` · <span class="tnum">${h.last_7_days.pending} waiting</span>` : ''}</dd>
       ${h.enabled ? '' : `<dt>Paused</dt><dd>${esc(h.paused_reason || 'Yes')}</dd>`}
       ${h.old_secret_until ? `<dt>Old secret</dt><dd>Works until ${esc(fmt(h.old_secret_until))}</dd>` : ''}
@@ -486,7 +569,10 @@ async function whHookDetail(el, run) {
 
 // ---------------------------------------------------------------------------------------------- Through Tico Gateway
 async function whGateway(el, run) {
-  const [relay, list] = await Promise.all([get('/v2/relay', {fresh: true}).then(d => d.relay), whTriggersFresh()]);
+  // Wake this server (backend/hook_relay.py `wake`): only a server Tico hosts sleeps (GET /v2/sleep `hosted`). Null is
+  // on: HQ wakes a hosted install for a new relay until told otherwise (contract C8).
+  const [relay, list, hosted] = await Promise.all([get('/v2/relay', {fresh: true}).then(d => d.relay), whTriggersFresh(),
+    get('/v2/sleep').then(d => !!d.sleep?.hosted).catch(() => false)]);
   if (run !== WH_RUN) return;
   const link = settingsIsAdmin() ? ' <a href="#/settings" data-wh-gateway-link>Gateway</a>' : '';
   if (relay.key === 'none') { el.innerHTML = `<div class="empty" data-wh-no-key>Connect the Gateway first.${link}</div>`; return; }
@@ -499,9 +585,16 @@ async function whGateway(el, run) {
     ${rows.length ? `<div class="wh-list" data-wh-relays>${rows.map(t => `<div class="wh-row wh-gw" data-wh-relay="${esc(t.id)}">
         <span class="wh-name"><strong>${esc(t.name)}</strong></span>
         <span class="wh-meta">${t.relay ? `<code>${esc(t.relay.address_prefix)}/…</code>` : '<span class="muted">No address</span>'}</span>
-        <span class="wh-call-ctl">${whMine(t) ? (t.relay ? `<button class="ghost" type="button" data-wh-relay-do="rotate">New secret</button><button class="ghost" type="button" data-wh-relay-do="delete">Remove</button>`
+        <span class="wh-call-ctl">${hosted && t.relay ? `<label class="sysr-switch wh-wake">${peopleSwitch('data-wh-wake', t.relay.wake !== false, !whMine(t), 'Wake this server')}<span>Wake this server</span></label>` : ''}${whMine(t) ? (t.relay ? `<button class="ghost" type="button" data-wh-relay-do="rotate">New secret</button><button class="ghost" type="button" data-wh-relay-do="delete">Remove</button>`
           : `<button class="ghost" type="button" data-wh-relay-do="make">Make address</button>`) : ''}</span></div>`).join('')}</div>`
       : '<div class="empty">No incoming webhooks yet.</div>'}`;
+  el.querySelectorAll('[data-wh-wake]').forEach(box => { box.onchange = async () => {
+    const id = box.closest('[data-wh-relay]').dataset.whRelay;
+    box.disabled = true;
+    try { box.checked = !!(await post(`/v2/triggers/${encodeURIComponent(id)}/relay/wake`, {wake: box.checked})).relay.wake; }
+    catch (e) { box.checked = !box.checked; toast(e.message, true); }
+    finally { box.disabled = false; }
+  }; });
   el.querySelectorAll('[data-wh-relay-do]').forEach(b => { b.onclick = async () => {
     const id = b.closest('[data-wh-relay]').dataset.whRelay, what = b.dataset.whRelayDo, path = `/v2/triggers/${encodeURIComponent(id)}/relay`;
     if (what === 'delete' && !confirm('Remove the Gateway address? Calls to it stop at once.')) return;

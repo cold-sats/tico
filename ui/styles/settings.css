@@ -666,7 +666,15 @@ fieldset.brepo>.repo-name+p{margin:-4px 0 4px 24px;font-size:var(--t-xs);line-he
 .wh-pre{margin:0;padding:8px 10px;max-height:40vh;overflow:auto;border-radius:6px;background:var(--surface2);font-size:var(--t-xs);white-space:pre-wrap;overflow-wrap:anywhere}
 .wh-payload-meta{margin:0}
 .wh-dialog .wr-sub{margin:0}
+.wh-filter-head{color:var(--muted)}
+.wh-filter-items{display:grid;gap:2px;max-height:180px;overflow:auto}.wh-ev-group .wh-filter-items label{padding-left:0}
+.wh-hdrs{display:grid;gap:6px}.wh-hdrs:empty{display:none}
+.wh-hdr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr) auto auto;gap:6px 8px;align-items:center}
+.wh-hdr input:not([type=checkbox]){width:100%}
+.wh-hdr .wh-hdr-secret{gap:6px;font-size:var(--t-sm);white-space:nowrap}
+.wh-wake{font-size:var(--t-sm);white-space:nowrap}
 @media (max-width:640px){
+  .wh-hdr{grid-template-columns:minmax(0,1fr) auto auto}.wh-hdr [data-hdr-value]{grid-column:1/-1;grid-row:2}
   #settings-webhooks .sb-wide{display:none}#settings-webhooks .sb-narrow{display:inline}
   .wh-row{grid-template-columns:minmax(0,1fr) auto}.wh-row .wh-name{grid-column:1/-1}
   .wh-call,.wh-sends .wh-call{grid-template-columns:auto minmax(0,1fr) auto}

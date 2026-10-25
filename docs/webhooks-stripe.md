@@ -49,7 +49,7 @@ whose time is more than 5 minutes off, with 401. The type of each call is read f
 ## 4. Make the routine
 
 A routine can be set to run when a webhook is called. In the bot's Routines card, or Settings → Rules → New routine, choose
-*Runs: On a trigger* and pick *Stripe*. Or:
+*Runs: On an event* and pick *Stripe*. Or:
 
 ```
 hub routine set stripe-events --bot billing --title "Stripe event" --on webhook.stripe \
