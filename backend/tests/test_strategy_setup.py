@@ -140,6 +140,16 @@ def test_no_model_answers_at_once_and_only_the_owner_starts_or_reads_a_job(api, 
     get(api, "strategy/draft-from/nope", expected=404)
 
 
+def test_hub_sql_keeps_the_research_job_to_the_owner(api, monkeypatch):
+    monkeypatch.setattr(SS, "writer", lambda c, settings, store: None)
+    post(api, "strategy/draft-from", {"text": "Unannounced: bots for landlords"})
+    query = {"sql": "SELECT key, value_json FROM registry_metadata WHERE key=?", "params": [SS.KEY]}
+    assert "Unannounced" in post(api, "sql", query)["rows"][0][1]
+    assert post(api, "sql", query, token="ben-test")["rows"] == []                  # a bot administrator
+    keys = [r[0] for r in post(api, "sql", {"sql": "SELECT key FROM registry_metadata"}, token="ben-test")["rows"]]
+    assert "people" in keys and SS.KEY not in keys
+
+
 def test_an_internal_address_is_refused_before_any_connection(api, research):
     for url in ("http://127.0.0.1/", "http://localhost:8080", "http://[::1]/", "ftp://acme.example",
                 "http://169.254.169.254/latest/meta-data", "https://acme.example:abc"):

@@ -6,7 +6,6 @@
 'use strict';
 const SS_POLL_MS = 1500;
 // The research proposes a text Wrong if; one the owner adds from a gave-up run gets the same check-by the server gives.
-const SS_CHECK_DAYS = 90;
 
 // `not` is What we won't do as typed and not yet saved (null: untouched); `asked` the website and words the last run
 // was started with, so Back and Next again never starts a second one.
@@ -292,7 +291,7 @@ function ssBind(state) {
   }
   for (const b of root.querySelectorAll('[data-ss-take]')) {
     const i = Number(b.dataset.ssTake), bet = (found.bets || [])[i] || {};
-    const check_by = new Date(Date.now() + SS_CHECK_DAYS * 864e5).toISOString().slice(0, 10);
+    const check_by = stratCheckBy();
     take(b, 'bet' + i, () => post('/v2/strategy/bets', {statement: stratText(bet.statement), why: stratText(bet.why),
       rules_out: stratText(bet.rules_out), status: 'proposed',
       wrong_if: stratText(bet.wrong_if) ? {kind: 'text', text: stratText(bet.wrong_if), check_by} : null}));

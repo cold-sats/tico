@@ -121,6 +121,8 @@ async function open(browser, {mode = 'model', viewport = DESKTOP} = {}) {
         st.draft = {...st.draft, sections: {...st.draft.sections, ...body.sections}, revision: st.draft.revision + 1};
         return json({draft: st.draft});
       }
+      // The server's rule (strategy._wrong_if): a sentence wrong-if has a Check by.
+      if (body.wrong_if?.kind === 'text' && !body.wrong_if.check_by) return json({error: {code: 'lint', detail: 'a wrong-if in words needs a check_by date: the day to look again'}}, 422);
       const one = p.match(/^\/api\/v2\/strategy\/bets\/([^/]+)$/);
       if (one) { const b = st.bets.find(x => x.id === one[1]); Object.assign(b, body); st.draft.revision++; return json({bet: b, revision: st.draft.revision}); }
       if (p === '/api/v2/strategy/bets') {
@@ -242,7 +244,8 @@ async function building(page, website, text) {
       await form.locator('button[type="submit"]').click();
       await page.locator('li[data-ss-bet] .pill.ok').waitFor();
       assert.deepEqual(posts(sent, '/bets')[0][2], {statement: 'Cleaners pay for bookings, not seats.', why: '', rules_out: 'Per-seat pricing.',
-        wrong_if: {kind: 'text', text: 'Fewer than 20 paying cleaners by March', check_by: null}, status: 'active'});
+        wrong_if: {kind: 'text', text: 'Fewer than 20 paying cleaners by March', check_by: new Date(Date.now() + 90 * 864e5).toISOString().slice(0, 10)},
+        status: 'active'});
       await page.fill('#ss-not', 'No enterprise sales.');
       assert.equal(await page.locator('#onb-next').isDisabled(), false);
       assert.deepEqual(errors, []);
