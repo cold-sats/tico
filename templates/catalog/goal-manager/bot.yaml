@@ -11,10 +11,13 @@ max_run_minutes: 60
 # sends nothing outside: it asks goal owners a question and sends the owner a weekly review inside the team.
 outbound_send: false
 
-# Both routines are declared and paused (`enabled: false`), like a starter bot's first routine. The server
+# All three routines are declared and paused (`enabled: false`), like a starter bot's first routine. The server
 # arms `kpi-pass` itself once a KPI exists (it skips its runs while the owner has regular checks off), and starts
 # `goals-review`, the Monday note, only when the owner raises the CEO Bot above Passive (backend/ceo_bot.py). The server seeds them once, when the CEO Bot is built in;
 # from then on Tico's rows are the routines (docs/routines.md). Set the timezone to the team's own.
+# `strategy-check` is NOT yet on: its playbook is written, but the fit check it describes is not finished, so the
+# server never arms it and nothing turns it on but the owner (Resume on the Routines card, or
+# `hub routine update <id> --enable`). Leave it disabled here until docs/strategy.md says the check runs.
 routines:
   - id: kpi-pass
     title: KPI pass
@@ -28,6 +31,13 @@ routines:
     cron: "0 9 * * 1"
     timezone: America/Los_Angeles
     template: playbooks/weekly-goals-review.md
+    labels: [priority:p3]
+    enabled: false
+  - id: strategy-check                 # not yet on: see the comment above
+    title: Strategy check
+    cron: "0 9 1 * *"
+    timezone: America/Los_Angeles
+    template: playbooks/strategy-check.md
     labels: [priority:p3]
     enabled: false
 
