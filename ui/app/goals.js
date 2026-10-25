@@ -157,15 +157,15 @@ function goalNoteHtml(g, may) {
     ? `<div class="goal-note goal-suggest">${esc(ceoBotName())} suggests <b>${esc(g.suggest_status)}</b>${g.suggest_note ? ': ' + esc(g.suggest_note) : ''}${may ? ' <button class="linkish" type="button" data-goal-auto="' + esc(g.id) + '">Let ' + esc(ceoBotName()) + ' set it</button>' : ''}</div>` : '';
   return (said ? `<div class="goal-note">${esc(said)}</div>` : '') + suggest;
 }
-// The strategy's choices a goal may serve (ui/strategy-page.js): the active ones, and the one it serves now whatever its
-// status, so saving never drops it. Its caption is the framework's word for them ("Bets").
-function goalChoiceHtml(g, may) {
-  const st = GOALS_ST?.strategy, all = st?.choices || [];
-  const options = all.filter(c => c.status === 'active' || c.id === g.choice_id).sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9));
+// The bets a goal may serve (ui/strategy-page.js): the active ones, and the one it serves now whatever its status, so
+// saving never drops it. Its caption is the strategy's word for one ("Bet").
+function goalBetHtml(g, may) {
+  const st = GOALS_ST?.strategy, all = st?.bets || [];
+  const options = all.filter(c => c.status === 'active' || c.id === g.bet_id).sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9));
   if (!options.length) return '';
-  return `<label class="goal-f goal-choice-f"><span>${esc(st.label_one || st.label || 'Bet')}</span><select name="choice"${may ? '' : ' disabled'}>
-      <option value=""${g.choice_id ? '' : ' selected'}>None</option>${options.map(c =>
-        `<option value="${esc(c.id)}"${c.id === g.choice_id ? ' selected' : ''}>${esc(c.statement)}</option>`).join('')}</select></label>`;
+  return `<label class="goal-f goal-bet-f"><span>${esc(st.label_one || 'Bet')}</span><select name="bet"${may ? '' : ' disabled'}>
+      <option value=""${g.bet_id ? '' : ' selected'}>None</option>${options.map(c =>
+        `<option value="${esc(c.id)}"${c.id === g.bet_id ? ' selected' : ''}>${esc(c.statement)}</option>`).join('')}</select></label>`;
 }
 function goalFormHtml(g, goals, {owner = '', company = false, fixed = false} = {}) {
   company = company || g.owner === GOAL_COMPANY;      // a team goal supports nothing
@@ -179,7 +179,7 @@ function goalFormHtml(g, goals, {owner = '', company = false, fixed = false} = {
       ${choices.length ? `<div class="goal-fs"><label class="goal-f"><span>Owner</span><select name="owner">${choices.map(([v, name]) => `<option value="${esc(v)}"${v === who ? ' selected' : ''}>${esc(name)}</option>`).join('')}</select></label>
         <label class="goal-f"><span>Supports</span><select name="parent">${goalSupportOptions(g, who, goals)}</select></label></div>`
       : company ? '' : `<label class="goal-f"><span>Supports</span><select name="parent"${may ? '' : ' disabled'}>${goalSupportOptions(g, g.owner || who, goals)}</select></label>`}
-      ${goalChoiceHtml(g, may)}
+      ${goalBetHtml(g, may)}
       ${kids.length ? `<div class="goal-ed-kids"><span>Supported by</span>${kids.map(k =>
         `<a href="${GOALS}/${encodeURIComponent(k.id)}" data-goal-go="${esc(k.id)}">${esc(k.title)} <span class="muted">· ${esc(goalOwnerInfo(k.owner).name)}</span></a>`).join('')}</div>` : ''}
       ${may && g.id ? goalColourHtml(g) : ''}
@@ -190,7 +190,7 @@ function goalFormHtml(g, goals, {owner = '', company = false, fixed = false} = {
     </form>`;
 }
 function bindGoalForm(form, g, goals, {company = false, owner = ''} = {}, done) {
-  const title = form.elements.title, ownerSel = form.elements.owner, parentSel = form.elements.parent, choiceSel = form.elements.choice;
+  const title = form.elements.title, ownerSel = form.elements.owner, parentSel = form.elements.parent, betSel = form.elements.bet;
   const save = form.querySelector('[type=submit]');
   form.onkeydown = ev => { if (ev.key === 'Escape') { ev.preventDefault(); done(); } };
   form.querySelector('[data-goal-cancel]').onclick = () => done();
@@ -222,12 +222,12 @@ function bindGoalForm(form, g, goals, {company = false, owner = ''} = {}, done) 
         const body = {};
         if (words !== g.title) body.title = words;
         if (parentSel && parentSel.value !== (g.parent_id || '')) body.parent_id = parentSel.value;
-        if (choiceSel && choiceSel.value !== (g.choice_id || '')) body.choice_id = choiceSel.value || null;
+        if (betSel && betSel.value !== (g.bet_id || '')) body.bet_id = betSel.value || null;
         if (Object.keys(body).length) await post('/v2/goals/' + encodeURIComponent(g.id), body);
       } else {
         const body = {title: words, owner: company ? GOAL_COMPANY : ownerSel ? ownerSel.value : owner || 'me'};
         if (parentSel?.value) body.parent_id = parentSel.value;
-        if (choiceSel?.value) body.choice_id = choiceSel.value;
+        if (betSel?.value) body.bet_id = betSel.value;
         await post('/v2/goals', body);
       }
       await goalsRefresh();
@@ -258,7 +258,7 @@ function goalsApply(state, data, needs) {
   if (needs !== undefined) state.needs = (needs?.items || []).filter(n => !goalBuiltInOwner(n.goal_owner) && !goalBuiltInOwner(n.owner) && !(data.goals || []).some(g => g.id === (n.goal_id || n.proposal?.goal_id) && goalBuiltInOwner(g.owner)));
 }
 // Two requests: the tree and what needs you. The roster (people, bots, departments) is already in S.
-// The strategy comes with them, for its one line at the top (ui/goals-kpis.js goalStrategyHtml) and the choices a goal
+// The strategy comes with them, for its one line at the top (ui/goals-kpis.js goalStrategyHtml) and the bets a goal
 // may serve. The goals never wait on it: if it cannot be read, the line and the picker are left out.
 const goalStrategyGet = () => v2Get('/v2/strategy').catch(() => null);
 async function goalsLoad(state) {
@@ -266,7 +266,7 @@ async function goalsLoad(state) {
   try { [data, needs, strategy] = await Promise.all([get('/v2/goals/tree'), v2Get('/v2/goals/needs-you'), goalStrategyGet()]); }
   catch (e) { $('#goal-body').innerHTML = `<p class="err">${esc(e.message || 'Could not load goals')}</p>`; return; }
   if (GOALS_ST !== state) return;
-  state.strategy = strategy?.frameworks || strategy?.choices ? strategy : null;
+  state.strategy = Array.isArray(strategy?.bets) ? strategy : null;
   goalsApply(state, data, needs);
   state.loaded = true;
   goalsRender(state);
@@ -298,7 +298,7 @@ async function goalsRefresh() {
   if (GOALS_ST && $('#goal-body')) {
     const st = GOALS_ST;
     const [r, needs, strategy] = await Promise.all([v2Get('/v2/goals/tree'), v2Get('/v2/goals/needs-you'), goalStrategyGet()]);
-    if (r && st === GOALS_ST) { goalsApply(st, r, needs); if (strategy?.frameworks || strategy?.choices) st.strategy = strategy; }
+    if (r && st === GOALS_ST) { goalsApply(st, r, needs); if (Array.isArray(strategy?.bets)) st.strategy = strategy; }
   }
   headGoalsReload();
 }

@@ -468,6 +468,41 @@ function orgGroupFieldWire() {
   };
   input.onblur = () => { ORG_EDIT = null; renderTree(); };
 }
+// A group's bet (groups.bet_id, ui/strategy-page.js): the owner picks one of the strategy's active bets, or None, from
+// the flag on the group's row; it saves when picked. The bets are read when a picker first opens.
+let ORG_BET = null;                         // the group whose Bet picker is open
+let ORG_BETS = null;                        // {bets, one} from GET /v2/strategy, once read
+const orgMayBet = () => S.me?.role === 'owner';
+const orgGroupBet = id => (S.orgGroups || []).find(g => g.id === id)?.bet_id || null;
+async function orgBetOpen(id) {
+  ORG_BET = ORG_BET === id ? null : id;
+  renderTree();
+  if (ORG_BET && !ORG_BETS) {
+    const st = await get('/v2/strategy').catch(() => null);
+    ORG_BETS = {bets: st?.bets || [], one: st?.label_one || 'Bet'};
+    renderTree();
+  }
+  $('#tree [data-group-bet-select]')?.focus();
+}
+function orgBetPopHTML(group) {
+  if (!ORG_BETS) return `<div class="org-bet-pop" data-group-bet-pop="${esc(group.id)}"><span class="muted">Loading…</span></div>`;
+  const options = ORG_BETS.bets.filter(b => b.status === 'active' || b.id === group.bet_id).sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9));
+  return `<div class="org-bet-pop" data-group-bet-pop="${esc(group.id)}"><label class="goal-f org-bet-f"><span>${esc(ORG_BETS.one)}</span>
+      <select data-group-bet-select="${esc(group.id)}"><option value=""${group.bet_id ? '' : ' selected'}>None</option>${options.map(b =>
+        `<option value="${esc(b.id)}"${b.id === group.bet_id ? ' selected' : ''}>${esc(b.statement)}</option>`).join('')}</select></label></div>`;
+}
+async function orgBetSave(select) {
+  const id = select.dataset.groupBetSelect, group = (S.orgGroups || []).find(g => g.id === id);
+  if (!group || select.value === (group.bet_id || '')) return;
+  select.disabled = true;
+  try {
+    await patch(`/v2/groups/${encodeURIComponent(id)}`, {bet_id: select.value || null});
+    group.bet_id = select.value || null;
+    ORG_BET = null;
+    await refresh(true);
+  } catch (e) { toast(e.message, true); select.disabled = false; }
+  renderTree();
+}
 // The org list has no hover card on bots. What a bot's row says is its badge:
 // a subtle ring spins around it while the bot works, and it looks like a quiet alert when the bot
 // needs you — the count of tasks waiting on you, or a small ! when the need is not a task.
@@ -673,7 +708,8 @@ function renderTree() {
         <button class="chev ${isCol ? 'col' : ''}" data-toggle="${esc(key)}" aria-label="${isCol ? 'Expand' : 'Collapse'} ${esc(node.name)}">›</button>
         ${renaming ? orgGroupFieldHTML(node.name) : `<span class="dept-label" data-toggle="${esc(key)}" role="button" tabindex="0">${esc(node.name)}</span>${node.id === MESSAGE_BOTS_GROUP ? betaPill('message_bots') : ''}`}
         ${isCol && subtreeNeeds(key) ? '<span class="dot needs" title="something inside needs attention"></span>' : ''}
-        ${manage && !renaming ? `<span class="org-group-tools"><button type="button" class="org-tool" data-group-add="${esc(node.id)}" title="Add group" aria-label="Add a group in ${esc(node.name)}"><span class="org-plus" aria-hidden="true">+</span></button><button type="button" class="org-tool" data-group-rename="${esc(node.id)}" title="Rename" aria-label="Rename ${esc(node.name)}"><span class="nav-icon" aria-hidden="true">edit</span></button><button type="button" class="org-tool" data-group-delete="${esc(node.id)}" title="Delete group" aria-label="Delete group ${esc(node.name)}"${ORG_DELETING.has(node.id) ? ' disabled' : ''}><span class="nav-icon" aria-hidden="true">delete</span></button></span>` : ''}</div>
+        ${manage && !renaming ? `<span class="org-group-tools"><button type="button" class="org-tool" data-group-add="${esc(node.id)}" title="Add group" aria-label="Add a group in ${esc(node.name)}"><span class="org-plus" aria-hidden="true">+</span></button><button type="button" class="org-tool" data-group-rename="${esc(node.id)}" title="Rename" aria-label="Rename ${esc(node.name)}"><span class="nav-icon" aria-hidden="true">edit</span></button>${orgMayBet() ? `<button type="button" class="org-tool${orgGroupBet(node.id) ? ' on' : ''}" data-group-bet="${esc(node.id)}" title="Bet" aria-label="Bet for ${esc(node.name)}" aria-expanded="${ORG_BET === node.id}"><span class="nav-icon" aria-hidden="true">flag</span></button>` : ''}<button type="button" class="org-tool" data-group-delete="${esc(node.id)}" title="Delete group" aria-label="Delete group ${esc(node.name)}"${ORG_DELETING.has(node.id) ? ' disabled' : ''}><span class="nav-icon" aria-hidden="true">delete</span></button></span>` : ''}</div>
+        ${manage && ORG_BET === node.id && orgMayBet() ? orgBetPopHTML({id: node.id, bet_id: orgGroupBet(node.id)}) : ''}
         <ul ${isCol ? 'hidden' : ''}>${adding ? `<li class="org-new">${orgGroupFieldHTML()}</li>` : ''}${rec(key, depth + 1)}</ul></li>`;
     }
     if (node.kind === 'seat') {
@@ -735,8 +771,16 @@ function renderTree() {
   renderInboxNav();                                   // after the tree, which places what it can
   orgDragWire($('#tree'));
   orgGroupFieldWire();
+  const betSelect = $('#tree [data-group-bet-select]');
+  if (betSelect) betSelect.onchange = () => void orgBetSave(betSelect);
   // The Move menu by keyboard: arrows between its items, Escape back to its button.
   $('#tree').onkeydown = ev => {
+    if (ev.key === 'Escape' && ev.target.closest('.org-bet-pop')) {
+      ev.preventDefault(); ev.stopPropagation();
+      const id = ORG_BET; ORG_BET = null; renderTree();
+      $('#tree').querySelector(`[data-group-bet="${CSS.escape(id)}"]`)?.focus();
+      return;
+    }
     const menu = ev.target.closest('.org-order-menu'); if (!menu) return;
     const items = [...menu.querySelectorAll('button:not([disabled])')], i = items.indexOf(ev.target);
     if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); items[(i + (ev.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus(); }
@@ -764,7 +808,11 @@ function renderTree() {
       (tree.querySelector('.org-order-menu button:not([disabled])') || tree.querySelector(`[data-org-menu="${CSS.escape(key)}"]`))?.focus();
       return;
     }
+    if (ev.target.closest('.org-bet-pop')) return;
+    const betTool = ev.target.closest('[data-group-bet]');
+    if (betTool) { ev.preventDefault(); void orgBetOpen(betTool.dataset.groupBet); return; }
     if (ORG_MENU) { ORG_MENU = null; renderTree(); }
+    if (ORG_BET) { ORG_BET = null; renderTree(); }
     const remove = ev.target.closest('[data-group-delete]');
     if (remove) { ev.preventDefault(); void orgGroupDelete(remove.dataset.groupDelete); return; }
     const add = ev.target.closest('[data-group-add]'), rename = ev.target.closest('[data-group-rename]');

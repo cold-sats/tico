@@ -140,7 +140,8 @@ function kpiTargetKinds(form) {
 }
 
 function kpiProposalLine(p) {
-  const what = {goal_wording: 'New wording', goal_kpi: 'Add a KPI', kpi_definition: 'New definition', kpi_target: 'New target', flag: 'Flag', goal_why: 'A Why', recovery: 'A recovery'}[p.kind] || p.kind;
+  const what = {goal_wording: 'New wording', goal_kpi: 'Add a KPI', kpi_definition: 'New definition', kpi_target: 'New target', flag: 'Flag', goal_why: 'A Why', recovery: 'A recovery',
+    strategy_draft: 'Strategy change', strategy_realign: 'Goals after the strategy change'}[p.kind] || p.kind;
   const pl = p.payload || {};
   const detail = p.kind === 'goal_wording' ? (pl.title || pl.body || '')
     : p.kind === 'kpi_definition' ? (pl.definition || pl.name || Object.keys(pl).join(', '))
@@ -151,7 +152,51 @@ function kpiProposalLine(p) {
     : `${pl.issue || ''}${pl.note ? ': ' + pl.note : ''}`;
   return {what, detail, reason: p.reason || ''};
 }
+// ---------------------------------------------------------------- strategy proposals
+// The strategy's live bets, for the names a proposal leaves out (a retire is just {id, status}).
+const stratPropBets = () => GOALS_ST?.strategy?.bets || [];
+const stratPropOne = () => (GOALS_ST?.strategy?.label_one || 'Bet').toLowerCase();
+// A change to the strategy draft (backend/strategy.py proposal_error): what it changes, one line each, then Confirm or
+// Reject. A wrong-if that tripped prefixes it with "Bet may be wrong".
+function strategyDraftPropHtml(p) {
+  const pl = p.payload || {}, rows = [], one = stratPropOne();
+  const row = (k, html) => rows.push(`<li><span class="strat-prop-k">${esc(k)}</span><span>${html}</span></li>`);
+  if (stratText(pl.summary)) row('Summary', esc(pl.summary));
+  if (stratText(pl.vision)) row('Vision', esc(pl.vision));
+  const secs = pl.sections || {}, titles = [];
+  for (const sec of STRAT_SECTIONS) if (sec.key in secs) titles.push(sec.title);
+  for (const [key, x] of Object.entries(secs.extra || {})) titles.push(x?.title || key);
+  if (titles.length) row('Sections', esc(titles.join(', ')));
+  for (const b of pl.bets || []) {
+    const was = b.id ? stratPropBets().find(x => x.id === b.id) : null;
+    const what = !b.id ? `New ${one}` : b.status === 'retired' ? `Retire ${one}` : `Change ${one}`;
+    const wrong = b.wrong_if ? `<span class="muted strat-prop-wrong">Wrong if ${strategyWrongIfHtml(b.wrong_if)}</span>` : '';
+    row(what, `${esc(b.statement || was?.statement || b.id)}${wrong}`);
+  }
+  const head = `${pl.source === 'bet_tripped' ? `${esc(GOALS_ST?.strategy?.label_one || 'Bet')} may be wrong · ` : ''}Strategy change`;
+  return `<li class="kpi-prop strat-prop" data-proposal="${esc(p.id)}" data-strategy-draft><div class="kpi-prop-main">
+      <span><b>${head}</b> <a class="strat-prop-open" href="${STRATEGY}">Open Strategy</a></span>
+      ${rows.length ? `<ul class="strat-prop-list">${rows.join('')}</ul>` : ''}
+      <span class="muted kpi-prop-why">${p.reason ? esc(p.reason) + ' · ' : ''}${esc(goalActorName(p.proposed_by))}</span></div>
+    ${p.may_decide ? `<div class="kpi-prop-do"><button class="primary" type="button" data-decide="confirm">Confirm</button><button class="ghost" type="button" data-decide="reject">Reject</button></div>` : ''}</li>`;
+}
+// The goals of bets a publish retired or rewrote (backend/strategy.py realign): per goal Keep, Retire or Move to one of
+// the active bets, confirmed together as `moves`.
+function strategyRealignPropHtml(p) {
+  const pl = p.payload || {}, one = GOALS_ST?.strategy?.label_one || 'Bet';
+  const moveTo = (pl.bets || []).map(b => `<option value="${esc(b.id)}">${esc(one)} ${esc(b.number)}: ${esc(b.statement)}</option>`).join('');
+  const goals = (pl.goals || []).map(g => `<li class="strat-realign-goal"><span class="strat-realign-t"><b>${esc(g.title)}</b>
+      <span class="muted">${esc(goalActorName(g.owner))} · ${g.change === 'retired' ? `${esc(one)} retired` : `${esc(one)} rewritten`}: ${esc(g.statement || '')}</span></span>
+      <label class="goal-f strat-realign-f"><span class="sr-only">${esc(g.title)}</span><select data-realign-goal="${esc(g.goal_id)}" aria-label="${esc(g.title)}"${p.may_decide ? '' : ' disabled'}>
+        <option value="keep" selected>Keep</option><option value="retire">Retire</option>${moveTo ? `<optgroup label="Move to">${moveTo}</optgroup>` : ''}</select></label></li>`).join('');
+  return `<li class="kpi-prop strat-prop" data-proposal="${esc(p.id)}" data-realign><div class="kpi-prop-main">
+      <span><b>Goals after the strategy change</b>${pl.n ? ` <span class="muted">· v${esc(pl.n)}</span>` : ''} <a class="strat-prop-open" href="${STRATEGY}">Open Strategy</a></span>
+      <ul class="strat-realign">${goals}</ul></div>
+    ${p.may_decide ? `<div class="kpi-prop-do"><button class="primary" type="button" data-decide="confirm">Confirm</button><button class="ghost" type="button" data-decide="reject">Reject</button></div>` : ''}</li>`;
+}
 function proposalHtml(p, extra = '') {
+  if (p.kind === 'strategy_draft') return strategyDraftPropHtml(p);
+  if (p.kind === 'strategy_realign') return strategyRealignPropHtml(p);
   const x = kpiProposalLine(p);
   return `<li class="kpi-prop" data-proposal="${esc(p.id)}"><div class="kpi-prop-main"><span><b>${esc(x.what)}</b>${extra ? ` <span class="muted">· ${esc(extra)}</span>` : ''}</span><span class="kpi-prop-detail">${esc(x.detail)}</span>
     ${x.reason ? `<span class="muted kpi-prop-why">${esc(x.reason)} · ${esc(goalActorName(p.proposed_by))}</span>` : `<span class="muted kpi-prop-why">${esc(goalActorName(p.proposed_by))}</span>`}</div>
@@ -162,6 +207,9 @@ function bindProposals(root, after) {
     b.disabled = true;
     // A recovery's Approve buttons carry their option: approving applies exactly that one.
     const body = {decision: b.dataset.decide, ...(b.dataset.option ? {option: Number(b.dataset.option)} : {})};
+    // A realignment confirms every goal's choice at once: keep, retire, or the bet it moves to.
+    if (li.hasAttribute('data-realign') && body.decision === 'confirm')
+      body.moves = Object.fromEntries([...li.querySelectorAll('[data-realign-goal]')].map(sel => [sel.dataset.realignGoal, sel.value]));
     try { await post(`/v2/proposals/${encodeURIComponent(li.dataset.proposal)}/decide`, body); await after(); }
     catch (e) { toast(e.message || 'Could not decide', true); b.disabled = false; }
   };
@@ -472,8 +520,8 @@ function goalStatusNote(g) {
 function goalTreeRows(actor, depth, goals, loose, standing = '') {
   const info = goalOwnerInfo(actor);
   const av = actor === GOAL_COMPANY ? `<span class="av gt-co-av" aria-hidden="true">${esc(String(info.name || 'C').trim()[0] || 'C').toUpperCase()}</span>` : info.avatar;
-  const choice = g => { const st = GOALS_ST?.strategy, c = g.choice_id && (st?.choices || []).find(x => x.id === g.choice_id); return c ? ` · ${st.label_one || st.label || 'Bet'}: ${c.statement}` : ''; };
-  const goalCell = g => `<span class="gt-goal" title="${esc(g.title + ' · Why: ' + (g.why || GOAL_NOT_TIED) + choice(g))}">${gdot(g.status, goalStatusNote(g))}<span class="gt-title">${esc(g.title)}</span></span>`;
+  const bet = g => { const st = GOALS_ST?.strategy, c = g.bet_id && (st?.bets || []).find(x => x.id === g.bet_id); return c ? ` · ${st.label_one || 'Bet'}: ${c.statement}` : ''; };
+  const goalCell = g => `<span class="gt-goal" title="${esc(g.title + (g.why || !bet(g) ? ' · Why: ' + (g.why || GOAL_NOT_TIED) : '') + bet(g))}">${gdot(g.status, goalStatusNote(g))}<span class="gt-title">${esc(g.title)}</span></span>`;
   const row = (cls, goal, inner) => `<li class="gt-row${cls}" data-owner="${esc(actor)}"${goal ? ` data-goal="${esc(goal.id)}"` : ''} style="--d:${depth}" tabindex="0" role="button">`
     + `<span class="gt-ind" aria-hidden="true"></span>${inner}</li>`;
   const first = goals[0], words = String(standing || '').trim();
@@ -485,7 +533,7 @@ function goalTreeRows(actor, depth, goals, loose, standing = '') {
 }
 // ---------------------------------------------------------------- the strategy
 // The top of Goals is one line: the published strategy's version and summary, linked to the Strategy page
-// (ui/strategy-page.js), where the summary, the vision and the choices goals serve are written.
+// (ui/strategy-page.js), where the summary, the vision and the bets goals serve are written.
 function goalStrategyHtml(state) {
   const st = state.strategy;
   if (!st) return '';
@@ -494,11 +542,14 @@ function goalStrategyHtml(state) {
   if (S.me?.role !== 'owner') return '';
   return `<a class="gst" id="goal-strategy" href="${STRATEGY}"><span class="gst-k">No strategy yet</span><span class="gst-sum gst-go">Write it</span></a>`;
 }
-// The choice a goal serves, by the framework's word for them, linked to it on Strategy.
-function goalChoiceLineHtml(state, g) {
-  const st = state.strategy, c = g.choice_id && (st?.choices || []).find(x => x.id === g.choice_id);
+// The bet a goal serves, as a short chip ("Bet 2") linked to it on Strategy, with its statement beside it.
+function goalBetLineHtml(state, g) {
+  const st = state.strategy, bets = st?.bets || [], c = g.bet_id && bets.find(x => x.id === g.bet_id);
   if (!c) return '';
-  return `<div class="goal-why goal-choice-line" data-goal-choice="${esc(c.id)}"><span class="goal-why-k">${esc(st.label_one || st.label || 'Bet')}</span> <a href="${STRATEGY}?choice=${encodeURIComponent(c.id)}">${esc(c.statement)}</a>${c.status === 'retired' ? ' <span class="muted">· retired</span>' : ''}</div>`;
+  const live = bets.filter(x => x.status !== 'retired').sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9));
+  const n = live.findIndex(x => x.id === c.id), one = st.label_one || 'Bet';
+  return `<div class="goal-bet-line" data-goal-bet="${esc(c.id)}"><a class="goal-bet-chip" href="${STRATEGY}?bet=${encodeURIComponent(c.id)}" title="${esc(c.statement)}">${esc(one)}${n >= 0 ? ' ' + (n + 1) : ''}</a>
+    <span class="goal-bet-st">${esc(c.statement)}</span>${c.status === 'retired' ? ' <span class="muted">· retired</span>' : ''}</div>`;
 }
 
 // ---------------------------------------------------------------- a goal's Why
@@ -515,6 +566,8 @@ function goalWhyHtml(state, g, may) {
         <input type="text" name="why" maxlength="200" autocomplete="off" value="${esc(start)}" aria-label="Why: how this goal serves the vision" placeholder="One line: how this goal serves the vision">
         <button class="primary" type="submit">Save</button><button class="ghost" type="button" data-why-cancel>Cancel</button></form>`;
   }
+  // A goal that serves a bet needs no Why of its own: the bet is the why (its line follows).
+  if (!why && !p && g.bet_id && (state.strategy?.bets || []).some(c => c.id === g.bet_id)) return '';
   const line = why
     ? `<div class="goal-why" data-why="${esc(g.id)}"><span class="goal-why-k">Why</span> <span data-why-text>${esc(why)}</span>${may ? ` <button class="linkish" type="button" data-why-edit="${esc(g.id)}">Edit</button>` : ''}</div>`
     : `<div class="goal-why goal-why-none" data-why="${esc(g.id)}"><span data-why-none>${GOAL_NOT_TIED}</span>${may && !p ? ` <button class="linkish" type="button" data-why-edit="${esc(g.id)}">Write a Why</button>` : ''}</div>`;
@@ -677,7 +730,7 @@ function goalPanelHtml(state) {
     // The Why stays in view while the goal is being edited: beside its form, not in it, as it saves on its own.
     const head = (P.goal === g.id ? goalFormHtml(g, state.goals)
       : `<button class="gp-gline" type="button" data-gp-edit="${esc(g.id)}" title="${esc(g.title)}">${gdot(g.status, goalStatusNote(g))}<span>${esc(g.title)}</span></button>${goalNoteHtml(g, mayG)}`)
-      + `<div class="goal-why-slot" data-why-slot="${esc(g.id)}">${goalWhyHtml(state, g, mayG)}</div>` + (P.goal === g.id ? '' : goalChoiceLineHtml(state, g));
+      + `<div class="goal-why-slot" data-why-slot="${esc(g.id)}">${goalWhyHtml(state, g, mayG)}</div>` + (P.goal === g.id ? '' : goalBetLineHtml(state, g));
     const props = state.proposals.filter(p => p.goal_id === g.id && p.kind !== 'goal_why');
     return `<li class="gp-goal" data-gp-goal="${esc(g.id)}">${head}${kpiLinesHtml(g.kpis, {goal: g.id})}
       ${props.length ? `<ul class="kpi-props">${props.map(p => proposalHtml(p)).join('')}</ul>` : ''}
