@@ -6,10 +6,10 @@ this server pulls what is waiting every 15 seconds and feeds each delivery to `t
 exactly as if the sender had posted it here. A stopped or local server loses nothing; it catches up when it is back.
 The trigger's own address keeps working in parallel.
 
-Notices from Tico Team ride the same queue (backend/tico_notices.py): HQ keeps a relay of its own for the built-in
-trigger `tico`, so a Gateway key alone is enough to receive them. The loop then pulls every minute instead of every 15
-seconds. That relay is recorded here when HQ first serves it or lists it (at most hourly); a delivery naming `tico`
-from any other relay is dropped.
+Notices from Tico Team ride the same queue (backend/tico_notices.py): HQ keeps a system relay for the built-in trigger
+`_tico`, so a Gateway key alone is enough to receive them. The loop then pulls every minute instead of every 15
+seconds. That relay is recorded only from HQ's list of relays (`system: true`, asked at most hourly, and at once when a
+delivery names a relay not recorded yet); a delivery naming `_tico` from any other relay is dropped and acked.
 
 The pull follows the mail loop (backend/inbound.py): `wait=0`, a cursor kept here, an ack after the work is committed,
 off the scheduler thread. Every outcome of `receive` (accepted, duplicate, refused, rate_limited, not_found) is
@@ -45,7 +45,7 @@ from .store import Problem
 TRANSPORT = None                 # tests' fake HQ, never the live one
 EVERY = 15                       # seconds between pulls when this server has a relay address of its own
 NOTICES_EVERY = 60               # ... and with only a Gateway key, where the pull brings Tico Team's notices
-RELAYS_EVERY = 3600              # HQ's list of relays, for the one it made for `tico`, is asked at most this often
+RELAYS_EVERY = 3600              # HQ's list of relays, for its system relay for `_tico`, is asked at most this often
 BACKOFF_MAX = 300                # a failing pull waits 15 s, 30 s, ... up to this
 PAGE = 20                        # deliveries per pull: a page is at most PAGE x 256 KB (base64)
 PAGES = 10                       # pulls in one tick while HQ says there is more
@@ -200,13 +200,13 @@ class HookRelay:
             current, relays = state(c), live(c)
             deleting = c.execute("SELECT count(*) FROM trigger_relays WHERE deleted_at IS NOT NULL AND hq_gone=0").fetchone()[0]
             owner = self.owner(c)
-            complete = tico_notices.complete(c, owner) if relays or tico_notices.relay(c) else True
+            complete = tico_notices.complete(c, owner) if link else True
         self.interval = EVERY if relays or deleting else NOTICES_EVERY
-        if not complete:                            # the built-in trigger and rules, for an install that had relays before they existed
-            with self.store.transaction() as c:
-                tico_notices.ensure(c, owner)
         if not link:
             return
+        if not complete:                            # the built-in trigger and its rules, from the first pull on
+            with self.store.transaction() as c:
+                tico_notices.ensure(c, owner)
         if current["stopped_for"] and current["stopped_for"] == link.fingerprint:
             return                                  # HQ refused this key; a new key is a new chance
         if current["stopped_for"]:
@@ -220,7 +220,7 @@ class HookRelay:
             self.pull(link, current)
             if relays:
                 self.count(link)
-            self.learn_notice_relay(link)
+            self.learn_notice_relay(link)           # also finds the system relay before any notice has come
             self.worked()
         except Stop:
             with self.store.transaction() as c:
@@ -243,6 +243,7 @@ class HookRelay:
 
     def pull(self, link, current):
         cursor = current["cursor"]
+        forced = False                              # HQ's relay list is forced at most once per pull
         for _ in range(PAGES):
             try:
                 page = link.call("POST", "pull", {"cursor": cursor, "limit": PAGE})
@@ -255,6 +256,9 @@ class HookRelay:
             through = page.get("cursor")
             if not isinstance(items, list) or type(through) is not int or through < cursor:
                 raise Failed("bad_answer")
+            if not forced and self.unknown_system_relay(items):
+                forced = True
+                self.learn_notice_relay(link, force=True)
             for item in items:
                 cursor = self.take(item, cursor)
             cursor = max(cursor, through)
@@ -323,8 +327,7 @@ class HookRelay:
         trigger_id, relay_id = str(item.get("trigger_id") or ""), str(item.get("relay_id") or "")
         with self.store.transaction() as c:
             # Only a trigger that has this live relay here is fed: HQ's word alone never reaches another trigger. The
-            # one built-in exception is `tico`, whose relay HQ made itself: the first it serves is recorded, and only
-            # that one feeds it afterwards.
+            # one built-in exception is `_tico`, fed only from the system relay HQ's list named (`learn_notice_relay`).
             if trigger_id == tico_notices.ID:
                 ok = tico_notices.accepts(c, relay_id)
                 if ok:
@@ -348,19 +351,32 @@ class HookRelay:
             return None
         return H.human_actor(pid) if pid else None
 
-    def learn_notice_relay(self, link):
-        """The relay HQ made for `tico`, from its list, at most hourly: a notice arriving first would record it as well,
-        but listing it lets a replaced relay take over without waiting for one."""
-        if now() - self.listed < RELAYS_EVERY:
+    def unknown_system_relay(self, items):
+        """Whether a delivery in this page names `_tico` through a relay not recorded here."""
+        wanted = {str(i.get("relay_id") or "") for i in items
+                  if isinstance(i, dict) and i.get("trigger_id") == tico_notices.ID}
+        if not wanted:
+            return False
+        with self.store.read() as c:
+            return wanted != {tico_notices.relay(c)}
+
+    def learn_notice_relay(self, link, force=False):
+        """The relay HQ lists with `system: true` for `_tico` is the one that may feed it. Asked at most hourly, or at
+        once (`force`) when a delivery names a relay not known yet; a forced list that fails fails the pull, so the
+        delivery is tried again rather than dropped."""
+        if not force and now() - self.listed < RELAYS_EVERY:
             return
-        self.listed = now()                         # asked again in an hour whatever the answer: the pull has its own backoff
         try:
             answer = link.call("GET", "relays")
         except Failed:
+            if force:
+                raise
+            self.listed = now()                     # asked again in an hour: the pull has its own backoff
             return
+        self.listed = now()
         items = answer.get("items")
-        found = [i.get("relay_id") for i in items if isinstance(i, dict) and i.get("trigger_id") == tico_notices.ID] \
-            if isinstance(items, list) else []
+        found = [i.get("relay_id") for i in items if isinstance(i, dict) and i.get("system") is True
+                 and i.get("trigger_id") == tico_notices.ID] if isinstance(items, list) else []
         if len(found) == 1:
             with self.store.transaction() as c:
                 if tico_notices.record_relay(c, found[0]):

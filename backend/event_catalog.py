@@ -17,7 +17,8 @@ from dataclasses import dataclass
 
 CUSTOM = "custom."
 # One incoming webhook's own event, `webhook.<id>` (backend/triggers.py): a routine may listen for it.
-_WEBHOOK_ID = re.compile(r"webhook\.[a-z0-9][a-z0-9-]{0,39}")
+# `_tico` is the built-in trigger for Tico Team's notices: its leading underscore is why no one's trigger can take it.
+_WEBHOOK_ID = re.compile(r"webhook\.(?:_tico|[a-z0-9][a-z0-9-]{0,39})")
 _CUSTOM = re.compile(r"custom\.[a-z0-9][a-z0-9_.-]{0,59}")
 
 

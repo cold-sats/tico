@@ -209,8 +209,6 @@ def create(c, who, settings, body):
     trigger_id = body.id.strip().lower() if body.id else slug_of(body.name)
     if not ID.fullmatch(trigger_id):
         raise Problem("trigger", "A trigger id uses lowercase letters, digits and dashes (up to 40)", 422)
-    if builtin(trigger_id):
-        raise Problem("trigger", f"The id {trigger_id} is Tico's own, for notices from {tico_notices.NAME}. Choose another", 422)
     found = c.execute("SELECT deleted_at FROM triggers WHERE id=?", (trigger_id,)).fetchone()
     if found and not found["deleted_at"]:
         raise Problem("trigger", f"A trigger named {trigger_id} already exists", 409)

@@ -46,7 +46,7 @@ class HQ:
         if path == "relays" and request.method == "GET":
             return httpx.Response(200, json={"items": [
                 {"relay_id": r["id"], "trigger_id": r["trigger_id"], "name": "", "address_prefix": "", "wake": False,
-                 "created": "2026-10-25T09:00:00Z"} for r in self.relays.values()]})
+                 "system": bool(r.get("system")), "created": "2026-10-25T09:00:00Z"} for r in self.relays.values()]})
         if path == "relays":
             if "idempotency-key" not in request.headers:
                 return httpx.Response(400, json={"error": "idempotency_key"})

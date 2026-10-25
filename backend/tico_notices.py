@@ -1,7 +1,7 @@
 """Notices from Tico Team, the install's side (docs/tico-hq.md).
 
-Tico Team can send a short notice to an install that has a Gateway key: HQ queues it on the install's built-in relay
-for the trigger `tico`, and the pull loop (backend/hook_relay.py) feeds it to `triggers.receive` like any other
+Tico Team can send a short notice to an install that has a Gateway key: HQ queues it on its system relay for the
+install, for the trigger `_tico`, and the pull loop (backend/hook_relay.py) feeds it to `triggers.receive` like any other
 delivery. Three things come of one:
 
 - the notice is kept here (`tico_notices`) and shows in the notices banner next to what `GET /v1/latest` carries,
@@ -12,9 +12,9 @@ delivery. Three things come of one:
 - `webhook.received` is not judged for it: that event is for senders outside Tico and this one is judged once, as
   `tico.notice`.
 
-The trigger `tico` has no address a sender can use: its stored secret hash is random and was never shown, and
-`triggers.receive` refuses anything but the relay. Only the relay HQ made for it (`trigger_relays`, recorded when HQ
-first serves it or lists it) may feed it, so another relay naming `tico` is ignored.
+The trigger `_tico` has no address a sender can use: its stored secret hash is random and was never shown, and
+`triggers.receive` refuses anything but the relay. Only the relay HQ lists with `system: true` (`trigger_relays`,
+recorded from that list, never from a delivery) may feed it, so another relay naming `_tico` is ignored.
 """
 import json
 import re
@@ -22,7 +22,8 @@ import secrets
 
 from . import hubdb as H
 
-ID = "tico"                      # the built-in trigger, its event is `webhook.tico`
+ID = "_tico"                     # the built-in trigger, its event is `webhook._tico`; the underscore is not a valid
+                                 # trigger id (triggers.ID), so nobody can make one that collides
 NAME = "Tico Team"
 EVENT = "tico.notice"
 KINDS = ("info", "security", "billing")
@@ -46,12 +47,11 @@ def ensure(c, owner=None):
     actor (`human:<id>`): the built-in rows ask that person, so they wait until there is one. Returns whether the
     trigger and all rules exist."""
     now = H.now()
-    # A trigger someone made under this id before it was reserved becomes the built-in one, secret and all replaced.
-    c.execute("INSERT INTO triggers(id,name,kind,secret_hash,created_by,created_at,updated_at,preset,type_from,unheard) "
-              "VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,secret_hash=excluded.secret_hash,"
-              "created_by=excluded.created_by,deleted_at=NULL,signing_secret=NULL,preset='none',type_from='/kind',"
-              "hourly=NULL,unheard='log' WHERE deleted_at IS NOT NULL OR created_by<>excluded.created_by",
+    # The secret hash is random and never shown, so no address can reach this trigger; it is only fed by the relay.
+    c.execute("INSERT OR IGNORE INTO triggers(id,name,kind,secret_hash,created_by,created_at,updated_at,preset,type_from,unheard) "
+              "VALUES(?,?,?,?,?,?,?,?,?,?)",
               (ID, NAME, "webhook", secrets.token_hex(32), H.KEEPER, now, now, "none", "/kind", "log"))
+    c.execute("UPDATE triggers SET deleted_at=NULL WHERE id=? AND deleted_at IS NOT NULL", (ID,))
     if not owner:
         return False
     for row in RULES:
@@ -105,7 +105,7 @@ def relay(c):
 
 
 def record_relay(c, relay_id):
-    """Remember `relay_id` as this install's relay for `tico`, replacing an older one. Returns False for an id that is
+    """Remember `relay_id` as this install's relay for `_tico`, replacing an older one. Returns False for an id that is
     not a relay id."""
     if not RELAY.fullmatch(str(relay_id or "")):
         return False
@@ -118,12 +118,9 @@ def record_relay(c, relay_id):
 
 
 def accepts(c, relay_id):
-    """Whether a delivery for `tico` from `relay_id` may be fed. The first relay HQ serves for it is recorded when none
-    is known yet; after that only that relay (or the one HQ's list names) counts."""
-    known = relay(c)
-    if known:
-        return known == relay_id
-    return record_relay(c, relay_id)
+    """Whether a delivery for `_tico` from `relay_id` may be fed: only the relay recorded from HQ's list (`system: true`).
+    A delivery alone never records one."""
+    return bool(relay_id) and relay(c) == relay_id
 
 
 # ----------------------------------------------------------------------------- a notice arrives
