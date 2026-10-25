@@ -133,7 +133,32 @@ Once the setup wizard's new steps ship, setup starts with **What are you buildin
 4. Computer, agent and review as today. Afterwards Getting started gains "Publish your strategy", the CEO Bot
    proposes one or two goals per bet, and the Librarian's market task is filed from the website.
 
-Until then, the Strategy page starts from what the Goals page held: an install with a Vision or a Description and no
+The server half is in place. The wizard saves the website as `names.website` and the one line as `answers.building`
+([Onboarding](onboarding.md#the-answers)), and `POST /api/v2/strategy/draft-from {url?, text?}` (owner only) starts
+the research as a server job, answered at once with the job; `GET /api/v2/strategy/draft-from/{job}` (or `latest`)
+polls it:
+
+| `state` | Meaning |
+|---|---|
+| `running` | `step` is `reading` (fetching pages) then `thinking` (the model call) |
+| `done` | `written` is `{sections, bets, revision}`: the sections filled, the proposed bet ids, the draft's new revision |
+| `gave_up` | the owner wrote the draft meanwhile (`error.code` `edited`) or a newer job started (`superseded`); nothing was written and `found` holds what the research found, to offer by hand |
+| `failed` | `error.code` is the fetch code (`private_address`, `timeout` ...), the model's, `empty`, or `interrupted` when the server restarted mid-run |
+| `no_model` | no model provider: the step is a plain form |
+
+Every job also carries `url`, `text`, `pages` (`[{url, title}]` or `{url, error}`, never page text), `found`
+(`{serve, sell, bets: [{statement, why, rules_out, wrong_if}]}` once the model answered) and `started`/`finished`;
+the last five jobs are kept. The fetch is the doc-link fetch's guard: http and https only, every address the name
+resolves to must be public, each redirect re-checked, at most four pages of 8,000 characters in 45 seconds, and no
+server credentials sent. The model call is the one-shot path the update writer uses (the Tico AI Gateway, else the
+team's own provider key); no runner or agent turn is involved. Sections are written only where empty, each starting
+`_Unconfirmed: drafted from acme.example._`; bets are added `proposed` with the suggested wrong-if as a text test
+due in 90 days. Nothing is published. There is no `hub` or MCP verb for it: it is a browser setup step.
+
+Finishing setup links each group it makes to the bet it clearly serves (`bet_id`), and with a website files the
+Librarian's market task ([Onboarding](onboarding.md#what-create-does)).
+
+Until the wizard steps ship, the Strategy page starts from what the Goals page held: an install with a Vision or a Description and no
 strategy gets a draft with that vision and the description as *What we sell*, for the owner to take from there. The
 Market tab's own first run (the Librarian's four questions) is unchanged ([Librarian](librarian.md#first-run-setup)).
 
@@ -205,7 +230,7 @@ Every command has an MCP tool of the same name and arguments (`hub_strategy_show
 | `GET /strategy/diff?from=&to=` | any reader | `{fields: [{key, from, to}], bets: {added, retired, changed}}`, keyed by bet id and status |
 | `POST /strategy/bets`, `/strategy/bets/{id}` | the owner only | create; partial update including `rank` and `status`; at most seven active |
 | `GET /strategy/summary` | any bot or human | plain text: the summary, one line per active bet with its wrong-if, "version N" |
-| `POST /strategy/draft-from`, `GET /strategy/draft-from/{job}` | the owner | setup research from `{url?, text?}`: fills `serve` and `sell` marked unconfirmed and proposes bets; gives up, reporting what it found, if the owner wrote the draft meanwhile |
+| `POST /strategy/draft-from`, `GET /strategy/draft-from/{job}` | the owner | setup research from `{url?, text?}`: fills `serve` and `sell` marked unconfirmed and proposes bets; gives up, reporting what it found, if the owner wrote the draft meanwhile. States are in [Setup](#setup); 422 for a missing or internal address |
 | `GET /strategy/guides` | any reader | the listed guides |
 
 A bet's `wrong_if` is `{kind: kpi|thesis|text, kpi_id?, direction?, threshold?, market_id?, text?, check_by}`. The

@@ -630,6 +630,12 @@ class StrategyPublish(Contract):
     revision: int
 
 
+class StrategyDraftFrom(Contract):
+    """Setup's research job: the team's website, the owner's own words, or both (backend/strategy_setup.py)."""
+    url: str = Field(default="", max_length=2000)
+    text: str = Field(default="", max_length=4000)
+
+
 class StrategyBetCreate(Contract):
     statement: str = Field(min_length=1, max_length=2000)
     why: str = Field(default="", max_length=20_000)
@@ -1928,6 +1934,8 @@ class OnboardingNames(Contract):
     owner_name: str = Field(default="", max_length=100)
     # The team's email domain, for a team whose owner uses public mail: members may add coworkers at it.
     team_domain: str = Field(default="", max_length=100)
+    # The team's website, from setup's first step: the research job reads it and the Librarian's market task names it.
+    website: str = Field(default="", max_length=300)
 
 
 class OnboardingAnswers(Contract):
@@ -1937,6 +1945,8 @@ class OnboardingAnswers(Contract):
     team_size: str = Field(default="", max_length=40)
     work_arrives: list[WorkArrival] = Field(default_factory=list, max_length=8)
     repetitive_work: str = Field(default="", max_length=2000)
+    # Setup's first step: what the team is building, in the owner's one line, or a new idea in a few sentences.
+    building: str = Field(default="", max_length=4000)
     # Accepted from older clients, discarded rather than stored or enforced.
     never_without_person: list[str] = Field(default_factory=list, exclude=True)
     # The wizard no longer asks `pains`, `pains_text` or `tools`; they are still accepted, kept as sent

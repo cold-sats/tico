@@ -14250,6 +14250,116 @@
         ]
       }
     },
+    "/api/v2/strategy/draft-from": {
+      "post": {
+        "summary": "Owner only: research the team's website and/or the owner's words into the draft; answers the job (running, or no_model with no model)",
+        "operationId": "draftStrategyFrom",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StrategyDraftFrom"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Strategy"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
+    "/api/v2/strategy/draft-from/{job_id}": {
+      "get": {
+        "summary": "Owner only: one research job (latest for the newest): running, done, gave_up, failed or no_model, with what it found and wrote",
+        "operationId": "getStrategyDraftFromJob",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Strategy"
+        ]
+      }
+    },
     "/api/v2/strategy/guides": {
       "get": {
         "summary": "The question guides the CEO Bot drafts with",
@@ -31005,6 +31115,26 @@
           "revision"
         ],
         "title": "StrategyDraft"
+      },
+      "StrategyDraftFrom": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Url",
+            "default": ""
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Text",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "StrategyDraftFrom",
+        "description": "Setup's research job: the team's website, the owner's own words, or both (backend/strategy_setup.py)."
       },
       "StrategyPublish": {
         "properties": {

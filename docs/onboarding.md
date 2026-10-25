@@ -67,7 +67,7 @@ Every **Next** saves the whole draft with `PUT /api/v2/setup`, so a closed tab l
 | Screen | What it asks | What it stores |
 |---|---|---|
 | AI providers | Only while no provider is chosen yet; otherwise the wizard starts at Names. Choose [how bots get their models](ai-gateway.md#choose-how-bots-get-their-models). To choose later, select **Your company's plans or API keys**, untick its providers and press **Skip for now** | The team's providers, as Settings > Computers > Models saves them |
-| Names | **Team/Company name**, app name, and optionally your own name | `names`. From the moment they are saved they override `TICO_TEAM_NAME` (the old `TICO_COMPANY_NAME` remains an alias) and `TICO_APP_NAME` everywhere, including in the template cards. **Your name** (`names.owner_name`) is saved on the owner's roster entry, so the team chart and the sidebar show it instead of the address; it is prefilled from the roster, or from the display name the sign-in proxy vouches for (a `name` claim from Cloudflare Access or the AWS load balancer), and left blank it changes nothing. **Team email domain** (`names.team_domain`) is asked only when the owner signs in with public email such as gmail.com and no team address is on the roster; it is optional, and lets members add teammates at that domain (it does not let anyone sign in). The wizard does not ask for an assistant name: the tab is always called Assistant, and `names.assistant_name` is `TICO_ASSISTANT_NAME`, which is `Assistant` unless set (a name equal to the team's reads as `Assistant`) |
+| Names | **Team/Company name**, app name, and optionally your own name | `names`. From the moment they are saved they override `TICO_TEAM_NAME` (the old `TICO_COMPANY_NAME` remains an alias) and `TICO_APP_NAME` everywhere, including in the template cards. **Your name** (`names.owner_name`) is saved on the owner's roster entry, so the team chart and the sidebar show it instead of the address; it is prefilled from the roster, or from the display name the sign-in proxy vouches for (a `name` claim from Cloudflare Access or the AWS load balancer), and left blank it changes nothing. **Team email domain** (`names.team_domain`) is asked only when the owner signs in with public email such as gmail.com and no team address is on the roster; it is optional, and lets members add teammates at that domain (it does not let anyone sign in). **Website** (`names.website`) is optional; it is stored as an `https://` address (a bare `acme.example` gets the scheme, anything that is not a public web address is refused with 422), the Strategy research reads it, and finishing setup files the Librarian's market task from it. The wizard does not ask for an assistant name: the tab is always called Assistant, and `names.assistant_name` is `TICO_ASSISTANT_NAME`, which is `Assistant` unless set (a name equal to the team's reads as `Assistant`) |
 | About the team | What you do, who you sell to, whether software is your product, and team size | `answers`. Whether software is the product decides which groups start picked, and the description helps the suggestions. It is also written into every bot's `knowledge/company.md` |
 | Your team chart | The groups, then one question per group and the bots to recruit into it, with the chart growing beside it, and the message bot switch under the finished chart ([The team builder](#the-team-builder)) | `answers.departments`, `answers.briefings` and `selected`: for each chosen slug, its template, display name, the `AGENT.md` text and `reports_to` (a human `human:<id>` or a bot slug). Nothing is created yet |
 | Add the computer that runs your bots | If a runner is already online (the server's own) the step is one line, `<label> online`. Otherwise the kind of computer, **A Linux or cloud server (Docker)** when the server itself runs in Docker (`in_docker` in `GET /api/v2/config`, the usual install) and **A Mac** when it does not, then a one-time code or setup file and the commands | Nothing. It polls `GET /api/v2/setup` every ten seconds and reports the enrolled computer |
@@ -83,6 +83,7 @@ Claude and **ChatGPT through Codex**; **Tico Gateway only** shows no model sign-
 
 | Field | Shape |
 |---|---|
+| `building` | What the team is building: the owner's one line, or a new idea in a few sentences, up to 4000 characters. With `names.website` it is what the strategy research reads ([Strategy](strategy.md#setup)) and what the Librarian's market task names; the org builder reads it when `what_we_do` is empty |
 | `what_we_do` | Free text, up to 2000 characters |
 | `customers` | `businesses`, `consumers`, `both`, or empty |
 | `software_product` | `yes`, `no`, or empty: whether software is the product |
@@ -134,7 +135,7 @@ The browser only ever talks to its own server:
 | Route | What it answers |
 |---|---|
 | `GET /api/v2/setup/groups` | `{version, departments: [{id, name, description, goal, question, placeholder, icon, head, software_only}], cards: [{template, name, department, icon, tags, suggest, summary, lead, business_only}], hq: {available, off_by}}` |
-| `POST /api/v2/setup/recruit` | Body `{department, briefing, share}` (`briefing` at most 500 characters). Answers `{bots: [{template_id, why}], suggested_default: [template_id], source: "hq" \| "local", shared, off_by}` |
+| `POST /api/v2/setup/recruit` | Body `{department, briefing, share}` (`briefing` at most 500 characters). Answers `{bots: [{template_id, why}], suggested_default: [template_id], bet: {id, statement} \| null, source: "hq" \| "local", shared, off_by}` |
 
 Both are for the owner and bot administrators, and neither is part of the stable v2 contract (like the rest of the wizard's routes).
 
@@ -156,6 +157,11 @@ and no why for a `niche` card the answer brought in on single words. A single wo
 rank: shown as a why they read as keyword matching. When Tico HQ's answer still says "Matches “<word>”", the install's own why replaces
 it. The same answer always gives the same list.
 
+The strategy draft's bets ([Strategy](strategy.md)) count like "What you do" in the local answer (a bet on price brings in the
+pricing cards), and `bet` names the bet the group clearly serves: the one sharing at least two words with the group's description,
+goal and question, its cards' names and tags and the owner's answer, and more than any other bet. Bets never go to Tico HQ; with no
+bets, `bet` is null and the answer is as before.
+
 ### What Create does
 
 **Create my team** (`POST /api/v2/setup/complete`) writes to the server only, in one request (a chart of 25 bots takes a fraction of a
@@ -175,7 +181,10 @@ second). It reaches no computer.
   `planned`; when the owner's computer enrolls, the bots are placed on it and activated. Until then the after-Create screen says
   "Waiting for a computer" or "Add an AI provider".
 - Each bot goes in the **group** its template belongs to (Marketing, Product, Engineering ...); the group is made if the team has none yet,
-  and one it already has by that name is reused ([the team chart](org-chart.md#groups)). Built-in bots stay outside groups.
+  and one it already has by that name is reused ([the team chart](org-chart.md#groups)). Built-in bots stay outside groups. A group
+  made here that clearly serves one of the strategy draft's bets (the org builder's `bet`) stores it as its `bet_id`.
+- With a website (`names.website`), the Librarian's "Set up the market map" is filed now, once, from the website and `building`,
+  unless the owner already filed it from the Market page ([An empty Market page](#an-empty-market-page)).
 - The template and the reviewed instructions are stored in the bot's server-side config, with the **template version** (the release whose
   templates it came from: `template_version`).
 - A **starter** template (a card with a `first_routine` and an `onboarding` conversation) is created whole and parked:
@@ -289,9 +298,9 @@ The last question's **Start research** calls `POST /api/v2/librarian/setup/marke
 `playbooks/market-setup.md` researches the answers and writes the market pages and graph ([librarian.md](librarian.md)). The page
 then shows "The Librarian is researching your market. This usually takes 5–10 minutes." with a link to the task, until the market
 has content (at least two minutes, at most thirty), kept in the browser, polling the market every 30 seconds. Then the normal
-Market page is drawn. The code is `ui/market-page.js`. Once the wizard's Strategy step ships ([Strategy](strategy.md#setup)),
-"Set up the market map" is filed from the website given there, and the Librarian reads that website from `hub strategy show`
-when the task has none; the four questions stay for a team that skipped it.
+Market page is drawn. The code is `ui/market-page.js`. When setup was given the team's website (`names.website`), finishing setup files "Set up the
+market map" from it and the market page opens on the researching notice; the Librarian reads that website from `hub strategy show`
+when the task has none, and the four questions stay for a team that gave no website.
 
 ### What is stored, and who may do what
 
