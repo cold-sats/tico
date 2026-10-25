@@ -7798,6 +7798,96 @@
         ]
       }
     },
+    "/api/v2/hooks/wake-url": {
+      "get": {
+        "summary": "The address Tico Gateway knocks on to start this server when a webhook waits for it, who set it and when (the owner)",
+        "operationId": "getWebhookWakeUrl",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookWakeUrl"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Webhook relay"
+        ]
+      },
+      "put": {
+        "summary": "Set the wake address (https) or turn it off (url null); the answer carries the signing secret once, for the receiver (the owner; needs the Gateway key)",
+        "operationId": "setWebhookWakeUrl",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WakeUrl"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookWakeUrlSet"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Webhook relay"
+        ]
+      }
+    },
     "/api/v2/humans/{pid}": {
       "post": {
         "summary": "Edit a person's profile or reports_to",
@@ -37695,6 +37785,27 @@
         ],
         "title": "Wait"
       },
+      "WakeUrl": {
+        "properties": {
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "title": "WakeUrl"
+      },
       "Webhook": {
         "type": "object",
         "properties": {
@@ -38477,6 +38588,57 @@
         "additionalProperties": false,
         "type": "object",
         "title": "WebhookUpdate"
+      },
+      "WebhookWakeUrl": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "set_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "set_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "set_at",
+          "set_by",
+          "url"
+        ],
+        "additionalProperties": true
+      },
+      "WebhookWakeUrlSet": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "secret": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "secret",
+          "url"
+        ],
+        "additionalProperties": true
       },
       "backend__inbound__Create": {
         "properties": {

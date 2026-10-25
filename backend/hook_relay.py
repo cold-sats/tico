@@ -19,6 +19,11 @@ headers and the exact body); HQ only checked the URL secret.
 The Gateway key (backend/gateway_connection.py) is the credential. Without one a relay cannot be made, and a key HQ
 refuses (401) stops the loop until the key changes. Deleting a trigger forgets its relay (`forget`), and the HQ delete
 is finished by the loop, off any transaction. Rehearsal and demo never pull.
+
+A server that is off or asleep can be woken by a delivery that waits (contract C10): the owner gives HQ an address they
+run (`wake_url`), and HQ posts a signed `tico.wake` to it when a delivery has waited over a minute. HQ keeps the signing
+secret and shows it once; this server keeps only the address, who set it and when. Hosted servers are woken by HQ already
+(backend/sleep_idle.py), so this is for installs people run themselves.
 """
 import asyncio
 import base64
@@ -27,6 +32,7 @@ import json
 import re
 import threading
 import time
+import urllib.parse
 from datetime import timezone
 
 import httpx
@@ -56,12 +62,17 @@ FAILING_FOR = 15 * 60            # Health speaks after pulls have failed this lo
 OLD_PENDING = 3600               # ... or when the oldest waiting delivery is this old
 POISON = 5                       # a delivery whose handling raised this many times is skipped, so one cannot block the rest
 RELAY = re.compile(r"hr_[0-9a-f]{16}")
+WAKE_URL_MAX = 2000
 NO_KEY = "Connect the Tico Gateway in Settings > Gateway first: an address through Tico Gateway needs its key."
 now = time.time                  # tests' controlled clock
 
 
 class RelayWake(Contract):
     wake: bool
+
+
+class WakeUrl(Contract):
+    url: str | None
 
 
 class Stop(Exception):
@@ -81,7 +92,7 @@ def state(c):
     row = c.execute("SELECT * FROM hook_relay_state WHERE singleton=1").fetchone()
     return dict(row) if row else {"cursor": 0, "acked": 0, "last_pull_at": None, "failing_since": None,
                                   "last_error": "", "stopped_for": "", "pending": None, "oldest": None,
-                                  "pending_at": None}
+                                  "pending_at": None, "wake_url": None, "wake_url_set_at": None, "wake_url_set_by": None}
 
 
 def save(c, **fields):
@@ -118,6 +129,21 @@ def forget(c, trigger_id):
     """A deleted trigger loses its relay. Marked here, in the trigger's own transaction; HQ is told by the loop, so no
     network call waits inside a write."""
     c.execute("UPDATE trigger_relays SET deleted_at=? WHERE trigger_id=? AND deleted_at IS NULL", (H.now(), trigger_id))
+
+
+def clean_wake_url(value):
+    """The address HQ will be asked to knock on: https, a host, no user or password, one line. None turns it off."""
+    if value is None:
+        return None
+    try:
+        parts = urllib.parse.urlsplit(value)
+        parts.port
+    except ValueError:
+        parts = None
+    if (not parts or not value or len(value) > WAKE_URL_MAX or parts.scheme != "https" or not parts.hostname
+            or "@" in parts.netloc or any(ch.isspace() or ord(ch) < 32 or ch == "\\" for ch in value)):
+        raise Problem("url", "The wake address starts with https://, has a host, and no spaces, user or password", 422)
+    return value
 
 
 # ----------------------------------------------------------------------------- talking to HQ
@@ -525,13 +551,56 @@ class HookRelay:
             told = False                            # the loop tells HQ when it can; the address here is already off
         return {"relay": {"trigger": trigger_id, "deleted": True, "gateway_told": told}}
 
-    def ask(self, link, method, path, body, idempotency, quiet=False):
+    # ------------------------------------------------------------------------- the wake address, for the owner
+    def wake_gate(self, request, *, write=False):
+        """Only the owner reads or changes the wake address: it is a way to start this server."""
+        from . import task_privacy
+        who = request.state.identity
+        with self.store.read_transaction() as c:
+            validate_identity(c, who)
+            if write:
+                task_privacy.guard_write(c, who, request.url.path, self.auth)
+        if who.role != "owner":
+            raise Problem("forbidden", "Only the owner may see or change the address that wakes this server", 403)
+        return who
+
+    def wake_url(self, request):
+        self.wake_gate(request)
+        with self.store.read() as c:
+            current = state(c)
+        return {"url": current["wake_url"], "set_at": current["wake_url_set_at"], "set_by": current["wake_url_set_by"]}
+
+    def set_wake_url(self, request, url, key):
+        """Tell HQ where to knock (null: nowhere). The answer carries HQ's signing secret once; it is passed on and never kept."""
+        who = self.wake_gate(request, write=True)
+        url = clean_wake_url(url)
+        if self.off:
+            raise Problem("rehearsal", "A rehearsal copy never changes the address that wakes a server", 409)
+        with self.store.read() as c:
+            link = self.link(c)
+        if not link:
+            raise Problem("gateway", NO_KEY, 409)
+        answer = self.ask(link, "POST", "wake", {"url": url, "secret": None}, "wake-url:" + (key or H.new_id()),
+                          refused=("invalid_url", "The Tico Gateway cannot use that address. It must be a public https address."))
+        if url is not None and isinstance(answer.get("url"), str):
+            url = answer["url"]                     # HQ's own spelling of it
+        secret = answer.get("secret") if url is not None and isinstance(answer.get("secret"), str) else None
+        with self.store.transaction() as c:
+            save(c, wake_url=url, wake_url_set_at=H.now() if url else None, wake_url_set_by=who.actor if url else None)
+            # The address can carry a token in its path: the audit names the host only.
+            H.event(c, who.actor, "hooks.wake_url_set" if url else "hooks.wake_url_cleared", "",
+                    {"host": urllib.parse.urlsplit(url).hostname} if url else {})
+        return {"url": url, "secret": secret}
+
+    def ask(self, link, method, path, body, idempotency, quiet=False, refused=None):
         try:
             return link.call(method, path, body, idempotency)
         except Stop:
             raise Problem("gateway", "The Tico Gateway does not accept this server's key. Check it in Settings > Gateway.",
                           409) from None
         except Failed as failed:
+            if refused and failed.code == refused[0]:
+                raise Problem("url", refused[1], 422) from None
             if failed.status == 404 and path.endswith("/delete"):
                 return {}
             raise Problem("gateway", "The Tico Gateway did not answer. Try again in a minute."
@@ -604,6 +673,17 @@ def install(app, settings, store, auth):
         readers(request)
         with store.read() as c:
             return {"relay": service.status(c)}
+
+    @app.get("/api/v2/hooks/wake-url")
+    def wake_url_read(request: Request):
+        """The address Tico Gateway knocks on to start this server when a webhook waits for it, and who set it and when. Owner only."""
+        return service.wake_url(request)
+
+    @app.put("/api/v2/hooks/wake-url")
+    def wake_url_set(request: Request, body: WakeUrl):
+        """Set the wake address (`url`, https) or turn it off (`url: null`). The answer carries the Standard Webhooks signing
+        `secret` once, for the receiver; this server does not keep it. Owner only; needs the Gateway key."""
+        return service.set_wake_url(request, body.url, request.headers.get("idempotency-key"))
 
     @app.post("/api/v2/triggers/{trigger_id}/relay")
     def relay_create(request: Request, trigger_id: str, body: Empty):

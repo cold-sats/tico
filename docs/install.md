@@ -565,6 +565,48 @@ curl -fsSL https://github.com/ticoteam/tico/releases/download/vX.Y.Z/install.sh 
   repositories (20 GiB and up). When bots queue, add another runner computer rather than a bigger one. More in
   [sizing](sizing.md).
 
+### Wake on webhook
+
+A server you run yourself may be off or asleep when a webhook arrives. An address [through Tico Gateway](webhooks.md#through-tico-gateway)
+keeps the call at Tico HQ until the server is back, but nothing starts the server. A **wake address** does: an https address
+you run that turns the server on, such as a cloud function that starts your VM or a script on your home router.
+
+It is for servers you run. A server Tico hosts is woken by Tico already.
+
+When a call has waited at the Gateway for more than a minute, Tico HQ posts `tico.wake` to your address, at most once every 10
+minutes:
+
+```json
+{"type": "tico.wake", "install": "acme", "pending": 3, "oldest_received_at": "2026-10-25T10:00:00Z"}
+```
+
+Set it as the owner, with the Tico Gateway connected in Settings → Gateway:
+
+```
+hub relay wake-url set https://wake.acme.example/start-tico
+```
+
+The answer shows a signing secret (`whsec_...`) once. Tico does not keep it. `hub relay wake-url show` shows the address, who set
+it and when; `hub relay wake-url off` stops the calls. The address must be public https with no user or password.
+
+The call is signed as [Standard Webhooks](https://www.standardwebhooks.com) (`webhook-id`, `webhook-timestamp`,
+`webhook-signature`) with that secret. Check it before you start anything, so a stranger who finds the address cannot start your
+server:
+
+```python
+import os
+from standardwebhooks import Webhook
+
+wh = Webhook(os.environ["TICO_WAKE_SECRET"])      # the whsec_... from the answer
+
+def handle(raw_body: bytes, headers: dict):
+    wh.verify(raw_body, headers)                  # raises if the signature or timestamp is wrong
+    start_acme_server()                           # your own code: power on the VM, send wake-on-LAN, ...
+```
+
+Answer with any 2xx quickly (HQ waits 5 seconds). A failure is not retried before the 10 minutes are up, and the calls that
+waited are collected as soon as the server is back.
+
 ## Add computers to run your bots
 
 In the app open **Settings > Computers > Add computer** (or step 4 of the Finish setup wizard, "Add the computer that

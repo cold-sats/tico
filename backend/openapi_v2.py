@@ -1411,6 +1411,11 @@ STABLE.extend([
      'the Gateway address starts a sleeping server (people who manage the trigger, and BotOps)', 'WebhookRelayWake'),
     ('/api/v2/triggers/{trigger_id}/relay/delete', 'post', 'Webhook relay', 'deleteWebhookRelay', 'Remove the Gateway address; '
      'the trigger and its own address stay', 'WebhookRelayDeleted'),
+    ('/api/v2/hooks/wake-url', 'get', 'Webhook relay', 'getWebhookWakeUrl', 'The address Tico Gateway knocks on to start '
+     'this server when a webhook waits for it, who set it and when (the owner)', 'WebhookWakeUrl'),
+    ('/api/v2/hooks/wake-url', 'put', 'Webhook relay', 'setWebhookWakeUrl', 'Set the wake address (https) or turn it off '
+     '(url null); the answer carries the signing secret once, for the receiver (the owner; needs the Gateway key)',
+     'WebhookWakeUrlSet'),
 ])
 TAGS['Sleep when idle'] = 'A server Tico hosts stops after quiet hours and starts again on a webhook, a routine or a sign-in (backend/sleep_idle.py).'
 STABLE.extend([
@@ -1437,6 +1442,9 @@ SCHEMAS.update({
                                              'replayed': 'b'})}),
     'WebhookRelayWake': obj({'relay': obj({'trigger': 's', 'relay_id': 's', 'wake': 'b'})}),
     'WebhookRelayDeleted': obj({'relay': obj({'trigger': 's', 'deleted': 'b', 'gateway_told': 'b'})}),
+    'WebhookWakeUrl': obj({'url': {'type': ['string', 'null']}, 'set_at': {'type': ['string', 'null']},
+                           'set_by': {'type': ['string', 'null']}}),
+    'WebhookWakeUrlSet': obj({'url': {'type': ['string', 'null']}, 'secret': {'type': ['string', 'null']}}),
 })
 TAGS['Webhooks'] = "Outgoing webhooks: endpoints a person owns, the events Tico sends them, and each send's log (docs/webhooks.md)."
 STABLE.extend([

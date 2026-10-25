@@ -241,6 +241,8 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub trigger relay create|rotate|delete <trigger>
                                            a second address through Tico Gateway (shown once); hub relay status
     hub relay set <trigger> --wake on|off  whether a delivery to that address starts a sleeping server
+    hub relay wake-url show|off|set <url>  the https address Tico Gateway knocks on to start a server you run when a webhook
+                                           waits for it; the owner (set shows the signing secret once)
     hub webhook list|create|show|update|rotate|pause|resume|delete|send|sends|retry|example
     hub webhook recover|replay <id> --since DATE|enable <id>
                                            send again what gave up / what was never sent since a date; turn an endpoint back on
@@ -1829,6 +1831,13 @@ def parser():
     s.add_argument("trigger", help="the trigger id from `hub trigger list`")
     s.add_argument("--wake", type=on_off, metavar="on|off", required=True, help="start the server on a delivery (on) or not (off)")
     s.set_defaults(fn="relay set")
+    wake_url = relay_top.add_parser("wake-url", help="an address Tico Gateway knocks on to start a server you run when a "
+                                                     "webhook waits for it").add_subparsers(dest="subsub")
+    wake_url.add_parser("show", help="the address, who set it and when").set_defaults(fn="relay wake-url show")
+    wake_url.add_parser("off", help="stop knocking").set_defaults(fn="relay wake-url off")
+    s = wake_url.add_parser("set", help="set the address; the signing secret is shown once")
+    s.add_argument("url", help="an https address you run")
+    s.set_defaults(fn="relay wake-url set")
     sleep = sub.add_parser("sleep", help="Sleep when idle: a hosted server stops after quiet hours").add_subparsers(dest="sub")
     s = sleep.add_parser("status", help="hosted or not, the hours, what keeps the server up and Tico's last answer")
     s.set_defaults(fn="sleep status")

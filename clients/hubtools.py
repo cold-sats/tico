@@ -2666,6 +2666,27 @@ def relay_status(api, args):
     return api.get("relay")["relay"]
 
 
+@tool("hub_relay_wake_url_show", "The address Tico Gateway knocks on to start this server when a webhook has waited for it "
+      "over a minute: `url` (null when off), `set_at` and `set_by`. For servers you run yourself that sleep or are off; "
+      "hosted servers are woken already. The owner only.", {})
+def relay_wake_url_show(api, args):
+    return _as_person(api).get("hooks/wake-url")
+
+
+@tool("hub_relay_wake_url_set", "Set the address Tico Gateway posts a signed `tico.wake` to when a webhook has waited for "
+      "this server over a minute (at most every 10 minutes): something you run that starts the server. Needs the Tico "
+      "Gateway connected. The answer's `secret` (whsec_...) verifies the call as a Standard Webhooks signature and is "
+      "shown only now. The owner only (BotOps for them).",
+      {"url": _s("An https address with a host and no user or password")}, required=("url",), writes=True)
+def relay_wake_url_set(api, args):
+    return _as_person(api).call("PUT", "hooks/wake-url", {"url": str(args["url"])}, key=_key(args))
+
+
+@tool("hub_relay_wake_url_off", "Stop Tico Gateway knocking on the wake address. The owner only.", {}, writes=True)
+def relay_wake_url_off(api, args):
+    return _as_person(api).call("PUT", "hooks/wake-url", {"url": None}, key=_key(args))
+
+
 @tool("hub_sleep_status", "Sleep when idle on a server Tico hosts: `hosted`, `hours` (0 = off), `runners` (bot computers stop "
       "with the server), `active`, `idle_since` (the last moment anything happened; null while `blocker` names what keeps "
       "the server up: run_queued, run_in_progress, task_session, runner_job, send_pending or routine_due), `wake_at` (the "
