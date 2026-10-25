@@ -211,11 +211,21 @@ Stored keys, room-mode `shared`, independent copy routes and older runner payloa
 
 Public roadmap publication, requesters and anonymous endpoints are described in [Public roadmaps](roadmaps.md).
 
+## Incoming webhooks
+
+Anything that can send an HTTP POST can start routines and rules. `POST /api/v2/triggers` (`name`, optional `id`) makes one and
+answers with its address once; `POST /api/v2/hooks/{id}/{secret}` is the address a sender calls. `GET /api/v2/triggers`,
+`/triggers/{id}` and `POST /triggers/{id}` (`name`, `preset`, `type_from`, `hourly`, `keep_days`, `unheard`) read and change them;
+`/rotate`, `/signing`, `/relay`, `/relay/rotate`, `/relay/delete`, `/delete`, `GET /deliveries`, `GET /deliveries/{delivery}`
+(`?part=n` for a bot) and `POST /deliveries/{delivery}/replay` sit under `/triggers/{id}`. `GET /api/v2/relay` shows the Tico
+Gateway state, `GET /api/v2/event-types` the event catalog and `GET /api/v2/notices` the notices from Tico Team. The whole
+story, with the CLI, is on [Webhooks](webhooks.md).
+
 ## Outgoing webhooks
 
 Tico posts an event to an address you choose when something happens: a task is made, finishes or is blocked; an approval is
-asked or decided; a bot is held or fails; a release is published; and more. Settings has no page for them yet; use the API,
-`hub webhook` or the `hub_webhook_*` tools.
+asked or decided; a bot is held or fails; a release is published; and more. Add them in Settings → Webhooks → Outgoing, or use
+the API, `hub webhook` or the `hub_webhook_*` tools ([Webhooks](webhooks.md#outgoing)).
 
 ```
 hub webhook create --name "Acme orders" --url https://hooks.acme.example/tico --events 'task.*' 'custom.*'

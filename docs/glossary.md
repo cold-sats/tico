@@ -66,6 +66,13 @@ The words Tico uses, and what each replaces.
 
 Docs (internal and linked), Files, Meetings, Strategy (with Market as its tab), Listening, Goals, KPIs, Check-ins, Usage.
 
+## Webhooks
+
+- **Incoming webhook** (also **trigger** in the CLI and API): an address outside senders post to. Tico keeps each call, starts the routines and rules that listen, and can wake a bot. Settings → Webhooks → Incoming ([Webhooks](webhooks.md#incoming)).
+- **Outgoing webhook** (also **endpoint**): an address Tico posts events to when something happens in Tico, signed as Standard Webhooks. Settings → Webhooks → Outgoing ([Webhooks](webhooks.md#outgoing)).
+- **Relay address**: a second address for an incoming webhook, held at Tico Gateway, that keeps what is sent while the server is off or asleep. Settings → Webhooks → Through Tico Gateway ([Webhooks](webhooks.md#through-tico-gateway)).
+- **Sleep when idle**: on a server Tico hosts, stop the server after quiet hours and start it again on a Gateway webhook, a routine, or a sign-in ([Account](account.md#sleep-when-idle)).
+
 ## Instead of
 
 | Instead of | Use |

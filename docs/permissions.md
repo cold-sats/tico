@@ -162,6 +162,21 @@ Create product repositories is a wider reach than bot repositories, so:
 
 Connecting, disconnecting and replacing the GitHub App stay the Owner's alone, as does deleting a repository.
 
+## Incoming webhooks
+
+An incoming webhook (a trigger) is an address outside senders post to ([Webhooks](webhooks.md#incoming)).
+
+- **Anyone**, person or bot, may add one. The address and its secret are shown once, to whoever added it.
+- **Managing one** (a new secret, its settings, signing, running a call again, deleting it, its Tico Gateway address) belongs to the
+  owner, whoever added it and BotOps. An admin who is none of those does not manage another person's webhook.
+- **Reading a call.** People who manage the webhook read the whole body. A bot reads it in parts, and only for a call that opened
+  one of its tasks or that a notice from Tico to it names, or if it manages the webhook. A body is always handed over fenced as
+  data from outside Tico.
+- **Rules on a call** (`webhook.received`): the owner and admins write team rules; a bot's owners, its operator and BotOps write
+  that bot's rules. Waking a bot needs rights over that bot. A rule that sends to an outgoing endpoint is written by a person, or by
+  a bot with its outbound send switch on, never the CEO Bot, and runs only when its maker owns the endpoint or is an admin.
+- **Tico Team** is a built-in webhook. Nobody deletes it; only its keep days change.
+
 ## Outgoing webhooks
 
 An endpoint is an address Tico posts events to ([API](api.md#outgoing-webhooks)).
