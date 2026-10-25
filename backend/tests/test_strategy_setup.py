@@ -171,6 +171,16 @@ def test_hub_sql_keeps_the_research_job_to_the_owner(api, monkeypatch):
     query = {"sql": "SELECT key, value_json FROM registry_metadata WHERE key=?", "params": [SS.KEY]}
     assert "Unannounced" in post(api, "sql", query)["rows"][0][1]
     assert post(api, "sql", query, token="ben-test")["rows"] == []                  # a bot administrator
+
+
+def test_hub_sql_keeps_an_imported_company_files_unpublished_strategy_to_the_owner(api):
+    from backend import company_import
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO registry_metadata VALUES(?,?)",
+                  (company_import.PLAN_KEY, json.dumps({"strategy": {"bets": [{"statement": "Unannounced bet"}]}})))
+    query = {"sql": "SELECT value_json FROM registry_metadata WHERE key=?", "params": [company_import.PLAN_KEY]}
+    assert "Unannounced bet" in post(api, "sql", query)["rows"][0][0]
+    assert post(api, "sql", query, token="ben-test")["rows"] == []                  # a bot administrator
     keys = [r[0] for r in post(api, "sql", {"sql": "SELECT key FROM registry_metadata"}, token="ben-test")["rows"]]
     assert "people" in keys and SS.KEY not in keys
 
