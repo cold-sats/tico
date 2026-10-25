@@ -286,9 +286,14 @@ const PAST = [done('r-blue', 'blue-ocean'), done('r-draft', 'scenarios', {on_dra
       await page.locator('[data-lens-run="scenarios"]').click();
       const dlg = page.locator('#lens-flow');
       await dlg.locator('textarea').fill('Rules');
-      await dlg.locator('[data-lens-next]').click();
-      await dlg.locator('[data-lens-next]').waitFor();
+      // Scenarios has one step, so the Run on choice is already there and Run would submit.
+      await dlg.locator('[data-lens-on]').first().waitFor();
       assert.deepEqual(await dlg.locator('[data-lens-on]').allInnerTexts(), ['Draft']);
+      assert.equal(await dlg.locator('[data-lens-on="draft"]').getAttribute('aria-pressed'), 'true');
+      await dlg.locator('[data-lens-next]').click();
+      await page.locator('[data-lens-run-page]').waitFor();
+      assert.deepEqual(sent.at(-1)[2], {answers: {u1: 'Rules'}, on: 'draft'});
+      assert.deepEqual(errors, []);
       await page.close();
       const racy = await open(browser, {noPublished: true});
       await racy.page.locator('[data-lens-run="scenarios"]').click();
