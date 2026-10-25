@@ -433,3 +433,50 @@ def test_the_other_events_are_published_where_they_happen(api, net):
     assert {"approval.requested", "approval.decided"} <= kinds
     body = json.loads(next(s for s in sends(api, made["id"]) if s["type"] == "approval.decided")["body"])
     assert body["data"]["decision"] == "approved" and "payload" not in body["data"]
+
+
+def test_publish_to_one_endpoint_checks_the_actor_against_that_endpoint(api):
+    bens = make(api, events=["custom.*"], token="ben-test")
+    api.app.state.auth.owner_email = "ana@acme.example"        # the roster's owner, as a rule's maker is rebuilt from it
+    with api.app.state.store.transaction() as c:
+        with pytest.raises(W.Refused, match="may send to it"):
+            W.publish(c, "custom.x", "s", {}, "human:priya", only=bens["id"])
+        assert W.publish(c, "custom.x", "s", {}, "human:ben", only=bens["id"]) == 1
+        assert W.publish(c, "custom.y", "s", {}, "human:ana", only=bens["id"]) == 1     # an admin may
+        assert W.publish(c, "custom.z", "s", {}, H.KEEPER, only=bens["id"]) == 1
+        c.execute("INSERT INTO bot_mail_settings(bot,outbound_send,forward_to_json,updated,updated_by) VALUES('ops',1,'[]',?,?)",
+                  (H.now(), "human:ana"))
+        narrow = W.publish(c, "custom.w", "s", {}, "bot:ops", only=bens["id"])
+        assert narrow == 1
+        c.execute("UPDATE webhooks SET events_json='[\"task.*\"]' WHERE id=?", (bens["id"],))
+        with pytest.raises(W.Refused, match="does not listen"):
+            W.publish(c, "custom.v", "s", {}, "bot:ops", only=bens["id"])
+
+
+def test_a_custom_event_about_a_private_task_is_refused_to_an_endpoint_whose_owner_cannot_read_it(api):
+    priyas = make(api, events=["custom.*"], token="priya-test")
+    bens = make(api, events=["custom.*"], token="ben-test")
+    with api.app.state.store.transaction() as c:
+        private = H.task_create(c, "human:ben", "Review the sensitive packet", "Details.", "bot:cpo", private=True, lint=False)
+        with pytest.raises(W.Refused, match="may not read this"):
+            W.publish(c, "custom.x", private["id"], {"text": "sensitive"}, H.KEEPER, only=priyas["id"])
+        assert W.publish(c, "custom.x", private["id"], {"text": "sensitive"}, H.KEEPER, only=bens["id"]) == 1
+        assert W.publish(c, "custom.x", "not-a-task", {"text": "fine"}, H.KEEPER, only=priyas["id"]) == 1
+
+
+def test_a_server_that_drips_its_answer_is_cut_off_at_the_total_deadline(monkeypatch):
+    monkeypatch.setattr(egress, "resolve", lambda host: PUBLIC)
+    monkeypatch.setattr(egress, "DEADLINE", 0.2)
+
+    def slow(request):
+        time.sleep(0.5)
+        return httpx.Response(200)
+    with pytest.raises(egress.Blocked, match="took longer"):
+        egress.post("https://hooks.acme.example/x", b"{}", {}, transport=httpx.MockTransport(slow))
+
+    def hang(host):
+        time.sleep(1)
+        return PUBLIC
+    monkeypatch.setattr(egress, "resolve", hang)
+    with pytest.raises(egress.Blocked, match="name lookup"):
+        egress.post("https://hooks.acme.example/x", b"{}", {}, transport=httpx.MockTransport(slow))

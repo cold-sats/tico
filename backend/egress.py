@@ -4,16 +4,21 @@ endpoint's owner turned it on, plain http to this machine for a receiver being b
 Every send resolves the name again and connects to the address it checked, so a second lookup (DNS rebinding) cannot
 send it elsewhere; TLS (SNI and the certificate check) and Host still use the name. No redirect is followed, the
 environment's proxy settings are ignored (a proxy would reach what the check kept out), the URL carries no sign-in, and
-the answer is read only as far as its first kilobyte.
+the answer is read only as far as its first kilobyte. One send has a total budget (DEADLINE) for the name lookup,
+connecting and reading: httpx's own timeout restarts on every byte, so a server that drips bytes would otherwise hold
+a worker past the point where a crashed send is handed to another.
 """
 import ipaddress
 import socket
+import threading
+import time
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 import httpx
 
 TIMEOUT = 30.0
+DEADLINE = 60.0
 HEAD_BYTES = 1024
 
 
@@ -64,9 +69,29 @@ def check(url, allow_http=False):
     return parts
 
 
-def address_for(parts, allow_http=False):
+def _within(seconds, call, *args):
+    """`call(*args)` or Blocked when it takes longer than `seconds`: a name lookup cannot be interrupted, so it runs on a
+    thread that is left behind when the budget ends."""
+    box = {}
+
+    def run():
+        try:
+            box["value"] = call(*args)
+        except BaseException as exc:                # carried back to the caller
+            box["error"] = exc
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(max(seconds, 0.001))
+    if worker.is_alive():
+        raise Blocked(f"The name lookup took longer than {DEADLINE:g} seconds")
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
+
+
+def address_for(parts, allow_http=False, budget=None):
     """The address to connect to: the first of the name's addresses, when all of them are acceptable."""
-    addresses = resolve(parts.hostname)
+    addresses = resolve(parts.hostname) if budget is None else _within(budget, resolve, parts.hostname)
     if not addresses:
         raise Blocked(f"The name {parts.hostname} did not resolve")
     if parts.scheme == "http":
@@ -81,17 +106,34 @@ def post(url, body, headers, *, allow_http=False, transport=None):
     """POST `body` (bytes) with `headers`; the Answer, or Blocked / httpx.HTTPError. `transport` stands in for the
     network in tests; the address is checked and pinned either way."""
     parts = check(url, allow_http)
-    address = address_for(parts, allow_http)
+    ends = time.monotonic() + DEADLINE
+    address = address_for(parts, allow_http, budget=DEADLINE)
     pinned = httpx.URL(url).copy_with(host=address)
     host = parts.hostname + (f":{parts.port}" if parts.port else "")
     sent = {**headers, "Host": host}
+    late = f"The receiver took longer than {DEADLINE:g} seconds to answer"
     with httpx.Client(timeout=TIMEOUT, follow_redirects=False, trust_env=False, transport=transport) as client:
-        with client.stream("POST", pinned, content=body, headers=sent,
-                           extensions={"sni_hostname": parts.hostname}) as response:
-            head = b""
-            for chunk in response.iter_bytes():
-                head += chunk
-                if len(head) >= HEAD_BYTES:
-                    break
-            return Answer(response.status_code, {k.lower(): v for k, v in response.headers.items()},
-                          head[:HEAD_BYTES].decode("utf-8", "replace"))
+        # Closing the client from the timer ends a read that is blocked on a socket; the checks below catch the rest.
+        timer = threading.Timer(max(ends - time.monotonic(), 0.001), client.close)
+        timer.daemon = True
+        timer.start()
+        try:
+            with client.stream("POST", pinned, content=body, headers=sent,
+                               extensions={"sni_hostname": parts.hostname}) as response:
+                head = b""
+                for chunk in response.iter_bytes():
+                    head += chunk
+                    if len(head) >= HEAD_BYTES or time.monotonic() > ends:
+                        break
+                if time.monotonic() > ends:
+                    raise Blocked(late)
+                return Answer(response.status_code, {k.lower(): v for k, v in response.headers.items()},
+                              head[:HEAD_BYTES].decode("utf-8", "replace"))
+        except Blocked:
+            raise
+        except Exception as exc:
+            if time.monotonic() > ends:
+                raise Blocked(late) from exc
+            raise
+        finally:
+            timer.cancel()

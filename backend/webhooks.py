@@ -185,6 +185,10 @@ def view_for(c, actor, type_, subject, data, cache):
     group = type_.split(".")[0]
     if group == "task":
         return data if _task_readable(c, actor, subject, cache) else None
+    # Whatever the event is called, a subject that is a task is that task's to give: a rule or a person may send a
+    # custom event about one.
+    if H.task(c, subject) and not _task_readable(c, actor, subject, cache):
+        return None
     if group == "approval":
         row = c.execute("SELECT decision_owner, task_id FROM approvals WHERE id=?", (subject,)).fetchone()
         if not row or not (actor == row["decision_owner"] or _admin(c, actor, cache)):
@@ -307,6 +311,7 @@ def _publish_only(c, type_, subject, data, actor, only, revision):
     name = canonical(type_)
     if not name:
         raise Refused(f"{type_} is not an event Tico sends")
+    _actor_may_use(c, actor, hook, name)
     if len(json.dumps(data, default=str)) > MAX_DATA:
         raise Refused("The data is over 64 KB")
     if view_for(c, hook["created_by"], name, subject, data, {}) is None:
@@ -317,6 +322,21 @@ def _publish_only(c, type_, subject, data, actor, only, revision):
     if queued:
         _refresh(c)
     return queued
+
+
+def _actor_may_use(c, actor, hook, name):
+    """The same test as may_send, keyed by actor string: a caller that reaches publish without the API (a rule, a
+    producer) still cannot aim at someone else's endpoint. Bots were checked for their send switch by the caller."""
+    if actor == H.KEEPER:
+        return
+    if H.is_bot(actor):
+        if not subscribed(json.loads(hook["events_json"]), name):
+            raise Refused("That endpoint does not listen for this event")
+        return
+    if not _state.get("auth"):
+        return
+    if hook["created_by"] != actor and not _admin(c, actor, {}):
+        raise Refused("Only the person who made this endpoint, or an admin, may send to it")
 
 
 # ------------------------------------------------------------------------------------------------------ endpoint rights
