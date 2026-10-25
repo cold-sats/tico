@@ -26,7 +26,10 @@ only marks the merged PR links the running release contains as Shipped (backend/
 an owner or admin changes the hour, adds a second one or turns it off in Settings, or with `hub release schedule`),
 and not at all when nothing is pending. A ticket arriving at Pending Release wakes no one. For a hotfix or a
 midday release, a person who moves Dev tickets (or the Release Manager or Head of Engineering bot) runs `hub release now [--note ...]`;
-it sends the same task at once, or wakes the Release task the Release Manager already has open. The Release
+it sends the same task at once, or wakes the Release task the Release Manager already has open. With nothing at
+Pending Release, a person's `--note` still asks (work often reaches main as pull requests that were never Dev tickets):
+the task, "Release: requested by <name>", carries the note and no ticket list. A bot's request, or a person's with no
+note, sends nothing. The Release
 Manager is the bot the schedule setting names, else the one built from the `release-notes` starter; with neither,
 nothing is sent.
 

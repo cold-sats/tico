@@ -1597,7 +1597,7 @@ def parser():
     release = sub.add_parser("release", help="the team's releases: ask for one now, or set the daily hour").add_subparsers(dest="sub")
     s = release.add_parser("now", help="ask the Release Manager to release what is at Pending Release now (hotfix, "
                                        "midday release); one task listing the tickets")
-    s.add_argument("--note", help="why now; goes in the task")
+    s.add_argument("--note", help="why now; goes in the task; a person's note asks even with nothing at Pending Release")
     s.set_defaults(fn="release now")
     s = release.add_parser("schedule", help="show the daily release, or change it")
     on = s.add_mutually_exclusive_group()

@@ -32,6 +32,11 @@ function releaseNowButtonHTML(v, cls = 'ghost') {
   if (!v?.can_release) return '';
   return `<button type="button" class="${cls}" data-release-now${v.pending ? '' : ' disabled title="Nothing at Pending Release"'}>Release now</button>`;
 }
+// With a note the server asks even when nothing is at Pending Release (work merged without a Dev ticket), so the
+// card's field lights the button; the board's button has no field and stays off while nothing waits.
+function releaseNoteHTML(v) {
+  return v.can_release ? '<input type="text" data-release-note maxlength="1000" placeholder="Note" aria-label="Release note">' : '';
+}
 function releaseCardHTML(v) {
   const times = v.times?.length ? v.times : ['10:00'];
   const timeBox = (t, i) => v.can_change
@@ -48,7 +53,7 @@ function releaseCardHTML(v) {
     <div class="sb-row"><span>Writer</span>${writer}<span></span></div>
     <div class="sb-row"><span>Next</span><div class="rel-line">${v.on && v.next ? `<span class="tnum" title="${esc(fmt(v.next))}" data-release-next>${esc(until(v.next))}</span>` : '<span class="muted">Off</span>'}</div><span></span></div>
     <div class="sb-row"><span>Last</span><div class="rel-line">${releaseLastHTML(v.last)}</div><span></span></div>
-    <div class="sb-row"><span>Pending</span><div class="rel-line"><span class="tnum" data-release-pending>${v.pending} ticket${v.pending === 1 ? '' : 's'}</span>${releaseNowButtonHTML(v)}</div><span></span></div>
+    <div class="sb-row"><span>Pending</span><div class="rel-line"><span class="tnum" data-release-pending>${v.pending} ticket${v.pending === 1 ? '' : 's'}</span>${releaseNoteHTML(v)}${releaseNowButtonHTML(v)}</div><span></span></div>
   </div><p class="settings-cell-note${RELEASE_NOTE.failed ? ' err' : ''}" role="status" data-release-status>${esc(RELEASE_NOTE.text)}</p>`;
 }
 function releaseStatus(text, failed) {
@@ -61,12 +66,12 @@ async function releaseSave(body) {
   catch (e) { releaseCardPaint(); releaseStatus(e.message || 'Try again', true); }
 }
 // One press asks the Release Manager; the answer says whether a task was filed, an open one woken, or why not.
-async function releaseNow(button) {
+async function releaseNow(button, note = '') {
   if (button) button.disabled = true;
   let text = '', failed = false;
   try {
-    const out = await post('/v2/release/now', {});
-    text = out.sent ? `Asked for a release of ${out.tickets} ticket${out.tickets === 1 ? '' : 's'}` : (RELEASE_REASONS[out.reason] || 'Nothing sent');
+    const out = await post('/v2/release/now', note ? {note} : {});
+    text = out.sent ? (out.tickets ? `Asked for a release of ${out.tickets} ticket${out.tickets === 1 ? '' : 's'}` : 'Asked for a release') : (RELEASE_REASONS[out.reason] || 'Nothing sent');
     void releaseScheduleLoad(true).then(() => { releaseCardPaint(); boardReleaseSlots(); }).catch(() => {});
   } catch (e) { text = e.message || 'Try again'; failed = true; }
   finally { if (button?.isConnected) button.disabled = false; }
@@ -77,6 +82,10 @@ function releaseCardPaint() {
   if (formBusy(el)) return;
   card.hidden = false;
   el.innerHTML = releaseCardHTML(RELEASE_VIEW);
+  el.oninput = ev => {
+    const now = el.querySelector('[data-release-now]');
+    if (ev.target.matches('[data-release-note]') && now) now.disabled = !RELEASE_VIEW.pending && !ev.target.value.trim();
+  };
   el.onchange = ev => {
     const t = ev.target;
     if (t.matches('[data-release-on]')) void releaseSave({on: t.checked});
@@ -96,7 +105,12 @@ function releaseCardPaint() {
     const drop = ev.target.closest('[data-release-drop]');
     if (drop) { void releaseSave({times: RELEASE_VIEW.times.filter((_, i) => i !== Number(drop.dataset.releaseDrop))}); return; }
     const now = ev.target.closest('[data-release-now]');
-    if (now && !now.disabled) { const out = await releaseNow(now); releaseStatus(out.text, out.failed); }
+    if (now && !now.disabled) {
+      const box = el.querySelector('[data-release-note]');
+      const out = await releaseNow(now, box?.value.trim());
+      if (box?.isConnected && !out.failed) { box.value = ''; now.disabled = !RELEASE_VIEW.pending; }
+      releaseStatus(out.text, out.failed);
+    }
   };
 }
 async function renderReleaseCard() {
