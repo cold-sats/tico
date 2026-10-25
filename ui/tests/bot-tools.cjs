@@ -114,13 +114,16 @@ const railOrder = page => page.evaluate(() => [...document.querySelectorAll('#pa
       assert.equal(await page.locator('#pane-tasks').isVisible(), true, scheme + ': Tasks rail is open');
       assert.equal((await page.locator('#bot-goal .bot-goal-title').innerText()).trim(), longGoal, scheme + ': unchanged goal');
       const header = await page.locator('.bot-ident h1').evaluate(el => {
+        // Measure the whole heading: the runtime mark sits inside it, and a fractional overflow ellipsizes the line.
         const range = document.createRange();
-        range.selectNodeContents(el.firstChild);
+        range.selectNodeContents(el);
         const text = el.firstChild.textContent;
-        return {text, glyphWidth: range.getBoundingClientRect().width, boxWidth: el.getBoundingClientRect().width};
+        return {text, contentWidth: range.getBoundingClientRect().width, boxWidth: el.getBoundingClientRect().width,
+                scroll: el.scrollWidth, client: el.clientWidth};
       });
       assert.equal(header.text, name, scheme + ': full bot name text');
-      assert(header.glyphWidth <= header.boxWidth, `${scheme}: full name fits without ellipsis (${header.glyphWidth}px in ${header.boxWidth}px)`);
+      assert(header.contentWidth <= header.boxWidth + 0.01 && header.scroll <= header.client,
+             `${scheme}: name and runtime mark fit without ellipsis (${header.contentWidth}px in ${header.boxWidth}px)`);
       const layout = await page.evaluate(() => {
         const top = document.querySelector('#bot-top').getBoundingClientRect();
         const rail = document.querySelector('#pane-tasks').getBoundingClientRect();
