@@ -19,13 +19,13 @@ from backend.tests.test_triggers_incoming import as_bot, routine, stored_rows
 from backend.tests.test_wake_rules import setup
 from backend.tests.test_webhooks import make, net, publish, run, sends, verify  # noqa: F401
 
-# Slack's request-signing example: its secret, timestamp and form body. The signature is computed (v0 over
-# "v0:<timestamp>:<body>") and fixed here, so a change to the scheme in code shows up.
+# Slack's published request-signing example (api.slack.com/authentication/verifying-requests-from-slack): its
+# secret, timestamp, form body and signature.
 SLACK_SECRET, SLACK_TS = "8f742231b10e8888abcd99yyyzzz85a5", 1531420618
 SLACK_BODY = (b"token=xyzz0WbapA4vBCDEFasx0q6G&team_id=T1DC2JH3J&team_domain=testteamnow&channel_id=G8PSS9T3V&channel_name=foobar"
               b"&user_id=U2CERLKJA&user_name=roadrunner&command=%2Fwebhook-collect&text=&response_url=https%3A%2F%2Fhooks.slack.com"
-              b"%2Fcommands%2FT1DC2JH3J%2F397700885554%2F96rGlfmibIGlgcZRskXaIFfN&trigger_id=398738663015.47445629121.803a0bc887a14d45d9f37d89")
-SLACK_V0 = "v0=9f2f65584dbbdcc791818f164158c4d81d1707dffa6b5a2828ac636c78d023aa"
+              b"%2Fcommands%2FT1DC2JH3J%2F397700885554%2F96rGlfmibIGlgcZRskXaIFfN&trigger_id=398738663015.47445629121.803a0bc887a14d10d2c447fce8b6703c")
+SLACK_V0 = "v0=a2114d57b48eac39b9ad189dd8316235a7b4a8d21a10bd27519666489c69b503"
 SLACK_HEADERS = {"x-slack-signature": SLACK_V0, "x-slack-request-timestamp": str(SLACK_TS)}
 
 
