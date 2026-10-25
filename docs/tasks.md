@@ -201,6 +201,12 @@ A note alone wakes nobody. A bot's task waiting with no blocker, subtask, approv
 person goes back to open after two hours (unless its due date says to look later), and the update
 that parks it warns the bot.
 
+A stall or status check leaves a task alone while its owner has a live session on it (a leased or running attempt)
+or the task waits on something recorded: a blocker, an open subtask, a pending approval, an unanswered question, a due
+date, a snooze, a stored resume, a pull request link armed with `--wake-once` or a milestone wait. A bot whose profile
+has no stall sweeps is never checked. A task held only by its own quiet subtasks is still checked (below), and the Task
+Manager's quiet-task list does not use these skips, so a task no sweep wakes still reaches its report.
+
 For unblocked open or doing tasks, automatic stalled-task wakes are limited to three in a rolling
 24 hours, spaced at least 30 minutes apart. Updating a note does not reset that limit. Repeated
 stalls are escalated to BotOps with a separate diagnostic for each source task. If BotOps itself is
@@ -377,6 +383,15 @@ A bot's **profile** (Doer, Reviewer, Lead, Responder, Monitor, Custom) adds a fe
 its review and QA requests and people and notes the rest, a Lead gets everything but people, escalations and approvals in a daily
 digest, a Responder and a Monitor note the rest. `hub rule list` shows them as the profile's, and a Custom bot's copies as its own
 ([Profiles](how-it-works.md#profiles)).
+
+Once a week, **Suggest quieter rules** (Settings > System routines) turns each rule above 50% no-op over 7 days with at
+least 20 runs into one suggestion, "make this a note": a table rule's outcome becomes `note`; a built-in gets a team rule
+for its event, because built-ins are read-only. The always-wake events, awaited results and scheduled or assigned work
+(routines, assignments, due dates) are never suggested. Nothing changes by itself. `hub rule suggestions` lists the ones
+you may act on, `hub rule apply <id>` edits the rule with your own right to edit it, and `hub rule dismiss <id>` declines
+an open suggestion (that rule is not suggested again for 28 days) or, on an applied one, puts the rule back if nobody has
+changed it since. The same three are `hub_rule_suggestions`, `hub_rule_apply` and `hub_rule_dismiss`, and
+`GET /api/v2/rules/suggestions` with `POST .../{id}/apply` and `.../{id}/dismiss`.
 
 ## Snoozing a task
 
@@ -634,14 +649,16 @@ refresh for repositories the App can reach. Refreshes are grouped, capped at 20 
 cached for three minutes; failures back off from five minutes up to one hour. People
 can still move tasks without webhooks or a successful refresh.
 
-Failing checks, new conflicts, requests for changes, review comments from others and PRs
-closed without merging wake the owner with the specific item, grouped into one notice within
-three minutes. Conflicts wake once per head until a known clean result clears the marker.
-A new push resets mergeability to Unknown while GitHub recomputes it; label and text edits
-keep the last known mergeability. Pending or passing checks and the bot's own comments
-do not wake it. Tico recognises the GitHub App identity, configured bot login and PR author.
-A head pusher counts as the bot only when their login matches the PR author. Requests for
-changes always wake the owner, including requests from those identities.
+New conflicts, requests for changes, review comments from a person and PRs closed without
+merging wake the owner with the specific item, grouped into one notice within three minutes.
+Conflicts wake once per head until a known clean result clears the marker. A single check finishing
+sends nothing; when every check on a head has finished the owner gets one `pr_checks_done` (pass or
+fail, naming the failures) for it. It wakes the owner while the ticket is at a working step (status open or
+doing) and is a note at any other step; a link armed with `--wake-once` hears it at any step. A review or comment
+from a bot or a GitHub App is a note, never a wake. A new push resets mergeability to Unknown while GitHub recomputes
+it; label and text edits keep the last known mergeability. The bot's own comments do not wake it. Tico recognises
+the GitHub App identity, configured bot login and PR author. A head pusher counts as the bot only when their login
+matches the PR author.
 A merged PR becomes Shipped once the running release includes its merge commit; the task stays
 where it is. PRs in another repository stay Merged.
 
@@ -760,8 +777,18 @@ share the stall watcher's spacing and its cap of three a day, after which BotOps
 
 An idle task unchanged since its owner's last settled checkpoint skips a plain automatic stall or status check.
 Changed state or a missing checkpoint leaves the check eligible under the usual wake rules. Human messages still
-wake the bot as before, and leased or running sessions keep their recovery checks
-([details](hub-sql.md#what-woke-each-run-and-what-it-did)).
+wake the bot as before ([details](hub-sql.md#what-woke-each-run-and-what-it-did)). A running session is not sent status
+checks or retries; they resume once its turn ends without progress.
+
+With the team's **Quiet task triage** switched on (Settings > System routines, on by default, needs Tico Decide), a
+quiet task that stands as at its owner's last checkpoint is no longer left silent. Decide reads its last six messages
+once for that state and answers one of four things. *Waiting on someone*: the wait it names is set (a task the messages
+mention as a blocker, a date they mention as a snooze, or a person they name as the owner's own waiting-on, with a
+one-line ask in a small subtask), and no run starts. *Finished but unmarked*: the task is closed with a note crediting
+whoever spoke last; reopen it if that was wrong. *Stuck*: the one stall wake goes through with today's way-out text, under
+the usual spacing and daily cap. *Unsure*, or any answer under its confidence, nothing changes and the Task Manager's next
+report names the task with "class: unsure". Decide off, not set up, over its daily or hourly limit or failing leaves the
+check silent, as before. Nothing else is automatic after the wake.
 
 `task_goal: on` on a bot (`hub bot update <slug> --task-goal on`, `hub_bot_update`, or the bot definition API; off by
 default) works each task it owns as a goal: the turn carries `task.goal` (the title and its acceptance criteria), and

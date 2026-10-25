@@ -1836,6 +1836,7 @@ class AccessRules(Contract):
     support_access: bool | None = None
     stale_review: bool | None = None
     topic_fresh: bool | None = None
+    stall_triage: bool | None = None
     go_ahead_days: Annotated[int, Field(strict=True, ge=1, le=14)] | None = None
 
 
@@ -2474,6 +2475,10 @@ class RuleUpdate(Contract):
 
 class RuleDelete(Contract):
     expected_revision: int | None = Field(default=None, ge=1)
+
+
+class RuleSuggestionAct(Contract):
+    pass
 
 
 class TaskRuleUpdate(Contract):

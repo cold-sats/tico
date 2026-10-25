@@ -2643,6 +2643,33 @@ def rule_delete(api, args):
                                                            key=_key(args))
 
 
+@tool("hub_rule_suggestions", "List the wake rules Tico suggests making a note because over half of their runs in the last week "
+      "did nothing (at least 20 runs), each with its 7-day runs and no-op share. Only the suggestions the person who asked "
+      "may act on. Nothing changes until hub_rule_apply.",
+      {"status": {"type": "string", "enum": ["open", "all"], "description": "open (default), or all: also applied and dismissed in the last 30 days"},
+       "limit": {"type": "integer", "minimum": 1, "maximum": 100}, "offset": {"type": "integer", "minimum": 0},
+       "on_behalf_of": ON_BEHALF_OF})
+def rule_suggestions(api, args):
+    return _as_person(api, args.get("on_behalf_of")).get("rules/suggestions", status=args.get("status"), limit=args.get("limit"),
+                                                          offset=args.get("offset"))
+
+
+@tool("hub_rule_apply", "Make a suggested rule a note, as the person who asked you: a table rule is edited, a built-in gets a "
+      "team rule for its event. Needs the right to edit that rule. hub_rule_dismiss on the applied suggestion puts it back.",
+      {"id": _s("The suggestion's id (hub_rule_suggestions)"), "on_behalf_of": ON_BEHALF_OF}, required=("id",), writes=True)
+def rule_apply(api, args):
+    return _as_person(api, args.get("on_behalf_of")).post("rules/suggestions/" + quote(args["id"], safe="") + "/apply", {},
+                                                           key=_key(args))
+
+
+@tool("hub_rule_dismiss", "Decline a suggested rule change (Tico does not suggest that rule again for 28 days), or, on one "
+      "already applied, take it back: the rule returns to how it was, if nobody has changed it since. As the person who asked you.",
+      {"id": _s("The suggestion's id"), "on_behalf_of": ON_BEHALF_OF}, required=("id",), writes=True)
+def rule_dismiss(api, args):
+    return _as_person(api, args.get("on_behalf_of")).post("rules/suggestions/" + quote(args["id"], safe="") + "/dismiss", {},
+                                                           key=_key(args))
+
+
 BUDGET_VALUE = {"type": ["integer", "string"], "minimum": 0, "maximum": 100000,
                 "description": "Runs allowed; 0 is no limit, \"default\" follows the team"}
 
@@ -3243,6 +3270,16 @@ def task_manager_set(api, args):
       "per department only when there is something to look at; 409 while the report is off.", {}, writes=True)
 def task_manager_run(api, args):
     return api.call("POST", "system-routines/task_manager_report/run", {}, _key(args))
+
+
+@tool("hub_stall_triage", "Quiet task triage: before a stall check stays silent on a quiet task nothing has changed on, Tico "
+      "Decide reads its last six messages and sets the wait they name, closes the task if it is finished, or lets one wake "
+      "through if it is stuck. Off by default; the owner or an admin switches it. Omit `on` to read the switch.",
+      {"on": {"type": "boolean", "description": "true switches it on, false off; leave out to read"}}, writes=True)
+def stall_triage(api, args):
+    if args.get("on") is None:
+        return {"job": next(job for job in api.get("system-routines")["jobs"] if job["key"] == "stall_triage")}
+    return api.call("PUT", "system-routines/stall_triage", {"on": bool(args["on"])}, _key(args))
 
 
 # ----------------------------------------------------------------------------- approvals
@@ -4293,7 +4330,7 @@ AUDIENCE = {
     "hub_repo_review": ("bot", "botops"),
     "hub_repo_product_create": ("owner", "bot", "botops"),   # a bot needs Create product repositories (server)
     **{name: REQUESTER for name in ("hub_credential_grant", "hub_credential_revoke", "hub_credential_import", "hub_credential_delete")},
-    **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_restore", "hub_agent_pair_show", "hub_agent_pair_approve", "hub_agent_pair_decline", "hub_bot_place", "hub_bot_go_live", "hub_bot_model", "hub_bot_keep_tasks_going", "hub_rule_set", "hub_rule_update", "hub_rule_delete", "hub_bot_budget", "hub_bot_profile", "hub_bot_release", "hub_bot_pause",
+    **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_restore", "hub_agent_pair_show", "hub_agent_pair_approve", "hub_agent_pair_decline", "hub_bot_place", "hub_bot_go_live", "hub_bot_model", "hub_bot_keep_tasks_going", "hub_rule_set", "hub_rule_update", "hub_rule_delete", "hub_rule_apply", "hub_rule_dismiss", "hub_stall_triage", "hub_bot_budget", "hub_bot_profile", "hub_bot_release", "hub_bot_pause",
                                     "hub_bot_scope",
                                     "hub_bot_resume", "hub_bot_access", "hub_bot_owners", "hub_human_add", "hub_group_update",
                                     "hub_tool_add", "hub_tool_update", "hub_tool_remove",

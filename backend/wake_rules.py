@@ -128,7 +128,7 @@ def awaited(refs):
     wake = refs.get("wake")
     if refs.get("blocker_done"):
         return "blocker_done"
-    if refs.get("trigger") == "pr_checks":
+    if refs.get("trigger") == "pr_checks" and wake != "pr_review":      # a review note is news, not a result
         return "wake_once"
     if refs.get("subtask"):
         return "subtask"
@@ -279,6 +279,22 @@ def settled_state(conn, task_row, bot, started, attempt_id):
         return None
 
 
+def at_checkpoint(conn, task_row, target):
+    """Whether the task stands exactly as at `target`'s last checkpoint on it, with no newer turn of its running:
+    no stored state, a blocked checkpoint, someone else's checkpoint or any difference is False."""
+    if not task_row or task_row.get("owner") != target or task_row.get("checkpoint_blocked") \
+            or not task_row.get("checkpoint_state") or task_row.get("checkpoint_by") != target:
+        return False
+    from . import hubdb as H
+    lanes, _ = H._session_lanes(conn, task_row)
+    # A completed turn's checkpoint says nothing about a newer active turn's health. Its
+    # first status check seeds the retry and diagnostic path when it stops making progress.
+    if conn.execute("SELECT 1 FROM attempts WHERE bot=? AND lane IN (?,?) "
+                    "AND state IN ('leased','running') LIMIT 1", (H.actor_id(target), *lanes)).fetchone():
+        return False
+    return state_of(conn, task_row) == task_row["checkpoint_state"]
+
+
 def same_state(conn, actor, target, kind, refs, body, task_row, cause=None, in_reply_to=None):
     """Whether this wake is a plain stall or status check about a task `target` owns that stands exactly as at its
     last checkpoint. Nothing on ALWAYS_WAKE or AWAITED is ever held."""
@@ -290,14 +306,7 @@ def same_state(conn, actor, target, kind, refs, body, task_row, cause=None, in_r
         return None
     if always_wakes(conn, actor, target, kind, refs, body, CAUSE.get() if cause is None else cause, in_reply_to):
         return None
-    from . import hubdb as H
-    lanes, _ = H._session_lanes(conn, task_row)
-    # A completed turn's checkpoint says nothing about a newer active turn's health. Its
-    # first status check seeds the retry and diagnostic path when it stops making progress.
-    if conn.execute("SELECT 1 FROM attempts WHERE bot=? AND lane IN (?,?) "
-                    "AND state IN ('leased','running') LIMIT 1", (H.actor_id(target), *lanes)).fetchone():
-        return None
-    return "same_state" if state_of(conn, task_row) == task_row["checkpoint_state"] else None
+    return "same_state" if at_checkpoint(conn, task_row, target) else None
 
 
 def gate(conn, actor, target, kind, refs, body, conv, in_reply_to=None):

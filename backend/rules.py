@@ -18,7 +18,10 @@ Built-in rules are defined here, in code, with stable ids. They reproduce what t
 were rules: the ALWAYS_WAKE classes (a person's message, an ask, an approval, a needs-action flag, a reply, a gate
 verdict) and AWAITED results wake; a bot's own write (`own_write`), news about a parked task (`parked`) and a stall
 check on a task that stands as at the last checkpoint (`same_state`) wait; a plain bot-to-bot message waits
-(`bot_to_bot`); a finished request, review comments and a failing check are batched (`batch_*`); anything else
+(`bot_to_bot`); a finished request and a person's review comments are batched (`batch_*`); one check finishing is
+ignored (`pr_check`), every check on a pull request head finished (`pr_checks_done`) wakes the ticket's owner at a
+working step and is a note otherwise (`pr_checks_note`), and a review that is not a person's is a note
+(`pr_review_note`: the PR_RULES block); anything else
 wakes under the rule named for its event (`assignment`, `stall`, `routine`, ...) or `default_wake`. The logic of
 the filters stays in backend/wake_rules.py and backend/bot_to_bot.py; this module orders them and names them.
 
@@ -101,7 +104,8 @@ WAKE_EVENTS = {
     "background_done": "background work the bot waited for finished",
     "release_published": "a release was published",
     "task_manager_report": "the Task Manager's report for a department",
-    "pr_checks_done": "every check on a pull request finished",
+    "pr_checks_done": "every check on a pull request head finished",
+    "pr_review": "a GitHub review or review comment on a pull request, not from a person",
     "subtask_finished": "a subtask finished",
     "blocker_done": "a task this one waits on finished",
     "digest": "the bot's held updates were let go as one digest",
@@ -208,6 +212,39 @@ class Decision(NamedTuple):
     params: Optional[dict] = None
 
 
+# Pull request checks (backend/github.py): the webhook writes no message for one check finishing (`pr_check`), and one
+# `pr_checks_done` per head when every check on it has finished. It wakes the owner of the ticket the pull request is
+# linked to while the ticket is at a working step (WORKING), or when the link was armed with `wake_once` (the same
+# event: the arming is what the bot asked to be told); anywhere else it is a note. A review or comment on the pull
+# request that is not from a person is a note; a person's keeps the batched review wake. Rows in the table override
+# these as they do any built-in.
+WORKING = ("open", "doing")
+PR_RULES = (
+    ("pr_check", "pr_check", IGNORE, "one check on a pull request finished: nothing is written until all of them have"),
+    ("pr_checks_done", "pr_checks_done", WAKE,
+     "every check on a pull request head finished, on a ticket the bot owns at a working step or a link it armed"),
+    ("pr_checks_note", "pr_checks_done", NOTE,
+     "every check on a pull request head finished, on a ticket not at a working step or not the bot's"),
+    ("pr_review_note", "pr_review", NOTE, "a review or review comment on a pull request that is not from a person"),
+)
+
+
+def _pr_decision(conn, event, target, refs, conv):
+    """The built-in decision for a pull request message, or None when it is not one. Reads the task only for a head's
+    result that no `wake_once` arming asked for."""
+    if refs.get("wake") == "pr_review":
+        return Decision(NOTE, "pr_review_note", HOLD_ROW)
+    if event != "pr_checks_done" or not refs.get("pr_head"):
+        return None
+    if refs.get("pr_armed"):
+        return Decision(WAKE, "awaited_wake_once")
+    tid = H.message_task_id({"refs": refs}, conv)
+    task = H.task(conn, tid) if tid else None
+    if task and task.get("owner") == target and task.get("status") in WORKING:
+        return Decision(WAKE, "pr_checks_done")
+    return Decision(NOTE, "pr_checks_note", HOLD_ROW)
+
+
 def _builtins():
     out = []
 
@@ -231,8 +268,10 @@ def _builtins():
         add("batch_" + kind, "batch_" + kind, BATCH, words, "batch")
     add("duplicate_drop", "*", IGNORE, "the same event as one already queued or just worked", "batch")
     for event, words in WAKE_EVENTS.items():
-        if event != "digest":
+        if event not in ("digest", "pr_review", "pr_checks_done"):
             add(event, event, WAKE, words, "wake")
+    for rule, event, then, words in PR_RULES:
+        add(rule, event, then, words, "pr_checks")
     add("batch_digest", "digest", WAKE, WAKE_EVENTS["digest"], "batch")
     add(DEFAULT_WAKE, "*", WAKE, "anything no other rule names", "wake")
     add(FAIL_OPEN, "*", WAKE, "the engine could not read the message", "wake")
@@ -479,6 +518,9 @@ def _judge(conn, actor, target, kind, refs, body, conv, in_reply_to, decided=Non
         return Decision(WAKE, floor_rule(floor, kind))
     event = event_of(actor, kind, refs, body)
     row = _table_decision(conn, event, actor, target, refs, conv)
+    if row:
+        return row
+    row = _pr_decision(conn, event, target, refs, conv)
     if row:
         return row
     key = wake_rules.awaited(refs)

@@ -6057,7 +6057,8 @@ def create_app(settings=None):
     system_routines.install(app, store, auth, mutate)
     from . import task_rules
     task_rules.install(app, store, auth, mutate)
-    from . import rules as wake_rules_api
+    from . import rule_suggestions, rules as wake_rules_api
+    rule_suggestions.install(app, store, auth, mutate)      # before the rules' `/{rule_id}`
     wake_rules_api.install(app, store, auth, mutate)
     turn_budgets.install(app, store, auth, mutate, settings_admin)
     profiles.install(app, store, auth, mutate, settings_admin)
