@@ -313,6 +313,26 @@ def test_an_unpublished_vision_stays_out_of_the_company_history_until_publish(ap
     assert seen()[0] == "Every small landlord on Acme." and sql() == "Every small landlord on Acme."
 
 
+def test_company_profile_vision_follows_the_published_vision_after_publish_and_at_start(api):
+    ready(api)
+    write(api, vision="Every landlord on Acme.")
+    sql = lambda: post(api, "sql", {"sql": "SELECT vision FROM company_profile"}, token="cara-test")["rows"][0][0]
+    store = api.app.state.store
+    with store.transaction() as c:                # what a release before this one left: the pre-strategy sentence
+        c.execute("UPDATE company_profile SET vision='Rentals, simpler.'")
+    publish(api)                                  # the first publish, the same vision as the draft
+    assert sql() == "Every landlord on Acme."
+    with store.transaction() as c:
+        c.execute("UPDATE company_profile SET vision='Rentals, simpler.'")
+    write(api, summary="Acme runs small rentals with bots.")
+    publish(api, "Second")                        # a later publish, the vision unchanged
+    assert sql() == "Every landlord on Acme."
+    with store.transaction() as c:
+        c.execute("UPDATE company_profile SET vision='Rentals, simpler.'")
+        S.ensure(c)                               # every start (backend/store.py)
+    assert sql() == "Every landlord on Acme."
+
+
 def test_hub_sql_shows_strategy_proposals_only_to_the_owner_and_the_bot_that_proposed_them(api):
     ceo = with_ceo_bot(api)
     one = ready(api)
