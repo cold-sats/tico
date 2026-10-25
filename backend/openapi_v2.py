@@ -1392,11 +1392,12 @@ STABLE.extend([
     ('/api/v2/triggers/{trigger_id}','get','Triggers','getTrigger','One trigger',None),
     ('/api/v2/triggers/{trigger_id}','post','Triggers','updateTrigger','Change its name, preset, type source, hourly limit, keep days or unheard setting',None),
     ('/api/v2/triggers/{trigger_id}/rotate','post','Triggers','rotateTrigger','A new address secret; the old one stops at once',None),
-    ('/api/v2/triggers/{trigger_id}/signing','post','Triggers','signTrigger','Verify calls with a preset (hmac, github, standard, stripe) or stop; the signing secret is shown once',None),
+    ('/api/v2/triggers/{trigger_id}/signing','post','Triggers','signTrigger','Verify calls with a preset (hmac, github, standard, stripe, slack) or stop; the signing secret is shown once',None),
     ('/api/v2/triggers/{trigger_id}/delete','post','Triggers','deleteTrigger','Delete a trigger and its kept calls',None),
     ('/api/v2/triggers/{trigger_id}/deliveries','get','Triggers','listTriggerDeliveries','The latest calls, newest first',None),
     ('/api/v2/triggers/{trigger_id}/deliveries/{delivery}','get','Triggers','getTriggerDelivery','One kept call: redacted headers and body (a bot reads fenced 20,000-character parts, only of a call it was given)',None),
     ('/api/v2/triggers/{trigger_id}/deliveries/{delivery}/replay','post','Triggers','replayTriggerDelivery','Run a kept call again as a new occurrence',None),
+    ('/api/v2/triggers/{trigger_id}/recover','post','Triggers','recoverTrigger','Run again, under the current secret and preset, the calls refused in the last since_hours (1-720) whose body is kept; each keeps its delivery id',None),
 ])
 TAGS['Webhook relay'] = 'Addresses for triggers through Tico Gateway: they keep deliveries while this server is off (backend/hook_relay.py).'
 STABLE.extend([
@@ -1442,11 +1443,17 @@ STABLE.extend([
      'once. A bot files an approval and the answer says so', 'WebhookCreated'),
     ('/api/v2/webhooks/{hook_id}', 'get', 'Webhooks', 'getWebhook', 'One endpoint and its last ten attempts', 'WebhookShown'),
     ('/api/v2/webhooks/{hook_id}/update', 'post', 'Webhooks', 'updateWebhook', 'Change the name, address, events, '
-     'hourly rate or (owner only) the plain-http switch', 'WebhookChanged'),
+     'filter, custom headers, hourly rate or (owner only) the plain-http switch', 'WebhookChanged'),
     ('/api/v2/webhooks/{hook_id}/rotate', 'post', 'Webhooks', 'rotateWebhookSecret', 'A new secret, shown once; the old '
      'one signs beside it for 24 hours', 'WebhookCreated'),
     ('/api/v2/webhooks/{hook_id}/pause', 'post', 'Webhooks', 'pauseWebhook', 'Stop sending; queued sends wait', 'WebhookChanged'),
     ('/api/v2/webhooks/{hook_id}/resume', 'post', 'Webhooks', 'resumeWebhook', 'Send again', 'WebhookChanged'),
+    ('/api/v2/webhooks/{hook_id}/enable', 'post', 'Webhooks', 'enableWebhook', 'Turn an endpoint back on; after an automatic '
+     'turn-off the answer offers `recover` with the date to send again from', 'WebhookEnabled'),
+    ('/api/v2/webhooks/{hook_id}/recover', 'post', 'Webhooks', 'recoverWebhookSends', 'Send again every send that gave up '
+     'since a date (same ids and bodies)', 'WebhookRecovered'),
+    ('/api/v2/webhooks/{hook_id}/replay', 'post', 'Webhooks', 'replayWebhookEvents', 'Send the events since a date that '
+     'the endpoint should have had and has no send for', 'WebhookReplayed'),
     ('/api/v2/webhooks/{hook_id}/delete', 'post', 'Webhooks', 'deleteWebhook', 'Delete the endpoint and cancel its '
      'pending sends', None),
     ('/api/v2/webhooks/{hook_id}/send', 'post', 'Webhooks', 'sendWebhook', 'A custom.<name> event to one endpoint: '
@@ -1463,7 +1470,10 @@ SCHEMAS.update({
     'Webhook': obj({'id': 's', 'name': 's', 'url': 's', 'host': 's', 'events': items({'type': 'string'}), 'enabled': 'b',
                     'paused_reason': 's', 'rate_per_hour': 'i', 'allow_http': 'b', 'created_by': 's',
                     'requested_by': 'n', 'created': 's', 'updated': 's', 'revision': 'i', 'old_secret_until': 'n',
-                    'can_change': 'b', 'last_7_days': obj({'delivered': 'i', 'failed': 'i', 'pending': 'i'})}),
+                    'can_change': 'b', 'last_7_days': obj({'delivered': 'i', 'failed': 'i', 'pending': 'i'}),
+                    'filter': {'type': 'object', 'description': 'departments, bots, task_types; an empty list means all'},
+                    'headers': items({'type': 'object', 'description': 'name, secret, and value unless secret (then set: true)'}),
+                    'disabled_at': 'n', 'disabled_reason': 'n'}),
     'WebhookSendRow': obj({'id': 's', 'webhook_id': 's', 'event_id': 's', 'type': 's', 'subject': 's', 'state': {
         'enum': ['ready', 'sending', 'delivered', 'failed', 'cancelled', 'withheld']}, 'attempts': 'i',
         'last_status': {'type': ['integer', 'null']}, 'last_error': 's', 'next_attempt': 'n', 'created': 's',
@@ -1475,6 +1485,9 @@ SCHEMAS.update({
                            'approval': {'type': 'object', 'description': 'A bot\'s request: {id, status: pending}'}}, required=[]),
     'WebhookShown': obj({'webhook': ref('Webhook'), 'recent_attempts': items({'type': 'object'})}),
     'WebhookChanged': obj({'webhook': ref('Webhook')}),
+    'WebhookEnabled': obj({'webhook': ref('Webhook'), 'recover': {'type': ['object', 'null'], 'description': '{since, failed} after an automatic turn-off'}}),
+    'WebhookRecovered': obj({'webhook': 's', 'since': 's', 'recovered': 'i', 'more': 'b'}),
+    'WebhookReplayed': obj({'webhook': 's', 'since': 's', 'checked': 'i', 'queued': 'i', 'more': 'b'}),
     'WebhookQueued': obj({'queued': 'i', 'type': 's'}),
     'WebhookSends': obj({'items': items(ref('WebhookSendRow')), 'more': 'b', 'next_offset': 'i'}, required=['items', 'more']),
 })

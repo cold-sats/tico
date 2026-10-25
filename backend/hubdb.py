@@ -92,6 +92,7 @@ from backend.hook_relay_schema import SCHEMA as HOOK_RELAY_SCHEMA
 from backend.webhooks_schema import SCHEMA as WEBHOOKS_SCHEMA
 from backend.sleep_idle_schema import SCHEMA as SLEEP_IDLE_SCHEMA
 from backend.tico_notices_schema import SCHEMA as TICO_NOTICES_SCHEMA
+from backend.webhooks_v2_schema import SCHEMA as WEBHOOKS_V2_SCHEMA
 
 HUB_DIR = Path(__file__).resolve().parent.parent
 ROOT = HUB_DIR.parent                       # employees are siblings of the hub
@@ -815,7 +816,7 @@ MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes us
               MARKET_SPEND_SCHEMA, RULE_EVENTS_SCHEMA,
               TRIGGERS_INCOMING_SCHEMA, HOOK_RELAY_SCHEMA,
               WEBHOOKS_SCHEMA, SLEEP_IDLE_SCHEMA,
-              TICO_NOTICES_SCHEMA]
+              TICO_NOTICES_SCHEMA, WEBHOOKS_V2_SCHEMA]
 
 
 class Refused(Exception):

@@ -307,6 +307,11 @@ def run(args, who=None):
         from clients import hubtools
         fields = {k: v for k, v in vars(args).items() if k not in ("cmd", "sub", "fn") and v is not None}
         fields["operation_id"] = os.environ.get("HUB_OPERATION_ID")
+        if fn in ("webhook create", "webhook update"):
+            try:
+                hubtools.webhook_options(fields)
+            except ValueError as exc:
+                raise APIError("header", str(exc), 422) from None
         if fn == "webhook send":
             raw = fields.pop("data", None) or "{}"
             try:
