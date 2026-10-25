@@ -27,6 +27,7 @@ class HQ:
         self.down = False
         self.key = KEY
         self.wake = None                      # the address HQ would knock on
+        self.short = ""                       # HQ_HOOKS_HOST as HQ hands it out ("https://hooks.example"): short addresses
 
     def deliver(self, relay_id, delivery_id, body=b'{"order": 42}', headers=None):
         seq = len(self.queue) + 1
@@ -62,7 +63,8 @@ class HQ:
                                                  "secret": None, "replayed": True})
             relay_id = "hr_" + format(len(self.relays) + 1, "016x")
             self.relays[relay_id] = {"id": relay_id, "trigger_id": body["trigger_id"], "key": request.headers["idempotency-key"]}
-            return httpx.Response(200, json={"relay_id": relay_id, "address": f"{BASE}/v1/hooks/{relay_id}/s3cret{relay_id[-2:]}",
+            where = f"{self.short}/{relay_id}" if self.short else f"{BASE}/v1/hooks/{relay_id}"
+            return httpx.Response(200, json={"relay_id": relay_id, "address": f"{where}/s3cret{relay_id[-2:]}",
                                              "secret": "s3cret" + relay_id[-2:]})
         if path.startswith("relays/hr_") and path.count("/") == 1:
             self.relays[path.split("/")[1]]["wake"] = body["wake"]
@@ -178,6 +180,16 @@ def test_an_address_needs_the_gateway_key_and_shows_its_secret_once(api, hq, mon
     assert gone["deleted"] and made["relay_id"] not in hq.relays
     assert get(api, "triggers")["triggers"][0]["relay"] is None
     post(api, "triggers/shop/relay/delete", {}, expected=404)
+
+
+def test_a_short_address_from_hq_is_kept_and_an_answer_of_neither_shape_is_refused(api, hq):
+    post(api, "triggers", {"name": "Shop"})
+    hq.short = "https://hooks.example"                          # HQ with HQ_HOOKS_HOST: https://<host>/<relay>/<secret>
+    made = post(api, "triggers/shop/relay", {}, key="k1")["relay"]
+    assert made["address_prefix"] == f"https://hooks.example/{made['relay_id']}" and made["address"].endswith("/s3cret01")
+    assert hook_relay._prefix("http://hooks.example/hr_0123456789abcdef/x", "hr_0123456789abcdef") == ""
+    assert hook_relay._prefix("https://hooks.example/hr_0123456789abcdef/x/y", "hr_0123456789abcdef") == ""
+    assert hook_relay._prefix("https://hooks.example/other/x?hr_0123456789abcdef", "hr_0123456789abcdef") == ""
 
 
 def test_a_create_retried_after_a_lost_answer_is_the_same_relay_without_a_secret(api, hq):

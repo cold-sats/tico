@@ -237,7 +237,7 @@ collects it from there. Make one from the **Through Tico Gateway** tab, or:
 hub trigger relay create github
 ```
 
-It looks like `https://<gateway address>/v1/hooks/hr_<16 characters>/<secret>`, and like the first address it is shown once.
+It looks like `https://hooks.tico.dev/hr_<16 characters>/<secret>`, and like the first address it is shown once.
 `hub trigger relay rotate github` replaces it and `hub trigger relay delete github` removes it. The webhook's own address keeps
 working beside it. It needs the Tico Gateway connected in Settings → Gateway ([Tico AI Gateway](ai-gateway.md)).
 
