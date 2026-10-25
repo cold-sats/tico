@@ -33,7 +33,7 @@ import urllib.request
 
 from clients import gateway as G
 
-from . import hubdb as H, releases
+from . import hubdb as H, releases, tico_notices
 from .replication import rehearsal_on
 from .store import Problem
 
@@ -80,8 +80,12 @@ def scheduled(c, settings):
 
 
 def notice(c, settings):
-    """`releases.notice()` with `scheduled`, for the config and Health."""
-    return {**releases.notice(), "scheduled": scheduled(c, settings)}
+    """`releases.notice()` with `scheduled`, for the config and Health. `messages` also holds the notices Tico Team sent
+    through the Gateway relay, each once even when `/v1/latest` carries it too (backend/tico_notices.py); `message`
+    is the first of them, which the banner shows."""
+    out = releases.notice()
+    shown = tico_notices.banner(c, out.get("message"))
+    return {**out, "message": shown[0] if shown else None, "messages": shown, "scheduled": scheduled(c, settings)}
 
 
 def reached(current, target):

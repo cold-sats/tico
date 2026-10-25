@@ -1417,6 +1417,11 @@ STABLE.extend([
      'whether bot computers stop with the server; an owner or an admin (and BotOps for one); on needs a server Tico hosts',
      'SleepWhenIdle'),
 ])
+TAGS['Notices'] = 'Notices from Tico Team: the ones that came through the Gateway relay and the current one from the release check.'
+STABLE.append(('/api/v2/notices', 'get', 'Notices', 'listNotices', 'Notices from Tico Team, newest first, each once '
+               '(any signed-in person)', 'NoticeList'))
+SCHEMAS['NoticeList'] = obj({'notices': items(obj({'id': 's', 'kind': 's', 'body': 's', 'url': 's', 'sent_at': 's',
+                                                    'received_at': 's', 'source': {'enum': ['relay', 'latest']}}))})
 SCHEMAS.update({
     'SleepWhenIdle': obj({'sleep': obj({'hosted': 'b', 'layout': {'type': ['string', 'null']}, 'hours': 'i', 'runners': 'b',
                                         'active': 'b', 'idle_since': {'type': ['string', 'null']}, 'blocker': 's',

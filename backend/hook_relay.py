@@ -6,6 +6,11 @@ this server pulls what is waiting every 15 seconds and feeds each delivery to `t
 exactly as if the sender had posted it here. A stopped or local server loses nothing; it catches up when it is back.
 The trigger's own address keeps working in parallel.
 
+Notices from Tico Team ride the same queue (backend/tico_notices.py): HQ keeps a system relay for the built-in trigger
+`_tico`, so a Gateway key alone is enough to receive them. The loop then pulls every minute instead of every 15
+seconds. That relay is recorded only from HQ's list of relays (`system: true`, asked at most hourly, and at once when a
+delivery names a relay not recorded yet); a delivery naming `_tico` from any other relay is dropped and acked.
+
 The pull follows the mail loop (backend/inbound.py): `wait=0`, a cursor kept here, an ack after the work is committed,
 off the scheduler thread. Every outcome of `receive` (accepted, duplicate, refused, rate_limited, not_found) is
 terminal and is acked, so a refusal never blocks the cursor. The install verifies signatures itself (HQ keeps the
@@ -32,12 +37,15 @@ from clients.gateway import user_agent
 
 from . import gateway_connection as GC
 from . import hubdb as H
+from . import tico_notices
 from .auth import validate_identity
 from .models import Empty
 from .store import Problem
 
 TRANSPORT = None                 # tests' fake HQ, never the live one
-EVERY = 15                       # seconds between pulls
+EVERY = 15                       # seconds between pulls when this server has a relay address of its own
+NOTICES_EVERY = 60               # ... and with only a Gateway key, where the pull brings Tico Team's notices
+RELAYS_EVERY = 3600              # HQ's list of relays, for its system relay for `_tico`, is asked at most this often
 BACKOFF_MAX = 300                # a failing pull waits 15 s, 30 s, ... up to this
 PAGE = 20                        # deliveries per pull: a page is at most PAGE x 256 KB (base64)
 PAGES = 10                       # pulls in one tick while HQ says there is more
@@ -79,7 +87,9 @@ def save(c, **fields):
 
 
 def live(c):
-    return [dict(r) for r in c.execute("SELECT * FROM trigger_relays WHERE deleted_at IS NULL ORDER BY created").fetchall()]
+    """The relay addresses people made, not the one HQ keeps for Tico Team's notices."""
+    return [dict(r) for r in c.execute("SELECT * FROM trigger_relays WHERE deleted_at IS NULL AND trigger_id<>? ORDER BY created",
+                                       (tico_notices.ID,)).fetchall()]
 
 
 def _row(c, trigger_id):
@@ -163,6 +173,8 @@ class HookRelay:
         self.failures = 0
         self.next_try = 0.0
         self.poison = {}
+        self.interval = EVERY
+        self.listed = 0.0            # when HQ's relays were last listed
 
     @property
     def off(self):
@@ -189,8 +201,14 @@ class HookRelay:
             link = self.link(c)
             current, relays = state(c), live(c)
             deleting = c.execute("SELECT count(*) FROM trigger_relays WHERE deleted_at IS NOT NULL AND hq_gone=0").fetchone()[0]
-        if not link or not (relays or deleting):
+            owner = self.owner(c)
+            complete = tico_notices.complete(c, owner) if link else True
+        self.interval = EVERY if relays or deleting else NOTICES_EVERY
+        if not link:
             return
+        if not complete:                            # the built-in trigger and its rules, from the first pull on
+            with self.store.transaction() as c:
+                tico_notices.ensure(c, owner)
         if current["stopped_for"] and current["stopped_for"] == link.fingerprint:
             return                                  # HQ refused this key; a new key is a new chance
         if current["stopped_for"]:
@@ -199,10 +217,12 @@ class HookRelay:
         if time.monotonic() < self.next_try:
             return
         try:
-            self.sweep_deleted(link)
+            if deleting:
+                self.sweep_deleted(link)
+            self.pull(link, current)
             if relays:
-                self.pull(link, current)
                 self.count(link)
+            self.learn_notice_relay(link)           # also finds the system relay before any notice has come
             self.worked()
         except Stop:
             with self.store.transaction() as c:
@@ -225,6 +245,7 @@ class HookRelay:
 
     def pull(self, link, current):
         cursor = current["cursor"]
+        forced = False                              # HQ's relay list is forced at most once per pull
         for _ in range(PAGES):
             try:
                 page = link.call("POST", "pull", {"cursor": cursor, "limit": PAGE})
@@ -237,6 +258,9 @@ class HookRelay:
             through = page.get("cursor")
             if not isinstance(items, list) or type(through) is not int or through < cursor:
                 raise Failed("bad_answer")
+            if not forced and self.unknown_system_relay(items):
+                forced = True
+                self.learn_notice_relay(link, force=True)
             for item in items:
                 cursor = self.take(item, cursor)
             cursor = max(cursor, through)
@@ -304,15 +328,61 @@ class HookRelay:
         headers = {str(k): str(v) for k, v in headers.items()}
         trigger_id, relay_id = str(item.get("trigger_id") or ""), str(item.get("relay_id") or "")
         with self.store.transaction() as c:
-            # Only a trigger that has this live relay here is fed: HQ's word alone never reaches another trigger.
-            if not c.execute("SELECT 1 FROM trigger_relays WHERE relay_id=? AND trigger_id=? AND deleted_at IS NULL",
-                             (relay_id, trigger_id)).fetchone():
+            # Only a trigger that has this live relay here is fed: HQ's word alone never reaches another trigger. The
+            # one built-in exception is `_tico`, fed only from the system relay HQ's list named (`learn_notice_relay`).
+            if trigger_id == tico_notices.ID:
+                ok = tico_notices.accepts(c, relay_id)
+                if ok:
+                    tico_notices.ensure(c, self.owner(c))
+            else:
+                ok = c.execute("SELECT 1 FROM trigger_relays WHERE relay_id=? AND trigger_id=? AND deleted_at IS NULL",
+                               (relay_id, trigger_id)).fetchone()
+            if not ok:
                 save(c, cursor=seq)
                 return True
             triggers.receive(c, trigger_id, body, headers, secret=None, via="gateway", delivery_id=str(item.get("delivery_id") or ""),
                     received_at=received(item.get("received_at")))
             save(c, cursor=seq)
         return True
+
+    def owner(self, c):
+        """The owner's actor, or None before the owner is on the roster (the built-in rules wait for them)."""
+        try:
+            pid = self.auth.owner_id(c) if self.auth else ""
+        except Exception:
+            return None
+        return H.human_actor(pid) if pid else None
+
+    def unknown_system_relay(self, items):
+        """Whether a delivery in this page names `_tico` through a relay not recorded here."""
+        wanted = {str(i.get("relay_id") or "") for i in items
+                  if isinstance(i, dict) and i.get("trigger_id") == tico_notices.ID}
+        if not wanted:
+            return False
+        with self.store.read() as c:
+            return wanted != {tico_notices.relay(c)}
+
+    def learn_notice_relay(self, link, force=False):
+        """The relay HQ lists with `system: true` for `_tico` is the one that may feed it. Asked at most hourly, or at
+        once (`force`) when a delivery names a relay not known yet; a forced list that fails fails the pull, so the
+        delivery is tried again rather than dropped."""
+        if not force and now() - self.listed < RELAYS_EVERY:
+            return
+        try:
+            answer = link.call("GET", "relays")
+        except Failed:
+            if force:
+                raise
+            self.listed = now()                     # asked again in an hour: the pull has its own backoff
+            return
+        self.listed = now()
+        items = answer.get("items")
+        found = [i.get("relay_id") for i in items if isinstance(i, dict) and i.get("system") is True
+                 and i.get("trigger_id") == tico_notices.ID] if isinstance(items, list) else []
+        if len(found) == 1:
+            with self.store.transaction() as c:
+                if tico_notices.record_relay(c, found[0]):
+                    tico_notices.ensure(c, self.owner(c))
 
     def sweep_deleted(self, link):
         """Tell HQ about relays deleted here, a few at a time; HQ having no such relay is as good as deleted."""
@@ -346,7 +416,7 @@ class HookRelay:
             except Exception:
                 pass                                # the next tick tries again; the error is in the state row
             try:
-                await asyncio.wait_for(stop.wait(), EVERY)
+                await asyncio.wait_for(stop.wait(), self.interval)
             except TimeoutError:
                 pass
 
@@ -360,6 +430,8 @@ class HookRelay:
             task_privacy.guard_write(c, who, request.url.path, self.auth)
             row = triggers._row(c, trigger_id)
             triggers.may_manage(c, who, row)
+            if triggers.builtin(trigger_id):
+                raise Problem("relay", f"{tico_notices.NAME} notices come through Tico Gateway already; there is no address to make", 422)
             relay = _row(c, trigger_id)
             if create and relay:
                 raise Problem("relay", "This trigger already has an address through Tico Gateway", 409)
@@ -393,6 +465,7 @@ class HookRelay:
                           "ON CONFLICT(relay_id) DO UPDATE SET trigger_id=excluded.trigger_id,address_prefix=excluded.address_prefix,"
                           "deleted_at=NULL,hq_gone=0", (relay_id, trigger_id, prefix, who.actor, H.now()))
                 H.event(c, who.actor, "trigger.relay_created", trigger_id, {"relay": relay_id})
+                tico_notices.ensure(c, self.owner(c))      # HQ made this install's Tico Team relay with its first
         if extra:
             self.ask(link, "POST", f"relays/{extra}/delete", {}, "forget:" + extra, quiet=True)
             raise Problem("relay", "This trigger already has an address through Tico Gateway", 409)
@@ -493,6 +566,7 @@ def health(c, settings=None):
 def install(app, settings, store, auth):
     service = HookRelay(store, settings, app, auth)
     app.state.hook_relay = service
+    tico_notices.install(app, store)
 
     def readers(request):
         if request.state.identity.role not in ("human", "owner", "bot"):

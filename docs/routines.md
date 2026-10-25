@@ -102,6 +102,8 @@ bot did not write. Rules (`webhook.received`) see the same call.
   a bot reads it in fenced 20,000-character parts (`--part n`), only for a call that opened one of its tasks or
   that a notice from Tico to it names. *Run again* (`hub trigger replay`) starts the routines and rules again for one kept
   call as a new occurrence, `<delivery>:replay:<n>`; it is refused once the body has expired.
+- The webhook `_tico` (Tico Team) is built in: notices from Tico Team arrive on it through Tico Gateway and rules see them as `tico.notice`
+  (docs/tico-hq.md). It has no address, cannot be deleted, and only its `keep_days` changes.
 - `unheard` is what a call that reached no routine and no rule does: `log` (the log row only) or `note` (also a
   notice to whoever made the webhook, at most once an hour).
 - *Recent calls* under each webhook lists the last 50 calls, accepted, refused (bad or missing

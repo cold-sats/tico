@@ -243,6 +243,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub sleep status                       stop this hosted server after quiet hours; show the setting
     hub sleep set --hours N [--runners on|off]
                                            1-24 quiet hours, 0 = off; bot computers stop with it unless --runners off
+    hub notice list                        notices from Tico Team, newest first (tico.notice in rules)
     hub release now [--note "..."]         ask the Release Manager to release what is at Pending Release now
     hub release schedule [--on|--off] [--time HH:MM ...] [--manager BOT] [--writer BOT]
                                            show or change the daily release (company time; an owner or admin)
@@ -1821,6 +1822,10 @@ def parser():
     s.add_argument("--hours", type=quiet_hours, metavar="N", help="quiet hours before it sleeps; 0 turns it off")
     s.add_argument("--runners", type=on_off, metavar="on|off", help="stop the bot computers with the server (default on)")
     s.set_defaults(fn="sleep set")
+
+    notice = sub.add_parser("notice", help="notices from Tico Team").add_subparsers(dest="sub")
+    s = notice.add_parser("list", help="the notices Tico Team sent, newest first")
+    s.set_defaults(fn="notice list")
 
     release = sub.add_parser("release", help="the team's releases: ask for one now, or set the daily hour").add_subparsers(dest="sub")
     s = release.add_parser("now", help="ask the Release Manager to release what is at Pending Release now (hotfix, "

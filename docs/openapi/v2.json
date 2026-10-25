@@ -119,6 +119,10 @@
       "description": "A server Tico hosts stops after quiet hours and starts again on a webhook, a routine or a sign-in (backend/sleep_idle.py)."
     },
     {
+      "name": "Notices",
+      "description": "Notices from Tico Team: the ones that came through the Gateway relay and the current one from the release check."
+    },
+    {
       "name": "Webhooks",
       "description": "Outgoing webhooks: endpoints a person owns, the events Tico sends them, and each send's log (docs/webhooks.md)."
     }
@@ -12163,6 +12167,47 @@
             },
             "description": "1-200 characters. Reusing a key with the same body replays the first answer."
           }
+        ]
+      }
+    },
+    "/api/v2/notices": {
+      "get": {
+        "summary": "Notices from Tico Team, newest first, each once (any signed-in person)",
+        "operationId": "listNotices",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Notices"
         ]
       }
     },
@@ -30140,6 +30185,57 @@
             "additionalProperties": true
           }
         ]
+      },
+      "NoticeList": {
+        "type": "object",
+        "properties": {
+          "notices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "body": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "sent_at": {
+                  "type": "string"
+                },
+                "received_at": {
+                  "type": "string"
+                },
+                "source": {
+                  "enum": [
+                    "relay",
+                    "latest"
+                  ]
+                }
+              },
+              "required": [
+                "body",
+                "id",
+                "kind",
+                "received_at",
+                "sent_at",
+                "source",
+                "url"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "notices"
+        ],
+        "additionalProperties": true
       },
       "OnboardingComplete": {
         "properties": {

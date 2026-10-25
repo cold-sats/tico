@@ -15,7 +15,7 @@ MAX_SNAPSHOT = 1_000_000
 EVENTS = ('meeting.ready', 'recording.ready', 'market.insight.urgent', 'inbound.received', 'release_published',
           'strategy.published', 'market.briefing')
 # A webhook trigger's event (backend/triggers.py); the server checks that the trigger exists.
-WEBHOOK_EVENT = re.compile(r'webhook\.[a-z0-9][a-z0-9-]{0,39}')
+WEBHOOK_EVENT = re.compile(r'webhook\.(?:_tico|[a-z0-9][a-z0-9-]{0,39})')   # _tico: Tico Team's notices
 
 
 def known_event(name):

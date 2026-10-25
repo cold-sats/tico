@@ -50,7 +50,7 @@ import logging
 import sqlite3
 from typing import NamedTuple, Optional
 
-from . import event_catalog as CAT, hubdb as H, templating
+from . import event_catalog as CAT, hubdb as H, templating, tico_notices
 
 log = logging.getLogger(__name__)
 
@@ -1139,7 +1139,8 @@ def view(row):
     return {"id": row["id"], "scope_kind": row["scope_kind"], "scope_id": row["scope_id"], "event": row["event"],
             "when": H._json(row["when_json"], {}) or {}, "then": row["then_outcome"],
             "params": H._json(row["params_json"], {}) or {}, "enabled": bool(row["enabled"]),
-            "position": row["position"], "note": row["note"], "built_in": False, "protected": False,
+            "position": row["position"], "note": row["note"], "built_in": False,
+            "protected": row["id"] in tico_notices.RULE_IDS,       # Tico Team's notice rules: editable, never deleted
             "created_by": row["created_by"], "created": row["created"], "updated": row["updated"],
             "revision": row["revision"]}
 
@@ -1391,8 +1392,9 @@ def create(c, settings, auth, who, body):
         raise Problem("conflict", "The rule list is full; edit or delete a rule", 409)
     position = body.position
     if position is None:
-        position = (c.execute("SELECT max(position) FROM rules WHERE scope_kind=? AND scope_id=?",
-                              (body.scope_kind, scope_id)).fetchone()[0] or 0) + 1
+        # Tico Team's notice rules sit at the end, so a new team rule never goes after them.
+        position = (c.execute("SELECT max(position) FROM rules WHERE scope_kind=? AND scope_id=? AND position<?",
+                              (body.scope_kind, scope_id, tico_notices.RULE_POSITION)).fetchone()[0] or 0) + 1
     rule_id, at = "rule-" + H.new_id(), H.now()
     c.execute("INSERT INTO rules(id,scope_kind,scope_id,event,when_json,then_outcome,params_json,enabled,position,"
               "note,created_by,created,updated,revision) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,1)",
@@ -1431,6 +1433,8 @@ def delete(c, settings, auth, who, rule_id, expected_revision=None):
     from .store import Problem
     before = get(c, rule_id)
     _require(c, settings, auth, who, before["scope_kind"], before["scope_id"])
+    if rule_id in tico_notices.RULE_IDS:
+        raise Problem("protected", "This rule comes with Tico Team's notices and cannot be deleted. Turn it off instead.", 409)
     if expected_revision is not None and before["revision"] != expected_revision:
         raise Problem("version_conflict", "The rule changed; refresh before deleting", 409)
     c.execute("DELETE FROM rules WHERE id=?", (rule_id,))
