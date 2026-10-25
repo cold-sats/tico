@@ -189,3 +189,24 @@ def test_custom_copies_the_rows_and_leaving_it_needs_a_confirm(api):
 def test_the_choices_describe_each_profile(api):
     listed = get(api, "profiles")["profiles"]
     assert [p["name"] for p in listed] == list(P.NAMES) and all(p["description"] for p in listed)
+
+
+def test_the_cli_and_mcp_tool_read_the_choices_and_send_the_revision():
+    from clients import hubtools
+
+    class Stub:
+        def __init__(self):
+            self.posts = []
+            self.__dict__["_tico_is_botops"] = False
+
+        def get(self, path):
+            return {"profiles": [{"name": "doer"}]} if path == "profiles" else {"bot": "ops", "revision": 4}
+
+        def post(self, path, body, key=None):
+            self.posts.append((path, body))
+            return {"ok": True}
+    api = Stub()
+    tool = hubtools.BY_NAME["hub_bot_profile"]["fn"]
+    assert tool(api, {"bot": "ops"})["choices"] == [{"name": "doer"}]
+    tool(api, {"bot": "ops", "profile": "lead", "digest_hour": 7})
+    assert api.posts == [("bots/ops/profile", {"digest_hour": 7, "profile": "lead", "expected_revision": 4})]

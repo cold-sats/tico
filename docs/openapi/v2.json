@@ -1697,6 +1697,127 @@
         ]
       }
     },
+    "/api/v2/bots/{bot}/profile": {
+      "get": {
+        "summary": "A bot's profile and the values it runs on",
+        "operationId": "getBotProfile",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotProfileState"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Bots"
+        ]
+      },
+      "post": {
+        "summary": "Set the bot's profile (doer, reviewer, lead, responder, monitor, custom); leaving custom deletes the wake rules it copied and needs confirm_drop_rules",
+        "operationId": "setBotProfile",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BotProfile"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotProfileState"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Bots"
+        ]
+      }
+    },
     "/api/v2/bots/{bot}/release": {
       "post": {
         "summary": "Release a bot Tico stopped for failed runs or too many runs; its queued work starts again",
@@ -12188,6 +12309,47 @@
         ]
       }
     },
+    "/api/v2/profiles": {
+      "get": {
+        "summary": "Every bot profile with its one-line description, its values and the wake rows it adds, for a picker",
+        "operationId": "listProfiles",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileChoices"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Bots"
+        ]
+      }
+    },
     "/api/v2/proposals": {
       "get": {
         "summary": "Proposals (pending by default; status=confirmed|rejected|all), each saying whether the caller may decide it",
@@ -20163,6 +20325,166 @@
         ],
         "additionalProperties": true
       },
+      "BotProfile": {
+        "properties": {
+          "profile": {
+            "type": "string",
+            "enum": [
+              "doer",
+              "reviewer",
+              "lead",
+              "responder",
+              "monitor",
+              "custom"
+            ],
+            "title": "Profile"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          },
+          "batch_seconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 604800.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Seconds"
+          },
+          "batch_scope": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "bot",
+                  "conversation"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Scope"
+          },
+          "sweep_seconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 604800.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sweep Seconds"
+          },
+          "digest_hour": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 23.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Digest Hour"
+          },
+          "pulls": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "all",
+                  "review",
+                  "none"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pulls"
+          },
+          "sweeps": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sweeps"
+          },
+          "takes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "all",
+                  "review",
+                  "watcher",
+                  "none"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Takes"
+          },
+          "confirm_drop_rules": {
+            "type": "boolean",
+            "title": "Confirm Drop Rules",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "profile",
+          "expected_revision"
+        ],
+        "title": "BotProfile",
+        "description": "Set a bot's profile. A named profile takes its own values (send only the numbers to change); the numbers\nset again each time. `pulls`, `sweeps` and `takes` are for `custom`, whose rows are edited on the Rules page.\nLeaving `custom` for a named profile drops the rows it copied into the rules table: `confirm_drop_rules`."
+      },
+      "BotProfileState": {
+        "type": "object",
+        "properties": {
+          "bot": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "object"
+          },
+          "wake": {
+            "type": "object"
+          },
+          "rules": {
+            "type": "integer"
+          },
+          "revision": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "bot",
+          "profile",
+          "revision",
+          "rules",
+          "wake"
+        ],
+        "additionalProperties": true
+      },
       "BotReleased": {
         "type": "object",
         "properties": {
@@ -27640,6 +27962,79 @@
           "note",
           "repository",
           "visibility"
+        ],
+        "additionalProperties": true
+      },
+      "ProfileChoice": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "batch_seconds": {
+            "type": "integer"
+          },
+          "batch_scope": {
+            "type": "string"
+          },
+          "sweep_seconds": {
+            "type": "integer"
+          },
+          "digest_hour": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "pulls": {
+            "type": "string"
+          },
+          "sweeps": {
+            "type": "boolean"
+          },
+          "takes": {
+            "type": "string"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "batch_scope",
+          "batch_seconds",
+          "description",
+          "digest_hour",
+          "label",
+          "name",
+          "pulls",
+          "rules",
+          "sweep_seconds",
+          "sweeps",
+          "takes"
+        ],
+        "additionalProperties": true
+      },
+      "ProfileChoices": {
+        "type": "object",
+        "properties": {
+          "profiles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProfileChoice"
+            }
+          }
+        },
+        "required": [
+          "profiles"
         ],
         "additionalProperties": true
       },
