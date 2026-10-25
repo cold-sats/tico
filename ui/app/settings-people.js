@@ -31,6 +31,9 @@ function peopleMenu(p, view) {
   // An invite comes from Tico's own sign-in mail (backend/invites.py), never the company's mailbox.
   if (view?.invite_email && !p.owner && p.id !== S.me?.id && p.email && p.can_sign_in)
     items.push(`<button type="button" role="menuitem" data-person-act="invite">${view.invites?.[p.id] ? 'Send invite again' : 'Send invite'}</button>`);
+  // Or the issuer makes them a Tico account with a generated password, shown here once (backend/invites.py).
+  if (view?.account_password && !p.owner && p.id !== S.me?.id && p.email && p.can_sign_in)
+    items.push('<button type="button" role="menuitem" data-person-act="password">Create password</button>');
   const check = (act, label, on) => `<button type="button" role="menuitemcheckbox" aria-checked="${on}" data-person-act="${act}"><span class="people-check" aria-hidden="true">${on ? '✓' : ''}</span>${label}</button>`;
   if (p.role === 'member') items.push(check('create_bots', 'Can add bots', !!p.create_bots), check('add_people', 'Can add humans', !!p.add_people));
   if (owner && !p.owner && p.email && p.can_sign_in) items.push('<button type="button" role="menuitem" data-person-act="owner">Make owner</button>');
@@ -197,10 +200,25 @@ async function renderSettingsPeople() {
           async () => { await post(`/v2/humans/${encodeURIComponent(p.id)}`, {left: true}); await again(`${p.name} marked as left`); });
         else if (act === 'owner') peopleOwnerDialog(p, view);
         else if (act === 'invite') void change(() => post(`${path}/invite`, {}), `Invite sent to ${p.email}`);
+        else if (act === 'password') void post(`${path}/password`, {}).then(peoplePasswordDialog, error => toast(error.message, true));
         else if (act === 'email') peopleOwnerEmailDialog(p, view);
       });
     });
   } catch (error) { el.innerHTML = `<div class="err">${esc(error.message)}</div>`; }
+}
+// A made account's password, shown once: Tico keeps no copy, so closing this is the last time anyone sees it.
+function peoplePasswordDialog(made) {
+  const d = peopleDialog('Account created', `<form>
+    <label class="onb-field"><span class="k">Email</span><input name="email" readonly value="${esc(made.email)}"></label>
+    <label class="onb-field"><span class="k">Password</span><input name="password" readonly autocomplete="off" spellcheck="false" value="${esc(made.password)}" data-made-password></label>
+    <p class="muted">Shown once. They can change it with Forgot password.</p>
+    <div class="onb-actions"><button class="ghost" type="button" data-made-copy>Copy</button><span class="spacer"></span><button class="primary" type="submit">Done</button></div></form>`);
+  const form = d.querySelector('form');
+  d.querySelector('[data-made-copy]').onclick = async () => {
+    try { await copyText(`${made.email}\n${made.password}`); toast('Copied'); } catch { form.password.focus(); form.password.select(); }
+  };
+  form.onsubmit = event => { event.preventDefault(); d.close(); };
+  d.addEventListener('close', () => { d.innerHTML = ''; void renderSettingsPeople(); }, {once: true});   // not left in the page
 }
 // The owner's own sign-in address, changed in place (backend/access.py change_owner_email): typed twice, and the
 // old address stops signing in at once, so the page sends a proxy session to sign in again.

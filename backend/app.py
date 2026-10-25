@@ -1639,7 +1639,9 @@ def create_app(settings=None):
                     # When each person was last sent an invite (backend/invites.py), and whether this install's
                     # sign-in could send one at all: only the built-in sign-in, through a Tico account issuer.
                     "invites": {pid: sent["at"] for pid, sent in invites.sent(c).items()},
-                    "invite_email": invites.can_email(settings)}
+                    "invite_email": invites.can_email(settings),
+                    # Whether the issuer also makes accounts with a generated password (Create password).
+                    "account_password": bool(invites.can_make(auth, settings))}
 
     @app.post("/api/v2/access/people")
     def access_person_add(request: Request, body: M.AccessPersonAdd):
@@ -1679,6 +1681,25 @@ def create_app(settings=None):
         invites.once(store, auth, settings, who, request, body, person)
         at = mutate(request, body, lambda c: invites.record(c, who.actor, pid))   # a repeat replays its receipt
         return {"person": pid, "invited_at": at}
+
+    @app.post("/api/v2/access/people/{pid}/password")
+    def access_person_password(request: Request, pid: str, body: M.Empty):
+        """Owners and admins make someone on the roster a Tico account with a generated password (backend/invites.py
+        `make_password`), answered once. Not `mutate`: its request cache would keep the password. Nothing else keeps
+        it either; the event says only that an account was made."""
+        who = request.state.identity
+        admin_only(who, "makes accounts")
+        invites.request_key(request)
+        with store.read() as c:
+            person = P.person(pid, views.roster(c))
+        if not person or person.get("hidden"):
+            raise Problem("not_found", "Person not found", 404)
+        if pid == H.actor_id(who.actor):
+            raise Problem("password_self", "You already sign in here", 422)
+        password = invites.make_password(store, auth, settings, who, request, body, person)
+        with store.transaction() as c:
+            H.event(c, who.actor, "person.account_created", pid, {})
+        return {"person": pid, "email": person["email"], "password": password}
 
     @app.post("/api/v2/access/people/{pid}")
     def access_person_edit(request: Request, pid: str, body: M.AccessPersonEdit):
