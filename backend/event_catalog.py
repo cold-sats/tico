@@ -106,7 +106,7 @@ def _build():
         {"trigger": {"id": "shop", "name": "Acme shop"}, "delivery": "d1", "type": "order.created",
          "payload": {"order": 42, "total": "120.00"}, "via": "direct"}, sourceless=True)
     add("tico.notice", "A notice from the Tico team reached this install.",
-        {"id": "tn1", "body": "Version 1.4.1 fixes a mail sync bug.", "url": "https://tico.team/notices/1"},
+        {"id": "tn1", "kind": "info", "body": "Version 1.4.1 fixes a mail sync bug.", "url": "https://tico.team/notices/1"},
         sourceless=True)
     add("custom.*", "Anything a bot or rule sends: custom.<name>.",
         {"note": "custom.<name> carries whatever its sender puts in data."})

@@ -46,6 +46,7 @@ from . import hook_relay
 from . import hubdb as H
 from . import routines
 from . import models as M
+from . import tico_notices
 from . import trigger_presets as P
 from .models import Contract
 from .store import Problem
@@ -168,6 +169,16 @@ def hourly_of(trigger):
     return trigger["hourly"] or HOURLY
 
 
+def builtin(trigger_id):
+    """The trigger Tico Team's notices arrive on (backend/tico_notices.py): no address, not deleted or changed."""
+    return tico_notices.is_builtin(trigger_id)
+
+
+def _no_change(trigger_id, what="changed"):
+    if builtin(trigger_id):
+        raise Problem("trigger", f"{tico_notices.NAME} comes with Tico and has no address of its own, so it cannot be {what}", 422)
+
+
 def summary(c, settings, t, since=None):
     since = since or H.shift(H.now(), hours=-24)
     last = c.execute("SELECT max(received_at) FROM trigger_deliveries WHERE trigger_id=? AND outcome='accepted'",
@@ -179,7 +190,7 @@ def summary(c, settings, t, since=None):
         "SELECT id,bot,title FROM schedules WHERE event_name=? AND deleted_at IS NULL ORDER BY bot,title LIMIT ?",
         (event_of(t["id"]), LISTED_ROUTINES)).fetchall()]
     return {"id": t["id"], "name": t["name"], "kind": t["kind"], "event": event_of(t["id"]),
-            "url": address(settings, t["id"]), "created_by": t["created_by"], "created_at": t["created_at"],
+            "url": "" if builtin(t["id"]) else address(settings, t["id"]), "builtin": builtin(t["id"]), "created_by": t["created_by"], "created_at": t["created_at"],
             "last_received": last, "received_24h": day, "refused_24h": refused,
             "signed": bool(t["signing_secret"]), "preset": effective_preset(t), "type_from": type_spec(t),
             "hourly": hourly_of(t), "keep_days": t["keep_days"], "unheard": t["unheard"], "routines": used}
@@ -198,6 +209,8 @@ def create(c, who, settings, body):
     trigger_id = body.id.strip().lower() if body.id else slug_of(body.name)
     if not ID.fullmatch(trigger_id):
         raise Problem("trigger", "A trigger id uses lowercase letters, digits and dashes (up to 40)", 422)
+    if builtin(trigger_id):
+        raise Problem("trigger", f"The id {trigger_id} is Tico's own, for notices from {tico_notices.NAME}. Choose another", 422)
     found = c.execute("SELECT deleted_at FROM triggers WHERE id=?", (trigger_id,)).fetchone()
     if found and not found["deleted_at"]:
         raise Problem("trigger", f"A trigger named {trigger_id} already exists", 409)
@@ -226,6 +239,7 @@ def show(c, settings, trigger_id):
 
 def rotate(c, who, settings, trigger_id):
     may_manage(c, who, _row(c, trigger_id))
+    _no_change(trigger_id, "given a new secret")
     secret = secrets.token_urlsafe(24)
     c.execute("UPDATE triggers SET secret_hash=?,updated_at=? WHERE id=?", (digest(secret), H.now(), trigger_id))
     H.event(c, who.actor, "trigger.rotated", trigger_id, {})
@@ -236,6 +250,7 @@ def sign(c, who, vault, trigger_id, body):
     """Set, replace or turn off the signing secret. The answer carries the secret once, for the sender's settings."""
     found = _row(c, trigger_id)
     may_manage(c, who, found)
+    _no_change(trigger_id, "signed")
     if body.off:
         c.execute("UPDATE triggers SET signing_secret=NULL,preset='none',updated_at=? WHERE id=?", (H.now(), trigger_id))
         H.event(c, who.actor, "trigger.signing_off", trigger_id, {})
@@ -258,6 +273,8 @@ def update(c, who, settings, vault, trigger_id, body):
     unheard call does."""
     found = _row(c, trigger_id)
     may_manage(c, who, found)
+    if builtin(trigger_id) and any(v is not None for k, v in body.model_dump().items() if k != "keep_days"):
+        raise Problem("trigger", f"Only how long calls are kept can change on {tico_notices.NAME}", 422)
     sets = {}
     if body.name is not None:
         sets["name"] = body.name.strip()
@@ -338,6 +355,7 @@ def _refused(c, trigger_id, sent_id, body, status, code, reason, via, outcome="r
 
 def remove(c, who, trigger_id):
     may_manage(c, who, _row(c, trigger_id))
+    _no_change(trigger_id, "deleted")
     c.execute("UPDATE triggers SET deleted_at=?,updated_at=? WHERE id=?", (H.now(), H.now(), trigger_id))
     for table in ("trigger_bodies", "trigger_seen"):    # what senders posted goes with it; a new trigger of this id starts clean
         c.execute(f"DELETE FROM {table} WHERE trigger_id=?", (trigger_id,))
@@ -390,7 +408,7 @@ def part_of(body, content_type, n):
 
 def known(c, trigger_id, secret):
     found = c.execute("SELECT * FROM triggers WHERE id=? AND deleted_at IS NULL", (trigger_id,)).fetchone()
-    if not found or not secret or not hmac.compare_digest(found["secret_hash"], digest(secret)):
+    if not found or builtin(trigger_id) or not secret or not hmac.compare_digest(found["secret_hash"], digest(secret)):
         raise Problem("not_found", "Not found", 404)
     return found
 
@@ -405,12 +423,12 @@ def _payload_of(body):
     return parsed if isinstance(parsed, dict) else text
 
 
-def _judge(c, ctx):
+def _judge(c, ctx, event=RECEIVED):
     """What the rules did with this call. Rules never raise; a surprise is rolled back and costs only the rules."""
     from . import rules
     c.execute("SAVEPOINT trigger_rules")
     try:
-        out = [r for r in (rules.judge_event(c, RECEIVED, ctx) or []) if isinstance(r, dict)]
+        out = [r for r in (rules.judge_event(c, event, ctx) or []) if isinstance(r, dict)]
     except Exception as exc:
         c.execute("ROLLBACK TO trigger_rules")
         c.execute("RELEASE trigger_rules")
@@ -428,6 +446,9 @@ def _route(c, found, delivery, type_, via, body, headers, auth):
     shown = content + (f"\nThe rest: hub trigger delivery {trigger_id} {delivery} --part 2" if cut else "")
     fired = routines.emit(c, event_of(trigger_id), delivery, {"trigger": found["name"], "type": type_},
                           content=shown, auth=auth)
+    if builtin(trigger_id):
+        # A notice from Tico Team is judged once, as `tico.notice`; `webhook.received` is for senders outside Tico.
+        return fired, tico_notices.arrived(c, found, delivery, type_, via, body, _payload_of(body), content, _judge)
     results = _judge(c, {"trigger": trigger_id, "trigger_name": found["name"], "type": type_, "delivery": delivery,
                          "via": via, "payload": _payload_of(body), "content": content})
     return fired, results
@@ -461,7 +482,7 @@ def receive(c, trigger_id: str, body: bytes, headers: Mapping[str, str], *, secr
     here; the signature, dedupe, storage, routines and rules run as for a direct call."""
     headers = P.lowered(headers)
     found = c.execute("SELECT * FROM triggers WHERE id=? AND deleted_at IS NULL", (trigger_id,)).fetchone()
-    if not found or (via == "direct" and (
+    if not found or (via == "direct" and (builtin(trigger_id) or
             not secret or not hmac.compare_digest(found["secret_hash"], digest(secret)))):
         return Received("not_found", 404, None, "Not found")
     sender = P.sender_id(headers)

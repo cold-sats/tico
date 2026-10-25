@@ -2648,6 +2648,14 @@ def relay_status(api, args):
     return api.get("relay")["relay"]
 
 
+@tool("hub_notice_list", "Notices from Tico Team, newest first: `kind` (info, security or billing; empty for a "
+      "message from the release check), `body`, `url`, when it was `sent_at` and `received_at`, and `source` (`relay` "
+      "when it came through Tico Gateway, `latest` for the release check's). A security or billing notice already "
+      "reached the rules as the event tico.notice.", {})
+def notice_list(api, args):
+    return api.get("notices")["notices"]
+
+
 @tool("hub_release_schedule", "The team's release schedule: when the Release Manager is asked to release what is at "
       "Pending Release (`times`, company time; `on`), who that bot is (`release_manager`) and the Technical Writer "
       "(`technical_writer`), the next hour, the last hour's result and how many tickets are pending now. Send any of "

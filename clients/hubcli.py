@@ -238,6 +238,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub event-types [--group task]         every event Tico names, with an example payload (routines, rules, webhooks)
     hub trigger relay create|rotate|delete <trigger>
                                            a second address through Tico Gateway (shown once); hub relay status
+    hub notice list                        notices from Tico Team, newest first (tico.notice in rules)
     hub release now [--note "..."]         ask the Release Manager to release what is at Pending Release now
     hub release schedule [--on|--off] [--time HH:MM ...] [--manager BOT] [--writer BOT]
                                            show or change the daily release (company time; an owner or admin)
@@ -1791,6 +1792,10 @@ def parser():
     relay_top = sub.add_parser("relay", help="webhooks through Tico Gateway").add_subparsers(dest="sub")
     s = relay_top.add_parser("status", help="the Gateway key, the addresses, the last pull and what waits at the Gateway")
     s.set_defaults(fn="relay status")
+
+    notice = sub.add_parser("notice", help="notices from Tico Team").add_subparsers(dest="sub")
+    s = notice.add_parser("list", help="the notices Tico Team sent, newest first")
+    s.set_defaults(fn="notice list")
 
     release = sub.add_parser("release", help="the team's releases: ask for one now, or set the daily hour").add_subparsers(dest="sub")
     s = release.add_parser("now", help="ask the Release Manager to release what is at Pending Release now (hotfix, "

@@ -43,6 +43,10 @@ class HQ:
         assert request.headers["authorization"] == "Bearer " + self.key and request.headers["user-agent"].startswith("Tico-Client/")
         if path in self.status:
             return httpx.Response(self.status[path], json={"error": "forced"})
+        if path == "relays" and request.method == "GET":
+            return httpx.Response(200, json={"items": [
+                {"relay_id": r["id"], "trigger_id": r["trigger_id"], "name": "", "address_prefix": "", "wake": False,
+                 "created": "2026-10-25T09:00:00Z"} for r in self.relays.values()]})
         if path == "relays":
             if "idempotency-key" not in request.headers:
                 return httpx.Response(400, json={"error": "idempotency_key"})
@@ -90,7 +94,9 @@ def hq(api, monkeypatch):
     monkeypatch.setattr(hook_relay, "TRANSPORT", httpx.MockTransport(fake))
     # The app's own loop must not pull in the middle of a test; the tests tick by hand.
     monkeypatch.setattr(api.app.state.hook_relay, "tick", lambda: None)
-    time.sleep(0.3)                  # the loop's first tick, already handed to its thread, has run (it found no relay)
+    time.sleep(0.3)                  # the loop's first tick, already handed to its thread, has run
+    fake.calls.clear()               # ... and, with a key and no relay, asked for notices: not part of the test
+    api.app.state.hook_relay.listed = 0.0
     return fake
 
 

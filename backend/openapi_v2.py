@@ -1409,6 +1409,11 @@ STABLE.extend([
     ('/api/v2/triggers/{trigger_id}/relay/delete', 'post', 'Webhook relay', 'deleteWebhookRelay', 'Remove the Gateway address; '
      'the trigger and its own address stay', 'WebhookRelayDeleted'),
 ])
+TAGS['Notices'] = 'Notices from Tico Team: the ones that came through the Gateway relay and the current one from the release check.'
+STABLE.append(('/api/v2/notices', 'get', 'Notices', 'listNotices', 'Notices from Tico Team, newest first, each once '
+               '(any signed-in person)', 'NoticeList'))
+SCHEMAS['NoticeList'] = obj({'notices': items(obj({'id': 's', 'kind': 's', 'body': 's', 'url': 's', 'sent_at': 's',
+                                                    'received_at': 's', 'source': {'enum': ['relay', 'latest']}}))})
 SCHEMAS.update({
     'WebhookRelayState': obj({'relay': obj({'key': 's', 'relays': 'i', 'cursor': 'i', 'last_pull': {'type': ['string', 'null']},
                                            'last_error': 's', 'pending': {'type': ['integer', 'null']},
