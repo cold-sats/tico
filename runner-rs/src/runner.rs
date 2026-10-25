@@ -356,6 +356,9 @@ impl Runner {
         let with_repositories: Vec<Value> = candidates.iter().filter(|e| crate::appdriver::delivery(&e["config"]).is_none()).cloned().collect();
         crate::product_files::bootstrap_missing(&self.config, &with_repositories).await;
         self.fetch_missing(&with_repositories).await;
+        // A checkout fetched just now is closed to other bots' leased turns before any turn of its own runs.
+        let workspace = self.config.projects_dir();
+        let _ = tokio::task::spawn_blocking(move || crate::checkout_groups::gate_workspace(&workspace)).await;
         // Profiles as runner.json has them now, so a sign-in made since start is reported and checked.
         let config = self.config_now();
         let computer_logins = crate::fallback::server_uses_computer_logins()
@@ -711,6 +714,14 @@ impl Clock {
 
 impl Runner {
     pub async fn run(self: Arc<Self>) {
+        if let Err(e) = tokio::task::spawn_blocking(crate::turn_users::initialize).await.unwrap_or_else(|e| Err(e.to_string())) {
+            log(&format!("Tico runner: Gateway turn users unavailable: {e}"));
+        }
+        let (state, workspace) = (self.state.directory.clone(), self.config.projects_dir());
+        let _ = tokio::task::spawn_blocking(move || {
+            crate::checkout_groups::initialize(&state);
+            crate::checkout_groups::gate_workspace(&workspace);
+        }).await;
         let names = self.names().await;
         let _ = names;
         self.recover_output().await;

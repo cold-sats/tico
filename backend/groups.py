@@ -8,6 +8,7 @@ time. Who reports to whom (`reports_to`) is a separate thing and is never touche
   rows(...)                a group's row: id, name, parent, people, bots
   create / update / delete the changes the API and the tools make
   place(...)               the team builder: bots into the groups of their templates, made if they are not there yet
+  link_bets(...)           setup's links from the groups it made to the strategy bets they serve
   migrate(c, settings)     once, for a team that had `teams`, org groups or derived departments: every one becomes a
                            group and every bot its group's member (idempotent; `groups_migrated` in the roster)
 
@@ -22,7 +23,7 @@ from . import models as M
 from . import people as P
 from .store import Problem, encode
 
-SYSTEM_BOTS = ("assistant", "botops", "librarian", "goal-manager", "health-monitor")
+SYSTEM_BOTS = ("assistant", "botops", "librarian", "goal-manager", "health-monitor", "task-manager")
 
 
 def _roster(c):
@@ -71,7 +72,7 @@ def rows(roster, employees, archived=(), can_see=None):
         if team:
             bots.setdefault(team, []).append(slug)
     return [{"id": gid, "name": g["name"], "parent": g["parent"], "people": people.get(gid, []),
-             "bots": sorted(bots.get(gid, [])), "order": g.get("order", i)}
+             "bots": sorted(bots.get(gid, [])), "order": g.get("order", i), "bet_id": g.get("bet_id")}
             for i, (gid, g) in sorted(enumerate(roster["org_groups"].items()), key=lambda row: row[1][1].get("order", row[0]))]
 
 
@@ -170,6 +171,23 @@ def _may_change(auth, who):
 
 
 
+def _set_bet(c, who, group, bet_id):
+    """The strategy bet a group serves: the owner's link, like the bets themselves. "" unlinks it."""
+    if bet_id is None:
+        return
+    from . import goal_routes
+    from . import strategy
+    if not goal_routes.company_editor(who):
+        raise Problem("forbidden", "Only the owner links a group to a strategy bet", 403)
+    bet_id = bet_id.strip()
+    if bet_id and not strategy.bet(c, bet_id):
+        raise Problem("not_found", "Unknown bet: " + bet_id, 404)
+    if bet_id:
+        group["bet_id"] = bet_id
+    else:
+        group.pop("bet_id", None)
+
+
 def _next_order(groups):
     # Freeze legacy fallback positions before a new key changes their indices in sorted JSON.
     for i, group in enumerate(groups.values()):
@@ -189,6 +207,7 @@ def create(c, auth, settings, who, body):
     gid = _new_id(groups, body.name)
     groups[gid] = {"id": gid, "name": body.name.strip(), "reports_to": "", "parent": parent, "root": "",
                    "order": _next_order(groups)}
+    _set_bet(c, who, groups[gid], body.bet_id)
     people, changed = _apply_members(c, settings, roster, gid, body.add, M.GroupMembers())
     roster = _finish(c, roster, people, changed)
     H.event(c, who.actor, "group.created", gid, {"name": body.name.strip(), "parent": parent})
@@ -211,11 +230,12 @@ def update(c, auth, settings, who, gid, body):
         group["parent"] = parent
     if body.name is not None:
         group["name"] = body.name.strip()
+    _set_bet(c, who, group, body.bet_id)
     if _named(groups, group["name"], group["parent"], skip=gid):
         raise Problem("conflict", "There is already a group with that name there", 409)
     people, changed = _apply_members(c, settings, roster, gid, body.add, body.remove)
     roster = _finish(c, roster, people, changed)
-    H.event(c, who.actor, "group.updated", gid, {"name": body.name, "parent": body.parent,
+    H.event(c, who.actor, "group.updated", gid, {"name": body.name, "parent": body.parent, "bet_id": body.bet_id,
                                                   "added": {"people": body.add.people, "bots": body.add.bots},
                                                   "removed": {"people": body.remove.people, "bots": body.remove.bots}})
     return one(c, roster, gid)
@@ -286,6 +306,21 @@ def place(c, settings, slugs, group_order=()):
     if set(roster["org_groups"]) != made:
         _save(c, roster)
     refresh_teams(c, roster)
+
+
+def link_bets(c, links):
+    """Setup's links from the groups it made to the strategy bets they serve ({group id: bet id}, from
+    backend/recruit.py `bet_for`). A group already linked keeps its bet. Returns the group ids linked."""
+    roster = _roster(c)
+    done = []
+    for gid, bet_id in (links or {}).items():
+        group = roster["org_groups"].get(gid)
+        if group and bet_id and not group.get("bet_id"):
+            group["bet_id"] = bet_id
+            done.append(gid)
+    if done:
+        _save(c, roster)
+    return done
 
 
 def seat_teams(c, settings, templates, group_order=()):

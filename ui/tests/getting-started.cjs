@@ -356,7 +356,7 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
       await tour.locator('[data-tour-next]').click();
       titles.push(await tour.locator('#gs-tour-title').textContent());
     }
-    assert.deepEqual(titles, ['Tasks', 'Team', 'Docs', 'Market', 'Meetings']);
+    assert.deepEqual(titles, ['Tasks', 'Team', 'Docs', 'Strategy', 'Meetings']);
     assert.equal(await tour.locator('[data-tour-next]').textContent(), 'Done');
     await page.keyboard.press('Escape');
     await tour.waitFor({state: 'detached'});

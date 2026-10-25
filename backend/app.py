@@ -29,7 +29,8 @@ from . import agents, app_delivery, batch, external_sync, inbox_isolation, lifec
 from . import outcome_stats
 from . import ceo_bot, invites, owner_link
 from . import login_holds
-from . import auto_tasks, check_models, run_triggers, task_models, team_rules, update_feeds, topic_change, usage_limits, bot_to_bot, wake_presets, visuals, wake_rules, quiet_work, milestone_waits
+from . import bot_stops, turn_budgets
+from . import auto_tasks, check_models, profiles, run_triggers, task_models, team_rules, update_feeds, topic_change, usage_limits, bot_to_bot, wake_presets, visuals, wake_rules, quiet_work, milestone_waits
 from . import task_privacy as privacy
 from . import task_relations as TR
 from . import task_roles as TRo
@@ -51,10 +52,12 @@ from . import names as actor_names
 from .openapi_v2 import STABLE as STABLE_ROUTES
 from .route_renames import old_paths as old_route_paths
 from . import updates
-from . import company_billing, company_server, gateway_connection
+from clients import gateway as gateway_client
+from . import company_billing, company_server, gateway_connection, gateway_page, gateway_tiers
 from . import providers as Providers
 from . import access as Access
-from . import releases, runner_versions, ui_bundle
+from . import people_remove
+from . import hosted_updates, releases, runner_versions, ui_bundle
 from .bot_rows import BotRows
 from .census import Census
 from .harnesses import HARNESS_CATALOG, resolve_harness, runtime_of
@@ -164,8 +167,30 @@ def create_app(settings=None):
             with store.transaction() as c:
                 onboarding.ensure_librarian(c)
                 onboarding.ensure_goal_manager(c)
+                onboarding.ensure_task_manager(c)
         except Exception as exc:
             telemetry.capture("librarian", exc)
+        # The Librarian gets the market posts from Listening, once (Settings > Listening).
+        try:
+            from . import listening
+            with store.transaction() as c:
+                listening.seed_market(c, settings)
+        except Exception as exc:
+            telemetry.capture("listening", exc)
+        # A strategy research run the last process was doing has no thread now: it stops, and setup shows the form.
+        try:
+            from . import strategy_setup
+            with store.transaction() as c:
+                strategy_setup.stop_running(c)
+        except Exception as exc:
+            telemetry.capture("strategy_setup", exc)
+        # A lens run the last process was making has no thread now: it fails, and the run page says so.
+        try:
+            from . import lenses
+            with store.transaction() as c:
+                lenses.stop_running(c)
+        except Exception as exc:
+            telemetry.capture("lenses", exc)
         # An assistant still named after the company becomes "Assistant" (idempotent).
         try:
             with store.transaction() as c:
@@ -275,6 +300,16 @@ def create_app(settings=None):
                     pass
         # A rehearsal never runs them, whatever else says so (docs/install.md, "Rehearse a migration").
         timers = settings.scheduler_enabled and not settings.rehearsal
+        # Outgoing webhooks (backend/webhook_delivery.py): a rehearsal copy runs the workers too, only to mark what is
+        # due as withheld, so nothing queued there ever waits for a send that cannot happen.
+        webhooks_on = timers or settings.rehearsal
+        if webhooks_on:
+            from . import webhook_delivery
+            webhook_delivery.start(store, app.state.vault, rehearsal=settings.rehearsal)
+        # Webhooks waiting at Tico Gateway; the loop does nothing without a relay or a key.
+        hook_relay_task = asyncio.create_task(app.state.hook_relay.loop(stop)) if timers else None
+        # Sleep when idle (backend/sleep_idle.py): looks every five minutes, and only on a hosted server that asked for it.
+        sleep_idle_task = asyncio.create_task(app.state.sleep_idle.loop(stop)) if timers else None
         scheduler_task = asyncio.create_task(schedule_loop()) if timers else None
         directory_task = asyncio.create_task(directory_loop()) if timers else None
         granola_task = asyncio.create_task(app.state.granola.loop(stop)) if timers else None
@@ -298,6 +333,10 @@ def create_app(settings=None):
             stop.set()
             if inbound_task:
                 await inbound_task
+            if hook_relay_task:
+                await hook_relay_task
+            if sleep_idle_task:
+                await sleep_idle_task
             if screen_relay_task:
                 await screen_relay_task
             else:
@@ -334,6 +373,8 @@ def create_app(settings=None):
             await asyncio.to_thread(stop_sync, app.state.github_app)
             if recorder_thread:
                 await asyncio.to_thread(recorder_thread.stop)
+            if webhooks_on:
+                await asyncio.to_thread(webhook_delivery.stop)
             telemetry.close()
 
     app = FastAPI(title=settings.app_name + " API", version="2.0.0", lifespan=lifespan,
@@ -545,6 +586,7 @@ def create_app(settings=None):
                     who = replace(who, task_actor="bot:" + settings.assistant_bot)
                 request.state.auth_ms = (time.perf_counter() - began) * 1000
                 request.state.identity = who
+                app.state.sleep_idle.seen(who, request.url.path)
                 if census.person_due(who):
                     await asyncio.get_running_loop().run_in_executor(None, census.note_person, who)
                 if who.via:
@@ -683,6 +725,11 @@ def create_app(settings=None):
                         via_reset = H.VIA.set("botops")
                     if getattr(request.state, "delegation", None):
                         delegation_reset = H.DELEGATION.set(request.state.delegation)
+                    lent = (getattr(request.state, "delegation", None) or {}).get("for")
+                    if H.is_human(lent) and cause_reset is not None:
+                        # What BotOps does with a person's rights is that person's act: its notices wake as the same
+                        # act from the app would (backend/wake_rules.py ALWAYS_WAKE "person", wake presets).
+                        wake_rules.CAUSE.set(lent)
             response = early or await call_next(request)
             if response.status_code >= 500:
                 from .diagnostics import request_failure
@@ -1350,7 +1397,7 @@ def create_app(settings=None):
                 c.execute("INSERT OR IGNORE INTO attempt_conversations VALUES(?,?)", (who.attempt_id, conv["id"]))
             auth.conversation(c, who, conv["id"])
         # An onboarding bot starts only a person's message or its manager's; anyone else's waits for it to be Active.
-        if note := (H.held_note(c, to) or usage_limits.warning(c, to)
+        if note := (H.held_note(c, to) or usage_limits.warning(c, to) or bot_stops.warning(c, to)
                     or (None if H.is_human(who.actor) else H.setup_hold(c, to, who.actor))):
             message = {**message, "warning": note}
         if held := bot_to_bot.held_reason(message):
@@ -1442,14 +1489,7 @@ def create_app(settings=None):
     # sees a final state after a start; a marker row keeps it to one event per update.
     def record_update_outcome(result):
         with store.transaction() as c:
-            row = c.execute("SELECT value_json FROM registry_metadata WHERE key='update-pending'").fetchone()
-            if not row:
-                return
-            pending = json.loads(row[0])
-            c.execute("DELETE FROM registry_metadata WHERE key='update-pending'")
-            H.event(c, pending["actor"], "system.update.finished", pending["to"],
-                    {"outcome": result["state"], "from": pending["from"], "to": pending["to"],
-                     "message": result.get("message", "")})
+            hosted_updates.record_outcome(c, result)
 
     @app.post("/api/v2/system/update")
     def system_update(request: Request, body: M.SystemUpdate):
@@ -1483,8 +1523,8 @@ def create_app(settings=None):
             before, after = Providers.save(c, who.actor, body.model_dump(), H.now())
             model_login.hold_removals(c, settings)   # bots on the company's default may now run another tool
             H.event(c, who.actor, "providers.updated", "",
-                    {"before": {k: before[k] for k in ("enabled", "runtime", "model", "revision", "auto_fallback", "check_models", "preset")},
-                     "after": {k: after[k] for k in ("enabled", "runtime", "model", "revision", "auto_fallback", "check_models", "preset")}})
+                    {"before": {k: before[k] for k in ("enabled", "runtime", "model", "revision", "auto_fallback", "check_models", "preset", "decide_level")},
+                     "after": {k: after[k] for k in ("enabled", "runtime", "model", "revision", "auto_fallback", "check_models", "preset", "decide_level")}})
             return Providers.view(after)
         return mutate(request, body, work)
 
@@ -1498,6 +1538,70 @@ def create_app(settings=None):
             gateway_connection.check_soon(store, app.state.vault, settings)   # the page's answer is the last check's
         with store.read() as c:
             return gateway_connection.view(c, settings, manage=who.role == "owner")
+
+    @app.get("/api/v2/gateway")
+    def gateway_overview(request: Request):
+        """Settings > Gateway: the connection (with spend against the cap for the owner), the picks the bots use and the
+        services."""
+        who = request.state.identity
+        auth.domain(who)
+        if who.role == "owner":
+            gateway_connection.check_soon(store, app.state.vault, settings)
+        with store.read() as c:
+            return gateway_page.overview(c, settings, owner=who.role == "owner")
+
+    @app.get("/api/v2/gateway/catalog")
+    def gateway_catalog(request: Request, query: str = ""):
+        """The Gateway's lineup as an agent reads it: models, decisions and services, each with when to use it, its
+        price and its ids (`hub_gateway_catalog`). `query` keeps the entries it matches."""
+        auth.domain(request.state.identity)
+        with store.read() as c:
+            gateway_page.catalog(c, settings)
+        return gateway_tiers.lineup(query[:200])
+
+    @app.post("/api/v2/gateway/search")
+    def gateway_search(request: Request, body: M.GatewaySearch):
+        """Web search through the Tico AI Gateway (`hub_gateway_search`), asked with the company's gateway key and, for a
+        bot, as that bot. Whoever may call the API may ask; the Gateway meters it."""
+        who = request.state.identity
+        auth.domain(who)
+        if settings.rehearsal:
+            raise Problem("rehearsal", "Search is off in rehearsal mode; nothing is sent to the Gateway", 503)
+        with store.read() as c:
+            key = gateway_connection.key(c, app.state.vault, settings) if gateway_connection.connected(c, settings) else ""
+            base = gateway_connection.url(c, settings)
+            header = gateway_connection.bot_header(c, app.state.vault, H.actor_id(who.actor)) if H.is_bot(who.actor) else {}
+        if not key:
+            raise Problem("gateway_not_connected", "The Tico AI Gateway is not connected; the owner saves a gateway key in "
+                          "Settings > Computers", 409)
+        status, answer, code = gateway_client.search(base, key, body.query, body.max_results, header)
+        if status != 200:
+            if status == 404:
+                raise Problem("gateway_search_unavailable", "The Tico AI Gateway does not offer search yet", 503)
+            raise Problem("gateway_search_failed", f"Search failed: {code or status}", 503 if status in (0, 429) or status >= 500 else 422)
+        return answer
+
+    @app.post("/api/v2/gateway/fetch")
+    def gateway_fetch(request: Request, body: M.GatewayFetch):
+        """Read a web page or PDF through the Tico AI Gateway (`hub_gateway_fetch`), asked with the company's gateway key
+        and, for a bot, as that bot. Whoever may call the API may ask; the Gateway meters it."""
+        who = request.state.identity
+        auth.domain(who)
+        if settings.rehearsal:
+            raise Problem("rehearsal", "Fetch is off in rehearsal mode; nothing is sent to the Gateway", 503)
+        with store.read() as c:
+            key = gateway_connection.key(c, app.state.vault, settings) if gateway_connection.connected(c, settings) else ""
+            base = gateway_connection.url(c, settings)
+            header = gateway_connection.bot_header(c, app.state.vault, H.actor_id(who.actor)) if H.is_bot(who.actor) else {}
+        if not key:
+            raise Problem("gateway_not_connected", "The Tico AI Gateway is not connected; the owner saves a gateway key in "
+                          "Settings > Computers", 409)
+        status, answer, code = gateway_client.fetch(base, key, body.url, body.max_tokens, header)
+        if status != 200:
+            if status == 404:
+                raise Problem("gateway_fetch_unavailable", "The Tico AI Gateway does not offer fetch yet", 503)
+            raise Problem("gateway_fetch_failed", f"Fetch failed: {code or status}", 503 if status in (0, 429) or status >= 500 else 422)
+        return answer
 
     @app.put("/api/v2/providers/gateway")
     def gateway_save(request: Request, body: M.GatewayConnectionSave):
@@ -1625,7 +1729,9 @@ def create_app(settings=None):
                     # When each person was last sent an invite (backend/invites.py), and whether this install's
                     # sign-in could send one at all: only the built-in sign-in, through a Tico account issuer.
                     "invites": {pid: sent["at"] for pid, sent in invites.sent(c).items()},
-                    "invite_email": invites.can_email(settings)}
+                    "invite_email": invites.can_email(settings),
+                    # Whether the issuer also makes accounts with a generated password (Create password).
+                    "account_password": bool(invites.can_make(auth, settings))}
 
     @app.post("/api/v2/access/people")
     def access_person_add(request: Request, body: M.AccessPersonAdd):
@@ -1665,6 +1771,25 @@ def create_app(settings=None):
         invites.once(store, auth, settings, who, request, body, person)
         at = mutate(request, body, lambda c: invites.record(c, who.actor, pid))   # a repeat replays its receipt
         return {"person": pid, "invited_at": at}
+
+    @app.post("/api/v2/access/people/{pid}/password")
+    def access_person_password(request: Request, pid: str, body: M.Empty):
+        """Owners and admins make someone on the roster a Tico account with a generated password (backend/invites.py
+        `make_password`), answered once. Not `mutate`: its request cache would keep the password. Nothing else keeps
+        it either; the event says only that an account was made."""
+        who = request.state.identity
+        admin_only(who, "makes accounts")
+        invites.request_key(request)
+        with store.read() as c:
+            person = P.person(pid, views.roster(c))
+        if not person or person.get("hidden"):
+            raise Problem("not_found", "Person not found", 404)
+        if pid == H.actor_id(who.actor):
+            raise Problem("password_self", "You already sign in here", 422)
+        password = invites.make_password(store, auth, settings, who, request, body, person)
+        with store.transaction() as c:
+            H.event(c, who.actor, "person.account_created", pid, {})
+        return {"person": pid, "email": person["email"], "password": password}
 
     @app.post("/api/v2/access/people/{pid}")
     def access_person_edit(request: Request, pid: str, body: M.AccessPersonEdit):
@@ -2060,6 +2185,7 @@ def create_app(settings=None):
                         "task_model_warning": task_models.warning(c, settings, bot["slug"], declared,
                                                                   task_models.of(declared)),
                         "wake": wake_presets.effective(declared),
+                        "profile": profiles.effective(declared),
                         "thread_mode": config["thread_mode"] or rooms.thread_mode(c, bot["slug"], config)})
         configured = json.loads(config["owner_ids_json"]) if config and config["owner_ids_json"] else None
         owner_rows = ([rows.human(owner) for owner in configured] if configured is not None
@@ -2330,6 +2456,34 @@ def create_app(settings=None):
             raise Problem("not_found", "Person not found", 404)
         return mutate(request, body, work)
 
+    @app.delete("/api/v2/people/{pid}")
+    def person_remove(request: Request, pid: str):
+        """The owner removes a left person who has no history, such as one added by mistake, for good
+        (backend/people_remove.py). Anyone with history stays as left."""
+        who = request.state.identity
+        auth.domain(who)
+        if who.role != "owner":
+            raise Problem("forbidden", "Only the owner removes someone", 403)
+
+        def person(c):
+            found = P.person(pid, views.roster(c))
+            if not found:
+                raise Problem("not_found", "Person not found", 404)
+            return found
+        with store.read_transaction() as c:          # every table is read once, outside the write lock
+            found = P.person(pid, views.roster(c))     # gone already: a retry's replay, or the 404 below
+            if found and not people_remove.check(found) and people_remove.history(c, pid):
+                raise Problem("has_history", people_remove.KEEPS, 409)
+
+        def work(c):
+            roster = views.roster(c)
+            people_remove.remove(c, who.actor, roster, person(c))
+            return {"person": pid, "removed": True}
+        result = mutate(request, M.Empty(), work)
+        with store.read() as c:
+            auth.sync_access(c)
+        return result
+
     @app.get("/api/v2/people/{pid}/slack")
     def person_slack(request: Request, pid: str):
         """Slack DMs between this person and Tico bots (one Tico app; each bot has its own hub thread)."""
@@ -2392,8 +2546,9 @@ def create_app(settings=None):
         auth.domain(request.state.identity)
         with store.read() as c:
             choice = Providers.load(c, settings)
+            cat = gateway_page.catalog(c, settings)
         return {"models": list(MODEL_CATALOG), "harnesses": list(HARNESS_CATALOG),
-                "enabled_providers": choice["enabled"],
+                "gateway": gateway_tiers.view(cat), "enabled_providers": choice["enabled"],
                 "default": {"runtime": choice["runtime"], "model": choice["model"]}}
 
     @app.get("/api/v2/conversations")
@@ -2993,6 +3148,9 @@ def create_app(settings=None):
                         for field in ("body", "acceptance_criteria", "acceptance_json", "public_title", "public_summary",
                                       "requester_count", "external_requesters", "internal_requesters", "important_requesters", "organization", "size"):
                             row.pop(field, None)
+                        for field in ("verdict", "verdict_head"):   # only a review or QA subtask has one
+                            if row.get(field) is None:
+                                row.pop(field, None)
                         if isinstance(row.get("step"), dict):
                             row["step"].pop("public_name", None)
             if changed_after is not None:
@@ -3385,7 +3543,8 @@ def create_app(settings=None):
                 TRo.set_roles(c, who.actor, row["id"], body.roles, mover=mover(c, who) or None)
             except ValueError as exc:
                 raise Problem("roles", str(exc), 422)
-        note = " ".join(filter(None, (usage_limits.warning(c, owner) or H.setup_hold(c, owner), own_subtask)))
+        note = " ".join(filter(None, (usage_limits.warning(c, owner) or bot_stops.warning(c, owner) or H.setup_hold(c, owner),
+                                      own_subtask)))
         return {"task": task_view(H.task(c, row["id"]), c, visible_sql=auth.task_sql(c, who), who=who),
                 **({"readback": readback} if readback else {}),
                 **({"warning": note} if note else {}), **({"warnings": row["warnings"]} if row.get("warnings") else {})}
@@ -3465,7 +3624,8 @@ def create_app(settings=None):
             if body.close:
                 if any(v is not None for v in (body.title, body.status, body.owner, body.due, body.body, body.lane,
                                                body.labels, body.waiting_on, body.rank, body.roles,
-                                               body.goal_id, body.type, body.step, body.step_rank, body.number, body.private, body.visibility, body.public_title, body.public_summary, body.size)):
+                                               body.goal_id, body.type, body.step, body.step_rank, body.number, body.private, body.visibility, body.public_title, body.public_summary, body.size,
+                                               body.verdict, body.verdict_head)):
                     raise Problem("close", "Close and edit are separate operations", 422)
                 note = body.note or ""
                 if (note.strip() and getattr(who, "via", "") == "botops" and who.actor != "bot:" + BOTOPS
@@ -3997,6 +4157,8 @@ def create_app(settings=None):
                                              "WHERE state IN ('leased','running') ORDER BY bot")
                         if readable.get(s["bot"], auth.FULL)["read"]]
             inputs = privacy.status_inputs(c, [s["bot"] for s in statuses])
+            from .events import prime_status_lines
+            prime_status_lines(c, [s["bot"] for s in statuses])
             return {"bots": [line for s in statuses
                              if (line := status_line(c, who, s["bot"], default, inputs[s["bot"]], auth=auth)) is not None],
                     # Tico updating itself, shown beside the status line
@@ -4673,15 +4835,27 @@ def create_app(settings=None):
         auth.domain(who)
         with store.read() as c:
             result = H.inbox(c, who.actor)
+            # A bot's unread backlog is checked on every inbox read, newest first: a hundred messages are read together
+            # at a time rather than a few reads each. Each is still checked on its own, and each room once per request.
+            newest = result["messages"][::-1]
+            position = {m["id"]: i for i, m in enumerate(newest)}
+            rooms = {}
 
             def message_visible(message):
+                at = position.get(message["id"], 1)
+                if at % INBOX_LIMIT == 0:
+                    privacy.snapshot(c)
+                    privacy.prime_queued(c, H.prime_messages(c, [m["id"] for m in newest[at:at + INBOX_LIMIT]]).values())
                 if not privacy.message_readable(c, privacy.actor(who), message):
                     return False
                 if who.role == "bot":
-                    try:
-                        auth.conversation(c, who, message["conversation_id"])
-                    except Problem:
-                        return False
+                    if message["conversation_id"] not in rooms:
+                        try:
+                            auth.conversation(c, who, message["conversation_id"])
+                            rooms[message["conversation_id"]] = True
+                        except Problem:
+                            rooms[message["conversation_id"]] = False
+                    return rooms[message["conversation_id"]]
                 return True
 
             # A bot that never marks messages read can hold thousands: the newest INBOX_LIMIT readable ones are
@@ -6016,6 +6190,18 @@ def create_app(settings=None):
     install_context_search(app, store, auth)
     from .market import install as install_market
     install_market(app, store, auth, mutate)
+    from .market_watch import install as install_market_watch
+    install_market_watch(app, store, auth, mutate)
+    from .market_briefing import install as install_market_briefing
+    install_market_briefing(app, store, auth, mutate)
+    from .market_spend import install as install_market_spend
+    install_market_spend(app, store, auth, mutate)
+    from .strategy import install as install_strategy
+    install_strategy(app, store, auth, mutate)
+    from .strategy_setup import install as install_strategy_setup
+    install_strategy_setup(app, store, auth, mutate)
+    from .lenses import install as install_lenses
+    install_lenses(app, store, auth, mutate)
     from .listening import install as install_listening
     install_listening(app, store, auth, mutate)
     from .archive import install_archives
@@ -6053,6 +6239,13 @@ def create_app(settings=None):
     system_routines.install(app, store, auth, mutate)
     from . import task_rules
     task_rules.install(app, store, auth, mutate)
+    from . import rule_suggestions, rules as wake_rules_api
+    rule_suggestions.install(app, store, auth, mutate)      # before the rules' `/{rule_id}`
+    wake_rules_api.install(app, store, auth, mutate)
+    turn_budgets.install(app, store, auth, mutate, settings_admin)
+    profiles.install(app, store, auth, mutate, settings_admin)
+    from . import release_flow
+    release_flow.install(app, store, auth, mutate)
     outcome_stats.install(app, store, auth)
     from .live_meetings import install_live_meetings
     install_live_meetings(app, store, auth, mutate)
@@ -6074,6 +6267,8 @@ def create_app(settings=None):
     install_github(app, settings, store)
     from . import triggers
     triggers.install(app, settings, store, auth, mutate)
+    from . import webhooks
+    webhooks.install(app, settings, store, auth, mutate)
     # GitHub App per company: manifest setup, installation tokens for runners (docs/github-app.md).
     from .github_app import install_github_app
     install_github_app(app, settings, store)
@@ -6134,6 +6329,10 @@ def create_app(settings=None):
     install_support(app, store, settings, census)
     from .inbound import install as install_inbound
     install_inbound(app, store, settings, auth)
+    from .hook_relay import install as install_hook_relay
+    install_hook_relay(app, settings, store, auth)
+    from .sleep_idle import install as install_sleep_idle
+    install_sleep_idle(app, settings, store, auth)
     company_server.install(app, store, settings, auth)
     from .support_access import install as install_support_access
     install_support_access(app, store, settings, auth)
@@ -6141,6 +6340,8 @@ def create_app(settings=None):
     install_watchers(app, store, auth, execution, mutate)
     from .health_monitor import install as install_health_monitor
     install_health_monitor(app, store, auth, mutate, onboarding, settings_admin, settings)
+    from .task_manager import install as install_task_manager
+    install_task_manager(app, store, auth, mutate, onboarding, settings_admin, settings)
     # A computer's screen in the app (backend/screen.py); its websockets go before the static mounts below.
     from .screen import install as install_screen
     screen_sessions = install_screen(app, store, auth, mutate, execution, settings)

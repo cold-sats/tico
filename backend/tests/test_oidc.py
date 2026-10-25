@@ -46,6 +46,8 @@ class Provider:
         self.invites, self.invite_calls = None, []
         # Where discovery says invites go (default: this issuer's /oauth2/invite), and where an invite POST is redirected.
         self.invite_endpoint = self.invite_redirect = None
+        # It may also make accounts with a generated password (POST /oauth2/accounts): a list of (status, answer).
+        self.accounts, self.account_calls = None, []
         self.keys = []
         self.rotate()
         provider = self
@@ -69,7 +71,9 @@ class Provider:
                                 "token_endpoint": provider.issuer + "/token", "jwks_uri": provider.issuer + "/keys",
                                 "id_token_signing_alg_values_supported": ["RS256"],
                                 **({"tico_invite_endpoint": provider.invite_endpoint or provider.issuer + "/oauth2/invite"}
-                                   if provider.invites is not None else {})})
+                                   if provider.invites is not None else {}),
+                                **({"tico_accounts_endpoint": provider.issuer + "/oauth2/accounts"}
+                                   if provider.accounts is not None else {})})
                 elif path.endswith("/keys"):
                     provider.jwks_fetches += 1
                     self.reply({"keys": [provider.jwk(kid, key) for kid, key in provider.keys]})
@@ -87,6 +91,10 @@ class Provider:
                         self.send_header("Content-Length", "0")
                         return self.end_headers()
                     status, answer = provider.invites.pop(0)
+                    return self.reply(answer, status)
+                if urlparse(self.path).path.endswith("/oauth2/accounts"):
+                    provider.account_calls.append(one)
+                    status, answer = provider.accounts.pop(0)
                     return self.reply(answer, status)
                 provider.token_calls.append(one)
                 self.reply(*provider.token(one))

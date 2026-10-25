@@ -52,6 +52,9 @@ ALWAYS_KINDS = frozenset({"ask", "answer", "steer"})
 ALWAYS_REFS = frozenset({"approval", "questions", "command", "run_now"})
 FLAG = "needs_action"
 VERDICT = re.compile(r"^\s*VERDICT:\s*(approve|changes)\s+PR\s+#\d+\s+head\s+[0-9a-f]{7,40}\b", re.I | re.M)
+# The same line read for its fields: a review or QA child's verdict and the head it judged (hubdb.record_verdict).
+VERDICT_FIELDS = re.compile(r"^\s*VERDICT:\s*(approve|changes|pass|fail)\b(?:\s+PR\s+#\d+)?(?:\s+head\s+([0-9a-f]{7,40})\b)?",
+                            re.I | re.M)
 
 # What a parked task waits for, by the refs its wake carries. These wake even when the bot's own write caused them.
 AWAITED = (
@@ -71,15 +74,20 @@ HOLDABLE_TRIGGERS = ("comment", "status_or_relation")
 HOLDABLE_CLASSES = ("notice", "message")
 # The references news carries: a plain message's, the trigger stamp, a finished task's summary. Anything else (a
 # wake kind, a batch, an answer) is more than news, and so is a reference no rule here knows yet.
+# `news` names the event of a notice that is news but not a plain comment (rules.NOTE_EVENTS, task_done...).
 # The person whose own act a keeper notice reports (H._write_message): kept on the message, after the request ends.
 CAUSED_BY = "caused_by"
 NEWS_REFS = frozenset({"task", "comment", "attachments", "files", "unsolicited", "turn_id", "warnings", "via",
-                       FLAG, "trigger", "trigger_source", "task_completion", CAUSED_BY})
+                       FLAG, "trigger", "trigger_source", "task_completion", CAUSED_BY, "rule", "news"})
 
 # The stall checks that only ask "has anything moved?"; same_state may hold these. A stuck run, a setup that is
 # held, a restated ask, a due date and a snooze ending are other news and keep waking.
 SAME_STATE_WAKES = ("status_check", "stalled")
 RULES = ("own_write", "parked", "same_state")
+# Holds that leave no note: the check only asked whether anything moved (same_state), or a rule said to ignore it.
+SILENT = ("same_state", "ignored")
+# Holds a table rule makes (backend/rules.py): the generic words, as the rule's own id is on the event.
+ROW_HOLDS = ("rule", "ignored")
 SKIPPED = "wake.skipped"
 # A task in one of these still has work to do; a blocker in one of them still blocks.
 UNFINISHED = ("open", "doing", "waiting", "review", "ready", "blocked")
@@ -124,7 +132,7 @@ def awaited(refs):
     wake = refs.get("wake")
     if refs.get("blocker_done"):
         return "blocker_done"
-    if refs.get("trigger") == "pr_checks":
+    if refs.get("trigger") == "pr_checks" and wake != "pr_review":      # a review note is news, not a result
         return "wake_once"
     if refs.get("subtask"):
         return "subtask"
@@ -179,6 +187,12 @@ def rule_for(conn, actor, target, kind, refs, body, task_row, cause=None, in_rep
     refs = refs if isinstance(refs, dict) else {}
     if not _news(conn, actor, target, kind, refs, body, cause, in_reply_to):
         return None
+    return hold_rule(conn, target, task_row, cause)
+
+
+def hold_rule(conn, target, task_row, cause=None):
+    """For a wake that is news (_news): the rule that lets it wait, or None."""
+    cause = CAUSE.get() if cause is None else cause
     if cause and cause == target:
         return "own_write"
     if task_row and task_row.get("owner") == target and parked(conn, task_row):
@@ -269,6 +283,22 @@ def settled_state(conn, task_row, bot, started, attempt_id):
         return None
 
 
+def at_checkpoint(conn, task_row, target):
+    """Whether the task stands exactly as at `target`'s last checkpoint on it, with no newer turn of its running:
+    no stored state, a blocked checkpoint, someone else's checkpoint or any difference is False."""
+    if not task_row or task_row.get("owner") != target or task_row.get("checkpoint_blocked") \
+            or not task_row.get("checkpoint_state") or task_row.get("checkpoint_by") != target:
+        return False
+    from . import hubdb as H
+    lanes, _ = H._session_lanes(conn, task_row)
+    # A completed turn's checkpoint says nothing about a newer active turn's health. Its
+    # first status check seeds the retry and diagnostic path when it stops making progress.
+    if conn.execute("SELECT 1 FROM attempts WHERE bot=? AND lane IN (?,?) "
+                    "AND state IN ('leased','running') LIMIT 1", (H.actor_id(target), *lanes)).fetchone():
+        return False
+    return state_of(conn, task_row) == task_row["checkpoint_state"]
+
+
 def same_state(conn, actor, target, kind, refs, body, task_row, cause=None, in_reply_to=None):
     """Whether this wake is a plain stall or status check about a task `target` owns that stands exactly as at its
     last checkpoint. Nothing on ALWAYS_WAKE or AWAITED is ever held."""
@@ -280,14 +310,7 @@ def same_state(conn, actor, target, kind, refs, body, task_row, cause=None, in_r
         return None
     if always_wakes(conn, actor, target, kind, refs, body, CAUSE.get() if cause is None else cause, in_reply_to):
         return None
-    from . import hubdb as H
-    lanes, _ = H._session_lanes(conn, task_row)
-    # A completed turn's checkpoint says nothing about a newer active turn's health. Its
-    # first status check seeds the retry and diagnostic path when it stops making progress.
-    if conn.execute("SELECT 1 FROM attempts WHERE bot=? AND lane IN (?,?) "
-                    "AND state IN ('leased','running') LIMIT 1", (H.actor_id(target), *lanes)).fetchone():
-        return None
-    return "same_state" if state_of(conn, task_row) == task_row["checkpoint_state"] else None
+    return "same_state" if at_checkpoint(conn, task_row, target) else None
 
 
 def gate(conn, actor, target, kind, refs, body, conv, in_reply_to=None):
@@ -323,23 +346,26 @@ def own_comment(conn, msg, task_row):
                                                          "from": author, "cause": CAUSE.get() or None, "note": None})
 
 
-def hold(conn, msg, rule):
+def hold(conn, msg, rule, rule_id=None):
     """Keep a skipped wake for the bot's next run, whatever starts it: a quiet note linked to the message (carried
-    and marked read by execution.claim, as bot_to_bot.hold's are), and the `wake.skipped` audit row."""
+    and marked read by execution.claim, as bot_to_bot.hold's are), and the `wake.skipped` audit row. `rule` is the
+    reason (own_write, parked, same_state, or a table rule's "rule" / "ignored"); `rule_id` the id of the rule
+    behind it, kept on the event."""
     from . import hubdb as H
     task_id = H.message_task_id(msg, H.conversation(conn, msg["conversation_id"]))
     task_row = H.task(conn, task_id) if task_id else None
-    if rule == "same_state":
-        # Nothing to carry: the check only asked whether anything moved, and nothing did.
+    if rule in SILENT:
+        # Nothing to carry: the check only asked whether anything moved and nothing did, or a rule said to ignore it.
         from . import run_triggers
         return H.event(conn, H.KEEPER, SKIPPED, msg["id"], {
-            "bot": H.actor_id(msg["to_actor"]), "task": task_id, "rule": rule,
+            "bot": H.actor_id(msg["to_actor"]), "task": task_id, "rule": rule, "rule_id": rule_id or rule,
             "trigger": run_triggers.of_message(msg)[0], "kind": msg["kind"], "from": msg["from_actor"],
             "cause": CAUSE.get() or None, "note": None})
     where = f"on task {task_row['title']} ({task_row['id']})" if task_row else "in a direct message"
-    why = {"own_write": "your own write caused it", "blocked_by": "the task waits on another task (blocked by)",
-           "wake_once": "the task waits on its pull request's checks (wake once)",
-           "milestone": "the task waits for a pull request to merge or a release to be published"}.get(
+    why = "a wake rule holds it" if rule in ROW_HOLDS else {
+        "own_write": "your own write caused it", "blocked_by": "the task waits on another task (blocked by)",
+        "wake_once": "the task waits on its pull request's checks (wake once)",
+        "milestone": "the task waits for a pull request to merge or a release to be published"}.get(
         rule if rule == "own_write" else parked(conn, task_row), "the task is waiting")
     text = str(msg["body"] or "")
     if len(text) > H.NOTE_MAX - 400:
@@ -353,6 +379,6 @@ def hold(conn, msg, rule):
     from . import run_triggers
     trigger, _ = run_triggers.of_message(msg)
     H.event(conn, H.KEEPER, SKIPPED, msg["id"], {"bot": H.actor_id(msg["to_actor"]), "task": task_id, "rule": rule,
-                                                  "trigger": trigger, "kind": msg["kind"], "from": msg["from_actor"],
+                                                  "rule_id": rule_id or rule, "trigger": trigger, "kind": msg["kind"], "from": msg["from_actor"],
                                                   "cause": CAUSE.get() or None, "note": note["id"]})
     return note

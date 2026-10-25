@@ -1,6 +1,7 @@
 // Invites and a failed import (bot-lifecycle-spec.md acceptance tests 2 and 3). Settings -> Humans: "Send invite" on a
 // roster row and Invite on each person the setup's company file names post once, and a refusal from Tico's sign-in mail
-// stays on screen in words; a sent one reads "Invited". The welcome says a chosen chart that failed to import was not
+// stays on screen in words; a sent one reads "Invited". "Create password" shows only when the issuer makes accounts,
+// shows the password once in a dialog and clears it on close. The welcome says a chosen chart that failed to import was not
 // replaced by a sample team. Fixtures only, no network.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
@@ -18,7 +19,7 @@ const REFUSED = {error: {code: 'invite_failed', detail: "Tico's sign-in mail cou
   try {
     const context = await browser.newContext({viewport: {width: 1200, height: 900}, serviceWorkers: 'block'});
     const calls = [];
-    let config = CONFIG, refuse = true, invites = {};
+    let config = CONFIG, refuse = true, invites = {}, accountPassword = false, made = 0;
     const people = [
       {id: 'ana', name: 'Ana Rivera', email: 'ana@acme.example'},
       {id: 'ben', name: 'Ben Cole', email: 'ben@acme.example'}];
@@ -31,7 +32,7 @@ const REFUSED = {error: {code: 'invite_failed', detail: "Tico's sign-in mail cou
         bot_admin: false, create_bots: true, add_people: true, add_people_default: true, sign_in: true, can_sign_in: true})),
       allowed: people.map(p => p.email), allowed_domains: [], admins: [], bot_admins: [], member_bot_limit: 25, rules: {},
       company_domains: ['acme.example'], company_domain_source: 'owner', revision: 3, proxy: 'oidc', home_domain: 'acme.example',
-      domain_sign_in: false, directory: '', invites, invite_email: true});
+      domain_sign_in: false, directory: '', invites, invite_email: true, account_password: accountPassword});
     await context.route('**/*', async route => {
       const request = route.request(), p = new URL(request.url()).pathname, method = request.method();
       const json = (body, status = 200) => route.fulfill({status, contentType: 'application/json', body: JSON.stringify(body)});
@@ -57,6 +58,11 @@ const REFUSED = {error: {code: 'invite_failed', detail: "Tico's sign-in mail cou
         if (refuse) return json(REFUSED, 422);
         invites = {...invites, [m[1]]: '2026-10-24T09:00:00Z'};
         return json({person: m[1], invited_at: invites[m[1]]});
+      }
+      if ((m = p.match(/^\/api\/v2\/access\/humans\/([^/]+)\/password$/)) && method === 'POST') {
+        calls.push(['password', m[1], request.postDataJSON()]);
+        if (!made++) return json({error: {code: 'password_exists', detail: 'Ben Cole already has a Tico account; use Invite.'}}, 422);
+        return json({person: m[1], email: 'ben@acme.example', password: 'abcde-fghjk-mnpqr-stuvw'});
       }
       if ((m = p.match(/^\/api\/v2\/setup\/company\/people\/([^/]+)\/invite$/)) && method === 'POST') {
         calls.push(['setup-invite', m[1], request.postDataJSON()]);
@@ -92,6 +98,10 @@ const REFUSED = {error: {code: 'invite_failed', detail: "Tico's sign-in mail cou
     await row('ana').locator('.people-more').click();
     assert.equal(await row('ana').locator('[data-person-act=invite]').count(), 0);
     await page.keyboard.press('Escape');
+    // No Create password unless the issuer makes accounts.
+    await row('ben').locator('.people-more').click();
+    assert.equal(await row('ben').locator('[data-person-act=password]').count(), 0);
+    await page.keyboard.press('Escape');
 
     // A refused roster invite is a visible error and nothing reads "Invited".
     await menuAct('ben', 'invite');
@@ -117,8 +127,33 @@ const REFUSED = {error: {code: 'invite_failed', detail: "Tico's sign-in mail cou
     await menuAct('ben', 'invite');
     await row('ben').locator('[data-invited]').waitFor();
     assert.deepEqual(calls.shift(), ['invite', 'ben', {}]);
+    // The time moves on without a redraw and carries the full date on hover.
+    const when = row('ben').locator('[data-invited] [data-ago]');
+    assert.ok((await when.getAttribute('title')).length > 5);
+    await when.evaluate(n => { n.dataset.ago = new Date(Date.now() - 3 * 3600e3).toISOString(); agoTick(); });
+    assert.equal(await when.innerText(), '3h ago');
+    await when.evaluate(n => { n.dataset.ago = new Date(Date.now() - 5e3).toISOString(); agoTick(); });
+    assert.equal(await when.innerText(), 'just now', 'under a minute is not counted in seconds');
+    assert.match(await page.locator('.people-note').first().innerText(), /^No email is sent until you choose Send invite\./);
     await row('ben').locator('.people-more').click();
     assert.equal((await row('ben').locator('[data-person-act=invite]').innerText()).trim(), 'Send invite again');
+    await page.keyboard.press('Escape');
+
+    // Create password: a refusal is a toast in words; a made account's password shows once, then is gone.
+    accountPassword = true;
+    await page.goto('https://tico-ui.test/#/settings/people');
+    await row('ben').waitFor();
+    await menuAct('ben', 'password');
+    await page.locator('.toast', {hasText: 'already has a Tico account; use Invite.'}).waitFor();
+    await menuAct('ben', 'password');
+    const dialog = page.locator('#people-dialog');
+    await dialog.locator('[data-made-password]').waitFor();
+    assert.equal(await dialog.locator('[data-made-password]').inputValue(), 'abcde-fghjk-mnpqr-stuvw');
+    assert.match(await dialog.innerText(), /Shown once/);
+    assert.deepEqual(calls.splice(0, 2), [['password', 'ben', {}], ['password', 'ben', {}]]);
+    await dialog.locator('button[type=submit]').click();
+    await dialog.waitFor({state: 'hidden'});
+    await dialog.locator('[data-made-password]').waitFor({state: 'detached'});      // not left in the page
 
     // A company file that could not be imported at install: the welcome says so and that no sample team replaced it.
     config = {...CONFIG, onboarding_needed: true};

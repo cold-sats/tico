@@ -265,6 +265,7 @@ you set on the server, and never in rehearsal mode. Each provider keeps what it 
 | **Slack routing** (`backend/slack_gateway.py`, when the Slack gateway is on) | The message's text; the sender's name, roster id, team and the bots they are primary for; the channel's name and registry purpose; the last twelve exchanges in the thread and their previous routing; and the active roster (each bot's name, team, description and manager) | The same decision model as above |
 | **Topic changed** (`backend/topic_change.py`, when Settings > General > **Start fresh when the topic changes** is on) | Before a message in a person's direct chat with a bot is sent, and only when the chat is long or idle: the chat's last 3 turns since its last clear (what the person said and what the bot answered, each cut to about 1,500 characters) and the new message. Task lines, task chats, group chats and shared bots' rooms are never sent. The audit keeps the answer, never the text | The same decision model as above |
 | **Market ask** (`POST /api/v2/market/ask`) | The question, and up to about seventeen excerpts from the market graph that match it: entity names, aliases and summaries, evidence quotes and our reads, and the start of matching market pages | Google's Gemini API (generativelanguage.googleapis.com, `gemini-3.7-flash`) with the server's `GEMINI_API_KEY`, whatever Settings > Computers > Models says. Without a key nothing is sent and the pulled excerpts are the answer |
+| **Strategy research** (`POST /api/v2/strategy/draft-from`, the owner during setup) | The website address and the description the owner typed, and the text of up to four of that website's public pages (home, about, pricing, customers; 8,000 characters each). Fetching those pages is a plain request from the server to that website, with no credentials | Tico Mid 1.0 on the Tico AI Gateway (Tico HQ, then OpenRouter, [below](#tico-cheap-mid-and-power-through-tico-hq)) while the gateway is connected and chosen for the gateway models, else the team's own provider from Settings > Computers > Models whose key the server holds. With neither nothing is sent and setup is a plain form. The server keeps the job (address, description, page addresses and titles, and the model's answer) in its database, the last five jobs |
 
 What the server keeps of each call is an audit event, never the text that was sent: `judge.call` (the label, the number of
 questions, the value and confidence per answer, the model, token usage and latency; Slack routing adds the Slack event id)
@@ -303,6 +304,11 @@ gets OpenRouter's and the provider's normal retention, and Tico's bots do not as
 **Where it runs:** HQ's route through OpenRouter has no confirmed region, so these calls may be handled outside the
 US. A call that asks for the US (`"filters": {"region": "us"}`) is refused with `no_route` and sent nowhere, until
 a route confirmed to stay in the US exists.
+
+**A server Tico hosts** (`TICO_HOSTED`) also tells Tico HQ, with the same gateway key, the release it runs, every 15
+minutes (`POST <Gateway URL>/servers/update {"version"}`), and after an update Tico support scheduled for it, how that
+went (`updated`, `failed`, `rolled_back` or `timed_out`, with the updater's message). HQ answers with the release
+support scheduled, if any (`backend/hosted_updates.py`). A self-run server never sends it.
 
 ## The AI accounts your computers are signed in to
 

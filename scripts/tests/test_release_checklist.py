@@ -78,7 +78,7 @@ def test_wrong_head_pass_and_new_head_failure_do_not_combine_into_passing_receip
     task["messages"] = [message(task, f"Tests {OLD}: 10 passed\nTests {HEAD}: 2 passed, 1 failed")]
     task["children"][-1]["status"] = "doing"
     gaps = "\n".join(build(task)["prs"][0]["gaps"])
-    assert "Tests: recorded failure" in gaps and "Docs: incomplete" in gaps
+    assert "Tests: recorded failure" in gaps and "Docs:" not in gaps
     task["tags"] = []
     task["children"] = [task["children"][0]]
     task["messages"] = complete()["messages"]

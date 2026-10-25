@@ -74,6 +74,11 @@ def _task_rows(c, ids):
     return {tid: known[tid] for tid in ids}
 
 
+def private_tasks(c, ids):
+    """Those of `ids` that H.task_private holds private (a private task, or no task by that id), read together."""
+    return {tid for tid, row in _task_rows(c, ids).items() if H.task_private(c, row)}
+
+
 def references(c, value):
     """Task ids anywhere in a structured reference or payload, including nested lists. Every string that could
     name a task is gathered first and looked up in one query: one query per string was most of a busy server's SQL."""
@@ -179,10 +184,12 @@ def attempt_tasks(c, aid, memo=None):
 
 def _attempt_tasks(c, aid):
     ids = set()
-    for row in c.execute("SELECT m.* FROM attempts a JOIN jobs j ON j.id=a.job_id "
-                         "JOIN messages m ON m.id=j.message_id WHERE a.id=? UNION "
-                         "SELECT m.* FROM attempt_inputs i JOIN messages m ON m.id=i.message_id "
-                         "WHERE i.attempt_id=?", (aid, aid)):
+    rows = c.execute("SELECT m.* FROM attempts a JOIN jobs j ON j.id=a.job_id "
+                     "JOIN messages m ON m.id=j.message_id WHERE a.id=? UNION "
+                     "SELECT m.* FROM attempt_inputs i JOIN messages m ON m.id=i.message_id "
+                     "WHERE i.attempt_id=?", (aid, aid)).fetchall()
+    _prime_inputs(c, rows)
+    for row in rows:
         ids.update(message_tasks(c, row, include_run=False, current=True))
     ids.update(r[0] for r in c.execute("SELECT id FROM tasks WHERE carried_by=?", (aid,)))
     for row in c.execute("SELECT detail_json FROM events WHERE action IN (" + RUN_TASK_EVENTS_SQL + ") AND target=?",
@@ -213,6 +220,7 @@ def prime_attempts(c, aids):
                              f"JOIN messages m ON m.id=i.message_id WHERE i.attempt_id IN ({marks})", chunk * 2):
             row = dict(row)
             inputs[row.pop("primed_attempt")].append(row)
+        _prime_inputs(c, [message for rows in inputs.values() for message in rows])
         carried = {aid: [] for aid in chunk}
         for row in c.execute(f"SELECT carried_by,id FROM tasks WHERE carried_by IN ({marks})", chunk):
             carried[row[0]].append(row[1])
@@ -236,13 +244,57 @@ def prime_attempts(c, aids):
             values[("attempt_tasks", aid)] = provenance_clock.cached(c, ("attempt_tasks", aid), lambda ids=ids: ids)
 
 
+def _parent_ids(message, refs):
+    """The messages a provenance walk reads next from `message`: the one it replies to and those it answers."""
+    out = {message.get("in_reply_to")}
+    for key in ("answers", "inputs"):
+        if isinstance(refs, dict) and isinstance(refs.get(key), list):
+            out.update(v for v in refs[key] if isinstance(v, str))
+    return out
+
+
+def _prime_inputs(c, rows):
+    """A run's messages as stored (a join's `m.*` in this snapshot), with the messages they reply to and answer, the
+    tasks their refs name and their rooms, read together. Every call that checks a run (each event batch, each input
+    poll) rebuilds its provenance once other writes move the clock, and a long goal run has taken in many inputs."""
+    rows = H.prime_message_rows(c, rows)
+    prime_references(c, [H._json(row["refs_json"], {}) or {} for row in rows])
+    H.prime_conversations(c, {row["conversation_id"] for row in rows})
+
+
+def prime_queued(c, messages):
+    """Before a loop checks queued messages one at a time (a claim's candidates, a running turn's next inputs):
+    `messages`, stored rows read in this snapshot, with what they reply to and answer, their rooms and meeting
+    provenance, the tasks they are about and name, and the runs behind them, read together. Each message is still
+    checked on its own by the same rules; a write in the loop discards all of it (read_cache)."""
+    snapshot(c)
+    messages = [dict(m) for m in messages]
+    H.prime_message_rows(c, messages)
+    prime_messages(c, messages)
+    about = set()
+    for m in messages:
+        refs = H._json(m.get("refs_json"), {}) or {}
+        about.add(H.message_task_id({"refs": refs if isinstance(refs, dict) else {}},
+                                    H.conversation(c, m["conversation_id"]) if m.get("conversation_id") else None))
+    H.prime_tasks(c, about)
+
+
 def prime_messages(c, messages):
-    """Before checking each of these stored messages: look up the tasks their refs name and the runs behind them
-    together, so a long task's comments are not a few queries per comment."""
+    """Before checking each of these stored messages: look up the tasks their refs name, the messages they reply to
+    and answer, their rooms and meeting provenance, and the runs behind them together, so a long task's comments are
+    not a few queries per comment."""
     messages = [dict(m) for m in messages]
     refs = [m.get("refs") or H._json(m.get("refs_json"), {}) or {} for m in messages]
-    prime_references(c, refs)
-    H.prime_conversations(c, {m.get("conversation_id") for m in messages})
+    # The walks read each message's parents by id, and on a long task those are mostly the page's own messages,
+    # given here as views: they are read as stored with the rest of their ancestry.
+    parents = set().union(*(_parent_ids(m, r) for m, r in zip(messages, refs))) if messages else set()
+    ancestry = [H._json(row["refs_json"], {}) or {}
+                for row in H.prime_message_rows(c, H.prime_messages(c, parents).values())]
+    prime_references(c, refs + ancestry)
+    rooms = {m.get("conversation_id") for m in messages}
+    H.prime_conversations(c, rooms)
+    if read_cache.cache(c) is not None:
+        meeting_sources(c).prime_conversations(rooms)
     runs = set()
     for ref in refs:
         if isinstance(ref, dict):
@@ -379,12 +431,37 @@ def deleted_comment_ack(c, principal, payload):
             and readable(c, principal, message_tasks(c, current)))
 
 
+def _payload_messages(value, out):
+    """The ids of the messages require_payload checks one at a time in `value`: each dict with a room and an id."""
+    if isinstance(value, dict):
+        if value.get("conversation_id") and isinstance(value.get("id"), str):
+            out.add(value["id"])
+        value = value.values()
+    elif not isinstance(value, list):
+        return out
+    for item in value:
+        if isinstance(item, (dict, list)):
+            _payload_messages(item, out)
+    return out
+
+
+def _prime_payload_messages(c, payload):
+    """A reply that carries many messages (a claim's history, a poll's inputs) checks each one with its parents and
+    room: those are read together first, in this snapshot, rather than a few reads per message."""
+    ids = _payload_messages(payload, set())
+    if len(ids) > 1:
+        snapshot(c)
+        prime_queued(c, H.prime_messages(c, ids).values())
+
+
 def require_payload(c, who, payload, principal=None, checked_for=None):
     """Cached writes are reads too; a stored response cannot restore revoked access.
 
     `checked_for` is the principal an enclosing call already checked every task this value names for:
     a nested value names only tasks its container names, so that check is not run again for it (it was
     one query per nested dict). Everything else is still checked at every level."""
+    if principal is None and checked_for is None:
+        _prime_payload_messages(c, payload)
     principal = principal or actor(who)
     if who.role == "runner" and isinstance(payload, dict) and principal == who.actor:
         attempt = payload.get("attempt")
@@ -707,6 +784,8 @@ APPROVALS_SQL = ("SELECT m.*, a.task_id AS approval_task{by} FROM approvals a JO
 # The only tasks `status` looks at: a live one (its counts) or a private one (whether its focus may be shown).
 # A long-lived bot's finished company tasks are most of its rows and change nothing.
 STATUS_TASKS_SQL = "(status IN (%s) OR private IS NOT 0)" % ",".join("'%s'" % s for s in H.ACTIVE_STATUSES)
+# The columns `status` reads of them: never the bodies, which were megabytes a status page on a real install.
+STATUS_TASK_COLUMNS = "id,owner,requester,status,private,guest,waiting_on"
 
 
 def status_inputs(c, bots):
@@ -717,7 +796,7 @@ def status_inputs(c, bots):
     for part in H.chunks(out):
         actors = ["bot:" + bot for bot in part]
         marks = " IN (" + ",".join("?" * len(actors)) + ")"
-        for t in c.execute(f"SELECT * FROM tasks WHERE (owner{marks} OR requester{marks}) AND {STATUS_TASKS_SQL}",
+        for t in c.execute(f"SELECT {STATUS_TASK_COLUMNS} FROM tasks WHERE (owner{marks} OR requester{marks}) AND {STATUS_TASKS_SQL}",
                            actors * 2):
             t = dict(t)
             for party in {t["owner"], t["requester"]}:
@@ -739,7 +818,7 @@ def status(c, who, row, *, tasks=None, approvals=None, asks=None):
     row = dict(row)
     tid = row.get("task_id")
     tasks = tasks if tasks is not None else [dict(t) for t in c.execute(
-        f"SELECT * FROM tasks WHERE (owner=? OR requester=?) AND {STATUS_TASKS_SQL}",
+        f"SELECT {STATUS_TASK_COLUMNS} FROM tasks WHERE (owner=? OR requester=?) AND {STATUS_TASKS_SQL}",
         ("bot:" + row["bot"], "bot:" + row["bot"]))]
     task = next((t for t in tasks if t["id"] == tid), None) if tid else None
     if tid and task is None:

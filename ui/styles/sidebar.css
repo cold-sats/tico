@@ -171,3 +171,7 @@ body.in-setup #nav-inboxes-section,body.in-setup #gs-org-hint,body.in-setup #cha
 
 /* Keep the personal branch label visible even when a long bot name is clipped. */
 .org-branch{flex:none;color:var(--muted);font-size:var(--t-2xs);font-weight:500;white-space:nowrap}
+/* A group's Bet picker, under its row (ui/app/sidebar.js orgBetPopHTML); the flag stays lit when the group has one. */
+.org-tool.on{color:var(--accent)}
+.org-bet-pop{margin:4px 0 6px 18px;padding:8px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-pop)}
+.org-bet-pop .org-bet-f select{height:32px;font-size:var(--t-base)}

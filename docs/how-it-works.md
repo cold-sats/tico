@@ -13,7 +13,9 @@ model subscriptions and sends the results back. The in-app Help page (**?** in t
 - **Team**: humans and bots are teammates on one team chart, in groups.
 - **Built-in**: four bots every team gets. The [Assistant](assistant.md) is each human's own helper; BotOps sets up and
   fixes bots, computers, Tools and Credentials; the [Librarian](librarian.md) answers from the team's docs and the Tico
-  manual; the [CEO Bot](goals-and-kpis.md#the-ceo-bot) keeps KPIs and goal status current.
+  manual; the [CEO Bot](goals-and-kpis.md#the-ceo-bot) keeps KPIs and goal status current. The [Task Manager](task-manager.md)
+  and the [Health Monitor](health-monitor.md) are built-in helpers outside the chart: once an hour they look for tasks
+  that stopped moving and for install faults, and wake only when they find something.
 - **Message bots** work a human's email or a Slack channel. **External agents** (Hermes, OpenClaw, Codex, Claude) connect
   over MCP with a token ([Connect an external agent](connect-an-agent.md)).
 - **Tools and Credentials**: a bot gets only the Credentials granted to it, and drafts to outsiders until its send switch
@@ -25,8 +27,9 @@ model subscriptions and sends the results back. The in-app Help page (**?** in t
 |---|---|---|---|
 | Assistant (built-in) | Your own helper: finds things, makes tasks, drafts the rest for your click | Sidebar, or ⌘K | “What needs me today?” |
 | BotOps (built-in) | Sets up and fixes bots, computers, Tools and Credentials | Sidebar | “Add a bot that answers #support” |
-| Librarian (built-in) | Answers from your docs and the Tico manual, with sources | Ask the Librarian on Docs and Market | “What is our refund limit?” |
+| Librarian (built-in) | Answers from your docs and the Tico manual, with sources | Ask the Librarian on Docs and on Strategy's Market tab | “What is our refund limit?” |
 | CEO Bot (built-in) | Keeps KPIs and goal colours current | Top of Goals | “Why is this goal yellow?” |
+| Task Manager (built-in) | Tidies tasks hourly on weekdays: closes what is done, fixes drifted steps, one Needs-you line per department | Its “Task check” tasks; Settings → Rules | `hub task-manager status` |
 | Your bots | Do the team's work from their Instructions | Team in the sidebar: chat or a task | “Draft replies to the open tickets” |
 | Message bots (Beta) | Work a human's email or a Slack channel | Message bots in the sidebar | “Sort today's email” |
 
@@ -124,9 +127,9 @@ in so that each channel's readers see it within the hour (`docs/slack-gateway.md
 Pages: **Tasks** (where the app opens), **Meetings** (imported transcripts, source sync status, Import, and each meeting's
 action items), **Docs**,
 **Tools**, **Changelog**, the **Team** tree, and under your email **Settings**
-and, for the owner and admins, **SQL**. Tasks has List, Board and Done; Routines are in **Settings → Routines**.
+and, for the owner and admins, **SQL**. Tasks has List, Board and Done; Routines are in **Settings → Rules**.
 Credentials are in **Tools → Credentials**. See [Navigation](navigation.md). A bot's page has **Chat**,
-**Tasks**, **Docs** and **More**. The assistant (Tico, `coo`), BotOps, the Librarian and the CEO Bot are built in and cannot be archived or deleted (`409 system_bot`); the assistant
+**Tasks**, **Docs** and **More**. The assistant (Tico, `coo`), BotOps, the Librarian, the CEO Bot and the Task Manager are built in and cannot be archived or deleted (`409 system_bot`); the assistant
 and the Librarian work in the background and are not listed for humans. Each human has one private **Assistant** chat, its own page from the left rail
 (also the first tab on their own page, and "Ask the Assistant…" in search): it looks things up at once, does low-risk things as that human, and
 proposes anything with a side effect for their own click ([The Assistant](assistant.md)). There is no shared
@@ -226,6 +229,18 @@ task for the bot with the saved instructions and version. Missed occurrences coa
 open from the last occurrence absorbs the next one. The runner claims it like any task. Like any task
 the bot owns, it gets its own room and session: the wake, the note and the bot's answer land there, and
 the bot's main chat gets one-line reports ([Sessions](sessions.md)).
+
+**A message to a bot may wake it, or wait.** One set of wake rules decides, each with an id: a person's message,
+an ask, an approval and a gate verdict always wake the bot (`person_message`, `ask`, `approval`, `verdict`); a bot's own
+write (`own_write`), news about a task that waits on something (`parked`), a stall check on a task that has not moved
+(`same_state`; Quiet task triage can let one wake through, see [Tasks](tasks.md)) and a plain bot-to-bot message (`bot_to_bot`) wait for the bot's next run; a finished request and a
+person's review comments are batched (`batch_*`); one check finishing is ignored (`pr_check`) and a head whose checks
+all finished wakes the ticket's owner at a working step (`pr_checks_done`) or is a note (`pr_checks_note`); work wakes
+(an assignment, a review request, a blocker, a routine, a due date, a finished subtask, a published release) and anything
+no rule names waits as a note (`default_note`). Teams, task types, departments, bots and
+single tasks can override these with rules of their own (Settings → Rules → **What wakes a bot**, `hub rule list`). Every message to a bot records the
+rule that decided it, and every run records the rule that woke it, so `rule_weekly` in `hub sql` shows runs, tokens and
+runs that did nothing per rule ([Querying Tico with SQL](hub-sql.md)).
 
 **The Mac is asleep.** Everything on hub.acme.example stays available and accepts work. After 60 s
 without a heartbeat the bot shows *offline* and new messages show *Saved — waiting for <computer>*.
@@ -350,6 +365,37 @@ It also reports when a later run already covered dismissed work.
 
 A run that used an approval, or may have taken an action, still needs review before resuming.
 The bot's operator or BotOps checks what happened before choosing to resume or dismiss it.
+
+**A provider limit inside another error.** Tico reads the text of every failed run itself, so an older computer that did not flag the
+limit is treated the same as a current one: a provider limit named anywhere in an error (*Prompt is too long · automatic compaction
+failed: You've hit your weekly limit · resets Oct 26, 8pm (UTC)*) is a usage limit and holds the login until the reset it names. An
+error that says the session grew too large to send (*too many total text bytes*, *Prompt is too long*) starts the bot's next run in a
+fresh provider session, as Clear does, instead of resuming the session into the same error.
+
+**Failed runs wait, then stop.** A run that fails within 60 seconds of starting did no work and will fail the same way again. The bot
+waits before its next run, 15 seconds after the first such failure, doubling each time up to 8 hours; a run that completes normally
+starts the count over. A message a person sends during the wait runs at once (it is the retry someone is watching), and
+its failure counts like any other. A run a person stopped, a usage limit, a model at capacity, a handed-back run and a failure after 60 seconds do
+not count. After five in a row Tico holds the bot: nothing it has queued starts (a person's message included; it is kept and
+starts when the bot runs again), the bot reads *paused*, a message to it says why ("Saved — waiting: Tico stopped <bot>: its last 5 runs
+failed within a minute ..."), the bot's operator gets one Needs-you item, and Health shows `run_hold` naming the kind of error.
+A held bot is not stuck until someone notices: Tico tries one run on its own 30 minutes after the hold, and after each try that
+fails within a minute again waits twice as long (up to 8 hours). The try is the first queued job in the usual order, a person's chat
+message ahead of the rest; only one is handed out per window, however many lanes or computers the bot has. A run that completes
+normally releases the bot (its Needs-you item closes, event `bot.run_recovered`), so a provider outage or a network drop that has
+ended lets every bot it held go again without anyone, while a bot that is really broken makes only a few runs a day. A try that
+fails after more than a minute changes nothing. **Release** (Settings → Bots, `hub bot release <bot>`,
+`POST /api/v2/bots/{bot}/release`, MCP `hub_bot_release`) lifts the hold and its Needs-you item at once; `GET /api/v2/bots/{bot}/budget`
+shows the hold's `next_try`.
+
+**Run budgets.** Each bot has `turns_per_hour` (default 300) and `turns_per_day` (default 2500); the owner and administrators set the
+team defaults (`GET/POST /api/v2/settings/turn-budgets`, `hub team budget [--hour N] [--day N]`), and a bot's owner, operator or BotOps
+sets its own (`GET/POST /api/v2/bots/{bot}/budget` with `expected_revision`, `hub bot budget <bot> [--hour N|default] [--day N|default]`,
+MCP `hub_bot_budget`). 0 is no limit. Runs are counted when Tico hands them out. A run that would pass the budget is not started and
+the bot is held with: "Tico stopped <bot>: <n> runs in the last hour. This looks like a runaway loop, not normal work. Check its last
+runs, then release it or raise its budget." (a day budget says "in the last day"). A person's own message is never refused by a budget,
+and queued work is kept. `hub bot budget <bot> release` (or Release) lifts the hold and the count starts from then; raising the budget
+above the count lifts it too. Health shows `turn_budget` and the operator gets one Needs-you item.
 For example, a failed fallback that did nothing can retry after the reset; a stopped payment run that used an approval needs review.
 
 <a id="one-turn-per-chatgpt-login"></a>**Codex bots share a ChatGPT login.** Bots on the same computer using
@@ -423,10 +469,41 @@ the change is live on the next run once that checkout has it: push, and pull on 
 if you edited elsewhere. Do not edit while the bot is running there.
 
 **You change a routine.** Routines are rows in Tico (`docs/routines.md`): edit one on the
-site under Settings → Routines, or a bot changes its own with `hub routine set`. The change is in
+site under Settings → Rules, or a bot changes its own with `hub routine set`. The change is in
 the table at once; a sleeping Mac does not block it. **You change a bot's switches.** Tools
 read `tools:` from the Mac checkout each time a bot sends or posts; whether it may send without approval comes from the mail switch a person sets in Tico (`outbound_send` in bot.yaml only asks). Model, effort, computer, humans, name,
 status and reporting line are changed in **Settings → Bots**, not in the file.
+
+### Profiles
+
+A bot's **profile** says what wakes it and which tasks it takes. It is a fixed set of wake rules for that bot, a batch
+window and a gap between sweeps, and it grants no right.
+
+| Profile | Wakes at once for | Everything else | Takes |
+|---|---|---|---|
+| **Doer** (the default) | people, hand-offs, asks, awaited results | batched, 15 minutes | any task; pulls its open tasks by itself |
+| **Reviewer** | its review or QA request, a verdict it waits for, people | a note | review and QA subtasks only; any other task is refused with the reason |
+| **Lead** | people, escalations, a ticket it asked for ending declined, blocked or done, approvals | one digest a day (09:00 team time by default) | any task, started only when a person or a bot asks |
+| **Responder** | people | a note | no task: refused like a bot synced from another platform |
+| **Monitor** | its own watcher, people | a note | its watcher's tasks only |
+| **Custom** | what its rules say | its rules | what its settings say |
+
+A bot's own clock still wakes it: a routine or schedule wakes a Reviewer, Lead and Monitor, and a due date or a snooze
+ending wakes a Lead and Monitor; a Responder has no routines. Stall and status checks run only for a Doer (and for a
+Custom bot that keeps them on). Doers pull open tasks themselves; the others start a task only when it is handed to them.
+**Custom** copies the profile's rows into the Rules table, marked as the profile's, to edit there; choosing a named profile
+again deletes them after a confirm. Set a profile in **Settings → Bots → Edit**, with `hub bot profile <bot> [name]`, MCP
+`hub_bot_profile`, or `POST /api/v2/bots/{bot}/profile` with `expected_revision` (`GET /api/v2/profiles` lists the choices
+with a line each); the bot's owner, operator, a person it reports up to, or BotOps may. The profile also shows on every bot read.
+
+Starting the server gives each bot without a profile one by its name once: `*-monitor`, `*-watch`, `listening` and
+`sentry-triage` are Monitors; `*reviewer*`, `qa-*`, `security*` and `reviewer-*` Reviewers (a bot named `pr-reviewer` that
+owns Dev tickets stays a Doer); the leads, the C-level Heads and `*-manager` Leads; the Assistant and bots synced from
+another platform Responders; BotOps, the Health Monitor, the Task Manager and the Librarian Custom; everything else a Doer.
+Each owner gets one notice naming their bots and profiles. The old wake preset is part of the profile: Token saver became a
+Doer with a 30-minute window and Performance a Doer; `wake_preset` and `POST /api/v2/bots/{bot}/wake-preset` still read and
+set that window. **Keep N tasks going** stays the Doer's cap. Health reports a Reviewer that owns tasks other than reviews,
+a Responder with tasks, and a Doer whose runs for a week all did nothing.
 
 ## Calling the API from a script
 

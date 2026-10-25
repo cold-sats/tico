@@ -215,8 +215,10 @@ def test_author_cannot_grow_a_pending_comment_past_byte_bound(queue, monkeypatch
     api, tokens, tasks = queue
     hold(api)
     from backend import bot_to_bot
-    # A comment that wakes (wake_rules.always_wakes) keeps plain references, so its author can still edit it.
+    # A comment that wakes (wake_rules.always_wakes, or a rule that wakes on comments) keeps plain references, so its author can still edit it.
     monkeypatch.setattr(bot_to_bot, 'can_wait', lambda *a, **k: False)
+    from backend import rules
+    monkeypatch.setattr(rules, '_rule_for_event', lambda event: (rules.WAKE, event))   # as a wake rule would
     with api.app.state.store.transaction() as c:
         comment = H.task_comment(c, 'bot:ops', tasks[0]['id'], 'Small')
     monkeypatch.setattr(H, 'HELD_QUEUE_BYTES', retained(pending(api)))

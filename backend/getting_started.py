@@ -8,6 +8,7 @@ Those live in the person's `preferences` row, so each person has their own.
 """
 
 import json
+import sqlite3
 
 from . import model_login, providers
 from .statuses import PARKED_SQL
@@ -95,12 +96,12 @@ def _login_target(runners, wanted):
 
 
 def built_in(settings):
-    """The four bots every install starts with."""
-    return {settings.assistant_bot, BOTOPS, LIBRARIAN, "goal-manager"}
+    """The bots every install starts with: the four a person talks to, and the Task Manager (docs/task-manager.md)."""
+    return {settings.assistant_bot, BOTOPS, LIBRARIAN, "goal-manager", "task-manager"}
 
 
 def own_bots(c, settings):
-    """Bots the company added, as opposed to the four built in."""
+    """Bots the company added, as opposed to the ones built in."""
     bootstrap = built_in(settings)
     return [row["slug"] for row in c.execute("SELECT slug FROM bots WHERE state!='archived' ORDER BY slug")
             if row["slug"] not in bootstrap]
@@ -169,8 +170,18 @@ def checklist(c, who, settings, github):
         _item("first_update", "Your first update arrived",
               c.execute("SELECT 1 FROM updates LIMIT 1").fetchone(),
               "Each active bot posts a short update every day.", "#/updates"),
+        _item("strategy", "Publish your strategy", _published(c),
+              "Setup saved a draft. Publish it when the bets and what you won't do are right.", "#/strategy"),
     ]
     return items
+
+
+def _published(c):
+    """The team has published a strategy version (backend/strategy.py); a server without the table has not."""
+    try:
+        return c.execute("SELECT 1 FROM strategy_versions WHERE status='published' LIMIT 1").fetchone()
+    except sqlite3.OperationalError:
+        return None
 
 
 # What each kind of person needs to see: the owner all of it, bot administrators what involves

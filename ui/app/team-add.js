@@ -108,7 +108,7 @@ function teamAddHuman() {
   const dialog = teamAddDialog('Add human', `<form id="team-add-human">
     <label>Email<input name="email" type="email" autocomplete="email" autocapitalize="off" spellcheck="false" required></label>
     <label>Name <span class="muted">(optional)</span><input name="name" type="text" autocomplete="name"></label>
-    <p class="muted">No email is sent.${S.config?.local ? ' Only the owner can sign in locally. Configure a domain and sign-in so humans can join.' : ''}</p>
+    <p class="muted">Adding sends no email.${S.config?.local ? ' Only the owner can sign in locally. Configure a domain and sign-in so humans can join.' : ''}</p>
     ${!orgCanGroups() ? '<p class="muted">You can add coworkers in your team’s domain.</p>' : ''}
     <p class="muted">Your sign-in provider may also need to allow this email. <a href="${GH}/blob/main/docs/people.md#the-identity-proxy-must-agree" target="_blank" rel="noopener noreferrer">Sign-in help</a></p>
     <p class="err" role="alert" data-team-error hidden></p>

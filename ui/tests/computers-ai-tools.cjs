@@ -106,6 +106,8 @@ const manifestCaps = JSON.parse(require('node:child_process').execFileSync('pyth
     await page.locator('[data-settings-tab=devices]').click();
     const row = id => page.locator(`#set-machines tr[data-computer-row="${id}"]`);
     await row('box').waitFor();
+    // Opening the tab paints the list, then re-reads presence and says "checking…" until that answers.
+    await page.waitForFunction(() => SETTINGS_PRESENCE.at && !SETTINGS_PRESENCE.checking);
     const cells = async locator => (await locator.locator('td').allInnerTexts()).map(t => t.replace(/\s+/g, ' ').trim());
 
     // 1. Two cells per row, and nothing else inline: no bots, tool table, sign-in rows or menu.
