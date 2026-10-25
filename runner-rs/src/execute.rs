@@ -1642,7 +1642,7 @@ impl Runner {
                     env: hop_env.clone(),
                     slug: bot.clone(),
                     compact_at: config.get("compact_at").cloned().unwrap_or(Value::Null),
-                gateway_inputs: config.get("gateway_inputs").cloned().unwrap_or(Value::Null),
+                    gateway_inputs: config.get("gateway_inputs").cloned().unwrap_or(Value::Null),
                     add_dirs: place.as_ref().map(|p| p.add_dirs.clone()).unwrap_or_default(),
                     shared: crate::sessions::is_shared(&config),
                     mcp_servers: self.mcp_servers(&aid, &execution_path, &hop_env, &vault.names, &hop.runtime, &hop_config),
