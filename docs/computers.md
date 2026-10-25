@@ -82,7 +82,7 @@ This counts people with sign-in access, not the number currently online or the A
 For example, four people who can sign in, plus one guest, give a warning at **160** and a stop at **400**.
 One person, or no people with sign-in access, gives **40** and **100**.
 
-Below the stop level, eligible waiting work starts in order across computers. Work still waiting for a login, quota or computer remains held for that reason.
+Just below the stop, while the count is still at or above the warning, work that waited through the stop keeps first claim on each freed place, in order across computers. Below the warning that list is cleared and each computer starts from its own queue again. Work still waiting for a login, quota or computer remains held for that reason.
 Below the warning level, Health marks the incident resolved and records the time. Crossing the warning again opens a new incident.
 The Health record works even when the optional [Health Monitor](health-monitor.md) is off.
 
