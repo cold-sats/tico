@@ -3,7 +3,7 @@
 'use strict';
 
 // One flat page (GET /v2/gateway). The key and the connect controls stay in Settings > Computers > Models.
-const GATEWAY_STATUS = {live: 'Live', approval: 'On request', next: 'Next', later: 'Later', planned: 'Planned'};
+const GATEWAY_STATUS = {live: 'Live', approval: 'On request', next: 'Coming soon', later: 'Coming soon', planned: 'Coming soon'};
 let GATEWAY_ASKED = 0;
 const gatewayMoney = usd => `$${Number(usd).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
 // "Connected · $12.40 of $100.00 this month", or why it is not.
