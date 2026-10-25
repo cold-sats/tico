@@ -663,6 +663,57 @@ impl Runner {
         Ok(())
     }
 
+    /// A Gateway turn's leased OS user. While every user is busy the turn gives its computer place back and
+    /// waits, as for a busy login, rather than failing before it starts: an unstarted failure is refused by the
+    /// server (only `not_isolated` settles before a start), and a hand-back spends one of its pre-start tries.
+    async fn take_turn_user<T>(&self, attempt: &Value, flags: &Flags, mut take: impl FnMut() -> Result<T, String>) -> Result<T, Fail> {
+        let mut said = false;
+        loop {
+            match take() {
+                Ok(user) => return Ok(user),
+                Err(why) if why != crate::turn_users::BUSY => return Err(Fail::runtime(why)),
+                Err(_) if !said => {
+                    said = true;
+                    log(&format!("Tico runner: turn {}: waiting for a free Docker turn user", text_of(&attempt["id"])));
+                }
+                Err(_) => {}
+            }
+            self.wait_before_start(attempt, "Docker turn user").await?;
+            tokio::time::sleep(if cfg!(test) { Duration::from_millis(5) } else { Duration::from_secs(1) }).await;
+            self.wait_start_place(attempt, flags).await?;
+        }
+    }
+
+    /// A Gateway turn's git: its leased user trusts exactly its checkout (git refuses a work tree another user owns),
+    /// runs no repository-named program (crate::safegit::for_turn_user) and asks for GitHub tokens through its own
+    /// owner-only socket, since the shared one is the bot user's.
+    fn turn_git(&self, vault: &mut Vault, env: &mut Env, paths: &[PathBuf]) -> Result<(), Fail> {
+        let Some(user) = &mut vault.turn_user else { return Ok(()) };
+        crate::safegit::for_turn_user(env, paths, &user.dir.join("gitconfig"), Some(user.identity()))
+            .map_err(|e| Fail::runtime(format!("cannot prepare the turn user's git: {e}")))?;
+        let Some(shared) = &self.socket else { return Ok(()) };
+        if let Some(own) = user.socket() {
+            shared.repoint(env, &own.path); // a fallback hop on the same lease
+            return Ok(());
+        }
+        let own = shared.serve_for(env, &user.dir.join("git-credential.sock"), user.identity())
+            .map_err(|e| Fail::runtime(format!("cannot give the turn user its credential socket: {e}")))?;
+        user.hold_socket(own);
+        Ok(())
+    }
+
+    /// A lease failure before the start. `not_isolated` is the one failure the server settles unstarted, and only
+    /// from its `error` event; anything else goes back as an interrupted (handed-back) run.
+    fn lease_failed(&self, aid: &str, e: Fail, drove: &mut Drove) -> Fail {
+        if e.text.contains("(not_isolated)") {
+            let _ = self.state.append(aid, "error", &json!({"error": e.text}));
+            drove.outcome = "failed".into();
+            drove.reply = e.text.clone();
+            drove.retryable = false;
+        }
+        e
+    }
+
     /// Release capacity only if a lane really blocks; all subsequent preparation needs a fresh grant.
     async fn pre_start_lock<T>(&self, attempt: &Value, flags: &Flags,
         waiting: impl Future<Output = Result<T, Fail>>) -> Result<T, Fail> {
@@ -1135,6 +1186,10 @@ impl Runner {
                 billing: self.billing(&runtime, selected.as_ref()),
             });
             let ctx = EnvContext { url: &self.config.url(), projects_dir: &self.config.projects_dir(), state_dir: &self.state.directory };
+            if crate::hosts::pi::is_gateway(model.as_deref()) {
+                let taken = self.during_drain(&aid, self.take_turn_user(&attempt, &flags, crate::turn_users::Lease::take)).await;
+                vault.turn_user = Some(taken.map_err(|e| self.lease_failed(&aid, e, &mut drove))?);
+            }
             env = crate::env::environment(&ctx, &attempt, &mut vault).await.map_err(Fail::runtime)?;
             // The subscription this bot runs on: Claude keys its login to HOME, so it is the turn's own environment,
             // the same one the host process and the turn's shell commands get.
@@ -1166,9 +1221,11 @@ impl Runner {
                 let _ = self.state.append(&aid, "error", &json!({"error": why}));
                 drove.outcome = "failed".into();
                 drove.reply = why.clone();
+                drove.retryable = !why.contains("(not_isolated)");
                 return Err(Fail::runtime(why));
             }
             base_env = Some(env.clone());
+            let turn_identity = vault.for_model(&mut env, model.as_deref()).map_err(Fail::runtime)?;
             let pairs: Vec<(String, String)> = env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
             redactor = redact::for_turn(&pairs, &vault.values);
             if let Some(s) = &self.socket {
@@ -1206,7 +1263,9 @@ impl Runner {
             // What the bot kept in its AI tool's own memory moves into its repository, in whichever checkout the
             // turn runs: the bot's own or a task's worktree (crate::harness_memory).
             if crate::harness_memory::is_checkout(&execution_path) {
-                let home = env.get("HOME").filter(|h| !h.is_empty()).cloned().or_else(|| std::env::var("HOME").ok()).unwrap_or_default();
+                // A Gateway turn's HOME is its own empty one (turn_users::Lease::private_home); the tools' memory is in the real one.
+                let own = env.get("HOME").filter(|h| !h.is_empty() && turn_identity.is_none()).cloned();
+                let home = own.or_else(|| std::env::var("HOME").ok()).unwrap_or_default();
                 let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
                 let day: String = text_of(&crate::util::iso(&json!(secs))).chars().take(10).collect();
                 let moved = crate::harness_memory::move_for_turn(Path::new(&home), &p.main_path, &execution_path,
@@ -1258,6 +1317,12 @@ impl Runner {
             receivers.push((tx.clone(), rx));
             let rx = &mut receivers.last_mut().unwrap().1;
             let own = tx.clone();
+            if turn_identity.is_some() {
+                let mut paths = vec![p.main_path.clone(), execution_path.clone()];
+                paths.extend(p.add_dirs.iter().map(PathBuf::from));
+                self.turn_git(&mut vault, &mut env, &paths)?;
+                crate::turn_users::share_workspace(paths).await.map_err(Fail::runtime)?;
+            }
             let made = if persistent {
                 let make = |home: &Path, _: &Env| AntigravityHost::new(home, vec!["agy".into()], tx.clone());
                 let (warm, turn_env) = self.warm.acquire(&attempt, &env, make).await.map_err(Fail::runtime)?;
@@ -1277,6 +1342,7 @@ impl Runner {
             h.start().await?;
             mark("harness_started", &aid);
             let settings = Settings {
+                identity: turn_identity,
                 cwd: execution_path.display().to_string(),
                 model: model.clone(),
                 effort: effort.clone(),
@@ -1509,7 +1575,8 @@ impl Runner {
                     profile: selected.as_ref().map(|p| p.name.clone()),
                     billing: self.billing(&hop.runtime, selected.as_ref()),
                 });
-                let hop_env = selected.as_ref().map_or_else(|| base.clone(), |p| p.environment(&hop.runtime, &base));
+                let mut hop_env = selected.as_ref().map_or_else(|| base.clone(), |p| p.environment(&hop.runtime, &base));
+                let turn_identity = vault.for_model(&mut hop_env, Some(&hop.model)).map_err(Fail::runtime)?;
                 env = hop_env.clone();
                 // Named with the harness it moved to, so the task's Runs say where the turn went and why.
                 let note = match (&left, &busy) {
@@ -1532,6 +1599,12 @@ impl Runner {
                 let (tx, rx) = self.attempt_events(&aid, redactor.clone());
                 receivers.push((tx.clone(), rx));
                 let rx = &mut receivers.last_mut().unwrap().1;
+                if turn_identity.is_some() {
+                    let mut paths = vec![execution_path.clone()];
+                    paths.extend(place.as_ref().into_iter().flat_map(|p| std::iter::once(p.main_path.clone()).chain(p.add_dirs.iter().map(PathBuf::from))));
+                    self.turn_git(&mut vault, &mut hop_env, &paths)?;
+                    crate::turn_users::share_workspace(paths).await.map_err(Fail::runtime)?;
+                }
                 let h = host.insert(self.make_host(&bot, &hop.runtime, &hop_config, &hop_env, selected.as_ref(), tx)?);
                 if let Some(held) = login_held.as_mut() {
                     held.bind(h.clone());
@@ -1542,6 +1615,7 @@ impl Runner {
                 let (limit, limit_name) = self.run_deadline(&aid, &config, vault.relay.as_ref())?;
                 h.start().await?;
                 let settings = Settings {
+                    identity: turn_identity,
                     cwd: execution_path.display().to_string(),
                     model: Some(hop.model.clone()),
                     effort: hop.reasoning_effort.clone(),
@@ -1710,6 +1784,13 @@ impl Runner {
             let _ = self.state.append(&aid, "status", &json!({"yielded": held.yielded()}));
         }
         drop(login_held.take());
+        // A stopped harness may leave detached descendants. Revoke the relay, kill the whole leased UID,
+        // and hand workspace ownership back before bot-user scrubbing, history and publication.
+        if let Some(relay) = &mut vault.relay { relay.stop().await; }
+        if let Some(user) = &mut vault.turn_user { user.permit_reuse(); }
+        vault.remove_files();
+        let user = vault.turn_user.take();
+        let _ = tokio::task::spawn_blocking(move || drop(user)).await;
         if self.drain.returning(&aid) {
             let _ = self.state.append(&aid, "status", &json!({"waiting": ""}));
         }
@@ -2131,6 +2212,64 @@ mod tests {
         assert!(runner.wait_start_place(&turn, &flags).await.unwrap_err().text.contains("stop"));
         assert!(runner.places.lock().unwrap().is_empty());
         assert_eq!(seen.lock().unwrap().len(), 5);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    fn lease_runner(url: &str, name: &str) -> (Runner, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("tico-{name}-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(dir.join("projects")).unwrap();
+        let path = dir.join("runner.json");
+        std::fs::write(&path, json!({"url": url, "token": "synthetic", "runner_id": "r1", "capacity": 1,
+                                   "projects_dir": dir.join("projects")}).to_string()).unwrap();
+        let config = crate::config::Config::load(&path).unwrap();
+        let client = crate::client::Client::new(&config.url(), &config.token(), 5, 0).unwrap();
+        (Runner::new(config, client, crate::state::State::open(&dir.join("state")).unwrap()), dir)
+    }
+
+    fn lease_flags() -> Flags {
+        Flags { lost: AtomicBool::new(false), stopped: AtomicBool::new(false), done: AtomicBool::new(false),
+                done_notify: Notify::new(), deadline: Mutex::new(Instant::now() + Duration::from_secs(30)) }
+    }
+
+    #[tokio::test]
+    async fn a_runner_without_turn_users_reports_not_isolated_as_an_error_event() {
+        let (runner, dir) = lease_runner("http://127.0.0.1:9", "no-pool");
+        let turn = json!({"id": "a1", "start_reservation_seconds": 180});
+        runner.state.record(&turn).unwrap();
+        let failed = runner.take_turn_user(&turn, &lease_flags(), || -> Result<(), String> {
+            Err("Tico models need the current Docker runner image (not_isolated)".into())
+        }).await.unwrap_err();
+        let mut drove = Drove::interrupted();
+        runner.lease_failed("a1", failed, &mut drove);
+        // backend/execution.py complete settles a pre-start failure only from this event's code.
+        let events = runner.state.pending("a1").unwrap();
+        assert!(events.iter().any(|e| e.to_string().contains("\"error\"") && e.to_string().contains("(not_isolated)")), "{events:?}");
+        assert_eq!((drove.outcome.as_str(), drove.retryable), ("failed", false));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_busy_turn_user_pool_waits_for_a_user_without_completing() {
+        let (url, seen) = crate::client::tests::serve(vec![
+            (200, r#"{"waiting":true}"#),
+            (200, r#"{"reserved":true}"#),
+            (200, r#"{"waiting":true}"#),
+            (200, r#"{"reserved":true}"#),
+        ]).await;
+        let (runner, dir) = lease_runner(&url, "busy-pool");
+        let turn = json!({"id": "a1", "start_reservation_seconds": 180});
+        runner.state.record(&turn).unwrap();
+        runner.places.lock().unwrap().insert("a1".into());
+        let mut tries = 0;
+        let user = runner.take_turn_user(&turn, &lease_flags(), || {
+            tries += 1;
+            if tries < 3 { Err(crate::turn_users::BUSY.to_string()) } else { Ok(10100) }
+        }).await.unwrap();
+        assert_eq!((user, tries), (10100, 3));
+        // Each busy wait gave the place back and took a fresh grant; nothing was reported as failed.
+        assert_eq!(seen.lock().unwrap().len(), 4);
+        assert!(runner.places.lock().unwrap().contains("a1"));
+        assert!(runner.state.pending("a1").unwrap().is_empty());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
