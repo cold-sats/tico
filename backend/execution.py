@@ -3081,6 +3081,10 @@ class Execution:
         # A provider limit inside any error is the usage limit's, whatever the runner flagged; a prompt too large to
         # send starts the next run in a fresh session (backend/run_backoff.py).
         failure = run_backoff.classify(c, aid, body) if body.outcome == "failed" and not stopped else None
+        if body.outcome == "failed" and not stopped:
+            H.hook(c, "bot.run_failed", row["bot"], lambda: {"bot": row["bot"], "attempt_id": aid,
+                                                              "error_class": failure if isinstance(failure, str) else None},
+                   H.KEEPER, revision=aid)
         limited = body.outcome != "completed" and body.limited and not stopped
         # A model at capacity (backend/login_holds.py capacity) is a busy moment, not the login's quota: kept with the
         # run, so Health and a check's next model never count it as quota. Only a refusal before the bot did anything

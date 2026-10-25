@@ -1,6 +1,7 @@
 """Transactions and additive cloud schema over the existing Hub domain layer."""
 
 import hashlib
+import logging
 import json
 import os
 import sqlite3
@@ -1631,6 +1632,7 @@ class Store:
         c.read_cache = {}
         c.provenance_cache = self.provenance_cache
         c.write_transaction = False
+        c.after_commit = []
         c.provenance_changes = c.total_changes
         c.provenance_start = None
         return c
@@ -1669,8 +1671,16 @@ class Store:
                 yield c
                 message_links.refresh_dirty(c)
                 c.commit()
+                # Work that must see the committed rows (a delivery worker's doorbell) runs once the write is durable.
+                for after in c.after_commit:
+                    try:
+                        after()
+                    except Exception:
+                        logging.getLogger(__name__).exception("after-commit callback failed")
+                c.after_commit.clear()
             except BaseException:
                 c.rollback()
+                c.after_commit.clear()
                 raise
             finally:
                 done()

@@ -162,6 +162,21 @@ Create product repositories is a wider reach than bot repositories, so:
 
 Connecting, disconnecting and replacing the GitHub App stay the Owner's alone, as does deleting a repository.
 
+## Outgoing webhooks
+
+An endpoint is an address Tico posts events to ([API](api.md#outgoing-webhooks)).
+
+- **People** make and manage their own endpoints; the owner and admins manage every one. BotOps acting for a person has that
+  person's rights.
+- **A bot** cannot make one on its own. Its request files a `send` approval, and the endpoint is made, owned by the person who
+  approves it, when the bot repeats the call. A bot sees every endpoint without its full address, and changes none.
+- **Custom events** (`hub webhook send`, names `custom.*`) are sent by people, and by a bot only while its outbound send switch is on.
+  The CEO Bot never sends one and never causes a webhook.
+- **Privacy.** An endpoint hears of a task, approval, ask or bot only when its owner could read it themselves; the event body is built
+  from what that person sees. Health, inbound and webhook events go to owner and admin endpoints only.
+- Plain `http://` is for `localhost` only, and only the owner switches it on for an endpoint. Every other address is `https://`
+  and must resolve to a public address.
+
 ## Bot owners
 
 Each bot has owners: its **creator** (added automatically) and any others added. Whoever the bot reports up to on

@@ -817,6 +817,8 @@ def report(conn, actor, *, kind, about, claim, source_url="", quote="", confiden
         routines.emit(conn, "market.insight.urgent", row["id"],
                       {"about": row["about"], "claim": row["claim"], "reported_by": actor},
                       title=row["about"] or row["claim"][:80])
+        H.hook(conn, "market.insight.urgent", row["id"], lambda: {"id": row["id"], "about": row["about"],
+                                                                  "reported_by": actor}, actor, revision=0)
     return insight(conn, row["id"])
 
 

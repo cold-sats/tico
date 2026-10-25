@@ -302,6 +302,12 @@ def create_app(settings=None):
                     pass
         # A rehearsal never runs them, whatever else says so (docs/install.md, "Rehearse a migration").
         timers = settings.scheduler_enabled and not settings.rehearsal
+        # Outgoing webhooks (backend/webhook_delivery.py): a rehearsal copy runs the workers too, only to mark what is
+        # due as withheld, so nothing queued there ever waits for a send that cannot happen.
+        webhooks_on = timers or settings.rehearsal
+        if webhooks_on:
+            from . import webhook_delivery
+            webhook_delivery.start(store, app.state.vault, rehearsal=settings.rehearsal)
         scheduler_task = asyncio.create_task(schedule_loop()) if timers else None
         directory_task = asyncio.create_task(directory_loop()) if timers else None
         granola_task = asyncio.create_task(app.state.granola.loop(stop)) if timers else None
@@ -362,6 +368,8 @@ def create_app(settings=None):
             await asyncio.to_thread(stop_sync, app.state.github_app)
             if recorder_thread:
                 await asyncio.to_thread(recorder_thread.stop)
+            if webhooks_on:
+                await asyncio.to_thread(webhook_delivery.stop)
             telemetry.close()
 
     app = FastAPI(title=settings.app_name + " API", version="2.0.0", lifespan=lifespan,
@@ -6231,6 +6239,8 @@ def create_app(settings=None):
     install_github(app, settings, store)
     from . import triggers
     triggers.install(app, settings, store, auth, mutate)
+    from . import webhooks
+    webhooks.install(app, settings, store, auth, mutate)
     # GitHub App per company: manifest setup, installation tokens for runners (docs/github-app.md).
     from .github_app import install_github_app
     install_github_app(app, settings, store)
