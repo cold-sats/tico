@@ -233,6 +233,12 @@ the same list with the `hub_gateway_catalog` tool and search the web with `hub_g
 `hub gateway search QUERY`); search is billed like Low tokens plus $0.00875 per answered search, from the same cap. The
 skill is `skills/gateway/SKILL.md`.
 
+## Webhooks through the Gateway
+
+With the Gateway connected, an incoming webhook can have a second address at Tico HQ (Settings → Webhooks → Through Tico
+Gateway). It keeps what senders post while your server is off or asleep, hands it over within seconds of the server being back,
+and wakes a server Tico hosts that is asleep. The same key brings notices from Tico Team. See [Webhooks](webhooks.md#through-tico-gateway).
+
 ## Credit and the minimum balance
 
 Gateway use is charged to your company's balance once an hour: one charge for each model price line used in that hour.
