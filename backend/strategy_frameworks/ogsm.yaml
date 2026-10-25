@@ -1,0 +1,27 @@
+# OGSM: one objective, a few goals, the strategies that reach them, and the measures that say whether they are
+# working. The strategies are the choices list.
+id: ogsm
+name: OGSM
+choices_label: Strategies
+choice_label: Strategy
+sections:
+  - key: objective
+    title: Objective
+    prompt: One sentence saying where the team is going over the planning horizon. Qualitative, memorable, and the same sentence everyone repeats.
+  - key: goals
+    title: Goals
+    prompt: The three to five numbers that say the objective was reached, each with a target and a date. Revenue, customers, retention, margin; whatever the objective is really about.
+  - key: strategies
+    title: Strategies
+    prompt: "How the goals are reached: the few approaches you are betting on, each one tied to the goal it serves. The strategies themselves are the records under the Strategies label; this is the paragraph that joins them."
+  - key: measures
+    title: Measures
+    prompt: For each strategy, the one or two leading indicators that show it is working before the goals move, and the dashboard or routine where they are read.
+interview:
+  - In one sentence, where is the team going over the next year or two?
+  - Which three to five numbers would prove you got there, and what are their targets and dates?
+  - For each number, what is the main approach you are betting on to move it?
+  - Which of those approaches is unproven, and what early signal would tell you it is working?
+  - Where do two of your strategies compete for the same people or budget?
+  - Which measure do you look at today that does not predict any of your goals, and should you stop tracking it?
+  - What would you cut first if the budget were halved, and what does that say about which strategies matter?

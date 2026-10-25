@@ -92,7 +92,18 @@ def view(c, who, settings):
 
 def for_turn(c, settings, conversation, bot):
     """What a turn in a person's own chat is handed, read now: their personal layer, and in the owner's CEO Bot chat
-    the company layer too. None for any other turn (a task, a shared room, the CEO Bot's goals session)."""
+    the company layer too. Neither for any other turn (a task, a shared room, the CEO Bot's goals session). Every
+    turn, whoever it is for, also carries the team's published strategy as `strategy` (the text of GET
+    /api/v2/strategy/summary, backend/strategy.py) once one is published; None when there is nothing to hand over."""
+    from . import strategy
+    layers = _layers(c, settings, conversation, bot)
+    text = strategy.summary_text(c)
+    if text:
+        layers = {**(layers or {}), "strategy": text}
+    return layers
+
+
+def _layers(c, settings, conversation, bot):
     conversation = conversation or {}
     owner = str(conversation.get("owner_actor") or "")
     if conversation.get("scope") != rooms.PERSONAL or not H.is_human(owner) or conversation.get("closed_at"):

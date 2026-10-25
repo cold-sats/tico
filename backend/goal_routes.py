@@ -151,6 +151,8 @@ def install(app, store, auth, mutate, settings):
         """Whether this person may confirm the proposal: a person's own decision, by whoever owns what changes."""
         if who.role not in ("owner", "human") or who.via:
             return False
+        if item["kind"] == "strategy_draft":          # the strategy is the owner's (backend/strategy.py)
+            return who.role == "owner"
         goal = G.goal(c, item["goal_id"]) if item["goal_id"] else None
         record = K.kpi(c, item["kpi_id"]) if item["kpi_id"] else None
         by_goal = bool(goal) and may_colour(c, who, goal)
@@ -446,7 +448,8 @@ def install(app, store, auth, mutate, settings):
                 if not (owner == who.actor or (parent and parent["owner"] == who.actor) or stands_above(c, who, owner)):
                     raise Problem("forbidden", "You can set a goal for yourself, under a goal you own, "
                                   "or for someone below you on the org chart", 403)
-            row = G.create(c, who.actor, body.title, owner, body.parent_id, body.body, top=body.top)
+            row = G.create(c, who.actor, body.title, owner, body.parent_id, body.body, top=body.top,
+                           choice_id=body.choice_id)
             return {"goal": G.view(c, row)}
         return mutate(request, body, work)
 
@@ -500,7 +503,8 @@ def install(app, store, auth, mutate, settings):
                 raise Problem("forbidden", "Moving a goal is for the owner of the goal it serves or someone "
                               "above its owner", 403)
             structural = body.parent_id is not None or body.owner is not None
-            if body.parent_id is not None and not may_colour(c, who, row):
+            # Linking it to the goal it serves, or to the strategy choice it serves, is the same right.
+            if (body.parent_id is not None or body.choice_id is not None) and not may_colour(c, who, row):
                 raise Problem("forbidden", "Linking a goal is for its owner, the owner of the goal it serves, "
                               "or someone above its owner", 403)
             if not structural and not may_colour(c, who, row):
@@ -508,7 +512,7 @@ def install(app, store, auth, mutate, settings):
             owner = goal_owner(c, who, body.owner) if body.owner else None
             return {"goal": G.view(c, G.update(c, who.actor, gid, title=body.title, body=body.body,
                                                parent_id=body.parent_id, owner=owner, rank=body.rank,
-                                               top=body.top))}
+                                               top=body.top, choice_id=body.choice_id))}
         return mutate(request, body, work)
 
     @app.post("/api/v2/goals/{gid}/why")

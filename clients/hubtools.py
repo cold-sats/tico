@@ -51,7 +51,8 @@ TASK_UPDATE_STATUSES = tuple(status for status in TASK_STATUSES if status not in
 APPROVAL_KINDS = ("send", "spend", "publish", "merge", "support")
 GOAL_STATUSES = ("red", "yellow", "green", "done", "dropped")     # what a person or bot sets by hand
 GOAL_FILTERS = GOAL_STATUSES + ("gray",)                        # gray is the automatic "no data"
-PROPOSAL_KINDS = ("goal_wording", "goal_kpi", "kpi_definition", "kpi_target", "flag", "goal_why", "recovery")
+PROPOSAL_KINDS = ("goal_wording", "goal_kpi", "kpi_definition", "kpi_target", "flag", "goal_why", "recovery",
+                  "strategy_draft")
 
 # What an agent reads on connect: the hub in one line, then the skill a person's own agent
 # follows to work their bots (clients/agent_skill.py). Bots ignore the skill; it is for people.
@@ -1411,7 +1412,10 @@ def kpi_log(api, args):
       "flag (flag: payload issue vague|duplicate|unmeasured), or, where the CEO Bot is on, a goal's Why (goal_why: "
       "payload why, one line tying the goal to the company's vision), or, from the CEO Bot at level 2 or 3, a red or "
       "stalled goal's recovery (recovery: payload evidence, options [{label, actions}], pick; actions create, "
-      "reorder or settle). The CEO Bot cannot change a definition or a target it is judged against without one.",
+      "reorder or settle), or, from the CEO Bot below level 3, a change to the strategy draft (strategy_draft: "
+      "payload framework, summary, vision, sections {key: markdown}, choices [{id?, statement, why, rules_out, "
+      "status}], each optional; confirmed, it is written to the draft and its choices, never published). The CEO "
+      "Bot cannot change a definition or a target it is judged against without one.",
       {"kind": {"type": "string", "enum": list(PROPOSAL_KINDS)}, "goal_id": _s("The goal it is about"),
        "kpi_id": _s("The KPI it is about"), "payload": {"type": "object", "description": "The proposed change"},
        "reason": _s("One sentence: why")},

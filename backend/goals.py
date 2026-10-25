@@ -38,7 +38,8 @@ TASK_DAYS = 14                            # no task done for two weeks, on a goa
 SOURCES = ("measured", "estimate")        # legacy names of a reading's quality; a connector name is a source
 # goal_why: the CEO Bot's one line tying a goal to the company's vision (backend/company.py).
 # recovery: the CEO Bot's bot-task changes to get a red or stalled goal back on track, at level 2 (backend/ceo_suggest.py).
-PROPOSALS = ("goal_wording", "goal_kpi", "kpi_definition", "kpi_target", "flag", "goal_why", "recovery")
+PROPOSALS = ("goal_wording", "goal_kpi", "kpi_definition", "kpi_target", "flag", "goal_why", "recovery",
+             "strategy_draft")
 FLAGS = ("vague", "duplicate", "unmeasured")
 
 
@@ -230,7 +231,16 @@ def _next_rank(conn, owner, top=False):
     return (highest + 1) if highest is not None else 0
 
 
-def create(conn, actor, title, owner, parent_id=None, body="", top=False):
+def _choice(conn, actor, choice_id):
+    """The strategy choice a goal serves (backend/strategy.py), checked to exist. A retired choice still counts: the
+    goal keeps showing where it came from."""
+    from . import strategy
+    if not strategy.choice(conn, choice_id):
+        H.refuse(conn, actor, "not-found", f"no strategy choice {choice_id}")
+    return choice_id
+
+
+def create(conn, actor, title, owner, parent_id=None, body="", top=False, choice_id=None):
     """A new goal. With a parent it is proposed: `status` is NULL until whoever owns the parent sets
     its first colour. With none it is only unlinked."""
     H._writer(conn, actor)
@@ -241,14 +251,17 @@ def create(conn, actor, title, owner, parent_id=None, body="", top=False):
         H.refuse(conn, actor, "not-found", f"no goal {parent_id}")
     if parent_id and owner == COMPANY:
         H.refuse(conn, actor, "kind", "a company goal does not support another goal")
+    choice_id = _choice(conn, actor, choice_id) if choice_id else None
     ts = H.now()
     row = {"id": H.new_id(), "title": title, "owner": owner, "parent_id": parent_id or None,
            "body": str(body or ""), "rank": _next_rank(conn, owner, top), "created": ts,
-           "created_by": actor, "updated": ts}
+           "created_by": actor, "updated": ts, "choice_id": choice_id}
     conn.execute("INSERT INTO goals (id, title, owner, parent_id, body, status, status_note, rank, created, "
-                 "created_by, updated) VALUES (:id, :title, :owner, :parent_id, :body, NULL, '', :rank, "
-                 ":created, :created_by, :updated)", row)
+                 "created_by, updated, choice_id) VALUES (:id, :title, :owner, :parent_id, :body, NULL, '', :rank, "
+                 ":created, :created_by, :updated, :choice_id)", row)
     _event(conn, row["id"], actor, "created", None, title)
+    if choice_id:
+        _event(conn, row["id"], actor, "choice_id", None, choice_id)
     H.event(conn, actor, "goal.create", row["id"], {"owner": owner, "title": title, "parent_id": parent_id})
     return goal(conn, row["id"])
 
@@ -279,8 +292,10 @@ def set_status(conn, actor, goal_id, status, note=""):
     return goal(conn, goal_id)
 
 
-def update(conn, actor, goal_id, title=None, body=None, parent_id=None, owner=None, rank=None, top=False):
-    """Edit the words, the parent, the owner, or the place in the owner's order."""
+def update(conn, actor, goal_id, title=None, body=None, parent_id=None, owner=None, rank=None, top=False,
+           choice_id=None):
+    """Edit the words, the parent, the owner, the place in the owner's order, or the strategy choice it serves
+    ("" unlinks)."""
     H._writer(conn, actor)
     row = goal(conn, goal_id)
     if not row:
@@ -327,6 +342,10 @@ def update(conn, actor, goal_id, title=None, body=None, parent_id=None, owner=No
         sets.append("rank=:rank")
         args["rank"] = _next_rank(conn, args.get("owner") or row["owner"], top=True) if top else int(rank)
         _event(conn, goal_id, actor, "rank", row["rank"], args["rank"])
+    if choice_id is not None and (choice_id or None) != row.get("choice_id"):
+        sets.append("choice_id=:choice_id")
+        args["choice_id"] = _choice(conn, actor, choice_id) if choice_id else None
+        _event(conn, goal_id, actor, "choice_id", row.get("choice_id"), args["choice_id"])
     if not sets:
         return row
     args["id"], args["updated"] = goal_id, H.now()
@@ -667,6 +686,9 @@ def _payload_error(conn, kind, goal_id, kpi_id, payload):
         elif kind == "recovery":
             from . import ceo_suggest
             return ceo_suggest.payload_error(conn, goal_id, payload)
+        elif kind == "strategy_draft":
+            from . import strategy
+            return strategy.proposal_error(conn, payload)
     except ValueError as exc:
         return str(exc)
     return None
@@ -778,6 +800,10 @@ def decide(conn, actor, proposal_id, decision, note="", why=None, option=None):
             conn.execute("UPDATE goal_proposals SET status='confirmed' WHERE id=?", (proposal_id,))
             again = ceo_suggest.follow_up(conn, row, applied["left"])
             result = {"option": chosen, "unchanged": chosen == pick, **applied, "follow_up": again and again["id"]}
+        elif row["kind"] == "strategy_draft":
+            # The CEO Bot's proposed strategy, written to the draft and its choices as the owner. Never published.
+            from . import strategy
+            result = strategy.apply_proposal(conn, actor, payload)
     conn.execute("UPDATE goal_proposals SET status=?, decided_by=?, decided_at=?, decision_note=?, result_json=? "
                  "WHERE id=?", ("confirmed" if decision == "confirm" else "rejected", actor, H.now(),
                                 str(note or "").strip()[:1000], H._dump(result) if result else None, proposal_id))

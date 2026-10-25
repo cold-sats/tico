@@ -130,6 +130,7 @@ NOTE_EVENTS = {
     "status_or_relation": "a task's status, step or relation moved",
     "ready_for_review": "a Dev ticket the bot asked for reached a review step",
     "step_entered": "a task entered a step of its type",
+    "strategy_published": "a new strategy version was published (backend/strategy.py)",
 }
 BATCH_EVENTS = {"completion": "a finished request", "review": "review comments", "ci": "a failing check",
                 "rule": "a notice a rule batched"}

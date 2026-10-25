@@ -170,10 +170,10 @@ def _ask(item, manager=ceo_bot.NAME):
     name, goal = item.get("kpi_name") or "", item.get("goal_title") or ""
     closes = "This closes by itself once "
     if item["kind"] == "vision":
-        title = f"Tell your {manager} what this company is for"
-        body = (f"{title}: write the company's Vision (one or two sentences: where it is going) and Description (what "
-                f"it does, for whom) in the Company section at the top of Goals. The {manager} ties every goal to the "
-                f"vision. {closes}a vision is saved.")
+        title = f"Tell your {manager} what this team is for"
+        body = (f"{title}: write the team's Vision (one or two sentences: where it is going) and what it sells (for "
+                f"whom) on the Strategy page (#/strategy). The {manager} ties every goal to the vision. {closes}a "
+                f"vision is saved.")
         return title, body
     if item["kind"] == "recovery":
         return item["ask"]

@@ -107,13 +107,21 @@ pub fn replayed(attempt: &Value, names: &Names, after: Option<&str>, resumed: bo
             "For requests to create, modify, debug, test, deploy, or maintain bots, delegate the substantive engineering to BotOps with `hub task create --owner botops`. Keep this low-reasoning assistant turn responsive: confirm the handoff, then report BotOps's result when the task returns.".into(),
         ]);
     }
+    // The team's published strategy: every turn carries it once one is published (backend/strategy.py summary_text,
+    // handed over in `learned.strategy` by backend/learned.py for_turn). Rendered on its own, before what the bot learned.
+    let mut learned = attempt["learned"].as_object().cloned().unwrap_or_default();
+    if let Some(text) = learned.remove("strategy").and_then(|v| v.as_str().map(str::to_owned)) {
+        if !text.trim().is_empty() {
+            lines.push(format!("{STRATEGY_HEADER}\n{text}"));
+        }
+    }
     // What the person's chat bot has learned: only a turn in their own chat is handed it (backend/learned.py for_turn).
-    if attempt["learned"].is_object() {
+    if learned.contains_key("personal") {
         let mut head = LEARNED_HEADER.to_string();
-        if attempt["learned"]["company"].is_object() {
+        if learned["company"].is_object() {
             head = format!("{head} {LEARNED_COMPANY}");
         }
-        lines.push(format!("{head}\n{}", py_dumps(&attempt["learned"])));
+        lines.push(format!("{head}\n{}", py_dumps(&Value::Object(learned))));
     }
     // Asked from the Updates chat: only that turn is handed the updates (backend/updates_chat.py for_turn).
     if attempt["updates"].is_object() {

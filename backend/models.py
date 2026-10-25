@@ -470,6 +470,7 @@ class GoalCreate(Contract):
     parent_id: ID | None = None
     body: str = Field(default="", max_length=100_000)
     top: bool = False
+    choice_id: ID | None = None            # the strategy choice this goal serves (backend/strategy.py)
 
 
 class GoalStatus(Contract):
@@ -484,6 +485,7 @@ class GoalUpdate(Contract):
     owner: ID | None = None
     rank: int | None = None
     top: bool = False
+    choice_id: str | None = Field(default=None, max_length=200)   # "" unlinks it from its strategy choice
 
 
 class GoalRefresh(Contract):
@@ -556,7 +558,8 @@ class KpiReading(Contract):
 
 
 class GoalProposalCreate(Contract):
-    kind: Literal["goal_wording", "goal_kpi", "kpi_definition", "kpi_target", "flag", "goal_why", "recovery"]
+    kind: Literal["goal_wording", "goal_kpi", "kpi_definition", "kpi_target", "flag", "goal_why", "recovery",
+                  "strategy_draft"]
     goal_id: str | None = Field(default=None, max_length=200)
     kpi_id: str | None = Field(default=None, max_length=200)
     payload: dict = Field(default_factory=dict)
@@ -607,6 +610,34 @@ class MarketReport(Contract):
 
 class MarketAsk(Contract):
     question: str = Field(min_length=1, max_length=2000)
+
+
+# The team's strategy (backend/strategy.py): the draft is edited a field at a time, the choices one by one, and
+# publishing takes a one-line note. Lengths are checked there, where the refusal is recorded.
+class StrategyDraft(Contract):
+    framework: str | None = Field(default=None, max_length=40)
+    summary: str | None = Field(default=None, max_length=2000)
+    vision: str | None = Field(default=None, max_length=2000)
+    sections: dict[str, str] | None = None
+
+
+class StrategyPublish(Contract):
+    note: str = Field(default="", max_length=2000)
+
+
+class StrategyChoiceCreate(Contract):
+    statement: str = Field(min_length=1, max_length=2000)
+    why: str = Field(default="", max_length=20_000)
+    rules_out: str = Field(default="", max_length=20_000)
+    status: Literal["proposed", "active", "retired"] = "proposed"
+
+
+class StrategyChoiceUpdate(Contract):
+    statement: str | None = Field(default=None, max_length=2000)
+    why: str | None = Field(default=None, max_length=20_000)
+    rules_out: str | None = Field(default=None, max_length=20_000)
+    status: Literal["proposed", "active", "retired"] | None = None
+    rank: int | None = None
 
 
 class MarketEvidenceCreate(Contract):

@@ -1,0 +1,27 @@
+# V2MOM (Salesforce): vision, values, methods, obstacles, measures. The first V is the vision field every
+# framework has, so it is not a section here; the methods are the choices list.
+id: v2mom
+name: V2MOM
+choices_label: Methods
+choice_label: Method
+sections:
+  - key: values
+    title: Values
+    prompt: The three to five principles that decide between two good options when they conflict, in order of priority. A value nobody has ever had to choose against is decoration.
+  - key: methods
+    title: Methods
+    prompt: The handful of things the team will do to reach the vision, in priority order. Each one is a record under the Methods label; this is the paragraph that explains why these and in this order.
+  - key: obstacles
+    title: Obstacles
+    prompt: "What stands in the way of each method: a missing skill, a competitor, a dependency, a budget, a regulation. Name the obstacle, not the worry."
+  - key: measures
+    title: Measures
+    prompt: For each method, the number and date that says it is done or working. Measures belong to methods, not to the vision.
+interview:
+  - What does the team look like when the vision is reached, in a way an outsider could check?
+  - When two good options conflict, which value wins, and can you remember the last time it cost you something?
+  - What are the three to five things the team will actually do this year to reach the vision, in order?
+  - For your first method, what is most likely to stop it, and what are you doing about that?
+  - Which method has no number attached, and what would the number be?
+  - Which method is there because a person wants it rather than because the vision needs it?
+  - What are you no longer doing because it did not make the list?
