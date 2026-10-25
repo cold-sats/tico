@@ -175,6 +175,25 @@ def test_retiring_a_bet_with_goals_files_one_realign_card_for_the_owner(api):
         assert not H._one(c, "SELECT 1 AS x FROM goal_asks WHERE ref=?", (proposal["id"],))
 
 
+def test_publishing_files_the_realign_card_even_when_the_ceo_bot_used_its_5_today(api):
+    from backend import ceo_bot
+    with_ceo_bot(api)
+    one = ready(api)
+    add_bet(api, "Landlords refer landlords")
+    post(api, "goals", {"title": "Sign 10 landlords", "owner": "cara", "bet_id": one["id"]})
+    publish(api)
+    with api.app.state.store.transaction() as c:
+        for n in range(ceo_bot.DAILY_CAP):
+            H.task_create(c, "bot:goal-manager", f"Check landlord KPI {n}", "", "human:ana", lint=False)
+        assert ceo_bot.room_today(c, "human:ana") == 0
+    post(api, f"strategy/bets/{one['id']}", {"status": "retired"})
+    assert publish(api, "Second")["n"] == 2
+    with api.app.state.store.read() as c:
+        task = H._one(c, "SELECT t.* FROM goal_asks a JOIN tasks t ON t.id=a.task_id JOIN goal_proposals p "
+                         "ON p.id=a.ref WHERE a.kind='proposal' AND p.kind=?", (S.REALIGN,))
+    assert task and task["owner"] == "human:ana" and task["requester"] == "bot:goal-manager"
+
+
 def test_a_kpi_reading_past_the_wrong_if_trips_the_bet_once_per_version(api):
     with_ceo_bot(api)
     goal, kpi = goal_with_kpi(api)

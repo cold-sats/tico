@@ -342,7 +342,7 @@ def sync(conn, owner_id, at=None):
                 log.warning("Not asking %s: the title lint refuses its KPI's name", item["owner"])
                 continue
             made = H.task_create(conn, G.AUTO_ACTOR, _free_title(conn, item["owner"], title), body, item["owner"],
-                                 lint=False, lane="company", top=item["kind"] == "vision")
+                                 lint=False, lane="company", top=item["kind"] == "vision", capped=not rush)
             conn.execute("INSERT INTO goal_asks (kind, ref, owner, task_id, created) VALUES (?,?,?,?,?)",
                          (*key, made["id"], H.now()))
             created.append(made["id"])
