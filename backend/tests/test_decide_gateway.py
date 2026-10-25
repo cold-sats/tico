@@ -581,8 +581,22 @@ def test_every_client_that_asks_for_a_decision_waits_longer_than_the_chain_takes
         remotecli.run(type("Args", (), {"cmd": "decision", "fn": "decision ask"})())
     assert waits == [45]
     assert J.HUB_WAIT > B.SLOW_CHAIN_SECONDS > B.CHAIN_SECONDS      # `J.from_env` through the Hub, Decisions at any level
-    assert f"Client(url, token, timeout={J.HUB_WAIT})" in (ROOT / "clients" / "hubmcp.py").read_text()     # the MCP tools
     assert B.SLOW_CHAIN_SECONDS + 1 < min(waits)
+    # The MCP tools' client keeps its ordinary deadline but waits past the chain on the routes that run one.
+    from clients import tico
+    from clients.tico import Client, SLOW_WAIT
+    opened = []
+
+    class Opener:
+        def open(self, request, timeout):
+            opened.append((request.full_url.rsplit("/api/v2/", 1)[1], timeout))
+            return io.BytesIO(b"{}")
+    monkeypatch.setattr(tico.urllib.request, "build_opener", lambda *args: Opener())
+    hub = Client("https://hub.example", "lease", timeout=30)
+    for path in ("decisions", "gateway/search", "tasks"):
+        hub.request("POST", "/api/v2/" + path, {})
+    assert opened == [("decisions", SLOW_WAIT), ("gateway/search", SLOW_WAIT), ("tasks", 30)]
+    assert SLOW_WAIT > B.SLOW_CHAIN_SECONDS and "timeout=30)" in (ROOT / "clients" / "hubmcp.py").read_text()
 
 
 # ----------------------------------------------------------------------------- 4. no provider at all
