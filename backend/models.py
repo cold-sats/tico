@@ -470,6 +470,7 @@ class GoalCreate(Contract):
     parent_id: ID | None = None
     body: str = Field(default="", max_length=100_000)
     top: bool = False
+    bet_id: ID | None = None               # the strategy bet this goal serves (backend/strategy.py)
 
 
 class GoalStatus(Contract):
@@ -484,6 +485,7 @@ class GoalUpdate(Contract):
     owner: ID | None = None
     rank: int | None = None
     top: bool = False
+    bet_id: str | None = Field(default=None, max_length=200)      # "" unlinks it from its strategy bet
 
 
 class GoalRefresh(Contract):
@@ -556,7 +558,8 @@ class KpiReading(Contract):
 
 
 class GoalProposalCreate(Contract):
-    kind: Literal["goal_wording", "goal_kpi", "kpi_definition", "kpi_target", "flag", "goal_why", "recovery"]
+    kind: Literal["goal_wording", "goal_kpi", "kpi_definition", "kpi_target", "flag", "goal_why", "recovery",
+                  "strategy_draft"]
     goal_id: str | None = Field(default=None, max_length=200)
     kpi_id: str | None = Field(default=None, max_length=200)
     payload: dict = Field(default_factory=dict)
@@ -571,6 +574,8 @@ class GoalProposalDecision(Contract):
     note: str = Field(default="", max_length=1000)
     why: str | None = Field(default=None, max_length=1000)    # a Why proposal confirmed as edited
     option: int | None = Field(default=None, ge=0, le=9)     # the option a recovery is confirmed with (its pick if none)
+    # A strategy realignment, per goal on the card: keep (the default), retire, or the id of the bet it moves to.
+    moves: dict[str, str] | None = Field(default=None, max_length=200)
 
 
 # The company at the top of Goals (backend/company.py): only the fields sent change.
@@ -607,6 +612,44 @@ class MarketReport(Contract):
 
 class MarketAsk(Contract):
     question: str = Field(min_length=1, max_length=2000)
+
+
+# The team's strategy (backend/strategy.py): the draft is edited a field at a time against the revision the writer
+# read, the bets one by one, and publishing takes a one-line note. Lengths and shapes are checked there, where the
+# refusal is recorded.
+class StrategyDraft(Contract):
+    revision: int
+    guide: str | None = Field(default=None, max_length=40)
+    summary: str | None = Field(default=None, max_length=2000)
+    vision: str | None = Field(default=None, max_length=2000)
+    sections: dict | None = None          # {serve, sell, know, not, extra: {key: {title, body}}}, any of them
+
+
+class StrategyPublish(Contract):
+    note: str = Field(default="", max_length=2000)
+    revision: int
+
+
+class StrategyBetCreate(Contract):
+    statement: str = Field(min_length=1, max_length=2000)
+    why: str = Field(default="", max_length=20_000)
+    rules_out: str = Field(default="", max_length=20_000)
+    wrong_if: dict | None = None          # {kind: kpi|thesis|text, kpi_id?, direction?, threshold?, market_id?, text?, check_by?}
+    cites: list[str] | None = Field(default=None, max_length=100)
+    status: Literal["proposed", "active", "retired"] = "proposed"
+    rank: int | None = None
+    revision: int | None = None           # the draft's, when the writer wants a stale page refused
+
+
+class StrategyBetUpdate(Contract):
+    statement: str | None = Field(default=None, max_length=2000)
+    why: str | None = Field(default=None, max_length=20_000)
+    rules_out: str | None = Field(default=None, max_length=20_000)
+    wrong_if: dict | None = None          # {} clears it
+    cites: list[str] | None = Field(default=None, max_length=100)
+    status: Literal["proposed", "active", "retired"] | None = None
+    rank: int | None = None
+    revision: int | None = None
 
 
 class MarketEvidenceCreate(Contract):
@@ -1392,6 +1435,7 @@ class GroupCreate(Contract):
     name: str = Field(min_length=1, max_length=60)
     parent: ID | None = None
     add: GroupMembers = Field(default_factory=GroupMembers)
+    bet_id: ID | None = None               # the strategy bet the group serves (owner only)
 
 
 class GroupUpdate(Contract):
@@ -1401,6 +1445,7 @@ class GroupUpdate(Contract):
     parent: str | None = Field(default=None, max_length=200)
     add: GroupMembers = Field(default_factory=GroupMembers)
     remove: GroupMembers = Field(default_factory=GroupMembers)
+    bet_id: str | None = Field(default=None, max_length=200)      # "" unlinks it from its bet (owner only)
 
 
 class ReportOrder(Contract):

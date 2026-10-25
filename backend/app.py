@@ -6041,6 +6041,8 @@ def create_app(settings=None):
     install_context_search(app, store, auth)
     from .market import install as install_market
     install_market(app, store, auth, mutate)
+    from .strategy import install as install_strategy
+    install_strategy(app, store, auth, mutate)
     from .listening import install as install_listening
     install_listening(app, store, auth, mutate)
     from .archive import install_archives

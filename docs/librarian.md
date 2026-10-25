@@ -1,7 +1,7 @@
 # The Librarian
 
 The Librarian is a built-in bot that answers questions from the team's docs. Humans ask it from **Ask the Librarian** on Docs
-and Market; other bots and the Assistant ask it with `hub doc ask`. It cites every claim, says "Not in the docs." plainly when the
+and on the Market tab of [Strategy](strategy.md) (`#/strategy/market`); other bots and the Assistant ask it with `hub doc ask`. It cites every claim, says "Not in the docs." plainly when the
 docs do not say, and keeps a map of the docs so the next question is cheaper. It never answers from general knowledge.
 
 ## What it reads
@@ -51,7 +51,7 @@ pages web search returns).
 
 ## Asking
 
-**Humans.** Docs and Market show an **Ask the Librarian** rail on the right on desktop. Its arrow hides it and **Ask the
+**Humans.** Docs and the Market tab show an **Ask the Librarian** rail on the right on desktop. Its arrow hides it and **Ask the
 Librarian** brings it back; the choice is kept per viewer in this browser. On a phone, the button opens a full-screen sheet.
 On Docs, matching internal, indexed external, linked and manual docs appear at once
 from search; choose **All docs**, **Team docs** or **Tico manual** to narrow the matches.
@@ -140,7 +140,8 @@ source, builds the map (`_librarian/index.md`, `where-things-live.md`, `glossary
 any place it could not read, with what a person can do about it. **Import files** opens the Docs import. **Skip for now** is
 the person's own choice; **Set up with the Librarian…** in the Docs menu brings the card back at any time.
 
-**Market.** On a first visit to an empty Market page the owner answers four questions, one at a time: what you sell, who
+**Market.** Market is a tab of [Strategy](strategy.md) (`#/strategy/market`; the old `#/market` redirects there). On a
+first visit to an empty Market tab the owner answers four questions, one at a time: what you sell, who
 buys it, who you compete with, and what to watch. Only the first must be answered. Each answer is kept on the server as it
 is given, so **Skip for now** leaves and **Continue** picks up at the same question, in any browser. The last question's
 **Start research** files "Set up the market map" (below), which builds the map from the answers and sets what Market tracks:
@@ -166,6 +167,14 @@ their tier, segments, channels, people and rules as entities and edges, each wit
 `hub market apply`, which takes `--tier` and `--new-id`), and the eight market pages (`hub market page`) with a source on every
 claim. It never invents a number: a size, price or share appears only when a source states it. It aims at ten minutes and stops at
 thirty, then finishes the task with a short note saying what it found and what it could not read.
+
+The strategy and the market stay apart, and each reads the other. A task with no website makes the Librarian read
+`hub strategy show`: if it names the team's website, that is the first address, and the summary and *What we sell* stand in for
+the owner's description (once setup's new steps ship, "Set up the market map" is filed from the website given there). The other
+way round, when an insight contradicts an active bet, the daily curate routine says so in one line of its sweep report and
+sends the CEO Bot a note naming the bet and the entity, so it can propose the entity as one of the bet's `cites`; a change to a
+cited entity then trips the bet's wrong-if. The Librarian applies the insight on its own evidence, never writes the strategy,
+and never judges whether the bet should change ([Strategy](strategy.md#the-fit-check)).
 
 After that the Librarian keeps the map current. It is the market's only curator besides the owner: everyone else reports
 (`hub market report`) and it decides. Its daily **Curate the market** routine (04:00) turns new insights into evidence, entities,

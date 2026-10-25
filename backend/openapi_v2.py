@@ -440,11 +440,12 @@ STABLE = [
      "changed it since, a later change is kept and named, a task it made is closed, and each bot is told",
      "CeoBotLogEntry"),
     ("/api/v2/company", "get", "Goals", "getCompany",
-     "The company's Vision and Description (the Company section at the top of Goals), "
-     "and whether the caller may edit them", "CompanyResult"),
+     "The team's Vision and Description (the Company section at the top of Goals), and whether the caller may edit "
+     "them. The Vision is the strategy's: the draft's for the owner, the published one for everyone else",
+     "CompanyResult"),
     ("/api/v2/company", "post", "Goals", "updateCompany",
-     "The owner, on their own click: change the Vision and/or the Description; never an admin or a bot, the CEO Bot "
-     "included. Each change is kept with who and when", "CompanyResult"),
+     "The owner, on their own click: change the Vision (written to the strategy draft) and/or the Description; never "
+     "an admin or a bot, the CEO Bot included. Each change is kept with who and when", "CompanyResult"),
     ("/api/v2/company/history", "get", "Goals", "getCompanyHistory",
      "Every change to the Vision and the Description, newest first, with who made it and when", "CompanyHistory"),
     ("/api/v2/goal-manager/turn-on", "post", "Goals", "turnOnGoalManager",
@@ -1314,6 +1315,28 @@ SCHEMAS['TaskType']['properties'].update({'default_visibility': {'enum': ['publi
                                          'manager': {'type': ['string', 'null']},
                                          'role': {'type': ['string', 'null'], 'enum': ['product-roadmap', 'engineering', None],
                                                   'description': 'The Product roadmap or Dev tickets type, whoever manages it'}})
+
+TAGS['Strategy'] = ("The team's strategy: a draft the owner edits, numbered published versions, and the bets goals "
+                    "serve.")
+STABLE.extend([
+    ('/api/v2/strategy', 'get', 'Strategy', 'getStrategy', 'The published strategy, its bets with their goals and '
+     'colour, the website; the owner also gets the draft', None),
+    ('/api/v2/strategy/draft', 'put', 'Strategy', 'updateStrategyDraft', 'Owner only: change the draft, only the '
+     'fields sent; a stale revision answers 409', None),
+    ('/api/v2/strategy/publish', 'post', 'Strategy', 'publishStrategy', 'Owner only: the draft becomes the next '
+     'numbered version', None),
+    ('/api/v2/strategy/versions', 'get', 'Strategy', 'listStrategyVersions', 'Published versions, newest first', None),
+    ('/api/v2/strategy/versions/{n}', 'get', 'Strategy', 'getStrategyVersion', 'One published version whole', None),
+    ('/api/v2/strategy/diff', 'get', 'Strategy', 'diffStrategyVersions', 'What changed between two published '
+     'versions', None),
+    ('/api/v2/strategy/bets', 'post', 'Strategy', 'addStrategyBet', 'Owner only: a new bet', None),
+    ('/api/v2/strategy/bets/{bet_id}', 'post', 'Strategy', 'updateStrategyBet', 'Owner only: change a bet, only the '
+     'fields sent', None),
+    ('/api/v2/strategy/summary', 'get', 'Strategy', 'getStrategySummary', 'The published strategy as the text every '
+     'run carries; {text, n} with Accept: application/json', None),
+    ('/api/v2/strategy/guides', 'get', 'Strategy', 'listStrategyGuides', 'The question guides the CEO Bot drafts '
+     'with', None),
+])
 
 TAGS['Inbound'] = 'Shared company inbound email and SMS for people and agents; reads never consume messages.'
 STABLE.extend([

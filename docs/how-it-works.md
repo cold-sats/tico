@@ -27,7 +27,7 @@ model subscriptions and sends the results back. The in-app Help page (**?** in t
 |---|---|---|---|
 | Assistant (built-in) | Your own helper: finds things, makes tasks, drafts the rest for your click | Sidebar, or ⌘K | “What needs me today?” |
 | BotOps (built-in) | Sets up and fixes bots, computers, Tools and Credentials | Sidebar | “Add a bot that answers #support” |
-| Librarian (built-in) | Answers from your docs and the Tico manual, with sources | Ask the Librarian on Docs and Market | “What is our refund limit?” |
+| Librarian (built-in) | Answers from your docs and the Tico manual, with sources | Ask the Librarian on Docs and on Strategy's Market tab | “What is our refund limit?” |
 | CEO Bot (built-in) | Keeps KPIs and goal colours current | Top of Goals | “Why is this goal yellow?” |
 | Task Manager (built-in) | Tidies tasks hourly on weekdays: closes what is done, fixes drifted steps, one Needs-you line per department | Its “Task check” tasks; Settings → Rules | `hub task-manager status` |
 | Your bots | Do the team's work from their Instructions | Team in the sidebar: chat or a task | “Draft replies to the open tickets” |

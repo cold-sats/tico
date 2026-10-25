@@ -5008,7 +5008,7 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
                 goal_id=None, next_run=False, type=None, step=None, number=None, mover=None, private=None,
                 requester_actor=None, own_room=True, visibility=None, public_title=None, public_summary=None,
                 wake_refs=None, trigger="status_or_relation", trigger_source=None, review_prs=None,
-                change_paths=None, qa=None, qa_not_checkable_live=False):
+                change_paths=None, qa=None, qa_not_checkable_live=False, capped=True):
     """Rule 5. Anyone may open a task for any active owner; a human owner's General task is
     linted (rule 7).
 
@@ -5022,6 +5022,7 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     `lane` picks the pipeline (company or product; default by the owner's team); the task
     joins the bottom of the owner's queue and of its step unless `top`.
     `number` keeps an imported task's number: a mover's (`mover`, as in `task_update`), and free.
+    `capped=False` files an urgent CEO Bot ask past its daily cap (goal_asks.urgent).
     """
     _writer(conn, actor)
     # Public text is only ever what someone wrote as public text; the internal title and body never stand in.
@@ -5036,7 +5037,8 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     _takes_tasks(conn, actor, target, title, parent_id)
     _learning(conn, actor, target)
     from . import ceo_bot
-    ceo_bot.check_cap(conn, actor, target)          # at most 5 a day in one person's Needs you (backend/ceo_bot.py)
+    if capped:
+        ceo_bot.check_cap(conn, actor, target)      # at most 5 a day in one person's Needs you (backend/ceo_bot.py)
     parent = _task_parent(conn, actor, None, parent_id) if parent_id else None
     from . import review_gate
     if parent and review_gate.REVIEW.match(str(title).strip()):

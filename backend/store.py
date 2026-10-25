@@ -1378,6 +1378,10 @@ class Store:
                 # Unversioned like the trash: an older release never reads the tables or the columns.
                 from .company import ensure as ensure_company
                 ensure_company(c)
+                # The team's strategy: versions, choices, their history, and each goal's choice (backend/strategy.py).
+                # Unversioned the same way; the first run makes the draft from the company profile.
+                from .strategy import ensure as ensure_strategy
+                ensure_strategy(c)
                 # Temporary task assignments are retired (#420): their actors are archived and off every computer,
                 # their open tasks back with the role. Unversioned and idempotent like the trash; the tables stay inert.
                 from .shared_bots import retire_assignments

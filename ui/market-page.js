@@ -1,7 +1,10 @@
-/* Market is its own room: a note, the graph of who connects to whom, and Ask the Librarian beside it
-   (ui/docs-ask.js), which reads the graph at the moment you ask. It is not the Docs library. */
+/* Market is the Strategy section's second tab (ui/strategy-page.js): a note, the graph of who connects to whom, and Ask
+   the Librarian beside it (ui/docs-ask.js), which reads the graph at the moment you ask. It is not the Docs library. */
 'use strict';
 let MARKET_VIEW = null;
+// Old #/market links land here (ui/app/router.js), keeping their query or note path.
+const MARKET_ROUTE = '#/strategy/market';
+const isMarketRoute = r => r === MARKET_ROUTE || r.startsWith(MARKET_ROUTE + '?') || r.startsWith(MARKET_ROUTE + '/');
 
 const MARKET_TYPES = [
   ['company', 'Organizations'],
@@ -59,12 +62,12 @@ document.head.appendChild(marketStyle);
 const marketSelfId = () => (typeof S !== 'undefined' && S.status && S.status.company_entity) || 'company/self';
 
 function marketNoteId() {
-  if (S.route.startsWith('#/market/')) return decodeURIComponent(S.route.slice('#/market/'.length).split('?')[0]);
+  if (S.route.startsWith(MARKET_ROUTE + '/')) return decodeURIComponent(S.route.slice(MARKET_ROUTE.length + 1).split('?')[0]);
   return new URLSearchParams((S.route.split('?')[1] || '')).get('note') || MARKET_BRIEF;
 }
 
 function marketHref(id) {
-  return '#/market?note=' + encodeURIComponent(id);
+  return MARKET_ROUTE + '?note=' + encodeURIComponent(id);
 }
 
 window.marketStop = function marketStop() {
@@ -73,7 +76,7 @@ window.marketStop = function marketStop() {
 
 // Draws the page again from the server, when the research notice sees the market's first content.
 window.marketReload = function marketReload() {
-  if (!MARKET_VIEW || !(S.route === '#/market' || S.route.startsWith('#/market?') || S.route.startsWith('#/market/'))) return;
+  if (!MARKET_VIEW || !isMarketRoute(S.route)) return;
   MARKET_VIEW.stop();
   MARKET_VIEW = null;
   void pageMarket();
@@ -83,7 +86,8 @@ window.pageMarket = async function pageMarket() {
   $('#main').classList.add('market-layout');
   const note = marketNoteId();
   if (!MARKET_VIEW || !document.body.contains(MARKET_VIEW.shell)) {
-    $('#main').innerHTML = '<div id="market-shell" class="market-shell"><p class="market-loading">Opening the market…</p></div>';
+    // The section's heading and tabs sit above the shell, and stay while notes open inside it.
+    $('#main').innerHTML = (window.strategyHeadHtml?.('market') || '') + '<div id="market-shell" class="market-shell"><p class="market-loading">Opening the market…</p></div>';
     const shell = $('#market-shell');
     try {
       MARKET_VIEW = await mountMarket(shell);
@@ -94,7 +98,7 @@ window.pageMarket = async function pageMarket() {
     }
   }
   await MARKET_VIEW.open(note);
-  if (S.route.startsWith('#/market')) window.syncLibrarianRail?.(true);
+  if (isMarketRoute(S.route)) window.syncLibrarianRail?.(true);
 };
 // What Ask the Librarian needs from the graph (ui/docs-ask.js): a name for each row it cites, and those rows lit up.
 window.marketName = id => MARKET_VIEW?.name?.(id) || '';
