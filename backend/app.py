@@ -56,7 +56,7 @@ from clients import gateway as gateway_client
 from . import company_billing, company_server, gateway_connection, gateway_page, gateway_tiers
 from . import providers as Providers
 from . import access as Access
-from . import releases, runner_versions, ui_bundle
+from . import hosted_updates, releases, runner_versions, ui_bundle
 from .bot_rows import BotRows
 from .census import Census
 from .harnesses import HARNESS_CATALOG, resolve_harness, runtime_of
@@ -1471,14 +1471,7 @@ def create_app(settings=None):
     # sees a final state after a start; a marker row keeps it to one event per update.
     def record_update_outcome(result):
         with store.transaction() as c:
-            row = c.execute("SELECT value_json FROM registry_metadata WHERE key='update-pending'").fetchone()
-            if not row:
-                return
-            pending = json.loads(row[0])
-            c.execute("DELETE FROM registry_metadata WHERE key='update-pending'")
-            H.event(c, pending["actor"], "system.update.finished", pending["to"],
-                    {"outcome": result["state"], "from": pending["from"], "to": pending["to"],
-                     "message": result.get("message", "")})
+            hosted_updates.record_outcome(c, result)
 
     @app.post("/api/v2/system/update")
     def system_update(request: Request, body: M.SystemUpdate):
