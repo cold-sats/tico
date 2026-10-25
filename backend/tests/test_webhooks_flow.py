@@ -68,7 +68,18 @@ def test_a_call_through_the_gateway_relay_runs_the_same_rule(api):
                                     "LIMIT 1").fetchone()[0])
         logged = c.execute("SELECT via, received_at FROM trigger_deliveries WHERE delivery='g1'").fetchone()
     assert refs["via"] == "gateway" and refs["delivery"] == "g1"
+    assert get(api, "triggers/shop")["trigger"]["relay"]["address_prefix"].endswith("hr_0123456789abcdef")
     assert logged["via"] == "gateway" and logged["received_at"] == "2026-10-25T10:00:00.000000Z"
+
+
+def test_a_rule_that_ignores_a_call_heard_it_so_its_maker_gets_no_unheard_note(api):
+    made = post(api, "triggers", {"name": "Shop"})["trigger"]
+    post(api, "triggers/shop", {"unheard": "note"})
+    post(api, "rules", {"scope_kind": "team", "event": "webhook.received", "then": "ignore", "when": {"trigger": "shop"},
+                        "params": {}})
+    assert hook(api, made["url"], b'{"kind": "ping"}', {"Webhook-Id": "p1"}).status_code == 202
+    with api.app.state.store.read() as c:
+        assert not c.execute("SELECT 1 FROM messages WHERE refs_json LIKE '%unheard%'").fetchone()
 
 
 def test_a_call_a_rule_forwards_reaches_the_outgoing_endpoint_signed(api, net):

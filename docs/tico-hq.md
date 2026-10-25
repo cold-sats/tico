@@ -132,6 +132,7 @@ receives them, the server pulls every minute for them (every 15 seconds when it 
 same banner as the message from `/v1/latest`. Rules see one as the event `tico.notice` with `type` set to its kind. Built-in team rules
 wake BotOps and ask the owner for a security notice, leave BotOps a note for an info notice, and ask the owner for a billing notice;
 the owner edits or switches them off in Settings > Rules but cannot delete them. `hub notice list` (`GET /api/v2/notices`) lists them.
+The webhooks page covers this from the user's side ([Webhooks](webhooks.md#notices-from-tico-team)).
 
 The team writes them with the staff key (`Authorization: Bearer $HQ_STAFF_KEY`):
 

@@ -13,6 +13,9 @@ Unix seconds. Nothing here touches the database, so each can be tested with a pu
   decoded bytes are the key. The timestamp must be within five minutes.
 - `stripe`: `Stripe-Signature: t=<unix>,v1=<hex>[,v1=<hex>]`, HMAC-SHA256 over `<t>.<body>` with the secret
   string as the key. Within five minutes.
+- `slack`: `X-Slack-Signature: v0=<hex>`, HMAC-SHA256 over `v0:<X-Slack-Request-Timestamp>:<body>` with Slack's signing
+  secret as the key. Within five minutes. Slack's `url_verification` call is answered with its challenge
+  (`slack_challenge`) before it counts as a delivery.
 """
 import base64
 import binascii
@@ -22,9 +25,10 @@ import json
 import re
 import secrets
 
-PRESETS = ("none", "hmac", "github", "standard", "stripe")
+PRESETS = ("none", "hmac", "github", "standard", "stripe", "slack")
 TOLERANCE = 300                         # seconds a timestamped signature stays good, either side of now
-TYPE_FROM = {"github": "X-GitHub-Event", "stripe": "/type", "standard": "/type"}   # a preset's default `type_from`
+TYPE_FROM = {"github": "X-GitHub-Event", "stripe": "/type", "standard": "/type",
+             "slack": "/event/type|/type"}      # a preset's default `type_from`; `a|b` tries a, then b
 MAX_TYPE = 100
 PREFIX = "whsec_"
 
@@ -125,7 +129,30 @@ def _stripe(headers, body, secret, now):
     return False, "The signature does not match the body and this trigger's signing secret"
 
 
-VERIFY = {"hmac": _hmac, "github": _github, "standard": _standard, "stripe": _stripe}
+def _slack(headers, body, secret, now):
+    sent, stamp = (str(headers.get(n) or "").strip() for n in ("x-slack-signature", "x-slack-request-timestamp"))
+    if not (sent and stamp):
+        return False, "This trigger needs Slack's X-Slack-Signature and X-Slack-Request-Timestamp headers"
+    if (why := _stamp(stamp, now)):
+        return False, why
+    want = "v0=" + hmac.new(secret.encode(), f"v0:{stamp}:".encode() + body, hashlib.sha256).hexdigest()
+    if _constant(sent.lower(), want):
+        return True, ""
+    return False, "The signature does not match the body and this trigger's signing secret"
+
+
+def slack_challenge(body):
+    """The challenge when `body` is Slack's `url_verification` handshake, else None."""
+    try:
+        found = json.loads(body.decode("utf-8", "replace"))
+    except ValueError:
+        return None
+    if isinstance(found, dict) and found.get("type") == "url_verification" and isinstance(found.get("challenge"), str):
+        return found["challenge"][:1000]
+    return None
+
+
+VERIFY = {"hmac": _hmac, "github": _github, "standard": _standard, "stripe": _stripe, "slack": _slack}
 
 
 def verify(preset, headers, body, secret, now):
@@ -140,6 +167,8 @@ def new_secret(preset):
         return PREFIX + base64.b64encode(secrets.token_bytes(24)).decode()
     if preset == "stripe":
         return PREFIX + secrets.token_urlsafe(24)
+    if preset == "slack":
+        return secrets.token_hex(16)            # Slack's signing secrets are 32 hex characters
     return secrets.token_hex(32)
 
 
@@ -173,6 +202,11 @@ def fallback_id(headers, body, received_at):
 def type_of(spec, headers, body):
     """The delivery's type: `spec` is a header name, or a JSON pointer when it starts with `/`. Empty when absent."""
     spec = (spec or "").strip()
+    if "|" in spec:
+        for one in spec.split("|"):
+            if (found := type_of(one, headers, body)):
+                return found
+        return ""
     if not spec:
         return ""
     if spec.startswith("/"):
@@ -200,8 +234,8 @@ def type_spec_problem(spec):
     spec = (spec or "").strip()
     if len(spec) > 100:
         return "type_from is at most 100 characters"
-    if spec and not spec.startswith("/") and not re.fullmatch(r"[A-Za-z0-9-]+", spec):
-        return "type_from is a header name or a JSON pointer starting with /"
+    if spec and not all(re.fullmatch(r"/\S*|[A-Za-z0-9-]+", one) for one in spec.split("|")):
+        return "type_from is a header name or a JSON pointer starting with /, or several of them joined with |"
     return None
 
 

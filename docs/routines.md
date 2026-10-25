@@ -69,76 +69,19 @@ yet waits.
 
 ## Triggers
 
-A trigger starts routines from outside Tico. Today a trigger is a webhook: Settings > Webhooks > Incoming →
-*New webhook* gives an address, and anything that can send an HTTP POST (a payment service, a form,
-a deploy, a script) calls it. A routine picks it under *Runs: On a trigger* (`--on webhook.<id>` in
-`hub routine set`; `hub trigger list` shows the ids). Each call opens one task per listening routine:
-the routine's text, then the trigger's name and the call's type, then the request body, fenced as data the
-bot did not write. Rules (`webhook.received`) see the same call.
+A trigger starts routines from outside Tico. Today a trigger is an incoming webhook: Settings → Webhooks → Incoming gives an
+address, and anything that can send an HTTP POST (a payment service, a form, a deploy, a script) calls it. A routine picks it under
+*Runs: On a trigger* (`--on webhook.<id>` in `hub routine set`; `hub trigger list` shows the ids). Each call opens one task per
+listening routine: the routine's text, then the trigger's name and the call's type, then the request body, fenced as data the bot
+did not write. A routine has no filter on the type, so every call opens a task; to act on one type only, use a rule on
+`webhook.received`.
 
-- The address is `/api/v2/hooks/<id>/<secret>`; `POST /api/v2/hooks/<id>` with `Authorization:
-  Bearer <secret>` works too. Tico keeps only a hash of the secret, so the full address is shown once,
-  when the webhook is made or given *New secret*, which also stops the old address at once.
-- A wrong id or secret is 404. The body may be up to 256 KB; the task shows the first 20,000 characters
-  and says how to read the rest.
-- A sender's own delivery id (`Webhook-Id`, `X-GitHub-Delivery`, `Idempotency-Key`, `X-Request-Id`) makes a
-  retry open nothing new; without one, the same body in the same minute counts as a retry. Ids are
-  remembered 30 days, longer than the calls are kept or the log shows.
-- Each webhook takes 60 calls an hour unless `hourly` says otherwise (up to 600); past that the sender gets 429
-  and retries later, so a noisy sender cannot wake a bot without end.
-- *Signing* gives a webhook a signing secret, shown once. The `preset` says how each call is checked:
-  `hmac` (GitHub's `X-Hub-Signature-256: sha256=<hex>` or a generic `X-Signature`, an HMAC-SHA256 of the exact
-  body; what signed webhooks used before presets), `github` (`X-Hub-Signature-256` only), `standard` (Standard
-  Webhooks: `webhook-id`, `webhook-timestamp`, `webhook-signature`; the secret is `whsec_` and base64) or `stripe`
-  (`Stripe-Signature: t=..,v1=..`). `standard` and `stripe` also refuse a timestamp more than 5 minutes off. A
-  call without a valid signature gets 401 and opens nothing. Tico keeps the signing secret sealed with the
-  credential key, because checking a signature needs the secret itself. *Turn off* in *Signing* stops it.
-- Every call has a type, read from `type_from`: a header name (`X-GitHub-Event`) or a JSON pointer starting with
-  `/` (`/type`). `github` reads `X-GitHub-Event`, `standard` and `stripe` read `/type`; otherwise it is empty. The
-  type is in the log, in the task (a `type:` line) and available to rules.
-- Each accepted call is kept for `keep_days` (7 by default, 1-30): the raw body and its headers. Credentials in
-  headers (anything named like a signature, authorization, token, secret or key) show as `[redacted]`, and a cookie
-  is never kept. People who may manage the webhook read the whole body (`hub trigger delivery <id> <delivery>`);
-  a bot reads it in fenced 20,000-character parts (`--part n`), only for a call that opened one of its tasks or
-  that a notice from Tico to it names. *View payload* shows it in Settings. *Run again* (`hub trigger replay`) starts the routines and rules again for one kept
-  call as a new occurrence, `<delivery>:replay:<n>`; it is refused once the body has expired.
-- The webhook `_tico` (Tico Team) is built in: notices from Tico Team arrive on it through Tico Gateway and rules see them as `tico.notice`
-  (docs/tico-hq.md). It has no address, cannot be deleted, and only its `keep_days` changes.
-- `unheard` is what a call that reached no routine and no rule does: `log` (the log row only) or `note` (also a
-  notice to whoever made the webhook, at most once an hour).
-- *Calls* on each webhook's page lists the last 50 calls, accepted, refused (bad or missing
-  signature, over the hourly limit) and run again, with the sender's delivery id and the type. Only calls to the
-  right address are logged, and at most 60 refusals an hour, so a stranger cannot fill the log.
-- A person or a bot may add a webhook; the owner, whoever added it and BotOps may replace its secret, change its
-  settings, set or stop its signing secret, run a call again or delete it. A routine may name only a webhook that
-  exists. Deleting one removes its kept calls and leaves its routines in place, silent, until a webhook with
-  the same id is added again.
-- The API: `GET /api/v2/triggers` (no secrets) and `GET /api/v2/triggers/<id>`, `POST /api/v2/triggers` (`name`,
-  optional `id`), `POST /api/v2/triggers/<id>` (`name`, `preset`, `type_from`, `hourly`, `keep_days`, `unheard`),
-  `POST /api/v2/triggers/<id>/rotate`, `POST /api/v2/triggers/<id>/signing` (`{}` makes a secret,
-  `secret` sets one of 16+ characters, `preset` picks the check, `off: true` stops checking),
-  `GET /api/v2/triggers/<id>/deliveries`, `GET /api/v2/triggers/<id>/deliveries/<delivery>` (`?part=n` for a
-  bot), `POST /api/v2/triggers/<id>/deliveries/<delivery>/replay`, `POST /api/v2/triggers/<id>/delete`. The CLI
-  and MCP tools are `hub trigger list|create|show|update|rotate|sign|delete|deliveries|delivery|replay` and
-  `hub_trigger_*`.
+Making the address, signature checks and presets, types, the hourly limit, the kept calls, Run again, the address through Tico
+Gateway that holds calls while the server is off, and rules are all on [Webhooks](webhooks.md). Recipes:
+[GitHub](webhooks-github.md), [Stripe](webhooks-stripe.md), [Zapier, Make and n8n](webhooks-zapier-make-n8n.md).
 
-### Address through Tico Gateway
-
-A webhook's own address needs this server to be up and reachable. An address through Tico Gateway is a second
-address at Tico HQ that keeps what is sent to it while the server is off, asleep or on a laptop, and hands it over
-within seconds of the server being back (`hub trigger relay create <id>`, or *Make address* in Settings > Webhooks >
-Through Tico Gateway). It needs the Tico Gateway connected in Settings > Gateway. The address is shown once, like the secret
-above; `hub trigger relay rotate` replaces it and `delete` removes it, and deleting the trigger removes it too.
-The trigger's own address keeps working beside it.
-
-- This server pulls from HQ every 15 seconds and treats each delivery as if the sender had posted it here:
-  signature checks, duplicates, the hourly limit and routines behave the same. HQ only checks the address's secret;
-  it never checks signatures or runs anything.
-- While the server is off, deliveries wait at HQ (up to a cap) and arrive in order afterwards. A sender that waits
-  for an answer gets HQ's, not the server's.
-- `hub relay status` (`GET /api/v2/relay`) shows the key, the addresses, the last pull and what waits at HQ. Health
-  speaks when pulls have failed for 15 minutes or a delivery has waited over an hour. A rehearsal never pulls.
-- The API: `POST /api/v2/triggers/<id>/relay`, `/relay/rotate`, `/relay/delete`; same rights as the trigger.
+Deleting a trigger removes its kept calls and leaves its routines in place, silent, until a trigger with the same id is added
+again. A routine may name only a trigger that exists.
 
 ## What happens when one is due
 

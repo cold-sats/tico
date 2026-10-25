@@ -68,7 +68,10 @@ BOT_TO_BOT = "bot_to_bot"
 # What a code action can do, for `action` rows (system_routines' THEN names). The task actions need a task; the event
 # actions (`wake_bot`, `send_webhook`) do not, so they also run from events without one (judge_event).
 TASK_ACTIONS = ("close", "move_step", "set_wait", "relate", "note")
-EVENT_ACTIONS = ("wake_bot", "send_webhook")
+EVENT_ACTIONS = ("wake_bot", "send_webhook", "create_task", "forward")
+# The two that make something new from an event judged once (judge_event) refuse a message event: its ledger is what
+# makes a repeated call do nothing.
+ONCE_ACTIONS = ("create_task", "forward")
 ACTIONS = TASK_ACTIONS + EVENT_ACTIONS
 MAX_ROWS = 500
 MAX_LIST_BYTES = 256 * 1024
@@ -904,14 +907,18 @@ def _run_wake_bot(conn, rule_id, by, params, values, *, event, subject, revision
 
 def _run_send_webhook(conn, rule_id, by, params, values, *, event, subject, revision, task=None, ctx=None):
     hook, kind = str(params.get("webhook") or ""), str(params.get("type") or "")
-    result = {"outcome": "send_webhook", "target": hook, "ok": False, "detail": ""}
+    data = templating.render_json(params.get("data") or {}, values)
+    return _send_out(conn, "send_webhook", by, hook, kind, subject, data, revision)
+
+
+def _send_out(conn, outcome, by, hook, kind, subject, data, revision):
+    result = {"outcome": outcome, "target": hook, "ok": False, "detail": ""}
     try:
         from . import webhooks
         publish, refused = webhooks.publish, webhooks.Refused
     except (ImportError, AttributeError):
         result["detail"] = "Outgoing webhooks are not available"
         return result
-    data = templating.render_json(params.get("data") or {}, values)
     try:
         queued = publish(conn, kind, str(subject), data if isinstance(data, dict) else {"data": data}, by or H.KEEPER,
                          only=hook, revision=revision)
@@ -921,8 +928,48 @@ def _run_send_webhook(conn, rule_id, by, params, values, *, event, subject, revi
     return {**result, "ok": True, "detail": f"{queued} queued"}
 
 
-# The event actions: `wake_bot {bot, text}` and `send_webhook {webhook, type, data}`. Each returns its result row.
-EVENT_RUNNERS = {"wake_bot": _run_wake_bot, "send_webhook": _run_send_webhook}
+def _run_forward(conn, rule_id, by, params, values, *, event, subject, revision, task=None, ctx=None):
+    """`send_webhook` of the incoming call itself: its payload is `data` (an object as it is, anything else under
+    `data`), its type `custom.forward.<trigger id>`, so a receiver knows which webhook it came through."""
+    ctx = ctx or {}
+    hook, trigger = str(params.get("webhook") or ""), str(ctx.get("trigger") or "")
+    payload = ctx["payload"] if "payload" in ctx else ctx.get("data")
+    return _send_out(conn, "forward", by, hook, f"custom.forward.{trigger}", subject,
+                     payload if isinstance(payload, dict) else {"data": payload}, revision)
+
+
+def _run_create_task(conn, rule_id, by, params, values, *, event, subject, revision, task=None, ctx=None):
+    """A task for the bot `params.owner`, titled and told from the templates, filed in the rule maker's name. The body
+    carries the call's content and the line that says how to read all of it, as a wake does."""
+    ctx = ctx or {}
+    slug = _slug(params.get("owner"))
+    result = {"outcome": "create_task", "target": slug, "ok": False, "detail": ""}
+    found = H.bot(conn, slug) if slug else None
+    if not found:
+        result["detail"] = f"No bot {slug}" if slug else "The rule names no bot"
+        return result
+    if found["state"] not in BOT_STATES_OK:
+        result["detail"] = f"{slug} is {found['state']}"
+        return result
+    title = " ".join(templating.render(str(params.get("title") or ""), values, cap=300).split()) \
+        or _default_text(event, values)
+    body = _wake_text({"text": params.get("body")}, values, ctx, _default_text(event, values))
+    conn.execute("SAVEPOINT rule_task")
+    try:
+        row = H.task_create(conn, by or H.KEEPER, title[:300], body, H.bot_actor(slug), lint=False, deduplicate=False)
+        conn.execute("RELEASE rule_task")
+    except Exception as exc:  # noqa: BLE001 - the rule's other rows still run
+        conn.execute("ROLLBACK TO rule_task")
+        conn.execute("RELEASE rule_task")
+        result["detail"] = (str(getattr(exc, "message", "") or exc) or type(exc).__name__)[:300]
+        return result
+    return {**result, "ok": True, "detail": f"task {row['id']}"}
+
+
+# The event actions: `wake_bot {bot, text}`, `send_webhook {webhook, type, data}`, `create_task {owner, title, body}`
+# and `forward {webhook}`. Each returns its result row.
+EVENT_RUNNERS = {"wake_bot": _run_wake_bot, "send_webhook": _run_send_webhook, "create_task": _run_create_task,
+                 "forward": _run_forward}
 
 
 def _event_target(row, params):
@@ -932,8 +979,10 @@ def _event_target(row, params):
         return "ask", row["created_by"]
     if row["then_outcome"] == ACTION:
         action = params.get("action")
-        if action == "send_webhook":
+        if action in ("send_webhook", "forward"):
             return "webhook", str(params.get("webhook") or "")
+        if action == "create_task":
+            return "task", row["id"]
         if action == "wake_bot":
             return "bot", _slug(params.get("bot"))
         return "action", str(action)
@@ -1202,10 +1251,10 @@ def validate(c, settings, scope_kind, scope_id, event, then, when, params):
         raise Problem("invalid", "params is a small object", 422)
     if then == ACTION and params.get("action") not in ACTIONS:
         raise Problem("invalid", f"an action rule names params.action: {', '.join(ACTIONS)}", 422)
-    return scope_id, when, _check_params(c, scope_kind, scope_id, sourceless, then, params)
+    return scope_id, when, _check_params(c, scope_kind, scope_id, sourceless, then, params, event)
 
 
-def _check_params(c, scope_kind, scope_id, sourceless, then, params):
+def _check_params(c, scope_kind, scope_id, sourceless, then, params, event=""):
     """The row's params with the bot named as a slug, or a 422: who a wake reaches, the text it carries, and what an
     event action sends."""
     from .store import Problem
@@ -1215,6 +1264,8 @@ def _check_params(c, scope_kind, scope_id, sourceless, then, params):
     action = params.get("action") if then == ACTION else None
     if sourceless and then == ACTION and action not in EVENT_ACTIONS:
         raise Problem("invalid", f"a rule for an event with no task acts with: {', '.join(EVENT_ACTIONS)}", 422)
+    if action in ONCE_ACTIONS and not sourceless:
+        raise Problem("invalid", f"{action} runs on an event with no task, like webhook.received", 422)
     names_bot = action == "wake_bot" or (sourceless and then in (WAKE, NOTE) and scope_kind != "bot")
     if sourceless and scope_kind == "bot" and then in (WAKE, NOTE):
         params.pop("bot", None)                         # the bot the row is set on is the one it tells
@@ -1234,6 +1285,23 @@ def _check_params(c, scope_kind, scope_id, sourceless, then, params):
                           422)
         if not isinstance(data, dict):
             raise Problem("invalid", "params.data is an object; {{path}} in its text is filled in", 422)
+    if action == "forward":
+        hook = params.get("webhook")
+        if not (isinstance(hook, str) and 1 <= len(hook) <= 80):
+            raise Problem("invalid", "forward names params.webhook, the endpoint", 422)
+        if CAT.canonical(event) != "webhook.received":
+            raise Problem("invalid", "forward is for webhook.received: it sends the incoming call on", 422)
+    if action == "create_task":
+        slug = _slug(params.get("owner"))
+        if not slug or "{{" in slug:
+            raise Problem("invalid", "create_task names params.owner, the bot that gets the task (not a template)", 422)
+        if not H.bot(c, slug):
+            raise Problem("not_found", f"No bot {slug}", 404)
+        title, body = params.get("title"), params.get("body", "")
+        if not (isinstance(title, str) and 1 <= len(title) <= 300) or not isinstance(body, str):
+            raise Problem("invalid", "create_task names params.title (300 characters) and may name params.body; "
+                                     "{{path}} in them is filled in", 422)
+        params["owner"] = slug
     return params
 
 
@@ -1281,7 +1349,14 @@ def _action_writer(c, auth, who, then, params):
     if then != ACTION:
         return
     action = params.get("action")
-    if action == "send_webhook":
+    if action == "create_task":
+        try:
+            auth.target(c, who, "bot:" + _slug(params.get("owner")), need="write")
+        except Problem as exc:
+            raise Problem("forbidden", f"You may not give tasks to {_slug(params.get('owner'))}, so a rule of yours "
+                                       "cannot either", 403) from exc
+        return
+    if action in ("send_webhook", "forward"):
         if who.role in ("owner", "human"):
             return
         if who.role == "bot" and who.actor != "bot:" + _ceo_slug():

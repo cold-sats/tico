@@ -56,8 +56,10 @@ def signature(secret, send_id, timestamp, body):
     return "v1," + base64.b64encode(hmac.new(key_of(secret), signed, hashlib.sha256).digest()).decode()
 
 
-def headers_for(secrets_, send_id, timestamp, body):
-    return {"content-type": "application/json", "user-agent": "Tico-Webhooks/1",
+def headers_for(secrets_, send_id, timestamp, body, custom=None):
+    """The headers of one attempt. The endpoint's own headers (lowercase names) go under Tico's: they can add or
+    replace the user-agent, never the content type or the signing headers (webhooks.clean_headers refuses those)."""
+    return {"user-agent": "Tico-Webhooks/1", **(custom or {}), "content-type": "application/json",
             "webhook-id": send_id, "webhook-timestamp": str(timestamp),
             "webhook-signature": " ".join(signature(s, send_id, timestamp, body) for s in secrets_)}
 
@@ -206,7 +208,8 @@ def claim(store, now):
 def deliver(store, vault, send_id, *, transport=None):
     """Post one claimed send and record what came back."""
     with store.read() as c:
-        send = c.execute("SELECT s.*, w.url, w.allow_http, w.secret, w.secret_prev, w.secret_prev_until, w.deleted_at "
+        send = c.execute("SELECT s.*, w.url, w.allow_http, w.secret, w.secret_prev, w.secret_prev_until, w.deleted_at, "
+                         "w.headers_json "
                          "FROM webhook_sends s JOIN webhooks w ON w.id=s.webhook_id WHERE s.id=?", (send_id,)).fetchone()
         if not send:
             return
@@ -215,12 +218,14 @@ def deliver(store, vault, send_id, *, transport=None):
             keys.append(vault.cipher.unseal(c, sealed_as(send["webhook_id"]), send["secret"]))
         if send["secret_prev"] and (send["secret_prev_until"] or "") > H.now():
             keys.append(vault.cipher.unseal(c, sealed_as(send["webhook_id"], True), send["secret_prev"]))
+        from . import webhooks
+        custom = webhooks.open_headers(c, vault, send["webhook_id"], webhooks.headers_of(send))
     body = send["body"].encode()
     timestamp = int(time.time())
     started = time.monotonic()
     status, head, error, abort = None, "", "", False
     try:
-        answer = egress.post(send["url"], body, headers_for(keys, send_id, timestamp, body),
+        answer = egress.post(send["url"], body, headers_for(keys, send_id, timestamp, body, custom),
                              allow_http=bool(send["allow_http"]), transport=transport)
         status, head = answer.status, answer.head
         abort = answer.headers.get("webhook-delivery", "").strip().lower() == "abort-message"

@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 from clients.manifest import tools_of
 from clients.routines import DEFAULT_ZONE, validate_schedules
-from . import people as P, task_privacy as privacy
+from . import people as P, task_privacy as privacy, templating
 from .harnesses import SYNCED_SQL
 from .profiles import TAKES_NONE_SQL
 from .statuses import PARKED_SQL, is_parked
@@ -20,6 +20,7 @@ from .scheduler import next_due, stamp
 from .store import H, Problem, encode
 
 OCCURRENCE_LIMIT = 50
+TEMPLATE_GROWTH = 4096      # characters a routine's text may gain from its {{placeholders}}
 DEFAULT_TEXT = "Run this scheduled routine."
 # Every active bot looks at its own open tasks once a day, staggered across
 # 08:00-09:59 America/Los_Angeles by slug so the fleet does not wake at once.
@@ -231,7 +232,7 @@ def open_task(c, auth, schedule, heading, body, now, trigger="schedule", sweep=F
     return task
 
 
-def emit(c, kind, subject, payload=None, *, title=None, content="", at=None, auth=None):
+def emit(c, kind, subject, payload=None, *, title=None, content="", at=None, auth=None, values=None):
     """Something happened in the hub; every routine that runs `on:` it gets one task.
 
     `subject` is the thing's id (a recording, say): the pair (routine, event, subject) is an
@@ -239,6 +240,9 @@ def emit(c, kind, subject, payload=None, *, title=None, content="", at=None, aut
     re-emitted. The task body is the routine's text, then the event's facts, then `content`
     (the thing itself, as a delivery task carries a meeting's notes), so the bot has everything
     in the one task it may read. The producer decides what is shareable before calling.
+    `values`: what a routine's text may read as `{{path}}` (backend/templating.py), as `{{payload.order}}`,
+    `{{type}}` and `{{trigger.name}}` for a webhook. A text without a placeholder is used as it is; one with
+    placeholders grows by at most TEMPLATE_GROWTH characters.
     Caller owns the transaction. Returns the ids of the tasks it opened.
     """
     now = stamp(_clock(at))
@@ -266,7 +270,10 @@ def emit(c, kind, subject, payload=None, *, title=None, content="", at=None, aut
         if c.execute("SELECT 1 FROM schedule_occurrences WHERE schedule_id=? AND occurrence IN ("
                      + ",".join("?" * len(names)) + ")", (schedule["id"], *[f"{n}:{subject}" for n in names])).fetchone():
             continue
-        body = (schedule["playbook"] or "Handle this event.").rstrip() + "\n\n" + "\n".join(f"{k}: {v}" for k, v in facts.items()) + content
+        playbook = schedule["playbook"] or "Handle this event."
+        if values and "{{" in playbook:
+            playbook = templating.render(playbook, values, cap=len(playbook) + TEMPLATE_GROWTH)
+        body = playbook.rstrip() + "\n\n" + "\n".join(f"{k}: {v}" for k, v in facts.items()) + content
         heading = f"{schedule['title']}: {title}" if title else schedule["title"]
         task = open_task(c, auth, schedule, heading, body, now)
         c.execute("INSERT INTO schedule_occurrences VALUES(?,?,?,?)", (schedule["id"], occurrence, task["id"], "event"))
