@@ -90,6 +90,20 @@ def chosen_grant(value):
     return {"full_name": name, "access": access, **({"run_workflows": workflows} if workflows is not None else {})}
 
 
+MARKET_SPEND = ("market define", "market segment add", "market segment tree", "market size add", "market size decide",
+                "market size list", "market figure add", "market sources", "market spend", "market research")
+
+
+def market_spend(client, args, tool):
+    """The spend commands run the MCP tool of the same name; `sources --add-file` reads its YAML here."""
+    fn = args.fn
+    if fn == "market sources" and args.add_file:
+        import yaml
+        loaded = yaml.safe_load(Path(args.add_file).read_text())
+        args.add = loaded if isinstance(loaded, list) else [loaded]
+    return tool(client, args)
+
+
 def run(args, who=None):
     if who:
         raise APIError("identity", "Remote identity comes from authentication; --human is unavailable")
@@ -568,6 +582,29 @@ def run(args, who=None):
         return tool(client, args)
     if cmd in ("kpi", "proposal", "strategy"):
         return tool(client, args)
+    if cmd == "lens":
+        from clients import hubtools
+        if sub == "list":
+            return hubtools.lens_list(client, {"applies_to": "market" if args.market else None})
+        if sub == "run":
+            answers = json.loads(Path(args.answers_file).read_text(encoding="utf-8-sig")) if args.answers_file else {}
+            if not isinstance(answers, dict):
+                raise APIError("answers", "--answers-file is a JSON object of {step key: answer}")
+            return hubtools.lens_run(client, {"lens": args.id, "answers": answers, "draft": args.draft,
+                                              "wait": 0 if args.no_wait else hubtools.LENS_WAIT_MAX, "operation_id": key})
+        if sub == "show":
+            return hubtools.lens_show(client, {"id": args.id})
+        return hubtools.lens_runs(client, {"lens": args.lens, "limit": args.limit})
+    if fn.startswith("market watch "):
+        return via_tool(client, args)
+    if fn == "market briefing latest":
+        return via_tool(client, args)
+    if fn == "market briefing post":
+        body = sys.stdin.read() if args.body_file == "-" else Path(args.body_file).read_text()
+        items = json.loads(Path(args.items_file).read_text()) if args.items_file else []
+        return via_tool(client, args, body=body, items=items)
+    if cmd == "market" and fn in MARKET_SPEND:
+        return market_spend(client, args, tool)
     if cmd == "market":
         if sub == "show":
             return client.get("market/entities/" + args.id)

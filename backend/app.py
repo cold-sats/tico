@@ -169,6 +169,13 @@ def create_app(settings=None):
                 onboarding.ensure_task_manager(c)
         except Exception as exc:
             telemetry.capture("librarian", exc)
+        # The Librarian gets the market posts from Listening, once (Settings > Listening).
+        try:
+            from . import listening
+            with store.transaction() as c:
+                listening.seed_market(c, settings)
+        except Exception as exc:
+            telemetry.capture("listening", exc)
         # A strategy research run the last process was doing has no thread now: it stops, and setup shows the form.
         try:
             from . import strategy_setup
@@ -176,6 +183,13 @@ def create_app(settings=None):
                 strategy_setup.stop_running(c)
         except Exception as exc:
             telemetry.capture("strategy_setup", exc)
+        # A lens run the last process was making has no thread now: it fails, and the run page says so.
+        try:
+            from . import lenses
+            with store.transaction() as c:
+                lenses.stop_running(c)
+        except Exception as exc:
+            telemetry.capture("lenses", exc)
         # An assistant still named after the company becomes "Assistant" (idempotent).
         try:
             with store.transaction() as c:
@@ -6115,10 +6129,18 @@ def create_app(settings=None):
     install_context_search(app, store, auth)
     from .market import install as install_market
     install_market(app, store, auth, mutate)
+    from .market_watch import install as install_market_watch
+    install_market_watch(app, store, auth, mutate)
+    from .market_briefing import install as install_market_briefing
+    install_market_briefing(app, store, auth, mutate)
+    from .market_spend import install as install_market_spend
+    install_market_spend(app, store, auth, mutate)
     from .strategy import install as install_strategy
     install_strategy(app, store, auth, mutate)
     from .strategy_setup import install as install_strategy_setup
     install_strategy_setup(app, store, auth, mutate)
+    from .lenses import install as install_lenses
+    install_lenses(app, store, auth, mutate)
     from .listening import install as install_listening
     install_listening(app, store, auth, mutate)
     from .archive import install_archives
