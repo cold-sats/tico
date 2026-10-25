@@ -113,6 +113,8 @@ def test_it_closes_with_a_note_but_cannot_touch_a_private_task_or_a_mover_field(
     for call in (lambda: act(api, "task_update", secret_id, status="doing"), lambda: act(api, "task_close", secret_id, "x")):
         with pytest.raises(H.Refused):
             call()
+    with pytest.raises(H.Refused):
+        act(api, "task_close", open_id, "")                                    # never without saying why
     assert act(api, "task_close", open_id, "Done long ago")["status"] == "closed"
 
 

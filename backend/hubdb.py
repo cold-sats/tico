@@ -5760,6 +5760,8 @@ def _task_close_allowed(conn, actor, row, note):
     # A board's shipped column is ready; a bot that works the board (a deploy bot) closes what shipped.
     shipped = row["status"] == "ready" and type_bot_works(conn, actor, row)
     shipped = shipped or task_manager_acts(conn, actor, row)       # it closes with a note: the one rule below, not a mover
+    if actor == TASK_MANAGER and actor != row["requester"] and not (note or "").strip():
+        refuse(conn, actor, "close", "The Task Manager closes a task only with a note saying why it is finished")
     if actor != row["requester"] and not is_human(actor) and actor != KEEPER and not shipped:
         refuse(conn, actor, "close", f"{actor_id(row['requester'])} asked for this; only they close it")
     # A person closes without giving a reason; the requesting bot is still told it was closed (task_close wakes it).
