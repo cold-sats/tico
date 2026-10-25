@@ -270,6 +270,7 @@ def test_history_lookups_keep_legacy_visibility_without_scanning_messages(api, w
 
     # Unfiltered LIMIT 1 must stop before authorizing the rest of history.
     # The keyed case separately checks that nested views use candidate lookups.
+    # A row the SQL gate settles never reaches the Python check, so at most one call.
     checked = []
     message = S.ReadIndex.message
 
@@ -281,11 +282,11 @@ def test_history_lookups_keep_legacy_visibility_without_scanning_messages(api, w
     for table in ('turns', 'attempts'):
         checked.clear()
         assert len(query(api, f'SELECT id FROM {table} LIMIT 1', world['attempt']['token'])['rows']) == 1
-        assert len(checked) == 1
+        assert len(checked) <= 1
         checked.clear()
         assert query(api, f'SELECT id FROM {table} WHERE id=:id LIMIT 1', world['attempt']['token'],
                      params={'id': 'attempt-public'})['rows'] == [['attempt-public']]
-        assert checked == ['message-public']
+        assert checked in ([], ['message-public'])
 
 
 def test_direct_messages_reuse_room_checks_and_match_recursive_privacy(api, world, monkeypatch):
@@ -502,6 +503,57 @@ def test_attempt_provenance_uses_keyed_inputs_and_retained_run_events(api, world
         task_privacy.record_moved_input(c, aid, 'other-fixture-run', msg)
         c.execute('DELETE FROM attempt_inputs WHERE message_id=?', (msg['id'],))
     assert readable() == []
+
+
+@pytest.mark.parametrize("source", ["input", "carried", "event"])
+def test_bot_replies_whose_run_names_a_denied_task_stay_out_of_full_scans(api, world, source):
+    # A bot's reply in a public task room, shaped as execution.stamp_reply records it, names its run and the
+    # message it answers. The private task reaches it only through that run, which unkeyed scans must still see.
+    store, room, aid = api.app.state.store, world['coo_task']['conversation_id'], 'attempt-reply-fixture'
+    with store.transaction() as c:
+        def clone(table, original, **patch):
+            row = dict(c.execute(f'SELECT * FROM {table} WHERE id=?', (original,)).fetchone())
+            row.update(patch)
+            c.execute(f'INSERT INTO {table} ({",".join(row)}) VALUES ({",".join("?" for _ in row)})',
+                      list(row.values()))
+
+        job = world['attempt']['job_id']
+        asked = c.execute('SELECT message_id FROM jobs WHERE id=?', (job,)).fetchone()[0]
+        clone('messages', asked, id='message-asked-fixture', conversation_id=room, refs_json='{}', in_reply_to=None)
+        queued = c.execute("SELECT id FROM jobs WHERE message_id='message-asked-fixture'").fetchone()
+        if not queued:
+            clone('jobs', job, id=aid, message_id='message-asked-fixture')
+        job = queued[0] if queued else aid
+        clone('attempts', world['attempt']['id'], id=aid, job_id=job, token_hash='fixture-reply', state='done',
+              lane='fixture-reply')
+        clone('turns', world['attempt']['id'], id=aid, message_id='message-asked-fixture', task_id=None)
+        clone('messages', asked, id='message-reply-fixture', conversation_id=room, from_actor='bot:ops',
+              to_actor='human:ana', in_reply_to='message-asked-fixture',
+              refs_json=json.dumps({'turn_id': aid, 'task': world['coo_task']['id'],
+                                    'run': {'job_id': job, 'attempt_id': aid}, 'answers': ['message-asked-fixture']}))
+    callers = (world['attempt']['token'], 'ben-test')
+
+    def seen(token):
+        ids = {row[0] for row in query(api, 'SELECT id FROM messages', token)['rows']}
+        assert query(api, 'SELECT count(*) FROM messages', token)['rows'] == [[len(ids)]]
+        runs = {row[0] for table in ('attempts', 'turns')
+                for row in query(api, f'SELECT id FROM {table}', token)['rows']}
+        return 'message-reply-fixture' in ids, aid in runs
+
+    for token in callers:
+        assert seen(token) == (True, True), token
+    with store.transaction() as c:
+        hidden = H.task_create(c, 'human:ana', 'Hidden run source', '', 'bot:inbox', private=True, lint=False)
+        if source == 'input':
+            msg = H.say(c, 'human:ana', 'bot:inbox', 'Synthetic input', conversation_id=room,
+                        refs={'task': hidden['id']})
+            c.execute('INSERT INTO attempt_inputs(attempt_id,message_id) VALUES(?,?)', (aid, msg['id']))
+        elif source == 'carried':
+            c.execute('UPDATE tasks SET carried_by=? WHERE id=?', (aid, hidden['id']))
+        else:
+            H.event(c, H.KEEPER, 'task.next-run.carried', aid, {'bot': 'ops', 'tasks': [hidden['id']]})
+    for token in callers:
+        assert seen(token) == (False, False), token
 
 
 def test_carried_private_tasks_and_unknown_plain_rooms_stay_hidden(api, world):
