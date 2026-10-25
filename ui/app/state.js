@@ -47,8 +47,9 @@ const assistantName = () => {
     ? CONFIG_DEFAULTS.assistant_name : name;
 };
 const assistantBot = () => S.config.assistant_bot || CONFIG_DEFAULTS.assistant_bot;
-// The assistant, BotOps, the Librarian and the CEO Bot are built in to every team: pause and rename them, never archive or delete.
-const isBuiltInBot = slug => slug === assistantBot() || slug === 'botops' || slug === 'librarian' || slug === 'goal-manager';
+// The assistant, BotOps, the Librarian, the CEO Bot and the Task Manager are built in to every team: pause and rename
+// them, never archive or delete. The Task Manager's entry point is Settings > Rules, not the org chart.
+const isBuiltInBot = slug => slug === assistantBot() || slug === 'botops' || slug === 'librarian' || slug === 'goal-manager' || slug === 'task-manager';
 // The CEO Bot (backend/ceo_bot.py, slug goal-manager) is on every install, at the top of the org chart, by the name the
 // owner gave it, else "CEO Bot". Its old name never shows: a roster read before the upgrade renamed it says "CEO Bot".
 const ceoBotName = () => {

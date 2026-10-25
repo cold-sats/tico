@@ -230,7 +230,8 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
     await page.waitForFunction(() => document.querySelector('#task-body [data-task-key="tbrief"] [data-card-owner]')?.title === 'Ops');
     refuseMove = true;
     await drag('tplan', '#task-body [data-col="copy"] .bcol-body', 0.9);
-    await page.locator('.toast', {hasText: 'Not moved'}).waitFor();
+    // The refusal reads on the card it was tried on, not in a toast.
+    await page.locator('#task-body [data-task-key="tplan"] [data-task-refused]', {hasText: 'Not moved'}).waitFor();
     assert.deepEqual(posted.at(-1).body, {version: 1, step: 'copy', step_rank: 2});
     await page.waitForFunction(() => [...document.querySelectorAll('#task-body [data-col="legal"] .bcard-title')].map(n => n.textContent).join() === 'Brief the agency,Plan the launch');
     await page.locator('#task-body [data-task-key="tplan"] .bcard-title').click();

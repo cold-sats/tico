@@ -87,7 +87,7 @@ def test_all_keeper_notices_are_obsolete_only_on_finished_tasks(api, status, bod
         c.execute("UPDATE jobs SET state='completed' WHERE id=?", (original["job_id"],))
         c.execute("UPDATE tasks SET status=? WHERE id=?", (status, task["id"]))
         notice = H.say(c, H.KEEPER, "bot:ops", body, kind="notice", conversation_id=task["conversation_id"],
-                       refs={"task": task["id"], "trigger": "other"})
+                       refs={"task": task["id"], "trigger": "other", "wake": "update"})
         assert c.execute("SELECT state FROM jobs WHERE message_id=?", (notice["id"],)).fetchone()[0] == "queued"
         W.tick(c, H.shift(H.now(), minutes=2))           # past the wake preset's batch window
     attempt = claim(api, machine)
@@ -120,7 +120,7 @@ def test_obsolete_notice_is_cancelled_even_when_idle_claim_finds_no_candidate(ap
         c.execute("UPDATE jobs SET state='completed' WHERE id=?", (original["job_id"],))
         c.execute("UPDATE tasks SET status='done' WHERE id=?", (task["id"],))
         notice = H.say(c, H.KEEPER, "bot:ops", "PR #7 checks passed", kind="notice",
-                       conversation_id=task["conversation_id"], refs={"task": task["id"], "trigger": "other"})
+                       conversation_id=task["conversation_id"], refs={"task": task["id"], "trigger": "other", "wake": "update"})
     monkeypatch.setattr(api.app.state.execution, "candidate", lambda *a, **kw: None)
     assert claim(api, machine) is None
     with api.app.state.store.read() as c:
@@ -156,7 +156,7 @@ def test_finished_task_notices_to_a_requester_are_also_obsolete(api):
         c.execute("UPDATE jobs SET state='completed' WHERE id=?", (original["job_id"],))
         c.execute("UPDATE tasks SET owner='bot:finance',requester='bot:ops',status='done' WHERE id=?", (task["id"],))
         notice = H.say(c, H.KEEPER, "bot:ops", "Subtask result returned: Finished", kind="notice",
-                       conversation_id=task["conversation_id"], refs={"task": task["id"], "trigger": "other"})
+                       conversation_id=task["conversation_id"], refs={"task": task["id"], "trigger": "other", "wake": "update"})
     assert claim(api, machine) is None
     with api.app.state.store.read() as c:
         assert c.execute("SELECT state FROM jobs WHERE message_id=?", (notice["id"],)).fetchone()[0] == "cancelled"

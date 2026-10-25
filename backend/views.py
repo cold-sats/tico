@@ -21,8 +21,8 @@ from . import changelog as CL
 from . import visuals
 from . import app_delivery, login_holds, providers, runner_versions
 from .harnesses import resolve_harness
-from . import personal_tokens, rooms, team_rules, turns, wake_presets
-from . import auto_tasks, pipeline_stats
+from . import personal_tokens, profiles, rooms, team_rules, turns, wake_presets
+from . import auto_tasks, bot_stops, pipeline_stats
 from .execution import AWAKE_GAP, AWAKE_SETTLE, Execution, bump_bot_session_epoch, turns_here
 from pathlib import Path
 
@@ -689,6 +689,9 @@ def queued_label(c, bot, location, settings=None, human=False, behind=False):
         label = "Saved — this bot is paused; this starts when it's resumed"
     elif bot_state != "active":
         label = "Saved — bot " + bot_state
+    elif (stop := bot_stops.queued_reason(c, bot, human)):
+        # Tico stopped the bot (failed runs, run budget) or it waits out a failed run: the words say why.
+        label = "Saved — " + stop
     elif not location["online"]:
         label = "Saved — waiting for " + ((location["machine"] or {}).get("label") or "a registered computer")
     elif not location["awake"]:
@@ -1816,6 +1819,7 @@ def install_views(app, store, auth, mutate, task_view):
                          "icon": icon_of(config), "helper": helper(config),
                          # What Settings and the branch editor show and pick from (backend/wake_presets.py).
                          "wake": wake_presets.effective(config),
+                         "profile": profiles.effective(config),
                          "my_access": level, **policy,
                          "can_chat": level["write"] and slug not in (auth.settings.assistant_bot, CEO_BOT),
                          # Onboarding or Active, and whether this person may mark onboarding complete (backend/lifecycle.py).

@@ -89,6 +89,21 @@ DERIVED = {
               SELECT coalesce(a.started, a.created), a.bot, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
               FROM {attempts} a WHERE NOT EXISTS (SELECT 1 FROM {all_turns} t WHERE t.id = a.id))
         GROUP BY 1, 2, 3, 4"""),
+    # Runs per week, bot and wake rule (backend/rules.py): the rule that woke the run, with its tokens and how many did
+    # nothing. A run from before rules, or whose message carried none, reads `unknown`. Same token sums as run_weekly.
+    "rule_weekly": (("turns",), """
+        SELECT date(started, '-6 days', 'weekday 1') AS week, bot, coalesce(rule_id, 'unknown') AS rule,
+               count(*) AS runs,
+               sum(CASE WHEN input_tokens IS NOT NULL OR cached_tokens IS NOT NULL
+                        THEN coalesce(input_tokens, 0) + coalesce(cached_tokens, 0)
+                        ELSE coalesce(tokens_in, 0) END) AS input_tokens,
+               sum(coalesce(cached_tokens, 0)) AS cached_input_tokens,
+               sum(coalesce(output_tokens, tokens_out, 0)) AS output_tokens,
+               sum(coalesce(outcome, '') = 'acted') AS acted,
+               sum(coalesce(did_nothing, 0) = 1) AS did_nothing,
+               round(100.0 * sum(coalesce(did_nothing, 0) = 1) / count(*), 1) AS did_nothing_pct
+        FROM {turns} WHERE started IS NOT NULL
+        GROUP BY 1, 2, 3"""),
 }
 # Totals over rows the reader may not read one by one, built only for the owner and a bot the owner granted them
 # (backend/outcome_stats.py). Each groups by week and fixed names (status, proposer, bot, tool) and carries no text, no
