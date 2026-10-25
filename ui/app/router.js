@@ -34,7 +34,8 @@ function route() {
   if (from && from.split('?')[0] !== S.route.split('?')[0] && main.animate && !matchMedia('(prefers-reduced-motion: reduce)').matches)
     main.animate({opacity: [0, 1]}, {duration: 120, easing: 'cubic-bezier(.2,0,0,1)'});
   document.body.classList.remove('task-peek-open');
-  if (!(S.route === '#/market' || S.route.startsWith('#/market?') || S.route.startsWith('#/market/'))) window.marketStop?.();
+  if (!isMarketRoute(S.route)) window.marketStop?.();
+  if (!isStrategyRoute(S.route)) window.strategyStop?.();
   taskChatStop(); $('#task-modal')?.close();
   if (!S.route.startsWith(DOCS)) DOC_LOAD++;
   // Leaving Mail abandons its fetches, its debounced search (which would set the hash back) and
@@ -106,10 +107,13 @@ function route() {
   else if (S.route === MAIL || S.route.startsWith(MAIL + '?')) pageMail();
   else if (S.route === MESSAGING || S.route.startsWith(MESSAGING + '?')) pageMessaging();
   else if (S.route === '#/changelog') pageChangelog();
-  else if (S.route === '#/market' || S.route.startsWith('#/market?') || S.route.startsWith('#/market/')) pageMarket();
+  // Market is a tab of Strategy now: old links keep their query or note path.
+  else if (S.route === '#/market' || S.route.startsWith('#/market?') || S.route.startsWith('#/market/')) { location.replace(MARKET_ROUTE + S.route.slice('#/market'.length)); return; }
+  else if (isMarketRoute(S.route)) pageMarket();
+  else if (isStrategyRoute(S.route)) pageStrategy();
   else if ((S.route === DOCS || S.route.startsWith(DOCS + '/') || S.route.startsWith(DOCS + '?')) && new URLSearchParams(S.route.split('?')[1] || '').get('collection') === 'market') {
     const id = S.route.startsWith(DOCS + '/') ? S.route.slice(DOCS.length + 1).split('?')[0] : '';
-    location.hash = '#/market' + (id ? '?note=' + encodeURIComponent(id) : '');
+    location.hash = MARKET_ROUTE + (id ? '?note=' + encodeURIComponent(id) : '');
     return;
   }
   else if (S.route === DOCS || S.route.startsWith(DOCS + '/') || S.route.startsWith(DOCS + '?')) pageCompanyDocs();

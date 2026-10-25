@@ -212,7 +212,7 @@ function renderLibrarians() {
   }
   const label = document.querySelector('#nav-assistant [data-nav-name]');
   if (label && label.textContent !== myChatName()) label.textContent = myChatName();
-  for (const [id, slug] of [['nav-docs-librarian', 'librarian'], ['nav-market-librarian', 'librarian']]) {
+  for (const [id, slug] of [['nav-docs-librarian', 'librarian'], ['nav-strategy-librarian', 'librarian']]) {
     const el = document.getElementById(id);
     if (!el) continue;
     const bot = (S.emps || []).find(e => e.name === slug && e.status !== 'archived' && e.status !== 'retired');
@@ -785,7 +785,7 @@ function renderTree() {
       (a.dataset.nav === 'settings' && S.route === SETTINGS) ||
       (a.dataset.nav === 'credentials' && S.route === CREDENTIALS) ||
       (a.dataset.nav === 'docs' && (S.route === DOCS || S.route.startsWith(DOCS + '/') || S.route.startsWith(DOCS + '?'))) ||
-      (a.dataset.nav === 'market' && (S.route === '#/market' || S.route.startsWith('#/market?') || S.route.startsWith('#/market/'))) ||
+      (a.dataset.nav === 'strategy' && (isStrategyRoute(S.route) || isMarketRoute(S.route))) ||
       (a.dataset.nav === 'integrations' && (S.route === INTEGRATIONS || S.route.startsWith(INTEGRATIONS + '/'))) ||
       (a.dataset.nav === 'changelog' && S.route === '#/changelog') ||
       (a.dataset.nav === 'learnings' && (S.route === LEARNINGS || S.route.startsWith(LEARNINGS + '?'))) ||
