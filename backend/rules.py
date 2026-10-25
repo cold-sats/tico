@@ -1087,7 +1087,7 @@ def _judge_event(conn, event, ctx, actor):
         elif outcome == ACTION and params.get("action") in EVENT_RUNNERS:
             found = EVENT_RUNNERS[params["action"]](
                 conn, row["id"], row["created_by"], params, values, event=name,
-                subject=delivery or name, revision=row["id"], ctx=ctx)
+                subject=delivery or name, revision=f"{row['id']}:{name}:{trigger}", ctx=ctx)   # one send per rule, event, trigger and call
             done.append({"rule_id": row["id"], "outcome": found["outcome"], "target": found["target"],
                          "ok": found["ok"], "detail": found["detail"]})
             continue

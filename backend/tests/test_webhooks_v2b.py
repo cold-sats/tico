@@ -205,6 +205,34 @@ def test_replay_missing_queues_exactly_the_events_an_endpoint_lacks(api, net):
     run(api, net)
 
 
+def test_replay_missing_moves_past_events_the_endpoint_does_not_want_so_the_one_it_does_is_reached(api, net, monkeypatch):
+    """The 500-event window used to be cut before the subscription test, so enough unwanted events in front of a wanted
+    one left every round at queued=0, more=True for good."""
+    monkeypatch.setattr(W, "REPLAY_BATCH", 3)
+    post_w = __import__("backend.tests.test_webhooks", fromlist=["post"]).post
+    make(api, events=["custom.*"])
+    for i in range(7):
+        publish(api, "custom.b", f"b{i}", {"n": i}, "human:ana")
+    publish(api, "custom.a", "wanted", {"n": 1}, "human:ana")
+    late = make(api, events=["custom.a"])
+    body, queued, rounds = {"since": "2020-01-01"}, 0, 0
+    while True:
+        done = post_w(api, f"webhooks/{late['id']}/replay", body)
+        queued, rounds = queued + done["queued"], rounds + 1
+        if not done["more"]:
+            break
+        assert done["next_since"] and done["next_after"] and rounds < 10
+        body = {"since": done["next_since"], "after": done["next_after"]}
+    assert queued == 1 and rounds == 3 and [x["subject"] for x in sends(api, late["id"])] == ["wanted"]
+
+
+def test_since_with_an_offset_means_that_moment_in_utc():
+    assert W._since("2026-10-25T12:00:00+09:00") == "2026-10-25T03:00:00.000000Z"
+    assert W._since("2026-10-25T12:00:00Z") == "2026-10-25T12:00:00.000000Z"
+    assert W._since("2026-10-25T12:00:00") == "2026-10-25T12:00:00.000000Z"       # no zone: UTC, as the stamps are
+    assert W._since("2026-10-25") == "2026-10-25T00:00:00.000000Z"
+
+
 def test_five_days_of_failing_turn_an_endpoint_off_but_thirteen_hours_after_a_quiet_spell_do_not(api, net):
     post_w = __import__("backend.tests.test_webhooks", fromlist=["post"]).post
     hook_ = make(api, events=["custom.*"])
@@ -294,3 +322,35 @@ def test_failing_since_starts_at_the_first_failure_and_any_success_or_enabling_c
     assert since() and since() != first
     post_w(api, f"webhooks/{hook_['id']}/enable", {})
     assert since() is None                                       # so does turning it on
+
+
+def test_recovering_a_relayed_call_keeps_the_gateways_delivery_id_so_its_retry_is_still_a_duplicate(api):
+    """A relayed Stripe call without an id header is named by HQ; recovery once recomputed the id from the body's evt_ id,
+    so a later delivery under HQ's id was accepted a second time."""
+    import base64
+    import time
+    from types import SimpleNamespace
+    from backend import hook_relay
+    post(api, "triggers", {"name": "Shop"})
+    routine(api, "webhook.shop")
+    post(api, "triggers/shop/signing", {"preset": "stripe", "secret": "t" * 20})
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO trigger_relays(relay_id,trigger_id,address_prefix,created_by,created) VALUES(?,?,?,?,?)",
+                  ("hr_0123456789abcdef", "shop", "https://api.tico.dev/v1/hooks/hr_0123456789abcdef", "human:ana", H.now()))
+    relay = hook_relay.HookRelay(api.app.state.store, api.app.state.store.settings, SimpleNamespace(state=api.app.state),
+                                 api.app.state.auth)
+    body = b'{"id": "evt_123", "type": "charge.succeeded"}'
+    stamp = str(int(time.time()))
+
+    def item(seq, key):
+        signed = hmac.new(key.encode(), f"{stamp}.".encode() + body, hashlib.sha256).hexdigest()
+        return {"hq_seq": seq, "relay_id": "hr_0123456789abcdef", "trigger_id": "shop", "delivery_id": "hq-1",
+                "received_at": H.now(), "body_b64": base64.b64encode(body).decode(),
+                "headers": {"content-type": "application/json", "stripe-signature": f"t={stamp},v1={signed}"}}
+    assert relay.take(item(1, "w" * 20), 0) == 1                                         # refused: the secret had a typo
+    assert post(api, "triggers/shop/recover", {"since_hours": 24})["recover"]["still_refused"] == 1
+    post(api, "triggers/shop/signing", {"preset": "stripe", "secret": "w" * 20})          # fixed
+    assert post(api, "triggers/shop/recover", {"since_hours": 24})["recover"]["recovered"] == 1
+    assert [r[0] for r in stored_rows(api, "SELECT delivery FROM trigger_seen")] == ["hq-1"]
+    assert relay.take(item(2, "w" * 20), 1) == 2                                         # HQ's own retry
+    assert len([t for t in get(api, "tasks?owner=bot:ops")["tasks"] if t.get("routine_id")]) == 1

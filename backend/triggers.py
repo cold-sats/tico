@@ -336,6 +336,13 @@ def base_of(delivery):
     return head if sep and tail.isdigit() else delivery
 
 
+def _base(c, trigger_id, delivery):
+    """`base_of`, except that an id a sender sent as it is (it may contain ":replay:") is its own base."""
+    if c.execute("SELECT 1 FROM trigger_bodies WHERE trigger_id=? AND delivery=?", (trigger_id, delivery)).fetchone():
+        return delivery
+    return base_of(delivery)
+
+
 def deliveries(c, trigger_id):
     _row(c, trigger_id)
     rows = [dict(r) for r in c.execute(
@@ -543,8 +550,9 @@ def receive(c, trigger_id: str, body: bytes, headers: Mapping[str, str], *, secr
     cap = hourly_of(found)
     if via == "direct" and not recovering and c.execute(
             # The ledger, not the log: the log keeps only KEEP rows, fewer than the largest cap.
-            "SELECT count(*) FROM trigger_seen WHERE trigger_id=? AND seen_at>? AND instr(delivery,?)=0",
-            (trigger_id, H.shift(H.now(), hours=-1), REPLAY)).fetchone()[0] >= cap:
+            # A person's own replays are flagged when made; a sender's id that merely contains ":replay:" still counts.
+            "SELECT count(*) FROM trigger_seen WHERE trigger_id=? AND seen_at>? AND replay=0",
+            (trigger_id, H.shift(H.now(), hours=-1))).fetchone()[0] >= cap:
         return _refused(c, found, delivery, body, headers, at, 429, "rate_limited",
                         f"This trigger takes {cap} deliveries an hour; try again later", via, secret, "rate_limited")
     type_ = P.type_of(type_spec(found), headers, body)
@@ -567,7 +575,7 @@ def replay(c, who, auth, trigger_id, delivery):
     _no_change(trigger_id, "run again")
     found = _row(c, trigger_id)
     may_manage(c, who, found)
-    base = base_of(delivery)
+    base = _base(c, trigger_id, delivery)
     refused = c.execute("SELECT sent_id FROM trigger_deliveries WHERE trigger_id=? AND delivery=? AND outcome='refused'",
                         (trigger_id, base)).fetchone()
     if refused and refused["sent_id"]:
@@ -583,10 +591,12 @@ def replay(c, who, auth, trigger_id, delivery):
     if stored["expires_at"] <= H.now():
         raise Problem("expired", "This call's body is no longer kept, so it cannot be run again", 410)
     prefix = base + REPLAY
-    n = c.execute("SELECT count(*) FROM trigger_seen WHERE trigger_id=? AND substr(delivery,1,?)=?",
+    n = c.execute("SELECT count(*) FROM trigger_seen WHERE trigger_id=? AND replay=1 AND substr(delivery,1,?)=?",
                   (trigger_id, len(prefix), prefix)).fetchone()[0] + 1
+    while c.execute("SELECT 1 FROM trigger_seen WHERE trigger_id=? AND delivery=?", (trigger_id, f"{prefix}{n}")).fetchone():
+        n += 1                                      # a sender may have used this id for itself
     again = f"{prefix}{n}"
-    c.execute("INSERT INTO trigger_seen(trigger_id,delivery,seen_at) VALUES(?,?,?)", (trigger_id, again, H.now()))
+    c.execute("INSERT INTO trigger_seen(trigger_id,delivery,seen_at,replay) VALUES(?,?,?,1)", (trigger_id, again, H.now()))
     headers = json.loads(stored["headers_json"] or "{}")
     fired, results = _route(c, found, again, stored["type"], stored["via"], bytes(stored["body"]), headers, auth)
     _log(c, trigger_id, again, base, stored["body"], len(fired), "replayed", f"replay of {base}",
@@ -617,7 +627,8 @@ def recover(c, who, auth, vault, trigger_id, since_hours=24):
         c.execute("SAVEPOINT trigger_recover")
         try:
             got = receive(c, trigger_id, bytes(row["body"]), json.loads(row["headers_json"] or "{}"), secret=None,
-                          via=row["via"], received_at=row["received_at"], auth=auth, vault=vault, recovering=True)
+                          via=row["via"], received_at=row["received_at"], auth=auth, vault=vault, recovering=True,
+                          delivery_id=row["delivery"])    # the id it was refused under, whatever the sender or HQ called it
             c.execute("RELEASE trigger_recover")
         except Exception:
             c.execute("ROLLBACK TO trigger_recover")
@@ -658,7 +669,7 @@ def read(c, who, trigger_id, delivery, part=1):
     get the whole body; a bot gets it in fenced parts, and only a bot that manages the trigger or was given this call
     (a task made from it, or a notice from Tico naming it). Anyone else finds nothing."""
     found = _row(c, trigger_id)
-    base = base_of(delivery)
+    base = _base(c, trigger_id, delivery)
     allowed = (who.role in ("human", "owner") and manages(who, found)) or (
         who.role == "bot" and (manages(who, found) or given_to(c, who.actor, trigger_id, base)))
     logged = c.execute("SELECT * FROM trigger_deliveries WHERE trigger_id=? AND delivery=?", (trigger_id, delivery)).fetchone() \

@@ -184,6 +184,29 @@ def test_a_create_retried_after_a_lost_answer_is_the_same_relay_without_a_secret
     assert len(hq.relays) == 1
 
 
+def test_a_concurrent_create_that_gets_the_same_hq_relay_keeps_it_instead_of_deleting_it(api, hq):
+    """Two creates with one idempotency key both pass the gate and both get HQ's one relay; the second must not treat
+    that relay as an extra and delete it."""
+    post(api, "triggers", {"name": "Shop"})
+    svc = api.app.state.hook_relay
+    real = svc.ask
+
+    def ask_then_other_request_saves_first(link, method, path, body, idempotency, quiet=False):
+        answer = real(link, method, path, body, idempotency, quiet)
+        if path == "relays" and method == "POST":
+            with api.app.state.store.transaction() as c:
+                c.execute("INSERT INTO trigger_relays(relay_id,trigger_id,address_prefix,created_by,created) VALUES(?,?,?,?,?)",
+                          (answer["relay_id"], "shop", f"{BASE}/v1/hooks/{answer['relay_id']}", "human:ana", H.now()))
+        return answer
+    svc.ask = ask_then_other_request_saves_first
+    try:
+        made = post(api, "triggers/shop/relay", {}, key="k1")["relay"]
+    finally:
+        del svc.ask
+    assert made["relay_id"] in hq.relays and not any(p.endswith("/delete") for p in hq.paths())
+    assert get(api, "triggers")["triggers"][0]["relay"]["address_prefix"].endswith(made["relay_id"])
+
+
 def test_only_the_owner_or_the_maker_manages_an_address(api, hq):
     post(api, "triggers", {"name": "Bens"}, token="ben-test")
     post(api, "triggers/bens/relay", {}, token="cara-test", expected=403)

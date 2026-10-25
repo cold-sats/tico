@@ -33,8 +33,11 @@ MAX_TYPE = 100
 PREFIX = "whsec_"
 
 # Headers that carry a credential or a signature: shown as "[redacted]" in any listing or page.
-SECRET_NAMES = ("signature", "token", "secret", "password", "api-key", "apikey")
-SECRET_HEADERS = {"authorization", "proxy-authorization", "cookie", "set-cookie"}
+# Any header whose lower-cased name contains one of these words (contract C5), plus the cookie headers; the sender's own
+# delivery id stays visible because it names the call.
+SECRET_NAMES = ("signature", "authorization", "token", "secret", "key", "password")
+SECRET_HEADERS = {"cookie", "set-cookie"}
+VISIBLE_HEADERS = {"idempotency-key"}
 # Not kept at all: a cookie is the sender's session, hop-by-hop headers belong to one connection, cf-* and cdn-loop
 # are the edge's.
 HOP_BY_HOP = {"cookie", "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer",
@@ -266,5 +269,9 @@ def kept_headers(headers, url_secret=None):
 
 def redacted(headers):
     """Headers as a listing or page shows them: credential and signature values hidden."""
-    return {name: "[redacted]" if name in SECRET_HEADERS or any(word in name for word in SECRET_NAMES) else value
-            for name, value in headers.items()}
+    return {name: "[redacted]" if _secret(name) else value for name, value in headers.items()}
+
+
+def _secret(name):
+    name = str(name).lower()
+    return name not in VISIBLE_HEADERS and (name in SECRET_HEADERS or any(word in name for word in SECRET_NAMES))

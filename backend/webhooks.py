@@ -16,6 +16,7 @@ import logging
 import re
 import secrets
 import uuid
+from datetime import timezone
 from urllib.parse import urlsplit
 
 from fastapi import Request
@@ -173,6 +174,12 @@ def _identity(c, actor, cache):
     return cache[actor]
 
 
+def _left(c, actor, cache):
+    """Whether `actor` is a person who has left or lost sign-in (auth.identity_for_actor refuses them). Such a person's
+    endpoint hears nothing: no public task, no bot, no company-wide event. Without auth (a bare database) nobody is."""
+    return bool(_state.get("auth")) and str(actor).startswith("human:") and _identity(c, actor, cache) is None
+
+
 def _admin(c, actor, cache):
     who = _identity(c, actor, cache)
     return bool(who and (who.role == "owner" or _state["auth"].bot_admin(who)))
@@ -197,6 +204,8 @@ def view_for(c, actor, type_, subject, data, cache):
     """`data` as this person may have it, or None when none of it is theirs. The event's own rules, one per group:
     a task by the task's privacy, an approval by who decides it, a Needs-you item by who it is for, a bot by who may
     read it; Health and inbound mail are for owners and admins; the rest is company-wide."""
+    if _left(c, actor, cache):
+        return None
     group = type_.split(".")[0]
     if group == "task":
         return data if _task_readable(c, actor, subject, cache) else None
@@ -223,8 +232,9 @@ def view_for(c, actor, type_, subject, data, cache):
 
 # ------------------------------------------------------------------------------------------------------------ publish
 def listening(c):
-    """Whether any endpoint is on: the one cheap query a producer pays when nobody is."""
-    return c.execute("SELECT 1 FROM webhooks WHERE enabled=1 AND deleted_at IS NULL LIMIT 1").fetchone() is not None
+    """Whether any endpoint exists, on or paused: the one cheap query a producer pays when there is none. A paused
+    endpoint still has the events kept, so "Send missed" can bring it up to date when it is turned on."""
+    return c.execute("SELECT 1 FROM webhooks WHERE deleted_at IS NULL LIMIT 1").fetchone() is not None
 
 
 def _is_ceo(actor):
@@ -266,8 +276,9 @@ def _event_id(type_, subject, revision):
 def publish(c, type, subject, data, actor, *, only=None, revision=None):
     """Queue `type` about `subject` for the endpoints that should hear of it; the number of sends queued.
 
-    Inside the caller's write transaction, inserts only. Without `only` it never raises: every enabled endpoint
-    subscribed to `type` gets a message built through its owner's read view, at most MAX_PER_EVENT of them. With
+    Inside the caller's write transaction, inserts only. Without `only` it never raises: the event is kept in the
+    journal while any endpoint exists (paused ones too, for "Send missed"), and every enabled endpoint subscribed to
+    `type` gets a message built through its owner's read view, at most MAX_PER_EVENT of them. With
     `only` (an endpoint id) it sends to that one and raises Refused when it cannot: the endpoint is missing, paused
     or deleted, the sender is the CEO Bot or a bot whose send switch is off, or the endpoint's owner may not read
     the subject. `revision` makes the event id repeatable, so a retried write queues nothing twice."""
@@ -276,12 +287,10 @@ def publish(c, type, subject, data, actor, *, only=None, revision=None):
     try:
         name = canonical(type)
         # One indexed query when nobody listens, which is nearly always.
-        hooks = [h for h in c.execute("SELECT * FROM webhooks WHERE enabled=1 AND deleted_at IS NULL ORDER BY created, id")]
-        if not name or not hooks or _is_ceo(actor):
+        every = c.execute("SELECT * FROM webhooks WHERE deleted_at IS NULL ORDER BY created, id").fetchall()
+        if not name or not every or _is_ceo(actor):
             return 0
-        hooks = [h for h in hooks if subscribed(json.loads(h["events_json"]), name)]
-        if not hooks:
-            return 0
+        hooks = [h for h in every if h["enabled"] and subscribed(json.loads(h["events_json"]), name)]
         c.execute("SAVEPOINT webhook_publish")
         try:
             queued = _fan_out(c, hooks, name, str(subject), data or {}, actor, revision)
@@ -301,16 +310,17 @@ def publish(c, type, subject, data, actor, *, only=None, revision=None):
 def _fan_out(c, hooks, name, subject, data, actor, revision):
     event_id = _event_id(name, subject, revision)
     hooks = _filtered(c, hooks, name, subject, data, actor)
-    kept, skipped = hooks[:MAX_PER_EVENT], max(0, len(hooks) - MAX_PER_EVENT)
-    _event_row(c, event_id, name, subject, data, actor, skipped)
-    cache, views, queued = {}, {}, 0
-    for hook in kept:
+    # Who may read it is settled before the per-event cap, so endpoints that can not have it never use up the places.
+    cache, views, eligible = {}, {}, []
+    for hook in hooks:
         owner = hook["created_by"]
         if owner not in views:
             views[owner] = view_for(c, owner, name, subject, data, cache)
         if views[owner] is not None:
-            queued += _queue(c, hook, event_id, name, subject, views[owner])
-    return queued
+            eligible.append(hook)
+    kept, skipped = eligible[:MAX_PER_EVENT], max(0, len(eligible) - MAX_PER_EVENT)
+    _event_row(c, event_id, name, subject, data, actor, skipped)
+    return sum(_queue(c, hook, event_id, name, subject, views[hook["created_by"]]) for hook in kept)
 
 
 def _publish_only(c, type_, subject, data, actor, only, revision):
@@ -675,6 +685,10 @@ class WebhookSince(Contract):
     since: str = Field(min_length=1, max_length=40)
 
 
+class WebhookReplay(WebhookSince):
+    after: str = Field(default="", max_length=200)      # with `since`: where the last round stopped (its next_since / next_after)
+
+
 def new_secret():
     return D.PREFIX + base64.b64encode(secrets.token_bytes(32)).decode()
 
@@ -916,8 +930,7 @@ def _since(value):
         at = None
     if at is None:
         raise Problem("webhook", "Give a date like 2026-10-20 or a time like 2026-10-20T14:00:00Z", 422)
-    if at.tzinfo is None:
-        at = at.replace(tzinfo=H.parse_ts(H.now()).tzinfo)
+    at = at.astimezone(timezone.utc) if at.tzinfo else at.replace(tzinfo=timezone.utc)
     return at.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
 
 
@@ -946,16 +959,21 @@ def recover_failed(c, who, hook_id, since):
     return {"webhook": hook_id, "since": at, "recovered": len(ids), "more": more}
 
 
-def replay_missing(c, who, hook_id, since):
+def replay_missing(c, who, hook_id, since, after=""):
     """Events since `since` that this endpoint should have heard and has no send for (it was added late, was paused
     and cleared, or a filter changed) become sends now. The same tests as a live event: its subscription, its
-    filter, and what its owner may read. Events are kept 30 days; an explicit send to another endpoint is not replayed."""
+    filter, and what its owner may read. Events are kept 30 days; an explicit send to another endpoint is not replayed.
+
+    A round looks at REPLAY_BATCH events, whether or not they turn into sends. When more wait, `next_since` and
+    `next_after` are where that round stopped: give them back as `since` and `after` and the next round starts there,
+    so events this endpoint may not have never hold the rest up."""
     hook = _working(c, who, hook_id)
     at = _since(since)
     events, filt = json.loads(hook["events_json"]), filter_of(hook)
-    rows = c.execute("SELECT * FROM webhook_events e WHERE created>=? AND (only_id='' OR only_id=?) AND NOT EXISTS("
+    where, params = ("created>=?", [at]) if not after else ("(created>? OR (created=? AND id>?))", [at, at, after])
+    rows = c.execute(f"SELECT * FROM webhook_events e WHERE {where} AND (only_id='' OR only_id=?) AND NOT EXISTS("
                      "SELECT 1 FROM webhook_sends s WHERE s.event_id=e.id AND s.webhook_id=?) ORDER BY created, id LIMIT ?",
-                     (at, hook_id, hook_id, REPLAY_BATCH + 1)).fetchall()
+                     (*params, hook_id, hook_id, REPLAY_BATCH + 1)).fetchall()
     more, rows = len(rows) > REPLAY_BATCH, rows[:REPLAY_BATCH]
     cache, queued = {}, 0
     for row in rows:
@@ -973,7 +991,8 @@ def replay_missing(c, who, hook_id, since):
     H.event(c, who.actor, "webhook.replayed", hook_id, {"since": at, "sends": queued})
     if queued:
         _refresh(c)
-    return {"webhook": hook_id, "since": at, "checked": len(rows), "queued": queued, "more": more}
+    return {"webhook": hook_id, "since": at, "checked": len(rows), "queued": queued, "more": more,
+            "next_since": rows[-1]["created"] if more else None, "next_after": rows[-1]["id"] if more else None}
 
 
 def enable(c, who, hook_id):
@@ -1133,9 +1152,10 @@ def install(app, settings, store, auth, mutate):
         return mutate(request, body, lambda c: recover_failed(c, request.state.identity, hook_id, body.since))
 
     @app.post("/api/v2/webhooks/{hook_id}/replay")
-    def webhook_replay(request: Request, hook_id: str, body: WebhookSince):
-        """Send the events since a date that this endpoint should have had and has no send for."""
-        return mutate(request, body, lambda c: replay_missing(c, request.state.identity, hook_id, body.since))
+    def webhook_replay(request: Request, hook_id: str, body: WebhookReplay):
+        """Send the events since a date that this endpoint should have had and has no send for. At most 500 events a
+        round; when `more`, send `next_since` and `next_after` back as `since` and `after` for the next round."""
+        return mutate(request, body, lambda c: replay_missing(c, request.state.identity, hook_id, body.since, body.after))
 
     @app.post("/api/v2/webhooks/{hook_id}/delete")
     def webhook_delete(request: Request, hook_id: str, body: M.Empty):
