@@ -5010,6 +5010,8 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     from . import review_gate
     if parent and review_gate.REVIEW.match(str(title).strip()):
         review_gate.check(conn, actor, parent, review_prs, require_pr=True)
+    if parent:
+        review_gate.refuse_second(conn, actor, parent, title, review_prs)
     # Whoever files a subtask asked for it: it shows them as asking and their notices reach them.
     requester = actor
     if private is False and (not is_human(actor) or VIA.get()):
@@ -5179,6 +5181,8 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     ], "guidance": "Check for overlap. Reuse shared work; keep distinct decisions and deliverables separate."} if related else None
     if started_in:
         _task_started(conn, task(conn, row["id"]), started_in)
+    if parent and review_gate.ONE_OPEN.match(str(title).strip()):
+        review_gate.remember_heads(conn, actor, row["id"], parent, review_prs)
     # A task a bot files for itself in one of its turns starts its own turn only once that turn has ended
     # (execution.job_refusal): the filing turn may finish it first, and the claim then cancels the notice
     # rather than start a turn that finds nothing left to do (Dev 359).
