@@ -54,7 +54,8 @@ python3 -m setup --company-file ./tico.company.yaml
 ```
 
 Choose this server, an existing SSH server, or AWS; the wizard configures the usual sign-in, DNS and HTTPS.
-The same flag works with the non-interactive cloud setup. It validates the file before provisioning, uses its
+The same flag works with the non-interactive cloud setup. The company YAML file and its normalized plan must each
+fit within 512 KiB (524,288 bytes). Setup refuses larger files or plans before provisioning. It validates the file, uses its
 company name, and carries the normalized plan privately to the server. On first startup the app creates the selected
 AI employees and reporting lines, adds its built-in roles once, and leaves employees marked **later** paused.
 It preserves the plan across retries and refuses to replace an existing company. A selected file takes precedence
