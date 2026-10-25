@@ -411,11 +411,147 @@ def guarded(c, auth, who, inner, function, columns=None):
     return {table: (rules[table], hidden[table]) for table in rules}
 
 
-def connect(path, c, auth, who, trace=None):
-    """A read-only connection whose temp views and authorizer carry this caller's visibility."""
+# Per-request sets, each an indexed temp table only this request's views may read.
+SETS = ("visible_tasks", "readable_conversations", "denied_tasks", "unreadable_rooms", "run_carriers")
+RUN_EVENTS = "('task.next-run.carried','attempt.input.moved')"
+
+
+class Gates:
+    """SQL that answers yes, without Python, for a row the privacy functions in backend/privacy_index.py allow.
+
+    Each gate is `(fast OR privacy function)`: a fast yes skips the function and anything else still asks it, so a
+    fast clause may only be narrower than the function, never wider. A clause reads small sets built once per request
+    (the caller's denied private tasks, the rooms whose plain messages they may not read, the runs that carry a denied
+    task) and allows a message only when every message its provenance reaches is settled by its own row: its parent
+    and the messages it answers have no parents, answers or inputs of their own, and its run's messages likewise.
+    With no denied task, no string needs a lookup at all.
+
+    Where SQLite and Python could read the same JSON differently the clause declines and Python decides: a backslash
+    (an escaped string), a repeated key (SQLite reads the first, Python the last), a task given as anything but one
+    string, a string that is itself JSON, a meeting reference, a moved input, and long provenance.
+    """
+    KEYS = ("task", "task_id", "turn_id", "run", "attempt_id", "answers", "inputs")
+
+    def __init__(self, inner, private, denied):
+        self.inner, self.denied = inner, bool(denied)
+        self.tasks, self.messages = inner("tasks"), inner("messages")
+        self.denied_tasks = '"' + private("denied_tasks") + '"'
+        self.rooms = '"' + private("unreadable_rooms") + '"'
+        self.carriers = '"' + private("run_carriers") + '"'
+
+    def strings(self, value):
+        """No string in this JSON names a denied task the way ReadIndex.references finds one."""
+        if not self.denied:
+            return "1"
+        return (f"NOT EXISTS (SELECT 1 FROM json_tree({value}) s WHERE s.type='text' AND ("
+                f"s.value IN (SELECT id FROM {self.denied_tasks}) OR instr(s.value,'/task')>0 "
+                "OR substr(s.value,1,1) IN ('{','[') OR (substr(s.value,1,5)='task:' "
+                f"AND substr(s.value,6) IN (SELECT id FROM {self.denied_tasks}))))")
+
+    def task(self, refs, key):
+        """`refs.<key>` is absent, or one string naming a task that exists and is not denied."""
+        path = f"'$.{key}'"
+        return (f"(json_type({refs},{path}) IS NULL OR (json_type({refs},{path})='text' AND "
+                f"json_extract({refs},{path}) IN (SELECT id FROM {self.tasks}) AND "
+                f"json_extract({refs},{path}) NOT IN (SELECT id FROM {self.denied_tasks})))")
+
+    def refs(self, refs, top):
+        """The row's own refs: an object naming no meeting, no denied string and only known readable tasks.
+
+        Only the message being read (`top`) may name ancestors, a bounded few, and a run, which must itself pass."""
+        once = " AND ".join(f"instr(substr({refs},instr({refs},'\"{key}\"')+1),'\"{key}\"')=0" for key in self.KEYS)
+        checks = (f"json_valid({refs}) AND json_type({refs})='object' AND instr({refs},'\\')=0 "
+                  f"AND instr({refs},'live_meeting')=0 AND {once} "
+                  f"AND {self.task(refs, 'task')} AND {self.task(refs, 'task_id')} AND {self.strings(refs)}")
+        if not top:
+            return (f"(coalesce({refs},'') IN ('','{{}}') OR ({checks} "
+                    f"AND instr({refs},'\"answers\"')=0 AND instr({refs},'\"inputs\"')=0))")
+        turn, run_id = f"json_extract({refs},'$.turn_id')", f"json_extract({refs},'$.run.attempt_id')"
+        checks += (f" AND coalesce(json_type({refs},'$.answers'),'array')='array' "
+                   f"AND coalesce(json_type({refs},'$.inputs'),'array')='array' "
+                   f"AND coalesce(json_array_length({refs},'$.answers'),0)+coalesce(json_array_length({refs},'$.inputs'),0)<=48 "
+                   f"AND CASE WHEN json_type({refs},'$.turn_id') IS NOT NULL "
+                   f"THEN json_type({refs},'$.turn_id')='text' AND {self.attempt(turn)} "
+                   f"WHEN json_type({refs},'$.run.attempt_id') IS NOT NULL "
+                   f"THEN json_type({refs},'$.run.attempt_id')='text' AND {self.attempt(run_id)} ELSE 1 END")
+        return f"(coalesce({refs},'') IN ('','{{}}') OR ({checks}))"
+
+    def root(self, alias):
+        """A message settled by its own row: no parent, answers or inputs, and (unread here) no run."""
+        return (f"coalesce(coalesce({alias}.in_reply_to,'')='' AND {alias}.conversation_id NOT IN "
+                f"(SELECT id FROM {self.rooms}) AND {self.refs(alias + '.refs_json', top=False)}, 0)")
+
+    def message(self, alias="source"):
+        """ReadIndex.message: the row, its run, and each message it replies to, answers or took in as input."""
+        refs = alias + ".refs_json"
+        ancestors = (f"SELECT {alias}.in_reply_to AS id UNION ALL "
+                     f"SELECT value FROM json_each({refs},'$.answers') WHERE type='text' UNION ALL "
+                     f"SELECT value FROM json_each({refs},'$.inputs') WHERE type='text'")
+        return (f"coalesce({alias}.conversation_id NOT IN (SELECT id FROM {self.rooms}) AND {self.refs(refs, top=True)} "
+                f"AND (coalesce({alias}.in_reply_to,'')='' AND coalesce(instr({refs},'\"answers\"'),0)=0 "
+                f"AND coalesce(instr({refs},'\"inputs\"'),0)=0 OR NOT EXISTS (SELECT 1 FROM ({ancestors}) ancestor JOIN {self.messages} parent "
+                f"ON parent.id=ancestor.id WHERE parent.id<>{alias}.id AND NOT {self.root('parent')})), 0)")
+
+    def attempt(self, aid):
+        """ReadIndex.attempt: its message and inputs are settled by their own rows, it carries no denied task and its
+        retained run events name none."""
+        jobs, attempts, inputs, events = (self.inner(t) for t in ("jobs", "attempts", "attempt_inputs", "events"))
+        return (f"coalesce(EXISTS (SELECT 1 FROM {attempts} run JOIN {jobs} job ON job.id=run.job_id "
+                f"JOIN {self.messages} root ON root.id=job.message_id WHERE run.id={aid} AND {self.root('root')}) "
+                f"AND NOT EXISTS (SELECT 1 FROM {inputs} input JOIN {self.messages} root ON root.id=input.message_id "
+                f"WHERE input.attempt_id={aid} AND NOT {self.root('root')}) "
+                f"AND {aid} NOT IN (SELECT id FROM {self.carriers}) "
+                f"AND NOT EXISTS (SELECT 1 FROM {events} retained WHERE retained.action IN {RUN_EVENTS} "
+                f"AND retained.target={aid} AND NOT coalesce(retained.action='task.next-run.carried' AND "
+                f"(coalesce(retained.detail_json,'')='' OR (json_valid(retained.detail_json) AND "
+                f"json_type(retained.detail_json)='object' AND instr(retained.detail_json,'\\')=0 AND "
+                f"{self.strings('retained.detail_json')})), 0)), 0)")
+
+
+def materialize(conn, index, tables, inner, function, private):
+    """Build this request's small sets once, then point every predicate at them instead of re-deriving them per row.
+
+    Visible tasks and readable rooms are what a LIMIT 1 would otherwise rebuild for every query: the room predicate
+    asks Python about each room. Hidden things are the few denied tasks, unreadable rooms and runs that carry one."""
+    def create(name, select, args=()):
+        conn.execute(f'CREATE TEMP TABLE "{private(name)}"(id TEXT PRIMARY KEY) WITHOUT ROWID')
+        if isinstance(select, str):
+            conn.execute(f'INSERT OR IGNORE INTO "{private(name)}" ' + select, args)
+        else:
+            conn.executemany(f'INSERT OR IGNORE INTO "{private(name)}" VALUES(?)', ((v,) for v in select if v is not None))
+        return f'IN (SELECT id FROM "{private(name)}")'
+
+    visible = create("visible_tasks", "SELECT id FROM main.tasks WHERE " + tables["tasks"][0])
+    # Reuse the task-id set directly. Going through the tasks view rebuilds
+    # the same task list for every nested room lookup inside a privacy UDF.
+    tables = {table: (predicate.replace("IN (SELECT id FROM tasks)", visible), hidden)
+              for table, (predicate, hidden) in tables.items()}
+    tables["tasks"] = ("id " + visible, tables["tasks"][1])
+    rooms = create("readable_conversations", "SELECT id FROM main.conversations WHERE " + tables["conversations"][0])
+    tables = {table: (predicate.replace("IN (SELECT id FROM conversations)", rooms), hidden)
+              for table, (predicate, hidden) in tables.items()}
+    tables["conversations"] = ("id " + rooms, tables["conversations"][1])
+    create("denied_tasks", sorted(index.denied))
+    create("unreadable_rooms", sorted(index.unreadable_rooms()))
+    create("run_carriers", sorted(aid for tid, aid in conn.execute(
+        "SELECT id,carried_by FROM main.tasks WHERE carried_by IS NOT NULL") if tid in index.denied))
+    gates = Gates(inner, private, index.denied)
+    message = function("message") + "(id,conversation_id,refs_json,in_reply_to)"
+    attempt = function("attempt") + "(id)"
+    return {table: (predicate.replace(message, f"({gates.message()} OR {message})")
+                    .replace(attempt, f"({gates.attempt('source.id')} OR {attempt})"), hidden)
+            for table, (predicate, hidden) in tables.items()}
+
+
+def connect(path, c, auth, who, trace=None, seconds=None):
+    """A read-only connection whose temp views and authorizer carry this caller's visibility.
+
+    `seconds` bounds building this request's visibility sets as `run` bounds the query itself."""
+    deadline = None if seconds is None else time.monotonic() + seconds
     prefix = "v" + secrets.token_hex(12) + "_"
     inner = lambda table: f'"{prefix}{table}"'  # noqa: E731
     function = lambda name: f'"{prefix}privacy_{name}"'  # noqa: E731
+    private = lambda name: prefix + name  # noqa: E731
     # Internal provenance SELECTs cannot leave authorized prepared statements for callers.
     conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5, isolation_level=None, cached_statements=0, factory=ReadConnection)
     conn.row_factory = sqlite3.Row
@@ -428,17 +564,6 @@ def connect(path, c, auth, who, trace=None):
         conn.execute("BEGIN")
         columns = schema_columns(conn, path)
         tables = guarded(conn, auth, who, inner, function, columns)
-        # Subqueries through tasks (messages, events, files, etc.) reuse this exact
-        # request's visibility result. An indexed temp set cannot survive revocation.
-        visible = prefix + "visible_tasks"
-        conn.execute(f'CREATE TEMP TABLE "{visible}"(id TEXT PRIMARY KEY) WITHOUT ROWID')
-        conn.execute(f'INSERT INTO "{visible}" SELECT id FROM main.tasks WHERE ' + tables["tasks"][0])
-        tables["tasks"] = (f'id IN (SELECT id FROM "{visible}")', tables["tasks"][1])
-        # Reuse the task-id set directly. Going through the tasks view rebuilds
-        # the same task list for every nested room lookup inside a privacy UDF.
-        tables = {table: (predicate.replace("IN (SELECT id FROM tasks)",
-                                            f'IN (SELECT id FROM "{visible}")'), hidden)
-                  for table, (predicate, hidden) in tables.items()}
         source_tables = set(tables) | {"blob_media", "live_meetings", "live_meeting_access", "live_meeting_bots",
                                        "live_meeting_turns"}
         class Source:
@@ -459,7 +584,7 @@ def connect(path, c, auth, who, trace=None):
                     return conn.execute(statement, args)
                 finally:
                     trusted[0] = False
-        index = ReadIndex(Source(), who)
+        index = ReadIndex(Source(), who, rooms=True)
         functions = {"message": (4, index.message), "attempt": (1, index.attempt),
                      "conversation": (1, index.conversation), "meeting_room": (1, index.meeting_room),
                      "event": (4, index.event), "tag": (2, index.tag), "blob": (1, index.blob),
@@ -478,6 +603,10 @@ def connect(path, c, auth, who, trace=None):
                 raise Problem("schema", f"Table {table} is missing from this database", 500)
             names = ",".join(f'"{column}"' for column in exposed[table])
             conn.execute(f'CREATE TEMP VIEW {inner(table)} AS SELECT {names} FROM main."{table}"')
+        if deadline is not None:
+            conn.set_progress_handler(lambda: int(time.monotonic() > deadline), 2000)
+        tables = materialize(conn, index, tables, inner, function, private)
+        conn.set_progress_handler(None, 0)
         for table, (predicate, _) in tables.items():
             masked = MASKED.get(table, {})
             projection = ",".join(f'({masked[name]}) AS "{name}"' if name in masked else f'source."{name}"'
@@ -503,10 +632,16 @@ def connect(path, c, auth, who, trace=None):
         # Every other object in the file is off limits, even as a bare `count(*)`.
         denied = {row[0] for row in conn.execute("SELECT name FROM sqlite_master")} | {"sqlite_temp_master"}
         denied -= set(tables) | OPEN
+    except sqlite3.OperationalError as exc:
+        conn.close()
+        if deadline is not None and (time.monotonic() > deadline or "interrupted" in str(exc)):
+            raise Problem("timeout", f"Query stopped after {seconds:g} s; narrow it or add a LIMIT", 422) from exc
+        raise
     except BaseException:
         conn.close()
         raise
     inner_names = {prefix + table for table in set(tables) | sources}
+    sets = {private(name) for name in SETS}
 
     def fts_parent(name):
         for suffix in FTS_SHADOWS:
@@ -552,7 +687,7 @@ def connect(path, c, auth, who, trace=None):
                 return sqlite3.SQLITE_OK
             return sqlite3.SQLITE_DENY
         if schema == "temp":
-            if table == visible:
+            if table in sets:
                 return sqlite3.SQLITE_OK if context in tables else sqlite3.SQLITE_DENY
             if table in tables or table in views:
                 return sqlite3.SQLITE_OK
@@ -593,6 +728,8 @@ def run(conn, sql, params, cap, seconds):
             raise Problem("timeout", f"Query stopped after {seconds:g} s; narrow it or add a LIMIT", 422) from exc
         raise Problem("sql", str(exc), 422) from exc
     except (sqlite3.Error, sqlite3.Warning) as exc:
+        if interrupted:
+            raise Problem("timeout", f"Query stopped after {seconds:g} s; narrow it or add a LIMIT", 422) from exc
         raise Problem("sql", str(exc), 422) from exc
     finally:
         conn.set_progress_handler(None, 0)
@@ -634,7 +771,7 @@ def install_sql(app, store, auth):
                 cap, seconds = LIMITS[principal.role]
                 if body.max_rows:
                     cap = min(cap, body.max_rows)
-                conn = connect(store.settings.db_path, c, auth, principal)
+                conn = connect(store.settings.db_path, c, auth, principal, seconds=seconds)
                 try:
                     result = run(conn, body.sql, body.params, cap, seconds)
                     detail.update(rows=result["row_count"], ms=result["ms"])
