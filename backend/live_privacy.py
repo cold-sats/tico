@@ -205,6 +205,12 @@ class Sources:
                               "WHERE i.attempt_id=?", (aid, aid)).fetchall()
         moved = [row[0] for row in self.c.execute(
             "SELECT detail_json FROM events WHERE action='attempt.input.moved' AND target=?", (aid,))]
+        # The walk below reads each input's parents and room one at a time: for a long run they are read together.
+        moved_ids = [detail.get("message_id") for detail in (H._json(d, {}) or {} for d in moved)
+                     if isinstance(detail, dict) and isinstance(detail.get("message_id"), str)]
+        rows = list(rows)
+        H.prime_message_rows(self.c, rows + list(H.prime_messages(self.c, moved_ids).values()))
+        self.prime_conversations({row["conversation_id"] for row in rows})
         return self._attempt_from(rows, moved)
 
     def _attempt_from(self, rows, moved):

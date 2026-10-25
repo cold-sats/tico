@@ -1112,6 +1112,9 @@ def live_tasks(c):
                                              "WHERE a.state IN ('leased','running') AND t.task_id IS NOT NULL")}
 
 
+PRIME_QUEUED = 50          # queued messages a claim or an input poll reads together before checking them one by one
+
+
 def job_refusal(c, job, followed, ready, busy, lanes, roots, live=frozenset()):
     """Why the claim passes over one queued job of a bot claim_refusal let through, or None when it hands it out.
     `followed` is the bot's followed config; `busy` the taken (bot, lane) pairs; `live` the (bot, task) pairs with a
@@ -1887,7 +1890,14 @@ class Execution:
             f"CASE j.bot {' '.join('WHEN ? THEN ?' for _ in bots)} ELSE 0 END,(qt.rank IS NULL),qt.rank,j.created,j.id",
             (*bots, who.runner_id, *((job_id,) if job_id is not None else ()),
              *(v for bot in bots for v in (bot, held.get(bot, 0)))))
-        for row in candidates:
+        candidates = candidates.fetchall()
+        for i, row in enumerate(candidates):
+            if i % PRIME_QUEUED == 0 and len(candidates) > 1:
+                # A backlog the claim passes over (lane held, check model, budget) is checked again on every claim, a
+                # few a second per computer: the next jobs' messages, rooms and tasks are read together, not one by one.
+                privacy.snapshot(c)
+                part = candidates[i:i + PRIME_QUEUED]
+                privacy.prime_queued(c, H.prime_messages(c, [job["message_id"] for job in part]).values())
             if job_refusal(c, row, followed[row["bot"]], ready, busy, lanes, roots, live) is None and not login_refusal(
                     c, self.store.settings, runner["id"], row["bot"], followed[row["bot"]], row["id"], subscription_context):
                 return row
@@ -2741,13 +2751,17 @@ class Execution:
                              "WHERE active_attempt.id=?) OR m.conversation_id=? OR (m.kind='ask' AND m.wait_s>0 "
                              "AND m.from_actor LIKE 'bot:%')) ORDER BY m.rowid",
                              (attempt["bot"], aid, task_room)).fetchall()
-        if if_idle and candidates:
-            return None
-        for row in candidates:
+        read_at = c.total_changes
+        for i, row in enumerate(candidates):
             # Ten at a time, counted after the filters below: older work queued for other lanes must
             # never hide this lane's follow-ups.
             if taken >= 10:
                 break
+            if i % PRIME_QUEUED == 0 and len(candidates) > 1 and c.total_changes == read_at:
+                # Every poll of a running turn checks the whole backlog queued for its bot: a dozen reads per
+                # message, a few times a second, unless the next ones are read together. Rows read before a write
+                # here are never used to seed the cache.
+                privacy.prime_queued(c, candidates[i:i + PRIME_QUEUED])
             if not privacy.message_readable(c, "bot:" + attempt["bot"], row):
                 continue
             incoming_conversation = H.conversation(c, row["conversation_id"])
@@ -2757,8 +2771,7 @@ class Execution:
             if lanes and job_lane(c, attempt["bot"], followed, H.message(c, row["id"]), incoming_conversation,
                                   lanes, roots) != attempt["lane"]:
                 continue                    # another lane's work is that lane's turn, never folded into this one
-            if any(tid != origin_task and H.task_private(c, H.task(c, tid))
-                   for tid in privacy.message_tasks(c, row, include_run=False)):
+            if privacy.private_tasks(c, set(privacy.message_tasks(c, row, include_run=False)) - {origin_task}):
                 # Folding another task's private message into this run would make the run private
                 # too, shutting out whoever started it. It waits queued and gets its own run.
                 continue
@@ -2791,6 +2804,10 @@ class Execution:
                               (row["id"],)).fetchone()
             if prior and prior["attempt_id"] != aid and prior["state"] in ("leased", "running"):
                 continue
+            if if_idle:
+                # This poll would take an input: that is the write transaction's to do. Until then a poll whose
+                # queued work all waits for other runs or lanes answers here, without the write lock.
+                return None
             if prior and prior["attempt_id"] != aid:
                 # The earlier run did read this message, so it keeps the message's tasks for
                 # privacy (attempt_tasks reads this event) once the row is no longer its own.
