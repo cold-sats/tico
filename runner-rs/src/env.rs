@@ -119,7 +119,11 @@ pub struct Vault {
 impl Vault {
     /// A subscription host never receives the Gateway token. Its file grants keep their existing bot UID;
     /// a Gateway primary or fallback gets private copies accessible only by its leased user.
-    pub fn for_model(&mut self, env: &mut Env, model: Option<&str>) -> Result<Option<(u32, u32)>, String> {
+    /// The identity a hop runs as and the files it reads. `isolated` is the hop harness's `isolated_user` capability:
+    /// a leased turn runs such a harness as its own user, with private copies of its file credentials, its own HOME and
+    /// TMPDIR. Any other harness keeps owner-only sign-in files in the bot's home (Claude Code, Codex and the rest), so
+    /// it runs as `bot` with the files in the bot's turn directory, lease or not.
+    pub fn for_model(&mut self, env: &mut Env, model: Option<&str>, isolated: bool) -> Result<Option<(u32, u32)>, String> {
         let gateway = crate::hosts::pi::is_gateway(model);
         if gateway && (self.turn_user.is_none() || self.relay.is_none()) {
             return Err("Tico model turn has no private user and relay (not_isolated)".into());
@@ -128,19 +132,22 @@ impl Vault {
             for name in [crate::gateway_relay::KEY_ENV, crate::gateway_relay::URL_ENV, crate::gateway_relay::DIR_ENV] { env.remove(name); }
         }
         let Some(user) = &self.turn_user else { return Ok(None) };
-        let (id, dir) = if gateway {
+        let own = gateway || isolated;
+        let (id, dir) = if own {
             (user.identity(), user.dir.clone())
         } else {
             (crate::isolation::identity().ok_or("missing Docker bot identity")?, crate::isolation::turn_dir())
         };
         user.move_files(env, &mut self.files, id, &dir)?;
         for (name, index) in &self.file_vars { env.insert(name.clone(), self.files[*index].display().to_string()); }
-        if gateway {
+        if own {
             user.private_home(env)?;
             for name in ["TMPDIR", "TMP", "TEMP"] { env.insert(name.into(), user.dir.display().to_string()); }
+        }
+        if gateway {
             env.insert(crate::gateway_relay::DIR_ENV.into(), user.dir.join("pi").display().to_string());
         }
-        Ok(gateway.then_some(user.identity()))
+        Ok(own.then_some(user.identity()))
     }
 
     pub fn remove_files(&mut self) {
@@ -297,8 +304,8 @@ mod tests {
         let mut env: Env = [(crate::gateway_relay::KEY_ENV.into(), "synthetic-pass".into()),
                             (crate::gateway_relay::URL_ENV.into(), "http://127.0.0.1:9/gateway".into()),
                             (crate::gateway_relay::DIR_ENV.into(), "/synthetic/private".into())].into();
-        assert!(vault.for_model(&mut env.clone(), Some("tico-mid-1.0")).is_err());
-        assert_eq!(vault.for_model(&mut env, Some("opus-5-5")).unwrap(), None);
+        assert!(vault.for_model(&mut env.clone(), Some("tico-mid-1.0"), true).is_err());
+        assert_eq!(vault.for_model(&mut env, Some("opus-5-5"), true).unwrap(), None);
         for key in [crate::gateway_relay::KEY_ENV, crate::gateway_relay::URL_ENV, crate::gateway_relay::DIR_ENV] {
             assert!(!env.contains_key(key));
         }

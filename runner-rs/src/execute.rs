@@ -1186,7 +1186,14 @@ impl Runner {
                 billing: self.billing(&runtime, selected.as_ref()),
             });
             let ctx = EnvContext { url: &self.config.url(), projects_dir: &self.config.projects_dir(), state_dir: &self.state.directory };
-            if crate::hosts::pi::is_gateway(model.as_deref()) {
+            // A turn runs as its own leased OS user when its model is a Tico model (required) or when a harness it may
+            // run on keeps no owner-only state shared across turns (`isolated_user`, optional: a runner with no pool
+            // runs it as `bot`). Harnesses whose sign-in files are 0600 in the bot's home run as `bot`; with them a
+            // turn can still enter every bot's checkout, as can the runner's own git (SECURITY.md).
+            let own_user = |r: &str, h: &str| crate::harness_tools::caps(r, h).isolated_user;
+            let hop = crate::fallback::configured(&config);
+            let wants_user = own_user(&runtime, &text_of(&config["harness"])) || hop.as_ref().is_some_and(|h| own_user(&h.runtime, &h.harness));
+            if crate::hosts::pi::is_gateway(model.as_deref()) || (wants_user && crate::turn_users::available()) {
                 let taken = self.during_drain(&aid, self.take_turn_user(&attempt, &flags, crate::turn_users::Lease::take)).await;
                 vault.turn_user = Some(taken.map_err(|e| self.lease_failed(&aid, e, &mut drove))?);
             }
@@ -1205,7 +1212,7 @@ impl Runner {
                 env.insert(crate::gitcred::SOCKET_ENV.into(), p.display().to_string());
             }
             crate::gitcred::apply(&mut env, &self.client, &self.tokens, &bot, socket_path.as_deref(), &self.state.directory).await;
-            let hop_runtime = crate::fallback::configured(&config).map(|h| h.runtime);
+            let hop_runtime = hop.map(|h| h.runtime);
             for keyed in std::iter::once(runtime.as_str()).chain(hop_runtime.as_deref()) {
                 if let Some((name, key)) = self.turn_key(keyed, selected.as_ref()) {
                     if env.get(&name).is_none_or(|v| v.is_empty()) {
@@ -1225,7 +1232,7 @@ impl Runner {
                 return Err(Fail::runtime(why));
             }
             base_env = Some(env.clone());
-            let turn_identity = vault.for_model(&mut env, model.as_deref()).map_err(Fail::runtime)?;
+            let turn_identity = vault.for_model(&mut env, model.as_deref(), own_user(&runtime, &text_of(&config["harness"]))).map_err(Fail::runtime)?;
             let pairs: Vec<(String, String)> = env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
             redactor = redact::for_turn(&pairs, &vault.values);
             if let Some(s) = &self.socket {
@@ -1317,9 +1324,13 @@ impl Runner {
             receivers.push((tx.clone(), rx));
             let rx = &mut receivers.last_mut().unwrap().1;
             let own = tx.clone();
-            if turn_identity.is_some() {
-                let mut paths = vec![p.main_path.clone(), execution_path.clone()];
-                paths.extend(p.add_dirs.iter().map(PathBuf::from));
+            // Every turn's checkouts get their own groups, so a leased turn of another bot cannot enter them; a leased
+            // turn is given exactly these (crate::checkout_groups).
+            let mut paths = vec![p.main_path.clone(), execution_path.clone()];
+            paths.extend(p.add_dirs.iter().map(PathBuf::from));
+            let gids = crate::checkout_groups::gate(paths.clone()).await;
+            if let Some((uid, _)) = turn_identity {
+                crate::checkout_groups::grant(uid, &gids);
                 self.turn_git(&mut vault, &mut env, &paths)?;
                 crate::turn_users::share_workspace(paths).await.map_err(Fail::runtime)?;
             }
@@ -1576,7 +1587,8 @@ impl Runner {
                     billing: self.billing(&hop.runtime, selected.as_ref()),
                 });
                 let mut hop_env = selected.as_ref().map_or_else(|| base.clone(), |p| p.environment(&hop.runtime, &base));
-                let turn_identity = vault.for_model(&mut hop_env, Some(&hop.model)).map_err(Fail::runtime)?;
+                let own = crate::harness_tools::caps(&hop.runtime, &hop.harness).isolated_user;
+                let turn_identity = vault.for_model(&mut hop_env, Some(&hop.model), own).map_err(Fail::runtime)?;
                 env = hop_env.clone();
                 // Named with the harness it moved to, so the task's Runs say where the turn went and why.
                 let note = match (&left, &busy) {
@@ -1599,9 +1611,10 @@ impl Runner {
                 let (tx, rx) = self.attempt_events(&aid, redactor.clone());
                 receivers.push((tx.clone(), rx));
                 let rx = &mut receivers.last_mut().unwrap().1;
-                if turn_identity.is_some() {
+                if let Some((uid, _)) = turn_identity {
                     let mut paths = vec![execution_path.clone()];
                     paths.extend(place.as_ref().into_iter().flat_map(|p| std::iter::once(p.main_path.clone()).chain(p.add_dirs.iter().map(PathBuf::from))));
+                    crate::checkout_groups::grant(uid, &crate::checkout_groups::gate(paths.clone()).await);
                     self.turn_git(&mut vault, &mut hop_env, &paths)?;
                     crate::turn_users::share_workspace(paths).await.map_err(Fail::runtime)?;
                 }

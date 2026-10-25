@@ -35,11 +35,19 @@ pub fn prefix() -> Option<Vec<String>> {
 }
 
 fn prefix_for((uid, gid): (u32, u32)) -> Vec<String> {
+    // A leased turn user also gets the groups of the checkouts its turn runs in (crate::checkout_groups); every other
+    // identity runs with none.
+    let extra = crate::checkout_groups::granted(uid);
+    let groups = if extra.is_empty() {
+        "--clear-groups".into()
+    } else {
+        format!("--groups={}", std::iter::once(gid).chain(extra).map(|g| g.to_string()).collect::<Vec<_>>().join(","))
+    };
     vec![
         SETPRIV.into(),
         format!("--reuid={uid}"),
         format!("--regid={gid}"),
-        "--clear-groups".into(),
+        groups,
         "--inh-caps=-all".into(),
         "--ambient-caps=-all".into(),
     ]
