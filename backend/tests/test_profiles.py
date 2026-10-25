@@ -305,6 +305,8 @@ def last_change(api, bot="ops"):
 def test_undoing_a_profile_change_restores_it_but_not_rules_that_were_dropped(api):
     set_profile(api, "ops", "reviewer")
     set_profile(api, "ops", "lead", digest_hour=7)
+    listed = {ch["id"]: ch for ch in get(api, "settings/history")["changes"]}
+    assert listed[last_change(api)]["can_undo"], "the owner's Changes offer Undo on a profile change"
     post(api, f"settings/history/{last_change(api)}/undo", {"expected_revision": get(api, "bots/ops")["revision"]})
     assert get(api, "bots/ops")["profile"]["name"] == "reviewer"
     # Leaving Custom deletes the bot's own rules; undoing that cannot bring them back, so it says so.

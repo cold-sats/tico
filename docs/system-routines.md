@@ -2,7 +2,13 @@
 
 System routines are the jobs Tico runs on its own, such as stale ticket reviews and nightly learnings. Task rules close eligible done tasks. Both appear in the same list, separate from [bot routines](routines.md), which belong to a bot and open a task for it.
 
-Open **Settings → Routines**. The **Routines** card ("What Tico runs on its own") sits above **Bot routines**. Everyone who can open Settings sees its flat list of built-in jobs and task rules, without group headings.
+Open **Settings → Rules** (old `#/settings/routines` links land here too). The page has, top to bottom: **What Tico runs on its own** (this list), **What wakes a bot** (the wake rules), **Releases**, **Task Manager** and **Bot routines**. Everyone who can open Settings sees the flat list of built-in jobs and task rules, without group headings. The Task Manager's report shows its schedule as **Hourly on weekdays, 08:00–18:00**, and its row says when the Task Manager is paused.
+
+**What wakes a bot** lists every wake rule as WHEN … THEN …, grouped Built-in, Team, Type, Department, Bot and Task, with each rule's runs and no-op rate over the last 7 days. The built-ins are read-only and start folded. A rule you may change has an on/off switch and **Edit**; **Add rule** picks a scope, an event, optional conditions (from, the bot's role, status, step, tag) and an outcome. A person's message, an ask, an answer, an approval, a needs-action flag, a reply and a gate verdict always wake: a rule that makes one wait is refused, and the form says why. `#/settings/rules?task=<id>` (the **Wake rules** line on a task) shows one task's rules. `#/settings/rules?bot=<slug>` (the **Wake rules** link on a Custom bot's profile) shows one bot's: its profile's rows, read-only under the profile's name, then its own.
+
+**Releases** turns the daily release on or off, sets one or two times (company time), names the Release Manager and Technical Writer (or finds them by template), and shows the next and last release hour and what waits at Pending Release. Owners and admins change it; someone who moves Dev tickets gets **Release now** here and on the board's Pending Release column.
+
+**Task Manager** shows whether it is on, its last run, and each department's last check, item count and open check task. The owner pauses and resumes it.
 
 Search by name, trigger (**WHEN**), action (**THEN**), or department. For example, searching `done` finds **Close 24h after done** and built-ins that act on done tasks. Searching `close` finds actions that close tasks.
 

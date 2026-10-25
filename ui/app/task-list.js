@@ -472,7 +472,7 @@ function taskListRowHTML(it, ctx, depth = 0) {
   const kids = (ctx.kids.get(key) || []).slice().sort(byRank);
   const open = kids.length && !state.folded.has(key);
   const selected = state.selected.has(key), failed = state.bulkFail?.get(key);
-  const note = taskRowNote(t);
+  const note = taskRowNote(t), refused = taskRefused(state, t);
   const me = myActor(), asker = taskRequester(t);
   // The amber "Waiting" chip already says the status, so the status word stays out (an empty pad keeps the columns).
   const waitsOnMe = !!taskWaitingOn(t) && taskWaitingOn(t) === me;
@@ -493,7 +493,8 @@ function taskListRowHTML(it, ctx, depth = 0) {
     ${kids.length ? `<button type="button" class="tl-chev${open ? ' open' : ''}" data-expand="${esc(key)}" tabindex="-1" aria-expanded="${open ? 'true' : 'false'}" aria-label="${open ? 'Hide' : 'Show'} subtasks of ${esc(it.title)}">${TL_ICON.chev}</button>` : '<span class="tl-chev-pad"></span>'}
     <button type="button" class="tl-open" data-open-task="${esc(key)}" tabindex="-1"${kids.length ? ` aria-expanded="${open ? 'true' : 'false'}"` : ''}><span class="tl-title">${esc(it.title)}</span></button>
     ${parent?.title ? `<span class="tl-parent" title="Part of ${esc(parent.title)}"><span aria-hidden="true">↳ </span><span class="tl-parent-t">${esc(parent.title)}</span></span>` : ''}
-    ${note ? `<span class="tl-note" title="${esc(note.text)}"><span class="tl-note-ic">${TL_ICON.note}</span><span class="tl-note-text">${esc(note.text)}</span></span>` : '<span class="tl-fill"></span>'}
+    ${refused ? `<span class="tl-note tl-refused" role="alert" data-task-refused title="${esc(refused)}"><span class="tl-note-text">${esc(refused)}</span></span>`
+      : note ? `<span class="tl-note" title="${esc(note.text)}"><span class="tl-note-ic">${TL_ICON.note}</span><span class="tl-note-text">${esc(note.text)}</span></span>` : '<span class="tl-fill"></span>'}
     <span class="tl-chips">${need?.folded?.length ? `<span class="tl-folded" title="${esc(`Also waiting on this: ${need.folded.map(f => f.title).join('; ')}`)}">+${need.folded.length}</span>` : ''}${waitsOnMe ? '<span class="tl-waiting" title="Its bot is waiting on you">Waiting</span>' : taskStatusLabel(t) === 'Waiting' ? '' : taskWaitTag(t)}${taskChipsHTML(t)}</span>
     ${need?.recommend ? recommendButton(need.recommend, 'tl-rec', t.version) : ''}
     ${ctx.by === 'status' ? '' : waitsOnMe && taskStatusLabel(t) === 'Waiting' ? '<span class="tl-status-pad"></span>' : taskRowStatus(t, key)}
@@ -530,10 +531,11 @@ async function tasksRowStatusSave(state, id, bodyFor) {
   for (let attempt = 0; t && attempt < 2; attempt++) {
     const body = bodyFor(t);
     if (!body) return;
+    state.refused?.delete(id);
     try { await post(`/v2/tasks/${encodeURIComponent(t.id)}`, {version: t.version, ...body}); break; }
     catch (e) {
       if (e.status === 409 && attempt === 0) { t = (await v2Get(`/v2/tasks/${encodeURIComponent(id)}`))?.task; continue; }
-      toast(`Not changed: ${e.message || 'not saved'}`, true);
+      taskRefusedSet(state, t, `Not changed: ${e.message || 'not saved'}`);
       break;
     }
   }

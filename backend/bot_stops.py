@@ -34,11 +34,16 @@ def hold(c, bot, human=False):
 
 def overlay(c, row):
     """A bot's status row as the pages should read it while a hold stops it: paused, with the words. A running turn
-    keeps its row. Only a hold stops it: a short back-off after one failed run shows nothing."""
+    keeps its row. Only a hold stops it: a short back-off after a failed run keeps the state and focus, and adds its
+    wait in words as `backoff` for the pages to show beside them."""
     if not row or row.get("state") in ("running", "quarantined"):
         return row
     found = hold(c, row["bot"])
-    return {**row, "state": "paused", "focus": found["words"], "stopped": found["kind"]} if found else row
+    if found:
+        return {**row, "state": "paused", "focus": found["words"], "stopped": found["kind"]}
+    if run_backoff.refusal(c, row["bot"]) == "backoff":
+        return {**row, "backoff": run_backoff.words(c, row["bot"])}
+    return row
 
 
 def warning(c, actor):

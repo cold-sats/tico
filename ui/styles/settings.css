@@ -675,6 +675,46 @@ fieldset.brepo>.repo-name+p{margin:-4px 0 4px 24px;font-size:var(--t-xs);line-he
 .sysr-ai{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:var(--t-sm);margin-top:2px}
 .sysr-fallback{flex-basis:100%;color:var(--wait-ink)}
 @media (max-width:720px){.sysr-row{grid-template-columns:1fr 1fr}.sysr-name,.sysr-ctl{grid-column:1/-1}}
+/* Settings > Rules: what wakes a bot (ui/app/settings-rules.js) */
+.wr-list{display:grid;gap:6px}
+.wr-group>summary{display:flex;gap:6px;align-items:center;padding:6px 0;font-weight:600;cursor:pointer;list-style:none}
+.wr-group>summary::-webkit-details-marker{display:none}
+.wr-group>summary::before{content:'▸';color:var(--muted);font-size:var(--t-xs);transition:transform .15s}
+.wr-group[open]>summary::before{transform:rotate(90deg)}
+.wr-group>summary .cnt{color:var(--muted);font-weight:400;font-size:var(--t-sm)}
+.wr-sub{margin:8px 0 2px;font-size:var(--t-xs);letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.wr-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto minmax(0,auto);gap:4px 12px;padding:7px 0;border-top:1px solid var(--line);align-items:center;font-size:var(--t-sm)}
+.wr-row.wr-off .wr-text{color:var(--muted)}
+.wr-text{min-width:0;overflow-wrap:anywhere}
+.wr-text b{font-size:var(--t-xs);letter-spacing:.04em;color:var(--muted)}
+.wr-note{display:block}
+.wr-scope{font-size:var(--t-xs);white-space:nowrap;justify-self:start}
+.wr-usage{white-space:nowrap}
+.wr-ctl{display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:flex-end}
+.wr-ctl .settings-cell-note{flex-basis:100%;margin:0;text-align:right}
+.wr-ctl .settings-cell-note:empty{display:none}
+.wr-filter{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin-bottom:8px;font-size:var(--t-sm)}
+.wr-when{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+.wr-when[hidden]{display:none}
+/* A swappable field (input or step list) sits in the grid as its label would. */
+.wr-field{display:contents}
+.wr-field[hidden]{display:none}
+@media (max-width:720px){.wr-row{grid-template-columns:minmax(0,1fr) auto}.wr-text{grid-column:1/-1}.wr-ctl{justify-content:flex-start}.wr-ctl .settings-cell-note{text-align:left}}
+/* Releases and Task Manager cards (ui/app/settings-release.js) */
+.rel-line{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-width:0}
+.rel-line input[type=time]{width:auto;max-width:100%}
+.profile-box{display:grid;gap:6px;min-width:0}
+.profile-field{display:inline-flex;gap:6px;align-items:center;white-space:nowrap}
+.sb-row .profile-field .settings-inline-select{width:auto;min-width:0;max-width:100%}
+.profile-custom{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center}
+.profile-words{margin:0;font-size:var(--t-sm)}
+.budget-field{display:inline-flex;gap:4px;align-items:center;white-space:nowrap}
+/* Beats the bot editor's full-width inputs: a run count needs a few digits, not the row. */
+.sb-row .budget-field input.budget-input[type=number]{width:96px;min-width:0;flex:none}
+.tm-head{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin-bottom:6px;font-size:var(--t-sm)}
+.tm-list{display:grid}
+.tm-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:4px 12px;padding:6px 0;border-top:1px solid var(--line);align-items:center;font-size:var(--t-sm)}
+@media (max-width:720px){.tm-row{grid-template-columns:minmax(0,1fr) auto}}
 /* Settings > Billing (ui/app/settings-billing.js) */
 #set-billing h3{margin:var(--s3) 0 var(--s1);font-size:var(--t-sm);display:flex;align-items:center;gap:var(--s2)}
 .billing-head{display:flex;justify-content:space-between;align-items:flex-start;gap:var(--s2);flex-wrap:wrap}
