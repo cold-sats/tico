@@ -623,23 +623,57 @@ fieldset.brepo>.repo-name+p{margin:-4px 0 4px 24px;font-size:var(--t-xs);line-he
 .settings-version{margin:0;color:var(--muted);font-size:var(--t-xs)}
 .settings-log{background:none;border:0;padding:0;color:inherit;font:inherit;text-decoration:underline;cursor:pointer}
 
-/* Settings > Triggers (ui/app/settings-triggers.js) */
 .storage-form{display:grid;gap:8px;max-width:520px;margin:12px 0}.storage-form label{display:grid;gap:4px}
 .storage-earlier{margin:6px 0 0;padding-left:18px}
 .storage-tico{margin:12px 0;padding:12px;border:1px solid var(--line);border-radius:8px;max-width:640px}.storage-tico h4{margin:0 0 6px}.storage-tico .row{align-items:center;gap:12px}
-.trigger-new{margin-bottom:12px}.trigger-new input{flex:1 1 220px;min-width:0}
+/* Settings > Webhooks (ui/app/settings-webhooks.js) */
+#settings-webhooks>.card>header{flex-wrap:wrap;gap:8px}
+#settings-webhooks .sb-narrow{display:none}
 .trigger-secret{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:12px}
-.trigger-secret p{margin:0 0 6px}.trigger-secret .row{flex-wrap:nowrap}
+.trigger-secret p{margin:0 0 6px}.trigger-secret .row{flex-wrap:nowrap;align-items:center}
 .trigger-url{flex:1 1 auto;min-width:0;overflow-wrap:anywhere;user-select:all}
-.trigger-list{list-style:none;margin:0;padding:0}
-.trigger-list li{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) auto;gap:12px;align-items:start;padding:10px 0;border-bottom:1px solid var(--line)}
-.trigger-list li:last-child{border-bottom:0}
-.trigger-main{display:flex;flex-direction:column;gap:2px;min-width:0}.trigger-main code{overflow-wrap:anywhere}
-.trigger-actions{display:flex;gap:6px;white-space:nowrap}
-.trigger-log summary{cursor:pointer;color:var(--muted);font-size:var(--t-sm)}.trigger-log>div{margin-top:6px}
-.trigger-deliveries{list-style:none;margin:0;padding:0;font-size:var(--t-sm)}
-.trigger-deliveries li{display:flex;flex-wrap:wrap;gap:6px;align-items:baseline;padding:3px 0}.trigger-deliveries code{overflow-wrap:anywhere}
-@media (max-width:640px){.trigger-list li{grid-template-columns:1fr}.trigger-actions{justify-content:flex-start}}
+.wh-list{display:grid}
+.wh-row{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) minmax(0,auto);gap:4px 12px;align-items:center;width:100%;min-width:0;padding:9px 0;border:0;border-top:1px solid var(--line);border-radius:0;background:none;color:inherit;font:inherit;font-size:var(--t-sm);text-align:left;cursor:pointer}
+.wh-row:hover{background:var(--surface2)}
+.wh-row.wh-gw{cursor:default}.wh-row.wh-gw:hover{background:none}
+.wh-name{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-width:0;overflow-wrap:anywhere;font-size:var(--t-base)}
+.wh-meta{min-width:0;overflow-wrap:anywhere}
+.wh-meta code{overflow-wrap:anywhere}
+.wh-bad{color:var(--fail)}
+.wh-head{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;margin-bottom:10px}
+.wh-head h3{margin:0;font-size:var(--t-base);overflow-wrap:anywhere;min-width:0}
+.wh-actions,.wh-call-ctl{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.wh-facts{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 16px;margin:0 0 4px;font-size:var(--t-sm)}
+.wh-facts dt{color:var(--muted)}.wh-facts dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.wh-facts code{overflow-wrap:anywhere}
+.wh-warn{margin:4px 0;padding:6px 10px;border-radius:6px;background:var(--wait-bg);color:var(--wait-ink);font-size:var(--t-sm)}
+.wh-listeners{display:grid;gap:2px;font-size:var(--t-sm)}
+.wh-li{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;padding:4px 0;min-width:0}
+.wh-li.wr-off .wr-text{color:var(--muted)}
+.wh-li-add{margin-top:4px}
+.wh-calls{display:grid}
+.wh-call{display:grid;grid-template-columns:5.5em minmax(0,1fr) minmax(0,1.4fr) 5em 4.5em auto;gap:4px 10px;align-items:center;padding:6px 0;border-top:1px solid var(--line);font-size:var(--t-sm)}
+.wh-call:first-child{border-top:0}
+.wh-type,.wh-outcome{min-width:0;overflow-wrap:anywhere}
+.wh-call-ctl{justify-content:flex-end}
+.wh-sends .wh-call{grid-template-columns:5.5em minmax(0,1fr) minmax(0,1.4fr) 4em 4em auto}
+.wh-events{display:grid;gap:8px;margin:0;padding:10px 12px;border:1px solid var(--line);border-radius:8px;min-width:0}
+.wh-events legend{padding:0 4px;color:var(--muted);font-size:var(--t-sm)}
+.wh-ev-groups{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px 14px}
+.wh-ev-group{display:grid;gap:2px;align-content:start;min-width:0;font-size:var(--t-sm)}
+.wh-ev-group label{gap:6px!important;flex-wrap:nowrap!important;overflow-wrap:anywhere}
+.wh-ev-group label:not(:first-child){padding-left:4px}
+.wh-pre{margin:0;padding:8px 10px;max-height:40vh;overflow:auto;border-radius:6px;background:var(--surface2);font-size:var(--t-xs);white-space:pre-wrap;overflow-wrap:anywhere}
+.wh-payload-meta{margin:0}
+.wh-dialog .wr-sub{margin:0}
+@media (max-width:640px){
+  #settings-webhooks .sb-wide{display:none}#settings-webhooks .sb-narrow{display:inline}
+  .wh-row{grid-template-columns:minmax(0,1fr) auto}.wh-row .wh-name{grid-column:1/-1}
+  .wh-call,.wh-sends .wh-call{grid-template-columns:auto minmax(0,1fr) auto}
+  .wh-call .wh-outcome{grid-column:1/-1}
+  .wh-call-ctl{grid-column:1/-1;justify-content:flex-start}
+  .wh-call-ctl:empty{display:none}
+}
 /* Settings > Listening (ui/app/settings-listening.js) */
 .listen-list{list-style:none;margin:0 0 12px;padding:0}
 .listen-list li{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:12px;align-items:start;padding:10px 0;border-bottom:1px solid var(--line)}
@@ -794,3 +828,9 @@ a.primary.btn{display:inline-block;text-decoration:none;background:var(--accent)
 .settings-tier-seg button:disabled{opacity:.6;cursor:default}
 .settings-tier-row label.settings-tier-fast{flex-direction:row;align-items:center;gap:6px;padding-bottom:7px;color:var(--ink)}
 .settings-tier-line{margin:0;font-size:var(--t-sm);color:var(--muted)}
+.wr-when .wr-wide{grid-column:1/-1}
+.task-rule-form textarea{flex:1 1 100%;min-width:0;width:100%;font-family:var(--mono,ui-monospace,monospace);font-size:var(--t-sm)}
+/* Settings > Computers: Sleep when idle (ui/app/settings-hosted.js) */
+.sleep-row{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.sleep-row .settings-inline-select{width:auto;max-width:100%}
+#set-sleep .settings-cell-note{margin:6px 0 0}

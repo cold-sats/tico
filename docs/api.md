@@ -214,8 +214,8 @@ Public roadmap publication, requesters and anonymous endpoints are described in 
 ## Outgoing webhooks
 
 Tico posts an event to an address you choose when something happens: a task is made, finishes or is blocked; an approval is
-asked or decided; a bot is held or fails; a release is published; and more. Settings has no page for them yet; use the API,
-`hub webhook` or the `hub_webhook_*` tools.
+asked or decided; a bot is held or fails; a release is published; and more. Set them up in Settings > Webhooks > Outgoing,
+the API, `hub webhook` or the `hub_webhook_*` tools.
 
 ```
 hub webhook create --name "Acme orders" --url https://hooks.acme.example/tico --events 'task.*' 'custom.*'

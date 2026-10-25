@@ -1761,7 +1761,7 @@ def parser():
     s.add_argument("--group", help="only this group: task, approval, needs_you, bot, release, meeting, strategy, market, "
                                    "inbound, health, webhook, tico, custom")
     s.set_defaults(fn="event-types")
-    trigger = sub.add_parser("trigger", help="webhooks that start routines (Settings > Triggers)").add_subparsers(dest="sub")
+    trigger = sub.add_parser("trigger", help="webhooks that start routines (Settings > Webhooks)").add_subparsers(dest="sub")
     s = trigger.add_parser("list")
     s.set_defaults(fn="trigger list")
     s = trigger.add_parser("create", help="make a webhook trigger; the address with its secret is shown once")
