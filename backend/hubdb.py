@@ -1124,6 +1124,10 @@ def migrate(conn, adopt_legacy=False):
                  "WHERE kind='ask' AND answered_by IS NULL AND deleted_at IS NULL")
     conn.execute("CREATE INDEX IF NOT EXISTS messages_pending_conversation ON messages(conversation_id) "
                  "WHERE kind='ask' AND answered_by IS NULL AND deleted_at IS NULL")
+    # The keeper's meeting inputs, the few messages a room's meeting provenance is read from (live_privacy.Sources) on
+    # nearly every privacy check: the room index read every message of the room for them, millions of times a week.
+    conn.execute("CREATE INDEX IF NOT EXISTS messages_live_meeting_input ON messages(conversation_id, created) "
+                 "WHERE json_extract(refs_json,'$.live_meeting.turn_id') IS NOT NULL")
     # The questions a comment answered, reopened when it is deleted (`task_comment_delete`, inside the write
     # transaction): without it that lookup read every message.
     conn.execute("CREATE INDEX IF NOT EXISTS messages_answered_by ON messages(answered_by) WHERE answered_by IS NOT NULL")
