@@ -2733,6 +2733,8 @@ def _write_message(conn, actor, target, body, conv, kind, refs, in_reply_to, wai
     # rules engine (backend/rules.py) decides, names the rule on the message (refs.rule) and fails open.
     from . import rules as wake_rule_engine
     decision = wake_rule_engine.judge(conn, actor, target, kind, refs, body, conv, in_reply_to, decided)
+    if decision and decision.outcome in ("ask", "action"):
+        decision = wake_rule_engine.carry_out(conn, decision, actor, target, kind, refs, body, conv)
     held = None
     if decision:
         refs = wake_rule_engine.stamp(refs, decision)
@@ -2780,7 +2782,7 @@ def feed(conn, target, body, conv, refs=None):
     in a channel the bot is in. Rule 2 still holds: the bot must be active.
     """
     resolved = _reach(conn, KEEPER, target)
-    return _write_message(conn, KEEPER, resolved, body, conv, "say", dict(refs or {}), None, None)
+    return _write_message(conn, KEEPER, resolved, body, conv, "say", {"wake": "feed", **(refs or {})}, None, None)
 
 
 def _depth_of(row):
@@ -4299,7 +4301,7 @@ def _parent_finished(conn, row, previous, actor=None, parent=None, told=None):
         _session_lanes(conn, {**row, "owner": actor})[1] == _session_lanes(conn, parent)[1]
     if parent["status"] not in terminal and (parent["owner"] != actor or is_bot(actor) and not same_session) \
             and not (told and parent["owner"] == told):
-        _wake(conn, parent, parent["owner"], "All subtasks done", source=row["id"])
+        _wake(conn, parent, parent["owner"], "All subtasks done", refs={"wake": "subtask_finished"}, source=row["id"])
 
 
 def check_model(conn, task_id, bot=None):
@@ -5134,9 +5136,12 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     # (execution.job_refusal): the filing turn may finish it first, and the claim then cancels the notice
     # rather than start a turn that finds nothing left to do (Dev 359).
     filed_in = RUN.get() if is_bot(target) and target == actor else ""
+    # A review, QA or Security child is a request to a reviewer: its own event, so a rule can wake reviewers apart
+    # from other assignments.
+    gate_child = {"wake": "review_request"} if parent and review_gate.GATE_CHILD.match(str(title).strip()) else {}
     _wake(conn, task(conn, row["id"]), target, f"New task from {actor}: {title}",
           {**({"reconcile": reconcile} if reconcile else {}), **({"filed_in": filed_in} if filed_in else {}),
-           **(wake_refs or {})} or None,
+           **gate_child, **(wake_refs or {})} or None,
           quiet_bots=next_run, quiet=next_run, trigger=trigger, source=trigger_source)
     if parent and is_bot(parent["owner"]) and is_human(target):
         # A bot's task now waits on a person: one line in the bot's main chat.
@@ -5538,8 +5543,9 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                f"{'Finished' if status == 'done' else 'Declined'}: {after['title']}")
               + (f"\n{note}" if note and not quiet else "")
               + (f"\nStill open: {'; '.join(still_open)}" if still_open else ""),
-              refs={**(refs or {}), **({"wake_batch": "completion"} if status == "done" and is_bot(actor)
-                                        and not _awaited_by(conn, after, after["requester"]) else {})} or None,
+              refs={**(refs or {}), "news": "task_done" if status == "done" else "task_declined",
+                    **({"wake_batch": "completion"} if status == "done" and is_bot(actor)
+                       and not _awaited_by(conn, after, after["requester"]) else {})},
               quiet_bots=True)
     if finishing:
         # Not only the requester: the owner that parked it waiting on this person, a bot that asked them a
@@ -5552,12 +5558,17 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                 continue
             told.add(who)
             _wake(conn, after, who, _marked_done(conn, actor, after["title"]) + (f"\n{note}" if note and not quiet else "")
-                  + (f"\nStill open: {'; '.join(still_open)}" if still_open else ""), quiet_bots=True)
+                  + (f"\nStill open: {'; '.join(still_open)}" if still_open else ""), {"news": "task_done"},
+                  quiet_bots=True)
     if status == "review" and row["status"] != "review" and actor != after["requester"]:
         # Review is the requester's turn. Nothing else tells a bot that asked for the work, so
         # without this a handoff between bots waits until someone notices.
+        # On a Dev ticket every review-status step is a hand-off to a reviewer, not to the requester: its move waits as
+        # a note. Anywhere else the requester is the reviewer and is woken.
+        from . import review_gate
         _wake(conn, after, after["requester"], f"Ready for review: {after['title']}"
-              + (f"\n{note}" if note and not quiet else ""))
+              + (f"\n{note}" if note and not quiet else ""),
+              {"news": "ready_for_review"} if review_gate.engineering(conn, after) else {"wake": "review_handback"})
     if (status == "open" or owner is not None and owner != row["owner"]) and actor != after["owner"]:
         _wake(conn, after, after["owner"], f"Open: {after['title']}")
     # A bot's milestone goes to its main chat as one quiet line (task_report).
@@ -5820,7 +5831,8 @@ def task_close(conn, actor, task_id, note="", quiet=False, *, type=None, step=No
         # Another bot closing what this one asked for is a nonblocking completion unless it waits on it; an owner
         # told its work was closed, and anything a person said, wake at once.
         batch = who == after["requester"] and is_bot(actor) and not _awaited_by(conn, after, who)
-        _wake(conn, after, who, said, {"wake_batch": "completion"} if batch else None, quiet_bots=True,
+        _wake(conn, after, who, said, {"news": "task_done", **({"wake_batch": "completion"} if batch else {})},
+              quiet_bots=True,
               quiet=accepted or bool(finished and who == after["owner"]))
     parent = task(conn, TR.parent_of(conn, after["id"]) or "")
     if parent and parent["owner"] != actor and parent["owner"] not in told and parent["owner"] != subtask_told:

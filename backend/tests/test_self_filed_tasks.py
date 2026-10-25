@@ -68,7 +68,8 @@ def recheck_after_claim(api, r, task, body="Still held?", refs=None):
     already finished tasks are now suppressed for every kind; this race still needs the no-change reply guard."""
     with api.app.state.store.transaction() as c:
         H.task_update(c, "bot:ops", task["id"], status="review", mover=True)
-        H._wake(c, H.task(c, task["id"]), "bot:ops", body, refs)
+        # An update request is an event that wakes; a plain task notice would wait as a note.
+        H._wake(c, H.task(c, task["id"]), "bot:ops", body, {"wake": "update", **(refs or {})})
     again = claim(api, r)
     assert again is not None, "the task was open when its automatic wake was claimed"
     with api.app.state.store.transaction() as c:

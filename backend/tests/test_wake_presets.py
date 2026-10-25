@@ -99,10 +99,11 @@ def test_immediate_wakes_are_never_held_and_a_duplicate_wakes_once(api, name):
     task = new_task(api, "assigned")                                     # an assignment
     post(api, "chat/ops", {"text": "Can you look at this?"})            # a person's question
     post(api, "chat/ops", {"text": "Can you look at this?"})            # the same, sent twice
-    for body in ("Unblocked: assigned\nThe migration is finished.", "Stuck: the deploy key was revoked",
-                 "Ready for review: assigned"):
-        notice(api, task, body)
-        notice(api, task, body)                                          # a duplicated event
+    # An awaited result, a blocker and a reopened task wake; "Ready for review" is a note now, not an immediate wake.
+    for body, refs in (("Unblocked: assigned\nThe migration is finished.", {"blocker_done": task["id"]}),
+                       ("Stuck: the deploy key was revoked", {}), ("Open: assigned", {})):
+        notice(api, task, body, **refs)
+        notice(api, task, body, **refs)                                  # a duplicated event
     rows = jobs(api)
     assert all(not j["held"] for j in rows)
     live = [j["body"] for j in rows if j["state"] == "queued"]

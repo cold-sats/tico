@@ -268,7 +268,7 @@ def expire_pending(c, row, detail):
         H._wake(c, H.task(c, row['task_id']), row['owner'],
                 f"Tico stopped preparing this task's {row['repo'] or ''} worktree at {row['path']}: {reason}. Its place "
                 f"stays this task's; run `{retry}` to try again on the same worktree.",
-                trigger='other', source=row['id'])
+                refs={'wake': 'blocker'}, trigger='other', source=row['id'])
 
 
 def held_reason(c, row, detail, memo=None):
