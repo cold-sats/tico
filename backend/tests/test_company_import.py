@@ -1,11 +1,13 @@
 """A picker export creates the selected team through normal owner-only onboarding."""
 import copy
 import re
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from backend import company_file as C
+from backend import market_spend as MS
 from backend.app import create_app
 from backend.auth import Identity
 from backend.company_file import starter
@@ -736,3 +738,80 @@ def test_a_325_goal_company_file_imports_and_a_326_goal_file_is_refused_plainly(
     assert not rows(api, "SELECT id FROM goals")
     preview = preview_and_import(api, text)
     assert len(preview["goals"]) == 325 and len(rows(api, "SELECT id FROM goals")) == 325
+
+
+# ------------------------------------------------------------------------------------- the strategy block (format 0.3)
+STRATEGY_FILE = Path(__file__).parent / "fixtures" / "company_strategy" / "company.yaml"
+
+
+def test_a_strategy_block_imports_as_an_unconfirmed_draft_with_its_market_watches_and_insights(environment):
+    """The fictional Acme Build file both repos test against: everything the setup page drafted lands for the owner to
+    confirm, nothing published, and each goal on the bet it came from."""
+    api = environment()
+    summary = preview_and_import(api, STRATEGY_FILE.read_text())["strategy"]
+    assert [b["id"] for b in summary["bets"]] == ["b1", "b2", "b3"] and summary["sections"][-1] == "watching"
+    assert summary["market"] == {"root": "Construction management software", "segments": 4, "sizes": 3,
+                                 "players": ["Trestle", "FieldCraft"]}
+    assert summary["watches"] == ["https://example.com/trestle", "https://example.com/fieldcraft"]
+    assert summary["insights"] == 2
+
+    strategy = api.get("/api/v2/strategy", headers=signed_in()).json()
+    draft = strategy["draft"]
+    assert draft["summary"].startswith("Win field crews") and draft["vision"].startswith("Every crew")
+    assert draft["sections"]["serve"] == ("_Unconfirmed: drafted from the company file._\n\nSuperintendents and "
+                                          "foremen at general contractors with 50 to 500 staff.")
+    assert all(draft["sections"][k].startswith("_Unconfirmed") for k in ("sell", "know", "not"))
+    assert draft["sections"]["extra"]["watching"] == {
+        "title": "Watching", "body": "- Competitor changelogs: Trestle, FieldCraft\n"
+                                     "- Superintendents asking for a better schedule app"}
+    assert api.get("/api/v2/strategy/versions", headers=signed_in()).json() == []
+    bets = {b["statement"]: b for b in strategy["bets"]}
+    assert {b["status"] for b in bets.values()} == {"proposed"} and len(bets) == 3
+    phone = bets["Win the superintendent's phone"]
+    assert phone["wrong_if"] == {"kind": "text", "text": "Fewer than 3 in 10 supers open it daily after 60 days",
+                                 "check_by": "2027-01-23"}
+    assert bets["Photos are the input"]["wrong_if"]["check_by"] > H.now()[:10]       # none in the file: 90 days out
+    goals = {r["title"]: r["bet_id"] for r in rows(api, "SELECT title, bet_id FROM goals")}
+    assert goals == {"Daily active supers": phone["id"], "Mid-size deals closed": bets["Mid-size before enterprise"]["id"]}
+
+    # The market by spend: the definition, segments under its root, each size proposed on its own evidence.
+    with api.app.state.store.read() as c:
+        definition = MS.definition(c)
+    assert definition["includes"] == ["Scheduling, field and project tools for builders"]
+    assert definition["excludes"] == ["Design and CAD tools"] and definition["year"] == 2026
+    edges = {(r["src"], r["rel"], r["dst"]) for r in rows(api, "SELECT src, rel, dst FROM market_edges")}
+    root = definition["root"]
+    assert {("segment/gc-suites", "member_of", root), ("segment/schedules", "member_of", "segment/gc-suites"),
+            ("segment/bim", "member_of", root), ("segment/specialty-pm", "member_of", root),
+            ("company/self", "operates_in", "segment/schedules"), ("company/trestle", "operates_in", "segment/gc-suites"),
+            ("company/fieldcraft", "operates_in", "segment/schedules"),
+            ("company/trestle", "competes_with", "company/self")} <= edges
+    sizes = {r["segment_id"]: r for r in rows(api, "SELECT * FROM market_sizes")}
+    assert set(sizes) == {"segment/gc-suites", "segment/schedules", "segment/bim"}      # no evidence, no size
+    assert {r["status"] for r in sizes.values()} == {"proposed"}
+    assert (sizes["segment/schedules"]["spend_usd"], sizes["segment/schedules"]["method"]) == (400000000, "bottom_up")
+    assert sizes["segment/schedules"]["arithmetic"] == "Fictional fixture: 830k users x $40 x 12"
+    cited = rows(api, "SELECT source_url FROM market_evidence WHERE id IN (SELECT value FROM json_each(?))",
+                 (sizes["segment/bim"]["evidence_ids"],))
+    assert cited == [{"source_url": "https://example.com/bim"}]
+    assert '"next": true' in rows(api, "SELECT properties FROM market_entities WHERE id='segment/bim'")[0]["properties"]
+    # Rival sites are watched; the posts wait as new insights for the Librarian's curate.
+    assert {(r["entity_id"], r["url"], r["kind"]) for r in rows(api, "SELECT * FROM market_watches WHERE active=1")} == {
+        ("company/trestle", "https://example.com/trestle", "home"),
+        ("company/fieldcraft", "https://example.com/fieldcraft", "home")}
+    insights = rows(api, "SELECT claim, source_url, status FROM market_insights ORDER BY reported_at")
+    assert [(i["source_url"], i["status"]) for i in insights] == [("https://news.ycombinator.com/item?id=1", "new"),
+                                                                  ("https://example.com/post", "new")]
+    record = api.get("/api/v2/setup", headers=signed_in()).json()["company_import"]
+    assert record["strategy"]["skipped"] == [] and len(record["strategy"]["bets"]) == 3
+
+
+def test_a_0_2_file_without_a_strategy_imports_as_before_and_adds_nothing_to_strategy_or_market(environment):
+    api = environment()
+    text = company_text()
+    assert "version: 0.2\n" in text
+    assert "strategy" not in preview_and_import(api, text)
+    assert api.get("/api/v2/strategy", headers=signed_in()).json()["bets"] == []
+    for table in ("market_entities", "market_sizes", "market_watches", "market_insights"):
+        assert rows(api, f"SELECT * FROM {table}") == [], table
+    assert {r["bet_id"] for r in rows(api, "SELECT bet_id FROM goals")} <= {None}
