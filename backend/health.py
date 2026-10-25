@@ -688,7 +688,7 @@ HELD = {
     "check_model": ("Its check model does not run on {computer}, or is on hold", BOT_SETTINGS),
     "unreadable": ("Its queued message is one it may not read", RUNS),
     # Tico stopped the bot (backend/bot_stops.py): a person releases it. A back-off is a short pause after a failed run.
-    "run_hold": ("Tico stopped it after five failed runs in a row: check its last runs, then release it", BOT_SETTINGS),
+    "run_hold": ("Tico stopped it after five failed runs in a row and tries one run on its own now and then: check its last runs, or release it now", BOT_SETTINGS),
     "budget": ("Tico stopped it for too many runs in a short time: check its last runs, then release it or raise its "
                "budget", BOT_SETTINGS),
     "backoff": ("Pausing after a failed run: it tries again in a moment", RUNS),

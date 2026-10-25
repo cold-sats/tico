@@ -7,6 +7,14 @@ it is the retry someone is watching, and its failure counts like any other (re-q
 no claim starts its queued work (a person's chat message included) until a person releases it, and the bot's
 operator gets one Needs-you item while Health names the error class. The held bot's queued work is kept.
 
+A hold does not need a person to end it. Tico tries one run on its own, the first PROBE_FIRST after the hold and each
+later one after twice the gap before it (up to MAX_WAIT), so a shared outage (a provider answering every bot with an
+error, the network down) lets every bot go again once it is over, while a broken bot still makes only a few runs a day.
+The claim hands out exactly one job when the try is due and pushes the next try out at once (`probe`), so several
+lanes or computers, or a runner that vanishes, never open the gate twice. The try is whichever queued job the queue
+puts first, a person's chat message ahead of the rest. A run that completes normally releases the bot (`reset`), and a
+fast failure of the try doubles the gap; a person can still release the bot at once.
+
 A failure that is a provider's usage limit takes the usage-limit hold instead (backend/login_holds.py), however the
 provider wrapped it: `classify` reads the text of any failed run, so a runner that did not flag it (an older one)
 or an error that nests the limit inside another ("Prompt is too long - automatic compaction failed: You've hit
@@ -29,7 +37,8 @@ from .store import H
 FAST = 60                 # a run that fails sooner than this after starting is a fast failure
 FIRST_WAIT = 15           # seconds the bot waits after its first fast failure; doubles for each one in a row
 MAX_WAIT = 8 * 3600       # and never longer than this
-HOLD_AFTER = 5            # fast failures in a row that hold the bot until a person releases it
+HOLD_AFTER = 5            # fast failures in a row that hold the bot
+PROBE_FIRST = 30 * 60     # seconds a held bot waits before its first try; doubles for each failed try, up to MAX_WAIT
 ERROR_CHARS = 300
 
 SCHEMA = (
@@ -142,14 +151,47 @@ def wait_for(fails):
 
 
 def refusal(c, bot):
-    """Why a claim passes over all of the bot's work for its failed runs: "run_hold" while it is held, "backoff" until
-    its wait ends, else None. Read only, as every refusal (execution.claim_refusal)."""
+    """Why a claim passes over all of the bot's work for its failed runs: "run_hold" while it is held (until its next
+    try is due), "backoff" until its wait ends, else None. Read only, as every refusal (execution.claim_refusal)."""
     row = c.execute("SELECT held_at,wait_until FROM run_backoff WHERE bot=?", (bot,)).fetchone()
     if not row:
         return None
     if row["held_at"]:
-        return "run_hold"
+        return None if probe_due(c, bot, dict(row)) else "run_hold"
     return "backoff" if row["wait_until"] and row["wait_until"] > H.now() else None
+
+
+def probe_wait(fails):
+    """Seconds a held bot waits for its next try once `fails` fast failures in a row are on record."""
+    return min(PROBE_FIRST * 2 ** max(fails - HOLD_AFTER, 0), MAX_WAIT)
+
+
+def probe_at(state):
+    """When a held bot's next try is due: the time kept in `wait_until`, else PROBE_FIRST after the hold began (a hold
+    from before tries existed has none). None for a bot that is not held."""
+    return (state.get("wait_until") or H.shift(state["held_at"], seconds=PROBE_FIRST)) if state.get("held_at") else None
+
+
+def probe_due(c, bot, state, now=None):
+    """Whether a held bot may take a try now: its time has come and none of its runs is out."""
+    at = probe_at(state)
+    return bool(at and at <= (now or H.now()) and not c.execute(
+        "SELECT 1 FROM attempts WHERE bot=? AND state IN ('leased','running') LIMIT 1", (bot,)).fetchone())
+
+
+def probe(c, bot):
+    """Called by the claim, in its write transaction, with the bot whose job it is about to hand out: True when the job
+    must be passed over because the bot is held and its try is not due. When it is due this is the try: the next one is
+    pushed out as if it failed, so a second claim in the same window, a second lane or computer, and a try whose runner
+    vanishes all wait the longer gap."""
+    state = get(c, bot)
+    if not state.get("held_at"):
+        return False
+    if not probe_due(c, bot, state):
+        return True
+    c.execute("UPDATE run_backoff SET wait_until=? WHERE bot=?",
+              (H.shift(H.now(), seconds=probe_wait(int(state.get("fails") or 0) + 1)), bot))
+    return False
 
 
 def _since_failure(c, bot):
@@ -173,7 +215,16 @@ def job_refusal(c, bot, message):
 
 
 def reset(c, bot):
-    """A run completed normally: the count starts over. A hold is not lifted by it (only a release does)."""
+    """A run completed normally: the count starts over. A held bot is released by it: the try worked, or the cause
+    went away by itself. The operator's Needs-you item closes and an event says so."""
+    state = get(c, bot)
+    if state.get("held_at"):
+        from . import bot_stops
+        c.execute("UPDATE run_backoff SET fails=0,wait_until=NULL,held_at=NULL,task_id=NULL WHERE bot=?", (bot,))
+        bot_stops.close_item(c, state.get("task_id"),
+                             f"{bot_stops.name_of(c, bot)} ran normally again, so Tico released it.")
+        H.event(c, H.KEEPER, "bot.run_recovered", bot, {"fails": state.get("fails"), "error_class": state.get("error_class")})
+        return
     c.execute("UPDATE run_backoff SET fails=0,wait_until=NULL WHERE bot=? AND held_at IS NULL AND fails>0", (bot,))
 
 
@@ -197,7 +248,12 @@ def failed(c, settings, row, body, aid, now=None):
     fails = int(state.get("fails") or 0) + 1
     held = bool(state.get("held_at"))
     hold_now = fails >= HOLD_AFTER and not held
-    wait = None if fails >= HOLD_AFTER else H.shift(now, seconds=wait_for(fails))
+    if fails < HOLD_AFTER:
+        wait = H.shift(now, seconds=wait_for(fails))
+    elif held and str(row["created"]) >= str(state["held_at"]):
+        wait = H.shift(now, seconds=probe_wait(fails))      # a try failed: the next one comes later
+    else:
+        wait = state.get("wait_until")                      # held now (hold sets it), or a run out before the hold
     c.execute("INSERT INTO run_backoff(bot,fails,wait_until,error_class,error,last_failed) VALUES(?,?,?,?,?,?) "
               "ON CONFLICT(bot) DO UPDATE SET fails=excluded.fails,wait_until=excluded.wait_until,"
               "error_class=excluded.error_class,error=excluded.error,last_failed=excluded.last_failed",
@@ -208,16 +264,19 @@ def failed(c, settings, row, body, aid, now=None):
 
 
 def hold(c, settings, bot, fails, kind, error, now):
-    """Hold the bot: one Needs-you item for its operator, and an event. Its queued work is kept."""
+    """Hold the bot: one Needs-you item for its operator, and an event. Its queued work is kept, and its first try is
+    due PROBE_FIRST from now."""
     from . import bot_stops
     name = bot_stops.name_of(c, bot)
     task_id = bot_stops.raise_item(
         c, settings, bot, f"{name} stopped after {fails} failed runs in a row",
         f"Tico stopped {name}: its last {fails} runs each failed within a minute, with {CLASS_WORDS[kind]}.\n\n"
         f"Last error: {error or 'none was reported'}\n\n"
-        f"Check its last runs in Runs. When the cause is fixed, release {name} (Settings > Bots > {name}, or "
-        f"`hub bot release {bot}`). Everything queued for it is kept and starts after the release.")
-    c.execute("UPDATE run_backoff SET held_at=?,task_id=? WHERE bot=?", (now, task_id, bot))
+        f"Tico tries one run of {name} on its own, first in {PROBE_FIRST // 60} minutes and then at growing intervals, and "
+        f"releases it when one completes. To start it sooner, check its last runs in Runs, fix the cause and release "
+        f"{name} (Settings > Bots > {name}, or `hub bot release {bot}`). Everything queued for it is kept.")
+    c.execute("UPDATE run_backoff SET held_at=?,task_id=?,wait_until=? WHERE bot=?",
+              (now, task_id, H.shift(now, seconds=PROBE_FIRST), bot))
     H.event(c, H.KEEPER, "bot.run_held", bot, {"fails": fails, "error_class": kind, "task": task_id})
 
 
@@ -248,7 +307,8 @@ def words(c, bot):
     if state.get("held_at"):
         cause = CLASS_WORDS.get(state.get("error_class")) or CLASS_WORDS[OTHER]
         return (f"Tico stopped {name}: its last {state.get('fails')} runs failed within a minute ({cause}). "
-                "Check its last runs, then release it.")
+                "Tico tries one run on its own at growing intervals and releases it when one completes. "
+                "Check its last runs, or release it now.")
     left = max(1, int((H.parse_ts(state.get("wait_until")) - H.parse_ts(H.now())).total_seconds())) \
         if state.get("wait_until") and H.parse_ts(state["wait_until"]) else 0
     return f"{name} is pausing {left} s after a failed run before it tries again" if left else ""

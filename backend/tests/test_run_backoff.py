@@ -85,8 +85,8 @@ def test_a_prompt_too_large_to_send_starts_a_fresh_session_and_five_fast_failure
             now = H.shift(now, seconds=wait + 1)
             at(monkeypatch, api, now)
             ready(api, machine, ["ops"])
-    # Held: nothing starts, a person's message included, and the sender is told why.
-    at(monkeypatch, api, H.shift(now, hours=30))
+    # Held: nothing starts before the first try is due, a person's message included, and the sender is told why.
+    at(monkeypatch, api, H.shift(now, seconds=run_backoff.PROBE_FIRST - 1))
     ready(api, machine, ["ops"])
     assert claim(api, machine) is None
     said = post(api, "chat/ops", {"text": "Are you there?"})
@@ -107,6 +107,98 @@ def test_a_prompt_too_large_to_send_starts_a_fresh_session_and_five_fast_failure
     with api.app.state.store.read() as c:
         assert run_backoff.get(c, "ops")["fails"] == 0
         assert c.execute("SELECT status FROM tasks WHERE title LIKE '%failed runs in a row'").fetchone()["status"] == "closed"
+
+
+def hold_bot(api, machine, monkeypatch):
+    """Five fast failures in a row, each after the wait the one before it set. Answers the time of the last one."""
+    now = "2026-10-24T12:00:00.000000Z"
+    for fails in range(1, 6):
+        at(monkeypatch, api, now)
+        ready(api, machine, ["ops"])
+        fail(api, machine, claim(api, machine), TOO_BIG)
+        now = H.shift(now, seconds=run_backoff.wait_for(fails) + 1)
+    with api.app.state.store.read() as c:
+        assert run_backoff.get(c, "ops")["held_at"]
+        return run_backoff.get(c, "ops")["held_at"]
+
+
+def tick(api, machine, monkeypatch, when):
+    at(monkeypatch, api, when)
+    ready(api, machine, ["ops"])
+
+
+def test_a_held_bot_takes_one_try_when_it_is_due_and_a_failed_try_doubles_the_gap_up_to_eight_hours(api, monkeypatch):
+    machine = setup(api, monkeypatch, tasks=12)
+    held = hold_bot(api, machine, monkeypatch)
+    items = "SELECT count(*) FROM tasks WHERE title LIKE '%failed runs in a row'"
+    with api.app.state.store.read() as c:
+        assert run_backoff.get(c, "ops")["wait_until"] == H.shift(held, seconds=run_backoff.PROBE_FIRST)
+        assert c.execute(items).fetchone()[0] == 1
+    tick(api, machine, monkeypatch, H.shift(held, seconds=run_backoff.PROBE_FIRST - 1))
+    assert claim(api, machine) is None                                   # not yet
+    gap, when = run_backoff.PROBE_FIRST, H.shift(held, seconds=run_backoff.PROBE_FIRST)
+    for fails in range(6, 14):
+        tick(api, machine, monkeypatch, when)
+        probe = claim(api, machine)
+        assert probe, f"the try after {fails - 1} failures is due"
+        with api.app.state.store.read() as c:
+            assert run_backoff.get(c, "ops")["wait_until"] > when        # taken: the next try is already out
+        assert claim(api, machine) is None                               # a second claim in the window gets nothing
+        fail(api, machine, probe, TOO_BIG)
+        gap = min(gap * 2, run_backoff.MAX_WAIT)
+        with api.app.state.store.read() as c:
+            state = run_backoff.get(c, "ops")
+            assert state["held_at"] == held and state["fails"] == fails
+            assert state["wait_until"] == H.shift(when, seconds=gap)
+            assert c.execute(items).fetchone()[0] == 1                   # one Needs-you item, never a second
+        tick(api, machine, monkeypatch, H.shift(when, seconds=gap - 1))
+        assert claim(api, machine) is None
+        when = H.shift(when, seconds=gap)
+    assert gap == run_backoff.MAX_WAIT == 8 * 3600
+
+
+def test_a_try_that_completes_releases_the_bot_and_closes_its_item_and_a_person_can_release_mid_try(api, monkeypatch):
+    machine = setup(api, monkeypatch, tasks=8)
+    held = hold_bot(api, machine, monkeypatch)
+    post(api, "chat/ops", {"text": "Are you there?"})
+    tick(api, machine, monkeypatch, H.shift(held, seconds=run_backoff.PROBE_FIRST + 1))
+    probe = claim(api, machine)
+    assert probe and probe["message"]["from_actor"] == "human:ana"       # the person's message rides the first try
+    complete(api, machine, probe)
+    with api.app.state.store.read() as c:
+        state = run_backoff.get(c, "ops")
+        assert (state["held_at"], state["wait_until"], state["fails"]) == (None, None, 0)
+        item = c.execute("SELECT status FROM tasks WHERE title LIKE '%failed runs in a row'").fetchone()
+        assert item["status"] == "closed"
+        assert c.execute("SELECT 1 FROM events WHERE action='bot.run_recovered'").fetchone()
+    assert claim(api, machine)                                           # the rest of the queue runs again
+
+
+def test_releasing_a_held_bot_while_its_try_is_out_starts_the_count_over_and_a_slow_failure_changes_nothing(
+        api, monkeypatch):
+    machine = setup(api, monkeypatch, tasks=8)
+    held = hold_bot(api, machine, monkeypatch)
+    due = H.shift(held, seconds=run_backoff.PROBE_FIRST)
+    tick(api, machine, monkeypatch, due)
+    slow = claim(api, machine)
+    post(api, f"attempts/{slow['id']}/started", {"thread_id": "slow"}, machine["token"])
+    tick(api, machine, monkeypatch, H.shift(due, seconds=run_backoff.FAST + 5))
+    post(api, f"attempts/{slow['id']}/complete", {"outcome": "failed", "last_seq": 0, "text": "Gave up."},
+         machine["token"])
+    with api.app.state.store.read() as c:
+        state = run_backoff.get(c, "ops")
+        assert state["held_at"] == held and state["fails"] == 5          # a failure after real work counts for nothing
+        assert state["wait_until"] > due
+    tick(api, machine, monkeypatch, H.shift(held, hours=2))
+    probe = claim(api, machine)
+    assert probe
+    assert post(api, "bots/ops/release", {})["released"]["run_hold"] is True      # a person acts while the try is out
+    fail(api, machine, probe, TOO_BIG)
+    with api.app.state.store.read() as c:
+        state = run_backoff.get(c, "ops")
+        assert state["held_at"] is None and state["fails"] == 1           # an ordinary first failure now
+        assert state["wait_until"] == H.shift(H.now(), seconds=run_backoff.FIRST_WAIT)
+        assert run_backoff.refusal(c, "ops") == "backoff"
 
 
 def test_a_bot_over_its_run_budget_is_held_but_a_persons_message_still_runs_until_it_is_released(api, monkeypatch):

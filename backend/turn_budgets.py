@@ -194,6 +194,7 @@ def view(c, bot, config):
             "held": ({"window": state["window"], "runs": state["runs"], "budget": state["budget"],
                       "since": state["held_at"], "words": words(c, bot)} if state.get("held_at") else None),
             "run_hold": ({"fails": failing["fails"], "error_class": failing["error_class"], "since": failing["held_at"],
+                          "next_try": run_backoff.probe_at(failing),
                           "words": run_backoff.words(c, bot)} if failing.get("held_at") else None),
             "revision": config["revision"]}
 

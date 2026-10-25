@@ -1,13 +1,15 @@
 """The two ways Tico stops a bot that is failing or running away, and what every page says about them.
 
-- `run_backoff`: a bot whose runs keep failing within a minute waits between runs, then is held after five in a row.
+- `run_backoff`: a bot whose runs keep failing within a minute waits between runs, then is held after five in a row;
+  Tico tries one run of a held bot on its own at growing intervals and releases it when one completes.
 - `turn_budgets`: a bot that starts more runs in an hour or a day than its budget is held.
 
-A hold keeps the bot's queued work and starts none of it until a person releases the bot (one action, both holds). A
-person's chat message does not bypass a failed-runs hold; it does bypass a budget hold, which only stops work nobody
-asked for. This module is the one place the pages read: the status row (`overlay`), the warning beside a message or a
-task sent to a held bot (`warning`), the "Saved - waiting" label (`queued_reason`), Health's reason (`reason`), and the
-Needs-you item both holds file for the bot's operator (`raise_item`, `close_item`).
+A hold keeps the bot's queued work and starts none of it until a person releases the bot (one action, both holds) or,
+for a failed-runs hold, until Tico's own try completes. A person's chat message does not bypass a failed-runs hold (it
+goes with the next try); it does bypass a budget hold, which only stops work nobody asked for. This module is the one
+place the pages read: the status row (`overlay`), the warning beside a message or a task sent to a held bot
+(`warning`), the "Saved - waiting" label (`queued_reason`), Health's reason (`reason`), and the Needs-you item both
+holds file for the bot's operator (`raise_item`, `close_item`).
 """
 
 import logging
@@ -52,7 +54,7 @@ def warning(c, actor):
     if not str(actor or "").startswith("bot:"):
         return None
     found = hold(c, actor[4:])
-    return f"{found['words']} What you sent is kept and starts after the release." if found else None
+    return f"{found['words']} What you sent is kept and starts when the bot runs again." if found else None
 
 
 def queued_reason(c, bot, human=False):

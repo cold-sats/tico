@@ -377,10 +377,16 @@ waits before its next run, 15 seconds after the first such failure, doubling eac
 starts the count over. A message a person sends during the wait runs at once (it is the retry someone is watching), and
 its failure counts like any other. A run a person stopped, a usage limit, a model at capacity, a handed-back run and a failure after 60 seconds do
 not count. After five in a row Tico holds the bot: nothing it has queued starts (a person's message included; it is kept and
-starts after the release), the bot reads *paused*, a message to it says why ("Saved — waiting: Tico stopped <bot>: its last 5 runs
+starts when the bot runs again), the bot reads *paused*, a message to it says why ("Saved — waiting: Tico stopped <bot>: its last 5 runs
 failed within a minute ..."), the bot's operator gets one Needs-you item, and Health shows `run_hold` naming the kind of error.
-**Release** (Settings → Bots, `hub bot release <bot>`, `POST /api/v2/bots/{bot}/release`, MCP `hub_bot_release`) lifts the hold and its
-Needs-you item.
+A held bot is not stuck until someone notices: Tico tries one run on its own 30 minutes after the hold, and after each try that
+fails within a minute again waits twice as long (up to 8 hours). The try is the first queued job in the usual order, a person's chat
+message ahead of the rest; only one is handed out per window, however many lanes or computers the bot has. A run that completes
+normally releases the bot (its Needs-you item closes, event `bot.run_recovered`), so a provider outage or a network drop that has
+ended lets every bot it held go again without anyone, while a bot that is really broken makes only a few runs a day. A try that
+fails after more than a minute changes nothing. **Release** (Settings → Bots, `hub bot release <bot>`,
+`POST /api/v2/bots/{bot}/release`, MCP `hub_bot_release`) lifts the hold and its Needs-you item at once; `GET /api/v2/bots/{bot}/budget`
+shows the hold's `next_try`.
 
 **Run budgets.** Each bot has `turns_per_hour` (default 300) and `turns_per_day` (default 2500); the owner and administrators set the
 team defaults (`GET/POST /api/v2/settings/turn-budgets`, `hub team budget [--hour N] [--day N]`), and a bot's owner, operator or BotOps
