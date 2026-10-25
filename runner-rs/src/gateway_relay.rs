@@ -930,6 +930,23 @@ print(json.dumps(r))
             let r: Value = serde_json::from_slice(&result.stdout).unwrap();
             assert!(r.as_object().unwrap().values().all(|v| v == false), "sibling {id:?}: {r}");
         }
+        // The supervisor hands the leased user its own credential socket; the bot user and a sibling turn cannot reach it.
+        std::env::set_var("TICO_RUNNER_CRED_SOCKET", "/run/tico-runner/probe-credential.sock");
+        let client = crate::client::Client::new("http://127.0.0.1:9", "synthetic", 5, 0).unwrap();
+        let shared_socket = crate::gitcred::CredentialSocket::serve(client, std::sync::Arc::new(crate::gitcred::TokenCache::new())).unwrap();
+        let mut socket_env = crate::env::Env::new();
+        socket_env.insert(crate::gitcred::SOCKET_ENV.into(), shared_socket.path.display().to_string());
+        let turn_socket = shared_socket.serve_for(&mut socket_env, &user.dir.join("git-credential.sock"), user.identity()).unwrap();
+        assert_eq!(std::fs::symlink_metadata(&turn_socket.path).unwrap().uid(), user.uid);
+        let ask = "import socket,sys\ns=socket.socket(socket.AF_UNIX)\ntry: s.connect(sys.argv[1])\nexcept PermissionError: print('denied'); sys.exit(0)\ns.sendall(b'probe\\n'); print(s.makefile().readline().strip())";
+        for (id, expected) in [(user.identity(), "bad request"), ((10003, 10002), "denied"), (other.identity(), "denied")] {
+            let asked = crate::isolation::command_as(Some(id), crate::env::python())
+                .args(["-c", ask, &socket_env[crate::gitcred::SOCKET_ENV]]).env_clear().output().await.unwrap();
+            assert!(asked.status.success(), "{id:?}: {}", String::from_utf8_lossy(&asked.stderr));
+            assert!(String::from_utf8_lossy(&asked.stdout).contains(expected), "{id:?}: {}", String::from_utf8_lossy(&asked.stdout));
+        }
+        drop(turn_socket);
+        drop(shared_socket);
         let allowed = crate::isolation::command_as(Some(user.identity()), crate::env::python())
             .args(["-c", "import sys,urllib.request; r=urllib.request.Request(sys.argv[1]+'/chat/completions',data=b'{}',headers={'Authorization':'Bearer '+sys.argv[2]}); print(urllib.request.urlopen(r,timeout=3).status)", &relay.url, &relay.token])
             .env_clear().output().await.unwrap();
