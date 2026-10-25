@@ -1,4 +1,5 @@
-"""A Dev ticket's requester hears step moves as notes and is woken only when the ticket is declined or done."""
+"""A Dev ticket's requester hears step moves as notes and is woken only when the ticket is declined, blocked or done."""
+from backend import task_relations as TR
 from backend.store import H
 from backend.tests.test_api import api  # noqa: F401
 
@@ -34,6 +35,24 @@ def test_declined_wakes_the_requester(api):
     task = dev_ticket(api)
     with api.app.state.store.transaction() as c:
         H.task_update(c, "bot:cpo", task["id"], status="declined", note="Not building this.")
+    assert heard(api, "coo")[0] == 1
+
+
+def test_blocked_on_someone_else_wakes_the_requester_once_and_a_wait_on_the_owner_does_not(api):
+    task = dev_ticket(api)
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, "bot:cpo", task["id"], status="waiting", waiting_on="human:ana", note="Needs the API key.")
+        H.task_update(c, "bot:cpo", task["id"], status="waiting", waiting_on="human:ana")       # still waiting: no news
+    assert heard(api, "coo")[0] == 1                    # the Dev ticket's own Blocked notice carries the wake
+    with api.app.state.store.transaction() as c:
+        c.execute("DELETE FROM jobs")
+        plain = H.task_create(c, "bot:coo", "Draft the note", "x", "bot:cpo", lint=False)
+        own = H.task_create(c, "bot:cpo", "Set up the repo", "x", "bot:cpo", lint=False)
+        TR.add_blocker(c, "bot:cpo", plain["id"], own["id"])                 # its owner's own work: no news
+        c.execute("DELETE FROM jobs WHERE bot='cpo'")
+    assert heard(api, "coo")[0] == 0
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, "bot:cpo", plain["id"], status="waiting", waiting_on="human:ana", note="Which date?")
     assert heard(api, "coo")[0] == 1
 
 

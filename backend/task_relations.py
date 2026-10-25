@@ -505,6 +505,27 @@ def _blocker_gate(conn, actor, row, mover):
         _need_mover(conn, actor, "blocked_by")
 
 
+def requester_hears_block(conn, row, waits_on, actor):
+    """Whether a task that now waits on `waits_on` (an actor) wakes its requester: a bot that handed the task to
+    someone else, told of a block it may act on (find the person, drop the request), as of a decline. Not when the
+    owner waits on itself or its own split-off work, nor on the requester (that is an ask, its own wake), nor when the
+    requester made the change. A person requester sees it in Needs you."""
+    H = _H()
+    req = row.get("requester")
+    return bool(req and H.is_bot(req) and waits_on and req not in (row.get("owner"), actor, waits_on)
+                and waits_on != row.get("owner"))
+
+
+def _tell_requester(conn, actor, row, blocker):
+    """The requester's wake for a block (requester_hears_block); a Dev ticket's own notice carries it instead."""
+    from .ticket_notices import _engineering
+    H = _H()
+    if not blocker or _engineering(conn, row) or not requester_hears_block(conn, row, blocker["owner"], actor):
+        return
+    H._wake(conn, row, row["requester"], f"Blocked: {row['title']}: waits on {blocker['title']}",
+            {"news": "task_blocked", "blocker": blocker["id"]}, quiet_bots=True)
+
+
 def add_blocker(conn, actor, task_id, blocker_id, mover=None, note=""):
     """`blocker_id` blocks `task_id`. A task may wait on several."""
     H = _H()
@@ -524,6 +545,7 @@ def add_blocker(conn, actor, task_id, blocker_id, mover=None, note=""):
     from .ticket_notices import blocked
     sync(conn, task_id)               # a roadmap item now waits on this Dev ticket too
     blocked(conn, actor, row, blocker_id)
+    _tell_requester(conn, actor, H.task(conn, task_id), H.task(conn, blocker_id))
     return True
 
 

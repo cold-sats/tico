@@ -2996,6 +2996,9 @@ def create_app(settings=None):
                         for field in ("body", "acceptance_criteria", "acceptance_json", "public_title", "public_summary",
                                       "requester_count", "external_requesters", "internal_requesters", "important_requesters", "organization", "size"):
                             row.pop(field, None)
+                        for field in ("verdict", "verdict_head"):   # only a review or QA subtask has one
+                            if row.get(field) is None:
+                                row.pop(field, None)
                         if isinstance(row.get("step"), dict):
                             row["step"].pop("public_name", None)
             if changed_after is not None:

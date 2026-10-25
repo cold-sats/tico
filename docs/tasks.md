@@ -386,7 +386,8 @@ Rules page and `rule_weekly` in `hub sql` show how often each woke a bot and how
 An event no rule names waits as a note (`default_note`): the bot reads it on its next run. Work still wakes the bot: an
 assignment or a task handed back to it, a review or QA request, a blocker, a routine, a schedule, a due date, a snooze
 ending, a requested update, an unanswered ask restated, a release published, the Task Manager's report, a pull request's
-checks finishing, a subtask or a blocker finishing, a stall check, and a task the requester finished or declined. A plain
+checks finishing, a subtask or a blocker finishing, a stall check, and a task the bot asked for being finished, declined
+or blocked on someone else (`task_blocked`). A plain
 comment, another bot's status or step move, and the bot's own write (`own_write`, ignored) do not. A rule's outcome is
 `ignore`, `note`, `batch`, `wake`, `ask` or `action`. **Ask** writes the message as a note and puts one item in the
 Needs you list of the task's human (its requester if a person, else its owner's operator), once per task and rule.

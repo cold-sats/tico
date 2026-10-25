@@ -303,4 +303,4 @@ def retire_assignments(c):
                 except H.Refused:
                     pass
             c.execute("UPDATE tasks SET owner=?,updated=? WHERE id=?", (owner, H.now(), task_id))
-            H._wake(c, H.task(c, task_id), owner, f"Open: {title}")
+            H._wake(c, H.task(c, task_id), owner, f"Open: {title}", {"news": "assignment"})

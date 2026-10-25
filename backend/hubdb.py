@@ -5201,7 +5201,10 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     filed_in = RUN.get() if is_bot(target) and target == actor else ""
     # A review, QA or Security child is a request to a reviewer: its own event, so a rule can wake reviewers apart
     # from other assignments.
-    gate_child = {"wake": "review_request"} if parent and review_gate.GATE_CHILD.match(str(title).strip()) else {}
+    # Any other is an assignment, named so that rewording the notice never turns it into a note (`news` keeps it
+    # holdable: a task a bot files for itself still waits for the filing turn).
+    gate_child = {"wake": "review_request"} if parent and review_gate.GATE_CHILD.match(str(title).strip()) \
+        else {"news": "assignment"}
     _wake(conn, task(conn, row["id"]), target, f"New task from {actor}: {title}",
           {**({"reconcile": reconcile} if reconcile else {}), **({"filed_in": filed_in} if filed_in else {}),
            **gate_child, **(wake_refs or {})} or None,
@@ -5647,7 +5650,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
               + (f"\n{note}" if note and not quiet else ""),
               {"news": "ready_for_review"} if review_gate.engineering(conn, after) else {"wake": "review_handback"})
     if (status == "open" or owner is not None and owner != row["owner"]) and actor != after["owner"]:
-        _wake(conn, after, after["owner"], f"Open: {after['title']}")
+        _wake(conn, after, after["owner"], f"Open: {after['title']}", {"news": "assignment"})
     # A bot's milestone goes to its main chat as one quiet line (task_report).
     if is_bot(after["owner"]):
         if after["status"] in ("done", "declined") and row["status"] != after["status"]:

@@ -100,7 +100,9 @@ def test_a_reviewer_takes_review_children_only_and_wakes_for_its_request_and_peo
         c.execute("DELETE FROM jobs")
         mine = H.task(c, review["id"])
         assert news(c, mine)["refs"]["rule"] == "profile_reviewer_note" and jobs(c, "checker") == 0
-        found = R.judge(c, H.KEEPER, "bot:checker", "message", {"task": review["id"]}, "Ready for review: x", None)
+        # A task it asked for handed back to it (hubdb.task_update stamps the hand-back off a Dev ticket).
+        found = R.judge(c, H.KEEPER, "bot:checker", "message", {"task": review["id"], "wake": "review_handback"},
+                        "Ready for review: x", None)
         assert found.outcome == "wake"
         person = R.judge(c, "human:ana", "bot:checker", "message", {}, "Did you look?", None)
         assert person.outcome == "wake"
@@ -143,6 +145,9 @@ def test_a_lead_is_woken_by_people_and_hears_the_rest_once_a_day(api):
         assert c.execute("SELECT held FROM jobs WHERE id=?", (job["id"],)).fetchone()[0] == 0
         # A person's message, and a declined ticket it asked for, wake it at once.
         assert R.judge(c, "human:ana", "bot:boss", "message", {}, "Status?", None).outcome == "wake"
+        c.execute("DELETE FROM jobs")
+        H.task_update(c, "bot:ops", mine["id"], status="declined", note="Nobody to ask.")
+        assert last_to(c, "boss")["rule"] == "profile_lead_task_declined" and jobs(c, "boss") == 1
         assert task["id"]
 
 

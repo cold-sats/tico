@@ -243,4 +243,4 @@ def notify(c, actor, notice):
                  (conv["id"], row["id"], json.dumps(key, sort_keys=True))).fetchone():
         return
     H._write_message(c, H.KEEPER, row["owner"], notice["text"], conv, "say",
-                     {"task": row["id"], "comment": True, "review_gate": json.dumps(key, sort_keys=True)}, None, None)
+                     {"task": row["id"], "comment": True, "news": "blocker", "review_gate": json.dumps(key, sort_keys=True)}, None, None)

@@ -117,6 +117,7 @@ WAKE_EVENTS = {
     "blocker_done": "a task this one waits on finished",
     "task_done": "a task the bot asked for or owns was finished or closed",
     "task_declined": "a task the bot asked for was declined",
+    "task_blocked": "a task the bot asked for now waits on someone else",
     "review_handback": "a task the bot asked for was handed back for its review",
     "backlog": "updates held for the bot while it was away",
     "feed": "a Slack channel's messages were handed to the bot to read",
@@ -170,10 +171,14 @@ def _profile_rules():
 
     add("reviewer", "profile_reviewer_assignment", "assignment", WAKE, "a review or QA request was filed for it")
     add("reviewer", "profile_reviewer_request", "review_request", WAKE, "a review, QA or Security request")
+    add("reviewer", "profile_reviewer_handback", "review_handback", WAKE, "a task it asked for came back for its review")
     timers("reviewer", OWN_TIMERS[:2] + OWN_WORK)
     add("reviewer", "profile_reviewer_note", "*", NOTE, "anything else")
-    add("lead", "profile_lead_requested", "status_or_relation", WAKE,
-        "a ticket it asked for was declined or finished", {"role": ["requester"], "state": ["declined", "done"]})
+    # A bot finishing it is batched news for everyone else (batch_completion); a lead hears it now.
+    for event, words in (("task_done", "finished"), ("batch_completion", "finished by a bot"),
+                         ("task_declined", "declined"), ("task_blocked", "blocked")):
+        add("lead", f"profile_lead_{event}", event, WAKE, f"a ticket it asked for was {words}", {"role": ["requester"]})
+    add("lead", "profile_lead_handback", "review_handback", WAKE, "a ticket it asked for came back for its review")
     add("lead", "profile_lead_blocker", "blocker", WAKE, "a blocker needs it")
     # A lead takes tasks: one handed to it (an escalation, a release, a report) is work now, not digest news.
     add("lead", "profile_lead_assignment", "assignment", WAKE, "a task was given to it")
