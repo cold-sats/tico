@@ -1,5 +1,6 @@
 """A picker export creates the selected team through normal owner-only onboarding."""
 import copy
+import json
 import re
 from pathlib import Path
 
@@ -815,3 +816,40 @@ def test_a_0_2_file_without_a_strategy_imports_as_before_and_adds_nothing_to_str
     for table in ("market_entities", "market_sizes", "market_watches", "market_insights"):
         assert rows(api, f"SELECT * FROM {table}") == [], table
     assert {r["bet_id"] for r in rows(api, "SELECT bet_id FROM goals")} <= {None}
+
+
+def strategy_draft():
+    return json.loads((STRATEGY_FILE.parent / "draft.json").read_text())
+
+
+def test_a_segment_named_like_the_root_gets_its_own_id_and_keeps_its_size_children_and_players(environment):
+    api = environment()
+    draft = strategy_draft()
+    draft["strategy"]["market"]["definition"]["root"] = "GC suites"            # the root set_definition makes first
+    preview_and_import(api, C.to_yaml(draft))
+    with api.app.state.store.read() as c:
+        assert MS.definition(c)["root"] == "segment/gc-suites"
+    edges = {(r["src"], r["rel"], r["dst"]) for r in rows(api, "SELECT src, rel, dst FROM market_edges")}
+    assert {("segment/gc-suites-2", "member_of", "segment/gc-suites"),
+            ("segment/schedules", "member_of", "segment/gc-suites-2"),
+            ("company/trestle", "operates_in", "segment/gc-suites-2")} <= edges
+    assert "segment/gc-suites-2" in {r["segment_id"] for r in rows(api, "SELECT segment_id FROM market_sizes")}
+    assert api.get("/api/v2/setup", headers=signed_in()).json()["company_import"]["strategy"]["skipped"] == []
+
+
+def test_an_address_with_a_user_name_never_lands_in_market_evidence_whatever_wrote_the_plan(environment):
+    """The file's check refuses it; the import drops it too, for a plan that reached it some other way."""
+    api = environment()
+    from backend import company_import as CI
+    strategy = C.validate(strategy_draft())["strategy"]
+    secret = "https://alice:pw@example.com/"
+    strategy["market"]["players"][0]["url"] = secret + "trestle"
+    strategy["market"]["segments"][0]["evidence"] = [secret + "gc"]
+    strategy["listening"]["posts"][0]["url"] = secret + "post"
+    with api.app.state.store.transaction() as c:
+        CI.import_strategy(c, "human:owner", strategy, "Acme Build")
+    assert not [r for r in rows(api, "SELECT source_url FROM market_evidence") if "alice" in r["source_url"]]
+    assert not [r for r in rows(api, "SELECT source_url FROM market_insights") if "alice" in r["source_url"]]
+    assert {r["entity_id"] for r in rows(api, "SELECT entity_id FROM market_watches")} == {"company/fieldcraft"}
+    assert "segment/gc-suites" not in {r["segment_id"] for r in rows(api, "SELECT segment_id FROM market_sizes")}
+    assert rows(api, "SELECT id FROM market_entities WHERE id='company/trestle'")       # the player still lands

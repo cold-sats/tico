@@ -216,6 +216,27 @@ def strategy_preview(strategy):
             "insights": len(listening["posts"])}
 
 
+def _safe_url(url):
+    """The address, or "" for one with a user name or password in it, or one that can't be read. The file's check
+    refuses both already; this keeps a credential out of market evidence whatever wrote the plan."""
+    try:
+        parts = urlsplit(str(url or ""))
+        return url if parts.scheme in ("http", "https") and parts.hostname and "@" not in parts.netloc else ""
+    except ValueError:
+        return ""
+
+
+def _segment_id(c, key):
+    """A free id for a file's segment: `segment/<key>`, or with -2, -3 ... when the market graph has it (the root
+    set_definition made from the same words, say)."""
+    base = "segment/" + key
+    n, found = 1, base
+    while MK.entity(c, found):
+        n += 1
+        found = "%s-%d" % (base, n)
+    return found
+
+
 def _best_effort(c, name, work, skipped):
     """One part of the block: a part the app refuses (a name the market graph already has, say) is left out and
     named in `skipped`, and the rest of the import goes on."""
@@ -305,15 +326,16 @@ def _market(c, actor, market, company, skipped):
             continue
 
         def made(segment=segment, parent=parent):
+            # Forced past a name the tree already has: a segment named like the root is still the file's own.
             seg = MS._new_segment(c, actor, segment["name"] or segment["key"], evidence_ids=[evidence], parent=parent,
-                                  entity_id="segment/" + segment["key"],
-                                  properties={"next": True} if segment["next"] else None)
-            if segment["usd"] is not None and segment["evidence"]:
+                                  entity_id=_segment_id(c, segment["key"]),
+                                  properties={"next": True} if segment["next"] else None, force=True)
+            urls = [u for u in map(_safe_url, segment["evidence"]) if u]
+            if segment["usd"] is not None and urls:
                 MS.create_size(c, actor, {"segment_id": seg["id"], "method": segment["method"],
                                           "spend_usd": segment["usd"], "low_usd": segment["usd"],
                                           "high_usd": segment["usd"], "arithmetic": segment["arithmetic"],
-                                          "evidence": [{"source_url": u, "source_kind": "other"}
-                                                       for u in segment["evidence"]],
+                                          "evidence": [{"source_url": u, "source_kind": "other"} for u in urls],
                                           "year": definition["year"], "confidence": "low"})
             if segment["ours"]:
                 MK.create_edge(c, actor, src=_own_company(c, actor, company, evidence), rel="operates_in",
@@ -330,6 +352,8 @@ def _players(c, actor, players, segments, company, skipped):
     watched page. [entity id]."""
     made = []
     for player in players:
+        player = {**player, "url": _safe_url(player["url"])}
+
         def one(player=player):
             host = (urlsplit(player["url"]).hostname or "").removeprefix("www.") if player["url"] else ""
             evidence, _ = MK.create_evidence(c, actor, source_url=player["url"], source_kind="site" if host else "other",
@@ -358,6 +382,9 @@ def _posts(c, actor, posts, skipped):
     """The posts the setup page found, filed as market insights (`new`) for the Librarian's daily curate."""
     filed = []
     for post in posts:
+        if not _safe_url(post["url"]):
+            skipped.append({"part": "company_file_post", "reason": "an address with a user name or password"})
+            continue
         found = _best_effort(c, "company_file_post", lambda post=post: MK.report(
             c, actor, kind="other", about="Listening: " + post["tag"], claim=post["title"] or post["url"],
             source_url=post["url"], confidence="low", source_ref="company-file:" + post["url"]), skipped)
