@@ -181,18 +181,3 @@ fn save(g: &Groups) -> std::io::Result<()> {
     }
     std::fs::rename(&temporary, file)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_turn_user_runs_with_only_the_groups_it_was_granted_until_revoked() {
-        grant(10150, &[20001, 20002]);
-        grant(10150, &[20002, 20003]);
-        assert_eq!(granted(10150), [20001, 20002, 20003]);
-        assert!(granted(10151).is_empty(), "a sibling gets none of them");
-        revoke(10150);
-        assert!(granted(10150).is_empty(), "the next borrower of the UID starts with none");
-    }
-}

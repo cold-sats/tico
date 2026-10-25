@@ -612,5 +612,11 @@ mod tests {
         assert_eq!(identity_from(s("10003"), s("10002"), 10002), Some((10003, 10002)));
         let p = prefix_for((10003, 10002));
         assert_eq!(p, ["/usr/bin/setpriv", "--reuid=10003", "--regid=10002", "--clear-groups", "--inh-caps=-all", "--ambient-caps=-all"]);
+        // A leased turn user gets exactly its own checkouts' groups, a sibling none, and the UID's next borrower none.
+        crate::checkout_groups::grant(10150, &[20001, 20002]);
+        assert_eq!(prefix_for((10150, 10002))[3], "--groups=10002,20001,20002");
+        assert_eq!(prefix_for((10151, 10002))[3], "--clear-groups");
+        crate::checkout_groups::revoke(10150);
+        assert_eq!(prefix_for((10150, 10002))[3], "--clear-groups");
     }
 }

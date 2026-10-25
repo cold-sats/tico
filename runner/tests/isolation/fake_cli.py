@@ -30,6 +30,26 @@ def readable(path):
         return False
 
 
+def writable(directory):
+    try:
+        mark = Path(directory) / f".sibling-{NAME}-{uuid.uuid4().hex[:8]}"
+        mark.write_text("from another bot's turn\n")
+        mark.unlink()
+        return True
+    except OSError:
+        return False
+
+
+def siblings(cwd):
+    """Other bots' checkouts and task worktrees: whether this turn can list or write any of them."""
+    mine = next((part for part in Path(cwd).parts if part.startswith("bot-")), None)
+    workspace = HOME / "workspace"
+    others = [p for p in workspace.glob("bot-*") if p.name != mine]
+    others += [p for lane in (workspace / "sessions").glob("bot-*") if lane.name != mine for p in lane.iterdir()]
+    return {"sibling_enter": any(readable(p) for p in others), "sibling_write": any(writable(p) for p in others),
+            "siblings_seen": len(others)}
+
+
 def git(cwd, *args):
     done = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=60)
     return "ok" if done.returncode == 0 else "failed: " + (done.stderr.strip().splitlines() or ["?"])[-1][:160]
@@ -44,7 +64,7 @@ def probe(cwd):
     result = {"harness": NAME, "uid": os.geteuid(), "caps": caps, "where": where,
               "registration": readable(HOME / "runner.json"),
               "state": any(readable(p) for p in HOME.glob("state-*")),
-              "secrets": readable(HOME / "workspace/secrets/_shared.env")}
+              "secrets": readable(HOME / "workspace/secrets/_shared.env"), **siblings(cwd)}
     # Bot code's own git in its checkout: a commit, then a pull, as whatever user the runner started it as.
     note = Path(cwd) / f"turn-{NAME}-{uuid.uuid4().hex[:8]}.txt"
     try:
