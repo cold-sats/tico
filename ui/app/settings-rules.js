@@ -40,7 +40,7 @@ function ruleEventWords(event) {
   return found?.words || event.replace(/_/g, ' ');
 }
 const ruleList = v => (Array.isArray(v) ? v : [v]).filter(Boolean);
-// An event with no task (webhook.received, health.finding…): the listing's own list, else the catalog's flag.
+// An event with no task (webhook.received, tico.notice): the listing's own list, else the catalog's flag.
 const ruleSourceless = event => (RULES?.sourceless_events || []).includes(event) || !!EVENT_TYPES.find(t => t.name === event)?.sourceless;
 const ruleTriggerName = id => (ROUTINE_TRIGGERS || []).find(t => t.id === id)?.name || id;
 const ruleHookName = id => (WH_HOOKS || []).find(h => h.id === id)?.name || id;
@@ -383,7 +383,7 @@ async function ruleEditor(rule, preset = null) {
   };
   const triggers = (ROUTINE_TRIGGERS || []).map(t => opt(t.id, t.name, first(when.trigger))).join('');
   const hooks = (WH_HOOKS || []).map(h => opt(h.id, h.name, params.webhook || '')).join('');
-  const sendTypes = EVENT_TYPES.filter(t => !t.name.includes('*')).map(t => `<option value="${esc(t.name)}">`).join('');
+  const sendTypes = EVENT_TYPES.filter(t => t.outbound !== false && !t.name.includes('*')).map(t => `<option value="${esc(t.name)}">`).join('');
   const data = params.data && Object.keys(params.data).length ? JSON.stringify(params.data, null, 2) : '';
   dialog.innerHTML = `<form class="task-rule-form" data-rule-form><header><h2>${rule ? 'Edit rule' : 'Add rule'}</h2><button type="button" class="ghost" data-close>Cancel</button></header>
     ${rule ? `<p class="muted">${esc(ruleScopeWords(rule))}</p>` : `<label>Scope<select name="scope_kind" data-rule-kind>${scopes.map(([k, v]) => opt(k, v, kind)).join('')}</select></label>

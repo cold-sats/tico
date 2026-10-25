@@ -147,7 +147,7 @@ until a webhook with the same id is added again. See [Permissions](permissions.m
 
 Two things listen to a webhook:
 
-- **A routine** set to *On a trigger* (`hub routine set <key> --on webhook.<id> ...`). Each call opens one task per listening
+- **A routine** set to *On an event* (`hub routine set <key> --on webhook.<id> ...`). Each call opens one task per listening
   routine: the routine's text, the webhook's name and the call's type, then the body. See [Routines](routines.md). A routine has
   no filter on type, so every call opens a task. The routine's text can read the call with `{{...}}`: for example
   `Order {{payload.order}} ({{type}}) from {{trigger.name}}` ([the names are below](#rules-on-webhookreceived)). A text without

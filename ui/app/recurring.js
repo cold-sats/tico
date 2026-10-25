@@ -20,7 +20,7 @@ function routineItems(state) {
 function routineNextHTML(r) {
   return r.held_by_bot ? '<span class="pill">paused with the bot</span>'
     : !r.active ? '<span class="pill">not armed</span>'
-    : r.on ? '<span class="pill">on trigger</span>'
+    : r.on ? '<span class="pill">on event</span>'
     : `<strong>${esc(until(r.next))}</strong><span class="muted">${esc(fmt(r.next))}</span>`;
 }
 function routineLastHTML(r) {
@@ -158,14 +158,14 @@ function routineEditorOpen(r = null, bot = '') {
       <div class="bot-editor-grid">
         <label>Bot<select name="bot" ${editing ? 'disabled' : ''} required>${(editing ? [S.emps.find(e => e.name === slug) || {name: slug}] : mine).map(e => opt(e.name, botDisplayName(e.name), slug)).join('')}</select></label>
         <label>Title<input name="title" type="text" value="${esc(r?.title || '')}" maxlength="300" required autocomplete="off" ${off}></label>
-        <label>Runs<select name="kind" ${off}>${opt('cron', 'On a schedule', kind)}${opt('event', 'On a trigger', kind)}</select></label>
+        <label>Runs<select name="kind" ${off}>${opt('cron', 'On a schedule', kind)}${opt('event', 'On an event', kind)}</select></label>
         <label data-routine-cron>Repeat<select name="repeat" ${off}>${[['daily', 'Every day'], ['weekdays', 'Weekdays'], ['weekly', 'Every week'], ['monthly', 'Every month'], ['custom', 'Custom (cron)']].map(([v, w]) => opt(v, w, pick.repeat)).join('')}</select></label>
         <label data-routine-pick="weekly">On<select name="day" ${off}>${WEEKDAYS.map(([v, w]) => opt(v, w, pick.day || '1')).join('')}</select></label>
         <label data-routine-pick="monthly">Day of the month<input name="date" type="number" min="1" max="31" value="${esc(pick.date || '1')}" ${off}></label>
         <label data-routine-pick="daily weekdays weekly monthly">At<input name="time" type="time" value="${esc(pick.time || '09:00')}" ${off}></label>
         <label data-routine-pick="custom">Cron<input name="cron" type="text" autocomplete="off" spellcheck="false" value="${esc(r?.cron || '0 9 * * 1-5')}" placeholder="0 9 * * 1-5" maxlength="100" ${off}></label>
         <label data-routine-cron>Timezone<input name="timezone" type="text" autocomplete="off" spellcheck="false" value="${esc(r?.timezone || 'America/Los_Angeles')}" maxlength="100" ${off}></label>
-        <label data-routine-event>Trigger<select name="on" ${off}></select></label>
+        <label data-routine-event>Event<select name="on" ${off}></select></label>
         <p class="settings-cell-note bot-editor-wide" data-routine-event>Webhooks are added in <a href="#/settings/webhooks" data-routine-close>Settings › Webhooks</a>.</p>
         <label class="bot-editor-wide">Instruction<textarea name="text" maxlength="100000" placeholder="Go through the messages and…" ${off}>${esc(r?.text || '')}</textarea></label>
       </div>

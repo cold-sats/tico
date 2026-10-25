@@ -71,7 +71,7 @@ yet waits.
 
 A trigger starts routines from outside Tico. Today a trigger is an incoming webhook: Settings → Webhooks → Incoming gives an
 address, and anything that can send an HTTP POST (a payment service, a form, a deploy, a script) calls it. A routine picks it under
-*Runs: On a trigger* (`--on webhook.<id>` in `hub routine set`; `hub trigger list` shows the ids). Each call opens one task per
+*Runs: On an event* (`--on webhook.<id>` in `hub routine set`; `hub trigger list` shows the ids). Each call opens one task per
 listening routine: the routine's text, then the trigger's name and the call's type, then the request body, fenced as data the bot
 did not write. A routine has no filter on the type, so every call opens a task; to act on one type only, use a rule on
 `webhook.received`.
