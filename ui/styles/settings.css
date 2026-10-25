@@ -695,6 +695,10 @@ fieldset.brepo>.repo-name+p{margin:-4px 0 4px 24px;font-size:var(--t-xs);line-he
 .wr-ctl .settings-cell-note:empty{display:none}
 .wr-filter{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin-bottom:8px;font-size:var(--t-sm)}
 .wr-when{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+.wr-when[hidden]{display:none}
+/* A swappable field (input or step list) sits in the grid as its label would. */
+.wr-field{display:contents}
+.wr-field[hidden]{display:none}
 @media (max-width:720px){.wr-row{grid-template-columns:minmax(0,1fr) auto}.wr-text{grid-column:1/-1}.wr-ctl{justify-content:flex-start}.wr-ctl .settings-cell-note{text-align:left}}
 /* Releases and Task Manager cards (ui/app/settings-release.js) */
 .rel-line{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-width:0}

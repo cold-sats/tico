@@ -407,7 +407,8 @@ digest, a Responder and a Monitor note the rest. `hub rule list` shows them as t
 Once a week, **Suggest quieter rules** (Settings > System routines) turns each rule above 50% no-op over 7 days with at
 least 20 runs into one suggestion, "make this a note": a table rule's outcome becomes `note`; a built-in gets a team rule
 for its event, because built-ins are read-only. The always-wake events, awaited results and scheduled or assigned work
-(routines, assignments, due dates) are never suggested. Nothing changes by itself. `hub rule suggestions` lists the ones
+(routines, assignments, due dates) are never suggested. Nothing changes by itself. Settings → Rules lists them under
+**Suggestions** with **Apply** and **Dismiss**; on an applied one, **Undo** puts the rule back. `hub rule suggestions` lists the ones
 you may act on, `hub rule apply <id>` edits the rule with your own right to edit it, and `hub rule dismiss <id>` declines
 an open suggestion (that rule is not suggested again for 28 days) or, on an applied one, puts the rule back if nobody has
 changed it since. The same three are `hub_rule_suggestions`, `hub_rule_apply` and `hub_rule_dismiss`, and

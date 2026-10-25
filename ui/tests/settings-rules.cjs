@@ -2,7 +2,9 @@
 // can_change; a member gets none); an edit and a switch send the row's revision and the row reads back what was saved;
 // a rule that makes an always-wake event wait shows the server's 422 in the form, not a toast; the task filter route
 // asks for that task's rows and has its way back; at phone width nothing scrolls sideways; and the Releases card's
-// Release now shows only to those the server lets ask (`can_release`). Fixtures only.
+// Release now shows only to those the server lets ask (`can_release`). Suggestions: Apply and Undo post and the rule
+// below is read again; the block hides when empty. A type row edits like any other: its step from the type's steps,
+// and an action's own fields saved as params. Fixtures only.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -22,6 +24,8 @@ function fixture(role) {
     ...builtins.map(r => ({...r})),
     {id: 'r-team', scope_kind: 'team', scope_id: '', event: 'comment', when: {actor: 'bot'}, then: 'note', params: {}, note: '',
       enabled: true, revision: 3, can_change: change, runs_7d: 8, no_op_rate_7d: 0.5},
+    {id: 'r-type', scope_kind: 'type', scope_id: 'dev', event: 'step_entered', when: {step: 'QA Fixes', role: 'owner'}, then: 'wake', params: {},
+      note: 'QA Fixes entered: wake the Builder who owns the ticket', enabled: true, revision: 1, can_change: change, runs_7d: 0, no_op_rate_7d: null},
     {id: 'r-bot', scope_kind: 'bot', scope_id: 'ops', event: 'comment', when: {}, then: 'batch', params: {}, note: '',
       enabled: true, revision: 1, can_change: change, runs_7d: 0, no_op_rate_7d: null},
   ];
@@ -29,13 +33,19 @@ function fixture(role) {
 // What a bot's own listing adds (backend/rules.py profile_listing): its profile's rows, built-in and read-only.
 const profileRows = [{id: 'profile_lead_blocker', scope_kind: 'bot', scope_id: 'ops', event: 'blocker', when: {}, then: 'wake', params: {},
   enabled: true, built_in: true, group: 'profile', profile: 'lead', words: 'a blocker needs it', can_change: false, runs_7d: 1, no_op_rate_7d: 0}];
+const TYPES = [{id: 'dev', name: 'Dev tickets', steps: ['In QA', 'QA Fixes', 'Pending Release'].map((name, i) => ({id: 'dev-' + i, name, status: 'doing'}))}];
+const suggestionsFor = () => [
+  {id: 's1', rule_id: 'r-team', kind: 'note', scope_kind: 'team', scope_id: '', event: 'comment', status: 'open', runs_7d: 42, no_op_7d: 31,
+    no_op_rate_7d: 0.738, suggestion: 'Make this rule a note', can_change: true},
+  {id: 's2', rule_id: 'builtin:comment', kind: 'override', scope_kind: 'team', scope_id: '', event: 'comment', status: 'open', runs_7d: 30,
+    no_op_7d: 18, no_op_rate_7d: 0.6, suggestion: 'Add a team rule that makes this built-in rule a note', can_change: true}];
 const taskRow = {id: 'r-task', scope_kind: 'task', scope_id: 't-acme', event: 'comment', when: {}, then: 'ignore', params: {}, note: '',
   enabled: true, revision: 1, can_change: true, runs_7d: 2, no_op_rate_7d: 1};
 
 async function open(browser, role, hash = '#/settings/rules', viewport = {width: 1440, height: 900}) {
   const page = await browser.newPage({viewport, serviceWorkers: 'block'});
   const errors = [], writes = [], lists = [];
-  const rules = fixture(role);
+  const rules = fixture(role), suggestions = suggestionsFor();
   page.on('pageerror', e => errors.push(e.message));
   await page.route('**/*', route => {
     const req = route.request(), url = new URL(req.url()), p = url.pathname;
@@ -57,11 +67,22 @@ async function open(browser, role, hash = '#/settings/rules', viewport = {width:
     if (p === '/api/v2/release-schedule') return json({on: true, times: ['10:00'], bot: '', writer: '', zone: 'UTC', release_manager: 'ops',
       technical_writer: '', next: null, last: null, pending: 2, can_change: role === 'owner', can_release: role === 'owner'});
     if (p === '/api/v2/release/now') { writes.push({path: p, body: req.postDataJSON()}); return json({sent: true, reason: '', task: 't-rel', tickets: 2}); }
+    if (p === '/api/v2/task-types') return json({types: TYPES});
+    // The server lists only the suggestions the viewer may act on.
+    if (p === '/api/v2/rules/suggestions') return json({suggestions: role === 'owner' ? suggestions.filter(x => x.status !== 'dismissed') : [], more: false});
+    const act = p.match(/^\/api\/v2\/rules\/suggestions\/([^/]+)\/(apply|dismiss)$/);
+    if (act) {
+      writes.push({path: p, body: req.postDataJSON()});
+      const sug = suggestions.find(x => x.id === act[1]), r = rules.find(x => x.id === sug.rule_id);
+      if (act[2] === 'apply') { sug.status = 'applied'; if (r && !r.built_in) Object.assign(r, {then: 'note', revision: r.revision + 1}); }
+      else { if (sug.status === 'applied' && r && !r.built_in) Object.assign(r, {then: 'wake', revision: r.revision + 1}); sug.status = 'dismissed'; }
+      return json({suggestion: sug});
+    }
     if (p === '/api/v2/rules' && req.method() === 'GET') {
       lists.push(url.search);
       const kind = url.searchParams.get('scope_kind');
       const rows = kind === 'task' ? [{...taskRow}] : kind === 'builtin' ? builtins : kind === 'bot' ? [...profileRows, rules.find(r => r.id === 'r-bot')] : rules;
-      return json({rules: rows, events: ['person_message', 'comment'], outcomes: ['wake', 'note', 'batch', 'ignore'], scopes: [], more: false});
+      return json({rules: rows, events: ['person_message', 'comment', 'step_entered'], outcomes: ['wake', 'note', 'batch', 'ignore'], scopes: [], more: false});
     }
     if (p === '/api/v2/rules') {
       const body = req.postDataJSON();
@@ -99,6 +120,7 @@ const row = (page, id) => page.locator(`[data-rule="${id}"]`);
       assert.equal(await page.locator('#set-rules [data-rule-on], #set-rules [data-rule-edit]').count(), 0);
       await page.locator('#set-release [data-release-pending]').waitFor();
       assert.equal(await page.locator('[data-release-now]').count(), 0, 'no Release now without can_release');
+      assert.equal(await page.locator('[data-rules-suggestions]').isHidden(), true, 'no suggestions: no block');
       assert.deepEqual(errors, []);
       await page.close();
     }
@@ -136,6 +158,51 @@ const row = (page, id) => page.locator(`[data-rule="${id}"]`);
       await page.locator('#set-release [data-release-now]').click();
       await page.waitForFunction(() => /2 tickets/.test(document.querySelector('#set-release [data-release-status]')?.textContent || ''));
       assert.deepEqual(writes.at(-1), {path: '/api/v2/release/now', body: {}});
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
+    {
+      // Suggestions: Apply posts and the rule below is read again; on the applied row Dismiss is Undo, and puts it back.
+      const {page, errors, writes} = await open(browser, 'owner');
+      const sug = id => page.locator(`[data-rule-suggestion="${id}"]`);
+      await sug('s1').waitFor();
+      assert.equal(await sug('s2').count(), 1);
+      await sug('s1').locator('[data-suggest-apply]').click();
+      await page.waitForFunction(() => document.querySelector('[data-rule-suggestion="s1"]')?.dataset.suggestStatus === 'applied');
+      assert.deepEqual(writes[0], {path: '/api/v2/rules/suggestions/s1/apply', body: {}});
+      await page.waitForFunction(() => /THEN leave a note/.test(document.querySelector('[data-rule="r-team"] [data-rule-text]')?.textContent || ''));
+      assert.equal(await sug('s1').locator('[data-suggest-apply]').count(), 0);
+      assert.equal(await sug('s1').locator('[data-suggest-dismiss]').innerText(), 'Undo');
+      await sug('s1').locator('[data-suggest-dismiss]').click();
+      await sug('s1').waitFor({state: 'detached'});
+      assert.deepEqual(writes[1], {path: '/api/v2/rules/suggestions/s1/dismiss', body: {}});
+      await page.waitForFunction(() => /THEN wake the bot/.test(document.querySelector('[data-rule="r-team"] [data-rule-text]')?.textContent || ''));
+      await sug('s2').locator('[data-suggest-dismiss]').click();
+      await sug('s2').waitFor({state: 'detached'});
+      assert.equal(await page.locator('[data-rules-suggestions]').isHidden(), true, 'the last one gone: the block hides');
+      // A seeded Dev tickets row: Edit and Delete; its step is one of the type's steps; QA and the Release Manager are roles.
+      await row(page, 'r-type').locator('[data-rule-edit]').click();
+      const form = page.locator('[data-rule-form]');
+      assert.equal(await form.locator('[data-rule-delete]').count(), 1);
+      assert.equal(await form.locator('select[name=step]').inputValue(), 'QA Fixes');
+      assert.deepEqual(await form.locator('select[name=step] option').evaluateAll(els => els.map(el => el.value)), ['', 'In QA', 'QA Fixes', 'Pending Release']);
+      const roles = await form.locator('select[name=role] option').evaluateAll(els => els.map(el => el.value));
+      assert.ok(roles.includes('qa') && roles.includes('release_manager'), roles.join());
+      assert.equal(await form.locator('select[name=event]').inputValue(), 'step_entered');
+      // An action: only its own fields show, and a hidden required one does not stop Save.
+      await form.locator('select[name=then]').selectOption('action');
+      await form.locator('select[name=action]').selectOption('move_step');
+      assert.equal(await form.locator('[name=param_waiting_on]').isVisible(), false);
+      await form.locator('select[name=param_step]').selectOption('Pending Release');
+      await form.locator('[name=param_note]').fill('Moved by rule');
+      await form.locator('button[type=submit]').click();
+      await form.waitFor({state: 'detached'});
+      const saved = writes.at(-1);
+      assert.equal(saved.path, '/api/v2/rules/r-type');
+      assert.deepEqual(saved.body.params, {action: 'move_step', step: 'Pending Release', note: 'Moved by rule'});
+      assert.deepEqual(saved.body.when, {role: 'owner', step: 'QA Fixes'});
+      assert.equal(saved.body.then, 'action');
+      assert.match(await row(page, 'r-type').locator('[data-rule-text]').innerText(), /THEN move it to Pending Release\n/);
       assert.deepEqual(errors, []);
       await page.close();
     }
