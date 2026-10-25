@@ -60,7 +60,12 @@ bets in its next run's context, and no bot gets a note, so a routine on this eve
 once, not for reading the page. Each event opens one task per routine and per subject, titled `<routine title>:
 <meeting title>`; the body is the routine's text, then the event's facts, then the meeting's
 notes and transcript. Re-emitting the same event for the same subject does nothing. The event
-list is `clients/routines.py EVENTS`.
+list is the catalog in `backend/event_catalog.py`: `hub event-types` (`hub_event_types`, `GET /api/v2/event-types`) shows every
+name with its description, version and an example payload, and `--group` narrows it. A routine's `on` takes any catalog name
+or an old spelling of one (`release_published` is `release.published`, `recording.ready` is `meeting.ready`); both
+spellings fire the same routines once per event. `webhook.<trigger id>` is one incoming webhook's own event. `custom.<name>`
+is for sending only. A catalog event fires a routine only once something emits it, so a routine saved on a name nothing emits
+yet waits.
 
 ## Triggers
 

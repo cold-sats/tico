@@ -2510,6 +2510,17 @@ def routine_update(api, args):
     return who.post(f"routines/{ident}", body, key=_key(args))["routine"]
 
 
+@tool("hub_event_types", "Every event Tico names (task.done, release.published, webhook.received, custom.<name>...), each with "
+      "its group, a plain description, its version and an example payload (`data`). Routines (`on`), rules (`event`) and "
+      "outgoing webhooks read this one list; some events have an older spelling (`aliases`) that still works, and "
+      "`sourceless` marks the events a rule judges with no task (webhook.received, release.published, health.finding, "
+      "tico.notice).",
+      {"group": _s("Only this group: task, approval, needs_you, bot, release, meeting, strategy, market, inbound, health, "
+                   "webhook, tico, custom")})
+def event_types(api, args):
+    return api.get("event-types", group=args.get("group"))
+
+
 @tool("hub_trigger_list", "The webhook triggers people made in Settings > Triggers: each one's `event` "
       "(`webhook.<id>`) is what a routine's `on` names to run whenever something posts to it.", {})
 def trigger_list(api, args):
@@ -3013,13 +3024,22 @@ def bot_keep_tasks_going(api, args):
 _RULE_SCOPES = ["team", "type", "department", "bot", "task"]
 _RULE_THEN = ["ignore", "note", "batch", "wake", "ask", "action"]
 _RULE_FIELDS = {
-    "event": _s("The event the rule is for, or * for every event that is not always-wake (hub_rule_list shows them)"),
+    "event": _s("The event the rule is for, or * for every event that is not always-wake (hub_rule_list shows them). "
+                "webhook.received, release.published, health.finding and tico.notice (or a prefix like webhook.*) have no "
+                "task: team, department and bot scopes only (hub_event_types)"),
     "then": {"type": "string", "enum": _RULE_THEN,
              "description": "wake: start a run; note: write it quietly and carry a note to the next run; batch: hold it "
-                            "with the bot's other notices; ignore: write it quietly, no note; ask, action: stored, wake for now"},
-    "when": {"type": "object", "description": "All must hold: actor (human|bot|keeper), step, role (owner|requester|other), "
-                                              "tag, state (a task status); each a word or a list"},
-    "params": {"type": "object", "description": "An action rule names params.action: close, move_step, set_wait, relate, note"},
+                            "with the bot's other notices; ignore: write it quietly, no note; ask: one Needs-you item for "
+                            "the task's person; action: run params.action. For an event with no task, wake and note go to "
+                            "the bot the rule is set on (or params.bot) and batch is refused"},
+    "when": {"type": "object", "description": "All must hold: actor (human|bot|keeper), step, role (owner|requester|qa|"
+                                              "release_manager|other), tag, state (a task status); each a word or a list. "
+                                              "For a webhook event only trigger (the webhook's id) and type (order.* "
+                                              "matches a prefix)"},
+    "params": {"type": "object", "description": "An action rule names params.action: close, move_step, set_wait, relate, "
+                                                "note, wake_bot {bot, text} or send_webhook {webhook, type, data}; text and "
+                                                "data may hold {{path}} placeholders (data.order, type, trigger.name). "
+                                                "A wake rule for an event with no task names params.bot and params.text"},
     "on": {"type": "boolean", "description": "false turns the rule off"},
     "position": {"type": "integer", "minimum": 0, "description": "Order inside its scope; lower first"},
     "note": _s("Why the rule exists, 500 characters at most"),
@@ -3040,7 +3060,8 @@ def _rule_body(args, keys):
 
 @tool("hub_rule_list", "List the wake rules that decide whether a message starts a bot's run: the built-in rules and the "
       "rules set for the team, a task type, a department, a bot or a task, each with its 7-day run count and the share of "
-      "those runs that did nothing. A scoped rule overrides the built-ins; a person's message always wakes. When `more` is "
+      "those runs that did nothing. A scoped rule overrides the built-ins; a person's message always wakes. Rules also say "
+      "what an event with no task does (a webhook arriving, a release): `sourceless_events` names them. When `more` is "
       "true, list again from `next_offset`.",
       {"scope_kind": {"type": "string", "enum": ["builtin"] + _RULE_SCOPES}, "scope_id": _s("The type, department, bot or task"),
        "event": _s("Only this event"), "limit": {"type": "integer", "minimum": 1, "maximum": 500},
@@ -3051,7 +3072,8 @@ def rule_list(api, args):
 
 
 @tool("hub_rule_set", "Create a wake rule for the team, a task type, a department, a bot or one task, as the person who asked you. "
-      "The most specific scope wins: task, bot, department, type, team, then the built-in rules.",
+      "The most specific scope wins: task, bot, department, type, team, then the built-in rules. A rule for an event with no "
+      "task (webhook.received) fires every matching row, one per bot, endpoint and asker, and does nothing when none match.",
       {"scope_kind": {"type": "string", "enum": _RULE_SCOPES}, "scope_id": _s("The type, department, bot or task; leave out for the team"),
        **_RULE_FIELDS, "on_behalf_of": ON_BEHALF_OF},
       required=("scope_kind", "event", "then"), writes=True)
