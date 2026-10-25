@@ -7646,16 +7646,58 @@ def message(conn, message_id, *, include_deleted=False):
 
 
 def prime_messages(conn, ids):
-    """Read these messages in one query per 500 for the message() lookups that follow in this snapshot, deleted or not."""
-    from .read_cache import cache, prime
+    """Read these messages in one query per 500 for the message() lookups that follow in this snapshot, deleted or not.
+    Returns {id: stored row} of those found (empty outside a snapshot, where nothing is kept)."""
+    from .read_cache import cache
     if cache(conn) is None:
-        return
+        return {}
+    out = {}
     for part in chunks(sorted({mid for mid in ids if mid})):
         found = {row["id"]: row for row in conn.execute(
             "SELECT * FROM messages WHERE id IN (%s)" % ",".join("?" * len(part)), part)}
-        prime(conn, MESSAGE_SQL, {(mid,): found.get(mid) for mid in part})
-        live = {mid: row for mid, row in found.items() if row["deleted_at"] is None}
-        prime(conn, MESSAGE_SQL + " AND deleted_at IS NULL", {(mid,): live.get(mid) for mid in part})
+        _prime_message_lookups(conn, part, found)
+        out.update(found)
+    return out
+
+
+def _prime_message_lookups(conn, ids, found):
+    """Seed both message() lookups for `ids` from `found`, {id: stored row}: a row missing from it is no message."""
+    from .read_cache import prime
+    prime(conn, MESSAGE_SQL, {(mid,): found.get(mid) for mid in ids})
+    live = {mid: row for mid, row in found.items() if row["deleted_at"] is None}
+    prime(conn, MESSAGE_SQL + " AND deleted_at IS NULL", {(mid,): live.get(mid) for mid in ids})
+
+
+MESSAGE_PARENT_DEPTH = 100      # task_privacy and live_privacy refuse a provenance walk of more messages than this
+
+
+def prime_message_rows(conn, rows):
+    """Seed message() with stored rows already read whole in this snapshot (a join's `m.*`), then read the messages
+    they reply to or answer, a level at a time in one query per 500 each, so the provenance walks that follow
+    (task_privacy.message_tasks, live_privacy) read none of them one by one. Returns every row seeded or read."""
+    from .read_cache import cache
+    values = cache(conn)
+    if values is None:
+        return []
+    rows = {row["id"]: row for row in rows if row and row["id"]}
+    _prime_message_lookups(conn, list(rows), rows)
+    level, seen = list(rows.values()), set(rows)
+    for _ in range(MESSAGE_PARENT_DEPTH):
+        parents = set()
+        for row in level:
+            refs = _json(row["refs_json"], {}) or {}
+            parents.add(row["in_reply_to"])
+            for key in ("answers", "inputs"):
+                if isinstance(refs, dict) and isinstance(refs.get(key), list):
+                    parents.update(v for v in refs[key] if isinstance(v, str))
+        wanted = {mid for mid in parents if mid and mid not in seen
+                  and ("one", MESSAGE_SQL, (mid,)) not in values}
+        if not wanted:
+            break
+        seen |= wanted
+        level = list(prime_messages(conn, wanted).values())
+        rows.update((row["id"], row) for row in level)
+    return list(rows.values())
 
 
 def message_view(conn, row):

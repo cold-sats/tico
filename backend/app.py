@@ -4686,15 +4686,27 @@ def create_app(settings=None):
         auth.domain(who)
         with store.read() as c:
             result = H.inbox(c, who.actor)
+            # A bot's unread backlog is checked on every inbox read, newest first: a hundred messages are read together
+            # at a time rather than a few reads each. Each is still checked on its own, and each room once per request.
+            newest = result["messages"][::-1]
+            position = {m["id"]: i for i, m in enumerate(newest)}
+            rooms = {}
 
             def message_visible(message):
+                at = position.get(message["id"], 1)
+                if at % INBOX_LIMIT == 0:
+                    privacy.snapshot(c)
+                    privacy.prime_queued(c, H.prime_messages(c, [m["id"] for m in newest[at:at + INBOX_LIMIT]]).values())
                 if not privacy.message_readable(c, privacy.actor(who), message):
                     return False
                 if who.role == "bot":
-                    try:
-                        auth.conversation(c, who, message["conversation_id"])
-                    except Problem:
-                        return False
+                    if message["conversation_id"] not in rooms:
+                        try:
+                            auth.conversation(c, who, message["conversation_id"])
+                            rooms[message["conversation_id"]] = True
+                        except Problem:
+                            rooms[message["conversation_id"]] = False
+                    return rooms[message["conversation_id"]]
                 return True
 
             # A bot that never marks messages read can hold thousands: the newest INBOX_LIMIT readable ones are
