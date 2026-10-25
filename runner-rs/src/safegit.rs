@@ -289,8 +289,10 @@ fn rewrites_github(prefix: &str) -> bool {
 }
 
 /// Git reads helpers as one list across `credential.helper` and every `credential.<url>.helper`, and an empty one
-/// clears what came before, the checkout's included. So the turn's own helpers must follow an empty entry, and nothing
-/// may clear them afterwards: put that entry before the first command-line helper, or at the end when there is none.
+/// clears what came before, the checkout's included. A URL-specific empty one (gitcred's) clears them only for that
+/// URL, so the checkout's helpers would still run for every other host. The turn's own helpers must follow an empty
+/// generic entry, and nothing may clear them afterwards: put it before the first command-line helper, or at the end
+/// when there is none.
 fn helpers_after_a_reset(env: &mut Env) {
     let count: usize = env.get("GIT_CONFIG_COUNT").and_then(|c| c.parse().ok()).unwrap_or(0);
     let mut entries: Vec<(String, String)> = (0..count)
@@ -298,7 +300,7 @@ fn helpers_after_a_reset(env: &mut Env) {
         .collect();
     let helper = |key: &str| { let k = key.to_ascii_lowercase(); k.starts_with("credential.") && k.ends_with(".helper") };
     match entries.iter().position(|(k, _)| helper(k)) {
-        Some(first) if entries[first].1.is_empty() => return,
+        Some(first) if entries[first].0.eq_ignore_ascii_case("credential.helper") && entries[first].1.is_empty() => return,
         Some(first) => entries.insert(first, ("credential.helper".into(), String::new())),
         None => entries.push(("credential.helper".into(), String::new())),
     }
@@ -484,8 +486,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("tico-turn-helper-{}", uuid::Uuid::new_v4().simple()));
         let repo = dir.join("repo");
         assert!(std::process::Command::new("git").args(["init", "-q"]).arg(&repo).output().unwrap().status.success());
-        let planted = "[credential]\n\thelper = !echo password=planted-generic\n[credential \"https://github.com\"]\n\thelper = !echo password=planted-github\n\
-                       [core]\n\taskPass = /bin/false\n\talternateRefsCommand = /bin/false\n[url \"https://mirror.invalid/\"]\n\tinsteadOf = https://gitlab.invalid/\n";
+        // Each planted helper leaves a mark: git swallows a helper's output, so only a mark shows that it ran.
+        let mark = |what: &str| dir.join(format!("ran-{what}"));
+        let planted = format!("[credential]\n\thelper = !touch '{}'\n[credential \"https://github.com\"]\n\thelper = !touch '{}'\n[credential \"https://example.invalid\"]\n\thelper = !touch '{}'\n\
+                       [core]\n\taskPass = /bin/false\n\talternateRefsCommand = /bin/false\n[url \"https://mirror.invalid/\"]\n\tinsteadOf = https://gitlab.invalid/\n",
+            mark("generic").display(), mark("github").display(), mark("other").display());
         std::fs::OpenOptions::new().append(true).open(repo.join(".git/config")).unwrap().write_all(planted.as_bytes()).unwrap();
         let mut env = Env::new();
         env.insert("PATH".into(), std::env::var("PATH").unwrap_or_default());
@@ -506,9 +511,20 @@ mod tests {
             format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
         };
         let github = fill("protocol=https\nhost=github.com\npath=o/r.git\n\n");
-        assert!(github.contains("password=ghs_turn") && !github.contains("planted"), "{github}");
-        let other = fill("protocol=https\nhost=example.invalid\n\n");
-        assert!(!other.contains("planted") && !other.contains("ghs_turn"), "{other}");
+        assert!(github.contains("password=ghs_turn"), "{github}");
+        for input in ["protocol=https\nhost=example.invalid\n\n", "protocol=https\nhost=mirror.invalid\npath=x\n\n", "protocol=http\nhost=github.com\n\n"] {
+            let other = fill(input);
+            assert!(!other.contains("ghs_turn"), "{other}");
+        }
+        for what in ["generic", "github", "other"] {
+            assert!(!mark(what).exists(), "the checkout's {what} credential helper ran as the turn user");
+        }
+        // Control: without the turn's settings the same fill runs the checkout's helpers.
+        let control = std::process::Command::new("git").arg("-C").arg(&repo).args(["credential", "fill"])
+            .env_clear().env("PATH", std::env::var("PATH").unwrap_or_default()).env("HOME", &dir).env("GIT_TERMINAL_PROMPT", "0")
+            .env("GIT_CONFIG_NOSYSTEM", "1").stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap();
+        { let mut control = control; control.stdin.take().unwrap().write_all(b"protocol=https\nhost=example.invalid\n\n").unwrap(); let _ = control.wait(); }
+        assert!(mark("generic").exists() && mark("other").exists(), "control: the planted helpers never run");
         let get = |key: &str| String::from_utf8_lossy(&std::process::Command::new("git").arg("-C").arg(&repo).args(["config", "--get", key])
             .env_clear().envs(&env).output().unwrap().stdout).trim().to_string();
         assert_eq!((get("core.askpass").as_str(), get("core.alternaterefscommand").as_str()), ("", "true"));

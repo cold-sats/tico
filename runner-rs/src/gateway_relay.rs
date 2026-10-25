@@ -852,7 +852,7 @@ printf '#!/bin/sh\ntouch "%s"\n' "$2" > "$1/.git/hooks/pre-commit"; printf '#!/b
 chmod 755 "$1/.git/hooks/pre-commit" "$1/.git/fsmonitor"; git -C "$1" config core.fsmonitor "$1/.git/fsmonitor"
 echo '* filter=sibling' > "$1/.gitattributes"; git -C "$1" config filter.sibling.clean "touch $4"; git -C "$1" config filter.sibling.smudge "touch $4"
 git -C "$1" config core.sshCommand "touch $5"; git -C "$1" config http.proxy http://127.0.0.1:9; git -C "$1" config http.https://github.com/.proxy http://127.0.0.1:9
-git -C "$1" config credential.helper '!echo password=planted'; git -C "$1" config credential.https://github.com.helper '!echo password=planted'"#;
+git -C "$1" config credential.helper "!touch $4-credential"; git -C "$1" config credential.https://github.com.helper "!touch $4-credential""#;
         let planted = crate::isolation::command_as(Some((10003, 10002)), "/bin/sh")
             .args(["-c", plant, "plant", &workspace.display().to_string(), &hook_mark, &fsmonitor_mark, &filter_mark, &ssh_mark])
             .env_clear().env("PATH", "/usr/bin:/bin").output().await.unwrap();
@@ -942,6 +942,7 @@ assert '127.0.0.1' not in subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3
 assert subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'config','--get-urlmatch','http.proxy','https://github.com/o/r.git/info/refs'],capture_output=True,text=True).stdout.strip()=='', 'a sibling proxy reached the turn'
 filled=subprocess.run(['git','-C',sys.argv[2].rsplit('/',1)[0],'credential','fill'],input='protocol=https\nhost=github.com\npath=o/r.git\n\n',capture_output=True,text=True)
 assert 'password=SYNTHETIC-GH-TOKEN' in filled.stdout and 'planted' not in filled.stdout, 'the turn helper did not answer: '+filled.stdout+filled.stderr
+subprocess.run(['git','-C',sys.argv[2].rsplit('/',1)[0],'credential','fill'],input='protocol=https\nhost=example.invalid\n\n',capture_output=True,text=True)
 subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'ls-remote','ssh://example.invalid/x'],capture_output=True)
 subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'-c','user.name=fixture','-c','user.email=fixture@example.invalid','add','.'],check=True)
 subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'-c','user.name=fixture','-c','user.email=fixture@example.invalid','commit','-qm','synthetic'],check=True)
@@ -972,6 +973,7 @@ time.sleep(300)
         std::fs::remove_file(sibling_config).unwrap();
         assert!(!std::path::Path::new(&hook_mark).exists() && !std::path::Path::new(&fsmonitor_mark).exists(), "a planted program ran as the leased user");
         assert!(!std::path::Path::new(&filter_mark).exists() && !std::path::Path::new(&ssh_mark).exists(), "the checkout's config ran a program as the leased user");
+        assert!(!std::path::Path::new(&format!("{filter_mark}-credential")).exists(), "the checkout's credential helper ran as the leased user");
         // Control: the same git run by the repository's owner with its own config does run them, so the check is not vacuous.
         let control = crate::isolation::command_as(Some((10003, 10002)), "/usr/bin/git")
             .args(["-C", &workspace.display().to_string(), "-c", "user.name=c", "-c", "user.email=c@example.invalid", "commit", "-q", "--allow-empty", "-m", "control"])
