@@ -17,7 +17,7 @@ sat there. Now Tico Decide reads the task's last MESSAGES messages and its state
 Nothing is automatic after that: a verdict is kept per (task, stand) and the task is not asked about again until it
 changes. A stand with no verdict is today's behaviour exactly: the held check stays silent. So Decide off, not configured,
 over its hourly or daily limit, out of the spend cap, an error or a task that changed meanwhile all leave things as they
-were (fail open). Off unless the team's `stall_triage` rule is on (Settings > System routines).
+were (fail open). On by default; the team's `stall_triage` rule turns it off (Settings > System routines).
 
 The model is never called inside a database transaction: `inputs` runs in the scheduler's read, `run` reads each task
 again, asks outside any transaction, and writes in a new transaction that checks the task still stands as it did. One

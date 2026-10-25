@@ -8,8 +8,8 @@ own bot (backend/credentials.py), the SQL page and personal tokens, whether a bo
 a person leaves its ask unanswered (backend/ask_deadlines.py), whether Tico support may be let in
 (backend/support_access.py), whether the hourly stale ticket review runs (backend/stale_review.py), and whether a direct
 chat starts fresh when the topic changes (backend/topic_change.py), and whether Decide reads a quiet task before its stall
-check stays silent (backend/stall_triage.py). Those last three are off by default, an admin may turn them too
-(ADMIN_RULES), and the server's environment may set their default (ENV_DEFAULTS).
+check stays silent (backend/stall_triage.py). The stale review and fresh topics are off by default; those two and
+triage an admin may turn too (ADMIN_RULES), and the server's environment may set their default (ENV_DEFAULTS).
 """
 import json
 import os
@@ -31,12 +31,12 @@ DEFAULTS = {
     "support_access": True,         # an owner or admin may let Tico support in from a ticket (backend/support_access.py)
     "stale_review": False,          # the hourly stale ticket review suggests updates to owners (backend/stale_review.py)
     "topic_fresh": False,           # a direct chat starts fresh when the topic changes (backend/topic_change.py)
-    "stall_triage": False,          # Decide reads a quiet task that nothing has changed on before a stall check stays silent (backend/stall_triage.py)
+    "stall_triage": True,           # Decide reads a quiet task that nothing has changed on before a stall check stays silent (backend/stall_triage.py)
 }
 # Rules an admin may change too, not only the owner (Settings > General).
 ADMIN_RULES = ("stale_review", "topic_fresh", "stall_triage")
 # A rule whose default the server's environment sets (`TICO_STALE_REVIEW=1`, `TICO_TOPIC_FRESH=1` on Tico Team's own
-# server). A saved choice wins; until someone sets the rule it is not stored, so it keeps following the environment.
+# server, `TICO_STALL_TRIAGE=0` to start a server with triage off). A saved choice wins; until someone sets the rule it is not stored, so it keeps following the environment.
 ENV_DEFAULTS = {"stale_review": "TICO_STALE_REVIEW", "topic_fresh": "TICO_TOPIC_FRESH",
                 "stall_triage": "TICO_STALL_TRIAGE"}
 # Numbers the owner sets, with their default and bounds.
