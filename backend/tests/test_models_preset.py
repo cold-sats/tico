@@ -129,6 +129,8 @@ def test_only_the_two_gateway_choices_put_the_gateway_last_and_spend_its_key(api
     attempt = claim(api, machine, "ops")
     assert attempt["config"]["model"] == CLAUDE["model"]
     assert attempt["gateway"] is spends
+    # The runner is told what the Gateway fallback reads, for pi's models.json; no Gateway model, nothing.
+    assert attempt["config"].get("gateway_inputs") == ({"tico-general-medium-1.0": ["text", "image", "pdf"]} if spends else None)
     # A choice without the Gateway never hands the computer the key for a bot that names no Tico model.
     assert ("TICOAI_GATEWAY_KEY" in handed_to(api, machine, attempt)) is spends
 
@@ -141,6 +143,35 @@ def test_a_bot_that_names_its_own_fallback_keeps_it(api, monkeypatch):
     own = {**CLAUDE, "fallback": {"harness": "codex", "model": "gpt-5.5"}}
     assert models_preset.with_gateway_fallback(record, {"isolated": True}, own) == own
     assert "gateway_fallback" not in models_preset.with_gateway_fallback(record, {"isolated": False}, CLAUDE)
+
+
+def test_the_turn_carries_what_each_gateway_model_reads():
+    """`gateway_inputs` (runner-rs/src/hosts/pi.rs): the catalog's `inputs` for a pinned tier, an Auto tier and an old id;
+    Low Fast reads text only; a model that is not the Gateway's, or a catalog that names none, adds nothing."""
+    from backend import gateway_tiers
+    full = ["text", "image", "pdf"]
+    for model in ("tico-sales-medium-1.0", "tico-sales-high", "tico-cheap-1.1", "tico-cheap-1.0", "tico-mid-1.0", "tico-power-1.0",
+                  "tico-general-high-fast-1.0"):
+        assert models_preset.with_gateway_inputs({"model": model})["gateway_inputs"] == {model: full}, model
+    for model in ("tico-general-low-fast-1.0", "tico-sales-low-fast"):
+        assert models_preset.with_gateway_inputs({"model": model})["gateway_inputs"] == {model: ["text"]}, model
+    # The model, the fallback it names and the company's Gateway fallback each get their entry.
+    config = {"model": "tico-sales-medium-1.0", "fallback": {"harness": "pi", "model": "tico-sales-low-fast-1.0"},
+              "gateway_fallback": "tico-sales-high"}
+    assert models_preset.with_gateway_inputs(config)["gateway_inputs"] == {
+        "tico-sales-medium-1.0": full, "tico-sales-low-fast-1.0": ["text"], "tico-sales-high": full}
+    for plain in ({"model": "claude-opus-5-5"}, {"model": "tico-nowhere-low-1.0"}, {"model": "tico-decide-low-1.0"}, {}):
+        assert models_preset.with_gateway_inputs(plain) == plain
+    # A refreshed catalog from a Gateway that names no inputs: text only, never a claim of images.
+    old = {**gateway_tiers.SNAPSHOT, "models": [
+        {**row, "versions": [{k: v for k, v in version.items() if k != "inputs"} for version in row["versions"]]}
+        for row in gateway_tiers.SNAPSHOT["models"]]}
+    gateway_tiers._state.update(catalog=old, at=1e18)
+    try:
+        assert models_preset.with_gateway_inputs({"model": "tico-sales-medium-1.0"})["gateway_inputs"] == {
+            "tico-sales-medium-1.0": ["text"]}
+    finally:
+        gateway_tiers.reset()
 
 
 def test_the_installer_choice_seeds_claude_and_chatgpt_and_an_unknown_choice_is_refused(api):

@@ -18,6 +18,8 @@ A pick is a name, not a model: Tico can change what runs underneath it. Every de
 Prices are input and output, USD per 1M tokens. A Low request whose prompt is over 100,000 tokens costs the whole request
 at $0.75 input, $0.075 cached input and $3.75 output, and **Usage** estimates it that way.
 
+Images a bot sends go to the models that read them: every pick except Low Fast.
+
 The ids are `tico-<department>-<level>` with `-fast` for Fast: `tico-sales-medium`, `tico-engineering-high-fast`. The
 departments are General, Product, Engineering, Marketing, Sales, Finance, Legal, Science, Operations and Data (the list
 is Tico's and can grow). A bot's department comes from its group on the org chart: Support and People bots use Operations,
