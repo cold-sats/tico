@@ -6,7 +6,9 @@
 // event picker (a whole group is `group.*`) and shows its secret once; its sends retry, and failed or missed sends
 // since a day go again; its edit sets filters and custom headers, and a secret header's value never comes back; the
 // picker leaves out events only rules see (outbound: false); the Gateway tab asks for the Gateway first, then makes an
-// address shown once; Wake this server shows only on a hosted server. No sideways scroll on a phone.
+// address shown once; Wake this server shows only on a hosted server. The wake address (owner, self-run server only) is
+// set in place, its signing secret stays until Done, a refusal shows under the input, and Turn off clears it. No
+// sideways scroll on a phone.
 // TICO_SHOTS=<dir> saves screenshots.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
@@ -48,6 +50,10 @@ function server() {
       {id: 's1', webhook_id: 'wh1', type: 'approval.decided', subject: 'a-1', state: 'delivered', attempts: 1, last_status: 200, last_error: '', created: AGO(90)}]},
     relay: {key: 'none', relays: 0, cursor: 0, last_pull: null, last_error: '', pending: 0, oldest: null, deleting: 0, active: false},
     hosted: false,
+    role: 'owner',
+    wake: {url: null, set_at: null, set_by: null},
+    wakeFail: null,            // {status, code, detail}: the next PUT /v2/hooks/wake-url is refused with it
+    puts: [],
     posts: [],
   };
 }
@@ -71,7 +77,7 @@ async function open(browser, hash, viewport = {width: 1280, height: 860}, state 
     const config = {version: '0.4.9', app_name: 'Tico'};
     const post = req.method() === 'POST' ? (req.postDataJSON() || {}) : null;
     if (post) state.posts.push({path: p, body: post});
-    if (p === '/api/me') return json({id: 'ana', role: 'owner', name: 'Ana', email: 'ana@acme.example', cloud: true, registered: true, config});
+    if (p === '/api/me') return json({id: 'ana', role: state.role, name: 'Ana', email: 'ana@acme.example', cloud: true, registered: true, config});
     if (p === '/api/v2/config') return json(config);
     if (p === '/api/employees') return json([{name: 'eng', display_name: 'Engineer', status: 'active', can_manage: true},
       {name: 'ops', display_name: 'Ops', status: 'active', can_manage: true}]);
@@ -124,6 +130,15 @@ async function open(browser, hash, viewport = {width: 1280, height: 860}, state 
       return json({ok: true});
     }
     if (p === '/api/v2/relay') return json({relay: state.relay});
+    if (p === '/api/v2/hooks/wake-url') {
+      if (state.role !== 'owner') return json({error: {code: 'forbidden', detail: 'Only the owner may see or change the address that wakes this server'}}, 403);
+      if (req.method() !== 'PUT') return json(state.wake);
+      const body = req.postDataJSON();
+      state.puts.push({path: p, body});
+      if (state.wakeFail) { const {status, ...error} = state.wakeFail; state.wakeFail = null; return json({error}, status); }
+      state.wake = body.url ? {url: body.url, set_at: AGO(0), set_by: 'human:ana'} : {url: null, set_at: null, set_by: null};
+      return json({url: body.url, secret: body.url ? 'whsec_d2FrZS1zZWNyZXQ=' : null});
+    }
     if (p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
     return json(unrouted(p));
   });
@@ -351,6 +366,103 @@ const noSideways = page => page.evaluate(() => document.documentElement.scrollWi
       assert.equal(await page.locator('#settings-webhooks').isVisible(), true);
       assert.deepEqual(errors, []);
       await page.close();
+    }
+    {
+      // The wake address: set in place, its signing secret shown until Done, a refusal under the input, Turn off.
+      const state = server();
+      state.relay = {...state.relay, key: 'connected', last_pull: AGO(1), pending: 2, active: true};
+      const {page, errors} = await open(browser, '#/settings/webhooks', undefined, state);
+      const pane = page.locator('#settings-webhooks');
+      await pane.locator('[data-wh-open="shop"]').waitFor();
+      await pane.locator('[data-wh-tab="gateway"]').click();
+      const row = pane.locator('[data-wh-wake-url]');
+      await row.locator('[data-wh-wake-value]').waitFor();
+      assert.equal(await row.locator('[data-wh-wake-value]').innerText(), 'Off');
+      assert.equal(await row.locator('[data-wh-wake-do="off"]').count(), 0, 'nothing to turn off');
+      assert.equal(await row.locator('a').getAttribute('href'), 'https://github.com/ticoteam/tico/blob/main/docs/install.md#wake-on-webhook');
+      await shot(page, 'wake-off-desktop');
+      // Set: the secret shows once, with its note, and stays across a redraw until Done.
+      await row.locator('[data-wh-wake-do="edit"]').click();
+      await row.locator('[data-wh-wake-input]').fill('https://wake.acme.example/start');
+      await row.locator('[type="submit"]').click();
+      const secret = row.locator('[data-wh-secret="wake"]');
+      await secret.waitFor();
+      assert.deepEqual(state.puts.at(-1), {path: '/api/v2/hooks/wake-url', body: {url: 'https://wake.acme.example/start'}});
+      assert.equal(await secret.locator('code').innerText(), 'whsec_d2FrZS1zZWNyZXQ=');
+      assert.match(await secret.innerText(), /Signs the tico\.wake posts\. Not shown again\./);
+      assert.equal(await row.locator('[data-wh-wake-value]').innerText(), 'https://wake.acme.example/start');
+      await shot(page, 'wake-set-desktop');
+      await pane.locator('[data-wh-tab="incoming"]').click();
+      await pane.locator('[data-wh-tab="gateway"]').click();
+      await secret.waitFor();
+      await secret.locator('[data-wh-wake-do="done"]').click();
+      assert.equal(await secret.count(), 0, 'gone after Done');
+      await pane.locator('[data-wh-tab="incoming"]').click();
+      await pane.locator('[data-wh-tab="gateway"]').click();
+      await row.locator('[data-wh-wake-value]').waitFor();
+      assert.equal(await row.locator('[data-wh-wake-value]').innerText(), 'https://wake.acme.example/start', 'read back from the server');
+      assert.equal(await secret.count(), 0, 'never shown again');
+      // A refusal shows the server's words under the input, which keeps what was typed.
+      state.wakeFail = {status: 422, code: 'url', detail: 'The wake address starts with https://, has a host, and no spaces, user or password'};
+      await row.locator('[data-wh-wake-do="edit"]').click();
+      await row.locator('[data-wh-wake-input]').fill('http://wake.acme.example');
+      await row.locator('[type="submit"]').click();
+      await row.locator('[data-wh-wake-error]').waitFor();
+      assert.equal(await row.locator('[data-wh-wake-error]').innerText(), 'The wake address starts with https://, has a host, and no spaces, user or password');
+      assert.equal(await row.locator('[data-wh-wake-input]').inputValue(), 'http://wake.acme.example');
+      await shot(page, 'wake-error-desktop');
+      state.wakeFail = {status: 409, code: 'gateway', detail: 'Connect the Tico Gateway first.'};
+      await row.locator('[type="submit"]').click();
+      await page.waitForFunction(() => document.querySelector('[data-wh-wake-error]')?.textContent === 'Connect the Tico Gateway first.');
+      await row.locator('[data-wh-wake-do="cancel"]').click();
+      assert.equal(await row.locator('[data-wh-wake-error]').count(), 0);
+      assert.equal(await row.locator('[data-wh-wake-value]').innerText(), 'https://wake.acme.example/start', 'unchanged by a refusal');
+      // Turn off: straight away, no dialog.
+      let dialogs = 0;
+      page.on('dialog', () => { dialogs++; });
+      await row.locator('[data-wh-wake-do="off"]').click();
+      await page.waitForFunction(() => document.querySelector('[data-wh-wake-value]')?.textContent === 'Off');
+      assert.deepEqual(state.puts.at(-1), {path: '/api/v2/hooks/wake-url', body: {url: null}});
+      assert.equal(dialogs, 0);
+      assert.equal(await row.locator('[data-wh-wake-do="edit"]').innerText(), 'Set');
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
+    {
+      // Phone: the row with its secret, and the edit form, fit.
+      const state = server();
+      state.relay = {...state.relay, key: 'connected', last_pull: AGO(1), pending: 0};
+      state.triggers[0].relay = {address_prefix: 'https://gw.tico.dev/v1/hooks/rl_1', created: AGO(60), wake: null};
+      const {page, errors} = await open(browser, '#/settings/webhooks', {width: 390, height: 844}, state);
+      const pane = page.locator('#settings-webhooks');
+      await pane.locator('[data-wh-open="shop"]').waitFor();
+      await pane.locator('[data-wh-tab="gateway"]').click();
+      const row = pane.locator('[data-wh-wake-url]');
+      await row.locator('[data-wh-wake-do="edit"]').click();
+      await row.locator('[data-wh-wake-input]').fill('https://wake.acme.example/start-tico-server-now');
+      assert.ok(await noSideways(page), 'wake edit');
+      await shot(page, 'wake-edit-phone');
+      await row.locator('[type="submit"]').click();
+      await row.locator('[data-wh-secret="wake"]').waitFor();
+      assert.ok(await noSideways(page), 'wake secret');
+      await shot(page, 'wake-set-phone');
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
+    {
+      // Hidden on a hosted server (HQ wakes it) and from anyone but the owner (403).
+      for (const [what, more] of [['hosted', {hosted: true}], ['member', {role: 'member'}]]) {
+        const state = Object.assign(server(), more);
+        state.relay = {...state.relay, key: 'connected', last_pull: AGO(1), pending: 0};
+        const {page, errors} = await open(browser, '#/settings/webhooks', undefined, state);
+        const pane = page.locator('#settings-webhooks');
+        await pane.locator('[data-wh-open="shop"]').waitFor();
+        await pane.locator('[data-wh-tab="gateway"]').click();
+        await pane.locator('[data-wh-relay-status]').waitFor();
+        assert.equal(await pane.locator('[data-wh-wake-url]').count(), 0, `no wake address: ${what}`);
+        assert.deepEqual(errors, []);
+        await page.close();
+      }
     }
     {
       // Phone: list, detail, outgoing and Gateway with nothing sideways.
