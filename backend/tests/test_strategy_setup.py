@@ -142,7 +142,7 @@ def test_no_model_answers_at_once_and_only_the_owner_starts_or_reads_a_job(api, 
 
 def test_an_internal_address_is_refused_before_any_connection(api, research):
     for url in ("http://127.0.0.1/", "http://localhost:8080", "http://[::1]/", "ftp://acme.example",
-                "http://169.254.169.254/latest/meta-data"):
+                "http://169.254.169.254/latest/meta-data", "https://acme.example:abc"):
         refused = post(api, "strategy/draft-from", {"url": url}, expected=422)
         assert refused["error"]["code"] == "validation", url
     # A public-looking name that resolves inside: the fetch refuses it on the job, and never connects.
@@ -210,3 +210,17 @@ def test_finishing_setup_without_a_website_files_no_market_task(environment):
     assert api.post("/api/v2/onboarding/complete", json={}, headers=signed_in()).status_code == 200
     with api.app.state.store.read() as c:
         assert not c.execute("SELECT 1 FROM tasks WHERE owner='bot:librarian'").fetchone()
+
+
+def test_a_bot_administrator_recruits_from_the_published_bets_never_the_draft(api):
+    from backend import recruit
+    from backend.auth import Identity
+    from backend.tests.test_strategy import publish, ready
+    ready(api, statement="Small landlords pay for bots")
+    publish(api)
+    post(api, "strategy/bets", {"statement": "Unannounced: a franchise model"})
+    owner, admin = Identity("human:ana", "owner"), Identity("human:riley", "human")
+    with api.app.state.store.read() as c:
+        assert [b["statement"] for b in recruit.strategy_bets(c, owner)] == [
+            "Small landlords pay for bots", "Unannounced: a franchise model"]
+        assert [b["statement"] for b in recruit.strategy_bets(c, admin)] == ["Small landlords pay for bots"]

@@ -96,6 +96,7 @@ def normalize_url(value):
     try:
         parts = urlsplit(text)
         host = parts.hostname or ""
+        parts.port                      # "acme.example:abc" raises here
     except ValueError:
         parts, host = None, ""
     if not parts or parts.scheme.lower() not in ("http", "https") or "@" in parts.netloc \

@@ -185,7 +185,7 @@ function ssPoll(state) {
   state.strat.timer = setTimeout(async () => {
     if (!ssOnStep(state)) return;                       // entering the step again polls again
     const next = await v2Get(`/v2/strategy/draft-from/${encodeURIComponent(job.id)}`, {fresh: true});
-    if (ONB !== state) return;
+    if (ONB !== state || state.strat.job?.id !== job.id) return;    // a newer job (Back, a new website) replaced it
     if (next) state.strat.job = next;
     if (next && next.state !== 'running') {
       await ssReload(state);

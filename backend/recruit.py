@@ -90,10 +90,15 @@ def _about(answers):
             "software": str(answers.get("software_product") or "") == "yes"}
 
 
-def strategy_bets(c):
-    """The strategy draft's bets that are not retired, in rank order; none on a database from before Strategy."""
+def strategy_bets(c, who=None):
+    """The bets that are not retired, in rank order; none on a database from before Strategy. The draft's for the
+    owner (and for setup itself, `who` None); for anyone else, as a bot administrator, the published version's: the
+    draft is the owner's until they publish it."""
+    from . import goal_routes
     from . import strategy as S
     try:
+        if who is not None and not goal_routes.company_editor(who):
+            return [b for b in (S.current(c) or {}).get("bets") or [] if b.get("status") != "retired"]
         return [b for b in S.bets(c) if b["status"] != "retired"]
     except sqlite3.OperationalError:
         return []
@@ -176,7 +181,7 @@ class Recruiter:
             answers = O.load(c)["answers"]
             off = off_reason(c, self.settings)
             install_id = _install_id(c) if not off else ""
-            bets = strategy_bets(c)
+            bets = strategy_bets(c, who)
         value = catalog(self.settings)
         cards = {card["template"] for card in value["cards"] if card["department"] == body.department}
         about = _about(answers)
