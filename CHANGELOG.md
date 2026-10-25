@@ -7,6 +7,15 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Tico AI Gateway picks.** A bot on the Gateway now picks a department, a level (Low, Medium or High), Fast or not, and a version, instead of one of three models. The bot's group sets the department. A bot with no model of its own gets its department's Medium pick, and a template can start one on another level with `gateway:` in its `bot.yaml`. One line shows what runs underneath and its price. Pin the current version, an older one, or Auto (always latest). Tico publishes the list at `GET /v1/gateway/catalog`; the server reads it at most once an hour and uses the list shipped with the release when it cannot. Cheap, Mid and Power keep working as the old lineup, at their old prices.
+- **Settings > Gateway.** One page with the connection and this month's spend against its cap, the picks your bots use and the Gateway's services with their status, price and tools.
+- **Decisions level.** Settings > Computers > Models sets how carefully Decide judges: Low (the default, as before), Medium or High, with up to 30 seconds per try for the language-model levels.
+- **Agents can read the Gateway's list and search the web.** `hub_gateway_catalog` and `hub_gateway_search` (`hub gateway catalog`, `hub gateway search`), with a `gateway` skill.
+
+### Changed
+- The pi runner names a turn's Tico model in its own model list, so any pick of the lineup runs. Update the runner with the server.
+
 ## [0.4.2] - 2026-10-23
 
 ### Added
