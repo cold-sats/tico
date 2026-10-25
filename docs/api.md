@@ -46,9 +46,15 @@ The operation groups below are generated from the committed spec's tags. After r
 | Health | Whether the installation is working. |
 | Live events | One server-sent event stream for a person's pages (docs/custom-frontend.md, Live events): tasks, messages, runs, bots and Needs you as they change, resumable from a change number. |
 | Tags | Tags, metadata, markdown checklists and reusable templates. |
+| Events | The catalog of named events ([guide](routines.md)). |
 | Roadmaps | Company roadmap settings, internal requesters, and anonymous publication ([guide](roadmaps.md)). |
 | Strategy | The team's strategy: a draft the owner edits, numbered published versions, and the bets goals serve. |
 | Inbound | Shared company inbound email and SMS for people and agents; reads never consume messages. |
+| Triggers | Webhook triggers: an address any sender can post to, how its calls are verified, kept and run again. |
+| Webhook relay | Addresses for triggers through Tico Gateway: they keep deliveries while this server is off (backend/hook_relay.py). |
+| Sleep when idle | A server Tico hosts stops after quiet hours and starts again on a webhook, a routine or a sign-in (backend/sleep_idle.py). |
+| Notices | Notices from Tico Team: the ones that came through the Gateway relay and the current one from the release check. |
+| Webhooks | Outgoing webhooks: endpoints a person owns, the events Tico sends them, and each send's log ([guide](webhooks.md)). |
 <!-- api-tags:end -->
 
 Internal developer tutorials: [Listening](listening.md#save-decide-and-resolve) and [Needs you batches](needs-you-batches.md).

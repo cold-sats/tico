@@ -223,10 +223,6 @@ def create_app(settings=None):
         stop = asyncio.Event()
         # Always runs: local 90-day retention must not depend on the inbound key or HQ (sync itself stays off).
         inbound_task = asyncio.create_task(app.state.inbound.loop(stop))
-        # Webhooks waiting at Tico Gateway; the loop does nothing without a relay, a key, or outside a rehearsal.
-        hook_relay_task = asyncio.create_task(app.state.hook_relay.loop(stop))
-        # Sleep when idle (backend/sleep_idle.py): looks every five minutes, and only on a hosted server that asked for it.
-        sleep_idle_task = asyncio.create_task(app.state.sleep_idle.loop(stop))
         screen_relay_task = None
         if settings.screen_relay_url:
             await asyncio.to_thread(screen_sessions.start)
@@ -310,6 +306,10 @@ def create_app(settings=None):
         if webhooks_on:
             from . import webhook_delivery
             webhook_delivery.start(store, app.state.vault, rehearsal=settings.rehearsal)
+        # Webhooks waiting at Tico Gateway; the loop does nothing without a relay or a key.
+        hook_relay_task = asyncio.create_task(app.state.hook_relay.loop(stop)) if timers else None
+        # Sleep when idle (backend/sleep_idle.py): looks every five minutes, and only on a hosted server that asked for it.
+        sleep_idle_task = asyncio.create_task(app.state.sleep_idle.loop(stop)) if timers else None
         scheduler_task = asyncio.create_task(schedule_loop()) if timers else None
         directory_task = asyncio.create_task(directory_loop()) if timers else None
         granola_task = asyncio.create_task(app.state.granola.loop(stop)) if timers else None
@@ -333,8 +333,10 @@ def create_app(settings=None):
             stop.set()
             if inbound_task:
                 await inbound_task
-            await hook_relay_task
-            await sleep_idle_task
+            if hook_relay_task:
+                await hook_relay_task
+            if sleep_idle_task:
+                await sleep_idle_task
             if screen_relay_task:
                 await screen_relay_task
             else:
