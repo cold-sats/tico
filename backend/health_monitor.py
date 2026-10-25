@@ -104,6 +104,9 @@ MEANING = {
     "local_busy": "A process or container on a computer running Tico was busy in two hourly checks in a row while idle.",
     "run_hold": "Tico stopped a bot after five runs in a row failed within a minute of starting.",
     "turn_budget": "Tico stopped a bot that started more runs in an hour or a day than its budget allows.",
+    "reviewer_holds_tasks": "A bot with the Reviewer profile owns open tasks that are not review or QA requests.",
+    "responder_has_tasks": "A bot with the Responder profile, which takes no tasks, has open tasks.",
+    "doer_idle": "A Doer's runs for a week all did nothing: its profile may not fit what it is asked to do.",
     **{p[0]: p[4] + "." for p in LOG_PATTERNS},
 }
 # What a Tico bug report says the fix is: one constant per tico-bug check, never a finding's own text.
@@ -532,6 +535,31 @@ def _bot_checks(c, settings=None):
                                     "the computer can make it again (docs/worktrees.md)."))
     out.extend(_quiet_work_checks(c))
     out.extend(_stop_checks(c))
+    out.extend(_profile_checks(c))
+    return out
+
+
+def _profile_checks(c):
+    """Profiles that do not fit the work a bot has (backend/profiles.py mismatches): one finding per bot."""
+    from . import profiles
+    say = {"reviewer_holds_tasks": (lambda name, n: (
+               f"{name} is a Reviewer but owns {n} open task{'s' if n != 1 else ''} that {'are' if n != 1 else 'is'} not review or QA requests",
+               f"A Reviewer takes review and QA requests only and does not pull other open tasks by itself, so "
+               f"these wait for a person to start them.",
+               f"BotOps: give those tasks to a bot that does the work, or change {name}'s profile to Doer.")),
+           "responder_has_tasks": (lambda name, n: (
+               f"{name} is a Responder but has {n} open task{'s' if n != 1 else ''}",
+               "A Responder wakes for people in chat only and never starts a task, so these sit untouched.",
+               f"BotOps: give those tasks to a bot that does the work, or change {name}'s profile to Doer.")),
+           "doer_idle": (lambda name, n: (
+               f"{name} did nothing in all {n} of its runs this week",
+               f"Every run {name} had in the last week ended without writing anything to Tico.",
+               f"BotOps: ask {name}'s owner what it should be doing; a Responder, Monitor or Lead profile may fit better."))}
+    out = []
+    for kind, bot, count in profiles.mismatches(c):
+        name = (H.bot(c, bot) or {}).get("display_name") or bot
+        title, detail, fix = say[kind](name, count)
+        out.append(_finding(f"{kind}:{bot}", kind, SETUP, title, detail, fix))
     return out
 
 

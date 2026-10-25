@@ -13,6 +13,7 @@ from . import placement, run_triggers
 from . import system_routines as SR
 from .batch_work import isolated
 from .harnesses import SYNCED_SQL
+from .profiles import TAKES_NONE_SQL
 from .statuses import PARKED_SQL
 from .store import H, encode, sweep_deltas, sweep_idempotency, sweep_mail
 
@@ -35,7 +36,7 @@ SCHEDULES_SQL = (
     "AND coalesce(json_extract(bc.config_json,'$.shared_from'),'')<>'') "
     # a bot synced in from another platform never sees a task (hubdb._takes_tasks)
     "AND NOT EXISTS(SELECT 1 FROM bot_config xc WHERE xc.bot=s.bot "
-    "AND json_extract(xc.config_json,'$.harness') IN (" + SYNCED_SQL + ")) "
+    "AND (json_extract(xc.config_json,'$.harness') IN (" + SYNCED_SQL + ") OR " + TAKES_NONE_SQL.format(a="xc") + ")) "
     # a starter bot runs nothing on its own until it says its setup is done
     "AND NOT EXISTS(SELECT 1 FROM bot_config pc WHERE pc.bot=s.bot "
     "AND pc.onboarding_state IN " + PARKED_SQL + ")")

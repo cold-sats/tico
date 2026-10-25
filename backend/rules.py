@@ -118,14 +118,73 @@ WHEN_KEYS = ("actor", "step", "role", "tag", "state")
 WHEN_ACTORS = ("human", "bot", "keeper")
 WHEN_ROLES = ("owner", "requester", "other")
 
-# Profiles come later: `profile_of` is the one place a bot's profile is read, and PROFILE_RULES holds each profile's
-# rows (dicts with the keys of a `rules` row, scope_kind "bot"), tried after the bot's own rows.
-PROFILE_RULES = {}
+# A bot's profile (backend/profiles.py) plugs in at the bot scope. `profile_of` names it and PROFILE_RULES holds each
+# profile's built-in rows, shaped like `rules` rows (a profile that is not listed adds none; `custom` has its own
+# rows in the table). A row naming an event is tried at the bot scope after the bot's own rows; a `*` row is the
+# profile's "everything else" and is tried last of all, after the team's rows, so a type or team rule that names an
+# event (a release waking QA) still reaches a bot whose profile makes everything else a note.
+PROFILES = ("doer", "reviewer", "lead", "responder", "monitor", "custom")
+# Time-based events a bot set for itself (its routines, due dates, snoozes): a bot that works to a clock is woken by
+# them whatever its profile says about news.
+OWN_TIMERS = (("routine", "its routine ran"), ("schedule", "a scheduled run came"), ("due", "a task's due date came"),
+              ("snooze", "a task's snooze ended"))
+
+
+def _profile_rules():
+    rows = {}
+
+    def add(profile, rule, event, then, words, when=None):
+        rows.setdefault(profile, []).append({
+            "id": rule, "event": event, "then_outcome": then, "params_json": "{}", "words": words,
+            "when": when or {}, "when_json": json.dumps(when or {}, sort_keys=True)})
+
+    def timers(profile, which=OWN_TIMERS):
+        for event, words in which:
+            add(profile, f"profile_{profile}_{event}", event, WAKE, words)
+
+    add("reviewer", "profile_reviewer_assignment", "assignment", WAKE, "a review or QA request was filed for it")
+    add("reviewer", "profile_reviewer_request", "review_request", WAKE, "a review, QA or Security request")
+    timers("reviewer", OWN_TIMERS[:2])
+    add("reviewer", "profile_reviewer_note", "*", NOTE, "anything else")
+    add("lead", "profile_lead_requested", "status_or_relation", WAKE,
+        "a ticket it asked for was declined or finished", {"role": ["requester"], "state": ["declined", "done"]})
+    add("lead", "profile_lead_blocker", "blocker", WAKE, "a blocker needs it")
+    timers("lead")
+    add("lead", "profile_lead_digest", "*", BATCH, "anything else Tico reports: held for the daily digest",
+        {"actor": ["keeper"]})
+    add("lead", "profile_lead_note", "*", NOTE, "anything else a bot says")
+    add("responder", "profile_responder_note", "*", NOTE, "anything but a person")
+    add("monitor", "profile_monitor_assignment", "assignment", WAKE, "its watcher filed a task",
+        {"actor": ["keeper"]})
+    timers("monitor")
+    add("monitor", "profile_monitor_note", "*", NOTE, "anything else")
+    return {name: tuple(found) for name, found in rows.items()}
+
+
+PROFILE_RULES = _profile_rules()
+PROFILE_RULE_IDS = frozenset(r["id"] for found in PROFILE_RULES.values() for r in found)
 
 
 def profile_of(conn, bot):
-    """The profile a bot runs under: `doer` until profiles exist."""
-    return "doer"
+    """The profile a bot runs under: its `bot_config.profile`, or `doer` for a bot with none (a database from before
+    profiles, a bot seeded since the last start)."""
+    try:
+        row = conn.execute("SELECT json_extract(config_json,'$.profile') FROM bot_config WHERE bot=?",
+                           (H.actor_id(bot),)).fetchone()
+    except sqlite3.OperationalError:
+        return "doer"
+    return row[0] if row and row[0] in PROFILES else "doer"
+
+
+def sweeps_on(conn, bot):
+    """Whether stall and status checks (the sweeps) may wake this bot's tasks: False for a reviewer, lead, responder
+    and monitor, and for a custom profile that turned them off. Fails open: a bot whose profile cannot be read is
+    swept."""
+    try:
+        from . import profiles
+        return profiles.sweeps_on(conn, H.actor_id(bot))
+    except Exception:  # noqa: BLE001
+        return True
 
 
 class Decision(NamedTuple):
@@ -343,9 +402,9 @@ def _table_decision(conn, event, actor, target, refs, conv, task_row=None):
                             "ORDER BY position, event='*', created, id", (event,)).fetchall()
     except sqlite3.OperationalError:            # a database from before the table: no rows
         rows = []
-    profile = []
+    slug, profile = H.actor_id(target), []
     if PROFILE_RULES:
-        profile = [dict(r) for r in PROFILE_RULES.get(profile_of(conn, H.actor_id(target)), ())
+        profile = [{**r, "scope_kind": "bot", "scope_id": slug} for r in PROFILE_RULES.get(profile_of(conn, slug), ())
                    if r["event"] in (event, "*")]
     if event in AWAITED_NAMES:
         # What the bot waits on wakes it: a `*` row does not reach it, only a row that names the event.
@@ -354,13 +413,20 @@ def _table_decision(conn, event, actor, target, refs, conv, task_row=None):
     if not rows and not profile:
         return None
     ctx = _Context(conn, actor, target, refs, conv, task_row)
+    named, rest = [r for r in profile if r["event"] != "*"], [r for r in profile if r["event"] == "*"]
     for scope in PRECEDENCE:
         found = [r for r in rows if r["scope_kind"] == scope]
         if scope == "bot":
-            found += profile
+            found += named
         for row in found:
             if ctx.in_scope(row) and ctx.matches(H._json(row["when_json"], {}) or {}):
                 return _row_decision(row, actor)
+    from . import wake_rules
+    for row in rest:                            # the profile's "everything else", after every scope that named an event
+        if row["then_outcome"] == BATCH and wake_rules.CAUSE.get() == target:
+            continue                            # the bot's own write is no news: the built-in filter says so
+        if ctx.matches(H._json(row["when_json"], {}) or {}):
+            return _row_decision(row, actor)
     return None
 
 

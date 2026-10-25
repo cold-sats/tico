@@ -18,7 +18,7 @@ from . import providers
 from . import app_delivery
 from . import rooms
 from . import shared_bots
-from . import auto_tasks, task_models, update_feeds, wake_presets
+from . import auto_tasks, profiles, task_models, update_feeds, wake_presets
 from .auth import Identity
 from .execution import _reported, stranded
 from .harnesses import EXTERNAL_HARNESSES, HARNESS_BY_ID, normalize_fallback, resolve_harness, runtime_of
@@ -196,6 +196,7 @@ class SettingsAdmin:
                 "compact_at": compact_at(effective),
                 # The bot's own, never its original's: a branch's queue is its own (backend/wake_presets.py).
                 "wake": wake_presets.effective(_json(config["config_json"], {}) or {}),
+                "profile": profiles.effective(_json(config["config_json"], {}) or {}),
                 "session": effective.get("session"),
                 "subtask_session": effective.get("subtask_session"),
                 "task_goal": effective.get("task_goal"),
@@ -328,7 +329,8 @@ class SettingsAdmin:
                   "harness": harness, "reasoning_effort": effort, "thread_mode": body.thread_mode, "shared": body.shared,
                   "private_tasks_default": (body.private_tasks_default if "private_tasks_default" in body.model_fields_set
                                             else body.template == "general-counsel"),
-                  "model_managed_by": "cloud", "wake_preset": wake_presets.NEW_BOT_PRESET}
+                  "model_managed_by": "cloud"}
+        profiles.apply(config, profiles.DOER, {})
         if body.template:
             config["template"] = body.template
             if privileged:
@@ -669,6 +671,8 @@ class SettingsAdmin:
             return auto_tasks.of(_json(config["config_json"], {}) or {})
         if field == "wake_preset":
             return wake_presets.preset_of(_json(config["config_json"], {}))
+        if field == "profile":
+            return profiles.snapshot(_json(config["config_json"], {}) or {})
         if field == "placement":
             row = c.execute("SELECT a.runner_id,a.generation,r.label,r.operator AS runner_operator "
                             "FROM assignments a JOIN runners r ON r.id=a.runner_id WHERE a.bot=?", (bot,)).fetchone()
@@ -1006,6 +1010,15 @@ class SettingsAdmin:
         if change["field"] == auto_tasks.KEY:
             return self.set_keep_tasks_going(c, who, bot, SimpleNamespace(
                 keep_tasks_going=before, expected_revision=body.expected_revision), undo_change_id=change_id)
+        if change["field"] == "profile":
+            if not (before or {}).get("profile"):
+                raise Problem("not_reversible", "The bot had no profile before this change", 409)
+            if before["profile"] == profiles.CUSTOM and self.snapshot(c, bot, "profile")["profile"] != profiles.CUSTOM:
+                raise Problem("not_reversible", "Its own wake rules were deleted when it left Custom; choose Custom "
+                              "again to start from a profile's rows", 409)
+            return profiles.set_profile(self, c, who, bot, SimpleNamespace(
+                profile=before["profile"], expected_revision=body.expected_revision, confirm_drop_rules=True,
+                **{k: v for k, v in (before.get("options") or {}).items()}), undo_change_id=change_id)
         if change["field"] == "turn_budget":
             from . import turn_budgets
             return turn_budgets.set_bot(self, c, who, bot, SimpleNamespace(
@@ -1194,6 +1207,9 @@ class SettingsAdmin:
         # Old clients may still send `current`; it now selects Performance.
         chosen = wake_presets.preset_of({"wake_preset": body.wake_preset})
         declared["wake_preset"] = chosen
+        if profiles.name_of(declared):
+            # A bot with a profile keeps it: the old setting only changes the profile's window (backend/profiles.py).
+            profiles.apply_preset(declared, chosen)
         c.execute("UPDATE bot_config SET config_json=?,revision=revision+1 WHERE bot=?", (encode(declared), bot))
         wake_presets.replan(c, bot)
         self.record(c, who.actor, bot, "wake_preset", before, chosen)

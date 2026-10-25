@@ -21,7 +21,7 @@ from . import changelog as CL
 from . import visuals
 from . import app_delivery, login_holds, providers, runner_versions
 from .harnesses import resolve_harness
-from . import personal_tokens, rooms, team_rules, turns, wake_presets
+from . import personal_tokens, profiles, rooms, team_rules, turns, wake_presets
 from . import auto_tasks, bot_stops, pipeline_stats
 from .execution import AWAKE_GAP, AWAKE_SETTLE, Execution, bump_bot_session_epoch, turns_here
 from pathlib import Path
@@ -1819,6 +1819,7 @@ def install_views(app, store, auth, mutate, task_view):
                          "icon": icon_of(config), "helper": helper(config),
                          # What Settings and the branch editor show and pick from (backend/wake_presets.py).
                          "wake": wake_presets.effective(config),
+                         "profile": profiles.effective(config),
                          "my_access": level, **policy,
                          "can_chat": level["write"] and slug not in (auth.settings.assistant_bot, CEO_BOT),
                          # Onboarding or Active, and whether this person may mark onboarding complete (backend/lifecycle.py).

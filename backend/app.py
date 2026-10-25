@@ -30,7 +30,7 @@ from . import outcome_stats
 from . import ceo_bot, invites, owner_link
 from . import login_holds
 from . import bot_stops, turn_budgets
-from . import auto_tasks, check_models, run_triggers, task_models, team_rules, update_feeds, topic_change, usage_limits, bot_to_bot, wake_presets, visuals, wake_rules, quiet_work, milestone_waits
+from . import auto_tasks, check_models, profiles, run_triggers, task_models, team_rules, update_feeds, topic_change, usage_limits, bot_to_bot, wake_presets, visuals, wake_rules, quiet_work, milestone_waits
 from . import task_privacy as privacy
 from . import task_relations as TR
 from . import task_roles as TRo
@@ -2062,6 +2062,7 @@ def create_app(settings=None):
                         "task_model_warning": task_models.warning(c, settings, bot["slug"], declared,
                                                                   task_models.of(declared)),
                         "wake": wake_presets.effective(declared),
+                        "profile": profiles.effective(declared),
                         "thread_mode": config["thread_mode"] or rooms.thread_mode(c, bot["slug"], config)})
         configured = json.loads(config["owner_ids_json"]) if config and config["owner_ids_json"] else None
         owner_rows = ([rows.human(owner) for owner in configured] if configured is not None
@@ -6059,6 +6060,7 @@ def create_app(settings=None):
     from . import rules as wake_rules_api
     wake_rules_api.install(app, store, auth, mutate)
     turn_budgets.install(app, store, auth, mutate, settings_admin)
+    profiles.install(app, store, auth, mutate, settings_admin)
     from . import release_flow
     release_flow.install(app, store, auth, mutate)
     outcome_stats.install(app, store, auth)
