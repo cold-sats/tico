@@ -274,6 +274,24 @@ def test_task_changes_are_published_with_their_own_names_and_a_retried_write_sen
     assert (first, second) == (1, 0)
 
 
+def test_catalog_examples_have_the_top_level_keys_their_producers_send(api, net):
+    from backend import event_catalog as catalog
+    made = make(api, events=["task.*", "approval.*"])
+    task = _post(api, "tasks", {"owner": "ops", "title": "Ship it", "body": "Ship it."})
+    _post(api, f"tasks/{task['id']}/comments", {"text": "Soon."})
+    doing = _post(api, f"tasks/{task['id']}", {"version": task["version"], "status": "doing"})
+    _post(api, f"tasks/{task['id']}", {"version": doing["version"], "status": "done", "note": "Shipped."})
+    with api.app.state.store.transaction() as c:
+        approval = H.approval_request(c, "bot:ops", "send", {"to": "x@acme.example", "cc": "", "subject": "Hi",
+                                                            "body_sha256": "a" * 64, "mailbox": "ops"})
+        H.approval_decide(c, "human:ana", approval["id"], "approved")
+    sent = {s["type"]: json.loads(s["body"])["data"] for s in sends(api, made["id"])}
+    assert {"task.created", "task.commented", "task.state_changed", "task.done", "approval.requested",
+            "approval.decided"} <= set(sent)
+    for name, data in sent.items():
+        assert set(data) == set(catalog.EVENTS[name].example), name
+
+
 def test_the_ceo_bot_and_a_bot_without_the_send_switch_are_refused(api):
     made = make(api)
     assert publish(api, "custom.x", "s", {}, "bot:goal-manager") == 0       # the broad path never raises, and sends nothing
@@ -433,6 +451,13 @@ def test_the_other_events_are_published_where_they_happen(api, net):
     assert {"approval.requested", "approval.decided"} <= kinds
     body = json.loads(next(s for s in sends(api, made["id"]) if s["type"] == "approval.decided")["body"])
     assert body["data"]["decision"] == "approved" and "payload" not in body["data"]
+
+
+def test_an_endpoint_cannot_subscribe_to_events_only_rules_see(api):
+    for name in ("webhook.received", "tico.notice"):
+        assert "rule with forward" in json.dumps(post(api, "webhooks", {"name": "x", "url": URL, "events": [name]},
+                                                      expected=422))
+    make(api, events=["*"])                                            # a star still works: it means what is sent
 
 
 def test_publish_to_one_endpoint_checks_the_actor_against_that_endpoint(api):

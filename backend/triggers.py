@@ -13,8 +13,8 @@ its secret is replaced. A wrong id or secret is a plain 404, so the path says no
 triggers exist. `receive` does everything after that check and is the one door both the routes and the
 Gateway relay (backend/hook_relay.py, `via="gateway"`) use.
 
-A sender's own delivery id (`Webhook-Id`, `X-GitHub-Delivery`, `Idempotency-Key`, `X-Request-Id`), or failing
-that a hash of the minute and the body, makes a retried delivery open nothing new. The ledger that remembers
+A sender's own delivery id (`Webhook-Id`, `X-GitHub-Delivery`, `Idempotency-Key`, `X-Request-Id`), or Stripe's
+event id in the body, or failing that a hash of the minute and the body, makes a retried delivery open nothing new. The ledger that remembers
 ids (`trigger_seen`) keeps them 30 days, apart from the stored bodies and the 200-row log. Each trigger takes at
 most its `hourly` deliveries an hour (60 unless set, up to 600), so a noisy sender cannot wake a bot without end;
 past that the sender gets 429 and retries later.
@@ -73,6 +73,8 @@ REPLAY = ":replay:"              # a re-run delivery is `<delivery>:replay:<n>`
 SWEEP_BATCH = 2000
 MAX_RECOVER_HOURS = 30 * 24      # how far back a recovery may reach (a refused call is kept at most MAX_KEEP_DAYS)
 RECOVER_BATCH = 200              # refused calls one recovery re-runs; `more` says another round waits
+
+_state = {"auth": None}          # set by install: who is an admin
 
 
 @dataclass
@@ -146,21 +148,26 @@ def address(settings, trigger_id, secret=None):
     return f"{base}{PATH}{trigger_id}" + (f"/{secret}" if secret else "")
 
 
+def _admin(who):
+    auth = _state["auth"]
+    return who.role == "human" and bool(auth and auth.bot_admin(who))
+
+
 def manages(who, trigger):
-    """Whether `who` manages this trigger: the owner, BotOps, or whoever made it (a person or a bot)."""
-    return who.role == "owner" or who.actor == "bot:botops" or (
+    """Whether `who` manages this trigger: the owner, an admin, BotOps, or whoever made it (a person or a bot)."""
+    return who.role == "owner" or who.actor == "bot:botops" or _admin(who) or (
         who.role in ("human", "bot") and trigger["created_by"] == who.actor)
 
 
 def may_manage(c, who, trigger=None):
     """People and bots make triggers (one listens only when a routine they may edit says so, so a bot's reach is its
-    own tasks); the owner, whoever made one and BotOps replace its secret, change it or delete it."""
-    if who.role == "owner" or who.actor == "bot:botops":
+    own tasks); the owner, an admin, whoever made one and BotOps replace its secret, change it or delete it."""
+    if who.role == "owner" or who.actor == "bot:botops" or _admin(who):
         return
     if who.role not in ("human", "bot"):
         raise Problem("forbidden", "Only people and bots manage triggers", 403)
     if trigger is not None and trigger["created_by"] != who.actor:
-        raise Problem("forbidden", "Only the owner or whoever made this trigger may change it", 403)
+        raise Problem("forbidden", "Only the owner, an admin or whoever made this trigger may change it", 403)
 
 
 def effective_preset(trigger):
@@ -474,7 +481,7 @@ def _route(c, found, delivery, type_, via, body, headers, auth):
         # A notice from Tico Team is judged once, as `tico.notice`; `webhook.received` is for senders outside Tico.
         return fired, tico_notices.arrived(c, found, delivery, type_, via, body, _payload_of(body), content, _judge)
     results = _judge(c, {"trigger": trigger_id, "trigger_name": found["name"], "type": type_, "delivery": delivery,
-                         "via": via, "payload": _payload_of(body), "content": content})
+                         "via": via, "payload": _payload_of(body), "content": content, "cut": cut})
     return fired, results
 
 
@@ -518,8 +525,8 @@ def receive(c, trigger_id: str, body: bytes, headers: Mapping[str, str], *, secr
     if len(body) > MAX_BODY:
         return Received("refused", 413, None, f"A webhook body is at most {MAX_BODY // 1024} KB", code="too_large")
     at = received_at or H.now()
-    delivery = delivery_id or sender or P.fallback_id(headers, body, at)
     preset = effective_preset(found)
+    delivery = delivery_id or sender or P.body_id(preset, body) or P.fallback_id(headers, body, at)
     if preset != "none":
         if vault is None:
             return _refused(c, found, delivery, body, headers, at, 503, "vault_unavailable",
@@ -695,6 +702,7 @@ def sweep(store, now=None, batch=SWEEP_BATCH):
 
 
 def install(app, settings, store, auth, mutate):
+    _state["auth"] = auth
     def once(request, body, fn):
         """A write whose answer carries a secret goes through the vault's receipt (Vault.change): the idempotency row
         keeps a keyed fingerprint of the request and the answer without the secret, so neither the address secret nor

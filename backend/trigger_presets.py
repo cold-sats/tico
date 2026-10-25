@@ -33,7 +33,8 @@ MAX_TYPE = 100
 PREFIX = "whsec_"
 
 # Headers that carry a credential or a signature: shown as "[redacted]" in any listing or page.
-SECRET_NAMES = ("signature", "authorization", "token", "secret", "key")
+SECRET_NAMES = ("signature", "token", "secret", "password", "api-key", "apikey")
+SECRET_HEADERS = {"authorization", "proxy-authorization", "cookie", "set-cookie"}
 # Not kept at all: a cookie is the sender's session, hop-by-hop headers belong to one connection, cf-* and cdn-loop
 # are the edge's.
 HOP_BY_HOP = {"cookie", "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer",
@@ -193,6 +194,17 @@ def sender_id(headers):
     return ""
 
 
+def body_id(preset, body):
+    """The sender's delivery id when it travels in the body: Stripe's `evt_...` at `/id`, the same for a resend."""
+    if preset != "stripe":
+        return ""
+    try:
+        found = json.loads(body.decode("utf-8", "replace")).get("id")
+    except (ValueError, AttributeError):
+        return ""
+    return found if isinstance(found, str) and re.fullmatch(r"evt_[A-Za-z0-9_]{1,100}", found) else ""
+
+
 def fallback_id(headers, body, received_at):
     """`h:` plus a hash of the minute and the body, so a bare retry within the minute is a duplicate."""
     minute = str(headers.get("webhook-timestamp") or received_at[:16])
@@ -254,5 +266,5 @@ def kept_headers(headers, url_secret=None):
 
 def redacted(headers):
     """Headers as a listing or page shows them: credential and signature values hidden."""
-    return {name: "[redacted]" if any(word in name for word in SECRET_NAMES) else value
+    return {name: "[redacted]" if name in SECRET_HEADERS or any(word in name for word in SECRET_NAMES) else value
             for name, value in headers.items()}

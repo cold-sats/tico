@@ -216,7 +216,7 @@ Public roadmap publication, requesters and anonymous endpoints are described in 
 Anything that can send an HTTP POST can start routines and rules. `POST /api/v2/triggers` (`name`, optional `id`) makes one and
 answers with its address once; `POST /api/v2/hooks/{id}/{secret}` is the address a sender calls. `GET /api/v2/triggers`,
 `/triggers/{id}` and `POST /triggers/{id}` (`name`, `preset`, `type_from`, `hourly`, `keep_days`, `unheard`) read and change them;
-`/rotate`, `/signing`, `/relay`, `/relay/rotate`, `/relay/delete`, `/delete`, `GET /deliveries`, `GET /deliveries/{delivery}`
+`/rotate`, `/signing`, `/recover`, `/relay`, `/relay/rotate`, `/relay/wake`, `/relay/delete`, `/delete`, `GET /deliveries`, `GET /deliveries/{delivery}`
 (`?part=n` for a bot) and `POST /deliveries/{delivery}/replay` sit under `/triggers/{id}`. `GET /api/v2/relay` shows the Tico
 Gateway state, `GET /api/v2/event-types` the event catalog and `GET /api/v2/notices` the notices from Tico Team. The whole
 story, with the CLI, is on [Webhooks](webhooks.md).
@@ -234,7 +234,8 @@ hub webhook create --name "Acme orders" --url https://hooks.acme.example/tico --
 `POST /api/v2/webhooks` answers with the secret (`whsec_...`) once; keep it. `GET /api/v2/webhooks` lists endpoints with
 their delivered and failed counts for 7 days; `GET /api/v2/webhooks/{id}/sends` is the send log (state, attempts, last status,
 next try). Per endpoint: `update`, `rotate` (the old secret also signs for 24 hours), `pause`, `resume`, `delete`, `send`
-(a `custom.*` event), `example` (a sample of any event) and `sends/{id}/retry`.
+(a `custom.*` event), `example` (a sample of any event), `enable`, `recover` and `replay` (send again what gave up, or
+what was never sent, since a date) and `sends/{id}/retry`.
 
 A delivery is a `POST` of
 

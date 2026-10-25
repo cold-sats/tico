@@ -886,14 +886,14 @@ def _wake_refs(event, rule_id, ctx):
 
 
 def _wake_text(params, values, ctx, default):
-    """The rendered `params.text` (4 KB), then the body of the delivery when the call carries one, then one line saying
-    how to read it all."""
+    """The rendered `params.text` (4 KB), then the body of the delivery when the call carries one, then, when that body
+    was cut, one line saying how to read the rest."""
     text = templating.render(str(params.get("text") or ""), values, cap=MAX_TEXT).strip() or default
     parts = [text]
     if ctx.get("content"):
         parts.append(str(ctx["content"]))
-    if ctx.get("trigger") and ctx.get("delivery") and not isinstance(ctx.get("trigger"), dict):
-        parts.append(f"The whole body: `hub trigger delivery {ctx['trigger']} {ctx['delivery']}`.")
+    if ctx.get("cut") and ctx.get("trigger") and ctx.get("delivery") and not isinstance(ctx.get("trigger"), dict):
+        parts.append(f"The rest: `hub trigger delivery {ctx['trigger']} {ctx['delivery']} --part 2`.")
     return "\n\n".join(parts)
 
 
@@ -1357,14 +1357,14 @@ def _action_writer(c, auth, who, then, params):
                                        "cannot either", 403) from exc
         return
     if action in ("send_webhook", "forward"):
-        if who.role in ("owner", "human"):
-            return
-        if who.role == "bot" and who.actor != "bot:" + _ceo_slug():
-            from . import mail_settings
-            if (mail_settings.stored(c, H.actor_id(who.actor)) or {}).get("outbound_send"):
-                return
-        raise Problem("forbidden", "A webhook rule sends from Tico: a person writes it, or a bot with outbound sending on",
-                      403)
+        from . import mail_settings, webhooks
+        if not (who.role in ("owner", "human") or who.role == "bot" and who.actor != "bot:" + _ceo_slug()
+                and (mail_settings.stored(c, H.actor_id(who.actor)) or {}).get("outbound_send")):
+            raise Problem("forbidden", "A webhook rule sends from Tico: a person writes it, or a bot with outbound "
+                                       "sending on", 403)
+        webhooks.check_usable(c, who.actor, str(params.get("webhook") or ""),
+                              params.get("type") if action == "send_webhook" else None)
+        return
     if action == "wake_bot":
         return
     if not (who.role == "owner" or auth.bot_admin(who) or who.role == "human" and H.can_move(c, who.actor)):

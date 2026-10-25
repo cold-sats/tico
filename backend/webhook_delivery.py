@@ -243,6 +243,10 @@ def record(store, send, timestamp, status, head, error, abort, ms):
         c.execute("INSERT INTO webhook_attempts(send_id,webhook_id,n,at,timestamp_sent,status,ms,response_head,error) "
                   "VALUES(?,?,?,?,?,?,?,?,?)", (send["id"], send["webhook_id"], n, now, timestamp, status, ms,
                                                 head[:1024], error[:300]))
+        if status is not None and 200 <= status < 300:
+            c.execute("UPDATE webhooks SET failing_since=NULL WHERE id=? AND failing_since IS NOT NULL", (send["webhook_id"],))
+        else:
+            c.execute("UPDATE webhooks SET failing_since=? WHERE id=? AND failing_since IS NULL", (now, send["webhook_id"]))
         now_row = c.execute("SELECT state, attempts FROM webhook_sends WHERE id=?", (send["id"],)).fetchone()
         if not now_row or now_row["state"] != "sending":
             return                              # deleted or retried by hand while the post was out; the attempt stays logged

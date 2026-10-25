@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import json
+from datetime import datetime, timezone
 
 from backend import trigger_presets as P
 from backend import triggers
@@ -65,8 +66,10 @@ def test_type_extraction_and_header_handling():
     assert P.type_of("/type", {}, body) == "order.paid" and P.type_of("/data/items/0/kind", {}, body) == "a"
     assert P.type_of("/data/items/9", {}, body) == "" and P.type_of("/type", {}, b"not json") == ""
     assert P.type_of("X-GitHub-Event", {"x-github-event": "push"}, body) == "push"
-    assert P.redacted({"x-hub-signature-256": "abc", "authorization": "Bearer s", "x-api-key": "k", "content-type": "a/b"}) == {
-        "x-hub-signature-256": "[redacted]", "authorization": "[redacted]", "x-api-key": "[redacted]", "content-type": "a/b"}
+    assert P.redacted({"x-hub-signature-256": "abc", "authorization": "Bearer s", "x-api-key": "k", "content-type": "a/b",
+                       "idempotency-key": "i1", "webhook-id": "w1", "set-cookie": "a=b"}) == {
+        "x-hub-signature-256": "[redacted]", "authorization": "[redacted]", "x-api-key": "[redacted]", "content-type": "a/b",
+        "idempotency-key": "i1", "webhook-id": "w1", "set-cookie": "[redacted]"}
     kept = P.kept_headers({"cookie": "a=b", "authorization": "Bearer secret1", "cf-ray": "1", "connection": "close",
                            "x-event": "e"}, "secret1")
     assert kept == {"x-event": "e"}
@@ -235,7 +238,7 @@ def test_replay_runs_a_stored_call_again_once_per_request_and_not_after_it_expir
     made = post(api, "triggers", {"name": "Shop"})["trigger"]
     r = routine(api)
     hook(api, made["url"], b'{"order": 7}', {"Webhook-Id": "w7"})
-    post(api, "triggers/shop/deliveries/w7/replay", {}, token="ben-test", expected=403)
+    post(api, "triggers/shop/deliveries/w7/replay", {}, token="cara-test", expected=403)
     one = post(api, "triggers/shop/deliveries/w7/replay", {}, key="rp1")["replay"]
     assert one["delivery"] == "w7:replay:1" and one["tasks"] == 1
     assert post(api, "triggers/shop/deliveries/w7/replay", {}, key="rp1")["replay"] == one      # a retried request
@@ -265,7 +268,7 @@ def test_who_may_read_a_stored_body(api):
     assert json.loads(whole["body"]) == json.loads(big) and "parts" not in whole
     assert whole["headers"]["x-signature-extra"] == "[redacted]" and whole["headers"]["authorization"] == "[redacted]"
     assert "cookie" not in whole["headers"] and whole["headers"]["x-event"] == "e1"
-    get(api, path, token="ben-test", expected=404)                                          # another person
+    get(api, path, token="cara-test", expected=404)                                        # another person
     listing = json.dumps(get(api, "triggers/shop/deliveries"))
     assert "Bearer" not in listing and "abc" not in listing                                 # lists carry no headers
     part1 = get(api, path + "?part=1", token="ops-test")["delivery"]                        # the bot whose task it made
@@ -344,3 +347,25 @@ def test_a_cap_above_the_log_size_still_holds(api):
     post(api, "triggers/shop", {"hourly": 250})
     codes = [hook(api, made["url"], b"{}", {"Webhook-Id": f"c{i}"}).status_code for i in range(251)]
     assert codes[:250] == [202] * 250 and codes[250] == 429
+
+
+def test_a_stripe_event_id_in_the_body_makes_a_resend_across_minutes_a_duplicate(api):
+    made = post(api, "triggers", {"name": "Billing"})["trigger"]
+    post(api, "triggers/billing/signing", {"preset": "stripe", "secret": STRIPE_SECRET})
+    secret, vault = made["url"].rsplit("/", 1)[1], api.app.state.vault
+
+    def send(body, minutes):
+        at = datetime.fromtimestamp(STRIPE_TS + minutes * 60, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        with api.app.state.store.transaction() as c:
+            return triggers.receive(c, "billing", body, {"stripe-signature": stripe_sig(STRIPE_SECRET, body, STRIPE_TS)},
+                                    secret=secret, received_at=at, vault=vault)
+    assert P.body_id("stripe", b"not json") == "" and P.body_id("hmac", STRIPE_BODY) == ""
+    first, again = send(STRIPE_BODY, 0), send(STRIPE_BODY, 2)
+    assert (first.outcome, again.outcome, first.delivery) == ("accepted", "duplicate", "evt_1")
+
+
+def test_an_admin_manages_a_trigger_someone_else_made_and_a_plain_person_does_not(api):
+    post(api, "triggers", {"name": "Caras"}, token="cara-test")
+    post(api, "triggers/caras/rotate", {}, token="ben-test")                  # ben is an admin
+    post(api, "triggers", {"name": "Bens"}, token="ben-test")
+    post(api, "triggers/bens/rotate", {}, token="cara-test", expected=403)

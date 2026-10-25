@@ -45,7 +45,7 @@ class HQ:
             return httpx.Response(self.status[path], json={"error": "forced"})
         if path == "relays" and request.method == "GET":
             return httpx.Response(200, json={"items": [
-                {"relay_id": r["id"], "trigger_id": r["trigger_id"], "name": "", "address_prefix": "", "wake": False,
+                {"relay_id": r["id"], "trigger_id": r["trigger_id"], "name": "", "address_prefix": "", "wake": r.get("wake", False),
                  "system": bool(r.get("system")), "created": "2026-10-25T09:00:00Z"} for r in self.relays.values()]})
         if path == "relays":
             if "idempotency-key" not in request.headers:
@@ -58,6 +58,9 @@ class HQ:
             self.relays[relay_id] = {"id": relay_id, "trigger_id": body["trigger_id"], "key": request.headers["idempotency-key"]}
             return httpx.Response(200, json={"relay_id": relay_id, "address": f"{BASE}/v1/hooks/{relay_id}/s3cret{relay_id[-2:]}",
                                              "secret": "s3cret" + relay_id[-2:]})
+        if path.startswith("relays/hr_") and path.count("/") == 1:
+            self.relays[path.split("/")[1]]["wake"] = body["wake"]
+            return httpx.Response(200, json={"relay_id": path.split("/")[1], "wake": body["wake"]})
         if path.endswith("/rotate"):
             relay_id = path.split("/")[1]
             return httpx.Response(200, json={"relay_id": relay_id, "address": f"{BASE}/v1/hooks/{relay_id}/rotated",
@@ -190,6 +193,18 @@ def test_only_the_owner_or_the_maker_manages_an_address(api, hq):
     post(api, "triggers/bens/relay/delete", {}, token="cara-test", expected=403)
     assert post(api, "triggers/bens/relay/rotate", {})["relay"]["address"].endswith("/rotated")     # the owner may
     assert get(api, "relay", token="cara-test")["relay"]["relays"] == 1                            # anyone may read
+
+
+def test_the_wake_switch_is_read_from_the_gateways_list_and_set_through_it(api, hq):
+    trigger_id, made = relay_for(api, hq)
+    shown = lambda: get(api, "triggers")["triggers"][0]["relay"]["wake"]        # noqa: E731
+    assert shown() is None                                      # HQ has not said yet
+    hq.relays[made["relay_id"]]["wake"] = True
+    service(api).tick()
+    assert shown() is True
+    post(api, f"triggers/{trigger_id}/relay/wake", {"wake": False}, token="cara-test", expected=403)
+    assert post(api, f"triggers/{trigger_id}/relay/wake", {"wake": False})["relay"]["wake"] is False
+    assert hq.calls[-1][1] == "relays/" + made["relay_id"] and hq.calls[-1][2] == {"wake": False} and shown() is False
 
 
 def test_a_pull_feeds_each_delivery_as_gateway_and_acks_only_after_the_commit(api, hq, monkeypatch):
