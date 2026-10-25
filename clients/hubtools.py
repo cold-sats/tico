@@ -2648,6 +2648,25 @@ def relay_status(api, args):
     return api.get("relay")["relay"]
 
 
+@tool("hub_sleep_status", "Sleep when idle on a server Tico hosts: `hosted`, `hours` (0 = off), `runners` (bot computers stop "
+      "with the server), `active`, `idle_since` (the last moment anything happened; null while `blocker` names what keeps "
+      "the server up: run_queued, run_in_progress, task_session, runner_job, send_pending or routine_due), `wake_at` (the "
+      "next routine, when it would wake) and `last_request` (Tico's last answer) with `last_error`. A server Tico "
+      "stopped for billing never wakes on its own; a webhook sent through Tico Gateway wakes an idle one.", {})
+def sleep_status(api, args):
+    return api.get("sleep")["sleep"]
+
+
+@tool("hub_sleep_set", "Change Sleep when idle: `hours` 1-24 stops the server after that many quiet hours, 0 turns it off; "
+      "`runners` says whether the bot computers stop and start with it. Needs a server Tico hosts. An owner or an admin only "
+      "(BotOps for one).",
+      {"hours": {"type": "integer", "minimum": 0, "maximum": 24, "description": "Quiet hours before the server sleeps; 0 = off"},
+       "runners": {"type": "boolean", "description": "Stop the bot computers with the server (default on)"}}, writes=True)
+def sleep_set(api, args):
+    change = {k: args[k] for k in ("hours", "runners") if args.get(k) is not None}
+    return api.post("sleep", change, key=_key(args))["sleep"]
+
+
 @tool("hub_release_schedule", "The team's release schedule: when the Release Manager is asked to release what is at "
       "Pending Release (`times`, company time; `on`), who that bot is (`release_manager`) and the Technical Writer "
       "(`technical_writer`), the next hour, the last hour's result and how many tickets are pending now. Send any of "

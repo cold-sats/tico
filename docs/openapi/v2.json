@@ -115,6 +115,10 @@
       "description": "Addresses for triggers through Tico Gateway: they keep deliveries while this server is off (backend/hook_relay.py)."
     },
     {
+      "name": "Sleep when idle",
+      "description": "A server Tico hosts stops after quiet hours and starts again on a webhook, a routine or a sign-in (backend/sleep_idle.py)."
+    },
+    {
       "name": "Webhooks",
       "description": "Outgoing webhooks: endpoints a person owns, the events Tico sends them, and each send's log (docs/webhooks.md)."
     }
@@ -14024,6 +14028,107 @@
         },
         "tags": [
           "Bots"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
+    "/api/v2/sleep": {
+      "get": {
+        "summary": "Whether this server is hosted, the idle hours (0 = off), whether bot computers stop with it, since when it has been quiet and what Tico last answered",
+        "operationId": "getSleepWhenIdle",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SleepWhenIdle"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Sleep when idle"
+        ]
+      },
+      "post": {
+        "summary": "Turn Sleep when idle on (hours 1-24) or off (0) and choose whether bot computers stop with the server; an owner or an admin (and BotOps for one); on needs a server Tico hosts",
+        "operationId": "setSleepWhenIdle",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SleepSet"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SleepWhenIdle"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Sleep when idle"
         ],
         "parameters": [
           {
@@ -32505,6 +32610,106 @@
         ],
         "title": "ServiceKeyCreate",
         "description": "A service key (backend/service_keys.py): the label names the system that holds it, on every\ntask it files. `tasks` files tasks; `update` checks for, starts and follows an update of this install."
+      },
+      "SleepSet": {
+        "properties": {
+          "hours": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 24.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hours"
+          },
+          "runners": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runners"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SleepSet"
+      },
+      "SleepWhenIdle": {
+        "type": "object",
+        "properties": {
+          "sleep": {
+            "type": "object",
+            "properties": {
+              "hosted": {
+                "type": "boolean"
+              },
+              "layout": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hours": {
+                "type": "integer"
+              },
+              "runners": {
+                "type": "boolean"
+              },
+              "active": {
+                "type": "boolean"
+              },
+              "idle_since": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "blocker": {
+                "type": "string"
+              },
+              "wake_at": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "last_request": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "last_error": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "active",
+              "blocker",
+              "hosted",
+              "hours",
+              "idle_since",
+              "last_error",
+              "last_request",
+              "layout",
+              "runners",
+              "wake_at"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "sleep"
+        ],
+        "additionalProperties": true
       },
       "Snapshot": {
         "type": "object",

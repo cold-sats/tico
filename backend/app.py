@@ -225,6 +225,8 @@ def create_app(settings=None):
         inbound_task = asyncio.create_task(app.state.inbound.loop(stop))
         # Webhooks waiting at Tico Gateway; the loop does nothing without a relay, a key, or outside a rehearsal.
         hook_relay_task = asyncio.create_task(app.state.hook_relay.loop(stop))
+        # Sleep when idle (backend/sleep_idle.py): looks every five minutes, and only on a hosted server that asked for it.
+        sleep_idle_task = asyncio.create_task(app.state.sleep_idle.loop(stop))
         screen_relay_task = None
         if settings.screen_relay_url:
             await asyncio.to_thread(screen_sessions.start)
@@ -332,6 +334,7 @@ def create_app(settings=None):
             if inbound_task:
                 await inbound_task
             await hook_relay_task
+            await sleep_idle_task
             if screen_relay_task:
                 await screen_relay_task
             else:
@@ -581,6 +584,7 @@ def create_app(settings=None):
                     who = replace(who, task_actor="bot:" + settings.assistant_bot)
                 request.state.auth_ms = (time.perf_counter() - began) * 1000
                 request.state.identity = who
+                app.state.sleep_idle.seen(who, request.url.path)
                 if census.person_due(who):
                     await asyncio.get_running_loop().run_in_executor(None, census.note_person, who)
                 if who.via:
@@ -6303,6 +6307,8 @@ def create_app(settings=None):
     install_inbound(app, store, settings, auth)
     from .hook_relay import install as install_hook_relay
     install_hook_relay(app, settings, store, auth)
+    from .sleep_idle import install as install_sleep_idle
+    install_sleep_idle(app, settings, store, auth)
     company_server.install(app, store, settings, auth)
     from .support_access import install as install_support_access
     install_support_access(app, store, settings, auth)

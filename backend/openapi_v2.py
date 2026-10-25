@@ -1409,7 +1409,19 @@ STABLE.extend([
     ('/api/v2/triggers/{trigger_id}/relay/delete', 'post', 'Webhook relay', 'deleteWebhookRelay', 'Remove the Gateway address; '
      'the trigger and its own address stay', 'WebhookRelayDeleted'),
 ])
+TAGS['Sleep when idle'] = 'A server Tico hosts stops after quiet hours and starts again on a webhook, a routine or a sign-in (backend/sleep_idle.py).'
+STABLE.extend([
+    ('/api/v2/sleep', 'get', 'Sleep when idle', 'getSleepWhenIdle', 'Whether this server is hosted, the idle hours (0 = off), '
+     'whether bot computers stop with it, since when it has been quiet and what Tico last answered', 'SleepWhenIdle'),
+    ('/api/v2/sleep', 'post', 'Sleep when idle', 'setSleepWhenIdle', 'Turn Sleep when idle on (hours 1-24) or off (0) and choose '
+     'whether bot computers stop with the server; an owner or an admin (and BotOps for one); on needs a server Tico hosts',
+     'SleepWhenIdle'),
+])
 SCHEMAS.update({
+    'SleepWhenIdle': obj({'sleep': obj({'hosted': 'b', 'layout': {'type': ['string', 'null']}, 'hours': 'i', 'runners': 'b',
+                                        'active': 'b', 'idle_since': {'type': ['string', 'null']}, 'blocker': 's',
+                                        'wake_at': {'type': ['string', 'null']},
+                                        'last_request': {'type': ['object', 'null']}, 'last_error': 's'})}),
     'WebhookRelayState': obj({'relay': obj({'key': 's', 'relays': 'i', 'cursor': 'i', 'last_pull': {'type': ['string', 'null']},
                                            'last_error': 's', 'pending': {'type': ['integer', 'null']},
                                            'oldest': {'type': ['string', 'null']}, 'deleting': 'i', 'active': 'b'})}),

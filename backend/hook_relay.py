@@ -110,17 +110,19 @@ class Link:
     def __init__(self, key, base, fingerprint):
         self.key, self.base, self.fingerprint = key, base, fingerprint
 
-    def call(self, method, path, body=None, idempotency=None):
+    def call(self, method, path, body=None, idempotency=None, *, area="hooks", transport=None, cap=MAX_ANSWER):
+        """One call to `<base>/<area>/<path>`. `area` and `cap` let the sleep client (backend/sleep_idle.py) share the
+        key, the pinned client settings and the answer cap; `transport` is a test's fake HQ."""
         headers = {"Authorization": "Bearer " + self.key, "User-Agent": user_agent(), "Accept-Encoding": "identity"}
         if idempotency:
             headers["Idempotency-Key"] = idempotency[:200]
         try:
-            with httpx.Client(transport=TRANSPORT, timeout=TIMEOUT, trust_env=False, follow_redirects=False) as client:
-                with client.stream(method, self.base + "/hooks/" + path, json=body, headers=headers) as response:
+            with httpx.Client(transport=transport or TRANSPORT, timeout=TIMEOUT, trust_env=False, follow_redirects=False) as client:
+                with client.stream(method, f"{self.base}/{area}/{path}", json=body, headers=headers) as response:
                     raw = bytearray()
                     for chunk in response.iter_bytes():
                         raw.extend(chunk)
-                        if len(raw) > MAX_ANSWER:
+                        if len(raw) > cap:
                             raise Failed("oversized")
                     status = response.status_code
         except httpx.HTTPError:
@@ -133,7 +135,7 @@ class Link:
         if status == 401:
             raise Stop()
         if status >= 400:
-            error = answer.get("error")
+            error = answer.get("error", answer.get("code"))      # {"error": "x"}, {"error": {"code": "x"}} or {"code": "x"}
             error = error.get("code") if isinstance(error, dict) else error
             raise Failed(error if isinstance(error, str) and re.fullmatch(r"[a-z_]{1,40}", error) else f"http_{status}",
                          status, answer)
