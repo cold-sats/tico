@@ -6,6 +6,8 @@
 // Technical Writer ("" finds each by its starter template), the next and last hour, and what waits at Pending
 // Release. Owners and admins change it (`can_change`); a Dev tickets mover asks for a release now (`can_release`).
 let RELEASE_VIEW = null, RELEASE_AT = 0;
+// The last answer under the card (Saved, or what Release now did) survives the repaint the fresh schedule causes.
+let RELEASE_NOTE = {text: '', failed: false};
 const RELEASE_REASONS = {nothing_pending: 'Nothing at Pending Release', already_open: 'Woke the open release task', no_release_manager: 'No Release Manager'};
 async function releaseScheduleLoad(force) {
   if (!force && RELEASE_VIEW && Date.now() - RELEASE_AT < 60000) return RELEASE_VIEW;
@@ -47,9 +49,10 @@ function releaseCardHTML(v) {
     <div class="sb-row"><span>Next</span><div class="rel-line">${v.on && v.next ? `<span class="tnum" title="${esc(fmt(v.next))}" data-release-next>${esc(until(v.next))}</span>` : '<span class="muted">Off</span>'}</div><span></span></div>
     <div class="sb-row"><span>Last</span><div class="rel-line">${releaseLastHTML(v.last)}</div><span></span></div>
     <div class="sb-row"><span>Pending</span><div class="rel-line"><span class="tnum" data-release-pending>${v.pending} ticket${v.pending === 1 ? '' : 's'}</span>${releaseNowButtonHTML(v)}</div><span></span></div>
-  </div><p class="settings-cell-note" role="status" data-release-status></p>`;
+  </div><p class="settings-cell-note${RELEASE_NOTE.failed ? ' err' : ''}" role="status" data-release-status>${esc(RELEASE_NOTE.text)}</p>`;
 }
 function releaseStatus(text, failed) {
+  RELEASE_NOTE = {text, failed: !!failed};
   const box = $('#set-release [data-release-status]');
   if (box) { box.textContent = text; box.classList.toggle('err', !!failed); }
 }

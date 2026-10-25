@@ -104,8 +104,8 @@ function rulesHTML() {
 function rulesPaint() {
   const el = $('#set-rules'); if (!el || !RULES) return;
   const list = el.querySelector('[data-rules-list]');
-  if (list && el.dataset.rulesTask === RULES_TASK) list.innerHTML = ruleGroupsHTML();
-  else { el.innerHTML = rulesHTML(); el.dataset.rulesTask = RULES_TASK; }
+  if (list && el.dataset.rulesFor === RULES_TASK) list.innerHTML = ruleGroupsHTML();
+  else { el.innerHTML = rulesHTML(); el.dataset.rulesFor = RULES_TASK; }
   rulesBind(el);
 }
 // The listing is paged (`more`); the built-ins come on the first page only, so later pages add table rows.
@@ -129,11 +129,11 @@ async function rulesLoad() {
 async function renderSettingsRules(force) {
   const el = $('#set-rules'); if (!el) return;
   const task = RULES_TASK;
-  if (RULES && el.dataset.rulesTask === task && !force && Date.now() - RULES_AT < 60000) { rulesPaint(); return; }
+  if (RULES && el.dataset.rulesFor === task && !force && Date.now() - RULES_AT < 60000) { rulesPaint(); return; }
   RULES_AT = Date.now();
   if (task && !RULES_TASK_TITLE) get('/v2/tasks/' + encodeURIComponent(task)).then(t => {
     RULES_TASK_TITLE = (t.task || t).title || '';
-    if (RULES_TASK === task && RULES) { delete el.dataset.rulesTask; rulesPaint(); }   // the heading names it too
+    if (RULES_TASK === task && RULES) { delete el.dataset.rulesFor; rulesPaint(); }   // the heading names it too
   }).catch(() => {});
   // The type names are read alongside, so a type row never shows a bare id; the department names come with the
   // routines above (renderSystemRoutines repaints this list when they land).
