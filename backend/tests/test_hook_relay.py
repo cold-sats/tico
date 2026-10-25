@@ -204,7 +204,7 @@ def test_a_pull_feeds_each_delivery_as_gateway_and_acks_only_after_the_commit(ap
     first = seen[0]
     assert first == {"trigger": trigger_id, "body": b'{"n": 1}', "secret": None, "via": "gateway", "delivery": "d1",
                      "headers": {"content-type": "application/json", "webhook-id": "d1"},
-                     "received_at": "2026-10-25T10:00:00Z"}
+                     "received_at": "2026-10-25T10:00:00.000000Z"}
     assert hq.acks == [5]                            # every outcome is terminal
     status = get(api, "relay")["relay"]
     assert status["cursor"] == 5 and status["last_error"] == "" and status["last_pull"] and status["active"]
@@ -326,3 +326,18 @@ def test_deleting_a_trigger_deletes_its_address_at_the_gateway(api, hq, monkeypa
     # The same name made again starts with no address.
     post(api, "triggers", {"name": "Shop"})
     assert get(api, "triggers")["triggers"][0]["relay"] is None
+
+
+def test_receipt_time_reaches_receive_in_the_servers_own_format_or_is_replaced(api, hq, monkeypatch):
+    _, made = relay_for(api, hq)
+    seen = receiver(monkeypatch)
+    for delivery, at in (("plus", "2026-10-25T10:00:00+00:00"), ("junk", "yesterday"), ("future", "2999-01-01T00:00:00Z"),
+                         ("none", None)):
+        hq.deliver(made["relay_id"], delivery)
+        hq.queue[-1]["received_at"] = at
+    service(api).tick()
+    by = {s["delivery"]: s["received_at"] for s in seen}
+    assert by["plus"] == "2026-10-25T10:00:00.000000Z"
+    now = H.now()
+    for name in ("junk", "future", "none"):
+        assert by[name][:10] == now[:10] and by[name].endswith("Z") and len(by[name]) == len(now)

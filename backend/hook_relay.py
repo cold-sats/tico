@@ -274,7 +274,7 @@ class HookRelay:
         if type(seq) is not int or seq <= cursor:
             raise Failed("bad_answer")
         try:
-            self.deliver(item)
+            saved = self.deliver(item, seq)
         except Exception as error:
             self.poison[seq] = self.poison.get(seq, 0) + 1
             if self.poison[seq] < POISON:
@@ -285,11 +285,14 @@ class HookRelay:
                 H.event(c, "keeper", "trigger.relay_skipped", str(item.get("trigger_id") or ""),
                         {"delivery": str(item.get("delivery_id") or "")[:200], "error": type(error).__name__})
             return seq
-        with self.store.transaction() as c:
-            save(c, cursor=seq)
+        if not saved:                               # an undecodable body: terminal, and the cursor still moves
+            with self.store.transaction() as c:
+                save(c, cursor=seq)
         return seq
 
-    def deliver(self, item):
+    def deliver(self, item, seq):
+        """Hand one delivery to the trigger. The cursor moves in the same transaction as `receive`'s writes, so a crash
+        never leaves one without the other. False when the body was not decodable and nothing was written."""
         from . import triggers
         receive = getattr(triggers, "receive", None)
         if receive is None:
@@ -297,7 +300,7 @@ class HookRelay:
         try:
             body = base64.b64decode(str(item.get("body_b64") or ""), validate=True)
         except (binascii.Error, ValueError):
-            return                                  # not a body anyone can use: terminal
+            return False                            # not a body anyone can use: terminal
         headers = item.get("headers") if isinstance(item.get("headers"), dict) else {}
         headers = {str(k): str(v) for k, v in headers.items()}
         trigger_id, relay_id = str(item.get("trigger_id") or ""), str(item.get("relay_id") or "")
@@ -305,9 +308,12 @@ class HookRelay:
             # Only a trigger that has this live relay here is fed: HQ's word alone never reaches another trigger.
             if not c.execute("SELECT 1 FROM trigger_relays WHERE relay_id=? AND trigger_id=? AND deleted_at IS NULL",
                              (relay_id, trigger_id)).fetchone():
-                return
+                save(c, cursor=seq)
+                return True
             receive(c, trigger_id, body, headers, secret=None, via="gateway", delivery_id=str(item.get("delivery_id") or ""),
-                    received_at=item.get("received_at"))
+                    received_at=received(item.get("received_at")))
+            save(c, cursor=seq)
+        return True
 
     def sweep_deleted(self, link):
         """Tell HQ about relays deleted here, a few at a time; HQ having no such relay is as good as deleted."""
@@ -445,6 +451,17 @@ class HookRelay:
                 "last_pull": _iso(pulled), "last_error": current["last_error"],
                 "pending": current["pending"], "oldest": current["oldest"], "deleting": deleting,
                 "active": bool(link and not self.off and not stopped and (relays or deleting))}
+
+
+def received(value):
+    """HQ's receipt time in this server's own timestamp format (hubdb.now), which the ledger compares as text. One that
+    does not parse, or lies more than 5 minutes ahead, is replaced by now."""
+    at = H.parse_ts(value) if isinstance(value, str) else None
+    if at is not None and at.tzinfo is None:
+        at = at.replace(tzinfo=timezone.utc)
+    if at is None or at.timestamp() > now() + 300:
+        return H.now()
+    return at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
 
 
 def _iso(seconds):
