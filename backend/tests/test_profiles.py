@@ -307,3 +307,33 @@ def test_undoing_a_profile_change_restores_it_but_not_rules_that_were_dropped(ap
     set_profile(api, "ops", "doer", confirm_drop_rules=True)
     post(api, f"settings/history/{last_change(api)}/undo", {"expected_revision": get(api, "bots/ops")["revision"]}, expected=409)
     assert get(api, "bots/ops")["profile"]["name"] == "doer"
+
+
+def last_to(c, slug):
+    row = c.execute("SELECT refs_json FROM messages WHERE to_actor=? ORDER BY rowid DESC LIMIT 1", ("bot:" + slug,)).fetchone()
+    return json.loads(row[0])
+
+
+def test_a_lead_wakes_for_a_task_given_to_it_a_reviewer_for_a_review_handed_back_and_neither_for_its_own_write(api):
+    from backend.tests.test_wake_rules import as_cause
+    with api.app.state.store.transaction() as c:
+        add_bot(c, "boss")
+        put(c, "boss", P.LEAD)
+        add_bot(c, "checker")
+        put(c, "checker", P.REVIEWER)
+        c.execute("DELETE FROM jobs")
+        # An escalation filed for the lead is work now, not tomorrow's digest.
+        H.task_create(c, "bot:ops", "Decide the export plan", "x", "bot:boss")
+        assert last_to(c, "boss")["rule"] == "profile_lead_assignment" and jobs(c, "boss") == 1
+        parent = H.task_create(c, "bot:ops", "Build 2/9", "x", "bot:cpo")
+        review = H.task_create(c, "bot:ops", "QA: check it", "x", "bot:checker", parent_id=parent["id"])
+        H.task_update(c, "bot:checker", review["id"], status="done", note="VERDICT: fail")
+        c.execute("DELETE FROM jobs")
+        # The Builder hands the review back: that is an assignment, and the reviewer wakes to look again.
+        H.task_update(c, "bot:ops", review["id"], status="open", note="Fixed, please look again")
+        assert last_to(c, "checker")["rule"] == "profile_reviewer_assignment" and jobs(c, "checker") == 1
+        c.execute("DELETE FROM jobs")
+        with as_cause("bot:checker"):
+            mine = news(c, H.task(c, review["id"]) | {"status": "doing"})
+        # Its own move is never a wake, whatever a profile row says.
+        assert jobs(c, "checker") == 0
