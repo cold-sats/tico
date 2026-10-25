@@ -112,6 +112,8 @@ def run(args, who=None):
     fn = args.fn
     if args.cmd == "inbound":
         return via_tool(client,args)
+    if fn.startswith(("trigger relay ", "relay ")):
+        return via_tool(client, args)
     if fn == "team icon":
         with Path(args.file).open("rb") as source:
             return client.post_bytes("team/icon", source)

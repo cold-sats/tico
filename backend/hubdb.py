@@ -87,6 +87,7 @@ from backend.subscriptions_schema import SCHEMA as SUBSCRIPTIONS_SCHEMA
 from backend.triggers_schema import SCHEMA as TRIGGERS_SCHEMA, SIGNING_SCHEMA as TRIGGER_SIGNING_SCHEMA
 from backend.rules_schema import SCHEMA as RULE_EVENTS_SCHEMA
 from backend.triggers_incoming_schema import SCHEMA as TRIGGERS_INCOMING_SCHEMA
+from backend.hook_relay_schema import SCHEMA as HOOK_RELAY_SCHEMA
 
 HUB_DIR = Path(__file__).resolve().parent.parent
 ROOT = HUB_DIR.parent                       # employees are siblings of the hub
@@ -808,7 +809,7 @@ MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes us
               TASK_GUEST_SCHEMA, CEO_MERGES_SCHEMA, ONE_LOGIN_PER_COMPUTER_SCHEMA, RUN_PURPOSE_SCHEMA,
               RUN_ROTATION_SCHEMA, LIVE_MEETING_ACCESS_SCHEMA, CEO_ACTIONS_SCHEMA,
               MARKET_SPEND_SCHEMA, RULE_EVENTS_SCHEMA,
-              TRIGGERS_INCOMING_SCHEMA]
+              TRIGGERS_INCOMING_SCHEMA, HOOK_RELAY_SCHEMA]
 
 
 class Refused(Exception):

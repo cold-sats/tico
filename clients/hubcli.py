@@ -236,6 +236,8 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            one stored call, headers redacted; long bodies read in parts
     hub trigger replay <id> <delivery>     run a stored call again as a new occurrence
     hub event-types [--group task]         every event Tico names, with an example payload (routines, rules, webhooks)
+    hub trigger relay create|rotate|delete <trigger>
+                                           a second address through Tico Gateway (shown once); hub relay status
     hub release now [--note "..."]         ask the Release Manager to release what is at Pending Release now
     hub release schedule [--on|--off] [--time HH:MM ...] [--manager BOT] [--writer BOT]
                                            show or change the daily release (company time; an owner or admin)
@@ -1778,6 +1780,17 @@ def parser():
     s.add_argument("id")
     s.add_argument("delivery")
     s.set_defaults(fn="trigger replay")
+    relay = trigger.add_parser("relay", help="a second address through Tico Gateway, so nothing is lost while this "
+                                             "server is off").add_subparsers(dest="subsub")
+    for word, text in (("create", "make the address; its secret is shown once"),
+                       ("rotate", "replace the secret; the old address stops at once"),
+                       ("delete", "remove the address; the trigger and its own address stay")):
+        s = relay.add_parser(word, help=text)
+        s.add_argument("trigger", help="the trigger id from `hub trigger list`")
+        s.set_defaults(fn="trigger relay " + word)
+    relay_top = sub.add_parser("relay", help="webhooks through Tico Gateway").add_subparsers(dest="sub")
+    s = relay_top.add_parser("status", help="the Gateway key, the addresses, the last pull and what waits at the Gateway")
+    s.set_defaults(fn="relay status")
 
     release = sub.add_parser("release", help="the team's releases: ask for one now, or set the daily hour").add_subparsers(dest="sub")
     s = release.add_parser("now", help="ask the Release Manager to release what is at Pending Release now (hotfix, "

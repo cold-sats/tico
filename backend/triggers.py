@@ -42,6 +42,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from pydantic import ConfigDict, Field
 
+from . import hook_relay
 from . import hubdb as H
 from . import routines
 from . import models as M
@@ -186,8 +187,10 @@ def summary(c, settings, t, since=None):
 
 def listing(c, settings):
     since = H.shift(H.now(), hours=-24)
-    return [summary(c, settings, t, since) for t in c.execute(
+    out = [summary(c, settings, t, since) for t in c.execute(
         "SELECT * FROM triggers WHERE deleted_at IS NULL ORDER BY name COLLATE NOCASE, id LIMIT ?", (LISTED,)).fetchall()]
+    hook_relay.attach(c, out)
+    return out
 
 
 def create(c, who, settings, body):
@@ -338,6 +341,7 @@ def remove(c, who, trigger_id):
     c.execute("UPDATE triggers SET deleted_at=?,updated_at=? WHERE id=?", (H.now(), H.now(), trigger_id))
     for table in ("trigger_bodies", "trigger_seen"):    # what senders posted goes with it; a new trigger of this id starts clean
         c.execute(f"DELETE FROM {table} WHERE trigger_id=?", (trigger_id,))
+    hook_relay.forget(c, trigger_id)      # its Tico Gateway address goes with it
     H.event(c, who.actor, "trigger.deleted", trigger_id, {})
     return {"id": trigger_id, "deleted": True}
 
@@ -404,12 +408,9 @@ def _payload_of(body):
 def _judge(c, ctx):
     """What the rules did with this call. Rules never raise; a surprise is rolled back and costs only the rules."""
     from . import rules
-    judge = getattr(rules, "judge_event", None)
-    if judge is None:
-        return []
     c.execute("SAVEPOINT trigger_rules")
     try:
-        out = [r for r in (judge(c, RECEIVED, ctx) or []) if isinstance(r, dict)]
+        out = [r for r in (rules.judge_event(c, RECEIVED, ctx) or []) if isinstance(r, dict)]
     except Exception as exc:
         c.execute("ROLLBACK TO trigger_rules")
         c.execute("RELEASE trigger_rules")

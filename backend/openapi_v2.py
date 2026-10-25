@@ -1398,6 +1398,25 @@ STABLE.extend([
     ('/api/v2/triggers/{trigger_id}/deliveries/{delivery}','get','Triggers','getTriggerDelivery','One kept call: redacted headers and body (a bot reads fenced 20,000-character parts, only of a call it was given)',None),
     ('/api/v2/triggers/{trigger_id}/deliveries/{delivery}/replay','post','Triggers','replayTriggerDelivery','Run a kept call again as a new occurrence',None),
 ])
+TAGS['Webhook relay'] = 'Addresses for triggers through Tico Gateway: they keep deliveries while this server is off (backend/hook_relay.py).'
+STABLE.extend([
+    ('/api/v2/relay', 'get', 'Webhook relay', 'getWebhookRelay', 'The Gateway key, how many relay addresses exist, the last '
+     'pull, the last problem and what waits at the Gateway', 'WebhookRelayState'),
+    ('/api/v2/triggers/{trigger_id}/relay', 'post', 'Webhook relay', 'createWebhookRelay', 'Give a trigger an address through '
+     'Tico Gateway; the answer carries the secret once (people who manage the trigger, and BotOps)', 'WebhookRelayAddress'),
+    ('/api/v2/triggers/{trigger_id}/relay/rotate', 'post', 'Webhook relay', 'rotateWebhookRelay', 'Replace the Gateway '
+     'address\'s secret; the old address stops at once and the new one is shown once', 'WebhookRelayAddress'),
+    ('/api/v2/triggers/{trigger_id}/relay/delete', 'post', 'Webhook relay', 'deleteWebhookRelay', 'Remove the Gateway address; '
+     'the trigger and its own address stay', 'WebhookRelayDeleted'),
+])
+SCHEMAS.update({
+    'WebhookRelayState': obj({'relay': obj({'key': 's', 'relays': 'i', 'cursor': 'i', 'last_pull': {'type': ['string', 'null']},
+                                           'last_error': 's', 'pending': {'type': ['integer', 'null']},
+                                           'oldest': {'type': ['string', 'null']}, 'deleting': 'i', 'active': 'b'})}),
+    'WebhookRelayAddress': obj({'relay': obj({'trigger': 's', 'relay_id': 's', 'address_prefix': 's', 'address': 's',
+                                             'replayed': 'b'})}),
+    'WebhookRelayDeleted': obj({'relay': obj({'trigger': 's', 'deleted': 'b', 'gateway_told': 'b'})}),
+})
 
 ANSWERS = SCHEMAS
 

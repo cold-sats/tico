@@ -120,6 +120,24 @@ bot did not write. Rules (`webhook.received`) see the same call.
   and MCP tools are `hub trigger list|create|show|update|rotate|sign|delete|deliveries|delivery|replay` and
   `hub_trigger_*`.
 
+### Address through Tico Gateway
+
+A webhook's own address needs this server to be up and reachable. An address through Tico Gateway is a second
+address at Tico HQ that keeps what is sent to it while the server is off, asleep or on a laptop, and hands it over
+within seconds of the server being back (`hub trigger relay create <id>`, or the trigger's row in Settings >
+Triggers). It needs the Tico Gateway connected in Settings > Gateway. The address is shown once, like the secret
+above; `hub trigger relay rotate` replaces it and `delete` removes it, and deleting the trigger removes it too.
+The trigger's own address keeps working beside it.
+
+- This server pulls from HQ every 15 seconds and treats each delivery as if the sender had posted it here:
+  signature checks, duplicates, the hourly limit and routines behave the same. HQ only checks the address's secret;
+  it never checks signatures or runs anything.
+- While the server is off, deliveries wait at HQ (up to a cap) and arrive in order afterwards. A sender that waits
+  for an answer gets HQ's, not the server's.
+- `hub relay status` (`GET /api/v2/relay`) shows the key, the addresses, the last pull and what waits at HQ. Health
+  speaks when pulls have failed for 15 minutes or a delivery has waited over an hour. A rehearsal never pulls.
+- The API: `POST /api/v2/triggers/<id>/relay`, `/relay/rotate`, `/relay/delete`; same rights as the trigger.
+
 ## What happens when one is due
 
 The scheduler ticks every ten seconds and reads the table. Each row runs independently: a failed
