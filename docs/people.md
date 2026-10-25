@@ -162,10 +162,19 @@ Inviting a person from setup adds them to the roster and the sign-in list with t
 the file put under them (which reported to the owner meanwhile) move under them, unless someone has moved a seat since. If
 the invite then does not go, they stay added and **Invite** sends again.
 
+**Create password** (owners and admins, in the same ⋯ menu) is the other way in: the issuer makes the person a Tico
+account with a generated password and the page shows it once, to copy and share. It is offered only when the issuer names
+`tico_accounts_endpoint` in its discovery (`POST /oauth2/accounts`, the same client id and secret), never in a rehearsal.
+Tico keeps no copy: not in the database, the request cache, an event (`person.account_created` says only that one was
+made), a log or a notification, and a repeat of the same request says the password can't be shown again. Someone who
+already has a Tico account is refused: *Dana already has a Tico account; use Invite.* The account signs in only at this
+install until its owner chooses **Forgot password?** on the sign-in page, which proves the email and sets their own.
+
 ## API
 
 `POST /api/v2/access/humans/{id}/invite` (owners and admins) and `POST /api/v2/setup/company/people/{key}/invite` with
-`email` (the owner) send an invite ([above](#invites)).
+`email` (the owner) send an invite ([above](#invites)); `POST /api/v2/access/humans/{id}/password` (owners and admins)
+makes the account and answers its password once.
 `GET /api/v2/access` (owners and admins; it includes `home_domain`, `domain_sign_in` and `directory`, the saved sync
 source), `POST /api/v2/access/humans`, `POST /api/v2/access/humans/{id}` (`role` owner only; `sign_in`, `create_bots`,
 `add_people`, `left: false`), `PUT /api/v2/access/limits` (owners and admins), and owner only `PUT /api/v2/access/allow` (with
