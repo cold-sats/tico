@@ -47,7 +47,18 @@ def siblings(cwd):
     others = [p for p in workspace.glob("bot-*") if p.name != mine]
     others += [p for lane in (workspace / "sessions").glob("bot-*") if lane.name != mine for p in lane.iterdir()]
     return {"sibling_enter": any(readable(p) for p in others), "sibling_write": any(writable(p) for p in others),
-            "siblings_seen": len(others)}
+            "sibling_rename": any(renamable(p) for p in others), "siblings_seen": len(others)}
+
+
+def renamable(path):
+    """Whether this turn can move a sibling's checkout aside (to put its own in its place); moved back if so."""
+    aside = path.with_name(path.name + ".probe")
+    try:
+        os.rename(path, aside)
+    except OSError:
+        return False
+    os.rename(aside, path)
+    return True
 
 
 def git(cwd, *args):

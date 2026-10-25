@@ -363,8 +363,8 @@ def probe_problems(table, done, logs):
         seen = json.loads(text[text.index("probe {") + 6:].strip())
         want = {"caps": "0000000000000000", "registration": False, "state": False, "secrets": False,
                 "commit": "ok", "pull": "ok", "where": f"sessions > bot-{h['bot']} > t-{h['bot']}"}
-        want.update({"sibling_enter": False, "sibling_write": False} if h["isolated"] else
-                    {"uid": 10003, "sibling_enter": True, "sibling_write": True})
+        want.update({"sibling_enter": False, "sibling_write": False, "sibling_rename": False} if h["isolated"] else
+                    {"uid": 10003, "sibling_enter": True, "sibling_write": True, "sibling_rename": True})
         wrong = {k: seen.get(k) for k, v in want.items() if seen.get(k) != v}
         if h["isolated"] and not 10100 <= int(seen.get("uid") or 0) <= 10163:
             wrong["uid"] = seen.get("uid")

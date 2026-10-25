@@ -101,7 +101,8 @@ work of any bot assigned to that computer, so code a bot runs must not be able t
   its file credentials. Every checkout and worktree root has a group of its own (owner `bot`, mode 0770, and an ACL entry for the runner's
   own user, whose git reads checkouts), and a leased
   user gets only the groups of the checkouts its turn runs in, so it cannot enter or write another bot's checkout or
-  task worktree. Readiness reports per tool whether its turns run as their own user (`turn_user`), and the
+  task worktree. The folders that hold checkouts (the workspace, `sessions`, each bot's lane, `tasks`, `repos`) are
+  sticky, so it cannot rename another bot's checkout aside and put its own in its place. Readiness reports per tool whether its turns run as their own user (`turn_user`), and the
   computer's tool chip says so.
 - **Not separated on the Docker runner, by design for now:**
   - Harnesses that keep owner-only sign-in state shared across turns: Claude Code (`~/.claude/.credentials.json`,

@@ -100,7 +100,37 @@ pub fn gate_workspace(workspace: &Path) {
     let mut roots = children(workspace);
     for lane in children(&workspace.join("sessions")) { roots.extend(children(&lane)); }
     roots.extend(children(&workspace.join("tasks")));
+    let Some((bot, _)) = crate::isolation::identity() else { return };
+    // The folders that hold other bots' checkouts are writable by the pool's group, so without the sticky bit a
+    // leased turn could rename a sibling's checkout aside and put its own in its place.
+    let mut holders = vec![workspace.to_path_buf(), workspace.join("sessions"), workspace.join("tasks"), workspace.join("repos")];
+    holders.extend(children(&workspace.join("sessions")));
+    for dir in holders {
+        if let Err(e) = seal(&dir, bot) {
+            crate::util::log(&format!("Tico runner: cannot keep turns from renaming entries in {}: {e}", dir.display()));
+        }
+    }
     gate_blocking(&roots);
+}
+
+/// Set the sticky bit on a group-writable folder, so only an entry's owner (or the folder's) can rename or remove it.
+fn seal(dir: &Path, bot: u32) -> std::io::Result<()> {
+    let Some((parent, name)) = pinned_parent(dir) else { return Ok(()) };
+    let Some(fd) = open_at(parent.as_raw_fd(), &name, libc::O_RDONLY | libc::O_DIRECTORY) else { return Ok(()) };
+    let info = stat(fd.as_raw_fd())?;
+    let mode = u32::from(info.st_mode) & 0o7777;
+    if mode & 0o020 == 0 || mode & 0o1000 != 0 { return Ok(()); }
+    // SAFETY: geteuid has no preconditions.
+    let me = unsafe { libc::geteuid() };
+    if info.st_uid != me && info.st_uid != bot { return Ok(()); }
+    let fd = fd.as_raw_fd();
+    // As in gate_one: a mode change on the bot's folder borrows ownership on the pinned descriptor.
+    // SAFETY: fchown and fchmod on the pinned descriptor.
+    if info.st_uid != me && unsafe { libc::fchown(fd, me, info.st_gid) } != 0 { return Err(std::io::Error::last_os_error()); }
+    let changed = if unsafe { libc::fchmod(fd, (mode | 0o1000) as libc::mode_t) } != 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) };
+    // SAFETY: as above.
+    if info.st_uid != me && unsafe { libc::fchown(fd, info.st_uid, info.st_gid) } != 0 { return Err(std::io::Error::last_os_error()); }
+    changed
 }
 
 fn gate_one(path: &Path, bot: u32) -> std::io::Result<Option<u32>> {
