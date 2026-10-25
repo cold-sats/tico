@@ -243,7 +243,7 @@ def run(args, who=None):
         from clients import hubtools
         text = Path(args.file).read_text(errors="replace") if args.file else sys.stdin.read()
         return hubtools.BY_NAME["hub_classify"]["fn"](client, {"text": text})
-    if fn in ("decision readout", "decision outcome", "gateway catalog", "gateway search"):
+    if fn in ("decision readout", "decision outcome", "gateway catalog", "gateway search", "gateway fetch"):
         return via_tool(client, args)
     if args.cmd == "decision":
         return judge(client, args)

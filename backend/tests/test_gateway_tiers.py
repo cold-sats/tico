@@ -153,6 +153,84 @@ def test_an_agent_reads_the_lineup_and_asks_for_a_search_in_the_gateways_shape(a
     assert refused.status_code == 409
 
 
+def test_an_agent_reads_a_page_in_the_gateways_shape(api, monkeypatch):
+    assert {row["id"] for row in get(api, "gateway/catalog?query=fetch")["services"]} == {"fetch"}
+    sent = {}
+
+    def post(url, body, headers, timeout, opener):
+        sent.update(url=url, body=body, headers=headers, timeout=timeout)
+        return 200, {"model": "tico-fetch-1.0", "url": "https://example.test/final", "title": "T", "content": "# Page\n" + "x" * 300000,
+                     "usage": {"cost_usd": 0.002}, "provider": "parallel"}, ""
+    monkeypatch.setattr(G, "_post", post)
+    status, answer, code = G.fetch("https://gateway.example.test/v1/gateway", "tgw-key", "https://example.test/" + "a" * 2100, 99999,
+                                   {"X-Tico-Bot": "ops"})
+    assert (status, code) == (200, "")
+    assert sent["url"] == "https://gateway.example.test/v1/gateway/fetch" and sent["timeout"] == 35
+    assert sent["body"] == {"url": ("https://example.test/" + "a" * 2100)[:2000], "max_tokens": 50000}
+    assert "filters" not in sent["body"] and sent["headers"]["Authorization"] == "Bearer tgw-key" and sent["headers"]["X-Tico-Bot"] == "ops"
+    assert set(answer) == {"url", "title", "content", "usage"} and answer["url"] == "https://example.test/final"
+    assert answer["title"] == "T" and answer["content"].startswith("# Page\n") and len(answer["content"]) == 250000
+    assert answer["usage"] == {"cost_usd": 0.002}
+    G.fetch("https://gateway.example.test/v1/gateway", "k", "https://example.test", 5)
+    assert sent["body"]["max_tokens"] == 1000
+    monkeypatch.setattr(G, "_post", lambda *a: (422, {}, "invalid"))
+    assert G.fetch("https://gateway.example.test/v1/gateway", "k", "https://example.test") == (422, {}, "invalid")
+
+
+def test_the_fetch_route_forwards_the_url_and_answers_the_gateways_shape(api, monkeypatch):
+    settings = api.app.state.store.settings
+    settings.gateway_key, settings.gateway_url = "gw-synthetic", "https://hq.example/v1/gateway/decisions"
+    calls = []
+
+    def fetch(base, key, url, max_tokens, header):
+        calls.append((base, key, url, max_tokens, header))
+        return 200, {"url": url, "title": "Pricing", "content": "text", "usage": {"cost_usd": 0.00125}}, ""
+    monkeypatch.setattr(G, "fetch", fetch)
+    result = api.post("/api/v2/gateway/fetch", json={"url": "https://example.test/pricing", "max_tokens": 2000}, headers=headers("ana-test"))
+    assert result.status_code == 200, result.text
+    assert result.json() == {"url": "https://example.test/pricing", "title": "Pricing", "content": "text", "usage": {"cost_usd": 0.00125}}
+    assert calls[0][2:4] == ("https://example.test/pricing", 2000) and calls[0][1] == "gw-synthetic"
+    api.post("/api/v2/gateway/fetch", json={"url": "http://example.test/"}, headers=headers("ana-test"))
+    assert calls[1][2:4] == ("http://example.test/", 10000)
+    # The Gateway's refusals come back as plain problems.
+    for status, code, want_status, want in ((404, "404", 503, "gateway_fetch_unavailable"), (422, "invalid", 422, "gateway_fetch_failed"),
+                                            (429, "cap_reached", 503, "gateway_fetch_failed"), (0, "unreachable", 503, "gateway_fetch_failed")):
+        monkeypatch.setattr(G, "fetch", lambda *args, status=status, code=code: (status, {}, code))
+        refused = api.post("/api/v2/gateway/fetch", json={"url": "https://example.test/"}, headers=headers("ana-test"))
+        assert (refused.status_code, refused.json()["error"]["code"]) == (want_status, want), refused.text
+
+
+def test_the_fetch_route_checks_its_input_and_needs_a_connected_gateway(api, monkeypatch):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("A refused request must not reach the Gateway")
+    monkeypatch.setattr(G, "_post", forbidden)
+    for body in ({}, {"url": ""}, {"url": "ftp://example.test/"}, {"url": "example.test"}, {"url": "https://" + "a" * 2000},
+                 {"url": "https://example.test/", "max_tokens": 999}, {"url": "https://example.test/", "max_tokens": 50001},
+                 {"url": "https://example.test/", "filters": {}}):
+        assert api.post("/api/v2/gateway/fetch", json=body, headers=headers("ana-test")).status_code == 422, body
+    refused = api.post("/api/v2/gateway/fetch", json={"url": "https://example.test/"}, headers=headers("ana-test"))
+    assert refused.status_code == 409 and refused.json()["error"]["code"] == "gateway_not_connected"
+
+
+def test_the_fetch_tool_asks_the_route_with_the_url_and_a_default_size(api, monkeypatch):
+    from backend.tests.test_mcp import call
+    from clients import hubtools
+    tool = hubtools.BY_NAME["hub_gateway_fetch"]
+    assert tool["inputSchema"]["required"] == ["url"] and tool["inputSchema"]["properties"]["max_tokens"]["maximum"] == 50000
+    assert "login" in tool["description"] and "other" in tool["description"]
+    settings = api.app.state.store.settings
+    settings.gateway_key, settings.gateway_url = "gw-synthetic", "https://hq.example/v1/gateway/decisions"
+    asked = []
+    monkeypatch.setattr(G, "fetch", lambda base, key, url, max_tokens, header: asked.append((url, max_tokens)) or
+                        (200, {"url": url, "title": "T", "content": "C", "usage": {"cost_usd": 0.00125}}, ""))
+    error, out = call(api, "hub_gateway_fetch", {"url": "https://example.test/a"})
+    assert not error and out == {"url": "https://example.test/a", "title": "T", "content": "C", "usage": {"cost_usd": 0.00125}}
+    error, out = call(api, "hub_gateway_fetch", {"url": "https://example.test/b", "max_tokens": 3000})
+    assert not error and asked == [("https://example.test/a", 10000), ("https://example.test/b", 3000)]
+    error, out = call(api, "hub_gateway_fetch", {"url": "file:///etc/passwd"})
+    assert error and len(asked) == 2
+
+
 def test_a_templates_gateway_block_holds_only_a_level_and_fast():
     import yaml
     from pathlib import Path
@@ -177,6 +255,8 @@ def test_the_shipped_snapshot_matches_a_copy_of_the_gateways_own_catalog():
         return {v["id"]: (v["model"], v["price"], v.get("long_prompt"), v.get("inputs")) for row in cat[kind] for v in row["versions"]}
     assert versions(ours, "models") == versions(hq, "models") and len(versions(hq, "models")) == 60
     assert versions(ours, "decisions") == versions(hq, "decisions")
+    # The services that are live at Tico HQ are the same here.
+    assert next(s for s in ours["services"] if s["id"] == "fetch") == next(s for s in hq["services"] if s["id"] == "fetch")
     # What each chat model reads: Claude reads text, images and PDFs; Low Fast (DeepSeek) text only.
     reads = {v["id"]: v["inputs"] for row in hq["models"] for v in row["versions"]}
     assert all(i == ["text"] for k, i in reads.items() if "-low-fast-" in k)
@@ -206,7 +286,7 @@ def test_every_tool_a_service_names_is_a_hub_tool():
     from clients import hubtools
     known = {entry["name"] for entry in hubtools.TOOLS}
     named = {name for service in T.SNAPSHOT["services"] for name in service["tools"]}
-    assert {"hub_inbound_wait", "hub_gateway_search", "hub_decision_ask"} <= named and named <= known, named - known
+    assert {"hub_inbound_wait", "hub_gateway_search", "hub_gateway_fetch", "hub_decision_ask"} <= named and named <= known, named - known
 
 
 def test_a_medium_or_high_decision_reserves_the_spend_of_the_model_that_will_run(api, monkeypatch):
@@ -243,6 +323,8 @@ def test_a_rehearsal_server_searches_nothing_even_with_a_gateway_key(api, monkey
     monkeypatch.setattr(G, "_post", forbidden)
     monkeypatch.setattr(T, "refresh", forbidden)
     result = api.post("/api/v2/gateway/search", json={"query": "acme pricing"}, headers=headers("ana-test"))
+    assert result.status_code == 503 and result.json()["error"]["code"] == "rehearsal"
+    result = api.post("/api/v2/gateway/fetch", json={"url": "https://example.test/"}, headers=headers("ana-test"))
     assert result.status_code == 503 and result.json()["error"]["code"] == "rehearsal"
     assert get(api, "gateway/catalog")["models"]
 

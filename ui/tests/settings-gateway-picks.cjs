@@ -60,7 +60,7 @@ const shotsDir = process.env.TICO_SHOTS || '';
         services: served.gateway.services || [
           {id: 'decide', name: 'Decide · Classify', status: 'live', price: 'From $0.06 per 1M tokens', tools: ['hub_decision_ask', 'hub_classify']},
           {id: 'search', name: 'Search', status: 'live', price: 'Tokens like Low · $0.00875 per search', tools: ['hub_gateway_search']},
-          {id: 'browse', name: 'Browse', status: 'next', price: '', tools: []}]});
+          {id: 'fetch', name: 'Fetch', status: 'live', price: '$1.25 per 1,000 pages + tokens', tools: ['hub_gateway_fetch']}]});
       if (p === '/api/v2/usage/limits') return json({bots: {}});
       if (p === '/api/v2/settings/history') return json({changes: [], transitions: []});
       if (p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
@@ -163,6 +163,7 @@ const shotsDir = process.env.TICO_SHOTS || '';
     assert.equal(await page.locator('[data-gateway-pick="tico-mid-1.0"] .gw-version').innerText(), '1.0 (old lineup)');
     assert.ok(await page.locator('[data-gateway-service]').count() >= 3);
     assert.equal(await page.locator('[data-gateway-service=search] .gw-tools').innerText(), 'hub_gateway_search');
+    assert.equal(await page.locator('[data-gateway-service=fetch] .gw-tools').innerText(), 'hub_gateway_fetch');
     assert.equal(await page.locator('[data-gateway-key-link]').getAttribute('href'), '#/settings/models');
     await shot('desktop-gateway.png');
 

@@ -1581,6 +1581,28 @@ def create_app(settings=None):
             raise Problem("gateway_search_failed", f"Search failed: {code or status}", 503 if status in (0, 429) or status >= 500 else 422)
         return answer
 
+    @app.post("/api/v2/gateway/fetch")
+    def gateway_fetch(request: Request, body: M.GatewayFetch):
+        """Read a web page or PDF through the Tico AI Gateway (`hub_gateway_fetch`), asked with the company's gateway key
+        and, for a bot, as that bot. Whoever may call the API may ask; the Gateway meters it."""
+        who = request.state.identity
+        auth.domain(who)
+        if settings.rehearsal:
+            raise Problem("rehearsal", "Fetch is off in rehearsal mode; nothing is sent to the Gateway", 503)
+        with store.read() as c:
+            key = gateway_connection.key(c, app.state.vault, settings) if gateway_connection.connected(c, settings) else ""
+            base = gateway_connection.url(c, settings)
+            header = gateway_connection.bot_header(c, app.state.vault, H.actor_id(who.actor)) if H.is_bot(who.actor) else {}
+        if not key:
+            raise Problem("gateway_not_connected", "The Tico AI Gateway is not connected; the owner saves a gateway key in "
+                          "Settings > Computers", 409)
+        status, answer, code = gateway_client.fetch(base, key, body.url, body.max_tokens, header)
+        if status != 200:
+            if status == 404:
+                raise Problem("gateway_fetch_unavailable", "The Tico AI Gateway does not offer fetch yet", 503)
+            raise Problem("gateway_fetch_failed", f"Fetch failed: {code or status}", 503 if status in (0, 429) or status >= 500 else 422)
+        return answer
+
     @app.put("/api/v2/providers/gateway")
     def gateway_save(request: Request, body: M.GatewayConnectionSave):
         """Save the gateway key (and URL), then ask the Gateway about it. The owner only; the key is sealed at once and

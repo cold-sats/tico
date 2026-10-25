@@ -1814,6 +1814,11 @@ class GatewaySearch(Contract):
     max_results: int = Field(default=5, ge=1, le=10)
 
 
+class GatewayFetch(Contract):
+    url: str = Field(min_length=1, max_length=2000, pattern=r"^https?://")
+    max_tokens: int = Field(default=10000, ge=1000, le=50000)
+
+
 class SystemUpdate(Contract):
     version: str = Field(min_length=1, max_length=64)
 
