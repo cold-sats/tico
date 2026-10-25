@@ -1014,6 +1014,20 @@ def test_a_full_strategy_at_every_limit_beside_a_300_seat_chart_fits_the_starter
     assert len(starter.canonical(saved).encode()) < starter.MAX_BYTES
 
 
+@pytest.mark.parametrize("url", ["https://alice:pw@example.com/x", "https://alice@example.com", "https://[",
+                                 "https://example.com:abc/", "https://[::1"])
+def test_an_address_with_a_user_name_or_one_that_can_t_be_read_is_refused_plainly(url):
+    for path in (("market", "players", 0, "url"), ("listening", "posts", 0, "url"), ("market", "segments", 0, "evidence")):
+        bad = fixture_draft()
+        *parents, last = path
+        target = bad["strategy"]
+        for key in parents:
+            target = target[key]
+        target[last] = [url] if last == "evidence" else url
+        with pytest.raises(C.DraftError, match="no user name or password"):
+            D.check(bad)
+
+
 def test_a_bet_added_to_a_plan_with_no_strategy_starts_the_block_and_undo_takes_it_back():
     draft, (added,) = run(started(), ("add_bet", {"statement": "Own the phone", "why": "", "rules_out": "", "wrong_if": ""}))
     assert added["ok"] and draft["strategy"]["bets"][0]["id"] == "b1" and "strategy" not in draft["undo"]

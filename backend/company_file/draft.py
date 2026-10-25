@@ -324,11 +324,18 @@ def _goal(raw, at):
 
 # ---------------------------------------------------------------------------------------------------- the strategy
 def _url(value, field, empty=True):
+    """An http(s) address with a host and no user name or password in it (a credential never lands in the plan)."""
     value = _text(value, field, LIMITS["url"]).strip()
     if not value and empty:
         return value
-    if not URL.fullmatch(value) or not urlsplit(value).hostname:
-        raise DraftError(field + " must be an http or https address")
+    try:
+        parts = urlsplit(value) if URL.fullmatch(value) else None
+        good = parts is not None and bool(parts.hostname) and "@" not in parts.netloc
+        parts and parts.port                    # "https://host:abc" raises here
+    except ValueError:                          # "https://[" and other addresses urlsplit can't read
+        good = False
+    if not good:
+        raise DraftError(field + " must be an http or https address, with no user name or password")
     return value
 
 
