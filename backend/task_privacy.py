@@ -784,6 +784,8 @@ APPROVALS_SQL = ("SELECT m.*, a.task_id AS approval_task{by} FROM approvals a JO
 # The only tasks `status` looks at: a live one (its counts) or a private one (whether its focus may be shown).
 # A long-lived bot's finished company tasks are most of its rows and change nothing.
 STATUS_TASKS_SQL = "(status IN (%s) OR private IS NOT 0)" % ",".join("'%s'" % s for s in H.ACTIVE_STATUSES)
+# The columns `status` reads of them: never the bodies, which were megabytes a status page on a real install.
+STATUS_TASK_COLUMNS = "id,owner,requester,status,private,guest,waiting_on"
 
 
 def status_inputs(c, bots):
@@ -794,7 +796,7 @@ def status_inputs(c, bots):
     for part in H.chunks(out):
         actors = ["bot:" + bot for bot in part]
         marks = " IN (" + ",".join("?" * len(actors)) + ")"
-        for t in c.execute(f"SELECT * FROM tasks WHERE (owner{marks} OR requester{marks}) AND {STATUS_TASKS_SQL}",
+        for t in c.execute(f"SELECT {STATUS_TASK_COLUMNS} FROM tasks WHERE (owner{marks} OR requester{marks}) AND {STATUS_TASKS_SQL}",
                            actors * 2):
             t = dict(t)
             for party in {t["owner"], t["requester"]}:
@@ -816,7 +818,7 @@ def status(c, who, row, *, tasks=None, approvals=None, asks=None):
     row = dict(row)
     tid = row.get("task_id")
     tasks = tasks if tasks is not None else [dict(t) for t in c.execute(
-        f"SELECT * FROM tasks WHERE (owner=? OR requester=?) AND {STATUS_TASKS_SQL}",
+        f"SELECT {STATUS_TASK_COLUMNS} FROM tasks WHERE (owner=? OR requester=?) AND {STATUS_TASKS_SQL}",
         ("bot:" + row["bot"], "bot:" + row["bot"]))]
     task = next((t for t in tasks if t["id"] == tid), None) if tid else None
     if tid and task is None:
