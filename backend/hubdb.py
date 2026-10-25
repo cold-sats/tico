@@ -5281,9 +5281,18 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     # The bot that manages the task's type may change its labels whatever the type's `bots` setting
     # (_label_writer decides which); nothing else on the task becomes its to change.
     mine = mine or labels_only and is_bot(actor) and task_private_readable(conn, actor, row) and type_manager(conn, row) == actor_id(actor)
+    state_change = status is not None or type is not None or step is not None
+    if state_change and actor != KEEPER:
+        # A reviewer comments and gives a verdict; the Builder moves the ticket.
+        from . import review_gate
+        check = review_gate.reviewing(conn, actor, row)
+        if check:
+            refuse(conn, actor, "reviewer",
+                   f"You are reviewing this ticket, so you don't move it. Finish your review task {check['id']} with "
+                   f"your verdict (hub task done {check['id']} --verdict approve|changes --head <sha>); the Builder "
+                   "moves the ticket.")
     if not mine and not mover and actor != KEEPER:
         refuse(conn, actor, "identity", f"{task_id} is not yours to change")
-    state_change = status is not None or type is not None or step is not None
     type_id = row.get("type_id") or GENERAL_TYPE
     if state_change:
         type_id, step_id, effective = _task_state(conn, actor, row, status, type, step)

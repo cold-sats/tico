@@ -10,6 +10,25 @@ REVIEW = re.compile(r"^Review [12](?:\b|:)", re.I)
 GATE_CHILD = re.compile(r"^(?:Review [12]|QA|Security)(?:\b|:)", re.I)
 
 
+# The children whose owners only review: they comment and give a verdict, and never move the ticket. QA is not one: QA
+# sends a ticket back to QA Fixes and on to Pending Release and Done (docs/software-factory.md).
+REVIEWER_CHILD = re.compile(r"^(?:Review [12]|Security)(?:\b|:)", re.I)
+
+
+def reviewing(c, actor, row):
+    """The review or Security subtask of this Dev ticket that `actor` owns, or None: a reviewer who is not the
+    ticket's owner. A person is never one here (a person may move any ticket they could move before)."""
+    from . import hubdb as H
+    from . import task_relations as TR
+    if not H.is_bot(actor) or actor == row["owner"] or not engineering(c, row):
+        return None
+    for child_id in TR.child_ids(c, row["id"]):
+        child = H.task(c, child_id)
+        if child and child["owner"] == actor and REVIEWER_CHILD.match(str(child.get("title") or "").strip()):
+            return child
+    return None
+
+
 # One open request per kind of check on a ticket: Review 1, Review 2 or QA (a Security check can be asked again).
 ONE_OPEN = re.compile(r"^(Review [12]|QA)(?:\b|:)", re.I)
 
