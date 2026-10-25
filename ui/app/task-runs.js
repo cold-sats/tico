@@ -52,8 +52,9 @@ function runAttemptHTML(a, open) {
     a.next.at ? ago(a.next.at) : ''].filter(Boolean).join(', '))}${a.next.note ? `<span class="truns-note">${esc(a.next.note)}</span>` : ''}</p>` : '';
   const lease = (a.lease || []).map(l => `<li class="muted">${esc(l.kind === 'grace' ? 'Lease lapsed; the runner was given time to report back'
     : 'Lease restored by the runner')} · ${esc(ago(l.at))}</li>`).join('');
-  // What woke the turn, under which wake preset, and until when a preset held it (backend/wake_presets.py record).
-  const woke = a.wake ? `<p class="muted truns-wake">Woke for: ${esc(a.wake.reason)} · ${esc(a.wake.preset_label)}${a.wake.held_until
+  // What woke the turn, the bot's profile then (the preset on runs from before profiles), and until when it was held
+  // (backend/wake_presets.py record).
+  const woke = a.wake ? `<p class="muted truns-wake">Woke for: ${esc(a.wake.reason)} · ${esc(a.wake.profile_label || a.wake.preset_label)}${a.wake.held_until
     ? ` · held until ${esc(fmt(a.wake.held_until))}` : ''}</p>` : '';
   const shells = (a.background || []).length ? `<div class="truns-sub"><div class="lbl">Background</div><ul class="truns-list">${a.background.map(runShellHTML).join('')}</ul></div>` : '';
   return `<details class="truns-try${a.state === 'running' || a.state === 'leased' ? ' live' : ''}"${open ? ' open' : ''} data-run="${esc(a.run)}">

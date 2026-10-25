@@ -14,6 +14,7 @@ from clients.manifest import tools_of
 from clients.routines import DEFAULT_ZONE, validate_schedules
 from . import people as P, task_privacy as privacy
 from .harnesses import SYNCED_SQL
+from .profiles import TAKES_NONE_SQL
 from .statuses import PARKED_SQL, is_parked
 from .scheduler import next_due, stamp
 from .store import H, Problem, encode
@@ -72,7 +73,7 @@ def create(c, actor, bot, fields, *, key=None, at=None):
     from . import ceo_acts
     ceo_acts.gate(c, actor, "cost", f"add a routine for {bot}: {entry['title']}")   # more runs cost more: the owner's
     require_trigger(c, entry["on"])
-    H._takes_tasks(c, actor, "bot:" + bot)        # every run of a routine is a task
+    H._takes_tasks(c, actor, "bot:" + bot, routine=True)        # every run of a routine is a task
     if key is not None:
         existing = c.execute("SELECT id FROM schedules WHERE bot=? AND routine_key=?", (bot, key)).fetchone()
         if existing:
@@ -250,7 +251,7 @@ def emit(c, kind, subject, payload=None, *, title=None, content="", at=None, aut
                      "AND coalesce(json_extract(bc.config_json,'$.shared_from'),'')<>'') "
                      # a bot synced in from another platform never sees a task (hubdb._takes_tasks)
                      "AND NOT EXISTS(SELECT 1 FROM bot_config xc WHERE xc.bot=s.bot "
-                     "AND json_extract(xc.config_json,'$.harness') IN (" + SYNCED_SQL + ")) "
+                     "AND (json_extract(xc.config_json,'$.harness') IN (" + SYNCED_SQL + ") OR " + TAKES_NONE_SQL.format(a="xc") + ")) "
                      # an onboarding bot runs no routines until a person above it marks onboarding complete
                      "AND NOT EXISTS(SELECT 1 FROM bot_config pc WHERE pc.bot=s.bot AND pc.onboarding_state IN " + PARKED_SQL + ") "
                      "ORDER BY s.id", (kind,)).fetchall()

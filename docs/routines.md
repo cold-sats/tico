@@ -1,6 +1,6 @@
 # Routines
 
-This page is about bot routines. For the flat list of built-in jobs and task rules at the top of **Settings → Routines**, see [System routines](system-routines.md).
+This page is about bot routines. For the flat list of built-in jobs and task rules at the top of **Settings → Rules**, see [System routines](system-routines.md).
 
 A routine is a row in Tico: a bot, a time (or a trigger), a title, and the text the bot is
 told. The server runs the clock. When a routine is due it opens a task for the bot with that
@@ -14,7 +14,7 @@ a compaction is the bot's runtime's business.
 
 Three doors, one table (`schedules`, `backend/routines.py`):
 
-- **The site.** Settings > Routines → *New routine*, or the Routines card on a bot's More tab.
+- **The site.** Settings > Rules → *New routine*, or the Routines card on a bot's More tab.
   Expand a routine's row for *Edit*, *Pause*/*Resume* and *Delete*. A routine in the Routines list on a
   bot's page opens the same editor: its instruction, its schedule (every day, weekdays, a day of the
   week or of the month at a time, or a cron), *Run now*, *Pause* and *Delete*. Someone who may not edit
@@ -51,7 +51,7 @@ a rollout), and the run does everything else and asks for the missing piece by n
 stops at its first line on an open setup question does nothing every time it fires.
 
 A routine runs on a time (`cron`, five fields, in `timezone`, America/Los_Angeles by default) or
-on something happening in Tico (`on`), never both. Tico emits `meeting.ready` when a team meeting with a transcript is first imported (a private meeting emits nothing; `recording.ready` is its old name and is still emitted, so older routines keep firing; see [Meetings](meetings.md)). It emits `market.insight.urgent` when someone reports a market insight with
+on something happening in Tico (`on`), never both. Tico emits `meeting.ready` when a team meeting with a transcript is first imported (a private meeting emits nothing; `recording.ready` is its old name and is still emitted, so older routines keep firing; see [Meetings](meetings.md)). It emits `release_published` when a release in the release repository is published (not a prerelease), one task per release, with the carried tickets listed. It emits `market.insight.urgent` when someone reports a market insight with
 `--urgent`; that opens the Librarian's urgent market routine and does not fire for an ordinary report. Each event opens one task per routine and per subject, titled `<routine title>:
 <meeting title>`; the body is the routine's text, then the event's facts, then the meeting's
 notes and transcript. Re-emitting the same event for the same subject does nothing. The event

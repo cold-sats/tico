@@ -24,7 +24,8 @@ def comment_rights(c, auth, who, task_id):
     if who.role == "bot" and who.actor not in (row["owner"], row["requester"]):
         delegated = c.execute("SELECT 1 FROM task_delegations WHERE task_id=? AND delegate=? AND expires>?",
                               (task_id, who.actor, H.now())).fetchone()
-        if not delegated and not H.task_ancestor_party(c, who.actor, row) and not H.type_bot_reads(c, who.actor, row):
+        if not delegated and not H.task_ancestor_party(c, who.actor, row) and not H.type_bot_reads(c, who.actor, row) \
+                and not H.task_manager_acts(c, who.actor, row):
             raise Problem("forbidden", "Reading a task does not grant permission to comment", 403)
     origin = None if H.task_private(c, row) else H.task_origin(c, row)
     others = [a for a in dict.fromkeys([row["owner"], row["requester"], origin])

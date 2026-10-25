@@ -149,7 +149,15 @@ const block = (seq, event, data) => `id: ${seq}\nevent: ${event}\ndata: ${JSON.s
   const settled = () => page.waitForFunction(() => !LIVE_SOON.has('tasks') && !LIVE_THROTTLE.get('tasks-bulk')?.timer, null, {timeout: t(5000)});   // a throttled draw still due would count below
   await send(() => true, block(15, 'tasks', {id: 't1', actor: 'bot:ops', task: task({title: 'Draft the final release notes', version: 4, links: [link('a')]})}));
   await settled();
-  await page.evaluate(() => { window.boardDraws = 0; const draw = tasksRender; tasksRender = (...a) => { window.boardDraws++; return draw(...a); }; });
+  // Only draws the event itself makes count: on a loaded machine a page read started earlier (types, labels) can
+  // still land and draw the board for its own reason.
+  await page.evaluate(() => {
+    window.boardDraws = 0;
+    let applying = false;
+    const draw = tasksRender, apply = liveTasksApply;
+    tasksRender = (...a) => { if (applying) window.boardDraws++; return draw(...a); };
+    liveTasksApply = (...a) => { applying = true; try { return apply(...a); } finally { applying = false; } };
+  });
   await send(() => true, block(16, 'tasks', {id: 't1', actor: 'bot:ops', task: task({title: 'Draft the final release notes', version: 4, links: [link('b')]})}));
   await page.waitForFunction(() => TASKS_ST.tasks.find(x => x.id === 't1').links[0]?.updated === 'b', null, {timeout: t(5000)});   // settled alone can pass before the event is queued
   await settled();

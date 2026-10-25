@@ -41,6 +41,8 @@ def test_kill_timeout_and_model_error_record_end_reason_and_last_tool(api, cause
     assert row['failure_reason'] == expected
     assert row['ended_at'] and row['last_event_at'] and row['last_event'] in ('error', 'diagnostic')
     # Metadata uses the existing run gate, including a bot reading its own run.
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE run_backoff SET wait_until=NULL")  # the failure's wait is over
     post(api, 'tasks', {'title': 'Inspect previous run', 'body': 'Read the previous run reason.', 'owner': 'ops'})
     next_run = claim(api, machine, 'ops')
     assert next_run

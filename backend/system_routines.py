@@ -8,7 +8,7 @@ reschedules (`control`). The trigger/action catalog (TRIGGERS, ACTIONS) is share
 searched the same way.
 
 `CONTROLS` holds what a person may change: on/off and a schedule preset for the six jobs that use AI or reach people,
-and the Topic changed switch. Stale ticket review and Topic changed keep their on/off in the team rules
+and the Topic changed and Quiet task triage switches. Stale ticket review, Topic changed and Quiet task triage keep their on/off in the team rules
 (backend/team_rules.py), so the value they had in Settings > General carries over; the rest live here in
 `registry_metadata` CONFIG_KEY. An owner or admin changes them; Health scan only the owner. `due` is when a job's
 preset says it runs again, read by the scheduler and the job's next run alike. Run now runs a job once, through the same
@@ -27,7 +27,7 @@ import logging
 import re
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time as clock, timedelta, timezone
 
 from .store import H, Problem
 
@@ -82,6 +82,8 @@ class Job:
 TRIGGERS = {
     "schedule": ("", ()),                    # the job's schedule in words: "every hour", "every day at 09:00"
     "topic_changed": ("a message in a direct chat changes the topic", ("chat", "topic", "message")),
+    "quiet_task": ("a bot's task is quiet, waits on nothing recorded and stands as at the bot's last checkpoint",
+                   ("stalled", "tasks", "quiet")),
     "free_turn": ("a bot has a free turn and assigned work that is not snoozed or blocked", ("tasks", "assigned", "turn", "prerequisite")),
     "directory": ("a company directory is connected", ("directory",)),
 }
@@ -94,6 +96,10 @@ ACTIONS = {
     "ask_kpi_keeper": ("ask a KPI's keeper for a reading when it goes out of date", ("kpi", "ask", "remind", "goal")),
     "ask_goal_owner": ("ask a goal's owner when a KPI goes off track", ("kpi", "goal", "ask", "remind")),
     "check_health": ("check Tico's health", ("health", "check")),
+    "report_tasks": ("list each department's stalled, overdue and out-of-step tasks for the Task Manager",
+                     ("tasks", "stalled", "overdue", "department", "report")),
+    "wake_task_manager": ("open a Task check task for each department that has something to fix",
+                          ("tasks", "wake", "task manager")),
     "wake_health_monitor": ("wake the Health Monitor for a new finding", ("health", "wake")),
     "read_activity": ("read yesterday's chats, tasks, Slack, mail and meetings",
                       ("learnings", "chat", "slack", "mail", "meetings")),
@@ -133,6 +139,10 @@ ACTIONS = {
     "sync_meetings": ("bring in meeting notes from each person's Granola", ("meetings", "granola", "notes")),
     "sync_docs": ("refresh linked documents from their sources", ("documents", "docs")),
     "start_fresh": ("start a fresh session, like Clear", ("chat", "fresh", "clear", "session")),
+    "suggest_notes": ("suggest making a rule a note when it mostly wakes a bot for nothing",
+                      ("rules", "wake", "note", "suggest", "no-op")),
+    "triage_quiet": ("have Decide read its last messages: set the wait it names, close it if finished, or let one wake through",
+                     ("decide", "stalled", "tasks", "wait", "close", "wake")),
 }
 
 
@@ -152,6 +162,10 @@ JOBS = [
     Job("health_scan", "Health scan",
         "Checks Tico's health and wakes the Health Monitor only for a finding the last scan did not have.",
         CHECKS, "Hourly", 3600, control=True, then=("check_health", "wake_health_monitor")),
+    Job("task_manager_report", "Task Manager report",
+        "Lists each department's quiet tasks, overdue asks, review tickets without a pull request, merged work that did "
+        "not move and held bots in plain code, and opens one task for the Task Manager per department that has something.",
+        CHECKS, "Hourly on weekdays, 08:00 to 18:00", 3600, control=True, then=("report_tasks", "wake_task_manager")),
     Job("learnings", "Nightly learnings",
         "Reads yesterday's chats, tasks, Slack, mail and meetings and sends each bot what it should remember.",
         LEARNING, "Nightly at 03:00", ai=True, control=True, labels=("learnings-route",), then=("read_activity", "send_learnings")),
@@ -209,6 +223,15 @@ JOBS = [
         HOUSEKEEPING, "Every 30 seconds", 30, records=False, then=("sync_meetings",)),
     Job("doc_sync", "Document sync", "Refreshes linked documents from their sources.",
         HOUSEKEEPING, "Every few seconds", 5, records=False, then=("sync_docs",)),
+    Job("propose_demotions", "Suggest quieter rules",
+        "Once a week, finds each wake rule that woke a bot and found nothing to do on over half of at least 20 runs, and "
+        "suggests making it a note in Settings > Rules. Nothing changes until a person applies it.",
+        CHECKS, "Weekly", 7 * 86400, control=True, then=("suggest_notes",)),
+    Job("stall_triage", "Quiet task triage",
+        "Before a stall check stays silent on a quiet task nothing has changed on, Decide reads its last messages: "
+        "if it waits on someone it sets that wait, if it is finished it closes it, if it is stuck one wake goes through.",
+        CHECKS, "When it happens", ai=True, control=True, labels=("stall-triage",), records=False, when="quiet_task",
+        then=("triage_quiet",)),
     Job("topic_fresh", "Start fresh when the topic changes",
         "In a direct chat, a message on a new topic starts a fresh session, like Clear.",
         CHAT, "When it happens", records=False, when="topic_changed", then=("start_fresh",)),
@@ -217,9 +240,11 @@ BY_KEY = {job.key: job for job in JOBS}
 
 
 # ----------------------------------------------------------------------------- what a person may change
-FIFTEEN, HOURLY, FOUR_HOURS, DAILY = "15m", "hourly", "4h", "daily"
+FIFTEEN, HOURLY, FOUR_HOURS, DAILY, BUSINESS, WEEKLY = "15m", "hourly", "4h", "daily", "business", "weekly"
 PRESETS = {FIFTEEN: ("Every 15 minutes", 900), HOURLY: ("Hourly", 3600), FOUR_HOURS: ("Every 4 hours", 4 * 3600),
-           DAILY: ("Daily at {at}", None)}
+           DAILY: ("Daily at {at}", None), BUSINESS: ("Hourly on weekdays, 08:00 to 18:00", 3600),
+           WEEKLY: ("Weekly", 7 * 86400)}
+BUSINESS_HOURS = (clock(8), clock(18))      # company time (updates.ZONE), Monday to Friday
 EVERY_PRESET = (FIFTEEN, HOURLY, FOUR_HOURS, DAILY)
 AI_PRESETS = (HOURLY, FOUR_HOURS, DAILY)        # a job that asks Decide is never offered every 15 minutes
 CONFIG_KEY = "system_routines"
@@ -244,11 +269,15 @@ CONTROLS = {
     # One run a night reads the day before (backend/learnings.py claims one per night): the choice is its time.
     "learnings": Control(presets=(DAILY,), preset=DAILY, at="03:00"),
     "ask_deadlines": Control(presets=EVERY_PRESET, preset=HOURLY, at="09:00"),
+    # Hourly while people are at work: a report outside business hours would wait on nobody to read it.
+    "task_manager_report": Control(presets=(BUSINESS, HOURLY, FOUR_HOURS, DAILY), preset=BUSINESS, at="09:00"),
+    "propose_demotions": Control(presets=(WEEKLY,), preset=WEEKLY),
     "topic_fresh": Control(rule="topic_fresh"),
+    "stall_triage": Control(rule="stall_triage"),
 }
 
 
-QUICK_KEYS = ("still_wanted", "kpi_asks", "health_scan", "ask_deadlines")   # run by backend/scheduler.py QUICK
+QUICK_KEYS = ("still_wanted", "kpi_asks", "health_scan", "ask_deadlines", "task_manager_report", "propose_demotions")   # run by backend/scheduler.py QUICK
 
 
 def zone():
@@ -357,10 +386,29 @@ def _occurrence(cfg, at):
     return point if point <= local else point - timedelta(days=1)
 
 
+def in_business_hours(at):
+    """Whether `at` is a weekday between 08:00 and 18:00 company time."""
+    local = at.astimezone(zone())
+    return local.weekday() < 5 and BUSINESS_HOURS[0] <= local.time() < BUSINESS_HOURS[1]
+
+
+def business_open(at):
+    """`at` if it is in business hours, else the next time they open (08:00 the next weekday, or today's if it is early)."""
+    if in_business_hours(at):
+        return at
+    local = at.astimezone(zone())
+    day = local.date() if local.weekday() < 5 and local.time() < BUSINESS_HOURS[0] else local.date() + timedelta(days=1)
+    while day.weekday() >= 5:
+        day += timedelta(days=1)
+    return datetime.combine(day, BUSINESS_HOURS[0], zone()).astimezone(timezone.utc)
+
+
 def due(cfg, at, last):
     """Whether a job on `cfg`'s preset runs at `at`, its last run having started at `last` (None: never). Its switch is
-    not read here."""
+    not read here. The business-hours preset is hourly, and only inside the hours."""
     every = PRESETS.get(cfg.get("preset") or "", (None, None))[1]
+    if cfg.get("preset") == BUSINESS and not in_business_hours(at):
+        return False
     if every:
         return last is None or at - last >= timedelta(seconds=every)
     return last is None or last < _occurrence(cfg, at)
@@ -369,6 +417,8 @@ def due(cfg, at, last):
 def next_due(cfg, last, now):
     """When a job on `cfg`'s preset runs next: never in the past; None for an interval job that has not run yet."""
     every = PRESETS.get(cfg.get("preset") or "", (None, None))[1]
+    if every and cfg.get("preset") == BUSINESS:
+        return business_open(max(last + timedelta(seconds=every), now) if last else now)
     if every:
         return max(last + timedelta(seconds=every), now) if last else None
     if due(cfg, now, last):
@@ -663,6 +713,9 @@ def listing(c, settings, now=None, who=None, auth=None):
                 "can_change": bool(ctl and who is not None and auth is not None and can_change(auth, who, job.key)),
                 "last": None, "next": _stamp(following) if following else None}
         item["search"] = search_words(job, when_words, then_words, department)
+        if job.key == "task_manager_report":
+            from .task_manager import active as task_manager_active
+            item["note"] = None if task_manager_active(c) else "Opens no tasks while the Task Manager is paused (Settings > Bots)"
         if job.key == "health_scan":
             # Its own switch only says whether it may run; it finds nothing while the Health Monitor itself is off.
             from .health_monitor import active

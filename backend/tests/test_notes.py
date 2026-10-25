@@ -52,6 +52,7 @@ def test_a_failed_run_gives_them_back_and_a_finished_one_does_not(api):
     post(api, f"attempts/{first['id']}/complete", {"outcome": "failed", "text": "boom", "last_seq": 0}, token=r["token"])
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE jobs SET state='cancelled' WHERE state='uncertain'")
+        c.execute("UPDATE run_backoff SET wait_until=NULL")        # the fast failure's wait is over
     post(api, "chat/ops", {"text": "Second"})
     second = claim(api, r)
     assert [x["id"] for x in second["notes"]] == [n["id"]]

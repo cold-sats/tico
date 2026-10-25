@@ -113,7 +113,7 @@ function pageSettings() {
       <button type="button" data-settings-tab="inbox" role="tab">Inbox</button>
       <details class="settings-more" id="settings-more"><summary>More</summary><div>
         <button type="button" data-settings-tab="inbound" role="tab">Email &amp; Phone</button>
-        <button type="button" data-settings-tab="recurring" role="tab">Routines</button>
+        <button type="button" data-settings-tab="recurring" role="tab">Rules</button>
         <button type="button" data-settings-tab="triggers" role="tab">Triggers</button>
         <button type="button" data-settings-tab="health" role="tab">Health<span class="hl-alert" data-hl-alert hidden></span></button>
         <button type="button" data-settings-tab="history" role="tab">History</button>
@@ -123,7 +123,7 @@ function pageSettings() {
     <div class="settings-pane" id="settings-general" role="tabpanel" hidden>
       ${settingsIsAdmin() ? `<section class="card" id="settings-team"><header><h2>Team</h2></header>
         <p class="settings-cell-note" id="settings-team-moved">Stale ticket review and Start fresh when the topic changes:
-          <a href="#/settings/routines" data-settings-moved>Moved to Settings &gt; Routines</a></p>
+          <a href="#/settings/routines" data-settings-moved>Moved to Settings &gt; Rules</a></p>
         ${S.me?.cloud && S.me?.role === 'owner' ? `<div class="settings-team-icon">
           <img id="settings-team-icon" alt="Team icon" hidden><span id="settings-team-icon-empty" class="muted">No icon</span>
           <div><strong>Team icon</strong><p class="settings-cell-note">PNG, JPEG or WebP, up to 1 MB.</p>
@@ -151,6 +151,7 @@ function pageSettings() {
     </div>
     <div class="settings-pane" id="settings-bots" role="tabpanel" hidden>
       <section class="card settings-bots-card"><header><h2>Bots</h2>${settingsCanCreateBots() ? '<div class="row"><button class="primary" type="button" id="settings-add-bot" disabled>Add bot</button><button class="ghost" type="button" id="settings-add-catalog" disabled><span class="sb-wide">Add from template</span><span class="sb-narrow">From template</span></button></div>' : ''}</header><div id="set-bots">${skelRows(3, {card: true, dot: false})}</div></section>
+      ${settingsIsAdmin() ? '<section class="card" id="settings-turn-budgets" hidden><header><h2>Run budget</h2></header><div id="set-turn-budgets"></div></section>' : ''}
     </div>
     <div class="settings-pane" id="settings-repos" role="tabpanel" hidden><section class="card repos-card" id="set-repos">${skelRows(3, {card: true, dot: false})}</section></div>
     <div class="settings-pane" id="settings-health" role="tabpanel" hidden><div class="hl-page" id="hl-page"></div>
@@ -159,7 +160,10 @@ function pageSettings() {
     ${settingsIsAdmin() ? `<div class="settings-pane" id="settings-billing" role="tabpanel" hidden><section class="card"><header><h2>Billing</h2></header><div id="set-billing">${skelRows(3, {card: true, dot: false})}</div></section></div>` : ''}
     ${settingsIsAdmin() ? `<div class="settings-pane" id="settings-people" role="tabpanel" hidden><div id="set-people">${skelRows(3, {card: true, dot: false})}</div></div>` : ''}
     <div class="settings-pane" id="settings-recurring" role="tabpanel" hidden>
-      <section class="card" id="set-system-card"><header><h2>Routines</h2><span class="muted">What Tico runs on its own</span></header><div id="set-system-routines">${skelRows(3, {card: true, dot: false})}</div></section>
+      <section class="card" id="set-system-card"><header><h2>What Tico runs on its own</h2></header><div id="set-system-routines">${skelRows(3, {card: true, dot: false})}</div></section>
+      <section class="card" id="set-rules-card"><header><h2>What wakes a bot</h2></header><div id="set-rules">${skelRows(3, {card: true, dot: false})}</div></section>
+      <section class="card" id="set-release-card" hidden><header><h2>Releases</h2></header><div id="set-release"></div></section>
+      <section class="card" id="set-task-manager-card" hidden><header><h2>Task Manager</h2><span class="pill">Built-in</span></header><div id="set-task-manager"></div></section>
       <section class="card"><header><h2>Bot routines</h2></header><div id="set-recurring">${skelRows(3, {card: true, dot: false})}</div></section>
     </div>
     <div class="settings-pane" id="settings-triggers" role="tabpanel" hidden>
@@ -247,7 +251,7 @@ function settingsShow(tab) {
   taskTypesSettingsShow(SETTINGS_TAB);
   if (SETTINGS_TAB === 'tasks') void roadmapSettingsMount();
   const devices = $('#settings-devices'), history = $('#settings-history'), bots = $('#settings-bots');
-  if (bots) bots.hidden = SETTINGS_TAB !== 'bots';
+  if (bots) { bots.hidden = SETTINGS_TAB !== 'bots'; if (SETTINGS_TAB === 'bots') void renderTeamBudgets(); }
   if (devices) devices.hidden = SETTINGS_TAB !== 'devices';
   settingsMachinesWatch();
   if (settingsMachinesVisible() && SETTINGS_DATA.loaded) void settingsMachinesRefresh();
@@ -286,7 +290,7 @@ function settingsShow(tab) {
   const reposPane = $('#settings-repos');
   if (reposPane) { reposPane.hidden = SETTINGS_TAB !== 'repos'; if (SETTINGS_TAB === 'repos' && !formBusy(reposPane)) void renderSettingsRepos(); }
   const recurring = $('#settings-recurring');
-  if (recurring) { recurring.hidden = SETTINGS_TAB !== 'recurring'; if (SETTINGS_TAB === 'recurring') { void renderSystemRoutines(); if (!formBusy(recurring)) renderSettingsRecurring(); } }
+  if (recurring) { recurring.hidden = SETTINGS_TAB !== 'recurring'; if (SETTINGS_TAB === 'recurring') { void renderSystemRoutines(); void renderSettingsRules(); void renderReleaseCard(); void renderTaskManagerCard(); if (!formBusy(recurring)) renderSettingsRecurring(); } }
   const triggersPane = $('#settings-triggers');
   if (triggersPane) { triggersPane.hidden = SETTINGS_TAB !== 'triggers'; if (SETTINGS_TAB === 'triggers' && !formBusy(triggersPane)) void renderSettingsTriggers(); }
 }

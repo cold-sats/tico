@@ -10,7 +10,8 @@ The words Tico uses, and what each replaces.
 - **Teammate**: a human or a bot on the team.
 - **Human**: a human teammate. The **Humans** page lists them.
 - **Bot**: an AI teammate.
-- **Built-in**: a bot that comes with Tico, serves everyone and belongs to no group: Assistant, BotOps, Librarian, CEO Bot. These four appear as **Built-in** in Settings > Bots. Assistant and BotOps have main rail entries; the CEO Bot is on Goals and the Librarian is on Docs and Market. The Assistant, BotOps and the Librarian stay out of the team chart and goal owner list; the CEO Bot is at the top of the chart.
+- **Task Manager**: a built-in helper bot that tidies tasks once an hour on weekdays: it closes what is plainly done, fixes obvious status and step drift, and leaves one Needs-you line per department for anything it is unsure of. It sits outside the org chart and never touches bots, credentials, sends or spending ([Task Manager](task-manager.md)).
+- **Built-in**: a bot that comes with Tico, serves everyone and belongs to no group: Assistant, BotOps, Librarian, CEO Bot. The Task Manager and the Health Monitor are built-in helpers too, outside the chart. These four appear as **Built-in** in Settings > Bots. Assistant and BotOps have main rail entries; the CEO Bot is on Goals and the Librarian is on Docs and Market. The Assistant, BotOps and the Librarian stay out of the team chart and goal owner list; the CEO Bot is at the top of the chart.
 - **CEO Bot**: the built-in bot on every install that keeps KPIs and goal colours current. It sits under the owner at the top of the team chart, with the Heads under it ([Goals](goals-and-kpis.md#the-ceo-bot)). How much it does is a level only the owner picks, **Passive** by default ([Your CEO Bot](ceo-bot.md)).
 - **Company section**: the Vision and Description at the top of Goals, the owner writes it ([Goals](goals-and-kpis.md#the-company-section)).
 - **Why**: one line on a goal tying it to the company's Vision. The CEO Bot proposes it and a person accepts it ([Goals](goals-and-kpis.md#a-goals-why)).
@@ -25,6 +26,7 @@ The words Tico uses, and what each replaces.
 - **Tools**: everything a bot uses: its model and harness, GitHub, Slack, Google, AWS.
 - **Model** and **Harness**: kinds of tool. The model (GPT 6.1 Sol, Claude Opus 5.5) and the harness it runs in (Codex, Claude Code).
 - **AI provider**: the account a model comes from.
+- **Profile**: what wakes a bot and which tasks it takes: Doer, Reviewer, Lead, Responder, Monitor or Custom ([Profiles](how-it-works.md#profiles)). It grants no right. Set it in Settings > Bots > Edit.
 - **Credential**: a stored secret a bot is granted. "API key" or "token" only names what a service gives you, or sign-in.
 - **Template**: what you create a bot from.
 - **Setup**: a new bot's first conversation with its owner. Status **Needs setup**, button **Set up**. **Finish setup** is installing Tico.

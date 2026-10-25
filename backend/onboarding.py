@@ -821,6 +821,16 @@ class Onboarding:
         """The same for the CEO Bot: a company from before it was built in gets it once it can run it."""
         return self._ensure_builtin(c, GOAL_MANAGER, ceo_bot.name(c), "goal_manager.turned_on")
 
+    def ensure_task_manager(self, c):
+        """The same for the Task Manager (docs/task-manager.md): a company from before it was built in gets it once it can
+        run it. It is a helper outside the org chart, so no chart or seat changes."""
+        return self._ensure_builtin(c, "task-manager", "Task Manager", "task_manager.turned_on")
+
+    def turn_on_task_manager(self, c, who):
+        """Bring the Task Manager back after it was paused or archived by an older version (its report is plain code and
+        keeps running either way, but the tasks it opens need the bot to be active)."""
+        return self._turn_on(c, who, "task-manager", "task-manager", "Task Manager", "task_manager.turned_on")
+
     def _ensure_builtin(self, c, slug, name, event):
         if not load(c)["completed"] or not providers.configured(providers.load(c, self.settings)):
             return None
@@ -969,6 +979,7 @@ class Onboarding:
             return branches
         self.ensure_librarian(c)              # a company from before it was built in
         self.ensure_goal_manager(c)
+        self.ensure_task_manager(c)
         placed = self._wire(c, record, "human:" + operator, runner_id)
         self._store(c, record, "human:" + operator)
         return branches + placed

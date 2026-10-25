@@ -204,8 +204,33 @@ async function limitRetry(slug) {
 }
 const limitRetryButton = (slug, cls = 'linkish') => v2StatusOf(slug)?.state === 'limited' && settingsCanManageBot(S.emps.find(x => x.name === slug))
   ? ` <button type="button" class="${cls}" data-limit-retry>Try now</button>` : '';
+// Release: Tico stopped the bot (backend/bot_stops.py: five fast failed runs, or over its run budget) and a person
+// who manages it lets it run again (POST /v2/bots/{bot}/release, which clears both). One click, wherever it shows.
+async function botRelease(slug) {
+  await post(`/v2/bots/${encodeURIComponent(slug)}/release`, {});
+  await v2Refresh();
+  toast(`${empName(slug)} released`);
+}
+const botMayRelease = slug => settingsCanManageBot((S.emps || []).find(x => x.name === slug));
+const botReleaseButton = (slug, cls = 'linkish') => botMayRelease(slug)
+  ? ` <button type="button" class="${cls}" data-bot-release="${esc(slug)}">Release</button>` : '';
+// Every Release button (the chat line, the bot page, Health) goes through one listener; each page redraws its own.
+document.addEventListener('click', async ev => {
+  const button = ev.target.closest?.('[data-bot-release]');
+  if (!button || button.disabled) return;
+  button.disabled = true;
+  try {
+    await botRelease(button.dataset.botRelease);
+    if (typeof pausedRender === 'function') pausedRender();
+    if (typeof botAlertDraw === 'function' && $('#bot-alert')) botAlertDraw();
+    if (button.closest('#hl-page')) window.hlRefresh?.();
+  } catch (error) { button.disabled = false; toast(error.message, true); }
+});
 function pausedNotice(slug) {
   const s = v2StatusOf(slug) || {};
+  // Tico's own words for the stop, as the server sends them: what happened and what to check.
+  if (s.stopped) return `${esc(s.focus || `Tico stopped ${empName(slug)}`)}${botReleaseButton(slug)}`;
+  if (s.backoff) return esc(s.backoff);
   const when = since => since ? ` since ${clockTime(since)}` : '';
   if (s.bot_state === 'quarantined') {
     // A refusal-count quarantine lifts itself after an hour; anything else waits for a person (backend/hubdb.py).
@@ -280,6 +305,8 @@ const overLimitWord = limit => limit.scope && limit.scope !== 'bot' ? `Waiting: 
 function v2StatePill(slug) {
   const s = v2StatusOf(slug);
   if (!s) return botStatePill(slug);
-  return `<span class="pill ${V2_PILL[s.state] ?? ''}">${esc(V2_WORD[s.state] || s.state || 'Unknown')}</span>${
-    s.focus ? ` <span class="muted">${esc(s.focus)}</span>` : ''}`;
+  // A back-off keeps the bot's state; its wait is the line beside it until the next try.
+  const line = s.backoff || s.focus;
+  return `<span class="pill ${V2_PILL[s.state] ?? ''}">${esc(s.stopped ? 'Stopped' : V2_WORD[s.state] || s.state || 'Unknown')}</span>${
+    line ? ` <span class="muted">${esc(line)}</span>` : ''}`;
 }

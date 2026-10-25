@@ -240,6 +240,9 @@ class TaskUpdate(Contract):
     step: str | None = Field(default=None, max_length=200)   # "" clears the step
     step_rank: float | None = Field(default=None, allow_inf_nan=False)   # its place within its step
     number: TaskNumber | None = None      # a mover's, for a task that has none
+    # A review or QA subtask's verdict and the pull request head it judged; its parent's owner is woken with both.
+    verdict: Literal["approve", "changes", "pass", "fail"] | None = None
+    verdict_head: str | None = Field(default=None, pattern=r"^[0-9a-fA-F]{7,40}$")
     # Replace the people in the roles named: {role: [actors]}; [] clears one.
     roles: dict[str, list[str]] | None = None
     # BotOps applying a person's own request to a task they own or requested (backend/app.py
@@ -1839,6 +1842,7 @@ class AccessRules(Contract):
     support_access: bool | None = None
     stale_review: bool | None = None
     topic_fresh: bool | None = None
+    stall_triage: bool | None = None
     go_ahead_days: Annotated[int, Field(strict=True, ge=1, le=14)] | None = None
 
 
@@ -2174,8 +2178,22 @@ class SystemRoutineUpdate(Contract):
     """One system routine's switch, schedule preset or daily time (backend/system_routines.py); only what is sent
     changes."""
     on: bool | None = None
-    preset: Literal["15m", "hourly", "4h", "daily"] | None = None
+    preset: Literal["15m", "hourly", "4h", "daily", "business"] | None = None
     at: str | None = Field(default=None, max_length=5)
+
+
+class ReleaseScheduleUpdate(Contract):
+    """The team's release schedule (backend/release_flow.py); only what is sent changes. `bot` and `writer` name the
+    Release Manager and Technical Writer ("" finds them by starter template)."""
+    on: bool | None = None
+    times: list[Annotated[str, Field(max_length=5)]] | None = Field(default=None, max_length=2)
+    bot: str | None = Field(default=None, max_length=100)
+    writer: str | None = Field(default=None, max_length=100)
+
+
+class ReleaseNow(Contract):
+    """Ask the Release Manager to release what is at Pending Release now; `note` goes in its task."""
+    note: str | None = Field(default=None, max_length=1000)
 
 
 class LimitRetry(Contract):
@@ -2435,6 +2453,38 @@ class InboundTask(Contract):
     due: str | None = None
     close: bool = False
     note: str | None = Field(default=None, max_length=200_000)
+
+
+class RuleCreate(Contract):
+    """A wake rule (backend/rules.py): in this scope, when this event happens (and `when` holds), do `then`."""
+    scope_kind: Literal["team", "type", "department", "bot", "task"]
+    scope_id: str = Field(default="", max_length=120)
+    event: str = Field(min_length=1, max_length=60)
+    then: Literal["ignore", "note", "batch", "wake", "ask", "action"]
+    when: dict | None = None
+    params: dict | None = None
+    on: bool | None = None
+    position: int | None = Field(default=None, ge=0, le=100_000)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class RuleUpdate(Contract):
+    expected_revision: int = Field(ge=1)
+    event: str | None = Field(default=None, min_length=1, max_length=60)
+    then: Literal["ignore", "note", "batch", "wake", "ask", "action"] | None = None
+    when: dict | None = None
+    params: dict | None = None
+    on: bool | None = None
+    position: int | None = Field(default=None, ge=0, le=100_000)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class RuleDelete(Contract):
+    expected_revision: int | None = Field(default=None, ge=1)
+
+
+class RuleSuggestionAct(Contract):
+    pass
 
 
 class TaskRuleUpdate(Contract):

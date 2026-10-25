@@ -157,7 +157,7 @@ def run(args, who=None):
               "update create", "update redo", "update list", "update show", "update mark-read", "update reply", "update settings",
               "changelog list", "changelog mark-read",
               "needs-you start", "needs-you next", "needs-you respond", "needs-you commit", "needs-you abandon",
-              "brief", "pipeline", "mcp stats", "calendar list", "calendar status", "routine update", "team show", "org order", "run list",
+              "brief", "pipeline", "mcp stats", "calendar list", "calendar status", "routine update", "team show", "team budget", "org order", "run list",
               "message list", "message mark-read", "bot recent", "agent pair show", "agent pair approve", "agent pair decline",
               "slack channel list", "slack channel add", "slack channel remove", "slack channel import",
               "seat list", "seat create", "seat update", "seat close", "seat draft"):
@@ -194,6 +194,17 @@ def run(args, who=None):
                                                   "operation_id": os.environ.get("HUB_OPERATION_ID")})
     if args.cmd in ("chat", "replay"):
         return via_tool(client, args)
+    if fn and fn.startswith("task-manager "):
+        from clients import hubtools
+        op = os.environ.get("HUB_OPERATION_ID")
+        if fn == "task-manager status":
+            return hubtools.task_manager_status(client, {})
+        if fn == "task-manager run":
+            return hubtools.task_manager_run(client, {"operation_id": op})
+        change = {"task-manager on": {"on": True}, "task-manager off": {"on": False},
+                  "task-manager schedule": {"preset": getattr(args, "preset", None), "at": getattr(args, "at", None)},
+                  "task-manager bot": {"bot": getattr(args, "state", None)}}[fn]
+        return hubtools.task_manager_set(client, {**change, "operation_id": op})
     if fn in ("health-monitor findings", "health-monitor report"):
         from clients import hubtools
         if fn == "health-monitor findings":
@@ -519,14 +530,19 @@ def run(args, who=None):
             except UnicodeDecodeError:
                 body["content_base64"] = base64.b64encode(data).decode("ascii")
             return post(f"tasks/{args.id}/files", body)
-        if sub in ("update", "close"):
+        if sub in ("update", "close", "done"):
             current = client.get("tasks/" + args.id)["task"]
             body = {"version": current["version"], "note": args.note}
+            if sub == "done":
+                body["status"] = "done"
+            for field in ("verdict", "verdict_head"):
+                if getattr(args, field, None) is not None:
+                    body[field] = getattr(args, field)
             if getattr(args, "quiet", False):
                 body["quiet"] = True
             if sub == "close":
                 body["close"] = True
-            else:
+            elif sub == "update":
                 body.update({"status": args.status, "owner": args.owner, "due": args.due,
                              "goal_id": getattr(args, "goal", None)})
                 if getattr(args, "private", None) is not None:
@@ -633,6 +649,8 @@ def run(args, who=None):
             return via_tool(client, args, text=text, enabled=not args.disabled)
         if sub in ("delete", "run"):
             return via_tool(client, args)
+    if cmd == "release":
+        return via_tool(client, args)
     if cmd == "approval":
         if sub == "show":
             return client.get("approvals/" + args.id)
@@ -744,7 +762,7 @@ def bots(client, args):
         except ValueError as exc:
             raise APIError("not_found", str(exc)) from None
     if args.fn in ("bot access", "bot mail", "bot owners", "bot setup-done", "bot ready", "bot place", "bot go-live", "bot model", "bot pause",
-                   "bot resume", "bot scope", "bot restore", "bot archive") or (args.fn == "bot create" and args.record_only):
+                   "bot resume", "bot scope", "bot restore", "bot archive", "bot budget", "bot release", "bot profile") or (args.fn == "bot create" and args.record_only):
         from clients import hubtools
         fields = {k: v for k, v in vars(args).items()
                   if k not in ("cmd", "sub", "subsub", "fn", "no_setup", "record_only") and v not in (None, [])}
@@ -788,7 +806,7 @@ def local_slug(client, args, workspace):
         known = {b.get("slug") or b.get("name") for b in client.get("bots", include_archived="1")}
     except (APIError, AttributeError, TypeError):
         known = set()
-    reserved = ("assistant", "botops", "librarian", "goal-manager", "coo")
+    reserved = ("assistant", "botops", "librarian", "goal-manager", "coo", "task-manager", "health-monitor")
     return catalog.free_slug(args.name or card.get("name") or args.template, lambda slug: (
         slug in known or slug in reserved
         or any((workspace / (prefix + slug)).exists() for prefix in (REPO_PREFIX, OLD_REPO_PREFIX))))
