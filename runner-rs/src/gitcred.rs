@@ -348,17 +348,20 @@ fn git_environment(env: &mut Env, token: &str, helper: &str) {
 /// Git refuses a work tree another user owns. A Gateway turn's leased user works in the bot's checkout, so the
 /// turn trusts exactly these paths (never `*`), after the entries `git_environment` set.
 pub fn trust_directories(env: &mut Env, paths: &[PathBuf]) {
-    let mut count: usize = env.get("GIT_CONFIG_COUNT").and_then(|c| c.parse().ok()).unwrap_or(0);
     for path in paths {
-        let value = path.display().to_string();
-        let trusted = (0..count).any(|i| env.get(&format!("GIT_CONFIG_KEY_{i}")).map(String::as_str) == Some("safe.directory")
-            && env.get(&format!("GIT_CONFIG_VALUE_{i}")) == Some(&value));
-        if value.is_empty() || trusted { continue; }
-        env.insert(format!("GIT_CONFIG_KEY_{count}"), "safe.directory".into());
-        env.insert(format!("GIT_CONFIG_VALUE_{count}"), value);
-        count += 1;
+        add_config(env, "safe.directory", &path.display().to_string());
     }
-    env.insert("GIT_CONFIG_COUNT".into(), count.to_string());
+}
+
+/// One more command-line config entry (GIT_CONFIG_KEY_n/VALUE_n), unless it is already there.
+pub fn add_config(env: &mut Env, key: &str, value: &str) {
+    let count: usize = env.get("GIT_CONFIG_COUNT").and_then(|c| c.parse().ok()).unwrap_or(0);
+    let present = (0..count).any(|i| env.get(&format!("GIT_CONFIG_KEY_{i}")).map(String::as_str) == Some(key)
+        && env.get(&format!("GIT_CONFIG_VALUE_{i}")).map(String::as_str) == Some(value));
+    if value.is_empty() || present { return; }
+    env.insert(format!("GIT_CONFIG_KEY_{count}"), key.into());
+    env.insert(format!("GIT_CONFIG_VALUE_{count}"), value.into());
+    env.insert("GIT_CONFIG_COUNT".into(), (count + 1).to_string());
 }
 
 /// The helper git runs on every `get`: this binary asking the socket.

@@ -684,11 +684,14 @@ impl Runner {
         }
     }
 
-    /// A Gateway turn's git: its leased user trusts exactly its checkout (git refuses a work tree another user owns)
-    /// and asks for GitHub tokens through its own owner-only socket, since the shared one is the bot user's.
+    /// A Gateway turn's git: its leased user trusts exactly its checkout (git refuses a work tree another user owns),
+    /// runs no repository-named program (crate::safegit::for_turn_user) and asks for GitHub tokens through its own
+    /// owner-only socket, since the shared one is the bot user's.
     fn turn_git(&self, vault: &mut Vault, env: &mut Env, paths: &[PathBuf]) -> Result<(), Fail> {
-        crate::gitcred::trust_directories(env, paths);
-        let (Some(shared), Some(user)) = (&self.socket, &vault.turn_user) else { return Ok(()) };
+        let Some(user) = &vault.turn_user else { return Ok(()) };
+        crate::safegit::for_turn_user(env, paths, &user.dir.join("gitconfig"))
+            .map_err(|e| Fail::runtime(format!("cannot prepare the turn user's git: {e}")))?;
+        let Some(shared) = &self.socket else { return Ok(()) };
         if let Some(own) = &vault.turn_socket {
             shared.repoint(env, &own.path); // a fallback hop on the same lease
             return Ok(());

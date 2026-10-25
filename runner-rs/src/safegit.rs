@@ -126,6 +126,52 @@ pub fn environment(turn: &Env) -> Env {
     env
 }
 
+/// A Gateway turn's own git: the model's, run as its leased user in a checkout the bot user and the shared group
+/// can write. Like the runner's git it runs no repository-named program (hooks, fsmonitor), and it reads no system
+/// or bot-owned global config, where `safe.directory = *` would widen trust: its global config is `global`, a file
+/// the supervisor writes with only the machine's identity, default branch and proxy settings. It trusts exactly
+/// `paths`.
+pub fn for_turn_user(env: &mut Env, paths: &[PathBuf], global: &Path) -> std::io::Result<()> {
+    let mut machine: Env = env.iter().filter(|(k, _)| crate::env::SETTINGS.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
+    for key in ["GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"] {
+        if let Some(v) = env.get(key) { machine.insert(key.into(), v.clone()); }
+    }
+    let mut lines = String::new();
+    for scope in ["--system", "--global"] {
+        let hooks = format!("core.hooksPath={}", hooks().display());
+        let out = std::process::Command::new("git")
+            .args(["--no-optional-locks", "-c", &hooks, "-c", "core.fsmonitor=false", "config", scope, "--no-includes", "--null",
+                   "--get-regexp", r"^(user\.(name|email)|init\.defaultbranch|http\.(.*\.)?(proxy|sslcainfo))$"])
+            .current_dir("/").env_clear().envs(&machine)
+            .stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).output();
+        let Ok(out) = out else { continue };
+        for entry in String::from_utf8_lossy(&out.stdout).split('\0') {
+            let Some((key, value)) = entry.split_once('\n') else { continue };
+            let Some((section, name)) = key.rsplit_once('.') else { continue };
+            if value.contains('\n') { continue; }
+            let section = match section.split_once('.') {
+                Some((head, sub)) => format!("{head} \"{}\"", sub.replace('\\', "\\\\").replace('"', "\\\"")),
+                None => section.to_string(),
+            };
+            lines.push_str(&format!("[{section}]\n\t{name} = \"{}\"\n", value.replace('\\', "\\\\").replace('"', "\\\"")));
+        }
+    }
+    let _ = std::fs::remove_file(global);
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o644).custom_flags(libc::O_NOFOLLOW).open(global)?;
+        file.write_all(lines.as_bytes())?;
+    }
+    env.insert("GIT_CONFIG_GLOBAL".into(), global.display().to_string());
+    env.insert("GIT_CONFIG_SYSTEM".into(), "/dev/null".into());
+    env.insert("GIT_CONFIG_NOSYSTEM".into(), "1".into());
+    crate::gitcred::add_config(env, "core.hooksPath", "/dev/null");
+    crate::gitcred::add_config(env, "core.fsmonitor", "false");
+    crate::gitcred::trust_directories(env, paths);
+    Ok(())
+}
+
 const IDENTITY: [&str; 4] = ["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"];
 
 /// `environment()` for a rebase, merge or commit the runner makes (safe_git.committing_environment): the bot's
@@ -153,6 +199,34 @@ pub fn committing_environment(turn: &Env) -> Env {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_turn_users_git_runs_no_repository_program_and_reads_no_wider_trust() {
+        let dir = std::env::temp_dir().join(format!("tico-turn-git-{}", uuid::Uuid::new_v4().simple()));
+        let (repo, home) = (dir.join("repo"), dir.join("home"));
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(home.join(".gitconfig"), "[safe]\n\tdirectory = *\n[user]\n\tname = Fixture\n\temail = fixture@example.invalid\n").unwrap();
+        let mut env = Env::new();
+        env.insert("HOME".into(), home.display().to_string());
+        env.insert("PATH".into(), std::env::var("PATH").unwrap_or_default());
+        let git = |env: &Env, args: &[&str]| std::process::Command::new("git").args(args).env_clear().envs(env).output().unwrap();
+        assert!(git(&env, &["init", "-q", &repo.display().to_string()]).status.success());
+        let mark = dir.join("ran");
+        let hook = repo.join(".git/hooks/pre-commit");
+        std::fs::write(&hook, format!("#!/bin/sh\ntouch '{}'\n", mark.display())).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let global = dir.join("turn.gitconfig");
+        for_turn_user(&mut env, &[repo.clone()], &global).unwrap();
+        let written = std::fs::read_to_string(&global).unwrap();
+        assert!(written.contains("Fixture") && !written.contains("safe"), "{written}");
+        assert_eq!((env["GIT_CONFIG_NOSYSTEM"].as_str(), env["GIT_CONFIG_GLOBAL"].as_str()), ("1", global.to_str().unwrap()));
+        let listed = git(&env, &["-C", &repo.display().to_string(), "config", "--get-all", "safe.directory"]);
+        assert_eq!(String::from_utf8_lossy(&listed.stdout).trim(), repo.display().to_string());
+        assert!(git(&env, &["-C", &repo.display().to_string(), "commit", "-q", "--allow-empty", "-m", "turn"]).status.success());
+        assert!(!mark.exists(), "the repository's hook ran");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn runner_commits_carry_the_bots_identity_else_ticos() {

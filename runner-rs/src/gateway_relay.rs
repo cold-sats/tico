@@ -36,6 +36,8 @@ const MODEL_CALL: &str = "/chat/completions";
 /// the server reads it by (clients/gateway.py `not_isolated`): the run is not retried, since it would be refused again.
 pub const NOT_ISOLATED: &str = "Tico models need a runner that runs bots as their own user (Tico's Docker runner). This \
 computer can't, so pick another model or move the bot (not_isolated)";
+/// A turn on a Tico model whose Gateway key the server did not hand this runner: it cannot start here either.
+pub const NO_KEY: &str = "This computer has no Tico AI Gateway key for this turn (not_isolated)";
 const MAX_HEAD: usize = 64 * 1024;
 const MAX_BODY: usize = 32 * 1024 * 1024;
 /// HQ keeps a rotated key for 24 hours. End this attempt before then, leaving one model call's 90-second budget.
@@ -175,6 +177,17 @@ pub async fn hand_to_turn(
         crate::util::log(&format!("{}: no Tico fallback here: {NOT_ISOLATED}", text_of(&attempt["id"])));
         return Ok(());
     }
+    // The key first: a Gateway turn without one is settled unstarted (`not_isolated`, from its error event), and
+    // its leased user goes back to the pool unused.
+    let release = |vault: &mut Vault| if let Some(mut user) = vault.turn_user.take() { user.permit_reuse(); };
+    let pinned = match credentials(client, &text_of(&attempt["id"])).await {
+        Ok(pinned) => pinned,
+        Err(e) => { release(vault); return Err(e); }
+    };
+    let Some((key, url, bot)) = pinned else {
+        release(vault);
+        return if crate::hosts::pi::is_gateway(attempt["config"]["model"].as_str()) { Err(NO_KEY.into()) } else { Ok(()) };
+    };
     let mut user = match vault.turn_user.take().map(Ok).unwrap_or_else(crate::turn_users::Lease::take) {
         Ok(user) => user,
         Err(e) if !crate::hosts::pi::is_gateway(attempt["config"]["model"].as_str()) => {
@@ -183,22 +196,13 @@ pub async fn hand_to_turn(
         }
         Err(e) => return Err(e),
     };
-    let pinned = match credentials(client, &text_of(&attempt["id"])).await {
-        Ok(pinned) => pinned,
+    vault.values.push(key.clone());
+    let relay = match start_for_user(&url, key, bot, Some(user.uid)).await {
+        Ok(relay) => relay,
         Err(e) => { user.permit_reuse(); return Err(e); }
     };
-    if let Some((key, url, bot)) = pinned {
-        vault.values.push(key.clone());
-        let relay = match start_for_user(&url, key, bot, Some(user.uid)).await {
-            Ok(relay) => relay,
-            Err(e) => { user.permit_reuse(); return Err(e); }
-        };
-        attach(relay, user.dir.join("pi"), env, vault);
-        vault.turn_user = Some(user);
-    } else {
-        user.permit_reuse();
-    }
-
+    attach(relay, user.dir.join("pi"), env, vault);
+    vault.turn_user = Some(user);
     Ok(())
 }
 
@@ -642,6 +646,20 @@ mod tests {
         assert!(asked.lock().unwrap().is_empty());                // the key is never even fetched
     }
 
+    #[tokio::test]
+    async fn a_tico_model_turn_without_a_gateway_key_fails_as_not_isolated() {
+        let answer = r#"{"credentials": []}"#;
+        let (hub, asked) = upstream(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{answer}", answer.len()).into_bytes()).await;
+        let client = Client::new(hub.trim_end_matches("/v1/gateway"), "runner-token", 5, 0).unwrap();
+        let (mut env, mut vault) = (Env::new(), Vault::default());
+        let attempt = serde_json::json!({"id": "att-1", "gateway": true, "config": {"model": "tico-mid-1.0"}});
+        // execute.rs records this as the turn's error event and reports failed, which the server settles unstarted.
+        let got = hand_to_turn(&client, &attempt, &mut env, &mut vault, true).await.unwrap_err();
+        assert!(got.ends_with("(not_isolated)"), "{got}");
+        assert_eq!(asked.lock().unwrap().len(), 1);
+        assert!(vault.relay.is_none() && vault.turn_user.is_none() && !env.contains_key(KEY_ENV));
+    }
+
     /// The hub's answer to the runner's credential request: the Gateway at `gateway` with KEY.
     async fn hub_for(gateway: &str) -> (Client, Arc<Mutex<Vec<String>>>) {
         let answer = serde_json::json!({"credentials": [
@@ -811,12 +829,29 @@ mod tests {
         std::os::unix::fs::lchown(&stale, Some(10100), Some(10002)).unwrap();
         let mut orphan = crate::isolation::command_as(Some((10100, 10002)), "/bin/sleep")
             .arg("300").env_clear().spawn().unwrap();
+        // Only once it really runs as the slot user (the identity switch happens after spawn) is it the sweep's to kill.
+        let orphan_pid = orphan.id().unwrap();
+        for _ in 0..500 {
+            if std::fs::metadata(format!("/proc/{orphan_pid}")).map(|m| m.uid()).unwrap_or(0) == 10100 { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        eprintln!("probe: crash leftovers in place");
         let user = crate::turn_users::Lease::take().unwrap();
         let other = crate::turn_users::Lease::take().unwrap();
         assert_ne!(user.uid, other.uid);
         assert!(crate::turn_users::Lease::take().is_err(), "pool exhaustion must not reuse a live UID");
         assert!(!orphan.wait().await.unwrap().success());
+        eprintln!("probe: pool swept the crashed slot");
         assert_eq!(stale.metadata().unwrap().uid(), 10003);
+        // The bot user (or a sibling, through the shared group) plants programs git would run: a hook and fsmonitor.
+        let (hook_mark, fsmonitor_mark) = (format!("/tmp/tico-hostile-hook-{}", uuid::Uuid::new_v4().simple()), format!("/tmp/tico-hostile-fsmonitor-{}", uuid::Uuid::new_v4().simple()));
+        let plant = r#"set -e; git init -q "$1"
+printf '#!/bin/sh\ntouch "%s"\n' "$2" > "$1/.git/hooks/pre-commit"; printf '#!/bin/sh\ntouch "%s"\n' "$3" > "$1/.git/fsmonitor"
+chmod 755 "$1/.git/hooks/pre-commit" "$1/.git/fsmonitor"; git -C "$1" config core.fsmonitor "$1/.git/fsmonitor""#;
+        let planted = crate::isolation::command_as(Some((10003, 10002)), "/bin/sh")
+            .args(["-c", plant, "plant", &workspace.display().to_string(), &hook_mark, &fsmonitor_mark])
+            .env_clear().env("PATH", "/usr/bin:/bin").output().await.unwrap();
+        assert!(planted.status.success(), "{}", String::from_utf8_lossy(&planted.stderr));
         crate::turn_users::share_workspace(vec![workspace.clone()]).await.unwrap();
         let (gateway, seen) = upstream(SSE.to_vec()).await;
         let relay = start_for_user(&gateway, KEY.into(), None, Some(user.uid)).await.unwrap();
@@ -856,8 +891,9 @@ mod tests {
         settings.env.insert(KEY_ENV.into(), relay.token.clone());
         settings.env.insert(URL_ENV.into(), relay.url.clone());
         settings.env.insert(DIR_ENV.into(), user.dir.join("pi").display().to_string());
-        // The turn's real git trust: exactly its checkout, as execute.rs turn_git gives it (no `safe.directory=*`).
-        crate::gitcred::trust_directories(&mut settings.env, &[workspace.clone()]);
+        // The turn's real git settings, as execute.rs turn_git gives them: exactly its checkout trusted (the image's
+        // `safe.directory = *` unread), no repository-named programs.
+        crate::safegit::for_turn_user(&mut settings.env, &[workspace.clone()], &user.dir.join("gitconfig")).unwrap();
         let mut argv = vec![crate::env::python().display().to_string()];
         argv.extend(["-u", "-c", r#"import os,pathlib,subprocess,sys,time
 assert os.getegid()==10002
@@ -870,6 +906,7 @@ assert pathlib.Path(sys.argv[2]).read_text()=='previous turn'
 for p in sys.argv[3:]:
  pathlib.Path(p).write_text('from isolated turn'); os.chmod(p,0o600)
 subprocess.run(['git','init','-q',str(pathlib.Path(sys.argv[3]).parent)],check=True)
+subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'status','--short'],check=True,stdout=subprocess.DEVNULL)
 subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'-c','user.name=fixture','-c','user.email=fixture@example.invalid','add','.'],check=True)
 subprocess.run(['git','-C',str(pathlib.Path(sys.argv[3]).parent),'-c','user.name=fixture','-c','user.email=fixture@example.invalid','commit','-qm','synthetic'],check=True)
 remote=str(pathlib.Path(sys.argv[3]).parent/'.git'/'fixture-remote.git')
@@ -880,9 +917,19 @@ time.sleep(300)
 "#, &private.display().to_string(), &old.display().to_string(), &written.display().to_string(), &tmp.display().to_string(), &shm.display().to_string()].map(String::from));
         // Exercise the actual OneShot/Pi process-launch boundary, including Settings.identity.
         let (mut child, _stderr) = host.launch(&argv, &settings).unwrap();
+        eprintln!("probe: launching the isolated turn");
         let mut line = String::new();
         BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).await.unwrap();
         let pid: u32 = line.trim().parse().unwrap();
+        eprintln!("probe: turn finished its git work");
+        assert!(!std::path::Path::new(&hook_mark).exists() && !std::path::Path::new(&fsmonitor_mark).exists(), "a planted program ran as the leased user");
+        // Control: the same git run by the repository's owner with its own config does run them, so the check is not vacuous.
+        let control = crate::isolation::command_as(Some((10003, 10002)), "/usr/bin/git")
+            .args(["-C", &workspace.display().to_string(), "-c", "user.name=c", "-c", "user.email=c@example.invalid", "commit", "-q", "--allow-empty", "-m", "control"])
+            .env_clear().env("PATH", "/usr/bin:/bin").output().await.unwrap();
+        assert!(control.status.success(), "{}", String::from_utf8_lossy(&control.stderr));
+        assert!(std::path::Path::new(&hook_mark).exists() && std::path::Path::new(&fsmonitor_mark).exists(), "control: the planted programs never run");
+        for mark in [&hook_mark, &fsmonitor_mark] { let _ = std::fs::remove_file(mark); }
         assert_eq!(std::fs::metadata(format!("/proc/{pid}")).unwrap().uid(), user.uid);
         let probe = r#"import json,os,pathlib,signal,sys,urllib.request
 pid,private,url,token=sys.argv[1:]
@@ -955,6 +1002,7 @@ print(json.dumps(r))
         assert_eq!(seen.lock().unwrap().len(), 1);
         let dir = user.dir.clone();
         let uid = user.uid;
+        eprintln!("probe: siblings denied; cleaning up");
         relay.stop().await;
         grant_vault.remove_files();
         user.permit_reuse();
