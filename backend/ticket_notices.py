@@ -87,7 +87,7 @@ def post(conn, kind, row, actor=None, blocker=None):
             continue
         refs = {'task': where['id'], 'comment': True, 'quiet': True, 'task_notice': kind, 'ticket': row['id']}
         if kind == 'blocked' and where['id'] == row['id'] and blocker and \
-                TR.requester_hears_block(conn, row, blocker.get('owner'), actor):
+                TR.requester_hears_block(conn, row, blocker, actor):
             refs = {**refs, 'news': 'task_blocked'}      # the requester's wake for the block (task_relations)
             del refs['quiet']
         if _names_blocker(conn, kind, blocker, to):

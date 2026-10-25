@@ -49,6 +49,8 @@ def test_blocked_on_someone_else_wakes_the_requester_once_and_a_wait_on_the_owne
         plain = H.task_create(c, "bot:coo", "Draft the note", "x", "bot:cpo", lint=False)
         own = H.task_create(c, "bot:cpo", "Set up the repo", "x", "bot:cpo", lint=False)
         TR.add_blocker(c, "bot:cpo", plain["id"], own["id"])                 # its owner's own work: no news
+        review = H.task_create(c, "bot:cpo", "Review the draft", "x", "bot:ops", parent_id=plain["id"], lint=False)
+        TR.add_blocker(c, "bot:cpo", plain["id"], review["id"])              # work it split off to a bot: no news
         c.execute("DELETE FROM jobs WHERE bot='cpo'")
     assert heard(api, "coo")[0] == 0
     with api.app.state.store.transaction() as c:

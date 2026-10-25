@@ -145,6 +145,9 @@ def test_a_lead_is_woken_by_people_and_hears_the_rest_once_a_day(api):
         assert c.execute("SELECT held FROM jobs WHERE id=?", (job["id"],)).fetchone()[0] == 0
         # A person's message, and a declined ticket it asked for, wake it at once.
         assert R.judge(c, "human:ana", "bot:boss", "message", {}, "Status?", None).outcome == "wake"
+        # The digest itself is held news let go: the lead's batch-everything row must not hold it again.
+        digest = R.judge(c, H.KEEPER, "bot:boss", "message", {"wake_digest": [job["id"]]}, "Held updates", None)
+        assert (digest.outcome, digest.rule) == ("wake", "batch_digest")
         c.execute("DELETE FROM jobs")
         H.task_update(c, "bot:ops", mine["id"], status="declined", note="Nobody to ask.")
         assert last_to(c, "boss")["rule"] == "profile_lead_task_declined" and jobs(c, "boss") == 1

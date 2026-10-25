@@ -499,28 +499,30 @@ def _check_blocker(conn, actor, row, blocker_id):
 
 
 def _blocker_gate(conn, actor, row, mover):
-    """The owner says what its own task waits on; anyone else who may change it must be a mover."""
+    """The owner says what its own task waits on; anyone else who may change it must be a mover (or the Task Manager,
+    whose grant covers relations)."""
     _mine(conn, actor, row, mover)
-    if actor != row["owner"] and not mover:
+    if actor != row["owner"] and not mover and not _H().task_manager_acts(conn, actor, row):
         _need_mover(conn, actor, "blocked_by")
 
 
-def requester_hears_block(conn, row, waits_on, actor):
-    """Whether a task that now waits on `waits_on` (an actor) wakes its requester: a bot that handed the task to
-    someone else, told of a block it may act on (find the person, drop the request), as of a decline. Not when the
-    owner waits on itself or its own split-off work, nor on the requester (that is an ask, its own wake), nor when the
-    requester made the change. A person requester sees it in Needs you."""
+def requester_hears_block(conn, row, blocker, actor):
+    """Whether a task that now waits on `blocker` (a task) wakes its requester: a bot that handed the task to someone
+    else, told of a block it may act on (find the person, drop the request), as of a decline. Not when the owner waits
+    on itself, nor on work it split off to a bot (a review, a delegated part: its own flow), nor on the requester (that
+    is an ask, its own wake), nor when the requester made the change. A person requester sees it in Needs you."""
     H = _H()
-    req = row.get("requester")
-    return bool(req and H.is_bot(req) and waits_on and req not in (row.get("owner"), actor, waits_on)
-                and waits_on != row.get("owner"))
+    req, owner, waits_on = row.get("requester"), row.get("owner"), (blocker or {}).get("owner")
+    split_off = H.is_bot(waits_on) and blocker.get("requester") == owner
+    return bool(req and H.is_bot(req) and waits_on and req not in (owner, actor, waits_on)
+                and waits_on != owner and not split_off)
 
 
 def _tell_requester(conn, actor, row, blocker):
     """The requester's wake for a block (requester_hears_block); a Dev ticket's own notice carries it instead."""
     from .ticket_notices import _engineering
     H = _H()
-    if not blocker or _engineering(conn, row) or not requester_hears_block(conn, row, blocker["owner"], actor):
+    if not blocker or _engineering(conn, row) or not requester_hears_block(conn, row, blocker, actor):
         return
     H._wake(conn, row, row["requester"], f"Blocked: {row['title']}: waits on {blocker['title']}",
             {"news": "task_blocked", "blocker": blocker["id"]}, quiet_bots=True)

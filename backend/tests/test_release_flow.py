@@ -100,3 +100,17 @@ def test_a_published_release_gives_the_writer_one_task_and_qa_a_wake_per_ticket(
     assert [json.loads(r[0])["rule"] for r in written] == ["release_published"], "the writer's docs task wakes under it too"
     docs = [t for t in _tasks(api, "cpo", "Docs for")]
     assert docs == ["Docs for v1.2.3: 2 tickets"], "one docs task for the release, however many tickets or replays"
+
+
+def test_a_private_ticket_is_counted_but_never_named_in_the_docs_task(api):
+    dev = _team(api)
+    _ticket(api, dev, "Visual replies", 412)
+    secret = _ticket(api, dev, "Acme payroll export", 413)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET private=1 WHERE id=?", (secret["id"],))
+    hook(api, "release", {"action": "published", "release": {"tag_name": "v1.2.3", "html_url": RELEASE_URL},
+                          "repository": {"full_name": "ticoteam/tico"}})
+    with api.app.state.store.read() as c:
+        body = c.execute("SELECT body FROM tasks WHERE owner='bot:cpo' AND title LIKE 'Docs for%'").fetchone()["body"]
+    assert "Visual replies" in body and "1 private ticket, not named here" in body
+    assert "Acme payroll" not in body and "/413" not in body

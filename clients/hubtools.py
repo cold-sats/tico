@@ -2623,7 +2623,8 @@ def _rule_body(args, keys):
 
 @tool("hub_rule_list", "List the wake rules that decide whether a message starts a bot's run: the built-in rules and the "
       "rules set for the team, a task type, a department, a bot or a task, each with its 7-day run count and the share of "
-      "those runs that did nothing. A scoped rule overrides the built-ins; a person's message always wakes.",
+      "those runs that did nothing. A scoped rule overrides the built-ins; a person's message always wakes. When `more` is "
+      "true, list again from `next_offset`.",
       {"scope_kind": {"type": "string", "enum": ["builtin"] + _RULE_SCOPES}, "scope_id": _s("The type, department, bot or task"),
        "event": _s("Only this event"), "limit": {"type": "integer", "minimum": 1, "maximum": 500},
        "offset": {"type": "integer", "minimum": 0}})

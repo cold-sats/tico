@@ -11,6 +11,7 @@ import pytest
 
 from backend import system_routines as SR
 from backend import task_manager as TM
+from backend import task_relations as TR
 from backend.auth import Identity
 from backend.onboarding import helper_templates
 from backend.store import H
@@ -108,8 +109,13 @@ def test_it_closes_with_a_note_but_cannot_touch_a_private_task_or_a_mover_field(
     assert api.post(f"/api/v2/tasks/{open_id}/comments", json={"text": "Looking"}, headers=as_manager(api)).status_code == 200
     assert api.post(f"/api/v2/tasks/{secret_id}/comments", json={"text": "Hi"}, headers=as_manager(api)).status_code == 404
     assert act(api, "task_update", open_id, status="doing", note="Picked up")["status"] == "doing"
-    with pytest.raises(H.Refused):
-        act(api, "task_update", open_id, lane="product")                      # a mover's field, never the Task Manager's
+    for field in ({"lane": "product"}, {"type": "Dev tickets"}, {"title": "Renamed"}, {"rank": 1}):
+        with pytest.raises(H.Refused, match="Task Manager sets"):
+            act(api, "task_update", open_id, **field)                         # beyond its grant, never the Task Manager's
+    other = quiet_task(api, "Ship the Acme export")
+    with api.app.state.store.transaction() as c:
+        assert TR.add_blocker(c, TM.ACTOR, other, open_id, note="Export waits on the invoices")
+        assert TR.remove_blocker(c, TM.ACTOR, other, open_id)                 # relations are inside its grant
     for call in (lambda: act(api, "task_update", secret_id, status="doing"), lambda: act(api, "task_close", secret_id, "x")):
         with pytest.raises(H.Refused):
             call()

@@ -106,6 +106,7 @@ def test_rule_writes_follow_the_scope_and_the_list_shows_builtins_and_counts(api
     assert changed["revision"] == 2 and changed["then"] == "wake" and changed["enabled"] is False
     post(api, "rules/parked", {"expected_revision": 1, "then": "wake"}, expected=403)
     rule_row(api, then="action", params={"action": "nope"}, expected=422)
+    rule_row(api, when={"tag": [f"tag-{n}" for n in range(200)]}, expected=422)   # read per message: kept small
     rule_row(api, then="action", params={"action": "close"})
     post(api, f"rules/{made['id']}/delete", {}, token="cara-test", expected=403)
     post(api, f"rules/{made['id']}/delete", {})
@@ -169,3 +170,20 @@ def test_an_action_rule_runs_as_the_keeper_and_a_failed_action_wakes_the_bot(api
         woke = news(c, other)
         assert woke["refs"]["rule"] == R.FAIL_OPEN and jobs(c, "cpo") == before + 1
         assert H.task(c, other["id"])["status"] != "closed"
+
+
+def test_a_long_rule_list_is_byte_capped_and_continues_where_it_stopped(api):
+    made = rule_row(api, when={"tag": [f"acme-tag-{n:03d}" for n in range(60)]})["rule"]
+    with api.app.state.store.transaction() as c:
+        row = dict(c.execute("SELECT * FROM rules WHERE id=?", (made["id"],)).fetchone())
+        c.executemany(f"INSERT INTO rules({','.join(row)}) VALUES({','.join('?' * len(row))})",
+                      [[f"{made['id']}-{i}" if k == "id" else v for k, v in row.items()] for i in range(399)])
+    seen, offset = set(), 0
+    while True:
+        page = get(api, f"rules?scope_kind=team&limit=500&offset={offset}")
+        assert len(json.dumps(page)) < 400 * 1024
+        seen |= {r["id"] for r in page["rules"]}
+        if not page["more"]:
+            break
+        offset = page["next_offset"]
+    assert offset and len(seen) == 400, "the cap split the 500-row page, and every row is still reached"

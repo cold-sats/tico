@@ -151,10 +151,22 @@ def _line(t):
     return f"- {_name(t)} (owner {t['owner']}){' ' + pr if pr else ''}"
 
 
-def _task_body(tickets, why):
-    shown = tickets[:MAX_LISTED]
-    more = f"\n...and {len(tickets) - len(shown)} more: `hub task list --step \"Pending Release\"`." if len(tickets) > len(shown) else ""
-    return (f"{why}\n\nAt Pending Release now:\n" + "\n".join(_line(t) for t in shown) + more +
+def _listing(c, tickets, more_where):
+    """The ticket lines a team-visible task or routine may carry: a private ticket is counted, never named (its title,
+    owner and pull request stay with its own audience)."""
+    open_ = [t for t in tickets if not H.task_private(c, t)]
+    shown = open_[:MAX_LISTED]
+    lines = [_line(t) for t in shown]
+    if len(open_) > len(shown):
+        lines.append(f"...and {len(open_) - len(shown)} more {more_where}.")
+    if len(tickets) > len(open_):
+        hidden = len(tickets) - len(open_)
+        lines.append(f"...and {hidden} private ticket{'s' if hidden != 1 else ''}, not named here.")
+    return "\n".join(lines)
+
+
+def _task_body(c, tickets, why):
+    return (f"{why}\n\nAt Pending Release now:\n" + _listing(c, tickets, 'with `hub task list --step "Pending Release"`') +
             "\n\nCut one release for them with your release playbook and docs/releasing.md. When it is published, "
             "Tico wakes each ticket's QA owner and the Technical Writer by itself.")
 
@@ -184,7 +196,7 @@ def request(c, actor, *, source, note=""):
     else:
         who = f"Asked by {H.actor_id(actor)}" + (f": {note}" if note else ".")
     title = f"{TITLE}{len(tickets)} ticket{'s' if len(tickets) != 1 else ''} at Pending Release"
-    body = _task_body(tickets, who)
+    body = _task_body(c, tickets, who)
     open_task = _unfinished(c, owner)
     if open_task:
         if source == "release_schedule":
@@ -278,11 +290,9 @@ def _docs_task(c, writer, tag, tickets, url):
     if c.execute("SELECT 1 FROM tasks WHERE owner=? AND substr(title,1,?)=? LIMIT 1", (owner, len(prefix), prefix)).fetchone():
         return None
     title = f"{prefix} {len(tickets)} ticket{'s' if len(tickets) != 1 else ''}"
-    shown = tickets[:MAX_LISTED]
-    more = f"\n...and {len(tickets) - len(shown)} more at {tag}." if len(tickets) > len(shown) else ""
     body = (f"{tag} is published" + (f" ({url})" if url else "") + ". Update the docs for the changes people will see, "
             "each with its pull request; skip what nobody sees. The version's CHANGELOG section comes on its release "
-            "notes task.\n\nIn this release:\n" + "\n".join(_line(t) for t in shown) + more)
+            "notes task.\n\nIn this release:\n" + _listing(c, tickets, f"at {tag}"))
     return H.task_create(c, H.KEEPER, title, body, owner, deduplicate=False, trigger=EVENT, trigger_source=tag,
                          wake_refs={"wake": EVENT})["id"]
 
@@ -311,7 +321,7 @@ def published(c, target, url="", release_repo=""):
                     refs={"wake": EVENT, "release": tag, "role": "note"}, source=target)
     docs = _docs_task(c, writer, tag, tickets, url) if writer and tickets else None
     from . import routines
-    listing = "\n".join(_line(t) for t in tickets[:MAX_LISTED])
+    listing = _listing(c, tickets, f"at {tag}")
     routines.emit(c, EVENT, target, {"release": tag, "url": url, "tickets": len(tickets)},
                   title=tag, content=listing)
     H.event(c, H.KEEPER, "release.published", target, {"tickets": [t["id"] for t in tickets], "woke": sent, "docs": docs})

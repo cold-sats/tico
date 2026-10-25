@@ -64,6 +64,7 @@ BOT_TO_BOT = "bot_to_bot"
 # What a code action can do, for `action` rows (system_routines' THEN names). Stored and checked now; run later.
 ACTIONS = ("close", "move_step", "set_wait", "relate", "note")
 MAX_ROWS = 500
+MAX_LIST_BYTES = 256 * 1024
 HOLD_ROW, HOLD_IGNORED = "rule", "ignored"
 
 # What a message is, as a rule names it. The always-wake events cannot be lowered by a row.
@@ -172,6 +173,7 @@ def _profile_rules():
     add("reviewer", "profile_reviewer_assignment", "assignment", WAKE, "a review or QA request was filed for it")
     add("reviewer", "profile_reviewer_request", "review_request", WAKE, "a review, QA or Security request")
     add("reviewer", "profile_reviewer_handback", "review_handback", WAKE, "a task it asked for came back for its review")
+    add("reviewer", "profile_reviewer_release", "release_published", WAKE, "a ticket it checks was released: live tests now")
     timers("reviewer", OWN_TIMERS[:2] + OWN_WORK)
     add("reviewer", "profile_reviewer_note", "*", NOTE, "anything else")
     # A bot finishing it is batched news for everyone else (batch_completion); a lead hears it now.
@@ -179,6 +181,7 @@ def _profile_rules():
                          ("task_declined", "declined"), ("task_blocked", "blocked")):
         add("lead", f"profile_lead_{event}", event, WAKE, f"a ticket it asked for was {words}", {"role": ["requester"]})
     add("lead", "profile_lead_handback", "review_handback", WAKE, "a ticket it asked for came back for its review")
+    add("lead", "profile_lead_release_now", "release_now", WAKE, "someone asked for a release now")
     add("lead", "profile_lead_blocker", "blocker", WAKE, "a blocker needs it")
     # A lead takes tasks: one handed to it (an escalation, a release, a report) is work now, not digest news.
     add("lead", "profile_lead_assignment", "assignment", WAKE, "a task was given to it")
@@ -501,8 +504,9 @@ def _table_decision(conn, event, actor, target, refs, conv, task_row=None):
     if PROFILE_RULES:
         profile = [{**r, "scope_kind": "bot", "scope_id": slug} for r in PROFILE_RULES.get(profile_of(conn, slug), ())
                    if r["event"] in (event, "*")]
-    if event in AWAITED_NAMES:
-        # What the bot waits on wakes it: a `*` row does not reach it, only a row that names the event.
+    if event in AWAITED_NAMES or event == "digest":
+        # What the bot waits on wakes it, and a digest is held news let go: a `*` row (a lead's batch-everything, a
+        # note-everything) does not reach either, only a row that names the event.
         rows = [r for r in rows if r["event"] != "*"]
         profile = [r for r in profile if r["event"] != "*"]
     if not rows and not profile:
@@ -833,6 +837,8 @@ def validate(c, settings, scope_kind, scope_id, event, then, when, params):
     when = when if when is not None else {}
     if not isinstance(when, dict) or set(when) - set(WHEN_KEYS):
         raise Problem("invalid", f"when holds only {', '.join(WHEN_KEYS)}", 422)
+    if len(json.dumps(when)) > 1000:            # every row is read per message and listed in pages: keep each small
+        raise Problem("invalid", "when is a few short words per key", 422)
     for key, want in when.items():
         wanted = want if isinstance(want, list) else [want]
         if not wanted or not all(isinstance(w, str) and w and len(w) <= 80 for w in wanted):
@@ -898,7 +904,8 @@ def _visible(c, who, row):
 
 def listing(c, settings, auth, who, scope_kind=None, scope_id=None, event=None, limit=200, offset=0):
     """Built-ins first (on the first page of an unfiltered or built-in listing), then the table rows the viewer may
-    see, each with its 7-day run count and no-op rate and whether the viewer may change it."""
+    see, each with its 7-day run count and no-op rate and whether the viewer may change it. Paged and byte-capped:
+    `more` says another page waits, at `next_offset`."""
     limit = max(1, min(int(limit or 200), MAX_ROWS))
     counts = usage(c, who.actor)
     items = []
@@ -916,11 +923,22 @@ def listing(c, settings, auth, who, scope_kind=None, scope_id=None, event=None, 
         sql += " ORDER BY position, created, id LIMIT ? OFFSET ?"
         rows = c.execute(sql, (*args, limit + 1, offset)).fetchall()
         more = len(rows) > limit
-        for row in rows[:limit]:
+        spent = len(json.dumps(items))
+        for n, row in enumerate(rows[:limit]):
+            if spent > MAX_LIST_BYTES:          # byte-capped as well as paged: the next page starts at this row
+                more, next_offset = True, offset + n
+                break
             if _visible(c, who, row):
-                items.append(_with_usage({**view(row), "can_change": can_change(
-                    c, settings, auth, who, row["scope_kind"], row["scope_id"])}, counts))
-    return {"rules": items, "events": list(EVENTS), "outcomes": list(OUTCOMES), "scopes": list(SCOPES), "more": more}
+                item = _with_usage({**view(row), "can_change": can_change(
+                    c, settings, auth, who, row["scope_kind"], row["scope_id"])}, counts)
+                items.append(item)
+                spent += len(json.dumps(item))
+        else:
+            next_offset = offset + min(len(rows), limit)
+    out = {"rules": items, "events": list(EVENTS), "outcomes": list(OUTCOMES), "scopes": list(SCOPES), "more": more}
+    if more:
+        out["next_offset"] = next_offset
+    return out
 
 
 def get(c, rule_id):

@@ -82,3 +82,16 @@ def test_the_api_takes_the_fields_on_done_and_returns_them_on_the_task(api):
                                               "verdict": "pass", "verdict_head": HEAD.upper()[:12]})
     assert (done["verdict"], done["verdict_head"]) == ("pass", HEAD[:12])
     post(api, f"tasks/{check['id']}", {"verdict": "maybe", "version": done["version"]}, expected=422)
+
+
+def test_a_structured_verdict_after_a_prose_one_wakes_the_parent_owner(api):
+    parent, review = pair(api)
+    later = "b" * 40
+    with api.app.state.store.transaction() as c:
+        H.task_comment(c, "bot:finance", review["id"], f"VERDICT: changes PR #4 head {HEAD}")
+        H.task_update(c, "bot:finance", review["id"], status="done", note="Wrapping up.", verdict="approve",
+                      verdict_head=later)
+        woke = [m["refs"] for m in queued_in(c, "ops") if m["refs"].get("subtask") == review["id"]]
+    approve = [r for r in woke if r.get("verdict") == "approve"]
+    assert approve and approve[-1]["verdict_head"] == later and not approve[-1].get("quiet"), \
+        "a new verdict on a new head is a result, not bookkeeping"

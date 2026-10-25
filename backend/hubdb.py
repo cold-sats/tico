@@ -4351,12 +4351,17 @@ def _subtask_result_parent(conn, row):
 
 
 def _subtask_result_key(conn, row, text):
-    """The same gate verdict in a comment, Done note and final reply is one delivery per review cycle."""
-    from .wake_rules import VERDICT
-    verdict = VERDICT.search(str(text or ""))
-    if not verdict:
+    """The same gate verdict in a comment, Done note, final reply or the verdict fields is one delivery per review
+    cycle: keyed by the verdict and the head it judged, however it was given, so a new verdict or head is news."""
+    from .wake_rules import VERDICT, VERDICT_FIELDS
+    if VERDICT.search(str(text or "")):
+        found = VERDICT_FIELDS.search(str(text))
+        verdict, head = found[1], found[2]
+    elif row.get("verdict"):
+        verdict, head = row["verdict"], row.get("verdict_head")
+    else:
         return None
-    return _subtask_result_cycle(conn, row) + " ".join(verdict[0].lower().split())
+    return _subtask_result_cycle(conn, row) + f"verdict {verdict.lower()} {(head or '').lower()}".strip()
 
 
 def _subtask_result_cycle(conn, row):
@@ -4470,7 +4475,7 @@ def _subtask_wake(conn, actor, row, previous, note=None, quiet=False):
         said = f"Subtask {row['status']}: {row['title']}"
     text = f"{last}{said}" + (f": {row['title']}" if row["status"] != "done" and not by_worker else "")
     text += f"\n{note}" if note and not quiet else ""
-    key = _subtask_result_key(conn, row, note) if note and not quiet else None
+    key = _subtask_result_key(conn, row, note) if (note or row.get("verdict")) and not quiet else None
     # A reviewer often posts its verdict before marking Done with a short bookkeeping note. The verdict
     # already resumed the parent; keep that completion in history without buying another turn.
     delivered_verdict = by_worker and not key and row["status"] == "done" and _one(
@@ -5286,6 +5291,17 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                      (task_id, actor, now()))
     mine = (mine or bool(delegated) or task_ancestor_party(conn, actor, row) or type_bot_works(conn, actor, row)
             or task_manager_acts(conn, actor, row))
+    if actor == TASK_MANAGER and actor not in (row["owner"], row["requester"]):
+        # Its grant is narrow (task_manager_acts): status, step, note, waits and a reassignment, nothing else.
+        beyond = [name for name, value in (
+            ("type", type), ("lane", lane), ("labels", labels), ("rank", rank), ("number", number), ("title", title),
+            ("body", body), ("due", due), ("goal", goal_id), ("step rank", step_rank), ("private", private),
+            ("roles", roles), ("visibility", visibility), ("public title", public_title),
+            ("public summary", public_summary), ("size", size), ("review PRs", review_prs), ("verdict", verdict),
+            ("verdict head", verdict_head), ("approval", approval_id)) if value is not None]
+        if beyond or clear_size:
+            refuse(conn, actor, "identity", f"The Task Manager sets status, step, notes, waits and owners only, "
+                                            f"not {', '.join(beyond or ['size'])}")
     if mover is None:
         mover = actor == KEEPER or is_human(actor) and can_move(conn, actor)
     labels_only = labels is not None and not clear_size and all(v is None for v in (
