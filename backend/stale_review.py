@@ -273,7 +273,7 @@ def _apply(c, row, why, verdict, confidence, at):
     sid = H.new_id()
     if H.is_bot(row["owner"]):
         text = f"Stale check: {why}. Suggest: {bot_words}."
-        H.task_comment(c, H.KEEPER, row["id"], text, extra_refs={"stale_check": sid})
+        H.task_comment(c, H.KEEPER, row["id"], text, extra_refs={"stale_check": sid, "wake": "stall"})
         after = H.task(c, row["id"])
         suggest = bot_words
     else:

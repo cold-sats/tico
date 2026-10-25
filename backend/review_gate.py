@@ -6,6 +6,81 @@ from urllib.parse import quote
 from . import test_receipts
 
 REVIEW = re.compile(r"^Review [12](?:\b|:)", re.I)
+# A request to a reviewer, to QA or to Security: a subtask of the ticket, titled by what it asks.
+GATE_CHILD = re.compile(r"^(?:Review [12]|QA|Security)(?:\b|:)", re.I)
+
+
+# The children whose owners only review: they comment and give a verdict, and never move the ticket. QA is not one: QA
+# sends a ticket back to QA Fixes and on to Pending Release and Done (docs/software-factory.md).
+REVIEWER_CHILD = re.compile(r"^(?:Review [12]|Security)(?:\b|:)", re.I)
+
+
+def reviewing(c, actor, row):
+    """The review or Security subtask of this Dev ticket that `actor` owns, or None: a reviewer who is not the
+    ticket's owner. A person is never one here (a person may move any ticket they could move before)."""
+    from . import hubdb as H
+    from . import task_relations as TR
+    if not H.is_bot(actor) or actor == row["owner"] or not engineering(c, row):
+        return None
+    for child_id in TR.child_ids(c, row["id"]):
+        child = H.task(c, child_id)
+        if child and child["owner"] == actor and REVIEWER_CHILD.match(str(child.get("title") or "").strip()):
+            return child
+    return None
+
+
+# One open request per kind of check on a ticket: Review 1, Review 2 or QA (a Security check can be asked again).
+ONE_OPEN = re.compile(r"^(Review [12]|QA)(?:\b|:)", re.I)
+
+
+def heads(c, parent, snapshots=None):
+    """The pull request heads a check on this ticket would judge now: the fresh read when there is one, else the
+    head the link last recorded. Empty when none is known."""
+    from . import hubdb as H
+    out = set()
+    for pr in links(c, parent):
+        detail = (snapshots or {}).get(pr["id"]) or H._json(pr.get("detail_json"), {}) or {}
+        head = str(detail.get("head_sha") or "").lower()
+        if not detail.get("error") and test_receipts.SHA.fullmatch(head):
+            out.add(head)
+    return out
+
+
+def refuse_second(c, actor, parent, title, snapshots=None):
+    """One open Review 1, Review 2 or QA subtask per ticket and pull request head: a second request for the same
+    check on the same head (or one whose head is unknown) points at the one already open instead of buying a
+    second reviewer turn. A push gives a new head, and with it a new check."""
+    from . import hubdb as H
+    from . import task_relations as TR
+    kind = ONE_OPEN.match(str(title).strip())
+    if not kind:
+        return
+    kind = " ".join(kind[1].lower().split())
+    wanted = heads(c, parent, snapshots)
+    for child_id in TR.child_ids(c, parent["id"]):
+        other = H.task(c, child_id)
+        other_kind = ONE_OPEN.match(str(other.get("title") or "").strip())
+        if (not other_kind or " ".join(other_kind[1].lower().split()) != kind
+                or other["status"] not in H.ACTIVE_STATUSES):
+            continue
+        seen = c.execute("SELECT new FROM task_events WHERE task_id=? AND field='review_head' "
+                         "ORDER BY ts DESC, rowid DESC LIMIT 1", (child_id,)).fetchone()
+        judged = set(filter(None, (seen[0] if seen else "").split(",")))
+        if wanted and judged and not wanted & judged:
+            continue
+        who = H.actor_id(other["owner"])
+        H.refuse(c, actor, "duplicate",
+                 f"{kind.title() if kind != 'qa' else 'QA'} is already open on this ticket"
+                 f"{' for this head' if wanted else ''}: task {other['id']}, with {who}. Wait for its verdict; "
+                 "if the code changed, push the new head first, and if that check is no longer needed, close it.")
+
+
+def remember_heads(c, actor, child_id, parent, snapshots=None):
+    """Record the heads a check was asked for, so a later request for the same head finds it (refuse_second)."""
+    from . import hubdb as H
+    seen = heads(c, parent, snapshots)
+    if seen:
+        H._task_event(c, child_id, actor, "review_head", None, ",".join(sorted(seen)), "")
 
 
 def engineering(c, row):

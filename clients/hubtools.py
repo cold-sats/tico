@@ -855,7 +855,11 @@ def task_question(api, args):
        "roles": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}},
                  "description": "Who is on it by role, {role: [people or bots]}: each role named replaces that role's people, [] clears one, "
                                 "a role not named stays. A role is a short name the team chooses (developer, reviewer, qa); one person may hold several"},
-       "goal_id": _s("The goal this task serves; an empty string takes it off"), "on_behalf_of": ASKED},
+       "goal_id": _s("The goal this task serves; an empty string takes it off"),
+       "verdict": _s("A review or QA subtask's verdict; the task that asked for it is woken with it",
+                     enum=["approve", "changes", "pass", "fail"]),
+       "verdict_head": _s("The pull request head (commit sha, 7 to 40 hex characters) the verdict judged"),
+       "on_behalf_of": ASKED},
       required=("id",), writes=True)
 def task_update(api, args):
     current = api.get("tasks/" + args["id"])["task"]
@@ -865,7 +869,8 @@ def task_update(api, args):
         body["quiet"] = True
     if args.get("labels") is not None:
         body["labels"] = args["labels"]
-    for field in ("title", "type", "step", "step_rank", "number", "visibility", "public_title", "public_summary", "approval_id", "size"):
+    for field in ("title", "type", "step", "step_rank", "number", "visibility", "public_title", "public_summary", "approval_id", "size",
+                  "verdict", "verdict_head"):
         if args.get(field) is not None:
             body[field] = args[field]
     if args.get("private") is not None:
@@ -877,6 +882,19 @@ def task_update(api, args):
         body["roles"] = roles
     links = s3links.apply(api, body, ("note",))
     return s3links.annotate(_asked(api, args).post("tasks/" + args["id"], body, key=_key(args)), links)
+
+
+@tool("hub_task_done", "Finish a task you own with its result. A review or QA subtask adds its verdict and the pull "
+      "request head it judged, and the task that asked for it is woken with both (the same as hub_task_update with "
+      "status done).",
+      {"id": TASK_ID, "note": _s("The result, in a few plain sentences"),
+       "verdict": _s("approve or changes for a review, pass or fail for QA", enum=["approve", "changes", "pass", "fail"]),
+       "verdict_head": _s("The pull request head (commit sha, 7 to 40 hex characters) the verdict judged"),
+       "quiet": {"type": "boolean", "description": "Keep detailed notes on the task; chat receives only its title and status"},
+       "on_behalf_of": ASKED},
+      required=("id",), writes=True)
+def task_done(api, args):
+    return task_update(api, {**args, "status": "done"})
 
 
 def _roles(api, args):
@@ -4316,7 +4334,7 @@ REQUESTER = PEOPLE + BOTOPS
 REQUESTER_READ = REQUESTER + ("assistant",)
 HUMANS_AND_ASSISTANT = PEOPLE + ("assistant",)      # views.human_only: bots are refused
 # A write the Assistant may make on its own (backend/assistant.py write_allowed): anything else it proposes.
-ASSISTANT_WRITES = {"hub_inbound_create_email", "hub_task_child_create", "hub_task_create", "hub_task_update", "hub_task_comment", "hub_task_label",
+ASSISTANT_WRITES = {"hub_inbound_create_email", "hub_task_child_create", "hub_task_create", "hub_task_update", "hub_task_done", "hub_task_comment", "hub_task_label",
                     "hub_task_close", "hub_task_link", "hub_approval_decline", "hub_approval_approve", "hub_approval_read_back",
                     "hub_question_answer",
                     "hub_update_mark_read", "hub_changelog_mark_read", "hub_assistant_propose", "hub_assistant_learn"}

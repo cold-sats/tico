@@ -32666,6 +32666,35 @@
             ],
             "title": "Number"
           },
+          "verdict": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "approve",
+                  "changes",
+                  "pass",
+                  "fail"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict"
+          },
+          "verdict_head": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{7,40}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict Head"
+          },
           "roles": {
             "anyOf": [
               {
