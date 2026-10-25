@@ -6,11 +6,12 @@
 // listen to it. Outgoing (backend/webhooks.py): endpoints Tico posts its events to. Through Tico Gateway
 // (backend/hook_relay.py): a second address for an incoming webhook, held by Tico Gateway, for a server the internet
 // cannot reach. A secret is shown once, right after it is made, and is gone from the next screen.
-const WH_PRESETS = [['none', 'None'], ['hmac', 'HMAC'], ['github', 'GitHub'], ['standard', 'Standard Webhooks'], ['stripe', 'Stripe']];
+const WH_PRESETS = [['none', 'None'], ['hmac', 'HMAC'], ['github', 'GitHub'], ['standard', 'Standard Webhooks'], ['stripe', 'Stripe'], ['slack', 'Slack']];
 // Where a preset reads the event type (backend/trigger_presets.py TYPE_FROM): the API has no list of presets to read.
-const WH_TYPE_FROM = {github: 'X-GitHub-Event', stripe: '/type', standard: '/type'};
-const WH_UNHEARD = [['log', 'Log it'], ['note', 'Tell the owner']];
-const WH_OUTCOMES = {accepted: ['ok', 'Accepted'], refused: ['fail', 'Refused'], replayed: ['', 'Rerun']};
+const WH_TYPE_FROM = {github: 'X-GitHub-Event', stripe: '/type', standard: '/type', slack: '/event/type|/type'};
+const WH_UNHEARD = [['log', 'Log it'], ['note', 'Tell the maker']];
+const WH_OUTCOMES = {accepted: ['ok', 'Accepted'], refused: ['fail', 'Refused'], rate_limited: ['fail', 'Over limit'], replayed: ['', 'Rerun']};
+const whRefused = r => r.outcome === 'refused' || r.outcome === 'rate_limited';
 const WH_SEND_STATES = {delivered: 'ok', failed: 'fail', ready: 'waiting', sending: 'waiting', cancelled: '', withheld: ''};
 const WH_TABS = [['incoming', 'Incoming'], ['outgoing', 'Outgoing'], ['gateway', 'Through Tico Gateway', 'Gateway']];
 // The open tab and item, and the one set of secrets on screen: {id, url?, signing?, relay?} for an incoming webhook,
@@ -29,6 +30,8 @@ async function whHooksLoad() {
   return WH_HOOKS;
 }
 const whPresetName = p => (WH_PRESETS.find(([k]) => k === p) || [p, p])[1];
+// A local day `offset` days from today, as an <input type=date> value.
+const whDay = offset => { const d = new Date(Date.now() + offset * 864e5); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const whPlural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const whMine = t => !t.builtin && (S.me?.role === 'owner' || t.created_by === 'human:' + (S.me?.id || ''));
 const whOpt = (v, label, cur) => `<option value="${esc(v)}"${String(v) === String(cur) ? ' selected' : ''}>${esc(label)}</option>`;
@@ -130,7 +133,8 @@ async function whTriggers(el, run) {
 // Who a rule wakes: its own bot on a bot row, else the bot it names. A note does not wake.
 function whRuleWakes(r) {
   if (r.then === 'wake') return r.scope_kind === 'bot' ? r.scope_id : r.params?.bot || '';
-  return r.then === 'action' && r.params?.action === 'wake_bot' ? r.params.bot || '' : '';
+  if (r.then !== 'action') return '';
+  return r.params?.action === 'wake_bot' ? r.params.bot || '' : r.params?.action === 'create_task' ? r.params.owner || '' : '';
 }
 function whRuleWords(r) {
   const types = ruleList(r.when?.type);
@@ -164,17 +168,19 @@ async function whTriggerDetail(el, run) {
       <dt>24h</dt><dd>${whCountsHTML(t)}</dd>
     </dl>
     <h4 class="wr-sub">Listeners</h4>
-    ${twice.length ? `<p class="wh-warn" role="note" data-wh-twice>${esc(twice.map(empName).join(', '))}: a routine gives a task and a rule wakes the bot on every call.</p>` : ''}
+    ${twice.length ? `<p class="wh-warn" role="note" data-wh-twice>${esc(twice.map(empName).join(', '))}: a routine and a rule both act on every call.</p>` : ''}
     <div class="wh-listeners" data-wh-listeners>${t.routines.map(r => `<div class="wh-li"><span class="pill">Routine</span>
         <a href="#" data-wh-routine="${esc(r.id)}" data-bot="${esc(r.bot)}">${esc(r.title)}</a><span class="muted">${esc(empName(r.bot))}</span></div>`).join('')}
       ${heard.map(r => `<div class="wh-li${r.enabled === false ? ' wr-off' : ''}"><span class="pill">Rule</span>
         <span class="wr-text">${whRuleWords(r)}</span><span class="muted">${esc(ruleScopeWords(r))}</span></div>`).join('')}
       ${t.routines.length || heard.length ? '' : '<span class="muted">None</span>'}</div>
     ${rulesMayAdd() ? '<div class="row wh-li-add"><button class="ghost" type="button" data-wh-add-rule>Add rule</button></div>' : ''}
-    <h4 class="wr-sub">Calls</h4>
+    <h4 class="wr-sub">Recent calls</h4>
+    ${mine && rows.some(r => whRefused(r) && r.stored && !/\(recovered\)$/.test(r.reason || '')) ? `<div class="row wh-li-add"><button class="ghost" type="button" data-wh-recover
+      title="Check the kept refused calls again with the current secret and preset">Recover refused calls</button></div>` : ''}
     ${rows.length ? `<div class="wh-calls" data-wh-calls>${rows.map(r => {
       const [tone, word] = WH_OUTCOMES[r.outcome] || ['', r.outcome];
-      const what = r.outcome === 'refused' ? esc(r.reason) : `${whPlural(r.tasks, 'task')} · ${whPlural(r.rules || 0, 'rule')}`;
+      const what = whRefused(r) ? esc(r.reason) : `${whPlural(r.tasks, 'task')} · ${whPlural(r.rules || 0, 'rule')}`;
       return `<div class="wh-call" data-wh-call="${esc(r.delivery)}">
         <span class="wh-time" title="${esc(r.received_at)}">${esc(ago(r.received_at))}</span>
         <span class="wh-type">${r.type ? `<code>${esc(r.type)}</code>` : '<span class="muted">No type</span>'}</span>
@@ -182,13 +188,22 @@ async function whTriggerDetail(el, run) {
         <span class="tnum muted">${esc(bytes(r.bytes || 0))}</span>
         <span class="muted">${esc(r.via === 'gateway' ? 'Gateway' : r.via === 'direct' ? 'Direct' : r.via || '')}</span>
         <span class="wh-call-ctl">${r.stored && may ? `<button class="ghost" type="button" data-wh-payload>View payload</button>` : ''}
-          ${r.stored && mine ? '<button class="ghost" type="button" data-wh-replay>Run again</button>' : ''}</span></div>`;
+          ${r.stored && mine && !whRefused(r) ? '<button class="ghost" type="button" data-wh-replay>Run again</button>' : ''}</span></div>`;
     }).join('')}</div>` : '<div class="empty">No calls yet.</div>'}`;
   const on = (sel, fn) => { const b = el.querySelector(sel); if (b) b.onclick = fn; };
   on('[data-wh-edit]', () => whTriggerDialog(t));
   on('[data-wh-sign]', () => whSigningDialog(t));
   on('[data-wh-rotate]', () => void whRotate(t));
   on('[data-wh-delete]', () => void whTriggerDelete(t));
+  on('[data-wh-recover]', async ev => {
+    const b = ev.currentTarget; b.disabled = true;
+    try {
+      const r = (await post(path + '/recover', {since_hours: Math.min(720, Math.max(1, (t.keep_days || 7) * 24))})).recover;
+      toast([`Recovered ${r.recovered} of ${r.found}`, r.duplicate && `${r.duplicate} already in`, r.still_refused && `${r.still_refused} still refused`,
+        r.more && 'more wait'].filter(Boolean).join(' · '), !r.recovered && r.found > 0);
+      void renderSettingsWebhooks();
+    } catch (e) { toast(e.message, true); b.disabled = false; }
+  });
   on('[data-wh-add-rule]', async () => {
     const dialog = await ruleEditor(null, {event: 'webhook.received', when: {trigger: id}});
     dialog?.addEventListener('close', () => void renderSettingsWebhooks());
@@ -382,7 +397,7 @@ async function whHookDialog(h) {
   const types = await eventTypesLoad().catch(() => []);
   const dialog = whDialog(h ? 'Edit endpoint' : 'New endpoint', `<label>Name<input name="name" maxlength="100" required autocomplete="off" value="${esc(h?.name || '')}"></label>
     <label>URL<input name="url" type="url" maxlength="2000" required autocomplete="off" spellcheck="false" placeholder="https://" value="${esc(h?.url || '')}"></label>
-    <label data-wh-http hidden><input type="checkbox" name="allow_http"${h?.allow_http ? ' checked' : ''}> Allow http</label>
+    <label data-wh-http hidden><input type="checkbox" name="allow_http"${h?.allow_http ? ' checked' : ''}> Allow plain http to this computer</label>
     ${whEventsHTML(types, h?.events || ['*'])}`, `<button type="submit" class="primary">${h ? 'Save' : 'Create'}</button>`);
   const form = dialog.querySelector('form'), events = dialog.querySelector('[data-wh-events]');
   whEventsBind(events);
@@ -427,6 +442,10 @@ async function whHookDetail(el, run) {
     <h4 class="wr-sub">Sends</h4>
     ${may && names.length ? `<div class="settings-bots-filters"><select class="settings-inline-select" data-wh-example-type aria-label="Event type">${names.map(n => whOpt(n, n, '')).join('')}</select>
       <button class="ghost" type="button" data-wh-example>Send example</button></div>` : ''}
+    ${may && h.enabled ? `<div class="settings-bots-filters" data-wh-catchup><label class="wh-since">Since<input type="date" class="settings-inline-select" data-wh-since
+        value="${whDay(-7)}" min="${whDay(-30)}" max="${whDay(0)}"></label>
+      <button class="ghost" type="button" data-wh-catchup-do="recover" title="Send again what gave up since then">Retry failed</button>
+      <button class="ghost" type="button" data-wh-catchup-do="replay" title="Send the events since then that this endpoint never got">Send missed</button></div>` : ''}
     ${items.length ? `<div class="wh-calls wh-sends" data-wh-sends>${items.map(s => `<div class="wh-call" data-wh-send="${esc(s.id)}">
         <span class="wh-time" title="${esc(s.created)}">${esc(ago(s.created))}</span>
         <span class="wh-type"><code>${esc(s.type)}</code></span>
@@ -455,6 +474,13 @@ async function whHookDetail(el, run) {
     await post(path + '/example', {type: el.querySelector('[data-wh-example-type]').value});
     toast('Example queued');
   }));
+  el.querySelectorAll('[data-wh-catchup-do]').forEach(b => { b.onclick = () => act(async () => {
+    const since = el.querySelector('[data-wh-since]').value;
+    if (!since) throw new Error('Pick a day');
+    const r = await post(`${path}/${b.dataset.whCatchupDo}`, {since});
+    const n = r.recovered ?? r.queued ?? 0;
+    toast(`${b.dataset.whCatchupDo === 'recover' ? 'Retrying' : 'Sending'} ${n}${r.more ? ' (more wait: run it again)' : ''}`);
+  }); });
   el.querySelectorAll('[data-wh-retry]').forEach(b => { b.onclick = () => act(() => post(`${path}/sends/${encodeURIComponent(b.closest('[data-wh-send]').dataset.whSend)}/retry`, {})); });
 }
 

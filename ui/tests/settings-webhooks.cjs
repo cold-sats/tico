@@ -2,8 +2,9 @@
 // land on Webhooks; a new incoming webhook (name, preset, keep days) is made in its three calls and its address and
 // signing secret show once, gone after Back; a webhook's detail lists its routine and rules and warns when a rule
 // wakes a bot a routine already gives a task; its call log opens a payload (redacted headers, body) and runs one
-// again; Tico Team's built-in webhook is read-only but for Edit; an outgoing endpoint is made with the catalog's
-// event picker (a whole group is `group.*`) and shows its secret once; its sends retry; the Gateway tab asks for the
+// again, while a refused call is recovered instead; Tico Team's built-in webhook is read-only but for Edit; an outgoing endpoint is made with the catalog's
+// event picker (a whole group is `group.*`) and shows its secret once; its sends retry, and failed or missed sends
+// since a day go again; the Gateway tab asks for the
 // Gateway first, then makes an address shown once. No sideways scroll on a phone. TICO_SHOTS=<dir> saves screenshots.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
@@ -32,7 +33,7 @@ function server() {
     ],
     deliveries: {shop: [
       {delivery: 'd2', sent_id: 'gh-2', received_at: AGO(4), bytes: 2300, tasks: 1, outcome: 'accepted', reason: '', type: 'push', via: 'direct', rules: 1, stored: true},
-      {delivery: 'd1', sent_id: '', received_at: AGO(70), bytes: 120, tasks: 0, outcome: 'refused', reason: 'bad signature', type: '', via: 'gateway', rules: 0, stored: false}],
+      {delivery: 'd1', sent_id: '', received_at: AGO(70), bytes: 120, tasks: 0, outcome: 'refused', reason: 'bad signature', type: '', via: 'gateway', rules: 0, stored: true}],
     _tico: [], orders: []},
     rules: [{id: 'rw', scope_kind: 'team', scope_id: '', event: 'webhook.received', when: {trigger: 'shop', type: 'push'}, then: 'wake',
       params: {bot: 'eng', text: 'Look'}, enabled: true, built_in: false},
@@ -90,6 +91,7 @@ async function open(browser, hash, viewport = {width: 1280, height: 860}, state 
       if (rest === '' && post) { Object.assign(t, post); return json(t); }
       if (rest === 'signing') { Object.assign(t, {signed: true, preset: post.preset, type_from: t.type_from || {github: 'X-GitHub-Event', standard: '/type', stripe: '/type'}[post.preset] || ''}); return json({trigger: {id: t.id, signed: true, preset: post.preset, signing_secret: 'whsec_c2VjcmV0', replayed: false}}); }
       if (rest === 'deliveries') return json({deliveries: state.deliveries[t.id] || []});
+      if (rest === 'recover') return json({recover: {trigger: t.id, since_hours: post.since_hours, found: 1, recovered: 1, duplicate: 0, still_refused: 0, more: false}});
       if (rest === 'relay') { t.relay = {address_prefix: 'https://gw.tico.dev/v1/hooks/rl_1', created: AGO(0)}; return json({relay: {trigger: t.id, relay_id: 'rl_1', address_prefix: t.relay.address_prefix, address: t.relay.address_prefix + '/gw-secret', replayed: false}}); }
       const d = rest.match(/^deliveries\/([^/]+)(\/replay)?$/);
       if (d && d[2]) return json({replay: {delivery: d[1] + ':replay:1', of: d[1], tasks: 1, rules: 1}});
@@ -171,7 +173,8 @@ const noSideways = page => page.evaluate(() => document.documentElement.scrollWi
       assert.doesNotMatch(await pane.locator('[data-wh-listeners]').innerText(), /Ops/, 'a rule on another webhook is not listed');
       assert.match(await pane.locator('[data-wh-twice]').innerText(), /^Engineer:/);
       assert.equal(await pane.locator('[data-wh-call]').count(), 2);
-      assert.equal(await pane.locator('[data-wh-call="d1"] [data-wh-payload]').count(), 0, 'nothing to view once the body is gone');
+      assert.equal(await pane.locator('[data-wh-call="d1"] [data-wh-payload]').count(), 1, 'a refused call is kept to look at');
+      assert.equal(await pane.locator('[data-wh-call="d1"] [data-wh-replay]').count(), 0, 'a refused call is recovered, not run again');
       assert.match(await pane.locator('[data-wh-call="d1"]').innerText(), /Refused bad signature/);
       await shot(page, 'incoming-detail-desktop');
       await pane.locator('[data-wh-call="d2"] [data-wh-payload]').click();
@@ -185,6 +188,11 @@ const noSideways = page => page.evaluate(() => document.documentElement.scrollWi
       await pane.locator('[data-wh-call="d2"] [data-wh-replay]').click();
       await replayed;
       assert.ok(state.posts.some(x => x.path === '/api/v2/triggers/shop/deliveries/d2/replay'));
+      // Recover checks the kept refused calls again, as far back as they are kept.
+      const recovered = page.waitForResponse(r => r.url().endsWith('/triggers/shop/recover'));
+      await pane.locator('[data-wh-recover]').click();
+      await recovered;
+      assert.deepEqual(state.posts.at(-1).body, {since_hours: 168});
       await pane.locator('[data-wh-back]').click();
 
       // Tico Team's built-in: Edit only, keep days only.
@@ -236,6 +244,12 @@ const noSideways = page => page.evaluate(() => document.documentElement.scrollWi
       await example;
       await pane.locator('[data-wh-hook-pause]').click();
       await page.waitForFunction(() => document.querySelector('[data-wh-hook-pause]')?.textContent === 'Pause');
+      // Once it runs again: retry what gave up, or send what it missed, since a day.
+      await shot(page, 'outgoing-resumed-desktop');
+      const caught = page.waitForResponse(r => r.url().endsWith('/wh1/recover'));
+      await pane.locator('[data-wh-catchup-do="recover"]').click();
+      await caught;
+      assert.match(state.posts.at(-1).body.since, /^\d{4}-\d\d-\d\d$/);
       const paths = state.posts.map(x => x.path);
       assert.ok(paths.includes('/api/v2/webhooks/wh1/sends/s2/retry') && paths.includes('/api/v2/webhooks/wh1/example') && paths.includes('/api/v2/webhooks/wh1/resume'), paths.join(' '));
 

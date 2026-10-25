@@ -18,9 +18,11 @@ const RULE_BUILTIN_GROUPS = {always: 'Always wakes', awaited: 'Awaited', filter:
   pr_checks: 'Pull requests', system: 'System'};
 const RULE_OUTCOMES = {wake: 'wake the bot', note: 'leave a note for its next run', batch: 'batch it', ignore: 'drop it', ask: 'ask a person', action: 'do an action'};
 const RULE_ACTIONS = {close: 'close the task', move_step: 'move the step', set_wait: 'set a wait', relate: 'relate tasks', note: 'add a note',
-  wake_bot: 'wake a bot', send_webhook: 'send a webhook'};
-// The actions that need no task (backend/rules.py EVENT_ACTIONS): the only ones an event with no task can run.
-const RULE_EVENT_ACTIONS = ['wake_bot', 'send_webhook'];
+  wake_bot: 'wake a bot', send_webhook: 'send a webhook', create_task: 'make a task', forward: 'forward the call'};
+// The actions that need no task (backend/rules.py EVENT_ACTIONS): the only ones an event with no task can run. The
+// last two (ONCE_ACTIONS) run only on such an event, and forward only on webhook.received.
+const RULE_EVENT_ACTIONS = ['wake_bot', 'send_webhook', 'create_task', 'forward'];
+const RULE_ONCE_ACTIONS = ['create_task', 'forward'];
 const RULE_ACTORS = {human: 'a person', bot: 'a bot', keeper: 'Tico'};
 const RULE_ROLES = {owner: 'owns the task', requester: 'requested the task', qa: "is the task's QA", release_manager: 'is the Release Manager',
   other: 'neither owns nor requested it'};
@@ -60,6 +62,8 @@ function ruleThenWords(r) {
   if (r.then !== 'action') return RULE_OUTCOMES[r.then] || r.then;
   if (p.action === 'wake_bot' && p.bot) return 'wake ' + empName(p.bot);
   if (p.action === 'send_webhook' && p.webhook) return `send ${p.type || 'an event'} to ${ruleHookName(p.webhook)}`;
+  if (p.action === 'create_task' && p.owner) return `give ${empName(p.owner)} a task`;
+  if (p.action === 'forward' && p.webhook) return `forward it to ${ruleHookName(p.webhook)}`;
   const what = RULE_ACTIONS[p.action] || 'do an action';
   return p.action === 'move_step' && p.step ? `move it to ${p.step}` : p.action === 'set_wait' && p.waiting_on ? `set it waiting on ${p.waiting_on}` : what;
 }
@@ -318,7 +322,8 @@ function ruleParams(v, before) {
   const action = String(v.get('action')), out = before.action === action ? {...before} : {};
   out.action = action;
   for (const [field, key] of [['param_step', 'step'], ['param_waiting_on', 'waiting_on'], ['param_task', 'task'], ['param_note', 'note'],
-    ['param_bot', 'bot'], ['param_text', 'text'], ['param_webhook', 'webhook'], ['param_type', 'type']]) {
+    ['param_bot', 'bot'], ['param_text', 'text'], ['param_webhook', 'webhook'], ['param_type', 'type'], ['param_owner', 'owner'],
+    ['param_title', 'title'], ['param_body', 'body']]) {
     const text = String(v.get(field) || '').trim();
     if (text) out[key] = text; else delete out[key];
   }
@@ -326,8 +331,10 @@ function ruleParams(v, before) {
   if (action !== 'set_wait') delete out.waiting_on;
   if (action !== 'relate') delete out.task;
   if (action !== 'wake_bot') { delete out.bot; delete out.text; }
-  if (action !== 'send_webhook') { delete out.webhook; delete out.type; delete out.data; }
+  if (action !== 'send_webhook' && action !== 'forward') delete out.webhook;
+  if (action !== 'send_webhook') { delete out.type; delete out.data; }
   else out.data = ruleDataParse(v.get('param_data'));
+  if (action !== 'create_task') { delete out.owner; delete out.title; delete out.body; }
   if (RULE_EVENT_ACTIONS.includes(action)) delete out.note;
   return out;
 }
@@ -406,7 +413,10 @@ async function ruleEditor(rule, preset = null) {
       <label data-rule-param="close move_step set_wait relate note">Task note<input name="param_note" maxlength="1000" value="${esc(params.note || '')}"></label>
       <label data-rule-param="wake_bot">Bot<select name="param_bot" required>${bots(params.action === 'wake_bot' ? params.bot || '' : '')}</select></label>
       <label data-rule-param="wake_bot">Text<input name="param_text" maxlength="1000" value="${esc(params.action === 'wake_bot' ? params.text || '' : '')}"></label>
-      <label data-rule-param="send_webhook">Endpoint<select name="param_webhook" required><option value="">Choose</option>${hooks}</select></label>
+      <label data-rule-param="create_task">Bot<select name="param_owner" required>${bots(params.action === 'create_task' ? params.owner || '' : '')}</select></label>
+      <label data-rule-param="create_task">Title<input name="param_title" maxlength="300" required placeholder="{{type}} from {{trigger.name}}" value="${esc(params.action === 'create_task' ? params.title || '' : '')}"></label>
+      <label class="wr-wide" data-rule-param="create_task">Body<textarea name="param_body" rows="3" maxlength="4000">${esc(params.action === 'create_task' ? params.body || '' : '')}</textarea></label>
+      <label data-rule-param="send_webhook forward">Endpoint<select name="param_webhook" required><option value="">Choose</option>${hooks}</select></label>
       <label data-rule-param="send_webhook">Type<input name="param_type" list="rule-send-types" maxlength="64" required spellcheck="false" placeholder="custom.name" value="${esc(params.type || '')}"></label>
       <label class="wr-wide" data-rule-param="send_webhook">Data<textarea name="param_data" rows="4" spellcheck="false" placeholder='{"id": "{{payload.id}}"}'>${esc(data)}</textarea></label>
       <datalist id="rule-send-types">${sendTypes}</datalist>
@@ -430,8 +440,11 @@ async function ruleEditor(rule, preset = null) {
     const then = form.elements.then, batch = then.querySelector('option[value="batch"]');
     batch.disabled = src; if (src && then.value === 'batch') then.value = 'wake';
     const pick = form.elements.action;
-    [...pick.options].forEach(o => { o.disabled = src && !RULE_EVENT_ACTIONS.includes(o.value); });
-    if (pick.selectedOptions[0]?.disabled) pick.value = 'wake_bot';
+    [...pick.options].forEach(o => {
+      o.disabled = src ? !RULE_EVENT_ACTIONS.includes(o.value) || (o.value === 'forward' && form.elements.event.value !== 'webhook.received')
+        : RULE_ONCE_ACTIONS.includes(o.value);
+    });
+    if (pick.selectedOptions[0]?.disabled) pick.value = src ? 'wake_bot' : 'close';
     const scope = form.elements.scope_kind;
     if (scope) {
       [...scope.options].forEach(o => { o.disabled = src && !srcScope(o.value); });
