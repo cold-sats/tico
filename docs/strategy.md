@@ -28,8 +28,8 @@ This page is the model, the frameworks, who may do what, setup, how a change rea
 - **Vision.** One or two sentences, at most 400 characters. Every framework has it; it is the Vision the Goals page
   used to keep in its Company section.
 - **Sections.** A handful of markdown sections. Which ones depends on the framework (below). The default set is
-  *Who we serve · What we sell · How we win · Pricing · Channels · Brand and voice · What we won't do*. **What we
-  won't do** is required: a strategy with no trade-offs is a description.
+  *Who we serve · What we sell · How we win · Pricing · Channels · Brand and voice*, and every framework ends with
+  **What we won't do** (`not`). It is required: a strategy with no trade-offs is a description.
 - **Choices.** Three to seven short records, each a `statement` (a decision that could turn out wrong), a `why`, what
   it `rules_out`, and a `status`: `proposed`, `active` or `retired`. This is the spine of the page and what goals link
   to. The label shown depends on the framework; the default is **Bets**. A retired choice keeps its goals; the page
@@ -44,9 +44,9 @@ This page is the model, the frameworks, who may do what, setup, how a change rea
 ### On choices
 
 Every framework reduces a strategy to a short list of decisions that could be wrong: Rumelt's guiding policy, Playing
-to Win's where-to-play and how-to-win, OGSM's strategies, V2MOM's methods. A software team's "charge as if fully
-automated and use humans behind it" is one; so is a car dealership's "service and used cars carry the margin; new
-cars are priced to bring people in". Most teams already live by three or four of these without having written them
+to Win's where-to-play and how-to-win, OGSM's strategies, V2MOM's methods. Acme's "price weekly cleaning low enough
+that volume is the moat, and let bots do the booking" is one; so is a car dealership's "service and used cars carry
+the margin; new cars are priced to bring people in". Most teams already live by three or four of these without having written them
 down. The CEO Bot's interview exists to surface them, each with why and what it rules out. The record is the same for
 every framework; only the word on the page changes.
 
@@ -58,15 +58,17 @@ questions the CEO Bot picks from. `hub strategy frameworks` and `GET /api/v2/str
 
 | Framework | Sections | Choices label |
 |---|---|---|
-| **Plain** (default) | serve, sell, win, price, reach, brand, not | Bets |
+| **Plain** (default) | serve, sell, win, price, reach, brand | Bets |
 | **Rumelt's kernel** | diagnosis, policy, actions | Guiding policy |
 | **Playing to Win** | aspiration, where, how, capabilities, systems | Choices |
 | **OGSM** | objective, goals, strategies, measures | Strategies |
 | **V2MOM** | vision, values, methods, obstacles, measures | Methods |
 | **Positioning** (Dunford) | alternatives, attributes, value, customers, category | Positions |
 
-Every framework has an implicit `vision` section. Switching frameworks keeps the summary, the vision, the choices and
-any section whose key the new framework also has; the rest stays readable in the version history. The draft
+Two sections are implicit in every framework and are not in the table: `vision` comes first and `not` (What we
+won't do) comes last, so the CEO Bot writes `--section not=...` whatever the framework. Switching frameworks keeps the
+summary, the vision, "What we won't do", the choices and any section whose key the new framework also has; the rest
+stays readable in the version history. The draft
 refuses a section key its framework does not have. Checks such as 7 Powers, Blue Ocean or Porter's five forces are not
 page shapes; they come later as questions the CEO Bot runs against a draft.
 

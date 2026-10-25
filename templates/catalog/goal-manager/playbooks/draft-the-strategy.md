@@ -76,8 +76,8 @@ them in what the team does, not in what it says: a pricing page that undercuts e
 a market page that shows one segment and five lookalikes is a bet on a niche; a goal to automate a workflow is a bet
 on cost. Each choice is three fields:
 
-- **statement**: one sentence, a decision that could turn out wrong ("Charge as if fully automated and use humans
-  behind it").
+- **statement**: one sentence, a decision that could turn out wrong ("Price weekly cleaning low enough that volume is
+  the moat, and let bots do the booking").
 - **why**: the evidence or belief behind it, with the market page or source it rests on when there is one.
 - **rules_out**: what the team gives up by choosing it ("no enterprise contracts, no custom work"). A choice that rules
   out nothing is not a choice: rewrite it or drop it.
@@ -89,10 +89,9 @@ until the owner activates it on publish); `hub strategy choice update <id>` to r
 The framework's own word for them (Bets, Guiding policy, Choices, Strategies, Methods, Positions) is what the
 owner sees; use it in your questions.
 
-**What we won't do** is required. In the plain framework it is the `not` section; in another framework it goes in
-the section closest to it (Rumelt's `policy`, Playing to Win's `where`, OGSM's `strategies`, V2MOM's `obstacles`,
-Positioning's `alternatives`) under its own heading. Fill it from the choices' `rules_out` lines and from what the
-owner says no to; never leave it empty or soft.
+**What we won't do** is required. Every framework has it as the `not` section, shown last, so write it the same way
+whatever the framework: `hub strategy draft --section not="<markdown>"`. Fill it from the choices' `rules_out` lines
+and from what the owner says no to; never leave it empty or soft.
 
 ## 5. Interview the owner, one question at a time
 
@@ -126,9 +125,7 @@ Below level 3, file the draft as one proposal the owner confirms, and nothing el
 The payload is `{"framework": "plain", "summary": "...", "vision": "...", "sections": {"serve": "...", ...},
 "choices": [{"statement": "...", "why": "...", "rules_out": "..."}]}`. Confirming writes the draft and the choices
 as the owner; they still publish separately. Look at `hub proposal list` first: one pending `strategy_draft` at a
-time, never a second beside it. Where the server does not know the kind yet, publish the draft file with
-`hub file publish reports/<date>-strategy-draft.md` and put it on the task with one question
-(`hub task attach <id> <file> --choices "Put it on the Strategy page,Not now"`), so the owner can paste it in.
+time, never a second beside it.
 
 Then rewrite `state.md` (what the draft rests on, which questions were asked and answered, what the owner has not
 answered yet), record a durable lesson about this team's words or sources in `knowledge/`, and commit this
