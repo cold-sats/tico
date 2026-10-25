@@ -870,6 +870,8 @@ def test_a_refusal_for_want_of_isolation_is_shown_only_to_who_may_read_its_run(a
     post(api, f"attempts/{ordinary['id']}/complete", {"outcome": "failed", "last_seq": 2, "text": ""}, machine["token"])
     post(api, "tasks", {"owner": "ops", "title": "Ana only", "body": "Private work.", "private": True})
     ready(api, machine, ["ops"])
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE run_backoff SET wait_until=NULL")        # the fast failure's wait is over
     refused = claim(api, machine, "ops")
     assert refused and refused["id"] != ordinary["id"]
     error = ("Tico models need a runner that runs bots as their own user (Tico's Docker runner). This computer can't, "

@@ -3416,14 +3416,17 @@ class Execution:
                           "" if healthy else f"{refused}. This run is saved for later" if refused
                           else "One run stopped; saved for later",
                           claimed=row["created"], stop=aid if not healthy else None)
-        self.account_failure(c, row, body, aid, conv, failure, counts=not (stopped or limited or busy or yielded))
+        # A Gateway outage keeps its own doubling wait (GATEWAY_WAIT) and is Tico's, not the bot's: it never holds a bot.
+        outage = silent and tico_code == gateway.UNAVAILABLE
+        self.account_failure(c, row, body, aid, conv, failure,
+                             counts=not (stopped or limited or busy or yielded or outage))
         return {"attempt_id": aid, "outcome": body.outcome, "message": reply}
 
     def account_failure(self, c, row, body, aid, conv, failure, counts):
         """What a finished run means for the bot's next ones (backend/run_backoff.py): a run that completed starts the
         count over; a failure within a minute of starting makes the bot wait, and holds it after five in a row; a
-        prompt too large to send starts the next run in a fresh session. A Stop, a usage limit, a busy model and a
-        yield (`counts` False) are none of that."""
+        prompt too large to send starts the next run in a fresh session. A Stop, a usage limit, a busy model, a
+        yield and a Gateway outage (`counts` False) are none of that."""
         if body.outcome == "completed":
             run_backoff.reset(c, row["bot"])
             return
