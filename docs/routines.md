@@ -68,31 +68,52 @@ A trigger starts routines from outside Tico. Today a trigger is a webhook: Setti
 *Add webhook* gives an address, and anything that can send an HTTP POST (a payment service, a form,
 a deploy, a script) calls it. A routine picks it under *Runs: On a trigger* (`--on webhook.<id>` in
 `hub routine set`; `hub trigger list` shows the ids). Each call opens one task per listening routine:
-the routine's text, then the trigger's name, then the request body, fenced as data the bot did not write.
+the routine's text, then the trigger's name and the call's type, then the request body, fenced as data the
+bot did not write. Rules (`webhook.received`) see the same call.
 
 - The address is `/api/v2/hooks/<id>/<secret>`; `POST /api/v2/hooks/<id>` with `Authorization:
   Bearer <secret>` works too. Tico keeps only a hash of the secret, so the full address is shown once,
   when the webhook is made or given *New secret*, which also stops the old address at once.
-- A wrong id or secret is 404. The body may be up to 256 KB; the task shows the first 20,000 characters.
-- A sender's `Idempotency-Key` (or `Webhook-Id`, `X-Request-Id`, `X-GitHub-Delivery`) makes a retry
-  open nothing new.
-- Each webhook takes 60 calls an hour; past that the sender gets 429 and retries later, so a noisy
-  sender cannot wake a bot without end.
-- *Require signature* gives a webhook a signing secret, shown once (paste it as the GitHub webhook's
-  *Secret*). Then each call must carry the HMAC-SHA256 of its exact body under that secret, as GitHub's
-  `X-Hub-Signature-256: sha256=<hex>` or a generic `X-Signature` (`sha256=<hex>` or bare hex). A call
-  without a matching signature gets 401 and opens nothing. Tico keeps the signing secret sealed with the
+- A wrong id or secret is 404. The body may be up to 256 KB; the task shows the first 20,000 characters
+  and says how to read the rest.
+- A sender's own delivery id (`Webhook-Id`, `X-GitHub-Delivery`, `Idempotency-Key`, `X-Request-Id`) makes a
+  retry open nothing new; without one, the same body in the same minute counts as a retry. Ids are
+  remembered 30 days, longer than the calls are kept or the log shows.
+- Each webhook takes 60 calls an hour unless `hourly` says otherwise (up to 600); past that the sender gets 429
+  and retries later, so a noisy sender cannot wake a bot without end.
+- *Require signature* gives a webhook a signing secret, shown once. The `preset` says how each call is checked:
+  `hmac` (GitHub's `X-Hub-Signature-256: sha256=<hex>` or a generic `X-Signature`, an HMAC-SHA256 of the exact
+  body; what signed webhooks used before presets), `github` (`X-Hub-Signature-256` only), `standard` (Standard
+  Webhooks: `webhook-id`, `webhook-timestamp`, `webhook-signature`; the secret is `whsec_` and base64) or `stripe`
+  (`Stripe-Signature: t=..,v1=..`). `standard` and `stripe` also refuse a timestamp more than 5 minutes off. A
+  call without a valid signature gets 401 and opens nothing. Tico keeps the signing secret sealed with the
   credential key, because checking a signature needs the secret itself. *Stop signing* turns it off.
-- *Recent calls* under each webhook lists the last 50 calls, accepted and refused (bad or missing
-  signature, over the hourly limit), with the sender's delivery id. Only calls to the right address are
-  logged, and at most 60 refusals an hour, so a stranger cannot fill the log.
-- Any person may add a webhook; the owner, the person who added it and BotOps may replace its secret,
-  set or stop its signing secret, or delete it. A routine may name only a webhook that exists. Deleting one leaves its routines in place,
-  silent, until a webhook with the same id is added again.
-- The API: `GET /api/v2/triggers` (no secrets), `POST /api/v2/triggers` (`name`, optional `id`),
+- Every call has a type, read from `type_from`: a header name (`X-GitHub-Event`) or a JSON pointer starting with
+  `/` (`/type`). `github` reads `X-GitHub-Event`, `standard` and `stripe` read `/type`; otherwise it is empty. The
+  type is in the log, in the task (a `type:` line) and available to rules.
+- Each accepted call is kept for `keep_days` (7 by default, 1-30): the raw body and its headers. Credentials in
+  headers (anything named like a signature, authorization, token, secret or key) show as `[redacted]`, and a cookie
+  is never kept. People who may manage the webhook read the whole body (`hub trigger delivery <id> <delivery>`);
+  a bot reads it in fenced 20,000-character parts (`--part n`), only for a call that opened one of its tasks or
+  that a message to it names. *Run again* (`hub trigger replay`) starts the routines and rules again for one kept
+  call as a new occurrence, `<delivery>:replay:<n>`; it is refused once the body has expired.
+- `unheard` is what a call that reached no routine and no rule does: `log` (the log row only) or `note` (also a
+  notice to whoever made the webhook, at most once an hour).
+- *Recent calls* under each webhook lists the last 50 calls, accepted, refused (bad or missing
+  signature, over the hourly limit) and run again, with the sender's delivery id and the type. Only calls to the
+  right address are logged, and at most 60 refusals an hour, so a stranger cannot fill the log.
+- A person or a bot may add a webhook; the owner, whoever added it and BotOps may replace its secret, change its
+  settings, set or stop its signing secret, run a call again or delete it. A routine may name only a webhook that
+  exists. Deleting one removes its kept calls and leaves its routines in place, silent, until a webhook with
+  the same id is added again.
+- The API: `GET /api/v2/triggers` (no secrets) and `GET /api/v2/triggers/<id>`, `POST /api/v2/triggers` (`name`,
+  optional `id`), `POST /api/v2/triggers/<id>` (`name`, `preset`, `type_from`, `hourly`, `keep_days`, `unheard`),
   `POST /api/v2/triggers/<id>/rotate`, `POST /api/v2/triggers/<id>/signing` (`{}` makes a secret,
-  `secret` sets one of 16+ characters, `off: true` stops checking), `GET /api/v2/triggers/<id>/deliveries`,
-  `POST /api/v2/triggers/<id>/delete`.
+  `secret` sets one of 16+ characters, `preset` picks the check, `off: true` stops checking),
+  `GET /api/v2/triggers/<id>/deliveries`, `GET /api/v2/triggers/<id>/deliveries/<delivery>` (`?part=n` for a
+  bot), `POST /api/v2/triggers/<id>/deliveries/<delivery>/replay`, `POST /api/v2/triggers/<id>/delete`. The CLI
+  and MCP tools are `hub trigger list|create|show|update|rotate|sign|delete|deliveries|delivery|replay` and
+  `hub_trigger_*`.
 
 ## What happens when one is due
 
