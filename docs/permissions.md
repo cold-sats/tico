@@ -123,7 +123,7 @@ refused. Built-in bots stay outside groups.
 **The built-in bots** (the Assistant, BotOps, the Librarian and the CEO Bot) act for the whole team, so only the owner changes their settings,
 routines, access or place, and only the owner may add them. A member cannot register a bot with the name `assistant`, `botops`,
 `librarian`, `goal-manager` or `coo`; an Admin can, and manages every other bot.
-The CEO Bot's level, regular checks and name, and the Company section on Goals, are the owner's alone: an Admin cannot change them ([Your CEO Bot](ceo-bot.md)).
+The CEO Bot's level, regular checks and name, and publishing a strategy version, are the owner's alone: an Admin cannot change them ([Your CEO Bot](ceo-bot.md)).
 
 A member may have at most **25 active bots** by default; owners and admins have no limit. An admin changes the number in
 Settings > Humans (**Bot limit per member**). Past it, adding a bot answers `409 bot_limit` with what to do. A starter bot that is still `needs_onboarding`

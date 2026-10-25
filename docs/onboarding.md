@@ -8,7 +8,7 @@ you picked is laid out as a **Recruiting** seat with its job description and rep
 or BotOps task until someone picks a bot for it ([A bot's stages](#a-bots-stages)).
 
 The wizard is the first of three pieces, all described below: the wizard, a short tour, and a line under the team list
-that points at BotOps. [After the wizard](#after-the-wizard) covers the last two, and the Market page's empty state, where the
+that points at BotOps. [After the wizard](#after-the-wizard) covers the last two, and the Market tab's empty state, where the
 owner asks for market research. To choose a first team and get the most from it, read the [setup guide](onboarding-guide.md).
 
 Nobody else sees the wizard. Only the owner may write it, and the sidebar entry
@@ -260,7 +260,7 @@ wizard  ->  tour (once)  ->  "Talk to BotOps" line
 
 ### The tour
 
-Six spotlight steps: Updates, Tasks, your bots (the team list), Docs, Market, Meetings. **Next** moves
+Six spotlight steps: Updates, Tasks, your bots (the team list), Docs, Strategy, Meetings. **Next** moves
 on, **Skip** or **Esc** closes it, and focus stays inside it. On a phone it opens the navigation drawer
 and shows the same steps. It never opens over the wizard: the owner starts it with **Show me around** on the screen after Create, or it opens
 by itself once on their next visit (anyone else: their first visit). It can be replayed
@@ -276,7 +276,8 @@ an external agent you already have is the **Connect an external agent** button i
 
 ### An empty Market page
 
-While the market has no entity and no page someone wrote (the seed's pages do not count), the Market page is an empty state
+Market is the Market tab of [Strategy](strategy.md) (`#/strategy/market`; `#/market` redirects there). While the market has
+no entity and no page someone wrote (the seed's pages do not count), the tab is an empty state
 instead of the graph, the index and the ask box. The owner sees the Librarian's four questions, one at a time (what you sell,
 who buys it, who you compete with, what to watch), with **Skip for now** and an **Attach files** link to the Docs import.
 Answers are kept as given, so a skipped setup shows **Continue** at the same question next time
@@ -288,7 +289,9 @@ The last question's **Start research** calls `POST /api/v2/librarian/setup/marke
 `playbooks/market-setup.md` researches the answers and writes the market pages and graph ([librarian.md](librarian.md)). The page
 then shows "The Librarian is researching your market. This usually takes 5–10 minutes." with a link to the task, until the market
 has content (at least two minutes, at most thirty), kept in the browser, polling the market every 30 seconds. Then the normal
-Market page is drawn. The code is `ui/market-page.js`.
+Market page is drawn. The code is `ui/market-page.js`. Once the wizard's Strategy step ships ([Strategy](strategy.md#setup)),
+"Set up the market map" is filed from the website given there, and the Librarian reads that website from `hub strategy show`
+when the task has none; the four questions stay for a team that skipped it.
 
 ### What is stored, and who may do what
 
