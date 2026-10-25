@@ -6043,6 +6043,8 @@ def create_app(settings=None):
     install_market(app, store, auth, mutate)
     from .strategy import install as install_strategy
     install_strategy(app, store, auth, mutate)
+    from .strategy_setup import install as install_strategy_setup
+    install_strategy_setup(app, store, auth, mutate)
     from .listening import install as install_listening
     install_listening(app, store, auth, mutate)
     from .archive import install_archives

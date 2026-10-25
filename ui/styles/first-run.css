@@ -250,3 +250,34 @@ button.oc-node:hover{border-color:color-mix(in srgb,var(--dc,var(--accent)) 50%,
   .fr-owner select{width:100%}
   .bot-onboard .primary{width:100%}
 }
+.fr-strategy{margin:var(--s3) 0;font-size:var(--t-base)}
+
+/* first run, Your bets (ui/setup-strategy.js): the claims and What we won't do on the left, the draft filling in on the
+   right; one column on a phone, the draft under the claims. The bets borrow the Strategy page's rows (strategy.css). */
+.onb.onb-wide{max-width:1040px}
+.ss{display:grid;grid-template-columns:minmax(0,1fr) minmax(240px,320px);gap:28px;align-items:start}
+.ss-main{min-width:0}
+.ss-job{display:flex;align-items:center;gap:8px;margin:0 0 12px;font-size:var(--t-base)}
+.ss-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--accent);animation:ssdot 1.2s ease-in-out infinite}
+@keyframes ssdot{50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.ss-dot{animation:none}}
+.ss-bet-actions{display:flex;gap:6px;margin:8px 0 0 24px}
+.ss .strat-bet-new{padding-top:4px}
+.ss-not{margin:16px 0 0}
+.ss-side{position:sticky;top:12px;min-width:0;padding:12px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface2)}
+.ss-side-head{margin:0 0 6px;font-size:var(--t-sm)}
+.ss-side-sec{padding:8px 0;border-top:1px solid var(--line)}
+.ss-side-sec .strat-md,.ss-side-sec .strat-text{font-size:var(--t-base)}
+.ss-side-bets{margin:0;padding-left:18px;font-size:var(--t-base);line-height:var(--lh)}
+.ss-found{margin:0 0 12px}
+.ss-found .ss-job{margin-bottom:6px}
+.ss-found-list{list-style:none;margin:0;padding:0}
+.ss-found-row{display:grid;grid-template-columns:96px minmax(0,1fr) auto;gap:8px;align-items:baseline;padding:6px 0;border-top:1px solid var(--line);font-size:var(--t-base);overflow-wrap:anywhere}
+@media(max-width:760px){
+  .ss{grid-template-columns:minmax(0,1fr);gap:16px}
+  .ss-side{position:static}
+  .ss-bet-actions{margin-left:0}
+  .ss-bet-actions .strat-mini{min-height:36px;padding:4px 12px}
+  .ss-found-row{grid-template-columns:minmax(0,1fr) auto}
+  .ss-found-row .strat-bet-k{grid-column:1/-1}
+}

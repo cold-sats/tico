@@ -8,6 +8,7 @@ time. Who reports to whom (`reports_to`) is a separate thing and is never touche
   rows(...)                a group's row: id, name, parent, people, bots
   create / update / delete the changes the API and the tools make
   place(...)               the team builder: bots into the groups of their templates, made if they are not there yet
+  link_bets(...)           setup's links from the groups it made to the strategy bets they serve
   migrate(c, settings)     once, for a team that had `teams`, org groups or derived departments: every one becomes a
                            group and every bot its group's member (idempotent; `groups_migrated` in the roster)
 
@@ -305,6 +306,21 @@ def place(c, settings, slugs, group_order=()):
     if set(roster["org_groups"]) != made:
         _save(c, roster)
     refresh_teams(c, roster)
+
+
+def link_bets(c, links):
+    """Setup's links from the groups it made to the strategy bets they serve ({group id: bet id}, from
+    backend/recruit.py `bet_for`). A group already linked keeps its bet. Returns the group ids linked."""
+    roster = _roster(c)
+    done = []
+    for gid, bet_id in (links or {}).items():
+        group = roster["org_groups"].get(gid)
+        if group and bet_id and not group.get("bet_id"):
+            group["bet_id"] = bet_id
+            done.append(gid)
+    if done:
+        _save(c, roster)
+    return done
 
 
 def seat_teams(c, settings, templates, group_order=()):

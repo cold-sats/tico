@@ -1336,6 +1336,10 @@ STABLE.extend([
      'run carries; {text, n} with Accept: application/json', None),
     ('/api/v2/strategy/guides', 'get', 'Strategy', 'listStrategyGuides', 'The question guides the CEO Bot drafts '
      'with', None),
+    ('/api/v2/strategy/draft-from', 'post', 'Strategy', 'draftStrategyFrom', 'Owner only: research the team\'s '
+     'website and/or the owner\'s words into the draft; answers the job (running, or no_model with no model)', None),
+    ('/api/v2/strategy/draft-from/{job_id}', 'get', 'Strategy', 'getStrategyDraftFromJob', 'Owner only: one research '
+     'job (latest for the newest): running, done, gave_up, failed or no_model, with what it found and wrote', None),
 ])
 
 TAGS['Inbound'] = 'Shared company inbound email and SMS for people and agents; reads never consume messages.'
