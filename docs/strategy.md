@@ -121,19 +121,21 @@ strategy ([Librarian](librarian.md#setting-up-the-market)). The optional Strateg
 
 ## Setup
 
-Once the setup wizard's new steps ship, setup starts with **What are you building** and **Your bets**:
+Setup starts with **What are you building** and **Your bets** ([Onboarding](onboarding.md#the-screens)):
 
 1. **What are you building.** An existing team pastes its website and one line; a new idea is described in a few
    sentences. With a URL the server fetches home, about, pricing and customers right away, fills *Who we serve* and
    *What we sell* marked **unconfirmed**, and proposes two or three bets the site implies, each with what it rules out.
 2. **Your bets.** Claims to confirm or strike, not open questions. The page fills in on the right as the owner answers.
    To leave the step: one active bet with a rules-out and a wrong-if, and one line under *What we won't do*. Without a
-   model provider it is the same fields as a plain form. The step saves the **draft**; nothing is published.
+   model provider, or when the research failed, it is the same fields as a plain form; when the research gave up it
+   lists what it found, each with **Add**. The step saves the **draft**; nothing is published.
 3. **Org.** Recruit proposes groups and bots from the bets and names the bet each serves.
-4. Computer, agent and review as today. Afterwards Getting started gains "Publish your strategy", the CEO Bot
-   proposes one or two goals per bet, and the Librarian's market task is filed from the website.
+4. Computer, agent and review as before. The screen after Create says **Strategy: a draft. Publish your strategy**
+   (a link here) until a version is published, which ticks Getting started's `strategy` step; a published version
+   is when the CEO Bot suggests goals per bet. With a website, Create files the Librarian's market task.
 
-The server half is in place. The wizard saves the website as `names.website` and the one line as `answers.building`
+The wizard saves the website as `names.website` and the one line as `answers.building`
 ([Onboarding](onboarding.md#the-answers)), and `POST /api/v2/strategy/draft-from {url?, text?}` (owner only) starts
 the research as a server job, answered at once with the job; `GET /api/v2/strategy/draft-from/{job}` (or `latest`)
 polls it:
@@ -158,7 +160,7 @@ due in 90 days. Nothing is published. There is no `hub` or MCP verb for it: it i
 Finishing setup links each group it makes to the bet it clearly serves (`bet_id`), and with a website files the
 Librarian's market task ([Onboarding](onboarding.md#what-create-does)).
 
-Until the wizard steps ship, the Strategy page starts from what the Goals page held: an install with a Vision or a Description and no
+An install set up before these steps starts the Strategy page from what the Goals page held: one with a Vision or a Description and no
 strategy gets a draft with that vision and the description as *What we sell*, for the owner to take from there. The
 Market tab's own first run (the Librarian's four questions) is unchanged ([Librarian](librarian.md#first-run-setup)).
 

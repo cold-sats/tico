@@ -1,6 +1,7 @@
 // Offline browser regression for the first-run wizard: a company whose config
 // says onboarding_needed lands on #/welcome instead of Tasks and keeps a "Finish setup" entry; the
-// six steps save a draft with PUT /api/v2/setup on every Next (there is no assistant to name, and an
+// eight steps save a draft with PUT /api/v2/setup on every Next (the first two, What are you building and Your bets, are
+// ui/tests/setup-strategy.cjs's; here the strategy draft is already ready, so they are passed straight through) (there is no assistant to name, and an
 // optional "Connect your agent" step opens connectAgent()). The company says what it does, then builds its org chart:
 // it picks departments, answers one question per department, sees "Recruiting bots…", checks the suggested bots and
 // watches the chart grow; the finished chart can rename or re-point a bot. Nothing is created until "Create my team",
@@ -114,6 +115,20 @@ const CATALOG = [
    instructions: '# QA Engineer\n\nLabel, never close.\n'},
   bot('pr-reviewer', 'Senior Software Engineer', 'engineering', 'code_blocks', 'common', 'Reviews every pull request before a person does.'),
 ];
+
+const READY_STRATEGY = {draft: {id: 'v-d', status: 'draft', summary: '', vision: '', sections: {not: 'No enterprise deals.', extra: {}}, revision: 3},
+  current: null, label: 'Bets', label_one: 'Bet', may_edit: true, goals_by_bet: {}, health_by_bet: {},
+  bets: [{id: 'b-1', statement: 'Studios pay for the software, listeners use the app free.', rules_out: 'Ads to listeners.',
+          wrong_if: {kind: 'text', text: 'Fewer than 10 studios paying by March', check_by: '2027-03-01'}, status: 'active', rank: 0}]};
+// What are you building (left empty, so no research) and Your bets (already ready): Next, Next, to Names.
+async function pastStrategy(page) {
+  await page.locator('#onb-website').waitFor();
+  await page.locator('#onb-next').click();
+  await page.locator('#ss li[data-ss-bet]').waitFor();
+  await page.waitForFunction(() => !document.querySelector('#onb-next').disabled);
+  await page.locator('#onb-next').click();
+  await page.locator('#onb-company').waitFor();
+}
 
 // What Create leaves: the two starters are parked, one with its repository, one still being set up; the Content
 // Marketer is not a starter, so BotOps builds it.
@@ -236,6 +251,8 @@ function recruitFor({department, briefing, share}) {
         setupGets++;
         return json({...record, machine, home: 'human:ana'});
       }
+      // A draft that may be left: one active bet with Rules out and Wrong if, and What we won't do written.
+      if (p === '/api/v2/strategy') return json(READY_STRATEGY);
       if (p === '/api/v2/setup/groups') return json({version: 'fixture', departments: DEPARTMENTS, cards: CATALOG.filter(card => card.department), hq});
       if (p === '/api/v2/setup/recruit') {
         const body = request.postDataJSON();
@@ -307,12 +324,12 @@ function recruitFor({department, briefing, share}) {
     // ---- boot: a company that has never been set up opens on its first run, not on Tasks.
     await page.goto('https://tico-ui.test/');
     await page.waitForFunction(() => location.hash === '#/welcome');
-    await page.locator('#onb-company').waitFor();
+    await page.locator('#onb-website').waitFor();
     assert.equal(await page.locator('#nav-welcome').evaluate(el => el.hidden), false);
     assert.match(await page.locator('#nav-welcome').textContent(), /Finish setup/);
-    assert.equal(await page.locator('#onb-count').textContent(), 'Step 1 of 6');
-    // Short names in the row, the long one as the title; "Step 1 of 6" is for screen readers only.
-    assert.equal(await page.locator('.onb-progress').innerText().then(text => text.replace(/\s+/g, ' ').trim()), 'Names About Team Computer Agent Review');
+    assert.equal(await page.locator('#onb-count').textContent(), 'Step 1 of 8');
+    // Short names in the row, the long one as the title; "Step 1 of 8" is for screen readers only.
+    assert.equal(await page.locator('.onb-progress').innerText().then(text => text.replace(/\s+/g, ' ').trim()), 'Building Bets Names About Team Computer Agent Review');
     assert.ok(await page.locator('#onb-count').evaluate(el => el.getBoundingClientRect().width <= 1), 'the count is screen-reader text');
     assert.equal(await oneLine(page), true);
     assert.equal(await bigTitle(page), true);
@@ -320,8 +337,11 @@ function recruitFor({department, briefing, share}) {
     assert.equal(await page.locator('#side .side-scroll > [data-nav="tasks"]').isVisible(), false);
     await page.setViewportSize({width: 390, height: 844});
     assert.equal(await page.locator('#mobile-nav').isVisible(), false, 'no phone navigation during setup');
-    await shot(page, 'phone-0-names');
+    await shot(page, 'phone-0-building');
     await page.setViewportSize({width: 1100, height: 800});
+    await pastStrategy(page);
+    puts.splice(0);                       // the two strategy steps' drafts: the counts below start at Names
+    assert.equal(await page.locator('#onb-count').textContent(), 'Step 3 of 8');
 
     // ---- a: names, prefilled from config, with no explanation under them. The assistant
     // works in the background and is not named here; its configured name rides along unchanged.
@@ -345,14 +365,14 @@ function recruitFor({department, briefing, share}) {
     await page.locator('#onb-next').click();
     await page.locator('#onb-what').waitFor();
     assert.equal(puts.length, 1);
-    assert.deepEqual(puts[0].names, {company_name: 'Initech', app_name: 'Initech Hub', assistant_name: 'Ace', owner_name: 'Ana M. Rivera', team_domain: 'initech.test'});
+    assert.deepEqual(puts[0].names, {company_name: 'Initech', app_name: 'Initech Hub', assistant_name: 'Ace', owner_name: 'Ana M. Rivera', team_domain: 'initech.test', website: ''});
     assert.equal(await page.evaluate(() => S.me.name), 'Ana M. Rivera');           // the page follows the save
     // Nobody has chosen a team yet, so the first draft carries none; BotOps and the assistant are built whatever is chosen.
     assert.deepEqual(puts[0].selected, {});
     assert.equal('never_without_person' in puts[0].answers, false);
 
     // ---- b: about the team. Legacy approval choices are absent from the form and saved draft.
-    assert.equal(await page.locator('#onb-count').textContent(), 'Step 2 of 6');
+    assert.equal(await page.locator('#onb-count').textContent(), 'Step 4 of 8');
     assert.equal(await page.locator('[data-onb-never]').count(), 0);
     await shot(page, 'desktop-1-about');
     await page.locator('#onb-what').fill('We sell a live audio app and the studio software behind it.');
@@ -363,13 +383,13 @@ function recruitFor({department, briefing, share}) {
     await page.locator('[data-ob-tile]').first().waitFor();
     assert.equal(puts.length, 2);
     assert.deepEqual(puts[1].answers, {
-      what_we_do: 'We sell a live audio app and the studio software behind it.',
+      building: '', what_we_do: 'We sell a live audio app and the studio software behind it.',
       customers: 'businesses', software_product: 'yes', team_size: '2-10', work_arrives: [], repetitive_work: '',
       pains: [], pains_text: '', tools: [], departments: [], briefings: {}});
 
     // ---- c: the org chart, straight after About: there is no step asking what hurts or which tools are used.
     // First, which departments: Engineering and Product are suggested because software is the product; Legal and HR wait.
-    assert.equal(await page.locator('#onb-count').textContent(), 'Step 3 of 6');
+    assert.equal(await page.locator('#onb-count').textContent(), 'Step 5 of 8');
     if (shots) await page.setViewportSize({width: 1440, height: 900});      // the org chart photographed on a laptop screen
     assert.equal(await page.locator('#onb h1').textContent(), 'Your team chart');
     assert.doesNotMatch(await page.locator('.onb-progress').textContent(), /What hurts|Your team(?! chart)/);
@@ -620,7 +640,7 @@ function recruitFor({department, briefing, share}) {
     if (shots) await page.setViewportSize({width: 1100, height: 800});
 
     // ---- d: this Mac. The enrollment file is the Settings flow; the commands keep <slug> literal.
-    assert.equal(await page.locator('#onb-count').textContent(), 'Step 4 of 6');
+    assert.equal(await page.locator('#onb-count').textContent(), 'Step 6 of 8');
     assert.equal(await page.locator('#onb-machine-status').textContent(), 'No computer enrolled yet');
     await shot(page, 'desktop-5b-machine');
     // Not in a container, the Mac is offered first; a server in Docker (the usual install) offers the Linux computer first.
@@ -777,7 +797,7 @@ function recruitFor({department, briefing, share}) {
     assert.equal(puts.length, mark + 2);
 
     // ---- e: connect your agent. Optional: the button opens the same modal as the sidebar's plug.
-    assert.equal(await page.locator('#onb-count').textContent(), 'Step 5 of 6');
+    assert.equal(await page.locator('#onb-count').textContent(), 'Step 7 of 8');
     // One sentence on why, Connect as the secondary button: Next is the step's only primary.
     assert.deepEqual(await page.locator('#onb-step button.primary').evaluateAll(els => els.map(el => el.id)), ['onb-next']);
     assert.match(await page.locator('#onb-step .onb-lead').textContent(), /later from the top bar/);
@@ -794,7 +814,7 @@ function recruitFor({department, briefing, share}) {
     assert.equal(puts.length, mark + 3);
 
     // ---- g: review, then create exactly once.
-    assert.equal(await page.locator('#onb-count').textContent(), 'Step 6 of 6');
+    assert.equal(await page.locator('#onb-count').textContent(), 'Step 8 of 8');
     assert.equal(await bigTitle(page), true);
     await shot(page, 'desktop-5d-review');
     if (shots) { await page.setViewportSize({width: 390, height: 844}); await shot(page, 'phone-5d-review'); await page.setViewportSize({width: 1100, height: 800}); }
@@ -879,6 +899,8 @@ function recruitFor({department, briefing, share}) {
     assert.deepEqual(tourPosts, [{tour: true}]);
     assert.equal(await page.locator('#fr-owners summary').textContent().then(text => text.replace(/\s+/g, ' ').trim()), 'You own all 5 bots. Change');
     assert.match(await page.locator('#fr-providers').textContent(), /AI providers: subscriptions plus Tico Gateway\./);
+    // Setup saved a strategy draft; publishing it is the owner's click on the Strategy page.
+    assert.equal(await page.locator('#fr-strategy a').getAttribute('href'), '#/strategy');
     assert.equal(await page.evaluate(() => frProvidersName({providers: {preset: 'subscriptions', providers: []}})), 'subscriptions only');
     assert.equal(await page.evaluate(() => frProvidersName({providers: {preset: 'gateway', providers: []}})), 'Tico Gateway only');
     assert.equal(await page.evaluate(() => frProvidersName({providers: {enabled: ['openai'], providers: [{id: 'openai', label: 'OpenAI'}]}})), 'OpenAI');
@@ -1022,17 +1044,19 @@ function recruitFor({department, briefing, share}) {
     phone.on('pageerror', e => errors.push(e.message));
     await phone.setViewportSize({width: 390, height: 844});
     await phone.goto('https://tico-ui.test/#/welcome');
-    await phone.locator('#onb-company').waitFor();
+    await phone.locator('#onb-website').waitFor();
     const fits = () => phone.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth
       && document.querySelector('#main').scrollWidth <= document.querySelector('#main').clientWidth);
     assert.equal(await fits(), true);
     // A phone shows the dots and the current step's name, on one line.
     assert.deepEqual(await phone.locator('.onb-progress li span').evaluateAll(els =>
-      els.filter(el => el.getBoundingClientRect().width > 1).map(el => el.textContent)), ['Names']);
+      els.filter(el => el.getBoundingClientRect().width > 1).map(el => el.textContent)), ['Building']);
     assert.equal(await oneLine(phone), true);
     assert.equal(await bigTitle(phone), true);
+    await pastStrategy(phone);
+    assert.equal(await fits(), true);
     await shot(phone, 'phone-0-names');
-    // A team that has not chosen its AI providers has seven steps: still one line on a phone.
+    // A team that has not chosen its AI providers has nine steps: still one line on a phone.
     const seven = await context.newPage();
     seven.on('pageerror', e => errors.push(e.message));
     await seven.setViewportSize({width: 390, height: 844});
@@ -1042,7 +1066,7 @@ function recruitFor({department, briefing, share}) {
         {id: 'openrouter', label: 'OpenRouter', runtime: 'pi'}]}}));
     await seven.goto('https://tico-ui.test/#/welcome');
     await seven.locator('#onb-step').waitFor();
-    assert.equal(await seven.locator('.onb-progress li').count(), 7);
+    assert.equal(await seven.locator('.onb-progress li').count(), 9);
     assert.equal(await oneLine(seven), true);
     const details = seven.locator('[data-provider-details]');
     assert.equal(await details.isVisible(), false);
@@ -1111,7 +1135,7 @@ function recruitFor({department, briefing, share}) {
     hq = {available: false, off_by: 'DO_NOT_TRACK'};
     await phone.goto('https://tico-ui.test/#/tasks');
     await phone.goto('https://tico-ui.test/#/welcome');
-    await phone.locator('#onb-company').waitFor();
+    await pastStrategy(phone);
     await phone.locator('#onb-next').click();
     await phone.locator('#onb-what').waitFor();
     await phone.locator('#onb-next').click();
@@ -1230,13 +1254,14 @@ function recruitFor({department, briefing, share}) {
 
     // A fresh install (no TICO_TEAM_NAME: the server's stand-in "Company") starts with an empty name and a placeholder,
     // and Next asks for the name instead of quietly naming the team "Company".
-    const before = {names: record.names, completed: record.completed, needed: record.needed}, mark2 = puts.length;
+    const before = {names: record.names, completed: record.completed, needed: record.needed};
     Object.assign(CONFIG, {company_name: 'Company', company_name_default: true});
     record = {...record, names: {company_name: '', app_name: '', assistant_name: ''}, completed: null, needed: true};
     const fresh = await context.newPage();
     fresh.on('pageerror', e => errors.push(e.message));
     await fresh.goto('https://tico-ui.test/#/welcome');
-    await fresh.locator('#onb-company').waitFor();
+    await pastStrategy(fresh);
+    const mark2 = puts.length;
     assert.equal(await fresh.locator('#onb-company').inputValue(), '');
     assert.equal(await fresh.locator('#onb-company').getAttribute('placeholder'), 'Acme Inc.');
     assert.equal(await fresh.locator('label.onb-field:has(#onb-company) .k').textContent(), 'Company name');

@@ -98,7 +98,7 @@ const noNotice = async ({page, notices}) => {
 async function wizard(browser, theme) {
   // A new install opens with no page in the address: the boot sends it to the wizard.
   const {page, errors, notices, close} = await open(browser, {theme, needed: true, route: ''});
-  await page.locator('#onb-company').waitFor();
+  await page.locator('#onb-website').waitFor();
   assert.equal(await page.evaluate(() => location.hash), '#/welcome');
   await noNotice({page, notices});
   assert.deepEqual(await shown(page, '#side .side-scroll > .nav-link, #side .side-scroll > .nav-row'), ['welcome'], 'only Finish setup');
@@ -120,7 +120,7 @@ async function wizard(browser, theme) {
   await close();
 
   const phone = await open(browser, {theme, phone: true, needed: true, route: '#/welcome'});
-  await phone.page.locator('#onb-company').waitFor();
+  await phone.page.locator('#onb-website').waitFor();
   assert.equal(await phone.page.locator('#mobile-nav').isVisible(), false, 'no phone navigation during setup');
   assert.deepEqual(await shown(phone.page, '#mobile-nav > *'), []);
   await noNotice(phone);
