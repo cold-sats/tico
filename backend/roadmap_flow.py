@@ -66,6 +66,9 @@ def claim(c):
                         'ORDER BY id=? DESC LIMIT 1', (PRODUCT, 'Product roadmap', PRODUCT)).fetchone()
         if row:
             c.execute('UPDATE task_types SET role=? WHERE id=?', (PRODUCT, row[0]))
+    # A Dev tickets type gets its hand-off wake rules once (rules.seed_dev); they are rows a person can edit.
+    from .rules import seed_dev
+    seed_dev(c)
 
 
 def ensure(c):

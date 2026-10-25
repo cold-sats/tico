@@ -261,6 +261,11 @@ def _rule_for_event(event):
 
 
 # ----------------------------------------------------------------------------- the table
+def _release_flow():
+    from . import release_flow
+    return release_flow
+
+
 class _Context:
     """What a row's scope and conditions read, loaded only when a row asks."""
 
@@ -321,9 +326,15 @@ class _Context:
                 if task.get("status") not in wanted:
                     return False
             elif key == "role":
-                mine = "owner" if task.get("owner") == self.target else \
-                    "requester" if task.get("requester") == self.target else "other"
-                if mine not in wanted:
+                mine = {"owner" if task.get("owner") == self.target else
+                        "requester" if task.get("requester") == self.target else "other"}
+                # QA and the Release Manager are found, never configured per ticket (release_flow): a bot holds
+                # that role here when it is the one the ticket's QA or the team's release setting names.
+                if "qa" in wanted and self.slug == _release_flow().qa_owner(self.conn, task):
+                    mine.add("qa")
+                if "release_manager" in wanted and self.slug == _release_flow().release_manager(self.conn):
+                    mine.add("release_manager")
+                if not mine & set(wanted):
                     return False
             elif key == "step":
                 names = {str(task.get("step_id") or "").lower()}
@@ -578,6 +589,60 @@ def _act(conn, decision, row):
     else:
         raise ValueError(f"unknown action {action!r}")
     H.event(conn, H.KEEPER, "rule.action", tid, {"rule": decision.rule, "action": action})
+
+
+# ----------------------------------------------------------------------------- step entry and the Dev tickets rows
+# What a Dev ticket's hand-offs say, as editable type rows: (note, when, outcome). Seeded once per type (`seed_dev`);
+# a person edits or deletes them in Settings, and a type that lost them is not given them again.
+DEV_ROWS = (
+    ("QA Fixes entered: wake the Builder who owns the ticket", {"step": "QA Fixes", "role": "owner"}, WAKE),
+    ("Pending Release entered: a note to the Release Manager", {"step": "Pending Release", "role": "release_manager"}, NOTE),
+    ("In QA entered: wake QA only", {"step": "In QA", "role": "qa"}, WAKE),
+)
+SEEDED = "rules.seeded"
+
+
+def seed_dev(conn):
+    """Give every Dev tickets type its hand-off rows once. A type that already has them recorded keeps what a person
+    made of them. Quietly does nothing before the rules table or the events table exists."""
+    from .roadmap_flow import _dev
+    try:
+        types = [r for r in conn.execute("SELECT id,name FROM task_types").fetchall() if _dev(r)]
+        for ident, _name in types:
+            if conn.execute("SELECT 1 FROM events WHERE action=? AND target=? LIMIT 1", (SEEDED, ident)).fetchone():
+                continue
+            at = H.now()
+            for position, (note, when, outcome) in enumerate(DEV_ROWS, 1):
+                conn.execute(
+                    "INSERT INTO rules(id,scope_kind,scope_id,event,when_json,then_outcome,params_json,enabled,"
+                    "position,note,created_by,created,updated,revision) VALUES(?,?,?,?,?,?,?,1,?,?,?,?,?,1)",
+                    ("rule-" + H.new_id(), "type", ident, "step_entered", json.dumps(when, sort_keys=True), outcome,
+                     "{}", position, note, H.KEEPER, at, at))
+            H.event(conn, H.KEEPER, SEEDED, ident, {"rows": len(DEV_ROWS)})
+    except sqlite3.OperationalError:
+        return
+
+
+def step_entered(conn, actor, row):
+    """A task entered a step: the bots that have a rule for it hear it (a note or a wake, as the rule says); everyone
+    else hears nothing. Only rows that name `step_entered` start this, so a team without them writes no message on a
+    step move. The owner, the requester, the ticket's QA and the Release Manager are the ones a row can reach."""
+    try:
+        if not conn.execute("SELECT 1 FROM rules WHERE enabled=1 AND event='step_entered' LIMIT 1").fetchone():
+            return
+        step = conn.execute("SELECT name FROM task_steps WHERE id=?", (row.get("step_id"),)).fetchone()
+        flow = _release_flow()
+        qa, manager = flow.qa_owner(conn, row), flow.release_manager(conn)
+        who = [row.get("owner"), row.get("requester"), H.bot_actor(qa) if qa else None,
+               H.bot_actor(manager) if manager else None]
+        conv = H.conversation(conn, row.get("conversation_id"))
+        for target in dict.fromkeys(a for a in who if a and H.is_bot(a) and a != actor):
+            refs = {"task": row["id"], "news": "step_entered"}
+            if _table_decision(conn, "step_entered", actor, target, refs, conv, row):
+                H._wake(conn, row, target, f"{row['title']} entered {step[0] if step else 'a new step'}.",
+                        {"news": "step_entered"})
+    except Exception:  # noqa: BLE001 - a step move never fails for the news about it
+        return
 
 
 # ----------------------------------------------------------------------------- reading

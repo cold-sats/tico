@@ -3400,6 +3400,10 @@ def _set_status(conn, actor, row, status=None, type=None, step=None, note=""):
     if row.get("status") != effective:
         from .ticket_notices import moved as ticket_moved
         ticket_moved(conn, actor, row["id"], row.get("status"), effective)
+    if step_id and row.get("step_id") != step_id and row.get("status") is not None:
+        # A step entered is news a type's rules may route (QA Fixes to the Builder, In QA to QA, ...).
+        from . import rules as wake_rule_engine
+        wake_rule_engine.step_entered(conn, actor, task(conn, row["id"]))
     return effective
 
 

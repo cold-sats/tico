@@ -283,7 +283,8 @@ def _docs_task(c, writer, tag, tickets, url):
     body = (f"{tag} is published" + (f" ({url})" if url else "") + ". Update the docs for the changes people will see, "
             "each with its pull request; skip what nobody sees. The version's CHANGELOG section comes on its release "
             "notes task.\n\nIn this release:\n" + "\n".join(_line(t) for t in shown) + more)
-    return H.task_create(c, H.KEEPER, title, body, owner, deduplicate=False, trigger=EVENT, trigger_source=tag)["id"]
+    return H.task_create(c, H.KEEPER, title, body, owner, deduplicate=False, trigger=EVENT, trigger_source=tag,
+                         wake_refs={"wake": EVENT})["id"]
 
 
 def published(c, target, url="", release_repo=""):
