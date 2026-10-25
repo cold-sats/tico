@@ -101,3 +101,55 @@ def test_a_call_a_rule_forwards_reaches_the_outgoing_endpoint_signed(api, net):
     assert hook(api, made["url"], b'{"order": 42}', {"Webhook-Id": "w9"}).status_code == 200    # a retry sends nothing new
     run(api, net)
     assert len(net.seen) == 1 and D.MAX_ATTEMPTS == 8
+
+
+def test_a_signed_call_through_the_gateway_relay_is_checked_accepted_and_judged_with_the_vault_and_auth(api, monkeypatch):
+    """The relay once called receive() with no vault, so every signed preset was refused as vault_unavailable and still
+    acknowledged to HQ: valid deliveries never reached a rule."""
+    import hashlib
+    import hmac
+    from backend import routines
+    setup(api)
+    post(api, "triggers", {"name": "Shop"})
+    key = "k" * 24
+    post(api, "triggers/shop/signing", {"preset": "github", "secret": key})
+    wake_rule(api, trigger="shop")
+    with api.app.state.store.transaction() as c:
+        c.execute("DELETE FROM jobs")
+        c.execute("INSERT INTO trigger_relays(relay_id,trigger_id,address_prefix,created_by,created) VALUES(?,?,?,?,?)",
+                  ("hr_0123456789abcdef", "shop", "https://api.tico.dev/v1/hooks/hr_0123456789abcdef", "human:ana", H.now()))
+    emitted = []
+    real = routines.emit
+    monkeypatch.setattr(routines, "emit", lambda *a, **kw: (emitted.append(kw.get("auth")), real(*a, **kw))[1])
+    relay = hook_relay.HookRelay(api.app.state.store, api.app.state.store.settings, SimpleNamespace(state=api.app.state),
+                                 api.app.state.auth)
+    body = b'{"order": 8}'
+    signed = "sha256=" + hmac.new(key.encode(), body, hashlib.sha256).hexdigest()
+
+    def item(seq, delivery, signature):
+        return {"hq_seq": seq, "relay_id": "hr_0123456789abcdef", "trigger_id": "shop", "delivery_id": delivery,
+                "received_at": H.now(), "body_b64": base64.b64encode(body).decode(),
+                "headers": {"content-type": "application/json", "x-hub-signature-256": signature}}
+    assert relay.take(item(1, "s1", "sha256=" + "0" * 64), 0) == 1             # a bad signature is still refused
+    with api.app.state.store.read() as c:
+        assert jobs(c, "cpo") == 0
+        assert c.execute("SELECT outcome,reason FROM trigger_deliveries WHERE sent_id='s1' OR delivery='s1'").fetchone()[0] == "refused"
+    assert relay.take(item(2, "s2", signed), 1) == 2
+    with api.app.state.store.read() as c:
+        row = c.execute("SELECT outcome,rules FROM trigger_deliveries WHERE delivery='s2'").fetchone()
+        assert (row["outcome"], row["rules"]) == ("accepted", 1) and jobs(c, "cpo") == 1
+    assert emitted and all(a is api.app.state.auth for a in emitted)
+
+
+def test_one_send_rule_for_two_triggers_sends_each_call_even_when_both_carry_the_same_delivery_id(api, net):
+    from backend.tests.test_webhooks import make, run
+    first = post(api, "triggers", {"name": "Shop"})["trigger"]
+    second = post(api, "triggers", {"name": "Blog"})["trigger"]
+    endpoint = make(api, events=["custom.*"], token="ana-test")
+    post(api, "rules", {"scope_kind": "team", "event": "webhook.received", "then": "action", "when": {},
+                        "params": {"action": "send_webhook", "webhook": endpoint["id"], "type": "custom.seen",
+                                   "data": {"from": "{{trigger.name}}"}}}, token="ana-test")
+    assert hook(api, first["url"], b"{}", {"Webhook-Id": "1"}).json()["rules"] == 1
+    assert hook(api, second["url"], b"{}", {"Webhook-Id": "1"}).json()["rules"] == 1
+    run(api, net)
+    assert sorted(json.loads(r.content)["data"]["from"] for r in net.seen) == ["Blog", "Shop"]

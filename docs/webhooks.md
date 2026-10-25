@@ -384,7 +384,8 @@ hub webhook replay acme --since 2026-10-20
   one drops the repeat.
 - **Replay** sends the events since the date that the endpoint should have heard and has no send for: it was added late, was paused
   and cleared, or its filter changed. It applies the same subscription, filter and read tests as a live event, and never copies a
-  one-off send meant for another endpoint. Tico keeps events for 30 days.
+  one-off send meant for another endpoint. Tico keeps events for 30 days. A round looks at 500 events; when it says `more`, run it
+  again with `--since` set to its `next_since` and `--after` to its `next_after`.
 
 ### Allowed addresses
 

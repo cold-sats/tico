@@ -1960,6 +1960,7 @@ def parser():
     s = webhook.add_parser("replay", help="send the events since a date that the endpoint should have had and has no send for")
     s.add_argument("id")
     s.add_argument("--since", required=True, help="a date like 2026-10-20 or a time")
+    s.add_argument("--after", help="with --since: continue where a round that said `more` stopped (its next_since and next_after)")
     s.set_defaults(fn="webhook replay")
     s = webhook.add_parser("enable", help="turn an endpoint back on; after Tico turned it off for failing, it offers to send again what it held back")
     s.add_argument("id")

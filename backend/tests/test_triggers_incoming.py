@@ -70,6 +70,10 @@ def test_type_extraction_and_header_handling():
                        "idempotency-key": "i1", "webhook-id": "w1", "set-cookie": "a=b"}) == {
         "x-hub-signature-256": "[redacted]", "authorization": "[redacted]", "x-api-key": "[redacted]", "content-type": "a/b",
         "idempotency-key": "i1", "webhook-id": "w1", "set-cookie": "[redacted]"}
+    assert P.redacted({"X-Access-Key": "a", "x-authorization": "b", "X-Auth-Token": "c", "x-client-secret": "d",
+                       "Idempotency-Key": "i2", "webhook-id": "w", "x-request-id": "r"}) == {
+        "X-Access-Key": "[redacted]", "x-authorization": "[redacted]", "X-Auth-Token": "[redacted]",
+        "x-client-secret": "[redacted]", "Idempotency-Key": "i2", "webhook-id": "w", "x-request-id": "r"}
     kept = P.kept_headers({"cookie": "a=b", "authorization": "Bearer secret1", "cf-ray": "1", "connection": "close",
                            "x-event": "e"}, "secret1")
     assert kept == {"x-event": "e"}
@@ -318,6 +322,18 @@ def test_the_hourly_cap_is_per_trigger_and_a_retry_after_it_is_still_a_duplicate
     codes = [hook(api, made["url"], b"{}", {"Webhook-Id": f"c{i}"}).status_code for i in range(3)]
     assert codes == [202, 202, 429]
     assert hook(api, made["url"], b"{}", {"Webhook-Id": "c0"}).status_code == 200            # known before the cap is asked
+
+
+def test_a_sender_id_that_looks_like_a_replay_still_counts_toward_the_hourly_cap_and_replays_skip_it(api):
+    made = post(api, "triggers", {"name": "Shop"})["trigger"]
+    post(api, "triggers/shop", {"hourly": 1})
+    codes = [hook(api, made["url"], b"{}", {"Webhook-Id": f"caller:replay:{i}"}).status_code for i in range(3)]
+    assert codes == [202, 429, 429]
+    # a person's own replay is exempt, and its number skips an id the sender already used
+    assert hook(api, made["url"], b"{}", {"Webhook-Id": "x"}).status_code == 429
+    again = post(api, "triggers/shop/deliveries/caller:replay:0/replay", {})["replay"]
+    assert again["of"] == "caller:replay:0" and again["delivery"] == "caller:replay:0:replay:1"
+    assert stored_rows(api, "SELECT replay FROM trigger_seen WHERE delivery=?", again["delivery"])[0][0] == 1
 
 
 def test_the_hub_tools_cover_the_whole_life_of_a_trigger(api):

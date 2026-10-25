@@ -560,8 +560,12 @@ async function whHookDetail(el, run) {
   el.querySelectorAll('[data-wh-catchup-do]').forEach(b => { b.onclick = () => act(async () => {
     const since = el.querySelector('[data-wh-since]').value;
     if (!since) throw new Error('Pick a day');
-    const r = await post(`${path}/${b.dataset.whCatchupDo}`, {since});
-    const n = r.recovered ?? r.queued ?? 0;
+    let r = await post(`${path}/${b.dataset.whCatchupDo}`, {since}), n = r.recovered ?? r.queued ?? 0;
+    // A replay round that left more waiting says where it stopped: carry on from there, a few rounds at most.
+    for (let round = 1; r.more && r.next_since && round < 10; round++) {
+      r = await post(`${path}/${b.dataset.whCatchupDo}`, {since: r.next_since, after: r.next_after});
+      n += r.queued ?? 0;
+    }
     toast(`${b.dataset.whCatchupDo === 'recover' ? 'Retrying' : 'Sending'} ${n}${r.more ? ' (more wait: run it again)' : ''}`);
   }); });
   el.querySelectorAll('[data-wh-retry]').forEach(b => { b.onclick = () => act(() => post(`${path}/sends/${encodeURIComponent(b.closest('[data-wh-send]').dataset.whSend)}/retry`, {})); });

@@ -3392,11 +3392,14 @@ def webhook_recover(api, args):
 
 @tool("hub_webhook_replay", "Send the events since a date that this endpoint should have had and has no send for (it was added "
       "late, or its filter changed). The same tests as a live event: its event names, its filter, and what its owner may read. "
-      "Events are kept 30 days. At most 500 at a time (`more`). The endpoint must be on.",
-      {"id": _s("The endpoint id"), "since": _s("A date like 2026-10-20, or a time"), "on_behalf_of": ON_BEHALF_OF},
+      "Events are kept 30 days. A round looks at 500 events; when it answers `more`, call again with its `next_since` as `since` "
+      "and its `next_after` as `after`. The endpoint must be on.",
+      {"id": _s("The endpoint id"), "since": _s("A date like 2026-10-20, or a time (or the last round's next_since)"),
+       "after": _s("The last round's next_after, when continuing"), "on_behalf_of": ON_BEHALF_OF},
       required=("id", "since"), writes=True)
 def webhook_replay(api, args):
-    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "replay"), {"since": args["since"]}, key=_key(args))
+    body = {"since": args["since"], **({"after": args["after"]} if args.get("after") else {})}
+    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "replay"), body, key=_key(args))
 
 
 @tool("hub_webhook_enable", "Turn an endpoint back on. After Tico turned it off for failing (five days of failed attempts), "

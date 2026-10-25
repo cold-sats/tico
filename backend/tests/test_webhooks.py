@@ -505,3 +505,39 @@ def test_a_server_that_drips_its_answer_is_cut_off_at_the_total_deadline(monkeyp
     monkeypatch.setattr(egress, "resolve", hang)
     with pytest.raises(egress.Blocked, match="name lookup"):
         egress.post("https://hooks.acme.example/x", b"{}", {}, transport=httpx.MockTransport(slow))
+
+
+def test_an_endpoint_whose_owner_has_left_hears_nothing(api, net, monkeypatch):
+    from backend import auth as A
+    ben, ana = make(api, events=["task.*", "custom.*"], token="ben-test"), make(api, events=["task.*", "custom.*"])
+    monkeypatch.setattr(A, "standing", lambda c, pid: "left" if pid == "ben" else "")
+    with api.app.state.store.transaction() as c:
+        public = H.task_create(c, "human:ben", "Plan the launch", "Details.", "bot:cpo", lint=False)     # Ben is still a party
+    publish(api, "custom.note", "n1", {"text": "company news"}, H.KEEPER)
+    assert sends(api, ben["id"]) == []
+    assert {s["subject"] for s in sends(api, ana["id"])} >= {public["id"], "n1"}
+
+
+def test_a_paused_endpoint_has_the_events_of_its_pause_kept_for_send_missed(api, net):
+    only = make(api, events=["custom.*"])
+    post(api, f"webhooks/{only['id']}/pause", {})
+    assert publish(api, "custom.a", "during", {"n": 1}, "human:ana") == 0
+    post(api, f"webhooks/{only['id']}/resume", {})
+    assert sends(api, only["id"]) == []
+    assert post(api, f"webhooks/{only['id']}/replay", {"since": "2020-01-01"})["queued"] == 1
+    assert [s["subject"] for s in sends(api, only["id"])] == ["during"]
+    with api.app.state.store.transaction() as c:                    # no endpoint at all: nothing is journaled
+        c.execute("UPDATE webhooks SET deleted_at=?", (H.now(),))
+        before = c.execute("SELECT count(*) FROM webhook_events").fetchone()[0]
+        W.publish(c, "custom.a", "none", {"n": 2}, "human:ana")
+        assert c.execute("SELECT count(*) FROM webhook_events").fetchone()[0] == before
+
+
+def test_endpoints_that_cannot_read_an_event_do_not_use_up_its_fan_out_places(api, net, monkeypatch):
+    monkeypatch.setattr(W, "MAX_PER_EVENT", 2)
+    blind = [make(api, events=["task.*"], token="priya-test") for _ in range(2)]       # older, and cannot read a private task
+    ben = make(api, events=["task.*"], token="ben-test")
+    with api.app.state.store.transaction() as c:
+        private = H.task_create(c, "human:ben", "Review the sensitive packet", "Details.", "bot:cpo", private=True, lint=False)
+    assert [s["subject"] for s in sends(api, ben["id"]) if s["type"] == "task.created"] == [private["id"]]
+    assert all(sends(api, b["id"]) == [] for b in blind)

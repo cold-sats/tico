@@ -20810,7 +20810,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/WebhookSince"
+                "$ref": "#/components/schemas/WebhookReplay"
               }
             }
           }
@@ -38163,6 +38163,28 @@
           "relay"
         ],
         "additionalProperties": true
+      },
+      "WebhookReplay": {
+        "properties": {
+          "since": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Since"
+          },
+          "after": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "After",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "since"
+        ],
+        "title": "WebhookReplay"
       },
       "WebhookReplayed": {
         "type": "object",

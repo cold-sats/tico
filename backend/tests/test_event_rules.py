@@ -154,7 +154,7 @@ def test_send_webhook_publishes_the_rendered_data_as_the_rules_maker(api, hooks)
                      "detail": "1 queued"}]
     kind, subject, data, by, only, revision = hooks.calls[0]
     assert (kind, subject, data, only, revision) == ("custom.order-seen", "d1", {"order": "42", "who": ["Buyer"]},
-                                                     "crm", made["id"])
+                                                     "crm", f"{made['id']}:webhook.received:shop")     # rule, event, trigger
     assert by.startswith("human:")
 
 

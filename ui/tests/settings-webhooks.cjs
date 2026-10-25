@@ -120,6 +120,7 @@ async function open(browser, hash, viewport = {width: 1280, height: 860}, state 
       if (rest === '') return json({webhook: h, recent_attempts: []});
       if (rest === 'sends') return json({items: state.sends[h.id] || [], more: false});
       if (rest === 'resume') { h.enabled = true; return json({webhook: h}); }
+      if (rest === 'replay') return json(post.after ? {queued: 2, more: false} : {queued: 0, more: true, next_since: '2026-10-20T03:00:00.000000Z', next_after: 'we_1'});
       return json({ok: true});
     }
     if (p === '/api/v2/relay') return json({relay: state.relay});
@@ -297,6 +298,11 @@ const noSideways = page => page.evaluate(() => document.documentElement.scrollWi
       await pane.locator('[data-wh-catchup-do="recover"]').click();
       await caught;
       assert.match(state.posts.at(-1).body.since, /^\d{4}-\d\d-\d\d$/);
+      // Send missed carries on from where a round that said "more" stopped.
+      const missed = page.waitForResponse(r => r.url().endsWith('/wh1/replay') && r.request().postDataJSON().after === 'we_1');
+      await pane.locator('[data-wh-catchup-do="replay"]').click();
+      await missed;
+      assert.deepEqual(state.posts.at(-1).body, {since: '2026-10-20T03:00:00.000000Z', after: 'we_1'});
       const paths = state.posts.map(x => x.path);
       assert.ok(paths.includes('/api/v2/webhooks/wh1/sends/s2/retry') && paths.includes('/api/v2/webhooks/wh1/example') && paths.includes('/api/v2/webhooks/wh1/resume'), paths.join(' '));
 

@@ -347,8 +347,10 @@ class HookRelay:
             if not ok:
                 save(c, cursor=seq)
                 return True
+            # A signed delivery (github, standard, stripe, slack, hmac) is checked here, so it needs the vault; rules and
+            # routines need `auth` to run as the people who made them.
             triggers.receive(c, trigger_id, body, headers, secret=None, via="gateway", delivery_id=str(item.get("delivery_id") or ""),
-                    received_at=received(item.get("received_at")))
+                    received_at=received(item.get("received_at")), vault=self.vault(), auth=self.auth)
             save(c, cursor=seq)
         return True
 
@@ -467,8 +469,11 @@ class HookRelay:
             raise Problem("gateway", "The Tico Gateway gave an answer this server cannot use. Try again.", 502)
         extra = None
         with self.store.transaction() as c:
-            if _row(c, trigger_id):
-                extra = relay_id                    # a second request made one first: this one goes back
+            existing = _row(c, trigger_id)
+            if existing and existing["relay_id"] != relay_id:
+                extra = relay_id                    # a second request made a different one first: this one goes back
+            elif existing:
+                pass                                # the same HQ relay (a concurrent retry with the same key): keep it
             else:
                 c.execute("INSERT INTO trigger_relays(relay_id,trigger_id,address_prefix,created_by,created) VALUES(?,?,?,?,?) "
                           "ON CONFLICT(relay_id) DO UPDATE SET trigger_id=excluded.trigger_id,address_prefix=excluded.address_prefix,"
