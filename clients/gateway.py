@@ -364,3 +364,17 @@ def search(url, key, query, max_results=5, headers=None, timeout=25, opener=None
     cost = usage.get("cost_usd")
     return 200, {"results": results, "answer": str(payload.get("answer") or "")[:4000],
                  "usage": {"cost_usd": cost if isinstance(cost, (int, float)) and not isinstance(cost, bool) else None}}, ""
+
+
+def fetch(url, key, page, max_tokens=10000, headers=None, timeout=35, opener=None):
+    """Tico HQ's page reader (`POST <base>/fetch`, the gateway key): (status, {url, title, content, usage: {cost_usd}} or {},
+    error code). Only the fields the Gateway documents are kept; the content is another site's text."""
+    status, payload, code = _post(safe_base(url) + "/fetch", {"url": str(page)[:2000], "max_tokens": max(1000, min(50000, int(max_tokens)))},
+                                  {"Authorization": "Bearer " + key, **(headers or {})}, timeout, opener)
+    if status != 200:
+        return status, {}, code
+    usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+    cost = usage.get("cost_usd")
+    return 200, {"url": str(payload.get("url") or page)[:2000], "title": str(payload.get("title") or "")[:300],
+                 "content": str(payload.get("content") or "")[:250000],
+                 "usage": {"cost_usd": cost if isinstance(cost, (int, float)) and not isinstance(cost, bool) else None}}, ""

@@ -61,6 +61,23 @@ def test_review_command_and_mcp_preserve_head_body_and_retry_identity(tmp_path, 
     assert calls[1] == calls[0]  # CLI and MCP retries identify the same exact review.
 
 
+def test_gateway_fetch_command_asks_the_route_with_the_url_and_size(monkeypatch):
+    from clients import remotecli
+    calls = []
+    class Api:
+        def __init__(self, *args, **kw):
+            pass
+        def post(self, path, body, key=None):
+            calls.append((path, body))
+            return {"content": "C"}
+    monkeypatch.setattr(remotecli, "Client", Api)
+    monkeypatch.setenv("HUB_API_URL", "https://tico.acme.example/api/v2")
+    assert remotecli.run(hubcli.parser().parse_args(["gateway", "fetch", "https://example.test/a"])) == {"content": "C"}
+    remotecli.run(hubcli.parser().parse_args(["gateway", "fetch", "https://example.test/b", "--max-tokens", "2000"]))
+    assert calls == [("gateway/fetch", {"url": "https://example.test/a", "max_tokens": 10000}),
+                     ("gateway/fetch", {"url": "https://example.test/b", "max_tokens": 2000})]
+
+
 def test_product_repository_cli_previews_and_requires_the_exact_typed_confirmation(monkeypatch):
     from clients import remotecli
     from io import StringIO

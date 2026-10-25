@@ -1910,12 +1910,12 @@
    "tools": []
   },
   {
-   "id": "browse",
-   "name": "Browse",
-   "for": "Open and read a web page",
-   "price": null,
-   "status": "next",
-   "tools": []
+   "id": "fetch",
+   "name": "Fetch",
+   "for": "Read a web page or PDF",
+   "price": "$1.25 per 1,000 pages + tokens",
+   "status": "live",
+   "tools": ["hub_gateway_fetch"]
   },
   {
    "id": "transcribe",
