@@ -87,8 +87,16 @@ def observe(c, settings, value=None):
     if value['at_stop']:
         # These jobs have not become turns yet: they remain queued and hold no place.
         c.execute("INSERT OR IGNORE INTO org_turn_waits SELECT id,created FROM jobs WHERE state='queued'")
-    c.execute("DELETE FROM org_turn_waits WHERE NOT EXISTS "
-              "(SELECT 1 FROM jobs j WHERE j.id=org_turn_waits.job_id AND j.state='queued')")
+    if value['at_warning']:
+        # Just below the stop the waiters keep their first claim on each freed place, across computers.
+        c.execute("DELETE FROM org_turn_waits WHERE NOT EXISTS "
+                  "(SELECT 1 FROM jobs j WHERE j.id=org_turn_waits.job_id AND j.state='queued')")
+    else:
+        # Below the warning there is room for all of them and the queue's own order applies again. A waiter that
+        # cannot run (its bot cooling off a usage limit, its login held) otherwise stayed one for good: every claim
+        # from every computer then took the write lock to check each waiter under it, 13-20 thousand queries and
+        # holds of 5-10 s per claim on a live install, with every runner's events and renewals queued behind them.
+        c.execute("DELETE FROM org_turn_waits")
     return value
 
 
