@@ -1351,6 +1351,9 @@ class Store:
                     c.execute("INSERT INTO cloud_migrations VALUES(63,?)", (H.now(),))
                 from .public_roadmaps import migrate as migrate_public_roadmaps
                 migrate_public_roadmaps(c)
+                # Notes a completed run carried are settled (hubdb.notes_settle): one pass settles the ones from before the
+                # column, in one UPDATE. Unversioned and idempotent; it reads only the small unsettled-carried index.
+                H.notes_settle_catch_up(c, None)
                 H.ensure_market_reads(c)
                 # Deleted tasks wait here until restored or purged; created unversioned, like the
                 # trigger below, so it never takes a migration number another change needs.

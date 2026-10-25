@@ -224,6 +224,10 @@ class Scheduler:
         def placement_sweep(c):
             placement.sweep(c, self.execution)
 
+        def notes_catch_up(c):
+            # A completed run's notes are settled where its result is recorded; this settles any that path missed.
+            H.notes_settle_catch_up(c, 500)
+
         def company_turns_tick(c):
             from . import org_turns
             org_turns.observe(c, self.store.settings)
@@ -253,7 +257,8 @@ class Scheduler:
                      wake_presets_tick,                         # wake presets let go of the notices and sweeps now due
                      self.execution.hold_unrunnable,
                      placement_sweep,                           # an active bot with no computer gets one
-                     H.lift_cooled_quarantines):
+                     H.lift_cooled_quarantines,
+                     notes_catch_up):
             with locked(getattr(step, "__name__", "step")) as c:
                 step(c)
         # Routines are read without the lock; one not yet due whose next_due is already written needs no write at all.
