@@ -530,14 +530,19 @@ def run(args, who=None):
             except UnicodeDecodeError:
                 body["content_base64"] = base64.b64encode(data).decode("ascii")
             return post(f"tasks/{args.id}/files", body)
-        if sub in ("update", "close"):
+        if sub in ("update", "close", "done"):
             current = client.get("tasks/" + args.id)["task"]
             body = {"version": current["version"], "note": args.note}
+            if sub == "done":
+                body["status"] = "done"
+            for field in ("verdict", "verdict_head"):
+                if getattr(args, field, None) is not None:
+                    body[field] = getattr(args, field)
             if getattr(args, "quiet", False):
                 body["quiet"] = True
             if sub == "close":
                 body["close"] = True
-            else:
+            elif sub == "update":
                 body.update({"status": args.status, "owner": args.owner, "due": args.due,
                              "goal_id": getattr(args, "goal", None)})
                 if getattr(args, "private", None) is not None:

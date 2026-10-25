@@ -52,6 +52,9 @@ ALWAYS_KINDS = frozenset({"ask", "answer", "steer"})
 ALWAYS_REFS = frozenset({"approval", "questions", "command", "run_now"})
 FLAG = "needs_action"
 VERDICT = re.compile(r"^\s*VERDICT:\s*(approve|changes)\s+PR\s+#\d+\s+head\s+[0-9a-f]{7,40}\b", re.I | re.M)
+# The same line read for its fields: a review or QA child's verdict and the head it judged (hubdb.record_verdict).
+VERDICT_FIELDS = re.compile(r"^\s*VERDICT:\s*(approve|changes|pass|fail)\b(?:\s+PR\s+#\d+)?(?:\s+head\s+([0-9a-f]{7,40})\b)?",
+                            re.I | re.M)
 
 # What a parked task waits for, by the refs its wake carries. These wake even when the bot's own write caused them.
 AWAITED = (

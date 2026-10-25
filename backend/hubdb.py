@@ -1077,6 +1077,9 @@ def migrate(conn, adopt_legacy=False):
     # A task snoozed until a date, and who snoozed it (backend/task_snooze.py).
     add_column(conn, "tasks", "snoozed_until", "TEXT")
     add_column(conn, "tasks", "snoozed_by", "TEXT")
+    # A review or QA child's verdict (approve|changes|pass|fail) and the pull request head it judged (record_verdict).
+    add_column(conn, "tasks", "verdict", "TEXT")
+    add_column(conn, "tasks", "verdict_head", "TEXT")
     # An approval a person's own Assistant decided for them: whose assistant, and the person's words it acted on.
     add_column(conn, "approvals", "decided_via", "TEXT")
     add_column(conn, "approvals", "decided_for_json", "TEXT")
@@ -2499,6 +2502,8 @@ def say(conn, actor, to_actor, body, conversation_id=None, kind="say", refs=None
         refs.update(quiet=True, **{bot_to_bot.MARK: bot_to_bot.RULE})
     msg = _write_message(conn, actor, target, body, conv, kind, refs, in_reply_to, wait_s, check_cap=True,
                          decided=decided)
+    if result_task and result_parent:
+        record_verdict(conn, actor, result_task, text=body)
     if result_key:
         _deliver_subtask_result(conn, result_task, result_parent, body, result_key, source=msg["id"], resume_hint=True)
     if waits:
@@ -4347,6 +4352,42 @@ def _subtask_result_cycle(conn, row):
     return f"{reopened}:"
 
 
+VERDICTS = ("approve", "changes", "pass", "fail")
+HEAD_SHA = re.compile(r"^[0-9a-f]{7,40}$")
+
+
+def record_verdict(conn, actor, row, verdict=None, head=None, text=None):
+    """Set a review or QA child's `verdict` and `verdict_head`: from the flag, else from a `VERDICT:` line in `text`
+    (the prose keeps working and fills the field; the latest line wins, as a review of a new head replaces the last).
+    Only the child's own owner records one, and only on a subtask. Returns whether the fields changed."""
+    from .wake_rules import VERDICT_FIELDS
+    flagged = verdict is not None or head is not None
+    if not flagged:
+        found = VERDICT_FIELDS.search(str(text or ""))
+        if not found:
+            return False
+        verdict, head = found[1], found[2]
+    # A new verdict judged a head of its own: one given alone leaves the head unknown, a head given alone keeps the verdict.
+    verdict = str(verdict).strip().lower() if verdict is not None else row.get("verdict")
+    head = str(head).strip().lower() or None if head is not None else None
+    if flagged:
+        if verdict not in VERDICTS:
+            refuse(conn, actor, "kind", f"a verdict is {'|'.join(VERDICTS)}, not {verdict}")
+        if head and not HEAD_SHA.match(head):
+            refuse(conn, actor, "kind", "a verdict head is the pull request's commit sha, 7 to 40 hex characters")
+        if actor != row["owner"] and actor != KEEPER:
+            refuse(conn, actor, "identity", "a verdict is recorded by the owner of the review or QA subtask")
+        if not TR.parent_of(conn, row["id"]):
+            refuse(conn, actor, "kind", "a verdict belongs on a review or QA subtask, which this task is not")
+    elif actor != row["owner"] or not TR.parent_of(conn, row["id"]):
+        return False
+    if (verdict, head) == (row.get("verdict"), row.get("verdict_head")):
+        return False
+    conn.execute("UPDATE tasks SET verdict=?, verdict_head=? WHERE id=?", (verdict, head, row["id"]))
+    _task_event(conn, row["id"], actor, "verdict", row.get("verdict"), verdict + (f" {head}" if head else ""), "")
+    return True
+
+
 def _deliver_subtask_result(conn, row, parent, text, key=None, *, source=None, quiet=False, resume_hint=False):
     """Record a result on its immediate parent once; an ended parent never starts a worker for it."""
     if key and _one(conn, "SELECT 1 FROM messages WHERE conversation_id=? AND to_actor=? "
@@ -4355,6 +4396,12 @@ def _deliver_subtask_result(conn, row, parent, text, key=None, *, source=None, q
                     (parent["conversation_id"], parent["owner"], row["id"], key)):
         return
     refs = {"subtask": row["id"], **({"subtask_result": key} if key else {})}
+    # The parent's owner reads the verdict and the head it judged as fields, not only as prose.
+    judged = task(conn, row["id"]) or row
+    if judged.get("verdict"):
+        refs["verdict"] = judged["verdict"]
+        if judged.get("verdict_head"):
+            refs["verdict_head"] = judged["verdict_head"]
     if source:
         original = message(conn, source)
         if original:
@@ -5182,7 +5229,8 @@ def _retitle(conn, actor, row, title, owner, type_id):
 def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=None, body=None,
                 lane=None, labels=None, rank=None, mover=None, goal_id=None, quiet=False, type=None, step=None,
                 step_rank=None, number=None, title=None, private=None, waiting_on=None, roles=None, visibility=None, public_title=None,
-                public_summary=None, approval_id=None, size=None, clear_size=False, review_prs=None):
+                public_summary=None, approval_id=None, size=None, clear_size=False, review_prs=None, verdict=None,
+                verdict_head=None):
     """Rule 5. The owner may set doing|waiting|review|done|declined and a note; it may not close.
 
     `lane` and `labels` are a mover's to change (`mover` says whether this actor is one; the
@@ -5196,6 +5244,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     one (`_waiting_person`). Any other update to the status, the note or the owner clears it unless
     it names the person again, as does anything that leaves the task unreadable to them.
     `roles` replaces the people in the roles it names ({role: [actors]}; task_roles).
+    `verdict` and `verdict_head` record a review or QA subtask's verdict and the head it judged (record_verdict).
     """
     _writer(conn, actor)
     row = task(conn, task_id)
@@ -5220,7 +5269,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         mover = actor == KEEPER or is_human(actor) and can_move(conn, actor)
     labels_only = labels is not None and not clear_size and all(v is None for v in (
         status, note, owner, due, body, lane, rank, goal_id, type, step, step_rank, number, title, private,
-        waiting_on, roles, visibility, public_title, public_summary, size))
+        waiting_on, roles, visibility, public_title, public_summary, size, verdict, verdict_head))
     # The bot that manages the task's type may change its labels whatever the type's `bots` setting
     # (_label_writer decides which); nothing else on the task becomes its to change.
     mine = mine or labels_only and is_bot(actor) and task_private_readable(conn, actor, row) and type_manager(conn, row) == actor_id(actor)
@@ -5433,7 +5482,10 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
             if row.get(field) is not None:
                 _task_event(conn, task_id, actor, field, row[field], None, note or "")
             sets.append(field + "=NULL")
-    if not sets and not state_change and not roles and not clear_size and all(v is None for v in (visibility, public_title, public_summary, size)):
+    # After the status write is decided and before the parent hears of it: its wake carries the verdict.
+    verdict_set = record_verdict(conn, actor, row, verdict, verdict_head, note)
+    if not sets and not state_change and not roles and not clear_size and not verdict_set and all(
+            v is None for v in (visibility, public_title, public_summary, size)):
         return row
     # A person finishing it is news for every bot on it; the bots that asked it open questions are read
     # before the status write supersedes those questions.
