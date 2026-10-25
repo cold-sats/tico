@@ -36,21 +36,27 @@ GROUP_DEPARTMENT = {"sales": "sales", "marketing": "marketing", "support": "oper
                     "operations": "operations", "legal": "legal", "hr": "operations", "product": "product",
                     "engineering": "engineering", "leadership": "general"}
 
+# What a model reads besides text: the catalog's `inputs` ("text", "image", "pdf") on every chat version. Claude reads
+# all three; DeepSeek V4.1 Flash (Low Fast) reads text only.
+CLAUDE_INPUTS = ("text", "image", "pdf")
+INPUT_KINDS = ("text", "image", "pdf")
+
 # What one level costs and runs on at version 1.0, in USD per 1M tokens: (input, cached input, output). Every department
 # maps to the same rows at 1.0: there is no department benchmark yet that justifies another pick. Haiku's rates go up
 # for a prompt past `long`'s limit.
 ROWS = {
-    "low": {"model": "Claude Haiku 5.5", "price": (0.15, 0.015, 0.75), "long": (100_000, (0.75, 0.075, 3.75))},
-    "medium": {"model": "Claude Sonnet 5.5", "price": (2.50, 0.25, 12.50), "long": None},
-    "high": {"model": "Claude Opus 5.5", "price": (5.0, 0.50, 25.0), "long": None},
+    "low": {"model": "Claude Haiku 5.5", "price": (0.15, 0.015, 0.75), "long": (100_000, (0.75, 0.075, 3.75)),
+            "inputs": CLAUDE_INPUTS},
+    "medium": {"model": "Claude Sonnet 5.5", "price": (2.50, 0.25, 12.50), "long": None, "inputs": CLAUDE_INPUTS},
+    "high": {"model": "Claude Opus 5.5", "price": (5.0, 0.50, 25.0), "long": None, "inputs": CLAUDE_INPUTS},
 }
 # The row a fast tier points at (`tico-fast-low-1.0`, `tico-fast-high-1.0` at Tico HQ). Fast is measurably faster and may
 # cost more. Low Fast is DeepSeek V4.1 Flash; Medium Fast and High Fast are both Claude Opus 5.5 in Anthropic's fast mode,
 # the only fast route at or above Medium's quality. Cached input is 10% of input for both (HQ prices DeepSeek cache reads at a tenth).
 FAST_ROWS = {
-    "low": {"model": "DeepSeek V4.1 Flash", "price": (0.45, 0.045, 1.80), "long": None},
-    "medium": {"model": "Claude Opus 5.5 (fast mode)", "price": (10.0, 1.0, 50.0), "long": None},
-    "high": {"model": "Claude Opus 5.5 (fast mode)", "price": (10.0, 1.0, 50.0), "long": None},
+    "low": {"model": "DeepSeek V4.1 Flash", "price": (0.45, 0.045, 1.80), "long": None, "inputs": ("text",)},
+    "medium": {"model": "Claude Opus 5.5 (fast mode)", "price": (10.0, 1.0, 50.0), "long": None, "inputs": CLAUDE_INPUTS},
+    "high": {"model": "Claude Opus 5.5 (fast mode)", "price": (10.0, 1.0, 50.0), "long": None, "inputs": CLAUDE_INPUTS},
 }
 
 DECISIONS = (
@@ -131,7 +137,7 @@ def _long(row):
 
 def _version(row, ident, version, released=""):
     return {"version": version, "id": ident, "model": row["model"], "price": _price(row), "long_prompt": _long(row),
-            **({"released": released} if released else {})}
+            "inputs": list(row["inputs"]), **({"released": released} if released else {})}
 
 
 def _snapshot():
@@ -185,6 +191,15 @@ def _clean_long(value):
             "cached_input": cached if _number(cached) else round(value["input"] * 0.1, 6)}
 
 
+def _clean_inputs(value):
+    """The kinds a version reads (`text`, `image`, `pdf`) from HQ's `inputs`, in HQ's order and without repeats, or
+    None when HQ names none (an older catalog): the version is then never claimed to read anything but text."""
+    if not isinstance(value, list):
+        return None
+    kinds = list(dict.fromkeys(k for k in value if k in INPUT_KINDS))
+    return kinds or None
+
+
 def _clean_versions(ident, rows):
     """The well-formed versions of the tier `ident`, each with the id its version makes; the rest are ignored."""
     out, seen = [], set()
@@ -198,6 +213,8 @@ def _clean_versions(ident, rows):
         seen.add(version)
         item = {"version": version, "id": row["id"], "model": _text(row.get("model")), "price": price,
                 "long_prompt": _clean_long(row.get("long_prompt"))}
+        if inputs := _clean_inputs(row.get("inputs")):
+            item["inputs"] = inputs
         for key in ("context", "max_output"):
             if isinstance(row.get(key), int) and not isinstance(row.get(key), bool) and row[key] > 0:
                 item[key] = row[key]
@@ -369,7 +386,7 @@ def _long_tuple(long):
 
 def resolve(model, cat=None):
     """What an id is, or None when it is not a Tico id: {id, tier (the auto id), kind (chat|decide), name, model (what
-    runs underneath), label (the name without a version), version, auto, price {input, cached_input, output}, long_prompt, department, level, fast, old}.
+    runs underneath), label (the name without a version), version, auto, price {input, cached_input, output}, long_prompt, inputs (what it reads: text, image, pdf; text alone when the catalog names none), department, level, fast, old}.
     An auto id answers with the tier's current version; an old-lineup id with its own price, marked `old`."""
     model = str(model or "").strip().lower()
     if not model.startswith(PREFIX):
@@ -380,13 +397,15 @@ def resolve(model, cat=None):
         row = ROWS[level]
         return {"id": model, "tier": model, "kind": "chat", "name": label + OLD_SUFFIX, "label": label, "model": row["model"],
                 "version": version, "auto": False, "price": _price(row), "long_prompt": _long(row)
-                if model == "tico-cheap-1.1" else None, "department": "", "level": level, "fast": False, "old": True}
+                if model == "tico-cheap-1.1" else None, "department": "", "level": level, "fast": False, "old": True,
+                "inputs": list(row["inputs"])}
     if model in OLD_DECISIONS:
         row = next(r for r in DECISIONS if r["id"] == OLD_DECISIONS[model].rsplit("-", 1)[0])
         return {"id": model, "tier": model, "kind": "decide", "name": row["name"] + " 1.0" + OLD_SUFFIX, "label": row["name"],
                 "model": row["model"], "version": FIRST_VERSION, "auto": False,
                 "price": {"input": row["price"][0], "output": row["price"][2], "cached_input": row["price"][1]},
-                "long_prompt": None, "department": "", "level": row["level"], "fast": False, "old": True}
+                "long_prompt": None, "department": "", "level": row["level"], "fast": False, "old": True,
+                "inputs": ["text"]}
     entry = _index(cat or catalog()).get(model)
     if not entry:
         return None
@@ -395,6 +414,7 @@ def resolve(model, cat=None):
     return {"id": model, "tier": tier["id"], "kind": entry["kind"], "name": tier["name"] + suffix, "label": tier["name"],
             "model": version["model"], "version": version["version"], "auto": entry["auto"],
             "price": version["price"], "long_prompt": version.get("long_prompt"),
+            "inputs": list(version.get("inputs") or ["text"]),
             "department": tier.get("department", ""), "level": tier["level"], "fast": bool(tier.get("fast")),
             "old": False, "current": tier["current"]}
 

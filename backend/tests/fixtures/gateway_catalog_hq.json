@@ -25,6 +25,11 @@
       "output": 3.75,
       "cached_input": 0.075
      },
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -49,6 +54,9 @@
       "cached_input": 0.045
      },
      "long_prompt": null,
+     "inputs": [
+      "text"
+     ],
      "context": 1048576,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -73,6 +81,11 @@
       "cached_input": 0.25
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -97,6 +110,11 @@
       "cached_input": 1.0
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -121,6 +139,11 @@
       "cached_input": 0.5
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -145,6 +168,11 @@
       "cached_input": 1.0
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -174,6 +202,11 @@
       "output": 3.75,
       "cached_input": 0.075
      },
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -198,6 +231,9 @@
       "cached_input": 0.045
      },
      "long_prompt": null,
+     "inputs": [
+      "text"
+     ],
      "context": 1048576,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -222,6 +258,11 @@
       "cached_input": 0.25
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -246,6 +287,11 @@
       "cached_input": 1.0
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -270,6 +316,11 @@
       "cached_input": 0.5
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -294,6 +345,11 @@
       "cached_input": 1.0
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -323,6 +379,11 @@
       "output": 3.75,
       "cached_input": 0.075
      },
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -347,6 +408,9 @@
       "cached_input": 0.045
      },
      "long_prompt": null,
+     "inputs": [
+      "text"
+     ],
      "context": 1048576,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -371,6 +435,11 @@
       "cached_input": 0.25
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -395,6 +464,11 @@
       "cached_input": 1.0
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -419,6 +493,11 @@
       "cached_input": 0.5
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -443,6 +522,11 @@
       "cached_input": 1.0
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -472,6 +556,11 @@
       "output": 3.75,
       "cached_input": 0.075
      },
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -496,6 +585,9 @@
       "cached_input": 0.045
      },
      "long_prompt": null,
+     "inputs": [
+      "text"
+     ],
      "context": 1048576,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -520,6 +612,11 @@
       "cached_input": 0.25
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -544,6 +641,11 @@
       "cached_input": 1.0
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -568,6 +670,11 @@
       "cached_input": 0.5
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -592,6 +699,11 @@
       "cached_input": 1.0
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -621,6 +733,11 @@
       "output": 3.75,
       "cached_input": 0.075
      },
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -645,6 +762,9 @@
       "cached_input": 0.045
      },
      "long_prompt": null,
+     "inputs": [
+      "text"
+     ],
      "context": 1048576,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -669,6 +789,11 @@
       "cached_input": 0.25
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -693,6 +818,11 @@
       "cached_input": 1.0
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -717,6 +847,11 @@
       "cached_input": 0.5
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -741,6 +876,11 @@
       "cached_input": 1.0
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -770,6 +910,11 @@
       "output": 3.75,
       "cached_input": 0.075
      },
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -794,6 +939,9 @@
       "cached_input": 0.045
      },
      "long_prompt": null,
+     "inputs": [
+      "text"
+     ],
      "context": 1048576,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -818,6 +966,11 @@
       "cached_input": 0.25
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -842,6 +995,11 @@
       "cached_input": 1.0
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -866,6 +1024,11 @@
       "cached_input": 0.5
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -890,6 +1053,11 @@
       "cached_input": 1.0
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -919,6 +1087,11 @@
       "output": 3.75,
       "cached_input": 0.075
      },
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -943,6 +1116,9 @@
       "cached_input": 0.045
      },
      "long_prompt": null,
+     "inputs": [
+      "text"
+     ],
      "context": 1048576,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -967,6 +1143,11 @@
       "cached_input": 0.25
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -991,6 +1172,11 @@
       "cached_input": 1.0
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -1015,6 +1201,11 @@
       "cached_input": 0.5
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -1039,6 +1230,11 @@
       "cached_input": 1.0
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -1068,6 +1264,11 @@
       "output": 3.75,
       "cached_input": 0.075
      },
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -1092,6 +1293,9 @@
       "cached_input": 0.045
      },
      "long_prompt": null,
+     "inputs": [
+      "text"
+     ],
      "context": 1048576,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -1116,6 +1320,11 @@
       "cached_input": 0.25
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -1140,6 +1349,11 @@
       "cached_input": 1.0
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -1164,6 +1378,11 @@
       "cached_input": 0.5
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -1188,6 +1407,11 @@
       "cached_input": 1.0
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -1217,6 +1441,11 @@
       "output": 3.75,
       "cached_input": 0.075
      },
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -1241,6 +1470,9 @@
       "cached_input": 0.045
      },
      "long_prompt": null,
+     "inputs": [
+      "text"
+     ],
      "context": 1048576,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -1265,6 +1497,11 @@
       "cached_input": 0.25
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -1289,6 +1526,11 @@
       "cached_input": 1.0
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -1313,6 +1555,11 @@
       "cached_input": 0.5
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -1337,6 +1584,11 @@
       "cached_input": 1.0
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -1366,6 +1618,11 @@
       "output": 3.75,
       "cached_input": 0.075
      },
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -1390,6 +1647,9 @@
       "cached_input": 0.045
      },
      "long_prompt": null,
+     "inputs": [
+      "text"
+     ],
      "context": 1048576,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -1414,6 +1674,11 @@
       "cached_input": 0.25
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -1438,6 +1703,11 @@
       "cached_input": 1.0
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -1462,6 +1732,11 @@
       "cached_input": 0.5
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"
@@ -1486,6 +1761,11 @@
       "cached_input": 1.0
      },
      "long_prompt": null,
+     "inputs": [
+      "text",
+      "image",
+      "pdf"
+     ],
      "context": 1000000,
      "max_output": 128000,
      "released": "2026-10-25"

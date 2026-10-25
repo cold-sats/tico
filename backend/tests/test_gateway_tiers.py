@@ -174,12 +174,32 @@ def test_the_shipped_snapshot_matches_a_copy_of_the_gateways_own_catalog():
     ours = T.SNAPSHOT
 
     def versions(cat, kind):
-        return {v["id"]: (v["model"], v["price"], v.get("long_prompt")) for row in cat[kind] for v in row["versions"]}
+        return {v["id"]: (v["model"], v["price"], v.get("long_prompt"), v.get("inputs")) for row in cat[kind] for v in row["versions"]}
     assert versions(ours, "models") == versions(hq, "models") and len(versions(hq, "models")) == 60
     assert versions(ours, "decisions") == versions(hq, "decisions")
+    # What each chat model reads: Claude reads text, images and PDFs; Low Fast (DeepSeek) text only.
+    reads = {v["id"]: v["inputs"] for row in hq["models"] for v in row["versions"]}
+    assert all(i == ["text"] for k, i in reads.items() if "-low-fast-" in k)
+    assert all(i == ["text", "image", "pdf"] for k, i in reads.items() if "-low-fast-" not in k) and len(reads) == 60
     assert {row["id"]: row["current"] for row in ours["models"]} == {row["id"]: row["current"] for row in hq["models"]}
     # Medium and High Decide are priced like their model, so no Decide call is counted at the ceiling.
     assert T.resolve("tico-decide-high-1.0")["price"] == {"input": 5.0, "output": 25.0, "cached_input": 0.5}
+
+
+def test_what_a_model_reads_comes_from_the_catalog_and_is_never_guessed():
+    assert T.resolve("tico-sales-medium")["inputs"] == T.resolve("tico-sales-medium-1.0")["inputs"] == ["text", "image", "pdf"]
+    assert T.resolve("tico-sales-low-fast-1.0")["inputs"] == ["text"]
+    assert all(T.resolve(old)["inputs"] == ["text", "image", "pdf"] for old in T.OLD)
+    row = next(r for r in T.SNAPSHOT["models"] if r["id"] == "tico-sales-medium")
+    cleaned = T.validate({**T.SNAPSHOT, "models": [
+        {**row, "versions": [{**row["versions"][0], "inputs": ["image", "image", "video", "text", 3]}]}]})
+    assert cleaned["models"][0]["versions"][0]["inputs"] == ["image", "text"]
+    # None, or none that are known: not claimed at all, and the id reads as text only.
+    for odd in (None, [], ["video"], "image"):
+        bare = {k: v for k, v in row["versions"][0].items() if k != "inputs"}
+        cleaned = T.validate({**T.SNAPSHOT, "models": [{**row, "versions": [{**bare, **({"inputs": odd} if odd is not None else {})}]}]})
+        assert "inputs" not in cleaned["models"][0]["versions"][0]
+        assert T.resolve("tico-sales-medium-1.0", cleaned)["inputs"] == ["text"]
 
 
 def test_every_tool_a_service_names_is_a_hub_tool():

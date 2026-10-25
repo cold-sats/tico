@@ -31,6 +31,8 @@ An id without a version means the latest; add `-1.0` and so on to pin it. A pinn
 and price when a newer version ships; an unversioned one moves to it. The ids from before the tiers
 (`tico-cheap-1.1`, `tico-mid-1.0`, `tico-power-1.0`) still run, and are not offered.
 
+Images you view go to the models that read them: every pick except Low Fast, which reads text only.
+
 How to choose a level: Low for sorting, triage, short replies and routine checks; Medium for writing,
 analysis and most turns; High for hard problems, long plans, tricky code or anything that commits money
 or words in the company's name. Fast costs more and answers sooner: use it when someone is waiting.

@@ -111,6 +111,20 @@ def with_gateway_fallback(record, ready, config, model=None):
     return {**config, "gateway_fallback": pick(model)}
 
 
+def with_gateway_inputs(config):
+    """`config` with `gateway_inputs`, what each Gateway model of the turn reads: {model id: ["text", "image", "pdf"]} for
+    its model, the fallback it names and `gateway_fallback`, from the catalog in use (backend/gateway_tiers.py).
+    The runner tells pi from it which models take images (runner-rs/src/hosts/pi.rs); a model it names no inputs for
+    is text only. Nothing is added when the turn runs no Gateway model."""
+    fallback = config.get("fallback") if isinstance(config.get("fallback"), dict) else {}
+    seen = {}
+    for model in (config.get("model"), fallback.get("model"), config.get("gateway_fallback")):
+        found = gateway_tiers.resolve(model)
+        if found and found["kind"] == "chat":
+            seen[str(model).strip()] = found["inputs"]
+    return {**config, "gateway_inputs": seen} if seen else config
+
+
 def fallback_row(record):
     """The Gateway's row at the end of the company's fallback list (providers.default_fallbacks), or None."""
     if spends_gateway(record) and gateway_on(record):
