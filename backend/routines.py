@@ -242,11 +242,16 @@ def emit(c, kind, subject, payload=None, *, title=None, content="", at=None, aut
     Caller owns the transaction. Returns the ids of the tasks it opened.
     """
     now = stamp(_clock(at))
+    # A routine may be written with any spelling of the event (the catalog name or an older one), and the producers
+    # emit one of them (meetings emit both of its names): all of them reach it, once per subject.
+    from . import event_catalog
+    names = event_catalog.spellings(kind)
+    canonical = names[0]
     facts = {"event": kind, "subject": subject, **{k: v for k, v in (payload or {}).items() if v not in (None, "")}}
     content = ("\n\n" + content.strip()) if content and content.strip() else ""
     fired = []
     rows = c.execute("SELECT s.* FROM schedules s JOIN bots b ON b.slug=s.bot LEFT JOIN schedule_config sc ON sc.schedule_id=s.id "
-                     "WHERE s.event_name=? AND b.state='active' AND coalesce(sc.enabled,1)=1 AND s.deleted_at IS NULL "
+                     "WHERE s.event_name IN (" + ",".join("?" * len(names)) + ") AND b.state='active' AND coalesce(sc.enabled,1)=1 AND s.deleted_at IS NULL "
                      "AND NOT EXISTS(SELECT 1 FROM bot_config bc WHERE bc.bot=s.bot "
                      "AND coalesce(json_extract(bc.config_json,'$.shared_from'),'')<>'') "
                      # a bot synced in from another platform never sees a task (hubdb._takes_tasks)
@@ -254,10 +259,12 @@ def emit(c, kind, subject, payload=None, *, title=None, content="", at=None, aut
                      "AND (json_extract(xc.config_json,'$.harness') IN (" + SYNCED_SQL + ") OR " + TAKES_NONE_SQL.format(a="xc") + ")) "
                      # an onboarding bot runs no routines until a person above it marks onboarding complete
                      "AND NOT EXISTS(SELECT 1 FROM bot_config pc WHERE pc.bot=s.bot AND pc.onboarding_state IN " + PARKED_SQL + ") "
-                     "ORDER BY s.id", (kind,)).fetchall()
+                     "ORDER BY s.id", names).fetchall()
     for schedule in rows:
-        occurrence = f"{kind}:{subject}"
-        if c.execute("SELECT 1 FROM schedule_occurrences WHERE schedule_id=? AND occurrence=?", (schedule["id"], occurrence)).fetchone():
+        occurrence = f"{canonical}:{subject}"
+        # Rows an earlier release wrote are keyed by the spelling that was emitted.
+        if c.execute("SELECT 1 FROM schedule_occurrences WHERE schedule_id=? AND occurrence IN ("
+                     + ",".join("?" * len(names)) + ")", (schedule["id"], *[f"{n}:{subject}" for n in names])).fetchone():
             continue
         body = (schedule["playbook"] or "Handle this event.").rstrip() + "\n\n" + "\n".join(f"{k}: {v}" for k, v in facts.items()) + content
         heading = f"{schedule['title']}: {title}" if title else schedule["title"]

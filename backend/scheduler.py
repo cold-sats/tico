@@ -451,6 +451,8 @@ class Scheduler:
                     # A duplicate is not a failure (batch_work.isolated); rows an older server wrote for one go.
                     c.execute("DELETE FROM service_health WHERE service LIKE 'background:%' AND last_error LIKE '%: duplicate: %'")
                     SR.prune(c)                                # each system job keeps its last runs
+                    from . import rules
+                    rules.prune_events(c)                      # the webhook rules' repeat ledger keeps 30 days
                 sweep_idempotency(self.store, stamp(at))
                 sweep_mail(self.store, stamp(at))
                 sweep_deltas(self.store, stamp(at))            # finished runs' streamed text pieces keep two weeks

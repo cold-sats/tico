@@ -1223,6 +1223,17 @@ SCHEMAS.update({
 })
 SCHEMAS["Task"]["properties"]["tags"] = items(ref("Tag"))
 
+# The named events routines, rules and outgoing webhooks listen for (backend/event_catalog.py).
+TAGS["Events"] = "The catalog of named events (docs/routines.md)."
+STABLE.append(("/api/v2/event-types", "get", "Events", "listEventTypes",
+               "Every named event with its description, version and an example payload (`group` narrows it)", "EventTypeList"))
+SCHEMAS.update({
+    "EventType": obj({"name": "s", "group": "s", "description": "s", "version": "i", "example": "o",
+                      "aliases": items("s"), "sourceless": "b"},
+                     required=["name", "group", "description", "version", "example"]),
+    "EventTypeList": obj({"items": items(ref("EventType"))}, required=["items"]),
+})
+
 # Failed-run back-off and run budgets (backend/run_backoff.py, backend/turn_budgets.py).
 STABLE.extend([
     ("/api/v2/bots/{bot}/budget", "get", "Bots", "getBotBudget",

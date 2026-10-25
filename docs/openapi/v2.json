@@ -91,6 +91,10 @@
       "description": "Tags, metadata, markdown checklists and reusable templates."
     },
     {
+      "name": "Events",
+      "description": "The catalog of named events (docs/routines.md)."
+    },
+    {
       "name": "Roadmaps",
       "description": "Company roadmap settings, internal requesters, and anonymous publication (docs/roadmaps.md)."
     },
@@ -5291,6 +5295,65 @@
         },
         "tags": [
           "Docs"
+        ]
+      }
+    },
+    "/api/v2/event-types": {
+      "get": {
+        "summary": "Every named event with its description, version and an example payload (`group` narrows it)",
+        "operationId": "listEventTypes",
+        "parameters": [
+          {
+            "name": "group",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Group"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventTypeList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Events"
         ]
       }
     },
@@ -23177,6 +23240,56 @@
         "additionalProperties": false,
         "type": "object",
         "title": "Empty"
+      },
+      "EventType": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "group": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "example": {
+            "type": "object"
+          },
+          "aliases": {
+            "type": "array",
+            "items": "s"
+          },
+          "sourceless": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "description",
+          "example",
+          "group",
+          "name",
+          "version"
+        ],
+        "additionalProperties": true
+      },
+      "EventTypeList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EventType"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": true
       },
       "Execution": {
         "type": "object",

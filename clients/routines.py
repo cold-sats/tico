@@ -18,6 +18,22 @@ EVENTS = ('meeting.ready', 'recording.ready', 'market.insight.urgent', 'inbound.
 WEBHOOK_EVENT = re.compile(r'webhook\.[a-z0-9][a-z0-9-]{0,39}')
 
 
+def known_event(name):
+    """Whether `on:` may name this event: one Tico has always emitted to routines (EVENTS), a trigger's webhook event,
+    or a name in the event catalog (backend/event_catalog.py) or one of its aliases. The catalog is read when this
+    runs somewhere that has it; a client without the backend keeps the names above."""
+    if not isinstance(name, str):
+        return False
+    if name in EVENTS or WEBHOOK_EVENT.fullmatch(name):
+        return True
+    try:
+        from backend.event_catalog import canonical
+    except ImportError:
+        return False
+    found = canonical(name)
+    return bool(found) and not found.startswith('custom.')     # nothing sends a custom event to routines
+
+
 def routine_path(value):
     if not isinstance(value, str) or len(value) > 300 or '\\' in value:
         raise ValueError('Template must be a repository-relative file path')
@@ -46,9 +62,10 @@ def validate_schedules(entries, read_file=None):
         if (cron is None) == (on is None):
             raise ValueError(f'Routine {index} needs exactly one of cron (a time) or on (an event)')
         if on is not None:
-            if on not in EVENTS and not (isinstance(on, str) and WEBHOOK_EVENT.fullmatch(on)):
+            if not known_event(on):
                 raise ValueError(f'Routine {index} has an unknown event; Tico emits {", ".join(EVENTS)} '
-                                 'and webhook.<trigger id> for a trigger in Settings > Triggers')
+                                 'and webhook.<trigger id> for a trigger in Settings > Triggers '
+                                 '(hub event-types lists every event)')
             cron = ''
         elif not isinstance(cron, str) or len(cron) > 100 or len(cron.split()) != 5 or not croniter.is_valid(cron):
             raise ValueError(f'Routine {title}: cron must use five fields, for example 0 9 * * 1-5')

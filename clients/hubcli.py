@@ -223,6 +223,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            --enable / --disable turn it on or off; another bot's, as the requester (BotOps)
     hub routine delete <id>
     hub trigger list                       webhooks people made; a routine runs --on webhook.<id>
+    hub event-types [--group task]         every event Tico names, with an example payload (routines, rules, webhooks)
     hub release now [--note "..."]         ask the Release Manager to release what is at Pending Release now
     hub release schedule [--on|--off] [--time HH:MM ...] [--manager BOT] [--writer BOT]
                                            show or change the daily release (company time; an owner or admin)
@@ -1718,6 +1719,10 @@ def parser():
     s.add_argument("id")
     s.set_defaults(fn="routine run")
 
+    s = sub.add_parser("event-types", help="every event Tico names, with a one-line description and an example payload")
+    s.add_argument("--group", help="only this group: task, approval, needs_you, bot, release, meeting, strategy, market, "
+                                   "inbound, health, webhook, tico, custom")
+    s.set_defaults(fn="event-types")
     trigger = sub.add_parser("trigger", help="webhooks that start routines (Settings > Triggers)").add_subparsers(dest="sub")
     s = trigger.add_parser("list")
     s.set_defaults(fn="trigger list")
@@ -2393,10 +2398,15 @@ def parser():
     s.set_defaults(fn="rule list")
 
     def rule_fields(s):
-        s.add_argument("--event", help="the event, or * for every event that is not always-wake")
-        s.add_argument("--then", choices=["ignore", "note", "batch", "wake", "ask", "action"])
-        s.add_argument("--when", help='JSON of conditions, all must hold: {"actor":"bot","role":"owner","step":"Review 1","tag":"x","state":"waiting"}')
-        s.add_argument("--params", help='JSON, e.g. {"action":"close"} for an action rule')
+        s.add_argument("--event", help="the event, or * for every event that is not always-wake; webhook.received, release.published, "
+                                       "health.finding and tico.notice (or a prefix like webhook.*) have no task")
+        s.add_argument("--then", choices=["ignore", "note", "batch", "wake", "ask", "action"],
+                       help="wake starts a run, note and ignore wait; ask raises a Needs-you; action runs params.action")
+        s.add_argument("--when", help='JSON of conditions, all must hold: {"actor":"bot","role":"owner","step":"Review 1","tag":"x","state":"waiting"}; '
+                                      'for a webhook event only {"trigger":"shop","type":"order.*"}')
+        s.add_argument("--params", help='JSON, e.g. {"action":"close"} for an action rule; {"action":"wake_bot","bot":"ops","text":"Order {{data.order}}"} '
+                                        'or {"action":"send_webhook","webhook":"<id>","type":"custom.order","data":{"id":"{{data.order}}"}}; '
+                                        '{"bot":"ops","text":"..."} on a wake rule for a webhook event')
         s.add_argument("--on", dest="on", action=argparse.BooleanOptionalAction, default=None, help="--off turns the rule off")
         s.add_argument("--position", type=int, help="order inside its scope; lower first")
         s.add_argument("--note", help="why the rule exists")
