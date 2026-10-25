@@ -19,6 +19,7 @@ mod declared_access;
 mod env;
 mod events;
 mod drive;
+mod drain;
 mod execute;
 mod fallback;
 mod flight;
@@ -41,6 +42,8 @@ mod lock;
 mod login;
 mod profiles;
 mod isolation;
+mod turn_users;
+mod checkout_groups;
 mod mail_key;
 mod manifest;
 mod memory_history;
@@ -69,6 +72,7 @@ mod screen;
 mod sidejobs;
 mod signin;
 mod state;
+mod tls;
 mod subscription_refresh;
 mod watchers;
 mod util;
@@ -397,7 +401,7 @@ async fn start(command: Command, config: config::Config) -> i32 {
     if isolation::enabled() {
         // Sign-ins a person ran as root (`docker exec`) go to the bot user, who runs the harnesses.
         let home = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default());
-        isolation::adopt(&[".codex", ".claude", ".claude.json", ".gemini", ".config"].map(|p| home.join(p)));
+        isolation::adopt_store(&[".codex", ".claude", ".claude.json", ".gemini", ".config"].map(|p| home.join(p)));
         hosts::grok::hand_login_to_bot();
         // Subscription profiles made before their homes were the bot user's, or by `profile add` without isolation.
         for profile in profiles::configured(&config.data) {
@@ -427,6 +431,7 @@ async fn start(command: Command, config: config::Config) -> i32 {
         stopper.events.wake.notify_one();
     });
     util::log(&format!("Tico runner {} (rust) started for {}", runner::RUNNER_VERSION, service.config.runner_id()));
+    tls::announce(util::log);
     // No launchd here (TICO_SIDE_JOBS=1): the runner also supervises importers, close-calls and connectors.
     let side = sidejobs::start(&service.config);
     screen::start(service.config.path.clone(), client.clone());

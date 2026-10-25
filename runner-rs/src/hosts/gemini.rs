@@ -269,7 +269,7 @@ impl GeminiHost {
             if std::fs::symlink_metadata(&self.0.home)?.mode() & 0o777 != 0o700 {
                 std::fs::set_permissions(&self.0.home, std::fs::Permissions::from_mode(0o700))?;
             }
-            crate::isolation::adopt(&[self.0.home.clone()]);
+            crate::isolation::adopt_store(&[self.0.home.clone()]);
         } else {
             std::fs::set_permissions(&self.0.home, std::fs::Permissions::from_mode(0o700))?;
         }

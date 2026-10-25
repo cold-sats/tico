@@ -607,6 +607,39 @@ def runner_bell(store):
 
 # ---------------------------------------------------------------- what a viewer is sent
 
+LIVE_SQL = "SELECT id,created FROM attempts WHERE bot=? AND state IN ('leased','running') ORDER BY created DESC LIMIT 1"
+
+
+def prime_status_lines(c, slugs):
+    """Read what status_line reads for each of these bots one table at a time (one query per 500 bots each), so a page
+    of status lines makes a few dozen statements instead of seven or more per bot. Every statement holds the GIL for
+    its turn, and on a busy server each costs milliseconds of waiting; outside a snapshot nothing is kept."""
+    from .read_cache import cache, prime, prime_rows
+    from .execution import LAST_STOP
+    from . import run_backoff, turn_budgets, usage_limits
+    if cache(c) is None:
+        return
+    for part in H.chunks(sorted({H.actor_id(s) for s in slugs if s})):
+        marks = ",".join("?" * len(part))
+        for table, column, statement in (("bot_status", "bot", "SELECT * FROM bot_status WHERE bot=?"),
+                                         ("bots", "slug", "SELECT * FROM bots WHERE slug=?"),
+                                         ("usage_limits", "bot", usage_limits.OWN_SQL),
+                                         ("run_backoff", "bot", run_backoff.GET_SQL),
+                                         ("bot_budget", "bot", turn_budgets.GET_SQL)):
+            found = {row[column]: row for row in c.execute(f"SELECT * FROM {table} WHERE {column} IN ({marks})", part)}
+            prime(c, statement, {(s,): found.get(s) for s in part})
+        live = {}
+        for row in c.execute(f"SELECT bot,id,created FROM attempts WHERE state IN ('leased','running') AND bot IN ({marks}) "
+                             "ORDER BY created", part):
+            live[row["bot"]] = row        # the newest run, as LIMIT 1 picks it
+        prime(c, LIVE_SQL, {(s,): live.get(s) for s in part})
+        keys = [LAST_STOP + s for s in part]
+        found = {row["key"]: row for row in c.execute(
+            f"SELECT value_json,key FROM registry_metadata WHERE key IN ({marks})", keys)}     # metadata reads row[0]
+        prime_rows(c, "SELECT value_json FROM registry_metadata WHERE key=?",
+                   {(k,): [found[k]] if k in found else [] for k in keys})
+
+
 def status_line(c, who, slug, default=None, inputs=None, auth=None):
     """A bot's status as `GET /api/v2/status` lists it to `who`; a first login wait needs no stored row.
     With `auth`, a person who manages a quarantined bot is also sent what was refused (`review`)."""
@@ -614,8 +647,8 @@ def status_line(c, who, slug, default=None, inputs=None, auth=None):
     from . import usage_limits
     row = H.status(c, slug)
     from .login_waits import waiting
-    live = c.execute("SELECT id,created FROM attempts WHERE bot=? AND state IN ('leased','running') "
-                     "ORDER BY created DESC LIMIT 1", (slug,)).fetchone()
+    from .read_cache import one
+    live = one(c, LIVE_SQL, (slug,))
     line = waiting(c, live["id"], slug, who, auth) if live else None
     if not row:
         if not line:
@@ -643,7 +676,8 @@ def status_line(c, who, slug, default=None, inputs=None, auth=None):
             # The task is named only to someone who may read it; the refused words are theirs to review.
             review["task"] = {"id": task["id"], "title": task["title"]} if task and privacy.task_readable(c, who, task) else None
             row["quarantine"]["review"] = review
-    return usage_limits.overlay(c, row, usage_limits.company(c) if default is None else default)
+    from . import bot_stops
+    return bot_stops.overlay(c, usage_limits.overlay(c, row, usage_limits.company(c) if default is None else default))
 
 
 def _trashed_visible(c, who, task_id):
@@ -852,7 +886,7 @@ def needs_baseline(c, auth, who, task_view):
 
 
 def _needs_list(view, rows, task_view, held=None):
-    from .views import needs_items, needs_marks, went_away
+    from .views import needs_bots, needs_items, needs_marks, went_away
     items = needs_items(view.c, view.auth, view.who, task_view)
     away = went_away(view.c, view.who.actor)
     if held is None:
@@ -863,7 +897,8 @@ def _needs_list(view, rows, task_view, held=None):
     removed = [k for k in before if k not in marks]
     many = len(changed) + len(removed) > NEEDS_CHANGES_MAX
     entry = {"count": len(items), "version": version, "base": held.get("version"),
-             "changed": None if many else changed, "removed": None if many else removed, "went_away": away}
+             "changed": None if many else changed, "removed": None if many else removed, "went_away": away,
+             "bots": needs_bots(items, view.who.actor)}     # each bot's count, for a page that holds only some items
     held.update(marks=marks, version=version)
     return [(rows[-1], entry)]
 
@@ -945,8 +980,8 @@ def keepalive_seconds(store):
 
 class Beat:
     """A quiet stream's keepalive and the check that rides on it (a lapsed sign-in, a revoked computer,
-    contact). The check runs beside the keepalive, never before it: a write waits up to the database's
-    30 s busy timeout for the lock, and a keepalive held behind it outlasts the runner's read timeout,
+    contact). The check runs beside the keepalive, never before it: a write waits up to store.WRITE_WAIT
+    for the lock, and a keepalive held behind it outlasts the runner's read timeout,
     so the stream drops on a busy server. A check that refuses ends the stream on the loop's next pass."""
 
     def __init__(self, check):
@@ -1138,9 +1173,13 @@ def install_runner(app, store, execution):
 
         def touch():
             # Contact, and the same check of the computer's row as every read: last_seen moves while the
-            # stream is open, and a revoked computer's stream ends within two keepalives.
-            with store.transaction() as c:
-                execution.contact(c, who)
+            # stream is open, and a revoked computer's stream ends within two keepalives. The check is a read; the
+            # write lock is taken only when last_seen is due (CONTACT_EVERY), not at every keepalive.
+            with store.read() as c:
+                due = execution.contact(c, who, check=True)
+            if due:
+                with store.transaction() as c:
+                    execution.contact(c, who)
 
         def start():
             touch()

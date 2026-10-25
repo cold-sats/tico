@@ -151,6 +151,11 @@ body.in-setup #nav-inboxes-section,body.in-setup #gs-org-hint,body.in-setup #cha
 .tree a.node.cur{background:var(--surface2);font-weight:600}
 .tree a.node.planned{color:var(--muted)}.tree a.node.planned .av{opacity:.35;filter:saturate(.4)}
 .tree a.node.paused .av{opacity:.5}
+/* A Recruiting seat: a role with no bot yet (ui/app/sidebar.js renderTree). */
+.tree .node.seat{flex:1;display:flex;align-items:center;gap:var(--s2);padding:6px;border-radius:6px;color:var(--muted);font-size:var(--t-base);min-width:0;cursor:default}
+.tree .node.seat .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tree .node.seat .seat-icon{font-size:16px;width:20px;text-align:center}
+.tree .node.seat .seat-pill{margin-left:auto;font-size:var(--t-xs);padding:1px 6px;flex:none}
 .person-mail-link{display:inline-flex;align-items:center;justify-content:center;flex:none;width:30px;height:30px;margin-left:2px;border-radius:6px;color:var(--muted);font-family:"Material Symbols Outlined";font-size:18px;text-decoration:none}
 .person-mail-link:hover,.person-mail-link.cur{background:var(--surface2);color:var(--accent);text-decoration:none}
 .tree .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -166,3 +171,7 @@ body.in-setup #nav-inboxes-section,body.in-setup #gs-org-hint,body.in-setup #cha
 
 /* Keep the personal branch label visible even when a long bot name is clipped. */
 .org-branch{flex:none;color:var(--muted);font-size:var(--t-2xs);font-weight:500;white-space:nowrap}
+/* A group's Bet picker, under its row (ui/app/sidebar.js orgBetPopHTML); the flag stays lit when the group has one. */
+.org-tool.on{color:var(--accent)}
+.org-bet-pop{margin:4px 0 6px 18px;padding:8px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-pop)}
+.org-bet-pop .org-bet-f select{height:32px;font-size:var(--t-base)}

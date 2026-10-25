@@ -28,6 +28,13 @@ off. Each of them gets its model from `server_engine`, so Jev's one short try an
 (`TICO_DECISIONS_DAILY_CALLS_OWNER`, `_HUMAN`, `_BOT`); the Slack gateway's routing counts against the
 sender's, and the market ask (`market.ask` events) has its own count under the same caps.
 
+Each answer carries `ref`, its `judge.call` event's id. The caller that then acts on the answer writes what it did with
+`POST /api/v2/decisions/outcome` ({ref, verdict, action}, `hub decision outcome`, `hub_decision_outcome`): one
+`decision.outcome` event per call, target the ref, with the call's label, so a month of a set's answers can be read
+against what was done with them. Only the caller that asked records it, and a second write for the same ref returns the
+first. Short words only, never the state. Decisions Tico makes on the server (stale suggestions, listening, live
+meetings, topic change, idea triage) keep their own outcome records.
+
 `GET /api/v2/decisions/readout` reads the audit back per question set: calls, cost, Jev or fallback, answer spread
 and the month's spend against the cap (backend/decide_readout.py).
 """
@@ -61,8 +68,10 @@ DAILY_CALLS = {role: getattr(Settings, "decisions_daily_calls_" + role) for role
 # provider answers, so a caller never waits through several long attempts only to receive a 503.
 JEV_TIMEOUT = 8
 # The most one chain of providers takes, all of them together: each is asked with what is left (`J.within`), so the
-# server answers before its slowest caller stops waiting (30 s: `hub decision ask`, the MCP tools, `J.from_env`).
+# server answers before its slowest caller stops waiting (`J.HUB_WAIT`, 45 s: `hub decision ask`, the MCP tools, `J.from_env`).
 CHAIN_SECONDS = 25
+# The same when the Gateway answers decisions with a language model (Decisions level Medium or High: 30 s for its own try).
+SLOW_CHAIN_SECONDS = J.GATEWAY_SLOW_TIMEOUT + 5
 # Tico Decide's price in USD per 1M input and output tokens (Tico AI Gateway lineup 1.0): what the team's monthly cap
 # counts a Gateway call at when its answer carries no cost.
 GATEWAY_USD_PER_MTOK = (0.06, 0.0)
@@ -175,7 +184,9 @@ def cost_usd(settings, model, usage):
             return round(float(value), 6)
     fresh, cached, out = tokens(usage)
     if model in J.GATEWAY_MODELS:
-        rate_in, rate_out = GATEWAY_USD_PER_MTOK
+        # Every Decide level has a catalog price (Low is Jev's); the flat rate covers an id the catalog lacks.
+        listed = providers.price_of(model)
+        rate_in, rate_out = (listed[0], listed[2]) if listed else GATEWAY_USD_PER_MTOK
     elif priced(settings, model) and str(model or "").lower().startswith("jev"):
         rate_in, rate_out = settings.decisions_jev_usd_per_mtok_input, settings.decisions_jev_usd_per_mtok_output
     elif priced(settings, model):
@@ -289,22 +300,35 @@ def gateway(settings, store=None, vault=None):
     or with neither."""
     if settings.rehearsal:
         return None
-    if settings.gateway_key:
-        return J.gateway(settings.gateway_key, settings.gateway_url) if settings.gateway_url else None
+    if settings.gateway_key and not settings.gateway_url:
+        return None
+    if settings.gateway_key and store is None:
+        return J.gateway(settings.gateway_key, settings.gateway_url)
     if store is None:
         return None
 
     def engine(state, questions, label=None):
         from .credentials import Vault
-        keys = vault or Vault(store)
         with store.read() as c:
-            secret = gateway_connection.key(c, keys, settings) if keys.configured else ""
-            base = gateway_connection.url(c, settings)
-            bot = gateway_connection.bot_header(c, keys, DECIDE_BOT)
+            level = providers.load(c, settings)["decide_level"]
+            if settings.gateway_key:
+                secret, url, bot = settings.gateway_key, settings.gateway_url, None
+            else:
+                keys = vault or Vault(store)
+                secret = gateway_connection.key(c, keys, settings) if keys.configured else ""
+                url = G.decisions_url(gateway_connection.url(c, settings))
+                bot = gateway_connection.bot_header(c, keys, DECIDE_BOT)
         if not secret:
             raise J.JudgeError("unconfigured", "no Tico AI Gateway key is saved")
-        return J.gateway(secret, G.decisions_url(base), headers=bot)(state, questions, label)
-    engine.model, engine.provider, engine.saved = J.GATEWAY_MODEL, J.GATEWAY_PROVIDER, True
+        return J.gateway(secret, url, model=J.decide_model(level), timeout=J.decide_timeout(level),
+                         headers=bot)(state, questions, label)
+
+    def level():
+        with store.read() as c:
+            return providers.load(c, settings)["decide_level"]
+    engine.model, engine.provider, engine.saved = J.GATEWAY_MODEL, J.GATEWAY_PROVIDER, not settings.gateway_key
+    engine.level = level
+    engine.current_model = lambda: J.decide_model(level())
     return engine
 
 
@@ -338,7 +362,8 @@ def ordered(steps):
     def engine(state, questions, label=None):
         J.validate(state, questions, label)
         failed, first, paid = None, None, []
-        with J.within(CHAIN_SECONDS):
+        slow = any(J.normalize_level(step.level()) != "low" for step in steps if hasattr(step, "level"))
+        with J.within(SLOW_CHAIN_SECONDS if slow else CHAIN_SECONDS):
             for i, step in enumerate(steps):
                 try:
                     result = step(state, questions, label)
@@ -359,8 +384,10 @@ def ordered(steps):
 
 
 def step_models(steps, default=J.MODEL):
-    """The model each of `steps` asks as (`default` for one that does not say: a test's fake)."""
-    return [getattr(step, "model", "") or default for step in steps]
+    """The model each of `steps` asks as (`default` for one that does not say: a test's fake). A step whose model follows
+    the company's Decisions level says it now (`current_model`), so the spend reservation prices the model that will run."""
+    return [(getattr(step, "current_model", None) or (lambda: ""))() or getattr(step, "model", "") or default
+            for step in steps]
 
 
 def primary_engine(settings, store=None, vault=None):
@@ -416,6 +443,29 @@ def audit_detail(result):
     if result.get("fallback"):
         detail["fallback"] = result["fallback"]
     return detail
+
+
+class Outcome(Contract):
+    ref: str = Field(min_length=1, max_length=64)
+    verdict: str = Field(min_length=1, max_length=60)
+    action: str = Field(min_length=1, max_length=200)
+    label: str | None = Field(default=None, max_length=J.MAX_LABEL)
+
+
+def record_outcome(c, actor, body):
+    """The one `decision.outcome` for the caller's own `judge.call` `body.ref`: written once, the first returned after."""
+    call = c.execute("SELECT target FROM events WHERE id=? AND action='judge.call' AND actor=?",
+                     (body.ref, actor)).fetchone()
+    if not call:
+        raise Problem("not_found", f"no decision call {body.ref} of yours to record an outcome for", 404)
+    done = c.execute("SELECT id, detail_json FROM events WHERE target=? AND action='decision.outcome' LIMIT 1",
+                     (body.ref,)).fetchone()
+    if done:
+        return {"id": done[0], "ref": body.ref, **json.loads(done[1] or "{}"), "recorded": False}
+    detail = {"label": body.label or call[0] or "", "verdict": " ".join(body.verdict.split()),
+              "action": " ".join(body.action.split())}
+    row = H.event(c, actor, "decision.outcome", body.ref, detail)
+    return {"id": row["id"], "ref": body.ref, **detail, "recorded": True}
 
 
 class Ask(Contract):
@@ -511,7 +561,15 @@ def install_judge(app, store, auth):
             # audit row above keeps the real code for an admin.
             raise Problem("judge_unavailable", f"{FAILED[code]}. Decide is off for this call; carry on without it.", 503)
         with store.transaction() as c:
-            H.event(c, who.actor, "judge.call", label, {
+            call = H.event(c, who.actor, "judge.call", label, {
                 **detail, **audit_detail(result), "answers": J.summary(result["answers"])})
         return {"model": result["model"], "answers": result["answers"], "usage": result.get("usage") or {},
-                "ms": result["ms"], "label": body.label}
+                "ms": result["ms"], "label": body.label, "ref": call["id"]}
+
+    @app.post("/api/v2/judge/outcome")
+    def outcome(request: Request, body: Outcome):
+        """What the caller did with one of its decision calls (`ref`, from the call's answer): one `decision.outcome`."""
+        who = request.state.identity
+        auth.domain(who)
+        with store.transaction() as c:
+            return record_outcome(c, who.actor, body)

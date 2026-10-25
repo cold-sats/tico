@@ -32,6 +32,10 @@ any option, or piped without a terminal, it asks nothing and installs as before.
 prints the owner sign-in link, as the quick start does. What is left is one step: open the link, then **Settings >
 Computers > Server computer > Sign in**, to Claude and to ChatGPT.
 
+A local install has no public address, and it can still link to your Tico company (**Settings > General > Tico company**,
+with a server code from app.tico.dev Hosting > **Connect your own server**) for Tico models and billing. It shows there as
+a local server, with no Open link.
+
 - `--support off` turns Tico Support off (`TICO_SUPPORT=off`: the **?** chat sends nothing; [PRIVACY.md](../PRIVACY.md)).
   With Support on, its tickets are tied to this install. On an installed Tico, `sh install.sh --local --support off`
   (or `on`) saves the switch and restarts; every other setting stays as it is.
@@ -54,7 +58,8 @@ python3 -m setup --company-file ./tico.company.yaml
 ```
 
 Choose this server, an existing SSH server, or AWS; the wizard configures the usual sign-in, DNS and HTTPS.
-The same flag works with the non-interactive cloud setup. It validates the file before provisioning, uses its
+The same flag works with the non-interactive cloud setup. The company YAML file and its normalized plan must each
+fit within 512 KiB (524,288 bytes). Setup refuses larger files or plans before provisioning. It validates the file, uses its
 company name, and carries the normalized plan privately to the server. On first startup the app creates the selected
 AI employees and reporting lines, adds its built-in roles once, and leaves employees marked **later** paused.
 It preserves the plan across retries and refuses to replace an existing company. A selected file takes precedence
@@ -91,7 +96,7 @@ Open the link in your browser: the app opens on **Finish setup**. Then:
    ([the four choices](ai-gateway.md#choose-how-bots-get-their-models)). To choose later, select
    **Your company's plans or API keys**, untick its providers and press **Skip for now**. Bots need a provider
    to run; until then each bot says "Add an AI provider", and **Settings > Computers > Models** adds it.
-   With a gateway key from Tico, the [Tico AI Gateway](ai-gateway.md) card there adds Tico Cheap 1.1, Mid 1.0 and Power 1.0.
+   With a gateway key from Tico, the [Tico AI Gateway](ai-gateway.md) card there adds the Tico picks (department, level, Fast, version).
 2. **Name the team**, say what it does, and pick its groups. A few bots are suggested for each group. For the first result
    below, pick **Marketing** and keep **Content Marketer** (`content`) checked; untick the other suggestions if you want only it.
 3. **Add computer**: choose *A Linux or cloud server (Docker)*, press **Add computer**, and run the line it shows on this computer.
@@ -538,6 +543,9 @@ local sign-in, each protected by its own one-time code, an HMAC or a long secret
 Otherwise computers join through the same hostname. If Access sits in front of all of it, give the runners a bypass or a
 service token for `/api/v2/runners/*` (the runner authenticates itself with its own token), and give `/api/v2/mcp` a
 Bypass policy so humans' own external agents can connect with their tokens ([Connect an external agent](connect-an-agent.md)).
+To link the server to its Tico company (Settings > General > Tico company), also bypass
+`GET /api/v2/company-connection/proof` on the app hostname: Tico checks it there, and it answers only while an owner's
+connect is pending.
 
 Or run the bots' computer on the server itself and skip Access altogether: the runner joins the server's own Docker
 network and talks to it directly. With a one-time code from Settings > Computers > Add computer, on the server:
@@ -556,6 +564,48 @@ curl -fsSL https://github.com/ticoteam/tico/releases/download/vX.Y.Z/install.sh 
 - **Runners:** plan roughly 0.5 to 1 GiB of memory for each bot working at the same time, and disk for the bots'
   repositories (20 GiB and up). When bots queue, add another runner computer rather than a bigger one. More in
   [sizing](sizing.md).
+
+### Wake on webhook
+
+A server you run yourself may be off or asleep when a webhook arrives. An address [through Tico Gateway](webhooks.md#through-tico-gateway)
+keeps the call at Tico HQ until the server is back, but nothing starts the server. A **wake address** does: an https address
+you run that turns the server on, such as a cloud function that starts your VM or a script on your home router.
+
+It is for servers you run. A server Tico hosts is woken by Tico already.
+
+When a call has waited at the Gateway for more than a minute, Tico HQ posts `tico.wake` to your address, at most once every 10
+minutes:
+
+```json
+{"type": "tico.wake", "install": "acme", "pending": 3, "oldest_received_at": "2026-10-25T10:00:00Z"}
+```
+
+Set it as the owner, with the Tico Gateway connected in Settings → Gateway:
+
+```
+hub relay wake-url set https://wake.acme.example/start-tico
+```
+
+The answer shows a signing secret (`whsec_...`) once. Tico does not keep it. `hub relay wake-url show` shows the address, who set
+it and when; `hub relay wake-url off` stops the calls. The address must be public https with no user or password.
+
+The call is signed as [Standard Webhooks](https://www.standardwebhooks.com) (`webhook-id`, `webhook-timestamp`,
+`webhook-signature`) with that secret. Check it before you start anything, so a stranger who finds the address cannot start your
+server:
+
+```python
+import os
+from standardwebhooks import Webhook
+
+wh = Webhook(os.environ["TICO_WAKE_SECRET"])      # the whsec_... from the answer
+
+def handle(raw_body: bytes, headers: dict):
+    wh.verify(raw_body, headers)                  # raises if the signature or timestamp is wrong
+    start_acme_server()                           # your own code: power on the VM, send wake-on-LAN, ...
+```
+
+Answer with any 2xx quickly (HQ waits 5 seconds). A failure is not retried before the 10 minutes are up, and the calls that
+waited are collected as soon as the server is back.
 
 ## Add computers to run your bots
 
@@ -671,7 +721,17 @@ directory, as in every earlier release. Everything a bot runs (each run's model 
 its `git`, the sign-in flows) runs as the unprivileged `bot` user, whose home holds the workspace, `secrets/` and the
 model logins. So a bot cannot read the runner's own credential, which could claim any bot's work; a run gets its
 run token, and asks the runner for its bot's GitHub token over a local socket. Bots still share the `bot` user with
-one another ([SECURITY.md](../SECURITY.md#bots-on-one-computer-share-a-trust-boundary-on-purpose)). The first start of a volume from an older image
+one another, except for Tico model turns and turns on a harness that keeps no shared sign-in file (pi): each such
+turn uses its own temporary OS user from a pool of 64, in the same workspace group. Each checkout and worktree has a
+group of its own too, and a leased turn is let into only the checkouts its turn runs in. A sibling bot cannot read that turn's process environment, open file descriptors or
+private temporary files, or use its Gateway connection, even with its relay pass. The workspace remains shared;
+owner-only workspace files are made available through the group, and files a Gateway turn creates return to the
+ordinary bot user when it ends. The runner revokes the connection, kills leftover processes and cleans temporary
+files before reusing a user; an incomplete cleanup keeps that user out of the pool until restart. Turns on Claude
+Code, Codex, Gemini CLI, Cursor, Grok, Muse Code and Antigravity still run as `bot`, because their sign-in files are
+owner-only and shared across turns; the tool's chip in **Settings > Computers** says which tools' turns share the bot
+user. They, the runner's own git, watchers and shared base clones retain the existing shared-user boundary
+([SECURITY.md](../SECURITY.md#bots-on-one-computer-share-a-trust-boundary-on-purpose)). The first start of a volume from an older image
 changes its ownership to match (one time, a minute on a large workspace). If an update is rolled back, the previous
 image still starts on the migrated volume and reads its own files; the bots then run as the runner's user again until
 the next update. Use `docker exec -u bot` for what a bot should
@@ -911,6 +971,12 @@ Add `slack` to `COMPOSE_PROFILES` to run the Slack service, then paste the app's
 Use **Update now**, or run the target release's installer again to update both the pinned image tag and compose bundle, preserving `.env`.
 Pulling an unchanged pinned tag does not upgrade Tico. See [Updates](updates.md) for manual updates, self-update and rollback.
 Data lives in named volumes and survives updates. Computers follow the server's release.
+
+A server Tico hosts (`TICO_HOSTED`) never follows new releases by itself either. Tico support can schedule a release
+for it: the server reads it from Tico HQ with its Gateway key every 15 minutes, waits until no bot turn runs (two hours
+at most), and updates through the same updater as **Update now**. Settings and Health say "Tico will update this server
+to vX when idle" meanwhile. A failed or rolled-back update is reported to support and is not tried again until they
+schedule it again. A self-run server never asks.
 
 ### One-click updates
 

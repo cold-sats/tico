@@ -4,7 +4,7 @@
 
 // #/assistant/learned, linked from the top of your chat (ui/app/assistant-page.js). GET /v2/assistant/learned gives your
 // own layer, how you like things ranked and summarised, which only you see; and for the owner the company layer the CEO
-// Bot uses: the vision and the company goals (changed on Goals) and what they taught it about the company. You teach it
+// Bot uses: the vision (changed on Strategy) and the company goals (changed on Goals) and what they taught it about the company. You teach it
 // in the chat; here you edit or delete what it saved (PATCH / DELETE /v2/assistant/learned/{id}). Your chat bot reads
 // all of it again before each reply, so a deleted entry is not used from the next one.
 let LEARNED_LOAD = 0;
@@ -46,7 +46,7 @@ function learnedRender(d, name) {
       <h2 id="learned-company-h">About the company</h2>
       <p class="muted">Only you change this, and only ${esc(name)} uses it.</p>
       <h3>Vision</h3>
-      <p class="learned-vision">${co.vision ? esc(co.vision) : '<span class="muted">Not written yet.</span>'} <a href="${GOALS}">Edit on Goals</a></p>
+      <p class="learned-vision">${co.vision ? esc(co.vision) : '<span class="muted">Not written yet.</span>'} <a href="${STRATEGY}">Edit on Strategy</a></p>
       <h3>Priorities</h3>
       ${(co.priorities || []).length ? `<ol class="learned-priorities">${co.priorities.map(g => `<li><a href="${GOALS}">${esc(g.title)}</a></li>`).join('')}</ol>`
         : `<p class="muted">No company goals yet. <a href="${GOALS}">Add them on Goals</a></p>`}

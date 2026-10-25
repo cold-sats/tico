@@ -33,16 +33,18 @@ EMPTY = (
     # queued work
     "job_recovery", "service_jobs", "doc_source_jobs", "update_queue", "task_reminders", "calendar_actions",
     "meeting_deliveries", "worktree_waits", "idempotency", "idempotency_messages", "blob_media_retries",
-    "github_product_repo_operations", "github_review_operations",
+    "github_product_repo_operations", "github_review_operations", "invite_sends",
     # milestone waits: each pending row is a wake the copy could send; the milestones seen only settle those
     "task_milestone_waits", "milestones",
     # routines and watchers
-    "task_rules", "schedules", "schedule_config", "schedule_occurrences", "triggers", "trigger_deliveries", "watcher_runs", "watcher_items", "watcher_refs",
+    "webhooks", "webhook_events", "webhook_sends", "webhook_attempts",   # outgoing: a copy never sends an event out
+    "task_rules", "schedules", "schedule_config", "schedule_occurrences", "triggers", "trigger_deliveries", "trigger_bodies", "trigger_seen", "rule_events_seen", "trigger_relays", "hook_relay_state", "sleep_idle_state", "tico_notices", "watcher_runs", "watcher_items", "watcher_refs",
+    "task_manager_seen", "task_manager_reports",    # the Task Manager's repeat ledger and last checks: the copy starts its hourly report fresh
     "watcher_pending", "watcher_triage",    # support triage: tickets waiting for their check (customer text), and its verdicts
     # runner and bot sessions
     "enrollments", "hosting_enrollments", "assignments", "agent_pairings", "bot_sessions", "session_epochs", "bot_session_epochs", "model_logins", "model_login_cleared", "computer_keys", "model_login_key_off",
     "computer_profiles", "subscription_assignments", "runner_harness_actions", "runner_harness_choices",
-    "runner_versions", "start_places",
+    "runner_versions", "start_places", "org_turn_waits",
     # human sign-in and service keys
     "human_tokens", "oidc_sessions", "oidc_codes", "oauth_grants", "oauth_clients", "service_keys",
     "service_key_tasks", "owner_links",
@@ -69,26 +71,28 @@ HISTORY = {"attempts": "created", "jobs": "created", "messages": "created", "eve
 KEEP = frozenset((
     "agents", "approvals", "archives", "assistant_actions", "attempt_conversations", "attempt_events", "attempt_load_snapshots",
     "attempt_inputs", "backup_verified_blobs", "batches", "blob_locations", "blob_media", "blobs",
-    "bot_agent_instructions", "bot_config", "bot_control", "bot_file_activity", "bot_file_versions", "bot_files",
+    "bot_agent_instructions", "bot_budget", "bot_config", "bot_control", "bot_file_activity", "bot_file_versions", "bot_files",
     "bot_memory_documents", "bot_memory_seen", "bot_memory_updates", "bot_repo_access", "bot_status",
-    "bot_task_tabs", "bot_tool_requests", "bot_transition_checkpoints", "bot_transitions", "bots", "ceo_merges", "changes", "chat_goals",
+    "bot_task_tabs", "bot_tool_requests", "bot_transition_checkpoints", "bot_transitions", "bots", "ceo_actions",
+    "ceo_merges", "changes", "chat_goals",
     "cloud_migrations", "company_events", "company_profile", "connector_snapshots", "conversations", "doc_sources", "doc_versions", "docs",
     "document_versions", "documents", "external_documents", "external_sections", "external_snapshot_docs",
     "external_snapshots", "external_versions", "feed_sources", "feed_updates", "flight_db", "flight_events",
     "flight_process", "flight_requests",
     "flight_slow", "flight_sql", "provenance_clock", "goal_asks", "goal_checkins", "goal_events", "goal_kpis", "goal_proposals", "goals",
     "health_findings", "health_reports", "humans", "import_refs", "intake_items", "kpi_definitions", "kpi_readings",
-    "kpis", "learning_cursors", "learning_deliveries", "learning_items", "learning_runs", "learnings", "learned_entries", "linked_docs",
+    "kpis", "learning_cursors", "learning_deliveries", "learning_items", "learning_runs", "learnings", "lens_runs", "learned_entries", "linked_docs", "listening_destinations",
     "listen_items", "listen_judgments", "listen_runs", "live_meeting_chat", "live_meeting_chat_routes",
     "live_meeting_access", "live_meeting_chunk_versions", "live_meeting_chunks", "live_meeting_events", "live_meeting_humans",
     "live_meeting_turns", "live_meeting_windows", "live_meetings", "mail_agent_instructions", "mail_messages",
     "main_pushes", "market_citations", "market_edges", "market_entities", "market_entity_keys", "market_events",
-    "market_evidence", "market_insights", "media_assets", "media_control", "meeting_brain", "meeting_comments",
+    "market_evidence", "market_figures", "market_insights", "market_sizes", "market_sources", "market_watches", "market_briefings", "media_assets", "media_control", "meeting_brain", "meeting_comments",
     "meeting_items", "meeting_versions", "meetings", "message_assets", "message_links", "message_links_dirty",
     "message_links_seen", "notes", "runner_load_samples", "perf_overloads", "perf_points", "perf_usage", "preferences", "rate_limits",
-    "recording_source_refs", "recording_transcripts", "refusals", "registry_metadata", "repositories", "runners",
+    "recording_source_refs", "recording_transcripts", "refusals", "registry_metadata", "repositories", "rule_suggestions", "rules", "run_backoff", "runners",
     "seats", "service_health", "settings_changes", "slack_channels", "slack_digests", "slack_reads", "stale_judged",
-    "stale_suggestions", "storage_moves", "system_runs", "tags", "task_assets",
+    "stale_suggestions", "stall_triage", "storage_moves", "strategy_bets", "strategy_events", "strategy_versions",
+    "system_runs", "tags", "task_assets",
     "task_check_models", "task_delegations", "task_events", "task_file_reviews", "task_links", "task_relations",
     "task_roles", "task_steps", "task_tags", "task_trash", "task_trash_assets", "task_types", "tasks",
     "turn_usage_segments", "turns", "update_archive_overrides", "update_reads", "update_settings", "updates",

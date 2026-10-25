@@ -21,8 +21,8 @@ from . import changelog as CL
 from . import visuals
 from . import app_delivery, login_holds, providers, runner_versions
 from .harnesses import resolve_harness
-from . import personal_tokens, rooms, team_rules, turns, wake_presets
-from . import auto_tasks, pipeline_stats
+from . import personal_tokens, profiles, rooms, team_rules, turns, wake_presets
+from . import auto_tasks, bot_stops, pipeline_stats
 from .execution import AWAKE_GAP, AWAKE_SETTLE, Execution, bump_bot_session_epoch, turns_here
 from pathlib import Path
 
@@ -194,6 +194,19 @@ def _roster(c):
 
 def entries(c, github_owner=""):
     return read_cache.value(c, ("view_entries", github_owner), lambda: _entries(c, github_owner))
+
+
+def seat_parents(c, settings, auth, who):
+    """{open seat id: where it hangs on the team chart for this caller}, as GET /api/people draws it
+    (backend/lifecycle.py `chart_seats`): GET /api/v2/seats carries the same, so a client that refreshes the seats from
+    there still hangs a seat under a closed seat where that seat answered to."""
+    from . import ceo_bot
+    r, configs = roster(c), entries(c)
+    archived = {row["slug"] for row in H.bots(c) if row.get("state") == "archived"}
+    chart = ceo_bot.chart_entries(c, settings, r, configs, archived)
+    access = auth.bot_accesses(c, who)
+    return {seat["id"]: seat["org_parent"] for seat in lifecycle.chart_seats(
+        c, r, chart, archived, lambda slug: access.get(slug, auth.FULL)["see"])}
 
 
 def _entries(c, github_owner=""):
@@ -664,6 +677,7 @@ def queued_label(c, bot, location, settings=None, human=False, behind=False):
     """(label, readiness_reason) for a bot's queued work: what it is waiting for, in a person's words. `human`: a
     person's message; `behind`: the bot is still answering earlier work in this same conversation."""
     from .performance import load_status
+    from . import org_turns
     bot_state = H.bot(c, bot)["state"]
     label, readiness_reason = "Saved — queued", ""
     draining = c.execute("SELECT 1 FROM bot_control WHERE bot=? AND draining=1", (bot,)).fetchone()
@@ -675,11 +689,16 @@ def queued_label(c, bot, location, settings=None, human=False, behind=False):
         label = "Saved — this bot is paused; this starts when it's resumed"
     elif bot_state != "active":
         label = "Saved — bot " + bot_state
+    elif (stop := bot_stops.queued_reason(c, bot, human)):
+        # Tico stopped the bot (failed runs, run budget) or it waits out a failed run: the words say why.
+        label = "Saved — " + stop
     elif not location["online"]:
         label = "Saved — waiting for " + ((location["machine"] or {}).get("label") or "a registered computer")
     elif not location["awake"]:
         label = "Saved — waiting for " + ((location["machine"] or {}).get("label")
                                           or "a registered computer") + " to stay awake"
+    elif settings and org_turns.snapshot(c, settings)['at_stop']:
+        label = 'Saved — ' + org_turns.REASON
     elif (location.get("machine") or {}).get("runner_id") and load_status(
             c, location["machine"]["runner_id"])["overloaded"]:
         label = "Saved — waiting: computer busy"
@@ -703,7 +722,8 @@ def queued_label(c, bot, location, settings=None, human=False, behind=False):
                  else "Saved — queued for the next turn")
     elif runner_versions.holding_since(c, (location.get("machine") or {}).get("runner_id")):
         # Its computer takes no new work until its running turns end and it updates (docs/updates.md).
-        label = "Saved — waiting for the computer to update"
+        progress = runner_versions.drain_progress(c, (location.get("machine") or {}).get("runner_id"))
+        label = "Saved — waiting for the computer to update" + (f": {progress}" if progress else "")
     elif (computer := free_turn(c, bot, location, human)):
         label = "Saved — waiting for a free turn on " + computer
     return label, readiness_reason
@@ -1538,6 +1558,51 @@ def needs_marks(items):
 
 FLEET_CACHE_S = 15
 NEEDS_IDS_MAX = 100     # the most a live `needs` event names; more changed than that reads the list whole
+NEEDS_PAGE = 50         # a page of Needs you when `cursor` comes without `limit`
+NEEDS_PAGE_MAX = 200
+
+
+def needs_cursor(version, offset):
+    """The `next` of a Needs-you page: where the next page starts in the list at `version`. The app's hub-v2.js
+    needsCursor writes the same, to page on from a held list it mended."""
+    return f"{version}.{offset}"
+
+
+def needs_page(items, version, limit, cursor):
+    """(page, next cursor, restarted) of a Needs-you list. A cursor names the version it was read from: once the list
+    moved, its offset points nowhere, so the page starts from the top again (`restarted`)."""
+    offset, restarted = 0, False
+    if cursor:
+        held, _, at = cursor.partition(".")
+        if not at.isdigit():
+            raise Problem("validation", "Unknown cursor", 422)
+        offset, restarted = (int(at), False) if held == version else (0, True)
+    limit = max(1, min(int(limit or NEEDS_PAGE), NEEDS_PAGE_MAX))
+    end = offset + limit
+    return items[offset:end], (needs_cursor(version, end) if end < len(items) else None), restarted
+
+
+def needs_bots(items, me):
+    """How many Needs-you items each bot is behind ({"bot:slug": n}), the way the app groups them (ui/app/state.js
+    needsMeCounts): a task waiting on me goes with the bot that owns it; another task or question with the bot that
+    asked; a question asked outside any task with the bot that asked it. A page carries this for the whole list, so
+    the sidebar's numbers do not wait for every page."""
+    counts = {}
+    for it in items:
+        actor = None
+        if it.get("kind") == "ask":
+            actor = it.get("requester")
+        elif it.get("kind") in ("task", "question", "waiting"):
+            ask = it.get("ask") or {}
+            on = it.get("waiting_on") if it.get("status") == "waiting" and H.is_human(it.get("waiting_on")) else None
+            if it.get("owner") == me or ask.get("to_actor") == me or on == me:
+                asked = (it.get("origin_actor") or "keeper") if it.get("requester") == "keeper" else it.get("requester")
+                options = [it.get("owner")] if on == me else [ask.get("from_actor"), asked, it.get("owner")]
+                actor = (next((a for a in options if H.is_bot(a) and a != me), None)
+                         or next((a for a in options if a and a != me), None))
+        if H.is_bot(actor):
+            counts[actor] = counts.get(actor, 0) + 1
+    return counts
 _FLEET_CACHE = {}
 
 
@@ -1554,7 +1619,7 @@ def fleet_snapshot(c, auth, identity, task_view):
     access = auth.bot_accesses(c, principal)
     bot_rows = H.bots(c)
     allowed = {row["slug"] for row in bot_rows if access.get(row["slug"], auth.FULL)["write"]}
-    task_rows = [dict(t) for t in c.execute("SELECT * FROM tasks WHERE " + privacy.STATUS_TASKS_SQL)]
+    task_rows = [dict(t) for t in c.execute(f"SELECT {privacy.STATUS_TASK_COLUMNS} FROM tasks WHERE {privacy.STATUS_TASKS_SQL}")]
     bot_tasks = {}
     for task in task_rows:
         for actor in {task["owner"], task["requester"]}:
@@ -1686,6 +1751,9 @@ def install_views(app, store, auth, mutate, task_view):
         def helper(config):
             return str(config.get("template") or "") in helpers
         from .chat_goals import readable_active
+        from . import gateway_tiers
+        from .task_manager import Chart
+        departments = Chart(c, store.settings)         # the Gateway department a bot's model picker starts from
         for bot in bots:
             slug = bot["slug"]
             level = access.get(slug, auth.FULL)
@@ -1743,6 +1811,7 @@ def install_views(app, store, auth, mutate, task_view):
                          "keep_tasks_going": auto_tasks.of(config),
                          "task_flow": auto_tasks.counts(c, slug, who),
                          "team": P.team_of(slug, configs, people),
+                         "gateway_department": gateway_tiers.department_of(departments.of("bot:" + slug)),
                          "org_parent": P.org_parent("bot", slug, people, chart, archived),
                          "report_position": places.get("bot:" + slug),
                          "operator": registry["operator"] if registry else None,
@@ -1754,6 +1823,7 @@ def install_views(app, store, auth, mutate, task_view):
                          "icon": icon_of(config), "helper": helper(config),
                          # What Settings and the branch editor show and pick from (backend/wake_presets.py).
                          "wake": wake_presets.effective(config),
+                         "profile": profiles.effective(config),
                          "my_access": level, **policy,
                          "can_chat": level["write"] and slug not in (auth.settings.assistant_bot, CEO_BOT),
                          # Onboarding or Active, and whether this person may mark onboarding complete (backend/lifecycle.py).
@@ -1829,7 +1899,9 @@ def install_views(app, store, auth, mutate, task_view):
             access = auth.bot_accesses(c, who)
             from .report_order import positions
             places = positions(c)
-            return {**r, "by_team": P.by_team(r), "org_groups": view["org_groups"], "people": [{
+            from . import lifecycle
+            seats = lifecycle.chart_seats(c, r, chart, archived, lambda slug: access.get(slug, auth.FULL)["see"])
+            return {**r, "by_team": P.by_team(r), "org_groups": view["org_groups"], "seats": seats, "people": [{
                 **p, "org_parent": P.org_parent("person", p["id"], r, configs, archived),
                 "report_position": places.get("human:" + p["id"]),
                 **({"photo_url": "/api/humans/" + p["id"] + "/photo"}
@@ -2239,11 +2311,16 @@ def install_views(app, store, auth, mutate, task_view):
                     "bots": recent_bots(c, auth, who, since, limit, needs_items(c, auth, who, task_view))}
 
     @app.get("/api/v2/needs-you")
-    def needs(request: Request, count: bool = False, ids: str | None = None, version: str | None = None):
+    def needs(request: Request, count: bool = False, ids: str | None = None, version: str | None = None,
+              limit: int | None = None, cursor: str | None = None):
         """`count=1` is the number alone: the desktop app asks every 30 s and shows only
         that, where the full list is over 100 KB. The list's `version` changes whenever an item or its place does:
         `version=<the one held>` answers `unchanged` with no items when it still holds, and `ids=a,b` sends only those
-        items, with each one's place in the whole list (`positions`), to mend a held copy after a live `needs` event."""
+        items, with each one's place in the whole list (`positions`), to mend a held copy after a live `needs` event.
+        `limit` (at most NEEDS_PAGE_MAX) sends a page, with `next` to pass as `cursor` for the one after it and `bots`,
+        each bot's count over the whole list; a cursor from an older version starts again from the top (`restart`).
+        Without either, the whole list. Every page is cut from the list built whole, so its `version` and each
+        item's place are the same as the full read's and the live event's."""
         who = request.state.identity
         human_only(who)
         with store.read_transaction() as c:
@@ -2252,7 +2329,7 @@ def install_views(app, store, auth, mutate, task_view):
             older = []
             items = needs_items(c, auth, who, task_view, older)
             current = needs_marks(items)[1]
-            if version and version == current:
+            if version and version == current and not cursor:
                 return {"actor": who.actor, "count": len(items), "version": current, "unchanged": True,
                         "went_away": went_away(c, who.actor)}
             if ids is not None:
@@ -2262,8 +2339,14 @@ def install_views(app, store, auth, mutate, task_view):
                 positions = {str(x["id"]): n for n, x in enumerate(items) if str(x["id"]) in wanted}
                 return {"actor": who.actor, "count": len(items), "version": current, "positions": positions,
                         "items": [x for x in items if str(x["id"]) in positions]}
-            return {"actor": who.actor, "items": items, "older": older, "went_away": went_away(c, who.actor),
-                    "version": current}
+            out = {"actor": who.actor, "count": len(items), "items": items, "older": older,
+                   "went_away": went_away(c, who.actor), "version": current, "next": None}
+            if limit is not None or cursor:
+                out["items"], out["next"], restarted = needs_page(items, current, limit, cursor)
+                out["bots"] = needs_bots(items, who.actor)
+                if restarted:
+                    out["restart"] = True
+            return out
 
     @app.get("/api/v2/tico/fleet")
     def tico_fleet(request: Request):
@@ -2384,5 +2467,6 @@ def runnable_choices(c, who, auth, settings):
         if tico:
             answer = runtime_choice(c, bot, "pi", who, computers, harness="pi", model=sorted(tico)[0])
             if answer.get("can_run") is False:
-                out.setdefault(bot, {}).update({model: answer for model in tico})
+                # `tico`: any pick of the Gateway's lineup, which the picker cannot list one by one.
+                out.setdefault(bot, {}).update({model: answer for model in tico} | {"tico": answer})
     return out

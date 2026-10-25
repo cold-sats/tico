@@ -386,7 +386,8 @@ def rerun_script(*, compose: bytes | None, compose_url: str, plan: bool) -> str:
 # Run by the server's image with the plan's sha256: exits 0 only when the app's own reader returns exactly that plan, so
 # an image from before TICO_COMPANY_FILE, an older plan left in place or a plan in the env never passes.
 PLAN_READ = ("import hashlib, sys; from backend.config import _company_file_data as f; "
-             "sys.exit(0 if hashlib.sha256(f().encode('ascii')).hexdigest() == sys.argv[1] else 1)")
+             "data, _, _ = f(); "
+             "sys.exit(0 if hashlib.sha256(data.encode('ascii')).hexdigest() == sys.argv[1] else 1)")
 
 
 def plan_read_lines(running: bool = True) -> list[str]:

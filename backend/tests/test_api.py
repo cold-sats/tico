@@ -155,6 +155,15 @@ def runner(api, operator="ana", label="Test Mac"):
     return post(api, "runners/enroll", {"code": code, "label": label, "platform": "test"})
 
 
+def test_the_installers_enrollment_request_needs_an_idempotency_key(api):
+    # scripts/install.sh asks for the server computer's code with an empty body and the owner token; without the key
+    # the server answers 422 and the install finishes with no computer.
+    bare = api.post("/api/v2/enrollments", json={}, headers={"Authorization": "Bearer ana-test"})
+    assert bare.status_code == 422 and bare.json()["error"]["code"] == "idempotency_key", bare.text
+    keyed = api.post("/api/v2/enrollments", json={}, headers=headers("ana-test", "install-" + uuid.uuid4().hex))
+    assert keyed.status_code == 200 and keyed.json()["code"], keyed.text
+
+
 def assign(api, r, bot, generation=0, operator="ana-test"):
     return post(api, "bots/" + bot + "/assignment", {"runner_id": r["runner_id"],
                 "expected_generation": generation}, token=operator)

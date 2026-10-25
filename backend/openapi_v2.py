@@ -55,9 +55,10 @@ EVENTS_DESCRIPTION = (
     "`state` (`job_id`, and the job's or attempt's state).\n"
     "- `bots`: `bot` and `status` (as `GET /api/v2/status` lists it).\n"
     "- `needs`: the viewer's own Needs-you `count` and `items` (as `GET /api/v2/needs-you`), whenever anything on it may have moved. "
-    "With `needs=changes`: `count`, `version`, and the ids `changed` and `removed` since `base` (null when more than 100 "
-    "moved: read the list whole); read the changed items with `GET /api/v2/needs-you?ids=`, and the whole list when the "
-    "version held is not `base`. `ready` then carries `needs_version`.\n"
+    "With `needs=changes`: `count`, `version`, each bot's count (`bots`), and the ids `changed` and `removed` "
+    "since `base` (null when more than 100 moved: read the list whole); read the changed items with "
+    "`GET /api/v2/needs-you?ids=`, and the whole list (or its first pages) when the version held is not "
+    "`base`. `ready` then carries `needs_version`.\n"
     "Also `event: ready` (`seq`: where the log stands), `event: cursor` (the change number to resume from, past changes "
     "the viewer may not see), `event: reset` (the client was further behind than the log keeps, 24 hours: read in full), "
     "`event: expired` (sign-in no longer valid; sign in and reconnect), and a `: keepalive` comment every 15 seconds. "
@@ -106,6 +107,8 @@ STABLE = [
     ("/api/v2/org-models", "get", "Team chart", "listOrgModels",
      "Published Tico starter org charts used for re-org recommendations; contains no customer org data", "OrgModels"),
     ("/api/v2/humans/{pid}", "post", "Team chart", "updatePerson", "Edit a person's profile or reports_to", None),
+    ("/api/v2/humans/{pid}", "delete", "Team chart", "removePerson",
+     "Remove a left person with no history for good (owner only); anyone with history stays as left", None),
     ("/api/v2/seats", "get", "Team chart", "listSeats",
      "The Recruiting seats: roles on the chart with a job description and reporting line, and no bot. A seat holds no "
      "work: a task for it is refused and its role's work stays with its manager", "SeatList"),
@@ -271,8 +274,10 @@ STABLE = [
      "after=<change number> resumes, conversation=<ids> narrows messages and runs, bot=<slugs> narrows runs and bots, "
      "task=<ids> and party=<actors> narrow tasks to those and to the ones those actors own or asked for, needs=changes sends Needs you as changed ids", None),
     ("/api/v2/needs-you", "get", "Needs you", "getNeedsYou",
-     "What waits on the caller, with its `version`; count=true for the number alone, version=<held> answers "
-     "`unchanged` without items while it holds, ids=<comma list> only those items and their `positions`", "NeedsYou"),
+     "What waits on the caller, with its `version` and `count`; count=true for the number alone, version=<held> "
+     "answers `unchanged` without items while it holds, ids=<comma list> only those items and their `positions`, "
+     "limit=<n> (at most 200) a page with `next` to pass as cursor=<next> for the one after it (a cursor from an older version "
+     "starts again from the top, with `restart`); without limit or cursor, the whole list", "NeedsYou"),
     ("/api/v2/messages/{mid}/answer", "post", "Needs you", "answerMessage", "Answer a question a bot asked", None),
     ("/api/v2/needs-you/recommended", "post", "Needs you", "takeRecommendation",
      "Do what the bot recommends: answer its ask with what it said it would do, and close the card", None),
@@ -424,12 +429,25 @@ STABLE = [
      "The CEO Bot only: record that its Monday note offered level 3. Refused (422) unless level3_offer.due: 10 "
      "recoveries approved in a row with its pick unchanged, and no offer in 30 days. It never raises its own level",
      "CeoBotLevel3OfferResult"),
+    ("/api/v2/ceo-bot/decisions", "post", "Goals", "makeCeoBotDecision",
+     "The CEO Bot only, at level 3: one decision made alone, with its reason: bot tasks created, moved to the top of "
+     "their queue, given to another bot or closed, under one action id in the CEO Bot log. A person's task, a bot "
+     "offline or a refusal becomes one proposal in the owner's Needs you instead, never dropped", "CeoBotLogEntry"),
+    ("/api/v2/ceo-bot/log", "get", "Goals", "listCeoBotLog",
+     "The CEO Bot log, newest first: each decision it made alone and each thing it proposed because it stays the "
+     "owner's (cost, publishing, outside sends, adding or removing bots, goal and KPI targets, the vision, a bot's "
+     "instructions, a person's task), with the reason. The owner only; anyone else is refused (403)", "CeoBotLog"),
+    ("/api/v2/ceo-bot/log/{action_id}/undo", "post", "Goals", "undoCeoBotDecision",
+     "The owner, on their own click, undoes one decision the CEO Bot made alone: each task goes back where nobody "
+     "changed it since, a later change is kept and named, a task it made is closed, and each bot is told",
+     "CeoBotLogEntry"),
     ("/api/v2/company", "get", "Goals", "getCompany",
-     "The company's Vision and Description (the Company section at the top of Goals), "
-     "and whether the caller may edit them", "CompanyResult"),
+     "The team's Vision and Description (the Company section at the top of Goals), and whether the caller may edit "
+     "them. The Vision is the strategy's: the draft's for the owner, the published one for everyone else",
+     "CompanyResult"),
     ("/api/v2/company", "post", "Goals", "updateCompany",
-     "The owner, on their own click: change the Vision and/or the Description; never an admin or a bot, the CEO Bot "
-     "included. Each change is kept with who and when", "CompanyResult"),
+     "The owner, on their own click: change the Vision (written to the strategy draft) and/or the Description; never "
+     "an admin or a bot, the CEO Bot included. Each change is kept with who and when", "CompanyResult"),
     ("/api/v2/company/history", "get", "Goals", "getCompanyHistory",
      "Every change to the Vision and the Description, newest first, with who made it and when", "CompanyHistory"),
     ("/api/v2/goal-manager/turn-on", "post", "Goals", "turnOnGoalManager",
@@ -530,6 +548,19 @@ STABLE = [
      "the redacted diagnostics, a message on it when it comes back, or a support approval when the team rule is off", None),
     ("/api/v2/health-monitor/local-findings", "post", "Health", "recordLocalHealthFinding",
      "The Health Monitor: record a process or container its watcher saw busy, as a finding it can report", None),
+    ("/api/v2/task-manager", "get", "Health", "getTaskManager",
+     "People and bots: whether the Task Manager is on, its hourly report's switch, schedule and last run, and each "
+     "department's last check and open check task", None),
+    ("/api/v2/task-manager/turn-on", "post", "Health", "turnOnTaskManager",
+     "Owner only: add the Task Manager from the catalog (or wake a paused one) and activate it", None),
+    ("/api/v2/task-manager/turn-off", "post", "Health", "turnOffTaskManager", "Owner only: pause the Task Manager", None),
+    ("/api/v2/system-routines", "get", "Health", "listSystemRoutines",
+     "Every job Tico runs on its own: schedule, last and next run, on or off, and what the viewer may change", None),
+    ("/api/v2/system-routines/{key}", "put", "Health", "saveSystemRoutine",
+     "The owner or an admin: switch a system routine on or off, pick its schedule preset (15m, hourly, 4h, daily, "
+     "business) or its daily time", "SystemRoutineUpdate"),
+    ("/api/v2/system-routines/{key}/run", "post", "Health", "runSystemRoutine",
+     "The owner or an admin: run one controlled system routine once, now; 409 while it is off or already running", None),
 ]
 
 
@@ -850,7 +881,13 @@ SCHEMAS = {
                "description": "Tasks there only for a question older than three days, out of the queue and its count"},
         went_away={"type": "object", "additionalProperties": True,
                    "description": "Items that left the caller's queue this week on their own: expired, withdrawn, "
-                                  "answered by their Assistant, and the total"}),
+                                  "answered by their Assistant, and the total"},
+        count={"type": "integer", "description": "Items in the whole list, whatever page this is"},
+        next={"type": ["string", "null"], "description": "With limit or cursor: pass as cursor for the next page; "
+                                                         "null on the last page"},
+        bots={"type": "object", "additionalProperties": {"type": "integer"},
+              "description": "With limit or cursor: how many items in the whole list each bot is behind"},
+        restart={"type": "boolean", "description": "The cursor was from an older version: this page is the first"}),
         obj({"actor": "s", "count": "i"})]},
     "GranolaStatus": obj({"mode": {"type": "string", "enum": ["account", "api_key", "off"]},
                           "connected": "b", "email": "n", "plan_hint": {"type": ["string", "null"], "enum": ["free", "paid", None]},
@@ -920,8 +957,9 @@ SCHEMAS = {
                          "Bots with queued work that is not starting, or left in setup for over a day (the caller may "
                          "read them): bot, name, queued, oldest, computer, reason (not_ready, computer_offline, no_computer, "
                          "slow, limit, updating, restarting, setup, or a reason the claim holds the work: draining, maintaining, "
-                         "lane_held, uncertain, scoped, cooling_off, readiness_unknown, sign_in_rejected, "
-                         "not_isolated, isolation_unknown, profile, config, check_model, unreadable), why, since (setup only: when the "
+                         "lane_held, uncertain, scoped, cooling_off, run_hold, budget, backoff, readiness_unknown, sign_in_rejected, not_isolated, "
+                         "isolation_unknown, profile, config, check_model, unreadable), why, drain_progress (counts of running "
+                         "and handed-back turns on update holds), since (setup only: when the "
                          "bot was added), and fix (label plus href/tab, login, move or finish; null unless the caller "
                          "administers bots, or for setup may manage the bot: finish is POST /api/v2/bots/{bot}/onboarded)"},
                   on_fallback={"type": "array", "items": {"type": "object"}, "description":
@@ -1058,6 +1096,19 @@ SCHEMAS = {
                                                          "description": "{person actor: items the CEO Bot put in their Needs you today (UTC)}"},
                        "level3_offer": ref("CeoBotLevel3Offer")},
                       required=["name", "regular_checks", "level", "levels", "daily_cap"]),
+    "CeoBotLogEntry": obj({"id": "s", "created": "s", "kind": {"type": "string", "enum": [
+                               "decision", "cost", "publish", "send", "bots", "target", "vision", "instructions",
+                               "person_task"]},
+                           "reason": "s", "goal_id": "s", "state": {"type": "string", "enum": ["done", "proposed", "undone"]},
+                           "proposal_task": {"type": "string", "description": "The owner's Needs you item, when filed"},
+                           "note": "s", "done": items({"type": "object", "additionalProperties": True}),
+                           "left": items({"type": "object", "additionalProperties": True}),
+                           "undoable": "b", "undone_at": "s", "undone_by": "s",
+                           "undo": {"type": "object", "additionalProperties": True,
+                                    "description": "What Undo restored and what it kept: {restored, kept, text}"}},
+                          required=["id", "created", "kind", "state", "done", "left", "undoable"]),
+    "CeoBotLog": obj({"items": items(ref("CeoBotLogEntry")), "next_before": "s", "can_undo": "b"},
+                     required=["items", "can_undo"]),
     "CeoBotLevel3Offer": obj({"streak": "i", "needed": "i", "due": "b", "last_offered_at": "s"},
                              required=["streak", "needed", "due"]),
     "CeoBotLevel3OfferResult": obj({"level3_offer": ref("CeoBotLevel3Offer")}),
@@ -1172,6 +1223,58 @@ SCHEMAS.update({
 })
 SCHEMAS["Task"]["properties"]["tags"] = items(ref("Tag"))
 
+# The named events routines, rules and outgoing webhooks listen for (backend/event_catalog.py).
+TAGS["Events"] = "The catalog of named events (docs/routines.md)."
+STABLE.append(("/api/v2/event-types", "get", "Events", "listEventTypes",
+               "Every named event with its description, version and an example payload (`group` narrows it)", "EventTypeList"))
+SCHEMAS.update({
+    "EventType": obj({"name": "s", "group": "s", "description": "s", "version": "i", "example": "o",
+                      "aliases": items("s"), "sourceless": "b", "outbound": "b"},
+                     required=["name", "group", "description", "version", "example"]),
+    "EventTypeList": obj({"items": items(ref("EventType"))}, required=["items"]),
+})
+
+# Failed-run back-off and run budgets (backend/run_backoff.py, backend/turn_budgets.py).
+STABLE.extend([
+    ("/api/v2/bots/{bot}/budget", "get", "Bots", "getBotBudget",
+     "A bot's run budget (runs per hour and per day), the team default, its runs so far and any hold; for the people who manage it", "BotBudgetState"),
+    ("/api/v2/bots/{bot}/budget", "post", "Bots", "setBotBudget",
+     "Set the bot's own runs per hour and per day: null follows the team, 0 is no limit; raising it above the runs that held the bot releases it", "BotBudgetState"),
+    ("/api/v2/bots/{bot}/release", "post", "Bots", "releaseBot",
+     "Release a bot Tico stopped for failed runs or too many runs; its queued work starts again", "BotReleased"),
+    ("/api/v2/settings/turn-budgets", "get", "Bots", "getTeamBudgets",
+     "The team default runs per hour and per day for bots with no budget of their own (owner and admins)", "TeamBudgetState"),
+    ("/api/v2/settings/turn-budgets", "post", "Bots", "setTeamBudgets",
+     "Set the team default runs per hour and per day; 0 is no limit (owner and admins)", "TeamBudgetState"),
+])
+SCHEMAS.update({
+    "BotBudgetState": obj({"bot": "s", "turns_per_hour": "i", "turns_per_day": "i", "own": {"type": "object"},
+                      "team": {"type": "object"}, "runs": {"type": "object"},
+                      "held": {"type": ["object", "null"]}, "run_hold": {"type": ["object", "null"]},
+                      "revision": "i", "released": "b"}),
+    "BotReleased": obj({"bot": "s", "released": {"type": "object"}}),
+    "TeamBudgetState": obj({"turns_per_hour": "i", "turns_per_day": "i", "defaults": {"type": "object"}}),
+})
+
+# Bot profiles (backend/profiles.py).
+STABLE.extend([
+    ("/api/v2/profiles", "get", "Bots", "listProfiles",
+     "Every bot profile with its one-line description, its values and the wake rows it adds, for a picker", "ProfileChoices"),
+    ("/api/v2/bots/{bot}/profile", "get", "Bots", "getBotProfile",
+     "A bot's profile and the values it runs on", "BotProfileState"),
+    ("/api/v2/bots/{bot}/profile", "post", "Bots", "setBotProfile",
+     "Set the bot's profile (doer, reviewer, lead, responder, monitor, custom); leaving custom deletes the wake rules it "
+     "copied and needs confirm_drop_rules", "BotProfileState"),
+])
+SCHEMAS.update({
+    "ProfileChoice": obj({"name": "s", "label": "s", "description": "s", "batch_seconds": "i", "batch_scope": "s",
+                          "sweep_seconds": "i", "digest_hour": {"type": ["integer", "null"]}, "pulls": "s", "sweeps": "b",
+                          "takes": "s", "rules": {"type": "array", "items": {"type": "object"}}}),
+    "ProfileChoices": obj({"profiles": items(ref("ProfileChoice"))}),
+    "BotProfileState": obj({"bot": "s", "profile": {"type": "object"}, "wake": {"type": "object"}, "rules": "i",
+                            "revision": "i"}),
+})
+
 SCHEMAS.update({
     "Repository": obj({"full_name": "s", "enabled": "b", "bot_repo": "b", "default_branch": "n",
                        "setup_command": "n", "setup_source": "n", "reachable": "b", "last_seen": "n"}),
@@ -1226,6 +1329,32 @@ SCHEMAS['TaskType']['properties'].update({'default_visibility': {'enum': ['publi
                                          'role': {'type': ['string', 'null'], 'enum': ['product-roadmap', 'engineering', None],
                                                   'description': 'The Product roadmap or Dev tickets type, whoever manages it'}})
 
+TAGS['Strategy'] = ("The team's strategy: a draft the owner edits, numbered published versions, and the bets goals "
+                    "serve.")
+STABLE.extend([
+    ('/api/v2/strategy', 'get', 'Strategy', 'getStrategy', 'The published strategy, its bets with their goals and '
+     'colour, the website; the owner also gets the draft', None),
+    ('/api/v2/strategy/draft', 'put', 'Strategy', 'updateStrategyDraft', 'Owner only: change the draft, only the '
+     'fields sent; a stale revision answers 409', None),
+    ('/api/v2/strategy/publish', 'post', 'Strategy', 'publishStrategy', 'Owner only: the draft becomes the next '
+     'numbered version', None),
+    ('/api/v2/strategy/versions', 'get', 'Strategy', 'listStrategyVersions', 'Published versions, newest first', None),
+    ('/api/v2/strategy/versions/{n}', 'get', 'Strategy', 'getStrategyVersion', 'One published version whole', None),
+    ('/api/v2/strategy/diff', 'get', 'Strategy', 'diffStrategyVersions', 'What changed between two published '
+     'versions', None),
+    ('/api/v2/strategy/bets', 'post', 'Strategy', 'addStrategyBet', 'Owner only: a new bet', None),
+    ('/api/v2/strategy/bets/{bet_id}', 'post', 'Strategy', 'updateStrategyBet', 'Owner only: change a bet, only the '
+     'fields sent', None),
+    ('/api/v2/strategy/summary', 'get', 'Strategy', 'getStrategySummary', 'The published strategy as the text every '
+     'run carries; {text, n} with Accept: application/json', None),
+    ('/api/v2/strategy/guides', 'get', 'Strategy', 'listStrategyGuides', 'The question guides the CEO Bot drafts '
+     'with', None),
+    ('/api/v2/strategy/draft-from', 'post', 'Strategy', 'draftStrategyFrom', 'Owner only: research the team\'s '
+     'website and/or the owner\'s words into the draft; answers the job (running, or no_model with no model)', None),
+    ('/api/v2/strategy/draft-from/{job_id}', 'get', 'Strategy', 'getStrategyDraftFromJob', 'Owner only: one research '
+     'job (latest for the newest): running, done, gave_up, failed or no_model, with what it found and wrote', None),
+])
+
 TAGS['Inbound'] = 'Shared company inbound email and SMS for people and agents; reads never consume messages.'
 STABLE.extend([
     ('/api/v2/inbound/company-connection','post','Inbound','connectInboundCompany','A direct human owner or admin previews and connects Inbox to a portal company','InboundCompanyConnection'),
@@ -1254,6 +1383,124 @@ SCHEMAS.update({
     'InboundInboxes': obj({'inboxes':items({'type':'object'}),'configured':'b','last_sync':NUM_N,'error':'s','gaps':items({'type':'object'})}),
     'InboundMessages': obj({'messages':items({'type':'object'}),'next':{'type':['integer','null']},'cursor':'i'}),
     'InboundPhoneRequests': obj({'phone_requests':items({'type':'object'}),'next':{'type':['string','null']}}),
+})
+
+TAGS['Triggers'] = 'Webhook triggers: an address any sender can post to, how its calls are verified, kept and run again.'
+STABLE.extend([
+    ('/api/v2/triggers','get','Triggers','listTriggers','Every trigger with its address (no secret), settings and routines',None),
+    ('/api/v2/triggers','post','Triggers','createTrigger','Make a trigger (a person or a bot); the address with its secret is shown once',None),
+    ('/api/v2/triggers/{trigger_id}','get','Triggers','getTrigger','One trigger',None),
+    ('/api/v2/triggers/{trigger_id}','post','Triggers','updateTrigger','Change its name, preset, type source, hourly limit, keep days or unheard setting',None),
+    ('/api/v2/triggers/{trigger_id}/rotate','post','Triggers','rotateTrigger','A new address secret; the old one stops at once',None),
+    ('/api/v2/triggers/{trigger_id}/signing','post','Triggers','signTrigger','Verify calls with a preset (hmac, github, standard, stripe, slack) or stop; the signing secret is shown once',None),
+    ('/api/v2/triggers/{trigger_id}/delete','post','Triggers','deleteTrigger','Delete a trigger and its kept calls',None),
+    ('/api/v2/triggers/{trigger_id}/deliveries','get','Triggers','listTriggerDeliveries','The latest calls, newest first',None),
+    ('/api/v2/triggers/{trigger_id}/deliveries/{delivery}','get','Triggers','getTriggerDelivery','One kept call: redacted headers and body (a bot reads fenced 20,000-character parts, only of a call it was given)',None),
+    ('/api/v2/triggers/{trigger_id}/deliveries/{delivery}/replay','post','Triggers','replayTriggerDelivery','Run a kept call again as a new occurrence',None),
+    ('/api/v2/triggers/{trigger_id}/recover','post','Triggers','recoverTrigger','Run again, under the current secret and preset, the calls refused in the last since_hours (1-720) whose body is kept; each keeps its delivery id',None),
+])
+TAGS['Webhook relay'] = 'Addresses for triggers through Tico Gateway: they keep deliveries while this server is off (backend/hook_relay.py).'
+STABLE.extend([
+    ('/api/v2/relay', 'get', 'Webhook relay', 'getWebhookRelay', 'The Gateway key, how many relay addresses exist, the last '
+     'pull, the last problem and what waits at the Gateway', 'WebhookRelayState'),
+    ('/api/v2/triggers/{trigger_id}/relay', 'post', 'Webhook relay', 'createWebhookRelay', 'Give a trigger an address through '
+     'Tico Gateway; the answer carries the secret once (people who manage the trigger, and BotOps)', 'WebhookRelayAddress'),
+    ('/api/v2/triggers/{trigger_id}/relay/rotate', 'post', 'Webhook relay', 'rotateWebhookRelay', 'Replace the Gateway '
+     'address\'s secret; the old address stops at once and the new one is shown once', 'WebhookRelayAddress'),
+    ('/api/v2/triggers/{trigger_id}/relay/wake', 'post', 'Webhook relay', 'setWebhookRelayWake', 'Say whether a delivery to '
+     'the Gateway address starts a sleeping server (people who manage the trigger, and BotOps)', 'WebhookRelayWake'),
+    ('/api/v2/triggers/{trigger_id}/relay/delete', 'post', 'Webhook relay', 'deleteWebhookRelay', 'Remove the Gateway address; '
+     'the trigger and its own address stay', 'WebhookRelayDeleted'),
+    ('/api/v2/hooks/wake-url', 'get', 'Webhook relay', 'getWebhookWakeUrl', 'The address Tico Gateway knocks on to start '
+     'this server when a webhook waits for it, who set it and when (the owner)', 'WebhookWakeUrl'),
+    ('/api/v2/hooks/wake-url', 'put', 'Webhook relay', 'setWebhookWakeUrl', 'Set the wake address (https) or turn it off '
+     '(url null); the answer carries the signing secret once, for the receiver (the owner; needs the Gateway key)',
+     'WebhookWakeUrlSet'),
+])
+TAGS['Sleep when idle'] = 'A server Tico hosts stops after quiet hours and starts again on a webhook, a routine or a sign-in (backend/sleep_idle.py).'
+STABLE.extend([
+    ('/api/v2/sleep', 'get', 'Sleep when idle', 'getSleepWhenIdle', 'Whether this server is hosted, the idle hours (0 = off), '
+     'whether bot computers stop with it, since when it has been quiet and what Tico last answered', 'SleepWhenIdle'),
+    ('/api/v2/sleep', 'post', 'Sleep when idle', 'setSleepWhenIdle', 'Turn Sleep when idle on (hours 1-24) or off (0) and choose '
+     'whether bot computers stop with the server; an owner or an admin (and BotOps for one); on needs a server Tico hosts',
+     'SleepWhenIdle'),
+])
+TAGS['Notices'] = 'Notices from Tico Team: the ones that came through the Gateway relay and the current one from the release check.'
+STABLE.append(('/api/v2/notices', 'get', 'Notices', 'listNotices', 'Notices from Tico Team, newest first, each once '
+               '(any signed-in person)', 'NoticeList'))
+SCHEMAS['NoticeList'] = obj({'notices': items(obj({'id': 's', 'kind': 's', 'body': 's', 'url': 's', 'sent_at': 's',
+                                                    'received_at': 's', 'source': {'enum': ['relay', 'latest']}}))})
+SCHEMAS.update({
+    'SleepWhenIdle': obj({'sleep': obj({'hosted': 'b', 'layout': {'type': ['string', 'null']}, 'hours': 'i', 'runners': 'b',
+                                        'active': 'b', 'idle_since': {'type': ['string', 'null']}, 'blocker': 's',
+                                        'wake_at': {'type': ['string', 'null']},
+                                        'last_request': {'type': ['object', 'null']}, 'last_error': 's'})}),
+    'WebhookRelayState': obj({'relay': obj({'key': 's', 'relays': 'i', 'cursor': 'i', 'last_pull': {'type': ['string', 'null']},
+                                           'last_error': 's', 'pending': {'type': ['integer', 'null']},
+                                           'oldest': {'type': ['string', 'null']}, 'deleting': 'i', 'active': 'b'})}),
+    'WebhookRelayAddress': obj({'relay': obj({'trigger': 's', 'relay_id': 's', 'address_prefix': 's', 'address': 's',
+                                             'replayed': 'b'})}),
+    'WebhookRelayWake': obj({'relay': obj({'trigger': 's', 'relay_id': 's', 'wake': 'b'})}),
+    'WebhookRelayDeleted': obj({'relay': obj({'trigger': 's', 'deleted': 'b', 'gateway_told': 'b'})}),
+    'WebhookWakeUrl': obj({'url': {'type': ['string', 'null']}, 'set_at': {'type': ['string', 'null']},
+                           'set_by': {'type': ['string', 'null']}}),
+    'WebhookWakeUrlSet': obj({'url': {'type': ['string', 'null']}, 'secret': {'type': ['string', 'null']}}),
+})
+TAGS['Webhooks'] = "Outgoing webhooks: endpoints a person owns, the events Tico sends them, and each send's log (docs/webhooks.md)."
+STABLE.extend([
+    ('/api/v2/webhooks', 'get', 'Webhooks', 'listWebhooks', 'Your outgoing endpoints (an admin sees all) with 7-day '
+     'delivered, failed and pending counts; paged', 'WebhookList'),
+    ('/api/v2/webhooks', 'post', 'Webhooks', 'createWebhook', 'A person makes an endpoint; the secret is in the answer '
+     'once. A bot files an approval and the answer says so', 'WebhookCreated'),
+    ('/api/v2/webhooks/{hook_id}', 'get', 'Webhooks', 'getWebhook', 'One endpoint and its last ten attempts', 'WebhookShown'),
+    ('/api/v2/webhooks/{hook_id}/update', 'post', 'Webhooks', 'updateWebhook', 'Change the name, address, events, '
+     'filter, custom headers, hourly rate or (owner only) the plain-http switch', 'WebhookChanged'),
+    ('/api/v2/webhooks/{hook_id}/rotate', 'post', 'Webhooks', 'rotateWebhookSecret', 'A new secret, shown once; the old '
+     'one signs beside it for 24 hours', 'WebhookCreated'),
+    ('/api/v2/webhooks/{hook_id}/pause', 'post', 'Webhooks', 'pauseWebhook', 'Stop sending; queued sends wait', 'WebhookChanged'),
+    ('/api/v2/webhooks/{hook_id}/resume', 'post', 'Webhooks', 'resumeWebhook', 'Send again', 'WebhookChanged'),
+    ('/api/v2/webhooks/{hook_id}/enable', 'post', 'Webhooks', 'enableWebhook', 'Turn an endpoint back on; after an automatic '
+     'turn-off the answer offers `recover` with the date to send again from', 'WebhookEnabled'),
+    ('/api/v2/webhooks/{hook_id}/recover', 'post', 'Webhooks', 'recoverWebhookSends', 'Send again every send that gave up '
+     'since a date (same ids and bodies)', 'WebhookRecovered'),
+    ('/api/v2/webhooks/{hook_id}/replay', 'post', 'Webhooks', 'replayWebhookEvents', 'Send the events since a date that '
+     'the endpoint should have had and has no send for', 'WebhookReplayed'),
+    ('/api/v2/webhooks/{hook_id}/delete', 'post', 'Webhooks', 'deleteWebhook', 'Delete the endpoint and cancel its '
+     'pending sends', None),
+    ('/api/v2/webhooks/{hook_id}/send', 'post', 'Webhooks', 'sendWebhook', 'A custom.<name> event to one endpoint: '
+     'people, and bots with sending on', 'WebhookQueued'),
+    ('/api/v2/webhooks/{hook_id}/example', 'post', 'Webhooks', 'sendWebhookExample', 'Send an event type\'s example '
+     'to one endpoint', 'WebhookQueued'),
+    ('/api/v2/webhooks/{hook_id}/sends', 'get', 'Webhooks', 'listWebhookSends', 'The send log, newest first: type, '
+     'subject, state, attempts, last status, next attempt', 'WebhookSends'),
+    ('/api/v2/webhooks/{hook_id}/sends/{send_id}', 'get', 'Webhooks', 'getWebhookSend', 'One send with its attempts', None),
+    ('/api/v2/webhooks/{hook_id}/sends/{send_id}/retry', 'post', 'Webhooks', 'retryWebhookSend', 'Send a failed, '
+     'cancelled or delivered send again now', None),
+])
+SCHEMAS.update({
+    'Webhook': obj({'id': 's', 'name': 's', 'url': 's', 'host': 's', 'events': items({'type': 'string'}), 'enabled': 'b',
+                    'paused_reason': 's', 'rate_per_hour': 'i', 'allow_http': 'b', 'created_by': 's',
+                    'requested_by': 'n', 'created': 's', 'updated': 's', 'revision': 'i', 'old_secret_until': 'n',
+                    'can_change': 'b', 'last_7_days': obj({'delivered': 'i', 'failed': 'i', 'pending': 'i'}),
+                    'filter': {'type': 'object', 'description': 'departments, bots, task_types; an empty list means all'},
+                    'headers': items({'type': 'object', 'description': 'name, secret, and value unless secret (then set: true)'}),
+                    'disabled_at': 'n', 'disabled_reason': 'n'}),
+    'WebhookSendRow': obj({'id': 's', 'webhook_id': 's', 'event_id': 's', 'type': 's', 'subject': 's', 'state': {
+        'enum': ['ready', 'sending', 'delivered', 'failed', 'cancelled', 'withheld']}, 'attempts': 'i',
+        'last_status': {'type': ['integer', 'null']}, 'last_error': 's', 'next_attempt': 'n', 'created': 's',
+        'delivered_at': 'n'}),
+})
+SCHEMAS.update({
+    'WebhookList': obj({'items': items(ref('Webhook')), 'more': 'b', 'next_offset': 'i'}, required=['items', 'more']),
+    'WebhookCreated': obj({'webhook': {**ref('Webhook'), 'description': 'With `secret` once; `replayed: true` on a retry, without it'},
+                           'approval': {'type': 'object', 'description': 'A bot\'s request: {id, status: pending}'}}, required=[]),
+    'WebhookShown': obj({'webhook': ref('Webhook'), 'recent_attempts': items({'type': 'object'})}),
+    'WebhookChanged': obj({'webhook': ref('Webhook')}),
+    'WebhookEnabled': obj({'webhook': ref('Webhook'), 'recover': {'type': ['object', 'null'], 'description': '{since, failed} after an automatic turn-off'}}),
+    'WebhookRecovered': obj({'webhook': 's', 'since': 's', 'recovered': 'i', 'more': 'b'}),
+    'WebhookReplayed': obj({'webhook': 's', 'since': 's', 'checked': 'i', 'queued': 'i', 'more': 'b'}),
+    'WebhookQueued': obj({'queued': 'i', 'type': 's'}),
+    'WebhookSends': obj({'items': items(ref('WebhookSendRow')), 'more': 'b', 'next_offset': 'i'}, required=['items', 'more']),
 })
 
 ANSWERS = SCHEMAS

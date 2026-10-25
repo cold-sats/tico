@@ -21,7 +21,7 @@
 .support-links button.linkish[aria-pressed="true"]{color:var(--ink)}
 .support-connection{margin:0;padding:0 16px 8px;font-size:var(--t-sm);color:var(--muted)}.support-connection:empty{display:none}.support-connection.err{color:var(--fail)}
 .support-loading,.support-off{margin:0;padding:12px 16px;font-size:var(--t-base);color:var(--muted)}
-/* Your requests: title, status badge, last activity, and a dot for an unread reply; Let Tico support in at the foot. */
+/* Your requests: title, status badge, last activity, and a dot for an unread reply. */
 .support-listview{display:flex;flex-direction:column;flex:1;min-height:0;overflow-y:auto;border-top:1px solid var(--line)}
 .support-list-head{display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line)}
 .support-list{list-style:none;margin:0;padding:0}
@@ -29,8 +29,9 @@
 .support-item{display:grid;gap:5px;width:100%;text-align:left;padding:10px 16px;border:0;border-bottom:1px solid var(--line);border-radius:0;background:none;color:var(--ink);font:inherit;cursor:pointer}
 .support-item:hover{background:var(--surface2)}
 .support-item-top{display:flex;align-items:center;gap:8px;min-width:0}
-.support-item-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.support-item-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
 .support-item.unread .support-item-title{font-weight:600}
+.support-item-body{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--t-sm);color:var(--muted)}
 .support-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--accent)}
 .support-item-meta{display:flex;align-items:center;gap:8px;font-size:var(--t-xs);color:var(--muted)}
 .support-badge{display:inline-block;font-size:var(--t-2xs);font-weight:600;padding:1px 7px;border-radius:10px;background:var(--idle-bg);color:var(--muted);white-space:nowrap;letter-spacing:.01em}
@@ -67,8 +68,9 @@
 .support-diag,.support-row,.support-check{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .support-row{justify-content:flex-end}.support-diag{font-size:var(--t-sm)}.support-diag label{display:flex;gap:6px;align-items:center}
 .support-options{font-size:var(--t-sm)}.support-options summary{color:var(--muted);cursor:pointer}.support-options label{margin-top:8px}.support-options input[type=email]{width:100%;box-sizing:border-box}
-.support-access{display:grid;gap:6px;padding:12px 16px;margin-top:auto;border-top:1px solid var(--line);font-size:var(--t-sm)}.support-access p{margin:0}
-.support-access-log ol{margin:6px 0 0;padding-left:18px;max-height:180px;overflow:auto;overflow-wrap:anywhere;color:var(--muted)}
+/* Under the request, over the box: Let Tico support in, or the live session with Stop, and the log of its sessions. */
+.support-access{display:grid;gap:6px;flex:none;padding:8px 16px;border-top:1px solid var(--line);font-size:var(--t-sm)}.support-access p{margin:0}.support-access>button{justify-self:start}
+.support-access-log ol{margin:6px 0 0;padding-left:18px;max-height:140px;overflow:auto;overflow-wrap:anywhere;color:var(--muted)}
 .support-modal{width:min(760px,calc(100vw - 32px));max-height:90vh}.support-modal .tmodal-body{display:grid;gap:10px;overflow:auto}
 .support-modal p{margin:0;font-size:var(--t-base)}.support-json{width:100%;min-height:280px;box-sizing:border-box;font:var(--t-sm)/1.5 var(--mono);white-space:pre;resize:vertical}
 .support-sections{display:flex;gap:8px 16px;flex-wrap:wrap}.support-sections label{display:flex;align-items:center;gap:5px;font-size:var(--t-sm)}

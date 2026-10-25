@@ -13,8 +13,8 @@ On **Tasks**, press **New task** and pick who it is for — any human or bot. On
 it through Tico's MCP. Each task shows who added it: you, another human, or a bot.
 
 **Where are the built-in bots?**
-**Assistant** and **BotOps** are in the main left rail; **Assistant** opens your private chat with it. The CEO Bot is at the top of **Goals**: its routines, its last
-run and a box to ask it to change a goal. **Docs** and **Market** have **Ask the Librarian** on the right (a button on a
+**Assistant** and **BotOps** are in the main left rail; **Assistant** opens your private chat with it. The CEO Bot proposes **Strategy** and is at the top of **Goals**: its routines, its last
+run and a box to ask it to change a goal. **Docs** and **Strategy**'s Market tab have **Ask the Librarian** on the right (a button on a
 phone). All four are managed in **Settings > Bots**; they stay out of the team chart and the goal owner list.
 
 **What is on a bot's page?**
@@ -156,7 +156,7 @@ reports. The same rule decides whose profile, goals, bot settings and routines y
 your own, and anyone's below you.
 
 **How do I add a routine?**
-**Settings → Routines → New routine** (or the Routines card on the bot's page): pick the bot, a
+**Settings → Rules → New routine** (or the Routines card on the bot's page): pick the bot, a
 title, a cron (five fields, America/Los_Angeles by default) or a Tico event, and the text the bot
 is told each time. A bot can set up its own with `hub routine set`. Details: [Routines](routines.md).
 
@@ -171,8 +171,9 @@ facts), commit and push. The computer pulls before the next run; if you maintain
 hand, pull the update there too. Model, effort, computer, owners and status are changed in
 **Bot → Settings**. One-off requests are tasks, not edits.
 
-How often a bot wakes for routine news is its **Wakes** row in **Bot → Settings**: **Token saver** (the default for
-new bots) or **Performance**. Under **Subscribe to updates** in its Settings tab you choose whether it hears about
+What wakes a bot, and which tasks it takes, is its **Profile** row in **Bot → Settings**: **Doer** (the default for
+new bots), **Reviewer**, **Lead**, **Responder**, **Monitor** or **Custom** ([Profiles](how-it-works.md#profiles)).
+Under **Subscribe to updates** in its Settings tab you choose whether it hears about
 template changes and Tico releases. See [Creating bots](creating-bots.md#subscribe-to-updates).
 
 **How do I contact the Tico team?**

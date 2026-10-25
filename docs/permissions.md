@@ -10,7 +10,8 @@ team, readable by one group and open to requests from everyone.
 | **Write** | Sending it messages, chatting with it, asking it; creating or reassigning tasks to it; leaving it notes; comments that wake it. Its approvals work as they always did. |
 
 Write access does not make a stopped bot run. Messages and comments to a paused or quarantined bot are kept until it
-is back; a new task or hand-off to it, or a message to a bot not started yet, is refused as `target_inactive`, which
+is back, except that a bot's send is refused as `queue_full` once the queue held for it is full (it never counts as a
+repeat; [How it works](how-it-works.md)); a new task or hand-off to it, or a message to a bot not started yet, is refused as `target_inactive`, which
 never counts as a repeat against the sender ([How it works](how-it-works.md), rule 8).
 
 An audience is **Everyone**, or a list of **humans**, **groups** and **bots**. Naming a group names everyone in it and in the groups nested in it. Anyone who may read or write a bot can also see it, whatever its See list says.
@@ -122,7 +123,7 @@ refused. Built-in bots stay outside groups.
 **The built-in bots** (the Assistant, BotOps, the Librarian and the CEO Bot) act for the whole team, so only the owner changes their settings,
 routines, access or place, and only the owner may add them. A member cannot register a bot with the name `assistant`, `botops`,
 `librarian`, `goal-manager` or `coo`; an Admin can, and manages every other bot.
-The CEO Bot's level, regular checks and name, and the Company section on Goals, are the owner's alone: an Admin cannot change them ([Your CEO Bot](ceo-bot.md)).
+The CEO Bot's level, regular checks and name, and publishing a strategy version, are the owner's alone: an Admin cannot change them ([Your CEO Bot](ceo-bot.md)).
 
 A member may have at most **25 active bots** by default; owners and admins have no limit. An admin changes the number in
 Settings > Humans (**Bot limit per member**). Past it, adding a bot answers `409 bot_limit` with what to do. A starter bot that is still `needs_onboarding`
@@ -160,6 +161,37 @@ Create product repositories is a wider reach than bot repositories, so:
   recorded as `github.product_repo_created` with the bot as the actor, and the grant as `bot.repos_changed`.
 
 Connecting, disconnecting and replacing the GitHub App stay the Owner's alone, as does deleting a repository.
+
+## Incoming webhooks
+
+An incoming webhook (a trigger) is an address outside senders post to ([Webhooks](webhooks.md#incoming)).
+
+- **Anyone**, person or bot, may add one. The address and its secret are shown once, to whoever added it.
+- **Managing one** (a new secret, its settings, signing, running a call again, deleting it, its Tico Gateway address) belongs to the
+  owner, an admin, whoever added it and BotOps (acting for a person, with that person's rights).
+- **Reading a call.** People who manage the webhook read the whole body. A bot reads it in parts, and only for a call that opened
+  one of its tasks or that a notice from Tico to it names, or if it manages the webhook. A body is always handed over fenced as
+  data from outside Tico.
+- **Rules on a call** (`webhook.received`): the owner and admins write team rules; a bot's owners, its operator and BotOps write
+  that bot's rules. Waking a bot needs rights over that bot. A rule that sends to an outgoing endpoint is written by a person, or by
+  a bot with its outbound send switch on, never the CEO Bot. The endpoint must exist and its maker must own it or be an admin: Tico checks
+  that when the rule is saved, and again when it runs.
+- **Tico Team** is a built-in webhook. Nobody deletes it; only its keep days change.
+
+## Outgoing webhooks
+
+An endpoint is an address Tico posts events to ([API](api.md#outgoing-webhooks)).
+
+- **People** make and manage their own endpoints; the owner and admins manage every one. BotOps acting for a person has that
+  person's rights.
+- **A bot** cannot make one on its own. Its request files a `send` approval, and the endpoint is made, owned by the person who
+  approves it, when the bot repeats the call. A bot sees every endpoint without its full address, and changes none.
+- **Custom events** (`hub webhook send`, names `custom.*`) are sent by people, and by a bot only while its outbound send switch is on.
+  The CEO Bot never sends one and never causes a webhook.
+- **Privacy.** An endpoint hears of a task, approval, ask or bot only when its owner could read it themselves; the event body is built
+  from what that person sees. Health, inbound and webhook events go to owner and admin endpoints only.
+- Plain `http://` is for `localhost` only, and only the owner switches it on for an endpoint. Every other address is `https://`
+  and must resolve to a public address.
 
 ## Bot owners
 
@@ -413,6 +445,8 @@ The commands (with MCP tools of the same names):
 | `hub bot place <bot> [--computer C]` | puts a bot on a computer: the one named, or the only one, or the least busy that takes it |
 | `hub bot go-live <bot> [--computer C] [--routines-file F]` | places it if it has no computer, turns it on, and for a starter bot starts its setup chat as the requester. When the computer does not have the bot's repository yet but GitHub does (or GitHub cannot be asked), the placement is kept and the answer is HTTP 202 `waiting_for_repository` (the CLI says so and exits 0): the computer clones it, and the readiness report that says it has the repository finishes the go-live, once, with the requester's rights. When GitHub could not be asked the answer says so, since a repository that doesn't exist never arrives. Health lists each waiting go-live for the owner, admins and whoever manages the bot. One that can't finish, or hasn't finished within 7 days, stops, and the requester gets one notice to run go-live again. A repository GitHub does not have is refused (`repository_missing`) with how to create it; when it is waiting for the GitHub App's permission to create repositories, the refusal is `repository_waiting_for_permission` and names the owner's Needs you task with the two fixes. `--help` shows the `--routines-file` shape (docs/routines.md) |
 | `hub bot model <bot> [<model>] [--effort E] [--on-behalf-of <task>]`, `hub bot pause\|resume <bot>` | the model (none: list the choices; a change answers with the computer's `readiness`), stop and restart |
+| `hub bot profile <bot> [name] [--batch-seconds N] [--digest-hour H]`, `POST /api/v2/bots/{bot}/profile` | a bot's profile (doer, reviewer, lead, responder, monitor, custom): what wakes it and which tasks it takes; its owner, operator, a person it reports up to, or BotOps; an Admin or the owner. A profile grants no right |
+| `hub bot budget <bot> [--hour N\|default] [--day N\|default]`, `hub bot budget <bot> release`, `hub bot release <bot>` | a bot's runs per hour and per day (the team default when unset; its owner, operator or BotOps), and release a bot Tico stopped for failed runs or too many runs. `hub team budget [--hour N] [--day N]` sets the team default (owner and admins) |
 | `hub bot scope <bot> <task>`, `hub bot scope <bot> --release` | limits the bot's claims to that task and its direct subtasks, or lifts the limit; the rest of its queue, new work included, stays queued as it is, and nothing is paused, resumed or started |
 | `hub routine on\|off <key> --bot <bot>` | a routine on or off |
 | `hub computer list [--computer C [--section S --offset N]]`, `hub health check` | the computers a bot may go on, one short row each (one computer in full with `--computer`, large sections paged); what is wrong with the bots, most urgent first, each with its fix |

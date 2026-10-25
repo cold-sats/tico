@@ -284,6 +284,11 @@ impl CodexHost {
         self.write(&json!({"jsonrpc": "2.0", "method": method, "params": params})).await
     }
 
+    #[cfg(test)]
+    pub(crate) fn requests_started(&self) -> i64 {
+        self.0.next_id.load(Ordering::SeqCst)
+    }
+
     pub async fn request(&self, method: &str, params: Value, timeout: u64) -> Result<Value, HostError> {
         let id = self.0.next_id.fetch_add(1, Ordering::SeqCst) + 1;
         let (tx, rx) = oneshot::channel();

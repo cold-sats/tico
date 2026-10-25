@@ -29,7 +29,7 @@ use crate::util::{log, text_of, truthy};
 /// the known default store; custom auth paths are never adopted with supervisor privileges.
 pub fn hand_login_to_bot() {
     if let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
-        crate::isolation::adopt(&[std::path::PathBuf::from(home).join(".grok")]);
+        crate::isolation::adopt_store(&[std::path::PathBuf::from(home).join(".grok")]);
     }
 }
 
@@ -49,21 +49,10 @@ pub fn sign_in_detail(env: &Env) -> Option<&'static str> {
             .or_else(|| env.get("HOME").map(|h| std::path::Path::new(h).join(".grok")))
             .map(|h| h.join("auth.json"))
     })?;
-    // This runs in the supervisor's heartbeat path against a bot-writable store. Opening a FIFO
-    // must not wait for a writer, and devices or growing files must not supply an unbounded stream.
-    let mut options = std::fs::OpenOptions::new();
-    options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        options.custom_flags(0x00200000); // FILE_FLAG_OPEN_REPARSE_POINT: inspect the link itself.
-    }
-    let file = match options.open(path) {
+    // This runs in the supervisor's heartbeat path against a bot-writable store. No component may be a link the
+    // bot planted (the fixed label would still answer "does this path parse"), opening a FIFO must not wait for a
+    // writer, and devices or growing files must not supply an unbounded stream.
+    let file = match crate::isolation::open_unfollowed(&path, libc::O_NONBLOCK) {
         Ok(file) => file,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Some(""),
         Err(_) => return None,
@@ -71,6 +60,12 @@ pub fn sign_in_detail(env: &Env) -> Option<&'static str> {
     const MAX_AUTH_BYTES: u64 = 1024 * 1024;
     let metadata = file.metadata().ok()?;
     if !metadata.file_type().is_file() || metadata.len() > MAX_AUTH_BYTES {
+        return None;
+    }
+    // A second name for a file someone else owns (a supervisor file linked into the store) is not the store.
+    use std::os::unix::fs::MetadataExt;
+    let owner = crate::isolation::identity().map_or_else(|| unsafe { libc::geteuid() }, |(uid, _)| uid);
+    if metadata.nlink() != 1 && metadata.uid() != owner {
         return None;
     }
     let mut text = String::new();
@@ -530,6 +525,24 @@ mod tests {
         };
         std::fs::remove_dir_all(root).unwrap();
         assert!(result.is_some_and(|status| status.success()), "credential status blocked or accepted a special file: {result:?}");
+    }
+
+    #[test]
+    fn auth_status_never_follows_a_linked_ancestor() {
+        // A link a root test run makes is a trusted system alias, so only an ordinary user can plant one here.
+        if unsafe { libc::geteuid() } == 0 { return; }
+        let root = std::env::temp_dir().join(format!("grok-linked-auth-{}", uuid::Uuid::new_v4()));
+        let elsewhere = root.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::write(elsewhere.join("auth.json"), r#"{"acme":{"auth_mode":"oidc","key":"synthetic"}}"#).unwrap();
+        let real = Env::from([("GROK_HOME".into(), elsewhere.display().to_string())]);
+        assert_eq!(sign_in_detail(&real), Some("Signed in with a Grok account"), "the real folder still reads");
+        std::os::unix::fs::symlink(&elsewhere, root.join(".grok")).unwrap();
+        let env = Env::from([("HOME".into(), root.display().to_string())]);
+        assert_eq!(sign_in_detail(&env), None, "a planted .grok link is not followed");
+        let env = Env::from([("GROK_AUTH_PATH".into(), root.join(".grok/auth.json").display().to_string())]);
+        assert_eq!(sign_in_detail(&env), None, "nor through a direct path");
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]

@@ -157,6 +157,19 @@ function goalNoteHtml(g, may) {
     ? `<div class="goal-note goal-suggest">${esc(ceoBotName())} suggests <b>${esc(g.suggest_status)}</b>${g.suggest_note ? ': ' + esc(g.suggest_note) : ''}${may ? ' <button class="linkish" type="button" data-goal-auto="' + esc(g.id) + '">Let ' + esc(ceoBotName()) + ' set it</button>' : ''}</div>` : '';
   return (said ? `<div class="goal-note">${esc(said)}</div>` : '') + suggest;
 }
+// The bets a goal may serve (ui/strategy-page.js): the active ones, and the one it serves now whatever its status, so
+// saving never drops it, even one this person can't see (retired or not yet published). Its caption is the strategy's
+// word for one ("Bet").
+function goalBetHtml(g, may) {
+  const st = GOALS_ST?.strategy, all = st?.bets || [];
+  const options = all.filter(c => c.status === 'active' || c.id === g.bet_id).sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9));
+  if (!options.length) return '';
+  const unseen = g.bet_id && !options.some(c => c.id === g.bet_id)
+    ? `<option value="${esc(g.bet_id)}" selected>Retired or unpublished</option>` : '';
+  return `<label class="goal-f goal-bet-f"><span>${esc(st.label_one || 'Bet')}</span><select name="bet"${may ? '' : ' disabled'}>
+      <option value=""${g.bet_id ? '' : ' selected'}>None</option>${unseen}${options.map(c =>
+        `<option value="${esc(c.id)}"${c.id === g.bet_id ? ' selected' : ''}>${esc(c.statement)}</option>`).join('')}</select></label>`;
+}
 function goalFormHtml(g, goals, {owner = '', company = false, fixed = false} = {}) {
   company = company || g.owner === GOAL_COMPANY;      // a team goal supports nothing
   const may = !g.id || goalMayEdit(g, goals);
@@ -169,6 +182,7 @@ function goalFormHtml(g, goals, {owner = '', company = false, fixed = false} = {
       ${choices.length ? `<div class="goal-fs"><label class="goal-f"><span>Owner</span><select name="owner">${choices.map(([v, name]) => `<option value="${esc(v)}"${v === who ? ' selected' : ''}>${esc(name)}</option>`).join('')}</select></label>
         <label class="goal-f"><span>Supports</span><select name="parent">${goalSupportOptions(g, who, goals)}</select></label></div>`
       : company ? '' : `<label class="goal-f"><span>Supports</span><select name="parent"${may ? '' : ' disabled'}>${goalSupportOptions(g, g.owner || who, goals)}</select></label>`}
+      ${goalBetHtml(g, may)}
       ${kids.length ? `<div class="goal-ed-kids"><span>Supported by</span>${kids.map(k =>
         `<a href="${GOALS}/${encodeURIComponent(k.id)}" data-goal-go="${esc(k.id)}">${esc(k.title)} <span class="muted">· ${esc(goalOwnerInfo(k.owner).name)}</span></a>`).join('')}</div>` : ''}
       ${may && g.id ? goalColourHtml(g) : ''}
@@ -179,7 +193,7 @@ function goalFormHtml(g, goals, {owner = '', company = false, fixed = false} = {
     </form>`;
 }
 function bindGoalForm(form, g, goals, {company = false, owner = ''} = {}, done) {
-  const title = form.elements.title, ownerSel = form.elements.owner, parentSel = form.elements.parent;
+  const title = form.elements.title, ownerSel = form.elements.owner, parentSel = form.elements.parent, betSel = form.elements.bet;
   const save = form.querySelector('[type=submit]');
   form.onkeydown = ev => { if (ev.key === 'Escape') { ev.preventDefault(); done(); } };
   form.querySelector('[data-goal-cancel]').onclick = () => done();
@@ -211,10 +225,12 @@ function bindGoalForm(form, g, goals, {company = false, owner = ''} = {}, done) 
         const body = {};
         if (words !== g.title) body.title = words;
         if (parentSel && parentSel.value !== (g.parent_id || '')) body.parent_id = parentSel.value;
+        if (betSel && betSel.value !== (g.bet_id || '')) body.bet_id = betSel.value;   // "" unlinks it
         if (Object.keys(body).length) await post('/v2/goals/' + encodeURIComponent(g.id), body);
       } else {
         const body = {title: words, owner: company ? GOAL_COMPANY : ownerSel ? ownerSel.value : owner || 'me'};
         if (parentSel?.value) body.parent_id = parentSel.value;
+        if (betSel?.value) body.bet_id = betSel.value;
         await post('/v2/goals', body);
       }
       await goalsRefresh();
@@ -227,8 +243,7 @@ function pageGoals() {
   const open = S.route.startsWith(GOALS + '/') ? decodeURIComponent(S.route.slice(GOALS.length + 1)) : '';
   const was = document.getElementById('goal-panel');
   if (was) { was._state = null; if (was.open) was.close(); }
-  const state = GOALS_ST = {goals: [], other: [], proposals: [], needs: [], owners: {}, loaded: false, open, panel: null,
-    company: {data: null, editing: false, saving: false, history: false, events: null, draft: null}};
+  const state = GOALS_ST = {goals: [], other: [], proposals: [], needs: [], owners: {}, loaded: false, open, panel: null, strategy: null};
   // The tree is the page; the CEO Bot is its right rail (under the tree on a narrow window). The sidebar
   // says where you are, so the title is for screen readers only.
   $('#main').classList.add('goals-layout');
@@ -246,15 +261,15 @@ function goalsApply(state, data, needs) {
   if (needs !== undefined) state.needs = (needs?.items || []).filter(n => !goalBuiltInOwner(n.goal_owner) && !goalBuiltInOwner(n.owner) && !(data.goals || []).some(g => g.id === (n.goal_id || n.proposal?.goal_id) && goalBuiltInOwner(g.owner)));
 }
 // Two requests: the tree and what needs you. The roster (people, bots, departments) is already in S.
-// The Company section's record comes with them (ui/goals-kpis.js goalCompanyHtml). The goals never wait on the
-// company: if it cannot be read, the section is left out and the tree still draws.
-const goalCompanyGet = () => v2Get('/v2/company').catch(() => null);
+// The strategy comes with them, for its one line at the top (ui/goals-kpis.js goalStrategyHtml) and the bets a goal
+// may serve. The goals never wait on it: if it cannot be read, the line and the picker are left out.
+const goalStrategyGet = () => v2Get('/v2/strategy').catch(() => null);
 async function goalsLoad(state) {
-  let data, needs, company;
-  try { [data, needs, company] = await Promise.all([get('/v2/goals/tree'), v2Get('/v2/goals/needs-you'), goalCompanyGet()]); }
+  let data, needs, strategy;
+  try { [data, needs, strategy] = await Promise.all([get('/v2/goals/tree'), v2Get('/v2/goals/needs-you'), goalStrategyGet()]); }
   catch (e) { $('#goal-body').innerHTML = `<p class="err">${esc(e.message || 'Could not load goals')}</p>`; return; }
   if (GOALS_ST !== state) return;
-  state.company.data = company;
+  state.strategy = Array.isArray(strategy?.bets) ? strategy : null;
   goalsApply(state, data, needs);
   state.loaded = true;
   goalsRender(state);
@@ -285,8 +300,8 @@ async function goalsRefresh() {
   GOAL_OPTIONS = null;
   if (GOALS_ST && $('#goal-body')) {
     const st = GOALS_ST;
-    const [r, needs, company] = await Promise.all([v2Get('/v2/goals/tree'), v2Get('/v2/goals/needs-you'), goalCompanyGet()]);
-    if (r && st === GOALS_ST) { goalsApply(st, r, needs); if (company) st.company.data = company; }
+    const [r, needs, strategy] = await Promise.all([v2Get('/v2/goals/tree'), v2Get('/v2/goals/needs-you'), goalStrategyGet()]);
+    if (r && st === GOALS_ST) { goalsApply(st, r, needs); if (Array.isArray(strategy?.bets)) st.strategy = strategy; }
   }
   headGoalsReload();
 }

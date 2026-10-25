@@ -1,6 +1,7 @@
 """Transactions and additive cloud schema over the existing Hub domain layer."""
 
 import hashlib
+import logging
 import json
 import os
 import sqlite3
@@ -398,6 +399,11 @@ def refused(c, identity, exc):
     """Undo a refused domain write, keep its audit (and rule 8's count), and say what answers it."""
     c.execute("ROLLBACK TO domain_write")
     c.execute("RELEASE domain_write")
+    from . import ceo_acts
+    if isinstance(exc, ceo_acts.Proposed):
+        # Not a mistake to count toward quarantine: what stays the owner's becomes their proposal instead.
+        ceo_acts.settle(c, exc)
+        return Problem(exc.rule, exc.detail, 409)
     # Gate notifications survive the refused move, while its step and reviewer wake roll back.
     if getattr(exc, "review_gate", None):
         from . import review_gate
@@ -470,6 +476,54 @@ def sweep_idempotency(store, now=None, batch=5000):
         deleted += removed
         if removed < batch:
             return deleted
+
+
+DELTA_RETENTION_DAYS = 14
+DELTA_SWEEP_MAX = 200_000     # rows one hourly pass deletes at most, so a first backlog drains over hours
+
+
+def sweep_deltas(store, now=None, batch=5000, most=DELTA_SWEEP_MAX):
+    """Delete the streamed text pieces (`attempt_events` kind 'delta', not a model's thought) of runs finished more
+    than DELTA_RETENTION_DAYS ago, in short transactions like `sweep_idempotency`; returns the count.
+
+    A finished run's text is whole in its `message` events and `attempts.final_text`; the pieces only typed the live
+    reply (turns.reply_parts, read while a run is live). Thought deltas stay: a turn's steps show them (turns.py).
+    Attempts are walked in creation order from a mark kept in registry_metadata, so a pass never rescans the table;
+    one created before the cutoff and still unfinished is passed over for good."""
+    at = now or H.now()
+    cutoff = H.shift(at, days=-DELTA_RETENTION_DAYS)
+    created_before = H.shift(at, days=-DELTA_RETENTION_DAYS - 1)     # a run finishing a day after it began is late
+    with store.read() as c:
+        mark = c.execute("SELECT value_json FROM registry_metadata WHERE key='delta-sweep-mark'").fetchone()
+    mark = json.loads(mark[0]) if mark else ["", ""]
+    deleted = 0
+    while deleted < most:
+        with store.read() as c:
+            rows = c.execute("SELECT id,created,finished FROM attempts WHERE created<? AND (created,id)>(?,?) "
+                             "ORDER BY created,id LIMIT 200", (created_before, *mark)).fetchall()
+        done = [r["id"] for r in rows if r["finished"] and r["finished"] < cutoff]
+        while done and deleted < most:
+            with store.transaction() as c:
+                removed = c.execute(
+                    "DELETE FROM attempt_events WHERE id IN (SELECT id FROM attempt_events WHERE attempt_id IN (%s) "
+                    "AND kind='delta' AND CASE WHEN json_valid(payload_json) THEN "
+                    "json_extract(payload_json,'$.delta_kind') END IS NOT 'thought' LIMIT ?)"
+                    % ",".join("?" * len(done)), (*done, batch)).rowcount
+            deleted += removed
+            if removed < batch:
+                break
+        else:
+            if done:
+                break                   # the cap was reached inside this group: it is taken up again next pass
+        if not rows:
+            break
+        mark = [rows[-1]["created"], rows[-1]["id"]]
+        with store.transaction() as c:
+            c.execute("INSERT INTO registry_metadata VALUES('delta-sweep-mark',?) "
+                      "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json", (json.dumps(mark),))
+        if len(rows) < 200:
+            break
+    return deleted
 
 
 def sweep_mail(store, now=None, batch=5000):
@@ -639,10 +693,16 @@ def _pooled(base):
     return type("Pooled" + base.__name__, (base,), body)
 
 
+# Seconds a writer waits for the gate, then for SQLite's lock (busy_timeout, other processes). Together they bound a
+# request's wait for the lock: past that it answers 503 `busy` with Retry-After (app.py storage_handler) instead of
+# holding one of the 40 request threads for a minute while client retries queue behind it.
+WRITE_WAIT = 10
+
+
 class WriterGate:
     """FIFO admission: a scheduler opening its next transaction goes behind already waiting requests."""
 
-    def __init__(self, timeout=30):
+    def __init__(self, timeout=WRITE_WAIT):
         self.lock = threading.Lock()
         self.queue = deque()
         self.timeout = timeout
@@ -692,17 +752,22 @@ class Store:
         self.provenance_cache = Cache()
 
     def connect(self, factory=None, check_same_thread=True):
-        c = sqlite3.connect(str(self.settings.db_path), timeout=30, isolation_level=None,
+        c = sqlite3.connect(str(self.settings.db_path), timeout=WRITE_WAIT, isolation_level=None,
                             factory=factory or self.factory, check_same_thread=check_same_thread)
         c.row_factory = sqlite3.Row
         c.execute("PRAGMA foreign_keys=ON")
-        # As hubdb.connect: a writer waits out a backup checkpoint or a long scheduler pass
-        # rather than answering storage_unavailable.
-        c.execute("PRAGMA busy_timeout=30000")
+        # A writer waits out a backup checkpoint or another process's pass, but not so long that requests pile up
+        # (WRITE_WAIT). hubdb.connect keeps 30 s: it opens the file at start-up, for migrations.
+        c.execute(f"PRAGMA busy_timeout={WRITE_WAIT * 1000}")
         # In WAL mode NORMAL syncs at checkpoints, not on every commit inside the writer gate, where a sync
         # waiting behind other disk writes on the host held every writer for seconds. The database cannot
         # corrupt; an OS crash or power loss can lose the last commits, as with hubdb.connect.
         c.execute(f"PRAGMA synchronous={H.synchronous('NORMAL')}")
+        # The 2 MB default page cache re-read hot index pages on every read of a multi-GB file. 16 MB per connection
+        # (POOL_IDLE kept, a few dozen at peak) fills lazily; the mmap is the OS page cache, shared by all of them.
+        c.execute("PRAGMA cache_size=-16384")
+        c.execute("PRAGMA temp_store=MEMORY")
+        c.execute("PRAGMA mmap_size=268435456")
         return c
 
     def initialize(self, *, seed_market=True, adopt_legacy=False):
@@ -712,6 +777,8 @@ class Store:
             from . import start_places as _start_places
             c.executescript(_start_places.SCHEMA)
             _start_places.restore_waits(c)
+            from . import org_turns as _org_turns
+            c.executescript(_org_turns.SCHEMA)
             from . import updates as _updates
             c.executescript(_updates.SCHEMA)
             _updates.ensure_schema(c)
@@ -728,10 +795,17 @@ class Store:
             c.executescript(_learnings.SCHEMA)
             from . import stale_review as _stale_review
             c.executescript(_stale_review.SCHEMA)
+            from . import stall_triage as _stall_triage
+            c.executescript(_stall_triage.SCHEMA)
+            from . import rule_suggestions as _rule_suggestions
+            c.executescript(_rule_suggestions.SCHEMA)
             from . import system_routines as _system_routines
             c.executescript(_system_routines.SCHEMA)
             from . import task_rules as _task_rules
             c.executescript(_task_rules.SCHEMA)
+            from . import rules as _rules
+            c.executescript(_rules.SCHEMA)
+            _rules.seed_dev(c)
             from . import owner_link as _owner_link
             c.executescript(_owner_link.SCHEMA)
             from . import docs as _docs
@@ -764,6 +838,8 @@ class Store:
             H.add_column(c, "bot_task_tabs", "widgets_json", "TEXT")
             from . import learned as _learned
             c.executescript(_learned.SCHEMA)
+            from . import task_manager as _task_manager
+            c.executescript(_task_manager.SCHEMA)
             from . import health_monitor as _health_monitor
             c.executescript(_health_monitor.SCHEMA)
             # When a finding last woke the Health Monitor, and how bad it is: a rise wakes it (backend/health_monitor.py).
@@ -777,9 +853,14 @@ class Store:
                 H.add_column(c, "flight_slow", column, kind)
             from . import performance as _performance
             c.executescript(_performance.SCHEMA)
+            from . import invites as _invites
+            c.executescript(_invites.SCHEMA)
             _updates.purge_rejected(c)
             # Which stored retry answers quote which message (backend/idempotency_messages.py).
             idempotency_messages.ensure(c)
+            # Destinations saved in Settings > Listening (backend/listening.py).
+            from . import listening as _listening
+            _listening.ensure(c)
             c.execute("BEGIN IMMEDIATE")
             try:
                 # Who may see, read and write to each bot (backend/bot_access.py); NULL is Open.
@@ -1274,6 +1355,9 @@ class Store:
                     c.execute("INSERT INTO cloud_migrations VALUES(63,?)", (H.now(),))
                 from .public_roadmaps import migrate as migrate_public_roadmaps
                 migrate_public_roadmaps(c)
+                # Notes a completed run carried are settled (hubdb.notes_settle): one pass settles the ones from before the
+                # column, in one UPDATE. Unversioned and idempotent; it reads only the small unsettled-carried index.
+                H.notes_settle_catch_up(c, None)
                 H.ensure_market_reads(c)
                 # Deleted tasks wait here until restored or purged; created unversioned, like the
                 # trigger below, so it never takes a migration number another change needs.
@@ -1285,6 +1369,12 @@ class Store:
                 # Milestone waits (backend/milestone_waits.py). Unversioned like the trash.
                 from .milestone_waits import ensure as ensure_milestone_waits
                 ensure_milestone_waits(c)
+                # Failed-run back-off and run budgets (backend/run_backoff.py, backend/turn_budgets.py). Unversioned
+                # like the trash: an older release never reads the tables.
+                from .run_backoff import ensure as ensure_run_backoff
+                from .turn_budgets import ensure as ensure_turn_budgets
+                ensure_run_backoff(c)
+                ensure_turn_budgets(c)
                 # Recruiting seats (backend/lifecycle.py). Unversioned like the trash.
                 from .lifecycle import ensure as ensure_seats
                 ensure_seats(c)
@@ -1292,6 +1382,19 @@ class Store:
                 # Unversioned like the trash: an older release never reads the tables or the columns.
                 from .company import ensure as ensure_company
                 ensure_company(c)
+                # The team's strategy: versions, choices, their history, and each goal's choice (backend/strategy.py).
+                # Unversioned the same way; the first run makes the draft from the company profile.
+                from .strategy import ensure as ensure_strategy
+                ensure_strategy(c)
+                # Lens runs (backend/lenses.py): the exercises run against the strategy or the market. Unversioned too.
+                from .lenses import ensure as ensure_lenses
+                ensure_lenses(c)
+                # Page monitors and the weekly market briefing (backend/market_watch.py, backend/market_briefing.py).
+                # Unversioned the same way: an older release never reads the tables.
+                from .market_briefing import ensure as ensure_market_briefing
+                from .market_watch import ensure as ensure_market_watch
+                ensure_market_watch(c)
+                ensure_market_briefing(c)
                 # Temporary task assignments are retired (#420): their actors are archived and off every computer,
                 # their open tasks back with the role. Unversioned and idempotent like the trash; the tables stay inert.
                 from .shared_bots import retire_assignments
@@ -1443,6 +1546,9 @@ class Store:
                 # The Goal Manager becomes the CEO Bot on every install, once (backend/ceo_bot.py). Idempotent.
                 from . import ceo_bot as CeoBot
                 CeoBot.migrate(c)
+                # Every bot gets a profile by its name, once; a bot that has one is left alone (backend/profiles.py).
+                from . import profiles as Profiles
+                Profiles.migrate(c)
                 from . import releases as Releases
                 Releases.record_start(c, H.now())
                 from .credentials import FILE_MIGRATION, HUB_MIGRATION
@@ -1526,6 +1632,7 @@ class Store:
         c.read_cache = {}
         c.provenance_cache = self.provenance_cache
         c.write_transaction = False
+        c.after_commit = []
         c.provenance_changes = c.total_changes
         c.provenance_start = None
         return c
@@ -1564,8 +1671,16 @@ class Store:
                 yield c
                 message_links.refresh_dirty(c)
                 c.commit()
+                # Work that must see the committed rows (a delivery worker's doorbell) runs once the write is durable.
+                for after in c.after_commit:
+                    try:
+                        after()
+                    except Exception:
+                        logging.getLogger(__name__).exception("after-commit callback failed")
+                c.after_commit.clear()
             except BaseException:
                 c.rollback()
+                c.after_commit.clear()
                 raise
             finally:
                 done()

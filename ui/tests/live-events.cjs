@@ -101,6 +101,20 @@ const block = (seq, event, data) => `id: ${seq}\nevent: ${event}\ndata: ${JSON.s
   assert.equal(first.searchParams.get('needs'), 'changes');
   await page.locator('.cnt.needs', {hasText: '1'}).first().waitFor();
   assert.equal(reads.needs.filter(q => !q.includes('ids=')).length, fullReads, 'only the changed item is read');
+  // Only some pages held: a changed item past them stays unread, the count moves, the next page starts after them.
+  const mended = await page.evaluate(async () => {
+    const real = v2Get, held = {needs: S.v2.needs, version: S.v2.needsVersion, next: S.v2.needsNext, count: S.v2.needsCount, bots: S.v2.needsBots};
+    v2Get = async () => ({version: 'p2', count: 5, positions: {a: 0, z: 4}, items: [{id: 'a', kind: 'task', title: 'A2'}, {id: 'z', kind: 'task'}]});
+    Object.assign(S.v2, {needs: [{id: 'a', kind: 'task'}, {id: 'b', kind: 'task'}], needsVersion: 'p1', needsNext: 'p1.2', needsCount: 4});
+    try {
+      await v2NeedsMend({version: 'p2', base: 'p1', count: 5, changed: ['a', 'z'], removed: [], bots: {'bot:ops': 3}});
+      return {ids: S.v2.needs.map(x => x.id), title: S.v2.needs[0].title, next: S.v2.needsNext, count: S.v2.needsCount, ops: needsMeCount('ops')};
+    } finally {
+      v2Get = real;
+      Object.assign(S.v2, {needs: held.needs, needsVersion: held.version, needsNext: held.next, needsCount: held.count, needsBots: held.bots});
+    }
+  });
+  assert.deepEqual(mended, {ids: ['a', 'b'], title: 'A2', next: 'p2.2', count: 5, ops: 3});
 
   // The task board: a task changed elsewhere is redrawn from the event; the list is not read again.
   await page.evaluate(() => { location.hash = '#/board'; });
@@ -135,8 +149,17 @@ const block = (seq, event, data) => `id: ${seq}\nevent: ${event}\ndata: ${JSON.s
   const settled = () => page.waitForFunction(() => !LIVE_SOON.has('tasks') && !LIVE_THROTTLE.get('tasks-bulk')?.timer, null, {timeout: t(5000)});   // a throttled draw still due would count below
   await send(() => true, block(15, 'tasks', {id: 't1', actor: 'bot:ops', task: task({title: 'Draft the final release notes', version: 4, links: [link('a')]})}));
   await settled();
-  await page.evaluate(() => { window.boardDraws = 0; const draw = tasksRender; tasksRender = (...a) => { window.boardDraws++; return draw(...a); }; });
+  // Only draws the event itself makes count: on a loaded machine a page read started earlier (types, labels) can
+  // still land and draw the board for its own reason.
+  await page.evaluate(() => {
+    window.boardDraws = 0;
+    let applying = false;
+    const draw = tasksRender, apply = liveTasksApply;
+    tasksRender = (...a) => { if (applying) window.boardDraws++; return draw(...a); };
+    liveTasksApply = (...a) => { applying = true; try { return apply(...a); } finally { applying = false; } };
+  });
   await send(() => true, block(16, 'tasks', {id: 't1', actor: 'bot:ops', task: task({title: 'Draft the final release notes', version: 4, links: [link('b')]})}));
+  await page.waitForFunction(() => TASKS_ST.tasks.find(x => x.id === 't1').links[0]?.updated === 'b', null, {timeout: t(5000)});   // settled alone can pass before the event is queued
   await settled();
   assert.equal(await page.evaluate(() => window.boardDraws), 0, 'a heartbeat-only change does not redraw the board');
   assert.equal(await page.evaluate(() => TASKS_ST.tasks.find(x => x.id === 't1').links[0].updated), 'b', 'the list keeps the newest copy');

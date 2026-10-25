@@ -7,6 +7,12 @@ team-wide model settings: the models choice, which providers are on, the default
 out**, **Check model** and the [Tico AI Gateway](ai-gateway.md) key. The owner changes them; everyone else sees them.
 These used to be a separate AI providers tab, and Subscriptions before that; old links to either open Computers.
 
+Tico model turns on the current Docker runner each use a separate temporary OS user. Other bots on the computer
+cannot read the turn's live environment, open file descriptors or private temporary files, or use its Gateway
+connection. Workspace files stay shared through the bot group. This does not separate subscription sign-ins or
+turns on other providers. See [the Gateway boundary](ai-gateway.md#pick-a-tico-model-for-a-bot) and
+[Docker runner setup](install.md#linux-or-cloud-server-docker).
+
 ## Turn counts
 
 **Unreleased.** The following counts and start rules apply with this update.
@@ -43,6 +49,22 @@ their existing delivery leases, including preparation already underway, until th
 three-minute deadline. Legacy waiting turns retain their place too, because those runners cannot obtain a fresh
 reservation before starting. Update the runner to release those places safely and enable the new capacity rules
 for its turns. Upgraded runners opt in after a successful heartbeat and keep the older rules against an older server.
+
+### The turn fixer
+
+A built-in system routine, **Turn fixer**, checks every computer every 10 seconds. It is plain code: no AI and no
+cost. It frees only turns that are proven dead: a start a person stopped, or a turn whose lease is lost and whose
+computer no longer runs its bot (the computer was removed, or its latest claim does not list the bot). A slow reply or
+a healthy wait keeps its place. The task and its history stay, and the task gets a note: **Tico freed a dead start,
+will retry.** A dead turn that may have pushed, sent or paid is not retried blindly: one that only read runs again,
+and any other is held for BotOps with the tools it used.
+
+When the company reaches its warning level, **Settings → Health** shows one **Company turns** finding for the
+incident: the counts by wait reason, the oldest waits, the last progress of each running turn, each computer's CPU
+and memory, and the likely bottleneck in one sentence. Later runs update the same finding, and when the count drops
+below the warning level it says when the incident resolved. If the incident is still open after 5 minutes, BotOps
+gets exactly one task with the finding (the Support bot where there is no BotOps). The owner gets one notice, only when
+the incident is still open after an hour or its main wait needs a person: a login, quota or money.
 
 ## Connections
 
@@ -225,7 +247,12 @@ token refresh and session saves work. This includes its credentials, `config.tom
 bots using the computer login share that whole folder, including an existing personal Grok login there.
 Use a dedicated team login on that Computer. The runner repairs ownership in place at startup, sign-in,
 and before starting or resuming a Grok thread; it does not copy login files between bot homes or change
-file modes. A named profile uses its own runtime home; a shared-operator profile uses the computer home.
+file modes. A very large CLI folder is handed over shallowest first: if one pass (20,000 entries or 2 seconds)
+cannot finish it, the runner log says so and the rest continues in the background; if that still cannot finish,
+the next handover of the folder retries it. The same applies to the other harness login folders, Muse Code and
+Gemini homes, and subscription profile homes. Grok's sign-in status check follows no link a bot could have made
+anywhere in the auth file's path. A named profile uses its own runtime home; a shared-operator profile uses the
+computer home.
 Custom auth-folder overrides never select a folder for this ownership repair.
 
 A new computer whose team signs in with a plan needs its own sign-in: a plan login cannot be copied between computers.
@@ -453,4 +480,4 @@ a turn ran in when it is a named one; empty profile fields are omitted.
 
 Each run pins its selected local profile directory before preparing the provider environment. Changes to the local default or a profile directory affect later runs, not an in-progress primary or fallback attempt. Environment, host setup, session reuse, usage and rejection attribution use the same binding; fallback still checks its runtime eligibility and known sign-in state. A run started on the unnamed operator login does not acquire a newly configured profile midway through execution. Changing a profile directory starts a separate provider session. The first run after upgrading to directory-bound session keys also starts a fresh provider session for named profiles; the Tico conversation remains intact. This pins the login slot, not the provider account inside it: avoid replacing credentials in a slot while it has active runs.
 
-Profile directories separate provider logins. Browser-created profiles live outside the bot workspace, with directories set to 0700 and owned by the same user that runs sign-in, probes and turns. Linux Docker harnesses currently retain the existing shared bot Unix user; profiles do not yet provide a Unix permission boundary between groups. Do not rely on profiles to isolate files from another bot on the same Computer.
+Profile directories separate provider logins. Browser-created profiles live outside the bot workspace, with directories set to 0700 and owned by the same user that runs sign-in, probes and turns. Linux Docker harnesses that keep shared sign-in files (every one but pi) retain the existing shared bot Unix user; profiles do not yet provide a Unix permission boundary between groups. Do not rely on profiles to isolate files from another bot on the same Computer.

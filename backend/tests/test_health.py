@@ -435,7 +435,8 @@ def test_a_bot_that_has_not_finished_setup_warns_once_its_held_work_is_old(envir
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE tasks SET created='2026-01-02T03:04:05Z' WHERE id=?", (task["id"],))
     check = health_of(api)[1]["setup:support"]
-    assert check["status"] == "warn" and check["summary"] == "support hasn't finished setup; 1 task waiting since 2026-01-02."
+    assert check["status"] == "warn" and check["summary"] == "support is still onboarding; 1 task waiting since 2026-01-02."
+    assert check["label"] == "Onboarding not finished"
     assert check["fixes"][0]["href"] == "#/bot/support"
     assert "setup:support" not in health_of(api, as_person(api, "quinn"))[1]
 
@@ -456,7 +457,7 @@ def test_a_bot_left_in_setup_for_a_day_is_stuck_and_its_manager_may_finish_it(en
     _parked(api, "sales", 0)                        # added today: setup may be under way
     stuck = {row["bot"]: row for row in health_of(api)[0]["stuck"]}
     assert set(stuck) == {"support"} and stuck["support"]["reason"] == "setup"
-    assert stuck["support"]["why"] == "Stuck in setup for 14 days"
+    assert stuck["support"]["why"] == "Stuck in onboarding for 14 days"
     assert stuck["support"]["fix"]["finish"] == {"bot": "support"}
     quinn = as_person(api, "quinn")                 # neither an owner of it nor an administrator
     assert all(row["fix"] is None for row in health_of(api, quinn)[0]["stuck"])
@@ -879,7 +880,7 @@ def test_health_names_queued_bot_and_stalled_tasks_for_bot_reader(environment):
     assert {i['task'] for i in issues if i['kind'] == 'stalled_tasks'} == {t['id'] for t in tasks}
     assert all(t['title'] in checks['stalled_tasks']['summary'] for t in tasks)
 
-    # A full computer is an explained wait, also in the CLI, without raising an outage.
+    # Capacity stays an explained queue; bots no longer receive a no-slot alert.
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE bots SET state='active' WHERE slug='helper'")
         claimable(c, runner, 'helper')
@@ -891,9 +892,9 @@ def test_health_names_queued_bot_and_stalled_tasks_for_bot_reader(environment):
                   "VALUES('helper-running',?,'helper',?,1,'x','running',?,?)",
                   (job, runner, H.shift(H.now(), hours=1), H.now()))
     queue = health_of(api, headers)[1]['queue']
-    assert queue['status'] == 'info' and queue['items'][0]['reason'] == 'no_slot'
+    assert queue['status'] == 'info' and not queue.get('items')
     issues = api.get('/api/v2/health/issues', headers=headers).json()['issues']
-    assert next(i for i in issues if i['kind'] == 'queue')['reason'] == 'no_slot'
+    assert not any(i['kind'] == 'queue' and i['reason'] == 'no_slot' for i in issues)
 
 
 def test_aged_prs_use_synced_condition_age_and_clear_on_review_or_resolution(environment, monkeypatch):

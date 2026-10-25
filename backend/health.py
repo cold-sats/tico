@@ -12,8 +12,8 @@ import os
 import shlex
 from datetime import datetime, timezone
 
-from . import (access, billing_check, blob_s3, gateway_connection, inbox_isolation, model_login, providers, releases, roadmaps, runner_versions,
-               setup_stuck, watchers)
+from . import (access, billing_check, blob_s3, gateway_connection, hook_relay, hosted_updates, inbox_isolation, model_login, providers,
+               releases, roadmaps, runner_versions, setup_stuck, sleep_idle, watchers)
 from .getting_started import _online_runners, _signed_in_runtime, _wanted_runtimes, _person
 
 
@@ -26,8 +26,8 @@ from .views import roster
 
 QUEUE_MINUTES = 15          # work that has waited this long on a computer that is up is stuck
 PERSON_QUEUE_MINUTES = 2    # a person's own message, sooner: someone is sitting there waiting for the reply
-# A Restart a person pressed claims for 20 minutes, then waits up to 14 for its running turns (runner-rs runner.rs
-# RESTART_DRAIN_S + STOP_DRAIN_S): past that it is stuck, and Health Monitor says so.
+# Keep the stuck threshold compatible with older runners' twenty-minute claim window and fourteen-minute stop.
+# New runners hand unstarted work back immediately and cap active turns at five minutes by default.
 RESTART_STUCK_MINUTES = 34
 SILENT_MINUTES = 10         # a computer this quiet while work is queued for it has stopped, not blinked
 NEEDS_YOU_MINUTES = 30      # this quiet, its owner is asked to bring it back
@@ -58,6 +58,8 @@ def _diagnostic_summary(summary, items):
 def _queue_items(rows, full, bot_reader):
     items = []
     for row in rows[:DIAGNOSTIC_LIMIT]:
+        if bot_reader and row['reason'] == 'no_slot':
+            continue  # Capacity is an explained queue, never a "no more slots" alert to a bot.
         oldest = row.get("oldest_queued", row["oldest"])
         minutes = max(0, quiet_minutes(oldest))
         command = "hub run list " + shlex.quote(row["bot"])
@@ -361,7 +363,7 @@ def _listening_questions_lost(c, settings, qset):
 def _listening(c, settings):
     from . import listening
     from clients.judge import JudgeError
-    dests = listening.destinations(settings, check_questions=False)
+    dests = listening.destinations(settings, c, check_questions=False)
     if not dests:
         return _listening_lost(c, settings)
     try:
@@ -485,6 +487,8 @@ def _waiting(c, online_ids, settings=None):
     # once the hold is old).
     parked = {r["bot"] for r in c.execute("SELECT bot FROM bot_config WHERE onboarding_state IN ('needs_setup','needs_onboarding')")}
     # A bot in the middle of a turn has its next message waiting behind it: busy, not stuck (partial index).
+    from . import org_turns
+    company_stopped = settings and org_turns.snapshot(c, settings)['at_stop']
     busy, running, turns = set(), {}, {}
     for r in c.execute("SELECT id,bot,runner_id,coalesce(started,created) since FROM attempts "
                        "WHERE state IN ('leased','running') ORDER BY since"):
@@ -499,8 +503,8 @@ def _waiting(c, online_ids, settings=None):
     # updates (runner-rs follow.rs blocks_claims): its queued work waits on that, not on a Tico bug.
     updating = {r["runner_id"]: r["update_target"] for r in c.execute(
         "SELECT runner_id,update_target FROM runner_versions WHERE update_state IN ('waiting','updating')")}
-    # A computer a person pressed Restart for claims for a while, then claims nothing until its running turns end and
-    # it restarts (runner-rs runner.rs RESTART_DRAIN_S); it says so in its heartbeat until it has.
+    # A requested Restart holds new work while running turns finish or reach the drain cap; older runners first
+    # keep claiming for a while. Every heartbeat names the restart until it happens.
     restarting = {r["id"] for r in c.execute("SELECT id FROM runners WHERE restart_since IS NOT NULL AND revoked_at IS NULL")}
     documents = {}      # one parse per computer, and only for bots with queued work: Health is polled by every tab
 
@@ -554,7 +558,8 @@ def _waiting(c, online_ids, settings=None):
             # A bot the claim holds on purpose (a spend limit, a usage-limit cooldown, a lapsed lease whose worker still
             # runs, interrupted work awaiting review, ...) is said with that reason, not "slow".
             idle = slug not in busy and where[0] not in full
-            refused, first, person = bot_claimable(c, settings, where[0], slug) if idle else (None,) * 3
+            refused, first, person = (('company_limit', None, False) if company_stopped else
+                                      bot_claimable(c, settings, where[0], slug)) if idle else (None,) * 3
             if idle and not refused:
                 if not (first and first < (person_cutoff if person else cutoff)):
                     continue        # the job the claim would take is young: the older ones wait behind it or are held
@@ -565,16 +570,37 @@ def _waiting(c, online_ids, settings=None):
             if idle:
                 stuck.append({**row, "reason": reason, "runner_id": where[0], "runtime": report.get("runtime") or ""}
                              | ({"target": updating[where[0]], "running": running.get(where[0], 0),
-                                  "turns": held(where[0])} if reason == "updating" else {}))
+                                  "turns": held(where[0]), "drain_progress": runner_versions.drain_progress(c, where[0])} if reason == "updating" else {}))
     return waiting, slow, stuck
 
 
-SETUP_HOLD_MINUTES = 60     # a bot still in setup holds its work; this long and nobody is finishing it
+WELCOME = "#/welcome"
+SETUP_HOLD_MINUTES = 60     # a bot still onboarding holds its work; this long and nobody is finishing it
+
+
+def company_import_failed(c):
+    """The chosen chart from setup that could not be imported on server start (backend/company_import.py `start`):
+    red until an import works, so a failed import never looks like a team that is simply empty."""
+    from .company_import import failure
+    found = failure(c)
+    if not found:
+        return None
+    from .onboarding import load
+    # A company already set up can't take an import, so the way out offered is the one that works: dismissing it
+    # (or removing or fixing the file setup gave the server); before then, importing or setting the team up.
+    way_out = ("This company is already set up, so the file can't replace its team: dismiss this on the welcome page, "
+               "or fix or remove the company file setup gave this server." if load(c).get("completed") else
+               "Import it again, set your team up, or dismiss this, on the welcome page.")
+    return _check("company_import", "Company file from setup not imported", "bad",
+                  f"{found.get('reason') or 'It could not be applied'}. Nothing from it was created and no sample team "
+                  f"took its place. {way_out}",
+                  [_fix("Open the welcome page", WELCOME)])
 
 
 def unfinished_setup(c):
-    """Active bots still in setup whose held work is older than SETUP_HOLD_MINUTES: [(slug, name, count, what, oldest)].
-    A parked bot takes no task and no notice until its setup is done, so its watchers' tasks pile up out of sight."""
+    """Active bots still onboarding whose held work is older than SETUP_HOLD_MINUTES: [(slug, name, count, what, oldest)].
+    An onboarding bot takes no task and no notice until a person marks its onboarding complete, so its watchers' tasks
+    pile up out of sight."""
     from .statuses import PARKED_SQL
     parked = c.execute("SELECT b.slug,b.display_name FROM bot_config bc JOIN bots b ON b.slug=bc.bot "
                        f"WHERE bc.onboarding_state IN {PARKED_SQL} AND b.state='active' ORDER BY b.slug").fetchall()
@@ -627,6 +653,7 @@ def runtime_choice(c, bot, runtime, who, computers, harness="", model=""):
 RUNS, COMPUTERS, BOT_SETTINGS = ("Open Runs", "#/settings", "runs"), ("Open Computers", "#/settings", "devices"), \
     ("Open bot settings", "#/settings", "bots")
 HELD = {
+    "company_limit": ("Your company is at its limit; Tico is fixing what's stuck.", RUNS),
     "task_wait": ("Its assigned task waits for a snooze, prerequisite, person or check", RUNS),
     "task_cap": ("Its active task limit is full; waiting work frees a place", BOT_SETTINGS),
     "auto_start_off": ("Automatic assigned-task starts are off for this bot", BOT_SETTINGS),
@@ -660,13 +687,18 @@ HELD = {
     "config": ("Its settings cannot be read", BOT_SETTINGS),
     "check_model": ("Its check model does not run on {computer}, or is on hold", BOT_SETTINGS),
     "unreadable": ("Its queued message is one it may not read", RUNS),
+    # Tico stopped the bot (backend/bot_stops.py): a person releases it. A back-off is a short pause after a failed run.
+    "run_hold": ("Tico stopped it after five failed runs in a row and tries one run on its own now and then: check its last runs, or release it now", BOT_SETTINGS),
+    "budget": ("Tico stopped it for too many runs in a short time: check its last runs, then release it or raise its "
+               "budget", BOT_SETTINGS),
+    "backoff": ("Pausing after a failed run: it tries again in a moment", RUNS),
 }
 
 
 def _stuck(c, rows, online_ids, who, full, auth=None):
     """Each stuck bot with a reason in plain words and one fix: sign in, move to a computer that can run it,
     or the settings page that can. Only administrators get fixes; a Bot administrator moves only to their own computers.
-    A bot stuck in setup is the exception: whoever may manage it gets "Finish with defaults"."""
+    A bot stuck in onboarding is the exception: whoever may manage it gets "Finish with defaults"."""
     from .readiness import own_harness
     if not rows:
         return []
@@ -678,7 +710,7 @@ def _stuck(c, rows, online_ids, who, full, auth=None):
         if reason == "setup":
             manages = auth is not None and auth.bot_manager(c, who, row["bot"])
             out.append({key: row[key] for key in ("bot", "name", "queued", "oldest", "computer", "reason", "since")}
-                       | {"why": f"Stuck in setup for {setup_stuck.held_for(row['since'])}",
+                       | {"why": f"Stuck in onboarding for {setup_stuck.held_for(row['since'])}",
                           "fix": {**_fix("Finish with defaults"), "finish": {"bot": row["bot"]}} if manages else None})
             continue
         runtime = row["runtime"] or configured.get(row["bot"], "")
@@ -778,6 +810,8 @@ def updating_words(row, advise=True):
     """Why work waits on a computer that is updating: the update, and the running turns it waits for, by bot, task
     and start. `advise` adds what a turn that only watches something elsewhere should do."""
     to = f" to Tico {row['target']}" if row.get("target") else ""
+    if row.get("drain_progress"):
+        return f"{row['computer']} is holding new work to update{to}: {row['drain_progress']}"
     if row.get("running"):
         held = row.get("turns") or []
         if len(held) == 1:
@@ -1289,7 +1323,7 @@ def view(c, who, settings, auth, github, config):
     online_ids = {r["id"] for r in online}
     computers = _computers(c, online, settings)
     waiting, slow, stuck_rows = _waiting(c, online_ids, settings)
-    # A bot parked in setup for a day is stuck too, unless something else already holds it (backend/setup_stuck.py).
+    # A bot onboarding for a day is stuck too, unless something else already holds it (backend/setup_stuck.py).
     listed = {row["bot"] for row in stuck_rows}
     stuck_rows += [row for row in setup_stuck.stuck(c) if row["bot"] not in listed]
     if not full and stuck_rows:      # someone who is not an administrator hears only about the bots they may read
@@ -1303,8 +1337,30 @@ def view(c, who, settings, auth, github, config):
         limited = [row for row in limited if readable.get(row["bot"], auth.FULL)["read"]]
     failed, failures = _failed(c)
     checks = []
+    if full and (company := company_import_failed(c)):
+        checks.append(company)
     if (full or kind == "bot") and (latency := runner_route_latency(c)):
         checks.append(latency)
+    if full:
+        from . import org_turns
+        incident = org_turns.saved(c, org_turns.INCIDENT)
+        if incident.get('opened_at'):
+            value = org_turns.snapshot(c, settings)
+            # The turn fixer's finding (backend/turn_fixer.py) once it has run: one per incident, rewritten in place.
+            found = (incident.get('finding') or {}) if incident.get('active') else {}
+            text = (found.get('text') or f"{value['in_use']} company turns in use; warning {value['warning']}, "
+                    f"stop {value['stop']}.") + ' ' + (
+                'Incident opened ' + incident['opened_at'] if incident.get('active') else
+                'Incident resolved ' + incident.get('resolved_at', ''))
+            fixes = [_fix(*COMPUTERS)]
+            # Items share the shape of every other check's (bot, name, text, fixes) so issue lists can sort and
+            # show them; a resolved incident is an ok summary with no items, like any other clear check.
+            items = [{"bot": "", "name": "Company turns", "text": text, "incident": incident['id'],
+                      "opened_at": incident['opened_at'], "at_stop": bool(incident.get('at_stop')),
+                      "in_use": value['in_use'], "warning": value['warning'], "stop": value['stop'],
+                      "finding": found or None, "task_id": incident.get('task_id'), "fixes": fixes}] if incident.get('active') else []
+            checks.append(_check('company_turns', 'Company turns', 'warn' if incident.get('active') else 'ok',
+                                 text, fixes, items=items))
     if full and (listening := _listening(c, settings)):
         checks.append(listening)
     storage = storage_settings(c, settings)
@@ -1335,7 +1391,11 @@ def view(c, who, settings, auth, github, config):
 
     if full:
         notice = config.get("update") or {}
-        if notice.get("available"):
+        if notice.get("scheduled"):           # Tico support's update of this hosted server (backend/hosted_updates.py)
+            checks.append(_check("version", "Version", "info",
+                                 f"Tico will update this server to {_v(notice['scheduled'])} when idle.",
+                                 [_fix("What is new", "#/changelog")]))
+        elif notice.get("available"):
             checks.append(_check("version", "Version", "warn",
                                  f"{_v(notice.get('latest'))} is available. You are on {_v(releases.version())}.",
                                  [_fix("Update", click="#new-version"), _fix("What is new", "#/changelog")]))
@@ -1396,6 +1456,21 @@ def view(c, who, settings, auth, github, config):
                              "; ".join(f"{bot}: {DENIED_WARNING}{rest}" for bot, rest in denied[:3])
                              + ("." if len(denied) <= 3 else f"; and {len(denied) - 3} more."),
                              [_fix("Open bots", "#/settings", "bots")]))
+    if full:
+        from . import webhooks
+        hooks = webhooks.health_summary(c)
+        said = []
+        if hooks["failed"]:
+            said.append("gave up on events for " + ", ".join(hooks["failed"][:3]) + (f" and {len(hooks['failed']) - 3} more" if len(hooks["failed"]) > 3 else ""))
+        if hooks["flaky"]:
+            said.append("more than half of the attempts to " + ", ".join(hooks["flaky"][:3]) + " failed")
+        if hooks["disabled"]:
+            said.append("turned off " + ", ".join(hooks["disabled"][:3]) + " after five days of failed attempts")
+        if hooks["skipped"]:
+            said.append(f"{hooks['skipped']} events skipped endpoints past the limit of {webhooks.MAX_PER_EVENT} per event")
+        if said:
+            checks.append(_check("webhooks", "Outgoing webhooks", "warn", "In the last 24 hours Tico " + "; ".join(said) + ".",
+                                 [_fix("Open webhooks", "#/settings", "webhooks")]))
     if full and (denies := _harness_denies_check(c, settings)):
         checks.append(denies)
     if full:
@@ -1593,6 +1668,14 @@ def view(c, who, settings, auth, github, config):
     if kind == "owner" and (gateway := gateway_connection.health(c, settings)):
         checks.append(_check("gateway", "Tico AI Gateway", gateway["status"], gateway["summary"],
                              [_fix("Open Models", "#/settings", "models")]))
+    # Webhooks waiting at Tico Gateway that this server is not collecting (backend/hook_relay.py).
+    if kind == "owner" and (relay := hook_relay.health(c, settings)):
+        checks.append(_check("hook_relay", "Webhooks through Tico Gateway", relay["status"], relay["summary"],
+                             [_fix("Open Webhooks", "#/settings", "webhooks")]))
+    # Sleep when idle is on but Tico could not be asked to stop this server (backend/sleep_idle.py).
+    if kind == "owner" and (sleep := sleep_idle.health(c, settings)):
+        checks.append(_check("sleep_idle", "Sleep when idle", sleep["status"], sleep["summary"],
+                             [_fix("Open Computers", "#/settings", "devices")]))
     # Tico HQ's nightly billing check, on the Tico team's own install only (the one server holding HQ's read-only staff
     # key): each mismatch, and a check that missed a night or cannot be read, red (backend/billing_check.py).
     if kind == "owner":
@@ -1613,7 +1696,7 @@ def view(c, who, settings, auth, github, config):
         checks.append(_check("waiting", "Bots waiting", "ok", "Every active bot has a computer that is up."))
     # An offline computer (or none) is "Bots waiting"; this check is everything else, so one cause is one item.
     held = {w["bot"] for w in waiting}
-    # A bot stuck in setup has its own check below ("Setup not finished").
+    # A bot stuck in onboarding has its own check below ("Onboarding not finished").
     blocking = [s for s in blocked if s["bot"] not in held and s["reason"] != "setup"]
     busy = [row for row in slow if row["reason"] == "busy"]
     readable = auth.bot_accesses(c, who, [row["bot"] for row in busy]) if busy and not full else {}
@@ -1622,7 +1705,7 @@ def view(c, who, settings, auth, github, config):
     if blocking:
         items = _queue_items(blocking + busy_rows, full, kind == "bot") if full or kind == "bot" else []
         bad = any(s["reason"] not in ("slow", "updating", "restarting", "draining", "maintaining", "lane_held", "cooling_off", "task_wait", "task_cap", "auto_start_off", "handed_back",
-                                      "scoped")
+                                      "scoped", "company_limit", "backoff")
                   for s in blocking)
         checks.append(_check("queue", "Stuck bots", "bad" if bad else "warn",
                              _diagnostic_summary(f"{_plural(len(blocking), 'bot')} with work that is not starting.", items),
@@ -1639,9 +1722,9 @@ def view(c, who, settings, auth, github, config):
     else:
         checks.append(_check("queue", "Work queueing", "ok", "No work is waiting long."))
     for slug, name, count, what, oldest in unfinished_setup(c) if full else ():
-        checks.append(_check("setup:" + slug, "Setup not finished", "warn",
-                             f"{name} hasn't finished setup; {_plural(count, what)} waiting since {oldest[:10]}.",
-                             [_fix("Finish setup", "#/bot/" + slug)]))
+        checks.append(_check("setup:" + slug, "Onboarding not finished", "warn",
+                             f"{name} is still onboarding; {_plural(count, what)} waiting since {oldest[:10]}.",
+                             [_fix("Open its page", "#/bot/" + slug)]))
     if full and (heavy := _token_heavy(c, settings.token_alert_input)):
         checks.append(_check("tokens", "Token use", "warn",
                              "; ".join(f"{name}: {_tokens_words(n)} uncached input tokens in 24 h"
@@ -1789,4 +1872,5 @@ def install(app, store, auth, settings):
         github = getattr(request.app.state, "github_app", None)
         with store.read_transaction() as c:
             # Health reads only these two parts of the config; building all of it cost a changelog parse per poll.
-            return view(c, who, settings, auth, github, {"update": releases.notice(), "backup": replication.status()})
+            return view(c, who, settings, auth, github, {"update": hosted_updates.notice(c, settings),
+                                                     "backup": replication.status()})

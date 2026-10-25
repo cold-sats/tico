@@ -1,4 +1,4 @@
-// Settings > Routines (ui/app/settings-recurring.js): one flat list above the bot routines, no group headings, a search box
+// Settings > Rules (ui/app/settings-recurring.js): one flat list above the wake rules and bot routines, no group headings, a search box
 // that matches name, trigger, action and department; each row reads WHEN ... THEN ... with one department tag, its
 // schedule, last run in words (a failure in red with its reason), next run, and for a Decide job the route that answered,
 // a fallback in words and this month's spend. Housekeeping says Tico needs it. An owner or admin gets a switch, a
@@ -34,6 +34,8 @@ function system(role) {
     job('due_reminders', 'Due reminders', {schedule: 'Every 10 seconds', group: 'reminders', when: ['every 10 seconds'], then: ['tell a bot when one of its tasks reaches its due time']}),
     job('approval_expiry', 'Approval expiry', {group: 'reminders', then: ['take approvals and asks nobody will act on out of Needs you']}),
     job('stall_checks', 'Stall checks', {needed: true, schedule: 'Every minute', when: ['every minute']}),
+    job('stall_triage', 'Quiet task triage', ctl({ai: true, group: 'checks', records: false, schedule: 'When it happens',
+      when: ['a quiet task nothing has changed on'], then: ['set its wait, close it, or let one wake through']})),
     job('topic_fresh', 'Start fresh when the topic changes', {switch: true, can_change: admin, on: false, records: false, group: 'chat', schedule: 'When it happens',
       when: ['a message in a direct chat changes the topic'], then: ['start a fresh session, like Clear']}),
   ];
@@ -109,11 +111,11 @@ const row = (page, key) => page.locator(`[data-system-routine="${key}"]`);
     for (const role of ['owner', 'admin', 'member']) {
       const {page, errors, asked, writes} = await open(browser, role);
       // One flat list above the bot routines: no group headings, a search box on top.
-      const headings = await page.locator('#settings-recurring h2').allInnerTexts();
-      assert.deepEqual(headings.map(h => h.trim()), ['Routines', 'Bot routines'], role);
+      const headings = await page.locator('#settings-recurring h2:visible').allInnerTexts();
+      assert.deepEqual(headings.map(h => h.trim()), ['What Tico runs on its own', 'What wakes a bot', 'Bot routines'], role);
       assert.equal(await page.locator('#set-system-routines h3').count(), 0, 'no group headings');
       assert.equal(await page.locator('#set-system-routines [data-sysr-search]').count(), 1);
-      assert.equal(await page.locator('#set-system-routines [data-system-routine]').count(), 9);
+      assert.equal(await page.locator('#set-system-routines [data-system-routine]').count(), 10);
       // Each row: WHEN ... THEN ..., one department tag.
       assert.equal(await row(page, 'stale_review').locator('[data-sysr-rule]').innerText(),
         'WHEN every hour THEN check stale tickets AND suggest to each owner: mark done, close or check it');
@@ -138,7 +140,7 @@ const row = (page, key) => page.locator(`[data-system-routine="${key}"]`);
       await search.fill('fresh session');
       assert.deepEqual(await shown(), ['topic_fresh']);
       await search.fill('engineering');
-      assert.equal((await shown()).length, 9);
+      assert.equal((await shown()).length, 10);
       await search.fill('zzz');
       assert.match(await page.locator('[data-sysr-none]').innerText(), /No routine matches/);
       await search.fill('');
@@ -157,6 +159,9 @@ const row = (page, key) => page.locator(`[data-system-routine="${key}"]`);
         assert.equal(await row(page, 'still_wanted').locator('[data-sysr-at]').inputValue(), '09:00');
         assert.equal(await row(page, 'topic_fresh').locator('[data-sysr-on]').isChecked(), false);
         assert.equal(await row(page, 'topic_fresh').locator('[data-sysr-run]').count(), 0, 'a switch only');
+        // Quiet task triage runs on a happening: a switch, no schedule choice, no Run now (the server has nothing to run).
+        assert.equal(await row(page, 'stall_triage').locator('[data-sysr-on]').count(), 1);
+        assert.equal(await row(page, 'stall_triage').locator('[data-sysr-run], [data-sysr-preset]').count(), 0);
         // Health scan: the owner changes it; an admin reads it and is told why.
         if (role === 'owner') assert.equal(await row(page, 'health_scan').locator('[data-sysr-on]').count(), 1);
         else {
@@ -212,13 +217,11 @@ const row = (page, key) => page.locator(`[data-system-routine="${key}"]`);
       assert.equal(await page.locator('.task-rule-dialog select[name=department]').inputValue(), 'engineering');
       assert.deepEqual(await page.locator('.task-rule-dialog select[name=department] option').evaluateAll(es => es.map(e => e.value)), ['', 'engineering', 'marketing']);
       await page.locator('.task-rule-dialog input[name=ruleName]').fill('Close exports');
-      fs.mkdirSync('build/dev356', {recursive: true});
       for (const dark of [false, true]) {
         await page.evaluate(d => document.documentElement.dataset.theme = d ? 'dark' : 'light', dark);
         for (const width of [1440, 390]) {
           await page.setViewportSize({width, height: 900});
           assert.equal(await page.locator('.task-rule-dialog').evaluate(el => el.scrollWidth <= el.clientWidth + 1), true);
-          await page.screenshot({path: `build/dev356/rule-${width}-${dark ? 'dark' : 'light'}.png`});
         }
       }
       await page.locator('.task-rule-dialog button[type=submit]').click();

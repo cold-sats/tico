@@ -7,8 +7,8 @@
 //! Pi has no MCP and no permission prompts (the bot uses the hub CLI over bash); `steer` is refused.
 //! OPENROUTER_API_KEY reaches the process from the bot's granted credential.
 //!
-//! The Tico AI Gateway's models (`tico-cheap-1.1`, `tico-mid-1.0`, `tico-power-1.0`) run on pi too, as pi's custom
-//! provider `tico` over the Gateway's OpenAI-chat endpoint: the server hands a run on one the gateway key and URL
+//! The Tico AI Gateway's models (a department tier such as `tico-marketing-medium-1.0`, or an old id such as
+//! `tico-mid-1.0`) run on pi too, as pi's custom provider `tico` over the Gateway's OpenAI-chat endpoint: the server hands a run on one the gateway key and URL
 //! (TICOAI_GATEWAY_KEY / TICOAI_GATEWAY_URL, backend/gateway_connection.py), and the turn's pi reads a `models.json`
 //! naming that URL and the key's variable, never the key itself.
 
@@ -41,8 +41,6 @@ pub const GATEWAY_MODELS: &[(&str, &str)] = &[
     ("tico-power-1.0", "Tico Power 1.0"),
     ("tico-cheap-1.0", "Tico Cheap 1.0"),
 ];
-/// Retired from the lineup (backend/providers.py `deprecated`): still run for the bots already on them, never offered.
-const GATEWAY_RETIRED: &[&str] = &["tico-cheap-1.0"];
 pub const GATEWAY_KEY_ENV: &str = "TICOAI_GATEWAY_KEY";
 pub const GATEWAY_URL_ENV: &str = "TICOAI_GATEWAY_URL";
 /// The turn's own directory for pi's Gateway configuration, set with the relay (gateway_relay.rs `turn_dir`).
@@ -71,13 +69,32 @@ pub fn is_gateway(model: Option<&str>) -> bool {
 
 /// pi's `models.json` for the Gateway: its OpenAI-chat endpoint at `url` (the runner's relay, gateway_relay.rs), the
 /// token read from GATEWAY_KEY_ENV when pi makes a request. It holds no secret. The models take text and tools only
-/// (the Gateway refuses images). They reason, so pi sends the bot's effort as `reasoning_effort`; pi drops it for a model not marked `reasoning`. The Gateway
+/// here: `gateway_models_json_for` adds images for a model the catalog says reads them. They reason, so pi sends the bot's effort as `reasoning_effort`; pi drops it for a model not marked `reasoning`. The Gateway
 /// takes none, minimal, low, medium, high and xhigh, so pi's `max` (`effort_for`) goes as `xhigh`.
 pub fn gateway_models_json(url: &str) -> Value {
+    gateway_models_json_for(url, None, &Value::Null)
+}
+
+/// What pi is told a Gateway model reads: text, and images when the server's `gateway_inputs` (the catalog's `inputs`
+/// for that model, backend/models_preset.py `with_gateway_inputs`) lists `image` for `id`. PDFs are not a pi input and
+/// are left out. A model the server says nothing about (an older server) is text only.
+fn gateway_input_for(inputs: &Value, id: &str) -> Vec<&'static str> {
+    let image = inputs[id].as_array().is_some_and(|kinds| kinds.iter().any(|k| k.as_str() == Some("image")));
+    if image { vec!["text", "image"] } else { vec!["text"] }
+}
+
+/// `gateway_models_json` that also names `model`, the one this turn asks for, when it is not among the old ids: the
+/// Gateway's tiers and versions are not a list the runner is built with (backend/gateway_tiers.py), and pi runs only
+/// a model its `models.json` names. `inputs` is the turn's `gateway_inputs` ({model id: what it reads}), Null when the
+/// server sent none.
+pub fn gateway_models_json_for(url: &str, model: Option<&str>, inputs: &Value) -> Value {
     let url = url.trim().trim_end_matches('/');
+    let asked = model.map(str::trim).filter(|m| m.starts_with("tico-") && !GATEWAY_MODELS.iter().any(|(id, _)| id == m));
     let models: Vec<Value> = GATEWAY_MODELS
         .iter()
-        .map(|(id, name)| json!({"id": id, "name": name, "input": ["text"], "reasoning": true,
+        .map(|(id, name)| (*id, *name))
+        .chain(asked.map(|m| (m, m)))
+        .map(|(id, name)| json!({"id": id, "name": name, "input": gateway_input_for(inputs, id), "reasoning": true,
                                  "thinkingLevelMap": {"max": "xhigh"}, "contextWindow": 200000, "maxTokens": 32000}))
         .collect();
     json!({"providers": {GATEWAY_PROVIDER: {
@@ -94,17 +111,29 @@ pub(crate) fn gateway_agent_dir(settings: &Settings, env: &Env) -> Option<PathBu
     let root = env.get("HUB_WORKSPACE").filter(|w| !w.is_empty()).cloned().unwrap_or_else(|| if settings.cwd.is_empty() { ".".into() } else { settings.cwd.clone() });
     let dir = env.get(GATEWAY_DIR_ENV).filter(|d| !d.is_empty()).map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(root).join("runtime").join("pi-gateway"));
-    crate::isolation::mkdir(&dir, 0o755).ok()?;
-    let body = serde_json::to_vec_pretty(&gateway_models_json(env.get(GATEWAY_URL_ENV).map(String::as_str).unwrap_or_default())).ok()?;
-    std::fs::write(dir.join("models.json"), body).ok()?;
-    crate::isolation::chown(&dir.join("models.json"));
-    // Gateway retries belong to the server; the relay carries Retry-After into the turn's completion.
-    // pi's bash tool hands its commands pi's whole environment: each command starts by unsetting GATEWAY_KEY_ENV. It
-    // holds only the turn's token for the runner's relay, never the Gateway's key (gateway_relay.rs); a command can
-    // still read pi's /proc environ, so this only keeps the token out of ordinary tool output.
+    let models = gateway_models_json_for(env.get(GATEWAY_URL_ENV).map(String::as_str).unwrap_or_default(), settings.model.as_deref(), &settings.gateway_inputs);
     let settings_json = json!({"retry": {"enabled": false}, "shellCommandPrefix": format!("unset {GATEWAY_KEY_ENV}")});
-    std::fs::write(dir.join("settings.json"), serde_json::to_vec_pretty(&settings_json).ok()?).ok()?;
-    crate::isolation::chown(&dir.join("settings.json"));
+    // The agent directory can be changed by the turn. Prepare it as that unprivileged user;
+    // no privileged open or write may follow a link planted by a harness or a sibling. Isolated (-I): with no HOME,
+    // Python finds the passwd home, the shared one, and would run a sibling's user site as the turn user.
+    let mut child = crate::isolation::std_command_as(settings.identity, crate::env::python())
+        .env_clear()
+        .args(["-I", "-c", r#"import json,os,sys
+root=sys.argv[1]
+os.makedirs(root,mode=0o700,exist_ok=True)
+body=json.load(sys.stdin)
+for name,value in body.items():
+ fd=os.open(os.path.join(root,name),os.O_WRONLY|os.O_CREAT|os.O_TRUNC|os.O_NOFOLLOW,0o600)
+ with os.fdopen(fd,'w') as out: json.dump(value,out)
+"#, &dir.display().to_string()])
+        .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
+        .spawn().ok()?;
+    {
+        use std::io::Write;
+        let body = serde_json::to_vec(&json!({"models.json": models, "settings.json": settings_json})).ok()?;
+        child.stdin.take()?.write_all(&body).ok()?;
+    }
+    if !child.wait().ok()?.success() { return None; }
     Some(dir)
 }
 
@@ -177,11 +206,7 @@ pub fn plain_error(text: &str) -> String {
         "out_of_credit" => {
             "Tico models are paused: this company is out of credit. Your bots use their other models until credit is added (out_of_credit)".into()
         }
-        "unknown_model" => {
-            let names: Vec<&str> =
-                GATEWAY_MODELS.iter().filter(|(id, _)| !GATEWAY_RETIRED.contains(id)).map(|(_, name)| *name).collect();
-            format!("Tico AI Gateway: this model isn't offered. Tico models: {} (unknown_model)", names.join(", "))
-        }
+        "unknown_model" => "Tico AI Gateway: this model isn't offered; Settings > Gateway lists the picks (unknown_model)".into(),
         "no_route" => "Tico AI Gateway: no Tico route for this request (no_route)".into(),
         "upstream_unavailable" => "Tico AI Gateway is unavailable, try again (upstream_unavailable)".into(),
         _ => {
@@ -262,6 +287,11 @@ pub fn session_dir(bot: &str, settings: &Settings) -> PathBuf {
     let root = settings.env.get("HUB_WORKSPACE").filter(|w| !w.is_empty()).cloned().unwrap_or_else(|| if settings.cwd.is_empty() { ".".into() } else { settings.cwd.clone() });
     let path = PathBuf::from(root).join("runtime").join("pi-sessions").join(if bot.is_empty() { "pi" } else { bot });
     let _ = crate::isolation::mkdir(&path, 0o777);
+    // A leased turn user writes here through the shared group; the supervisor's umask left it owner-writable only,
+    // and earlier threads' session files may be owner-only too.
+    if settings.identity.is_some() {
+        if let Err(e) = crate::turn_users::share_workspace_blocking(std::slice::from_ref(&path)) { crate::util::log(&format!("Tico runner: {e}")); }
+    }
     path
 }
 
@@ -617,7 +647,7 @@ mod tests {
             (401, "unknown_key", "Unknown gateway key.", "Tico AI Gateway: key not recognised (api key invalid: unknown_key)"),
             (429, "rate_limited", "Too many refused keys from this address. Try again later.", "Tico AI Gateway: rate limited; retrying after the Gateway's requested wait (rate_limited)"),
             (429, "out_of_credit", "Tico models are paused: this company is out of credit.", "Tico models are paused: this company is out of credit. Your bots use their other models until credit is added (out_of_credit)"),
-            (400, "unknown_model", "Unknown model. Tico models: tico-cheap-1.0, tico-mid-1.0, tico-power-1.0.", "Tico AI Gateway: this model isn't offered. Tico models: Tico Cheap 1.1, Tico Mid 1.0, Tico Power 1.0 (unknown_model)"),
+            (400, "unknown_model", "Unknown model. Tico models: tico-cheap-1.0, tico-mid-1.0, tico-power-1.0.", "Tico AI Gateway: this model isn't offered; Settings > Gateway lists the picks (unknown_model)"),
             (400, "unsupported_field", "Tico models here take text and tools only: no images, audio, files or more than one choice.", "Tico AI Gateway refused the request as sent: Tico models here take text and tools only: no images, audio, files or more than one choice. (unsupported_field)"),
             (400, "bad_request", "The request is not a chat completion the gateway can send.", "Tico AI Gateway refused the request as sent: The request is not a chat completion the gateway can send. (bad_request)"),
             (400, "upstream_refused", "The model refused this request as it was sent.", "Tico AI Gateway refused the request as sent: The model refused this request as it was sent. (upstream_refused)"),
@@ -643,10 +673,41 @@ mod tests {
             assert_eq!((&model["reasoning"], &model["thinkingLevelMap"]["max"], &model["input"]),
                        (&json!(true), &json!("xhigh"), &json!(["text"])), "{model}");
         }
+        // A tier or version the runner was not built with is named for the turn that asks for it, once.
+        let ids = |m: Option<&str>| -> Vec<String> { gateway_models_json_for("", m, &Value::Null)["providers"]["tico"]["models"].as_array().unwrap()
+            .iter().map(|v| v["id"].as_str().unwrap().to_string()).collect() };
+        assert!(ids(Some("tico-marketing-medium-fast-1.0")).contains(&"tico-marketing-medium-fast-1.0".to_string()));
+        assert_eq!(ids(Some("tico-mid-1.0")).len(), GATEWAY_MODELS.len());
+        assert_eq!(ids(Some("kimi-k3")).len(), GATEWAY_MODELS.len());
         // A Tico-model bot needs no OpenRouter grant on its computer.
         let (state, _) = sign_in(&[json!({"bot": "gw-only-bot", "config": {"runtime": "pi", "model": "tico-mid-1.0"}})]);
         assert_eq!(state, "ready");
         assert!(model_names().contains(&"tico-power-1.0".to_string()));
+    }
+
+    #[test]
+    fn a_gateway_model_takes_images_only_where_the_server_says_it_reads_them() {
+        let inputs_of = |models: &Value, id: &str| -> Value {
+            models["providers"]["tico"]["models"].as_array().unwrap().iter().find(|m| m["id"] == id).unwrap()["input"].clone()
+        };
+        let sent = json!({"tico-marketing-medium-1.0": ["text", "image", "pdf"],
+                          "tico-marketing-low-fast-1.0": ["text"], "tico-power-1.0": ["text", "image", "pdf"]});
+        let both = ["tico-marketing-medium-1.0", "tico-marketing-low-fast-1.0"];
+        let models = |ask: &str| gateway_models_json_for("", Some(ask), &sent);
+        // A Claude-backed tier: text and image (a PDF is not a pi input).
+        assert_eq!(inputs_of(&models(both[0]), both[0]), json!(["text", "image"]));
+        // Low Fast reads text only.
+        assert_eq!(inputs_of(&models(both[1]), both[1]), json!(["text"]));
+        // An old id in the built-in list takes what the server says of it, and text where it says nothing.
+        assert_eq!(inputs_of(&models(both[0]), "tico-power-1.0"), json!(["text", "image"]));
+        assert_eq!(inputs_of(&models(both[0]), "tico-mid-1.0"), json!(["text"]));
+        // No value (an older server), or one that lists no image: text only, for every model.
+        for none in [Value::Null, json!({}), json!({"tico-marketing-medium-1.0": []}), json!({"tico-marketing-medium-1.0": "image"})] {
+            let models = gateway_models_json_for("", Some(both[0]), &none);
+            for model in models["providers"]["tico"]["models"].as_array().unwrap() {
+                assert_eq!(model["input"], json!(["text"]), "{model}");
+            }
+        }
     }
 
     #[test]

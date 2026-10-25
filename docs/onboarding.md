@@ -1,13 +1,14 @@
 # Finish setup
 
-The first time the owner opens a new environment, the app is a wizard at `#/welcome`: name the
-team, say what it does, build its team chart group by group, add a computer (a Linux Docker runner or a Mac), optionally connect your own
+The first time the owner opens a new environment, the app is a wizard at `#/welcome`: say what the team is building
+and confirm its first bets (a strategy draft), name the team, say what it does, build its team chart group by group, add a computer (a Linux Docker runner or a Mac), optionally connect your own
 external agent, and press **Create my team**. Every team gets the assistant, BotOps, the Librarian and the CEO Bot, and none of them can be archived.
-Creating defines the bots on the server and hands the rest to two places: a starter bot's repository is set up by the computer
-the moment it is placed, and BotOps sets up every other template.
+**Setup picks the chart, not the bots:** those built-ins are the only bots on day one, and they work at once. Every other role
+you picked is laid out as a **Recruiting** seat with its job description and reporting line: no bot, repository, computer slot
+or BotOps task until someone picks a bot for it ([A bot's stages](#a-bots-stages)).
 
 The wizard is the first of three pieces, all described below: the wizard, a short tour, and a line under the team list
-that points at BotOps. [After the wizard](#after-the-wizard) covers the last two, and the Market page's empty state, where the
+that points at BotOps. [After the wizard](#after-the-wizard) covers the last two, and the Market tab's empty state, where the
 owner asks for market research. To choose a first team and get the most from it, read the [setup guide](onboarding-guide.md).
 
 Nobody else sees the wizard. Only the owner may write it, and the sidebar entry
@@ -27,23 +28,34 @@ team instead ([The sample company](sample-company.md)).
 choose **Your company's plans or API keys**.
 
 If you already chose a team on the public setup page, the first screen also accepts its **Company YAML file**.
-Choose the file, check the company and employee preview, then press **Use this team**. Tico uses the selected
-templates, names and reporting lines, includes its current required built-ins once, and starts employees marked
-`later` paused. Resume those employees from their normal controls when ready. Import retries do not duplicate the
-team or setup tasks, and an import cannot replace a company whose setup is complete.
+Choose the file, check the preview (the built-ins that work from day one, then every other role marked **Recruiting**),
+then press **Use this team**. Tico lays out exactly that chart: each role is a Recruiting seat with the file's title,
+a job description from its template card (what it owns, and the file's reason for the role) and its reporting line,
+a role under a role included (`seat:<id>`). Only the built-ins become bots, once each. Import retries do not duplicate
+a seat, and an import cannot replace a company whose setup is complete. A file named at install
+(`TICO_COMPANY_FILE_B64` or `TICO_COMPANY_FILE`) is imported when the server starts; if it cannot be read or applied,
+the server still starts, **no sample team is set up in its place**, and the owner sees why on the welcome page and on
+Health ("Company file from setup not imported") until it is over: an import works (the same file again included), the
+team is set up on the welcome page, the server starts with the file fixed back to the one already applied or with no
+company file at all, or the owner presses **Dismiss** on the welcome page. A server start with the same broken file
+shows it again.
 
 This starter import supports one owner and catalog AI employees with the default rules. The signed-in owner remains
-the owner; a file does not add sign-in accounts. Additional people, existing external agents and custom rules are
-refused with an explanation. The file's goals are imported onto [Goals](goals-and-kpis.md): the owner's goals become
-company goals, and so do goals the file gives a built-in bot such as the Assistant (Goals keeps the built-ins out of
-its tree). Each other bot's goal sits under that bot, with the goal's measure as a KPI carrying the file's baseline and
-target (the file holds no readings, so a new KPI starts with no history). A file holds up to 325 goals: the company's 3,
-2 for each department and 1 for each of up to 300 bots, which covers every goal the setup page suggests; a file with
-more is refused before anything is created. First jobs, routines, model choices and tool
-connections are saved for later setup and listed in the preview; the team uses its currently configured AI providers. Bots follow their normal setup and
-computer-enrollment flow after import.
+the owner; a file does not add sign-in accounts. A person the file names who holds a role has no seat or bot for it:
+they are kept on the setup record to invite, and a role under them reports to the owner until they are invited
+(Settings > Humans > **From your setup**: type their email and press **Invite**, which adds them to the roster, moves
+the seats waiting on them under them and sends the invite, see [People](people.md#invites)). Other coworkers, existing
+external agents and custom rules are refused with an explanation. The file's goals are imported onto
+[Goals](goals-and-kpis.md): the owner's goals, goals the file gives a built-in bot such as the Assistant (Goals keeps the
+built-ins out of its tree) and goals of roles that are seats (a seat holds no work) become company goals, each with the
+goal's measure as a KPI carrying the file's baseline and target (the file holds no readings, so a new KPI starts with
+no history). A file holds up to 325 goals: the company's 3, 2 for each department and 1 for each of up to 300 roles,
+which covers every goal the setup page suggests; a file with more is refused before anything is created. First jobs,
+routines, model choices and tool connections are saved for later setup and listed in the preview; the team uses its
+currently configured AI providers.
 
-The implementation is `backend/onboarding.py` (the record, creating the team), `backend/recruit.py` and `backend/recruit_rank.py`
+The implementation is `backend/onboarding.py` (the record, creating the team), `ui/setup-strategy.js` (What are you
+building and Your bets, over `backend/strategy_setup.py`), `backend/recruit.py` and `backend/recruit_rank.py`
 (the team builder's templates and suggestions), `ui/org-builder.js` (the team chart screen), `ui/first-run.js` (who reports to whom, the review
 and the screen after Create), Tico HQ's `POST /v1/recruit` ([its API](tico-hq.md), for HQ's suggestions), `clients/catalog.py` (turning a template into a repository),
 `runner/catalog_job.py` (the bots the computer sets up itself, run by the runner as `python -m runner catalog`) and `templates/catalog/` (the templates). The quick start in the
@@ -55,9 +67,11 @@ Every **Next** saves the whole draft with `PUT /api/v2/setup`, so a closed tab l
 
 | Screen | What it asks | What it stores |
 |---|---|---|
-| AI providers | Only while no provider is chosen yet; otherwise the wizard starts at Names. Choose [how bots get their models](ai-gateway.md#choose-how-bots-get-their-models). To choose later, select **Your company's plans or API keys**, untick its providers and press **Skip for now** | The team's providers, as Settings > Computers > Models saves them |
+| AI providers | Only while no provider is chosen yet; otherwise the wizard starts at What are you building. Choose [how bots get their models](ai-gateway.md#choose-how-bots-get-their-models). To choose later, select **Your company's plans or API keys**, untick its providers and press **Skip for now** | The team's providers, as Settings > Computers > Models saves them |
+| What are you building | **Website** (optional) and **What you're building**: the team's one line, or a new idea in a few sentences. **Next** with either starts the strategy research (`POST /api/v2/strategy/draft-from`); an address that is not a public website keeps you on the step with the reason. Back and **Next** again with the same answers starts no second run | `names.website` and `answers.building`. The website is stored as an `https://` address (a bare `acme.example` gets the scheme; anything that is not a public web address is refused with 422); finishing setup files the Librarian's market task from it |
+| Your bets | The research's bets to **Keep**, **Edit** or **Strike** (Strike retires one), **Add** for your own, and **What we won't do**; the draft (Who we serve, What we sell, kept bets, won't do) fills in beside them, below them on a phone. While the research runs the step polls `GET /api/v2/strategy/draft-from/latest`. Without a model provider, or when the research failed, it is the same fields as a plain form; when it gave up because the draft changed meanwhile, it lists what it found, each with **Add**. **Next** waits for one active bet with Rules out and Wrong if, and a line under What we won't do ([Strategy](strategy.md#setup)) | The strategy **draft** and its bets (`/api/v2/strategy`). Nothing is published |
 | Names | **Team/Company name**, app name, and optionally your own name | `names`. From the moment they are saved they override `TICO_TEAM_NAME` (the old `TICO_COMPANY_NAME` remains an alias) and `TICO_APP_NAME` everywhere, including in the template cards. **Your name** (`names.owner_name`) is saved on the owner's roster entry, so the team chart and the sidebar show it instead of the address; it is prefilled from the roster, or from the display name the sign-in proxy vouches for (a `name` claim from Cloudflare Access or the AWS load balancer), and left blank it changes nothing. **Team email domain** (`names.team_domain`) is asked only when the owner signs in with public email such as gmail.com and no team address is on the roster; it is optional, and lets members add teammates at that domain (it does not let anyone sign in). The wizard does not ask for an assistant name: the tab is always called Assistant, and `names.assistant_name` is `TICO_ASSISTANT_NAME`, which is `Assistant` unless set (a name equal to the team's reads as `Assistant`) |
-| About the team | What you do, who you sell to, whether software is your product, and team size | `answers`. Whether software is the product decides which groups start picked, and the description helps the suggestions. It is also written into every bot's `knowledge/company.md` |
+| About the team | What you do (prefilled from What you're building), who you sell to, whether software is your product, and team size | `answers`. Whether software is the product decides which groups start picked, and the description helps the suggestions. It is also written into every bot's `knowledge/company.md` |
 | Your team chart | The groups, then one question per group and the bots to recruit into it, with the chart growing beside it, and the message bot switch under the finished chart ([The team builder](#the-team-builder)) | `answers.departments`, `answers.briefings` and `selected`: for each chosen slug, its template, display name, the `AGENT.md` text and `reports_to` (a human `human:<id>` or a bot slug). Nothing is created yet |
 | Add the computer that runs your bots | If a runner is already online (the server's own) the step is one line, `<label> online`. Otherwise the kind of computer, **A Linux or cloud server (Docker)** when the server itself runs in Docker (`in_docker` in `GET /api/v2/config`, the usual install) and **A Mac** when it does not, then a one-time code or setup file and the commands | Nothing. It polls `GET /api/v2/setup` every ten seconds and reports the enrolled computer |
 | Connect an external agent | Optional: **Connect an external agent** makes a personal token and the MCP setup to paste into Grok, Dots, Muse or any MCP agent ([Connect an external agent](connect-an-agent.md)) | Nothing in the record; the token is the owner's own (`POST /api/v2/me/tokens`) |
@@ -72,6 +86,7 @@ Claude and **ChatGPT through Codex**; **Tico Gateway only** shows no model sign-
 
 | Field | Shape |
 |---|---|
+| `building` | What the team is building: the owner's one line, or a new idea in a few sentences, up to 4000 characters. With `names.website` it is what the strategy research reads ([Strategy](strategy.md#setup)) and what the Librarian's market task names; the org builder reads it when `what_we_do` is empty |
 | `what_we_do` | Free text, up to 2000 characters |
 | `customers` | `businesses`, `consumers`, `both`, or empty |
 | `software_product` | `yes`, `no`, or empty: whether software is the product |
@@ -123,7 +138,7 @@ The browser only ever talks to its own server:
 | Route | What it answers |
 |---|---|
 | `GET /api/v2/setup/groups` | `{version, departments: [{id, name, description, goal, question, placeholder, icon, head, software_only}], cards: [{template, name, department, icon, tags, suggest, summary, lead, business_only}], hq: {available, off_by}}` |
-| `POST /api/v2/setup/recruit` | Body `{department, briefing, share}` (`briefing` at most 500 characters). Answers `{bots: [{template_id, why}], suggested_default: [template_id], source: "hq" \| "local", shared, off_by}` |
+| `POST /api/v2/setup/recruit` | Body `{department, briefing, share}` (`briefing` at most 500 characters). Answers `{bots: [{template_id, why}], suggested_default: [template_id], bet: {id, statement} \| null, source: "hq" \| "local", shared, off_by}` |
 
 Both are for the owner and bot administrators, and neither is part of the stable v2 contract (like the rest of the wizard's routes).
 
@@ -145,20 +160,34 @@ and no why for a `niche` card the answer brought in on single words. A single wo
 rank: shown as a why they read as keyword matching. When Tico HQ's answer still says "Matches “<word>”", the install's own why replaces
 it. The same answer always gives the same list.
 
+The strategy draft's bets ([Strategy](strategy.md)) count like "What you do" in the local answer (a bet on price brings in the
+pricing cards), and `bet` names the bet the group clearly serves: the one sharing at least two words with the group's description,
+goal and question, its cards' names and tags and the owner's answer, and more than any other bet. Bets never go to Tico HQ; with no
+bets, `bet` is null and the answer is as before.
+
 ### What Create does
 
 **Create my team** (`POST /api/v2/setup/complete`) writes to the server only, in one request (a chart of 25 bots takes a fraction of a
 second). It reaches no computer.
 
-- BotOps, the assistant, the Librarian and the CEO Bot first, so they exist before anything is addressed to them, then everything picked, each `planned`
+- BotOps, the assistant, the Librarian and the CEO Bot, so they exist before anything is addressed to them, each `planned`
   with the card's summary as its description, `bot-<slug>` as its repository, the card's runtime, model and reasoning effort, the human
-  it reports to, and the owner as its owner. A model a deployment does not offer falls back to the product default.
+  it reports to, and the owner as its owner. A model a deployment does not offer falls back to the product default. They are
+  Active on day one.
+- **Everything else picked is a Recruiting seat** (`seats` on the record: `{pick: seat id}`), with the reviewed name as its
+  title, a job description from the card and the reviewed instructions, the reporting line picked (a pick under another pick
+  reports to that seat) and the pick's group. No bot, repository, computer slot or BotOps task exists for it. The bullets
+  below about starters and other templates describe a bot made from a template: the sample company's, and from a seat once
+  someone picks a bot for it.
 - **No AI provider and no computer are needed.** The team is created first. With no provider chosen a bot names no runtime or model and
   follows the team default, so it runs once a provider is added in Settings > Computers > Models. With no computer enrolled the bots stay
   `planned`; when the owner's computer enrolls, the bots are placed on it and activated. Until then the after-Create screen says
   "Waiting for a computer" or "Add an AI provider".
 - Each bot goes in the **group** its template belongs to (Marketing, Product, Engineering ...); the group is made if the team has none yet,
-  and one it already has by that name is reused ([the team chart](org-chart.md#groups)). Built-in bots stay outside groups.
+  and one it already has by that name is reused ([the team chart](org-chart.md#groups)). Built-in bots stay outside groups. A group
+  made here that clearly serves one of the strategy draft's bets (the org builder's `bet`) stores it as its `bet_id`.
+- With a website (`names.website`), the Librarian's "Set up the market map" is filed now, once, from the website and `building`,
+  unless the owner already filed it from the Market page ([An empty Market page](#an-empty-market-page)).
 - The template and the reviewed instructions are stored in the bot's server-side config, with the **template version** (the release whose
   templates it came from: `template_version`).
 - A **starter** template (a card with a `first_routine` and an `onboarding` conversation) is created whole and parked:
@@ -175,7 +204,9 @@ second). It reaches no computer.
 - Every bot from a template that no computer holds is assigned to the owner's most recently enrolled computer. If none is enrolled yet,
   enrolling the owner's computer afterwards does the same, so the order the two are done in does not matter. A bot someone placed by hand is
   never moved.
-- Finishing twice is safe: it reopens no task, creates no second bot, and keeps the first completion time.
+- Finishing twice is safe: it reopens no task, creates no second bot or seat, and keeps the first completion time.
+- With nothing picked and no company file (signing up directly), finishing makes only the built-ins: the chart is empty, to
+  recruit into.
 
 ### A bot's stages
 
@@ -216,10 +247,13 @@ whole change. Members can add seats under themselves or someone below them; only
 - **Your team is created**: the heading, then the one next step as the only primary button. With no computer yet it says
   *Waiting for a computer* once and offers **Add a computer** (Settings > Computers); with a computer but no AI provider,
   **Add an AI provider**; otherwise **Open Tasks** at the bottom. **Show me around** starts the tour.
+- The Recruiting seats are on the sidebar's team chart, each marked **Recruiting** where its reporting line puts it.
 - Each bot, in the team chart's groups and order (bots outside any group first, the built-ins last), with one status:
   *Waiting* while the team waits on a computer or provider, *Setting up* until a starter's repository exists, then its
   **Set up** button; *Active*; or a link to the setup task BotOps is working.
 - **AI providers**: the first link opens Settings > Computers > Models so bots can start working.
+- **Strategy: a draft. Publish your strategy**: a link to Strategy, until a version is published (Getting started's
+  `strategy` step).
 - **Add an admin**: a name and an email. The human joins the roster and the sign-in list and is made an admin (`POST /api/v2/access/humans`,
   then `POST /api/v2/access/humans/{id}` with `role: admin`). Tico sends no email. On a local install, only you can sign in
   until you add a domain and sign-in; adding an admin still saves their roster entry.
@@ -240,7 +274,7 @@ wizard  ->  tour (once)  ->  "Talk to BotOps" line
 
 ### The tour
 
-Six spotlight steps: Updates, Tasks, your bots (the team list), Docs, Market, Meetings. **Next** moves
+Six spotlight steps: Updates, Tasks, your bots (the team list), Docs, Strategy, Meetings. **Next** moves
 on, **Skip** or **Esc** closes it, and focus stays inside it. On a phone it opens the navigation drawer
 and shows the same steps. It never opens over the wizard: the owner starts it with **Show me around** on the screen after Create, or it opens
 by itself once on their next visit (anyone else: their first visit). It can be replayed
@@ -256,7 +290,8 @@ an external agent you already have is the **Connect an external agent** button i
 
 ### An empty Market page
 
-While the market has no entity and no page someone wrote (the seed's pages do not count), the Market page is an empty state
+Market is the Market tab of [Strategy](strategy.md) (`#/strategy/market`; `#/market` redirects there). While the market has
+no entity and no page someone wrote (the seed's pages do not count), the tab is an empty state
 instead of the graph, the index and the ask box. The owner sees the Librarian's four questions, one at a time (what you sell,
 who buys it, who you compete with, what to watch), with **Skip for now** and an **Attach files** link to the Docs import.
 Answers are kept as given, so a skipped setup shows **Continue** at the same question next time
@@ -268,7 +303,9 @@ The last question's **Start research** calls `POST /api/v2/librarian/setup/marke
 `playbooks/market-setup.md` researches the answers and writes the market pages and graph ([librarian.md](librarian.md)). The page
 then shows "The Librarian is researching your market. This usually takes 5–10 minutes." with a link to the task, until the market
 has content (at least two minutes, at most thirty), kept in the browser, polling the market every 30 seconds. Then the normal
-Market page is drawn. The code is `ui/market-page.js`.
+Market page is drawn. The code is `ui/market-page.js`. When setup was given the team's website (`names.website`), finishing setup files "Set up the
+market map" from it and the market page opens on the researching notice; the Librarian reads that website from `hub strategy show`
+when the task has none, and the four questions stay for a team that gave no website.
 
 ### What is stored, and who may do what
 

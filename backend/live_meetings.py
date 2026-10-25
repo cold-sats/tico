@@ -359,7 +359,7 @@ def _enqueue(c, rid, bots, *, source_key, window_index=None, transcript_seq=None
                          "AND m.state='live' LIMIT 1", (rid, slug)).fetchone()
         if not busy:
             busy = c.execute("SELECT 1 FROM jobs j JOIN messages m ON m.id=j.message_id "
-                             "WHERE j.bot=? AND j.state IN ('queued','leased','running','input') "
+                             f"WHERE j.bot=? AND j.state IN ('queued','leased','running','input') AND {H.unheld_sql()} "
                              "AND json_extract(m.refs_json,'$.live_meeting.turn_id') IS NULL LIMIT 1",
                              (slug,)).fetchone()
         if busy:
@@ -1288,8 +1288,10 @@ def install_live_meetings(app, store, auth, write):
         if after < 0:
             raise Problem("event_cursor", "Event cursor must be non-negative", 400)
         cursor = max(after, 0)
-        with store.read() as c:
-            _require_read(c, auth, who, rid)
+        def readable():
+            with store.read() as c:
+                _require_read(c, auth, who, rid)
+        await asyncio.to_thread(readable)
 
         def poll(current):
             auth.authenticate(request.headers)

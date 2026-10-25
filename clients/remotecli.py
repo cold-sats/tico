@@ -90,14 +90,33 @@ def chosen_grant(value):
     return {"full_name": name, "access": access, **({"run_workflows": workflows} if workflows is not None else {})}
 
 
+MARKET_SPEND = ("market define", "market segment add", "market segment tree", "market size add", "market size decide",
+                "market size list", "market figure add", "market sources", "market spend", "market research")
+
+
+def market_spend(client, args, tool):
+    """The spend commands run the MCP tool of the same name; `sources --add-file` reads its YAML here."""
+    fn = args.fn
+    if fn == "market sources" and args.add_file:
+        import yaml
+        loaded = yaml.safe_load(Path(args.add_file).read_text())
+        args.add = loaded if isinstance(loaded, list) else [loaded]
+    return tool(client, args)
+
+
 def run(args, who=None):
     if who:
         raise APIError("identity", "Remote identity comes from authentication; --human is unavailable")
     # A query may run for 20 s on the server before it is stopped, a decision's providers 25 s; leave room for that.
-    client = Client(os.environ["HUB_API_URL"], os.environ.get("HUB_TOKEN", ""), timeout=30 if args.cmd in ("sql", "decision") else 120 if args.cmd == "listening" or args.fn == "market import" else 130 if args.cmd == "inbound" else 15)
+    client = Client(os.environ["HUB_API_URL"], os.environ.get("HUB_TOKEN", ""), timeout=45 if args.cmd in ("decision", "gateway") else 30 if args.cmd == "sql" else 120 if args.cmd == "listening" or args.fn == "market import" else 130 if args.cmd == "inbound" else 15)
     fn = args.fn
     if args.cmd == "inbound":
         return via_tool(client,args)
+    if fn.startswith(("trigger relay ", "relay ", "sleep ")):
+        return via_tool(client, args)
+    # The other webhook leaves of docs/webhooks.md: each runs the tool of its own name, as on the server's own shell.
+    if fn.startswith(("trigger ", "rule ", "notice ")) or fn == "event-types":
+        return via_tool(client, args)
     if fn == "team icon":
         with Path(args.file).open("rb") as source:
             return client.post_bytes("team/icon", source)
@@ -157,7 +176,7 @@ def run(args, who=None):
               "update create", "update redo", "update list", "update show", "update mark-read", "update reply", "update settings",
               "changelog list", "changelog mark-read",
               "needs-you start", "needs-you next", "needs-you respond", "needs-you commit", "needs-you abandon",
-              "brief", "pipeline", "mcp stats", "calendar list", "calendar status", "routine update", "team show", "org order", "run list",
+              "brief", "pipeline", "mcp stats", "calendar list", "calendar status", "routine update", "team show", "team budget", "org order", "run list",
               "message list", "message mark-read", "bot recent", "agent pair show", "agent pair approve", "agent pair decline",
               "slack channel list", "slack channel add", "slack channel remove", "slack channel import",
               "seat list", "seat create", "seat update", "seat close", "seat draft"):
@@ -194,6 +213,17 @@ def run(args, who=None):
                                                   "operation_id": os.environ.get("HUB_OPERATION_ID")})
     if args.cmd in ("chat", "replay"):
         return via_tool(client, args)
+    if fn and fn.startswith("task-manager "):
+        from clients import hubtools
+        op = os.environ.get("HUB_OPERATION_ID")
+        if fn == "task-manager status":
+            return hubtools.task_manager_status(client, {})
+        if fn == "task-manager run":
+            return hubtools.task_manager_run(client, {"operation_id": op})
+        change = {"task-manager on": {"on": True}, "task-manager off": {"on": False},
+                  "task-manager schedule": {"preset": getattr(args, "preset", None), "at": getattr(args, "at", None)},
+                  "task-manager bot": {"bot": getattr(args, "state", None)}}[fn]
+        return hubtools.task_manager_set(client, {**change, "operation_id": op})
     if fn in ("health-monitor findings", "health-monitor report"):
         from clients import hubtools
         if fn == "health-monitor findings":
@@ -213,7 +243,7 @@ def run(args, who=None):
         from clients import hubtools
         text = Path(args.file).read_text(errors="replace") if args.file else sys.stdin.read()
         return hubtools.BY_NAME["hub_classify"]["fn"](client, {"text": text})
-    if fn == "decision readout":
+    if fn in ("decision readout", "decision outcome", "gateway catalog", "gateway search", "gateway fetch"):
         return via_tool(client, args)
     if args.cmd == "decision":
         return judge(client, args)
@@ -276,6 +306,22 @@ def run(args, who=None):
         if fn == "service-key revoke":
             return client.post("service-keys/" + args.id + "/revoke", {}, key=os.environ.get("HUB_OPERATION_ID"))
         return client.get("service-keys")["keys"]
+    if args.cmd == "webhook":
+        from clients import hubtools
+        fields = {k: v for k, v in vars(args).items() if k not in ("cmd", "sub", "fn") and v is not None}
+        fields["operation_id"] = os.environ.get("HUB_OPERATION_ID")
+        if fn in ("webhook create", "webhook update"):
+            try:
+                hubtools.webhook_options(fields)
+            except ValueError as exc:
+                raise APIError("header", str(exc), 422) from None
+        if fn == "webhook send":
+            raw = fields.pop("data", None) or "{}"
+            try:
+                fields["data"] = json.loads(Path(raw[1:]).read_text() if raw.startswith("@") else raw)
+            except (OSError, ValueError):
+                raise APIError("data", "--data must be JSON, or @file holding JSON") from None
+        return hubtools.BY_NAME[tool_name(fn)]["fn"](client, fields)
     identity = client.get("me")
     actor = identity["actor"]
     key = os.environ.get("HUB_OPERATION_ID")
@@ -519,14 +565,19 @@ def run(args, who=None):
             except UnicodeDecodeError:
                 body["content_base64"] = base64.b64encode(data).decode("ascii")
             return post(f"tasks/{args.id}/files", body)
-        if sub in ("update", "close"):
+        if sub in ("update", "close", "done"):
             current = client.get("tasks/" + args.id)["task"]
             body = {"version": current["version"], "note": args.note}
+            if sub == "done":
+                body["status"] = "done"
+            for field in ("verdict", "verdict_head"):
+                if getattr(args, field, None) is not None:
+                    body[field] = getattr(args, field)
             if getattr(args, "quiet", False):
                 body["quiet"] = True
             if sub == "close":
                 body["close"] = True
-            else:
+            elif sub == "update":
                 body.update({"status": args.status, "owner": args.owner, "due": args.due,
                              "goal_id": getattr(args, "goal", None)})
                 if getattr(args, "private", None) is not None:
@@ -542,16 +593,39 @@ def run(args, who=None):
         if sub == "create":
             body = Path(args.body_file).read_text() if args.body_file else args.body
             return post("goals", {"owner": target(args.owner), "title": args.title, "parent_id": args.parent,
-                        "body": body or "", "top": bool(args.top)})["goal"]
+                        "body": body or "", "top": bool(args.top), "bet_id": args.bet_id})["goal"]
         if sub == "update":
             body = {"title": args.title, "parent_id": args.parent, "owner": target(args.owner) if args.owner else None,
-                    "rank": args.rank, "top": bool(args.top)}
+                    "rank": args.rank, "top": bool(args.top), "bet_id": args.bet_id}
             if args.body_file or args.body is not None:
                 body["body"] = Path(args.body_file).read_text() if args.body_file else args.body
             return post("goals/" + args.id, body)["goal"]
         return tool(client, args)
-    if cmd in ("kpi", "proposal"):
+    if cmd in ("kpi", "proposal", "strategy"):
         return tool(client, args)
+    if cmd == "lens":
+        from clients import hubtools
+        if sub == "list":
+            return hubtools.lens_list(client, {"applies_to": "market" if args.market else None})
+        if sub == "run":
+            answers = json.loads(Path(args.answers_file).read_text(encoding="utf-8-sig")) if args.answers_file else {}
+            if not isinstance(answers, dict):
+                raise APIError("answers", "--answers-file is a JSON object of {step key: answer}")
+            return hubtools.lens_run(client, {"lens": args.id, "answers": answers, "draft": args.draft,
+                                              "wait": 0 if args.no_wait else hubtools.LENS_WAIT_MAX, "operation_id": key})
+        if sub == "show":
+            return hubtools.lens_show(client, {"id": args.id})
+        return hubtools.lens_runs(client, {"lens": args.lens, "limit": args.limit})
+    if fn.startswith("market watch "):
+        return via_tool(client, args)
+    if fn == "market briefing latest":
+        return via_tool(client, args)
+    if fn == "market briefing post":
+        body = sys.stdin.read() if args.body_file == "-" else Path(args.body_file).read_text()
+        items = json.loads(Path(args.items_file).read_text()) if args.items_file else []
+        return via_tool(client, args, body=body, items=items)
+    if cmd == "market" and fn in MARKET_SPEND:
+        return market_spend(client, args, tool)
     if cmd == "market":
         if sub == "show":
             return client.get("market/entities/" + args.id)
@@ -633,6 +707,8 @@ def run(args, who=None):
             return via_tool(client, args, text=text, enabled=not args.disabled)
         if sub in ("delete", "run"):
             return via_tool(client, args)
+    if cmd == "release":
+        return via_tool(client, args)
     if cmd == "approval":
         if sub == "show":
             return client.get("approvals/" + args.id)
@@ -744,7 +820,7 @@ def bots(client, args):
         except ValueError as exc:
             raise APIError("not_found", str(exc)) from None
     if args.fn in ("bot access", "bot mail", "bot owners", "bot setup-done", "bot ready", "bot place", "bot go-live", "bot model", "bot pause",
-                   "bot resume", "bot scope", "bot restore", "bot archive") or (args.fn == "bot create" and args.record_only):
+                   "bot resume", "bot scope", "bot restore", "bot archive", "bot budget", "bot release", "bot profile") or (args.fn == "bot create" and args.record_only):
         from clients import hubtools
         fields = {k: v for k, v in vars(args).items()
                   if k not in ("cmd", "sub", "subsub", "fn", "no_setup", "record_only") and v not in (None, [])}
@@ -788,7 +864,7 @@ def local_slug(client, args, workspace):
         known = {b.get("slug") or b.get("name") for b in client.get("bots", include_archived="1")}
     except (APIError, AttributeError, TypeError):
         known = set()
-    reserved = ("assistant", "botops", "librarian", "goal-manager", "coo")
+    reserved = ("assistant", "botops", "librarian", "goal-manager", "coo", "task-manager", "health-monitor")
     return catalog.free_slug(args.name or card.get("name") or args.template, lambda slug: (
         slug in known or slug in reserved
         or any((workspace / (prefix + slug)).exists() for prefix in (REPO_PREFIX, OLD_REPO_PREFIX))))

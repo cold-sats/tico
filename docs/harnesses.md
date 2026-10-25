@@ -119,9 +119,13 @@ the `openrouter` provider offers every such model; enabling one vendor offers th
 
 ### The Tico AI Gateway
 
-Tico Cheap 1.1, Mid 1.0 and Power 1.0 (`tico-cheap-1.1`, `tico-mid-1.0`, `tico-power-1.0`; Claude Haiku, Sonnet and
-Opus 5.5 underneath) run on pi through Tico's own Gateway, not OpenRouter. `tico-cheap-1.0` is retired (`deprecated`):
-no picker offers it, but pi's `models.json` still lists it, so a bot already on it keeps running. Their provider, `tico`, is never ticked: it is on
+The Gateway's picks (`tico-<department>-<level>[-fast][-<version>]`, for example `tico-sales-medium` or
+`tico-engineering-high-fast-1.0`; `backend/gateway_tiers.py`) run on pi through Tico's own Gateway, not OpenRouter. The
+catalog lists each tier at its current pinned version; any other id of the lineup (no version, an older version) resolves
+on lookup, and pi's `models.json` names the turn's model for the run. `tico-cheap-1.1`, `tico-cheap-1.0`, `tico-mid-1.0`
+and `tico-power-1.0` are the old lineup (`deprecated`, `lineup: old`): no picker offers them, but a bot already on one keeps
+running at its old price. In Settings the Gateway is a harness / provider of its own ("Tico AI Gateway") whose Model control is
+Department, Level, Fast and Version, and the stored model is the id they make. Their provider, `tico`, is never ticked: it is on
 exactly while the **Tico AI Gateway** connection in Settings > Computers > Models has a key (`backend/gateway_connection.py`),
 and OpenRouter's catch-all does not offer them. The key is the one Decide uses; the server's `TICO_GATEWAY_KEY` and
 `TICO_GATEWAY_URL` win over a saved one and show as connected. A saved key is sealed and never read back, only a
@@ -411,6 +415,7 @@ another bot's home; all turns use the original login in its own home.
 | `goal_runs_across_turns` | A native goal keeps the thread going after a turn completes, and a clear is reconciled | A goal ends with its turn |
 | `serial_cold_start` | An expired stored token is refreshed by the first turn; the others wait for it | Turns start together |
 | `one_turn_per_login` | Optional queue, disabled for Codex (`false`). A subscription login (its `subscription_marker` in the sign-in detail) runs one turn at a time on the computer: another bot's turn on it waits, or runs on its fallback. A key login is not held | Turns on one login run together |
+| `isolated_user` | The CLI keeps no owner-only sign-in state in the bot's home, so on a Docker runner with a turn-user pool each turn runs as its own leased OS user that cannot enter another bot's checkout. Only pi sets it: Claude Code, Codex, Gemini CLI, Cursor, Grok, Muse Code and Antigravity keep 0600 sign-in files shared across turns | The turn runs as `bot`; readiness reports it as not isolated |
 | `compaction` | The bot's Compact at setting applies | Setting hidden |
 | `resume_command` | The local command that resumes a session (the id follows) | `<executable> --resume` |
 | `model_list` | `host`: the host adapter lists the models in readiness; `command`: the CLI lists them (`model_list_args`) | No model list |

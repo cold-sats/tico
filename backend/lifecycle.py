@@ -164,9 +164,16 @@ def seat(c, seat_id):
     return row
 
 
-def _reports_to(c, value):
-    """A seat reports to a person (`human:<id>`) or a bot that is not archived; never to nobody."""
+def _reports_to(c, value, seat_id=""):
+    """A seat reports to a person (`human:<id>`), a bot that is not archived, or another open seat (`seat:<id>`: a chart
+    laid out from setup has managers that are still Recruiting); never to nobody, itself or a seat under it."""
     value = str(value or "").strip()
+    if value.startswith(SEAT_PREFIX):
+        parent = value[len(SEAT_PREFIX):]
+        seat(c, parent)
+        if seat_id and seat_id in _seat_chain(c, parent):
+            raise Problem("hierarchy", "A seat cannot report to itself or to a seat under it", 422)
+        return value
     if value.startswith("human:"):
         if not H.human(c, value[6:]):
             raise Problem("not_found", "Reports-to person was not found", 404)
@@ -178,10 +185,37 @@ def _reports_to(c, value):
     return slug
 
 
+def _seat_chain(c, seat_id):
+    """This seat and the seats above it, nearest first. Closed seats count: the chart hangs a seat under a closed
+    seat's own manager (`org_parent`), so a line through one can still close a circle. A missing seat ends it."""
+    chain = []
+    while seat_id and seat_id not in chain:
+        row = c.execute("SELECT reports_to FROM seats WHERE id=?", (seat_id,)).fetchone()
+        if not row:
+            break
+        chain.append(seat_id)
+        reports = str(row["reports_to"] or "")
+        seat_id = reports[len(SEAT_PREFIX):] if reports.startswith(SEAT_PREFIX) else ""
+    return chain
+
+
+def _anchor(c, reports_to):
+    """The person or bot a seat answers to in the end: up through any seats above it. A line that goes round answers
+    to nobody, so only the owner may place under it."""
+    seen = set()
+    while reports_to.startswith(SEAT_PREFIX) and reports_to not in seen:
+        seen.add(reports_to)
+        row = c.execute("SELECT reports_to FROM seats WHERE id=?", (reports_to[len(SEAT_PREFIX):],)).fetchone()
+        reports_to = str(row["reports_to"] or "") if row else ""
+    return "" if reports_to.startswith(SEAT_PREFIX) else reports_to
+
+
 def _may_place(auth, c, who, reports_to):
-    """The owner places a seat anywhere; a person places one under themselves or anyone below them."""
+    """The owner places a seat anywhere; a person places one under themselves or anyone below them, a seat under a seat
+    counting as under the person or bot that seat answers to."""
     if who.role == "owner":
         return
+    reports_to = _anchor(c, reports_to)
     if who.role == "human" and (not who.via or who.confirmed):
         if reports_to == who.actor:
             return
@@ -204,14 +238,45 @@ def create_seat(auth, c, who, title, description="", reports_to="", team="", des
     for a chart model's text. Only a description no person wrote is replaced by the CEO Bot's draft (recruiting.py)."""
     reports_to = _reports_to(c, reports_to or who.actor)
     _may_place(auth, c, who, reports_to)
+    return _seat(seat(c, _insert(c, who.actor, title, description, reports_to, team, description_by)))
+
+
+def _insert(c, actor, title, description, reports_to, team, description_by=None):
     now, seat_id = H.now(), uuid.uuid4().hex
     description = str(description or "")[:DESCRIPTION_MAX]
-    by = (who.actor if description.strip() else "") if description_by is None else str(description_by)
+    by = (actor if description.strip() else "") if description_by is None else str(description_by)
     c.execute("INSERT INTO seats(id,title,description,reports_to,team,created,created_by,updated,updated_by,description_by) "
               "VALUES(?,?,?,?,?,?,?,?,?,?)", (seat_id, _clean_title(title), description, reports_to,
-                                              str(team or "").strip(), now, who.actor, now, who.actor, by))
-    H.event(c, who.actor, "seat.created", seat_id, {"reports_to": reports_to})
-    return _seat(seat(c, seat_id))
+                                              str(team or "").strip(), now, actor, now, actor, by))
+    H.event(c, actor, "seat.created", seat_id, {"reports_to": reports_to})
+    return seat_id
+
+
+def lay_out(c, actor, roles):
+    """Setup's chart, laid out exactly (docs/onboarding.md, "Setup picks the chart"): every role a Recruiting seat with
+    its reporting line, and no bot, repository, computer slot or BotOps task for any of them. Only setup calls this, as
+    the owner, so no placement rule applies.
+
+    `roles` is {key: {title, description, reports_to, team}}; a `reports_to` naming another key reports to that seat,
+    anything else is a person (`human:<id>`) or a bot. Managers are laid out before their reports, so every line holds
+    when it is written. Returns {key: seat id}."""
+    made = {}
+
+    def place(key, path=()):
+        if key in made:
+            return made[key]
+        if key in path:
+            raise Problem("hierarchy", "The chart's reporting lines go round in a circle", 422)
+        role = roles[key]
+        parent = str(role.get("reports_to") or "")
+        reports_to = (SEAT_PREFIX + place(parent, (*path, key))) if parent in roles else _reports_to(c, parent)
+        made[key] = _insert(c, actor, role["title"], role.get("description") or "", reports_to,
+                            role.get("team") or "", role.get("description_by", "chart"))
+        return made[key]
+
+    for key in roles:
+        place(key)
+    return made
 
 
 def create_seats(auth, c, who, seats):
@@ -234,7 +299,7 @@ def update_seat(auth, c, who, seat_id, fields):
     if fields.get("team") is not None:
         values["team"] = str(fields["team"]).strip()
     if fields.get("reports_to") is not None:
-        values["reports_to"] = _reports_to(c, fields["reports_to"])
+        values["reports_to"] = _reports_to(c, fields["reports_to"], seat_id)
         _may_place(auth, c, who, values["reports_to"])
     if values:
         values.update(updated=H.now(), updated_by=who.actor)
@@ -257,11 +322,45 @@ def close_seat(auth, c, who, seat_id):
     return {"id": seat_id, "closed": True}
 
 
-def org_parent(seat_row, roster, employees, archived=()):
-    """Where a seat hangs on the chart: under its bot while that bot is on the chart, else under its person, as a
-    bot reporting there would (backend/people.py `org_parent`)."""
+def org_parent(seat_row, roster, employees, archived=(), all_seats=None):
+    """Where a seat hangs on the chart: under the open seat it reports to (`s:<id>`), else under its bot while that bot
+    is on the chart, else under its person, as a bot reporting there would (backend/people.py `org_parent`). A closed
+    seat above it is passed over for whatever that seat answered to. `all_seats` is {id: row}, closed seats too."""
     from . import people as P
-    reports = str(seat_row["reports_to"] or "")
+    all_seats = all_seats or {}
+    reports, seen = str(seat_row["reports_to"] or ""), {seat_row["id"]}
+    while reports.startswith(SEAT_PREFIX):
+        parent = all_seats.get(reports[len(SEAT_PREFIX):])
+        if not parent or parent["id"] in seen:
+            reports = ""
+            break
+        if not parent["closed_at"]:
+            return "s:" + parent["id"]
+        seen.add(parent["id"])
+        reports = str(parent["reports_to"] or "")
     probe = "seat:" + seat_row["id"]
     return P.org_parent("bot", probe, roster, {**(employees or {}), probe: {"reports_to": reports,
                                                                            "team": seat_row["team"] or ""}}, archived)
+
+
+def all_seats(c):
+    return {row["id"]: row for row in c.execute("SELECT * FROM seats")}
+
+
+def chart_seats(c, roster, employees, archived=(), may_see=lambda slug: True):
+    """The open seats as the sidebar's team chart draws them (GET /api/humans): each with its title, job description and
+    where it hangs. One under a bot the caller may not see hangs from the nearest thing above that bot they may, as
+    that bot's own reports do on the chart."""
+    from . import people as P
+    every, out = all_seats(c), []
+    for row in every.values():
+        if row["closed_at"]:
+            continue
+        parent, seen = org_parent(row, roster, employees, archived, every), set()
+        while parent.startswith("b:") and parent not in seen and not may_see(parent[2:]):
+            seen.add(parent)
+            parent = P.org_parent("bot", parent[2:], roster, employees, archived)
+        out.append({"id": row["id"], "kind": "seat", "stage": RECRUITING, "title": row["title"],
+                    "description": row["description"], "team": row["team"], "reports_to": row["reports_to"],
+                    "created": row["created"], "org_parent": parent})
+    return sorted(out, key=lambda seat: (seat["created"], seat["id"]))

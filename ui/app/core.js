@@ -24,6 +24,7 @@ const SETTINGS = '#/settings';
 const HELP = '#/help';                // old Help links: Overview with the Support pop-up open (ui/support.js)
 const CREDENTIALS = '#/credentials';   // the owner's connections: what is connected and whether it works
 const SQL_PAGE = '#/sql';              // the owner's and admins' read-only query page over the hub database
+const STRATEGY = '#/strategy';       // the team's strategy, with Market as its second tab (ui/strategy-page.js)
 const DOCS = '#/docs';              // team-wide documentation, separate from bot Docs tabs
 const INTEGRATIONS = '#/integrations'; // integrations/*.md: how a bot uses each outside system, its queries, shared learnings
 const MAIL = '#/mail';                // server-stored mail copies; #/inbox redirects here
@@ -71,6 +72,13 @@ function patchHTML(root, html, full = (el, h) => { el.innerHTML = h; }) {
   for (const n of added) root.insertBefore(document.adoptNode(n), after);
   PATCH_SRC.set(root, {html, src, nodes: [...was.nodes.slice(0, a), ...added, ...was.nodes.slice(was.nodes.length - b)]});
   return true;
+}
+// patchHTML for a box every poll redraws. Unchanged markup is kept only while the controls still match it: a button a
+// click left disabled ("Resuming…") or a box ticked by hand is drawn fresh, as before.
+function patchLiveHTML(root, html) {
+  if (root.querySelector('button:disabled') || [...root.querySelectorAll('input[type=checkbox]')].some(b => b.checked !== b.defaultChecked))
+    PATCH_SRC.delete(root);
+  return patchHTML(root, html);
 }
 // Bot text (final replies, status notes, playbooks) is untrusted: every render goes through safeMd.
 const md = s => safeMd(s);

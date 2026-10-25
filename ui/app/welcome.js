@@ -3,29 +3,30 @@
 'use strict';
 
 // ----------------------------------------------------------------- first run (#/welcome)
-// A team's first hour is its own flow, not a settings page. Name the app
-// and the team; say what the team does; build the team chart group by group
-// (ui/org-builder.js); enroll this Mac; connect your own agent if you have one; finish.
+// A team's first hour is its own flow, not a settings page. Say what the team is building and confirm the bets the
+// research proposes (ui/setup-strategy.js); name the app and the team; say what the team does; build the team chart
+// group by group (ui/org-builder.js); enroll this Mac; connect your own agent if you have one; finish.
 // Every Next saves a draft, so a closed tab loses nothing. There is no assistant
 // to name in the wizard: humans talk to it in the Assistant tab on their own page, act through their own agent, or use a bot's Chat tab.
-const ONB_STEPS = ['names', 'about', 'org', 'machine', 'agent', 'review'];
-// A team that has not chosen its AI providers starts there; state.steps is fixed at load, so the
+const ONB_STEPS = ['building', 'bets', 'names', 'about', 'org', 'machine', 'agent', 'review'];
+// A team that has not chosen its AI providers starts there (the research needs a model); state.steps is fixed at load, so the
 // step does not vanish from the list the moment it is saved.
 const onbStepList = needsProviders => needsProviders ? ['providers', ...ONB_STEPS] : ONB_STEPS;
-const ONB_TITLES = {providers: 'AI providers', names: 'Names', about: 'About the team',
+const ONB_TITLES = {providers: 'AI providers', building: 'What are you building', bets: 'Your bets', names: 'Names', about: 'About the team',
                     org: 'Your team chart', machine: 'Add the computer that runs your bots', agent: 'Connect an external agent', review: 'Review and create'};
 // The progress row's words: one each, so the row stays on one line (a phone shows the current one only).
-const ONB_SHORT = {providers: 'Providers', names: 'Names', about: 'About', org: 'Team', machine: 'Computer', agent: 'Agent', review: 'Review'};
+const ONB_SHORT = {providers: 'Providers', building: 'Building', bets: 'Bets', names: 'Names', about: 'About', org: 'Team', machine: 'Computer', agent: 'Agent', review: 'Review'};
 // At most one short hint line under a step's title; most steps have none.
-const ONB_BLURB = {providers: 'Choose the subscriptions or API keys your bots use, with Tico Gateway if you want it.', agent: 'Optional.'};
+const ONB_BLURB = {providers: 'Choose the subscriptions or API keys your bots use, with Tico Gateway if you want it.',
+                   bets: 'A draft: nothing is published.', agent: 'Optional.'};
 const ONB_CUSTOMERS = [['businesses', 'Businesses'], ['consumers', 'Consumers'], ['both', 'Both']];
 // The four the server accepts (models.WorkArrival). Adding one here needs the same word there.
 const ONB_ARRIVES = [['email', 'Email'], ['slack', 'Slack'], ['crm', 'CRM'], ['tickets', 'Tickets']];
 // Kept with a number in them: a human reads the answer, and an older record's chooser read the largest number.
 const ONB_SIZES = ['1 (just me)', '2-10', '11-50', '51-200', '201+'];
 const ONB_BLANK = {
-  names: {company_name: '', app_name: '', assistant_name: '', owner_name: '', team_domain: ''},
-  answers: {what_we_do: '', customers: '', team_size: '', work_arrives: [], repetitive_work: '',
+  names: {company_name: '', app_name: '', assistant_name: '', owner_name: '', team_domain: '', website: ''},
+  answers: {building: '', what_we_do: '', customers: '', team_size: '', work_arrives: [], repetitive_work: '',
             software_product: '', departments: [], briefings: {}},
   selected: {}, completed: null, home: '', bots: [], machine: {runners: [], enrolled: false}, needed: true};
 let ONB = null;
@@ -35,13 +36,13 @@ const onbDefaultKind = () => (S.config?.in_docker ? 'linux' : 'mac');
 const onbOwnerGuess = () => (S.me?.name && !/@/.test(S.me.name) ? S.me.name : S.me?.sign_in_name || '');
 // A team whose owner signs in with public mail (Gmail) and has no company address on the roster is asked its email domain, once.
 const onbAsksDomain = () => S.me?.role === 'owner' && !(S.me.company_domains || []).length;
-function onbStop() { if (ONB) clearInterval(ONB.poll); ONB = null; }
+function onbStop() { if (ONB) { clearInterval(ONB.poll); clearTimeout(ONB.strat.timer); } ONB = null; }
 function pageWelcome() {
   // Only the owner may set a team up; everyone else has no reason to see the address either.
   if (S.me && S.me.role !== 'owner') { location.hash = TASKS; return; }
   const state = ONB = {step: 0, steps: ONB_STEPS, providers: null, models: [], record: JSON.parse(JSON.stringify(ONB_BLANK)), catalog: catalogState([]),
                        revisions: {}, busy: false, completing: false, poll: null, org: obBlank(),
-                       enrollment: '', error: '', kind: onbDefaultKind()};
+                       enrollment: '', error: '', kind: onbDefaultKind(), strat: ssBlank()};
   $('#main').innerHTML = '<div class="onb" id="onb"><div class="empty">Loading…</div></div>';
   void onbLoad(state);
 }
@@ -118,6 +119,7 @@ function onbRender(state) {
 
   const done = state.step >= state.steps.length, key = done ? 'done' : state.steps[state.step];
   host.classList.toggle('onb-org', key === 'org');
+  host.classList.toggle('onb-wide', key === 'bets');
   const heading = done ? 'Your team is created' : ONB_TITLES[key];
   host.innerHTML = `<div class="onb-head"><div class="onb-brand">${brandLogo()}</div><h1>${esc(heading)}</h1>${ONB_BLURB[key] ? `<p data-onb-hint>${esc(ONB_BLURB[key])}</p>` : ''}</div>
     ${done ? '' : `<ol class="onb-progress" aria-label="Setup steps">${state.steps.map((step, i) =>
@@ -135,6 +137,8 @@ function onbStepHTML(state, key) {
     <span class="spacer"></span><span class="muted" id="onb-status"></span><button class="ghost" type="button" data-setup-help="wizard">Want help setting up?</button></div>`;
   if (key === 'providers') return `${providersFormHTML(state.providers, state.models, 'onb-prov')}
     ${actions(state.providers.enabled?.length ? 'Next' : 'Skip for now')}`;
+  if (key === 'building') return ssBuildingHTML(state, actions);
+  if (key === 'bets') return ssBetsHTML(state);
   if (key === 'names') return `
     <label class="onb-field"><span class="k">Company name</span>
       <input type="text" id="onb-company" maxlength="120" value="${esc(names.company_name)}" placeholder="Acme Inc." autocomplete="organization"></label>
@@ -147,7 +151,7 @@ function onbStepHTML(state, key) {
     ${actions('Next')}`;
   if (key === 'about') return `
     <label class="onb-field"><span class="k">What you do</span>
-      <textarea id="onb-what" maxlength="2000" placeholder="We rent out short-stay apartments and sell the software that runs them.">${esc(a.what_we_do)}</textarea></label>
+      <textarea id="onb-what" maxlength="2000" placeholder="We rent out short-stay apartments and sell the software that runs them.">${esc(a.what_we_do || a.building.slice(0, 2000))}</textarea></label>
     <div class="onb-field"><span class="k">Who you sell to</span>
       <div class="onb-choices">${ONB_CUSTOMERS.map(([value, label]) =>
         `<label><input type="radio" name="onb-customers" value="${value}" ${a.customers === value ? 'checked' : ''}>${label}</label>`).join('')}</div></div>
@@ -206,21 +210,47 @@ function onbSampleHTML(state, done) {
 const onbImportPending = fields => (fields || []).map(field => ({goals: 'goals', tool_connections: 'tool connections',
   first_jobs: 'first jobs', model_choices: 'model choices', routines: 'routines',
   open_seats: 'open seats', coworkers: 'coworkers'}[field] || field)).join(', ');
+// The company file chosen at install that could not be imported (backend/company_import.py `start`): said in words,
+// on every step, until an import works. No sample team took its place.
+function onbImportFailedHTML(state) {
+  const failed = state.record.company_import_failed;
+  return failed ? `<section class="card onb-import-failed" id="onb-import-failed" role="alert"><h2>Your chosen org chart wasn't imported</h2>
+    <p>${esc(failed.reason || '')}</p><p class="muted">No sample team was set up in its place.${state.record.completed
+      ? ' This company is already set up, so the file can\'t replace its team.'
+      : ' Import the company file again below, or pick your team here.'}</p>
+    <button class="ghost" type="button" id="onb-import-failed-dismiss">Dismiss</button></section>` : '';
+}
+// Dismiss is the way out when the owner won't fix the file by importing it (Health links here for it).
+async function onbDismissImportFailure(state, button) {
+  button.disabled = true;
+  try {
+    const record = await post('/v2/setup/company/import-failure/dismiss', {});
+    if (ONB !== state) return;
+    state.record.company_import_failed = record.company_import_failed;
+    onbRender(state);
+  } catch (error) {
+    button.disabled = false;
+    toast(error.message, true);
+  }
+}
 function onbCompanyFileHTML(state, done) {
   if (done) {
-    const imported = state.record.company_import;
-    return imported ? `<section class="card"><p>Your selected starter team was imported.</p>${imported.deferred?.length
-      ? `<p class="muted">Saved for later setup: ${esc(onbImportPending(imported.deferred))}.</p>` : ''}</section>` : '';
+    const imported = state.record.company_import, seats = imported?.seats || 0;
+    return onbImportFailedHTML(state) + (imported ? `<section class="card"><p>Your chosen org chart is laid out${seats
+      ? `: ${seats} ${seats === 1 ? 'role' : 'roles'} marked Recruiting, each waiting for a bot` : ''}.</p>${imported.deferred?.length
+      ? `<p class="muted">Saved for later setup: ${esc(onbImportPending(imported.deferred))}.</p>` : ''}${(imported.people || []).some(p => !p.invited_at)
+      ? '<p class="muted">Invite the people it names from <a href="#/settings/people">Settings › Humans</a>.</p>' : ''}</section>` : '');
   }
-  if (state.step !== 0 || state.record.completed) return '';
+  if (state.step !== 0 || state.record.completed) return onbImportFailedHTML(state);
   const preview = state.companyImport?.preview;
-  return `<section class="onb-sample" id="onb-company-file-box"><p><strong>Already chose your team?</strong>
+  return `${onbImportFailedHTML(state)}<section class="onb-sample" id="onb-company-file-box"><p><strong>Already chose your team?</strong>
     Import the company YAML you downloaded from Tico setup.</p>
     <label class="onb-field"><span class="k">Company YAML file</span><input type="file" id="onb-company-file" accept=".yaml,.yml"></label>
     <p id="onb-company-file-status" role="status">${esc(state.companyImportError || '')}</p>
     ${preview ? `<h3>${esc(preview.company_name)}</h3><ul>${preview.employees.map(bot =>
-      `<li>${esc(bot.title)}${bot.start === 'later' ? ' — starts paused' : ''}</li>`).join('')}</ul>
-      <p class="muted">Tico includes its required built-in roles once.</p>
+      `<li>${esc(bot.title)} — works from day one</li>`).join('')}${(preview.seats || []).map(seat =>
+      `<li>${esc(seat.title)} — <span class="pill waiting">Recruiting</span></li>`).join('')}</ul>
+      <p class="muted">Tico's built-in bots work from day one. Every other role is a Recruiting seat until you pick a bot for it.</p>
       ${preview.deferred.length ? `<p>These choices are saved for later setup: ${esc(onbImportPending(preview.deferred))}.</p>` : ''}
       <button class="primary" type="button" id="onb-company-file-use">Use this team</button>` : ''}</section>`;
 }
@@ -329,6 +359,7 @@ function onbSummaryHTML(state) {
   const r = state.record, a = r.answers;
   const label = (key, value) => `<div><span class="k">${esc(key)}</span><span>${esc(value || '—')}</span></div>`;
   return `<div class="onb-summary">
+    ${label('Building', a.building)}${r.names.website ? label('Website', r.names.website) : ''}
     ${label('Team', r.names.company_name)}${label('App', r.names.app_name)}
     ${label('What you do', a.what_we_do)}
     ${label('Sells to', ONB_CUSTOMERS.find(([value]) => value === a.customers)?.[1] || '')}
@@ -394,6 +425,7 @@ function onbWire(state, key) {
     root.addEventListener('change', () => { $('#onb-next').textContent = providersCollect(root).enabled.length ? 'Next' : 'Skip for now'; });
   }
   if (key === 'org') obWire(state);
+  if (key === 'bets') void ssEnter(state);
   if (key === 'machine') {
     const commands = onbCommands(state);
     document.querySelectorAll('[data-onb-copy]').forEach(button => button.onclick = () =>
@@ -426,6 +458,8 @@ function onbWire(state, key) {
   if (companyFile) companyFile.onchange = () => void onbReadCompanyFile(state, companyFile.files?.[0]);
   const useCompanyFile = $('#onb-company-file-use');
   if (useCompanyFile) useCompanyFile.onclick = () => void onbUseCompanyFile(state);
+  const dismissFailure = $('#onb-import-failed-dismiss');
+  if (dismissFailure) dismissFailure.onclick = () => void onbDismissImportFailure(state, dismissFailure);
   const tasks = $('#onb-tasks');
   if (tasks) tasks.onclick = () => { location.hash = TASKS; };
   const connect = $('#onb-connect');
@@ -436,6 +470,9 @@ function onbWire(state, key) {
 }
 function onbCollect(state, key) {
   const r = state.record;
+  if (key === 'building' && $('#onb-website')) ssCollectBuilding(state);
+  // Back from the bets saves What we won't do as Next would, unless the research is still running.
+  if (key === 'bets' && !ssRunning(state)) void ssSaveNot(state);
   if (key === 'names' && $('#onb-company')) r.names = {
     ...r.names, company_name: $('#onb-company').value.trim(), app_name: $('#onb-app').value.trim(),
     owner_name: ($('#onb-owner')?.value || '').trim(),
@@ -463,6 +500,8 @@ async function onbSave(state) {
                                              selected: state.record.selected});
   if (ONB !== state || !saved || typeof saved !== 'object') return saved;
   if (saved.machine) state.record.machine = {...state.record.machine, ...saved.machine};
+  // The server stores the website as an https:// address; the research reads that one.
+  if (typeof saved.names?.website === 'string') state.record.names.website = saved.names.website;
   if (typeof saved.home === 'string') state.record.home = saved.home;
   return saved;
 }
@@ -516,10 +555,21 @@ async function onbAdvance(state, key) {
   }
   if (key === 'names' && !state.record.names.app_name) { onbBusy(state, false, '<span class="err">Give the app a name.</span>'); return; }
   if (key === 'org' && !obCanAdvance(state)) { onbBusy(state, false, ''); return; }
+  if (key === 'bets') {
+    onbBusy(state, true, 'Saving…');
+    const ok = await ssLeave(state);
+    if (ONB !== state) return;
+    if (!ok) { onbBusy(state, false, ''); ssGate(state); ssPoll(state); return; }
+  }
   onbBusy(state, true, 'Saving…');
   try {
     await onbSave(state);
     if (ONB !== state) return;
+    if (key === 'building') {
+      const refused = await ssResearch(state);
+      if (ONB !== state) return;
+      if (refused) { onbBusy(state, false, `<span class="err">${esc(refused)}</span>`); $('#onb-website')?.focus(); return; }
+    }
     if (key === 'names') { onbApplyNames(state); void onbRefreshOwner(state); }
     state.step = Math.min(state.steps.length - 1, state.step + 1);
     onbRender(state);

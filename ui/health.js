@@ -123,8 +123,10 @@ function hlSeen(f) {
 // rule that lets it file Tico bug reports without a Needs you card.
 function hlMonitorHtml(m) {
   if (!m) return '';
+  // A stopped bot's finding (run_hold:<bot>, turn_budget:<bot>) carries the same Release as the bot's page.
+  const stopped = f => { const m = /^(?:run_hold|turn_budget):(.+)$/.exec(f.key || ''); return m && typeof botReleaseButton === 'function' ? botReleaseButton(m[1], 'ghost') : ''; };
   const found = (m.findings || []).slice(0, 8).map(f => `<li data-hl-finding="${esc(f.key)}"><strong>${esc(f.title)}</strong>
-    <span class="muted">${f.kind === 'setup' ? 'BotOps fixes it' : f.ticket_id ? 'reported to Tico' : f.approval_id ? 'report waiting in Needs you' : 'Tico bug'} · since ${esc(ago(f.first_seen))} · ${esc(hlSeen(f))}</span></li>`).join('');
+    <span class="muted">${f.kind === 'setup' ? 'BotOps fixes it' : f.ticket_id ? 'reported to Tico' : f.approval_id ? 'report waiting in Needs you' : 'Tico bug'} · since ${esc(ago(f.first_seen))} · ${esc(hlSeen(f))}</span>${stopped(f)}</li>`).join('');
   return `<section class="hl-monitor" data-hl-monitor="${m.on ? 'on' : 'off'}">
     <label class="hl-monitor-row"><input type="checkbox" role="switch" data-hl-monitor-switch${m.on ? ' checked' : ''}>
       <span><strong>Health Monitor</strong> <span class="muted">checks this install every hour, has BotOps fix setup problems and reports Tico bugs to the Tico team. It wakes a model only when it finds something new or worse; seeing a problem again only adds to its count.</span></span></label>
@@ -148,7 +150,7 @@ async function hlMonitorToggle(box) {
 window.hlStuckHtml = function hlStuckHtml(rows) {
   return (rows || []).map(row => `<li class="hl-stuck" data-stuck="${esc(row.bot)}" data-reason="${esc(row.reason)}">
     <a href="#/bot/${esc(row.bot)}">${esc(row.name)}</a> <span class="muted">${esc(row.why)}${row.reason === 'slow' && row.oldest ? ' · ' + esc(ago(row.oldest)) : ''}${row.queued ? ` · ${row.queued} queued` : ''}</span>
-    ${row.fix ? hlFixHtml(row.fix) : ''}${hlReportHtml({kind: 'stuck', title: `${row.name}: ${row.why}`, detail: row.why, ref: row.bot, group: 'stuck:' + row.reason})}</li>`).join('');
+    ${row.fix ? hlFixHtml(row.fix) : ''}${['run_hold', 'budget'].includes(row.reason) && typeof botReleaseButton === 'function' ? botReleaseButton(row.bot, 'ghost') : ''}${hlReportHtml({kind: 'stuck', title: `${row.name}: ${row.why}`, detail: row.why, ref: row.bot, group: 'stuck:' + row.reason})}</li>`).join('');
 };
 
 async function hlStuckMove(button) {
@@ -160,7 +162,7 @@ async function hlStuckMove(button) {
   void hlRefresh();
 }
 
-// A bot stuck in setup: the same setup-done call as its page's "Mark setup done" (POST /v2/bots/{bot}/onboarded).
+// A bot stuck in onboarding: the same call as its page's "Mark onboarding complete" (POST /v2/bots/{bot}/onboarded).
 async function hlStuckFinish(button) {
   const slug = button.dataset.stuckFinish;
   button.disabled = true; button.textContent = 'Finishing…';
@@ -168,7 +170,7 @@ async function hlStuckFinish(button) {
     const result = await post(`/v2/bots/${encodeURIComponent(slug)}/onboarded`, {});
     const bot = (S.emps || []).find(e => e.name === slug);
     if (bot) bot.onboarding_state = result.onboarding_state;
-    toast(`${botDisplayName(slug)} finished setup`);
+    toast(`${botDisplayName(slug)} finished onboarding`);
     void hlRefresh();
   } catch (error) {
     toast(error.message, true);
