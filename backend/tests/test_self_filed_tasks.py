@@ -3,6 +3,7 @@
 The task's own turn starts once the filing turn has ended, never beside it: a task the filing turn finished by then
 starts no turn at all. A turn Tico woke on a task already finished that wrote nothing posts no reply to the person;
 its text stays on the run."""
+from backend import wake_presets as W
 from backend.store import H
 from backend.tests.test_api import api, claim, get, post  # noqa: F401  (api is a fixture)
 from backend.tests.test_run_triggers import finish, machine, start

@@ -7,8 +7,10 @@ Under a preset, two kinds of job wait at enqueue time (the `wake_preset_hold` tr
 event source is held the same way): a nonblocking notice the server marks with `refs.wake_batch`
 (BATCH_KINDS: a finished request, review comments, a failing check nobody armed a wait for) and a sweep
 (a routine's scheduled run, a stall or status check). Only the keeper writes those refs, so nobody can make
-an immediate wake wait by sending text that looks like one. Everything else — a person's message, an
-assignment, a question, an awaited dependency resolving, a blocker, a review or QA request — is never held.
+an immediate wake wait by sending text that looks like one. Other news (a comment, a task's status, step or relation
+moving, any notice no rule names) starts no job at all: the rules engine writes it as a note (backend/rules.py,
+`default_note`), so nothing here holds it. A held batch never holds anything else back: a person's message starts
+its turn at once.
 The scheduler plans each held job's release (`tick`) and lets it go when it is due.
 
 Under a preset a job whose message repeats another of the bot's in the same conversation (same sender, kind, text,
@@ -57,6 +59,9 @@ MISSED_AFTER_SECONDS = 5 * 60
 DUPLICATE_SECONDS = 2 * 60
 # Nonblocking notices the keeper marks with refs.wake_batch.
 BATCH_KINDS = ("completion", "review", "ci", "rule")
+# Jobs held as `notice` by an earlier build's news hold, let go with the batch above.
+NOTICE = "notice"
+HELD_CLASSES = (*BATCH_KINDS, NOTICE)
 # Sweeps: refs.wake on a keeper notice, or refs.sweep (a routine's scheduled run, by schedule id).
 SWEEP_WAKES = ("stalled", "status_check", "occurrence")
 IMMEDIATE = ("A person's message or request", "An assignment", "A direct question",
@@ -152,7 +157,7 @@ def effective(config):
     if own:
         spec.update(own)
     batch = _duration(spec["batch_seconds"])
-    summary = (f"{spec['label']}: finished requests, review comments and check results wait up to {batch}"
+    summary = (f"{spec['label']}: finished requests and a person's review comments wait up to {batch}"
                + (" (at most one such wake per " + batch + ")" if spec["batch_scope"] == "bot" else "")
                + f"; an enabled routine or stall check runs at most every {_duration(spec['sweep_seconds'])}. "
                "People, assignments, questions, awaited results, blockers and review requests wake it at once.")
@@ -252,7 +257,7 @@ def _batch_slot(c, job, values_of):
     window after the bot's last batch went out."""
     gap, per_bot = values_of["batch_seconds"], values_of["batch_scope"] == "bot"
     hour = values_of.get("digest_hour")
-    kinds = ",".join(f"'{k}'" for k in BATCH_KINDS)
+    kinds = ",".join(f"'{k}'" for k in HELD_CLASSES)
     waiting = c.execute("SELECT min(j.hold_until) FROM jobs j JOIN messages m ON m.id=j.message_id WHERE j.bot=? "
                         f"AND j.held=1 AND j.state='queued' AND j.hold_until IS NOT NULL AND j.wake_class IN ({kinds}) "
                         "AND (? OR m.conversation_id=?)", (job["bot"], per_bot, job["conversation_id"])).fetchone()[0]
@@ -363,7 +368,7 @@ def classify(message):
     if wake in ("stalled", "status_check") or refs.get("sweep") or wake == "occurrence":
         return "sweep", ("A scheduled routine run" if refs.get("sweep") or wake == "occurrence"
                          else "A stall check" if wake == "stalled" else "A status check")
-    if body.startswith(("New task from", "Open:", "Next-run task:")):
+    if body.startswith(("New task from", "Open:", "Next-run task:")) or refs.get("auto_start"):
         return "assignment", "An assignment"
     if body.startswith(("Unblocked:", "All subtasks done")) or refs.get("subtask") or refs.get("worktree_wait") \
             or wake in ("watcher", "watcher-done", "resume") or refs.get("approval") or refs.get("milestone"):
@@ -385,7 +390,7 @@ def record(c, job, message, bot=None):
     (backend/profiles.py; its settings and the run show the profile, the preset stays for older clients) and how long
     it waited."""
     cls, words = classify(message)
-    if job["wake_class"] in (*BATCH_KINDS, "digest", "sweep"):
+    if job["wake_class"] in (*HELD_CLASSES, "digest", "sweep"):
         cls = "sweep" if job["wake_class"] == "sweep" else "batched"
         words = "A scheduled sweep" if cls == "sweep" and words == "A Tico notice" else words
     name = job["wake_preset"] or CURRENT
@@ -444,7 +449,7 @@ def measures(c, since, until=None, limit=20000):
         name = row["wake_preset"] if row["wake_preset"] in out else CURRENT
         bucket = out[name]
         bucket["jobs"] += 1
-        held = row["wake_class"] in (*BATCH_KINDS, "digest", "sweep")
+        held = row["wake_class"] in (*HELD_CLASSES, "digest", "sweep")
         bucket["held"] += 1 if held else 0
         if row["wake_class"] == "duplicate":
             bucket["duplicates"] += 1
