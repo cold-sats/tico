@@ -193,7 +193,7 @@ def qa_fail_refuses_waiver(run):
             if failed_at(w, e["task_id"], e["head"])]
     if not attempts:
         bad.append("no waiver was asked at a failed head")
-    return not bad, ", ".join(bad[:6]) or f"{len(attempts)} refused at a failed head"
+    return not bad, ", ".join(bad[:6]) or "; ".join(f"{a['title']}: {a['outcome'][:240]}" for a in attempts)
 
 
 def waiver_sets_no_verdict(run):
@@ -205,7 +205,7 @@ def waiver_sets_no_verdict(run):
     for tid in waived:
         for c in qa_children(w, tid):
             for e in w.sql("SELECT actor, field FROM task_events WHERE task_id=? AND (actor LIKE 'human:%' OR "
-                           "(field LIKE 'verdict%' AND new IS NOT NULL AND new<>''))", (c["id"],)):
+                           "(field IN ('verdict','verdict_head') AND new IS NOT NULL AND new<>''))", (c["id"],)):
                 if e["actor"].startswith("human:") or e["actor"] not in qa:
                     bad.append(f"{w.title(tid)} QA {e['field']} by {e['actor']}")
     if not waived:
