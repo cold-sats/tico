@@ -17,6 +17,31 @@ def test_blocked_step_survives_restart_and_is_before_work(api):
         assert H.type_get(c, typ['id'])['steps'] == typ['steps']
 
 
+def test_restart_stamps_unstamped_builds_and_writes_nothing_once_done(api):
+    """Every start runs this in a transaction that has already read; a write there fails at once if another
+    connection committed meanwhile, so a start with nothing to stamp must not write."""
+    import sqlite3
+    from backend import task_blocked
+    task = ticket(api)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET status='doing',building_started_at=NULL,building_seconds=0 WHERE id=?", (task['id'],))
+        task_blocked.ensure_steps(c)
+        assert H.task(c, task['id'])['building_started_at']
+    path = api.app.state.store.settings.db_path
+    reader = sqlite3.connect(str(path), isolation_level=None, timeout=30)
+    reader.row_factory = sqlite3.Row
+    other = sqlite3.connect(str(path), isolation_level=None, timeout=30)
+    try:
+        reader.execute('SAVEPOINT start')
+        reader.execute('SELECT count(*) FROM tasks').fetchone()
+        other.execute("UPDATE tasks SET title=title||'' WHERE id=?", (task['id'],))
+        task_blocked.ensure_steps(reader)
+        reader.execute('RELEASE start')
+    finally:
+        reader.close()
+        other.close()
+
+
 def test_owner_block_keeps_reason_time_and_resume_step(api):
     task = ticket(api)
     with api.app.state.store.transaction() as c:

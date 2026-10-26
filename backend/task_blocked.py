@@ -35,10 +35,15 @@ def ensure_steps(c):
         for position, step in enumerate(rest[:at] + [blocked] + rest[at:]):
             if step['position'] != position:
                 c.execute('UPDATE task_steps SET position=? WHERE id=?', (position, step['id']))
-        # Upgrade active builds without restarting their age at server startup.
-        c.execute("UPDATE tasks SET building_started_at=coalesce((SELECT max(ts) FROM task_events e WHERE e.task_id=tasks.id AND e.field='step' AND e.new=tasks.step_id),created) "
-                  "WHERE type_id=? AND status='doing' AND building_started_at IS NULL AND building_seconds=0 "
-                  "AND created LIKE '____-__-__T%'", (typ[0],))
+        # Upgrade active builds without restarting their age at server startup. This runs inside a deferred
+        # transaction that has already read, so a write statement, even one matching nothing, fails at once with
+        # "database is locked" if another connection committed meanwhile: write only when a build needs it.
+        unstamped = ("FROM tasks WHERE type_id=? AND status='doing' AND building_started_at IS NULL "
+                     "AND building_seconds=0 AND created LIKE '____-__-__T%'")
+        if c.execute("SELECT 1 " + unstamped + " LIMIT 1", (typ[0],)).fetchone():
+            c.execute("UPDATE tasks SET building_started_at=coalesce((SELECT max(ts) FROM task_events e WHERE "
+                      "e.task_id=tasks.id AND e.field='step' AND e.new=tasks.step_id),created) "
+                      "WHERE id IN (SELECT id " + unstamped + ")", (typ[0],))
 
 
 def backfill(c):
