@@ -278,3 +278,26 @@ def test_a_qa_failure_at_the_head_is_not_waivable(api):
     with api.app.state.store.transaction() as c:
         c.execute('UPDATE tasks SET verdict_head=? WHERE id=?', (NEW, failed['id']))   # it failed an earlier head
     assert waive(api, row).status_code == 200
+
+
+@pytest.mark.parametrize('pushed', ['the waived PR', 'another open PR'])
+def test_a_push_recorded_while_github_is_read_refuses_the_stale_green_read(api, pushed):
+    """The route reads GitHub outside the write lock. A push whose webhook lands before the waiver is written makes
+    that read stale: refused with nothing recorded and nobody woken, as for a review move."""
+    row = ticket(api)
+    second = PR.rsplit('/', 1)[0] + '/413'
+    assert call(api, 'POST', f"tasks/{row['id']}/links", body={'url': second}).status_code == 200
+    hook(api, 'pull_request', pr_event('opened', html_url=second, number=413, head={'sha': HEAD}))
+    url = PR if pushed == 'the waived PR' else second
+    real = api.github.snapshot
+    def read_then_push(service, prs):
+        green = real(service, prs)
+        hook(api, 'pull_request', pr_event('synchronize', html_url=url, number=int(url.rsplit('/', 1)[1]),
+                                           head={'sha': NEW}))
+        return green
+    api.github.snapshot = read_then_push
+    r = waive(api, row)
+    assert r.status_code == 422 and url + ' changed while GitHub was read' in r.text, r.text
+    with api.app.state.store.read() as c:
+        assert not c.execute("SELECT 1 FROM task_events WHERE task_id=? AND field='qa_waiver'", (row['id'],)).fetchall()
+        assert not c.execute("SELECT 1 FROM messages WHERE body LIKE '%waived QA%'").fetchall()

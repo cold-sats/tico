@@ -129,6 +129,12 @@ def waive(c, actor, task_id, head, reason, step=None, snapshots=None, manager=Fa
         if detail.get("error"):
             _refuse(c, actor, row, f"Cannot read the current head and CI of {pr['url']} "
                                    f"({detail.get('why') or 'GitHub read failed'}); retry.")
+        # The read ran outside the write lock: a push recorded since then makes it stale, as for a review move
+        # (review_gate.check). An older cache never overrides a newer read.
+        cached = str((H._json(pr.get("detail_json"), {}) or {}).get("head_sha") or "").lower()
+        if (pr.get("updated") or "") > (detail.get("at") or "") and cached != str(detail.get("head_sha") or "").lower():
+            _refuse(c, actor, row, f"{pr['url']} changed while GitHub was read (now {cached[:12] or 'unknown'}); "
+                                   "retry the waiver.")
         reads.append((pr, detail))
         if str(detail.get("head_sha") or "").lower() == head:
             matched = pr
